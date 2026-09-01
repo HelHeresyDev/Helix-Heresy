@@ -18,19 +18,20 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Surface Exposure, Waste, Evidence, and Concealment
-2. Strategic Access, Travel, and Arrival Scheduling
-3. Strategic Survey Operations and Resource Discovery
-4. Penal Flights and Beast-Territory Exile
-5. Penal Legions and Wilderness Service
-6. World Integration: Economy and Logistics
-7. World Integration: Investigations and Institutional Pressure
-8. Lazy Local Detail and World Discovery
-9. Roguelike Run Lifecycle, Death, Postmortem, and Restart
-10. Campaign Roadmap: From Hidden Laboratory to World Domination
-11. New-Run Onboarding and Contextual Tutorial
-12. Sound, Notifications, and Accessibility Audit
-13. Production Art Pass Using the Sprite Pipeline
+1. Environmental Evidence, Monitoring, and Institutional Response
+2. Property Concealment, Public Presentation, and Cover Plausibility
+3. Strategic Access, Travel, and Arrival Scheduling
+4. Strategic Survey Operations and Resource Discovery
+5. Penal Flights and Beast-Territory Exile
+6. Penal Legions and Wilderness Service
+7. World Integration: Economy and Logistics
+8. World Integration: Investigations and Institutional Pressure
+9. Lazy Local Detail and World Discovery
+10. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+11. Campaign Roadmap: From Hidden Laboratory to World Domination
+12. New-Run Onboarding and Contextual Tutorial
+13. Sound, Notifications, and Accessibility Audit
+14. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -92,25 +93,31 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Surface Exposure, Waste, Evidence, and Concealment
+## 1. Environmental Evidence, Monitoring, and Institutional Response
 
-Design and implement how the selected site's saved climate, hydrology, drainage, terrain, and public setting affect outdoor spills and residues, groundwater and surface-water contamination, airborne and odor dispersal, outdoor evidence persistence, waste handling, property concealment, and legal-cover plausibility. Integrate these consequences with physical item stacks, tile environments, investigative evidence, company records, visits, detection, and investigations. Do not expose hidden aquifer quality, buried evidence, covert observation, or exact undiscovered hazards merely because the simulation uses them.
+Design and implement how saved surface-exposure fate records become evidence through causal observation. Add bounded visible traces, odor and runoff observations, sampling methods, monitoring sources, visitor and inspector opportunities, reporting, investigation use, and institutional response. Reuse the existing evidence, visit, detection, investigation, warrant, and company-record systems. A release or hidden simulated medium is not automatically public evidence: exact subsurface amounts, off-site destinations, buried material, covert monitoring, and aquifer quality remain unknown until a compatible actor or instrument actually observes them.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 2. Strategic Access, Travel, and Arrival Scheduling
+## 2. Property Concealment, Public Presentation, and Cover Plausibility
+
+Design and implement physical parcel presentation and concealment for the above-ground facility. Include barriers, screens, signage, landscaping, outdoor storage and work areas, lawful public and freight approaches, sightlines from routes and neighboring activity, weathering, and visible waste conditions. Connect these authored physical choices to the company front's public presentation and cover plausibility without treating concealment as invisibility or fabricating lawful activity. Keep ordinary map knowledge distinct from debug omniscience, and let adverse weather or poor waste handling causally undermine presentation.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 3. Strategic Access, Travel, and Arrival Scheduling
 
 Design and implement saved physical journeys between the selected laboratory site and known settlements, supported corridors, local approaches, and other discovered destinations. Use bounded route legs, existing strategic graph adjacency, practical distance, route continuity, available vehicles or mounts, and a final local leg rather than continuous global actor simulation. Route conditions determine travel duration, reliability, cost, exposure, freight limits, and visitor arrival windows. Internet contact never substitutes for physical movement, corridor access grants no automatic jurisdiction, and interruptions must retain causal journey state rather than teleporting actors or cargo.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Strategic Survey Operations and Resource Discovery
+## 4. Strategic Survey Operations and Resource Discovery
 
 Design and implement run-owned strategic resource knowledge after site selection and local travel exist. Begin each run with the world's public prospectivity but none of another run's private findings. Add physical survey and prospecting methods, equipment, travel, samples, confidence changes, bounded uncertainty, false negatives, and saved evidence provenance. Survey results may refine strategic estimates and feed authoritative resource context into lazy local maps, but exact veins, pockets, quality, and quantity remain hidden until an appropriate local method exposes them. The overlay must merge public and run-specific knowledge without reading canonical hidden endowment directly.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Penal Flights and Beast-Territory Exile
+## 5. Penal Flights and Beast-Territory Exile
 
 Design and implement Penal Flight as the non-public-enemy capital punishment after generated beast territories, strategic intercity corridors, routes, and exact local travel exist. Penal Flight is wilderness banishment and presumed death, not a physical execution or automatic game over. The sentence completes only when the living scientist is released in the wild.
 
@@ -122,55 +129,55 @@ Survivors remain playable and legally banished. Returning to protected human ter
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. Penal Legions and Wilderness Service
+## 6. Penal Legions and Wilderness Service
 
 Design and implement penal-legion service as a distinct playable post-conviction path. Consume sentence, jurisdiction, military institution, world geography, settlement threats, routes, creature ecology, transport, equipment, squad, and laboratory-continuity state. The first mission should be a bounded physical operation rather than an abstract combat roll.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. World Integration: Economy and Logistics
+## 7. World Integration: Economy and Logistics
 
 Design and implement effects from generated geography, settlements, routes, resources, powers, laws, and history on lawful trade, black-market access, delivery, and off-site logistics. Preserve existing commodity exchange, contract, Loading Bay, and Concealed Exit flows while giving them specific world context.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. World Integration: Investigations and Institutional Pressure
+## 8. World Integration: Investigations and Institutional Pressure
 
 Design and implement world-context effects on company plausibility, inspections, investigations, religious scrutiny, escalation, and authority response. Context may alter priorities, schedules, thresholds, and available actions, but must not invent player guilt.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Lazy Local Detail and World Discovery
+## 9. Lazy Local Detail and World Discovery
 
 Design and implement deterministic elaboration of the already generated strategic world when a run encounters it. Lazy generation may fill minor places, institution branches, contacts, local histories, individuals, encounters, and exact maps while respecting canonical world facts and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+## 10. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 
 Design and implement the loop for beginning, losing, reviewing, and replacing a run without altering its reusable world. Only the scientist’s death ends a run; arrest, jail, prison, penal service, death sentence, loss of laboratory, and similar catastrophes remain playable while the scientist lives.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 10. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 11. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. The final campaign goal is rare world domination, but early hidden-laboratory survival must remain a complete roguelike experience.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 11. New-Run Onboarding and Contextual Tutorial
+## 12. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 12. Sound, Notifications, and Accessibility Audit
+## 13. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 13. Production Art Pass Using the Sprite Pipeline
+## 14. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 

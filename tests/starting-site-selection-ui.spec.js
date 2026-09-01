@@ -42,6 +42,8 @@ test('New Run filters explicit candidate cards and saves the chosen strategic si
   await expect(page.locator('[data-site-context-row="location"]')).toBeVisible();
   await expect(page.locator('[data-site-context-row="water"]')).toContainText('viable at run start');
   await expect(page.locator('[data-site-context-row="knowledge"]')).toContainText('Exact deposits');
+  await expect(page.locator('[data-site-conditions-row="weather"]')).toBeVisible();
+  await expect(page.locator('[data-site-conditions-row="drainage"]')).toContainText('aquifer quality');
 
   const actualContext = await page.evaluate(() => window.helixHeresyDebug.localSiteContextSnapshot());
   expect(actualContext.runSite).toMatchObject({
@@ -68,4 +70,9 @@ test('New Run filters explicit candidate cards and saves the chosen strategic si
   expect(actualContext.cistern.utility.waterQuality).toBe(actualContext.context.water.startingQuality);
   expect(actualContext.serviceCapacities.electricity).toBeCloseTo(24 * actualContext.context.utilities.multipliers.electricity, 5);
   expect(actualContext.sampleGeology.stratum.id).toBeTruthy();
+
+  const surfaceResult = await page.evaluate(() => window.helixHeresyDebug.surfaceExposureSnapshot());
+  expect(surfaceResult.known.weather.digest).toBeTruthy();
+  expect(surfaceResult.known.aquiferStatement).toContain('unknown');
+  expect(surfaceResult.conservation).toEqual([]);
 });
