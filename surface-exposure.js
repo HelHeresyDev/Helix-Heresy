@@ -145,6 +145,18 @@
   function normalizeHistory(candidate) {
     return (Array.isArray(candidate) ? candidate : []).slice(-32).map((entry) => ({ at: Math.max(0, Number(entry?.at) || 0), action: cleanId(entry?.action) || "changed", details: String(entry?.details || "") }));
   }
+  function normalizeSampleObservations(candidate) {
+    const observations = {};
+    for (const [mediumId, entry] of Object.entries(candidate && typeof candidate === "object" ? candidate : {})) {
+      if (!["surface", "subsurface", "drainage", "airborne"].includes(mediumId) || !entry) continue;
+      observations[mediumId] = {
+        methodId: cleanId(entry.methodId), sampledAt: Math.max(0, Number(entry.sampledAt) || 0), analyzedAt: Math.max(0, Number(entry.analyzedAt) || 0),
+        detected: Boolean(entry.detected), band: ["none", "noneDetected", "presenceOnly", "trace", "small", "moderate", "large", "extensive"].includes(entry.band) ? entry.band : "presenceOnly",
+        confidence: cleanId(entry.confidence)
+      };
+    }
+    return observations;
+  }
   function normalizeRecord(candidate, index = 0) {
     if (!candidate || typeof candidate !== "object") return null;
     const cell = cleanCell(candidate.cell);
@@ -173,7 +185,8 @@
         odorKnown: Boolean(candidate.knowledge?.odorKnown),
         runoffKnown: Boolean(candidate.knowledge?.runoffKnown),
         subsurfaceKnown: Boolean(candidate.knowledge?.subsurfaceKnown),
-        learnedAt: candidate.knowledge?.learnedAt == null ? null : Math.max(0, Number(candidate.knowledge.learnedAt) || 0)
+        learnedAt: candidate.knowledge?.learnedAt == null ? null : Math.max(0, Number(candidate.knowledge.learnedAt) || 0),
+        sampleObservations: normalizeSampleObservations(candidate.knowledge?.sampleObservations)
       },
       createdAt: Math.max(0, Number(candidate.createdAt) || 0),
       updatedAt: Math.max(0, Number(candidate.updatedAt ?? candidate.createdAt) || 0),
@@ -458,14 +471,33 @@
     return { state, record: clone(record), removedAmount, plan };
   }
 
+  function recordSampleObservation(candidate, context, recordId, observation = {}, seed = "", clock = 0) {
+    const state = normalizeState(candidate, context, seed || candidate?.weatherSeed, clock);
+    const record = state.records.find((entry) => entry.id === cleanId(recordId));
+    const mediumId = ["surface", "subsurface", "drainage", "airborne"].includes(observation.mediumId) ? observation.mediumId : "";
+    if (!record || !mediumId) return state;
+    record.knowledge.sampleObservations[mediumId] = normalizeSampleObservations({ [mediumId]: observation })[mediumId];
+    record.knowledge.learnedAt = Math.max(Number(record.knowledge.learnedAt) || 0, Number(observation.analyzedAt) || Number(clock) || 0);
+    record.history.push({
+      at: Math.max(0, Number(observation.analyzedAt) || Number(clock) || 0), action: "sampled",
+      details: `${cleanId(observation.methodId) || "sample"} recorded a ${observation.detected ? observation.band || "detected" : "negative"} ${mediumId} result for one place and time.`
+    });
+    record.history = record.history.slice(-32);
+    return state;
+  }
+
   function projectRecord(record) {
     if (!record?.knowledge?.surfaceKnown) return null;
     const material = materialProfile(record);
     const terrain = terrainProfile(record.terrainId);
     const visibleAmount = record.media.surface + (record.knowledge.runoffKnown ? record.media.drainage : 0);
+    const drainageSample = record.knowledge.sampleObservations?.drainage;
+    const subsurfaceSample = record.knowledge.sampleObservations?.subsurface;
+    const airSample = record.knowledge.sampleObservations?.airborne;
     const knownActiveAmount = visibleAmount
       + (record.knowledge.odorKnown ? record.media.airborne : 0)
-      + (record.knowledge.subsurfaceKnown ? record.media.subsurface : 0);
+      + (record.knowledge.subsurfaceKnown ? record.media.subsurface : 0)
+      + (drainageSample?.detected || subsurfaceSample?.detected || airSample?.detected ? 0.01 : 0);
     return {
       id: record.id,
       label: record.label,
@@ -473,9 +505,12 @@
       roomId: record.roomId,
       terrain: terrain.label,
       visibleBand: band(visibleAmount),
-      odorBand: record.knowledge.odorKnown ? band(record.odorIndex) : "noneKnown",
-      runoffStatus: record.knowledge.runoffKnown ? `${band(record.media.drainage)} observed drainage trace` : "No observed drainage trace",
-      subsurfaceStatus: record.knowledge.subsurfaceKnown ? `${band(record.media.subsurface)} confirmed subsurface contamination` : material.waterMobility * terrain.infiltration >= 0.18 ? "Infiltration possible; unsampled" : "Subsurface condition unsampled",
+      odorBand: record.knowledge.odorKnown ? band(record.odorIndex) : airSample?.detected ? `${airSample.band} in saved air sample` : "noneKnown",
+      runoffStatus: record.knowledge.runoffKnown ? `${band(record.media.drainage)} observed drainage trace`
+        : drainageSample ? `${drainageSample.detected ? drainageSample.band : "none"} in saved runoff sample; current path not continuously known` : "No observed drainage trace",
+      subsurfaceStatus: record.knowledge.subsurfaceKnown ? `${band(record.media.subsurface)} confirmed subsurface contamination`
+        : subsurfaceSample ? `${subsurfaceSample.detected ? subsurfaceSample.band : "none"} in saved shallow core; broader subsurface remains unknown`
+          : material.waterMobility * terrain.infiltration >= 0.18 ? "Infiltration possible; unsampled" : "Subsurface condition unsampled",
       active: knownActiveAmount > 0.000001,
       remediation: remediationPlan(record),
       remediationAvailable: record.media.surface > 0.000001 || record.knowledge.subsurfaceKnown && record.media.subsurface > 0.000001,
@@ -515,7 +550,7 @@
   return Object.freeze({
     SECONDS_PER_HOUR, SECONDS_PER_DAY, FATE_STEP_SECONDS, WEATHER_KINDS, TERRAIN_PROFILES, PHASE_PROFILES, MEDIA_KEYS,
     createState, normalizeState, validateState, weatherAt, weatherForecast, applyWeatherAmbient,
-    terrainProfile, materialProfile, registerRelease, advance, remediate, remediationPlan,
+    terrainProfile, materialProfile, registerRelease, advance, remediate, remediationPlan, recordSampleObservation,
     knownProjection, activeMediaTotal, recordConservation, band, clone
   });
 });
