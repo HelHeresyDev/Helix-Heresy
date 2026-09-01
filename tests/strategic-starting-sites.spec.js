@@ -3,6 +3,7 @@ const { test, expect } = require('@playwright/test');
 const Library = require('../world-run-library');
 const StrategicWorld = require('../strategic-world');
 const StartingSites = require('../strategic-starting-sites');
+const LocalSiteContext = require('../local-site-context');
 
 let cachedWorld;
 function generatedWorld() {
@@ -50,4 +51,25 @@ test('materialized run sites preserve world and candidate provenance without occ
   expect(first).toEqual(second);
   expect(first).toMatchObject({ selectionStatus: 'selectedAndMaterialized', candidateId: candidate.id, worldId: world.id, canonicalWorldDigest: world.canonicalDigest, blueprintId: scenario.blueprintId, materialization: { preservesCanonicalWorld: true, priorRunOccupancyIgnored: true } });
   expect(world.generatedData.strategicMap.publicStartingSiteDirectory.scenarioRows.find((row) => row.scenarioId === 'chemistryFront').candidates[0]).toEqual(candidate);
+});
+
+test('selected sites derive stable local climate, geology, water, utilities, and seasonal ambient conditions without revealing deposits', () => {
+  const world = generatedWorld();
+  const candidate = StartingSites.scenarioStartingSites(world.generatedData.strategicMap, 'chemistryFront')[0];
+  const scenario = { id: 'chemistryFront', blueprintId: 'chemistry-front-site-v3', blueprintVersion: 3 };
+  const site = StartingSites.materializeStartingSite(world, scenario, candidate);
+  const first = LocalSiteContext.createLocalSiteContext(world, site, 'run-context-seed');
+  const repeated = LocalSiteContext.createLocalSiteContext(world, site, 'run-context-seed');
+  const anotherRun = LocalSiteContext.createLocalSiteContext(world, site, 'another-run-context-seed');
+
+  expect(first).toEqual(repeated);
+  expect(first.canonicalWorldDigest).toBe(world.canonicalDigest);
+  expect(first.strategicCellId).toBe(candidate.strategicCellId);
+  expect(first.water).toMatchObject({ viableAtRunStart: true });
+  expect(first.water.initialCisternUnits).toBeGreaterThan(0);
+  expect(first.geologyInputs.bedrockClass).toEqual(first.publicGeology.bedrockClass);
+  expect(first.knowledge).toMatchObject({ exactDepositLocationsKnown: false, hiddenAquiferQualityKnown: false, concealedHazardsKnown: false });
+  expect(first.localVariation).not.toEqual(anotherRun.localVariation);
+  expect(LocalSiteContext.validateLocalSiteContext(JSON.parse(JSON.stringify(first)))).toEqual(first);
+  expect(LocalSiteContext.surfaceAmbient(first, 0).temperatureC).not.toBe(LocalSiteContext.surfaceAmbient(first, 45 * 86400).temperatureC);
 });
