@@ -42,9 +42,10 @@
   const StrategicStartingSites = window.HelixStrategicStartingSites;
   const LocalSiteContext = window.HelixLocalSiteContext;
   const SurfaceExposure = window.HelixSurfaceExposure;
+  const PropertyPresentation = window.HelixPropertyPresentation;
   const EnvironmentalMonitoring = window.HelixEnvironmentalMonitoring;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicPublicAttitudeHistory || !StrategicPlayableSettlementState || !StrategicReligiousInstitutionHistory || !StrategicNonStateNetworkHistory || !StrategicEnforcementPracticeHistory || !StrategicStartingSites || !LocalSiteContext || !SurfaceExposure || !EnvironmentalMonitoring || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicPublicAttitudeHistory || !StrategicPlayableSettlementState || !StrategicReligiousInstitutionHistory || !StrategicNonStateNetworkHistory || !StrategicEnforcementPracticeHistory || !StrategicStartingSites || !LocalSiteContext || !SurfaceExposure || !PropertyPresentation || !EnvironmentalMonitoring || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -842,6 +843,83 @@
       description: "A ventilated neutralization and waste-handling skid physically tied to the facility drain."
     },
     {
+      id: "companySign",
+      label: "Company Sign",
+      glyph: "§",
+      assemblyClass: "siteBuilt",
+      footprint: { width: 1, height: 1 },
+      collision: "blocking",
+      layer: "floor",
+      ports: [{ id: "maintenance", label: "Sign Maintenance", x: 0, y: 1 }],
+      capabilities: ["propertyPresentation", "companyIdentification"],
+      workMinutes: 10,
+      materialOptions: {
+        wood: { composition: { primary: "wood", reinforcement: "iron" }, costs: { lumber: 2, metalParts: 1 }, score: 70 },
+        steel: { composition: { primary: "steel" }, costs: { steelPanels: 1, metalParts: 2 }, score: 86 }
+      },
+      description: "A physical company sign whose visibility and condition identify the lawful frontage."
+    },
+    {
+      id: "meshBarrier",
+      label: "Mesh Barrier",
+      glyph: "#",
+      assemblyClass: "siteBuilt",
+      footprint: { width: 1, height: 1 },
+      collision: "blocking",
+      layer: "floor",
+      ports: [{ id: "maintenance", label: "Barrier Maintenance", x: 0, y: 1 }],
+      capabilities: ["propertyPresentation", "transparentSecurity"],
+      workMinutes: 8,
+      materialOptions: { steel: { composition: { primary: "steel" }, costs: { steelPanels: 1, metalParts: 1 }, score: 82 } },
+      description: "A movement-blocking mesh barrier that remains transparent to ordinary sightlines."
+    },
+    {
+      id: "privacyScreen",
+      label: "Privacy Screen",
+      glyph: "▥",
+      assemblyClass: "siteBuilt",
+      footprint: { width: 1, height: 1 },
+      collision: "blocking",
+      layer: "floor",
+      ports: [{ id: "maintenance", label: "Screen Maintenance", x: 0, y: 1 }],
+      capabilities: ["propertyPresentation", "opaqueSecurity"],
+      workMinutes: 9,
+      materialOptions: {
+        wood: { composition: { primary: "wood" }, costs: { lumber: 2 }, score: 68 },
+        steel: { composition: { primary: "steel" }, costs: { steelPanels: 1, metalParts: 1 }, score: 84 }
+      },
+      description: "An opaque physical privacy screen that blocks movement and ordinary sightlines."
+    },
+    {
+      id: "landscapeBed",
+      label: "Landscape Bed",
+      glyph: "✿",
+      assemblyClass: "siteBuilt",
+      footprint: { width: 1, height: 1 },
+      collision: "walkover",
+      layer: "floor",
+      ports: [{ id: "maintenance", label: "Landscape Maintenance", x: 0, y: 0 }],
+      capabilities: ["propertyPresentation", "landscaping"],
+      workMinutes: 7,
+      materialOptions: { wood: { composition: { primary: "wood" }, costs: { lumber: 1 }, score: 66 } },
+      description: "A physical planted bed that improves a maintained frontage and weathers outdoors."
+    },
+    {
+      id: "wasteEnclosure",
+      label: "Waste Enclosure",
+      glyph: "WE",
+      assemblyClass: "siteBuilt",
+      footprint: { width: 2, height: 1 },
+      collision: "blocking",
+      layer: "floor",
+      ports: [{ id: "storage", label: "Enclosure Access", x: 0, y: 1 }, { id: "storage", label: "Enclosure Access", x: 1, y: 1 }],
+      capabilities: ["storage", "closableStorage", "propertyPresentation", "opaqueSecurity", "wasteEnclosure"],
+      storage: { volumeL: 900, massKg: 900, defaultAccessState: "closed", security: 1, preference: ["collectedByproducts", "resources"] },
+      workMinutes: 16,
+      materialOptions: { steel: { composition: { primary: "steel" }, costs: { steelPanels: 4, metalParts: 2 }, score: 84 } },
+      description: "A roofed opaque outdoor enclosure that physically contains staged waste and byproducts."
+    },
+    {
       id: "concealedExit",
       label: "Concealed Exit",
       glyph: "EX",
@@ -942,7 +1020,7 @@
   const LAB_MAP_DEFAULT_ZOOM_INDEX = 3;
   const LAB_MAP_LAYER_HEIGHT_M = 4;
   const LAB_MAP_DEFAULT_SURFACE_Z = 1;
-  const SURFACE_PARCEL_RECT = { x: 43, y: 38, z: LAB_MAP_DEFAULT_SURFACE_Z, width: 18, height: 16 };
+  const SURFACE_PARCEL_RECT = { x: 39, y: 34, z: LAB_MAP_DEFAULT_SURFACE_Z, width: 26, height: 24 };
   const SURFACE_BUILDING_RECT = { x: 44, y: 39, z: LAB_MAP_DEFAULT_SURFACE_Z, width: 16, height: 14 };
   const SURFACE_BUILDING_INTERIOR_RECT = { x: 45, y: 40, z: LAB_MAP_DEFAULT_SURFACE_Z, width: 14, height: 12 };
   const SURFACE_PROCESS_RECT = { x: 45, y: 40, z: LAB_MAP_DEFAULT_SURFACE_Z, width: 5, height: 6 };
@@ -958,6 +1036,25 @@
     { x: 59, y: 49, z: LAB_MAP_DEFAULT_SURFACE_Z },
     { x: 59, y: 50, z: LAB_MAP_DEFAULT_SURFACE_Z }
   ];
+  function defaultPropertyPresentationOptions(context = null) {
+    const zones = {
+      publicApproach: Array.from({ length: 5 }, (_entry, index) => ({ x: 47, y: 53 + index, z: LAB_MAP_DEFAULT_SURFACE_Z })),
+      freightApproach: Array.from({ length: 5 }, (_entry, column) => Array.from({ length: 3 }, (_row, row) => ({ x: 60 + column, y: 48 + row, z: LAB_MAP_DEFAULT_SURFACE_Z }))).flat(),
+      outdoorWork: [{ x: 40, y: 42, z: 1 }, { x: 41, y: 42, z: 1 }, { x: 40, y: 43, z: 1 }, { x: 41, y: 43, z: 1 }],
+      outdoorStorage: [{ x: 61, y: 43, z: 1 }, { x: 62, y: 43, z: 1 }, { x: 61, y: 44, z: 1 }, { x: 62, y: 44, z: 1 }],
+      wasteHolding: [{ x: 61, y: 36, z: 1 }, { x: 62, y: 36, z: 1 }, { x: 61, y: 37, z: 1 }, { x: 62, y: 37, z: 1 }],
+      landscaping: [{ x: 44, y: 54, z: 1 }, { x: 45, y: 54, z: 1 }, { x: 49, y: 54, z: 1 }, { x: 50, y: 54, z: 1 }]
+    };
+    return {
+      context,
+      parcelRect: SURFACE_PARCEL_RECT,
+      access: {
+        public: { boundaryCells: [{ x: 47, y: 57, z: 1 }], entranceCells: [SURFACE_BUILDING_DOOR_CELL] },
+        freight: { boundaryCells: [{ x: 64, y: 48, z: 1 }, { x: 64, y: 49, z: 1 }, { x: 64, y: 50, z: 1 }], entranceCells: SURFACE_LOADING_DOOR_CELLS }
+      },
+      zones
+    };
+  }
   const SURFACE_OUTSIDE_TEMPERATURE_C = 12;
   const SURFACE_OUTSIDE_HUMIDITY = 45;
   const SURFACE_OUTSIDE_MANA_DENSITY = 24;
@@ -5120,6 +5217,7 @@
       startingSite: null,
       localSiteContext: null,
       surfaceExposure: null,
+      propertyPresentation: PropertyPresentation.defaultState(defaultPropertyPresentationOptions()),
       environmentalMonitoring: EnvironmentalMonitoring.defaultState(),
       themeContent: { version: ThemeContent.VERSION, opening: null },
       journalMode: "auto",
@@ -5442,6 +5540,7 @@
     next.startingLiabilities = startingLiabilityRecords(scenario);
     next.siteAccessPoints = normalizeSiteAccessPoints(next.siteAccessPoints, next);
     next.company = defaultCompanyState(options.seed || next.seed, next.siteIdentity);
+    next.propertyPresentation = PropertyPresentation.defaultState(defaultPropertyPresentationOptions(next.localSiteContext));
     seedStartingInvestigativeEvidence(next);
     return next;
   }
@@ -5450,6 +5549,7 @@
     if (!next || !context) return next;
     next.localSiteContext = LocalSiteContext.validateLocalSiteContext(context);
     next.surfaceExposure = SurfaceExposure.createState(next.localSiteContext, next.seed, next.clock);
+    next.propertyPresentation = PropertyPresentation.defaultState(defaultPropertyPresentationOptions(next.localSiteContext));
     next.environmentalMonitoring = EnvironmentalMonitoring.defaultState(next.localSiteContext);
     const surface = LocalSiteContext.surfaceAmbient(context, 0);
     const underground = LocalSiteContext.undergroundAmbient(context);
@@ -5683,7 +5783,14 @@
       defaultFixtureInstance("starter-surface-analysis", "analysisStation", { x: 53, y: 47, z: 1 }, 0, { materialPolicy: "steel", condition: 55, utility: { enabled: false, powerMode: "electric", wear: 65, maintenanceIntervalHours: 72 }, process: { calibrated: 28, cleanliness: 68 } }),
       defaultFixtureInstance("starter-surface-records-cabinet", "lockingCabinet", { x: 51, y: 50, z: 1 }, 0, { name: "Company Records Cabinet", materialPolicy: "steel", accessState: "locked" }),
       defaultFixtureInstance("starter-surface-packaging", "packagingStation", { x: 56, y: 50, z: 1 }, 0, { materialPolicy: "steel", condition: 67, utility: { enabled: false, powerMode: "electric", wear: 44, maintenanceIntervalHours: 72 }, process: { calibrated: 54, cleanliness: 61 } }),
-      defaultFixtureInstance("starter-surface-waste-treatment", "wasteTreatmentStation", { x: 56, y: 40, z: 1 }, 0, { materialPolicy: "steel", condition: 49, utility: { enabled: false, wear: 76, maintenanceIntervalHours: 72 }, process: { calibrated: 36, cleanliness: 39 } })
+      defaultFixtureInstance("starter-surface-waste-treatment", "wasteTreatmentStation", { x: 56, y: 40, z: 1 }, 0, { materialPolicy: "steel", condition: 49, utility: { enabled: false, wear: 76, maintenanceIntervalHours: 72 }, process: { calibrated: 36, cleanliness: 39 } }),
+      defaultFixtureInstance("starter-company-sign", "companySign", { x: 46, y: 55, z: 1 }, 0, { materialPolicy: "wood", condition: 56 }),
+      defaultFixtureInstance("starter-landscape-bed-west", "landscapeBed", { x: 44, y: 54, z: 1 }, 0, { materialPolicy: "wood", condition: 62 }),
+      defaultFixtureInstance("starter-landscape-bed-east", "landscapeBed", { x: 50, y: 54, z: 1 }, 0, { materialPolicy: "wood", condition: 58 }),
+      defaultFixtureInstance("starter-mesh-barrier", "meshBarrier", { x: 40, y: 35, z: 1 }, 0, { materialPolicy: "steel", condition: 66 }),
+      defaultFixtureInstance("starter-privacy-screen-north", "privacyScreen", { x: 63, y: 39, z: 1 }, 0, { materialPolicy: "wood", condition: 57 }),
+      defaultFixtureInstance("starter-privacy-screen-south", "privacyScreen", { x: 63, y: 41, z: 1 }, 0, { materialPolicy: "wood", condition: 60 }),
+      defaultFixtureInstance("starter-waste-enclosure", "wasteEnclosure", { x: 61, y: 36, z: 1 }, 0, { materialPolicy: "steel", condition: 54, accessState: "closed" })
     ];
     const trunkCells = [
       { x: 51, y: 42, z: 1 }, { x: 50, y: 42, z: 1 }, { x: 49, y: 42, z: 1 }, { x: 48, y: 42, z: 1 }, { x: 47, y: 42, z: 1 }, { x: 46, y: 42, z: 1 }, { x: 45, y: 42, z: 1 },
@@ -7360,6 +7467,107 @@
     return ExternalDetection.INSTITUTIONS.find((entry) => entry.id === institutionId)?.label || "an outside institution";
   }
 
+  function ensurePropertyPresentation(target = state) {
+    target.propertyPresentation = PropertyPresentation.normalizeState(
+      target.propertyPresentation,
+      defaultPropertyPresentationOptions(target.localSiteContext)
+    );
+    return target.propertyPresentation;
+  }
+
+  function propertyPresentationFixtures() {
+    return (state.fixtures || []).filter((fixture) => {
+      if (!PropertyPresentation.PROPERTY_FIXTURE_DEFS[fixture.typeId]) return false;
+      const envelope = surfaceEnvelopeAtCell(fixture.origin);
+      return ["outdoor", "coveredExterior"].includes(envelope.kind);
+    });
+  }
+
+  function propertyParcelCells() {
+    return PropertyPresentation.rectCells(SURFACE_PARCEL_RECT).filter((cell) =>
+      surfaceGroundAtCell(cell) && ["outdoor", "coveredExterior"].includes(surfaceEnvelopeAtCell(cell).kind)
+    );
+  }
+
+  function propertyOpaqueCellKeys() {
+    const opaque = new Set();
+    for (const cell of propertyParcelCells()) {
+      if (constructedWallAtCell(cell)) opaque.add(mapCellKey(cell));
+    }
+    for (const fixture of propertyPresentationFixtures()) {
+      if (!PropertyPresentation.PROPERTY_FIXTURE_DEFS[fixture.typeId]?.opaque) continue;
+      for (const cell of fixtureOccupiedVolumeCells(fixture)) opaque.add(mapCellKey(cell));
+    }
+    return opaque;
+  }
+
+  function propertyOpaqueFixtureAtCell(cell) {
+    const key = mapCellKey(cell);
+    return propertyPresentationFixtures().some((fixture) =>
+      PropertyPresentation.PROPERTY_FIXTURE_DEFS[fixture.typeId]?.opaque
+      && fixtureOccupiedVolumeCells(fixture).some((occupied) => mapCellKey(occupied) === key)
+    );
+  }
+
+  function propertySightlines() {
+    return PropertyPresentation.sightlines(
+      ensurePropertyPresentation(),
+      propertyParcelCells(),
+      propertyOpaqueCellKeys(),
+      defaultPropertyPresentationOptions(state.localSiteContext)
+    );
+  }
+
+  function propertyObserversForCell(cell, sightlines = propertySightlines()) {
+    const key = mapCellKey(cell);
+    return sightlines.observers.filter((observer) => observer.visibleCellKeys.includes(key));
+  }
+
+  function propertyApproachStatus(kind) {
+    return PropertyPresentation.routeStatus(
+      ensurePropertyPresentation(),
+      kind,
+      labMapBlockingCellKeys(),
+      defaultPropertyPresentationOptions(state.localSiteContext)
+    );
+  }
+
+  function propertyPresentationAssessment() {
+    const sightlines = propertySightlines();
+    const blockedCellKeys = labMapBlockingCellKeys();
+    const outdoorStacks = ensurePhysicalItemStacks().filter((stack) => {
+      const cell = cleanMapCell(stack.cell);
+      return cell && cell.z === LAB_MAP_DEFAULT_SURFACE_Z && ["outdoor", "coveredExterior"].includes(surfaceEnvelopeAtCell(cell).kind) && stack.quantity > 0;
+    }).map((stack) => ({ cell: stack.cell, tags: stack.tags || [], quantity: stack.quantity }));
+    const result = PropertyPresentation.presentationAssessment(ensurePropertyPresentation(), {
+      fixtures: propertyPresentationFixtures(), sightlines, blockedCellKeys, outdoorStacks,
+      publicRoute: PropertyPresentation.routeStatus(ensurePropertyPresentation(), "public", blockedCellKeys, defaultPropertyPresentationOptions(state.localSiteContext)),
+      freightRoute: PropertyPresentation.routeStatus(ensurePropertyPresentation(), "freight", blockedCellKeys, defaultPropertyPresentationOptions(state.localSiteContext)),
+      context: state.localSiteContext, clock: state.clock
+    }, defaultPropertyPresentationOptions(state.localSiteContext));
+    state.propertyPresentation = result.state;
+    return result;
+  }
+
+  function updatePropertyPresentationWeather() {
+    if (!state.surfaceExposure) return 0;
+    const result = PropertyPresentation.advanceWeather(
+      ensurePropertyPresentation(), propertyPresentationFixtures(),
+      (day) => SurfaceExposure.weatherAt(state.surfaceExposure, day * SECONDS_PER_DAY),
+      state.clock, defaultPropertyPresentationOptions(state.localSiteContext)
+    );
+    state.propertyPresentation = result.state;
+    let changes = 0;
+    for (const [fixtureId, loss] of Object.entries(result.damageByFixtureId)) {
+      const fixture = fixtureById(fixtureId);
+      if (!fixture || loss <= 0) continue;
+      fixture.condition = clamp((Number(fixture.condition) || 0) - loss, 0, 100);
+      fixture.operationalState = fixture.condition <= 0 ? "broken" : fixture.condition < 35 ? "impaired" : "operational";
+      changes += 1;
+    }
+    return changes;
+  }
+
   function externalDetectionPublicTrafficEnabled() {
     return ["limited", "open"].includes(ensureCompany().operatingState);
   }
@@ -7372,6 +7580,7 @@
     let changes = 0;
     const evidence = ensureInvestigativeEvidence().records;
     const day = Math.floor(state.clock / SECONDS_PER_DAY);
+    const parcelSightlines = propertySightlines();
     for (const record of evidence) {
       if (["exhausted", "lost"].includes(record.lifecycle) || investigativeEvidenceIntegrity(record) <= 0) continue;
       if (record.type === "overdueCompanyFiling") {
@@ -7390,12 +7599,16 @@
       if (record.type === "dumpedBiologicalRemains") {
         const opportunityKey = `dump-search:${record.id}:day-${day}`;
         if (externalDetectionOpportunityExists(opportunityKey)) continue;
+        const evidenceCell = cleanMapCell(record.locus.cell);
+        const observers = evidenceCell && ["outdoor", "coveredExterior"].includes(surfaceEnvelopeAtCell(evidenceCell).kind)
+          ? propertyObserversForCell(evidenceCell, parcelSightlines) : [];
+        if (!observers.length) continue;
         const before = ensureExternalDetection().exposures.length;
         registerExternalDetectionOpportunity(record, {
           opportunityKey, sourceId: "nearby-observer", channel: "exterior",
-          detectionChance: 0.18 + externalEvidenceSignificanceRank(record) * 0.07,
+          detectionChance: (0.18 + externalEvidenceSignificanceRank(record) * 0.07) * Math.max(...observers.map((observer) => observer.activity)),
           reportChance: 0.82, reportDelaySeconds: SECONDS_PER_HOUR * 6,
-          reliability: "credible", specificity: "siteLinked", knowledge: "inferred",
+          reliability: "credible", specificity: "siteLinked", knowledge: "hidden",
           summary: "discarded biological material near the facility"
         });
         changes += ensureExternalDetection().exposures.length > before ? 1 : 0;
@@ -7412,6 +7625,24 @@
           reportChance: 0.55, reportDelaySeconds: SECONDS_PER_HOUR * 8,
           reliability: "weak", specificity: "siteLinked", knowledge: "inferred",
           summary: `an unusual condition in a public area of ${ensureCompany().legalName}`
+        });
+        changes += ensureExternalDetection().exposures.length > before ? 1 : 0;
+        continue;
+      }
+      const evidenceCell = cleanMapCell(record.locus.cell);
+      const exteriorObservers = evidenceCell && ["outdoor", "coveredExterior"].includes(surfaceEnvelopeAtCell(evidenceCell).kind)
+        ? propertyObserversForCell(evidenceCell, parcelSightlines) : [];
+      if (exteriorObservers.length && externalDetectionPublicTrafficEnabled()) {
+        const opportunityKey = `parcel-sightline:${record.id}:day-${day}`;
+        if (externalDetectionOpportunityExists(opportunityKey)) continue;
+        const before = ensureExternalDetection().exposures.length;
+        registerExternalDetectionOpportunity(record, {
+          opportunityKey, sourceId: exteriorObservers[0].id, channel: "exterior",
+          detectionChance: (record.discoverability.level === "obvious" ? 0.4 : record.discoverability.level === "ordinary" ? 0.18 : 0.04)
+            * Math.max(...exteriorObservers.map((observer) => observer.activity)),
+          reportChance: 0.55, reportDelaySeconds: SECONDS_PER_HOUR * 8,
+          reliability: "weak", specificity: "siteLinked", knowledge: "hidden",
+          summary: `an unusual visible condition on the grounds of ${ensureCompany().legalName}`
         });
         changes += ensureExternalDetection().exposures.length > before ? 1 : 0;
       }
@@ -7748,6 +7979,33 @@
         progress: threshold === 0 ? 1 : elapsed, clock: state.clock,
         kind: evidence.category === "documentary" ? "recordsFinding" : "physicalEvidence",
         label: evidence.label, summary: `${visit.visitorLabel} confirmed ${evidence.label.toLowerCase()} during ${item.label}.`,
+        reliability: visit.inspector ? "strong" : "credible", disclosed: true
+      });
+      state.siteVisits = result.state;
+      if (result.confirmed) {
+        siteVisitReportFinding(siteVisitById(visit.id), result.finding, evidence);
+        changes += 1;
+      }
+    }
+    return changes;
+  }
+
+  function updateSiteVisitRouteObservations(visit, item, elapsed = 1) {
+    const actorCell = cleanMapCell(visit.actor.mapCell);
+    if (!actorCell || actorCell.z !== LAB_MAP_DEFAULT_SURFACE_Z) return 0;
+    let changes = 0;
+    for (const evidence of ensureInvestigativeEvidence().records) {
+      if (["exhausted", "lost", "externalized"].includes(evidence.lifecycle) || investigativeEvidenceIntegrity(evidence) <= 0) continue;
+      const evidenceCell = cleanMapCell(evidence.locus.cell);
+      if (!evidenceCell || !["outdoor", "coveredExterior"].includes(surfaceEnvelopeAtCell(evidenceCell).kind) || mapCellDistance(actorCell, evidenceCell) > 6) continue;
+      if (mapCellDistance(actorCell, evidenceCell) > 1 && !sensoryLineOfSight(actorCell, evidenceCell)) continue;
+      const threshold = siteVisitEvidenceThreshold(evidence, "visualObservation", true);
+      if (threshold == null) continue;
+      const result = SiteVisits.recordObservation(ensureSiteVisits(), visit.id, {
+        evidenceId: evidence.id, agendaId: item.id, method: "visualObservation", threshold,
+        progress: threshold === 0 ? 1 : elapsed, clock: state.clock,
+        kind: "physicalEvidence", label: evidence.label,
+        summary: `${visit.visitorLabel} confirmed ${evidence.label.toLowerCase()} while following the physical approach.`,
         reliability: visit.inspector ? "strong" : "credible", disclosed: true
       });
       state.siteVisits = result.state;
@@ -8225,21 +8483,23 @@
       if (!due) return 0;
       const point = siteVisitAccessPoint(due);
       if (!point) return 0;
+      const approachKind = point.id === "loadingBay" ? "freight" : "public";
+      const arrivalCell = cleanMapCell(ensurePropertyPresentation().access[approachKind]?.boundaryCells?.[0]) || cleanMapCell(point.cell);
       due.phase = "arriving";
       due.startedAt = state.clock;
       due.actor.present = true;
-      due.actor.mapCell = cleanMapCell(point.cell);
+      due.actor.mapCell = arrivalCell;
       due.actor.roomId = point.roomId;
       due.actor.kind = "visitor";
       due.actor.inventory = normalizeActorInventory(due.actor.inventory, due.actor);
       for (const support of due.supportActors || []) {
         support.present = true;
-        support.mapCell = cleanMapCell(point.cell);
+        support.mapCell = arrivalCell;
         support.roomId = point.roomId;
         support.kind = "visitor";
         support.inventory = normalizeActorInventory(support.inventory, support);
       }
-      due.routeHistory.push({ at: state.clock, cell: cleanMapCell(point.cell), roomId: point.roomId, agendaId: "arrival" });
+      due.routeHistory.push({ at: state.clock, cell: arrivalCell, roomId: point.roomId, agendaId: "arrival" });
       const warrantExecution = warrantExecutionForVisit(due);
       if (warrantExecution && due.sourceKind === "warrantForcedEntry") {
         const breachActor = due.supportActors?.find((actor) => actor.role === "breach") || due.supportActors?.[0];
@@ -8252,7 +8512,7 @@
         const activated = WarrantExecutions.activate(ensureWarrantExecutions(), warrantExecution.id, due.actor.id, state.clock);
         state.warrantExecutions = activated.state;
       }
-      addEvent(`${due.visitorLabel} arrived through ${point.label} for a disclosed visit: ${due.mandate}`);
+      addEvent(`${due.visitorLabel} arrived at the ${point.label} approach for a disclosed visit: ${due.mandate}`);
       active = due;
       changes += 1;
     }
@@ -8281,7 +8541,7 @@
     if (!item.route.length || mapCellKey(item.route.at(-1)) !== mapCellKey(targetCell)) {
       item.route = forcedEntry
         ? forcedEntryPathBetweenCells(active.actor.mapCell, targetCell)
-        : labMapPathBetweenCells(active.actor.mapCell, targetCell, { map: ensureLabMap(), ignoreDoors: true, ignoreDoorSecurity: true, ignoreAccessPolicy: true, ignoreObjects: true });
+        : labMapPathBetweenCells(active.actor.mapCell, targetCell, { map: ensureLabMap(), ignoreDoors: true, ignoreDoorSecurity: true, ignoreAccessPolicy: true });
       item.routeIndex = 0;
       if (!item.route.length) {
         item.blockReason = "No reachable physical route";
@@ -8344,6 +8604,7 @@
       active.actor.movementAccumulator -= 1;
       active.routeHistory.push({ at: state.clock, cell: cleanMapCell(nextCell), roomId: active.actor.roomId, agendaId: item.id });
       changes += 1;
+      changes += updateSiteVisitRouteObservations(active, item, 1);
       if (forcedEntry) changes += maybeAuthorizeForcedEntryExpansion(active);
     }
     if (siteVisitActors(active).some((actor) => actor.inventory?.stackIds?.length)) syncActorInventories();
@@ -10559,10 +10820,16 @@
     const receptionEnvironment = roomEnvironmentAttributes(SURFACE_RECEPTION_ROOM_ID);
     const receptionLight = Number(receptionEnvironment?.light?.current) || 0;
     const receptionContamination = Number(receptionEnvironment?.contamination?.current) || 0;
-    const publicScore = reception && publicEntrance ? clamp(78 + Math.min(14, receptionLight / 5) - receptionContamination * 1.5, 0, 100) : 0;
-    const publicReasons = reception && publicEntrance
-      ? [`Reception is physically connected to the lawful Public Entrance.`, `Reception light ${formatNumber(receptionLight)} and contamination ${formatNumber(receptionContamination)}.`]
-      : ["The company lacks a complete lawful public reception route."];
+    const receptionScore = reception && publicEntrance ? clamp(78 + Math.min(14, receptionLight / 5) - receptionContamination * 1.5, 0, 100) : 0;
+    const property = propertyPresentationAssessment();
+    const publicScore = clamp(property.score * 0.75 + receptionScore * 0.25, 0, 100);
+    const publicReasons = [
+      `Parcel presentation is ${property.band.label.toLowerCase()}.`,
+      ...property.reasons,
+      reception && publicEntrance
+        ? `Reception is physically connected to the lawful entrance; light ${formatNumber(receptionLight)} and contamination ${formatNumber(receptionContamination)}.`
+        : "The company lacks a complete lawful public reception route."
+    ];
 
     const publicPoint = (state.siteAccessPoints || []).find((point) => point.id === "publicEntrance" && point.lawful);
     const freightPoint = (state.siteAccessPoints || []).find((point) => point.id === "loadingBay" && point.lawful);
@@ -12896,6 +13163,21 @@
       mapViewSnapshot: () => buildLabMapView(),
       economySnapshot: () => clonePlainObject(ensureEconomy()),
       companySnapshot: () => clonePlainObject({ company: ensureCompany(), assessment: companyCredibilityAssessment(), identity: state.siteIdentity }),
+      propertyPresentationSnapshot: () => clonePlainObject({
+        state: ensurePropertyPresentation(),
+        assessment: propertyPresentationAssessment(),
+        sightlines: propertySightlines(),
+        fixtures: propertyPresentationFixtures(),
+        publicRoute: propertyApproachStatus("public"),
+        freightRoute: propertyApproachStatus("freight")
+      }),
+      setPropertyZone: (zoneId, cell) => {
+        state.propertyPresentation = PropertyPresentation.setZone(
+          ensurePropertyPresentation(), zoneId, cell, defaultPropertyPresentationOptions(state.localSiteContext)
+        );
+        persist(); render();
+        return clonePlainObject(ensurePropertyPresentation());
+      },
       localSiteContextSnapshot: () => {
         const serviceHead = (state.fixtures || []).find((fixture) => fixture.typeId === "utilityServiceHead") || null;
         return clonePlainObject({
@@ -19531,6 +19813,7 @@
       infrastructureChanged: 0,
       envChanges: 0,
       surfaceExposureChanged: 0,
+      propertyPresentationChanged: 0,
       structuralChanged: 0,
       sensoryChanged: 0,
       habitatChanged: 0,
@@ -19669,6 +19952,7 @@
       return;
     }
     if (id === "administration") {
+      changes.propertyPresentationChanged += updatePropertyPresentationWeather();
       changes.siteVisitChanged += updateSiteVisits(elapsed);
       changes.raidChanged += updateLawEnforcementRaids(elapsed);
       changes.raidChanged += updateJailCustody(elapsed);
@@ -19728,6 +20012,7 @@
       + changes.infrastructureChanged
       + changes.envChanges
       + changes.surfaceExposureChanged
+      + changes.propertyPresentationChanged
       + changes.environmentalMonitoringChanged
       + changes.structuralChanged
       + changes.sensoryChanged
@@ -39692,7 +39977,7 @@
       if (tileEnvironmentVerticalModifiers(lower, upper, map).air < 0.5) return false;
     }
     for (const cell of cells.slice(1, -1)) {
-      if (!labMapCellHasFloor(cell, map) || constructedWallAtCell(cell, map)) return false;
+      if (!labMapCellHasFloor(cell, map) || constructedWallAtCell(cell, map) || propertyOpaqueFixtureAtCell(cell)) return false;
       const mapDoor = labMapDoorAtCell(cell, map);
       if (mapDoor && !doorIsOpen(mapDoor.roomIds?.[0], mapDoor.roomIds?.[1]) && !doorIsBreached(doorForConnection(mapDoor.roomIds?.[0], mapDoor.roomIds?.[1]))) return false;
     }
@@ -60799,6 +61084,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       assignments.set(key, entry);
     };
+    const property = ensurePropertyPresentation();
+    for (const [zoneId, cells] of Object.entries(property.zones)) {
+      const definition = PropertyPresentation.ZONE_DEFS[zoneId];
+      if (!definition) continue;
+      for (const cell of cells) {
+        addCell(cell, definition.glyph, `${definition.label}; player-designated outdoor use`, ["property-zone-object-cell", `property-zone-${zoneId}`]);
+      }
+    }
     for (const fixture of state.fixtures || []) {
       const def = fixtureDef(fixture);
       const footprint = fixtureOccupiedVolumeCells(fixture);
@@ -63893,6 +64186,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           ...fieldDiagnosticContextCommands("tile", "", cell, { sampleMethods: ["airVial"] }),
           ...surfaceSamplingContextCommands(cell),
           ...surfaceRemediationContextCommands(cell),
+          ...propertyZoneContextCommands(cell),
           ...tileLaborContextCommands(cell),
           ...roomDesignationContextCommands(cell),
           ...constructionContextCommands(cell)
@@ -63900,6 +64194,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       return [
         ...surfaceRemediationContextCommands(cell),
+        ...propertyZoneContextCommands(cell),
         ...constructionContextCommands(cell),
         commandDef({
           id: `tile.showConstruction.${cell.x}.${cell.y}`,
@@ -63933,6 +64228,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ...fieldDiagnosticContextCommands("tile", "", selection.tile, { sampleMethods: ["airVial"] }),
       ...surfaceSamplingContextCommands(selection.tile),
       ...surfaceRemediationContextCommands(selection.tile),
+      ...propertyZoneContextCommands(selection.tile),
       ...tileLaborContextCommands(selection.tile),
       openWorkspaceCommand({
         id: `tile.openStockpiles.${selection.tile.x}.${selection.tile.y}`,
@@ -63954,6 +64250,40 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ...roomDesignationContextCommands(selection.tile),
       ...constructionContextCommands(selection.tile)
     ];
+  }
+
+  function propertyZoneContextCommands(cell) {
+    const clean = cleanMapCell(cell);
+    if (!clean || !surfaceGroundAtCell(clean) || surfaceEnvelopeAtCell(clean).kind !== "outdoor") return [];
+    const options = defaultPropertyPresentationOptions(state.localSiteContext);
+    const active = PropertyPresentation.zonesAt(ensurePropertyPresentation(), clean, options);
+    const commands = Object.values(PropertyPresentation.ZONE_DEFS).map((definition) => commandDef({
+      id: `property.zone.${definition.id}.${clean.x}.${clean.y}`,
+      label: `Designate ${definition.label}`,
+      group: "Property Zones",
+      disabledReason: active.includes(definition.id) ? `${definition.label} is already designated here.` : "",
+      description: "Paint a saved outdoor land-use designation. The designation creates no physical structure or concealment by itself.",
+      run: () => {
+        state.propertyPresentation = PropertyPresentation.setZone(ensurePropertyPresentation(), definition.id, clean, options);
+        addEvent(`${definition.label} designated at ${clean.x},${clean.y}.`);
+        persist(); render();
+        return true;
+      }
+    }));
+    commands.push(commandDef({
+      id: `property.zone.clear.${clean.x}.${clean.y}`,
+      label: "Clear Property Zone",
+      group: "Property Zones",
+      disabledReason: active.length ? "" : "No property zone is designated here.",
+      description: "Clear all saved outdoor route and land-use designations from this tile.",
+      run: () => {
+        state.propertyPresentation = PropertyPresentation.clearZone(ensurePropertyPresentation(), clean, options);
+        addEvent(`Property-zone designations cleared at ${clean.x},${clean.y}.`);
+        persist(); render();
+        return true;
+      }
+    }));
+    return commands;
   }
 
   function constructionContextCommands(cell) {
@@ -66022,6 +66352,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ["Door", door ? `${door.roomIds.map(roomName).join(" / ")} door` : "None"],
         ["Surface", surfaceDescription],
         ["Envelope", titleCase(envelope.kind)],
+        ["Property zones", PropertyPresentation.zonesAt(ensurePropertyPresentation(), selection.tile, defaultPropertyPresentationOptions(state.localSiteContext)).map((id) => PropertyPresentation.ZONE_DEFS[id].label).join("; ") || "None"],
         ["Material", structuralComposition ? materialCompositionLabel(structuralComposition) : surfaceGround ? titleCase(surfaceGround.terrainId) : excavated ? "Excavated ground" : geologyFace?.label || MATERIAL_BY_ID[naturalWallMaterialId(selection.tile)]?.label || "Common Stone"],
         ["Material properties", structuralComposition ? materialPropertySummary(structuralComposition) : geologyFace ? `Hardness: ${geologyFace.hardnessBand}; Stability: ${geologyFace.stabilityBand}; Permeability: ${geologyFace.permeabilityBand}; Mana response: ${geologyFace.manaResponseBand}` : "No constructed material profile"],
         ["Damage resistance", structuralComposition ? damageResistanceSummary(damageResistanceEntriesForComposition(structuralComposition, structuralCondition), "none") : "None"],
@@ -80129,6 +80460,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.surfaceExposure = next.localSiteContext
       ? SurfaceExposure.normalizeState(candidate?.surfaceExposure, next.localSiteContext, next.seed, next.clock)
       : null;
+    next.propertyPresentation = PropertyPresentation.normalizeState(
+      candidate?.propertyPresentation,
+      defaultPropertyPresentationOptions(next.localSiteContext)
+    );
     next.environmentalMonitoring = EnvironmentalMonitoring.normalizeState(candidate?.environmentalMonitoring, next.localSiteContext);
     const opening = candidate?.themeContent?.opening;
     next.themeContent = {

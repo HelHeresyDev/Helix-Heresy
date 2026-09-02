@@ -2148,6 +2148,24 @@ body.map-dragging .lab-map-canvas-host {
   box-shadow: inset 0 0 0 1px rgba(104, 200, 216, 0.22);
 }
 
+.lab-map-cell.property-zone-object-cell:not(.fixture-object-cell) {
+  color: #b9c8a0;
+  box-shadow: inset 0 0 0 1px rgba(140, 188, 115, 0.28);
+}
+
+.lab-map-cell.property-zone-publicApproach,
+.lab-map-cell.property-zone-freightApproach {
+  border-color: rgba(104, 200, 216, 0.5);
+}
+
+.lab-map-cell.property-zone-wasteHolding {
+  background: rgba(126, 91, 48, 0.32);
+}
+
+.lab-map-cell.property-zone-landscaping {
+  background: rgba(70, 112, 67, 0.3);
+}
+
 .lab-map-cell.contained-object-cell {
   box-shadow: inset 0 0 0 1px rgba(225, 183, 95, 0.28), 0 0 0 1px rgba(140, 188, 115, 0.22);
 }
