@@ -45,6 +45,8 @@
   const PropertyPresentation = window.HelixPropertyPresentation;
   const EnvironmentalMonitoring = window.HelixEnvironmentalMonitoring;
   const StrategicJourneys = window.HelixStrategicJourneys;
+  const ResourceSurveys = window.HelixResourceSurveys;
+  if (!ResourceSurveys) throw new Error("Resource surveys must load before app.js");
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
   if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicPublicAttitudeHistory || !StrategicPlayableSettlementState || !StrategicReligiousInstitutionHistory || !StrategicNonStateNetworkHistory || !StrategicEnforcementPracticeHistory || !StrategicStartingSites || !LocalSiteContext || !SurfaceExposure || !PropertyPresentation || !EnvironmentalMonitoring || !StrategicJourneys || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
@@ -5053,6 +5055,7 @@
       label: "Resources",
       description: "Known room stockpiles for one selected material or category."
     },
+    { id: "prospecting", label: "Resource Prospects", description: "Public geographic estimates alongside run-owned local survey points; not confirmed deposits." },
     {
       id: "evidence",
       label: "Evidence",
@@ -5221,6 +5224,7 @@
       propertyPresentation: PropertyPresentation.defaultState(defaultPropertyPresentationOptions()),
       environmentalMonitoring: EnvironmentalMonitoring.defaultState(),
       strategicJourneys: StrategicJourneys.defaultState(),
+      resourceSurveys: ResourceSurveys.defaultState(),
       themeContent: { version: ThemeContent.VERSION, opening: null },
       journalMode: "auto",
       complexity: "clean",
@@ -14933,6 +14937,11 @@
       startFieldDiagnostic: (instrumentId, kind, id = "", cell = null) => startFieldDiagnostic(instrumentId, kind, id, cell),
       startSampleCollection: (methodId, kind, id = "", cell = null) => startSampleCollection(methodId, kind, id, cell),
       startEnvironmentalSample: (methodId, recordId) => startEnvironmentalSample(methodId, recordId),
+      startResourceSurvey: (methodId, cell) => startResourceSurvey(methodId, cell),
+      resourceSurveyBlockReason: (methodId, cell) => resourceSurveyPlan(methodId, cell).reason || "",
+      resourceSurveySnapshot: () => clonePlainObject({ ...ResourceSurveys.publicKnowledge(ensureResourceSurveys()), samples: ensureDiagnosticState().samples.filter((sample) => sample.captured.resourceSurvey).map(({ captured, ...sample }) => sample), tasks: state.tasks.filter((task) => task.type === "physicalDiagnostic") }),
+      setResourceSurveyTestContext: (context) => { state.resourceSurveys = ResourceSurveys.defaultState(context); state.started = true; enterGameplay({ focus: false }); render(); return true; },
+      restoreResourceSurveyTestState: () => { state.resourceSurveys = ResourceSurveys.normalizeState(clonePlainObject(state.resourceSurveys)); state.diagnostics = Diagnostics.normalizeState(clonePlainObject(ensureDiagnosticState())); return true; },
       startDiagnosticSampleAssay: (stackId) => startDiagnosticSampleAssay(stackId),
       startDiagnosticCalibration: (itemKey) => startDiagnosticCalibration(itemKey),
       setInstrumentCalibration: (itemKey, calibration) => {
@@ -16624,6 +16633,7 @@
     next.startingSite = clonePlainObject(materializedSite);
     applyLocalSiteContext(next, localContext);
     next.strategicJourneys = StrategicJourneys.defaultState({ strategicMap: worldMap, startingSite: materializedSite, clock: next.clock });
+    next.resourceSurveys = ResourceSurveys.defaultState(resourceSurveyContext(world, materializedSite, nextSeed));
     const openingSelection = ThemeContent.selectRenderedContent({
       kind: "runOpening",
       worldTheme: world.worldTheme,
@@ -58513,6 +58523,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function renderDiagnosticResults() {
     if (!dom.diagnosticResultsList) return;
     dom.diagnosticResultsList.textContent = "";
+    const surveys = ResourceSurveys.publicKnowledge(ensureResourceSurveys());
+    if (state.resourceSurveys.context) {
+      const panel = document.createElement("section"); panel.dataset.resourceSurveyFindings = "true";
+      panel.append(textEl("strong", "Local Resource Findings"), textEl("p", `${surveys.coveredPoints} local point(s) examined. Geographic prospects are estimates; the surrounding strategic cell remains unsurveyed. Findings grant no extraction rights.`));
+      for (const [familyId, band] of Object.entries(surveys.publicProspects.prospectBands || {})) panel.append(textEl("span", `${ResourceSurveys.FAMILIES[familyId] || familyId}: ${titleCase(band)} public prospect · `, "journal-meta"));
+      for (const observation of surveys.observations.slice(-20).reverse()) {
+        const row = document.createElement("article"); row.dataset.resourceObservation = observation.id;
+        row.append(textEl("strong", `${ResourceSurveys.METHODS[observation.methodId].label} — ${observation.cell.x},${observation.cell.y}, Z ${observation.cell.z}`), textEl("p", `${observation.depth}; collected ${formatClock(observation.sampledAt)}, recorded ${formatClock(observation.recordedAt)}. ${observation.sampleId ? `Sample ${observation.sampleId} → ` : ""}${observation.diagnosticResultId}`));
+        for (const finding of observation.findings) row.append(textEl("p", `${finding.label}: ${finding.summary} (${finding.confidence} confidence).`));
+        panel.append(row);
+      }
+      dom.diagnosticResultsList.append(panel);
+    }
     const results = [...ensureDiagnosticState().results].sort((a, b) => b.measuredAt - a.measuredAt);
     if (!results.length) {
       dom.diagnosticResultsList.append(emptyText("No saved instrument readings or bench assays yet."));
@@ -61262,6 +61285,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function labMapOverlayAssignments(overlayId, map, context = {}) {
+    if (overlayId === "prospecting") {
+      const assignments = new Map();
+      const surveys = ResourceSurveys.publicKnowledge(ensureResourceSurveys());
+      for (const observation of surveys.observations) {
+        const detected = observation.findings.some((finding) => finding.result === "indicatorsDetected");
+        setLabMapOverlayEntry(assignments, observation.cell, {
+          overlayId, classNames: ["map-overlay-resources", `map-overlay-resources-${detected ? "high" : "low"}`],
+          label: ResourceSurveys.METHODS[observation.methodId].label, source: "Run-owned local fieldwork", value: detected ? "?+" : "?",
+          title: `${observation.coverage}. ${observation.findings.map((finding) => `${finding.label}: ${finding.summary} (${finding.confidence})`).join("; ")}`,
+          target: { kind: "tile", tile: observation.cell }
+        }, map);
+      }
+      return assignments;
+    }
     const normalized = normalizeMapOverlayId(overlayId);
     if (normalized === "none") {
       return new Map();
@@ -63825,6 +63862,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function fieldDiagnosticContextCommands(kind, id = "", cell = null, options = {}) {
     const commands = [];
+    if (kind === "tile" && ensureResourceSurveys().context && surfaceEnvelopeAtCell(cell).kind === "outdoor") {
+      for (const [methodId, method] of Object.entries(ResourceSurveys.METHODS)) commands.push(commandDef({
+        id: `resource-survey.${methodId}.${mapCellKey(cell)}`, label: method.label, group: "Prospecting",
+        disabledReason: resourceSurveyPlan(methodId, cell).reason || "",
+        description: `${method.depth}. Walk to this local point with ${inventoryItemLabel(method.instrument)}${method.sampleMethod ? "; consumes an empty sealed reagent bottle and creates a sample for bench analysis" : ""}. No exact deposits or extraction rights are revealed.`,
+        run: () => startResourceSurvey(methodId, cell)
+      }));
+    }
     if (options.environment !== false) {
       commands.push(commandDef({
         id: `diagnostic.environment.${kind}.${id || mapCellKey(cell)}`,
@@ -69387,7 +69432,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       || perceivedCellKeys.has(key)
       || overlayAssignments.get(key)?.knowledge?.state === "stale" && observations[key]
       || overlayAssignments.get(key)?.scope === "roomObservation" && observations[key]
-      || ["movement", "construction"].includes(overlay.id)
+      || ["movement", "construction", "prospecting"].includes(overlay.id)
     ));
     const cursorCell = mapCursorCell(map);
     ensureMapCameraIncludesCell(cursorCell);
@@ -69902,6 +69947,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       "! = breached"
     ];
     const overlayLegends = {
+      prospecting: ["Highlighted points = saved local fieldwork, not whole-cell exploration.", "?+ = local indicators; ? = negative or inconclusive method. Neither confirms a deposit.", "Public regional estimates are separate from private point observations. No extraction rights granted."],
       none: ["Base blueprint only, with physical local light and visible dense airborne haze.", ...base],
       contamination: [
         "Known: observed and remembered room contamination only.",
@@ -70059,6 +70105,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       menu.append(editor);
     }
 
+    if (mapView.overlay?.id === "prospecting") {
+      const knowledge = ResourceSurveys.publicKnowledge(ensureResourceSurveys());
+      const publicBands = Object.entries(knowledge.publicProspects.prospectBands || {}).map(([id, band]) => `${ResourceSurveys.FAMILIES[id] || id}: ${titleCase(band)}`).join(" · ");
+      menu.append(textEl("p", `Public geographic estimates: ${publicBands || "No inherited prospect record"}. ${knowledge.coveredPoints} local point(s) examined in this run; surrounding strategic cell unsurveyed.`, "journal-meta"));
+    }
     if (mapView.overlay?.id === "resources") {
       const focusField = document.createElement("label");
       focusField.className = "map-overlay-field";
@@ -74682,6 +74733,68 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       .sort((a, b) => Number(b.carriedBy === "scientist") - Number(a.carriedBy === "scientist") || b.current - a.current)[0] || null;
   }
 
+  function resourceSurveyContext(world, site, seed) {
+    const strategicCellId = site?.strategicLocation?.strategicCellId;
+    const index = StrategicWorld.cellIndex(strategicCellId);
+    const map = world?.generatedData?.strategicMap;
+    const truth = StrategicResourcePotential.cellResourceTruth(map, index);
+    if (!truth) return null;
+    return { worldId: world.id, siteId: site.strategicLocation.id, strategicCellId, seed, truth,
+      publicProspects: StrategicResourcePotential.publicCellProspectSnapshot(map, index),
+      arcaneInterference: Number(map.arcaneGeography?.manaConcentrationPermille?.[index]) || 0 };
+  }
+
+  function ensureResourceSurveys() {
+    state.resourceSurveys ||= ResourceSurveys.defaultState();
+    if (!state.resourceSurveys.context && activeWorldRecord && state.startingSite) state.resourceSurveys = ResourceSurveys.defaultState(resourceSurveyContext(activeWorldRecord, state.startingSite, state.seed));
+    return state.resourceSurveys;
+  }
+
+  function resourceSurveyCellReason(cell, methodId) {
+    const target = diagnosticTargetInfo("tile", "", cell);
+    if (!target || !ensureResourceSurveys().context || surfaceEnvelopeAtCell(cell).kind !== "outdoor") return "Select accessible outdoor ground on the laboratory parcel.";
+    if (methodId !== "arcaneSurvey" && (constructedFloorAtCell(cell) || !["grass", "soil"].includes(surfaceGroundAtCell(cell)?.terrainId))) return "Ground prospecting requires exposed soil or grass, not paving or imported gravel.";
+    return "";
+  }
+
+  function resourceSurveyPlan(methodId, cell) {
+    const method = ResourceSurveys.METHODS[methodId];
+    if (!method) return { ok: false, reason: "Unknown prospecting method." };
+    const reason = diagnosticBaseBlockReason() || resourceSurveyCellReason(cell, methodId) || fieldDiagnosticBlockReason(method.instrument, "tile", "", cell);
+    if (reason) return { ok: false, reason };
+    const target = diagnosticTargetInfo("tile", "", cell);
+    const tool = diagnosticToolPlan(method.instrument, scientistMapCell());
+    const access = diagnosticAccessPlan(tool.endpoint, target);
+    const materials = method.sampleMethod ? productionMaterialRoute({}, tool.endpoint, access.cell, { inputSelectors: [{ id: "sampleBottle", label: "empty sealed reagent bottle", amount: 1, sourceKinds: ["inventory"], keys: ["sealedReagentBottle"] }] }) : { ok: true, path: access.path, reservations: [] };
+    if (!materials.ok) return materials;
+    return { ok: true, target, method, reservations: materials.reservations, path: appendMapPath(tool.path, materials.path) };
+  }
+
+  function startResourceSurvey(methodId, cell) {
+    const plan = resourceSurveyPlan(methodId, cell);
+    if (!plan.ok) { addEvent(plan.reason); return false; }
+    const skillId = methodId === "arcaneSurvey" ? "animancy" : "analysis";
+    const staminaCost = adjustedStaminaCost(2, [skillId]);
+    if (!spendStamina(staminaCost)) return false;
+    const task = queueInstrumentDiagnostic({ workflowId: "resourceSurvey", label: `${plan.method.label}: ${plan.target.label}`, instrumentId: plan.method.instrument, target: plan.target, path: plan.path, workSeconds: plan.method.seconds, staminaCost, skillId, data: { resourceMethodId: methodId } });
+    if (!task) return false;
+    if (plan.method.sampleMethod) {
+      const reserved = reserveProductionMaterialSlices(plan.reservations, task.id);
+      if (!reserved) { cancelTask(task.id, { quiet: true }); return false; }
+      task.data.reservedStackIds = reserved;
+    }
+    persist(); render(); return true;
+  }
+
+  function resourceSurveyInstrument(task, confidence) {
+    return { id: task.data.instrumentInstanceId, instrumentId: task.data.instrumentId, calibration: confidence.record.calibration, condition: confidence.tool ? Math.round(confidence.tool.current / Math.max(1, confidence.tool.max) * 100) : 0, skillId: task.data.skillId, skillLevel: skillLevel(task.data.skillId), confidenceScore: confidence.score };
+  }
+
+  function saveResourceObservation(captured, task, confidence, result, sample = null) {
+    const recorded = ResourceSurveys.record(ensureResourceSurveys(), captured, { at: state.clock, score: confidence.score, instrument: resourceSurveyInstrument(task, confidence), sampleId: sample?.id, sampleStackId: sample?.stackId, diagnosticResultId: result.id });
+    state.resourceSurveys = recorded.state;
+  }
+
   function diagnosticTargetInfo(kind, id = "", cellArg = null) {
     if (kind === "scientist") return { kind, id: "scientist", label: "Scientist", cell: scientistMapCell(), roomId: scientistRoomId(), target: state.scientist };
     if (kind === "slime") {
@@ -74697,7 +74810,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return { kind, id: container.id, label: container.name, cell: objectMapCell(container) || labMapRoomAnchor(container.roomId), roomId: container.roomId, target: container };
     }
     const cell = cleanMapCell(cellArg);
-    if (kind === "tile" && cell && labMapCellIsExcavated(cell)) {
+    if (kind === "tile" && cell && (labMapCellIsExcavated(cell) || surfaceGroundAtCell(cell))) {
       return { kind, id: mapCellKey(cell), label: `Tile ${cell.x},${cell.y}, Z ${cell.z}`, cell, roomId: labMapCellRoomId(cell) || nearestDesignatedRoomIdForCell(cell), target: null };
     }
     return null;
@@ -74737,6 +74850,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function physicalDiagnosticTaskBlockReason(task) {
     if (!task) return "Diagnostic task is missing.";
+    if (task.data?.workflowId === "resourceSurvey") {
+      const reason = resourceSurveyCellReason(task.data.targetCell, task.data.resourceMethodId);
+      if (reason) return reason;
+    }
     if (task.data?.instrumentInstanceId) {
       const tool = toolInstanceById(task.data.instrumentInstanceId)?.instance;
       if (!tool) return "The diagnostic instrument is no longer available.";
@@ -75198,7 +75315,30 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function completeInstrumentDiagnostic(task) {
     pickupConstructionTaskTools(task);
     const workflowId = task.data.workflowId;
-    if (workflowId === "calibrateInstrument") {
+    if (workflowId === "resourceSurvey") {
+      const methodId = task.data.resourceMethodId;
+      const method = ResourceSurveys.METHODS[methodId];
+      const confidence = instrumentDiagnosticConfidence(task);
+      const captured = ResourceSurveys.capture(ensureResourceSurveys().context, task.data.targetCell, methodId, state.clock, confidence.score, resourceSurveyInstrument(task, confidence));
+      if (!captured) { releaseConstructionTaskTools(task, { retain: false }); return false; }
+      if (method.sampleMethod) {
+        consumeProductionMaterialReservations(task);
+        const stack = createPhysicalItemStack("inventory", "diagnosticSample", 1, { roomId: scientistRoomId(), cell: scientistMapCell() }, { carriedBy: "scientist", tags: ["resource-sample", "sealed"], dimensionsM: { width: 0.08, length: 0.08, height: 0.14 } });
+        const diagnostics = ensureDiagnosticState();
+        const sample = Diagnostics.normalizeSample({ id: `diagnostic-sample-${diagnostics.nextSampleNumber++}`, stackId: stack.id, methodId: method.sampleMethod, targetKind: "tile", targetId: task.data.targetId, targetLabel: `${method.label}: ${task.data.targetLabel}`, cell: task.data.targetCell, collectedAt: state.clock, collectorInstrumentInstanceId: task.data.instrumentInstanceId, captured: { resourceSurvey: captured } });
+        diagnostics.samples.push(sample);
+        recordResearchEvidence({ methodId: `prospecting:${methodId}`, category: "diagnostic", sourceKey: `resource-sample:${sample.id}`, summary: `Sealed resource sample ${sample.id} (${stack.id}) collected at ${task.data.targetLabel}; analysis pending.`, confidence: confidence.score / 100 });
+        addEvent(`${method.label} sealed in a physical bottle. Bench analysis is required before it contributes resource findings.`);
+      } else {
+        const findings = ResourceSurveys.assess(captured, confidence.score);
+        const result = saveInstrumentDiagnosticResult(task, { confidenceScore: confidence.score, summary: findings.map((finding) => `${finding.label}: ${finding.summary}`).join("; "), readings: findings.map((finding) => ({ key: finding.familyId, label: finding.label, value: finding.summary, band: finding.confidence })), factors: [...confidence.factors, "Local point only; no deposit or extraction rights confirmed."] });
+        saveResourceObservation(captured, task, confidence, result);
+        addEvent(`${method.label} saved for this local point. See Local Resource Findings in diagnostic results.`);
+      }
+      ensureDiagnosticState().instruments[task.data.instrumentInstanceId] = Diagnostics.useInstrument(confidence.record, task.data.instrumentId, state.clock);
+      damageSpecificTool(task.data.instrumentInstanceId, 1, task.label);
+      awardActionXp(task.data.skillId, 12, emptyRevealSummary(), task.label, { outcome: diagnosticXpOutcome(confidence.score) });
+    } else if (workflowId === "calibrateInstrument") {
       const record = diagnosticInstrumentRecord(task.data.instrumentInstanceId);
       record.calibration = 100;
       record.usesSinceCalibration = 0;
@@ -75297,7 +75437,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         readings = keys.map((key) => instrumentDiagnosticReading(key, captured.attributes[key]?.current || 0, confidence.score));
       } else if (sample) {
         const captured = sample.captured || {};
-        if (captured.environmentalExposure) {
+        if (captured.resourceSurvey) {
+          readings = ResourceSurveys.assess(captured.resourceSurvey, confidence.score).map((finding) => ({ key: finding.familyId, label: finding.label, value: finding.summary, band: finding.confidence }));
+        } else if (captured.environmentalExposure) {
           environmentalAssay = EnvironmentalMonitoring.assaySample(captured.environmentalExposure, confidence.score);
           const method = EnvironmentalMonitoring.SAMPLE_METHODS[environmentalAssay.methodId];
           readings.push({
@@ -75387,6 +75529,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         factors: confidence.factors,
         sampleCollectedAt: sample?.collectedAt ?? null
       });
+      if (sample?.captured.resourceSurvey) saveResourceObservation(sample.captured.resourceSurvey, task, confidence, result, sample);
       if (environmentalAssay && sample) {
         const sourceEvidence = ensureInvestigativeEvidence().records.find((entry) => entry.refs.stackIds.includes(sample.stackId) && entry.type === "environmentalFieldSample");
         const exposureRecord = surfaceExposureRecord(environmentalAssay.exposureRecordId);
@@ -80762,6 +80905,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     );
     next.environmentalMonitoring = EnvironmentalMonitoring.normalizeState(candidate?.environmentalMonitoring, next.localSiteContext);
     next.strategicJourneys = StrategicJourneys.normalizeState(candidate?.strategicJourneys);
+    next.resourceSurveys = ResourceSurveys.normalizeState(candidate?.resourceSurveys);
     const opening = candidate?.themeContent?.opening;
     next.themeContent = {
       version: Math.max(1, Math.floor(Number(candidate?.themeContent?.version) || ThemeContent.VERSION)),
