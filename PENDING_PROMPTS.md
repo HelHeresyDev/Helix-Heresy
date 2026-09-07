@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Strategic Survey Operations and Resource Discovery
+1. Off-site Survey Expeditions and Resource Discovery
 2. Penal Flights and Beast-Territory Exile
 3. Penal Legions and Wilderness Service
 4. World Integration: Economy and Logistics
@@ -90,9 +90,11 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Strategic Survey Operations and Resource Discovery
+## 1. Off-site Survey Expeditions and Resource Discovery
 
-Design and implement run-owned strategic resource knowledge after site selection and local travel exist. Begin each run with the world's public prospectivity but none of another run's private findings. Add physical survey and prospecting methods, equipment, travel, samples, confidence changes, bounded uncertainty, false negatives, and saved evidence provenance. Survey results may refine strategic estimates and feed authoritative resource context into lazy local maps, but exact veins, pockets, quality, and quantity remain hidden until an appropriate local method exposes them. The overlay must merge public and run-specific knowledge without reading canonical hidden endowment directly.
+Extend the completed local resource-knowledge and parcel-prospecting systems into physical scientist expeditions. Choose a known reachable destination, prepare real equipment, containers and supplies, travel using saved journeys, materialize a bounded local survey area, perform routed fieldwork, and return with physical samples. Discuss laboratory operation and player knowledge during the scientist's absence, access and jurisdiction, transport capacity, retreat, recovery, and playable field danger before implementation. The scientist's survival must not resolve through an unseen random expedition outcome. Split further if field-map or expedition-survival dependencies exceed one coherent playable pass.
+
+Reuse run-owned observations, fixed same-place/method uncertainty, instrument condition and calibration, method-limited depth, physical sample provenance, and reagent-consuming assays. Public geographic estimates remain distinct from private local findings; one sampled point cannot mark a whole strategic cell surveyed. Newly discovered destinations and broader survey coverage may refine estimates and provide authoritative context for lazy local generation, but exact veins, pockets, quality, and quantity require appropriate local methods. Discoveries grant neither extraction rights nor automatic inventory. Preserve the reusable world and prevent prior-run findings from appearing in a new run.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
