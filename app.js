@@ -44,8 +44,9 @@
   const SurfaceExposure = window.HelixSurfaceExposure;
   const PropertyPresentation = window.HelixPropertyPresentation;
   const EnvironmentalMonitoring = window.HelixEnvironmentalMonitoring;
+  const StrategicJourneys = window.HelixStrategicJourneys;
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
-  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicPublicAttitudeHistory || !StrategicPlayableSettlementState || !StrategicReligiousInstitutionHistory || !StrategicNonStateNetworkHistory || !StrategicEnforcementPracticeHistory || !StrategicStartingSites || !LocalSiteContext || !SurfaceExposure || !PropertyPresentation || !EnvironmentalMonitoring || !StrategicGlobeRenderer) {
+  if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicPublicAttitudeHistory || !StrategicPlayableSettlementState || !StrategicReligiousInstitutionHistory || !StrategicNonStateNetworkHistory || !StrategicEnforcementPracticeHistory || !StrategicStartingSites || !LocalSiteContext || !SurfaceExposure || !PropertyPresentation || !EnvironmentalMonitoring || !StrategicJourneys || !StrategicGlobeRenderer) {
     throw new Error("Strategic world generation and globe rendering must load before app.js");
   }
   const WorldRunLibrary = window.HelixWorldRunLibrary;
@@ -5219,6 +5220,7 @@
       surfaceExposure: null,
       propertyPresentation: PropertyPresentation.defaultState(defaultPropertyPresentationOptions()),
       environmentalMonitoring: EnvironmentalMonitoring.defaultState(),
+      strategicJourneys: StrategicJourneys.defaultState(),
       themeContent: { version: ThemeContent.VERSION, opening: null },
       journalMode: "auto",
       complexity: "clean",
@@ -6450,6 +6452,8 @@
     if (action === "destroy" && stack.key !== "companyRecordsPacket") return "Material destruction must use compatible waste treatment instead.";
     if (action === "relabel" && stack.section !== "chemicalBatches" && !normalizePhysicalContents(stack.contents).some((content) => (content.tags || []).includes("chemical"))) return "Misleading label work requires a packaged chemical subject.";
     if (action === "dispose") {
+      const route = strategicServiceRoute();
+      if (route && !route.ok) return route.reason;
       const contained = stack.form === "receptacle" || stack.containerId || (stack.tags || []).includes("waste") || stack.key === "treatedChemicalEffluent";
       if (!contained) return "Lawful removal requires a contained, classified waste package.";
       const fee = evidenceDisposalFee(stack);
@@ -6460,7 +6464,7 @@
   }
 
   function evidenceDisposalFee(stack) {
-    return Math.max(12, Math.ceil((Number(stack?.quantity) || 1) * (Number(stack?.unitMassKg) || 1) * 2 + 10));
+    return Math.max(12, Math.ceil((Number(stack?.quantity) || 1) * ((Number(stack?.unitMassKg) || 1) * 2 + strategicFreightUnitCost()) + 10));
   }
 
   function evidenceHandlingPath(stack, action, fixture = evidenceHandlingTargetFixture(action, stack)) {
@@ -6511,6 +6515,10 @@
       }
     };
     created.order.taskId = task.id;
+    if (action === "dispose" && ensureStrategicJourneys().homeDestinationId) {
+      const booked = bookWasteServiceJourney(task, stack, false);
+      if (booked.journey) task.data.pickupJourneyId = booked.journey.id;
+    }
     stack.reservedTaskId = task.id;
     state.tasks.push(task);
     addEvent(`${titleCase(action)} work queued for ${physicalStackLabel(stack)}; ${created.order.risk.label} risk (${created.order.risk.reasons.join(", ")}).`);
@@ -6527,6 +6535,19 @@
       magnitude: { band: order.outcome.id === "careless" ? "moderate" : "small", amount: 1, unit: "trace" },
       discoverability: { level: "ordinary", methods: ["visual", "inspection", "recordReview"] }, persistence: { kind: "durable", decaySeconds: SECONDS_PER_DAY * 30 },
       knowledge: { state: "known", source: "handling", sourceIdentityKnown: true }
+    });
+  }
+
+  function bookWasteServiceJourney(task, stack, outbound) {
+    const network = ensureStrategicJourneys();
+    return bookStrategicJourney({
+      purpose: "licensedWasteCollection", label: `${outbound ? "Waste transfer" : "Waste collection vehicle"}: ${physicalStackLabel(stack)}`,
+      subject: { kind: outbound ? "wasteTransfer" : "wastePickup", id: task.data.orderId },
+      originId: outbound ? network.homeDestinationId : network.nearestSettlementDestinationId,
+      destinationId: outbound ? network.nearestSettlementDestinationId : network.homeDestinationId,
+      modeId: "hiredFreightRoad", passengers: 1, cargo: outbound ? stack.quantity : 0,
+      vehicleCount: Math.max(1, Math.ceil(stack.quantity / StrategicJourneys.MODE_DEFS.hiredFreightRoad.cargoCapacity)),
+      provider: "licensed waste carrier"
     });
   }
 
@@ -6571,6 +6592,7 @@
         details: "The visible package label conflicts with the physical batch lineage and company inventory."
       });
     } else if (action === "dispose") {
+      if (ensureStrategicJourneys().homeDestinationId) bookWasteServiceJourney(task, stack, true);
       if (addMoney(-Number(task.data?.fee || 0), "licensed waste removal") > 0) return false;
       for (const record of evidenceHandlingRecordsForSubject("physicalStack", stack.id)) {
         record.lifecycle = "externalized";
@@ -7670,6 +7692,114 @@
     return target.siteVisits;
   }
 
+  function strategicJourneyNetworkOptions(target = state) {
+    return {
+      strategicMap: activeWorldRecord?.generatedData?.strategicMap,
+      startingSite: target?.startingSite,
+      clock: target?.clock || 0
+    };
+  }
+
+  function ensureStrategicJourneys(target = state) {
+    const options = strategicJourneyNetworkOptions(target);
+    target.strategicJourneys ||= StrategicJourneys.defaultState(options);
+    if (!target.strategicJourneys.destinations.length && options.strategicMap && options.startingSite) {
+      target.strategicJourneys = StrategicJourneys.defaultState(options);
+    }
+    return target.strategicJourneys;
+  }
+
+  function bookStrategicJourney(options = {}) {
+    const result = StrategicJourneys.createJourney(ensureStrategicJourneys(), {
+      seed: `${state.seed}:${options.subject?.kind || "journey"}:${options.subject?.id || ensureStrategicJourneys().nextJourneyNumber}`,
+      clock: state.clock,
+      ...options
+    });
+    state.strategicJourneys = result.state;
+    return result;
+  }
+
+  function syncStrategicVisitJourneys() {
+    const journeys = ensureStrategicJourneys();
+    if (!journeys.homeDestinationId || !journeys.nearestSettlementDestinationId) return 0;
+    let changes = 0;
+    for (const visit of ensureSiteVisits().visits.filter((entry) => entry.phase === "scheduled")) {
+      let journey = state.strategicJourneys.journeys.find((entry) => entry.subject.kind === "siteVisit" && entry.subject.id === visit.id);
+      if (!journey) {
+        const freightVisit = ["wasteCarrier", "routineCourier"].includes(visit.typeId) || visit.accessPointId === "loadingBay";
+        const booked = bookStrategicJourney({
+          purpose: visit.typeId === "wasteCarrier" ? "licensedWasteCollection" : "siteVisit",
+          label: `${visit.visitorLabel} arrival`,
+          subject: { kind: "siteVisit", id: visit.id },
+          originId: journeys.nearestSettlementDestinationId,
+          destinationId: journeys.homeDestinationId,
+          modeId: freightVisit ? "hiredFreightRoad" : "hiredPassengerRoad",
+          passengers: 1 + (visit.supportActors?.length || 0),
+          vehicleCount: Math.max(1, Math.ceil((1 + (visit.supportActors?.length || 0)) / StrategicJourneys.MODE_DEFS[freightVisit ? "hiredFreightRoad" : "hiredPassengerRoad"].passengerCapacity)),
+          cargo: freightVisit ? 1 : 0,
+          requestedArrivalAt: visit.arrivalAt,
+          provider: visit.institutionId ? `${visit.institutionId} contracted carrier` : "contracted local carrier"
+        });
+        journey = booked.journey;
+        if (!journey) continue;
+        changes += 1;
+      }
+      const stored = ensureStrategicJourneys().journeys.find((entry) => entry.id === journey.id);
+      if (!stored) continue;
+      visit.arrivalAt = stored.exactArrivalAt;
+      visit.arrivalWindow.start = stored.arrivalWindow.start;
+      visit.arrivalWindow.end = stored.arrivalWindow.end;
+    }
+    return changes;
+  }
+
+  function updateStrategicJourneys() {
+    syncStrategicVisitJourneys();
+    const result = StrategicJourneys.advance(ensureStrategicJourneys(), state.clock);
+    state.strategicJourneys = result.state;
+    syncStrategicVisitJourneys();
+    for (const event of result.events) {
+      const journey = state.strategicJourneys.journeys.find((entry) => entry.id === event.journeyId);
+      if (journey?.subject.kind === "siteVisit" && siteVisitById(journey.subject.id)?.noticeAt > state.clock) continue;
+      if (event.kind === "arrived") addEvent(`${journey?.label || "Journey"} physically arrived.`);
+      else if (event.kind === "returned") addEvent(`${journey?.label || "Journey"} physically returned to its origin.`);
+      else if (!["departed"].includes(event.kind)) addEvent(`${journey?.label || "Journey"}: ${event.summary}`);
+    }
+    return result.events.length;
+  }
+
+  function cancelStrategicJourney(journeyId) {
+    const saved = ensureStrategicJourneys().journeys.find((entry) => entry.id === journeyId);
+    const visit = saved?.subject.kind === "siteVisit" ? siteVisitById(saved.subject.id) : null;
+    if (!visit || !["routineCourier", "wasteCarrier"].includes(visit.typeId) || visit.phase !== "scheduled") return false;
+    const result = StrategicJourneys.cancelJourney(ensureStrategicJourneys(), journeyId, state.clock);
+    state.strategicJourneys = result.state;
+    if (!result.reason) {
+      if (result.journey.subject.kind === "siteVisit") {
+        const visit = siteVisitById(result.journey.subject.id);
+        if (visit?.phase === "scheduled") {
+          visit.phase = "completed";
+          visit.completedAt = state.clock;
+          visit.disclosedSummary = result.journey.status === "cancelled" ? "Visit cancelled before departure." : "The departed visitor was instructed to return or divert.";
+        }
+      }
+      addEvent(result.journey.status === "cancelled"
+        ? `${result.journey.label} was cancelled before departure.`
+        : `${result.journey.label} had already departed and was ordered to return physically.`);
+      persist(); render();
+      return true;
+    }
+    return false;
+  }
+
+  function recoverStrategicJourney(journeyId) {
+    const result = StrategicJourneys.recoverStrandedJourney(ensureStrategicJourneys(), journeyId, state.clock);
+    state.strategicJourneys = result.state;
+    if (result.reason) return false;
+    addEvent(`${result.journey.label}: physical route recovery was dispatched; its passengers and cargo remain accounted for.`);
+    persist(); render(); return true;
+  }
+
   function siteVisitById(visitId) {
     return ensureSiteVisits().visits.find((visit) => visit.id === String(visitId || "")) || null;
   }
@@ -8478,7 +8608,12 @@
     let changes = 0;
     let active = state.siteVisits.visits.find((visit) => !["scheduled", "completed"].includes(visit.phase)) || null;
     if (!active) {
-      const due = state.siteVisits.visits.filter((visit) => visit.phase === "scheduled" && visit.arrivalAt <= state.clock)
+      const due = state.siteVisits.visits.filter((visit) => {
+        const journeys = ensureStrategicJourneys();
+        const journey = journeys.journeys.find((entry) => entry.subject.kind === "siteVisit" && entry.subject.id === visit.id);
+        return visit.phase === "scheduled" && visit.arrivalAt <= state.clock
+          && (!journeys.homeDestinationId || journey?.status === "arrived" && !journey.cancellation.outcome);
+      })
         .sort((left, right) => left.arrivalAt - right.arrivalAt)[0];
       if (!due) return 0;
       const point = siteVisitAccessPoint(due);
@@ -11174,7 +11309,20 @@
     const def = COMMODITY_MARKET_LISTING_BY_ID[listingId];
     const listing = commodityListingState(listingId);
     if (!def || !listing) return null;
-    return { ...commodityQuoteValues(def, commodityMidPrice(def, listing.supply, listing.demand)), supply: listing.supply };
+    const quote = commodityQuoteValues(def, commodityMidPrice(def, listing.supply, listing.demand));
+    const freightPerUnit = strategicFreightUnitCost();
+    return { ...quote, ask: roundOutputValue(quote.ask + freightPerUnit), bid: Math.max(0, roundOutputValue(quote.bid - freightPerUnit)), freightPerUnit, supply: listing.supply };
+  }
+
+  function strategicServiceRoute() {
+    const network = ensureStrategicJourneys();
+    if (!network.homeDestinationId) return null;
+    return StrategicJourneys.routePlan(network, network.nearestSettlementDestinationId, network.homeDestinationId, "hiredFreightRoad");
+  }
+
+  function strategicFreightUnitCost() {
+    const plan = strategicServiceRoute();
+    return plan?.ok ? roundOutputValue(plan.legs.reduce((sum, leg) => sum + leg.distanceKm * (leg.continuity === "intermittent" ? 1.6 : leg.continuity === "degraded" ? 1.3 : 1), 0) * 0.02) : 0;
   }
 
   function commodityBusinessReputationLabel(value = ensureEconomy().businessReputation) {
@@ -11210,8 +11358,13 @@
 
   function commodityInboundAmount(listingId) {
     return roundOutputValue(ensureEconomy().commodityConsignments
-      .filter((consignment) => consignment.listingId === listingId && ["inTransit", "arrived", "unloading"].includes(consignment.status))
+      .filter((consignment) => consignment.direction === "inbound" && consignment.listingId === listingId && ["inTransit", "arrived", "unloading"].includes(consignment.status))
       .reduce((total, consignment) => total + consignment.quantity, 0));
+  }
+
+  function retainCommodityHistory(entries, activeStatuses) {
+    const retained = new Set(entries.filter((entry) => !activeStatuses.includes(entry.status)).slice(-200).map((entry) => entry.id));
+    return entries.filter((entry) => activeStatuses.includes(entry.status) || retained.has(entry.id));
   }
 
   function commodityOwnedAmount(listingId) {
@@ -11224,12 +11377,46 @@
     return ensureEconomy().commodityConsignments.filter((consignment) => ["inTransit", "arrived", "unloading", "dispatching"].includes(consignment.status)).length;
   }
 
+  function commodityConsignmentJourney(consignment) {
+    if (!consignment?.journeyId) return null;
+    return ensureStrategicJourneys().journeys.find((journey) => journey.id === consignment.journeyId) || null;
+  }
+
+  function bookCommodityConsignmentJourney(consignment, pickup = false) {
+    if (!consignment || (!pickup && consignment.journeyId)) return commodityConsignmentJourney(consignment);
+    const journeys = ensureStrategicJourneys();
+    if (!journeys.homeDestinationId || !journeys.nearestSettlementDestinationId) return null;
+    const def = COMMODITY_MARKET_LISTING_BY_ID[consignment.listingId];
+    const inbound = pickup || consignment.direction === "inbound";
+    const result = bookStrategicJourney({
+      purpose: pickup ? "lawfulSalePickup" : inbound ? "lawfulPurchaseDelivery" : "lawfulSaleDelivery",
+      label: `${pickup ? "Pickup vehicle" : "Delivery"}: ${formatNumber(consignment.quantity)} ${def?.label || "legal goods"}`,
+      subject: { kind: pickup ? "commodityPickup" : "commodityConsignment", id: consignment.id },
+      originId: inbound ? journeys.nearestSettlementDestinationId : journeys.homeDestinationId,
+      destinationId: inbound ? journeys.homeDestinationId : journeys.nearestSettlementDestinationId,
+      modeId: "hiredFreightRoad",
+      passengers: 1,
+      cargo: pickup ? 0 : consignment.quantity,
+      vehicleCount: Math.max(1, Math.ceil(consignment.quantity / StrategicJourneys.MODE_DEFS.hiredFreightRoad.cargoCapacity)),
+      departureDelaySeconds: inbound ? minutesToSeconds(30) : minutesToSeconds(5),
+      requestedArrivalAt: inbound ? consignment.eta : 0,
+      provider: "licensed exchange freight carrier"
+    });
+    if (!result.journey) return null;
+    if (pickup) consignment.pickupJourneyId = result.journey.id;
+    else consignment.journeyId = result.journey.id;
+    consignment.eta = result.journey.exactArrivalAt;
+    return ensureStrategicJourneys().journeys.find((journey) => journey.id === result.journey.id) || null;
+  }
+
   function executeCommodityBuy(listingId, requestedQuantity, options = {}) {
     const economy = ensureEconomy();
     const def = COMMODITY_MARKET_LISTING_BY_ID[listingId];
     const listing = commodityListingState(listingId);
     const quote = commodityQuote(listingId);
     if (!def?.buyable || !listing || !quote) return { filled: 0, reason: "This good is not offered for public purchase." };
+    const route = strategicServiceRoute();
+    if (route && !route.ok) return { filled: 0, reason: route.reason };
     if (commodityOutstandingCount() >= COMMODITY_MARKET_MAX_OUTSTANDING) return { filled: 0, reason: "The Loading Bay already has the maximum outstanding freight." };
     const wholeUnits = def.section !== "chemicalBatches";
     let quantity = Math.max(0, Number(requestedQuantity) || 0);
@@ -11257,9 +11444,11 @@
       createdAt: state.clock,
       eta: state.clock + COMMODITY_MARKET_FREIGHT_SECONDS + (number % 4) * minutesToSeconds(5),
       completedAt: null,
-      taskId: ""
+      taskId: "",
+      journeyId: ""
     };
     economy.commodityConsignments.push(consignment);
+    bookCommodityConsignmentJourney(consignment);
     recordLegalLedger("purchase", `Purchased ${formatNumber(quantity)} ${def.label} at ${formatMoney(quote.ask)} per unit; inbound freight booked.`, { listingId, orderId: options.orderId, consignmentId: consignment.id, amount: -total, quantity });
     addEvent(`Open market purchase: ${formatNumber(quantity)} ${def.label} for ${formatMoney(total)}; delivery inbound to the Loading Bay.`);
     return { filled: quantity, total, consignment };
@@ -11374,6 +11563,8 @@
 
   function queueCommodityFreight(consignment) {
     if (!consignment || consignment.taskId || !["arrived", "dispatching"].includes(consignment.status)) return false;
+    const pickup = consignment.pickupJourneyId && ensureStrategicJourneys().journeys.find((entry) => entry.id === consignment.pickupJourneyId);
+    if (consignment.direction === "outbound" && pickup && pickup.status !== "arrived") return false;
     const def = COMMODITY_MARKET_LISTING_BY_ID[consignment.listingId];
     const task = {
       id: `task-${state.nextTaskNumber++}`,
@@ -11401,6 +11592,8 @@
       const quote = commodityQuote(order.listingId);
       if (!quote) continue;
       if (order.kind === "limitSell") {
+        const route = strategicServiceRoute();
+        if (route && !route.ok) continue;
         const stack = ensurePhysicalItemStacks().find((entry) => entry.id === order.stackId && (entry.reservedTaskId === order.id || !entry.reservedTaskId));
         if (!stack) { order.status = "failed"; order.updatedAt = state.clock; changes += 1; continue; }
         const saleUnitPrice = commoditySaleUnitPrice(order.listingId, stack);
@@ -11409,9 +11602,10 @@
           id: `legal-consignment-${economy.nextCommodityConsignmentNumber++}`,
           direction: "outbound", listingId: order.listingId, quantity: order.remaining, unitPrice: saleUnitPrice,
           total: Math.round(order.remaining * saleUnitPrice), orderId: order.id, stackId: stack.id,
-          status: "dispatching", createdAt: state.clock, eta: state.clock, completedAt: null, taskId: ""
+          status: "dispatching", createdAt: state.clock, eta: state.clock, completedAt: null, taskId: "", journeyId: ""
         };
         economy.commodityConsignments.push(consignment);
+        bookCommodityConsignmentJourney(consignment, true);
         order.status = "executing";
         order.updatedAt = state.clock;
         queueCommodityFreight(consignment);
@@ -11431,6 +11625,24 @@
       }
     }
     return changes;
+  }
+
+  function finalizeCommoditySale(consignment) {
+    const economy = ensureEconomy();
+    const def = COMMODITY_MARKET_LISTING_BY_ID[consignment?.listingId];
+    if (!consignment || !def || consignment.status !== "inTransit") return false;
+    const listing = commodityListingState(def.id);
+    listing.supply = roundOutputValue(listing.supply + consignment.quantity);
+    listing.demand = roundOutputValue(clamp(listing.demand - consignment.quantity / Math.max(20, def.liquidity * 5), 0.55, 1.8));
+    economy.money += consignment.total;
+    economy.businessReputation = Math.min(1000, economy.businessReputation + Math.max(1, Math.ceil(consignment.total / 80)));
+    consignment.status = "sold";
+    consignment.completedAt = state.clock;
+    const order = economy.commodityOrders.find((entry) => entry.id === consignment.orderId);
+    if (order) { order.status = "filled"; order.remaining = 0; order.updatedAt = state.clock; }
+    recordLegalLedger("sale", `Sold ${formatNumber(consignment.quantity)} ${def.label} at ${formatMoney(consignment.unitPrice)} net per unit after physical carrier arrival.`, { listingId: def.id, orderId: consignment.orderId, consignmentId: consignment.id, amount: consignment.total, quantity: consignment.quantity });
+    addEvent(`Legal shipment arrived and settled: ${formatNumber(consignment.quantity)} ${def.label} for ${formatMoney(consignment.total)}.`);
+    return true;
   }
 
   function completeCommodityFreight(task) {
@@ -11461,18 +11673,12 @@
       stack.knownQuantity = Math.min(stack.knownQuantity, stack.quantity);
       stack.reservedTaskId = "";
       if (stack.quantity <= 0) state.physicalItemStacks = ensurePhysicalItemStacks().filter((entry) => entry.id !== stack.id);
-      const listing = commodityListingState(def.id);
-      listing.supply = roundOutputValue(listing.supply + consignment.quantity);
-      listing.demand = roundOutputValue(clamp(listing.demand - consignment.quantity / Math.max(20, def.liquidity * 5), 0.55, 1.8));
-      economy.money += consignment.total;
-      economy.businessReputation = Math.min(1000, economy.businessReputation + Math.max(1, Math.ceil(consignment.total / 80)));
-      consignment.status = "sold";
-      consignment.completedAt = state.clock;
-      const order = economy.commodityOrders.find((entry) => entry.id === consignment.orderId);
-      if (order) { order.status = "filled"; order.remaining = 0; order.updatedAt = state.clock; }
+      consignment.status = "inTransit";
+      const journey = bookCommodityConsignmentJourney(consignment);
+      if (!journey) consignment.eta = state.clock + COMMODITY_MARKET_FREIGHT_SECONDS;
       syncPhysicalReadModels();
-      recordLegalLedger("sale", `Sold ${formatNumber(consignment.quantity)} ${def.label} at ${formatMoney(consignment.unitPrice)} net per unit.`, { listingId: def.id, orderId: consignment.orderId, consignmentId: consignment.id, amount: consignment.total, quantity: consignment.quantity, batchId: stack.chemicalBatch?.id || "" });
-      addEvent(`Legal shipment sold: ${formatNumber(consignment.quantity)} ${def.label} for ${formatMoney(consignment.total)}.`);
+      recordLegalLedger("dispatch", `Dispatched ${formatNumber(consignment.quantity)} ${def.label}; payment remains pending until the physical carrier arrives.`, { listingId: def.id, orderId: consignment.orderId, consignmentId: consignment.id, quantity: consignment.quantity, batchId: stack.chemicalBatch?.id || "" });
+      addEvent(`Legal shipment dispatched: ${formatNumber(consignment.quantity)} ${def.label}; settlement is pending physical arrival.`);
     }
     return true;
   }
@@ -11481,11 +11687,14 @@
     const economy = ensureEconomy();
     let changes = 0;
     for (const consignment of economy.commodityConsignments) {
-      if (consignment.status === "inTransit" && state.clock >= consignment.eta) {
-        consignment.status = "arrived";
-        changes += 1;
+      const journey = commodityConsignmentJourney(consignment);
+      const physicallyArrived = journey ? journey.status === "arrived" : state.clock >= consignment.eta;
+      if (consignment.status === "inTransit" && physicallyArrived) {
+        if (consignment.direction === "outbound") changes += finalizeCommoditySale(consignment) ? 1 : 0;
+        else { consignment.status = "arrived"; changes += 1; }
       }
       if (consignment.status === "arrived" && queueCommodityFreight(consignment)) changes += 1;
+      if (consignment.status === "dispatching" && queueCommodityFreight(consignment)) changes += 1;
     }
     while (economy.commodityMarket.lastTickAt + COMMODITY_MARKET_TICK_SECONDS <= state.clock) {
       const tickAt = economy.commodityMarket.lastTickAt + COMMODITY_MARKET_TICK_SECONDS;
@@ -11505,8 +11714,8 @@
       changes += 1;
     }
     changes += processCommodityOrders();
-    economy.commodityOrders = economy.commodityOrders.slice(-200);
-    economy.commodityConsignments = economy.commodityConsignments.slice(-200);
+    economy.commodityOrders = retainCommodityHistory(economy.commodityOrders, ["open", "executing"]);
+    economy.commodityConsignments = retainCommodityHistory(economy.commodityConsignments, ["inTransit", "arrived", "unloading", "dispatching"]);
     return changes;
   }
 
@@ -11514,7 +11723,7 @@
     const economy = ensureEconomy();
     const events = [{ time: economy.commodityMarket.lastTickAt + COMMODITY_MARKET_TICK_SECONDS, label: "Commodity exchange update", type: "market" }];
     for (const consignment of economy.commodityConsignments) {
-      if (consignment.status === "inTransit" && consignment.eta >= state.clock) events.push({ time: consignment.eta, label: `${COMMODITY_MARKET_LISTING_BY_ID[consignment.listingId]?.label || "Freight"} arrives`, type: "freight" });
+      if (consignment.status === "inTransit" && !commodityConsignmentJourney(consignment) && consignment.eta >= state.clock) events.push({ time: consignment.eta, label: `${COMMODITY_MARKET_LISTING_BY_ID[consignment.listingId]?.label || "Freight"} arrives`, type: "freight" });
     }
     return events.filter((event) => event.time >= state.clock).sort((a, b) => a.time - b.time)[0] || null;
   }
@@ -13486,6 +13695,28 @@
         ...ensureSiteVisits(), activeVisit: SiteVisits.activeVisit(ensureSiteVisits()),
         nextVisit: SiteVisits.nextEvent(ensureSiteVisits(), state.clock), clock: state.clock
       }),
+      strategicJourneysSnapshot: () => clonePlainObject({
+        ...ensureStrategicJourneys(),
+        publicJourneys: ensureStrategicJourneys().journeys.map((journey) => StrategicJourneys.publicJourney(journey, state.clock)),
+        nextEvent: StrategicJourneys.nextEvent(ensureStrategicJourneys(), state.clock), clock: state.clock
+      }),
+      cancelStrategicJourney: (journeyId) => cancelStrategicJourney(journeyId),
+      recoverStrategicJourney: (journeyId) => recoverStrategicJourney(journeyId),
+      setStrategicServiceTestNetwork: (network, seed = "strategic-services-test") => {
+        state.seed = seed;
+        state.started = true;
+        state.strategicJourneys = StrategicJourneys.defaultState({ network, clock: state.clock });
+        syncStrategicVisitJourneys();
+        enterGameplay({ focus: false });
+        renderSiteVisits(); return true;
+      },
+      advanceStrategicServices: (seconds = 0) => {
+        state.clock += Math.max(0, Number(seconds) || 0);
+        updateStrategicJourneys(); updateSiteVisits(0); updateCommodityMarket();
+        completeDueTasks(); persist(); render();
+        return state.clock;
+      },
+      renderStrategicServices: () => { renderSiteVisits(); renderCommodityFreight(ensureEconomy()); return true; },
       scheduleSiteVisit: (typeId, options = {}) => {
         const result = SiteVisits.scheduleVisit(ensureSiteVisits(), {
           typeId, visitorLabel: options.visitorLabel,
@@ -13494,9 +13725,11 @@
           arrivalWindowEnd: Number.isFinite(Number(options.arrivalWindowEnd)) ? Number(options.arrivalWindowEnd) : state.clock + SECONDS_PER_HOUR
         });
         state.siteVisits = result.state;
+        syncStrategicVisitJourneys();
         persist(); render(); return clonePlainObject(result.visit);
       },
       updateSiteVisits: (seconds = 1) => {
+        updateStrategicJourneys();
         const changed = updateSiteVisits(Math.max(0, Number(seconds) || 0));
         persist(); render(); return changed;
       },
@@ -16390,6 +16623,7 @@
     materializedSite.materialization.localContextDigest = localContext.digest;
     next.startingSite = clonePlainObject(materializedSite);
     applyLocalSiteContext(next, localContext);
+    next.strategicJourneys = StrategicJourneys.defaultState({ strategicMap: worldMap, startingSite: materializedSite, clock: next.clock });
     const openingSelection = ThemeContent.selectRenderedContent({
       kind: "runOpening",
       worldTheme: world.worldTheme,
@@ -16433,6 +16667,7 @@
       clock: state.clock,
       enabled: state.company.enabled && Boolean(state.siteAccessPoints.some((point) => point.lawful))
     });
+    syncStrategicVisitJourneys();
     ensureCompanyRecordPackets();
     clearMapFeedbackEvents();
     markAnimationDiscontinuity("new-run");
@@ -16469,6 +16704,8 @@
       activeWorldRecord = world;
       selectedWorldId = world.id;
       state = loaded;
+      ensureStrategicJourneys();
+      syncStrategicVisitJourneys();
     } catch (error) {
       syncTitleContinue();
       return false;
@@ -16555,6 +16792,8 @@
     selectedWorldId = world.id;
     const imported = normalizeState(importedState);
     state = imported;
+    ensureStrategicJourneys();
+    syncStrategicVisitJourneys();
     markAnimationDiscontinuity("import");
     resetRunUiToMapDefaults(state);
     geneMap = buildGeneMap(state.seed, state.complexity);
@@ -19546,6 +19785,10 @@
     if (marketEvent) events.push(marketEvent);
     const commodityEvent = nextCommodityMarketEvent();
     if (commodityEvent) events.push(commodityEvent);
+    const network = ensureStrategicJourneys();
+    const disclosedVisitIds = new Set(ensureSiteVisits().visits.filter((visit) => visit.noticeAt <= state.clock).map((visit) => visit.id));
+    const journeyEvent = StrategicJourneys.nextPublicEvent({ journeys: network.journeys.filter((journey) => journey.subject.kind !== "siteVisit" || disclosedVisitIds.has(journey.subject.id)) }, state.clock);
+    if (journeyEvent) events.push(journeyEvent);
     const companyPeriod = activeCompanyPeriod();
     if (companyPeriod?.status === "open" && companyPeriod.closesAt >= state.clock) {
       events.push({ time: companyPeriod.closesAt, label: `company reporting period ${companyPeriod.number} closes`, type: "company" });
@@ -19597,7 +19840,9 @@
     const reportEvent = nextReport ? { time: nextReport.reportDueAt, label: "External report resolves", type: "suspicion" } : null;
     const caseEvent = InvestigationCases.nextEvent(ensureInvestigations(), state.clock);
     const responseEvent = InstitutionalResponses.nextEvent(ensureInstitutionalResponses(), state.clock);
-    const visit = SiteVisits.nextEvent(ensureSiteVisits(), state.clock);
+    const journeyVisitIds = new Set(ensureStrategicJourneys().journeys.filter((journey) => journey.subject.kind === "siteVisit").map((journey) => journey.subject.id));
+    const visits = ensureSiteVisits();
+    const visit = SiteVisits.nextEvent({ ...visits, visits: visits.visits.filter((entry) => !journeyVisitIds.has(entry.id)) }, state.clock);
     const visitEvent = visit ? { time: visit.arrivalAt, label: `${visit.visitorLabel} arrival window`, type: "visit" } : null;
     const raid = LawEnforcementRaids.nextEvent(ensureLawEnforcementRaids(), state.clock);
     const raidEvent = raid ? { time: raid.arrivalAt, label: `${raid.docket} raid team arrival`, type: "raid" } : null;
@@ -19805,6 +20050,7 @@
       suspicionChanged: 0,
       evidenceChanged: 0,
       environmentalMonitoringChanged: 0,
+      strategicJourneyChanged: 0,
       investigationChanged: 0,
       siteVisitChanged: 0,
       raidChanged: 0,
@@ -19953,6 +20199,7 @@
     }
     if (id === "administration") {
       changes.propertyPresentationChanged += updatePropertyPresentationWeather();
+      changes.strategicJourneyChanged += updateStrategicJourneys();
       changes.siteVisitChanged += updateSiteVisits(elapsed);
       changes.raidChanged += updateLawEnforcementRaids(elapsed);
       changes.raidChanged += updateJailCustody(elapsed);
@@ -20050,6 +20297,7 @@
       + changes.evidenceChanged
       + changes.investigationChanged
       + changes.siteVisitChanged
+      + changes.strategicJourneyChanged
       + changes.raidChanged
       + (changes.vitalsChanged ? 1 : 0)
       + (changes.physicalStateChanged ? 1 : 0)
@@ -59758,6 +60006,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const summary = textEl("p", `Public supply ${formatNumber(listing.supply)} · Owned ${formatNumber(commodityOwnedAmount(def.id))} · Inbound ${formatNumber(commodityInboundAmount(def.id))} · ${listing.history.length} saved price samples`);
       summary.className = "journal-meta";
       card.append(heading, commodityChartEl(def, listing), summary);
+      if (quote.freightPerUnit) card.append(textEl("span", `Road freight: ${formatNumber(quote.freightPerUnit)} credits per unit included in landed ask and net bid.`, "journal-meta"));
       const controls = document.createElement("div");
       controls.className = "commodity-order-controls";
       const quantity = commodityNumberInput(def.section === "chemicalBatches" ? "Package" : "Quantity", 1, 1, 1);
@@ -59837,12 +60086,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function renderCommodityFreight(economy) {
     if (!dom.economyFreightList) return;
-    const section = storesSectionEl("Loading Bay Freight", "Executed purchases arrive before a scientist receiving task materializes them. Outbound sales pay only after the exact reserved stack is dispatched.", { economyCategory: "freight" });
+    const section = storesSectionEl("Loading Bay Freight", "Executed purchases and outbound pickups use saved physical journeys. Inbound stock still needs local unloading; outbound payment settles only after carrier arrival.", { economyCategory: "freight" });
     const consignments = [...economy.commodityConsignments].reverse();
     if (!consignments.length) section.append(emptyText("No legal freight booked."));
     for (const consignment of consignments) {
       const def = COMMODITY_MARKET_LISTING_BY_ID[consignment.listingId];
-      const timing = consignment.status === "inTransit" ? `ETA ${formatClock(consignment.eta)}` : consignment.completedAt !== null ? `Completed ${formatClock(consignment.completedAt)}` : "Loading Bay handling pending";
+      const journey = commodityConsignmentJourney(consignment);
+      const timing = consignment.status === "inTransit"
+        ? journey ? `Supported arrival window ${formatClock(journey.arrivalWindow.start)}–${formatClock(journey.arrivalWindow.end)}` : `ETA ${formatClock(consignment.eta)}`
+        : consignment.completedAt !== null ? `Completed ${formatClock(consignment.completedAt)}` : "Loading Bay handling pending";
       section.append(storesRowEl(`${consignment.direction === "inbound" ? "Inbound" : "Outbound"}: ${def?.label || consignment.listingId}`, titleCase(consignment.status), {
         subtitle: `${formatNumber(consignment.quantity)} units at ${formatMoney(consignment.unitPrice)}; ${formatMoney(consignment.total)} total; ${timing}`,
         dataset: { commodityConsignment: consignment.id, commodityListing: consignment.listingId, freightStatus: consignment.status },
@@ -62300,6 +62552,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (!stack || stack.quantity <= 0) return "The physical evidence subject no longer exists.";
       if (stack.reservedTaskId && stack.reservedTaskId !== task.id) return "The subject is reserved for different work.";
       if (task.data?.action === "dispose" && ensureEconomy().money < Number(task.data?.fee || 0)) return "Licensed disposal funds are no longer available.";
+      if (task.data?.action === "dispose" && task.data.pickupJourneyId) {
+        const journey = ensureStrategicJourneys().journeys.find((entry) => entry.id === task.data.pickupJourneyId);
+        if (journey?.status !== "arrived") return "Waiting for the licensed waste carrier to arrive; check Travel and Arrivals.";
+      }
       return "";
     }
     if (task.type === "synthesize") {
@@ -62618,6 +62874,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "evidenceHandling") {
       const order = ensureEvidenceHandling().orders.find((entry) => entry.id === task.data?.orderId);
       const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.stackId);
+      if (task.data?.pickupJourneyId) {
+        const cancelled = StrategicJourneys.cancelJourney(ensureStrategicJourneys(), task.data.pickupJourneyId, state.clock);
+        state.strategicJourneys = cancelled.state;
+      }
       if (order) {
         order.status = "canceled";
         order.interruption = "Canceled by player before physical completion.";
@@ -71991,6 +72251,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function renderSiteVisits() {
     if (!dom.visitsList || !dom.visitsSummary) return;
+    const disclosedVisitIds = new Set(ensureSiteVisits().visits.filter((visit) => visit.noticeAt <= state.clock).map((visit) => visit.id));
+    const journeys = [...ensureStrategicJourneys().journeys].filter((journey) => journey.subject.kind !== "siteVisit" || disclosedVisitIds.has(journey.subject.id)).sort((left, right) => left.arrivalWindow.start - right.arrivalWindow.start);
     const visits = [...ensureSiteVisits().visits].sort((left, right) => left.arrivalAt - right.arrivalAt);
     const raids = [...ensureLawEnforcementRaids().raids].sort((left, right) => left.arrivalAt - right.arrivalAt);
     const active = visits.filter((visit) => !["scheduled", "completed"].includes(visit.phase));
@@ -72001,13 +72263,45 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const detainedRaids = raids.filter((raid) => raid.status === "booked");
     const openProceedings = ensurePretrialProceedings().proceedings.filter((entry) => !["resolved", "chargesDismissed"].includes(entry.status)).length;
     const prisonStay = currentPrisonStay(); const deathRowStay = currentDeathRowStay(); const prisonEscape = latestCompletedPrisonBreak(); const prisonFugitive = prisonEscape && [PRISON_FUGITIVE_ROAD_ROOM_ID, PRISON_FUGITIVE_SHELTER_ROOM_ID].includes(scientistRoomId()); const capitalEscape = latestCompletedDeathRowEscape(); const capitalFugitive = capitalEscape && [CAPITAL_FUGITIVE_TRANSIT_ROOM_ID, CAPITAL_FUGITIVE_SAFEHOUSE_ROOM_ID].includes(scientistRoomId());
-    dom.visitsSummary.textContent = `${upcoming.length + scheduledRaids.length} upcoming · ${active.length + activeRaids.length} active · ${detainedRaids.length} detained · ${prisonStay ? 1 : 0} prison · ${deathRowStay ? 1 : 0} capital custody · ${prisonFugitive ? 1 : 0} prison fugitive · ${capitalFugitive ? 1 : 0} capital fugitive · ${openProceedings} court · ${completed.length} completed`;
+    const activeJourneys = journeys.filter((journey) => StrategicJourneys.ACTIVE_STATUSES.includes(journey.status)).length;
+    dom.visitsSummary.textContent = `${activeJourneys} journey${activeJourneys === 1 ? "" : "s"} underway or booked · ${upcoming.length + scheduledRaids.length} upcoming · ${active.length + activeRaids.length} active · ${detainedRaids.length} detained · ${prisonStay ? 1 : 0} prison · ${deathRowStay ? 1 : 0} capital custody · ${prisonFugitive ? 1 : 0} prison fugitive · ${capitalFugitive ? 1 : 0} capital fugitive · ${openProceedings} court · ${completed.length} completed`;
     dom.visitsList.replaceChildren();
+    if (journeys.length) {
+      const section = document.createElement("section"); section.className = "subpanel"; section.dataset.visitSection = "journeys";
+      section.append(textEl("div", `Strategic Travel and Arrivals (${journeys.length})`, "subpanel-title"));
+      section.append(textEl("span", "Carrier arrival estimates may change with road conditions. Stranded services can request recovery.", "journal-meta"));
+      for (const saved of journeys.slice().reverse()) {
+        const journey = StrategicJourneys.publicJourney(saved, state.clock);
+        const row = document.createElement("article"); row.className = "journal-row visit-row"; row.dataset.journeyId = journey.id;
+        const heading = document.createElement("div"); heading.className = "policy-heading";
+        heading.append(textEl("strong", journey.label), chip(StrategicJourneys.MODE_DEFS[journey.modeId]?.label || titleCase(journey.modeId)), chip(titleCase(journey.status)));
+        row.append(heading,
+          textEl("span", `${journey.provider} · ${journey.capacity.vehicleCount} physical vehicle(s) · ${journey.capacity.passengers} passenger place(s) · ${formatNumber(journey.capacity.cargo)} cargo capacity committed.`, "journal-meta"),
+          textEl("span", `Arrival window ${formatClock(journey.arrivalWindow.start)}–${formatClock(journey.arrivalWindow.end)} · ${journey.route.legs.length} route leg(s).`, "journal-meta")
+        );
+        for (const leg of journey.route.legs) {
+          const interruption = leg.interruption?.revealed ? ` · ${leg.interruption.summary}` : "";
+          row.append(textEl("span", `${leg.label}: ${titleCase(leg.status)} · ${formatNumber(leg.distanceKm)} km · ${titleCase(leg.continuity)}${interruption}`, "journal-meta"));
+        }
+        const cancellableVisit = state.siteVisits.visits.find((visit) => visit.id === saved.subject.id && visit.phase === "scheduled" && ["routineCourier", "wasteCarrier"].includes(visit.typeId));
+        if (saved.subject.kind === "siteVisit" && cancellableVisit && ["scheduled", "enRoute", "held", "diverted"].includes(saved.status)) {
+          const cancel = document.createElement("button"); cancel.type = "button";
+          cancel.textContent = saved.status === "scheduled" && state.clock < saved.departAt ? "Cancel Before Departure" : "Order Physical Return";
+          cancel.addEventListener("click", () => cancelStrategicJourney(saved.id)); row.append(cancel);
+        }
+        if (saved.status === "stranded") {
+          const recover = document.createElement("button"); recover.type = "button"; recover.textContent = "Dispatch Route Recovery";
+          recover.addEventListener("click", () => recoverStrategicJourney(saved.id)); row.append(recover);
+        }
+        section.append(row);
+      }
+      dom.visitsList.append(section);
+    }
     if (prisonStay) dom.visitsList.append(renderPrisonCustodyPanel(prisonStay));
     if (deathRowStay) dom.visitsList.append(renderDeathRowCustodyPanel(deathRowStay));
     if (prisonFugitive) dom.visitsList.append(renderPrisonFugitivePanel(prisonEscape));
     if (capitalFugitive) dom.visitsList.append(renderCapitalFugitivePanel(capitalEscape));
-    if (!visits.length && !raids.length && !openProceedings && !prisonStay && !deathRowStay && !prisonFugitive && !capitalFugitive) {
+    if (!journeys.length && !visits.length && !raids.length && !openProceedings && !prisonStay && !deathRowStay && !prisonFugitive && !capitalFugitive) {
       dom.visitsList.append(emptyText("No lawful visits are scheduled for this site."));
       return;
     }
@@ -77490,7 +77784,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function normalizeCommodityOrders(candidate) {
-    return (Array.isArray(candidate) ? candidate : []).map((order, index) => ({
+    return retainCommodityHistory((Array.isArray(candidate) ? candidate : []).map((order, index) => ({
       id: String(order?.id || `legal-order-${index + 1}`),
       kind: ["limitBuy", "maintainStock", "limitSell"].includes(order?.kind) ? order.kind : "limitBuy",
       listingId: COMMODITY_MARKET_LISTING_BY_ID[order?.listingId] ? order.listingId : COMMODITY_MARKET_LISTING_DEFS[0].id,
@@ -77505,11 +77799,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       status: ["open", "executing", "filled", "canceled", "failed"].includes(order?.status) ? order.status : "open",
       createdAt: finiteTime(order?.createdAt, 0),
       updatedAt: finiteTime(order?.updatedAt, order?.createdAt || 0)
-    })).slice(-200);
+    })), ["open", "executing"]);
   }
 
   function normalizeCommodityConsignments(candidate) {
-    return (Array.isArray(candidate) ? candidate : []).map((entry, index) => ({
+    return retainCommodityHistory((Array.isArray(candidate) ? candidate : []).map((entry, index) => ({
       id: String(entry?.id || `legal-consignment-${index + 1}`),
       direction: entry?.direction === "outbound" ? "outbound" : "inbound",
       listingId: COMMODITY_MARKET_LISTING_BY_ID[entry?.listingId] ? entry.listingId : COMMODITY_MARKET_LISTING_DEFS[0].id,
@@ -77522,8 +77816,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       createdAt: finiteTime(entry?.createdAt, 0),
       eta: finiteTime(entry?.eta, entry?.createdAt || 0),
       completedAt: entry?.completedAt === null || entry?.completedAt === undefined ? null : finiteTime(entry.completedAt, 0),
-      taskId: String(entry?.taskId || "")
-    })).slice(-200);
+      taskId: String(entry?.taskId || ""),
+      journeyId: String(entry?.journeyId || ""),
+      pickupJourneyId: String(entry?.pickupJourneyId || "")
+    })), ["inTransit", "arrived", "unloading", "dispatching"]);
   }
 
   function normalizeLegalLedger(candidate) {
@@ -80465,6 +80761,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       defaultPropertyPresentationOptions(next.localSiteContext)
     );
     next.environmentalMonitoring = EnvironmentalMonitoring.normalizeState(candidate?.environmentalMonitoring, next.localSiteContext);
+    next.strategicJourneys = StrategicJourneys.normalizeState(candidate?.strategicJourneys);
     const opening = candidate?.themeContent?.opening;
     next.themeContent = {
       version: Math.max(1, Math.floor(Number(candidate?.themeContent?.version) || ThemeContent.VERSION)),
