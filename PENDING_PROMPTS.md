@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Beast Encounters and Expedition Escorts
+1. Expedition Escorts
 2. Stranding and Rescue
 3. Penal Flights and Beast-Territory Exile
 4. Penal Legions and Wilderness Service
@@ -91,9 +91,9 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Beast Encounters and Expedition Escorts
+## 1. Expedition Escorts
 
-Extend physical wilderness exploration with locally present beasts selected from the saved world's static species catalog and actual regional populations. Discuss detection, avoidance, retreat, combat, and named expedition companions before implementation. Do not substitute hidden expedition damage rolls for local encounters. Escorts need real equipment, needs, relationships, and physical positions; a hire is not guaranteed protection. Preserve world templates, saved local discoveries, and field-survival rules. Keep the existing municipal waiting-vehicle contract unchanged.
+Build on the completed local beast encounters and field-survival systems to add named expedition companions. Discuss recruitment, fees, equipment, food and water, transport capacity, follow/hold/withdraw orders, combat judgment, injuries, relationships, and contract completion before implementation. Escorts must occupy physical positions and use real equipment and supplies; a hire is not guaranteed protection or a passive combat bonus. Reuse the existing knowledge-limited beast encounters, shared combat, and secured boundary rather than implementing them again. Preserve world templates, saved local discoveries, and the municipal waiting-vehicle contract. Split wider companion management or additional beast encounter profiles into separate discussions if needed.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 

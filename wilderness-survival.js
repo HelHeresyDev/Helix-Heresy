@@ -30,7 +30,7 @@
       .sort((a, b) => a.slopePercent - b.slopePercent || a.id.localeCompare(b.id))[0];
     if (!candidate) return null;
     return { id: `wilderness:${candidate.id}`, strategicCellId: candidate.id, approachCellId: origin.id, label: `${candidate.biomeLabel || "Wilderness"} Boundary Sector`, temperatureC: candidate.temperatureC, slopePercent: candidate.slopePercent, precipitationMm: candidate.precipitationMm || 0,
-      terrain: candidate.slopePercent > 15 ? "broken ground" : "gentle ground", jurisdiction: "No ordinary city jurisdiction beyond the defended boundary", description: "A small on-foot boundary sector, not a traversal or survey of the entire strategic cell. Beast encounters are not yet simulated here." };
+      terrain: candidate.slopePercent > 15 ? "broken ground" : "gentle ground", jurisdiction: "No ordinary city jurisdiction beyond the defended boundary", description: "A small on-foot boundary sector, not a traversal or survey of the entire strategic cell. Only supported terrestrial encounters are simulated; unobserved ground is not confirmed safe." };
   }
   function conditions(destination, at, sheltered = false) {
     if (!destination) return { temperatureC: 18, stress: 0, label: "Protected local conditions" };
