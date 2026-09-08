@@ -18,17 +18,18 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Wilderness Survey Expeditions and Survival
-2. Penal Flights and Beast-Territory Exile
-3. Penal Legions and Wilderness Service
-4. World Integration: Economy and Logistics
-5. World Integration: Investigations and Institutional Pressure
-6. Lazy Local Detail and World Discovery
-7. Roguelike Run Lifecycle, Death, Postmortem, and Restart
-8. Campaign Roadmap: From Hidden Laboratory to World Domination
-9. New-Run Onboarding and Contextual Tutorial
-10. Sound, Notifications, and Accessibility Audit
-11. Production Art Pass Using the Sprite Pipeline
+1. Beast Encounters and Expedition Escorts
+2. Stranding and Rescue
+3. Penal Flights and Beast-Territory Exile
+4. Penal Legions and Wilderness Service
+5. World Integration: Economy and Logistics
+6. World Integration: Investigations and Institutional Pressure
+7. Lazy Local Detail and World Discovery
+8. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+9. Campaign Roadmap: From Hidden Laboratory to World Domination
+10. New-Run Onboarding and Contextual Tutorial
+11. Sound, Notifications, and Accessibility Audit
+12. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -90,17 +91,19 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Wilderness Survey Expeditions and Survival
+## 1. Beast Encounters and Expedition Escorts
 
-Extend the completed supported municipal survey excursion into a bounded unsupported wilderness operation. The supported pass already provides physical packing, hired road journeys, persistent local survey ground, sample return and home assays, locally caused injury and carried first aid, laboratory absence, and dated company-account reports. Do not repeat that implementation.
-
-Discuss the smallest playable wilderness slice before implementation: known entry points, physical travel beyond defended approaches, carried provisions, withdrawal, camp or shelter, escorts, locally materialized beasts and environmental dangers, vehicle loss, and rescue without guaranteed transport. A failed journey or exile must leave a living scientist physically playable; survival and death cannot resolve through an unseen random expedition outcome. Share suitable local-survival mechanics with later Penal Flight and penal-legion play. Split camps, escorts, encounters, and recovery into further prompts if they exceed one coherent pass.
-
-Reuse run-owned observations, stable same-place/method uncertainty, instrument wear and calibration, method-limited depth, physical sample provenance, and reagent-consuming assays. Discovering a place can add it to the run's known destination directory but grants neither extraction rights nor inventory. Keep supported municipal sampling permission distinct from access to other property and ungoverned wilderness. New coverage may refine estimates, but one point cannot survey a strategic cell, and exact veins, pockets, quality, and quantity need appropriate local methods. Preserve world templates and independent runs. Continue laboratory automation without remote scientist work or omniscient reports; communications require an actual working connection.
+Extend physical wilderness exploration with locally present beasts selected from the saved world's static species catalog and actual regional populations. Discuss detection, avoidance, retreat, combat, and named expedition companions before implementation. Do not substitute hidden expedition damage rolls for local encounters. Escorts need real equipment, needs, relationships, and physical positions; a hire is not guaranteed protection. Preserve world templates, saved local discoveries, and field-survival rules. Keep the existing municipal waiting-vehicle contract unchanged.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 2. Penal Flights and Beast-Territory Exile
+## 2. Stranding and Rescue
+
+Build on physical wilderness survival and encounters to support lost vehicles, missed pickups, distress signals, uncertain rescue, and recovery without guaranteed transport. Communications require working equipment and do not create physical logistics. Losing a vehicle or failing an expedition must leave a living scientist playable rather than resolve an unseen death. Share suitable mechanics with Penal Flight and penal-legion missions. Discuss a bounded playable slice first; do not retroactively remove the supported municipal carrier's included waiting and recovery.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 3. Penal Flights and Beast-Territory Exile
 
 Design and implement Penal Flight as the non-public-enemy capital punishment after generated beast territories, strategic intercity corridors, routes, and exact local travel exist. Penal Flight is wilderness banishment and presumed death, not a physical execution or automatic game over. The sentence completes only when the living scientist is released in the wild.
 
@@ -112,55 +115,55 @@ Survivors remain playable and legally banished. Returning to protected human ter
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Penal Legions and Wilderness Service
+## 4. Penal Legions and Wilderness Service
 
 Design and implement penal-legion service as a distinct playable post-conviction path. Consume sentence, jurisdiction, military institution, world geography, settlement threats, routes, creature ecology, transport, equipment, squad, and laboratory-continuity state. The first mission should be a bounded physical operation rather than an abstract combat roll.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. World Integration: Economy and Logistics
+## 5. World Integration: Economy and Logistics
 
 Design and implement effects from generated geography, settlements, routes, resources, powers, laws, and history on lawful trade, black-market access, delivery, and off-site logistics. Preserve existing commodity exchange, contract, Loading Bay, and Concealed Exit flows while giving them specific world context.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. World Integration: Investigations and Institutional Pressure
+## 6. World Integration: Investigations and Institutional Pressure
 
 Design and implement world-context effects on company plausibility, inspections, investigations, religious scrutiny, escalation, and authority response. Context may alter priorities, schedules, thresholds, and available actions, but must not invent player guilt.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Lazy Local Detail and World Discovery
+## 7. Lazy Local Detail and World Discovery
 
 Design and implement deterministic elaboration of the already generated strategic world when a run encounters it. Lazy generation may fill minor places, institution branches, contacts, local histories, individuals, encounters, and exact maps while respecting canonical world facts and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+## 8. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 
 Design and implement the loop for beginning, losing, reviewing, and replacing a run without altering its reusable world. Only the scientist’s death ends a run; arrest, jail, prison, penal service, death sentence, loss of laboratory, and similar catastrophes remain playable while the scientist lives.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 9. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. The final campaign goal is rare world domination, but early hidden-laboratory survival must remain a complete roguelike experience.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. New-Run Onboarding and Contextual Tutorial
+## 10. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 10. Sound, Notifications, and Accessibility Audit
+## 11. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 11. Production Art Pass Using the Sprite Pipeline
+## 12. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 

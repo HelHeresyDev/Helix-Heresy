@@ -47,6 +47,8 @@
   const StrategicJourneys = window.HelixStrategicJourneys;
   const ResourceSurveys = window.HelixResourceSurveys;
   const SurveyExpeditions = window.HelixSurveyExpeditions;
+  const WildernessSurvival = window.HelixWildernessSurvival;
+  if (!WildernessSurvival) throw new Error("Wilderness survival must load before app.js");
   let surveyDirectEvent = false;
   if (!SurveyExpeditions) throw new Error("Survey expeditions must load before app.js");
   if (!ResourceSurveys) throw new Error("Resource surveys must load before app.js");
@@ -3261,6 +3263,7 @@
     { id: "assayReagent", section: "resources", key: "assayReagent", label: "Assay Reagent", basePrice: 31, supply: 40, liquidity: 18, buyable: true, sellable: true },
     { id: "medicalBandage", section: "inventory", key: "medicalBandage", label: "Medical Bandage", basePrice: 16, supply: 45, liquidity: 20, buyable: true, sellable: true },
     { id: "fieldRation", section: "inventory", key: "fieldRation", label: "Field Provision Pack", basePrice: 12, supply: 50, liquidity: 24, buyable: true, sellable: true },
+    ...WildernessSurvival.ITEMS.map((item) => ({ id: item.key, section: "inventory", key: item.key, label: item.label, basePrice: item.price, supply: 40, liquidity: 16, buyable: true, sellable: true })),
     { id: "neutralizingWash", section: "inventory", key: "neutralizingWash", label: "Neutralizing Wash", basePrice: 22, supply: 35, liquidity: 16, buyable: true, sellable: true },
     { id: "membraneSealant", section: "inventory", key: "membraneSealant", label: "Membrane Sealant", basePrice: 27, supply: 30, liquidity: 14, buyable: true, sellable: true },
     { id: "sealedCollectionJar", section: "inventory", key: "sealedCollectionJar", label: "Sealed Collection Jar", basePrice: 15, supply: 48, liquidity: 20, buyable: true, sellable: true },
@@ -3589,6 +3592,7 @@
   ];
   const INVENTORY_CATEGORY_BY_ID = Object.fromEntries(INVENTORY_CATEGORY_DEFS.map((category) => [category.id, category]));
   const INVENTORY_ITEM_DEFS = [
+    ...WildernessSurvival.ITEMS.map((item) => ({ key: item.key, label: item.label, category: "receptacles", initial: item.initial, description: "Physical field-survival equipment or supplies. Pack and use through the Field Survival panel in Visits." })),
     { key: "fieldRation", label: "Field Provision Pack", category: "receptacles", initial: 4, description: "Sealed drinking water and food for a supported field excursion. One pack is consumed on each boarding." },
     {
       key: "medicalBandage",
@@ -5232,6 +5236,7 @@
       strategicJourneys: StrategicJourneys.defaultState(),
       resourceSurveys: ResourceSurveys.defaultState(),
       surveyExpeditions: SurveyExpeditions.defaultState(),
+      wildernessSurvival: WildernessSurvival.defaultState(),
       themeContent: { version: ThemeContent.VERSION, opening: null },
       journalMode: "auto",
       complexity: "clean",
@@ -14967,6 +14972,21 @@
       strandSurveyJourneyForTest: () => { const expedition = ensureSurveyExpeditions(); const journey = ensureStrategicJourneys().journeys.find((entry) => entry.id === expedition.journeyId); if (!journey) return false; journey.status = "stranded"; return true; },
       treatSurveyInjuryForTest: (id) => startInjuryTreatment(id),
       setSurveyRelayTestState: (online) => { ensureSurveyExpeditions().relayOnline = Boolean(online); render(); },
+      wildernessSnapshot: () => clonePlainObject({ ...ensureWildernessSurvival(), scientistCell: scientistMapCell(), roomId: scientistRoomId(), sheltered: wildernessSheltered(), radio: wildernessRadio(), carried: surveyCarriedStacks(), tasks: scientistQueueTasks().map((task) => ({ ...task, reason: taskBlockReason(task) })), clock: state.clock, health: scientistVital("health").current }),
+      enterWilderness,
+      queueWildernessShelter,
+      queueSurvivalConsumption,
+      toggleWildernessRadio,
+      replaceWildernessBattery,
+      requestWildernessReport,
+      configureWildernessTest: (options = {}) => {
+        const survival = ensureWildernessSurvival();
+        if (options.destination) { survival.destination = clonePlainObject(options.destination); survival.context = { ...clonePlainObject(ensureResourceSurveys().context), siteId: options.destination.id, strategicCellId: options.destination.strategicCellId }; }
+        for (const key of ["thirst", "hunger", "exertion", "exposure", "autoCare", "mode"]) if (options[key] !== undefined) survival[key] = options[key];
+        if (options.radioCharge !== undefined && wildernessRadio()) wildernessRadio().charge = options.radioCharge;
+        render(); return true;
+      },
+      advanceWildernessNeedsForTest: (seconds) => { state.clock += seconds; updateWildernessNeeds(); render(); },
       setSurveyLabTestReport: (money) => { ensureEconomy().money = money; addEvent("Laboratory-only test fault", { sourceKind: "labTest" }); render(); },
       resourceSurveyBlockReason: (methodId, cell) => resourceSurveyPlan(methodId, cell).reason || "",
       resourceSurveySnapshot: () => clonePlainObject({ ...ResourceSurveys.publicKnowledge(ensureResourceSurveys()), samples: ensureDiagnosticState().samples.filter((sample) => sample.captured.resourceSurvey).map(({ captured, ...sample }) => sample), tasks: state.tasks.filter((task) => task.type === "physicalDiagnostic") }),
@@ -20228,6 +20248,7 @@
       state.combat = normalizeCombatState(state.combat);
       changes.vitalsChanged += recoverVitals(elapsed);
       changes.physicalStateChanged += updateScientistPhysicalExposure(elapsed);
+      changes.physicalStateChanged += updateWildernessNeeds();
       changes.combatChanged += updateCombat(elapsed);
       const routineSuspended = Boolean(state.combat.routineSuspension);
       changes.combatChanged += progressInjuries();
@@ -28958,6 +28979,7 @@
   }
 
   function surfaceGroundAtCell(cell, map = ensureLabMap()) {
+    if (cell?.z === SurveyExpeditions.FIELD_Z && map.rooms?.[WildernessSurvival.ROOM]?.cells?.some((entry) => mapCellKey(entry) === mapCellKey(cell))) return { cell: cleanMapCell(cell), terrainId: "soil" };
     if (cell?.z === SurveyExpeditions.FIELD_Z && map.rooms?.[SurveyExpeditions.FIELD_ROOM]?.cells?.some((entry) => mapCellKey(entry) === mapCellKey(cell))) return { cell: cleanMapCell(cell), terrainId: "soil" };
     return indexedMapCellEntry(map.terrain?.surfaceGround, cell);
   }
@@ -29831,6 +29853,8 @@
   }
 
   function physicalItemUnitMetrics(section, key) {
+    const fieldItem = section === "inventory" && WildernessSurvival.ITEMS.find((item) => item.key === key);
+    if (fieldItem) return { massKg: fieldItem.massKg, volumeL: fieldItem.volumeL };
     if (section === "resources") {
       return {
         biomass: { volumeL: 1.2, massKg: 1 },
@@ -61363,6 +61387,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }
       }
       const surveys = ResourceSurveys.publicKnowledge(ensureResourceSurveys());
+      if (state.wildernessSurvival?.materialized) {
+        const markers = [[WildernessSurvival.GATE, "W", "Defended boundary: wilderness beyond; return requires walking"]];
+        if (state.wildernessSurvival.shelter) markers.push([state.wildernessSurvival.shelter.cell, "S", "Deployed shelter: occupy this tile to reduce weather exposure"]);
+        for (const [cell, value, label] of markers) setLabMapOverlayEntry(assignments, cell, { overlayId, classNames: ["map-overlay-resources", "map-overlay-resources-high"], label, title: label, source: "Known field equipment and boundary", value, target: { kind: "tile", tile: cell } }, map);
+      }
       for (const observation of surveys.observations) {
         const detected = observation.findings.some((finding) => finding.result === "indicatorsDetected");
         setLabMapOverlayEntry(assignments, observation.cell, {
@@ -63882,7 +63911,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (selection.kind === "scientist") return [...commands, ...injuryContextCommands("scientist"), commandDef({ id: "survey.rest", label: "Rest Here (15 minutes)", group: "Survey", disabledReason: surveyBusy() ? "Finish or cancel current field work first." : "", run: () => createRestTask(15) })];
       if (selection.kind === "tile" && state.surveyExpeditions.phase === "field" && selection.tile?.z === SurveyExpeditions.FIELD_Z && surfaceGroundAtCell(selection.tile)) {
         const cell = selection.tile;
-        commands.push(commandDef({ id: "survey.move", label: mapCellKey(cell) === mapCellKey(SurveyExpeditions.HAZARD) ? "Move Here — Flagged Loose Rock" : "Move Scientist Here", group: "Movement", danger: mapCellKey(cell) === mapCellKey(SurveyExpeditions.HAZARD), disabledReason: scientistMoveBlockReason(SurveyExpeditions.FIELD_ROOM, { toCell: cell }), run: () => startScientistMove(SurveyExpeditions.FIELD_ROOM, { toCell: cell }) }), ...fieldDiagnosticContextCommands("tile", "", cell));
+        const roomId = labMapCellRoomId(cell) || SurveyExpeditions.FIELD_ROOM;
+        commands.push(commandDef({ id: "survey.move", label: mapCellKey(cell) === mapCellKey(SurveyExpeditions.HAZARD) ? "Move Here — Flagged Loose Rock" : "Move Scientist Here", group: "Movement", danger: mapCellKey(cell) === mapCellKey(SurveyExpeditions.HAZARD), disabledReason: scientistMoveBlockReason(roomId, { toCell: cell, allowMultiRoom: true }), run: () => startScientistMove(roomId, { toCell: cell, allowMultiRoom: true }) }), ...fieldDiagnosticContextCommands("tile", "", cell));
       }
       return commands;
     }
@@ -74844,6 +74874,208 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       arcaneInterference: Number(map.arcaneGeography?.manaConcentrationPermille?.[index]) || 0 };
   }
 
+  function ensureWildernessSurvival() {
+    state.wildernessSurvival ||= WildernessSurvival.defaultState(state.clock);
+    const survival = state.wildernessSurvival;
+    const map = activeWorldRecord?.generatedData?.strategicMap;
+    const originId = state.surveyExpeditions?.destination?.cellId;
+    if (!survival.destination && map && originId) {
+      const origin = StrategicWorld.cellSnapshot(map, StrategicWorld.cellIndex(originId));
+      const candidates = (origin?.neighborIds || []).map((id) => {
+        const index = StrategicWorld.cellIndex(id), cell = StrategicWorld.cellSnapshot(map, index);
+        const relief = PlanetaryRelief.cellReliefSnapshot(map, index), environment = ClimateHydrologyBiomes.cellEnvironmentSnapshot(map, index);
+        return { ...cell, slopePercent: relief?.slopePercent, temperatureC: environment?.temperatureC, precipitationMm: environment?.precipitationMm, biomeLabel: environment?.biomeClass?.label };
+      });
+      const occupied = (map.publicPlayableSettlementDirectory?.cityRows || []).filter((row) => row.physicalCondition !== "ruined").map((row) => row.cellId);
+      const destination = WildernessSurvival.chooseDestination(origin, candidates, occupied);
+      if (destination) {
+        const context = resourceSurveyContext(activeWorldRecord, { strategicLocation: { id: destination.id, strategicCellId: destination.strategicCellId } }, state.seed);
+        if (context) { survival.destination = destination; survival.context = context; }
+      }
+    }
+    return survival;
+  }
+
+  function scientistInWilderness() { return scientistRoomId() === WildernessSurvival.ROOM; }
+  function wildernessSheltered() {
+    const shelter = state.wildernessSurvival?.shelter;
+    const stack = shelter && ensurePhysicalItemStacks().find((entry) => entry.id === shelter.stackId && !entry.carriedBy && entry.quantity > 0);
+    return Boolean(stack && mapCellKey(stack.cell) === mapCellKey(shelter.cell) && mapCellKey(scientistMapCell()) === mapCellKey(shelter.cell));
+  }
+  function resourceContextForCell(cell) {
+    if (labMapCellRoomId(cell) === WildernessSurvival.ROOM) return ensureWildernessSurvival().context;
+    if (surveyScientistAway()) return ensureSurveyExpeditions().fieldContext;
+    return ensureResourceSurveys().context;
+  }
+
+  function materializeWilderness() {
+    const survival = ensureWildernessSurvival();
+    if (!survival.destination || survival.materialized || !state.surveyExpeditions.materialized) return Boolean(survival.materialized);
+    const rect = { roomId: WildernessSurvival.ROOM, x: 21, y: 8, z: SurveyExpeditions.FIELD_Z, width: 16, height: 12 };
+    // Saved local relief leaves rock obstacles without pretending to expose resource deposits.
+    const rocks = survival.destination.slopePercent > 15 ? new Set(["30,10,6", "30,11,6", "30,14,6"]) : new Set(["32,16,6"]);
+    const cells = rectangularRoomCells(rect).filter((cell) => !rocks.has(mapCellKey(cell)));
+    const room = normalizeRoom({ id: WildernessSurvival.ROOM, name: survival.destination.label, facilityClass: "wilderness", purposeId: "corridor", connections: [SurveyExpeditions.FIELD_ROOM], description: `${survival.destination.jurisdiction}. ${survival.destination.description}`, geometry: { lengthM: rect.width, widthM: rect.height, heightM: 3, floorAreaM2: cells.length, volumeM3: cells.length * 3 }, purposeSource: "wildernessSurvey" });
+    state.rooms = normalizeRooms([...state.rooms, room]);
+    roomById(SurveyExpeditions.FIELD_ROOM).connections.push(WildernessSurvival.ROOM);
+    const map = ensureLabMap();
+    map.rooms[room.id] = normalizeLabMapRoom({ ...rect, cells, anchor: WildernessSurvival.ENTRY }, room);
+    map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...cells, WildernessSurvival.GATE]);
+    state.roomStockpiles[room.id] = emptyRoomStockpile();
+    const doorId = "door-survey-wilderness-boundary";
+    map.doors[doorId] = normalizeLabMapDoor({ id: doorId, roomIds: [SurveyExpeditions.FIELD_ROOM, room.id], cell: WildernessSurvival.GATE, frameAxis: "northSouth", passageAxis: "eastWest", clearance: { widthM: 1, heightM: 2.1 } }, doorId, map.rooms);
+    state.doors = normalizeDoors(state.doors, state.rooms, map);
+    Object.assign(state.doors[doorId], { state: DOOR_STATE_OPEN, lockState: DOOR_LOCK_UNLOCKED, accessRuleId: "unrestricted" });
+    survival.materialized = true;
+    ensureResourceSurveys().sites[survival.context.siteId] = clonePlainObject(survival.context);
+    return true;
+  }
+
+  function enterWilderness() {
+    if (state.surveyExpeditions?.phase !== "field" || surveyBusy() || scientistInWilderness()) return false;
+    if (!materializeWilderness()) return false;
+    const path = labMapPathBetweenCells(scientistMapCell(), WildernessSurvival.ENTRY, { map: ensureLabMap(), actor: state.scientist, ignoreDoors: true });
+    if (!path.length || pathAccessViolations(state.scientist, path).length) return false;
+    const duration = formatDuration(mapPathTravelDistanceMeters(path, ensureLabMap()) / scientistMoveSpeedMps());
+    const warnings = WildernessSurvival.warnings(surveyCarriedStacks());
+    if (!window.confirm(`Estimated boundary walk: ${duration}. Beyond this boundary, withdrawal requires a physical route and communications require carried equipment.\n${warnings.join("\n")}\nEnter wilderness?`)) return false;
+    return queueSurveyWork("walkWilderness", WildernessSurvival.ENTRY, { label: "Walk beyond the defended boundary" });
+  }
+
+  function survivalSupply(key, carriedOnly = surveyScientistAway()) {
+    return ensurePhysicalItemStacks().filter((stack) => stack.key === key && stack.quantity > 0 && !stack.reservedTaskId && (!stack.carriedBy || stack.carriedBy === "scientist"))
+      .filter((stack) => !carriedOnly || stack.carriedBy === "scientist")
+      .filter((stack) => !stack.fixtureId || storageFixtureScientistAccessible(fixtureById(stack.fixtureId)))
+      .sort((a, b) => Number(b.carriedBy === "scientist") - Number(a.carriedBy === "scientist"))
+      .find((stack) => { const cell = stockpileHaulAccessCell(stack); return cell && labMapPathBetweenCells(scientistMapCell(), cell, { map: ensureLabMap(), actor: state.scientist, ignoreDoors: true }).length; }) || null;
+  }
+  function queueSurvivalConsumption(key) {
+    if (!["drinkingWater", "trailMeal", "fieldRation"].includes(key)) return false;
+    const stack = survivalSupply(key);
+    if (!stack) return false;
+    return queueSurveyWork("consume", stockpileHaulAccessCell(stack), { stackId: stack.id, itemKey: key, label: `Use ${inventoryItemLabel(key)}`, workSeconds: 20 });
+  }
+  function queueWildernessShelter(action) {
+    if (!["deployShelter", "packShelter"].includes(action) || !scientistInWilderness() || surveyBusy()) return false;
+    const survival = ensureWildernessSurvival();
+    const stack = action === "deployShelter" ? survivalSupply("fieldShelter", true) : ensurePhysicalItemStacks().find((entry) => entry.id === survival.shelter?.stackId && !entry.carriedBy && !entry.reservedTaskId);
+    if (!stack || action === "deployShelter" && survival.shelter) return false;
+    return queueSurveyWork(action, action === "deployShelter" ? scientistMapCell() : stack.cell, { stackId: stack.id, label: action === "deployShelter" ? "Deploy field shelter" : "Pack field shelter", workSeconds: action === "deployShelter" ? 120 : 60 });
+  }
+  function wildernessRadio() {
+    const stack = surveyCarriedStacks().find((entry) => entry.key === "satelliteCommunicator" && entry.quantity > 0 && !entry.reservedTaskId);
+    if (!stack) return null;
+    const survival = ensureWildernessSurvival();
+    survival.radios[stack.id] ||= { stackId: stack.id, charge: WildernessSurvival.RADIO_SECONDS, powered: false };
+    return survival.radios[stack.id];
+  }
+  function toggleWildernessRadio() {
+    const radio = wildernessRadio(); if (!radio || radio.charge <= 0) return false;
+    radio.powered = !radio.powered; persist(); render(); return true;
+  }
+  function replaceWildernessBattery() {
+    const radio = wildernessRadio(), stack = survivalSupply("relayBattery");
+    return radio && stack ? queueSurveyWork("radioBattery", stockpileHaulAccessCell(stack), { stackId: stack.id, radioId: radio.stackId, label: "Replace communicator battery", workSeconds: 30 }) : false;
+  }
+  function requestWildernessReport() {
+    const radio = wildernessRadio();
+    if (!surveyScientistAway() || !radio?.powered || radio.charge <= 0) return false;
+    const economy = ensureEconomy(), report = SurveyExpeditions.report({ company: ensureCompany().legalName, money: economy.money, openLegalOrders: economy.commodityOrders.filter((entry) => ["open", "executing"].includes(entry.status)).length }, state.clock);
+    report.source = "Carried powered satellite-magical communicator";
+    state.surveyExpeditions.report = report; persist(); render(); return true;
+  }
+  function wildernessWorkBlockReason(task) {
+    const action = task.data?.action;
+    if (!["consume", "radioBattery", "deployShelter", "packShelter"].includes(action)) return "";
+    const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data.stackId && entry.quantity > 0 && entry.reservedTaskId === task.id);
+    if (!stack || stack.carriedBy && stack.carriedBy !== "scientist") return "The reserved survival supply is unavailable.";
+    if (stack.fixtureId && !storageFixtureScientistAccessible(fixtureById(stack.fixtureId))) return "The reserved survival supply is inaccessible.";
+    if (!stack.carriedBy && mapCellKey(stockpileHaulAccessCell(stack)) !== mapCellKey(task.data.toCell)) return "The reserved survival supply moved.";
+    if (action === "radioBattery" && !surveyCarriedStacks().some((entry) => entry.id === task.data.radioId)) return "The communicator is not carried.";
+    if (action === "packShelter" && !actorInventoryCanCarry("scientist", stack, 1)) return "The packed shelter would exceed carrying capacity.";
+    return "";
+  }
+  function completeWildernessWork(task) {
+    const action = task.data?.action;
+    if (action === "walkWilderness") { updateSurveyExpedition(); surveyEvent(`${task.label} complete. The waiting vehicle remains at the defended ground; the boundary was crossed on foot.`); return true; }
+    if (!["consume", "radioBattery", "deployShelter", "packShelter"].includes(action)) return false;
+    const survival = ensureWildernessSurvival(), stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data.stackId);
+    if (!stack) return true;
+    stack.reservedTaskId = "";
+    if (action === "deployShelter") {
+      // Deploying never creates a second kit.
+      if (stack.quantity !== 1) { surveyEvent("Carry one separate shelter kit before deployment."); return true; }
+      dropActorInventoryStack("scientist", stack.id);
+      survival.shelter = { stackId: stack.id, cell: scientistMapCell(), deployedAt: state.clock };
+    } else if (action === "packShelter") {
+      if (carryPhysicalStack("scientist", stack.id, 1)) survival.shelter = null;
+    } else {
+      stack.quantity--; stack.knownQuantity = Math.min(stack.quantity, stack.knownQuantity);
+      if (!stack.quantity) state.physicalItemStacks = state.physicalItemStacks.filter((entry) => entry.id !== stack.id);
+      if (action === "consume") state.wildernessSurvival = WildernessSurvival.consume(survival, task.data.itemKey);
+      else { survival.radios[task.data.radioId] = { stackId: task.data.radioId, charge: WildernessSurvival.RADIO_SECONDS, powered: false }; }
+      syncPhysicalReadModels();
+    }
+    surveyEvent(`${task.label} complete at the scientist's physical location.`); return true;
+  }
+
+  function updateWildernessNeeds() {
+    if (!state.started || scientistIsDead()) return 0;
+    const before = ensureWildernessSurvival();
+    const task = firstScientistQueueTask(), working = Boolean(task && task.type !== "rest" && !taskBlockReason(task));
+    const result = WildernessSurvival.advance(before, state.clock, { working, resting: task?.type === "rest", destination: scientistInWilderness() ? before.destination : null, sheltered: wildernessSheltered(), carriedRadioIds: surveyCarriedStacks().map((stack) => stack.id) });
+    state.wildernessSurvival = result.state;
+    if (result.warning) { surveyEvent("Field Survival warning: thirst, hunger, exertion, or exposure is worsening. Reach supplies, rest, shelter, or withdraw before the condition becomes critical."); state.paused = true; }
+    if (result.damage) {
+      const health = scientistVital("health"); health.current = Math.max(0, health.current - result.damage);
+      surveyEvent("Prolonged critical thirst, starvation, or environmental exposure is damaging the scientist's health."); state.paused = true;
+      if (health.current <= 0) recordScientistPhysicalDeath({ causeKind: "physiologicalFailure", causeLabel: "Prolonged unmet survival needs", physiology: { healthAtDeath: 0, consciousness: "absent", circulation: "stopped", lethal: true }, summary: "The scientist died after prolonged critical survival conditions, not an expedition outcome roll." });
+    }
+    // Existing custodial meal routines supply their physically present detainee; never use remote lab stock.
+    const stay = restrictedOffsiteStay();
+    if (stay && /meal|breakfast|lunch|dinner/i.test(stay.routine?.currentLabel || "")) state.wildernessSurvival = WildernessSurvival.consume(result.state, "fieldRation");
+    if (result.state.autoCare && !surveyBusy() && !state.tasks.some((entry) => entry.type === "surveyExpeditionWork" && entry.data?.action === "consume") && !stay && !state.surveyExpeditions?.preparing) {
+      if (result.state.thirst >= 40) queueSurvivalConsumption("drinkingWater");
+      else if (result.state.hunger >= 40) queueSurvivalConsumption("trailMeal");
+    }
+    return result.warning || result.damage ? 1 : 0;
+  }
+
+  function renderWildernessPanel() {
+    const survival = ensureWildernessSurvival(), panel = document.createElement("section"); panel.dataset.wildernessSurvival = "true"; panel.className = "subpanel";
+    panel.append(textEl("strong", "Field Survival"), textEl("p", `Thirst ${Math.round(survival.thirst)}/100 · Hunger ${Math.round(survival.hunger)}/100 · Exertion ${Math.round(survival.exertion)}/100 · Exposure ${Math.round(survival.exposure)}/100. High needs slow movement and work; prolonged critical thirst, hunger, or exposure damages health.`));
+    const button = (label, run, disabled = false) => { const el = document.createElement("button"); el.type = "button"; el.textContent = label; el.disabled = disabled; el.addEventListener("click", run); panel.append(el); };
+    button(survival.autoCare ? "Automatic Eating and Drinking: On" : "Automatic Eating and Drinking: Off", () => { survival.autoCare = !survival.autoCare; persist(); render(); });
+    for (const key of ["drinkingWater", "trailMeal"]) button(`Use ${inventoryItemLabel(key)}`, () => queueSurvivalConsumption(key), surveyBusy() || !survivalSupply(key));
+    if (!surveyScientistAway()) {
+      button(survival.mode === "wilderness" ? "Trip Preparation: Wilderness" : "Trip Preparation: Municipal", () => { survival.mode = survival.mode === "wilderness" ? "municipal" : "wilderness"; persist(); render(); }, surveyBusy());
+      panel.append(textEl("p", "Wilderness mode warns about missing equipment but does not enforce the municipal packing checklist. The hired vehicle still stops at the defended survey ground."));
+      for (const item of WildernessSurvival.ITEMS) button(`Pack ${item.label}`, () => packSurveyItem(item.key), surveyBusy());
+    }
+    if (!survival.destination) panel.append(textEl("p", "No traversable adjacent wilderness sector is known at this access point."));
+    else {
+      panel.append(textEl("p", `${survival.destination.label}: ${survival.destination.terrain}, ${Math.round(survival.destination.slopePercent)}% regional slope. ${survival.destination.description} ${survival.destination.jurisdiction}.`));
+      if (state.surveyExpeditions?.phase === "field") {
+        button(scientistInWilderness() ? "Walk Back to Defended Ground" : "Walk Beyond Defended Boundary", () => scientistInWilderness() ? queueSurveyWork("walkWilderness", SurveyExpeditions.RENDEZVOUS, { label: "Withdraw on foot to the waiting vehicle" }) : enterWilderness(), surveyBusy());
+        const destination = scientistInWilderness() ? survival.destination : null;
+        panel.append(textEl("p", WildernessSurvival.conditions(destination, state.clock, wildernessSheltered()).label));
+        panel.append(textEl("p", "This bounded boundary trail is tens of metres of local walking, not the globe cell's full width. Inspect the marked walking route; terrain, load, and condition affect its duration. No food, water, or rescue is automatically generated in the wild."));
+        if (scientistInWilderness()) {
+          button(survival.shelter ? "Walk to and Pack Shelter" : "Deploy Shelter Here", () => queueWildernessShelter(survival.shelter ? "packShelter" : "deployShelter"), surveyBusy());
+          if (survival.shelter) button("Walk to Shelter", () => startScientistMove(WildernessSurvival.ROOM, { toCell: survival.shelter.cell }), surveyBusy());
+          button("Rest Here (15 minutes)", () => createRestTask(15), surveyBusy());
+          panel.append(textEl("p", survival.shelter ? `Shelter at ${survival.shelter.cell.x},${survival.shelter.cell.y}; only occupying its tile protects against weather. No guarantee against beasts.` : "No deployed shelter."));
+        }
+      }
+    }
+    const radio = wildernessRadio();
+    panel.append(textEl("p", radio ? `Communicator: ${radio.powered ? "on" : "off"}, ${formatDuration(radio.charge)} battery remaining. Internet contact does not guarantee rescue.` : "No carried communicator; away from the vehicle there is no company connection."));
+    button("Toggle Portable Communicator", toggleWildernessRadio, !radio || radio.charge <= 0);
+    button("Replace Relay Battery", replaceWildernessBattery, !radio || surveyBusy());
+    button("Request Company Report by Portable Relay", requestWildernessReport, !surveyScientistAway() || !radio?.powered || radio.charge <= 0);
+    return panel;
+  }
+
   function ensureSurveyExpeditions() {
     state.surveyExpeditions ||= SurveyExpeditions.defaultState();
     const expedition = state.surveyExpeditions;
@@ -74869,6 +75101,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const target = task?.data?.toCell || task?.data?.targetCell;
     if (!target || target.z !== scientistMapCell().z) return false;
     if (task.type === "injuryTreatment") return task.data.targetActorId === "scientist";
+    if (task.type === "surveyExpeditionWork" && ["consume", "radioBattery"].includes(task.data.action)) return true;
     if (state.surveyExpeditions.phase !== "field") return false;
     return ["scientistMove", "surveyExpeditionWork", "physicalDiagnostic"].includes(task.type);
   }
@@ -74886,9 +75119,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (expedition.phase !== "home") return "The scientist is already off site.";
     if (!expedition.destination) return "No known municipal survey ground has a usable world context.";
     const quote = surveyQuote();
-    return !quote.ok ? quote.reason : SurveyExpeditions.manifestReason(surveyCarriedStacks())
+    const wilderness = state.wildernessSurvival?.mode === "wilderness";
+    return !quote.ok ? quote.reason : (!wilderness ? SurveyExpeditions.manifestReason(surveyCarriedStacks()) : "")
       || (SurveyExpeditions.cargoUnits(surveyCarriedStacks()) > quote.cargoCapacity ? "The packed load exceeds the hired vehicle's cargo capacity." : "")
-      || (!surveyCarriedStacks().some((stack) => stack.key === "environmentalSurveyKit" && toolInstanceById(stack.toolInstanceId)?.instance.current > 0) ? "A usable packed survey instrument is required." : "")
+      || (!wilderness && !surveyCarriedStacks().some((stack) => stack.key === "environmentalSurveyKit" && toolInstanceById(stack.toolInstanceId)?.instance.current > 0) ? "A usable packed survey instrument is required." : "")
       || (ensureEconomy().money < quote.fee ? "Insufficient funds for the quoted round trip." : "");
   }
 
@@ -74897,19 +75131,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const path = labMapPathBetweenCells(scientistMapCell(), cell, { map: ensureLabMap(), actor: state.scientist, ignoreDoors: true });
     if (!path.length || pathAccessViolations(state.scientist, path).length) return false;
     const travelSeconds = mapPathTravelDistanceMeters(path, ensureLabMap()) / scientistMoveSpeedMps();
-    const task = { id: `task-${state.nextTaskNumber++}`, type: "surveyExpeditionWork", label: action === "pack" ? `Pack ${inventoryItemLabel(data.itemKey)}` : "Walk to and board survey vehicle", createdAt: state.clock, dueAt: state.clock + travelSeconds + 10,
+    const task = { id: `task-${state.nextTaskNumber++}`, type: "surveyExpeditionWork", label: data.label || (action === "pack" ? `Pack ${inventoryItemLabel(data.itemKey)}` : "Walk to and board survey vehicle"), createdAt: state.clock, dueAt: state.clock + travelSeconds + (data.workSeconds || 10) * WildernessSurvival.fatigueMultiplier(state.wildernessSurvival),
       data: { ...data, action, toCell: cleanMapCell(cell), toRoomId: labMapCellRoomId(cell), mapPath: path, movement: createScientistMovementRecord(path, travelSeconds, state.clock, { intent: "survey" }) } };
     state.tasks.push(task);
     if (data.stackId) ensurePhysicalItemStacks().find((entry) => entry.id === data.stackId).reservedTaskId = task.id;
     if (data.toolInstanceId) toolInstanceById(data.toolInstanceId).instance.reservedTaskId = task.id;
-    state.surveyExpeditions.preparing = !surveyScientistAway();
+    if (["pack", "board"].includes(action)) state.surveyExpeditions.preparing = !surveyScientistAway();
     surveyEvent(`${task.label} started; packing and boarding require physical arrival.`);
     persist(); render(); return true;
   }
 
   function packSurveyItem(itemKey) {
     const expedition = ensureSurveyExpeditions();
-    const def = SurveyExpeditions.PACK_LIST.find((entry) => entry.key === itemKey);
+    const def = [...SurveyExpeditions.PACK_LIST, ...WildernessSurvival.ITEMS].find((entry) => entry.key === itemKey);
     if (!def || expedition.phase !== "home" || restrictedOffsiteStay() || currentDetentionRaid()) return false;
     const carried = surveyCarriedStacks().filter((entry) => entry.key === itemKey).reduce((n, entry) => n + entry.quantity, 0);
     if (carried >= def.amount) return false;
@@ -74933,12 +75167,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!["home", "field"].includes(expedition.phase) || surveyBusy()) return false;
     const reason = expedition.phase === "home" ? surveyDepartureReason() : "";
     if (reason) { surveyEvent(reason); persist(); render(); return false; }
+    if (expedition.phase === "home" && ensureWildernessSurvival().mode === "wilderness") {
+      const warnings = WildernessSurvival.warnings(surveyCarriedStacks());
+      if (warnings.length && !window.confirm(`Wilderness preparation warnings:\n${warnings.join("\n")}\nProceed with the actual packed load?`)) return false;
+    }
     const homeRoomId = roomById(SURFACE_RECEPTION_ROOM_ID) ? SURFACE_RECEPTION_ROOM_ID : CONCEALED_EXIT_ROOM_ID;
     const cell = expedition.phase === "field" ? SurveyExpeditions.RENDEZVOUS : labMapRoomAnchor(homeRoomId);
     return queueSurveyWork("board", cell);
   }
 
   function surveyWorkBlockReason(task) {
+    const survivalReason = wildernessWorkBlockReason(task);
+    if (survivalReason) return survivalReason;
     if (task.data.action === "pack") {
       const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data.stackId);
       if (!stack || stack.reservedTaskId !== task.id || stack.quantity < task.data.amount || stack.carriedBy) return "The reserved packing supply is no longer available.";
@@ -75000,6 +75240,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function completeSurveyWork(task) {
+    if (completeWildernessWork(task)) return;
     const expedition = ensureSurveyExpeditions();
     if (task.data.action === "pack") {
       const stack = carryPhysicalStack("scientist", task.data.stackId, task.data.amount, { allowReserved: true, toolInstanceId: task.data.toolInstanceId });
@@ -75026,16 +75267,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       materializeSurveySpaces();
     }
     const ration = surveyCarriedStacks().find((stack) => stack.key === "fieldRation" && stack.quantity > 0 && !stack.reservedTaskId);
-    if (ration) { ration.quantity -= 1; ration.knownQuantity = Math.min(ration.knownQuantity, ration.quantity); if (!ration.quantity) state.physicalItemStacks = state.physicalItemStacks.filter((stack) => stack.id !== ration.id); syncPhysicalReadModels(); }
+    if (ration) { ration.quantity -= 1; ration.knownQuantity = Math.min(ration.knownQuantity, ration.quantity); if (!ration.quantity) state.physicalItemStacks = state.physicalItemStacks.filter((stack) => stack.id !== ration.id); state.wildernessSurvival = WildernessSurvival.consume(ensureWildernessSurvival(), "fieldRation"); syncPhysicalReadModels(); }
     expedition.phase = outbound ? "outbound" : "inbound"; expedition.preparing = false; expedition.journeyId = result.journey.id;
     moveSurveyScientist(SurveyExpeditions.CABIN_ROOM, { x: 10, y: 10, z: SurveyExpeditions.CABIN_Z });
-    surveyEvent(`Scientist boarded the hired vehicle${ration ? "; one provision pack consumed" : "; returning without a remaining provision pack"}. Arrival is governed by the saved road journey; no unseen expedition death roll.`);
+    surveyEvent(`Scientist boarded the hired vehicle${ration ? "; one provision pack consumed" : "; no combined provision pack consumed"}. Arrival is governed by the saved road journey; no unseen expedition death roll.`);
     refreshSurveyReport();
   }
 
   function updateSurveyExpedition() {
     const expedition = state.surveyExpeditions;
     if (!expedition || !surveyScientistAway() || scientistIsDead()) return 0;
+    if (expedition.phase === "field") {
+      const desired = scientistInWilderness() ? ensureWildernessSurvival().context : expedition.fieldContext;
+      if (desired && ensureResourceSurveys().context?.siteId !== desired.siteId) useSurveyContext(desired);
+    }
     if (["outbound", "inbound"].includes(expedition.phase)) {
       const journey = ensureStrategicJourneys().journeys.find((entry) => entry.id === expedition.journeyId);
       if (journey && ["arrived", "returned", "cancelled"].includes(journey.status)) {
@@ -75078,6 +75323,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const expedition = ensureSurveyExpeditions();
     const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.surveyExpeditions = "true";
     panel.append(textEl("strong", "Supported Survey Excursions"));
+    panel.append(renderWildernessPanel());
     const button = (label, action, disabled = false, reason = "") => {
       const element = document.createElement("button"); element.type = "button"; element.textContent = label; element.disabled = disabled; element.title = reason; element.addEventListener("click", action); panel.append(element);
     };
@@ -75701,7 +75947,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const methodId = task.data.resourceMethodId;
       const method = ResourceSurveys.METHODS[methodId];
       const confidence = instrumentDiagnosticConfidence(task);
-      const captured = ResourceSurveys.capture(ensureResourceSurveys().context, task.data.targetCell, methodId, state.clock, confidence.score, resourceSurveyInstrument(task, confidence));
+      const captured = ResourceSurveys.capture(resourceContextForCell(task.data.targetCell), task.data.targetCell, methodId, state.clock, confidence.score, resourceSurveyInstrument(task, confidence));
       if (!captured) { releaseConstructionTaskTools(task, { retain: false }); return false; }
       if (method.sampleMethod) {
         consumeProductionMaterialReservations(task);
@@ -80125,11 +80371,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
 
   function adjustedActionDuration(baseSeconds, skillId) {
-    return Math.max(1, Math.ceil((Number(baseSeconds) || 0) * skillReductionMultiplier(skillLevel(skillId)) * (1 + clamp(injuryEffectTotals("scientist").work, 0, 1))));
+    return Math.max(1, Math.ceil((Number(baseSeconds) || 0) * skillReductionMultiplier(skillLevel(skillId)) * (1 + clamp(injuryEffectTotals("scientist").work, 0, 1)) * WildernessSurvival.fatigueMultiplier(state?.wildernessSurvival)));
   }
 
   function adjustedSecondsDuration(baseSeconds, skillId) {
-    return Math.max(1, Math.ceil((Number(baseSeconds) || 0) * skillReductionMultiplier(skillLevel(skillId)) * (1 + clamp(injuryEffectTotals("scientist").work, 0, 1))));
+    return adjustedActionDuration(baseSeconds, skillId);
   }
 
   function adjustedStaminaCost(baseCost, skillIds, options = {}) {
@@ -81291,6 +81537,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.strategicJourneys = StrategicJourneys.normalizeState(candidate?.strategicJourneys);
     next.resourceSurveys = ResourceSurveys.normalizeState(candidate?.resourceSurveys);
     next.surveyExpeditions = SurveyExpeditions.normalizeState(candidate?.surveyExpeditions);
+    next.wildernessSurvival = WildernessSurvival.normalizeState(candidate?.wildernessSurvival, next.clock);
     const opening = candidate?.themeContent?.opening;
     next.themeContent = {
       version: Math.max(1, Math.floor(Number(candidate?.themeContent?.version) || ThemeContent.VERSION)),
@@ -81921,7 +82168,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     state.scientist = normalizeScientist(state.scientist);
     const base = Math.max(0.1, Number(state.scientist.physicalPresence?.moveSpeedMps) || SCIENTIST_MOVE_SPEED_MPS);
     const encumbrance = actorEncumbranceInfo("scientist");
-    return Math.max(0.1, base * (1 - clamp(injuryEffectTotals("scientist").movement, 0, 0.8)) * encumbrance.speedMultiplier);
+    return Math.max(0.1, base * (1 - clamp(injuryEffectTotals("scientist").movement, 0, 0.8)) * encumbrance.speedMultiplier / WildernessSurvival.fatigueMultiplier(state?.wildernessSurvival));
   }
 
   function normalizeScientist(candidate, roomsOverride = null) {
