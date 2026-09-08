@@ -16,9 +16,10 @@
   const clamp = (value, min, max) => Math.max(min, Math.min(max, Number(value) || 0));
   const cellKey = (cell) => `${cell.x},${cell.y},${cell.z}`;
   function noise(seed) { let hash = 2166136261; for (const c of String(seed)) hash = Math.imul(hash ^ c.charCodeAt(0), 16777619); return (hash >>> 0) / 0xffffffff; }
-  function defaultState(context = null) { return { context: context ? clone(context) : null, observations: [], nextObservationNumber: 1 }; }
+  function defaultState(context = null) { return { context: context ? clone(context) : null, sites: context ? { [context.siteId]: clone(context) } : {}, observations: [], nextObservationNumber: 1 }; }
   function normalizeState(candidate) {
     const state = defaultState(candidate?.context);
+    state.sites = { ...clone(candidate?.sites || {}), ...state.sites };
     state.observations = (Array.isArray(candidate?.observations) ? candidate.observations : []).filter((entry) => entry?.id && METHODS[entry.methodId] && entry.cell && Array.isArray(entry.findings)).map(clone);
     state.nextObservationNumber = state.observations.reduce((next, entry) => Math.max(next, (Number(entry.id.split("-").at(-1)) || 0) + 1), Math.max(1, Number(candidate?.nextObservationNumber) || 1));
     return state;
@@ -56,7 +57,8 @@
   }
   function record(candidate, captured, options = {}) {
     const state = normalizeState(candidate);
-    if (!captured || captured.siteId !== state.context?.siteId || captured.worldId !== state.context?.worldId || !METHODS[captured.methodId]) return { state, observation: null };
+    const site = state.sites[captured?.siteId];
+    if (!captured || !site || captured.worldId !== state.context?.worldId || captured.worldId !== site.worldId || captured.strategicCellId !== site.strategicCellId || !METHODS[captured.methodId]) return { state, observation: null };
     const observation = { id: `resource-observation-${state.nextObservationNumber++}`, methodId: captured.methodId, worldId: captured.worldId, siteId: captured.siteId, strategicCellId: captured.strategicCellId, cell: clone(captured.cell), coverage: "local sampling point; strategic cell remains unsurveyed", depth: METHODS[captured.methodId].depth, sampledAt: captured.sampledAt, recordedAt: options.at ?? captured.sampledAt, instrument: clone(captured.instrument), assayInstrument: clone(options.instrument || {}), evidenceKey: captured.evidenceKey, sampleId: options.sampleId || "", sampleStackId: options.sampleStackId || "", diagnosticResultId: options.diagnosticResultId || "", findings: assess(captured, options.score ?? captured.quality) };
     state.observations.push(observation);
     return { state, observation: clone(observation) };

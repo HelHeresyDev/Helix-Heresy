@@ -46,6 +46,9 @@
   const EnvironmentalMonitoring = window.HelixEnvironmentalMonitoring;
   const StrategicJourneys = window.HelixStrategicJourneys;
   const ResourceSurveys = window.HelixResourceSurveys;
+  const SurveyExpeditions = window.HelixSurveyExpeditions;
+  let surveyDirectEvent = false;
+  if (!SurveyExpeditions) throw new Error("Survey expeditions must load before app.js");
   if (!ResourceSurveys) throw new Error("Resource surveys must load before app.js");
   const StrategicGlobeRenderer = window.HelixStrategicGlobeRenderer;
   if (!StrategicWorld || !PlanetaryRelief || !ClimateHydrologyBiomes || !StrategicGeology || !StrategicArcaneGeography || !StrategicResourcePotential || !StrategicHumanGeography || !StrategicCityPolities || !StrategicBeastEcology || !StrategicPreUrbanHumanity || !StrategicCityGovernments || !StrategicCityLaws || !StrategicCityRecognition || !StrategicReligions || !StrategicDivinity || !StrategicFaiths || !StrategicCivilizationOrigins || !StrategicCityExpansion || !StrategicCapabilityHistory || !StrategicNonStateNetworks || !StrategicSettlements || !StrategicDivineHistory || !StrategicCrisisHistory || !StrategicPoliticalHistory || !StrategicCivicHistory || !StrategicLegalHistory || !StrategicPublicAttitudeHistory || !StrategicPlayableSettlementState || !StrategicReligiousInstitutionHistory || !StrategicNonStateNetworkHistory || !StrategicEnforcementPracticeHistory || !StrategicStartingSites || !LocalSiteContext || !SurfaceExposure || !PropertyPresentation || !EnvironmentalMonitoring || !StrategicJourneys || !StrategicGlobeRenderer) {
@@ -3257,6 +3260,7 @@
     { id: "rubber", section: "resources", key: "rubber", label: "Rubber", basePrice: 13, supply: 75, liquidity: 32, buyable: true, sellable: true },
     { id: "assayReagent", section: "resources", key: "assayReagent", label: "Assay Reagent", basePrice: 31, supply: 40, liquidity: 18, buyable: true, sellable: true },
     { id: "medicalBandage", section: "inventory", key: "medicalBandage", label: "Medical Bandage", basePrice: 16, supply: 45, liquidity: 20, buyable: true, sellable: true },
+    { id: "fieldRation", section: "inventory", key: "fieldRation", label: "Field Provision Pack", basePrice: 12, supply: 50, liquidity: 24, buyable: true, sellable: true },
     { id: "neutralizingWash", section: "inventory", key: "neutralizingWash", label: "Neutralizing Wash", basePrice: 22, supply: 35, liquidity: 16, buyable: true, sellable: true },
     { id: "membraneSealant", section: "inventory", key: "membraneSealant", label: "Membrane Sealant", basePrice: 27, supply: 30, liquidity: 14, buyable: true, sellable: true },
     { id: "sealedCollectionJar", section: "inventory", key: "sealedCollectionJar", label: "Sealed Collection Jar", basePrice: 15, supply: 48, liquidity: 20, buyable: true, sellable: true },
@@ -3585,6 +3589,7 @@
   ];
   const INVENTORY_CATEGORY_BY_ID = Object.fromEntries(INVENTORY_CATEGORY_DEFS.map((category) => [category.id, category]));
   const INVENTORY_ITEM_DEFS = [
+    { key: "fieldRation", label: "Field Provision Pack", category: "receptacles", initial: 4, description: "Sealed drinking water and food for a supported field excursion. One pack is consumed on each boarding." },
     {
       key: "medicalBandage",
       label: "Medical Bandage",
@@ -4981,6 +4986,7 @@
     "companyFiling",
     "institutionalResponse",
     "physicalDiagnostic",
+    "surveyExpeditionWork",
     "excavate",
     "constructionWork",
     "productionWork",
@@ -5225,6 +5231,7 @@
       environmentalMonitoring: EnvironmentalMonitoring.defaultState(),
       strategicJourneys: StrategicJourneys.defaultState(),
       resourceSurveys: ResourceSurveys.defaultState(),
+      surveyExpeditions: SurveyExpeditions.defaultState(),
       themeContent: { version: ThemeContent.VERSION, opening: null },
       journalMode: "auto",
       complexity: "clean",
@@ -14938,6 +14945,29 @@
       startSampleCollection: (methodId, kind, id = "", cell = null) => startSampleCollection(methodId, kind, id, cell),
       startEnvironmentalSample: (methodId, recordId) => startEnvironmentalSample(methodId, recordId),
       startResourceSurvey: (methodId, cell) => startResourceSurvey(methodId, cell),
+      packSurveyItem,
+      boardSurveyVehicle,
+      controlSurveyJourney,
+      refreshSurveyReport,
+      surveyExpeditionSnapshot: () => clonePlainObject({ ...ensureSurveyExpeditions(), clock: state.clock, scientistCell: scientistMapCell(), scientistRoomId: scientistRoomId(), carried: surveyCarriedStacks(), injuries: actorInjuries("scientist"), tasks: scientistQueueTasks().map((task) => ({ ...task, reason: taskBlockReason(task) })), departureReason: surveyDepartureReason(), quote: surveyQuote(), money: ensureEconomy().money, visibleTabs: ["map", "visits", "log", "economy", "resources", "tasks"].filter(workspaceTabVisible), visibleEvents: jailVisibleMessages(state.events) }),
+      setSurveyExpeditionTestContext: ({ network, context }) => {
+        state.started = true; state.seed = "supported-survey-test"; ensureEconomy().money = 5000;
+        state.strategicJourneys = StrategicJourneys.defaultState({ network, clock: state.clock });
+        state.surveyExpeditions = SurveyExpeditions.defaultState();
+        state.surveyExpeditions.destination = SurveyExpeditions.destinationFor(network);
+        state.surveyExpeditions.homeContext = clonePlainObject(context);
+        state.surveyExpeditions.fieldContext = { ...clonePlainObject(context), siteId: state.surveyExpeditions.destination.id, strategicCellId: state.surveyExpeditions.destination.cellId };
+        state.resourceSurveys = ResourceSurveys.defaultState(context);
+        ensureSurveyExpeditions(); enterGameplay({ focus: false }); render(); return true;
+      },
+      reloadSurveyExpeditionTestState: () => { state = normalizeState(clonePlainObject(state)); render(); return true; },
+      exportSurveyExpeditionTestState: () => clonePlainObject(state),
+      importSurveyExpeditionTestState: (saved) => { state = normalizeState(clonePlainObject(saved)); enterGameplay({ focus: false }); render(); },
+      queueSurveyLabTestTask: () => { const task = { id: `task-${state.nextTaskNumber++}`, type: "researchWork", label: "Laboratory research test", createdAt: state.clock, dueAt: state.clock + 1, data: { toCell: labMapRoomAnchor(MAIN_ROOM_ID) } }; state.tasks.push(task); return task.id; },
+      strandSurveyJourneyForTest: () => { const expedition = ensureSurveyExpeditions(); const journey = ensureStrategicJourneys().journeys.find((entry) => entry.id === expedition.journeyId); if (!journey) return false; journey.status = "stranded"; return true; },
+      treatSurveyInjuryForTest: (id) => startInjuryTreatment(id),
+      setSurveyRelayTestState: (online) => { ensureSurveyExpeditions().relayOnline = Boolean(online); render(); },
+      setSurveyLabTestReport: (money) => { ensureEconomy().money = money; addEvent("Laboratory-only test fault", { sourceKind: "labTest" }); render(); },
       resourceSurveyBlockReason: (methodId, cell) => resourceSurveyPlan(methodId, cell).reason || "",
       resourceSurveySnapshot: () => clonePlainObject({ ...ResourceSurveys.publicKnowledge(ensureResourceSurveys()), samples: ensureDiagnosticState().samples.filter((sample) => sample.captured.resourceSurvey).map(({ captured, ...sample }) => sample), tasks: state.tasks.filter((task) => task.type === "physicalDiagnostic") }),
       setResourceSurveyTestContext: (context) => { state.resourceSurveys = ResourceSurveys.defaultState(context); state.started = true; enterGameplay({ focus: false }); render(); return true; },
@@ -18639,6 +18669,7 @@
 
   function workspaceTabVisible(tabId) {
     const id = cleanWorkspaceTab(tabId);
+    if (surveyScientistAway() && !["map", "visits", "log", "cheats"].includes(id)) return false;
     const stay = restrictedOffsiteStay();
     if (stay) {
       const permitted = new Set(["map", "visits", "journal", "log", "cheats"]);
@@ -19194,6 +19225,7 @@
     const zoomIndex = normalizeMapZoomIndex(ui.mapZoomIndex);
     const size = mapViewportSizeForZoom(map, zoomIndex);
     const camera = normalizeMapCamera(ui.mapCamera, map, zoomIndex);
+    if (surveyScientistAway()) camera.z = scientistMapCell().z;
     ui.mapZoomIndex = zoomIndex;
     ui.mapCamera = camera;
     return {
@@ -19379,6 +19411,7 @@
   }
 
   function setMapLayer(delta, options = {}) {
+    if (surveyScientistAway()) return false;
     const map = ensureLabMap();
     const cursor = mapCursorCell(map);
     const ui = ensureUiState();
@@ -19751,7 +19784,7 @@
   function scientistQueueTasks(tasks = state.tasks || []) {
     return [...(tasks || [])]
       .filter(isScientistQueueTask)
-      .sort((a, b) => Number(Boolean(b.data?.combatPriority)) - Number(Boolean(a.data?.combatPriority)) || a.dueAt - b.dueAt || a.createdAt - b.createdAt || String(a.id).localeCompare(String(b.id)));
+      .sort((a, b) => (surveyScientistAway() ? Number(surveyTaskAllowed(b)) - Number(surveyTaskAllowed(a)) : 0) || Number(Boolean(b.data?.combatPriority)) - Number(Boolean(a.data?.combatPriority)) || a.dueAt - b.dueAt || a.createdAt - b.createdAt || String(a.id).localeCompare(String(b.id)));
   }
 
   function firstScientistQueueTask() {
@@ -19759,6 +19792,13 @@
   }
 
   function nextMeaningfulEvent(options = {}) {
+    if (surveyScientistAway()) {
+      const journey = ensureStrategicJourneys().journeys.find((entry) => entry.id === state.surveyExpeditions.journeyId);
+      const task = scientistQueueTasks().find((entry) => surveyTaskAllowed(entry) && !taskBlockReason(entry) && entry.dueAt >= state.clock);
+      return [task && { time: task.dueAt, label: task.label, type: "queue" }, StrategicJourneys.nextPublicEvent({ journeys: journey ? [journey] : [] }, state.clock), nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
+        .filter((event) => event && (!options.includeTypes || options.includeTypes.includes(event.type)) && event.time >= state.clock)
+        .sort((a, b) => a.time - b.time)[0] || null;
+    }
     const events = [];
     const queueEvent = nextQueueEvent();
     if (queueEvent) {
@@ -20196,6 +20236,7 @@
       changes.productionProgressChanged += routineSuspended ? 0 : updateProductionWorkProgress(fromClock, state.clock);
       changes.researchProgressChanged += routineSuspended ? 0 : updateResearchWorkProgress(fromClock, state.clock);
       changes.scientistMovementChanged += updateScientistMovementTask();
+      changes.scientistMovementChanged += updateSurveyExpedition();
       changes.completed += completeDueTasks();
       changes.servicingOrdersChanged += syncAutomaticCollectionServiceOrders();
       changes.servicingOrdersChanged += syncUtilityMaintenanceOrders();
@@ -20210,6 +20251,7 @@
     if (id === "administration") {
       changes.propertyPresentationChanged += updatePropertyPresentationWeather();
       changes.strategicJourneyChanged += updateStrategicJourneys();
+      changes.strategicJourneyChanged += updateSurveyExpedition();
       changes.siteVisitChanged += updateSiteVisits(elapsed);
       changes.raidChanged += updateLawEnforcementRaids(elapsed);
       changes.raidChanged += updateJailCustody(elapsed);
@@ -20350,6 +20392,10 @@
         .filter((task) => !state.combat?.routineSuspension || (suspensionTaskId && task.id === suspensionTaskId))
         .sort((a, b) => a.dueAt - b.dueAt);
       for (const task of due) {
+        if (task.type === "surveyExpeditionWork" && mapCellKey(scientistMapCell()) !== mapCellKey(task.data.toCell)) {
+          task.dueAt = state.clock + 1;
+          continue;
+        }
         if (task.type === "resourceHaul" && resourceHaulLegs(task).some((leg) => leg.status !== "delivered")) {
           if (firstScientistQueueTask()?.id === task.id) updateScientistMovementTask();
           if (resourceHaulLegs(task).some((leg) => leg.status !== "delivered")) {
@@ -20379,7 +20425,9 @@
           changeCount += 1;
         }
         state.tasks = state.tasks.filter((candidate) => candidate.id !== task.id);
-        completeTask(task);
+        const previousSurveyEvent = surveyDirectEvent;
+        surveyDirectEvent = surveyScientistAway() && surveyTaskAllowed(task);
+        try { completeTask(task); } finally { surveyDirectEvent = previousSurveyEvent; }
         if (task.id === state.combat?.routineSuspension?.taskId) {
           resumeScientistRoutineWork();
         }
@@ -20393,6 +20441,7 @@
   }
 
   function completeTask(task) {
+    if (task.type === "surveyExpeditionWork") { completeSurveyWork(task); return; }
     if (task.type === "capitalAppealTransfer") { finishCapitalAppealTransfer(task); return; }
     if (task.type === "executiveCommutationTransfer") { finishExecutiveCommutationTransfer(task); return; }
     if (task.type === "prisonInteraction") { finishPrisonInteraction(task); return; }
@@ -20773,8 +20822,9 @@
   function injurySupplyStack(injury) {
     const key = INJURY_TYPE_DEFS[injury?.typeId]?.supplyKey;
     return ensurePhysicalItemStacks()
-      .filter((stack) => stack.section === "inventory" && stack.key === key && stack.quantity > 0 && !stack.reservedTaskId && !stack.carriedBy)
-      .sort((a, b) => mapCellDistance(scientistMapCell(), a.cell) - mapCellDistance(scientistMapCell(), b.cell))[0] || null;
+      .filter((stack) => stack.section === "inventory" && stack.key === key && stack.quantity > 0 && !stack.reservedTaskId && (!stack.carriedBy || stack.carriedBy === "scientist"))
+      .filter((stack) => stack.carriedBy === "scientist" || labMapPathBetweenCells(scientistMapCell(), stack.cell, { map: ensureLabMap(), ignoreDoors: true }).length)
+      .sort((a, b) => Number(b.carriedBy === "scientist") - Number(a.carriedBy === "scientist") || mapCellDistance(scientistMapCell(), a.cell) - mapCellDistance(scientistMapCell(), b.cell))[0] || null;
   }
 
   function injuryTreatmentBlockReason(injury, mode = "treat") {
@@ -21330,6 +21380,7 @@
   }
 
   function claimNextLaborWork() {
+    if (surveyScientistReserved()) return 0;
     if (scientistQueueTasks().length) return 0;
     const candidates = ensureWorkOrders()
       .filter((order) => ["open", "blocked"].includes(order.status))
@@ -21653,6 +21704,7 @@
   }
 
   function constructionTileStaticBlockReason(mode, cell, options = {}) {
+    if (cell?.z === SurveyExpeditions.FIELD_Z || cell?.z === SurveyExpeditions.CABIN_Z) return "Survey access grants no construction or excavation rights.";
     const clean = cleanMapCell(cell);
     if (!clean || clean.x < 0 || clean.y < 0) return "Select a valid map tile.";
     const map = state.labMap || ensureLabMap();
@@ -22098,6 +22150,7 @@
   }
 
   function makeRoomForConstructionTools(selections) {
+    if (surveyScientistAway()) return 0;
     const selectedIds = new Set((selections || []).map((selection) => selection.instanceId || selection.instance?.id));
     const carried = Object.values(ensureToolDurability()).flat().filter((instance) => instance.carriedBy === "scientist");
     if (new Set([...carried.map((instance) => instance.id), ...selectedIds]).size <= 2) return 0;
@@ -22145,7 +22198,7 @@
         entry.tool.reservedTaskId = "";
         changed += 1;
       }
-      const retain = options.retain !== false
+      const retain = (surveyScientistAway() && state.surveyExpeditions.manifest.some((packed) => packed.toolInstanceId === entry.tool.id)) || options.retain !== false
         && entry.tool.current > 0
         && constructionItemCouldServePendingWork(entry.itemKey);
       if (entry.tool.carriedBy === "scientist" && !retain) {
@@ -22191,6 +22244,7 @@
   }
 
   function updateConstructionWorkProgress(fromClock, toClock) {
+    if (surveyScientistAway()) return 0;
     const task = firstScientistQueueTask();
     if (!task || task.type !== "constructionWork") return 0;
     const order = constructionOrderById(task.data?.constructionOrderId);
@@ -22231,6 +22285,7 @@
   }
 
   function claimNextConstructionWork() {
+    if (surveyScientistReserved()) return 0;
     if (activeConstructionWorkTask() || scientistIsDead()) return 0;
     refreshConstructionOrderBlocks();
     const candidates = [];
@@ -28903,6 +28958,7 @@
   }
 
   function surfaceGroundAtCell(cell, map = ensureLabMap()) {
+    if (cell?.z === SurveyExpeditions.FIELD_Z && map.rooms?.[SurveyExpeditions.FIELD_ROOM]?.cells?.some((entry) => mapCellKey(entry) === mapCellKey(cell))) return { cell: cleanMapCell(cell), terrainId: "soil" };
     return indexedMapCellEntry(map.terrain?.surfaceGround, cell);
   }
 
@@ -29095,6 +29151,8 @@
   function surfaceEnvelopeAtCell(cell, map = ensureLabMap(), context = null) {
     const clean = cleanMapCell(cell);
     if (!clean) return { kind: "subterranean", roofed: true, openSky: false };
+    if (clean.z === SurveyExpeditions.FIELD_Z && surfaceGroundAtCell(clean, map)) return { kind: "outdoor", roofed: false, openSky: true };
+    if (clean.z === SurveyExpeditions.CABIN_Z && map.rooms?.[SurveyExpeditions.CABIN_ROOM]) return { kind: "interior", roofed: true, openSky: false };
     const envelope = context || buildSurfaceEnvelopeContext(map);
     const key = mapCellKey(clean);
     const floor = constructedFloorAtCell(clean, map);
@@ -30931,6 +30989,7 @@
   }
 
   function claimNextStockpileHaul() {
+    if (surveyScientistReserved()) return 0;
     if (stockpileHaulTask() || scientistIsDead()) return 0;
     const stack = ensurePhysicalItemStacks()
       .filter((entry) => !entry.reservedTaskId && !entry.carriedBy && !physicalStackStoredCorrectly(entry))
@@ -31934,6 +31993,7 @@
   }
 
   function claimNextProductionWork() {
+    if (surveyScientistReserved()) return 0;
     if (scientistIsDead() || (state.tasks || []).some((task) => task.type === "productionWork")) return 0;
     ensureProductionDependencies();
     const candidates = (state.productionBills || []).filter(productionBillNeedsUnit).map((bill) => ({ bill, plan: productionWorkPlan(bill) }));
@@ -32080,6 +32140,7 @@
   }
 
   function updateProductionWorkProgress(fromClock, toClock) {
+    if (surveyScientistAway()) return 0;
     const task = firstScientistQueueTask();
     if (!task || task.type !== "productionWork") return 0;
     const start = Math.max(Number(fromClock) || 0, finiteTime(task.data?.workStartsAt, task.createdAt));
@@ -32762,6 +32823,7 @@
   }
 
   function updateResearchWorkProgress(fromClock, toClock) {
+    if (surveyScientistAway()) return 0;
     const task = firstScientistQueueTask();
     if (!task || task.type !== "researchWork") return 0;
     const project = researchProject(task.data?.projectId);
@@ -47853,6 +47915,13 @@
     dom.suspicionReadout.textContent = `Suspicion: ${suspicionBand.label}`;
     dom.suspicionReadout.dataset.suspicionBand = suspicionBand.id;
     dom.suspicionReadout.title = `External attention is ${suspicionBand.label.toLowerCase()}. Exact Suspicion and hidden reporting sources are not shown.`;
+    if (surveyScientistAway()) {
+      const snapshot = state.surveyExpeditions.headerSnapshot || {};
+      dom.storageReadout.textContent = `${snapshot.storage || "Lab storage unknown"} (departure snapshot)`;
+      dom.wasteReadout.textContent = `${snapshot.waste || "Lab waste unknown"} (departure snapshot)`;
+      dom.suspicionReadout.textContent = `${snapshot.suspicion || "External attention unknown"} (departure snapshot)`;
+      dom.suspicionReadout.dataset.suspicionBand = "unknown"; dom.suspicionReadout.title = `Last direct lab observation ${formatClock(state.surveyExpeditions.departedAt)}.`;
+    }
     renderVitalReadouts();
     refreshActionControls();
     renderQueueShell();
@@ -51753,8 +51822,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!task) return null;
     const suspension = state.combat?.routineSuspension;
     if (suspension && (!suspension.taskId || task.id !== suspension.taskId)) return null;
-    if (!["scientistMove", "equipmentChange", "doorOperation", "visitFixtureAccess", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) return null;
-    if (["equipmentChange", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) {
+    if (!["surveyExpeditionWork", "scientistMove", "equipmentChange", "doorOperation", "visitFixtureAccess", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) return null;
+    if (["surveyExpeditionWork", "equipmentChange", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) {
       const blockedReason = taskBlockReason(task);
       if (blockedReason) {
         task.data ||= {};
@@ -51918,6 +51987,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       movement.waitingFor = "";
       state.scientist.mapCell = nextStep.cell;
       state.scientist.roomId = labMapCellRoomId(nextStep.cell) || state.scientist.roomId;
+      if (state.surveyExpeditions?.phase === "field") updateSurveyExpedition();
       updateRecaptureCarryState(task, movement);
       changed += updateResourceHaulCarryState(task, movement);
       if (task.data?.blockedReason) {
@@ -61287,6 +61357,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function labMapOverlayAssignments(overlayId, map, context = {}) {
     if (overlayId === "prospecting") {
       const assignments = new Map();
+      if (state.surveyExpeditions?.materialized) {
+        for (const [cell, value, label] of [[SurveyExpeditions.RENDEZVOUS, "V", "Waiting survey vehicle; walk here to return or read company account reports"], [SurveyExpeditions.HAZARD, "!", state.surveyExpeditions.hazardDisturbed ? "Settled loose rock; previously disturbed" : "Flagged loose rock: crossing this tile risks a minor leg injury"]]) {
+          setLabMapOverlayEntry(assignments, cell, { overlayId, classNames: ["map-overlay-resources", "map-overlay-resources-high"], label, title: label, source: "Municipal site notice", value, target: { kind: "tile", tile: cell } }, map);
+        }
+      }
       const surveys = ResourceSurveys.publicKnowledge(ensureResourceSurveys());
       for (const observation of surveys.observations) {
         const detected = observation.findings.some((finding) => finding.result === "indicatorsDetected");
@@ -62517,6 +62592,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!task || !isScientistQueueTask(task)) {
       return "";
     }
+    if (surveyScientistAway() && !surveyTaskAllowed(task)) return "The scientist is off site; laboratory work awaits physical return.";
+    if (task.type === "surveyExpeditionWork") { const reason = surveyWorkBlockReason(task); if (reason) return reason; }
     if (scientistIsDead()) {
       return "The scientist is dead.";
     }
@@ -62719,6 +62796,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (task.type === "researchWork") {
       return researchWorkTaskBlockReason(task);
+    }
     if (task.type === "injuryTreatment") {
       const injury = (state.injuries || []).find((entry) => entry.id === task.data?.injuryId);
       if (!injury || injury.status === "healed") return "The selected injury no longer needs care.";
@@ -62727,7 +62805,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         const stack = ensurePhysicalItemStacks().find((entry) => entry.id === stackId);
         if (!stack || stack.reservedTaskId !== task.id || stack.quantity <= 0) return "The reserved medical supply is no longer available.";
       }
-    }
     }
     if (task.type === "laborWork") {
       return laborWorkTaskBlockReason(task);
@@ -62876,10 +62953,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (task.type === "experimentConclusion") {
       cleanupCanceledExperimentConclusion(task);
+    }
     if (task.type === "injuryTreatment") {
       const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.supplyStackId);
       if (stack?.reservedTaskId === task.id) stack.reservedTaskId = "";
     }
+    if (task.type === "surveyExpeditionWork") {
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.stackId);
+      if (stack?.reservedTaskId === task.id) stack.reservedTaskId = "";
+      const tool = task.data?.toolInstanceId && toolInstanceById(task.data.toolInstanceId)?.instance;
+      if (tool?.reservedTaskId === task.id) tool.reservedTaskId = "";
     }
     if (task.type === "researchWork") {
       cleanupCanceledResearchTask(task);
@@ -63004,6 +63087,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       pinned: options.pinned ?? target?.pinned
     });
     const custodyCell = normalized ? selectionMapCell(normalized) : null;
+    if (surveyScientistAway() && custodyCell && custodyCell.z !== scientistMapCell().z) return state.selection;
     if (currentJailStay() && custodyCell && custodyCell.z !== MUNICIPAL_HOLDING_Z) return state.selection;
     if (currentPrisonStay() && custodyCell && custodyCell.z !== STATE_PRISON_Z) return state.selection;
     if (currentDeathRowStay() && custodyCell && custodyCell.z !== CAPITAL_CUSTODY_Z) return state.selection;
@@ -63791,6 +63875,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function contextualCommandsForSelection(selection) {
     if (!selection) {
       return [];
+    }
+    if (surveyScientistAway()) {
+      const commands = [openWorkspaceCommand({ id: "survey.open", label: "Survey Travel and Field Records", group: "Survey", workspaceTab: "visits" })];
+      if (selection.kind === "task") return [...commands, ...taskContextCommands(findTask(selection.id))];
+      if (selection.kind === "scientist") return [...commands, ...injuryContextCommands("scientist"), commandDef({ id: "survey.rest", label: "Rest Here (15 minutes)", group: "Survey", disabledReason: surveyBusy() ? "Finish or cancel current field work first." : "", run: () => createRestTask(15) })];
+      if (selection.kind === "tile" && state.surveyExpeditions.phase === "field" && selection.tile?.z === SurveyExpeditions.FIELD_Z && surfaceGroundAtCell(selection.tile)) {
+        const cell = selection.tile;
+        commands.push(commandDef({ id: "survey.move", label: mapCellKey(cell) === mapCellKey(SurveyExpeditions.HAZARD) ? "Move Here — Flagged Loose Rock" : "Move Scientist Here", group: "Movement", danger: mapCellKey(cell) === mapCellKey(SurveyExpeditions.HAZARD), disabledReason: scientistMoveBlockReason(SurveyExpeditions.FIELD_ROOM, { toCell: cell }), run: () => startScientistMove(SurveyExpeditions.FIELD_ROOM, { toCell: cell }) }), ...fieldDiagnosticContextCommands("tile", "", cell));
+      }
+      return commands;
     }
     if (selection.kind === "room") {
       return roomContextCommands(roomById(selection.roomId));
@@ -71389,7 +71483,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function renderQueueShell() {
-    const sorted = scientistQueueTasks();
+    const sorted = scientistQueueTasks().filter((task) => !surveyScientistAway() || surveyTaskAllowed(task));
     const next = sorted[0] || null;
     const blocked = sorted.filter((task) => taskStatusInfo(task).id === "blocked");
     const active = sorted.filter((task) => taskStatusInfo(task).id !== "blocked");
@@ -72302,6 +72396,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function renderSiteVisits() {
     if (!dom.visitsList || !dom.visitsSummary) return;
+    if (surveyScientistAway()) {
+      dom.visitsSummary.textContent = "Scientist off site — laboratory activity is not directly observed";
+      dom.visitsList.replaceChildren(renderSurveyExpeditions()); return;
+    }
     const disclosedVisitIds = new Set(ensureSiteVisits().visits.filter((visit) => visit.noticeAt <= state.clock).map((visit) => visit.id));
     const journeys = [...ensureStrategicJourneys().journeys].filter((journey) => journey.subject.kind !== "siteVisit" || disclosedVisitIds.has(journey.subject.id)).sort((left, right) => left.arrivalWindow.start - right.arrivalWindow.start);
     const visits = [...ensureSiteVisits().visits].sort((left, right) => left.arrivalAt - right.arrivalAt);
@@ -72317,6 +72415,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const activeJourneys = journeys.filter((journey) => StrategicJourneys.ACTIVE_STATUSES.includes(journey.status)).length;
     dom.visitsSummary.textContent = `${activeJourneys} journey${activeJourneys === 1 ? "" : "s"} underway or booked · ${upcoming.length + scheduledRaids.length} upcoming · ${active.length + activeRaids.length} active · ${detainedRaids.length} detained · ${prisonStay ? 1 : 0} prison · ${deathRowStay ? 1 : 0} capital custody · ${prisonFugitive ? 1 : 0} prison fugitive · ${capitalFugitive ? 1 : 0} capital fugitive · ${openProceedings} court · ${completed.length} completed`;
     dom.visitsList.replaceChildren();
+    dom.visitsList.append(renderSurveyExpeditions());
     if (journeys.length) {
       const section = document.createElement("section"); section.className = "subpanel"; section.dataset.visitSection = "journeys";
       section.append(textEl("div", `Strategic Travel and Arrivals (${journeys.length})`, "subpanel-title"));
@@ -72808,6 +72907,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function jailVisibleMessages(messages) {
+    if (surveyScientistAway()) return messages.filter((entry) => entry.time <= state.surveyExpeditions.departedAt || entry.sourceKind === "surveyExpedition");
     const stay = restrictedOffsiteStay();
     if (!stay) return messages;
     return messages.filter((entry) => entry.time <= stay.knowledge.labSnapshotAt || ["jailCustody", "jailEscape", "prisonCustody", "prisonBreak"].includes(entry.sourceKind));
@@ -74744,6 +74844,284 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       arcaneInterference: Number(map.arcaneGeography?.manaConcentrationPermille?.[index]) || 0 };
   }
 
+  function ensureSurveyExpeditions() {
+    state.surveyExpeditions ||= SurveyExpeditions.defaultState();
+    const expedition = state.surveyExpeditions;
+    if (!expedition.destination) {
+      const network = ensureStrategicJourneys();
+      const destination = SurveyExpeditions.destinationFor(network);
+      const context = destination && resourceSurveyContext(activeWorldRecord, { strategicLocation: { id: destination.id, strategicCellId: destination.cellId } }, state.seed);
+      if (context) {
+        expedition.destination = destination;
+        expedition.fieldContext = context;
+        expedition.homeContext = clonePlainObject(ensureResourceSurveys().context);
+      }
+    }
+    if (expedition.destination && !ensureStrategicJourneys().destinations.some((entry) => entry.id === expedition.destination.id)) ensureStrategicJourneys().destinations.push(clonePlainObject(expedition.destination));
+    return expedition;
+  }
+
+  function surveyScientistAway() { return Boolean(state?.surveyExpeditions && state.surveyExpeditions.phase !== "home"); }
+  function surveyScientistReserved() { return surveyScientistAway() || Boolean(state?.surveyExpeditions?.preparing); }
+  function surveyTaskAllowed(task) {
+    if (!surveyScientistAway()) return true;
+    if (task?.type === "rest") return true;
+    const target = task?.data?.toCell || task?.data?.targetCell;
+    if (!target || target.z !== scientistMapCell().z) return false;
+    if (task.type === "injuryTreatment") return task.data.targetActorId === "scientist";
+    if (state.surveyExpeditions.phase !== "field") return false;
+    return ["scientistMove", "surveyExpeditionWork", "physicalDiagnostic"].includes(task.type);
+  }
+  function surveyBusy() { return scientistQueueTasks().some((task) => !taskBlockReason(task)); }
+  function surveyEvent(message) { addEvent(message, { sourceKind: "surveyExpedition" }); }
+  function surveyCarriedStacks() { return ensurePhysicalItemStacks().filter((entry) => entry.carriedBy === "scientist"); }
+  function surveyQuote() {
+    const expedition = ensureSurveyExpeditions(), network = ensureStrategicJourneys();
+    return SurveyExpeditions.quote(StrategicJourneys.routePlan(network, network.homeDestinationId, expedition.destination?.id, "hiredFreightRoad"));
+  }
+
+  function surveyDepartureReason() {
+    const expedition = ensureSurveyExpeditions();
+    if (scientistIsDead() || actorIsIncapacitated("scientist") || restrictedOffsiteStay() || currentDetentionRaid()) return "The scientist is not free and fit to depart.";
+    if (expedition.phase !== "home") return "The scientist is already off site.";
+    if (!expedition.destination) return "No known municipal survey ground has a usable world context.";
+    const quote = surveyQuote();
+    return !quote.ok ? quote.reason : SurveyExpeditions.manifestReason(surveyCarriedStacks())
+      || (SurveyExpeditions.cargoUnits(surveyCarriedStacks()) > quote.cargoCapacity ? "The packed load exceeds the hired vehicle's cargo capacity." : "")
+      || (!surveyCarriedStacks().some((stack) => stack.key === "environmentalSurveyKit" && toolInstanceById(stack.toolInstanceId)?.instance.current > 0) ? "A usable packed survey instrument is required." : "")
+      || (ensureEconomy().money < quote.fee ? "Insufficient funds for the quoted round trip." : "");
+  }
+
+  function queueSurveyWork(action, cell, data = {}) {
+    if (surveyBusy() || scientistIsDead() || actorIsIncapacitated("scientist")) return false;
+    const path = labMapPathBetweenCells(scientistMapCell(), cell, { map: ensureLabMap(), actor: state.scientist, ignoreDoors: true });
+    if (!path.length || pathAccessViolations(state.scientist, path).length) return false;
+    const travelSeconds = mapPathTravelDistanceMeters(path, ensureLabMap()) / scientistMoveSpeedMps();
+    const task = { id: `task-${state.nextTaskNumber++}`, type: "surveyExpeditionWork", label: action === "pack" ? `Pack ${inventoryItemLabel(data.itemKey)}` : "Walk to and board survey vehicle", createdAt: state.clock, dueAt: state.clock + travelSeconds + 10,
+      data: { ...data, action, toCell: cleanMapCell(cell), toRoomId: labMapCellRoomId(cell), mapPath: path, movement: createScientistMovementRecord(path, travelSeconds, state.clock, { intent: "survey" }) } };
+    state.tasks.push(task);
+    if (data.stackId) ensurePhysicalItemStacks().find((entry) => entry.id === data.stackId).reservedTaskId = task.id;
+    if (data.toolInstanceId) toolInstanceById(data.toolInstanceId).instance.reservedTaskId = task.id;
+    state.surveyExpeditions.preparing = !surveyScientistAway();
+    surveyEvent(`${task.label} started; packing and boarding require physical arrival.`);
+    persist(); render(); return true;
+  }
+
+  function packSurveyItem(itemKey) {
+    const expedition = ensureSurveyExpeditions();
+    const def = SurveyExpeditions.PACK_LIST.find((entry) => entry.key === itemKey);
+    if (!def || expedition.phase !== "home" || restrictedOffsiteStay() || currentDetentionRaid()) return false;
+    const carried = surveyCarriedStacks().filter((entry) => entry.key === itemKey).reduce((n, entry) => n + entry.quantity, 0);
+    if (carried >= def.amount) return false;
+    const candidates = ensurePhysicalItemStacks().filter((entry) => entry.key === itemKey && !entry.carriedBy && !entry.reservedTaskId && entry.quantity > 0)
+      .filter((entry) => !entry.fixtureId || storageFixtureScientistAccessible(fixtureById(entry.fixtureId)))
+      .filter((entry) => !entry.toolInstanceId || toolInstanceById(entry.toolInstanceId)?.instance.current > 0);
+    for (const stack of candidates) {
+      const isInstrument = ["environmentalSurveyKit", "thaumometer"].includes(itemKey);
+      const tool = isInstrument ? toolInstancesForItem(itemKey).find((entry) => entry.roomId === stack.roomId && !entry.carriedBy && !entry.reservedTaskId && entry.current > 0 && (!stack.toolInstanceId || entry.id === stack.toolInstanceId)) : null;
+      if (isInstrument && !tool) continue;
+      const amount = Math.min(def.amount - carried, stack.quantity);
+      if (!actorInventoryCanCarry("scientist", stack, amount)) continue;
+      const cell = stockpileHaulAccessCell(stack);
+      if (cell && queueSurveyWork("pack", cell, { stackId: stack.id, itemKey, amount, toolInstanceId: tool?.id || "" })) return true;
+    }
+    surveyEvent("No reachable unreserved supply fits the scientist's remaining carrying capacity."); persist(); render(); return false;
+  }
+
+  function boardSurveyVehicle() {
+    const expedition = ensureSurveyExpeditions();
+    if (!["home", "field"].includes(expedition.phase) || surveyBusy()) return false;
+    const reason = expedition.phase === "home" ? surveyDepartureReason() : "";
+    if (reason) { surveyEvent(reason); persist(); render(); return false; }
+    const homeRoomId = roomById(SURFACE_RECEPTION_ROOM_ID) ? SURFACE_RECEPTION_ROOM_ID : CONCEALED_EXIT_ROOM_ID;
+    const cell = expedition.phase === "field" ? SurveyExpeditions.RENDEZVOUS : labMapRoomAnchor(homeRoomId);
+    return queueSurveyWork("board", cell);
+  }
+
+  function surveyWorkBlockReason(task) {
+    if (task.data.action === "pack") {
+      const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data.stackId);
+      if (!stack || stack.reservedTaskId !== task.id || stack.quantity < task.data.amount || stack.carriedBy) return "The reserved packing supply is no longer available.";
+      if (stack.fixtureId && !storageFixtureScientistAccessible(fixtureById(stack.fixtureId))) return "The packing supply is no longer accessible in its storage fixture.";
+      const accessCell = stockpileHaulAccessCell(stack);
+      if (!accessCell || mapCellKey(accessCell) !== mapCellKey(task.data.toCell)) return "The packing supply moved away from the reserved pickup location.";
+      if (!actorInventoryCanCarry("scientist", stack, task.data.amount)) return "The packed load no longer fits.";
+      if (task.data.toolInstanceId) {
+        const tool = toolInstanceById(task.data.toolInstanceId)?.instance;
+        if (!tool || tool.current <= 0 || tool.reservedTaskId !== task.id || tool.carriedBy || tool.roomId !== stack.roomId) return "The reserved instrument is no longer available at the packing location.";
+      }
+    }
+    return "";
+  }
+
+  function materializeSurveySpaces() {
+    const expedition = ensureSurveyExpeditions();
+    if (expedition.materialized) return;
+    for (const spec of [
+      { id: SurveyExpeditions.FIELD_ROOM, name: expedition.destination.label, z: SurveyExpeditions.FIELD_Z, x: 8, y: 8, width: 12, height: 10, purposeId: "corridor", description: `${expedition.destination.permission} ${expedition.destination.publicDanger}` },
+      { id: SurveyExpeditions.CABIN_ROOM, name: "Hired Survey Vehicle", z: SurveyExpeditions.CABIN_Z, x: 8, y: 8, width: 4, height: 3, purposeId: "quarters", description: "A physical passenger cabin with a driver and satellite-magical account relay. The laboratory is unreachable while travelling." }
+    ]) {
+      const room = normalizeRoom({ ...spec, articleName: `the ${spec.name}`, facilityClass: "surveyExpedition", connections: [], geometry: { shape: "bounded survey space", lengthM: spec.width, widthM: spec.height, heightM: 3, floorAreaM2: spec.width * spec.height, volumeM3: spec.width * spec.height * 3 }, purposeSource: "supportedSurvey", purposeReason: "Run-local supported scientific excursion" });
+      state.rooms = normalizeRooms([...state.rooms, room]);
+      const map = ensureLabMap(), rect = { roomId: spec.id, x: spec.x, y: spec.y, z: spec.z, width: spec.width, height: spec.height };
+      map.layers[String(spec.z)] = { id: spec.id, kind: "structure", label: spec.name };
+      map.rooms[spec.id] = normalizeLabMapRoom({ ...rect, cells: rectangularRoomCells(rect), anchor: { x: 10, y: 10, z: spec.z } }, room);
+      map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...rectangularRoomCells(rect)]);
+      state.roomStockpiles[spec.id] = emptyRoomStockpile();
+    }
+    expedition.materialized = true;
+  }
+
+  function moveSurveyScientist(roomId, cell) {
+    movementReservations.releaseActor("scientist");
+    state.scientist.roomId = roomId; state.scientist.mapCell = cleanMapCell(cell);
+    for (const stack of surveyCarriedStacks()) {
+      stack.roomId = roomId; stack.cell = cleanMapCell(cell); stack.updatedAt = state.clock;
+      const tool = stack.toolInstanceId && toolInstanceById(stack.toolInstanceId)?.instance;
+      if (tool) { tool.roomId = roomId; tool.carriedBy = "scientist"; }
+    }
+    const ui = ensureUiState(); ui.mapCursor = cleanMapCell(cell); ui.mapCamera = normalizeMapCamera(cell, ensureLabMap(), ui.mapZoomIndex);
+    state.selection = null; setSelection({ kind: "scientist", id: "scientist" }, { source: "surveyExpedition", centerMap: true });
+    ui.activeWorkspaceTab = "map";
+  }
+
+  function useSurveyContext(context) {
+    const surveys = ensureResourceSurveys();
+    surveys.context = clonePlainObject(context); surveys.sites ||= {};
+    if (context) surveys.sites[context.siteId] = clonePlainObject(context);
+  }
+
+  function refreshSurveyReport() {
+    const expedition = ensureSurveyExpeditions();
+    if (!surveyScientistAway() || !expedition.relayOnline || (expedition.phase === "field" && mapCellKey(scientistMapCell()) !== mapCellKey(SurveyExpeditions.RENDEZVOUS))) return false;
+    const economy = ensureEconomy();
+    expedition.report = SurveyExpeditions.report({ company: ensureCompany().legalName, money: economy.money, openLegalOrders: economy.commodityOrders.filter((entry) => ["open", "executing"].includes(entry.status)).length }, state.clock);
+    persist(); render(); return true;
+  }
+
+  function completeSurveyWork(task) {
+    const expedition = ensureSurveyExpeditions();
+    if (task.data.action === "pack") {
+      const stack = carryPhysicalStack("scientist", task.data.stackId, task.data.amount, { allowReserved: true, toolInstanceId: task.data.toolInstanceId });
+      const tool = task.data.toolInstanceId && toolInstanceById(task.data.toolInstanceId)?.instance;
+      if (tool?.reservedTaskId === task.id) tool.reservedTaskId = "";
+      const source = ensurePhysicalItemStacks().find((entry) => entry.id === task.data.stackId);
+      if (source?.reservedTaskId === task.id) source.reservedTaskId = "";
+      surveyEvent(stack ? `${task.label} complete; the real stack is carried by the scientist.` : "Packing failed; supplies were not moved.");
+      return;
+    }
+    const outbound = expedition.phase === "home", network = ensureStrategicJourneys();
+    const reason = outbound ? surveyDepartureReason() : "";
+    if (reason) { surveyEvent(reason); return; }
+    const quote = surveyQuote();
+    const result = bookStrategicJourney({ originId: outbound ? network.homeDestinationId : expedition.destination.id, destinationId: outbound ? expedition.destination.id : network.homeDestinationId,
+      modeId: "hiredFreightRoad", passengers: 1, cargo: SurveyExpeditions.cargoUnits(surveyCarriedStacks()), subject: { kind: "scientistSurvey", id: `survey-trip-${outbound ? expedition.tripNumber + 1 : expedition.tripNumber}` }, purpose: "supportedSurvey", label: outbound ? "Scientist survey outbound" : "Scientist survey return", provider: "Municipal survey carrier", departureDelaySeconds: 30 });
+    if (!result.journey) { surveyEvent(result.reason); return; }
+    if (outbound) {
+      expedition.tripNumber += 1; expedition.departure = { roomId: scientistRoomId(), cell: scientistMapCell() };
+      expedition.departedAt = state.clock; expedition.homeContext = clonePlainObject(ensureResourceSurveys().context);
+      expedition.manifest = surveyCarriedStacks().map((stack) => ({ stackId: stack.id, key: stack.key, quantity: stack.quantity, toolInstanceId: stack.toolInstanceId }));
+      expedition.lastFee = quote.fee; ensureEconomy().money -= quote.fee;
+      expedition.headerSnapshot = { storage: dom.storageReadout.textContent, waste: dom.wasteReadout.textContent, suspicion: dom.suspicionReadout.textContent };
+      materializeSurveySpaces();
+    }
+    const ration = surveyCarriedStacks().find((stack) => stack.key === "fieldRation" && stack.quantity > 0 && !stack.reservedTaskId);
+    if (ration) { ration.quantity -= 1; ration.knownQuantity = Math.min(ration.knownQuantity, ration.quantity); if (!ration.quantity) state.physicalItemStacks = state.physicalItemStacks.filter((stack) => stack.id !== ration.id); syncPhysicalReadModels(); }
+    expedition.phase = outbound ? "outbound" : "inbound"; expedition.preparing = false; expedition.journeyId = result.journey.id;
+    moveSurveyScientist(SurveyExpeditions.CABIN_ROOM, { x: 10, y: 10, z: SurveyExpeditions.CABIN_Z });
+    surveyEvent(`Scientist boarded the hired vehicle${ration ? "; one provision pack consumed" : "; returning without a remaining provision pack"}. Arrival is governed by the saved road journey; no unseen expedition death roll.`);
+    refreshSurveyReport();
+  }
+
+  function updateSurveyExpedition() {
+    const expedition = state.surveyExpeditions;
+    if (!expedition || !surveyScientistAway() || scientistIsDead()) return 0;
+    if (["outbound", "inbound"].includes(expedition.phase)) {
+      const journey = ensureStrategicJourneys().journeys.find((entry) => entry.id === expedition.journeyId);
+      if (journey && ["arrived", "returned", "cancelled"].includes(journey.status)) {
+        const field = (expedition.phase === "outbound") === (journey.status === "arrived");
+        expedition.phase = field ? "field" : "home";
+        if (field) {
+          expedition.visits += 1; expedition.fieldArrivedAt = state.clock;
+          useSurveyContext(expedition.fieldContext); moveSurveyScientist(SurveyExpeditions.FIELD_ROOM, SurveyExpeditions.RENDEZVOUS);
+          ensureUiState().mapOverlay = "prospecting";
+          surveyEvent(`Arrived at ${expedition.destination.label}. ${expedition.destination.publicDanger} ${expedition.destination.permission}`);
+        } else {
+          expedition.returnedAt = state.clock;
+          useSurveyContext(expedition.homeContext); moveSurveyScientist(expedition.departure.roomId, expedition.departure.cell);
+          surveyEvent("Scientist and carried samples physically returned. Laboratory access has resumed; field findings and ground persist for revisits.");
+        }
+        state.paused = true; persist(); return 1;
+      }
+    }
+    if (expedition.phase === "field" && !expedition.hazardDisturbed && mapCellKey(scientistMapCell()) === mapCellKey(SurveyExpeditions.HAZARD)) {
+      expedition.hazardDisturbed = true;
+      const previous = surveyDirectEvent; surveyDirectEvent = true;
+      try { recordCombatInjury(state.scientist, 2, ["physical"], "Flagged loose rock disturbed during field exploration", { location: "left leg", observed: true }); }
+      finally { surveyDirectEvent = previous; }
+      surveyEvent("The flagged loose rock shifted underfoot. A minor leg injury needs carried bandages; the marked patch has settled and will not reroll on revisit.");
+      state.paused = true; return 1;
+    }
+    return 0;
+  }
+
+  function controlSurveyJourney(action) {
+    const expedition = ensureSurveyExpeditions();
+    if (!["outbound", "inbound"].includes(expedition.phase)) return false;
+    const result = action === "recover" ? StrategicJourneys.recoverStrandedJourney(ensureStrategicJourneys(), expedition.journeyId, state.clock)
+      : StrategicJourneys.cancelJourney(ensureStrategicJourneys(), expedition.journeyId, state.clock);
+    if (result.reason || !result.journey) return false;
+    state.strategicJourneys = result.state; updateSurveyExpedition(); persist(); render(); return true;
+  }
+
+  function renderSurveyExpeditions() {
+    const expedition = ensureSurveyExpeditions();
+    const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.surveyExpeditions = "true";
+    panel.append(textEl("strong", "Supported Survey Excursions"));
+    const button = (label, action, disabled = false, reason = "") => {
+      const element = document.createElement("button"); element.type = "button"; element.textContent = label; element.disabled = disabled; element.title = reason; element.addEventListener("click", action); panel.append(element);
+    };
+    if (!expedition.destination) { panel.append(textEl("p", "No publicly known supported survey ground is available for this starting site.")); return panel; }
+    panel.append(textEl("p", `${expedition.destination.label} · ${titleCase(expedition.phase)} · ${expedition.visits} physical arrival(s).`), textEl("p", expedition.destination.permission), textEl("p", expedition.destination.publicDanger));
+    for (const [key, band] of Object.entries(expedition.fieldContext?.publicProspects?.prospectBands || {})) panel.append(textEl("span", `${ResourceSurveys.FAMILIES[key] || key}: ${titleCase(band)} public prospect · `, "journal-meta"));
+    if (expedition.phase === "home") {
+      const quote = surveyQuote();
+      panel.append(textEl("p", quote.ok ? `${formatMoney(quote.fee)} for ${formatNumber(quote.distanceKm)} km each way; estimated ${formatDuration(quote.windowSeconds[0])}–${formatDuration(quote.windowSeconds[1])} per leg, subject to reported interruptions. ${quote.waiting} ${quote.cargoCapacity} crate-equivalents (10 kg / 20 L each). Actual personal carrying limits also apply.` : quote.reason));
+      for (const item of SurveyExpeditions.PACK_LIST) {
+        const count = surveyCarriedStacks().filter((stack) => stack.key === item.key && !stack.reservedTaskId).reduce((n, stack) => n + stack.quantity, 0);
+        button(`Pack ${inventoryItemLabel(item.key)} (${count}/${item.amount}${item.required ? "" : ", optional"})`, () => packSurveyItem(item.key), count >= item.amount || surveyBusy());
+      }
+      const reason = surveyDepartureReason();
+      panel.append(textEl("p", reason || "Packed and ready. Gear left at the lab will not be usable in the field."));
+      button("Walk to Departure and Board", boardSurveyVehicle, Boolean(reason) || surveyBusy(), reason);
+      if (expedition.preparing) button("End Preparation — Resume Lab Work", () => { if (state.tasks.some((task) => task.type === "surveyExpeditionWork")) return; expedition.preparing = false; persist(); render(); }, state.tasks.some((task) => task.type === "surveyExpeditionWork"));
+    } else {
+      panel.append(textEl("p", `Carried equipment and supplies: ${surveyCarriedStacks().map((stack) => `${inventoryItemLabel(stack.key)} ×${stack.quantity}`).join("; ") || "none"}. Lab automation and other workers continue; the scientist cannot act in the lab.`));
+      for (const task of scientistQueueTasks().filter(surveyTaskAllowed)) button(`Cancel ${task.label}`, () => cancelTask(task.id));
+      if (expedition.phase === "field") {
+        button("Walk to Vehicle and Return", boardSurveyVehicle, surveyBusy());
+        for (const item of Object.entries(ResourceSurveys.METHODS)) button(item[1].label + " at Selected Ground", () => startResourceSurvey(item[0], mapCursorCell()), Boolean(resourceSurveyPlan(item[0], mapCursorCell()).reason));
+        panel.append(textEl("p", "Select a ground tile on the map for routed fieldwork. Use the Resource Prospects overlay for recorded local findings. Samples need a real laboratory assay after returning."));
+      } else {
+        const saved = ensureStrategicJourneys().journeys.find((entry) => entry.id === expedition.journeyId);
+        const journey = saved && StrategicJourneys.publicJourney(saved, state.clock);
+        if (journey) {
+          panel.append(textEl("p", `${journey.label}: ${titleCase(journey.status)}. Arrival window ${formatClock(journey.arrivalWindow.start)}–${formatClock(journey.arrivalWindow.end)}.`));
+          for (const leg of journey.route.legs) if (leg.interruption?.revealed) panel.append(textEl("p", leg.interruption.summary));
+          button("Cancel / Request Physical Return", () => controlSurveyJourney("cancel"), !["scheduled", "enRoute", "held", "diverted"].includes(journey.status));
+          if (journey.status === "stranded") button("Request Included Supported Recovery", () => controlSurveyJourney("recover"));
+        }
+      }
+      button("Read Company Account Report at Vehicle", refreshSurveyReport, !expedition.relayOnline || (expedition.phase === "field" && mapCellKey(scientistMapCell()) !== mapCellKey(SurveyExpeditions.RENDEZVOUS)));
+      button(expedition.relayOnline ? "Disconnect Vehicle Relay" : "Reconnect Vehicle Relay", () => { expedition.relayOnline = !expedition.relayOnline; persist(); render(); });
+      const report = expedition.report;
+      if (report) panel.append(textEl("p", `Last received ${formatClock(report.observedAt)} (${formatDuration(Math.max(0, state.clock - report.observedAt))} old): ${report.company}, ${formatMoney(report.money)}, ${report.openLegalOrders} open legal orders. ${report.limitations}`));
+      for (const injury of actorInjuries("scientist").filter((entry) => entry.status !== "healed")) button(`Treat ${INJURY_TYPE_DEFS[injury.typeId].label}`, () => startInjuryTreatment(injury.id), Boolean(injuryTreatmentBlockReason(injury)) || surveyBusy(), injuryTreatmentBlockReason(injury));
+      for (const observation of ResourceSurveys.publicKnowledge(ensureResourceSurveys()).observations.slice(-6)) panel.append(textEl("p", `${observation.siteId} / ${observation.cell.x},${observation.cell.y}, recorded ${formatClock(observation.recordedAt)}: ${observation.findings.map((finding) => `${finding.label}: ${finding.summary} (${finding.confidence})`).join("; ")}`));
+    }
+    return panel;
+  }
+
   function ensureResourceSurveys() {
     state.resourceSurveys ||= ResourceSurveys.defaultState();
     if (!state.resourceSurveys.context && activeWorldRecord && state.startingSite) state.resourceSurveys = ResourceSurveys.defaultState(resourceSurveyContext(activeWorldRecord, state.startingSite, state.seed));
@@ -74752,7 +75130,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function resourceSurveyCellReason(cell, methodId) {
     const target = diagnosticTargetInfo("tile", "", cell);
-    if (!target || !ensureResourceSurveys().context || surfaceEnvelopeAtCell(cell).kind !== "outdoor") return "Select accessible outdoor ground on the laboratory parcel.";
+    if (!target || !ensureResourceSurveys().context || (cell?.z === SurveyExpeditions.FIELD_Z && cell.z !== scientistMapCell().z) || surfaceEnvelopeAtCell(cell).kind !== "outdoor") return "Select accessible outdoor ground at the scientist's current survey site.";
+    if (surveyScientistAway() && (state.surveyExpeditions.phase !== "field" || cell.z !== SurveyExpeditions.FIELD_Z)) return "The scientist cannot survey the laboratory from off site.";
     if (methodId !== "arcaneSurvey" && (constructedFloorAtCell(cell) || !["grass", "soil"].includes(surfaceGroundAtCell(cell)?.terrainId))) return "Ground prospecting requires exposed soil or grass, not paving or imported gravel.";
     return "";
   }
@@ -74765,12 +75144,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const target = diagnosticTargetInfo("tile", "", cell);
     const tool = diagnosticToolPlan(method.instrument, scientistMapCell());
     const access = diagnosticAccessPlan(tool.endpoint, target);
-    const materials = method.sampleMethod ? productionMaterialRoute({}, tool.endpoint, access.cell, { inputSelectors: [{ id: "sampleBottle", label: "empty sealed reagent bottle", amount: 1, sourceKinds: ["inventory"], keys: ["sealedReagentBottle"] }] }) : { ok: true, path: access.path, reservations: [] };
+    const bottle = method.sampleMethod && surveyCarriedStacks().find((entry) => entry.key === "sealedReagentBottle" && entry.quantity > 0 && !entry.reservedTaskId);
+    const materials = bottle ? { ok: true, path: access.path, reservations: [{ stackId: bottle.id, key: bottle.key, quantity: 1, sourceCell: scientistMapCell() }] }
+      : method.sampleMethod ? productionMaterialRoute({}, tool.endpoint, access.cell, { inputSelectors: [{ id: "sampleBottle", label: "empty sealed reagent bottle", amount: 1, sourceKinds: ["inventory"], keys: ["sealedReagentBottle"] }] }) : { ok: true, path: access.path, reservations: [] };
     if (!materials.ok) return materials;
     return { ok: true, target, method, reservations: materials.reservations, path: appendMapPath(tool.path, materials.path) };
   }
 
   function startResourceSurvey(methodId, cell) {
+    if (surveyScientistAway() && surveyBusy()) return false;
     const plan = resourceSurveyPlan(methodId, cell);
     if (!plan.ok) { addEvent(plan.reason); return false; }
     const skillId = methodId === "arcaneSurvey" ? "animancy" : "analysis";
@@ -78563,6 +78945,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function claimNextSpillCleanup() {
+    if (surveyScientistReserved()) return 0;
     if (spillCleanupTask() || scientistIsDead()) return 0;
     const policy = cleanupPolicy();
     if (policy.mode === "manual") return 0;
@@ -80125,6 +80508,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const record = normalizeMessageRecord({
       ...options,
+      ...(surveyDirectEvent ? { sourceKind: "surveyExpedition" } : {}),
       time: options.time ?? state.clock,
       message
     }, state.events?.length || 0);
@@ -80906,6 +81290,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.environmentalMonitoring = EnvironmentalMonitoring.normalizeState(candidate?.environmentalMonitoring, next.localSiteContext);
     next.strategicJourneys = StrategicJourneys.normalizeState(candidate?.strategicJourneys);
     next.resourceSurveys = ResourceSurveys.normalizeState(candidate?.resourceSurveys);
+    next.surveyExpeditions = SurveyExpeditions.normalizeState(candidate?.surveyExpeditions);
     const opening = candidate?.themeContent?.opening;
     next.themeContent = {
       version: Math.max(1, Math.floor(Number(candidate?.themeContent?.version) || ThemeContent.VERSION)),
