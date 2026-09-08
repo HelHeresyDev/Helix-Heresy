@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Off-site Survey Expeditions and Resource Discovery
+1. Wilderness Survey Expeditions and Survival
 2. Penal Flights and Beast-Territory Exile
 3. Penal Legions and Wilderness Service
 4. World Integration: Economy and Logistics
@@ -90,11 +90,13 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Off-site Survey Expeditions and Resource Discovery
+## 1. Wilderness Survey Expeditions and Survival
 
-Extend the completed local resource-knowledge and parcel-prospecting systems into physical scientist expeditions. Choose a known reachable destination, prepare real equipment, containers and supplies, travel using saved journeys, materialize a bounded local survey area, perform routed fieldwork, and return with physical samples. Discuss laboratory operation and player knowledge during the scientist's absence, access and jurisdiction, transport capacity, retreat, recovery, and playable field danger before implementation. The scientist's survival must not resolve through an unseen random expedition outcome. Split further if field-map or expedition-survival dependencies exceed one coherent playable pass.
+Extend the completed supported municipal survey excursion into a bounded unsupported wilderness operation. The supported pass already provides physical packing, hired road journeys, persistent local survey ground, sample return and home assays, locally caused injury and carried first aid, laboratory absence, and dated company-account reports. Do not repeat that implementation.
 
-Reuse run-owned observations, fixed same-place/method uncertainty, instrument condition and calibration, method-limited depth, physical sample provenance, and reagent-consuming assays. Public geographic estimates remain distinct from private local findings; one sampled point cannot mark a whole strategic cell surveyed. Newly discovered destinations and broader survey coverage may refine estimates and provide authoritative context for lazy local generation, but exact veins, pockets, quality, and quantity require appropriate local methods. Discoveries grant neither extraction rights nor automatic inventory. Preserve the reusable world and prevent prior-run findings from appearing in a new run.
+Discuss the smallest playable wilderness slice before implementation: known entry points, physical travel beyond defended approaches, carried provisions, withdrawal, camp or shelter, escorts, locally materialized beasts and environmental dangers, vehicle loss, and rescue without guaranteed transport. A failed journey or exile must leave a living scientist physically playable; survival and death cannot resolve through an unseen random expedition outcome. Share suitable local-survival mechanics with later Penal Flight and penal-legion play. Split camps, escorts, encounters, and recovery into further prompts if they exceed one coherent pass.
+
+Reuse run-owned observations, stable same-place/method uncertainty, instrument wear and calibration, method-limited depth, physical sample provenance, and reagent-consuming assays. Discovering a place can add it to the run's known destination directory but grants neither extraction rights nor inventory. Keep supported municipal sampling permission distinct from access to other property and ungoverned wilderness. New coverage may refine estimates, but one point cannot survey a strategic cell, and exact veins, pockets, quality, and quantity need appropriate local methods. Preserve world templates and independent runs. Continue laboratory automation without remote scientist work or omniscient reports; communications require an actual working connection.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
