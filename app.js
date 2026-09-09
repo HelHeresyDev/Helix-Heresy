@@ -49,6 +49,8 @@
   const SurveyExpeditions = window.HelixSurveyExpeditions;
   const WildernessSurvival = window.HelixWildernessSurvival;
   const WildernessBeasts = window.HelixWildernessBeasts;
+  const ExpeditionEscorts = window.HelixExpeditionEscorts;
+  if (!ExpeditionEscorts) throw new Error("Expedition escorts must load before app.js");
   if (!WildernessBeasts) throw new Error("Wilderness beasts must load before app.js");
   if (!WildernessSurvival) throw new Error("Wilderness survival must load before app.js");
   let surveyDirectEvent = false;
@@ -3266,6 +3268,7 @@
     { id: "medicalBandage", section: "inventory", key: "medicalBandage", label: "Medical Bandage", basePrice: 16, supply: 45, liquidity: 20, buyable: true, sellable: true },
     { id: "fieldRation", section: "inventory", key: "fieldRation", label: "Field Provision Pack", basePrice: 12, supply: 50, liquidity: 24, buyable: true, sellable: true },
     ...WildernessSurvival.ITEMS.map((item) => ({ id: item.key, section: "inventory", key: item.key, label: item.label, basePrice: item.price, supply: 40, liquidity: 16, buyable: true, sellable: true })),
+    ...ExpeditionEscorts.GEAR.map((item) => ({ id: item.key, section: "inventory", key: item.key, label: item.label, basePrice: item.price, supply: 12, liquidity: 6, buyable: true, sellable: true })),
     { id: "neutralizingWash", section: "inventory", key: "neutralizingWash", label: "Neutralizing Wash", basePrice: 22, supply: 35, liquidity: 16, buyable: true, sellable: true },
     { id: "membraneSealant", section: "inventory", key: "membraneSealant", label: "Membrane Sealant", basePrice: 27, supply: 30, liquidity: 14, buyable: true, sellable: true },
     { id: "sealedCollectionJar", section: "inventory", key: "sealedCollectionJar", label: "Sealed Collection Jar", basePrice: 15, supply: 48, liquidity: 20, buyable: true, sellable: true },
@@ -3595,6 +3598,7 @@
   const INVENTORY_CATEGORY_BY_ID = Object.fromEntries(INVENTORY_CATEGORY_DEFS.map((category) => [category.id, category]));
   const INVENTORY_ITEM_DEFS = [
     ...WildernessSurvival.ITEMS.map((item) => ({ key: item.key, label: item.label, category: "receptacles", initial: item.initial, description: "Physical field-survival equipment or supplies. Pack and use through the Field Survival panel in Visits." })),
+    ...ExpeditionEscorts.GEAR.map((item) => ({ key: item.key, label: item.label, category: "tools", initial: 0, description: "Physical professional escort equipment; transfers and replacement require proximity. Condition persists with its stack identity." })),
     { key: "fieldRation", label: "Field Provision Pack", category: "receptacles", initial: 4, description: "Sealed drinking water and food for a supported field excursion. One pack is consumed on each boarding." },
     {
       key: "medicalBandage",
@@ -5240,6 +5244,7 @@
       surveyExpeditions: SurveyExpeditions.defaultState(),
       wildernessSurvival: WildernessSurvival.defaultState(),
       wildernessBeasts: WildernessBeasts.defaultState(),
+      expeditionEscorts: ExpeditionEscorts.defaultState(),
       themeContent: { version: ThemeContent.VERSION, opening: null },
       journalMode: "auto",
       complexity: "clean",
@@ -5713,6 +5718,7 @@
     const visitor = actorOrId?.kind === "visitor";
     const capacity = scientist
       ? { maxMassKg: SCIENTIST_CARRY_MASS_KG, maxVolumeL: SCIENTIST_CARRY_VOLUME_L }
+      : actorOrId?.actorKind === "expeditionEscort" ? { maxMassKg: 25, maxVolumeL: 30 }
       : visitor ? { maxMassKg: 18, maxVolumeL: 24 }
       : slimeInventoryCapacity(actorOrId);
     return {
@@ -14987,6 +14993,22 @@
       },
       advanceWildernessBeastsForTest: (seconds) => { for (let i = 0; i < seconds; i++) { state.clock++; updateWildernessBeasts(1); } render(); },
       wildernessBeastActionReason: (action, id) => scientistCombatActionBlockReason(action, wildernessBeast(id)),
+      expeditionEscortSnapshot: () => clonePlainObject({ ...ensureExpeditionEscorts(), stacks: state.expeditionEscorts?.actor ? actorInventoryStacks(state.expeditionEscorts.actor.id) : [], money: ensureEconomy().money, scientistCell: scientistMapCell(), scientistHealth: scientistVital("health").current, clock: state.clock, injuries: state.injuries, beasts: state.wildernessBeasts?.actors || [] }),
+      hireExpeditionEscort, orderExpeditionEscort, transferEscortSupply, settleEscortContract, startEscortCare, startEscortDrag,
+      stopEscortDrag: () => { stopEscortDrag(); persist(); render(); },
+      configureEscortTest: (options = {}) => {
+        const actor = ensureEscortCandidate();
+        if (options.cell) { actor.mapCell = cleanMapCell(options.cell); actor.roomId = labMapCellRoomId(options.cell); }
+        if (options.scientistCell) moveSurveyScientist(labMapCellRoomId(options.scientistCell), options.scientistCell);
+        if (options.health != null) actor.health = options.health;
+        if (options.scientistHealth != null) scientistVital("health").current = options.scientistHealth;
+        if (options.needs) Object.assign(actor.needs, options.needs);
+        if (options.order) actor.order = options.order;
+        if (options.remainingSeconds != null && state.expeditionEscorts.contract) state.expeditionEscorts.contract.startedAt = state.clock - state.expeditionEscorts.contract.limitHours * 3600 + options.remainingSeconds;
+        syncActorInventories(); render(); return true;
+      },
+      advanceEscortForTest: (seconds) => { for (let i = 0; i < seconds; i++) { state.clock++; collectCombatRecords(); updateWildernessBeasts(1); updateExpeditionEscort(1); } persist(); render(); },
+      damageEscortForTest: (amount) => { damageExpeditionEscort(amount); persist(); render(); },
       enterWilderness,
       queueWildernessShelter,
       queueSurvivalConsumption,
@@ -20335,6 +20357,7 @@
     }
     if (syncActorInventories()) syncPhysicalReadModels();
     changes.combatChanged += updateWildernessBeasts(elapsed);
+    changes.combatChanged += updateExpeditionEscort(elapsed);
     return changes;
   }
 
@@ -20397,7 +20420,7 @@
     const advanceStartedAt = performance.now();
     const elapsed = Math.max(0, Number(seconds) || 0);
     // Keep both sides physically responsive during field time skips. Stop at a newly perceived threat.
-    if (!options.fieldStep && elapsed > 1 && state.surveyExpeditions?.phase === "field" && state.wildernessBeasts?.actors.some((beast) => beast.status !== "dead")) {
+    if (!options.fieldStep && elapsed > 1 && state.surveyExpeditions?.phase === "field" && (escortContractActive() || state.wildernessBeasts?.actors.some((beast) => beast.status !== "dead"))) {
       let changed = 0, remaining = elapsed;
       while (remaining > 0 && !scientistIsDead()) {
         const notice = state.wildernessBeasts.noticeSerial;
@@ -20863,6 +20886,8 @@
   function injuryTreatmentTarget(injury) {
     if (!injury) return null;
     if (injury.actorId === "scientist") return { actor: state.scientist, label: "Scientist", cell: scientistMapCell(), roomId: scientistRoomId() };
+    const escort = state.expeditionEscorts?.actor;
+    if (escort?.id === injury.actorId) return { actor: escort, label: escort.name, cell: cleanMapCell(escort.mapCell), roomId: escort.roomId };
     const slime = findSlime(injury.actorId);
     return slime ? { actor: slime, label: slime.name, cell: combatActorCell(slime), roomId: slimeEffectiveRoomId(slime) } : null;
   }
@@ -29880,6 +29905,8 @@
   }
 
   function physicalItemUnitMetrics(section, key) {
+    const escortItem = section === "inventory" && ExpeditionEscorts.GEAR.find((item) => item.key === key);
+    if (escortItem) return { massKg: escortItem.massKg, volumeL: escortItem.volumeL };
     const fieldItem = section === "inventory" && WildernessSurvival.ITEMS.find((item) => item.key === key);
     if (fieldItem) return { massKg: fieldItem.massKg, volumeL: fieldItem.volumeL };
     if (section === "resources") {
@@ -29903,6 +29930,7 @@
     }
     if (section === "inventory") {
       const equipmentMetrics = {
+        medicalBandage: { volumeL: 0.2, massKg: 0.1 },
         stainedLabCoat: { volumeL: 1.5, massKg: 0.7 },
         safetyGoggles: { volumeL: 0.3, massKg: 0.2 },
         filterMask: { volumeL: 0.4, massKg: 0.15 },
@@ -30153,6 +30181,7 @@
   function actorInventoryOwner(actorId, context = state) {
     const id = normalizeActorInventoryOwnerId(actorId);
     if (id === "scientist") return context?.scientist || null;
+    if (context?.expeditionEscorts?.actor?.id === id) return context.expeditionEscorts.actor;
     return (context?.slimes || []).find((slime) => slime.id === id && slime.status !== "dead")
       || (context?.siteVisits?.visits || []).flatMap((visit) => [visit.actor, ...(visit.supportActors || [])])
         .find((actor) => actor?.id === id && actor.present)
@@ -30184,6 +30213,7 @@
     if (!context?.scientist || !Array.isArray(context.physicalItemStacks)) return false;
     const actors = [
       { id: "scientist", actor: context.scientist },
+      ...(context.expeditionEscorts?.actor ? [{ id: context.expeditionEscorts.actor.id, actor: context.expeditionEscorts.actor }] : []),
       ...(context.slimes || []).map((slime) => ({ id: slime.id, actor: slime })),
       ...(context.siteVisits?.visits || []).flatMap((visit) => [visit.actor, ...(visit.supportActors || [])])
         .filter((actor) => actor?.present).map((actor) => ({ id: actor.id, actor })),
@@ -33579,6 +33609,7 @@
 
   function actorFloorLoadM2(actor) {
     if (!actor) return 0;
+    if (actor.actorKind === "expeditionEscort") return .6;
     if (actor.actorKind === "wildernessBeast") return 1;
     if (actor === state.scientist || actor.physicalPresence) {
       return Math.max(0, Number(actor.physicalPresence?.floorLoadM2) || SCIENTIST_DEFAULT_PHYSICAL_PRESENCE.floorLoadM2);
@@ -33591,6 +33622,8 @@
     const excludeActor = options.excludeActor || null;
     const excludeCorpse = options.excludeCorpse || null;
     let occupied = 0;
+    const escort = state.expeditionEscorts?.actor;
+    if (escort && escort.id !== excludeActor?.id && mapCellKey(escort.mapCell) === key) occupied += .6;
     for (const beast of state.wildernessBeasts?.actors || []) {
       if (beast.id !== excludeActor?.id && mapCellKey(beast.mapCell) === key) occupied += MAP_TILE_AREA_M2;
     }
@@ -33677,6 +33710,7 @@
   }
 
   function navigationFootprintForActor(actor) {
+    if (actor?.actorKind === "expeditionEscort") return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (actor?.actorKind === "wildernessBeast") return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: 1, exclusive: true });
     const loadM2 = clamp(actorFloorLoadM2(actor), 0.015, MAP_TILE_AREA_M2);
     if (!actor || actor === state.scientist || actor.physicalPresence) {
@@ -37105,7 +37139,7 @@
   }
 
   function combatActor(actorId) {
-    return actorId === "scientist" ? state.scientist : findSlime(actorId) || wildernessBeast(actorId);
+    return actorId === "scientist" ? state.scientist : findSlime(actorId) || wildernessBeast(actorId) || (state.expeditionEscorts?.actor?.id === actorId ? state.expeditionEscorts.actor : null);
   }
 
   function combatActorCell(actor) {
@@ -37116,6 +37150,7 @@
   }
 
   function combatActorSkillLevel(actor, skillId) {
+    if (actor?.actorKind === "expeditionEscort") return actor.skills[skillId] || 1;
     if (actor?.actorKind === "wildernessBeast") return ["evasion", "perception", "brawling"].includes(skillId) ? 5 : 1;
     return actor === state.scientist || actor?.physicalPresence
       ? skillLevel(skillId)
@@ -37123,6 +37158,7 @@
   }
 
   function combatActorVitalPercent(actor, key) {
+    if (actor?.actorKind === "expeditionEscort") return actor.health / actor.maxHealth * 100;
     if (actor?.actorKind === "wildernessBeast") return actor.health / actor.maxHealth * 100;
     if (actor === state.scientist || actor?.physicalPresence) {
       const vital = scientistVital(key === "bodyIntegrity" ? "health" : key);
@@ -37254,7 +37290,7 @@
 
   function normalizeInjury(candidate, index = 0) {
     if (!candidate || typeof candidate !== "object") return null;
-    const actorKind = ["scientist", "wildernessBeast"].includes(candidate.actorKind) ? candidate.actorKind : "slime";
+    const actorKind = ["scientist", "wildernessBeast", "expeditionEscort"].includes(candidate.actorKind) ? candidate.actorKind : "slime";
     const actorId = actorKind === "scientist" ? "scientist" : String(candidate.actorId || "");
     const typeId = INJURY_TYPE_DEFS[candidate.typeId] ? candidate.typeId : "bruising";
     const severityId = INJURY_SEVERITY_DEFS[candidate.severityId] ? candidate.severityId : "minor";
@@ -37311,7 +37347,7 @@
     if (tags.has("heat") || tags.has("cold") || tags.has("radiant")) return "burn";
     if (tags.has("electrical")) return "electricalTrauma";
     if (tags.has("arcane") || tags.has("shadow")) return "arcaneTrauma";
-    if (actor?.actorKind === "wildernessBeast") return amount >= 8 ? "bleeding" : "bruising";
+    if (["wildernessBeast", "expeditionEscort"].includes(actor?.actorKind)) return amount >= 8 ? "bleeding" : "bruising";
     if (actor !== state.scientist && location === "core") return "coreTrauma";
     if (actor !== state.scientist && (location === "membrane" || amount >= 10)) return "membraneTear";
     if (actor === state.scientist && amount >= 13 && tags.has("physical")) return "fracture";
@@ -37324,7 +37360,7 @@
     state.injuries = normalizeInjuries(state.injuries);
     const scientist = actor === state.scientist || actor?.physicalPresence;
     const actorId = scientist ? "scientist" : actor.id;
-    const locations = scientist ? SCIENTIST_INJURY_LOCATIONS : actor.actorKind === "wildernessBeast" ? ["head", "torso", "left leg", "right leg"] : slimeInjuryLocations(actor);
+    const locations = scientist || actor.actorKind === "expeditionEscort" ? SCIENTIST_INJURY_LOCATIONS : actor.actorKind === "wildernessBeast" ? ["head", "torso", "left leg", "right leg"] : slimeInjuryLocations(actor);
     const rng = seedRng(`${state.seed}:injury:${actorId}:${state.combat?.nextActionNumber || 0}:${Math.round(state.clock)}:${damageTypes.join(":")}`);
     const location = options.location || locations[Math.floor(rng() * locations.length)] || (scientist ? "torso" : "body mass");
     const typeId = injuryTypeForDamage(actor, damageTypes, amount, location);
@@ -37342,11 +37378,12 @@
     const visible = INJURY_TYPE_DEFS[typeId].visible;
     const observed = scientist || visible || options.observed;
     const injury = normalizeInjury({
-      id: `injury-${state.nextInjuryNumber++}`, actorKind: scientist ? "scientist" : actor.actorKind === "wildernessBeast" ? "wildernessBeast" : "slime", actorId,
+      id: `injury-${state.nextInjuryNumber++}`, actorKind: scientist ? "scientist" : ["wildernessBeast", "expeditionEscort"].includes(actor.actorKind) ? actor.actorKind : "slime", actorId,
       typeId, severityId, location, status: "active", cause, damageTypes,
       createdAt: state.clock, updatedAt: state.clock, observedAt: observed ? state.clock : null
     }, state.nextInjuryNumber);
     state.injuries.push(injury);
+    if (actor.actorKind === "expeditionEscort" && !escortObserved()) return injury;
     addEvent(scientist || visible
       ? `${scientist ? "Scientist" : actor.name} suffered ${INJURY_SEVERITY_DEFS[severityId].label.toLowerCase()} ${INJURY_TYPE_DEFS[typeId].label.toLowerCase()} at the ${location}.`
       : `${actor.name} is showing uncertain symptoms of internal trauma; examination is required.`);
@@ -37402,6 +37439,7 @@
       injury.updatedAt = state.clock;
       if (actor === state.scientist) damageScientistCombat(damage, `${INJURY_TYPE_DEFS[injury.typeId].label} progression`, { injuryProgress: true });
       else if (actor.actorKind === "wildernessBeast") damageWildernessBeast(actor, damage, "injury", { injuryProgress: true });
+      else if (actor.actorKind === "expeditionEscort") damageExpeditionEscort(damage, { injuryProgress: true });
       else {
         applySlimeCombatDamage(actor, damage, "injury", `${INJURY_TYPE_DEFS[injury.typeId].label} progression`, { injuryProgress: true });
         if (injury.typeId === "membraneTear") adjustRoomAttribute(slimeEffectiveRoomId(actor), "contamination", damage * 0.25);
@@ -37412,7 +37450,7 @@
   }
 
   function awardCombatActionXp(actor, skillId, amount, reason, outcome) {
-    if (actor?.actorKind === "wildernessBeast") return;
+    if (["wildernessBeast", "expeditionEscort"].includes(actor?.actorKind)) return;
     if (actor === state.scientist || actor?.physicalPresence) {
       awardXp(skillId, amount * skillXpOutcomeMultiplier(outcome), reason);
       return;
@@ -37450,13 +37488,13 @@
     const sequence = Math.max(1, Number(options.sequence) || state.combat.nextActionNumber++);
     const accuracy = combatActionAccuracy(actor, targetActor, action, sequence);
     if (!accuracy.hit) {
-      emitMapFeedback("feedbackMiss", combatActorCell(targetActor), {
+      if (!options.hideFeedback) emitMapFeedback("feedbackMiss", combatActorCell(targetActor), {
         label: action.label + " missed",
         fromCell: combatActorCell(actor),
         coalesceKey: "miss:" + actorId + ":" + target.id
       });
       awardCombatActionXp(actor, action.skillId, options.xp || 4, action.label, "failure");
-      if (targetActor !== state.scientist && targetActor.actorKind !== "wildernessBeast") awardCreatureSkillXp(targetActor, "evasion", 3, `evading ${action.label.toLowerCase()}`);
+      if (targetActor !== state.scientist && !["wildernessBeast", "expeditionEscort"].includes(targetActor.actorKind)) awardCreatureSkillXp(targetActor, "evasion", 3, `evading ${action.label.toLowerCase()}`);
       return { ok: true, hit: false, damage: 0, accuracy };
     }
     const targetId = targetActor === state.scientist ? "scientist" : targetActor.id;
@@ -37464,8 +37502,9 @@
     const changed = targetActor === state.scientist
       ? damageScientistCombat(guardedDamage, `${action.label} (${damageTypeListText(action.damageTypes.map(damageTypeDef).filter(Boolean))})`, { damageTypes: action.damageTypes, observed: actor === state.scientist })
       : targetActor.actorKind === "wildernessBeast" ? damageWildernessBeast(targetActor, guardedDamage, actorId, { damageTypes: action.damageTypes })
+      : targetActor.actorKind === "expeditionEscort" ? damageExpeditionEscort(guardedDamage, { damageTypes: action.damageTypes })
       : applySlimeCombatDamage(targetActor, guardedDamage, actorId, action.label, { damageTypes: action.damageTypes, observed: actor === state.scientist });
-    if (changed) {
+    if (changed && !options.hideFeedback) {
       emitMapFeedback("feedbackImpact", combatActorCell(targetActor), {
         label: action.label + " hit for " + guardedDamage,
         intensityBand: guardedDamage >= 8 ? "high" : "medium",
@@ -37800,6 +37839,7 @@
       render();
       return false;
     }
+    if (state.expeditionEscorts?.drag?.helperId === "scientist") stopEscortDrag();
     if (scientistGuarding()) stopScientistGuard({ quiet: true });
     const target = scientistCombatTargetForSlime(slime);
     const staminaCost = action.staminaCost ? adjustedStaminaCost(action.staminaCost, [action.skillId]) : 0;
@@ -37918,6 +37958,10 @@
     const records = wildernessCombatRecords();
     for (const actorId of Object.keys(state.combat.guarding || {})) {
       if (actorId !== "scientist") delete state.combat.guarding[actorId];
+    }
+    const escort = state.expeditionEscorts?.actor;
+    if (escortContractActive() && escort?.status !== "dead" && !actorIsIncapacitated(escort)) {
+      state.combat.guarding[escort.id] = { startedAt: state.clock };
     }
     const living = (state.slimes || []).filter((slime) => slime && slime.status !== "dead" && slimeStat(slime, "bodyIntegrity").current > 0);
     for (let i = 0; i < living.length; i += 1) {
@@ -51766,6 +51810,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       return null;
     }
+    if (state.expeditionEscorts?.drag?.helperId === "scientist") stopEscortDrag();
     const fromRoomId = scientistRoomId();
     const fromCell = scientistMapCell();
     const toCell = options.toCell
@@ -61422,6 +61467,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function labMapOverlayAssignments(overlayId, map, context = {}) {
     const assignments = baseLabMapOverlayAssignments(overlayId, map, context);
+    const escort = state.expeditionEscorts?.actor;
+    if (escort && escortObserved()) setLabMapOverlayEntry(assignments, escort.mapCell, { overlayId, classNames: ["map-overlay-resources", "map-overlay-resources-high"], label: escort.name, title: `${escort.name}: ${escort.status === "dead" ? "physical remains" : "local escort"}`, source: "Direct observation", value: escort.status === "dead" ? "†" : "E", target: { kind: "tile", tile: escort.mapCell } }, map);
     if (!state.wildernessBeasts?.materialized) return assignments;
     const knowledge = wildernessBeastKnowledge();
     const markers = [
@@ -74932,6 +74979,273 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       arcaneInterference: Number(map.arcaneGeography?.manaConcentrationPermille?.[index]) || 0 };
   }
 
+  function ensureExpeditionEscorts() { return state.expeditionEscorts ||= ExpeditionEscorts.defaultState(); }
+  function escortContractActive() { return ["active", "returning"].includes(state?.expeditionEscorts?.contract?.status); }
+  function escortObserved() {
+    const actor = state.expeditionEscorts?.actor;
+    return Boolean(actor && surveyScientistAway() && WildernessBeasts.distance(scientistMapCell(), actor.mapCell) <= 8 && sensoryLineOfSight(scientistMapCell(), actor.mapCell));
+  }
+  function escortNearby() { return escortObserved() && WildernessBeasts.distance(scientistMapCell(), state.expeditionEscorts.actor.mapCell) <= 1; }
+  function ensureEscortCandidate() {
+    const saved = ensureExpeditionEscorts(), expedition = ensureSurveyExpeditions();
+    if (!saved.actor && expedition.phase === "field") {
+      saved.actor = ExpeditionEscorts.candidate(state.seed, { id: expedition.destination.cityId || expedition.destination.id, label: expedition.destination.label });
+      saved.actor.needs = WildernessSurvival.defaultState(state.clock);
+    }
+    const actor = saved.actor;
+    if (actor && !actor.initializedKit) {
+      actor.initializedKit = true;
+      for (const [key, amount] of [["escortBaton", 1], ["escortVest", 1], ["drinkingWater", 4], ["trailMeal", 3], ["medicalBandage", 3], ["neutralizingWash", 1]]) {
+        const stack = createPhysicalItemStack("inventory", key, amount, { roomId: actor.roomId, cell: actor.mapCell }, { carriedBy: actor.id, suppressEvidence: true, sourceLabels: ["Escort-owned starting equipment"] });
+        if (key.startsWith("escort")) saved.gearCondition[stack.id] = 100;
+      }
+      syncActorInventories();
+    }
+    return actor;
+  }
+  function hireExpeditionEscort() {
+    const saved = ensureExpeditionEscorts(), actor = ensureEscortCandidate(), quote = ExpeditionEscorts.quote(saved.budgetHours);
+    if (!actor || actor.status === "dead" || actor.health < 35 || actorIsIncapacitated(actor) || escortContractActive() || !escortNearby() || actor.roomId !== SurveyExpeditions.FIELD_ROOM || ensureEconomy().money < quote.upfront) return false;
+    ensureEconomy().money -= quote.upfront;
+    saved.contract = ExpeditionEscorts.start(saved.nextContract++, state.clock, saved.budgetHours);
+    actor.needs.lastAt = state.clock; actor.order = "follow"; actor.nextMoveAt = state.clock + 1;
+    surveyEvent(`${actor.name} hired for lawful local survey protection: ${formatMoney(quote.fee)} engagement plus ${formatMoney(quote.wageReserve)} reserved wages. No lab access or transport seat is included.`);
+    persist(); render(); return true;
+  }
+  function settleEscortContract(dead = false) {
+    const saved = ensureExpeditionEscorts();
+    if (!escortContractActive()) return false;
+    const actor = saved.actor;
+    if (!dead && (actor.roomId !== SurveyExpeditions.FIELD_ROOM || WildernessBeasts.distance(actor.mapCell, ExpeditionEscorts.MEETING) > 2 || scientistRoomId() !== SurveyExpeditions.FIELD_ROOM || !escortNearby())) return false;
+    const refund = ExpeditionEscorts.finish(saved.contract, dead ? actor.diedAt : state.clock, dead);
+    ensureEconomy().money += refund;
+    saved.history.push(clonePlainObject(saved.contract));
+    actor.trust = clamp(actor.trust + (dead ? -15 : 2), 0, 100);
+    actor.order = "hold"; cancelEscortCare();
+    surveyEvent(`${actor.name}'s contract ${dead ? "ended after physical death" : "completed at the municipal meeting point"}; ${formatMoney(refund)} unused wages refunded. Equipment and injuries are not reset.`);
+    persist(); render(); return true;
+  }
+  function orderExpeditionEscort(order) {
+    const saved = ensureExpeditionEscorts(), actor = saved.actor;
+    if (!escortContractActive() || !ExpeditionEscorts.ORDERS.includes(order) || !escortObserved() || actor.status === "dead") return false;
+    if (saved.contract.status === "returning" && order !== "withdraw") { actor.trust = Math.max(0, actor.trust - 1); surveyEvent(`${actor.name} refuses: ${saved.contract.returnReason}.`); persist(); render(); return false; }
+    actor.order = order; actor.holdCell = cleanMapCell(actor.mapCell); actor.lastOrderAt = state.clock;
+    if (order === "withdraw") { saved.contract.status = "returning"; saved.contract.returnReason ||= "The scientist requested return"; }
+    persist(); render(); return true;
+  }
+  function transferEscortSupply(key, direction = "give") {
+    const actor = state.expeditionEscorts?.actor;
+    if (!escortContractActive() || !escortNearby() || actorIsIncapacitated("scientist") || actor.status === "dead" || !["drinkingWater", "trailMeal", "medicalBandage", "neutralizingWash", "escortBaton", "escortVest"].includes(key)) return false;
+    if (direction === "take" && key.startsWith("escort")) return false;
+    const from = direction === "give" ? "scientist" : actor.id, to = direction === "give" ? actor.id : "scientist";
+    const stack = actorInventoryStacks(from).find((entry) => entry.key === key && entry.quantity > 0 && !entry.reservedTaskId);
+    if (!stack || !actorInventoryCanCarry(to, stack, 1)) return false;
+    // Hand over one real unit at arm's reach; no virtual stock or remote transfer.
+    const owner = stack.carriedBy; stack.carriedBy = "";
+    const carried = carryPhysicalStack(to, stack.id, 1);
+    const remainder = ensurePhysicalItemStacks().find((entry) => entry.id === stack.id);
+    if (!carried) { stack.carriedBy = owner; return false; }
+    if (remainder && remainder !== carried) remainder.carriedBy = owner;
+    if (key.startsWith("escort")) state.expeditionEscorts.gearCondition[carried.id] ??= 100;
+    syncActorInventories(); syncPhysicalReadModels(); persist(); render(); return true;
+  }
+  function escortGear(key) {
+    const saved = ensureExpeditionEscorts();
+    return saved.actor && actorInventoryStacks(saved.actor.id).find((stack) => stack.key === key && !stack.reservedTaskId && stack.quantity > 0 && saved.gearCondition[stack.id] > 0);
+  }
+  function cancelEscortCare() {
+    const actor = state.expeditionEscorts?.actor;
+    if (!actor?.care) return;
+    const stack = ensurePhysicalItemStacks().find((entry) => entry.id === actor.care.stackId);
+    if (stack?.reservedTaskId === `escort-care:${actor.id}`) stack.reservedTaskId = "";
+    actor.care = null;
+  }
+  function startEscortCare(key, targetId = "") {
+    const actor = state.expeditionEscorts?.actor;
+    if (!escortContractActive() || !actor || actorIsIncapacitated(actor) || actor.care || actor.status === "dead") return false;
+    if (targetId === "scientist" && !escortNearby()) return false;
+    const injury = actorInjuries(targetId || actor.id).find((entry) => entry.status === "active" && INJURY_TYPE_DEFS[entry.typeId].supplyKey === key);
+    if (!["drinkingWater", "trailMeal"].includes(key) && !injury) return false;
+    const stack = actorInventoryStacks(actor.id).find((entry) => entry.key === key && entry.quantity > 0 && !entry.reservedTaskId);
+    if (!stack) return false;
+    stack.reservedTaskId = `escort-care:${actor.id}`;
+    actor.care = { key, targetId, injuryId: injury?.id || "", stackId: stack.id, startedAt: state.clock, dueAt: state.clock + (injury ? 45 : 20) };
+    return true;
+  }
+  function completeEscortCare() {
+    const actor = state.expeditionEscorts.actor, care = actor.care;
+    if (!care || state.clock < care.dueAt) return false;
+    const stack = actorInventoryStacks(actor.id).find((entry) => entry.id === care.stackId && entry.quantity > 0 && entry.reservedTaskId === `escort-care:${actor.id}`);
+    if (!stack || care.targetId === "scientist" && !escortNearby()) { cancelEscortCare(); return false; }
+    const injury = care.injuryId && state.injuries.find((entry) => entry.id === care.injuryId && entry.status === "active");
+    if (care.injuryId && !injury) { cancelEscortCare(); return false; }
+    stack.quantity--; stack.knownQuantity = Math.min(stack.quantity, stack.knownQuantity); stack.reservedTaskId = "";
+    if (!stack.quantity) state.physicalItemStacks = state.physicalItemStacks.filter((entry) => entry.id !== stack.id);
+    if (injury) {
+      injury.status = "stabilized"; injury.stabilizedAt = state.clock;
+      if (care.targetId === "scientist") actor.trust = Math.min(100, actor.trust + 2);
+    } else actor.needs = WildernessSurvival.consume(actor.needs, care.key);
+    actor.care = null; syncActorInventories(); syncPhysicalReadModels(); return true;
+  }
+  function damageExpeditionEscort(amount, options = {}) {
+    const actor = state.expeditionEscorts?.actor;
+    if (!actor || actor.status === "dead" || amount <= 0) return false;
+    const vest = !options.injuryProgress && escortGear("escortVest");
+    if (vest) state.expeditionEscorts.gearCondition[vest.id] = Math.max(0, state.expeditionEscorts.gearCondition[vest.id] - 1);
+    const damage = Math.max(1, Math.round(amount * (vest ? .85 : 1)));
+    actor.health = Math.max(0, actor.health - damage);
+    cancelEscortCare();
+    if (!options.injuryProgress) recordCombatInjury(actor, damage, options.damageTypes || ["physical"], "Field escort trauma", { observed: escortObserved() });
+    if (!actor.health) {
+      actor.status = "dead"; actor.diedAt = state.clock;
+      for (const stack of actorInventoryStacks(actor.id)) { stack.carriedBy = ""; stack.cell = cleanMapCell(actor.mapCell); stack.roomId = actor.roomId; }
+      stopEscortDrag();
+      if (escortObserved()) settleEscortContract(true);
+      syncActorInventories(); syncPhysicalReadModels();
+    }
+    if (escortObserved()) pauseForWildernessThreat(`${actor.name} ${actor.status === "dead" ? "died from physical trauma" : "was injured"}.`);
+    return true;
+  }
+  function escortNextStep(actor, goal, dragging = false) {
+    const map = ensureLabMap(), from = combatActorCell(actor);
+    const allowed = new Set([...(map.rooms[SurveyExpeditions.FIELD_ROOM]?.cells || []), ...(map.rooms[WildernessBeasts.ROOM]?.cells || []), WildernessSurvival.GATE].map(mapCellKey));
+    const canEnter = (cell) => allowed.has(mapCellKey(cell)) && labMapCellIsWalkable(cell, map)
+      && !labMapCellIsPathBlocked(cell, { map, actor, ignoreActorOccupancy: dragging })
+      && !(state.wildernessBeasts?.actors || []).some((beast) => mapCellKey(beast.mapCell) === mapCellKey(cell));
+    if (!goal) return null;
+    const goals = canEnter(goal) ? [goal] : WildernessBeasts.neighbors(goal).filter(canEnter);
+    for (const destination of goals.sort((a, b) => WildernessBeasts.distance(a, from) - WildernessBeasts.distance(b, from))) {
+      const next = WildernessBeasts.nextStep(from, destination, canEnter); if (next) return next;
+    }
+    return null;
+  }
+  function startEscortDrag(helperId = "scientist") {
+    const actor = state.expeditionEscorts?.actor;
+    if (!escortContractActive() || !actor || !escortNearby()) return false;
+    const helper = helperId === "scientist" ? { health: scientistVital("health").current, maxHealth: scientistVital("health").max, needs: ensureWildernessSurvival() } : actor;
+    const casualty = helperId === "scientist" ? actor : { health: scientistVital("health").current };
+    const target = helperId === "scientist" ? actor : state.scientist;
+    if (!actorIsIncapacitated(target) || actorIsIncapacitated(helperId === "scientist" ? state.scientist : actor) || !ExpeditionEscorts.canDrag(helper, casualty, actorInventoryUsage(helperId === "scientist" ? actor.id : "scientist").massKg)) return false;
+    cancelEscortCare();
+    state.expeditionEscorts.drag = { helperId, nextAt: state.clock + 4 };
+    if (helperId === "scientist") { cancelPendingScientistCombatAction({ quiet: true }); stopScientistGuard({ quiet: true }); suspendScientistRoutineWork("dragging an escort casualty"); }
+    return true;
+  }
+  function stopEscortDrag() {
+    const saved = ensureExpeditionEscorts();
+    if (saved.drag?.helperId === "scientist") resumeScientistRoutineWork();
+    saved.drag = null;
+  }
+  function updateEscortDrag() {
+    const saved = ensureExpeditionEscorts(), actor = saved.actor, drag = saved.drag;
+    if (!drag) return false;
+    const helper = drag.helperId === "scientist" ? state.scientist : actor, casualty = drag.helperId === "scientist" ? actor : state.scientist;
+    const helperHealth = helper === state.scientist ? scientistVital("health") : { current: actor.health, max: actor.maxHealth };
+    const needs = helper === state.scientist ? ensureWildernessSurvival() : actor.needs;
+    if (actorIsIncapacitated(helper) || scientistIsDead() || actor.status === "dead" || WildernessBeasts.distance(combatActorCell(helper), combatActorCell(casualty)) > 1 || needs.exertion >= 90 || helperHealth.current <= helperHealth.max * .35) { stopEscortDrag(); return false; }
+    if (WildernessBeasts.distance(combatActorCell(helper), ExpeditionEscorts.MEETING) <= 1 && labMapCellRoomId(combatActorCell(casualty)) === SurveyExpeditions.FIELD_ROOM) { actor.trust = Math.min(100, actor.trust + 4); stopEscortDrag(); return true; }
+    if (state.clock < drag.nextAt) return true;
+    const next = escortNextStep(helper, ExpeditionEscorts.MEETING, true);
+    if (!next) { pauseForWildernessThreat("Casualty dragging is blocked by the physical route. Clear the route or stop assisting."); stopEscortDrag(); return false; }
+    const from = cleanMapCell(combatActorCell(helper));
+    const nextRoom = labMapCellRoomId(next) || SurveyExpeditions.FIELD_ROOM, fromRoom = labMapCellRoomId(from) || SurveyExpeditions.FIELD_ROOM;
+    // Navigation can normalize actor records; commit to the current authoritative bodies.
+    const liveHelper = drag.helperId === "scientist" ? state.scientist : saved.actor;
+    const liveCasualty = drag.helperId === "scientist" ? saved.actor : state.scientist;
+    liveHelper.mapCell = cleanMapCell(next); liveHelper.roomId = nextRoom;
+    liveCasualty.mapCell = from; liveCasualty.roomId = fromRoom;
+    needs.exertion = Math.min(100, needs.exertion + .25);
+    drag.nextAt = state.clock + 4 * WildernessSurvival.fatigueMultiplier(needs);
+    syncActorInventories(); return true;
+  }
+  function updateExpeditionEscort(elapsed = 0) {
+    const saved = ensureExpeditionEscorts(), actor = saved.actor;
+    if (!actor || !escortContractActive()) return 0;
+    if (actor.status === "dead") { if (escortObserved()) settleEscortContract(true); return 0; }
+    const contract = saved.contract, previousReason = contract.returnReason;
+    ExpeditionEscorts.accrue(contract, state.clock);
+    const inWild = actor.roomId === WildernessBeasts.ROOM;
+    const working = actor.order !== "hold" || actor.nextAttackAt > state.clock || Boolean(saved.drag);
+    const needs = WildernessSurvival.advance(actor.needs, state.clock, { working, resting: !working, destination: inWild ? state.wildernessSurvival.destination : null });
+    actor.needs = needs.state;
+    if (needs.damage) damageExpeditionEscort(needs.damage, { injuryProgress: true });
+    if (actor.status === "dead") return 1;
+    const threats = (state.wildernessBeasts?.actors || []).filter((beast) => beast.status !== "dead" && inWild && WildernessBeasts.distance(actor.mapCell, beast.mapCell) <= 7 && sensoryLineOfSight(actor.mapCell, beast.mapCell));
+    const refusal = ExpeditionEscorts.refusal(actor, threats.length);
+    if (refusal && !contract.returnReason) { contract.returnReason = refusal; contract.status = "returning"; }
+    if (!previousReason && contract.returnReason && escortObserved()) pauseForWildernessThreat(`${actor.name} requests withdrawal: ${contract.returnReason}. Reserved wages will not be exceeded.`);
+    if (contract.returnReason) actor.order = "withdraw";
+    if (escortObserved()) actor.lastObservation = { at: state.clock, cell: cleanMapCell(actor.mapCell), condition: actor.health < 35 ? "Seriously wounded" : actor.health < actor.maxHealth ? "Wounded" : "No visible wounds", needs: clonePlainObject(actor.needs), order: actor.order, returnReason: contract.returnReason };
+    for (const beast of threats) actor.observed[beast.id] = { at: state.clock, name: beast.name, cell: cleanMapCell(beast.mapCell) };
+    if (escortObserved() && threats.length && (actor.lastReportAt == null || state.clock - actor.lastReportAt >= 30)) {
+      actor.lastReportAt = state.clock; actor.lastReport = clonePlainObject(actor.observed[threats[0].id]);
+      surveyEvent(`${actor.name} calls out a sighting of ${actor.lastReport.name}. The dated warning does not grant an exact combat target through cover.`);
+    }
+    if (saved.drag) { updateEscortDrag(); return 1; }
+    if (actorIsIncapacitated(actor)) return 0;
+    if (actorIsIncapacitated("scientist") && !scientistIsDead() && escortNearby() && startEscortDrag(actor.id)) return 1;
+    const attacker = threats.filter((beast) => WildernessBeasts.distance(actor.mapCell, beast.mapCell) <= 1 && (beast.behavior === "pursue" || beast.targetId === actor.id)).sort((a, b) => a.health - b.health)[0];
+    state.combat.guarding[actor.id] = { startedAt: state.clock };
+    if (attacker && elapsed > 0 && state.clock >= actor.nextAttackAt) {
+      cancelEscortCare();
+      const weapon = escortGear("escortBaton");
+      resolveSharedCombatAction(actor.id, "strike", { kind: "creature", id: attacker.id }, { baseDamage: weapon ? 10 : 4, damageTypes: ["physical"], hideFeedback: !escortObserved() });
+      if (weapon) saved.gearCondition[weapon.id] = Math.max(0, saved.gearCondition[weapon.id] - 1);
+      actor.nextAttackAt = state.clock + 5;
+    }
+    if (actor.care) { if (threats.some((beast) => WildernessBeasts.distance(actor.mapCell, beast.mapCell) <= 2)) cancelEscortCare(); else { completeEscortCare(); return 1; } }
+    if (!threats.length && !actor.care) {
+      if (actor.needs.thirst >= 40 && startEscortCare("drinkingWater")) return 1;
+      if (actor.needs.hunger >= 40 && startEscortCare("trailMeal")) return 1;
+      const injury = actorInjuries(actor).find((entry) => entry.status === "active");
+      if (injury && startEscortCare(INJURY_TYPE_DEFS[injury.typeId].supplyKey)) return 1;
+    }
+    if (elapsed <= 0 || state.clock < actor.nextMoveAt) return 0;
+    let goal = null;
+    if (actor.order === "withdraw") goal = ExpeditionEscorts.MEETING;
+    else if (actorIsIncapacitated("scientist") && !scientistIsDead()) goal = scientistMapCell();
+    else if (actor.order === "follow" && WildernessBeasts.distance(actor.mapCell, scientistMapCell()) > 2) goal = scientistMapCell();
+    else if (actor.order === "defend") goal = threats.filter((beast) => beast.behavior === "pursue" && WildernessBeasts.distance(beast.mapCell, scientistMapCell()) <= 3).sort((a, b) => WildernessBeasts.distance(a.mapCell, actor.mapCell) - WildernessBeasts.distance(b.mapCell, actor.mapCell))[0]?.mapCell;
+    if (goal && WildernessBeasts.distance(actor.mapCell, goal) > 1) {
+      const next = escortNextStep(actor, goal);
+      if (next) { actor.mapCell = cleanMapCell(next); actor.roomId = labMapCellRoomId(next) || SurveyExpeditions.FIELD_ROOM; syncActorInventories(); }
+    }
+    actor.nextMoveAt = state.clock + 1.3 * WildernessSurvival.fatigueMultiplier(actor.needs) * (1 + injuryEffectTotals(actor).movement);
+    return 1;
+  }
+  function renderExpeditionEscortPanel() {
+    const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.expeditionEscort = "true";
+    panel.append(textEl("strong", "Expedition Escort"));
+    const actor = ensureEscortCandidate(), saved = ensureExpeditionEscorts();
+    if (!actor) { panel.append(textEl("p", "Meet a local survey professional at the defended municipal ground. Escorts join and leave there; no additional vehicle seat is booked.")); return panel; }
+    const button = (label, run, disabled = false) => { const el = document.createElement("button"); el.textContent = label; el.disabled = disabled; el.addEventListener("click", () => { run(); persist(); render(); }); panel.append(el); };
+    panel.append(textEl("p", `${actor.name} · ${actor.affiliation}. ${actor.temperament}. Trust: ${actor.trust >= 50 ? "steady" : "strained"}.`));
+    panel.append(textEl("p", `Professional skills: Striking ${actor.skills.striking}, Guarding ${actor.skills.guarding}, Evasion ${actor.skills.evasion}, Perception ${actor.skills.perception}.`));
+    if (actor.lastObservation) panel.append(textEl("p", `${actor.lastObservation.condition}; last observed at ${actor.lastObservation.cell.x},${actor.lastObservation.cell.y}, ${formatDuration(actor.lastObservation.at)}. ${escortObserved() ? "Currently in sight." : "Current condition and position are not known."}`));
+    if (!escortContractActive()) {
+      const quote = ExpeditionEscorts.quote(saved.budgetHours);
+      panel.append(textEl("p", `${formatMoney(quote.fee)} engagement + ${formatMoney(quote.hourly)}/hour; ${quote.limitHours}-hour reserve, ${formatMoney(quote.upfront)} upfront. Unused wages refunded at completion. Existing wounds and kit persist on rehire.`));
+      button(`Wage Reserve: ${quote.limitHours} hours`, () => { saved.budgetHours = quote.limitHours === 2 ? 4 : quote.limitHours === 4 ? 8 : 2; });
+      button("Approach Escort", () => { const goal = WildernessBeasts.neighbors(actor.mapCell).find((cell) => labMapCellIsWalkable(cell, ensureLabMap()) && labMapPathBetweenCells(scientistMapCell(), cell, { map: ensureLabMap(), actor: state.scientist, ignoreDoors: true }).length); if (goal) startScientistMove(SurveyExpeditions.FIELD_ROOM, { toCell: goal, allowMultiRoom: true }); }, !surveyScientistAway());
+      button("Hire for Local Survey", hireExpeditionEscort, !escortNearby() || actor.status === "dead" || actor.health < 35 || actorIsIncapacitated(actor) || ensureEconomy().money < quote.upfront);
+    } else {
+      panel.append(textEl("p", `Last known order: ${escortObserved() ? actor.order : actor.lastObservation?.order || "follow"}. Reserved wages earned: ${formatMoney(saved.contract.earned)} / ${formatMoney(saved.contract.wageReserve)}. ${(escortObserved() ? saved.contract.returnReason : actor.lastObservation?.returnReason) || "Protection covers lawful local surveying only."}`));
+      for (const order of ExpeditionEscorts.ORDERS) button(order[0].toUpperCase() + order.slice(1), () => orderExpeditionEscort(order), !escortObserved());
+      button("Complete at Meeting Point", () => settleEscortContract(), !escortNearby() || actor.roomId !== SurveyExpeditions.FIELD_ROOM || WildernessBeasts.distance(actor.mapCell, ExpeditionEscorts.MEETING) > 2);
+      button(saved.drag ? "Stop Casualty Assistance" : "Drag Incapacitated Escort to Safety", () => saved.drag ? stopEscortDrag() : startEscortDrag("scientist"), !saved.drag && (!escortNearby() || !actorIsIncapacitated(actor)));
+      button("Ask for First Aid", () => { const injury = actorInjuries("scientist").find((entry) => entry.status === "active"); if (injury) startEscortCare(INJURY_TYPE_DEFS[injury.typeId].supplyKey, "scientist"); }, !escortNearby() || actorIsIncapacitated(actor));
+      if (actor.lastReport) panel.append(textEl("p", `Escort report at ${formatDuration(actor.lastReport.at)}: ${actor.lastReport.name} seen near ${actor.lastReport.cell.x},${actor.lastReport.cell.y}. Not a live targeting feed.`));
+      if (escortNearby()) {
+        panel.append(textEl("p", actorInventoryContentsLabel(actor.id)));
+        panel.append(textEl("p", `Reported needs: thirst ${Math.round(actor.needs.thirst)}, hunger ${Math.round(actor.needs.hunger)}, exertion ${Math.round(actor.needs.exertion)}, exposure ${Math.round(actor.needs.exposure)} / 100.`));
+        for (const key of ["escortBaton", "escortVest"]) { const gear = escortGear(key); panel.append(textEl("p", `${inventoryItemLabel(key)}: ${gear ? `${saved.gearCondition[gear.id]}/100 condition` : "missing or unusable"}`)); }
+        for (const key of ["drinkingWater", "trailMeal", "medicalBandage", "neutralizingWash", "escortBaton", "escortVest"]) { button(`Give ${inventoryItemLabel(key)}`, () => transferEscortSupply(key)); if (!key.startsWith("escort")) button(`Take ${inventoryItemLabel(key)}`, () => transferEscortSupply(key, "take")); }
+        for (const injury of actorInjuries(actor).filter((entry) => entry.status === "active" && (INJURY_TYPE_DEFS[entry.typeId].visible || entry.diagnosedAt != null))) button(`Stabilize Escort: ${INJURY_TYPE_DEFS[injury.typeId].label}`, () => startInjuryTreatment(injury.id, "stabilize"), Boolean(injuryTreatmentBlockReason(injury, "stabilize")));
+      }
+    }
+    return panel;
+  }
+
   function wildernessBeast(id) { return state?.wildernessBeasts?.actors.find((beast) => beast.id === id) || null; }
   function ensureWildernessBeasts() { return state.wildernessBeasts ||= WildernessBeasts.defaultState(); }
   function materializeWildernessBeasts() {
@@ -74974,12 +75288,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function wildernessCombatRecords() {
     if (!scientistInWilderness()) return [];
-    return (state.wildernessBeasts?.actors || []).filter((beast) => beast.status !== "dead" && beast.behavior === "pursue" && wildernessBeastVisible(beast)).map((beast) => ({ key: `wilderness:${beast.id}`, type: "wildernessAttack", label: `${beast.name} threatens the scientist`, roomId: WildernessBeasts.ROOM, cell: beast.mapCell, sourceIds: [beast.id], targetIds: ["scientist"], sourceLabel: beast.name, targetLabel: "Scientist", involvesScientist: true, createdAt: state.clock, updatedAt: state.clock }));
+    return (state.wildernessBeasts?.actors || []).filter((beast) => beast.status !== "dead" && beast.behavior === "pursue" && wildernessBeastVisible(beast)).map((beast) => {
+      const targetId = beast.targetId || "scientist";
+      const targetLabel = targetId === "scientist" ? "Scientist" : "a nearby target";
+      return { key: `wilderness:${beast.id}`, type: "wildernessAttack", label: `${beast.name} threatens ${targetLabel}`, roomId: WildernessBeasts.ROOM, cell: beast.mapCell, sourceIds: [beast.id], targetIds: [targetId], sourceLabel: beast.name, targetLabel, involvesScientist: true, createdAt: state.clock, updatedAt: state.clock };
+    });
   }
   function damageWildernessBeast(beast, damage, attackerId, options = {}) {
     if (!beast || beast.status === "dead" || damage <= 0) return false;
     beast.health = Math.max(0, beast.health - damage);
-    if (attackerId === "scientist") { beast.provokedUntil = state.clock + 30; beast.lastTarget = cleanMapCell(scientistMapCell()); beast.rememberedUntil = state.clock + 12; }
+    if (attackerId === "scientist" || attackerId === state.expeditionEscorts?.actor?.id) { beast.provokedUntil = state.clock + 30; beast.lastTarget = cleanMapCell(combatActorCell(combatActor(attackerId))); beast.targetId = attackerId; beast.rememberedUntil = state.clock + 12; }
     if (!options.injuryProgress) recordCombatInjury(beast, damage, options.damageTypes || ["physical"], "Physical field combat", { observed: wildernessBeastVisible(beast) });
     if (!beast.health) { beast.status = "dead"; beast.behavior = "dead"; beast.diedAt = state.clock; beast.deathCause = "Physical trauma"; }
     observeWildernessBeasts();
@@ -74989,25 +75307,36 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const saved = ensureWildernessBeasts();
     if (!saved.materialized) return 0;
     // Unvisited actors retain their saved state; there are no off-screen encounters or catch-up attacks.
-    if (!scientistInWilderness() || scientistIsDead()) {
+    const escort = escortContractActive() && state.expeditionEscorts.actor?.status !== "dead" && state.expeditionEscorts.actor?.roomId === WildernessBeasts.ROOM ? state.expeditionEscorts.actor : null;
+    if ((!scientistInWilderness() && !escort) || scientistIsDead()) {
       for (const beast of saved.actors) { beast.nextMoveAt += Math.max(0, elapsed); beast.nextAttackAt += Math.max(0, elapsed); }
       saved.lastAt = state.clock; return 0;
     }
-    const map = ensureLabMap(), scientist = scientistMapCell(), working = Boolean(firstScientistQueueTask() && firstScientistQueueTask().type !== "rest");
+    const map = ensureLabMap(), working = Boolean(firstScientistQueueTask() && firstScientistQueueTask().type !== "rest");
     const sector = new Set(map.rooms[WildernessBeasts.ROOM].cells.map(mapCellKey));
     let changed = observeWildernessBeasts();
     for (const beast of saved.actors) {
       if (beast.status === "dead" || actorIsIncapacitated(beast)) continue;
-      const profile = WildernessBeasts.PROFILES[beast.speciesId], range = WildernessBeasts.distance(beast.mapCell, scientist);
+      const profile = WildernessBeasts.PROFILES[beast.speciesId];
+      // Navigation may normalize actor records, so target identity must not depend on object equality.
+      const targets = [...(scientistInWilderness() ? [{ id: "scientist", actor: state.scientist }] : []), ...(escort ? [{ id: escort.id, actor: escort }] : [])];
+      const seenTargets = targets.filter((target) => WildernessBeasts.distance(beast.mapCell, combatActorCell(target.actor)) <= profile.sight && sensoryLineOfSight(beast.mapCell, combatActorCell(target.actor)));
+      const target = seenTargets.find((entry) => entry.id === beast.targetId && state.clock < beast.provokedUntil)
+        || seenTargets.sort((a, b) => WildernessBeasts.distance(beast.mapCell, combatActorCell(a.actor)) - WildernessBeasts.distance(beast.mapCell, combatActorCell(b.actor)))[0]
+        || targets.find((entry) => entry.id === beast.targetId) || targets[0];
+      const scientist = target ? combatActorCell(target.actor) : beast.lastTarget;
+      const targetId = target?.id;
+      const range = WildernessBeasts.distance(beast.mapCell, scientist);
       const sees = range <= profile.sight && sensoryLineOfSight(beast.mapCell, scientist);
+      if (sees) beast.targetId = targetId;
       const decision = WildernessBeasts.decide(beast, scientist, state.clock, sees, working && range <= 5);
       beast.behavior = decision.behavior;
-      if (!wildernessBeastVisible(beast) && range <= 10 && (!saved.heard || state.clock - saved.heard.at >= 30)) saved.heard = { at: state.clock, label: `${profile.sound}; source not located or identified` };
+      if (scientistInWilderness() && !wildernessBeastVisible(beast) && WildernessBeasts.distance(beast.mapCell, scientistMapCell()) <= 10 && (!saved.heard || state.clock - saved.heard.at >= 30)) saved.heard = { at: state.clock, label: `${profile.sound}; source not located or identified` };
       if (elapsed <= 0) continue;
       if (decision.behavior === "pursue" && sees && range <= 1 && state.clock >= beast.nextAttackAt) {
-        const result = resolveSharedCombatAction(beast.id, "strike", { kind: "creature", id: "scientist" }, { baseDamage: profile.damage, damageTypes: profile.damageTypes });
+        const result = resolveSharedCombatAction(beast.id, "strike", { kind: "creature", id: targetId }, { baseDamage: profile.damage, damageTypes: profile.damageTypes, hideFeedback: targetId !== "scientist" && !escortObserved() });
         beast.nextAttackAt = state.clock + profile.recovery;
-        if (result.ok) { pauseForWildernessThreat(`${beast.name} ${result.hit ? "struck" : "attacked and missed"} the scientist at close range.`); changed++; }
+        if (result.ok) { if (targetId === "scientist" || escortObserved()) pauseForWildernessThreat(`${beast.name} ${result.hit ? "struck" : "attacked and missed"} ${targetId === "scientist" ? "the scientist" : escort.name} at close range.`); changed++; }
       } else if (state.clock >= beast.nextMoveAt) {
         const canEnter = (cell) => sector.has(mapCellKey(cell)) && mapCellKey(cell) !== mapCellKey(scientist)
           && !saved.actors.some((other) => other.id !== beast.id && mapCellKey(other.mapCell) === mapCellKey(cell))
@@ -75218,6 +75547,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function renderWildernessPanel() {
     const survival = ensureWildernessSurvival(), panel = document.createElement("section"); panel.dataset.wildernessSurvival = "true"; panel.className = "subpanel";
+    panel.append(renderExpeditionEscortPanel());
     if (state.surveyExpeditions?.phase === "field") panel.append(renderWildernessBeastsPanel());
     panel.append(textEl("strong", "Field Survival"), textEl("p", `Thirst ${Math.round(survival.thirst)}/100 · Hunger ${Math.round(survival.hunger)}/100 · Exertion ${Math.round(survival.exertion)}/100 · Exposure ${Math.round(survival.exposure)}/100. High needs slow movement and work; prolonged critical thirst, hunger, or exposure damages health.`));
     const button = (label, run, disabled = false) => { const el = document.createElement("button"); el.type = "button"; el.textContent = label; el.disabled = disabled; el.addEventListener("click", run); panel.append(el); };
@@ -75339,6 +75669,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function boardSurveyVehicle() {
+    if (escortContractActive()) { surveyEvent("Complete the escort's local contract at the defended meeting point before boarding. The hired vehicle waits; no extra escort seat has been booked."); persist(); render(); return false; }
     const expedition = ensureSurveyExpeditions();
     if (!["home", "field"].includes(expedition.phase) || surveyBusy()) return false;
     const reason = expedition.phase === "home" ? surveyDepartureReason() : "";
@@ -75353,6 +75684,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function surveyWorkBlockReason(task) {
+    if (task.data?.action === "board" && escortContractActive()) return "The local escort contract must finish at the municipal meeting point before departure.";
     const survivalReason = wildernessWorkBlockReason(task);
     if (survivalReason) return survivalReason;
     if (task.data.action === "pack") {
@@ -81715,6 +82047,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.surveyExpeditions = SurveyExpeditions.normalizeState(candidate?.surveyExpeditions);
     next.wildernessSurvival = WildernessSurvival.normalizeState(candidate?.wildernessSurvival, next.clock);
     next.wildernessBeasts = WildernessBeasts.normalizeState(candidate?.wildernessBeasts);
+    next.expeditionEscorts = ExpeditionEscorts.normalizeState(candidate?.expeditionEscorts);
     const opening = candidate?.themeContent?.opening;
     next.themeContent = {
       version: Math.max(1, Math.floor(Number(candidate?.themeContent?.version) || ThemeContent.VERSION)),

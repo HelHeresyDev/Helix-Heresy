@@ -41,7 +41,7 @@
   function nextStep(from, goal, canEnter) {
     if (!goal || key(from) === key(goal)) return null;
     const queue = [{ cell: from, first: null }], visited = new Set([key(from)]);
-    for (let i = 0; i < queue.length && i < 256; i++) {
+    for (let i = 0; i < queue.length && i < 512; i++) {
       const current = queue[i];
       for (const cell of neighbors(current.cell)) {
         if (visited.has(key(cell)) || !canEnter(cell)) continue;
