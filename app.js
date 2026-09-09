@@ -47,6 +47,7 @@
   const StrategicJourneys = window.HelixStrategicJourneys;
   const ResourceSurveys = window.HelixResourceSurveys;
   const SurveyExpeditions = window.HelixSurveyExpeditions;
+  const UnsupportedExcursions = window.HelixUnsupportedExcursions;
   const WildernessSurvival = window.HelixWildernessSurvival;
   const WildernessBeasts = window.HelixWildernessBeasts;
   const ExpeditionEscorts = window.HelixExpeditionEscorts;
@@ -5242,6 +5243,7 @@
       strategicJourneys: StrategicJourneys.defaultState(),
       resourceSurveys: ResourceSurveys.defaultState(),
       surveyExpeditions: SurveyExpeditions.defaultState(),
+      unsupportedExcursions: UnsupportedExcursions.defaultState(),
       wildernessSurvival: WildernessSurvival.defaultState(),
       wildernessBeasts: WildernessBeasts.defaultState(),
       expeditionEscorts: ExpeditionEscorts.defaultState(),
@@ -15009,6 +15011,30 @@
       },
       advanceEscortForTest: (seconds) => { for (let i = 0; i < seconds; i++) { state.clock++; collectCombatRecords(); updateWildernessBeasts(1); updateExpeditionEscort(1); } persist(); render(); },
       damageEscortForTest: (amount) => { damageExpeditionEscort(amount); persist(); render(); },
+      bookUnsupportedExcursion, requestUnsupportedPickup, boardUnsupportedPickup, refreshUnsupportedReport,
+      unsupportedSnapshot: () => clonePlainObject({ ...ensureUnsupportedExcursions(), clock: state.clock, roomId: scientistRoomId(), cell: scientistMapCell(), phase: state.surveyExpeditions.phase, money: ensureEconomy().money, health: scientistVital("health").current, survival: ensureWildernessSurvival(), beasts: ensureWildernessBeasts(), carried: surveyCarriedStacks(), context: ensureResourceSurveys().context, tasks: scientistQueueTasks().map((task) => ({ ...task, reason: taskBlockReason(task) })), departureReason: unsupportedDepartureReason() }),
+      configureUnsupportedTest: (options = {}) => {
+        const saved = ensureUnsupportedExcursions();
+        if (options.destination) { saved.destination = clonePlainObject(options.destination); saved.context = { ...clonePlainObject(ensureResourceSurveys().context), siteId: options.destination.id, strategicCellId: options.destination.strategicCellId }; saved.discoveryChecked = true; }
+        if (options.municipal) { materializeSurveySpaces(); state.surveyExpeditions.phase = "field"; state.tasks = []; moveSurveyScientist(SurveyExpeditions.FIELD_ROOM, SurveyExpeditions.RENDEZVOUS); }
+        for (const key of options.carry || []) {
+          const stack = ensurePhysicalItemStacks().find((entry) => entry.key === key && !entry.carriedBy && entry.quantity > 0 && !entry.reservedTaskId);
+          const tool = key === "environmentalSurveyKit" ? toolInstancesForItem(key).find((entry) => !entry.carriedBy && entry.current > 0) : null;
+          if (stack) carryPhysicalStack("scientist", stack.id, 1, { toolInstanceId: tool?.id || stack.toolInstanceId });
+        }
+        if (options.cell) moveSurveyScientist(labMapCellRoomId(options.cell), options.cell);
+        if (options.health != null) scientistVital("health").current = options.health;
+        if (options.beasts) state.wildernessBeasts = { ...WildernessBeasts.defaultState(), materialized: true, siteId: saved.destination.id, actors: options.beasts.map((entry) => ({ ...WildernessBeasts.actor("beast:rimefang-pack", entry.id, entry.cell, "remote-test-population", state.clock), ...entry, roomId: UnsupportedExcursions.ROOM, mapCell: entry.cell })) };
+        state.wildernessSurvival.autoCare = false; syncActorInventories(); render(); return true;
+      },
+      advanceUnsupportedForTest: (seconds) => {
+        let remaining = seconds;
+        while (remaining > 0) {
+          const step = Math.min(remaining, Math.max(1, UnsupportedExcursions.nextEventAt(state.unsupportedExcursions?.trip, state.clock) - state.clock));
+          state.clock += step; updateWildernessNeeds(); updateUnsupportedExcursion(); remaining -= step;
+        }
+        persist(); render();
+      },
       enterWilderness,
       queueWildernessShelter,
       queueSurvivalConsumption,
@@ -19851,7 +19877,9 @@
     if (surveyScientistAway()) {
       const journey = ensureStrategicJourneys().journeys.find((entry) => entry.id === state.surveyExpeditions.journeyId);
       const task = scientistQueueTasks().find((entry) => surveyTaskAllowed(entry) && !taskBlockReason(entry) && entry.dueAt >= state.clock);
-      return [task && { time: task.dueAt, label: task.label, type: "queue" }, StrategicJourneys.nextPublicEvent({ journeys: journey ? [journey] : [] }, state.clock), nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
+      const remoteAt = unsupportedActive() ? UnsupportedExcursions.nextPublicEventAt(state.unsupportedExcursions.trip, state.unsupportedExcursions.lastReport, state.clock) : Infinity;
+      const travelEvent = unsupportedActive() ? (Number.isFinite(remoteAt) ? { time: remoteAt, label: "Known charter schedule checkpoint", type: "travel" } : null) : StrategicJourneys.nextPublicEvent({ journeys: journey ? [journey] : [] }, state.clock);
+      return [task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
         .filter((event) => event && (!options.includeTypes || options.includeTypes.includes(event.type)) && event.time >= state.clock)
         .sort((a, b) => a.time - b.time)[0] || null;
     }
@@ -20356,6 +20384,7 @@
       profileSimulationSystem(system.id, () => runSimulationSystem(system.id, system.elapsed, changes, options));
     }
     if (syncActorInventories()) syncPhysicalReadModels();
+    changes.scientistMovementChanged += updateUnsupportedExcursion();
     changes.combatChanged += updateWildernessBeasts(elapsed);
     changes.combatChanged += updateExpeditionEscort(elapsed);
     return changes;
@@ -20419,6 +20448,18 @@
   function advanceTime(seconds, options = {}) {
     const advanceStartedAt = performance.now();
     const elapsed = Math.max(0, Number(seconds) || 0);
+    if (unsupportedActive() && !options.remoteStep && elapsed > 0) {
+      let remaining = elapsed, changed = 0;
+      while (remaining > 0 && !scientistIsDead()) {
+        const notice = ensureWildernessBeasts().noticeSerial;
+        const phase = state.unsupportedExcursions.trip.status;
+        const nextAt = UnsupportedExcursions.nextEventAt(state.unsupportedExcursions.trip, state.clock);
+        const step = Math.min(remaining, Math.max(1, nextAt - state.clock));
+        changed += advanceTime(step, { ...options, remoteStep: true }); remaining -= step;
+        if (ensureWildernessBeasts().noticeSerial !== notice || state.unsupportedExcursions.trip.status !== phase || !unsupportedActive()) break;
+      }
+      return changed;
+    }
     // Keep both sides physically responsive during field time skips. Stop at a newly perceived threat.
     if (!options.fieldStep && elapsed > 1 && state.surveyExpeditions?.phase === "field" && (escortContractActive() || state.wildernessBeasts?.actors.some((beast) => beast.status !== "dead"))) {
       let changed = 0, remaining = elapsed;
@@ -21777,7 +21818,7 @@
   }
 
   function constructionTileStaticBlockReason(mode, cell, options = {}) {
-    if (cell?.z === SurveyExpeditions.FIELD_Z || cell?.z === SurveyExpeditions.CABIN_Z) return "Survey access grants no construction or excavation rights.";
+    if ([SurveyExpeditions.FIELD_Z, SurveyExpeditions.CABIN_Z, UnsupportedExcursions.Z, UnsupportedExcursions.CABIN_Z].includes(cell?.z)) return "Survey access grants no construction or excavation rights.";
     const clean = cleanMapCell(cell);
     if (!clean || clean.x < 0 || clean.y < 0) return "Select a valid map tile.";
     const map = state.labMap || ensureLabMap();
@@ -29031,7 +29072,7 @@
   }
 
   function surfaceGroundAtCell(cell, map = ensureLabMap()) {
-    if (cell?.z === SurveyExpeditions.FIELD_Z && map.rooms?.[WildernessSurvival.ROOM]?.cells?.some((entry) => mapCellKey(entry) === mapCellKey(cell))) return { cell: cleanMapCell(cell), terrainId: "soil" };
+    if ([SurveyExpeditions.FIELD_Z, UnsupportedExcursions.Z].includes(cell?.z) && [WildernessSurvival.ROOM, UnsupportedExcursions.ROOM].some((roomId) => map.rooms?.[roomId]?.cells?.some((entry) => mapCellKey(entry) === mapCellKey(cell)))) return { cell: cleanMapCell(cell), terrainId: "soil" };
     if (cell?.z === SurveyExpeditions.FIELD_Z && map.rooms?.[SurveyExpeditions.FIELD_ROOM]?.cells?.some((entry) => mapCellKey(entry) === mapCellKey(cell))) return { cell: cleanMapCell(cell), terrainId: "soil" };
     return indexedMapCellEntry(map.terrain?.surfaceGround, cell);
   }
@@ -29225,7 +29266,8 @@
   function surfaceEnvelopeAtCell(cell, map = ensureLabMap(), context = null) {
     const clean = cleanMapCell(cell);
     if (!clean) return { kind: "subterranean", roofed: true, openSky: false };
-    if (clean.z === SurveyExpeditions.FIELD_Z && surfaceGroundAtCell(clean, map)) return { kind: "outdoor", roofed: false, openSky: true };
+    if ([SurveyExpeditions.FIELD_Z, UnsupportedExcursions.Z].includes(clean.z) && surfaceGroundAtCell(clean, map)) return { kind: "outdoor", roofed: false, openSky: true };
+    if (clean.z === UnsupportedExcursions.CABIN_Z && map.rooms?.[UnsupportedExcursions.CABIN_ROOM]) return { kind: "interior", roofed: true, openSky: false };
     if (clean.z === SurveyExpeditions.CABIN_Z && map.rooms?.[SurveyExpeditions.CABIN_ROOM]) return { kind: "interior", roofed: true, openSky: false };
     const envelope = context || buildSurfaceEnvelopeContext(map);
     const key = mapCellKey(clean);
@@ -37238,7 +37280,7 @@
     if (cleanTarget.kind === "creature") {
       const targetActor = combatActor(cleanTarget.id);
       if (!targetActor || targetActor.status === "dead") return { inRange: false, reason: "The target is no longer alive." };
-      if ((actor.actorKind === "wildernessBeast" || targetActor.actorKind === "wildernessBeast") && (labMapCellRoomId(combatActorCell(actor)) !== WildernessBeasts.ROOM || labMapCellRoomId(combatActorCell(targetActor)) !== WildernessBeasts.ROOM)) return { inRange: false, reason: "The secured boundary blocks beast attacks and fire through the protected entrance." };
+      if ((actor.actorKind === "wildernessBeast" || targetActor.actorKind === "wildernessBeast") && (labMapCellRoomId(combatActorCell(actor)) !== activeWildernessRoom() || labMapCellRoomId(combatActorCell(targetActor)) !== activeWildernessRoom())) return { inRange: false, reason: "Beast attacks cannot cross between the local wilderness and protected or disconnected spaces." };
       const actorCell = combatActorCell(actor);
       const targetCell = combatActorCell(targetActor);
       if (!actorCell || !targetCell) return { inRange: false, reason: "The target has no physical position." };
@@ -37529,7 +37571,7 @@
     const dx = Math.sign(current.x - from.x);
     const dy = Math.sign(current.y - from.y);
     const destination = mapCellAtOffset(current, dx || (dy ? 0 : 1), dy, 0);
-    if (targetActor.actorKind === "wildernessBeast" && labMapCellRoomId(destination) !== WildernessBeasts.ROOM) return false;
+    if (targetActor.actorKind === "wildernessBeast" && labMapCellRoomId(destination) !== activeWildernessRoom()) return false;
     if (!labMapCellIsWalkable(destination, ensureLabMap()) || labMapCellIsPathBlocked(destination, { map: ensureLabMap(), actor: targetActor })) return false;
     targetActor.mapCell = destination;
     targetActor.roomId = roomIdForMapCell(destination) || targetActor.roomId;
@@ -61475,7 +61517,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ...knowledge.tracks.map((entry) => ({ cell: entry.cell, value: ":", label: `${entry.label}; tracks do not locate their maker` })),
       ...knowledge.sightings.map((entry) => ({ cell: entry.cell, value: entry.status === "dead" ? "†" : entry.current ? "B" : "?", label: `${entry.name}: ${entry.current ? entry.condition : "last seen here; current location unknown"}` }))
     ];
-    if (state.wildernessSurvival?.materialized) markers.push({ cell: WildernessSurvival.GATE, value: "W", label: "Secured warded entrance: physically cross on foot; beasts and attacks cannot cross" });
+    if (state.wildernessSurvival?.materialized && !unsupportedActive()) markers.push({ cell: WildernessSurvival.GATE, value: "W", label: "Secured warded entrance: physically cross on foot; beasts and attacks cannot cross" });
     for (const { cell, value, label } of markers) setLabMapOverlayEntry(assignments, cell, { overlayId, classNames: ["map-overlay-resources", "map-overlay-resources-high"], label, title: label, source: "Run-owned field observation", value, target: { kind: "tile", tile: cell } }, map);
     return assignments;
   }
@@ -61483,14 +61525,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function baseLabMapOverlayAssignments(overlayId, map, context = {}) {
     if (overlayId === "prospecting") {
       const assignments = new Map();
-      if (state.surveyExpeditions?.materialized) {
+      if (unsupportedActive()) setLabMapOverlayEntry(assignments, UnsupportedExcursions.LANDING, { overlayId, classNames: ["map-overlay-resources"], label: "Scheduled remote pickup point", title: "Unprotected landing point; scheduled pickup only, no waiting guarantee", value: "P", source: "Agreed charter rendezvous", target: { kind: "tile", tile: UnsupportedExcursions.LANDING } }, map);
+      if (state.surveyExpeditions?.materialized && !unsupportedActive()) {
         for (const [cell, value, label] of [[SurveyExpeditions.RENDEZVOUS, "V", "Waiting survey vehicle; walk here to return or read company account reports"], [SurveyExpeditions.HAZARD, "!", state.surveyExpeditions.hazardDisturbed ? "Settled loose rock; previously disturbed" : "Flagged loose rock: crossing this tile risks a minor leg injury"]]) {
           setLabMapOverlayEntry(assignments, cell, { overlayId, classNames: ["map-overlay-resources", "map-overlay-resources-high"], label, title: label, source: "Municipal site notice", value, target: { kind: "tile", tile: cell } }, map);
         }
       }
       const surveys = ResourceSurveys.publicKnowledge(ensureResourceSurveys());
       if (state.wildernessSurvival?.materialized) {
-        const markers = [[WildernessSurvival.GATE, "W", "Defended boundary: wilderness beyond; return requires walking"]];
+        const markers = unsupportedActive() ? [] : [[WildernessSurvival.GATE, "W", "Defended boundary: wilderness beyond; return requires walking"]];
         if (state.wildernessSurvival.shelter) markers.push([state.wildernessSurvival.shelter.cell, "S", "Deployed shelter: occupy this tile to reduce weather exposure"]);
         for (const [cell, value, label] of markers) setLabMapOverlayEntry(assignments, cell, { overlayId, classNames: ["map-overlay-resources", "map-overlay-resources-high"], label, title: label, source: "Known field equipment and boundary", value, target: { kind: "tile", tile: cell } }, map);
       }
@@ -64011,7 +64054,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const commands = [openWorkspaceCommand({ id: "survey.open", label: "Survey Travel and Field Records", group: "Survey", workspaceTab: "visits" })];
       if (selection.kind === "task") return [...commands, ...taskContextCommands(findTask(selection.id))];
       if (selection.kind === "scientist") return [...commands, ...injuryContextCommands("scientist"), commandDef({ id: "survey.rest", label: "Rest Here (15 minutes)", group: "Survey", disabledReason: surveyBusy() ? "Finish or cancel current field work first." : "", run: () => createRestTask(15) })];
-      if (selection.kind === "tile" && state.surveyExpeditions.phase === "field" && selection.tile?.z === SurveyExpeditions.FIELD_Z && surfaceGroundAtCell(selection.tile)) {
+      if (selection.kind === "tile" && state.surveyExpeditions.phase === "field" && selection.tile?.z === scientistMapCell().z && surfaceGroundAtCell(selection.tile)) {
         const cell = selection.tile;
         const roomId = labMapCellRoomId(cell) || SurveyExpeditions.FIELD_ROOM;
         for (const beast of state.wildernessBeasts?.actors || []) if (mapCellKey(beast.mapCell) === mapCellKey(cell) && wildernessBeastVisible(beast) && beast.status !== "dead") {
@@ -74979,6 +75022,166 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       arcaneInterference: Number(map.arcaneGeography?.manaConcentrationPermille?.[index]) || 0 };
   }
 
+  function unsupportedActive() { return Boolean(state?.unsupportedExcursions?.active); }
+  function activeWildernessRoom() { return unsupportedActive() ? UnsupportedExcursions.ROOM : WildernessSurvival.ROOM; }
+  function ensureUnsupportedExcursions() {
+    const saved = state.unsupportedExcursions ||= UnsupportedExcursions.defaultState();
+    const map = activeWorldRecord?.generatedData?.strategicMap, expedition = state.surveyExpeditions;
+    if (saved.discoveryChecked || saved.destination || !map || !expedition?.destination) return saved;
+    saved.discoveryChecked = true;
+    if (!StrategicCapabilityHistory.cityHasCapability(map, expedition.destination.cityId, "poweredAircraft")) {
+      saved.unavailableReason = "This city has no deployed powered-aircraft capability for a local survey charter."; return saved;
+    }
+    const originIndex = StrategicWorld.cellIndex(expedition.destination.cellId), origin = StrategicWorld.cellSnapshot(map, originIndex);
+    const candidates = StrategicWorld.cellRing(map, originIndex, 2).map((index) => ({ ...StrategicWorld.cellSnapshot(map, index), ...PlanetaryRelief.cellReliefSnapshot(map, index), ...ClimateHydrologyBiomes.cellEnvironmentSnapshot(map, index), distanceKm: StrategicWorld.greatCircleDistanceKm(map, originIndex, index) }));
+    const occupied = (map.publicPlayableSettlementDirectory?.cityRows || []).filter((row) => row.physicalCondition !== "ruined").map((row) => row.cellId);
+    saved.destination = UnsupportedExcursions.chooseDestination(origin, candidates, occupied, [ensureWildernessSurvival().destination?.strategicCellId]);
+    if (saved.destination) saved.context = resourceSurveyContext(activeWorldRecord, { strategicLocation: { id: saved.destination.id, strategicCellId: saved.destination.strategicCellId } }, state.seed);
+    if (!saved.context) { saved.destination = null; saved.unavailableReason = "No suitable remote land site with usable world context lies within this aircraft's operational range."; }
+    return saved;
+  }
+  function unsupportedDepartureReason() {
+    const saved = ensureUnsupportedExcursions(), quote = UnsupportedExcursions.quote(saved.destination);
+    if (unsupportedActive() || state.surveyExpeditions?.phase !== "field" || scientistRoomId() !== SurveyExpeditions.FIELD_ROOM) return "Join the charter at the defended municipal survey ground.";
+    if (scientistIsDead() || actorIsIncapacitated("scientist")) return "The scientist must be capable of self-boarding.";
+    if (escortContractActive()) return "Complete the local escort contract; remote travel and an extra passenger seat are not included.";
+    return !quote.ok ? saved.unavailableReason || quote.reason : UnsupportedExcursions.weatherReason(saved.destination, state.clock + quote.flightSeconds)
+      || (saved.trip && state.clock < saved.trip.returnAt + UnsupportedExcursions.TURNAROUND ? "The aircraft needs refuelling and maintenance before another charter." : "")
+      || (SurveyExpeditions.cargoUnits(surveyCarriedStacks()) > quote.cargoCapacity ? "The actual carried load exceeds the charter cargo capacity." : "")
+      || (ensureEconomy().money < quote.fee ? "Insufficient funds for the charter." : "");
+  }
+  function bookUnsupportedExcursion() {
+    const saved = ensureUnsupportedExcursions(), reason = unsupportedDepartureReason();
+    if (reason || surveyBusy()) return false;
+    const quote = UnsupportedExcursions.quote(saved.destination);
+    if (!window.confirm(`${saved.destination.label}, ${formatNumber(saved.destination.distanceKm)} km from the municipal ground. ${formatMoney(quote.fee)} for outbound travel and ONE scheduled pickup.\nPickup begins ${formatDuration(quote.fieldSeconds)} after landing and waits ${formatDuration(quote.waitSeconds)}. No guaranteed recovery or overland return route. The municipal vehicle still waits back at defended ground. No escort is booked.\nActual cargo: ${SurveyExpeditions.cargoUnits(surveyCarriedStacks())}/${quote.cargoCapacity} crate-equivalents.\n${WildernessSurvival.warnings(surveyCarriedStacks()).join("\n")}\nAccept these unsupported charter terms?`)) return false;
+    return queueSurveyWork("remoteDepart", SurveyExpeditions.RENDEZVOUS, { label: "Walk to and board unsupported survey aircraft" });
+  }
+  function materializeUnsupportedSpaces() {
+    const saved = ensureUnsupportedExcursions();
+    if (saved.materialized) return;
+    for (const spec of [
+      { id: UnsupportedExcursions.ROOM, name: saved.destination.label, z: UnsupportedExcursions.Z, x: 21, y: 8, width: 16, height: 12, facilityClass: "wilderness", description: saved.destination.description },
+      { id: UnsupportedExcursions.CABIN_ROOM, name: "Local Survey Aircraft Cabin", z: UnsupportedExcursions.CABIN_Z, x: 8, y: 8, width: 4, height: 3, facilityClass: "surveyExpedition", description: "One booked scientist passenger and finite cargo. A local aircraft flight, not a road journey or rescue squad." }
+    ]) {
+      const room = normalizeRoom({ ...spec, connections: [], purposeId: "corridor", geometry: { lengthM: spec.width, widthM: spec.height, heightM: 3, floorAreaM2: spec.width * spec.height, volumeM3: spec.width * spec.height * 3 }, purposeSource: "unsupportedExcursion" });
+      state.rooms = normalizeRooms([...state.rooms, room]);
+      const map = ensureLabMap(), rect = { roomId: spec.id, x: spec.x, y: spec.y, z: spec.z, width: spec.width, height: spec.height };
+      const cells = rectangularRoomCells(rect).filter((cell) => spec.id !== UnsupportedExcursions.ROOM || !(cell.x === 30 && [10, 11, 14].includes(cell.y) && saved.destination.slopePercent > 15));
+      map.layers[String(spec.z)] = { id: spec.id, kind: "structure", label: spec.name };
+      map.rooms[spec.id] = normalizeLabMapRoom({ ...rect, cells, anchor: spec.id === UnsupportedExcursions.ROOM ? UnsupportedExcursions.LANDING : { x: 10, y: 10, z: spec.z } }, room);
+      map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...cells]); state.roomStockpiles[spec.id] = emptyRoomStockpile();
+    }
+    saved.materialized = true;
+  }
+  function wildernessSiteState() {
+    const survival = ensureWildernessSurvival();
+    return { destination: survival.destination ? clonePlainObject(survival.destination) : null, context: survival.context ? clonePlainObject(survival.context) : null, materialized: survival.materialized, shelter: survival.shelter ? clonePlainObject(survival.shelter) : null, beasts: clonePlainObject(ensureWildernessBeasts()) };
+  }
+  function restoreWildernessSite(site) {
+    Object.assign(ensureWildernessSurvival(), { destination: site.destination, context: site.context, materialized: site.materialized, shelter: site.shelter });
+    state.wildernessBeasts = clonePlainObject(site.beasts);
+    const absent = Math.max(0, state.clock - state.wildernessBeasts.lastAt);
+    for (const beast of state.wildernessBeasts.actors) { beast.nextMoveAt += absent; beast.nextAttackAt += absent; }
+    state.wildernessBeasts.lastAt = state.clock;
+  }
+  function completeUnsupportedWork(task) {
+    if (!["remoteDepart", "remoteBoard"].includes(task.data?.action)) return false;
+    const saved = ensureUnsupportedExcursions();
+    if (task.data.action === "remoteDepart") {
+      const reason = unsupportedDepartureReason();
+      if (reason) { surveyEvent(reason); return true; }
+      materializeUnsupportedSpaces();
+      saved.trip = UnsupportedExcursions.start(saved.nextTrip++, state.clock, saved.destination);
+      ensureEconomy().money -= saved.trip.terms.fee;
+      saved.boundary = wildernessSiteState(); saved.active = true; saved.lastReport = null;
+      state.surveyExpeditions.phase = "outbound";
+      surveyEvent(`Unsupported charter departed. Pickup ${formatClock(saved.trip.pickup.opensAt)}–${formatClock(saved.trip.pickup.closesAt)} at remote tile 23,12. Missing it does not trigger automatic recovery.`);
+    } else {
+      updateUnsupportedExcursion();
+      if (!UnsupportedExcursions.board(saved.trip, state.clock, scientistMapCell(), SurveyExpeditions.cargoUnits(surveyCarriedStacks()), !actorIsIncapacitated("scientist") && !scientistIsDead(), saved.destination)) { surveyEvent("Boarding failed: reach a waiting aircraft within its window with a fitting carried load."); return true; }
+      state.surveyExpeditions.phase = "inbound";
+      surveyEvent("Scientist and actual carried cargo boarded for the physical flight back to municipal ground. Loose supplies and shelter remain at the remote site.");
+    }
+    moveSurveyScientist(UnsupportedExcursions.CABIN_ROOM, { x: 10, y: 10, z: UnsupportedExcursions.CABIN_Z });
+    return true;
+  }
+  function remotePickupVisible() { return scientistRoomId() === UnsupportedExcursions.ROOM && WildernessBeasts.distance(scientistMapCell(), UnsupportedExcursions.LANDING) <= 8 && sensoryLineOfSight(scientistMapCell(), UnsupportedExcursions.LANDING); }
+  function refreshUnsupportedReport() {
+    const saved = ensureUnsupportedExcursions(), radio = wildernessRadio();
+    if (!saved.active || !radio?.powered || radio.charge <= 0) return false;
+    saved.lastReport = { at: state.clock, request: clonePlainObject(saved.trip.request), pickup: clonePlainObject(saved.trip.pickup), providerReadyAt: saved.trip.providerReadyAt };
+    persist(); render(); return true;
+  }
+  function requestUnsupportedPickup() {
+    const saved = ensureUnsupportedExcursions(), radio = wildernessRadio(), cargo = SurveyExpeditions.cargoUnits(surveyCarriedStacks());
+    if (!saved.active || scientistIsDead() || actorIsIncapacitated("scientist") || !radio?.powered || radio.charge <= 0 || UnsupportedExcursions.requestReason(saved.trip, state.clock, cargo) || ensureEconomy().money < saved.trip.terms.replacementFee) return false;
+    if (!window.confirm(`Authorize ${formatMoney(saved.trip.terms.replacementFee)} in escrow for ONE replacement pickup at tile 23,12? A request is not dispatch. Refusal refunds escrow; an accepted flight is paid even if you miss it. One self-boarding passenger, ${cargo}/${UnsupportedExcursions.CARGO} cargo units. No casualty rescue.`)) return false;
+    if (!UnsupportedExcursions.request(saved.trip, state.clock, cargo, scientistMapCell())) return false;
+    ensureEconomy().money -= saved.trip.terms.replacementFee;
+    surveyEvent("Replacement pickup request transmitted with dated location and declared load. The provider acknowledged assessment only.");
+    refreshUnsupportedReport(); return true;
+  }
+  function boardUnsupportedPickup() {
+    const saved = ensureUnsupportedExcursions();
+    if (!saved.active || saved.trip.status !== "field" || surveyBusy() || !["scheduled", "enRoute", "waiting"].includes(saved.trip.pickup.status)) return false;
+    return queueSurveyWork("remoteBoard", UnsupportedExcursions.LANDING, { label: "Walk to and board scheduled pickup" });
+  }
+  function updateUnsupportedExcursion() {
+    const saved = state.unsupportedExcursions;
+    if (!saved?.active || scientistIsDead()) return 0;
+    const events = UnsupportedExcursions.advance(saved.trip, state.clock, saved.destination);
+    for (const event of events) {
+      if (event.kind === "refund") ensureEconomy().money += event.amount;
+      if (event.kind === "arrived") {
+        if (saved.remote) restoreWildernessSite(saved.remote);
+        else restoreWildernessSite({ destination: saved.destination, context: saved.context, materialized: true, shelter: null, beasts: WildernessBeasts.defaultState() });
+        state.surveyExpeditions.phase = "field";
+        moveSurveyScientist(UnsupportedExcursions.ROOM, UnsupportedExcursions.LANDING); useSurveyContext(saved.context); materializeWildernessBeasts();
+        ensureUiState().mapOverlay = "prospecting";
+        pauseForWildernessThreat(`Arrived at the remote landing site. Aircraft has departed; pickup window ${formatClock(saved.trip.pickup.opensAt)}–${formatClock(saved.trip.pickup.closesAt)}. No defended gate or implemented overland return route.`);
+      } else if (event.kind === "returned") {
+        saved.remote = wildernessSiteState(); restoreWildernessSite(saved.boundary); saved.boundary = null; saved.active = false;
+        saved.history.push(clonePlainObject(saved.trip)); state.surveyExpeditions.phase = "field";
+        moveSurveyScientist(SurveyExpeditions.FIELD_ROOM, SurveyExpeditions.RENDEZVOUS); useSurveyContext(state.surveyExpeditions.fieldContext);
+        pauseForWildernessThreat("Returned physically to municipal ground. The original municipal vehicle still waits for the laboratory return; wounds, needs, and cargo have not reset.");
+      } else {
+        const radio = wildernessRadio();
+        if (radio?.powered && radio.charge > 0) saved.lastReport = { at: state.clock, request: clonePlainObject(saved.trip.request), pickup: clonePlainObject(saved.trip.pickup), providerReadyAt: saved.trip.providerReadyAt };
+        if (event.kind === "missed") pauseForWildernessThreat("The known pickup window has closed. If you did not board, survival continues here. Request another flight with a working communicator; there is no automatic rescue.");
+        else if (event.kind === "landed" && remotePickupVisible()) pauseForWildernessThreat("The pickup aircraft is visibly waiting at the landing point. Reach it and board before the agreed window closes.");
+        else if (event.kind === "decision" && radio?.powered && radio.charge > 0) pauseForWildernessThreat(`Pickup provider reply: ${saved.trip.request.reason}`);
+      }
+    }
+    return events.length;
+  }
+  function renderUnsupportedExcursions() {
+    const saved = ensureUnsupportedExcursions(), panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.unsupportedExcursions = "true";
+    panel.append(textEl("strong", "Unsupported Field Excursions"));
+    const button = (label, run, disabled = false) => { const el = document.createElement("button"); el.textContent = label; el.disabled = disabled; el.addEventListener("click", run); panel.append(el); };
+    if (!saved.destination) { panel.append(textEl("p", saved.unavailableReason || "No remote charter site is currently known. Municipal transport retains its waiting and recovery terms.")); return panel; }
+    const quote = UnsupportedExcursions.quote(saved.destination);
+    panel.append(textEl("p", `${saved.destination.label}: ${formatNumber(saved.destination.distanceKm)} km by local aircraft, ${formatDuration(quote.flightSeconds)} each way. ${saved.destination.description}`));
+    panel.append(textEl("p", `${formatMoney(quote.fee)} charter, one passenger, ${quote.cargoCapacity} cargo crate-equivalents. Scheduled pickup ${formatDuration(quote.fieldSeconds)} after arrival; ${formatDuration(quote.waitSeconds)} waiting window. No guaranteed recovery. Replacement request ${formatMoney(quote.replacementFee)} escrow; refusal refunded, accepted flights charged even if missed. Local escort contracts do not extend here.`));
+    if (!saved.active) {
+      const reason = unsupportedDepartureReason(); panel.append(textEl("p", reason || "Review supplies and accept the unsupported charter terms before boarding."));
+      button("Charter Remote Field Excursion", bookUnsupportedExcursion, Boolean(reason) || surveyBusy()); return panel;
+    }
+    panel.append(textEl("p", `Party: ${saved.trip.status}. Pickup point 23,12. Original agreed window ${formatClock(saved.trip.fieldAt + quote.fieldSeconds)}–${formatClock(saved.trip.fieldAt + quote.fieldSeconds + quote.waitSeconds)}. A neighbouring globe cell is not a local walking exit.`));
+    if (remotePickupVisible()) panel.append(textEl("p", saved.trip.pickup.status === "waiting" ? "Aircraft currently visible at the landing point." : "No aircraft currently visible at the landing point."));
+    const report = saved.lastReport;
+    if (report) panel.append(textEl("p", `Last provider report ${formatClock(report.at)}: ${report.request?.status || "original charter"}; ${report.request?.reason || ""} Pickup ${report.pickup.status}, window ${formatClock(report.pickup.opensAt)}–${formatClock(report.pickup.closesAt)}. ${report.pickup.reason} Aircraft next available no earlier than ${formatClock(report.providerReadyAt)}. Dated dispatch information, not live tracking.`));
+    const radio = wildernessRadio();
+    button("Request Dated Pickup Status", refreshUnsupportedReport, !radio?.powered || radio.charge <= 0);
+    button("Request Replacement Pickup", requestUnsupportedPickup, saved.trip.status !== "field" || !radio?.powered || radio.charge <= 0 || Boolean(UnsupportedExcursions.requestReason(saved.trip, state.clock, SurveyExpeditions.cargoUnits(surveyCarriedStacks()))));
+    if (saved.trip.status === "field") {
+      button("Walk to Landing Point", () => startScientistMove(UnsupportedExcursions.ROOM, { toCell: UnsupportedExcursions.LANDING, urgent: true }), actorIsIncapacitated("scientist"));
+      button("Walk to and Board Pickup", boardUnsupportedPickup, surveyBusy());
+      panel.append(textEl("p", "Stay alive using carried supplies and shelter. Incapacitated people cannot self-board. Organized rescue, damaged aircraft, and overland journeys are not implemented; no failure outcome substitutes for physical survival."));
+    }
+    return panel;
+  }
+
   function ensureExpeditionEscorts() { return state.expeditionEscorts ||= ExpeditionEscorts.defaultState(); }
   function escortContractActive() { return ["active", "returning"].includes(state?.expeditionEscorts?.contract?.status); }
   function escortObserved() {
@@ -74988,7 +75191,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function escortNearby() { return escortObserved() && WildernessBeasts.distance(scientistMapCell(), state.expeditionEscorts.actor.mapCell) <= 1; }
   function ensureEscortCandidate() {
     const saved = ensureExpeditionEscorts(), expedition = ensureSurveyExpeditions();
-    if (!saved.actor && expedition.phase === "field") {
+    if (!saved.actor && expedition.phase === "field" && !unsupportedActive()) {
       saved.actor = ExpeditionEscorts.candidate(state.seed, { id: expedition.destination.cityId || expedition.destination.id, label: expedition.destination.label });
       saved.actor.needs = WildernessSurvival.defaultState(state.clock);
     }
@@ -75246,14 +75449,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
 
-  function wildernessBeast(id) { return state?.wildernessBeasts?.actors.find((beast) => beast.id === id) || null; }
+  function wildernessBeast(id) { return state?.wildernessBeasts?.actors.find((beast) => beast.id === id) || state?.unsupportedExcursions?.boundary?.beasts?.actors.find((beast) => beast.id === id) || state?.unsupportedExcursions?.remote?.beasts?.actors.find((beast) => beast.id === id) || null; }
   function ensureWildernessBeasts() { return state.wildernessBeasts ||= WildernessBeasts.defaultState(); }
   function materializeWildernessBeasts() {
     const saved = ensureWildernessBeasts(), survival = ensureWildernessSurvival();
     if (saved.materialized || !survival.materialized) return saved;
     const map = activeWorldRecord?.generatedData?.strategicMap, index = StrategicWorld.cellIndex(survival.destination.strategicCellId);
     const populations = (map?.beastEcology?.populations || []).filter((population) => StrategicBeastEcology.maskIncludes(population.territory.rangeMask, index));
-    state.wildernessBeasts = WildernessBeasts.materialize(state.seed, survival.destination.id, populations, ensureLabMap().rooms[WildernessBeasts.ROOM].cells, state.clock);
+    state.wildernessBeasts = WildernessBeasts.materialize(state.seed, survival.destination.id, populations, ensureLabMap().rooms[activeWildernessRoom()].cells, state.clock);
+    for (const beast of state.wildernessBeasts.actors) beast.roomId = activeWildernessRoom();
     return state.wildernessBeasts;
   }
   function wildernessBeastVisible(beast) {
@@ -75276,7 +75480,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (!wildernessBeastVisible(beast)) { if (saved.sightings[beast.id]) saved.sightings[beast.id].threatVisible = false; continue; }
       const previous = saved.sightings[beast.id];
       const threat = beast.status !== "dead" && (beast.behavior === "pursue" || WildernessBeasts.distance(scientistMapCell(), beast.mapCell) <= 3);
-      if (threat && !previous?.threatVisible) pauseForWildernessThreat(`${beast.name} is an immediate visible threat. Guard, fight, or withdraw through the secured entrance.`);
+      if (threat && !previous?.threatVisible) pauseForWildernessThreat(`${beast.name} is an immediate visible threat. Guard, fight, or withdraw${unsupportedActive() ? " to safer local ground; there is no defended gate here" : " through the secured entrance"}.`);
       else if (!previous) surveyEvent(`Sighted ${beast.name} on the wilderness trail.`);
       saved.sightings[beast.id] = { id: beast.id, name: beast.name, speciesId: beast.speciesId, cell: cleanMapCell(beast.mapCell), observedAt: state.clock, status: beast.status, condition: beast.status === "dead" ? "Dead; physical remains" : beast.health < beast.maxHealth * .3 ? "Severely wounded" : beast.health < beast.maxHealth ? "Visibly wounded" : "No visible wounds", threatVisible: threat };
       changed++;
@@ -75291,7 +75495,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return (state.wildernessBeasts?.actors || []).filter((beast) => beast.status !== "dead" && beast.behavior === "pursue" && wildernessBeastVisible(beast)).map((beast) => {
       const targetId = beast.targetId || "scientist";
       const targetLabel = targetId === "scientist" ? "Scientist" : "a nearby target";
-      return { key: `wilderness:${beast.id}`, type: "wildernessAttack", label: `${beast.name} threatens ${targetLabel}`, roomId: WildernessBeasts.ROOM, cell: beast.mapCell, sourceIds: [beast.id], targetIds: [targetId], sourceLabel: beast.name, targetLabel, involvesScientist: true, createdAt: state.clock, updatedAt: state.clock };
+      return { key: `wilderness:${beast.id}`, type: "wildernessAttack", label: `${beast.name} threatens ${targetLabel}`, roomId: activeWildernessRoom(), cell: beast.mapCell, sourceIds: [beast.id], targetIds: [targetId], sourceLabel: beast.name, targetLabel, involvesScientist: true, createdAt: state.clock, updatedAt: state.clock };
     });
   }
   function damageWildernessBeast(beast, damage, attackerId, options = {}) {
@@ -75313,7 +75517,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       saved.lastAt = state.clock; return 0;
     }
     const map = ensureLabMap(), working = Boolean(firstScientistQueueTask() && firstScientistQueueTask().type !== "rest");
-    const sector = new Set(map.rooms[WildernessBeasts.ROOM].cells.map(mapCellKey));
+    const sector = new Set(map.rooms[activeWildernessRoom()].cells.map(mapCellKey));
     let changed = observeWildernessBeasts();
     for (const beast of saved.actors) {
       if (beast.status === "dead" || actorIsIncapacitated(beast)) continue;
@@ -75361,7 +75565,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function renderWildernessBeastsPanel() {
     const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.wildernessBeasts = "true";
-    panel.append(textEl("strong", "Local Beast Encounters"), textEl("p", "Only Rimefang and Gravebloom Elk encounters are implemented. Other regional beasts, flying, burrowing, and colossal encounters are not simulated; absence of an encounter is not a safety assessment. The warded entrance excludes beasts and blocks attacks across it. Shelter offers no concealment."));
+    panel.append(textEl("strong", "Local Beast Encounters"), textEl("p", `Only Rimefang and Gravebloom Elk encounters are implemented. Other regional beasts, flying, burrowing, and colossal encounters are not simulated; absence of an encounter is not a safety assessment. ${unsupportedActive() ? "There is no warded entrance or defended refuge here." : "The warded entrance excludes beasts and blocks attacks across it."} Shelter offers no concealment.`));
     const knowledge = wildernessBeastKnowledge();
     const button = (label, run, disabled = false) => { const el = document.createElement("button"); el.textContent = label; el.disabled = disabled; el.addEventListener("click", run); panel.append(el); };
     button(scientistGuarding() ? "Stop Guarding" : "Guard", startScientistGuard, !scientistInWilderness() || scientistIsDead());
@@ -75399,14 +75603,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return survival;
   }
 
-  function scientistInWilderness() { return scientistRoomId() === WildernessSurvival.ROOM; }
+  function scientistInWilderness() { return scientistRoomId() === activeWildernessRoom(); }
   function wildernessSheltered() {
     const shelter = state.wildernessSurvival?.shelter;
     const stack = shelter && ensurePhysicalItemStacks().find((entry) => entry.id === shelter.stackId && !entry.carriedBy && entry.quantity > 0);
     return Boolean(stack && mapCellKey(stack.cell) === mapCellKey(shelter.cell) && mapCellKey(scientistMapCell()) === mapCellKey(shelter.cell));
   }
   function resourceContextForCell(cell) {
-    if (labMapCellRoomId(cell) === WildernessSurvival.ROOM) return ensureWildernessSurvival().context;
+    if (labMapCellRoomId(cell) === activeWildernessRoom()) return ensureWildernessSurvival().context;
     if (surveyScientistAway()) return ensureSurveyExpeditions().fieldContext;
     return ensureResourceSurveys().context;
   }
@@ -75435,6 +75639,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function enterWilderness() {
+    if (unsupportedActive()) return false;
     if (state.surveyExpeditions?.phase !== "field" || surveyBusy() || scientistInWilderness()) return false;
     if (!materializeWilderness()) return false;
     materializeWildernessBeasts();
@@ -75547,7 +75752,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function renderWildernessPanel() {
     const survival = ensureWildernessSurvival(), panel = document.createElement("section"); panel.dataset.wildernessSurvival = "true"; panel.className = "subpanel";
-    panel.append(renderExpeditionEscortPanel());
+    if (!unsupportedActive()) panel.append(renderExpeditionEscortPanel());
     if (state.surveyExpeditions?.phase === "field") panel.append(renderWildernessBeastsPanel());
     panel.append(textEl("strong", "Field Survival"), textEl("p", `Thirst ${Math.round(survival.thirst)}/100 · Hunger ${Math.round(survival.hunger)}/100 · Exertion ${Math.round(survival.exertion)}/100 · Exposure ${Math.round(survival.exposure)}/100. High needs slow movement and work; prolonged critical thirst, hunger, or exposure damages health.`));
     const button = (label, run, disabled = false) => { const el = document.createElement("button"); el.type = "button"; el.textContent = label; el.disabled = disabled; el.addEventListener("click", run); panel.append(el); };
@@ -75562,13 +75767,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     else {
       panel.append(textEl("p", `${survival.destination.label}: ${survival.destination.terrain}, ${Math.round(survival.destination.slopePercent)}% regional slope. ${survival.destination.description} ${survival.destination.jurisdiction}.`));
       if (state.surveyExpeditions?.phase === "field") {
-        button(scientistInWilderness() ? "Withdraw to Defended Ground" : "Walk Beyond Defended Boundary", () => scientistInWilderness() ? startScientistMove(SurveyExpeditions.FIELD_ROOM, { toCell: SurveyExpeditions.RENDEZVOUS, allowMultiRoom: true, urgent: true }) : enterWilderness(), scientistInWilderness() ? actorIsIncapacitated("scientist") : surveyBusy());
+        if (!unsupportedActive()) button(scientistInWilderness() ? "Withdraw to Defended Ground" : "Walk Beyond Defended Boundary", () => scientistInWilderness() ? startScientistMove(SurveyExpeditions.FIELD_ROOM, { toCell: SurveyExpeditions.RENDEZVOUS, allowMultiRoom: true, urgent: true }) : enterWilderness(), scientistInWilderness() ? actorIsIncapacitated("scientist") : surveyBusy());
         const destination = scientistInWilderness() ? survival.destination : null;
         panel.append(textEl("p", WildernessSurvival.conditions(destination, state.clock, wildernessSheltered()).label));
-        panel.append(textEl("p", "This bounded boundary trail is tens of metres of local walking, not the globe cell's full width. Inspect the marked walking route; terrain, load, and condition affect its duration. No food, water, or rescue is automatically generated in the wild."));
+        panel.append(textEl("p", `This bounded ${unsupportedActive() ? "remote site" : "boundary trail"} is tens of metres of local walking, not the globe cell's full width. Terrain, load, and condition affect travel. No food, water, or rescue is automatically generated in the wild.`));
         if (scientistInWilderness()) {
           button(survival.shelter ? "Walk to and Pack Shelter" : "Deploy Shelter Here", () => queueWildernessShelter(survival.shelter ? "packShelter" : "deployShelter"), surveyBusy());
-          if (survival.shelter) button("Walk to Shelter", () => startScientistMove(WildernessSurvival.ROOM, { toCell: survival.shelter.cell }), surveyBusy());
+          if (survival.shelter) button("Walk to Shelter", () => startScientistMove(activeWildernessRoom(), { toCell: survival.shelter.cell }), surveyBusy());
           button("Rest Here (15 minutes)", () => createRestTask(15), surveyBusy());
           panel.append(textEl("p", survival.shelter ? `Shelter at ${survival.shelter.cell.x},${survival.shelter.cell.y}; only occupying its tile protects against weather. No guarantee against beasts.` : "No deployed shelter."));
         }
@@ -75669,6 +75874,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function boardSurveyVehicle() {
+    if (unsupportedActive()) return false;
     if (escortContractActive()) { surveyEvent("Complete the escort's local contract at the defended meeting point before boarding. The hired vehicle waits; no extra escort seat has been booked."); persist(); render(); return false; }
     const expedition = ensureSurveyExpeditions();
     if (!["home", "field"].includes(expedition.phase) || surveyBusy()) return false;
@@ -75684,6 +75890,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function surveyWorkBlockReason(task) {
+    if (task.data?.action === "remoteDepart") return unsupportedDepartureReason();
+    if (task.data?.action === "remoteBoard") {
+      const trip = state.unsupportedExcursions?.trip;
+      return !unsupportedActive() || trip?.status !== "field" ? "No remote pickup is accessible here." : trip.pickup.status !== "waiting" || state.clock >= trip.pickup.closesAt ? "No aircraft is currently waiting inside its pickup window." : SurveyExpeditions.cargoUnits(surveyCarriedStacks()) > UnsupportedExcursions.CARGO ? "The actual load exceeds aircraft capacity." : "";
+    }
+    if (task.data?.action === "board" && unsupportedActive()) return "The municipal vehicle is at defended ground, not at this remote site.";
     if (task.data?.action === "board" && escortContractActive()) return "The local escort contract must finish at the municipal meeting point before departure.";
     const survivalReason = wildernessWorkBlockReason(task);
     if (survivalReason) return survivalReason;
@@ -75740,6 +75952,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function refreshSurveyReport() {
+    if (unsupportedActive()) return false;
     const expedition = ensureSurveyExpeditions();
     if (!surveyScientistAway() || !expedition.relayOnline || (expedition.phase === "field" && mapCellKey(scientistMapCell()) !== mapCellKey(SurveyExpeditions.RENDEZVOUS))) return false;
     const economy = ensureEconomy();
@@ -75748,6 +75961,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function completeSurveyWork(task) {
+    if (completeUnsupportedWork(task)) return;
     if (completeWildernessWork(task)) return;
     const expedition = ensureSurveyExpeditions();
     if (task.data.action === "pack") {
@@ -75783,6 +75997,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function updateSurveyExpedition() {
+    if (unsupportedActive()) return 0; // Remote transitions occur after all elapsed simulation systems.
     const expedition = state.surveyExpeditions;
     if (!expedition || !surveyScientistAway() || scientistIsDead()) return 0;
     if (expedition.phase === "field") {
@@ -75819,6 +76034,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function controlSurveyJourney(action) {
+    if (unsupportedActive()) return false;
     const expedition = ensureSurveyExpeditions();
     if (!["outbound", "inbound"].includes(expedition.phase)) return false;
     const result = action === "recover" ? StrategicJourneys.recoverStrandedJourney(ensureStrategicJourneys(), expedition.journeyId, state.clock)
@@ -75832,9 +76048,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.surveyExpeditions = "true";
     panel.append(textEl("strong", "Supported Survey Excursions"));
     panel.append(renderWildernessPanel());
+    panel.append(renderUnsupportedExcursions());
     const button = (label, action, disabled = false, reason = "") => {
       const element = document.createElement("button"); element.type = "button"; element.textContent = label; element.disabled = disabled; element.title = reason; element.addEventListener("click", action); panel.append(element);
     };
+    if (unsupportedActive()) {
+      panel.append(textEl("p", `Actual carried supplies: ${surveyCarriedStacks().map((stack) => `${inventoryItemLabel(stack.key)} ×${stack.quantity}`).join("; ") || "none"}. Municipal vehicle still waiting at defended ground; laboratory work and information remain restricted.`));
+      for (const task of scientistQueueTasks().filter(surveyTaskAllowed)) button(`Cancel ${task.label}`, () => cancelTask(task.id));
+      if (expedition.phase === "field") for (const [id, method] of Object.entries(ResourceSurveys.METHODS)) button(`${method.label} at Selected Ground`, () => startResourceSurvey(id, mapCursorCell()), Boolean(resourceSurveyPlan(id, mapCursorCell()).reason));
+      for (const injury of actorInjuries("scientist").filter((entry) => entry.status !== "healed")) button(`Treat ${INJURY_TYPE_DEFS[injury.typeId].label}`, () => startInjuryTreatment(injury.id), Boolean(injuryTreatmentBlockReason(injury)) || surveyBusy());
+      const report = expedition.report;
+      if (report) panel.append(textEl("p", `Last company report ${formatClock(report.observedAt)}: ${report.company}, ${formatMoney(report.money)}. ${report.limitations}`));
+      return panel;
+    }
     if (!expedition.destination) { panel.append(textEl("p", "No publicly known supported survey ground is available for this starting site.")); return panel; }
     panel.append(textEl("p", `${expedition.destination.label} · ${titleCase(expedition.phase)} · ${expedition.visits} physical arrival(s).`), textEl("p", expedition.destination.permission), textEl("p", expedition.destination.publicDanger));
     for (const [key, band] of Object.entries(expedition.fieldContext?.publicProspects?.prospectBands || {})) panel.append(textEl("span", `${ResourceSurveys.FAMILIES[key] || key}: ${titleCase(band)} public prospect · `, "journal-meta"));
@@ -75884,8 +76110,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function resourceSurveyCellReason(cell, methodId) {
     const target = diagnosticTargetInfo("tile", "", cell);
-    if (!target || !ensureResourceSurveys().context || (cell?.z === SurveyExpeditions.FIELD_Z && cell.z !== scientistMapCell().z) || surfaceEnvelopeAtCell(cell).kind !== "outdoor") return "Select accessible outdoor ground at the scientist's current survey site.";
-    if (surveyScientistAway() && (state.surveyExpeditions.phase !== "field" || cell.z !== SurveyExpeditions.FIELD_Z)) return "The scientist cannot survey the laboratory from off site.";
+    if (!target || !ensureResourceSurveys().context || ([SurveyExpeditions.FIELD_Z, UnsupportedExcursions.Z].includes(cell?.z) && cell.z !== scientistMapCell().z) || surfaceEnvelopeAtCell(cell).kind !== "outdoor") return "Select accessible outdoor ground at the scientist's current survey site.";
+    if (surveyScientistAway() && (state.surveyExpeditions.phase !== "field" || cell.z !== scientistMapCell().z)) return "The scientist cannot survey the laboratory from off site.";
     if (methodId !== "arcaneSurvey" && (constructedFloorAtCell(cell) || !["grass", "soil"].includes(surfaceGroundAtCell(cell)?.terrainId))) return "Ground prospecting requires exposed soil or grass, not paving or imported gravel.";
     return "";
   }
@@ -82046,6 +82272,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.resourceSurveys = ResourceSurveys.normalizeState(candidate?.resourceSurveys);
     next.surveyExpeditions = SurveyExpeditions.normalizeState(candidate?.surveyExpeditions);
     next.wildernessSurvival = WildernessSurvival.normalizeState(candidate?.wildernessSurvival, next.clock);
+    next.unsupportedExcursions = UnsupportedExcursions.normalizeState(candidate?.unsupportedExcursions);
     next.wildernessBeasts = WildernessBeasts.normalizeState(candidate?.wildernessBeasts);
     next.expeditionEscorts = ExpeditionEscorts.normalizeState(candidate?.expeditionEscorts);
     const opening = candidate?.themeContent?.opening;

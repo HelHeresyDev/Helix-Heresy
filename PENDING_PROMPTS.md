@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Stranding and Rescue
+1. Distress and Organized Rescue
 2. Penal Flights and Beast-Territory Exile
 3. Penal Legions and Wilderness Service
 4. World Integration: Economy and Logistics
@@ -90,9 +90,9 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Stranding and Rescue
+## 1. Distress and Organized Rescue
 
-Build on physical wilderness survival and encounters to support lost vehicles, missed pickups, distress signals, uncertain rescue, and recovery without guaranteed transport. Communications require working equipment and do not create physical logistics. Losing a vehicle or failing an expedition must leave a living scientist playable rather than resolve an unseen death. Share suitable mechanics with Penal Flight and penal-legion missions. Discuss a bounded playable slice first; do not retroactively remove the supported municipal carrier's included waiting and recovery.
+Build on unsupported excursions to add dated distress messages, physical rescue personnel, finite medical supplies, passenger capacity, casualty assistance and loading, and uncertain rescue. Providers assess actual reachability and may refuse, delay, or withdraw for concrete reasons. Losing communications does not cancel an accepted mission or grant live tracking. Reuse these mechanics for Penal Flight and penal-legion missions without guaranteeing lawful admission or publicly funded rescue. Vehicle destruction remains separate until local vehicle damage and evacuation support it. Preserve existing supported municipal transport contracts.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
