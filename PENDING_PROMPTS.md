@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Distress and Organized Rescue
+1. Municipal Medical Recovery and Discharge
 2. Penal Flights and Beast-Territory Exile
 3. Penal Legions and Wilderness Service
 4. World Integration: Economy and Logistics
@@ -90,9 +90,9 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Distress and Organized Rescue
+## 1. Municipal Medical Recovery and Discharge
 
-Build on unsupported excursions to add dated distress messages, physical rescue personnel, finite medical supplies, passenger capacity, casualty assistance and loading, and uncertain rescue. Providers assess actual reachability and may refuse, delay, or withdraw for concrete reasons. Losing communications does not cancel an accepted mission or grant live tracking. Reuse these mechanics for Penal Flight and penal-legion missions without guaranteeing lawful admission or publicly funded rescue. Vehicle destruction remains separate until local vehicle damage and evacuation support it. Preserve existing supported municipal transport contracts.
+Build on physical medical extraction and its municipal receiving-point handoff to provide a bounded recovery and discharge path. Discuss professional assessment, finite appropriate supplies, treatment time, persistent injuries and disability, payment or coverage, incapacitated-patient care, and the actual ability to travel before implementation. Arrival at care must not instantly heal the scientist or automatically put an unconscious patient on a vehicle home. Preserve death and resurrection rules, scientist-only laboratory work restrictions, and dated off-site knowledge. Keep wider hospital simulation and long-term medicine separate if needed.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 

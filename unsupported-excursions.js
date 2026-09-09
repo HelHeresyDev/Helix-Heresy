@@ -33,6 +33,7 @@
     return { id: `unsupported-trip-${number}`, status: "outbound", departedAt: at, fieldAt, returnAt: null, terms, pickup: { status: "scheduled", departAt: opensAt - terms.flightSeconds, opensAt, closesAt: opensAt + WAIT, boardedAt: null, reason: "" }, request: null, nextRequest: 1, providerReadyAt: fieldAt + terms.flightSeconds + TURNAROUND, fuelRemainingKm: terms.fuelRangeKm - destination.distanceKm, lastAt: at };
   }
   function requestReason(trip, at, cargo) {
+    if (trip?.rescueReservation) return "The aircraft is reserved for an accepted medical extraction.";
     if (trip?.status !== "field") return "Replacement pickup is only available to a party still at the remote site.";
     if (!["missed", "aborted"].includes(trip.pickup.status)) return "The existing pickup has not finished; duplicate bookings are not allowed.";
     if (trip.request?.status === "acknowledged") return "The provider is already reviewing a request.";
@@ -77,6 +78,7 @@
     trip.lastAt = at; return events;
   }
   function boardingReason(trip, at, cell, cargo, fit = true) {
+    if (trip?.rescueReservation) return "Medical extraction owns this aircraft reservation; ordinary self-boarding is unavailable.";
     if (trip?.status !== "field" || trip.pickup.status !== "waiting" || at < trip.pickup.opensAt || at >= trip.pickup.closesAt) return "No pickup aircraft is waiting inside its boarding window.";
     if (!fit) return "The scientist cannot self-board while incapacitated; organized casualty rescue is not part of this charter.";
     if (!cell || cell.x !== LANDING.x || cell.y !== LANDING.y || cell.z !== LANDING.z) return "Physically reach the landing point before boarding.";
