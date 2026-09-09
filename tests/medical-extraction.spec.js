@@ -84,8 +84,9 @@ test.describe('physical medical extraction', () => {
     expect(saved.mission.patientLoaded).toBe(true); expect(saved.mission.medicLoaded).toBe(true);
     await to(page, saved.mission.returnAt); expect((await snap(page)).mission.status).toBe('handoff');
     await advance(page, 50); saved = await snap(page);
-    expect(saved.mission.status).toBe('complete'); expect(saved.scientistCell).toEqual(Medical.RECEIVING); expect(saved.health).toBe(5); expect(saved.beacon.armed).toBe(false);
-    expect(saved.routineSuspension).toBeNull();
+    expect(saved.mission.status).toBe('complete'); expect(saved.health).toBe(5); expect(saved.beacon.armed).toBe(false);
+    expect(saved.clinic.stay.emergency).toBe(true);
+    expect(saved.routineSuspension.reason).toBe('municipal clinic care');
     expect(await page.evaluate(() => window.helixHeresyDebug.boardSurveyVehicle())).toBe(false);
     await page.locator('[data-workspace-tab="visits"]').click(); await expect(page.locator('[data-medical-extraction]')).toContainText('Handoff completed');
   });

@@ -49,6 +49,7 @@
   const SurveyExpeditions = window.HelixSurveyExpeditions;
   const UnsupportedExcursions = window.HelixUnsupportedExcursions;
   const MedicalExtraction = window.HelixMedicalExtraction;
+  const MunicipalClinic = window.HelixMunicipalClinic;
   const WildernessSurvival = window.HelixWildernessSurvival;
   const WildernessBeasts = window.HelixWildernessBeasts;
   const ExpeditionEscorts = window.HelixExpeditionEscorts;
@@ -15016,6 +15017,16 @@
       damageEscortForTest: (amount) => { damageExpeditionEscort(amount); persist(); render(); },
       bookUnsupportedExcursion, requestUnsupportedPickup, boardUnsupportedPickup, refreshUnsupportedReport,
       buyExtractionCoverage, toggleDistressBeacon, sendRescueDistress,
+      admitMunicipalClinic, approveClinicCare, leaveMunicipalClinic, payClinicDebt,
+      clinicSnapshot: () => clonePlainObject({ ...ensureClinic(), clock: state.clock, money: ensureEconomy().money, health: scientistVital("health").current, cell: scientistMapCell(), injuries: state.injuries, stacks: state.physicalItemStacks, incapacitated: actorIsIncapacitated("scientist"), routineSuspension: state.combat?.routineSuspension }),
+      configureClinicTest: (options = {}) => {
+        ensureClinic();
+        if (options.handoff) state.medicalExtraction.mission = { id: "test-handoff", status: "complete" };
+        if (options.money != null) ensureEconomy().money = options.money;
+        if (options.removeStock) state.physicalItemStacks = state.physicalItemStacks.filter(s => s.reservedTaskId !== "municipal-clinic-stock");
+        updateMunicipalClinic(); persist(); render();
+      },
+      advanceClinicForTest: seconds => { let remaining = seconds; while (remaining > 0) { const step = Math.min(remaining, 60, Math.max(1, clinicNextAt() - state.clock)); state.clock += step; progressInjuries(); updateMunicipalClinic(); remaining -= step; } persist(); render(); },
       medicalExtractionSnapshot: () => clonePlainObject({ ...ensureMedicalExtraction(), clock: state.clock, money: ensureEconomy().money, health: scientistVital("health").current, scientistCell: scientistMapCell(), scientistRoomId: scientistRoomId(), remote: ensureUnsupportedExcursions(), injuries: state.injuries, routineSuspension: state.combat?.routineSuspension, medicInventory: state.medicalExtraction?.medic ? actorInventoryStacks(state.medicalExtraction.medic.id) : [], stacks: state.physicalItemStacks }),
       configureMedicalTest: (options = {}) => {
         const medic = ensureRescueMedic(); resupplyRescueMedic();
@@ -15035,7 +15046,7 @@
           const step = physical ? Math.min(1, remaining) : Math.min(remaining, Math.max(1, nextAt - state.clock));
           state.clock += step; updateWildernessNeeds(); updateUnsupportedExcursion();
           if (physical) { collectCombatRecords(); updateWildernessBeasts(step); }
-          updateMedicalExtraction(step); remaining -= step;
+          updateMedicalExtraction(step); updateMunicipalClinic(); remaining -= step;
         }
         persist(); render();
       },
@@ -19905,9 +19916,10 @@
       const journey = ensureStrategicJourneys().journeys.find((entry) => entry.id === state.surveyExpeditions.journeyId);
       const task = scientistQueueTasks().find((entry) => surveyTaskAllowed(entry) && !taskBlockReason(entry) && entry.dueAt >= state.clock);
       const reportedMedicalAt = state.medicalExtraction?.lastReport?.arriveAt;
+      const clinicEvent = clinicActive() ? { time: clinicNextAt(), label: "Clinic care checkpoint", type: "medical" } : null;
       const remoteAt = unsupportedActive() ? Math.min(UnsupportedExcursions.nextPublicEventAt(state.unsupportedExcursions.trip, state.unsupportedExcursions.lastReport, state.clock), reportedMedicalAt > state.clock ? reportedMedicalAt : Infinity) : Infinity;
       const travelEvent = unsupportedActive() ? (Number.isFinite(remoteAt) ? { time: remoteAt, label: "Known charter schedule checkpoint", type: "travel" } : null) : StrategicJourneys.nextPublicEvent({ journeys: journey ? [journey] : [] }, state.clock);
-      return [task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
+      return [clinicEvent, task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
         .filter((event) => event && (!options.includeTypes || options.includeTypes.includes(event.type)) && event.time >= state.clock)
         .sort((a, b) => a.time - b.time)[0] || null;
     }
@@ -20416,6 +20428,7 @@
     changes.combatChanged += updateWildernessBeasts(elapsed);
     changes.combatChanged += updateExpeditionEscort(elapsed);
     changes.scientistMovementChanged += updateMedicalExtraction(elapsed);
+    changes.scientistMovementChanged += updateMunicipalClinic();
     return changes;
   }
 
@@ -20477,6 +20490,16 @@
   function advanceTime(seconds, options = {}) {
     const advanceStartedAt = performance.now();
     const elapsed = Math.max(0, Number(seconds) || 0);
+    if (clinicActive() && !options.clinicStep && elapsed > 0) {
+      let remaining = elapsed, changed = 0;
+      while (remaining > 0 && clinicActive() && !scientistIsDead()) {
+        const step = Math.min(remaining, Math.max(1, clinicNextAt() - state.clock));
+        const wasIncapacitated = actorIsIncapacitated("scientist");
+        changed += advanceTime(step, { ...options, clinicStep: true }); remaining -= step;
+        if (wasIncapacitated && !actorIsIncapacitated("scientist")) break;
+      }
+      return changed;
+    }
     if (unsupportedActive() && !options.remoteStep && elapsed > 0) {
       let remaining = elapsed, changed = 0;
       while (remaining > 0 && !scientistIsDead()) {
@@ -33684,7 +33707,7 @@
 
   function actorFloorLoadM2(actor) {
     if (!actor) return 0;
-    if (["expeditionEscort", "rescueMedic"].includes(actor.actorKind)) return .6;
+    if (["expeditionEscort", "rescueMedic", "municipalClinician"].includes(actor.actorKind)) return .6;
     if (actor.actorKind === "wildernessBeast") return 1;
     if (actor === state.scientist || actor.physicalPresence) {
       return Math.max(0, Number(actor.physicalPresence?.floorLoadM2) || SCIENTIST_DEFAULT_PHYSICAL_PRESENCE.floorLoadM2);
@@ -33701,6 +33724,8 @@
     if (escort && escort.id !== excludeActor?.id && mapCellKey(escort.mapCell) === key) occupied += .6;
     const medic = state.medicalExtraction?.medic;
     if (medic && medic.id !== excludeActor?.id && mapCellKey(medic.mapCell) === key) occupied += .6;
+    const clinician = state.medicalExtraction?.clinic?.clinician;
+    if (clinician && clinician.id !== excludeActor?.id && mapCellKey(clinician.mapCell) === key) occupied += .6;
     for (const beast of state.wildernessBeasts?.actors || []) {
       if (beast.id !== excludeActor?.id && mapCellKey(beast.mapCell) === key) occupied += MAP_TILE_AREA_M2;
     }
@@ -61549,6 +61574,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function labMapOverlayAssignments(overlayId, map, context = {}) {
     const assignments = baseLabMapOverlayAssignments(overlayId, map, context);
+    const clinician = state.medicalExtraction?.clinic?.clinician;
+    if (clinician && clinicLocal() && !actorIsIncapacitated("scientist") && sensoryLineOfSight(scientistMapCell(), clinician.mapCell)) setLabMapOverlayEntry(assignments, clinician.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: clinician.name, title: "Municipal clinician", value: "C", source: "Direct observation", target: { kind: "tile", tile: clinician.mapCell } }, map);
+    if (state.surveyExpeditions?.materialized) setLabMapOverlayEntry(assignments, MunicipalClinic.BED, { overlayId, classNames: ["map-overlay-resources"], label: "Clinic treatment bed", title: "Timed care using finite local supplies", value: "+", source: "Municipal service notice", target: { kind: "tile", tile: MunicipalClinic.BED } }, map);
     const medic = state.medicalExtraction?.medic;
     if (medic && rescueMedicObserved()) setLabMapOverlayEntry(assignments, medic.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: medic.name, title: `${medic.name}: ${medic.status === "dead" ? "physical remains" : "rescue medic"}`, value: medic.status === "dead" ? "†" : "M", source: "Direct observation", target: { kind: "tile", tile: medic.mapCell } }, map);
     if (state.surveyExpeditions?.materialized && !unsupportedActive()) setLabMapOverlayEntry(assignments, MedicalExtraction.RECEIVING, { overlayId, classNames: ["map-overlay-resources"], label: "Municipal medical receiving point", title: "Physical casualty handoff; not an automatic cure or trip home", value: "+", source: "Municipal service notice", target: { kind: "tile", tile: MedicalExtraction.RECEIVING } }, map);
@@ -75065,6 +75093,161 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       arcaneInterference: Number(map.arcaneGeography?.manaConcentrationPermille?.[index]) || 0 };
   }
 
+  function ensureClinic() {
+    const clinic = ensureMedicalExtraction().clinic ||= MunicipalClinic.defaultState();
+    if (state.surveyExpeditions?.materialized && !clinic.stockCreated) {
+      clinic.stockCreated = true;
+      for (const [key, quantity] of [["medicalBandage", 12], ["neutralizingWash", 6], ["drinkingWater", 12], ["trailMeal", 12]]) {
+        const stack = createPhysicalItemStack("inventory", key, quantity, { roomId: SurveyExpeditions.FIELD_ROOM, cell: { x: 17, y: 12, z: 6 } }, { suppressEvidence: true, sourceLabels: ["Municipal clinic stock"] });
+        stack.reservedTaskId = "municipal-clinic-stock";
+      }
+    }
+    return clinic;
+  }
+  function clinicActive() { return MunicipalClinic.active(state.medicalExtraction?.clinic?.stay); }
+  function clinicLocal() { return !unsupportedActive() && scientistRoomId() === SurveyExpeditions.FIELD_ROOM; }
+  function clinicNextAt() { return clinicActive() ? state.medicalExtraction.clinic.stay.nextAt : Infinity; }
+  function admitMunicipalClinic(emergency = false) {
+    if (!clinicLocal() || scientistIsDead() || clinicActive() || rescueMissionActive() || WildernessBeasts.distance(scientistMapCell(), MedicalExtraction.RECEIVING) > 1) return false;
+    if (!emergency && actorIsIncapacitated("scientist")) return false;
+    if (!emergency && !window.confirm("Request a timed clinic examination and physical admission? Examination is free. Further care requires approval; extraction coverage does not pay clinic fees.")) return false;
+    const clinic = ensureClinic(); clinic.stay = MunicipalClinic.admit(clinic.nextStay++, state.clock, emergency && actorIsIncapacitated("scientist"));
+    clinic.stay.ledger = []; suspendScientistRoutineWork("municipal clinic care"); persist(); render(); return true;
+  }
+  function approveClinicCare() {
+    const stay = ensureClinic().stay;
+    if (!clinicActive() || !clinicLocal() || actorIsIncapacitated("scientist") || scientistIsDead() || !stay.assessment || stay.escrow > 0) return false;
+    const quote = MunicipalClinic.quote(actorInjuries("scientist"));
+    if (ensureEconomy().money < quote.amount || !window.confirm(`Authorize at most ${formatMoney(quote.amount)} for up to ${quote.recoveryHours} hours of clinic care? Unused funds are refunded. Existing emergency debt is separate. ${quote.description}`)) return false;
+    ensureEconomy().money -= quote.amount; stay.escrow = quote.amount; stay.authorizedUntil = state.clock + quote.recoveryHours * 3600; stay.nextAt = state.clock + 1; stay.reason = "Care authorized within the displayed spending and time limits."; persist(); render(); return true;
+  }
+  function cancelClinicOperation(stay) {
+    const stack = ensurePhysicalItemStacks().find(s => s.id === stay.operation?.stackId && s.reservedTaskId === stay.id);
+    if (stack) stack.reservedTaskId = "municipal-clinic-stock";
+    stay.operation = null;
+  }
+  function closeClinic(status) {
+    const clinic = ensureClinic(), stay = clinic.stay;
+    if (!MunicipalClinic.active(stay)) return false;
+    cancelClinicOperation(stay); ensureEconomy().money += MunicipalClinic.close(stay, status, state.clock);
+    clinic.history.push(clonePlainObject(stay));
+    if (state.combat?.routineSuspension?.reason === "municipal clinic care") resumeScientistRoutineWork();
+    return true;
+  }
+  function leaveMunicipalClinic() {
+    if (!clinicActive() || !clinicLocal() || actorIsIncapacitated("scientist") || scientistIsDead()) return false;
+    const againstAdvice = actorInjuries("scientist").length > 0 || scientistVital("health").current < scientistVital("health").max;
+    if (!window.confirm(againstAdvice ? "Leave against medical advice with your current wounds and needs? Unused escrow is refunded. You must still physically reach and board transport." : "End clinic care? You remain here and must walk to your transport.")) return false;
+    closeClinic(againstAdvice ? "left" : "discharged"); persist(); render(); return true;
+  }
+  function payClinicDebt() {
+    const clinic = ensureClinic();
+    if (!clinicLocal() || scientistIsDead() || actorIsIncapacitated("scientist") || clinic.debt <= 0 || ensureEconomy().money < clinic.debt || !window.confirm(`Pay the separate emergency-care bill of ${formatMoney(clinic.debt)}?`)) return false;
+    ensureEconomy().money -= clinic.debt; clinic.debt = 0; persist(); render(); return true;
+  }
+  function clinicStock(key, reservation = "municipal-clinic-stock") {
+    return ensurePhysicalItemStacks().find(s => s.key === key && s.quantity > 0 && s.reservedTaskId === reservation && !s.carriedBy && s.roomId === SurveyExpeditions.FIELD_ROOM && WildernessBeasts.distance(s.cell, state.medicalExtraction.clinic.clinician.mapCell) <= 1);
+  }
+  function updateMunicipalClinic() {
+    if (!state.surveyExpeditions?.materialized) return 0;
+    const clinic = ensureClinic(), mission = state.medicalExtraction.mission;
+    if (!clinicActive() && mission?.status === "complete" && clinic.lastHandoff !== mission.id && clinicLocal() && mapCellKey(scientistMapCell()) === mapCellKey(MedicalExtraction.RECEIVING)) {
+      clinic.lastHandoff = mission.id;
+      if (actorIsIncapacitated("scientist") && !scientistIsDead()) { admitMunicipalClinic(true); return 1; }
+    }
+    const stay = clinic.stay;
+    if (!MunicipalClinic.active(stay)) return 0;
+    if (scientistIsDead()) { closeClinic("dead"); return 1; }
+    if (!clinicLocal()) { closeClinic("interrupted"); return 1; }
+    if (state.clock < stay.nextAt) return 0;
+    stay.nextAt = state.clock + 60;
+    const patient = scientistMapCell(), clinician = clinic.clinician, map = ensureLabMap();
+    if (stay.status === "admitting") {
+      const allowed = new Set((map.rooms[SurveyExpeditions.FIELD_ROOM]?.cells || []).map(mapCellKey));
+      const canEnter = cell => allowed.has(mapCellKey(cell)) && labMapCellIsWalkable(cell, map) && !labMapCellIsPathBlocked(cell, { map, actor: clinician });
+      if (WildernessBeasts.distance(clinician.mapCell, patient) > 1) {
+        const goal = WildernessBeasts.neighbors(patient).find(canEnter);
+        const next = goal && WildernessBeasts.nextStep(clinician.mapCell, goal, canEnter);
+        if (next) { clinician.mapCell = cleanMapCell(next); stay.nextAt = state.clock + 4; }
+        else stay.reason = "Admission delayed: clinician cannot physically reach the patient.";
+        return 1;
+      }
+      if (mapCellKey(patient) !== mapCellKey(MunicipalClinic.BED)) {
+        if (actorInventoryUsage("scientist").massKg + 80 > 180) { stay.reason = "Patient and carried load exceed safe local assistance capacity."; return 1; }
+        const next = WildernessBeasts.nextStep(patient, MunicipalClinic.BED, canEnter);
+        if (!next) { stay.reason = "Admission delayed: the bed route is blocked."; return 1; }
+        clinician.mapCell = cleanMapCell(patient); moveSurveyScientist(SurveyExpeditions.FIELD_ROOM, next); stay.nextAt = state.clock + 4; return 1;
+      }
+      if (mapCellKey(clinician.mapCell) !== mapCellKey(MunicipalClinic.DESK)) {
+        const next = WildernessBeasts.nextStep(clinician.mapCell, MunicipalClinic.DESK, canEnter);
+        if (!next) { stay.reason = "Clinician cannot reach the bedside supplies."; return 1; }
+        clinician.mapCell = cleanMapCell(next); stay.nextAt = state.clock + 4; return 1;
+      }
+      stay.status = "examining"; stay.nextAt = state.clock + 60; stay.reason = "Clinician examining the physically present patient."; return 1;
+    }
+    if (mapCellKey(patient) !== mapCellKey(MunicipalClinic.BED) || WildernessBeasts.distance(clinician.mapCell, patient) > 1) { closeClinic("interrupted"); return 1; }
+    if (stay.status === "examining") {
+      const injuries = actorInjuries("scientist");
+      for (const injury of injuries) injury.diagnosedAt = state.clock;
+      stay.assessment = { at: state.clock, summary: injurySummary("scientist"), quote: MunicipalClinic.quote(injuries) };
+      stay.status = "care"; stay.reason = "Assessment complete. Stabilization is not healing; serious injuries may require unavailable specialist care.";
+      state.paused = true; return 1;
+    }
+    const incapacitated = actorIsIncapacitated("scientist");
+    if (stay.authorizedUntil && state.clock >= stay.authorizedUntil) {
+      cancelClinicOperation(stay); ensureEconomy().money += stay.escrow; stay.escrow = 0; stay.authorizedUntil = null;
+      stay.reason = "Authorized care period ended; unused escrow refunded. Review before authorizing more care."; state.paused = true;
+    }
+    if (stay.operation) {
+      const operation = stay.operation;
+      if (state.clock < operation.dueAt) { stay.nextAt = operation.dueAt; return 0; }
+      const stack = operation.stackId && clinicStock(operation.key, stay.id);
+      if (operation.stackId && stack?.id !== operation.stackId) { cancelClinicOperation(stay); stay.reason = "Reserved supply is no longer physically available."; return 1; }
+      const debt = MunicipalClinic.charge(stay, operation.cost, incapacitated);
+      if (debt === null) { cancelClinicOperation(stay); stay.reason = "Care paused: authorization or limited emergency allowance exhausted."; state.paused = true; return 1; }
+      clinic.debt += debt; stay.ledger.push({ at: state.clock, label: operation.kind, amount: operation.cost, billed: debt });
+      if (stack) { consumeMedicSupply(stack); if (stack.quantity > 0) stack.reservedTaskId = "municipal-clinic-stock"; }
+      const injury = state.injuries.find(i => i.id === operation.injuryId);
+      if (injury && operation.kind === "stabilize") { injury.status = "stabilized"; injury.stabilizedAt = state.clock; }
+      if (injury && operation.kind === "treat") { injury.status = "recovering"; injury.treatedAt = state.clock; injury.nextRecoveryAt = state.clock + 5400; }
+      if (operation.kind === "nourish") state.wildernessSurvival = WildernessSurvival.consume(ensureWildernessSurvival(), operation.key === "drinkingWater" ? "fieldWater" : "fieldRation");
+      if (operation.kind === "recovery" && !actorInjuries("scientist").some(i => i.status === "active") && Math.max(ensureWildernessSurvival().hunger, ensureWildernessSurvival().thirst) < 60) {
+        const vital = scientistVital("health"); vital.current = Math.min(vital.max, vital.current + 2);
+      }
+      stay.operation = null; stay.nextAt = state.clock + 1;
+      if (incapacitated && !actorIsIncapacitated("scientist")) { stay.reason = "Consciousness regained. Optional care now requires your approval."; state.paused = true; }
+      return 1;
+    }
+    const injuries = actorInjuries("scientist"), active = injuries.find(i => i.status === "active");
+    const treatable = injuries.find(i => i.status === "stabilized" && injurySeverityRank(i) <= 2);
+    const needs = ensureWildernessSurvival();
+    let operation;
+    if (active) operation = { kind: "stabilize", injuryId: active.id, key: INJURY_TYPE_DEFS[active.typeId].supplyKey, cost: 20, seconds: 45 };
+    else if (needs.thirst >= 40 || needs.hunger >= 40) operation = { kind: "nourish", key: needs.thirst >= 40 ? "drinkingWater" : "trailMeal", cost: 5, seconds: 20 };
+    else if (treatable && stay.escrow > 0) operation = { kind: "treat", injuryId: treatable.id, key: INJURY_TYPE_DEFS[treatable.typeId].supplyKey, cost: 20, seconds: 60 };
+    else if (scientistVital("health").current < scientistVital("health").max) operation = { kind: "recovery", cost: 10, seconds: MunicipalClinic.RECOVERY_SECONDS };
+    if (!operation || MunicipalClinic.available(stay, incapacitated) < operation.cost) { stay.reason = incapacitated ? "Limited emergency care exhausted or further care unavailable; no automatic discharge." : "Review care authorization or leave when able. Remaining disability is not erased."; return 0; }
+    const stack = operation.key && clinicStock(operation.key);
+    if (operation.key && !stack) { stay.reason = `Care delayed: no physically available ${inventoryItemLabel(operation.key)}. Clinic stock is finite.`; return 0; }
+    if (stack) { stack.reservedTaskId = stay.id; operation.stackId = stack.id; }
+    stay.operation = { ...operation, dueAt: state.clock + operation.seconds }; stay.nextAt = stay.operation.dueAt; stay.reason = `${operation.kind} in progress; supplies and fees applied only on completion.`; return 1;
+  }
+  function renderMunicipalClinic() {
+    const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.municipalClinic = "true";
+    const clinic = ensureClinic(), stay = clinic.stay;
+    panel.append(textEl("strong", "Municipal Clinic"), textEl("p", `${clinic.clinician.name} · Receiving 17,10; treatment bed 17,11. Extraction is separate. Free timed examination; limited incapacitated emergency care billed up to ${formatMoney(MunicipalClinic.EMERGENCY_LIMIT)} per admission. No automatic arrest for debt, cure, or transport home.`));
+    const button = (label, run, disabled) => { const b = document.createElement("button"); b.textContent = label; b.disabled = disabled; b.addEventListener("click", run); panel.append(b); };
+    button("Request Clinic Admission", () => admitMunicipalClinic(false), clinicActive() || !clinicLocal() || actorIsIncapacitated("scientist"));
+    if (stay) {
+      panel.append(textEl("p", `${stay.status}: ${stay.reason} Escrow ${formatMoney(stay.escrow)}; care paid ${formatMoney(stay.spent)}; emergency bill ${formatMoney(clinic.debt)}.`));
+      if (stay.assessment) panel.append(textEl("p", `Examination ${formatClock(stay.assessment.at)}: ${stay.assessment.summary}. ${stay.assessment.quote.description}`));
+      for (const item of stay.ledger || []) panel.append(textEl("p", `${formatClock(item.at)} — ${item.label}: ${formatMoney(item.amount)} (${item.billed ? "emergency bill" : "authorized escrow"})`));
+      button("Review and Authorize Clinic Care", approveClinicCare, !clinicActive() || !stay.assessment || stay.escrow > 0 || actorIsIncapacitated("scientist"));
+      button("Leave Clinic / Request Discharge", leaveMunicipalClinic, !clinicActive() || actorIsIncapacitated("scientist"));
+    }
+    button("Pay Emergency-Care Bill", payClinicDebt, clinic.debt <= 0 || !clinicLocal() || actorIsIncapacitated("scientist"));
+    return panel;
+  }
   function ensureMedicalExtraction() { return state.medicalExtraction ||= MedicalExtraction.defaultState(); }
   function rescueMissionActive() { return MedicalExtraction.active(state?.medicalExtraction?.mission); }
   function rescueMissionPhysical() { return ["searching", "assisting", "withdrawing", "handoff"].includes(state?.medicalExtraction?.mission?.status); }
@@ -75343,7 +75526,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (saved.message) panel.append(textEl("p", `Last distress sent ${formatClock(saved.message.at)} from ${saved.message.cell.x},${saved.message.cell.y}. A dated report, not a live tracking link.`));
     if (saved.lastReport) panel.append(textEl("p", `Last received ${formatClock(saved.lastReport.at)}: ${saved.lastReport.status}. ${saved.lastReport.reason} ${saved.lastReport.arriveAt ? `Reported arrival ${formatClock(saved.lastReport.arriveAt)}.` : ""}`));
     if (rescueMedicObserved()) panel.append(textEl("p", `${medic.name} currently in sight: ${medic.status === "dead" ? "dead; physical remains" : medic.health < 35 ? "seriously wounded" : medic.health < 100 ? "wounded" : "no visible wounds"}. ${actorInventoryContentsLabel(medic.id)}`));
-    if (saved.mission?.status === "complete") panel.append(textEl("p", "Handoff completed at municipal medical receiving, tile 17,10. No automatic boarding home; the scientist must recover enough to travel. Broader hospital treatment is not implemented."));
+    if (saved.mission?.status === "complete") panel.append(textEl("p", "Handoff completed at municipal medical receiving, tile 17,10. The local clinic assesses patients separately; no automatic cure or boarding home."));
     return panel;
   }
 
@@ -75366,6 +75549,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return saved;
   }
   function unsupportedDepartureReason() {
+    if (clinicActive()) return "End clinic care before arranging another excursion.";
     const saved = ensureUnsupportedExcursions(), quote = UnsupportedExcursions.quote(saved.destination);
     if (unsupportedActive() || state.surveyExpeditions?.phase !== "field" || scientistRoomId() !== SurveyExpeditions.FIELD_ROOM) return "Join the charter at the defended municipal survey ground.";
     if (scientistIsDead() || actorIsIncapacitated("scientist")) return "The scientist must be capable of self-boarding.";
@@ -76067,7 +76251,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!state.started || scientistIsDead()) return 0;
     const before = ensureWildernessSurvival();
     const task = firstScientistQueueTask(), working = Boolean(task && task.type !== "rest" && !taskBlockReason(task));
-    const result = WildernessSurvival.advance(before, state.clock, { working, resting: task?.type === "rest", destination: scientistInWilderness() ? before.destination : null, sheltered: wildernessSheltered(), carriedRadioIds: surveyCarriedStacks().map((stack) => stack.id) });
+    const result = WildernessSurvival.advance(before, state.clock, { working, resting: clinicActive() || task?.type === "rest", destination: scientistInWilderness() ? before.destination : null, sheltered: wildernessSheltered(), carriedRadioIds: surveyCarriedStacks().map((stack) => stack.id) });
     state.wildernessSurvival = result.state;
     if (result.warning) { surveyEvent("Field Survival warning: thirst, hunger, exertion, or exposure is worsening. Reach supplies, rest, shelter, or withdraw before the condition becomes critical."); state.paused = true; }
     if (result.damage) {
@@ -76143,6 +76327,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function surveyScientistReserved() { return surveyScientistAway() || Boolean(state?.surveyExpeditions?.preparing); }
   function surveyTaskAllowed(task) {
     if (!surveyScientistAway()) return true;
+    if (clinicActive()) return false;
     if (["assisting", "handoff"].includes(state.medicalExtraction?.mission?.status)) return task?.type === "rest";
     if (task?.type === "rest") return true;
     const target = task?.data?.toCell || task?.data?.targetCell;
@@ -76210,6 +76395,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function boardSurveyVehicle() {
+    if (clinicActive()) return false;
     if (rescueMissionPhysical() || state.medicalExtraction?.mission?.status === "inbound") return false;
     if (unsupportedActive()) return false;
     if (escortContractActive()) { surveyEvent("Complete the escort's local contract at the defended meeting point before boarding. The hired vehicle waits; no extra escort seat has been booked."); persist(); render(); return false; }
@@ -76387,6 +76573,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(renderWildernessPanel());
     panel.append(renderUnsupportedExcursions());
     panel.append(renderMedicalExtraction());
+    panel.append(renderMunicipalClinic());
     const button = (label, action, disabled = false, reason = "") => {
       const element = document.createElement("button"); element.type = "button"; element.textContent = label; element.disabled = disabled; element.title = reason; element.addEventListener("click", action); panel.append(element);
     };
