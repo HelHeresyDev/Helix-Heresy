@@ -48,6 +48,7 @@
   const ResourceSurveys = window.HelixResourceSurveys;
   const SurveyExpeditions = window.HelixSurveyExpeditions;
   const UnsupportedExcursions = window.HelixUnsupportedExcursions;
+  const MedicalExtraction = window.HelixMedicalExtraction;
   const WildernessSurvival = window.HelixWildernessSurvival;
   const WildernessBeasts = window.HelixWildernessBeasts;
   const ExpeditionEscorts = window.HelixExpeditionEscorts;
@@ -5244,6 +5245,7 @@
       resourceSurveys: ResourceSurveys.defaultState(),
       surveyExpeditions: SurveyExpeditions.defaultState(),
       unsupportedExcursions: UnsupportedExcursions.defaultState(),
+      medicalExtraction: MedicalExtraction.defaultState(),
       wildernessSurvival: WildernessSurvival.defaultState(),
       wildernessBeasts: WildernessBeasts.defaultState(),
       expeditionEscorts: ExpeditionEscorts.defaultState(),
@@ -5721,6 +5723,7 @@
     const capacity = scientist
       ? { maxMassKg: SCIENTIST_CARRY_MASS_KG, maxVolumeL: SCIENTIST_CARRY_VOLUME_L }
       : actorOrId?.actorKind === "expeditionEscort" ? { maxMassKg: 25, maxVolumeL: 30 }
+      : actorOrId?.actorKind === "rescueMedic" ? { maxMassKg: 35, maxVolumeL: 45 }
       : visitor ? { maxMassKg: 18, maxVolumeL: 24 }
       : slimeInventoryCapacity(actorOrId);
     return {
@@ -15012,6 +15015,30 @@
       advanceEscortForTest: (seconds) => { for (let i = 0; i < seconds; i++) { state.clock++; collectCombatRecords(); updateWildernessBeasts(1); updateExpeditionEscort(1); } persist(); render(); },
       damageEscortForTest: (amount) => { damageExpeditionEscort(amount); persist(); render(); },
       bookUnsupportedExcursion, requestUnsupportedPickup, boardUnsupportedPickup, refreshUnsupportedReport,
+      buyExtractionCoverage, toggleDistressBeacon, sendRescueDistress,
+      medicalExtractionSnapshot: () => clonePlainObject({ ...ensureMedicalExtraction(), clock: state.clock, money: ensureEconomy().money, health: scientistVital("health").current, scientistCell: scientistMapCell(), scientistRoomId: scientistRoomId(), remote: ensureUnsupportedExcursions(), injuries: state.injuries, routineSuspension: state.combat?.routineSuspension, medicInventory: state.medicalExtraction?.medic ? actorInventoryStacks(state.medicalExtraction.medic.id) : [], stacks: state.physicalItemStacks }),
+      configureMedicalTest: (options = {}) => {
+        const medic = ensureRescueMedic(); resupplyRescueMedic();
+        if (options.medicHealth != null) medic.health = options.medicHealth;
+        if (options.medicCell) { medic.mapCell = cleanMapCell(options.medicCell); medic.roomId = labMapCellRoomId(options.medicCell); }
+        if (options.injury) recordCombatInjury(state.scientist, 2, ["physical"], "Medical extraction test injury", { location: "left leg", observed: true });
+        if (options.health != null) scientistVital("health").current = options.health;
+        if (options.cell) moveSurveyScientist(labMapCellRoomId(options.cell), options.cell);
+        syncActorInventories(); persist(); render(); return true;
+      },
+      damageRescueMedicForTest: (amount) => { damageRescueMedic(amount); persist(); render(); },
+      advanceMedicalForTest: (seconds) => {
+        let remaining = seconds;
+        while (remaining > 0) {
+          const nextAt = Math.min(MedicalExtraction.nextEventAt(state.medicalExtraction, state.clock), UnsupportedExcursions.nextEventAt(state.unsupportedExcursions?.trip, state.clock));
+          const physical = rescueMissionPhysical() && state.medicalExtraction.medic?.status !== "dead";
+          const step = physical ? Math.min(1, remaining) : Math.min(remaining, Math.max(1, nextAt - state.clock));
+          state.clock += step; updateWildernessNeeds(); updateUnsupportedExcursion();
+          if (physical) { collectCombatRecords(); updateWildernessBeasts(step); }
+          updateMedicalExtraction(step); remaining -= step;
+        }
+        persist(); render();
+      },
       unsupportedSnapshot: () => clonePlainObject({ ...ensureUnsupportedExcursions(), clock: state.clock, roomId: scientistRoomId(), cell: scientistMapCell(), phase: state.surveyExpeditions.phase, money: ensureEconomy().money, health: scientistVital("health").current, survival: ensureWildernessSurvival(), beasts: ensureWildernessBeasts(), carried: surveyCarriedStacks(), context: ensureResourceSurveys().context, tasks: scientistQueueTasks().map((task) => ({ ...task, reason: taskBlockReason(task) })), departureReason: unsupportedDepartureReason() }),
       configureUnsupportedTest: (options = {}) => {
         const saved = ensureUnsupportedExcursions();
@@ -19877,7 +19904,8 @@
     if (surveyScientistAway()) {
       const journey = ensureStrategicJourneys().journeys.find((entry) => entry.id === state.surveyExpeditions.journeyId);
       const task = scientistQueueTasks().find((entry) => surveyTaskAllowed(entry) && !taskBlockReason(entry) && entry.dueAt >= state.clock);
-      const remoteAt = unsupportedActive() ? UnsupportedExcursions.nextPublicEventAt(state.unsupportedExcursions.trip, state.unsupportedExcursions.lastReport, state.clock) : Infinity;
+      const reportedMedicalAt = state.medicalExtraction?.lastReport?.arriveAt;
+      const remoteAt = unsupportedActive() ? Math.min(UnsupportedExcursions.nextPublicEventAt(state.unsupportedExcursions.trip, state.unsupportedExcursions.lastReport, state.clock), reportedMedicalAt > state.clock ? reportedMedicalAt : Infinity) : Infinity;
       const travelEvent = unsupportedActive() ? (Number.isFinite(remoteAt) ? { time: remoteAt, label: "Known charter schedule checkpoint", type: "travel" } : null) : StrategicJourneys.nextPublicEvent({ journeys: journey ? [journey] : [] }, state.clock);
       return [task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
         .filter((event) => event && (!options.includeTypes || options.includeTypes.includes(event.type)) && event.time >= state.clock)
@@ -20387,6 +20415,7 @@
     changes.scientistMovementChanged += updateUnsupportedExcursion();
     changes.combatChanged += updateWildernessBeasts(elapsed);
     changes.combatChanged += updateExpeditionEscort(elapsed);
+    changes.scientistMovementChanged += updateMedicalExtraction(elapsed);
     return changes;
   }
 
@@ -20453,7 +20482,7 @@
       while (remaining > 0 && !scientistIsDead()) {
         const notice = ensureWildernessBeasts().noticeSerial;
         const phase = state.unsupportedExcursions.trip.status;
-        const nextAt = UnsupportedExcursions.nextEventAt(state.unsupportedExcursions.trip, state.clock);
+        const nextAt = Math.min(UnsupportedExcursions.nextEventAt(state.unsupportedExcursions.trip, state.clock), MedicalExtraction.nextEventAt(state.medicalExtraction, state.clock));
         const step = Math.min(remaining, Math.max(1, nextAt - state.clock));
         changed += advanceTime(step, { ...options, remoteStep: true }); remaining -= step;
         if (ensureWildernessBeasts().noticeSerial !== notice || state.unsupportedExcursions.trip.status !== phase || !unsupportedActive()) break;
@@ -20461,7 +20490,7 @@
       return changed;
     }
     // Keep both sides physically responsive during field time skips. Stop at a newly perceived threat.
-    if (!options.fieldStep && elapsed > 1 && state.surveyExpeditions?.phase === "field" && (escortContractActive() || state.wildernessBeasts?.actors.some((beast) => beast.status !== "dead"))) {
+    if (!options.fieldStep && elapsed > 1 && state.surveyExpeditions?.phase === "field" && (escortContractActive() || rescueMissionPhysical() || state.wildernessBeasts?.actors.some((beast) => beast.status !== "dead"))) {
       let changed = 0, remaining = elapsed;
       while (remaining > 0 && !scientistIsDead()) {
         const notice = state.wildernessBeasts.noticeSerial;
@@ -20929,6 +20958,8 @@
     if (injury.actorId === "scientist") return { actor: state.scientist, label: "Scientist", cell: scientistMapCell(), roomId: scientistRoomId() };
     const escort = state.expeditionEscorts?.actor;
     if (escort?.id === injury.actorId) return { actor: escort, label: escort.name, cell: cleanMapCell(escort.mapCell), roomId: escort.roomId };
+    const medic = state.medicalExtraction?.medic;
+    if (medic?.id === injury.actorId) return { actor: medic, label: medic.name, cell: cleanMapCell(medic.mapCell), roomId: medic.roomId };
     const slime = findSlime(injury.actorId);
     return slime ? { actor: slime, label: slime.name, cell: combatActorCell(slime), roomId: slimeEffectiveRoomId(slime) } : null;
   }
@@ -30224,6 +30255,7 @@
     const id = normalizeActorInventoryOwnerId(actorId);
     if (id === "scientist") return context?.scientist || null;
     if (context?.expeditionEscorts?.actor?.id === id) return context.expeditionEscorts.actor;
+    if (context?.medicalExtraction?.medic?.id === id) return context.medicalExtraction.medic;
     return (context?.slimes || []).find((slime) => slime.id === id && slime.status !== "dead")
       || (context?.siteVisits?.visits || []).flatMap((visit) => [visit.actor, ...(visit.supportActors || [])])
         .find((actor) => actor?.id === id && actor.present)
@@ -30256,6 +30288,7 @@
     const actors = [
       { id: "scientist", actor: context.scientist },
       ...(context.expeditionEscorts?.actor ? [{ id: context.expeditionEscorts.actor.id, actor: context.expeditionEscorts.actor }] : []),
+      ...(context.medicalExtraction?.medic ? [{ id: context.medicalExtraction.medic.id, actor: context.medicalExtraction.medic }] : []),
       ...(context.slimes || []).map((slime) => ({ id: slime.id, actor: slime })),
       ...(context.siteVisits?.visits || []).flatMap((visit) => [visit.actor, ...(visit.supportActors || [])])
         .filter((actor) => actor?.present).map((actor) => ({ id: actor.id, actor })),
@@ -33651,7 +33684,7 @@
 
   function actorFloorLoadM2(actor) {
     if (!actor) return 0;
-    if (actor.actorKind === "expeditionEscort") return .6;
+    if (["expeditionEscort", "rescueMedic"].includes(actor.actorKind)) return .6;
     if (actor.actorKind === "wildernessBeast") return 1;
     if (actor === state.scientist || actor.physicalPresence) {
       return Math.max(0, Number(actor.physicalPresence?.floorLoadM2) || SCIENTIST_DEFAULT_PHYSICAL_PRESENCE.floorLoadM2);
@@ -33666,6 +33699,8 @@
     let occupied = 0;
     const escort = state.expeditionEscorts?.actor;
     if (escort && escort.id !== excludeActor?.id && mapCellKey(escort.mapCell) === key) occupied += .6;
+    const medic = state.medicalExtraction?.medic;
+    if (medic && medic.id !== excludeActor?.id && mapCellKey(medic.mapCell) === key) occupied += .6;
     for (const beast of state.wildernessBeasts?.actors || []) {
       if (beast.id !== excludeActor?.id && mapCellKey(beast.mapCell) === key) occupied += MAP_TILE_AREA_M2;
     }
@@ -33752,7 +33787,7 @@
   }
 
   function navigationFootprintForActor(actor) {
-    if (actor?.actorKind === "expeditionEscort") return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
+    if (["expeditionEscort", "rescueMedic"].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (actor?.actorKind === "wildernessBeast") return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: 1, exclusive: true });
     const loadM2 = clamp(actorFloorLoadM2(actor), 0.015, MAP_TILE_AREA_M2);
     if (!actor || actor === state.scientist || actor.physicalPresence) {
@@ -37181,7 +37216,7 @@
   }
 
   function combatActor(actorId) {
-    return actorId === "scientist" ? state.scientist : findSlime(actorId) || wildernessBeast(actorId) || (state.expeditionEscorts?.actor?.id === actorId ? state.expeditionEscorts.actor : null);
+    return actorId === "scientist" ? state.scientist : findSlime(actorId) || wildernessBeast(actorId) || (state.expeditionEscorts?.actor?.id === actorId ? state.expeditionEscorts.actor : null) || (state.medicalExtraction?.medic?.id === actorId ? state.medicalExtraction.medic : null);
   }
 
   function combatActorCell(actor) {
@@ -37192,7 +37227,7 @@
   }
 
   function combatActorSkillLevel(actor, skillId) {
-    if (actor?.actorKind === "expeditionEscort") return actor.skills[skillId] || 1;
+    if (["expeditionEscort", "rescueMedic"].includes(actor?.actorKind)) return actor.skills[skillId] || 1;
     if (actor?.actorKind === "wildernessBeast") return ["evasion", "perception", "brawling"].includes(skillId) ? 5 : 1;
     return actor === state.scientist || actor?.physicalPresence
       ? skillLevel(skillId)
@@ -37200,7 +37235,7 @@
   }
 
   function combatActorVitalPercent(actor, key) {
-    if (actor?.actorKind === "expeditionEscort") return actor.health / actor.maxHealth * 100;
+    if (["expeditionEscort", "rescueMedic"].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
     if (actor?.actorKind === "wildernessBeast") return actor.health / actor.maxHealth * 100;
     if (actor === state.scientist || actor?.physicalPresence) {
       const vital = scientistVital(key === "bodyIntegrity" ? "health" : key);
@@ -37332,7 +37367,7 @@
 
   function normalizeInjury(candidate, index = 0) {
     if (!candidate || typeof candidate !== "object") return null;
-    const actorKind = ["scientist", "wildernessBeast", "expeditionEscort"].includes(candidate.actorKind) ? candidate.actorKind : "slime";
+    const actorKind = ["scientist", "wildernessBeast", "expeditionEscort", "rescueMedic"].includes(candidate.actorKind) ? candidate.actorKind : "slime";
     const actorId = actorKind === "scientist" ? "scientist" : String(candidate.actorId || "");
     const typeId = INJURY_TYPE_DEFS[candidate.typeId] ? candidate.typeId : "bruising";
     const severityId = INJURY_SEVERITY_DEFS[candidate.severityId] ? candidate.severityId : "minor";
@@ -37389,7 +37424,7 @@
     if (tags.has("heat") || tags.has("cold") || tags.has("radiant")) return "burn";
     if (tags.has("electrical")) return "electricalTrauma";
     if (tags.has("arcane") || tags.has("shadow")) return "arcaneTrauma";
-    if (["wildernessBeast", "expeditionEscort"].includes(actor?.actorKind)) return amount >= 8 ? "bleeding" : "bruising";
+    if (["wildernessBeast", "expeditionEscort", "rescueMedic"].includes(actor?.actorKind)) return amount >= 8 ? "bleeding" : "bruising";
     if (actor !== state.scientist && location === "core") return "coreTrauma";
     if (actor !== state.scientist && (location === "membrane" || amount >= 10)) return "membraneTear";
     if (actor === state.scientist && amount >= 13 && tags.has("physical")) return "fracture";
@@ -37402,7 +37437,7 @@
     state.injuries = normalizeInjuries(state.injuries);
     const scientist = actor === state.scientist || actor?.physicalPresence;
     const actorId = scientist ? "scientist" : actor.id;
-    const locations = scientist || actor.actorKind === "expeditionEscort" ? SCIENTIST_INJURY_LOCATIONS : actor.actorKind === "wildernessBeast" ? ["head", "torso", "left leg", "right leg"] : slimeInjuryLocations(actor);
+    const locations = scientist || ["expeditionEscort", "rescueMedic"].includes(actor.actorKind) ? SCIENTIST_INJURY_LOCATIONS : actor.actorKind === "wildernessBeast" ? ["head", "torso", "left leg", "right leg"] : slimeInjuryLocations(actor);
     const rng = seedRng(`${state.seed}:injury:${actorId}:${state.combat?.nextActionNumber || 0}:${Math.round(state.clock)}:${damageTypes.join(":")}`);
     const location = options.location || locations[Math.floor(rng() * locations.length)] || (scientist ? "torso" : "body mass");
     const typeId = injuryTypeForDamage(actor, damageTypes, amount, location);
@@ -37420,12 +37455,13 @@
     const visible = INJURY_TYPE_DEFS[typeId].visible;
     const observed = scientist || visible || options.observed;
     const injury = normalizeInjury({
-      id: `injury-${state.nextInjuryNumber++}`, actorKind: scientist ? "scientist" : ["wildernessBeast", "expeditionEscort"].includes(actor.actorKind) ? actor.actorKind : "slime", actorId,
+      id: `injury-${state.nextInjuryNumber++}`, actorKind: scientist ? "scientist" : ["wildernessBeast", "expeditionEscort", "rescueMedic"].includes(actor.actorKind) ? actor.actorKind : "slime", actorId,
       typeId, severityId, location, status: "active", cause, damageTypes,
       createdAt: state.clock, updatedAt: state.clock, observedAt: observed ? state.clock : null
     }, state.nextInjuryNumber);
     state.injuries.push(injury);
     if (actor.actorKind === "expeditionEscort" && !escortObserved()) return injury;
+    if (actor.actorKind === "rescueMedic" && !rescueMedicObserved()) return injury;
     addEvent(scientist || visible
       ? `${scientist ? "Scientist" : actor.name} suffered ${INJURY_SEVERITY_DEFS[severityId].label.toLowerCase()} ${INJURY_TYPE_DEFS[typeId].label.toLowerCase()} at the ${location}.`
       : `${actor.name} is showing uncertain symptoms of internal trauma; examination is required.`);
@@ -37482,6 +37518,7 @@
       if (actor === state.scientist) damageScientistCombat(damage, `${INJURY_TYPE_DEFS[injury.typeId].label} progression`, { injuryProgress: true });
       else if (actor.actorKind === "wildernessBeast") damageWildernessBeast(actor, damage, "injury", { injuryProgress: true });
       else if (actor.actorKind === "expeditionEscort") damageExpeditionEscort(damage, { injuryProgress: true });
+      else if (actor.actorKind === "rescueMedic") damageRescueMedic(damage, { injuryProgress: true });
       else {
         applySlimeCombatDamage(actor, damage, "injury", `${INJURY_TYPE_DEFS[injury.typeId].label} progression`, { injuryProgress: true });
         if (injury.typeId === "membraneTear") adjustRoomAttribute(slimeEffectiveRoomId(actor), "contamination", damage * 0.25);
@@ -37492,7 +37529,7 @@
   }
 
   function awardCombatActionXp(actor, skillId, amount, reason, outcome) {
-    if (["wildernessBeast", "expeditionEscort"].includes(actor?.actorKind)) return;
+    if (["wildernessBeast", "expeditionEscort", "rescueMedic"].includes(actor?.actorKind)) return;
     if (actor === state.scientist || actor?.physicalPresence) {
       awardXp(skillId, amount * skillXpOutcomeMultiplier(outcome), reason);
       return;
@@ -37536,7 +37573,7 @@
         coalesceKey: "miss:" + actorId + ":" + target.id
       });
       awardCombatActionXp(actor, action.skillId, options.xp || 4, action.label, "failure");
-      if (targetActor !== state.scientist && !["wildernessBeast", "expeditionEscort"].includes(targetActor.actorKind)) awardCreatureSkillXp(targetActor, "evasion", 3, `evading ${action.label.toLowerCase()}`);
+      if (targetActor !== state.scientist && !["wildernessBeast", "expeditionEscort", "rescueMedic"].includes(targetActor.actorKind)) awardCreatureSkillXp(targetActor, "evasion", 3, `evading ${action.label.toLowerCase()}`);
       return { ok: true, hit: false, damage: 0, accuracy };
     }
     const targetId = targetActor === state.scientist ? "scientist" : targetActor.id;
@@ -37545,6 +37582,7 @@
       ? damageScientistCombat(guardedDamage, `${action.label} (${damageTypeListText(action.damageTypes.map(damageTypeDef).filter(Boolean))})`, { damageTypes: action.damageTypes, observed: actor === state.scientist })
       : targetActor.actorKind === "wildernessBeast" ? damageWildernessBeast(targetActor, guardedDamage, actorId, { damageTypes: action.damageTypes })
       : targetActor.actorKind === "expeditionEscort" ? damageExpeditionEscort(guardedDamage, { damageTypes: action.damageTypes })
+      : targetActor.actorKind === "rescueMedic" ? damageRescueMedic(guardedDamage, { damageTypes: action.damageTypes })
       : applySlimeCombatDamage(targetActor, guardedDamage, actorId, action.label, { damageTypes: action.damageTypes, observed: actor === state.scientist });
     if (changed && !options.hideFeedback) {
       emitMapFeedback("feedbackImpact", combatActorCell(targetActor), {
@@ -38005,6 +38043,8 @@
     if (escortContractActive() && escort?.status !== "dead" && !actorIsIncapacitated(escort)) {
       state.combat.guarding[escort.id] = { startedAt: state.clock };
     }
+    const medic = state.medicalExtraction?.medic;
+    if (rescueMissionActive() && medic?.status !== "dead" && !actorIsIncapacitated(medic)) state.combat.guarding[medic.id] = { startedAt: state.clock };
     const living = (state.slimes || []).filter((slime) => slime && slime.status !== "dead" && slimeStat(slime, "bodyIntegrity").current > 0);
     for (let i = 0; i < living.length; i += 1) {
       for (let j = i + 1; j < living.length; j += 1) {
@@ -61509,6 +61549,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function labMapOverlayAssignments(overlayId, map, context = {}) {
     const assignments = baseLabMapOverlayAssignments(overlayId, map, context);
+    const medic = state.medicalExtraction?.medic;
+    if (medic && rescueMedicObserved()) setLabMapOverlayEntry(assignments, medic.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: medic.name, title: `${medic.name}: ${medic.status === "dead" ? "physical remains" : "rescue medic"}`, value: medic.status === "dead" ? "†" : "M", source: "Direct observation", target: { kind: "tile", tile: medic.mapCell } }, map);
+    if (state.surveyExpeditions?.materialized && !unsupportedActive()) setLabMapOverlayEntry(assignments, MedicalExtraction.RECEIVING, { overlayId, classNames: ["map-overlay-resources"], label: "Municipal medical receiving point", title: "Physical casualty handoff; not an automatic cure or trip home", value: "+", source: "Municipal service notice", target: { kind: "tile", tile: MedicalExtraction.RECEIVING } }, map);
     const escort = state.expeditionEscorts?.actor;
     if (escort && escortObserved()) setLabMapOverlayEntry(assignments, escort.mapCell, { overlayId, classNames: ["map-overlay-resources", "map-overlay-resources-high"], label: escort.name, title: `${escort.name}: ${escort.status === "dead" ? "physical remains" : "local escort"}`, source: "Direct observation", value: escort.status === "dead" ? "†" : "E", target: { kind: "tile", tile: escort.mapCell } }, map);
     if (!state.wildernessBeasts?.materialized) return assignments;
@@ -75022,6 +75065,288 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       arcaneInterference: Number(map.arcaneGeography?.manaConcentrationPermille?.[index]) || 0 };
   }
 
+  function ensureMedicalExtraction() { return state.medicalExtraction ||= MedicalExtraction.defaultState(); }
+  function rescueMissionActive() { return MedicalExtraction.active(state?.medicalExtraction?.mission); }
+  function rescueMissionPhysical() { return ["searching", "assisting", "withdrawing", "handoff"].includes(state?.medicalExtraction?.mission?.status); }
+  function rescueMedicObserved() {
+    const medic = state.medicalExtraction?.medic;
+    return Boolean(medic && surveyScientistAway() && !actorIsIncapacitated("scientist") && WildernessBeasts.distance(scientistMapCell(), medic.mapCell) <= 8 && sensoryLineOfSight(scientistMapCell(), medic.mapCell));
+  }
+  function ensureRescueMedic() {
+    const saved = ensureMedicalExtraction();
+    if (!state.surveyExpeditions?.materialized) return saved.medic;
+    if (!saved.medic) {
+      saved.medic = { ...ExpeditionEscorts.candidate(`${state.seed}:medical`, { id: state.surveyExpeditions.destination.cityId, label: state.surveyExpeditions.destination.label }), id: "local-rescue-medic", actorKind: "rescueMedic", mapCell: { ...MedicalExtraction.RECEIVING }, roomId: SurveyExpeditions.FIELD_ROOM, skills: { striking: 8, guarding: 12, evasion: 10, perception: 12 }, needs: WildernessSurvival.defaultState(state.clock), radioCharge: WildernessSurvival.RADIO_SECONDS };
+    }
+    if (!saved.stockCreated) {
+      saved.stockCreated = true;
+      for (const [key, quantity] of [["medicalBandage", 9], ["neutralizingWash", 3], ["drinkingWater", 8], ["trailMeal", 6], ["escortBaton", 1], ["escortVest", 1], ["satelliteCommunicator", 1]]) {
+        const stack = createPhysicalItemStack("inventory", key, quantity, { roomId: SurveyExpeditions.FIELD_ROOM, cell: { x: 17, y: 9, z: SurveyExpeditions.FIELD_Z } }, { suppressEvidence: true, sourceLabels: ["Municipal medical service supplies"] });
+        stack.reservedTaskId = "medical-provider-stock";
+      }
+    }
+    return saved.medic;
+  }
+  function resupplyRescueMedic() {
+    const saved = ensureMedicalExtraction(), medic = ensureRescueMedic();
+    if (!medic || medic.status === "dead" || actorIsIncapacitated(medic) || medic.roomId !== SurveyExpeditions.FIELD_ROOM || WildernessBeasts.distance(medic.mapCell, MedicalExtraction.RECEIVING) > 1) return;
+    for (const [key, desired] of [["medicalBandage", 3], ["neutralizingWash", 1], ["drinkingWater", 2], ["trailMeal", 2], ["escortBaton", 1], ["escortVest", 1], ["satelliteCommunicator", 1]]) {
+      const count = actorInventoryStacks(medic.id).filter((stack) => stack.key === key).reduce((n, stack) => n + stack.quantity, 0);
+      const source = ensurePhysicalItemStacks().find((stack) => stack.key === key && stack.quantity > 0 && stack.reservedTaskId === "medical-provider-stock");
+      const quantity = source ? Math.min(desired - count, source.quantity) : 0;
+      if (quantity > 0 && actorInventoryCanCarry(medic.id, source, quantity)) {
+        const carried = carryPhysicalStack(medic.id, source.id, quantity, { allowReserved: true });
+        if (carried && key.startsWith("escort")) saved.gearCondition[carried.id] ??= 100;
+      }
+    }
+  }
+  function medicSupply(key) { const medic = state.medicalExtraction?.medic; return medic && actorInventoryStacks(medic.id).find((stack) => stack.key === key && stack.quantity > 0 && !stack.reservedTaskId); }
+  function consumeMedicSupply(stack) {
+    if (!stack || stack.quantity <= 0) return false;
+    stack.quantity--; stack.knownQuantity = Math.min(stack.quantity, stack.knownQuantity); stack.reservedTaskId = "";
+    if (!stack.quantity) state.physicalItemStacks = state.physicalItemStacks.filter((entry) => entry.id !== stack.id);
+    syncActorInventories(); syncPhysicalReadModels(); return true;
+  }
+  function buyExtractionCoverage() {
+    const remote = ensureUnsupportedExcursions(), saved = ensureMedicalExtraction(), medic = ensureRescueMedic();
+    if (unsupportedActive() || !remote.destination || !medic || medic.status === "dead" || medic.health < 35 || actorIsIncapacitated(medic) || actorIsIncapacitated("scientist") || scientistRoomId() !== SurveyExpeditions.FIELD_ROOM || ["ready", "active"].includes(saved.coverage?.status) || rescueMissionActive()) return false;
+    const quote = MedicalExtraction.quote(remote.destination.distanceKm);
+    if (ensureEconomy().money < quote.premium || !window.confirm(`${formatMoney(quote.premium)} covers ONE accepted extraction attempt on the next remote excursion, not guaranteed success. Requires a distress message from a functioning communicator. Manually activate the beacon BEFORE incapacity if you want it to request assistance. One medic, one patient berth, finite medicine, and ${quote.cargoCapacity} cargo units including the medic's kit. Hospital treatment and automatic travel home are not included.`)) return false;
+    ensureEconomy().money -= quote.premium; saved.coverage = { status: "ready", boughtAt: state.clock, premium: quote.premium, tripId: null };
+    persist(); render(); return true;
+  }
+  function rescueRadio() { const radio = wildernessRadio(); return radio?.powered && radio.charge > 0 ? radio : null; }
+  function toggleDistressBeacon() {
+    const saved = ensureMedicalExtraction(), radio = wildernessRadio();
+    if (scientistIsDead() || actorIsIncapacitated("scientist") || !radio) return false;
+    if (saved.beacon?.armed) saved.beacon.armed = false;
+    else {
+      if (!radio.powered || radio.charge <= 0 || !window.confirm("Activate distress transmissions once per minute while at the remote site? This uses the carried communicator's finite battery and continues after incapacity. Valid prepaid coverage may authorize one extraction attempt. Without coverage it broadcasts distress but cannot authorize new charges.")) return false;
+      saved.beacon = { armed: true, stackId: radio.stackId, nextAt: state.clock, activatedAt: state.clock };
+    }
+    persist(); render(); return true;
+  }
+  function transmitRescueDistress(automatic = false) {
+    const saved = ensureMedicalExtraction(), remote = state.unsupportedExcursions;
+    if (!unsupportedActive() || remote.trip.status !== "field" || scientistIsDead() || !rescueRadio() || (!automatic && actorIsIncapacitated("scientist"))) return false;
+    const threats = (state.wildernessBeasts?.actors || []).filter((beast) => beast.status !== "dead" && wildernessBeastVisible(beast));
+    const message = { at: state.clock, cell: cleanMapCell(scientistMapCell()), source: automatic ? "Armed distress beacon" : "Scientist distress call", injuries: automatic ? [] : actorInjuries("scientist").filter((injury) => injury.status === "active").map((injury) => injury.typeId), threats: automatic ? [] : threats.map((beast) => ({ name: beast.name, cell: cleanMapCell(beast.mapCell), at: state.clock })), request: "Medical assistance and physical extraction", passengers: 1 };
+    saved.message = message;
+    if (rescueMissionActive()) { saved.mission.message = clonePlainObject(message); saved.mission.target = cleanMapCell(message.cell); return true; }
+    if (saved.mission && state.clock < (saved.mission.endedAt || saved.mission.reviewAt) + 60) return true;
+    if (remote.trip.request?.status === "acknowledged") return true;
+    const covered = MedicalExtraction.coverageValid(saved.coverage, remote.trip.id), quote = MedicalExtraction.quote(remote.destination.distanceKm);
+    if (!covered && (automatic || ensureEconomy().money < quote.emergencyFee)) { if (!automatic) surveyEvent("Distress recorded, but no prepaid authorization or sufficient emergency funds are available. A broadcast is not a booked rescue."); return true; }
+    if (!covered && !window.confirm(`Authorize ${formatMoney(quote.emergencyFee)} in escrow for medical extraction assessment? Refusal refunds it; an accepted attempt is charged even if unsuccessful. This explicitly supersedes the ordinary pickup and reserves a medic seat and patient berth.`)) return true;
+    const payment = covered ? { kind: "coverage", amount: 0 } : { kind: "emergency", amount: quote.emergencyFee };
+    if (!covered) ensureEconomy().money -= payment.amount;
+    saved.mission = MedicalExtraction.request(saved.nextMission++, state.clock, message, payment);
+    saved.lastReport = { at: state.clock, status: "assessing", reason: saved.mission.reason };
+    return true;
+  }
+  function sendRescueDistress() { const sent = transmitRescueDistress(); persist(); render(); return sent; }
+  function recordRescueReport() {
+    const saved = ensureMedicalExtraction(), mission = saved.mission;
+    if (!mission || !rescueRadio()) return false;
+    const field = ["searching", "assisting", "withdrawing"].includes(mission.status);
+    if (field && (!medicSupply("satelliteCommunicator") || saved.medic.radioCharge <= 0 || saved.medic.status === "dead" || actorIsIncapacitated(saved.medic))) return false;
+    saved.lastReport = { at: state.clock, status: mission.status, reason: mission.reason, arriveAt: mission.arriveAt || null };
+    return true;
+  }
+  function cancelRescueTreatment() {
+    const mission = state.medicalExtraction?.mission;
+    if (!mission?.treatment) return;
+    const stack = ensurePhysicalItemStacks().find((entry) => entry.id === mission.treatment.stackId);
+    if (stack?.reservedTaskId === mission.id) stack.reservedTaskId = "";
+    mission.treatment = null;
+  }
+  function damageRescueMedic(amount, options = {}) {
+    const saved = ensureMedicalExtraction(), medic = saved.medic;
+    if (!medic || medic.status === "dead" || amount <= 0) return false;
+    const vest = !options.injuryProgress && medicSupply("escortVest"), protectedHit = vest && saved.gearCondition[vest.id] > 0;
+    if (protectedHit) saved.gearCondition[vest.id] = Math.max(0, saved.gearCondition[vest.id] - 1);
+    const damage = Math.max(1, Math.round(amount * (protectedHit ? .85 : 1))); medic.health = Math.max(0, medic.health - damage); cancelRescueTreatment();
+    if (!options.injuryProgress) recordCombatInjury(medic, damage, options.damageTypes || ["physical"], "Medical extraction field trauma", { observed: rescueMedicObserved() });
+    if (!medic.health) { medic.status = "dead"; medic.diedAt = state.clock; for (const stack of actorInventoryStacks(medic.id)) { stack.carriedBy = ""; stack.roomId = medic.roomId; stack.cell = cleanMapCell(medic.mapCell); } }
+    if (rescueMedicObserved()) pauseForWildernessThreat(`${medic.name} ${medic.status === "dead" ? "died" : "was injured"} during extraction.`);
+    syncActorInventories(); syncPhysicalReadModels(); return true;
+  }
+  function rescueNextStep(goal, assisting = false) {
+    const medic = state.medicalExtraction.medic, map = ensureLabMap(), from = cleanMapCell(medic.mapCell);
+    const roomId = medic.roomId;
+    const allowed = new Set((map.rooms[roomId]?.cells || []).map(mapCellKey));
+    const canEnter = (cell) => allowed.has(mapCellKey(cell)) && labMapCellIsWalkable(cell, map) && !labMapCellIsPathBlocked(cell, { map, actor: medic, ignoreActorOccupancy: assisting }) && !(state.wildernessBeasts?.actors || []).some((beast) => mapCellKey(beast.mapCell) === mapCellKey(cell));
+    const goals = canEnter(goal) ? [goal] : WildernessBeasts.neighbors(goal).filter(canEnter);
+    for (const cell of goals) { const next = WildernessBeasts.nextStep(from, cell, canEnter); if (next) return next; }
+    return null;
+  }
+  function rescueWithdraw(reason) {
+    const mission = state.medicalExtraction.mission; cancelRescueTreatment(); mission.status = "withdrawing"; mission.reason = reason;
+    if (state.combat?.routineSuspension?.reason === "medical extraction assistance") resumeScientistRoutineWork();
+    if (recordRescueReport() || rescueMedicObserved()) pauseForWildernessThreat(`Extraction withdrawing: ${reason}`);
+  }
+  function rescueFlyHome(patient) {
+    const saved = ensureMedicalExtraction(), mission = saved.mission, remote = state.unsupportedExcursions;
+    cancelRescueTreatment(); mission.patientLoaded = patient; mission.medicLoaded = saved.medic.status !== "dead" && !actorIsIncapacitated(saved.medic) && WildernessBeasts.distance(saved.medic.mapCell, UnsupportedExcursions.LANDING) <= 1;
+    mission.pilot.location = "aircraft returning to municipal ground"; mission.returnAt = state.clock + mission.flightSeconds;
+    if (mission.medicLoaded) { saved.medic.roomId = UnsupportedExcursions.CABIN_ROOM; saved.medic.mapCell = { x: 11, y: 10, z: UnsupportedExcursions.CABIN_Z }; }
+    if (patient) {
+      mission.status = "inbound"; remote.trip.status = "inbound"; remote.trip.returnAt = mission.returnAt; remote.trip.pickup.status = "medicalBoarded";
+      state.surveyExpeditions.phase = "inbound"; moveSurveyScientist(UnsupportedExcursions.CABIN_ROOM, { x: 10, y: 10, z: UnsupportedExcursions.CABIN_Z });
+      pauseForWildernessThreat("The medic physically loaded the patient. Aircraft returning to municipal medical receiving; injuries are not healed and travel home is not automatic.");
+    } else { mission.status = "returningEmpty"; mission.reason = mission.reason || "Field endurance expired without loading the patient."; if (state.combat?.routineSuspension?.reason === "medical extraction assistance") resumeScientistRoutineWork(); }
+    syncActorInventories(); recordRescueReport();
+  }
+  function updateMedicalExtraction(elapsed = 0) {
+    const saved = ensureMedicalExtraction(), remote = state.unsupportedExcursions;
+    const beacon = saved.beacon;
+    if (beacon?.armed && state.clock >= beacon.nextAt) {
+      if (rescueRadio()?.stackId === beacon.stackId) transmitRescueDistress(true);
+      beacon.nextAt = state.clock + 60;
+    }
+    const mission = saved.mission, medic = saved.medic;
+    if (!rescueMissionActive() || scientistIsDead()) return 0;
+    if (medic && mission.status !== "assessing") {
+      const seconds = Math.max(0, state.clock - medic.needs.lastAt);
+      const needs = WildernessSurvival.advance(medic.needs, state.clock, { working: rescueMissionPhysical(), resting: !rescueMissionPhysical(), destination: medic.roomId === UnsupportedExcursions.ROOM ? remote.destination : null }); medic.needs = needs.state;
+      if (medic.roomId === UnsupportedExcursions.ROOM) medic.radioCharge = Math.max(0, medic.radioCharge - seconds);
+      if (needs.damage) damageRescueMedic(needs.damage, { injuryProgress: true });
+    }
+    if (mission.status === "assessing" && state.clock >= mission.reviewAt) {
+      const actor = ensureRescueMedic(); resupplyRescueMedic();
+      const readyAt = MedicalExtraction.aircraftReadyAt(remote.trip, state.clock, UnsupportedExcursions.TURNAROUND);
+      const reason = !actor || actor.status === "dead" || actor.health < 35 || actor.roomId !== SurveyExpeditions.FIELD_ROOM ? "No fit local medic is physically available." : !medicSupply("medicalBandage") || !medicSupply("drinkingWater") || !medicSupply("satelliteCommunicator") || actor.radioCharge <= 0 ? "The local medic lacks essential finite equipment or supplies." : mission.message.threats.length >= 3 ? "Reported opposition exceeds this one-medic service's capability." : UnsupportedExcursions.weatherReason(remote.destination, readyAt + 300 + remote.trip.terms.flightSeconds);
+      if (reason) { ensureEconomy().money += MedicalExtraction.refuse(mission, reason); mission.endedAt = state.clock; saved.history.push(clonePlainObject(mission)); }
+      else {
+        MedicalExtraction.accept(mission, state.clock, readyAt, remote.trip.terms.flightSeconds);
+        if (mission.payment.kind === "coverage") saved.coverage.status = "used";
+        remote.trip.rescueReservation = mission.id; remote.trip.pickup.status = "rescueSuperseded";
+        actor.needs.lastAt = state.clock;
+      }
+      if (recordRescueReport()) pauseForWildernessThreat(`Extraction provider: ${mission.reason}`);
+      return 1;
+    }
+    if (mission.status === "preparing" && state.clock >= mission.departAt) {
+      const reason = UnsupportedExcursions.weatherReason(remote.destination, mission.arriveAt);
+      if (reason) { mission.status = "failed"; mission.reason = reason; mission.endedAt = state.clock; remote.trip.rescueReservation = null; remote.trip.pickup.status = "aborted"; remote.trip.providerReadyAt = state.clock + UnsupportedExcursions.TURNAROUND; recordRescueReport(); return 1; }
+      mission.status = "enRoute"; mission.pilot.location = "outbound medical-configured aircraft";
+      medic.roomId = UnsupportedExcursions.CABIN_ROOM; medic.mapCell = { x: 11, y: 10, z: UnsupportedExcursions.CABIN_Z }; syncActorInventories(); recordRescueReport(); return 1;
+    }
+    if (mission.status === "enRoute" && state.clock >= mission.arriveAt) {
+      mission.status = "searching"; mission.reason = "Medic landed and is searching from the last transmitted location."; mission.pilot.location = "aircraft at remote landing point";
+      medic.roomId = UnsupportedExcursions.ROOM; medic.mapCell = { ...UnsupportedExcursions.LANDING }; medic.needs.lastAt = state.clock; mission.nextMoveAt = state.clock + 2;
+      syncActorInventories(); recordRescueReport(); if (rescueMedicObserved()) pauseForWildernessThreat(`${medic.name} has landed to search for the patient.`); return 1;
+    }
+    if (mission.status === "returningEmpty" && state.clock >= mission.returnAt) {
+      mission.status = "failed"; mission.endedAt = state.clock; mission.pilot.location = "municipal aircraft station";
+      if (mission.medicLoaded) { medic.roomId = SurveyExpeditions.FIELD_ROOM; medic.mapCell = { ...MedicalExtraction.RECEIVING }; }
+      else mission.reason = "Aircraft returned at its endurance limit; patient and medic were not both recovered.";
+      remote.trip.rescueReservation = null; remote.trip.pickup.status = "aborted"; remote.trip.providerReadyAt = state.clock + UnsupportedExcursions.TURNAROUND;
+      saved.history.push(clonePlainObject(mission)); syncActorInventories(); recordRescueReport(); return 1;
+    }
+    if (!rescueMissionPhysical()) return 0;
+    if (mission.status !== "handoff" && state.clock >= mission.fieldDeadline) { rescueFlyHome(false); return 1; }
+    if (medic.status === "dead" || actorIsIncapacitated(medic)) {
+      cancelRescueTreatment();
+      if (mission.status === "handoff") {
+        mission.status = "failed"; mission.endedAt = state.clock; mission.reason = "The medic became unable to complete the physical receiving-point handoff."; remote.trip.rescueReservation = null; saved.history.push(clonePlainObject(mission));
+        if (state.combat?.routineSuspension?.reason === "medical extraction assistance") resumeScientistRoutineWork();
+      } else if (mission.status !== "withdrawing") rescueWithdraw("The medic is unable to continue; the aircraft has limited remaining field endurance.");
+      return 0;
+    }
+    const threats = (state.wildernessBeasts?.actors || []).filter((beast) => beast.status !== "dead" && WildernessBeasts.distance(medic.mapCell, beast.mapCell) <= 7 && sensoryLineOfSight(medic.mapCell, beast.mapCell));
+    const reason = MedicalExtraction.withdrawReason(medic, threats.length, mission.status === "handoff" ? Infinity : mission.fieldDeadline - state.clock);
+    if (reason && !["withdrawing", "handoff"].includes(mission.status)) rescueWithdraw(reason);
+    const attacker = threats.find((beast) => beast.behavior === "pursue" && WildernessBeasts.distance(medic.mapCell, beast.mapCell) <= 1);
+    if (attacker && state.clock >= mission.nextAttackAt) {
+      cancelRescueTreatment(); const baton = medicSupply("escortBaton"), armed = baton && saved.gearCondition[baton.id] > 0;
+      resolveSharedCombatAction(medic.id, "strike", { kind: "creature", id: attacker.id }, { baseDamage: armed ? 8 : 3, damageTypes: ["physical"], hideFeedback: !rescueMedicObserved() });
+      if (armed) saved.gearCondition[baton.id] = Math.max(0, saved.gearCondition[baton.id] - 1); mission.nextAttackAt = state.clock + 6;
+    }
+    const seesPatient = WildernessBeasts.distance(medic.mapCell, scientistMapCell()) <= 6 && sensoryLineOfSight(medic.mapCell, scientistMapCell());
+    const nearby = WildernessBeasts.distance(medic.mapCell, scientistMapCell()) <= 1;
+    if (mission.status === "searching" && seesPatient) { mission.target = cleanMapCell(scientistMapCell()); if (nearby) { mission.status = "assisting"; suspendScientistRoutineWork("medical extraction assistance"); mission.reason = "Medic reached the patient; assessing injuries and physical extraction."; recordRescueReport(); } }
+    if (mission.status === "assisting" && !nearby) { cancelRescueTreatment(); mission.status = "searching"; if (state.combat?.routineSuspension?.reason === "medical extraction assistance") resumeScientistRoutineWork(); mission.target = seesPatient ? cleanMapCell(scientistMapCell()) : mission.target; }
+    if (mission.status === "assisting" && nearby && !attacker) {
+      const injury = actorInjuries("scientist").find((entry) => entry.status === "active");
+      if (mission.treatment) {
+        const care = mission.treatment, stack = actorInventoryStacks(medic.id).find((entry) => entry.id === care.stackId && entry.reservedTaskId === mission.id);
+        if (!stack) cancelRescueTreatment();
+        else if (state.clock >= care.dueAt) {
+          const treated = state.injuries.find((entry) => entry.id === care.injuryId && entry.status === "active");
+          if (treated) { consumeMedicSupply(stack); treated.status = "stabilized"; treated.stabilizedAt = state.clock; }
+          else if (care.supplyKey) { consumeMedicSupply(stack); state.wildernessSurvival = WildernessSurvival.consume(state.wildernessSurvival, care.supplyKey); }
+          cancelRescueTreatment();
+        }
+        return 1;
+      }
+      if (injury) {
+        const stack = medicSupply(INJURY_TYPE_DEFS[injury.typeId].supplyKey);
+        if (!stack) rescueWithdraw("The medic lacks the appropriate remaining supply to stabilize the patient's injury.");
+        else { stack.reservedTaskId = mission.id; mission.treatment = { stackId: stack.id, injuryId: injury.id, dueAt: state.clock + 45 }; return 1; }
+      }
+      const supplyKey = state.wildernessSurvival.thirst >= 85 ? "drinkingWater" : state.wildernessSurvival.hunger >= 85 ? "trailMeal" : null;
+      if (supplyKey && mission.status === "assisting") {
+        const stack = medicSupply(supplyKey);
+        if (!stack) rescueWithdraw("The medic has no remaining supply for the patient's critical survival need.");
+        else { stack.reservedTaskId = mission.id; mission.treatment = { stackId: stack.id, supplyKey, dueAt: state.clock + 20 }; return 1; }
+      }
+      const load = actorInventoryUsage("scientist").massKg;
+      if (mission.status === "assisting" && !ExpeditionEscorts.canDrag(medic, { health: scientistVital("health").current }, load)) rescueWithdraw("The patient and carried load exceed the medic's safe assistance limit.");
+    }
+    if (state.clock < mission.nextMoveAt) return 0;
+    if (mission.status === "withdrawing" && WildernessBeasts.distance(medic.mapCell, UnsupportedExcursions.LANDING) <= 1) { rescueFlyHome(false); return 1; }
+    if (mission.status === "handoff" && mapCellKey(scientistMapCell()) === mapCellKey(MedicalExtraction.RECEIVING)) {
+      mission.status = "complete"; mission.endedAt = state.clock; mission.reason = "Physical handoff at municipal medical receiving completed; wounds and incapacity persist.";
+      if (state.combat?.routineSuspension?.reason === "medical extraction assistance") resumeScientistRoutineWork();
+      mission.pilot.location = "municipal aircraft station"; saved.history.push(clonePlainObject(mission)); if (saved.beacon) saved.beacon.armed = false;
+      if (remote.trip) remote.trip.rescueReservation = null; pauseForWildernessThreat(mission.reason); return 1;
+    }
+    const assisting = ["assisting", "handoff"].includes(mission.status) && nearby;
+    if (mission.status === "assisting" && nearby && WildernessBeasts.distance(medic.mapCell, UnsupportedExcursions.LANDING) <= 1 && WildernessBeasts.distance(scientistMapCell(), UnsupportedExcursions.LANDING) <= 1) {
+      const cargo = SurveyExpeditions.cargoUnits([...surveyCarriedStacks(), ...actorInventoryStacks(medic.id)]);
+      if (cargo > MedicalExtraction.CARGO) rescueWithdraw("The actual patient cargo and medic's kit exceed the configured aircraft capacity.");
+      else if (!mission.loadingAt) mission.loadingAt = state.clock + 30;
+      else if (state.clock >= mission.loadingAt) rescueFlyHome(true);
+      return 1;
+    }
+    mission.loadingAt = null;
+    let goal = mission.status === "handoff" ? MedicalExtraction.HANDOFF_HELPER : ["assisting", "withdrawing"].includes(mission.status) ? UnsupportedExcursions.LANDING : mission.target;
+    if (mission.status === "searching" && WildernessBeasts.distance(medic.mapCell, goal) <= 1 && !seesPatient) {
+      const cells = ensureLabMap().rooms[UnsupportedExcursions.ROOM].cells;
+      mission.visited.push(mapCellKey(medic.mapCell));
+      goal = cells.filter((cell) => !mission.visited.includes(mapCellKey(cell))).sort((a, b) => WildernessBeasts.distance(a, medic.mapCell) - WildernessBeasts.distance(b, medic.mapCell) || mapCellKey(a).localeCompare(mapCellKey(b)))[0];
+      if (!goal) { rescueWithdraw("The bounded search did not locate the patient before the search area was exhausted."); return 1; }
+      mission.target = cleanMapCell(goal);
+    }
+    const next = rescueNextStep(goal, assisting);
+    if (!next) { if (mission.status !== "withdrawing" && mission.status !== "handoff") rescueWithdraw("The physical route to the patient or aircraft is blocked."); return 0; }
+    const from = cleanMapCell(medic.mapCell), roomId = medic.roomId;
+    // Path queries can replace normalized scientist records; update the authoritative body.
+    saved.medic.mapCell = cleanMapCell(next);
+    if (assisting) { state.scientist.mapCell = from; state.scientist.roomId = roomId; }
+    mission.nextMoveAt = state.clock + (assisting ? 4 : 2) * WildernessSurvival.fatigueMultiplier(medic.needs); syncActorInventories(); return 1;
+  }
+  function renderMedicalExtraction() {
+    const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.medicalExtraction = "true";
+    const saved = ensureMedicalExtraction(), remote = ensureUnsupportedExcursions(), medic = ensureRescueMedic();
+    panel.append(textEl("strong", "Distress and Medical Extraction"));
+    panel.append(textEl("p", "One local medic, a pilot who stays with the aircraft, and one configured casualty berth. Six cargo units include the medic's real kit. Finite field endurance, supplies, and safe access constrain the attempt; no guaranteed success or automatic hospital cure."));
+    const button = (label, run, disabled = false) => { const el = document.createElement("button"); el.textContent = label; el.disabled = disabled; el.addEventListener("click", run); panel.append(el); };
+    if (remote.destination) panel.append(textEl("p", `Next-trip coverage ${formatMoney(MedicalExtraction.quote(remote.destination.distanceKm).premium)}; otherwise emergency assessment ${formatMoney(MedicalExtraction.quote(remote.destination.distanceKm).emergencyFee)} escrow. Coverage: ${saved.coverage?.status || "none"}. An accepted mission replaces ordinary pickup; refused emergency requests refund once.`));
+    button("Buy Next-Trip Extraction Coverage", buyExtractionCoverage, unsupportedActive() || !medic || scientistRoomId() !== SurveyExpeditions.FIELD_ROOM || ["ready", "active"].includes(saved.coverage?.status));
+    button(saved.beacon?.armed ? "Disarm Distress Beacon" : "Activate Distress Beacon", toggleDistressBeacon, !wildernessRadio() || actorIsIncapacitated("scientist"));
+    button("Send Medical Distress Request", sendRescueDistress, !unsupportedActive() || !rescueRadio() || actorIsIncapacitated("scientist"));
+    if (["searching", "assisting"].includes(saved.mission?.status)) button("Decline Assistance — Request Medic Withdrawal", () => { rescueWithdraw("The patient declined further assistance."); persist(); render(); }, actorIsIncapacitated("scientist"));
+    button("Request Dated Extraction Report", () => { recordRescueReport(); persist(); render(); }, !rescueRadio() || !saved.mission);
+    panel.append(textEl("p", saved.beacon?.armed ? "Beacon armed: periodic position transmissions require the same carried powered communicator. It cannot create payment authority after incapacity." : "Beacon not armed. Incapacitation does not activate it."));
+    if (saved.message) panel.append(textEl("p", `Last distress sent ${formatClock(saved.message.at)} from ${saved.message.cell.x},${saved.message.cell.y}. A dated report, not a live tracking link.`));
+    if (saved.lastReport) panel.append(textEl("p", `Last received ${formatClock(saved.lastReport.at)}: ${saved.lastReport.status}. ${saved.lastReport.reason} ${saved.lastReport.arriveAt ? `Reported arrival ${formatClock(saved.lastReport.arriveAt)}.` : ""}`));
+    if (rescueMedicObserved()) panel.append(textEl("p", `${medic.name} currently in sight: ${medic.status === "dead" ? "dead; physical remains" : medic.health < 35 ? "seriously wounded" : medic.health < 100 ? "wounded" : "no visible wounds"}. ${actorInventoryContentsLabel(medic.id)}`));
+    if (saved.mission?.status === "complete") panel.append(textEl("p", "Handoff completed at municipal medical receiving, tile 17,10. No automatic boarding home; the scientist must recover enough to travel. Broader hospital treatment is not implemented."));
+    return panel;
+  }
+
   function unsupportedActive() { return Boolean(state?.unsupportedExcursions?.active); }
   function activeWildernessRoom() { return unsupportedActive() ? UnsupportedExcursions.ROOM : WildernessSurvival.ROOM; }
   function ensureUnsupportedExcursions() {
@@ -75093,6 +75418,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (reason) { surveyEvent(reason); return true; }
       materializeUnsupportedSpaces();
       saved.trip = UnsupportedExcursions.start(saved.nextTrip++, state.clock, saved.destination);
+      const coverage = state.medicalExtraction?.coverage;
+      if (coverage?.status === "ready") { coverage.tripId = saved.trip.id; coverage.status = "active"; }
       ensureEconomy().money -= saved.trip.terms.fee;
       saved.boundary = wildernessSiteState(); saved.active = true; saved.lastReport = null;
       state.surveyExpeditions.phase = "outbound";
@@ -75124,6 +75451,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function boardUnsupportedPickup() {
     const saved = ensureUnsupportedExcursions();
+    if (saved.trip?.rescueReservation) return false;
     if (!saved.active || saved.trip.status !== "field" || surveyBusy() || !["scheduled", "enRoute", "waiting"].includes(saved.trip.pickup.status)) return false;
     return queueSurveyWork("remoteBoard", UnsupportedExcursions.LANDING, { label: "Walk to and board scheduled pickup" });
   }
@@ -75144,6 +75472,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         saved.remote = wildernessSiteState(); restoreWildernessSite(saved.boundary); saved.boundary = null; saved.active = false;
         saved.history.push(clonePlainObject(saved.trip)); state.surveyExpeditions.phase = "field";
         moveSurveyScientist(SurveyExpeditions.FIELD_ROOM, SurveyExpeditions.RENDEZVOUS); useSurveyContext(state.surveyExpeditions.fieldContext);
+        const medical = state.medicalExtraction;
+        if (medical?.coverage?.status === "active") medical.coverage.status = "expired";
+        if (medical?.mission?.status === "inbound" && medical.mission.patientLoaded) {
+          medical.mission.status = "handoff"; medical.medic.roomId = SurveyExpeditions.FIELD_ROOM; medical.medic.mapCell = { x: 11, y: 10, z: SurveyExpeditions.FIELD_Z }; medical.mission.nextMoveAt = state.clock + 4;
+        }
         pauseForWildernessThreat("Returned physically to municipal ground. The original municipal vehicle still waits for the laboratory return; wounds, needs, and cargo have not reset.");
       } else {
         const radio = wildernessRadio();
@@ -75177,7 +75510,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (saved.trip.status === "field") {
       button("Walk to Landing Point", () => startScientistMove(UnsupportedExcursions.ROOM, { toCell: UnsupportedExcursions.LANDING, urgent: true }), actorIsIncapacitated("scientist"));
       button("Walk to and Board Pickup", boardUnsupportedPickup, surveyBusy());
-      panel.append(textEl("p", "Stay alive using carried supplies and shelter. Incapacitated people cannot self-board. Organized rescue, damaged aircraft, and overland journeys are not implemented; no failure outcome substitutes for physical survival."));
+      panel.append(textEl("p", "Stay alive using carried supplies and shelter. Incapacitated people cannot self-board; medical extraction requires a separate accepted distress mission. Damaged aircraft and overland journeys are not implemented; no failure outcome substitutes for physical survival."));
     }
     return panel;
   }
@@ -75501,7 +75834,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function damageWildernessBeast(beast, damage, attackerId, options = {}) {
     if (!beast || beast.status === "dead" || damage <= 0) return false;
     beast.health = Math.max(0, beast.health - damage);
-    if (attackerId === "scientist" || attackerId === state.expeditionEscorts?.actor?.id) { beast.provokedUntil = state.clock + 30; beast.lastTarget = cleanMapCell(combatActorCell(combatActor(attackerId))); beast.targetId = attackerId; beast.rememberedUntil = state.clock + 12; }
+    if (attackerId === "scientist" || attackerId === state.expeditionEscorts?.actor?.id || attackerId === state.medicalExtraction?.medic?.id) { beast.provokedUntil = state.clock + 30; beast.lastTarget = cleanMapCell(combatActorCell(combatActor(attackerId))); beast.targetId = attackerId; beast.rememberedUntil = state.clock + 12; }
     if (!options.injuryProgress) recordCombatInjury(beast, damage, options.damageTypes || ["physical"], "Physical field combat", { observed: wildernessBeastVisible(beast) });
     if (!beast.health) { beast.status = "dead"; beast.behavior = "dead"; beast.diedAt = state.clock; beast.deathCause = "Physical trauma"; }
     observeWildernessBeasts();
@@ -75512,7 +75845,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!saved.materialized) return 0;
     // Unvisited actors retain their saved state; there are no off-screen encounters or catch-up attacks.
     const escort = escortContractActive() && state.expeditionEscorts.actor?.status !== "dead" && state.expeditionEscorts.actor?.roomId === WildernessBeasts.ROOM ? state.expeditionEscorts.actor : null;
-    if ((!scientistInWilderness() && !escort) || scientistIsDead()) {
+    const medic = state.medicalExtraction?.medic?.status !== "dead" && state.medicalExtraction?.medic?.roomId === activeWildernessRoom() ? state.medicalExtraction.medic : null;
+    if ((!scientistInWilderness() && !escort && !medic) || scientistIsDead()) {
       for (const beast of saved.actors) { beast.nextMoveAt += Math.max(0, elapsed); beast.nextAttackAt += Math.max(0, elapsed); }
       saved.lastAt = state.clock; return 0;
     }
@@ -75523,7 +75857,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (beast.status === "dead" || actorIsIncapacitated(beast)) continue;
       const profile = WildernessBeasts.PROFILES[beast.speciesId];
       // Navigation may normalize actor records, so target identity must not depend on object equality.
-      const targets = [...(scientistInWilderness() ? [{ id: "scientist", actor: state.scientist }] : []), ...(escort ? [{ id: escort.id, actor: escort }] : [])];
+      const targets = [...(scientistInWilderness() ? [{ id: "scientist", actor: state.scientist }] : []), ...(escort ? [{ id: escort.id, actor: escort }] : []), ...(medic ? [{ id: medic.id, actor: medic }] : [])];
       const seenTargets = targets.filter((target) => WildernessBeasts.distance(beast.mapCell, combatActorCell(target.actor)) <= profile.sight && sensoryLineOfSight(beast.mapCell, combatActorCell(target.actor)));
       const target = seenTargets.find((entry) => entry.id === beast.targetId && state.clock < beast.provokedUntil)
         || seenTargets.sort((a, b) => WildernessBeasts.distance(beast.mapCell, combatActorCell(a.actor)) - WildernessBeasts.distance(beast.mapCell, combatActorCell(b.actor)))[0]
@@ -75538,9 +75872,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (scientistInWilderness() && !wildernessBeastVisible(beast) && WildernessBeasts.distance(beast.mapCell, scientistMapCell()) <= 10 && (!saved.heard || state.clock - saved.heard.at >= 30)) saved.heard = { at: state.clock, label: `${profile.sound}; source not located or identified` };
       if (elapsed <= 0) continue;
       if (decision.behavior === "pursue" && sees && range <= 1 && state.clock >= beast.nextAttackAt) {
-        const result = resolveSharedCombatAction(beast.id, "strike", { kind: "creature", id: targetId }, { baseDamage: profile.damage, damageTypes: profile.damageTypes, hideFeedback: targetId !== "scientist" && !escortObserved() });
+        const observed = targetId === "scientist" || targetId === medic?.id && rescueMedicObserved() || targetId === escort?.id && escortObserved();
+        const result = resolveSharedCombatAction(beast.id, "strike", { kind: "creature", id: targetId }, { baseDamage: profile.damage, damageTypes: profile.damageTypes, hideFeedback: !observed });
         beast.nextAttackAt = state.clock + profile.recovery;
-        if (result.ok) { if (targetId === "scientist" || escortObserved()) pauseForWildernessThreat(`${beast.name} ${result.hit ? "struck" : "attacked and missed"} ${targetId === "scientist" ? "the scientist" : escort.name} at close range.`); changed++; }
+        if (result.ok) { if (observed) pauseForWildernessThreat(`${beast.name} ${result.hit ? "struck" : "attacked and missed"} ${targetId === "scientist" ? "the scientist" : target.actor.name} at close range.`); changed++; }
       } else if (state.clock >= beast.nextMoveAt) {
         const canEnter = (cell) => sector.has(mapCellKey(cell)) && mapCellKey(cell) !== mapCellKey(scientist)
           && !saved.actors.some((other) => other.id !== beast.id && mapCellKey(other.mapCell) === mapCellKey(cell))
@@ -75808,6 +76143,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function surveyScientistReserved() { return surveyScientistAway() || Boolean(state?.surveyExpeditions?.preparing); }
   function surveyTaskAllowed(task) {
     if (!surveyScientistAway()) return true;
+    if (["assisting", "handoff"].includes(state.medicalExtraction?.mission?.status)) return task?.type === "rest";
     if (task?.type === "rest") return true;
     const target = task?.data?.toCell || task?.data?.targetCell;
     if (!target || target.z !== scientistMapCell().z) return false;
@@ -75874,6 +76210,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function boardSurveyVehicle() {
+    if (rescueMissionPhysical() || state.medicalExtraction?.mission?.status === "inbound") return false;
     if (unsupportedActive()) return false;
     if (escortContractActive()) { surveyEvent("Complete the escort's local contract at the defended meeting point before boarding. The hired vehicle waits; no extra escort seat has been booked."); persist(); render(); return false; }
     const expedition = ensureSurveyExpeditions();
@@ -76049,6 +76386,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(textEl("strong", "Supported Survey Excursions"));
     panel.append(renderWildernessPanel());
     panel.append(renderUnsupportedExcursions());
+    panel.append(renderMedicalExtraction());
     const button = (label, action, disabled = false, reason = "") => {
       const element = document.createElement("button"); element.type = "button"; element.textContent = label; element.disabled = disabled; element.title = reason; element.addEventListener("click", action); panel.append(element);
     };
@@ -82273,6 +82611,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.surveyExpeditions = SurveyExpeditions.normalizeState(candidate?.surveyExpeditions);
     next.wildernessSurvival = WildernessSurvival.normalizeState(candidate?.wildernessSurvival, next.clock);
     next.unsupportedExcursions = UnsupportedExcursions.normalizeState(candidate?.unsupportedExcursions);
+    next.medicalExtraction = MedicalExtraction.normalizeState(candidate?.medicalExtraction);
     next.wildernessBeasts = WildernessBeasts.normalizeState(candidate?.wildernessBeasts);
     next.expeditionEscorts = ExpeditionEscorts.normalizeState(candidate?.expeditionEscorts);
     const opening = candidate?.themeContent?.opening;
