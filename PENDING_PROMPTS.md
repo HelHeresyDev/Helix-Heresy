@@ -18,16 +18,17 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Penal Flights and Beast-Territory Exile
-2. Penal Legions and Wilderness Service
-3. World Integration: Economy and Logistics
-4. World Integration: Investigations and Institutional Pressure
-5. Lazy Local Detail and World Discovery
-6. Roguelike Run Lifecycle, Death, Postmortem, and Restart
-7. Campaign Roadmap: From Hidden Laboratory to World Domination
-8. New-Run Onboarding and Contextual Tutorial
-9. Sound, Notifications, and Accessibility Audit
-10. Production Art Pass Using the Sprite Pipeline
+1. Castaway Survival and Fellow Prisoners
+2. Return from Banishment
+3. Penal Legions and Wilderness Service
+4. World Integration: Economy and Logistics
+5. World Integration: Investigations and Institutional Pressure
+6. Lazy Local Detail and World Discovery
+7. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+8. Campaign Roadmap: From Hidden Laboratory to World Domination
+9. New-Run Onboarding and Contextual Tutorial
+10. Sound, Notifications, and Accessibility Audit
+11. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -89,67 +90,67 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Penal Flights and Beast-Territory Exile
+## 1. Castaway Survival and Fellow Prisoners
 
-Design and implement Penal Flight as the non-public-enemy capital punishment after generated beast territories, strategic intercity corridors, routes, and exact local travel exist. Penal Flight is wilderness banishment and presumed death, not a physical execution or automatic game over. The sentence completes only when the living scientist is released in the wild.
-
-Use a saved seven-day dispatch docket. If the scientist is the only real condemned person scheduled in that window, assign a remotely guided one-person Solo Castoff Glider. If two to eight real condemned people are scheduled, assign a larger Mass Castoff Glider; split larger groups across multiple craft and never invent anonymous filler prisoners. Freeze the roster when the flight order is issued.
-
-Both variants must physically move through a fortified penal-flight depot, restraint and suppression inspection, launch, remote flight beyond supported intercity corridors, landing, and release. The craft gathers reconnaissance and carries minimal survival tools, suppression collars, and tracking beacons, but provides no extraction. It lands rather than deliberately crashing. Every mass-flight passenger is a named persistent actor with crimes, skills, injuries, affiliations, and a relationship to the scientist; landing together does not make them allies.
-
-Survivors remain playable and legally banished. Returning to protected human territory creates a new causal violation and physical response. Keep Penal Flight distinct from penal-legion service: legionaries receive command, equipment, objectives, logistics, and a possible lawful return, while castoffs receive none.
+Build on physical Penal Flight release to expand the persistent landing site's survival options, named passenger cooperation and conflict, and attempts to obtain outside assistance. Sharing a flight never implies friendship. Discuss physical removal of non-explosive suppression collars through tools, expertise, or outside help; preserve finite tools, injuries, actual communications, and uncertain aid. Do not invent anonymous passengers, free supplies, omniscient tracking, or guaranteed extraction.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 2. Penal Legions and Wilderness Service
+## 2. Return from Banishment
+
+Implement physical approaches to protected settlements, identification, admission decisions, and local enforcement after wilderness banishment. The sentencing city enforces its banishment within its jurisdiction; other independent cities require explicit recognition and their own lawful authority. No automatic universal criminal status. Some cities may refuse entry or offer conditional refuge. Record a new violation only from actual conduct under applicable law, and use physical responses rather than teleportation or automatic arrest. Discuss assistance and lawful relief without merging banishment with penal-legion service.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 3. Penal Legions and Wilderness Service
 
 Design and implement penal-legion service as a distinct playable post-conviction path. Consume sentence, jurisdiction, military institution, world geography, settlement threats, routes, creature ecology, transport, equipment, squad, and laboratory-continuity state. The first mission should be a bounded physical operation rather than an abstract combat roll.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. World Integration: Economy and Logistics
+## 4. World Integration: Economy and Logistics
 
 Design and implement effects from generated geography, settlements, routes, resources, powers, laws, and history on lawful trade, black-market access, delivery, and off-site logistics. Preserve existing commodity exchange, contract, Loading Bay, and Concealed Exit flows while giving them specific world context.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. World Integration: Investigations and Institutional Pressure
+## 5. World Integration: Investigations and Institutional Pressure
 
 Design and implement world-context effects on company plausibility, inspections, investigations, religious scrutiny, escalation, and authority response. Context may alter priorities, schedules, thresholds, and available actions, but must not invent player guilt.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. Lazy Local Detail and World Discovery
+## 6. Lazy Local Detail and World Discovery
 
 Design and implement deterministic elaboration of the already generated strategic world when a run encounters it. Lazy generation may fill minor places, institution branches, contacts, local histories, individuals, encounters, and exact maps while respecting canonical world facts and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+## 7. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 
 Design and implement the loop for beginning, losing, reviewing, and replacing a run without altering its reusable world. Only the scientist’s death ends a run; arrest, jail, prison, penal service, death sentence, loss of laboratory, and similar catastrophes remain playable while the scientist lives.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 8. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. The final campaign goal is rare world domination, but early hidden-laboratory survival must remain a complete roguelike experience.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. New-Run Onboarding and Contextual Tutorial
+## 9. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. Sound, Notifications, and Accessibility Audit
+## 10. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 10. Production Art Pass Using the Sprite Pipeline
+## 11. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 
