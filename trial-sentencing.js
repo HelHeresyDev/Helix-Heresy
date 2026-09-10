@@ -32,6 +32,7 @@
     { id: "individualizedMercy", label: "Request Individualized Mercy", mitigation: 4 },
     { id: "restitutionAndCompliance", label: "Offer Restitution and Supervision", mitigation: 3 },
     { id: "penalService", label: "Request Penal-Legion Service", mitigation: 1 },
+    { id: "penalFlight", label: "Request Penal Flight Instead of Public-Enemy Condemnation", mitigation: 0 },
     { id: "contestAggravation", label: "Contest Aggravating Findings", mitigation: 2 }
   ]);
   const CHARGE_ELEMENTS = Object.freeze({
@@ -150,6 +151,7 @@
     const kind = legacyLife ? "finitePrison" : cleanId(candidate.kind);
     return {
       id: cleanId(candidate.id), kind, label: legacyLife ? "Maximum finite prison commitment" : String(candidate.label || "Sentencing order").trim(), custodial: Boolean(candidate.custodial), final: candidate.final !== false,
+      stayed: Boolean(candidate.stayed), stayOrderId: cleanId(candidate.stayOrderId),
       issuedAt: Math.max(0, finite(candidate.issuedAt)), transferNotBefore: candidate.transferNotBefore == null ? null : Math.max(0, finite(candidate.transferNotBefore)), destinationId: cleanId(candidate.destinationId),
       incarcerationMonths: legacyLife ? 120 : Math.max(0, Math.min(120, Math.floor(finite(candidate.incarcerationMonths)))), deathSentence: Boolean(candidate.deathSentence), penalService: Boolean(candidate.penalService),
       fine: Math.max(0, Math.round(finite(candidate.fine))), forfeiture: Math.max(0, Math.round(finite(candidate.forfeiture))), paid: Math.max(0, Math.round(finite(candidate.paid))), outstanding: Math.max(0, Math.round(finite(candidate.outstanding))),
@@ -164,6 +166,7 @@
     const charges = (Array.isArray(source.charges) ? source.charges : []).map(normalizeCharge);
     return {
       id: cleanId(source.id) || `trial-case-${index + 1}`, proceedingId: cleanId(source.proceedingId), raidId: cleanId(source.raidId), stayId: cleanId(source.stayId), docket: String(source.docket || "CR-0000").trim(),
+      actorId: cleanId(source.actorId) || "scientist", sentencingPolicy: source.sentencingPolicy ? JSON.parse(JSON.stringify(source.sentencingPolicy)) : null,
       predecessorCaseId: cleanId(source.predecessorCaseId), successorKind: cleanId(source.successorKind), appealRecordId: cleanId(source.appealRecordId), executiveInstrumentId: cleanId(source.executiveInstrumentId), appellateMandate: source.appellateMandate && typeof source.appellateMandate === "object" ? JSON.parse(JSON.stringify(source.appellateMandate)) : null,
       mode: source.mode === "plea" ? "plea" : "trial", status: CASE_STATUSES.includes(source.status) ? source.status : "scheduled", openedAt: Math.max(0, finite(source.openedAt)), trialAt: Math.max(0, finite(source.trialAt)),
       sentencingAt: source.sentencingAt == null ? null : Math.max(0, finite(source.sentencingAt)), appearanceDeadline: Math.max(0, finite(source.appearanceDeadline, finite(source.trialAt) + 4 * HOUR)),
@@ -330,11 +333,13 @@
     if (recommendation === "supervisedRelease" && !capitalEligible(caseRecord)) kind = "fineProbation";
     if (recommendation === "shortCustodyOrPenalService" && !["penalLegion", "fineProbation", "timeServed"].includes(kind)) kind = "finitePrison";
     if (recommendation === "custodialCap" && kind === "deathRow") kind = "finitePrison";
+    if (kind === "deathRow" && caseRecord.strategy.sentencingSubmissionId === "penalFlight" && caseRecord.sentencingPolicy?.penalFlightAvailable) kind = "penalFlight";
     const defs = {
       timeServed: { label: "Time served and release", custodial: false, destinationId: "publicEntrance", status: "releasePending" },
       fineProbation: { label: "Fine and supervised release", custodial: false, destinationId: "publicEntrance", status: "releasePending" },
       finitePrison: { label: "Finite prison commitment", custodial: true, destinationId: "statePrisonIntake", status: caseRecord.custodyStatus === "released" ? "remandPending" : "commitmentPending" },
       penalLegion: { label: "Penal-legion military commitment", custodial: true, destinationId: "penalLegionProcessing", status: caseRecord.custodyStatus === "released" ? "remandPending" : "commitmentPending" },
+      penalFlight: { label: "Penal Flight and wilderness banishment", custodial: true, destinationId: "penalFlightDepot", status: caseRecord.custodyStatus === "released" ? "remandPending" : "commitmentPending" },
       deathRow: { label: "Death-row commitment and provisional execution process", custodial: true, destinationId: "deathRowIntake", status: caseRecord.custodyStatus === "released" ? "remandPending" : "commitmentPending" }
     };
     const def = defs[kind]; const fine = kind === "fineProbation" ? Math.ceil((1000 + exposure * 250) / 100) * 100 : 0; const forfeiture = Math.max(0, finite(caseRecord.plea?.forfeitureAmount));
