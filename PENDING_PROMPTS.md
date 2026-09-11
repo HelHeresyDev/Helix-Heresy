@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Castaway Survival and Fellow Prisoners
+1. Castaway Outside Assistance
 2. Return from Banishment
 3. Penal Legions and Wilderness Service
 4. World Integration: Economy and Logistics
@@ -90,9 +90,9 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Castaway Survival and Fellow Prisoners
+## 1. Castaway Outside Assistance
 
-Build on physical Penal Flight release to expand the persistent landing site's survival options, named passenger cooperation and conflict, and attempts to obtain outside assistance. Sharing a flight never implies friendship. Discuss physical removal of non-explosive suppression collars through tools, expertise, or outside help; preserve finite tools, injuries, actual communications, and uncertain aid. Do not invent anonymous passengers, free supplies, omniscient tracking, or guaranteed extraction.
+Discuss contacting actual outside actors through functioning, powered communication equipment and negotiating uncertain practical assistance. A tracking beacon is not automatically a communicator. Requests require a usable connection; willingness, resources, and physical reach determine whether help is possible. Implement real preparation, transport, rendezvous, and pickup before promising extraction. No anonymous rescuers, free supplies, guaranteed response, or automatic city admission. Keep local camp survival and collar removal intact, and keep city-specific banishment enforcement in the following pass.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
