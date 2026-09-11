@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Return from Banishment
+1. Banishment Enforcement and Lawful Relief
 2. Penal Legions and Wilderness Service
 3. World Integration: Economy and Logistics
 4. World Integration: Investigations and Institutional Pressure
@@ -89,9 +89,9 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Return from Banishment
+## 1. Banishment Enforcement and Lawful Relief
 
-Implement physical approaches to protected settlements, identification, admission decisions, and local enforcement after wilderness banishment. The sentencing city enforces its banishment within its jurisdiction; other independent cities require explicit recognition and their own lawful authority. No automatic universal criminal status. Some cities may refuse entry or offer conditional refuge. Record a new violation only from actual conduct under applicable law, and use physical responses rather than teleportation or automatic arrest. Discuss assistance and lawful relief without merging banishment with penal-legion service.
+Discuss deliberate prohibited entry, applicable city jurisdiction, causal evidence, locally authorized guard responses, physical detention in temporary jail, and petitions to change or suspend banishment. A completed Penal Flight sentence never silently reactivates. Foreign recognition requires the receiving city's own lawful authority; a warrant notice alone is insufficient. New sanctions require a supported legal process. Consume the preceding checkpoint permits and individual admission decisions. Keep broader extradition, covert entry, and penal-legion bargains separate.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
