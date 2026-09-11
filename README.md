@@ -1,6 +1,6 @@
 # Helix Heresy
 
-Castaway camps are available in Visits after Penal Flight release: inspect and dismantle the glider for finite tools and shelter, inspect and gather local food and water, negotiate temporary prisoner agreements, and attempt nonmagical collar removal. Outside assistance and return from banishment remain separate pending work.
+Castaway camps and negotiated outside assistance are available in Visits after Penal Flight release. Inspect the glider before choosing finite salvage or a fixed messaging terminal (analysis 3, five minutes, finite glider power). A powered communicator can reach known contacts, but only a willing contact with an available pilot, aircraft, fuel, and private pad can offer pickup. Explicit cash escrow or personal debt reserves the attempt; departure commits the charge. Walk to the agreed rendezvous within its pickup window and board with consenting, able passengers and limited cargo. Physical flight ends at a private receiving pad, not a city gate or the laboratory. Return from banishment remains pending.
 
 Helix Heresy is a desktop-focused static browser prototype about forbidden creature genetics, laboratory discovery, and questionable science.
 
