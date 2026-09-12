@@ -45,6 +45,7 @@
     if (!facts.identityVerified || !facts.sourceAvailable) r.result = { kind: "pendingDocumentation", reason: "Identity or source documentation is still unavailable. No relief or guilt is invented." };
     else if (facts.wrongIdentity) r.result = { kind: "corrected", reason: "The source restriction concerns a different person. Its attribution to this applicant is corrected, not pardoned." };
     else if (!facts.restrictionApplies) r.result = { kind: "corrected", reason: "No active banishment under this city's own authority applies. The admission desk must reassess using current records." };
+    else if (facts.permitCoversAnnex) r.result = { kind: "scopeConfirmed", reason: "The accepted temporary visitor-annex exception applies within its purpose and deadline. It does not lift the wider ban or resolve independent custody." };
     else if (facts.permitCoversCheckpoint) r.result = { kind: "scopeConfirmed", reason: "The checkpoint-and-return permit remains valid, but does not authorize entry beyond the gate. The wider banishment remains in force." };
     else r.result = { kind: "upheld", reason: "The record applies and no relevant exception is established. Discretionary relief requires a separate petition." };
     r.key = reviewKey(facts); r.facts = clone(facts); r.status = "complete"; r.decidedAt = now; return true;

@@ -48,6 +48,8 @@ test.describe('physical municipal clinic', () => {
     await advance(page, 80);
     let s = await snap(page);
     expect(s.cell).toEqual(Clinic.BED); expect(s.stay.assessment).toBeTruthy(); expect(s.health).toBe(50);
+    expect(s.stay.assessment).toMatchObject({ personId: 'scientist', issuerId: 'municipal-clinician', cityId: 'a' });
+    expect(s.stay.assessment.injuryIds).toContain(s.injuries.find(i => i.actorId === 'scientist').id);
     expect(s.money).toBe(1000); expect(s.routineSuspension.reason).toBe('municipal clinic care');
     expect(await page.evaluate(() => window.helixHeresyDebug.boardSurveyVehicle())).toBe(false);
     expect(await page.evaluate(() => window.helixHeresyDebug.approveClinicCare())).toBe(true);

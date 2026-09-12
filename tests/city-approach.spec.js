@@ -73,6 +73,8 @@ async function fixture(page, options = {}) {
 const snapshot = page => page.evaluate(() => window.helixHeresyDebug.cityApproachSnapshot());
 const gateWork = (page, kind, data = {}) => page.evaluate(({ kind, data }) => window.helixHeresyDebug.queueGateWork(kind, data, { confirmed: true, deferRender: true }), { kind, data });
 const configureGate = (page, options) => page.evaluate(options => window.helixHeresyDebug.configureGateEnforcementForTest(options), options);
+const configureRelief = (page, options) => page.evaluate(options => window.helixHeresyDebug.configureBanishmentReliefForTest(options), options);
+async function reliefWork(page, kind, data = {}) { expect(await gateWork(page, kind, data), kind).toBe(true); await advance(page, 180); }
 const advance = (page, seconds) => page.evaluate(seconds => window.helixHeresyDebug.advanceCityApproachForTest(seconds), seconds);
 async function work(page, kind, data = {}) {
   const queued = await page.evaluate(({ kind, data }) => window.helixHeresyDebug.queueCityApproachWork(kind, data, { confirmed: true, deferRender: true }), { kind, data });
@@ -92,6 +94,7 @@ async function arrive(page, companionId = '') {
 test('gate breach creates separate local custody through physical property intake and survives reload', async ({ page }) => {
   test.setTimeout(360000); const errors = []; page.on('pageerror', e => errors.push(e.message));
   await fixture(page); await arrive(page); await work(page, 'inspect'); await advance(page, 180);
+  await configureGate(page, { power: 10000 }); await configureRelief(page, { batteries: 1 }); await reliefWork(page, 'reliefBattery');
   const before = await snapshot(page);
   expect(await gateWork(page, 'cross')).toBe(false); await advance(page, 5);
   expect((await snapshot(page)).gates[0].enforcement.cases).toHaveLength(0);
@@ -108,6 +111,11 @@ test('gate breach creates separate local custody through physical property intak
   expect(s.cases).toEqual(before.cases); expect(s.banishments).toEqual(before.banishments);
   await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
   expect((await snapshot(page)).gates[0].enforcement).toEqual(e);
+  await reliefWork(page, 'reliefPetition', { reliefKind: 'temporary' }); await advance(page, 2800);
+  let petition = (await snapshot(page)).gates[0].relief.petitions.at(-1); expect(petition.status).toBe('offered');
+  await reliefWork(page, 'reliefAccept', { petitionId: petition.id });
+  s = await snapshot(page); expect(s.gates[0].relief.petitions.at(-1).status).toBe('active'); expect(s.gates[0].enforcement.response.stage).toBe('jailed');
+  expect(await page.evaluate(() => window.helixHeresyDebug.queueCityApproachWork('enter', {}, { confirmed: true, deferRender: true }))).toBe(false);
   expect(await gateWork(page, 'water')).toBe(true); await advance(page, 100);
   expect((await snapshot(page)).stacks.find(x => x.id === e.waterId).quantity).toBe(11);
   expect(await gateWork(page, 'counsel')).toBe(true); await advance(page, 7300);
@@ -119,6 +127,45 @@ test('gate breach creates separate local custody through physical property intak
   await configureGate(page, { sourceActorId: 'corrected-other-person' }); const amended = (await snapshot(page)).cases;
   expect(await gateWork(page, 'review')).toBe(true); await advance(page, 1200);
   s = await snapshot(page); expect(s.gates[0].enforcement.response.stage).toBe('released'); expect(s.roomId).toBe(s.gates[0].checkpointRoomId); expect(s.cases).toEqual(amended); expect(errors).toEqual([]);
+});
+test('discretionary relief consumes actual service evidence, preserves counteroffer consent and expires without arrest', async ({ page }) => {
+  test.setTimeout(360000); const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await fixture(page); await arrive(page); await work(page, 'inspect'); await advance(page, 180);
+  const before = await snapshot(page);
+  await reliefWork(page, 'reliefPetition', { reliefKind: 'temporary' }); await advance(page, 2800);
+  expect((await snapshot(page)).gates[0].relief.petitions.at(-1).result.kind).toBe('refused');
+  await reliefWork(page, 'reliefPetition', { reliefKind: 'temporary' }); expect((await snapshot(page)).gates[0].relief.petitions).toHaveLength(1);
+  await configureRelief(page, { batteries: 1 }); expect(await gateWork(page, 'reliefBattery')).toBe(false);
+  await configureGate(page, { power: 0 }); await reliefWork(page, 'reliefBattery'); await reliefWork(page, 'reliefSponsor');
+  let s = await snapshot(page); expect(s.gates[0].relief.receipts).toHaveLength(1); expect(s.stacks.some(x => x.key === 'relayBattery' && x.carriedBy === 'scientist' && x.quantity > 0)).toBe(false);
+  expect(s.gates[0].powerSeconds).toBeGreaterThan(13000);
+  await reliefWork(page, 'reliefPetition', { reliefKind: 'permanent' });
+  await configureGate(page, { power: 0 }); await advance(page, 1200); expect((await snapshot(page)).gates[0].relief.petitions.at(-1).status).toBe('verifying');
+  await configureGate(page, { power: 40000 }); await advance(page, 1900);
+  s = await snapshot(page); let p = s.gates[0].relief.petitions.at(-1); expect(p.result.kind).toBe('counteroffer'); expect(p.grant).toBeNull();
+  expect(await page.evaluate(() => window.helixHeresyDebug.queueCityApproachWork('enter', {}, { confirmed: true, deferRender: true }))).toBe(false);
+  await reliefWork(page, 'reliefAccept', { petitionId: p.id }); s = await snapshot(page); p = s.gates[0].relief.petitions.at(-1);
+  expect(s.trips.at(-1).decisions[0].status).toBe('conditional'); expect(p.grant.kind).toBe('temporary');
+  await work(page, 'enter'); expect((await snapshot(page)).roomId).toBe(s.gates[0].annexRoomId);
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  expect((await snapshot(page)).gates[0].relief.petitions.at(-1).grant).toEqual(p.grant);
+  await advance(page, p.grant.expiresAt - 900 - (await snapshot(page)).clock);
+  s = await snapshot(page); expect(s.gates[0].relief.petitions.at(-1).warnedAt).toBeTruthy(); expect(s.trips.at(-1).acceptedConditions).toBe(true);
+  await advance(page, 900); s = await snapshot(page); expect(s.gates[0].relief.petitions.at(-1).status).toBe('expired');
+  expect(s.roomId).toBe(s.gates[0].annexRoomId); expect(s.gates[0].enforcement.cases).toHaveLength(0); expect(s.trips.at(-1).decisions[0].status).toBe('refused');
+  await page.evaluate(() => window.helixHeresyDebug.advanceCityApproachForTest(0, { render: true }));
+  await expect(page.locator('[data-banishment-relief]')).toContainText('Permission expired');
+  expect(await page.evaluate(g => window.helixHeresyDebug.startScientistMove(g.checkpointRoomId, { toCell: { x: 10, y: 7, z: g.z }, allowMultiRoom: true }), s.gates[0])).toBeTruthy();
+  await advance(page, 60); s = await snapshot(page); expect(s.roomId).toBe(s.gates[0].checkpointRoomId); expect(s.cases).toEqual(before.cases); expect(s.banishments).toEqual(before.banishments); expect(s.money).toBe(before.money); expect(errors).toEqual([]);
+  await configureRelief(page, { agedCalendar: true, batteries: 1 }); await configureGate(page, { power: 0 });
+  await reliefWork(page, 'reliefBattery'); await reliefWork(page, 'reliefSponsor');
+  await reliefWork(page, 'reliefPetition', { reliefKind: 'permanent' }); await advance(page, 2800);
+  p = (await snapshot(page)).gates[0].relief.petitions.at(-1); expect(p.result.reliefKind).toBe('permanent');
+  await reliefWork(page, 'reliefAccept', { petitionId: p.id }); s = await snapshot(page);
+  expect(s.gates[0].relief.petitions.at(-1).grant.expiresAt).toBeNull(); expect(s.trips.at(-1).decisions[0].status).toBe('admitted');
+  expect(s.cases).toEqual(before.cases); expect(s.banishments).toEqual(before.banishments); expect(s.gates[0].enforcement.cases).toHaveLength(0);
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  await work(page, 'inspect'); await advance(page, 180); expect((await snapshot(page)).trips.at(-1).decisions[0].status).toBe('admitted'); expect(errors).toEqual([]);
 });
 test('cancelled or unseen gate crossing produces no allegation and lifted bans are reviewed without pardon', async ({ page }) => {
   test.setTimeout(360000); const errors = []; page.on('pageerror', e => errors.push(e.message));

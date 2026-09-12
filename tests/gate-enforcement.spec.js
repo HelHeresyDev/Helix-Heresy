@@ -29,7 +29,7 @@ test('gate custody needs delayed local judicial authorization, a live official, 
 });
 test('applicability review corrects actual errors without pardons or unchanged-fact rerolls', () => {
   const f = { cityId: 'a', personId: 'scientist', identityVerified: true, sourceAvailable: true, wrongIdentity: false, restrictionApplies: true, permitCoversCheckpoint: true, channel: true };
-  for (const [change, kind] of [[{}, 'scopeConfirmed'], [{ wrongIdentity: true }, 'corrected'], [{ restrictionApplies: false }, 'corrected'], [{ sourceAvailable: false }, 'pendingDocumentation'], [{ permitCoversCheckpoint: false }, 'upheld']]) {
+  for (const [change, kind] of [[{}, 'scopeConfirmed'], [{ permitCoversAnnex: true }, 'scopeConfirmed'], [{ wrongIdentity: true }, 'corrected'], [{ restrictionApplies: false }, 'corrected'], [{ sourceAvailable: false }, 'pendingDocumentation'], [{ permitCoversCheckpoint: false }, 'upheld']]) {
     const s = Gate.create(), actual = { ...f, ...change }, r = Gate.requestReview(s, f, 0, official);
     expect(Gate.decideReview(r, actual, 899)).toBe(false); expect(Gate.decideReview(r, { ...actual, channel: false }, 900)).toBe(false);
     expect(Gate.decideReview(r, actual, 900)).toBe(true); expect(r.result.kind).toBe(kind);
