@@ -71,6 +71,8 @@ async function fixture(page, options = {}) {
   expect(await page.evaluate(options => window.helixHeresyDebug.prepareCityApproachForTest(options), options)).toBe(true);
 }
 const snapshot = page => page.evaluate(() => window.helixHeresyDebug.cityApproachSnapshot());
+const gateWork = (page, kind, data = {}) => page.evaluate(({ kind, data }) => window.helixHeresyDebug.queueGateWork(kind, data, { confirmed: true, deferRender: true }), { kind, data });
+const configureGate = (page, options) => page.evaluate(options => window.helixHeresyDebug.configureGateEnforcementForTest(options), options);
 const advance = (page, seconds) => page.evaluate(seconds => window.helixHeresyDebug.advanceCityApproachForTest(seconds), seconds);
 async function work(page, kind, data = {}) {
   const queued = await page.evaluate(({ kind, data }) => window.helixHeresyDebug.queueCityApproachWork(kind, data, { confirmed: true, deferRender: true }), { kind, data });
@@ -87,6 +89,49 @@ async function arrive(page, companionId = '') {
   await advance(page, s.trips.at(-1).offer.flightSeconds + 30);
   s = await snapshot(page); expect(s.roomId).toBe(s.gates[0].checkpointRoomId); expect(s.trips.at(-1).status).toBe('checkpoint');
 }
+test('gate breach creates separate local custody through physical property intake and survives reload', async ({ page }) => {
+  test.setTimeout(360000); const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await fixture(page); await arrive(page); await work(page, 'inspect'); await advance(page, 180);
+  const before = await snapshot(page);
+  expect(await gateWork(page, 'cross')).toBe(false); await advance(page, 5);
+  expect((await snapshot(page)).gates[0].enforcement.cases).toHaveLength(0);
+  await configureGate(page, { open: true }); expect(await gateWork(page, 'cross')).toBe(true);
+  await advance(page, 30); let s = await snapshot(page), e = s.gates[0].enforcement;
+  expect(s.roomId).toBe(s.gates[0].annexRoomId); expect(e.cases).toHaveLength(1); expect(e.cases[0].status).toBe('referred'); expect(e.response).toBeNull();
+  await advance(page, 500); s = await snapshot(page); e = s.gates[0].enforcement;
+  expect(e.response.stage, JSON.stringify({ response: e.response, cell: s.cell, tasks: s.tasks })).toBe('jailed');
+  expect(s.roomId).toBe(e.cellRoomId); expect(e.jail.stays[0].facility.cityId).toBe(s.gates[0].cityId);
+  await page.evaluate(() => window.helixHeresyDebug.advanceCityApproachForTest(0, { render: true }));
+  await expect(page.locator('[data-gate-enforcement="true"]')).toContainText('Temporary local jail');
+  expect(e.jail.stays[0].transport.mode).toBe('foot'); expect(e.cases[0].judgment).toBeNull();
+  for (const id of e.propertyIds) { const stack = s.stacks.find(x => x.id === id); expect(stack.roomId).toBe(e.officeRoomId); expect(stack.carriedBy).toBeFalsy(); }
+  expect(s.cases).toEqual(before.cases); expect(s.banishments).toEqual(before.banishments);
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  expect((await snapshot(page)).gates[0].enforcement).toEqual(e);
+  expect(await gateWork(page, 'water')).toBe(true); await advance(page, 100);
+  expect((await snapshot(page)).stacks.find(x => x.id === e.waterId).quantity).toBe(11);
+  expect(await gateWork(page, 'counsel')).toBe(true); await advance(page, 7300);
+  s = await snapshot(page); const request = s.gates[0].enforcement.jail.stays[0].communications.requests[0]; expect(request.status).toBe('ready');
+  expect(await gateWork(page, 'speakCounsel', { requestId: request.id })).toBe(true); await advance(page, 1900);
+  s = await snapshot(page); expect(s.gates[0].enforcement.jail.stays[0].communications.requests[0].status, JSON.stringify(s.tasks)).toBe('completed');
+  expect(await gateWork(page, 'review')).toBe(true); await advance(page, 1100);
+  expect((await snapshot(page)).gates[0].enforcement.reviews.at(-1).result.kind).toBe('scopeConfirmed');
+  await configureGate(page, { sourceActorId: 'corrected-other-person' }); const amended = (await snapshot(page)).cases;
+  expect(await gateWork(page, 'review')).toBe(true); await advance(page, 1200);
+  s = await snapshot(page); expect(s.gates[0].enforcement.response.stage).toBe('released'); expect(s.roomId).toBe(s.gates[0].checkpointRoomId); expect(s.cases).toEqual(amended); expect(errors).toEqual([]);
+});
+test('cancelled or unseen gate crossing produces no allegation and lifted bans are reviewed without pardon', async ({ page }) => {
+  test.setTimeout(360000); const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await fixture(page); await arrive(page); await work(page, 'inspect'); await advance(page, 180);
+  await configureGate(page, { open: true }); expect(await gateWork(page, 'cross')).toBe(true);
+  await configureGate(page, { cancelCross: true }); await advance(page, 10);
+  let s = await snapshot(page); expect(s.gates[0].enforcement.intent).toBeNull(); expect(s.gates[0].enforcement.cases).toHaveLength(0);
+  await configureGate(page, { guardHealth: 0 }); expect(await gateWork(page, 'cross')).toBe(true); await advance(page, 30);
+  s = await snapshot(page); expect(s.roomId).toBe(s.gates[0].annexRoomId); expect(s.gates[0].enforcement.cases).toHaveLength(0);
+  await configureGate(page, { guardHealth: 100, banStatus: 'lifted' });
+  expect(await gateWork(page, 'review')).toBe(true); await advance(page, 1100);
+  s = await snapshot(page); expect(s.gates[0].enforcement.reviews.at(-1).result.kind).toBe('corrected'); expect(s.trips.at(-1).decisions[0].status).toBe('admitted'); expect(errors).toEqual([]);
+});
 test('physical local refusal preserves separate passenger admission and paid return without arrest', async ({ page }) => {
   test.setTimeout(360000); const errors = []; page.on('pageerror', e => errors.push(e.message));
   await fixture(page, { companion: true, companionRelief: true }); let before = await snapshot(page); const companion = before.actors[0].id;

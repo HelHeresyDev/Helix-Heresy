@@ -114,12 +114,12 @@
       status: STATUSES.includes(source.status) ? source.status : "active", bookedAt,
       facility: {
         id: cleanId(source.facility?.id) || "municipal-holding", label: String(source.facility?.label || "Municipal Holding Facility").trim(),
-        kind: "jail", cityLabel: String(source.facility?.cityLabel || "the local fortified city").trim(),
+        kind: "jail", cityId: cleanId(source.facility?.cityId), cityLabel: String(source.facility?.cityLabel || "the local fortified city").trim(),
         roomIds: Array.isArray(source.facility?.roomIds) ? source.facility.roomIds.map(cleanId).filter(Boolean) : []
       },
       transport: {
         id: cleanId(source.transport?.id) || `custody-transport-${index + 1}`,
-        label: String(source.transport?.label || "Armored custody van").trim(), vehicleClass: "armored custody vehicle",
+        label: String(source.transport?.label || "Armored custody van").trim(), mode: source.transport?.mode === "foot" ? "foot" : "vehicle", vehicleClass: source.transport?.mode === "foot" ? "none" : "armored custody vehicle",
         departedAt: Math.max(0, finite(source.transport?.departedAt, bookedAt - 900)), arrivedAt: Math.max(0, finite(source.transport?.arrivedAt, bookedAt)),
         crewNames: Array.isArray(source.transport?.crewNames) ? source.transport.crewNames.map(String) : []
       },
