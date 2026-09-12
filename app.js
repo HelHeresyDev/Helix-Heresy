@@ -55,6 +55,7 @@
   const CastawayAssistance = window.HelixCastawayAssistance;
   const CityApproach = window.HelixCityApproach;
   const GateEnforcement = window.HelixGateEnforcement;
+  const BanishmentRelief = window.HelixBanishmentRelief;
   const WildernessSurvival = window.HelixWildernessSurvival;
   const WildernessBeasts = window.HelixWildernessBeasts;
   const ExpeditionEscorts = window.HelixExpeditionEscorts;
@@ -15037,6 +15038,15 @@
       requestCastawayPickup, acceptCastawayPickup, queueCastawayBoard,
       requestCityApproach, acceptCityApproach, cancelCityApproach, queueCityApproachWork, releaseCityAircraft,
       queueGateWork, surrenderAtGate,
+      configureBanishmentReliefForTest: (options = {}) => {
+        const g = cityApproachGate(), s = ensureBanishmentRelief(g);
+        if (options.batteries) createPhysicalItemStack("inventory", "relayBattery", options.batteries, { roomId: scientistRoomId(), cell: scientistMapCell() }, { carriedBy: "scientist", suppressEvidence: true });
+        if (options.authorityStatus) s.authority.status = options.authorityStatus;
+        if (options.authorityRole) s.authority.role = options.authorityRole;
+        // Construct an aged legal fixture without simulating unrelated month-long survival systems.
+        if (options.agedCalendar) { state.clock = Math.max(state.clock, ...ensurePenalFlights().banishments.map(b => b.releasedAt + 30 * 86400)); g.lastAt = state.clock; ensureWildernessSurvival().lastAt = state.clock; }
+        syncActorInventories(); persist();
+      },
       configureGateEnforcementForTest: (options = {}) => {
         const g = cityApproachGate(), e = ensureGateEnforcement(g);
         if (options.open != null) { Object.assign(state.doors[g.doorId], { state: options.open ? DOOR_STATE_OPEN : DOOR_STATE_CLOSED, lockState: options.open ? DOOR_LOCK_UNLOCKED : DOOR_LOCK_LOCKED }); bumpNavigationRevision("door"); }
@@ -15067,6 +15077,7 @@
         ensureCityApproach().gates.push(CityApproach.gate({ id: "test-city-gate", cityId, cellId: "planet-cell:00001", label: "Aster Reception", createdAt: state.clock,
           institutionId: "aster-administration", institutionName: "Aster Civic Administration", capacityBand: options.conditional ? "strained" : "functional", temperatureC: 18,
           testEnforcementPolicy: { lawId: "aster-law:warrantObstruction", judiciaryId: "aster-judiciary", policeId: "aster-watch", jailInstitutionId: "aster-jail" },
+          testReliefAuthority: { id: "aster-sovereign", name: "Aster Charter Council", charterId: "aster-charter", cityId, role: "sovereign", status: "available" },
           clerk: { id: "clerk-aster", name: "Lena Moss", health: 100, status: "alive", mapCell: { x: 10, y: 6, z: 16 } }, guard: { id: "guard-aster", name: "Jon Vale", health: 100, status: "alive", mapCell: { x: 12, y: 7, z: 16 } }, testDistanceKm: 60, testRecognition: options.foreign ? "verified" : "domestic" }));
         if (options.companionRelief) for (const b of ensurePenalFlights().banishments.filter(b => b.personId !== "scientist")) b.status = "lifted";
         persist(); render(); return true;
@@ -52041,6 +52052,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function scientistMoveBlockReason(toRoomId, options = {}) {
     if (GateEnforcement.custodyActive(currentGateEnforcement())) return "The scientist is physically in receiving-city custody; use the local jail's actions.";
     const reception = state.penalFlights?.assistance?.cityApproach?.gates.find(g => g.annexRoomId === toRoomId);
+    if (reception && currentCityApproach()?.decisions.find(d => d.personId === "scientist")?.expiresAt <= state.clock) return "Temporary annex permission has expired; the checkpoint remains available for departure.";
     if (reception && !CityApproach.canEnter(currentCityApproach()?.decisions.find(d => d.personId === "scientist"), currentCityApproach()?.acceptedConditions)) return "The staffed gate has not authorized entry. Deliberate crossing requires the explicit prohibited-entry action and a physically passable gate.";
     const target = roomById(toRoomId);
     if (!target) {
@@ -76003,6 +76015,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function cityApproachWorkReason(d) {
     if (GateEnforcement.custodyActive(currentGateEnforcement())) return "The scientist is in receiving-city custody; the reserved aircraft does not bypass detention.";
     const t = currentCityApproach(), g = cityApproachGate(), p = cityApproachProvider();
+    if (d.kind === "enter" && t?.decisions.find(d => d.personId === "scientist")?.expiresAt <= state.clock) return "The temporary admission expired before passage; return to the checkpoint or obtain new lawful permission.";
     if (d.kind === "invite") {
       const actor = cityApproachActor(d.personId);
       return scientistRoomId() !== CastawayAssistance.PAD || !actor || !cityApproachAble(d.personId) || cityApproachRoom(d.personId) !== CastawayAssistance.PAD || WildernessBeasts.distance(actor.mapCell, d.toCell) > 1 ? "The companion is not physically available at the pad." : CastawayCamp.willingness(actor, "pickup");
@@ -76120,7 +76133,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       t.decisions = t.manifest.filter(person => t.boardedIds.includes(person.id)).map(person => {
         const evidence = cityApproachEvidence(person, g);
         if (!cityApproachNear(person.id, g.clerk.mapCell, 3) || !cityApproachAble(person.id)) evidence.present = false;
-        return CityApproach.decision(person, g, evidence, gateReviewedBanishments(g), state.clock);
+        return cityAdmissionDecision(person, g, evidence);
       });
       CityApproach.stage(t, "decided", state.clock, null, "Individual reception decisions recorded. Refusal or pending review leaves the limited waiting-and-return permit intact. No detention or new offense was created.");
     } else if (t.status === "inbound") CityApproach.stage(t, "returnUnloading", state.clock, 30, "The occupied return flight reached the original private pad. Unloading is underway.");
@@ -76191,8 +76204,110 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function gatePoint(kind, g = cityApproachGate()) { return { x: kind === "cell" ? 28 : kind === "hatch" ? 27 : 24, y: kind === "property" ? 6 : 7, z: g.z }; }
   function gateSourceRecord(orderId) { return state.trialSentencing?.cases.find(c => c.sentencing?.order?.id === orderId); }
+  function ensureBanishmentRelief(g = cityApproachGate()) {
+    if (!g) return null;
+    if (!g.relief) {
+      const map = activeWorldRecord?.generatedData?.strategicMap, government = map?.cityGovernments?.governments.find(v => v.cityId === g.cityId), polity = map?.cityPolities?.polities.find(v => v.cityId === g.cityId);
+      const authority = g.testReliefAuthority || (government?.charter?.id && polity?.authority ? { id: polity.authority.id, name: polity.authority.name, charterId: government.charter.id, cityId: g.cityId, role: "sovereign", status: "available" } : null);
+      g.relief = BanishmentRelief.create(authority);
+    }
+    return g.relief;
+  }
+  function reliefLocalOrder(b, g) {
+    const ids = BanishmentRelief.localOrders(b, g.cityId);
+    return ids.find(id => !BanishmentRelief.grantFor(g.relief, g.cityId, b.personId, b.orderId, id, state.clock)) ?? ids[0] ?? null;
+  }
+  function cityReliefGrant(b, g, permanentOnly = false) { return b && BanishmentRelief.grantForBanishment(g.relief, b, g.cityId, state.clock, permanentOnly); }
+  function cityReliefFacts(g, orderId = gateRestriction(g)?.orderId, targetLocalOrder = undefined) {
+    const s = ensureBanishmentRelief(g), b = ensurePenalFlights().banishments.find(b => b.orderId === orderId && b.personId === "scientist"), source = gateSourceRecord(orderId);
+    const identity = b && cityApproachEvidence({ id: "scientist", sourceCityId: b.cityId, sourceOrderId: orderId }, g);
+    const clinic = state.medicalExtraction?.clinic, records = [...(clinic?.history || []), ...(clinic?.stay ? [clinic.stay] : [])];
+    const assessment = records.map(r => r.assessment).filter(a => a?.personId === "scientist" && a.issuerId && a.cityId && a.at <= state.clock && state.clock - a.at < 86400).sort((a, b) => b.at - a.at)[0];
+    const recognition = assessment?.cityId === g.cityId ? "domestic" : assessment && StrategicCityRecognition.publicProfileFor(activeWorldRecord?.generatedData?.strategicMap, assessment.cityId, g.cityId)?.recognition.identityAndCivilRecords;
+    const medical = assessment ? { id: assessment.id, issuerId: assessment.issuerId, personId: assessment.personId, cityId: assessment.cityId,
+      needed: actorInjuries("scientist").some(i => assessment.injuryIds?.includes(i.id)), verified: ["domestic", "verified", "automatic"].includes(recognition) } : null;
+    const services = s.receipts.map(r => ({ id: r.id, needId: r.needId, cityId: r.cityId, personId: r.personId, witnessId: r.witnessId,
+      verified: r.witnessId === g.clerk.id && r.institutionId === g.institutionId && r.stackId && r.quantity === 1 && r.restoredSeconds === WildernessSurvival.RADIO_SECONDS ? true : false }));
+    const sponsor = s.sponsorship && { ...s.sponsorship, verified: s.sponsorship.issuerId === g.clerk.id && g.clerk.status === "alive" && g.clerk.health >= 50 && services.some(r => r.id === s.sponsorship.serviceId && r.verified) };
+    const localOrderId = targetLocalOrder === undefined ? reliefLocalOrder(b, g) : targetLocalOrder;
+    return { cityId: g.cityId, personId: "scientist", orderId: orderId || null, localOrderId, sourcePersonId: source?.actorId || null,
+      identityVerified: Boolean(identity?.present && ["domestic", "verified", "automatic"].includes(identity.recognition)), sourceAvailable: Boolean(source),
+      restrictionApplies: Boolean(b && BanishmentRelief.localOrders(b, g.cityId).includes(localOrderId) && !BanishmentRelief.grantFor(s, g.cityId, b.personId, b.orderId, localOrderId, state.clock, true)), authorityId: s.authority?.id || null,
+      medical, services, sponsor, longStanding: Boolean(b && state.clock - b.releasedAt >= 30 * 86400), fullReviewCapacity: !["fragile", "strained"].includes(g.capacityBand),
+      pendingLocalCase: Boolean(g.enforcement?.cases.some(c => !["unsupported", "dismissedIdentityError"].includes(c.status))) };
+  }
+  function cityAdmissionDecision(person, g, evidence) {
+    const bans = gateReviewedBanishments(g), grant = bans.map(b => b.personId === person.id && cityReliefGrant(b, g)).find(Boolean);
+    const d = CityApproach.decision(person, g, evidence, bans.filter(b => !cityReliefGrant(b, g)), state.clock);
+    if (grant?.kind === "temporary" && ["admitted", "conditional"].includes(d.status)) Object.assign(d, { status: "conditional", scope: "visitorAnnexOnly", reliefId: grant.id, expiresAt: grant.expiresAt,
+      reason: `${grant.purpose}: visitor annex only until ${formatClock(grant.expiresAt)}. Return to the permitted checkpoint by that deadline. Independent custody is unchanged; no care, supplies or onward travel is promised.` });
+    return d;
+  }
+  function reassessCityRelief(g) {
+    const t = currentCityApproach(); if (t?.gateId !== g.id || !t.decisions.some(d => d.personId === "scientist")) return;
+    const person = t.manifest.find(p => p.id === "scientist"), d = cityAdmissionDecision(person, g, cityApproachEvidence(person, g));
+    t.decisions = t.decisions.filter(d => d.personId !== "scientist").concat(d); t.acceptedConditions = false;
+  }
+  function nextBanishmentReliefEvent() {
+    const times = (state.penalFlights?.assistance?.cityApproach?.gates || []).map(g => BanishmentRelief.nextEvent(g.relief, state.clock, g.powerSeconds > 0 && g.enforcement?.reviewer.health >= 50 && g.enforcement.reviewer.status === "alive" && BanishmentRelief.authorityValid(g.relief?.authority, { cityId: g.cityId }))).filter(v => v != null);
+    return times.length ? Math.min(...times) : null;
+  }
+  function updateBanishmentRelief() {
+    for (const g of state.penalFlights?.assistance?.cityApproach?.gates || []) {
+      if (!g.relief) continue;
+      const local = scientistMapCell().z === g.z;
+      for (const p of g.relief.petitions.filter(p => ["verifying", "deciding"].includes(p.status))) {
+        if (BanishmentRelief.advance(p, cityReliefFacts(g, p.orderId, p.localOrderId), { channel: g.powerSeconds > 0, reviewer: g.enforcement?.reviewer, authority: g.relief.authority }, state.clock) && local) { surveyEvent(p.result?.reason || "The judicial scope check is complete; the city's sovereign authority will now consider the petition."); state.paused = true; }
+      }
+      for (const event of BanishmentRelief.tick(g.relief, state.clock)) { if (g.relief.petitions.find(p => p.id === event.id)?.status === "expired") reassessCityRelief(g); if (local) { surveyEvent(event.reason); state.paused = true; } }
+    }
+  }
+  function cityReliefWorkReason(d, g, e) {
+    if (![g.checkpointRoomId, g.annexRoomId, e.cellRoomId].includes(scientistRoomId())) return "Submit through the receiving checkpoint or this city's jail terminal.";
+    if (g.clerk.status !== "alive" || g.clerk.health < 50) return "The named civic clerk is unavailable.";
+    if (d.kind === "reliefBattery") {
+      if (scientistRoomId() === e.cellRoomId) return "Custody does not permit carrying supplies to the civic desk.";
+      if (g.powerSeconds > 86400 - WildernessSurvival.RADIO_SECONDS) return "The actual terminal does not need a replacement battery; unnecessary donations create no service receipt.";
+      return actorInventoryStacks("scientist").some(s => s.key === "relayBattery" && s.quantity >= 1 && !s.reservedTaskId) ? "" : "Carry one unreserved relay battery to the clerk.";
+    }
+    const s = ensureBanishmentRelief(g);
+    if (!s.authority) return "This city has no identified charter authority for discretionary relief.";
+    if (g.powerSeconds <= 0) return "The local records terminal has no power; existing decisions and deadlines do not reset.";
+    if (d.kind === "reliefSponsor") return s.receipts.length ? "" : "The clerk has no recorded assistance on which to base an institutional endorsement.";
+    if (d.kind === "reliefPetition") return ["temporary", "permanent"].includes(d.reliefKind) && gateRestriction(g) ? "" : "No applicable local banishment is selected. Admission or applicability review may be appropriate instead.";
+    if (["reliefAccept", "reliefDecline"].includes(d.kind)) return s.petitions.some(p => p.id === d.petitionId && p.status === "offered" && state.clock < p.nextAt) ? "" : "That relief offer is no longer open.";
+    return "Unknown relief action.";
+  }
+  function completeCityReliefWork(d, g, e) {
+    const s = ensureBanishmentRelief(g);
+    if (scientistRoomId() !== e.cellRoomId && !cityApproachNear("scientist", g.clerk.mapCell, 2)) { surveyEvent("Reach the named clerk's desk before submitting or accepting a relief instrument."); return; }
+    if (d.kind === "reliefBattery") {
+      if (!cityApproachNear("scientist", g.clerk.mapCell, 2)) { surveyEvent("The named clerk must witness the actual delivery."); return; }
+      const battery = actorInventoryStacks("scientist").find(s => s.key === "relayBattery" && s.quantity > 0 && !s.reservedTaskId), stackId = battery.id;
+      consumeMedicSupply(battery); g.powerSeconds += WildernessSurvival.RADIO_SECONDS;
+      const receipt = { id: `civic-service:${g.id}:${s.receipts.length + 1}`, needId: `terminal:${g.id}:${Math.floor(state.clock / WildernessSurvival.RADIO_SECONDS)}`, personId: "scientist", cityId: g.cityId, at: state.clock,
+        witnessId: g.clerk.id, institutionId: g.institutionId, stackId, quantity: 1, restoredSeconds: WildernessSurvival.RADIO_SECONDS };
+      s.receipts.push(receipt); surveyEvent(`${g.clerk.name} recorded ${receipt.id}: one actual battery restored four hours of terminal reserve. This receipt is not a pardon.`); syncActorInventories();
+    } else if (d.kind === "reliefSponsor") {
+      const f = cityReliefFacts(g), service = f.services.filter(r => r.verified).at(-1);
+      if (!service || !f.identityVerified || f.pendingLocalCase) { surveyEvent("The clerk cannot endorse this petition without verified identity and service, or while a separate local allegation awaits resolution. This is not a finding of guilt."); return; }
+      s.sponsorship = { id: `sponsorship:${service.id}`, cityId: g.cityId, personId: "scientist", issuerId: g.clerk.id, serviceId: service.id };
+      surveyEvent(`${g.clerk.name} endorsed the recorded assistance on behalf of ${g.institutionName}. The sovereign authority remains free to refuse or narrow relief.`);
+    } else if (d.kind === "reliefPetition") {
+      const p = BanishmentRelief.request(s, d.reliefKind, cityReliefFacts(g), state.clock);
+      surveyEvent(p ? "Petition filed: fifteen-minute judicial verification, then thirty-minute sovereign consideration when officials and records are available. Filing grants no admission or release." : "An offer or petition is pending, or these unchanged grounds were already considered. No reroll occurs.");
+    } else {
+      const p = s.petitions.find(p => p.id === d.petitionId);
+      if (d.kind === "reliefDecline") BanishmentRelief.decline(p, state.clock);
+      else if (BanishmentRelief.accept(p, cityReliefFacts(g, p.orderId, p.localOrderId), s.authority, state.clock)) { reassessCityRelief(g); surveyEvent(`${p.result.reliefKind === "temporary" ? "Temporary conditions accepted" : "This city's banishment lifted"}. Admission is reassessed separately. Existing custody, allegations, convictions and foreign orders remain unchanged.`); }
+      else {
+        if (p.key !== BanishmentRelief.key(p.requestedKind, cityReliefFacts(g, p.orderId, p.localOrderId)) || p.result.decidedBy.id !== s.authority?.id) { p.status = "superseded"; p.nextAt = null; }
+        surveyEvent("The material records or authority changed or are unavailable. An unchanged offer cannot be accepted on stale evidence; a superseded offer needs a fresh petition.");
+      }
+    }
+  }
   function gateReviewedBanishments(g = cityApproachGate()) {
-    return ensurePenalFlights().banishments.filter(b => !(g?.enforcement?.corrections || []).some(c => c.orderId === b.orderId && c.kind === "wrongIdentity" && gateSourceRecord(b.orderId)?.actorId === c.actualPersonId && c.actualPersonId !== b.personId));
+    return ensurePenalFlights().banishments.filter(b => !cityReliefGrant(b, g, true) && !(g?.enforcement?.corrections || []).some(c => c.orderId === b.orderId && c.kind === "wrongIdentity" && gateSourceRecord(b.orderId)?.actorId === c.actualPersonId && c.actualPersonId !== b.personId));
   }
   function gateRestriction(g = cityApproachGate()) { return gateReviewedBanishments(g).find(b => GateEnforcement.applicable(b, g.cityId)); }
   function gateReviewFacts(g = cityApproachGate()) {
@@ -76201,13 +76316,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { personId: "scientist", cityId: g.cityId, orderId: orderId || null, actualPersonId: source?.actorId || null,
       identityVerified: Boolean(d?.identityVerified || identity?.present && ["domestic", "verified", "automatic"].includes(identity.recognition)),
       sourceAvailable: Boolean(source), wrongIdentity: Boolean(restriction && source && source.actorId !== "scientist"), restrictionApplies: Boolean(restriction),
-      permitCoversCheckpoint: CityApproach.checkpointAuthorized(t, "scientist"), channel: g.powerSeconds > 0, restrictionStatus: restriction?.status || "notApplicable" };
+      permitCoversCheckpoint: CityApproach.checkpointAuthorized(t, "scientist"), permitCoversAnnex: Boolean(restriction && cityReliefGrant(restriction, g)), channel: g.powerSeconds > 0, restrictionStatus: restriction?.status || "notApplicable" };
   }
-  function gateEnforcementPhase() { const e = currentGateEnforcement(); return `${e?.response?.stage || "none"}:${e?.cases.map(c => c.status).join(",")}:${e?.reviews.map(r => r.status).join(",")}`; }
+  function gateEnforcementPhase() { const e = currentGateEnforcement(); return `${e?.response?.stage || "none"}:${e?.cases.map(c => c.status).join(",")}:${e?.reviews.map(r => r.status).join(",")}:${state.penalFlights?.assistance?.cityApproach?.gates.map(g => g.relief?.petitions.map(p => `${p.status}:${p.warnedAt || 0}`).join(",")).join(";")}`; }
   function nextGateEnforcementEvent() {
-    const e = currentGateEnforcement(); if (!e) return null;
+    const e = currentGateEnforcement(), reliefAt = nextBanishmentReliefEvent(); if (!e) return reliefAt;
     const g = cityApproachGate(), available = g.powerSeconds > 0 && e.reviewer.status === "alive" && e.reviewer.health >= 50;
     const times = [...e.cases.filter(c => c.status === "referred").map(c => Math.max(state.clock + (available ? 1 : 60), c.nextAt)), ...e.reviews.filter(r => r.status === "pending").map(r => Math.max(state.clock + (available ? 1 : 60), r.dueAt))];
+    if (reliefAt != null) times.push(reliefAt);
     if (e.intent) times.push(state.clock + 1);
     if (e.response && !["jailed", "searching", "released", "withdrawn"].includes(e.response.stage)) times.push(g.guard.health < 50 || g.guard.status !== "alive" ? state.clock + 60 : ["restraining", "booking"].includes(e.response.stage) ? Math.max(state.clock + 1, e.response.dueAt) : state.clock + 1);
     const jailEvent = e.jail?.stays.some(s => s.status === "active") && JailCustody.nextEvent(e.jail, state.clock); if (jailEvent) times.push(jailEvent.at);
@@ -76236,6 +76352,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function gateEnforcementWorkReason(d) {
     const g = cityApproachGate(), e = currentGateEnforcement(), t = currentCityApproach(); if (!g || !e || t?.id !== d.tripId) return "This local gate proceeding is no longer accessible.";
     if (GateEnforcement.custodyActive(e) && e.response.stage !== "jailed") return "Wait until the physical escort and intake have finished.";
+    if (d.kind.startsWith("relief")) return cityReliefWorkReason(d, g, e);
     if (d.kind === "cross") {
       if (GateEnforcement.custodyActive(e)) return "The scientist is already physically restrained.";
       const door = state.doors[g.doorId]; return door && (door.state === DOOR_STATE_OPEN || doorIsBreached(door)) ? "" : "The actual gate is closed. A failed movement order creates no completed breach.";
@@ -76265,6 +76382,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.data?.action !== "gateEnforcement") return false;
     const d = task.data, reason = gateEnforcementWorkReason(d); if (reason) { surveyEvent(reason); return true; }
     const g = cityApproachGate(), e = ensureGateEnforcement(g);
+    if (d.kind.startsWith("relief")) { completeCityReliefWork(d, g, e); return true; }
     if (d.kind === "cross") { surveyEvent("The movement completed physically. Any local allegation depends on observation, identity, notice and lawful scope—not this button press."); return true; }
     if (d.kind === "review") {
       const r = GateEnforcement.requestReview(e, gateReviewFacts(g), state.clock, e.reviewer);
@@ -76318,13 +76436,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     bumpNavigationRevision("door"); syncActorInventories(); state.paused = true;
   }
   function updateGateEnforcement(elapsed = 0) {
+    updateBanishmentRelief();
     const g = cityApproachGate(), t = currentCityApproach(); if (!g || !t || !g.materialized || scientistIsDead()) return 0;
     const e = ensureGateEnforcement(g), cell = cleanMapCell(scientistMapCell()), atGate = cell.z === g.z, guardAble = g.guard.status === "alive" && g.guard.health >= 50;
     const seen = guardAble && atGate && cityApproachNear("scientist", g.guard.mapCell, 8), decision = t.decisions.find(d => d.personId === "scientist"), restriction = gateRestriction(g);
-    if (seen && decision?.identityVerified && restriction) GateEnforcement.warn(e, { observed: true, identified: true, personId: "scientist", orderId: restriction.orderId, officerId: g.guard.id }, state.clock);
+    if (seen && decision?.identityVerified && restriction && !cityReliefGrant(restriction, g)) GateEnforcement.warn(e, { observed: true, identified: true, personId: "scientist", orderId: restriction.orderId, officerId: g.guard.id }, state.clock);
     const crossed = e.previousCell?.z === g.z && e.previousCell.x <= 13 && cell.x >= 14 && cell.z === g.z && cell.y >= 5 && cell.y <= 10;
     if (crossed) {
-      const c = GateEnforcement.observe(e, { crossed, observed: seen, identified: Boolean(decision?.identityVerified), knowing: Boolean(e.intent?.tripId === t.id), prohibited: Boolean(restriction && !CityApproach.canEnter(decision, t.acceptedConditions)),
+      const c = GateEnforcement.observe(e, { crossed, observed: seen, identified: Boolean(decision?.identityVerified), knowing: Boolean(e.intent?.tripId === t.id), prohibited: Boolean(restriction && !cityReliefGrant(restriction, g) && !CityApproach.canEnter(decision, t.acceptedConditions)),
         localLaw: e.policy.lawId && e.policy.judiciaryId && e.policy.policeId && e.policy.jailInstitutionId ? { id: e.policy.lawId, typeId: "warrantObstruction" } : null,
         restriction: restriction || null, personId: "scientist", cityId: g.cityId, crossingId: e.intent?.id || `uncommanded:${state.clock}`, observerId: g.guard.id, observerCell: g.guard.mapCell, cell }, state.clock);
       if (c) { surveyEvent(`${g.guard.name} witnessed the identified, notified crossing and referred ${c.docket} for local judicial review. No arrest authority or conviction is presumed.`); state.paused = true; }
@@ -76337,7 +76456,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const facts = gateReviewFacts(g); if (e.reviewer.status !== "alive" || e.reviewer.health < 50 || !GateEnforcement.decideReview(r, facts, state.clock)) continue;
       if (r.result.kind === "corrected") {
         if (facts.wrongIdentity) e.corrections.push({ orderId: facts.orderId, kind: "wrongIdentity", actualPersonId: facts.actualPersonId, at: state.clock });
-        const person = t.manifest.find(p => p.id === "scientist"), revised = CityApproach.decision(person, g, cityApproachEvidence(person, g), gateReviewedBanishments(g), state.clock);
+        const person = t.manifest.find(p => p.id === "scientist"), revised = cityAdmissionDecision(person, g, cityApproachEvidence(person, g));
         t.decisions = t.decisions.filter(d => d.personId !== "scientist").concat(revised);
         const c = e.cases.find(c => c.id === e.response?.caseId);
         if (c && gateSourceRecord(c.sourceOrderId)?.actorId !== "scientist") { c.status = "dismissedIdentityError"; c.custodyOrder.status = "withdrawn"; e.response.stage = "releaseEscort"; }
@@ -76397,6 +76516,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       button("Request Confidential Local Counsel", () => queueGateWork("counsel"), surveyBusy());
       for (const r of stay.communications.requests) if (r.status === "ready") button("Use Scheduled Counsel Session (30 minutes)", () => queueGateWork("speakCounsel", { requestId: r.id }), surveyBusy());
       button("Drink One Local Jail Water Portion", () => queueGateWork("water"), surveyBusy()); button("Eat One Local Jail Meal", () => queueGateWork("food"), surveyBusy());
+    }
+    panel.append(renderBanishmentRelief());
+    return panel;
+  }
+  function renderBanishmentRelief() {
+    const panel = document.createElement("section"), g = cityApproachGate(), s = ensureBanishmentRelief(g), f = cityReliefFacts(g); panel.dataset.banishmentRelief = "true";
+    panel.append(textEl("strong", "Discretionary Banishment Relief"), textEl("p", `Decision-maker: ${s.authority?.name || "no identified local charter authority"}. The clerk receives evidence; the judiciary checks scope; only this city's sovereign authority decides relief.`));
+    panel.append(textEl("p", `Available dossier: ${f.medical?.verified && f.medical.needed ? "verified current clinical assessment" : "no verified current clinical need"}; ${f.services.filter(r => r.verified).length} civic-service receipt(s); ${f.sponsor?.verified ? `endorsement from ${g.clerk.name}` : "no verified institutional sponsorship"}. Filing discloses these records to the city. Cash alone does not buy relief.`));
+    panel.append(textEl("p", "Temporary permission covers only a two-hour visitor-annex visit with an explicit return deadline. Permanent relief requires a thirty-day standing ban, two distinct service episodes, sponsorship, full review capacity and separate local proceedings resolved. Neither changes an old conviction, foreign orders or current custody."));
+    const button = (label, kind, data = {}) => { const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.disabled = surveyBusy(); b.onclick = () => queueGateWork(kind, data); panel.append(b); };
+    button("Deliver Carried Battery for Actual Terminal Shortfall", "reliefBattery"); button("Request Civic Clerk's Service Endorsement", "reliefSponsor");
+    button("Petition for Temporary Annex Permission", "reliefPetition", { reliefKind: "temporary" }); button("Petition to Lift This City's Banishment", "reliefPetition", { reliefKind: "permanent" });
+    for (const p of s.petitions.slice(-5)) {
+      panel.append(textEl("p", `${p.id} · ${p.status}: ${p.result?.reason || "Records verification and sovereign consideration are pending; no admission or release granted."}`));
+      if (p.status === "offered") { panel.append(textEl("p", `Offer: ${p.result.reliefKind}, ${p.result.purpose}; ${p.result.scope}. Accept by ${formatClock(p.nextAt)}. A temporary visit's two-hour clock starts on acceptance, including time spent in independent custody.`)); button("Accept the Stated Relief Conditions", "reliefAccept", { petitionId: p.id }); button("Decline Relief Offer", "reliefDecline", { petitionId: p.id }); }
+      if (p.grant?.expiresAt != null) panel.append(textEl("p", `Departure deadline: ${formatClock(p.grant.expiresAt)}. ${p.status === "expired" ? "Permission expired; walk back to the permitted checkpoint. The authorized portion of the visit stays lawful." : "Return physically before expiry. No automatic transport or arrest occurs."}`));
     }
     return panel;
   }
@@ -76496,7 +76631,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (stay.status === "examining") {
       const injuries = actorInjuries("scientist");
       for (const injury of injuries) injury.diagnosedAt = state.clock;
-      stay.assessment = { at: state.clock, summary: injurySummary("scientist"), quote: MunicipalClinic.quote(injuries) };
+      stay.assessment = { id: `assessment:${stay.id}`, personId: "scientist", issuerId: clinician.id, cityId: ensureStrategicJourneys().destinations.find(d => d.id === ensureStrategicJourneys().nearestSettlementDestinationId)?.cityId || null,
+        injuryIds: injuries.map(i => i.id), at: state.clock, summary: injurySummary("scientist"), quote: MunicipalClinic.quote(injuries) };
       stay.status = "care"; stay.reason = "Assessment complete. Stabilization is not healing; serious injuries may require unavailable specialist care.";
       state.paused = true; return 1;
     }
