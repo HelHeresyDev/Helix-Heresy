@@ -27,11 +27,12 @@
     const medical = f.medical?.verified && f.medical.personId === f.personId && f.medical.needed && f.medical.issuerId;
     const sponsored = f.sponsor?.verified && f.sponsor.cityId === f.cityId && f.sponsor.personId === f.personId && services.some(r => r.id === f.sponsor.serviceId);
     if (!medical && !services.length) return { kind: "refused", reason: "No documented medical necessity or verified assistance to this city supports an exception. Cash and unsupported claims do not substitute for grounds." };
-    if (kind === "permanent" && sponsored && new Set(services.map(r => r.needId)).size >= 2 && f.longStanding && f.fullReviewCapacity && !f.pendingLocalCase) {
+    const outstandingSentence = (f.localDispositions || []).some(d => d.verdict === "guilty" && !["completed", "none"].includes(d.sentenceStatus));
+    if (kind === "permanent" && sponsored && new Set(services.map(r => r.needId)).size >= 2 && f.longStanding && f.fullReviewCapacity && !f.pendingLocalCase && !outstandingSentence) {
       return { kind: "approved", reliefKind: "permanent", scope: "localBanishmentOnly", purpose: "Documented sustained civic cooperation with local institutional endorsement", reason: "The city authorizes lifting its own restriction after a long-standing ban, independently recorded service episodes and local endorsement. The original judgment and other cities' orders remain unchanged." };
     }
     return { kind: kind === "permanent" ? "counteroffer" : "approved", reliefKind: "temporary", scope: "visitorAnnexOnly", duration: VISIT_SECONDS,
-      purpose: medical ? "Limited sheltered recovery" : "Limited civic-service visit", reason: kind === "permanent" ? "The evidence supports only a bounded visit. Permanent relief requires a thirty-day standing ban, two distinct verified service episodes, institutional sponsorship, full review capacity and resolution of any separate local case; an allegation is not a conviction." : "A limited visitor-annex exception is authorized on verified grounds. It does not lift the wider ban or resolve custody. No treatment, supplies or onward city access is promised." };
+      purpose: medical ? "Limited sheltered recovery" : "Limited civic-service visit", reason: kind === "permanent" ? "The evidence supports only a bounded visit. Permanent relief requires a thirty-day standing ban, two distinct verified service episodes, institutional sponsorship, full review capacity, resolution of separate local cases and completion of their supported sentences; an allegation is not a conviction." : "A limited visitor-annex exception is authorized on verified grounds. It does not lift the wider ban or resolve custody. No treatment, supplies or onward city access is promised." };
   }
   function advance(p, facts, officials, now) {
     if (!["verifying", "deciding"].includes(p.status) || now < p.nextAt) return false;

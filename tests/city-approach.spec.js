@@ -174,6 +174,50 @@ test('receiving-city dismissal clears pending relief without granting admission 
   await configureGate(page, { sourceActorId: 'scientist' }); await reliefWork(page, 'reliefSponsor');
   s = await snapshot(page); expect(s.gates[0].relief.sponsorship).toBeTruthy(); expect(e.cases[0].judgment).toBeNull(); expect(errors).toEqual([]);
 });
+async function localTrialFixture(page) {
+  await fixture(page); await arrive(page); await work(page, 'inspect'); await advance(page, 180);
+  await configureGate(page, { open: true }); expect(await gateWork(page, 'cross')).toBe(true); await advance(page, 1530);
+  await reliefWork(page, 'courtDisclosure'); await reliefWork(page, 'courtCounsel', { counselKind: 'self' });
+  await reliefWork(page, 'courtHearing', { submission: 'securedBail', statement: 'notGuilty' }); await advance(page, 1000);
+  await reliefWork(page, 'courtBail'); await advance(page, 60); await reliefWork(page, 'trialOpen');
+}
+test('receiving-city trial proves local elements in a physical hearing and settles bail separately from its fine', async ({ page }) => {
+  test.setTimeout(360000); const errors = []; page.on('pageerror', e => errors.push(e.message)); await localTrialFixture(page);
+  const before = await snapshot(page);
+  await reliefWork(page, 'trialChallenge', { challenge: 'observation' });
+  await configureGate(page, { blockHearingPath: true }); expect(await gateWork(page, 'trialNotice')).toBe(false);
+  await configureGate(page, { blockHearingPath: false }); await reliefWork(page, 'trialNotice');
+  let s = await snapshot(page), t = s.gates[0].enforcement.cases[0].trial;
+  expect(t.notice.servedById).toBe('clerk-aster'); expect(t.permit.generalAdmission).toBe(false); expect(await gateWork(page, 'trialAttend')).toBe(false);
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState()); await advance(page, t.notice.trialAt - (await snapshot(page)).clock);
+  await reliefWork(page, 'trialAttend'); s = await snapshot(page); expect(s.roomId).toBe(s.gates[0].enforcement.hearingRoomId);
+  await configureGate(page, { prosecutorHealth: 0 }); await advance(page, 700); expect((await snapshot(page)).gates[0].enforcement.cases[0].trial.phase).toBe('prosecution');
+  await configureGate(page, { prosecutorHealth: 100 }); await advance(page, 700);
+  s = await snapshot(page); expect(s.gates[0].enforcement.cases[0].trial.phase).toBe('defenseReady');
+  await reliefWork(page, 'trialDefense'); await advance(page, 1500);
+  s = await snapshot(page); t = s.gates[0].enforcement.cases[0].trial; expect(t.judgment.verdict).toBe('guilty'); expect(t.findings.map(f => f.id)).toEqual(['identity', 'obstructiveAct', 'lawfulProcess', 'knowledge']);
+  const balance = s.money; await reliefWork(page, 'trialSentence', { submission: 'proportionateFine' }); await advance(page, 750);
+  s = await snapshot(page); t = s.gates[0].enforcement.cases[0].trial;
+  expect(t.phase).toBe('completed'); expect(s.roomId).toBe(s.gates[0].checkpointRoomId); expect(s.gates[0].enforcement.response.stage).toBe('released');
+  expect(s.money).toBe(balance + 50); expect(t.sentence.status).toBe('due'); expect(t.physicalRelease.mode).toBe('foot');
+  expect(s.gates[0].enforcement.cases[0].status).toBe('resolved'); expect(s.cases).toEqual(before.cases); expect(s.banishments).toEqual(before.banishments);
+  const fine = t.sentence.amount; await reliefWork(page, 'trialFine'); s = await snapshot(page); expect(s.money).toBe(balance + 50 - fine); expect(await gateWork(page, 'trialFine')).toBe(false);
+  await page.evaluate(() => window.helixHeresyDebug.advanceCityApproachForTest(0, { render: true })); await expect(page.locator('[data-city-trial="true"]')).toContainText('guilty');
+  const saved = s.gates[0].enforcement.cases[0]; await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState()); expect((await snapshot(page)).gates[0].enforcement.cases[0]).toEqual(saved);
+  expect(errors).toEqual([]);
+});
+test('receiving-city trial adjourns when return transport fails and later dismisses unsupported attribution', async ({ page }) => {
+  test.setTimeout(360000); const errors = []; page.on('pageerror', e => errors.push(e.message)); await localTrialFixture(page);
+  await reliefWork(page, 'trialNotice'); await work(page, 'returnBoard'); let s = await snapshot(page);
+  await advance(page, s.trips.at(-1).offer.flightSeconds + 90); s = await snapshot(page); expect(s.roomId).toBe(Aid.PAD);
+  await page.evaluate(() => window.helixHeresyDebug.configureCityApproachForTest({ condition: 0 }));
+  const trialAt = s.gates[0].enforcement.cases[0].trial.notice.trialAt; await advance(page, Math.max(1, trialAt - s.clock + 60));
+  s = await snapshot(page); let c = s.gates[0].enforcement.cases[0]; expect(c.trial.phase).toBe('adjourned'); expect(c.pretrial.legal.proceedings[0].release.escrowStatus).toBe('held'); expect(c.pretrial.legal.proceedings[0].fugitive.active).toBe(false); expect(c.judgment).toBeNull();
+  await page.evaluate(() => window.helixHeresyDebug.configureCityApproachForTest({ condition: 100, readyAt: 0 })); await arrive(page);
+  await configureGate(page, { sourceActorId: 'corrected-person' }); const balance = (await snapshot(page)).money;
+  await reliefWork(page, 'trialWithdraw'); await advance(page, 60); s = await snapshot(page); c = s.gates[0].enforcement.cases[0];
+  expect(c.trial.judgment.verdict).toBe('dismissed'); expect(c.status).toBe('resolved'); expect(s.money).toBe(balance + 50); expect(s.banishments[0].status).toBe('active'); expect(s.roomId).toBe(s.gates[0].checkpointRoomId); expect(errors).toEqual([]);
+});
 test('discretionary relief consumes actual service evidence, preserves counteroffer consent and expires without arrest', async ({ page }) => {
   test.setTimeout(360000); const errors = []; page.on('pageerror', e => errors.push(e.message));
   await fixture(page); await arrive(page); await work(page, 'inspect'); await advance(page, 180);
