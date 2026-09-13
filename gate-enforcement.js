@@ -22,7 +22,7 @@
     if (s.cases.some(c => c.crossingId === facts.crossingId)) return null;
     const c = { id: `${facts.cityId}:gate-case-${s.nextCase++}`, docket: `Gate ${facts.cityId} / ${s.nextCase - 1}`, cityId: facts.cityId, personId: facts.personId,
       typeId: "warrantObstruction", status: "referred", crossingId: facts.crossingId, occurredAt: now, sourceOrderId: facts.restriction.orderId,
-      evidence: clone(facts), custodyOrder: null, nextAt: now + 300, judgment: null, reason: "Witnessed alleged obstruction of a notified lawful exclusion order. A local judicial officer must review the evidence before arrest." };
+      evidence: clone({ ...facts, notice: s.warnings.find(w => w.orderId === facts.restriction.orderId && w.personId === facts.personId && w.at <= now) }), custodyOrder: null, nextAt: now + 300, judgment: null, reason: "Witnessed alleged obstruction of a notified lawful exclusion order. A local judicial officer must review the evidence before arrest." };
     s.cases.push(c); return c;
   }
   function authorize(c, official, facts, now) {
@@ -50,6 +50,6 @@
     else r.result = { kind: "upheld", reason: "The record applies and no relevant exception is established. Discretionary relief requires a separate petition." };
     r.key = reviewKey(facts); r.facts = clone(facts); r.status = "complete"; r.decidedAt = now; return true;
   }
-  function custodyActive(s) { return ["restraining", "escort", "booking", "escortCell", "jailed", "releaseEscort", "releaseCheckpoint"].includes(s?.response?.stage); }
+  function custodyActive(s) { return ["restraining", "escort", "booking", "escortCell", "jailed", "hearingEscort", "hearing", "hearingReturn", "releaseEscort", "releaseCheckpoint"].includes(s?.response?.stage); }
   return { create, applicable, warn, observe, authorize, reviewKey, requestReview, decideReview, custodyActive };
 });
