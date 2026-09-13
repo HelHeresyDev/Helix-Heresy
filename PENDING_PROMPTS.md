@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Receiving-City Trials and Local Dispositions
+1. Receiving-City Sentence Execution and Transfers
 2. Penal Legions and Wilderness Service
 3. World Integration: Economy and Logistics
 4. World Integration: Investigations and Institutional Pressure
@@ -89,9 +89,9 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Receiving-City Trials and Local Dispositions
+## 1. Receiving-City Sentence Execution and Transfers
 
-Discuss and implement the separate receiving-city trial consuming the saved pretrial handoff: disclosed crossing evidence, notice, applicable local law and exclusion order, historical permits, chosen counsel, custody reviews, release conditions, and refundable bail. Establish supported findings for every element before any conviction or new sanction. Silence, a not-guilty position, cancelled flights and genuinely unavailable routes are not false statements or deliberate failure to appear. Serve notice and a narrow attendance permit only with feasible physical attendance or an explicit adjournment; no teleportation to the original city's jail. Handle acquittal, dismissal, independently supported conviction, property and bail accounting, and final relief eligibility without reopening completed Penal Flight sentences. Keep long-term prison, penal-legion service and discretionary banishment relief distinct.
+Discuss the physical execution of saved receiving-city custodial sentence handoffs. Establish local sentence review, served notice, lawful interim status and any separately justified custody authority, then a real escort, vehicle, destination institution and admission before punishment starts. Apply saved local custody credit to a finite term; never restart the completed Penal Flight sentence, use the original city's prison by default, or count an unimplemented transfer wait as prison service. Missing staff, transport or capacity must produce explicit review and alternatives, not indefinite temporary jail. Preserve noncustodial dispositions, bail refunds, separate fines, the historical conviction, and city-local relief eligibility. Keep penal-legion missions as the next separately discussed playable path.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 

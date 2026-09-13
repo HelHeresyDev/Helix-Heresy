@@ -56,6 +56,12 @@ test('verified medical need supports limited relief even in separate custody, no
   expect(Relief.evaluate('permanent', f).kind).toBe('counteroffer');
   expect(Relief.evaluate('temporary', { ...f, medical: { ...f.medical, verified: false } }).kind).toBe('refused');
 });
+test('resolved local convictions remain visible and unfulfilled sentences restrict permanent relief', () => {
+  const f = { ...facts(), longStanding: true, services: [service('one'), service('two')], sponsor: { verified: true, cityId: 'a', personId: 'scientist', serviceId: 'one' },
+    localDispositions: [{ caseId: 'local', judgmentId: 'judgment', verdict: 'guilty', sentenceStatus: 'due' }] };
+  expect(Relief.evaluate('permanent', f).kind).toBe('counteroffer'); expect(f.pendingLocalCase).toBe(false);
+  f.localDispositions[0].sentenceStatus = 'completed'; expect(Relief.evaluate('permanent', f).kind).toBe('approved'); expect(f.localDispositions[0].verdict).toBe('guilty');
+});
 test('relief of one recognition order cannot bypass another active local order or a foreign city', () => {
   const f = { ...facts(), localOrderId: 'local-one' }, { s, p } = offered('temporary', f);
   Relief.accept(p, f, authority, 2800);

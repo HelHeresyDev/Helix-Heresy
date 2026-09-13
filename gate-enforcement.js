@@ -50,6 +50,6 @@
     else r.result = { kind: "upheld", reason: "The record applies and no relevant exception is established. Discretionary relief requires a separate petition." };
     r.key = reviewKey(facts); r.facts = clone(facts); r.status = "complete"; r.decidedAt = now; return true;
   }
-  function custodyActive(s) { return ["restraining", "escort", "booking", "escortCell", "jailed", "hearingEscort", "hearing", "hearingReturn", "releaseEscort", "releaseCheckpoint"].includes(s?.response?.stage); }
+  function custodyActive(s) { return ["restraining", "escort", "booking", "escortCell", "jailed", "hearingEscort", "hearing", "hearingReturn", "trialEscort", "trialHearing", "releaseEscort", "releaseCheckpoint"].includes(s?.response?.stage); }
   return { create, applicable, warn, observe, authorize, reviewKey, requestReview, decideReview, custodyActive };
 });
