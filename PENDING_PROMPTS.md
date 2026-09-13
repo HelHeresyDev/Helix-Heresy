@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Receiving-City Sentence Execution and Transfers
+1. Receiving-City Prison Transport, Custody, and Discharge
 2. Penal Legions and Wilderness Service
 3. World Integration: Economy and Logistics
 4. World Integration: Investigations and Institutional Pressure
@@ -89,9 +89,11 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Receiving-City Sentence Execution and Transfers
+## 1. Receiving-City Prison Transport, Custody, and Discharge
 
-Discuss the physical execution of saved receiving-city custodial sentence handoffs. Establish local sentence review, served notice, lawful interim status and any separately justified custody authority, then a real escort, vehicle, destination institution and admission before punishment starts. Apply saved local custody credit to a finite term; never restart the completed Penal Flight sentence, use the original city's prison by default, or count an unimplemented transfer wait as prison service. Missing staff, transport or capacity must produce explicit review and alternatives, not indefinite temporary jail. Preserve noncustodial dispositions, bail refunds, separate fines, the historical conviction, and city-local relief eligibility. Keep penal-legion missions as the next separately discussed playable path.
+Discuss and implement the physical continuation of the completed receiving-city sentence-review and transfer-planning flow. Consume its verified local sentence, documented credit ledger, served reporting notice, witnessed attendance and exclusive bed, vehicle, crew and fuel reservations. Revalidate expired or invalid holds rather than reviving them. Planning and reporting currently create no custody authority: establish any separately justified collection or surrender authority, then require a real escort, restraint and suppression where authorized, boarding, local travel, destination intake and admission before prison service starts. Materialize the receiving city's distinct corrections institution from its persistent registry rather than sending the scientist to the original prison or reusing the private rescue aircraft.
+
+Make the finite local prison stay playable, with physical routines, staff, property handling, communication, needs, lawful release and discharge. Apply verified prior local custody credit exactly once, preserve the actual unserved remainder, and never count free waiting or an unimplemented transfer as prison service. Missing staff, transport, route access or capacity must produce explicit postponement, released reservations and review instead of indefinite temporary jail or automatic evasion. Preserve timely reporting, independent restrictions, noncustodial dispositions, bail refunds, separate fines, historical convictions, completed Penal Flight and city-local relief eligibility. Keep penal-legion missions as the next separately discussed playable path; split additional prison systems into further prompts if needed to keep this pass bounded.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
