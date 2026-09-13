@@ -55,6 +55,7 @@
   const CastawayAssistance = window.HelixCastawayAssistance;
   const CityApproach = window.HelixCityApproach;
   const GateEnforcement = window.HelixGateEnforcement;
+  const CityPretrial = window.HelixCityPretrial;
   const BanishmentRelief = window.HelixBanishmentRelief;
   const WildernessSurvival = window.HelixWildernessSurvival;
   const WildernessBeasts = window.HelixWildernessBeasts;
@@ -15056,6 +15057,14 @@
         if (options.cancelCross) state.tasks = state.tasks.filter(t => !(t.data?.action === "gateEnforcement" && t.data.kind === "cross"));
         if (options.power != null) g.powerSeconds = options.power;
         if (options.reviewerHealth != null) e.reviewer.health = options.reviewerHealth;
+        if (options.prosecutorHealth != null) { ensureCityCourt(g, e); e.courtOfficials.prosecutor.health = options.prosecutorHealth; }
+        if (options.counselHealth != null) { ensureCityCourt(g, e); e.courtOfficials.public.health = options.counselHealth; }
+        if (options.blockHearingPath != null) {
+          materializeCityCourt(g, e); const map = ensureLabMap(), cell = { x: 24, y: 10, z: g.z };
+          map.terrain.constructedWalls = normalizeConstructedSurfaces([...(map.terrain.constructedWalls || []).filter(w => !sameMapCell(w.cell, cell)),
+            ...(options.blockHearingPath ? [{ cell, materialId: "steel", purpose: "wall", condition: 100, builtAt: state.clock }] : [])]);
+          bumpNavigationRevision("topology");
+        }
         persist();
       },
       cityApproachEntryDiagnostic: () => {
@@ -15076,7 +15085,7 @@
         const cityId = options.foreign ? "foreign-city" : flight.cityId;
         ensureCityApproach().gates.push(CityApproach.gate({ id: "test-city-gate", cityId, cellId: "planet-cell:00001", label: "Aster Reception", createdAt: state.clock,
           institutionId: "aster-administration", institutionName: "Aster Civic Administration", capacityBand: options.conditional ? "strained" : "functional", temperatureC: 18,
-          testEnforcementPolicy: { lawId: "aster-law:warrantObstruction", judiciaryId: "aster-judiciary", policeId: "aster-watch", jailInstitutionId: "aster-jail" },
+          testEnforcementPolicy: { lawId: "aster-law:warrantObstruction", judiciaryId: "aster-judiciary", prosecutionId: "aster-prosecution", releaseRule: "riskBased", policeId: "aster-watch", jailInstitutionId: "aster-jail" },
           testReliefAuthority: { id: "aster-sovereign", name: "Aster Charter Council", charterId: "aster-charter", cityId, role: "sovereign", status: "available" },
           clerk: { id: "clerk-aster", name: "Lena Moss", health: 100, status: "alive", mapCell: { x: 10, y: 6, z: 16 } }, guard: { id: "guard-aster", name: "Jon Vale", health: 100, status: "alive", mapCell: { x: 12, y: 7, z: 16 } }, testDistanceKm: 60, testRecognition: options.foreign ? "verified" : "domestic" }));
         if (options.companionRelief) for (const b of ensurePenalFlights().banishments.filter(b => b.personId !== "scientist")) b.status = "lifted";
@@ -61815,6 +61824,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (reception) for (const person of [reception.clerk, reception.guard]) if (cityApproachNear("scientist", person.mapCell, 8)) setLabMapOverlayEntry(assignments, person.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: person.name, title: person.id === reception.clerk.id ? "City identity clerk" : "City reception gate guard", value: person.status === "dead" ? "†" : person.id === reception.clerk.id ? "C" : "G", source: "Direct observation", target: { kind: "tile", tile: person.mapCell } }, map);
     const reviewer = reception?.enforcement?.materialized && reception.enforcement.reviewer;
     if (reviewer && cityApproachNear("scientist", reviewer.mapCell, 8)) setLabMapOverlayEntry(assignments, reviewer.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: reviewer.name, title: "Receiving-city judicial reviewer", value: reviewer.status === "dead" ? "†" : "J", source: "Direct observation", target: { kind: "tile", tile: reviewer.mapCell } }, map);
+    if (reception?.enforcement?.hearingMaterialized) for (const [role, person] of Object.entries(reception.enforcement.courtOfficials)) if (cityApproachNear("scientist", person.mapCell, 8)) setLabMapOverlayEntry(assignments, person.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: person.name, title: `Receiving-city ${role}`, value: person.status === "dead" ? "†" : role === "prosecutor" ? "P" : "L", source: "Direct observation", target: { kind: "tile", tile: person.mapCell } }, map);
     for (const actor of state.penalFlights?.actors || []) if (penalActorObserved(actor)) setLabMapOverlayEntry(assignments, actor.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: actor.name, title: actor.status === "dead" ? "Physical remains" : "Fellow castaway; not an ally", value: actor.status === "dead" ? "†" : "P", source: "Direct observation", target: { kind: "tile", tile: actor.mapCell } }, map);
     const clinician = state.medicalExtraction?.clinic?.clinician;
     if (clinician && clinicLocal() && !actorIsIncapacitated("scientist") && sensoryLineOfSight(scientistMapCell(), clinician.mapCell)) setLabMapOverlayEntry(assignments, clinician.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: clinician.name, title: "Municipal clinician", value: "C", source: "Direct observation", target: { kind: "tile", tile: clinician.mapCell } }, map);
@@ -75933,7 +75943,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
   }
   function cityApproachPoint(kind, g = cityApproachGate()) { return { ...({ landing: CityApproach.LANDING, desk: CityApproach.DESK, entry: CityApproach.ENTRY }[kind]), z: g?.z ?? CityApproach.Z }; }
-  function cityReceptionRoomIds() { return ensureCityApproach().gates.flatMap(g => [g.checkpointRoomId, g.annexRoomId, g.enforcement?.officeRoomId, g.enforcement?.cellRoomId].filter(Boolean)); }
+  function cityReceptionRoomIds() { return ensureCityApproach().gates.flatMap(g => [g.checkpointRoomId, g.annexRoomId, g.enforcement?.officeRoomId, g.enforcement?.cellRoomId, g.enforcement?.hearingRoomId].filter(Boolean)); }
   function cityApproachDistance(g, p) {
     if (g?.testDistanceKm != null) return g.testDistanceKm;
     const map = activeWorldRecord?.generatedData?.strategicMap;
@@ -76198,7 +76208,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const rng = seedRng(`${state.seed}:gate-reviewer:${g.cityId}`);
     g.enforcement = { ...GateEnforcement.create(), jail: JailCustody.defaultState(),
       officeRoomId: `gate-jail-office-${g.cityId.replace(/[^a-zA-Z0-9_-]/g, "")}`, cellRoomId: `gate-jail-cell-${g.cityId.replace(/[^a-zA-Z0-9_-]/g, "")}`,
-      policy: g.testEnforcementPolicy || { lawId: law?.id || null, judiciaryId: government?.roleAssignments.judiciary || null, policeId: government?.roleAssignments.civilWatch || null, jailInstitutionId: government?.roleAssignments.temporaryJailAuthority || null },
+      policy: g.testEnforcementPolicy || { lawId: law?.id || null, judiciaryId: government?.roleAssignments.judiciary || null, prosecutionId: government?.roleAssignments.publicProsecution || null, releaseRule: code?.procedure?.pretrialReleaseRule || "riskBased", policeId: government?.roleAssignments.civilWatch || null, jailInstitutionId: government?.roleAssignments.temporaryJailAuthority || null },
       reviewer: { id: `gate-magistrate:${g.cityId}`, name: `${BLACK_MARKET_FIRST_NAMES[Math.floor(rng() * BLACK_MARKET_FIRST_NAMES.length)]} ${BLACK_MARKET_LAST_NAMES[Math.floor(rng() * BLACK_MARKET_LAST_NAMES.length)]}`, institutionId: g.testEnforcementPolicy?.judiciaryId || government?.roleAssignments.judiciary || null, health: 100, status: "alive", mapCell: { x: 24, y: 5, z: g.z } } };
     return g.enforcement;
   }
@@ -76234,7 +76244,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       identityVerified: Boolean(identity?.present && ["domestic", "verified", "automatic"].includes(identity.recognition)), sourceAvailable: Boolean(source),
       restrictionApplies: Boolean(b && BanishmentRelief.localOrders(b, g.cityId).includes(localOrderId) && !BanishmentRelief.grantFor(s, g.cityId, b.personId, b.orderId, localOrderId, state.clock, true)), authorityId: s.authority?.id || null,
       medical, services, sponsor, longStanding: Boolean(b && state.clock - b.releasedAt >= 30 * 86400), fullReviewCapacity: !["fragile", "strained"].includes(g.capacityBand),
-      pendingLocalCase: Boolean(g.enforcement?.cases.some(c => !["unsupported", "dismissedIdentityError"].includes(c.status))) };
+      pendingLocalCase: Boolean(g.enforcement?.cases.some(c => !CityPretrial.closed(c))) };
   }
   function cityAdmissionDecision(person, g, evidence) {
     const bans = gateReviewedBanishments(g), grant = bans.map(b => b.personId === person.id && cityReliefGrant(b, g)).find(Boolean);
@@ -76318,14 +76328,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       sourceAvailable: Boolean(source), wrongIdentity: Boolean(restriction && source && source.actorId !== "scientist"), restrictionApplies: Boolean(restriction),
       permitCoversCheckpoint: CityApproach.checkpointAuthorized(t, "scientist"), permitCoversAnnex: Boolean(restriction && cityReliefGrant(restriction, g)), channel: g.powerSeconds > 0, restrictionStatus: restriction?.status || "notApplicable" };
   }
-  function gateEnforcementPhase() { const e = currentGateEnforcement(); return `${e?.response?.stage || "none"}:${e?.cases.map(c => c.status).join(",")}:${e?.reviews.map(r => r.status).join(",")}:${state.penalFlights?.assistance?.cityApproach?.gates.map(g => g.relief?.petitions.map(p => `${p.status}:${p.warnedAt || 0}`).join(",")).join(";")}`; }
+  function gateEnforcementPhase() { const e = currentGateEnforcement(); return `${e?.response?.stage || "none"}:${e?.cases.map(c => `${c.status}:${c.pretrial?.phase}:${c.pretrial?.delay}`).join(",")}:${e?.reviews.map(r => r.status).join(",")}:${state.penalFlights?.assistance?.cityApproach?.gates.map(g => g.relief?.petitions.map(p => `${p.status}:${p.warnedAt || 0}`).join(",")).join(";")}`; }
   function nextGateEnforcementEvent() {
     const e = currentGateEnforcement(), reliefAt = nextBanishmentReliefEvent(); if (!e) return reliefAt;
     const g = cityApproachGate(), available = g.powerSeconds > 0 && e.reviewer.status === "alive" && e.reviewer.health >= 50;
     const times = [...e.cases.filter(c => c.status === "referred").map(c => Math.max(state.clock + (available ? 1 : 60), c.nextAt)), ...e.reviews.filter(r => r.status === "pending").map(r => Math.max(state.clock + (available ? 1 : 60), r.dueAt))];
     if (reliefAt != null) times.push(reliefAt);
+    for (const c of e.cases) if (c.pretrial) for (const at of [c.pretrial.nextAt, c.pretrial.reviewAt]) if (at != null) times.push(Math.max(state.clock + (available && !c.pretrial.delay ? 1 : 60), at));
     if (e.intent) times.push(state.clock + 1);
-    if (e.response && !["jailed", "searching", "released", "withdrawn"].includes(e.response.stage)) times.push(g.guard.health < 50 || g.guard.status !== "alive" ? state.clock + 60 : ["restraining", "booking"].includes(e.response.stage) ? Math.max(state.clock + 1, e.response.dueAt) : state.clock + 1);
+    if (e.response && !["jailed", "searching", "released", "withdrawn", "hearing"].includes(e.response.stage)) times.push(g.guard.health < 50 || g.guard.status !== "alive" ? state.clock + 60 : ["restraining", "booking"].includes(e.response.stage) ? Math.max(state.clock + 1, e.response.dueAt) : state.clock + 1);
     const jailEvent = e.jail?.stays.some(s => s.status === "active") && JailCustody.nextEvent(e.jail, state.clock); if (jailEvent) times.push(jailEvent.at);
     return times.length ? Math.min(...times) : null;
   }
@@ -76352,6 +76363,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function gateEnforcementWorkReason(d) {
     const g = cityApproachGate(), e = currentGateEnforcement(), t = currentCityApproach(); if (!g || !e || t?.id !== d.tripId) return "This local gate proceeding is no longer accessible.";
     if (GateEnforcement.custodyActive(e) && e.response.stage !== "jailed") return "Wait until the physical escort and intake have finished.";
+    if (d.kind.startsWith("court")) return cityCourtWorkReason(d, g, e);
     if (d.kind.startsWith("relief")) return cityReliefWorkReason(d, g, e);
     if (d.kind === "cross") {
       if (GateEnforcement.custodyActive(e)) return "The scientist is already physically restrained.";
@@ -76375,13 +76387,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (!options.confirmed && !window.confirm("Deliberately cross the physically open gate despite the exclusion notice? An observed, identified breach may support a NEW local case and physical arrest. The old sentence does not restart. You can remain lawfully at the checkpoint or use your reserved return.")) return false;
       e.intent = { id: `gate-cross-${state.nextTaskNumber}`, at: state.clock, tripId: t.id }; e.previousCell = cleanMapCell(scientistMapCell());
     }
-    const queued = queueSurveyWork("gateEnforcement", cell, { ...d, label: `Local gate: ${kind}`, workSeconds: kind === "cross" ? 1 : kind === "speakCounsel" ? 1800 : 60 }, options);
+    const queued = queueSurveyWork("gateEnforcement", cell, { ...d, label: `Local gate: ${kind}`, workSeconds: kind === "cross" ? 1 : ["speakCounsel", "courtConference"].includes(kind) ? 1800 : 60 }, options);
     if (!queued && kind === "cross") e.intent = null; return queued;
   }
   function completeGateEnforcementWork(task) {
     if (task.data?.action !== "gateEnforcement") return false;
     const d = task.data, reason = gateEnforcementWorkReason(d); if (reason) { surveyEvent(reason); return true; }
     const g = cityApproachGate(), e = ensureGateEnforcement(g);
+    if (d.kind.startsWith("court")) { completeCityCourtWork(d, g, e); return true; }
     if (d.kind.startsWith("relief")) { completeCityReliefWork(d, g, e); return true; }
     if (d.kind === "cross") { surveyEvent("The movement completed physically. Any local allegation depends on observation, identity, notice and lawful scope—not this button press."); return true; }
     if (d.kind === "review") {
@@ -76445,6 +76458,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (crossed) {
       const c = GateEnforcement.observe(e, { crossed, observed: seen, identified: Boolean(decision?.identityVerified), knowing: Boolean(e.intent?.tripId === t.id), prohibited: Boolean(restriction && !cityReliefGrant(restriction, g) && !CityApproach.canEnter(decision, t.acceptedConditions)),
         localLaw: e.policy.lawId && e.policy.judiciaryId && e.policy.policeId && e.policy.jailInstitutionId ? { id: e.policy.lawId, typeId: "warrantObstruction" } : null,
+        permits: { checkpoint: clonePlainObject(t.permit), admission: clonePlainObject(decision || null), annexAuthorized: Boolean(restriction && cityReliefGrant(restriction, g) || CityApproach.canEnter(decision, t.acceptedConditions)) },
         restriction: restriction || null, personId: "scientist", cityId: g.cityId, crossingId: e.intent?.id || `uncommanded:${state.clock}`, observerId: g.guard.id, observerCell: g.guard.mapCell, cell }, state.clock);
       if (c) { surveyEvent(`${g.guard.name} witnessed the identified, notified crossing and referred ${c.docket} for local judicial review. No arrest authority or conviction is presumed.`); state.paused = true; }
       e.intent = null;
@@ -76464,6 +76478,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (atGate) surveyEvent(`${e.reviewer.name}: ${r.result.reason}`); state.paused = true;
     }
     if (e.jail.stays.some(s => s.status === "active")) e.jail = JailCustody.advance(e.jail, state.clock).state;
+    updateCityCourt(g, e, elapsed);
     const serviceable = e.cases.find(c => c.status === "awaitingService" && c.custodyOrder?.status === "active");
     if (serviceable && seen && (!e.response || ["released", "withdrawn"].includes(e.response.stage))) { e.response = { caseId: serviceable.id, stage: "challenged", lastSeen: cell, challengedAt: state.clock, contactSeconds: 0 }; surveyEvent(`${g.guard.name} serves ${serviceable.custodyOrder.id} and orders surrender for temporary local custody. You may submit or physically withdraw; retreat does not erase the witnessed allegation.`); state.paused = true; return 1; }
     const response = e.response; if (!response || elapsed <= 0 || ["jailed", "released", "withdrawn"].includes(response.stage)) return 0;
@@ -76489,11 +76504,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (gateEscortStep(g, gatePoint("property", g), true)) {
         for (const id of e.propertyIds || []) { const s = state.physicalItemStacks.find(s => s.id === id); if (s && s.roomId === e.officeRoomId) { s.reservedTaskId = ""; if (actorInventoryCanCarry("scientist", s, s.quantity)) { s.carriedBy = "scientist"; s.roomId = scientistRoomId(); s.cell = scientistMapCell(); } } }
         const collar = state.physicalItemStacks.find(s => s.id === e.collarStackId); if (collar?.carriedBy === "scientist") { collar.carriedBy = ""; collar.roomId = e.officeRoomId; collar.cell = gatePoint("property", g); }
-        if (stay) e.jail = JailCustody.release(e.jail, stay.id, state.clock, "The local identity-error correction withdrew this custody order; property was returned at the physical desk.").state;
+        if (stay) e.jail = JailCustody.release(e.jail, stay.id, state.clock, "Local judicial release authorized this escort; available receipted property was processed at the physical desk. Uncarried property remains here.").state;
         response.stage = "releaseCheckpoint"; syncActorInventories();
       }
     } else if (response.stage === "releaseCheckpoint") {
-      if (gateEscortStep(g, cityApproachPoint("desk", g), true)) { response.stage = "released"; state.paused = true; }
+      if (gateEscortStep(g, cityApproachPoint("desk", g), true)) { response.stage = "released"; if (c.pretrial) CityPretrial.released(c.pretrial, state.clock, { mode: "foot", cityId: g.cityId, destinationRoomId: g.checkpointRoomId, arrivedAt: state.clock, officerId: g.guard.id, propertyIds: e.propertyIds || [] }); state.paused = true; }
     }
     return 1;
   }
@@ -76517,7 +76532,120 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       for (const r of stay.communications.requests) if (r.status === "ready") button("Use Scheduled Counsel Session (30 minutes)", () => queueGateWork("speakCounsel", { requestId: r.id }), surveyBusy());
       button("Drink One Local Jail Water Portion", () => queueGateWork("water"), surveyBusy()); button("Eat One Local Jail Meal", () => queueGateWork("food"), surveyBusy());
     }
-    panel.append(renderBanishmentRelief());
+    panel.append(renderCityCourt(g, e), renderBanishmentRelief());
+    return panel;
+  }
+  function ensureCityCourt(g, e) {
+    if (e.courtOfficials) return;
+    const rng = seedRng(`${state.seed}:local-court:${g.cityId}`), name = () => `${BLACK_MARKET_FIRST_NAMES[Math.floor(rng() * BLACK_MARKET_FIRST_NAMES.length)]} ${BLACK_MARKET_LAST_NAMES[Math.floor(rng() * BLACK_MARKET_LAST_NAMES.length)]}`;
+    const actor = (role, institutionId, x, y) => ({ id: `${g.cityId}:court:${role}`, name: name(), institutionId, health: 100, status: "alive", mapCell: { x, y, z: g.z } });
+    e.courtOfficials = { prosecutor: actor("prosecutor", e.policy.prosecutionId, 27, 12), public: actor("publicCounsel", e.policy.judiciaryId, 23, 14), retained: actor("retainedCounsel", e.policy.judiciaryId, 25, 14) };
+    e.hearingRoomId = `gate-hearing-${g.cityId}`;
+  }
+  function materializeCityCourt(g, e) {
+    if (e.hearingMaterialized) return;
+    materializeGateJail(g, e); ensureCityCourt(g, e);
+    const room = normalizeRoom({ id: e.hearingRoomId, name: `${g.label} First-Appearance Hearing Room`, purposeId: "corridor", facilityClass: "receivingCityCourt", connections: [e.officeRoomId],
+      description: "Physical receiving-city hearing room for a separate local case, not the original trial or a long-term prison.", geometry: { lengthM: 9, widthM: 5, heightM: 3, floorAreaM2: 45, volumeM3: 135 } });
+    state.rooms = normalizeRooms([...state.rooms, room]);
+    const map = ensureLabMap(), rect = { roomId: room.id, x: 22, y: 11, z: g.z, width: 9, height: 5 }, cells = rectangularRoomCells(rect), doorCell = { x: 24, y: 10, z: g.z }, id = `door-city-jail-${g.cityId}-hearing`;
+    map.rooms[room.id] = normalizeLabMapRoom({ ...rect, cells, anchor: cells[0] }, room);
+    map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...cells, doorCell]);
+    map.terrain.constructedFloors = normalizeConstructedSurfaces([...(map.terrain.constructedFloors || []), ...[...cells, doorCell].map(cell => ({ cell, materialId: "steel", purpose: "floor", supportSpanM: 24, condition: 100, builtAt: state.clock }))]);
+    map.doors[id] = normalizeLabMapDoor({ id, cell: doorCell, roomIds: [e.officeRoomId, room.id], frameAxis: "eastWest", passageAxis: "northSouth" }, id, map.rooms);
+    e.doorIds.push(id); state.doors = normalizeDoors(state.doors, state.rooms, map); Object.assign(state.doors[id], { state: DOOR_STATE_CLOSED, lockState: DOOR_LOCK_LOCKED, accessRuleId: "restricted" });
+    state.roomStockpiles[room.id] = emptyRoomStockpile(); e.hearingMaterialized = true; bumpNavigationRevision("topology");
+  }
+  function cityCourtCurrent(e = currentGateEnforcement()) { return e?.cases.find(c => c.id === e.response?.caseId)?.pretrial; }
+  function cityCourtFacts(g, e, c) {
+    const s = c.pretrial, p = CityPretrial.proceeding(s), option = p.counsel.options.find(o => o.id === p.counsel.selectedOptionId), actor = e.courtOfficials[option?.kind];
+    return { channel: g.powerSeconds > 0, judge: e.reviewer, prosecutor: e.courtOfficials.prosecutor, sourcePersonId: gateSourceRecord(c.sourceOrderId)?.actorId,
+      present: scientistRoomId() === e.hearingRoomId && [e.reviewer, e.courtOfficials.prosecutor].every(a => labMapCellRoomId(a.mapCell) === e.hearingRoomId),
+      counselReady: Boolean(option && (option.kind === "self" || CityPretrial.able(actor) && labMapCellRoomId(actor.mapCell) === e.hearingRoomId && p.counsel.paid && p.counsel.conferences.length)), balance: ensureEconomy().money,
+      // No danger is inferred from the old sentence, the plea, poverty or an unavailable aircraft.
+      risks: [] };
+  }
+  function cityCourtWorkReason(d, g, e) {
+    const s = cityCourtCurrent(e), p = CityPretrial.proceeding(s);
+    if (!s || !p || ![e.cellRoomId, g.checkpointRoomId].includes(scientistRoomId())) return "This case must be accessed through its local jail or permitted checkpoint.";
+    if (g.powerSeconds <= 0) return "The actual local records and confidential counsel terminal has no power.";
+    if (d.kind === "courtDisclosure") return s.phase === "disclosurePending" ? "" : "The local prosecutor has not prepared a new disclosure packet.";
+    if (d.kind === "courtCounsel") return s.phase === "preparing" && (!p.counsel.selectedOptionId || !p.counsel.paid && p.counsel.options.some(o => o.id === p.counsel.selectedOptionId && o.kind === "retained") && d.counselKind !== "retained") && ["self", "public", "retained"].includes(d.counselKind) ? "" : "Choose representation after disclosure. An unpaid private retainer may be replaced with public counsel or self-representation.";
+    const option = p.counsel.options.find(o => o.id === p.counsel.selectedOptionId);
+    if (d.kind === "courtRetainer") return option?.kind === "retained" && !p.counsel.paid && ensureEconomy().money >= option.cost ? "" : "A selected, unpaid retainer and sufficient funds are required.";
+    if (d.kind === "courtConference") return option && option.kind !== "self" && CityPretrial.able(e.courtOfficials[option.kind]) && p.counsel.paid && !p.counsel.conferences.length ? "" : "Select available counsel and settle any agreed retainer; this case's conference must still be outstanding.";
+    if (d.kind === "courtHearing") return CityPretrial.requirement(s);
+    if (d.kind === "courtBail") return s.phase === "bailPending" && p.release.escrowStatus === "due" && ensureEconomy().money >= p.release.bailAmount ? "" : "Only the outstanding ordered bail may be deposited; insufficient funds can be raised at custody review.";
+    return "Unknown local court action.";
+  }
+  function completeCityCourtWork(d, g, e) {
+    const c = e.cases.find(c => c.id === e.response?.caseId), s = c.pretrial;
+    if (d.kind === "courtDisclosure") CityPretrial.disclose(s, state.clock);
+    else if (d.kind === "courtCounsel") CityPretrial.counsel(s, d.counselKind, state.clock);
+    else if (d.kind === "courtRetainer") ensureEconomy().money -= CityPretrial.payCounsel(s, ensureEconomy().money, state.clock);
+    else if (d.kind === "courtConference") CityPretrial.conference(s, state.clock);
+    else if (d.kind === "courtBail") ensureEconomy().money -= CityPretrial.bail(s, ensureEconomy().money, state.clock);
+    else if (d.kind === "courtHearing" && CityPretrial.request(s, c, d.submission || "recognizance", d.statement || "silent", state.clock)) { materializeCityCourt(g, e); e.response.stage = "hearingEscort"; }
+    surveyEvent(`Local court: ${s.phase}. ${s.phase === "escortPending" ? "A named officer must escort you to the local hearing room. Court access does not grant city admission." : "Only this receiving-city case was updated."}`);
+  }
+  function cityCourtStaffStep(g, e, actor, target) {
+    if (!CityPretrial.able(actor)) return false;
+    const path = labMapPathBetweenCells(actor.mapCell, target, { map: ensureLabMap(), actor, ignoreDoors: true, ignoreDoorSecurity: true, ignoreAccessPolicy: true });
+    if (!path.length) return false;
+    const next = path[1] || path[0];
+    for (const id of e.doorIds) if (sameMapCell(next, ensureLabMap().doors[id]?.cell) || sameMapCell(actor.mapCell, ensureLabMap().doors[id]?.cell)) { Object.assign(state.doors[id], { state: DOOR_STATE_OPEN, lockState: DOOR_LOCK_UNLOCKED }); bumpNavigationRevision("door"); }
+    actor.mapCell = cleanMapCell(next); return sameMapCell(next, target);
+  }
+  function updateCityCourt(g, e, elapsed) {
+    const c = e.cases.find(c => c.id === e.response?.caseId); if (!c) return;
+    if (!c.pretrial && e.response.stage === "jailed" && !CityPretrial.closed(c)) { ensureCityCourt(g, e); c.pretrial = CityPretrial.open(c, e.policy, { ...e.courtOfficials, judge: e.reviewer }, state.clock); }
+    const s = c.pretrial; if (!s) return;
+    let changed = false;
+    if (CityPretrial.closed(c) && s.phase !== "dismissed") changed = CityPretrial.dismiss(s, c, c.reason, state.clock);
+    changed = CityPretrial.screen(s, c, cityCourtFacts(g, e, c), state.clock) || changed;
+    changed = CityPretrial.tick(s, state.clock) || changed;
+    ensureEconomy().money += CityPretrial.refund(s);
+    const r = e.response;
+    if (["dismissed", "releaseOrdered"].includes(s.phase) && !["releaseEscort", "releaseCheckpoint", "released"].includes(r.stage)) { r.stage = "releaseEscort"; if (c.custodyOrder?.status === "active") { c.custodyOrder.status = "releaseOrdered"; c.custodyOrder.reviewAt = null; } }
+    if (elapsed > 0 && r.stage === "hearingEscort") {
+      const available = g.guard.health >= 50 && g.guard.status === "alive" && CityPretrial.able(e.reviewer) && CityPretrial.able(e.courtOfficials.prosecutor) && g.powerSeconds > 0;
+      if (available) {
+        const judgeReady = cityCourtStaffStep(g, e, e.reviewer, { x: 28, y: 14, z: g.z });
+        const arrived = gateEscortStep(g, { x: 24, y: 12, z: g.z }, true);
+        if (arrived && judgeReady && CityPretrial.begin(s, cityCourtFacts(g, e, c), state.clock)) { r.stage = "hearing"; s.delay = ""; changed = true; }
+        else s.delay = "The hearing awaits physical arrival of the defendant, judge and available counsel. Obstructed routes do not teleport participants.";
+      } else s.delay = "The named officer, judicial participants or powered records are unavailable. The escort and hearing are delayed, not missed.";
+    } else if (r.stage === "hearing") {
+      if (CityPretrial.decide(s, c, cityCourtFacts(g, e, c), state.clock)) { r.stage = ["dismissed", "releaseOrdered"].includes(s.phase) ? "releaseEscort" : "hearingReturn"; changed = true; }
+      else if (state.clock >= s.nextAt) s.delay = "The hearing cannot conclude without its present, available participants and powered records.";
+    } else if (elapsed > 0 && r.stage === "hearingReturn" && g.guard.health >= 50 && g.guard.status === "alive") {
+      if (gateEscortStep(g, gatePoint("cell", g), true)) { r.stage = "jailed"; for (const id of e.doorIds) Object.assign(state.doors[id], { state: DOOR_STATE_CLOSED, lockState: DOOR_LOCK_LOCKED }); bumpNavigationRevision("door"); changed = true; }
+    }
+    if (changed) { surveyEvent(`Receiving-city court: ${s.phase}. ${s.delay || c.reason}`); state.paused = true; }
+  }
+  function renderCityCourt(g, e) {
+    const panel = document.createElement("section"), s = cityCourtCurrent(e); panel.dataset.cityPretrial = "true";
+    if (!s) return panel;
+    const p = CityPretrial.proceeding(s), button = (label, kind, data = {}) => { const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.disabled = surveyBusy() || Boolean(cityCourtWorkReason({ kind, ...data }, g, e)); b.onclick = () => queueGateWork(kind, data); panel.append(b); };
+    panel.append(textEl("strong", "Receiving-City First Appearance"), textEl("p", `${p.docket} · ${s.phase}. Judge ${p.court.judge.name}; prosecutor ${p.court.prosecutor.name}. ${s.delay}`));
+    panel.append(textEl("p", "This court screens the new allegation and reviews custody; it does not decide guilt or sentence. Silence and a not-guilty position add no false-statement charge. The old conviction and banishment remain separate."));
+    if (s.reviewAt != null) panel.append(textEl("p", `Next custody review due: ${formatClock(s.reviewAt)}. Unavailable staff, obstructed paths or transport cancellations do not create failure to appear.`));
+    button("Receive and Review Local Disclosure", "courtDisclosure");
+    if (p.discovery.reviewedAt != null) {
+      const details = document.createElement("details"), summary = document.createElement("summary"); summary.textContent = "Saved crossing, notice, local law, exclusion order, permissions and custody order";
+      details.append(summary, textEl("pre", JSON.stringify(s.packet, null, 2))); panel.append(details);
+    }
+    for (const o of p.counsel.options) button(`${o.kind === "self" ? "Represent Yourself" : `Choose ${o.kind} counsel: ${o.name}`} (${formatMoney(o.cost)})`, "courtCounsel", { counselKind: o.kind });
+    button("Pay Selected Counsel's 150-Credit Retainer", "courtRetainer"); button("Private Case Conference (30 minutes)", "courtConference");
+    for (const [submission, label] of [["recognizance", "Recognizance"], ["strictConditions", "Narrow Conditions"], ["securedBail", "Refundable Bail (up to 50 credits)"]]) {
+      button(`Request Physical Hearing — ${label}; Remain Silent`, "courtHearing", { submission, statement: "silent" });
+      button(`Request Physical Hearing — ${label}; Contest Allegation`, "courtHearing", { submission, statement: "notGuilty" });
+    }
+    button("Deposit Ordered Refundable Bail", "courtBail");
+    for (const review of s.reviews) panel.append(textEl("p", `${formatClock(review.at)}: ${review.kind}. ${review.reasons.join(" ")}`));
+    if (p.release.escrowStatus !== "none") panel.append(textEl("p", `Bail: ${formatMoney(p.release.bailAmount)} · ${p.release.escrowStatus}. Security, not a fine.`));
+    if (s.permit) panel.append(textEl("p", `Court permit ${s.permit.id}: supervised checkpoint, hearing and egress only; no general admission. Release uses the property desk and then the real checkpoint; transport is not supplied by the court.`));
+    if (s.handoff) panel.append(textEl("p", "Supported case handed off for a separate receiving-city trial. No trial date has been served; the future trial must establish feasible attendance before treating any absence as deliberate. Release does not dismiss the charge."));
     return panel;
   }
   function renderBanishmentRelief() {
@@ -77810,7 +77938,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!path.length || !deliberateGateCrossing && pathAccessViolations(state.scientist, path).length) return false;
     const travelSeconds = mapPathTravelDistanceMeters(path, ensureLabMap()) / scientistMoveSpeedMps();
     // A scheduled conversation has a fixed duration, unlike fatigue-sensitive physical work.
-    const workMultiplier = action === "gateEnforcement" && data.kind === "speakCounsel" ? 1 : WildernessSurvival.fatigueMultiplier(state.wildernessSurvival);
+    const workMultiplier = action === "gateEnforcement" && ["speakCounsel", "courtConference"].includes(data.kind) ? 1 : WildernessSurvival.fatigueMultiplier(state.wildernessSurvival);
     const task = { id: `task-${state.nextTaskNumber++}`, type: "surveyExpeditionWork", label: data.label || (action === "pack" ? `Pack ${inventoryItemLabel(data.itemKey)}` : "Walk to and board survey vehicle"), createdAt: state.clock, dueAt: state.clock + travelSeconds + (data.workSeconds || 10) * workMultiplier,
       data: { ...data, action, ...(deliberateGateCrossing ? { accessOverrideAll: true } : {}), toCell: cleanMapCell(cell), toRoomId: labMapCellRoomId(cell), mapPath: path, movement: createScientistMovementRecord(path, travelSeconds, state.clock, { intent: "survey" }) } };
     state.tasks.push(task);
