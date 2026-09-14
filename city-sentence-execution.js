@@ -79,6 +79,7 @@
   }
   function postpone(s, resources, reason, now) {
     releaseResources(s, resources, reason, now);
+    if (s.custodyAuthority?.status === 'issued') s.custodyAuthority.status = 'withdrawn';
     if (s.notice) { s.notice.status = "postponed"; const i = s.notices.findIndex(n => n.id === s.notice.id); if (i >= 0) s.notices[i] = clone(s.notice); }
     s.interim = "releasedPendingLocalExecutionReview";
     s.phase = "postponed"; s.reviewAt = now + 14400; s.reviewDue = false; s.nextAt = s.reviewAt; s.delay = `${reason} Interim release continues; no arrest, evasion finding, new charge or sentence service is inferred.`;
@@ -87,14 +88,14 @@
   function serve(s, c, resources, f, now) {
     if (s.phase !== "reserved" || !f.channel || !f.atCheckpoint || !able(f.clerk) || now >= s.plan.expiresAt || resourceReason(s, resources, s.plan) || legalReason(s, c, f) || s.review.key !== reviewKey(c, f)) return false;
     s.notice = { id: `${s.id}:notice-${s.notices.length + 1}`, servedAt: now, servedById: f.clerk.id, reviewId: s.review.id, sentenceId: s.sentenceId, planId: s.plan.id, cityId: s.cityId, personId: s.personId,
-      reportingRoomId: f.checkpointRoomId, reportAt: now + 7200, reportBy: now + 10800, status: "served", scope: "checkpointReportingAndEgressOnly", custodyAuthorized: false, physicalTransferImplemented: false };
+      reportingRoomId: f.checkpointRoomId, reportAt: now + 7200, reportBy: now + 10800, status: "served", scope: "checkpointReportingAndEgressOnly", custodyAuthorized: false, physicalTransferImplemented: true };
     s.notices.push(clone(s.notice)); s.plan.expiresAt = s.notice.reportBy; s.phase = "noticeServed"; s.nextAt = s.notice.reportAt; s.interim = "releasedPendingNotifiedCollection";
-    s.history.push({ at: now, action: "noticeServed", reason: "Report to the named checkpoint after two hours, within a one-hour window. This pass permits readiness reporting only; custody and physical dispatch require the separate transfer implementation." }); return true;
+    s.history.push({ at: now, action: "noticeServed", reason: "Report to the named checkpoint after two hours, within a one-hour window. Reporting alone grants no custody; a separate judicial commitment and explicit collection are required." }); return true;
   }
   function report(s, c, resources, f, now) {
     if (s.phase !== "noticeServed" || !f.channel || !f.atCheckpoint || !able(f.clerk) || now < s.notice.reportAt || now >= s.notice.reportBy || resourceReason(s, resources, s.plan) || legalReason(s, c, f) || s.review.key !== reviewKey(c, f)) return false;
     s.notice.status = "reported"; s.notice.reportedAt = now; s.notice.witnessId = f.clerk.id; s.notices[s.notices.findIndex(n => n.id === s.notice.id)] = clone(s.notice); s.phase = "readyForPhysicalTransfer"; s.nextAt = s.plan.expiresAt;
-    s.history.push({ at: now, action: "readinessReported", reason: "Physical reporting at the checkpoint was witnessed. The reservation is ready for the next transfer implementation; no restraint, boarding, prison admission or sentence start has occurred." }); return true;
+    s.history.push({ at: now, action: "readinessReported", reason: "Physical reporting at the checkpoint was witnessed. The reservation is ready for separately authorized physical collection; no restraint, boarding, prison admission or sentence start has occurred." }); return true;
   }
   function tick(s, c, resources, f, now) {
     if (s.phase === "reviewing") {

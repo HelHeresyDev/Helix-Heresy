@@ -18,8 +18,8 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Receiving-City Prison Transport, Custody, and Discharge
-2. Penal Legions and Wilderness Service
+1. Penal Legions and Wilderness Service
+2. Receiving-City Prison Escapes and Outside Rescue
 3. World Integration: Economy and Logistics
 4. World Integration: Investigations and Institutional Pressure
 5. Lazy Local Detail and World Discovery
@@ -89,17 +89,15 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Receiving-City Prison Transport, Custody, and Discharge
+## 1. Penal Legions and Wilderness Service
 
-Discuss and implement the physical continuation of the completed receiving-city sentence-review and transfer-planning flow. Consume its verified local sentence, documented credit ledger, served reporting notice, witnessed attendance and exclusive bed, vehicle, crew and fuel reservations. Revalidate expired or invalid holds rather than reviving them. Planning and reporting currently create no custody authority: establish any separately justified collection or surrender authority, then require a real escort, restraint and suppression where authorized, boarding, local travel, destination intake and admission before prison service starts. Materialize the receiving city's distinct corrections institution from its persistent registry rather than sending the scientist to the original prison or reusing the private rescue aircraft.
-
-Make the finite local prison stay playable, with physical routines, staff, property handling, communication, needs, lawful release and discharge. Apply verified prior local custody credit exactly once, preserve the actual unserved remainder, and never count free waiting or an unimplemented transfer as prison service. Missing staff, transport, route access or capacity must produce explicit postponement, released reservations and review instead of indefinite temporary jail or automatic evasion. Preserve timely reporting, independent restrictions, noncustodial dispositions, bail refunds, separate fines, historical convictions, completed Penal Flight and city-local relief eligibility. Keep penal-legion missions as the next separately discussed playable path; split additional prison systems into further prompts if needed to keep this pass bounded.
+Design and implement penal-legion service as a distinct playable post-conviction path. Consume sentence, jurisdiction, military institution, world geography, settlement threats, routes, creature ecology, transport, equipment, squad, and laboratory-continuity state. The first mission should be a bounded physical operation rather than an abstract combat roll.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 2. Penal Legions and Wilderness Service
+## 2. Receiving-City Prison Escapes and Outside Rescue
 
-Design and implement penal-legion service as a distinct playable post-conviction path. Consume sentence, jurisdiction, military institution, world geography, settlement threats, routes, creature ecology, transport, equipment, squad, and laboratory-continuity state. The first mission should be a bounded physical operation rather than an abstract combat roll.
+Discuss adapting escape preparation and outside rescue to the receiving city's existing physical correctional unit. Use its own named staff, persistent stocks, doors, property receipts, suppressor, local sentence, exact unserved remainder and communication records. Start with one bounded playable route; reuse appropriate original-prison mechanics without importing the original city's authority, map, escape outcomes or automatic laboratory return. Discovery, assistance, physical traversal, detection, interruption, recapture and outside staging must preserve real actors and assets. A failed plan does not prove a new offense without observed supporting conduct, and a successful escape does not erase the sentence or city-local banishment. Expand prisoner relationships and institutional recovery only as the chosen route requires, splitting further work into separate prompts where appropriate.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
