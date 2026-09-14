@@ -142,9 +142,27 @@ test('sentencing bands support time served and route severe punishment to penal 
   ]) {
     const source = proceeding(); source.charges[0].weight = scenario.weight;
     let state = finishTrial(configuredCase(source, { sentencingSubmissionId: scenario.submission })); const caseId = state.cases[0].id;
+    state.cases[0].sentencingPolicy = { cityId: 'local-city', penalLegionAvailable: true, penalServiceMinimumMonths: 12, penalServiceMaximumMonths: 36 };
     state = Trial.beginAppearance(state, caseId, state.cases[0].sentencingAt).state;
     const completed = Trial.completeAppearance(state, caseId, state.cases[0].sentencingAt + 2700);
     expect(completed.case.sentencing.order.kind).toBe(scenario.expected);
+    if (scenario.expected === 'penalLegion') {
+      expect(completed.case.sentencing.order.penalServiceMonths).toBeGreaterThanOrEqual(12);
+      expect(completed.case.sentencing.order.penalServiceMonths).toBeLessThanOrEqual(36);
+      expect(Trial.normalizeState(completed.state).cases[0].sentencing.order.penalServiceMonths).toBe(completed.case.sentencing.order.penalServiceMonths);
+    }
+  }
+});
+
+test('penal service requires published availability and respects the city term ceiling', () => {
+  for (const policy of [null, { penalLegionAvailable: false, penalServiceMinimumMonths: 12, penalServiceMaximumMonths: 36 }, { penalLegionAvailable: true, penalServiceMinimumMonths: 12, penalServiceMaximumMonths: 12 }]) {
+    const source = proceeding(); source.charges[0].weight = 50;
+    let state = finishTrial(configuredCase(source, { sentencingSubmissionId: 'penalService' }));
+    const c = state.cases[0]; c.sentencingPolicy = policy;
+    state = Trial.beginAppearance(state, c.id, c.sentencingAt).state;
+    const result = Trial.completeAppearance(state, c.id, c.sentencingAt + 2700);
+    expect(result.case.sentencing.order.kind).toBe(policy?.penalLegionAvailable ? 'penalLegion' : 'finitePrison');
+    expect(result.case.sentencing.order.penalServiceMonths).toBe(policy?.penalLegionAvailable ? 12 : null);
   }
 });
 
