@@ -57,6 +57,8 @@ test('punishment policy forbids life imprisonment and distinguishes capital outc
     expect(code.punishmentPolicy.finitePrisonMaximumMonths).toBeGreaterThanOrEqual(36);
     expect(code.punishmentPolicy.finitePrisonMaximumMonths).toBeLessThanOrEqual(120);
     expect(code.punishmentPolicy.lifeImprisonmentAvailable).toBe(false);
+    expect(code.punishmentPolicy.penalLegion.minimumServiceMonths).toBe(12);
+    expect([12, 24, 36]).toContain(code.punishmentPolicy.penalLegion.maximumServiceMonths);
     expect(code.punishmentPolicy.publicEnemyDesignation).toMatchObject({ separateFindingRequired: true, sovereignFiatSufficient: false });
     expect(code.punishmentPolicy.penalFlight).toMatchObject({ eligibility: 'capitalSentenceWithoutPublicEnemyDesignation', automaticDeath: false });
     if (code.punishmentPolicy.publicExecution.available) expect(code.punishmentPolicy.publicExecution.method).toBe('publicBeheading');

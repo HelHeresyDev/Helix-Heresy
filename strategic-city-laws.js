@@ -138,7 +138,7 @@
       lifeImprisonmentAvailable: false,
       protectedSpaceRule: "Custody beyond the finite maximum must convert to another authorized sentence or end; it cannot become indefinite imprisonment.",
       availableSanctions: ["fine", "restitution", "forfeiture", "supervision", "licenseRestriction", "banishment", "finitePrison", ...(penalLegionAvailable ? ["penalLegion"] : []), ...(penalFlightAvailable ? ["penalFlight"] : []), ...(publicExecutionAvailable ? ["publicExecution"] : [])],
-      penalLegion: { available: penalLegionAvailable, requiresMilitaryCommitment: true, lawfulReturnPossible: true },
+      penalLegion: { available: penalLegionAvailable, requiresMilitaryCommitment: true, lawfulReturnPossible: true, minimumServiceMonths: 12, maximumServiceMonths: 12 * (1 + Math.floor(seededNumber(seed, `${government.cityId}:penal-service-term`) * 3)) },
       penalFlight: { available: penalFlightAvailable, eligibility: "capitalSentenceWithoutPublicEnemyDesignation", method: "wildernessReleaseByPenalGlider", automaticDeath: false },
       publicExecution: { available: publicExecutionAvailable, eligibility: "capitalSentenceWithPublicEnemyDesignation", method: publicExecutionAvailable ? "publicBeheading" : null },
       publicEnemyDesignation: {
@@ -265,6 +265,8 @@
     return {
       finitePrisonMaximumMonths: policy.finitePrisonMaximumMonths,
       penalLegionAvailable: policy.penalLegion.available,
+      penalServiceMinimumMonths: policy.penalLegion.minimumServiceMonths,
+      penalServiceMaximumMonths: policy.penalLegion.maximumServiceMonths,
       penalFlightAvailable: policy.penalFlight.available,
       publicExecutionAvailable: policy.publicExecution.available
     };
@@ -299,7 +301,7 @@
       lifeImprisonmentAvailable: false,
       protectedSpaceRule: "Custody beyond the finite maximum must convert to another authorized sentence or end; it cannot become indefinite imprisonment.",
       availableSanctions,
-      penalLegion: { available: profile.penalLegionAvailable, requiresMilitaryCommitment: true, lawfulReturnPossible: true },
+      penalLegion: { available: profile.penalLegionAvailable, requiresMilitaryCommitment: true, lawfulReturnPossible: true, minimumServiceMonths: profile.penalServiceMinimumMonths ?? null, maximumServiceMonths: profile.penalServiceMaximumMonths ?? null },
       penalFlight: { available: profile.penalFlightAvailable, eligibility: "capitalSentenceWithoutPublicEnemyDesignation", method: "wildernessReleaseByPenalGlider", automaticDeath: false },
       publicExecution: { available: profile.publicExecutionAvailable, eligibility: "capitalSentenceWithPublicEnemyDesignation", method: profile.publicExecutionAvailable ? "publicBeheading" : null },
       publicEnemyDesignation: {
