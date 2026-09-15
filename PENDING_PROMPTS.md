@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Penal Service Progression and Lawful Discharge
+1. Further Penal Deployments and Earned Reductions
 2. Penal Legion Desertion and Outside Rescue
 3. Receiving-City Prison Escapes and Outside Rescue
 4. World Integration: Economy and Logistics
@@ -90,9 +90,9 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Penal Service Progression and Lawful Discharge
+## 1. Further Penal Deployments and Earned Reductions
 
-Discuss repeated bounded deployments, depot routines, custody/service accounting, earned reductions where authorized, and physical lawful discharge. Consume the existing finite commitment, persistent squad and stocks, mission reports, and city military capacity. Never replace the fixed release condition with indefinite service or silently reset elapsed service after a failed mission.
+Discuss further bounded assignments backed by actual outstanding needs and available personnel, equipment, transport, and supplies. Preserve repaired sites, squad casualties, and remaining stocks. Discuss published mission-specific reductions awarded after documented debrief, never generic kill rewards or repeated credit for the same completed task. Abort never resets service or revokes previously earned credit.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
