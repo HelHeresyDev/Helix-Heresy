@@ -18,17 +18,16 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Further Penal Deployments and Earned Reductions
-2. Penal Legion Desertion and Outside Rescue
-3. Receiving-City Prison Escapes and Outside Rescue
-4. World Integration: Economy and Logistics
-5. World Integration: Investigations and Institutional Pressure
-6. Lazy Local Detail and World Discovery
-7. Roguelike Run Lifecycle, Death, Postmortem, and Restart
-8. Campaign Roadmap: From Hidden Laboratory to World Domination
-9. New-Run Onboarding and Contextual Tutorial
-10. Sound, Notifications, and Accessibility Audit
-11. Production Art Pass Using the Sprite Pipeline
+1. Penal Legion Desertion and Outside Rescue
+2. Receiving-City Prison Escapes and Outside Rescue
+3. World Integration: Economy and Logistics
+4. World Integration: Investigations and Institutional Pressure
+5. Lazy Local Detail and World Discovery
+6. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+7. Campaign Roadmap: From Hidden Laboratory to World Domination
+8. New-Run Onboarding and Contextual Tutorial
+9. Sound, Notifications, and Accessibility Audit
+10. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -90,67 +89,61 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Further Penal Deployments and Earned Reductions
-
-Discuss further bounded assignments backed by actual outstanding needs and available personnel, equipment, transport, and supplies. Preserve repaired sites, squad casualties, and remaining stocks. Discuss published mission-specific reductions awarded after documented debrief, never generic kill rewards or repeated credit for the same completed task. Abort never resets service or revokes previously earned credit.
-
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. Penal Legion Desertion and Outside Rescue
+## 1. Penal Legion Desertion and Outside Rescue
 
 Discuss one physical desertion or outside-rescue route from military service, including squad relationships, observed conduct, detection, pursuit, recapture, and finite local authority. Preserve actual actors, assets, wounds, outstanding service, and laboratory continuity. Neither leaving the squad nor a failed operation automatically proves a new offense. No explosive suppressors, instant punishment, or automatic laboratory return.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Receiving-City Prison Escapes and Outside Rescue
+## 2. Receiving-City Prison Escapes and Outside Rescue
 
 Discuss adapting escape preparation and outside rescue to the receiving city's existing physical correctional unit. Use its own named staff, persistent stocks, doors, property receipts, suppressor, local sentence, exact unserved remainder and communication records. Start with one bounded playable route; reuse appropriate original-prison mechanics without importing the original city's authority, map, escape outcomes or automatic laboratory return. Discovery, assistance, physical traversal, detection, interruption, recapture and outside staging must preserve real actors and assets. A failed plan does not prove a new offense without observed supporting conduct, and a successful escape does not erase the sentence or city-local banishment. Expand prisoner relationships and institutional recovery only as the chosen route requires, splitting further work into separate prompts where appropriate.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. World Integration: Economy and Logistics
+## 3. World Integration: Economy and Logistics
 
 Design and implement effects from generated geography, settlements, routes, resources, powers, laws, and history on lawful trade, black-market access, delivery, and off-site logistics. Preserve existing commodity exchange, contract, Loading Bay, and Concealed Exit flows while giving them specific world context.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. World Integration: Investigations and Institutional Pressure
+## 4. World Integration: Investigations and Institutional Pressure
 
 Design and implement world-context effects on company plausibility, inspections, investigations, religious scrutiny, escalation, and authority response. Context may alter priorities, schedules, thresholds, and available actions, but must not invent player guilt.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Lazy Local Detail and World Discovery
+## 5. Lazy Local Detail and World Discovery
 
 Design and implement deterministic elaboration of the already generated strategic world when a run encounters it. Lazy generation may fill minor places, institution branches, contacts, local histories, individuals, encounters, and exact maps while respecting canonical world facts and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+## 6. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 
 Design and implement the loop for beginning, losing, reviewing, and replacing a run without altering its reusable world. Only the scientist’s death ends a run; arrest, jail, prison, penal service, death sentence, loss of laboratory, and similar catastrophes remain playable while the scientist lives.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 7. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. The final campaign goal is rare world domination, but early hidden-laboratory survival must remain a complete roguelike experience.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. New-Run Onboarding and Contextual Tutorial
+## 8. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 10. Sound, Notifications, and Accessibility Audit
+## 9. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 11. Production Art Pass Using the Sprite Pipeline
+## 10. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 

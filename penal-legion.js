@@ -28,7 +28,7 @@
     if (s.startedAt == null) return;
     if (s.ledger) {
       s.ledger.servedSeconds = Math.max(0, Math.min(now, s.ledger.releaseAt) - s.startedAt);
-      s.creditedSeconds = Math.min(s.ledger.originalSeconds, s.ledger.recognizedCustodySeconds + s.ledger.servedSeconds);
+      s.creditedSeconds = Math.min(s.ledger.originalSeconds, s.ledger.recognizedCustodySeconds + s.ledger.servedSeconds + s.ledger.reductions.reduce((sum, r) => sum + r.seconds, 0));
       s.remainingSeconds = Math.max(0, s.ledger.originalSeconds - s.creditedSeconds); return;
     }
     s.creditedSeconds = Math.min(s.termMonths * MONTH, Math.max(s.creditedSeconds, now - s.startedAt));

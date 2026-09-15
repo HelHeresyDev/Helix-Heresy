@@ -53,6 +53,7 @@
   const PenalFlights = window.HelixPenalFlights;
   const PenalLegion = window.HelixPenalLegion;
   const PenalService = window.HelixPenalService;
+  const PenalAssignments = window.HelixPenalAssignments;
   const CastawayCamp = window.HelixCastawayCamp;
   const CastawayAssistance = window.HelixCastawayAssistance;
   const CityApproach = window.HelixCityApproach;
@@ -15205,6 +15206,18 @@
       },
       penalLegionSnapshot: () => clonePlainObject({ service: state.penalLegion, squad: legionSquad(), cell: scientistMapCell(), roomId: scientistRoomId(), suppression: scientistMagicSuppressionReason(), stacks: ensurePhysicalItemStacks(), beasts: state.wildernessBeasts, jail: currentJailStay(), clock: state.clock }),
       penalLegionAction: legionAction,
+      selectPenalAssignment,
+      configurePenalAssignmentsForTest: (options = {}) => {
+        const s = state.penalLegion; if (!s) return false;
+        if (options.fuel != null) s.truck.fuelKm = options.fuel;
+        if (options.reserveFuel != null) materializePenalDepot(s).missionFuelKm = options.reserveFuel;
+        if (options.repairSeconds != null) s.relay.repairSeconds = options.repairSeconds;
+        if (options.extraSite && s.phase === 'briefing' && !s.assignmentSites.some(site => site.id === options.extraSite.id)) {
+          const original = s.assignmentSites[0], reports = s.assignmentReports;
+          delete s.assignments; PenalAssignments.initialize(s, [options.extraSite]); s.assignmentSites[0] = original; s.assignmentReports = reports;
+        }
+        persist(); render(); return true;
+      },
       configurePenalLegionForTest: (options = {}) => {
         const s = state.penalLegion; if (!s || s.phase !== 'field') return false;
         if (options.distantBeast) {
@@ -15213,11 +15226,12 @@
         if (options.casualty) damagePenalPrisoner(legionSquad()[1], 200, { damageTypes: ['physical'] });
         persist(); render(); return true;
       },
-      advancePenalLegionForTest: (seconds = 1) => {
+      advancePenalLegionForTest: (seconds = 1, options = {}) => {
         let remaining = seconds;
         while (remaining > 0) {
           const step = Math.min(remaining, ['jailEscort', 'field', 'withdrawal'].includes(state.penalLegion?.phase) ? 1 : 60);
           state.clock += step; updatePenalLegion(step); remaining -= step;
+          if (options.untilPhase && state.penalLegion?.phase === options.untilPhase) break;
         }
         syncActorInventories(); persist(); render(); return state.penalLegion?.phase;
       },
@@ -61930,7 +61944,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (reception?.enforcement?.hearingMaterialized) for (const [role, person] of Object.entries(reception.enforcement.courtOfficials)) if (cityApproachNear("scientist", person.mapCell, 8)) setLabMapOverlayEntry(assignments, person.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: person.name, title: `Receiving-city ${role}`, value: person.status === "dead" ? "†" : role === "prosecutor" ? "P" : "L", source: "Direct observation", target: { kind: "tile", tile: person.mapCell } }, map);
     for (const actor of state.penalFlights?.actors || []) if (penalActorObserved(actor)) setLabMapOverlayEntry(assignments, actor.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: actor.name, title: actor.status === "dead" ? "Physical remains" : actor.legionId ? `Military squad: ${actor.role}` : "Fellow castaway; not an ally", value: actor.status === "dead" ? "†" : actor.legionId ? 'S' : "P", source: "Direct observation", target: { kind: "tile", tile: actor.mapCell } }, map);
     const relay = state.penalLegion?.relay;
-    if (relay && scientistRoomId() === 'penalLegionField') setLabMapOverlayEntry(assignments, relay.cell, { overlayId, classNames: ['map-overlay-resources'], label: 'Satellite warning relay', title: 'Assigned physical repair position', value: 'R', source: 'Mission briefing', target: { kind: 'tile', tile: relay.cell } }, map);
+    if (relay && scientistRoomId() === legionFieldRoom()) setLabMapOverlayEntry(assignments, relay.cell, { overlayId, classNames: ['map-overlay-resources'], label: PenalAssignments.active(state.penalLegion)?.kind === 'relief' ? 'Satellite relief receiving' : 'Satellite warning relay', title: 'Assigned physical work position', value: 'R', source: 'Mission briefing', target: { kind: 'tile', tile: relay.cell } }, map);
     const depot = state.penalLegion?.depot;
     if (depot?.materialized && scientistRoomId() === 'penalLegionDepot') {
       for (const [key, cell] of Object.entries(depot.points)) setLabMapOverlayEntry(assignments, cell, { overlayId, classNames: ['map-overlay-resources'], label: titleCase(key), title: 'Military depot activity station', value: key === 'clinic' ? '+' : key[0].toUpperCase(), source: 'Depot orientation', target: { kind: 'tile', tile: cell } }, map);
@@ -75478,8 +75492,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return state.trialSentencing?.cases.find(c => c.actorId === 'scientist' && c.sentencing?.order?.kind === 'penalLegion' && ['commitmentPending', 'committed'].includes(c.sentencing.order.status));
   }
   function legionSquad() { return (state.penalFlights?.actors || []).filter(a => a.legionId === state.penalLegion?.id); }
-  function legionCell(room, x, y) { return { x, y, z: state.penalLegion.spaces[room].z }; }
+  function legionFieldRoom() { return PenalAssignments.site(state.penalLegion || {})?.roomId || 'penalLegionField'; }
+  function legionCell(room, x, y) { return { x, y, z: state.penalLegion.spaces[room === 'penalLegionField' ? legionFieldRoom() : room].z }; }
   function legionPlace(room) {
+    if (room === 'penalLegionField') room = legionFieldRoom();
     moveSurveyScientist(room, legionCell(room, 22, 12));
     legionSquad().filter(a => a.status !== 'dead').forEach((a, i) => { a.roomId = room; a.mapCell = legionCell(room, 23 + i, 12); });
     syncActorInventories();
@@ -75519,6 +75535,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!s) return false;
     state.penalLegion = s; s.jailStayId = jail.id; s.officerId = jail.actors.find(a => a.present)?.id;
     s.collarId = jail.suppressor?.physicalStackId; s.collarToolId = jail.suppressor?.toolInstanceId; materializeLegionSpaces(s);
+    const map = activeWorldRecord?.generatedData?.strategicMap;
+    const targets = (map ? StrategicSettlements.publicSettlementDirectory(map)?.satellites || [] : []).map(t => ({ ...t, condition: map?.publicPlayableSettlementDirectory?.satelliteRows.find(row => row.satelliteId === t.id)?.physicalCondition,
+      distanceKm: (t.localRouteCellIds || []).slice(1).reduce((km, cell, i) => km + StrategicWorld.greatCircleDistanceKm(map, StrategicWorld.cellIndex(t.localRouteCellIds[i]), StrategicWorld.cellIndex(cell)), 0) }))
+      .filter(t => PenalLegion.chooseTarget([t], s.cityId)).sort((a, b) => a.distanceKm - b.distanceKm || a.id.localeCompare(b.id));
+    PenalAssignments.initialize(s, targets);
     PenalLegion.stage(s, 'jailEscort', state.clock); suspendScientistRoutineWork('penal legion custody');
     persist(); render(); return true;
   }
@@ -75563,6 +75584,79 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     } else return false;
     persist(); render(); return true;
   }
+  function materializeAssignmentSite(s) {
+    const row = PenalAssignments.site(s), map = ensureLabMap();
+    if (!map.rooms[row.roomId]) {
+      const z = Math.max(...Object.keys(map.layers).map(Number).filter(Number.isFinite)) + 1;
+      const room = normalizeRoom({ id: row.roomId, name: row.target.name, purposeId: 'corridor', facilityClass: 'wilderness', connections: [], geometry: { lengthM: 18, widthM: 14, heightM: 3, floorAreaM2: 252, volumeM3: 756 }, purposeSource: 'penalLegion' });
+      const rect = { roomId: row.roomId, x: 21, y: 10, z, width: 18, height: 14 }, cells = rectangularRoomCells(rect);
+      state.rooms = normalizeRooms([...state.rooms, room]); map.layers[String(z)] = { id: row.roomId, kind: 'structure', label: room.name };
+      map.rooms[row.roomId] = normalizeLabMapRoom({ ...rect, cells, anchor: cells[0] }, room);
+      map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...cells]);
+      map.terrain.constructedFloors = normalizeConstructedSurfaces([...(map.terrain.constructedFloors || []), ...cells.map(cell => ({ cell, materialId: 'steel', purpose: 'floor', supportSpanM: 24, condition: 100, builtAt: state.clock }))]);
+      state.roomStockpiles[row.roomId] = emptyRoomStockpile(); s.spaces[row.roomId] = rect;
+    }
+    s.relay.cell = legionCell('penalLegionField', 30, 16);
+  }
+  function selectPenalAssignment(id) {
+    const s = state.penalLegion;
+    if (!s || scientistIsDead() || !PenalAssignments.select(s, id)) return false;
+    materializePenalDepot(s); s.depot.activity = null; materializeAssignmentSite(s);
+    suspendScientistRoutineWork('penal legion custody'); persist(); render(); return true;
+  }
+  function assignmentCargo(s) {
+    const row = PenalAssignments.site(s);
+    return Object.entries(row.relief.required).map(([key, quantity]) => ({ key, quantity, stack: state.physicalItemStacks.find(stack => stack.id === row.relief.cargoIds[key] && stack.carriedBy === legionSquad()[3]?.id && stack.quantity >= quantity) }));
+  }
+  function assignmentDepartureReason(s) {
+    const squad = legionSquad(), living = squad.filter(a => a.status !== 'dead');
+    const ids = ['scientist', ...living.map(a => a.id)];
+    return PenalAssignments.readiness(s, {
+      personnel: !actorIsIncapacitated('scientist') && PenalLegion.able(squad[0]) && PenalLegion.able(squad[3]) && living.every(a => PenalLegion.able(a) && !actorIsIncapacitated(a) && a.roomId === 'penalLegionDepot'),
+      equipment: ids.every(id => ['escortBaton', 'escortVest', 'drinkingWater', 'trailMeal'].every(key => actorInventoryStacks(id).some(stack => stack.key === key && stack.quantity > 0 && !stack.reservedTaskId))),
+      cargo: PenalAssignments.active(s)?.kind === 'relief' ? Boolean(PenalAssignments.site(s).relief.receipt) || assignmentCargo(s).every(c => c.stack) : s.relay.partsCommitted || actorInventoryStacks(squad[3]?.id).some(stack => stack.id === s.relay.stackId && stack.quantity > 0),
+      reserveFuel: 0, routeOpen: s.depot?.route.open ?? true
+    });
+  }
+  function updateAssignmentLoading(s, elapsed) {
+    const d = materializePenalDepot(s), squad = legionSquad(), living = squad.filter(a => a.status !== 'dead'), technician = squad[3], officer = penalDepotStaff(s)[0];
+    for (const actor of [...living, ...penalDepotStaff(s)].filter(a => a.status !== 'dead')) {
+      const result = WildernessSurvival.advance(actor.needs, state.clock, { resting: true }); actor.needs = result.state;
+      if (result.damage) damagePenalPrisoner(actor, result.damage, { injuryProgress: true });
+    }
+    const people = [{ id: 'scientist', actor: state.scientist }, ...living.map(actor => ({ id: actor.id, actor }))];
+    const requests = [];
+    for (const person of people) for (const [key, target] of [['drinkingWater', 3], ['trailMeal', 2], ['medicalBandage', 2]]) {
+      const carried = actorInventoryStacks(person.id).filter(stack => stack.key === key && !stack.reservedTaskId).reduce((n, stack) => n + stack.quantity, 0);
+      if (carried < target) requests.push({ actorId: person.id, key, quantity: target - carried });
+    }
+    const a = PenalAssignments.active(s), row = PenalAssignments.site(s);
+    if (a.kind === 'repair' && !s.relay.partsCommitted && !actorInventoryStacks(technician?.id).some(stack => stack.id === s.relay.stackId && stack.quantity > 0)) requests.push({ actorId: technician?.id, key: 'legionRelayAssembly', quantity: 1, assembly: true });
+    if (a.kind === 'relief' && !row.relief.receipt) for (const cargo of assignmentCargo(s)) if (!cargo.stack) requests.push({ actorId: technician?.id, key: cargo.key, quantity: cargo.quantity, cargo: true });
+    const totals = {}; for (const r of requests) totals[r.key] = (totals[r.key] || 0) + r.quantity;
+    const stocked = Object.entries(totals).every(([key, quantity]) => (depotStock(d, key)?.quantity || 0) >= quantity);
+    s.delay = PenalAssignments.readiness(s, {
+      personnel: !actorIsIncapacitated('scientist') && PenalLegion.able(squad[0]) && PenalLegion.able(technician) && PenalLegion.able(officer) && !actorIsIncapacitated(officer) && living.every(actor => PenalLegion.able(actor) && !actorIsIncapacitated(actor) && actor.roomId === 'penalLegionDepot'),
+      equipment: stocked && people.every(p => ['escortBaton', 'escortVest'].every(key => actorInventoryStacks(p.id).some(stack => stack.key === key && stack.quantity > 0))),
+      cargo: stocked, reserveFuel: d.missionFuelKm, routeOpen: d.route.open
+    });
+    if (s.delay) return 0;
+    let assembled = true;
+    people.forEach((p, i) => { if (!legionMoveActor(p.actor, legionCell('penalLegionDepot', 22 + i, 12))) assembled = false; });
+    if (!legionMoveActor(officer, legionCell('penalLegionDepot', 22, 13))) assembled = false;
+    if (!assembled) return 1;
+    s.assignmentLoadingSeconds += elapsed; if (s.assignmentLoadingSeconds < 120) return 1;
+    // Debit finite stock only after the party and loader physically assemble.
+    for (const r of requests) {
+      const source = depotStock(d, r.key); source.quantity -= r.quantity; source.knownQuantity = source.quantity;
+      const stack = createPhysicalItemStack('inventory', r.key, r.quantity, { roomId: 'penalLegionDepot', cell: d.points.loading }, { carriedBy: r.actorId, suppressEvidence: true, sourceLabels: [s.id, a.id, 'Finite depot load'] });
+      if (r.cargo) { stack.reservedTaskId = a.id; row.relief.cargoIds[r.key] = stack.id; }
+      else if (r.assembly) s.relay.stackId = stack.id;
+      else s.allocations.push({ actorId: r.actorId, stackId: stack.id, key: r.key, quantity: r.quantity });
+    }
+    const fuel = Math.max(0, PenalAssignments.fuelRequired(s) - s.truck.fuelKm); d.missionFuelKm -= fuel; s.truck.fuelKm += fuel;
+    s.preparedAssignmentId = a.id; PenalLegion.stage(s, 'briefing', state.clock); syncActorInventories(); return 1;
+  }
   function updatePenalLegion(elapsed = 0) {
     const s = state.penalLegion; if (!s || scientistIsDead()) return 0;
     const c = state.trialSentencing.cases.find(c => c.id === s.caseId), jail = state.jailCustody.stays.find(j => j.id === s.jailStayId);
@@ -75575,7 +75669,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       else if (s.phase === 'outbound') { s.returnDistanceKm = s.truck.distanceKm; s.truck.distanceKm = 0; PenalLegion.stage(s, 'returning', state.clock); }
     }
     if (s.phase === 'discharged') return 0;
-    if (['depotService', 'releaseProcessing', 'dischargeBoarding', 'dischargeTransit', 'civilianUnloading'].includes(s.phase) || s.serviceEndedAt != null && ['briefing', 'returnProcessing', 'debrief'].includes(s.phase)) return updatePenalDepot(elapsed);
+    if (['depotService', 'releaseProcessing', 'dischargeBoarding', 'dischargeTransit', 'civilianUnloading'].includes(s.phase) || s.serviceEndedAt != null && ['briefing', 'assignmentLoading', 'returnProcessing', 'debrief'].includes(s.phase)) return updatePenalDepot(elapsed);
+    if (s.phase === 'assignmentLoading') return updateAssignmentLoading(s, elapsed);
     if (s.phase === 'jailEscort') {
       const reason = PenalLegion.legalReason(c, s.cityId); if (reason) { s.delay = reason; return 0; }
       const officer = jail?.actors.find(a => a.id === s.officerId);
@@ -75618,6 +75713,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (s.phase === 'briefing' && s.action === 'deploy') {
       if (PenalLegion.legalReason(c, s.cityId) || !PenalLegion.able(commander)) { s.delay = 'The commitment or authorized commander is unavailable.'; s.actionSeconds = 0; return 0; }
+      s.delay = assignmentDepartureReason(s); if (s.delay) return 0;
       const goal = orthogonalMapNeighbors(scientistMapCell()).find(cell => sameMapCell(cell, commander.mapCell) || penalPath(commander, cell)?.found);
       if (!goal || !legionMoveActor(commander, goal)) return 1;
       const collar = ensurePhysicalItemStacks().find(stack => stack.id === s.collarId && stack.carriedBy === 'scientist' && stack.quantity > 0);
@@ -75626,11 +75722,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       unequipActorToolInstance('scientist', s.collarToolId);
       collar.carriedBy = commander.id; s.suppressionActive = false;
       const tool = toolInstanceById(s.collarToolId); if (tool) { tool.instance.carriedBy = commander.id; tool.instance.roomId = commander.roomId; }
-      s.savedBeasts = clonePlainObject(ensureWildernessBeasts()); s.truck.distanceKm = 0;
-      s.truck.occupants = ['scientist', ...s.squadIds]; legionPlace('penalLegionTruck');
+      s.savedBeasts = clonePlainObject(ensureWildernessBeasts()); s.savedSurvivalDestination = clonePlainObject(ensureWildernessSurvival().destination); s.missionReachedField = false; s.truck.distanceKm = 0;
+      s.truck.occupants = ['scientist', ...squad.filter(a => a.status !== 'dead').map(a => a.id)]; legionPlace('penalLegionTruck');
       PenalLegion.stage(s, 'outbound', state.clock); return 1;
     }
     if (['outbound', 'returning'].includes(s.phase)) {
+      if (s.depot?.route.open === false) { s.delay = 'The city-local road is blocked; the occupied truck remains at its saved position.'; return 0; }
       if (!PenalLegion.travel(s, elapsed, commander)) return 0;
       if (s.phase === 'outbound') {
         legionPlace('penalLegionField'); s.truck.occupants = []; s.truck.location = 'relay pickup';
@@ -75639,12 +75736,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         s.savedSurvivalDestination = clonePlainObject(ensureWildernessSurvival().destination);
         ensureWildernessSurvival().destination = s.environment || null;
         const populations = (map?.beastEcology?.populations || []).filter(p => StrategicBeastEcology.maskIncludes(p.territory.rangeMask, index));
-        state.wildernessBeasts = WildernessBeasts.materialize(state.seed, s.relay.id, populations, ensureLabMap().rooms.penalLegionField.cells, state.clock);
-        state.wildernessBeasts.actors.forEach(a => { a.roomId = 'penalLegionField'; });
+        const site = PenalAssignments.site(s);
+        state.wildernessBeasts = site?.visited && site.beasts ? clonePlainObject(site.beasts) : WildernessBeasts.materialize(state.seed, s.relay.id, populations, ensureLabMap().rooms[legionFieldRoom()].cells, state.clock);
+        state.wildernessBeasts.actors.forEach(a => { a.roomId = legionFieldRoom(); });
+        if (site) site.visited = true;
+        s.missionReachedField = true;
         ensureSurveyExpeditions().phase = 'field'; PenalLegion.stage(s, 'field', state.clock);
-        resumeScientistRoutineWork(); addEvent('The squad has unloaded at the satellite relay. Protect the technician at tile 30,16. Return pickup is tile 22,12; recall is available.');
+        resumeScientistRoutineWork(); addEvent('The squad has unloaded at the assigned satellite. Protect the technician at tile 30,16 during repair or relief unloading. Return pickup is tile 22,12; recall is available.');
       } else {
-        s.fieldBeasts = clonePlainObject(state.wildernessBeasts); state.wildernessBeasts = s.savedBeasts;
+        if (s.missionReachedField) s.fieldBeasts = clonePlainObject(state.wildernessBeasts);
+        PenalAssignments.saveSite(s); state.wildernessBeasts = s.savedBeasts;
         ensureWildernessSurvival().destination = s.savedSurvivalDestination;
         legionPlace('penalLegionDepot'); s.truck.occupants = []; s.truck.location = 'depot';
         PenalLegion.stage(s, 'returnProcessing', state.clock); s.actionSeconds = 0;
@@ -75663,7 +75764,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           legionMoveActor(actor, goal);
         }
       }
-      if (s.phase === 'field') {
+      if (s.phase === 'field' && PenalAssignments.active(s)?.kind === 'relief') {
+        const cargo = assignmentCargo(s);
+        const ready = PenalLegion.able(technician) && !actorIsIncapacitated(technician) && !technician.care && sameMapCell(technician.mapCell, s.relay.cell) && !beasts.some(b => WildernessBeasts.distance(technician.mapCell, b.mapCell) <= 3 && sensoryLineOfSight(technician.mapCell, b.mapCell));
+        s.delay = ready ? '' : 'The technician must safely reach the satellite receiving point to unload.';
+        if (!cargo.every(c => c.stack)) s.delay = 'The actual relief cargo is missing; no delivery receipt can be issued.';
+        if (PenalAssignments.reliefWork(s, elapsed, state.clock, { ready, cargo: cargo.every(c => c.stack) })) {
+          for (const c of cargo) { c.stack.carriedBy = ''; c.stack.reservedTaskId = ''; c.stack.roomId = legionFieldRoom(); c.stack.cell = { ...s.relay.cell }; }
+          PenalAssignments.recordDelivery(s, state.clock, cargo.map(c => c.stack.id)); syncActorInventories();
+          addEvent('The satellite emergency reserve received its physical supplies. Return for the documented debrief.'); PenalLegion.stage(s, 'withdrawal', state.clock);
+        }
+      } else if (s.phase === 'field') {
         const assembly = actorInventoryStacks(technician.id).find(stack => stack.id === s.relay.stackId && stack.quantity > 0);
         s.relay.parts = assembly?.quantity || 0; const alreadyCommitted = s.relay.partsCommitted;
         if (PenalLegion.repair(s, elapsed, { technician, atRelay: technician && !technician.care && !actorIsIncapacitated(technician) && sameMapCell(technician.mapCell, s.relay.cell), threatened: technician && beasts.some(b => WildernessBeasts.distance(technician.mapCell, b.mapCell) <= 3 && sensoryLineOfSight(technician.mapCell, b.mapCell)) })) {
@@ -75695,7 +75806,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       syncActorInventories();
       PenalLegion.stage(s, 'debrief', state.clock, 120); return 1;
     }
-    if (s.phase === 'debrief' && state.clock >= s.nextAt) { PenalLegion.debrief(s, squad, state.clock); addEvent(`Military debrief: ${s.report.outcome}. Actual service credited; the fixed ${s.termMonths}-month term was not reset.`); return 1; }
+    if (s.phase === 'debrief' && state.clock >= s.nextAt) {
+      PenalLegion.debrief(s, squad, state.clock);
+      const award = PenalAssignments.debrief(s, state.clock);
+      if (award && PenalService.awardReduction(s, award, state.clock)) addEvent('Verified mission completion earned the published seven-day service reduction, capped at the remaining term.');
+      addEvent(`Military debrief: ${s.report.outcome}. Actual service and authorized reductions credited; the original term was not reset.`);
+      updatePenalLegion(0); return 1;
+    }
     return 0;
   }
   function materializePenalDepot(s) {
@@ -75717,6 +75834,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ensurePenalFlights().actors.push({ id, name, role, depotId: s.id, actorKind: 'penalPrisoner', status: 'alive', health: 100, maxHealth: 100, skills: { medicine: role === 'clinician' ? 8 : 1, perception: 4 }, needs: WildernessSurvival.defaultState(state.clock), roomId: 'penalLegionDepot', mapCell: legionCell('penalLegionDepot', [30, 29, 22][i], [15, 15, 11][i]) }); return id;
     });
     for (const [key, quantity] of [['drinkingWater', 80], ['trailMeal', 40], ['medicalBandage', 6], ['neutralizingWash', 3]]) d.supplyIds[key] = createPhysicalItemStack('inventory', key, quantity, { roomId: 'penalLegionDepot', cell: d.points.stores }, { suppressEvidence: true, sourceLabels: [s.institution.id, 'Finite military depot stock'] }).id;
+    d.missionFuelKm = 1000;
+    d.supplyIds.legionRelayAssembly = createPhysicalItemStack('inventory', 'legionRelayAssembly', 2, { roomId: 'penalLegionDepot', cell: d.points.stores }, { suppressEvidence: true, sourceLabels: ['Finite mission reserve'] }).id;
     d.materialized = true; return d;
   }
   function penalDepotStaff(s) { return (s.depot?.staffIds || []).map(id => state.penalFlights.actors.find(a => a.id === id)).filter(Boolean); }
@@ -75903,11 +76022,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function renderPenalDepot(panel, s, button) {
     const l = s.ledger, d = s.depot;
-    if (l) panel.append(textEl('p', `Sentence ledger: ${l.originalMonths} months originally imposed; ${(l.recognizedCustodySeconds / 86400).toFixed(2)} days documented prior custody; ${((l.servedSeconds || 0) / 86400).toFixed(2)} days military custody/service. Authorized reductions: none. Release boundary: ${formatClock(l.releaseAt)}. ${s.serviceEndedAt != null ? 'Compulsory service has ended.' : 'Waiting, treatment, and transport delays count.'}`));
+    if (l) panel.append(textEl('p', `Sentence ledger: ${l.originalMonths} months originally imposed; ${(l.recognizedCustodySeconds / 86400).toFixed(2)} days documented prior custody; ${((l.servedSeconds || 0) / 86400).toFixed(2)} days military custody/service. Authorized reductions: ${(l.reductions.reduce((sum, r) => sum + r.seconds, 0) / 86400).toFixed(2)} days. Original release: ${formatClock(l.originalReleaseAt ?? l.releaseAt)}. Effective release: ${formatClock(l.releaseAt)}. ${s.serviceEndedAt != null ? 'Compulsory service has ended.' : 'Waiting, treatment, and transport delays count.'}`));
+    for (const r of l?.reductions || []) panel.append(textEl('p', `${r.assignmentId}: ${(r.seconds / 86400).toFixed(2)} days credited at ${formatClock(r.at)}; ${r.authorityId}; receipt ${r.receiptId}. ${r.policy}.`));
     if (!d) return;
     panel.append(textEl('p', `Depot condition ${Math.round(d.condition)}/100. ${d.activity ? `${PenalService.ACTIVITIES[d.activity.kind].label}: ${Math.floor(d.activity.progress)}/${d.activity.duration} seconds; appointment ${formatClock(d.activity.readyAt)}.` : 'Following quarters and meal routine.'} ${d.delay || ''}`));
     panel.append(textEl('p', Object.keys(d.supplyIds).map(key => `${inventoryItemLabel(key)}: ${depotStock(d, key)?.quantity || 0}`).join(' · ')));
     if (d.delivery) panel.append(textEl('p', `Local supply delivery: ${d.delivery.phase}. ${d.delivery.delay}`));
+    if (d.missionFuelKm != null) panel.append(textEl('p', `Finite mission fuel reserve: ${d.missionFuelKm.toFixed(1)} km. Replacement personnel and disabled-truck repair are not available through the assignment board.`));
     if (s.phase === 'depotService' && s.serviceEndedAt == null) {
       for (const [key, def] of Object.entries(PenalService.ACTIVITIES)) button(def.label, () => penalDepotAction(key));
       button('Cancel depot activity', () => penalDepotAction('cancel'));
@@ -75931,7 +76052,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function renderPenalLegion() {
     const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.penalLegion = 'true';
-    panel.append(textEl('strong', 'Penal Legion — Satellite Warning Relay'));
+    panel.append(textEl('strong', 'Penal Legion — Local Satellite Assignments'));
     const s = state.penalLegion;
     const button = (label, action) => { const b = document.createElement('button'); b.textContent = label; b.addEventListener('click', action); panel.append(b); };
     if (!s) {
@@ -75944,10 +76065,28 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const seen = a.roomId === scientistRoomId() && WildernessBeasts.distance(scientistMapCell(), a.mapCell) <= 8 && sensoryLineOfSight(scientistMapCell(), a.mapCell);
       panel.append(textEl('p', `${a.name}: ${seen ? `${a.status}, health ${Math.round(a.health)}. ${actorInventoryContentsLabel(a.id)}` : 'not currently observed'}`));
     }
-    if (s.phase === 'briefing') button('Accept relay deployment', () => legionAction('deploy'));
+    const assignment = PenalAssignments.active(s);
+    if (assignment) panel.append(textEl('p', `${assignment.kind === 'relief' ? 'Deliver 12 drinking water and 12 trail meals to the satellite emergency reserve; unload at 30,16 for two safe minutes.' : 'Repair the damaged warning relay at 30,16 with the technician and replacement assembly.'} Published completion reduction: seven days, once per objective after verified debrief. Known hazard: hostile local beasts; no kill quota. Recall at any time; physical return remains necessary. Round-trip fuel and reserve required: ${PenalAssignments.fuelRequired(s).toFixed(1)} km.`));
+    if (s.phase === 'briefing') {
+      button(assignment?.kind === 'relief' ? 'Accept relief deployment' : 'Accept relay deployment', () => legionAction('deploy'));
+      if (s.assignments) button('Prepare or replenish this assignment', () => { s.phase = 'depotService'; selectPenalAssignment(s.activeAssignmentId); });
+    }
+    if (s.phase === 'assignmentLoading') {
+      panel.append(textEl('p', `Physical loading/refuelling: ${s.assignmentLoadingSeconds}/120 seconds. ${s.delay}`));
+      button('Cancel preparation and remain at depot', () => { PenalLegion.stage(s, 'depotService', state.clock); persist(); render(); });
+    }
+    if (s.phase === 'depotService' && s.serviceEndedAt == null) {
+      for (const a of s.assignments || []) {
+        const site = s.assignmentSites.find(row => row.id === a.siteId);
+        panel.append(textEl('p', `${site.target.name} — ${a.kind}: ${a.completedAt != null ? `completed; receipt ${a.receipt}` : 'outstanding'}. ${site.needSource}`));
+        if (a.completedAt == null) button(`Prepare ${a.kind}: ${site.target.name}`, () => selectPenalAssignment(a.id));
+      }
+      if (s.assignments?.every(a => a.completedAt != null)) panel.append(textEl('p', 'No outstanding local assignments remain. Depot service continues counting; no replacement emergency is invented.'));
+    }
     if (s.phase === 'field') button('Recall squad to pickup', () => legionAction('recall'));
     if (['field', 'withdrawal'].includes(s.phase)) { panel.append(textEl('p', 'Technician work position: 30,16. Return pickup: 22,12. Use normal map movement and combat.')); panel.append(renderWildernessPanel()); }
-    if (s.report) panel.append(textEl('p', `Debrief: ${s.report.outcome}; ${s.report.casualties.length} squad deaths. No automatic conviction or term reset. Further deployments and earned reductions remain a separate pass.`));
+    if (s.report) panel.append(textEl('p', `Debrief: ${s.report.outcome}; ${s.report.casualties.length} squad deaths. No automatic conviction or term reset.`));
+    for (const report of s.assignmentReports || []) panel.append(textEl('p', `${formatClock(report.at)} — ${report.assignmentId}: ${report.outcome}; ${report.casualties.length} casualties; ${report.assignmentReceipt}.`));
     renderPenalDepot(panel, s, button);
     return panel;
   }
@@ -78076,7 +78215,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function unsupportedActive() { return Boolean(state?.unsupportedExcursions?.active); }
-  function activeWildernessRoom() { return state.penalLegion && ['field', 'withdrawal'].includes(state.penalLegion.phase) ? 'penalLegionField' : state.penalFlights?.fieldActive ? PenalFlights.FIELD : unsupportedActive() ? UnsupportedExcursions.ROOM : WildernessSurvival.ROOM; }
+  function activeWildernessRoom() { return state.penalLegion && ['field', 'withdrawal'].includes(state.penalLegion.phase) ? legionFieldRoom() : state.penalFlights?.fieldActive ? PenalFlights.FIELD : unsupportedActive() ? UnsupportedExcursions.ROOM : WildernessSurvival.ROOM; }
   function ensureUnsupportedExcursions() {
     const saved = state.unsupportedExcursions ||= UnsupportedExcursions.defaultState();
     const map = activeWorldRecord?.generatedData?.strategicMap, expedition = state.surveyExpeditions;
