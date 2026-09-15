@@ -14,13 +14,14 @@
       s.recognizedCustodySeconds = seconds;
       s.ledger = { originalMonths: s.termMonths, originalSeconds: s.termMonths * MONTH, sources: valid ? [{ stayId: jail.id, from: jail.bookedAt, to: s.startedAt, seconds, basis: 'Documented continuous source-jail custody at military handoff' }] : [], recognizedCustodySeconds: seconds, reductions: [], releaseAt: s.startedAt + s.termMonths * MONTH - seconds };
     }
+    if (s.ledger) s.ledger.originalReleaseAt ??= s.ledger.releaseAt;
     return s.ledger;
   }
   function accrue(s, now) {
     if (!s.ledger) return false;
     const l = s.ledger;
     l.servedSeconds = Math.max(0, Math.min(now, l.releaseAt) - s.startedAt);
-    s.creditedSeconds = Math.min(l.originalSeconds, l.recognizedCustodySeconds + l.servedSeconds);
+    s.creditedSeconds = Math.min(l.originalSeconds, l.recognizedCustodySeconds + l.servedSeconds + l.reductions.reduce((sum, r) => sum + r.seconds, 0));
     s.remainingSeconds = Math.max(0, l.originalSeconds - s.creditedSeconds);
     if (s.remainingSeconds || s.serviceEndedAt != null) return false;
     s.serviceEndedAt = l.releaseAt;
@@ -29,6 +30,16 @@
   }
   function depot(s, now) {
     return s.depot ||= { createdAt: now, materialized: false, activity: null, communications: [], nextCommunication: { company: now, counsel: now }, notices: [], noticeSerial: 0, condition: 100, recordsOnline: true, lastAt: now, mealProgress: {}, medicalProgress: {}, supplyIds: {}, medicalIds: {}, cityStock: { drinkingWater: 48000, trailMeal: 24000, medicalBandage: 480, neutralizingWash: 120 }, delivery: null, deliverySerial: 0, deliveryHistory: [], supplyVan: { condition: 100, fuelKm: 2400, distanceKm: 0, location: 'depot', occupants: [] }, route: { cityId: s.cityId, distanceKm: 4, open: true }, discharge: null };
+  }
+  function awardReduction(s, award, now) {
+    const l = s.ledger;
+    const assignment = s.assignments?.find(a => a.id === award?.assignmentId);
+    if (!l || !assignment || assignment.completedAt == null || assignment.receipt !== award.receiptId || assignment.authorityId !== award.authorityId || assignment.reductionSeconds !== award.seconds || !(award.seconds > 0) || l.reductions.some(r => r.assignmentId === award.assignmentId)) return false;
+    l.originalReleaseAt ??= l.releaseAt;
+    const seconds = Math.min(award.seconds, Math.max(0, l.releaseAt - now));
+    l.reductions.push({ ...award, authorizedSeconds: award.seconds, seconds, at: now });
+    l.releaseAt -= seconds;
+    return true;
   }
   function notice(d, at, kind, text) { d.noticeSerial++; d.notices.push({ at, kind, text }); if (d.notices.length > 80) d.notices.shift(); }
   function activity(d, kind, now) {
@@ -91,5 +102,5 @@
     r.distanceKm += km; s.truck.fuelKm -= km; s.truck.location = `civilianReceivingRoad:${r.distanceKm.toFixed(3)}`;
     return r.distanceKm >= 4;
   }
-  return { DAY, MONTH, ACTIVITIES, able, ledger, accrue, depot, notice, activity, work, orderDelivery, deliveryTick, beginDischarge, dischargeTravel };
+  return { DAY, MONTH, ACTIVITIES, able, ledger, accrue, depot, notice, activity, work, orderDelivery, deliveryTick, beginDischarge, dischargeTravel, awardReduction };
 });
