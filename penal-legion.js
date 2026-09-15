@@ -26,16 +26,22 @@
   function stage(s, phase, now, seconds = 0) { s.phase = phase; s.lastAt = now; s.nextAt = now + seconds; s.delay = ''; s.history.push({ at: now, phase }); }
   function credit(s, now) {
     if (s.startedAt == null) return;
+    if (s.ledger) {
+      s.ledger.servedSeconds = Math.max(0, Math.min(now, s.ledger.releaseAt) - s.startedAt);
+      s.creditedSeconds = Math.min(s.ledger.originalSeconds, s.ledger.recognizedCustodySeconds + s.ledger.servedSeconds);
+      s.remainingSeconds = Math.max(0, s.ledger.originalSeconds - s.creditedSeconds); return;
+    }
     s.creditedSeconds = Math.min(s.termMonths * MONTH, Math.max(s.creditedSeconds, now - s.startedAt));
     s.remainingSeconds = Math.max(0, s.termMonths * MONTH - s.creditedSeconds);
   }
   function travel(s, elapsed, driver) {
     s.delay = !able(driver) ? 'The named driver cannot drive.' : s.truck.condition < 50 ? 'The truck is disabled at its saved route position.' : s.truck.fuelKm <= 0 ? 'The truck has no remaining fuel.' : '';
     if (s.delay) return false;
-    const distance = Math.min(Math.max(0, elapsed) * 24 / 3600, s.destination.distanceKm - s.truck.distanceKm, s.truck.fuelKm);
+    const target = s.phase === 'returning' ? s.returnDistanceKm ?? s.destination.distanceKm : s.destination.distanceKm;
+    const distance = Math.min(Math.max(0, elapsed) * 24 / 3600, target - s.truck.distanceKm, s.truck.fuelKm);
     s.truck.distanceKm += distance; s.truck.fuelKm -= distance;
     s.truck.location = `${s.destination.id}:${s.phase}:${s.truck.distanceKm.toFixed(3)}`;
-    return s.truck.distanceKm >= s.destination.distanceKm;
+    return s.truck.distanceKm >= target;
   }
   function repair(s, elapsed, facts) {
     if (s.phase !== 'field' || s.relay.condition >= 100) return false;
