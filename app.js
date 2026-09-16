@@ -63,6 +63,7 @@
   const CityTrial = window.HelixCityTrial;
   const CitySentenceExecution = window.HelixCitySentenceExecution;
   const CityPrison = window.HelixCityPrison;
+  const CityPrisonEscape = window.HelixCityPrisonEscape;
   const BanishmentRelief = window.HelixBanishmentRelief;
   const WildernessSurvival = window.HelixWildernessSurvival;
   const WildernessBeasts = window.HelixWildernessBeasts;
@@ -15094,6 +15095,21 @@
         if (options.full != null) for (const bed of r.facility.beds.slice(-2)) bed.occupiedBy = options.full ? `test-occupant:${bed.id}` : null;
         persist();
       },
+      localPrisonEscapeAction,
+      configureLocalPrisonEscapeForTest: (options = {}) => {
+        const p = localPrisonRecord()?.p; if (!p) return false;
+        if (options.officerHealth != null) p.staff[0].health = options.officerHealth;
+        if (options.officerCell) p.staff[0].mapCell = { ...options.officerCell, z: p.z };
+        if (options.analysis != null) scientistSkill('analysis', { create: true }).xp = Array.from({ length: options.analysis }, (_, i) => xpToNextLevel(i)).reduce((a, b) => a + b, 0);
+        persist(); return { analysis: skillLevel('analysis'), busy: surveyBusy() };
+      },
+      advanceLocalPrisonEscapeForTest: (seconds, options = {}) => {
+        for (let i = 0; i < seconds; i++) {
+          if (options.ordinary) advanceTime(1, { quiet: true });
+          else { state.clock++; updateScientistMovementTask(); const record = localPrisonRecord(); if (record) updateLocalPrison(record.g, record.c); completeDueTasks(); }
+        }
+        syncActorInventories(); persist(); if (options.render) render(); return localPrisonRecord()?.p.phase;
+      },
       localPrisonDiagnostic: (kind) => { const g = cityApproachGate(), e = currentGateEnforcement(), cell = scientistMapCell(), path = labMapPathBetweenCells(cell, cell, { map: ensureLabMap(), actor: state.scientist, ignoreDoors: true, ignoreAccessPolicy: true }); return clonePlainObject({ clock: state.clock, cell, routinePath: localPrisonRecord() ? labNavigationPlanBetweenCells(cell, localPrisonRecord().p.points.dayroom, { map: ensureLabMap(), actor: state.scientist, ignoreDoors: true, ignoreDoorSecurity: true, ignoreAccessPolicy: true }) : null, busy: surveyBusy(), dead: scientistIsDead(), incapacitated: actorIsIncapacitated('scientist'), g: g?.id, current: localPrisonRecord()?.p, reason: gateEnforcementWorkReason({ kind, tripId: currentCityApproach()?.id, toCell: cell }), path, violations: pathAccessViolations(state.scientist, path), tasks: scientistQueueTasks() }); },
       cityApproachEntryDiagnostic: () => {
         const g = cityApproachGate(), cell = cityApproachPoint("entry"), path = labMapPathBetweenCells(scientistMapCell(), cell, { map: ensureLabMap(), actor: state.scientist, ignoreDoors: true });
@@ -20839,7 +20855,7 @@
       while (remaining > 0 && !scientistIsDead()) {
         const before = gateEnforcementPhase(), approachBefore = currentCityApproach()?.status, started = state.clock;
         const localPrison = localPrisonRecord()?.p;
-        const step = Math.min(remaining, localPrison?.phase === 'imprisoned' ? 60 : currentGateEnforcement()?.response && currentGateEnforcement().response.stage !== "jailed" ? 1 : 60, Math.max(1, (nextGateEnforcementEvent() || state.clock + 60) - state.clock));
+        const step = Math.min(remaining, localPrison?.escape?.work || CityPrisonEscape.phases.includes(localPrison?.phase) ? 1 : localPrison?.phase === 'imprisoned' ? 60 : currentGateEnforcement()?.response && currentGateEnforcement().response.stage !== "jailed" ? 1 : 60, Math.max(1, (nextGateEnforcementEvent() || state.clock + 60) - state.clock));
         changed += advanceTime(step, { ...options, gateStep: true, cityApproachStep: true }); remaining -= Math.max(1, state.clock - started);
         if (gateEnforcementPhase() !== before || currentCityApproach()?.status !== approachBefore) break;
       }
@@ -37959,6 +37975,7 @@
   }
 
   function resolveSharedCombatAction(actorId, actionId, targetCandidate, options = {}) {
+    if (actorId === 'scientist' && localPrisonRecord()?.p.escape?.restrained) return { ok: false, reason: 'Physical local prison restraints prevent this attack.' };
     if (actorId === 'scientist' && state.penalLegion?.desertion?.restrained) return { ok: false, reason: 'Physical military restraints prevent this attack.' };
     const actor = combatActor(actorId);
     const baseAction = combatActionDef(actionId);
@@ -52217,6 +52234,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function scientistMoveBlockReason(toRoomId, options = {}) {
+    if (localPrisonRecord()?.p.escape?.restrained) return 'Physical local prison restraints require an escorted return.';
     if (state.penalLegion?.desertion?.restrained) return 'Physical military restraints require an escorted movement.';
     if (state.penalLegion && state.penalLegion.serviceEndedAt == null && !['field', 'withdrawal', 'desertionAttempt', 'deserted', 'extracted'].includes(state.penalLegion.phase)) return 'Military intake or depot custody requires an authorized physical movement.';
     if (localPrisonRestricted()) return "Use the local prison's routed routine or discharge actions.";
@@ -63256,6 +63274,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function taskBlockReason(task) {
+    if (localPrisonRecord()?.p.escape?.restrained && isScientistQueueTask(task)) return 'Physical local prison restraints prevent ordinary work.';
     if (state.penalLegion && state.penalLegion.serviceEndedAt == null && !['field', 'withdrawal', 'desertionAttempt', 'deserted', 'extracted'].includes(state.penalLegion.phase) && task.type !== 'rest' && !(task.type === 'surveyExpeditionWork' && task.data?.action === 'consume')) return 'Military intake or depot custody prevents ordinary work.';
     if (!task || !isScientistQueueTask(task)) {
       return "";
@@ -73069,6 +73088,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function renderSiteVisits() {
+    const localStay = localPrisonRecord();
+    if (localStay && scientistMapCell().z === localStay.p.z) {
+      dom.visitsSummary.textContent = 'Receiving-city corrections — local sentence and physical escape';
+      dom.visitsList.replaceChildren(renderLocalPrison(localStay.g, localStay.c)); return;
+    }
     if (state.penalLegion && state.penalLegion.phase !== 'extracted' && dom.visitsList && dom.visitsSummary) {
       dom.visitsSummary.textContent = state.penalLegion.phase === 'deserted' ? 'Escaped military prisoner — unsupported wilderness' : state.penalLegion.serviceEndedAt == null ? "Penal-legion service — city-local military custody" : "Penal service completed — discharge and civilian receiving";
       dom.visitsList.replaceChildren(renderPenalLegion()); return;
@@ -76701,10 +76725,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const flight = currentPenalFlight();
     return flight && ensurePenalFlights().fieldActive ? { source: 'penalFlight', roomId: PenalFlights.FIELD, destination: flight.destination } : null;
   }
-  function castawayPickupEnvironment(r = currentCastawayRequest()) { return r?.message.destination || castawayOrigin()?.destination; }
-  function castawayPickupRoom(r = currentCastawayRequest()) { return r?.message.roomId || PenalFlights.FIELD; }
+  function castawayPickupEnvironment(r = currentCastawayRequest()) { return r?.message?.destination || castawayOrigin()?.destination; }
+  function castawayPickupRoom(r = currentCastawayRequest()) { return r?.message?.roomId || PenalFlights.FIELD; }
   function castawayAtPickupSource(r = currentCastawayRequest()) {
-    if (r?.message.source === 'penalDesertion') return state.penalLegion?.id === r.message.serviceId && state.penalLegion.phase === 'deserted' && scientistRoomId() === r.message.roomId && scientistMapCell().x >= 55;
+    if (r?.message?.source === 'penalDesertion') return state.penalLegion?.id === r.message.serviceId && state.penalLegion.phase === 'deserted' && scientistRoomId() === r.message.roomId && scientistMapCell().x >= 55;
     return Boolean(ensurePenalFlights().fieldActive && scientistRoomId() === PenalFlights.FIELD);
   }
   function initializeCastawayServices() {
@@ -76863,7 +76887,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     initializeCastawayServices(); const panel = document.createElement("section"), saved = ensureCastawayAssistance(), r = currentCastawayRequest(); panel.dataset.castawayAssistance = "true";
     panel.append(textEl("strong", "Outside Assistance"), textEl("p", "A request is not rescue. Known contacts need actual transport and a controlled receiving pad. Tracking beacons cannot make calls. Walking passengers only; no casualty lifting, guaranteed pickup, or city admission."));
     const button = (label, fn, disabled = false) => { const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.disabled = disabled; b.onclick = fn; panel.append(b); };
-    const military = castawayOrigin()?.source === 'penalDesertion' || r?.message.source === 'penalDesertion';
+    const military = castawayOrigin()?.source === 'penalDesertion' || r?.message?.source === 'penalDesertion';
     if (military) panel.append(textEl('p', 'Military extraction needs a stronger established relationship. Outstanding service remains frozen, not forgiven; no new conviction follows from requesting help. Only the scientist is eligible on this route; squad recruitment and casualty evacuation are not available.'));
     if (military && state.penalLegion) panel.append(textEl('p', `Unserved military commitment: ${(state.penalLegion.remainingSeconds / 86400).toFixed(2)} days. Prior custody, earned reductions, carried property and witnessed reports remain intact.`));
     if (r?.status === "complete") { panel.append(textEl("p", r.reason), renderCityApproach()); return panel; }
@@ -77304,7 +77328,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       sourceAvailable: Boolean(source), wrongIdentity: Boolean(restriction && source && source.actorId !== "scientist"), restrictionApplies: Boolean(restriction),
       permitCoversCheckpoint: CityApproach.checkpointAuthorized(t, "scientist"), permitCoversAnnex: Boolean(restriction && cityReliefGrant(restriction, g)), channel: g.powerSeconds > 0, restrictionStatus: restriction?.status || "notApplicable" };
   }
-  function gateEnforcementPhase() { const e = currentGateEnforcement(); return `${e?.response?.stage || "none"}:${e?.cases.map(c => `${c.status}:${c.pretrial?.phase}:${c.pretrial?.delay}:${c.trial?.phase}:${c.trial?.delay}:${c.execution?.phase}:${c.execution?.delay}:${c.execution?.reviewDue}:${c.execution?.prison?.phase}:${c.execution?.prison?.delay}`).join(",")}:${e?.reviews.map(r => r.status).join(",")}:${state.penalFlights?.assistance?.cityApproach?.gates.map(g => g.relief?.petitions.map(p => `${p.status}:${p.warnedAt || 0}`).join(",")).join(";")}`; }
+  function gateEnforcementPhase() { const e = currentGateEnforcement(); return `${e?.response?.stage || "none"}:${e?.cases.map(c => `${c.status}:${c.pretrial?.phase}:${c.pretrial?.delay}:${c.trial?.phase}:${c.trial?.delay}:${c.execution?.phase}:${c.execution?.delay}:${c.execution?.reviewDue}:${c.execution?.prison?.phase}:${c.execution?.prison?.delay}:${c.execution?.prison?.escape?.noticeSerial || 0}`).join(",")}:${e?.reviews.map(r => r.status).join(",")}:${state.penalFlights?.assistance?.cityApproach?.gates.map(g => g.relief?.petitions.map(p => `${p.status}:${p.warnedAt || 0}`).join(",")).join(";")}`; }
   function nextGateEnforcementEvent() {
     const e = currentGateEnforcement(), reliefAt = nextBanishmentReliefEvent();
     const localPrison = localPrisonRecord()?.p;
@@ -77742,7 +77766,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const g of state.penalFlights?.assistance?.cityApproach?.gates || []) for (const c of g.enforcement?.cases || []) if (c.execution?.prison && c.execution.prison.completedAt == null) return { g, c, s: c.execution, p: c.execution.prison, r: g.enforcement.executionResources };
     return null;
   }
-  function localPrisonRestricted() { return Boolean(localPrisonRecord()); }
+  function localPrisonRestricted() { const p = localPrisonRecord()?.p; return Boolean(p && (!['escapeAttempt', 'escaped'].includes(p.phase) || p.escape?.restrained)); }
   function localPrisonMaterialize(g, p, r) {
     if (p.rooms) return;
     const prior = g.enforcement.cases.flatMap(c => [c.execution?.prison, ...(c.execution?.prisonStays || [])]).find(old => old && old !== p && old.facilityId === p.facilityId && old.rooms);
@@ -77751,6 +77775,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       p.recordsPowerSeconds = Math.max(0, prior.recordsPowerSeconds - Math.max(0, state.clock - prior.lastAt));
       for (const key of ['meals', 'water']) p.supplies[key] = state.physicalItemStacks.find(s => s.id === p.supplyIds[key])?.quantity || 0;
       p.repairKits = r.vehicle.repairKits ?? prior.repairKits;
+      if (prior.escape?.materialized) Object.assign(CityPrisonEscape.ensure(p), { materialized: true, toolId: prior.escape.toolId, doorId: prior.escape.doorId, openedDoors: [...(prior.escape.openedDoors || [])] });
       r.crew[0].mapCell = { ...p.points.loading }; r.crew[1].mapCell = { x: 9, y: 7, z: g.z }; r.vehicle.mapCell = { ...p.points.loading }; return;
     }
     const map = ensureLabMap(), z = Math.max(...Object.keys(map.layers).map(Number), g.z) + 1;
@@ -77793,10 +77818,125 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const path = labMapPathBetweenCells(from, target, { map: ensureLabMap(), actor: withScientist ? state.scientist : actor, ignoreDoors: true, ignoreDoorSecurity: true, ignoreAccessPolicy: true });
     if (!path.length) { p.delay = 'The physical escorted route is blocked.'; return false; }
     const next = path[1] || path[0];
-    for (const id of p.doorIds || []) { const touching = sameMapCell(next, ensureLabMap().doors[id]?.cell) || sameMapCell(from, ensureLabMap().doors[id]?.cell); Object.assign(state.doors[id], { state: touching ? DOOR_STATE_OPEN : DOOR_STATE_CLOSED, lockState: touching ? DOOR_LOCK_UNLOCKED : DOOR_LOCK_LOCKED }); }
+    for (const id of p.doorIds || []) { if (p.escape?.openedDoors?.includes(id)) continue; const touching = sameMapCell(next, ensureLabMap().doors[id]?.cell) || sameMapCell(from, ensureLabMap().doors[id]?.cell); Object.assign(state.doors[id], { state: touching ? DOOR_STATE_OPEN : DOOR_STATE_CLOSED, lockState: touching ? DOOR_LOCK_UNLOCKED : DOOR_LOCK_LOCKED }); }
     bumpNavigationRevision('door');
     if (withScientist) { actor.mapCell = cleanMapCell(from); moveSurveyScientist(labMapCellRoomId(next) || scientistRoomId(), next); } else actor.mapCell = cleanMapCell(next);
     return sameMapCell(next, target);
+  }
+  function materializeLocalPrisonEscape(p) {
+    const e = CityPrisonEscape.ensure(p); if (e.materialized) return;
+    const map = ensureLabMap(), id = cleanRoomId(`${p.facilityId}-service-yard`), z = p.z;
+    const room = normalizeRoom({ id, name: 'Prison Service Yard and Urban Service Lane', purposeId: 'corridor', facilityClass: 'detention', connections: [p.rooms.workshop], description: 'Inside the receiving city. No wilderness, transport, or laboratory connection.', geometry: { lengthM: 22, widthM: 6, heightM: 3, floorAreaM2: 132, volumeM3: 396 }, purposeSource: 'localCorrections' });
+    state.rooms = normalizeRooms([...state.rooms, room]); roomById(p.rooms.workshop).connections.push(id);
+    const rect = { roomId: id, x: 23, y: 10, z, width: 22, height: 6 }, cells = rectangularRoomCells(rect), doorCell = { x: 25, y: 9, z };
+    map.width = Math.max(map.width, 45); map.height = Math.max(map.height, 16);
+    map.rooms[id] = normalizeLabMapRoom({ ...rect, cells, anchor: cells[0] }, room);
+    map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...cells, doorCell]);
+    map.terrain.constructedFloors = normalizeConstructedSurfaces([...(map.terrain.constructedFloors || []), ...[...cells, doorCell].map(cell => ({ cell, materialId: 'stone', purpose: 'floor', condition: 100, supportSpanM: 24, builtAt: state.clock }))]);
+    state.roomStockpiles[id] = emptyRoomStockpile(); p.rooms.yard = id; p.points.yard = { x: 38, y: 12, z };
+    const doorId = cleanDoorId(`door-${p.facilityId}-service`);
+    map.doors[doorId] = normalizeLabMapDoor({ id: doorId, roomIds: [p.rooms.workshop, id], cell: doorCell, frameAxis: 'eastWest', passageAxis: 'northSouth', clearance: { widthM: 1, heightM: 2.1 } }, doorId, map.rooms);
+    state.doors = normalizeDoors(state.doors, state.rooms, map); Object.assign(state.doors[doorId], { state: DOOR_STATE_CLOSED, lockState: DOOR_LOCK_LOCKED, accessRuleId: 'restricted', typeId: 'ironBandDoor' });
+    e.doorId = doorId; e.toolId = createPhysicalItemStack('inventory', 'pryBar', 1, { roomId: p.rooms.workshop, cell: { ...p.points.workshop, x: 27 } }, { suppressEvidence: true, sourceLabels: ['Persistent local prison maintenance implement'] }).id;
+    e.materialized = true; bumpNavigationRevision('topology');
+  }
+  function localEscapeWitnesses(p, cell = scientistMapCell()) {
+    return (p.staff || []).filter(a => a.status === 'alive' && a.health >= 50 && !actorIsIncapacitated(a) && a.mapCell?.z === cell.z && WildernessBeasts.distance(a.mapCell, cell) <= 8 && sensoryLineOfSight(a.mapCell, cell));
+  }
+  function localPrisonEscapeAction(kind, targetId = '') {
+    const record = localPrisonRecord(); if (!record || scientistIsDead() || actorIsIncapacitated('scientist') || surveyBusy()) return false;
+    const { p } = record, e = CityPrisonEscape.ensure(p), cell = scientistMapCell();
+    if (p.releasedAt != null || e.restrained || !['imprisoned', 'escapeAttempt', 'escaped'].includes(p.phase)) return false;
+    materializeLocalPrisonEscape(p);
+    const tool = state.physicalItemStacks.find(s => s.id === e.toolId && s.quantity > 0);
+    if (kind === 'inspect') {
+      if (p.phase !== 'imprisoned' || scientistRoomId() !== p.rooms.workshop) return false;
+    } else if (kind === 'attempt') {
+      if (p.phase !== 'imprisoned' || !e.facts.length || scientistRoomId() !== p.rooms.workshop) return false;
+      p.followRoutine = false; p.phase = 'escapeAttempt'; e.work = null; e.restraint = 0; e.restrained = false;
+      surveyEvent('Maintenance escape begun. Walk to the actual implement and service fastening; no escape, report or sentence interruption occurs from this choice alone.'); persist(); render(); return true;
+    } else if (kind === 'tool') {
+      if (p.phase !== 'escapeAttempt' || !tool || tool.carriedBy || WildernessBeasts.distance(cell, tool.cell) > 1 || !sensoryLineOfSight(cell, tool.cell) || !actorInventoryCanCarry('scientist', tool, 1)) return false;
+    } else if (kind === 'fastening') {
+      const door = ensureLabMap().doors[targetId];
+      if (p.phase !== 'escapeAttempt' || ![e.doorId, ...p.doorIds].includes(targetId) || tool?.carriedBy !== 'scientist' || tool.reservedTaskId || !door || WildernessBeasts.distance(cell, door.cell) > 1 || !sensoryLineOfSight(cell, door.cell)) return false;
+    } else if (kind === 'property') {
+      if (p.phase !== 'escapeAttempt' || scientistRoomId() !== p.rooms.intake || WildernessBeasts.distance(cell, { ...p.points.intake, x: p.points.intake.x + 2, y: p.points.intake.y + 1 }) > 1) return false;
+    } else if (kind === 'collar') {
+      if (p.phase !== 'escaped' || !p.suppressionActive || tool?.carriedBy !== 'scientist' || !e.facts.length || skillLevel('analysis') < 3) return false;
+    } else if (kind === 'cancel' && p.phase === 'escapeAttempt' && !e.reports.length && !e.openedDoors?.length && !tool?.carriedBy) {
+      p.phase = 'imprisoned'; p.followRoutine = true; e.work = null; persist(); render(); return true;
+    } else return false;
+    p.followRoutine = false;
+    e.work = { kind, targetId, cell: { ...cell }, progress: 0, duration: { inspect: 60, tool: 15, fastening: 60, property: 30, collar: 300 }[kind] };
+    persist(); render(); return true;
+  }
+  function updateLocalPrisonEscape(p, s, elapsed) {
+    const e = CityPrisonEscape.ensure(p), cell = scientistMapCell(); p.nextAt = state.clock + 1;
+    if (p.releasedAt != null) { e.work = null; e.restrained = false; return; }
+    const witnesses = localEscapeWitnesses(p), tool = state.physicalItemStacks.find(a => a.id === e.toolId && a.quantity > 0);
+    if (e.work) {
+      const w = e.work;
+      if (!sameMapCell(cell, w.cell) || actorIsIncapacitated('scientist') || surveyBusy() || ['fastening', 'collar'].includes(w.kind) && tool?.carriedBy !== 'scientist') e.work = null;
+      else {
+        if (w.kind === 'inspect') {
+          w.staffSightings ||= [];
+          for (const a of witnesses) if (!w.staffSightings.some(v => v.actorId === a.id && sameMapCell(v.cell, a.mapCell))) w.staffSightings.push({ actorId: a.id, cell: { ...a.mapCell }, at: state.clock });
+        }
+        if (w.kind !== 'inspect') for (const a of witnesses) CityPrisonEscape.observe(p, a.id, w.kind, cell, state.clock);
+        w.progress += elapsed;
+        if (w.progress >= w.duration) {
+          if (w.kind === 'inspect') { if (!e.facts.length) e.facts.push({ at: state.clock, doorId: e.doorId, toolId: e.toolId, staffSightings: w.staffSightings, reason: 'Inspected workshop implement and service fastening; collar has mechanical fittings. Staff positions are limited to actual sightings.' }); p.followRoutine = true; }
+          else if (w.kind === 'tool' && tool && !tool.carriedBy) { tool.carriedBy = 'scientist'; tool.reservedTaskId = ''; e.toolConcealed = true; }
+          else if (w.kind === 'fastening') { Object.assign(state.doors[w.targetId], { state: DOOR_STATE_OPEN, lockState: DOOR_LOCK_UNLOCKED, accessRuleId: 'unrestricted' }); e.openedDoors = [...new Set([...(e.openedDoors || []), w.targetId])]; bumpNavigationRevision('door'); }
+          else if (w.kind === 'property') { localPrisonProperty(p, 'return'); e.propertyRecoveredAt = state.clock; }
+          else if (w.kind === 'collar') { localPrisonRemoveCollar(p); e.collarRemovedAt = state.clock; }
+          e.work = null; e.noticeSerial++; syncActorInventories(); state.paused = true; surveyEvent(`Local prison escape preparation: ${w.kind} completed physically. No new conviction or automatic release.`);
+        }
+      }
+    }
+    if (!CityPrisonEscape.phases.includes(p.phase)) return;
+    const officer = p.staff[0];
+    if (p.phase === 'escapeEscort') {
+      if (officer.id !== e.escortId || officer.status !== 'alive' || officer.health < 50 || actorIsIncapacitated(officer) || actorIsIncapacitated('scientist')) { p.delay = 'Physical escort cannot continue; custody still counts. No replacement or teleport.'; return; }
+      if (state.clock >= (e.nextMoveAt || 0)) {
+        e.nextMoveAt = state.clock + 3;
+        if (WildernessBeasts.distance(officer.mapCell, cell) > 1) { localPrisonStep(p, officer, cell, false); return; }
+        if (localPrisonStep(p, officer, p.points.intake)) {
+          if (tool?.carriedBy === 'scientist') { tool.carriedBy = ''; tool.roomId = p.rooms.intake; tool.cell = { ...p.points.intake }; }
+          for (const id of p.propertyIds) { const stack = state.physicalItemStacks.find(a => a.id === id && a.carriedBy === 'scientist'); if (stack) { stack.carriedBy = ''; stack.roomId = p.rooms.intake; stack.cell = { ...p.points.intake, x: p.points.intake.x + 2, y: p.points.intake.y + 1 }; stack.reservedTaskId = p.id; const instance = stack.toolInstanceId && toolInstanceById(stack.toolInstanceId)?.instance; if (instance) { instance.carriedBy = ''; instance.roomId = stack.roomId; } } }
+          const collar = state.physicalItemStacks.find(a => a.id === p.suppressorId && a.quantity > 0);
+          if (collar?.carriedBy === 'scientist' || collar?.roomId === p.rooms.intake) { collar.carriedBy = 'scientist'; p.suppressionActive = true; }
+          e.restrained = false; e.lastKnown = null; e.lastSeenAt = null; e.searchUntil = null; e.restraint = 0; p.phase = 'imprisoned'; p.followRoutine = true; syncActorInventories(); state.paused = true;
+        }
+      }
+      return;
+    }
+    const outside = scientistRoomId() === p.rooms.yard;
+    for (const a of witnesses) if (outside || tool?.carriedBy === 'scientist' && !e.toolConcealed) CityPrisonEscape.observe(p, a.id, outside ? 'outsidePrison' : 'unauthorizedImplement', cell, state.clock);
+    const inspecting = witnesses.includes(officer) && WildernessBeasts.distance(officer.mapCell, cell) <= 1;
+    e.inspectionSeconds = inspecting ? (e.inspectionSeconds || 0) + elapsed : 0;
+    if (e.inspectionSeconds >= 10 && tool?.carriedBy === 'scientist') { e.toolConcealed = false; CityPrisonEscape.observe(p, officer.id, 'inspectionFoundImplement', cell, state.clock); }
+    // Existing officer inspects only damage they can physically see; no remote alarm reveals the prisoner.
+    if (!witnesses.includes(officer) && officer.status === 'alive' && officer.health >= 50) for (const id of e.openedDoors || []) {
+      const at = ensureLabMap().doors[id].cell;
+      if (WildernessBeasts.distance(officer.mapCell, at) <= 8 && sensoryLineOfSight(officer.mapCell, at) && !e.reports.some(r => r.kind === `damage:${id}`)) CityPrisonEscape.observe(p, officer.id, `damage:${id}`, at, state.clock);
+    }
+    const target = CityPrisonEscape.target(p, state.clock), able = officer.status === 'alive' && officer.health >= 50 && !actorIsIncapacitated(officer);
+    if (able && state.clock >= (e.nextMoveAt || 0)) {
+      e.nextMoveAt = state.clock + 3;
+      if (target) { if (WildernessBeasts.distance(officer.mapCell, cell) > 1 || !witnesses.includes(officer)) localPrisonStep(p, officer, target, false); }
+      else localPrisonStep(p, officer, Math.floor((state.clock - p.admittedAt) / 180) % 2 ? p.points.intake : p.points.workshop, false);
+    }
+    const contact = s.custodyAuthority?.status === 'served' && able && witnesses.includes(officer) && target && WildernessBeasts.distance(officer.mapCell, cell) <= 1;
+    e.restraint = contact ? e.restraint + elapsed : 0;
+    if (e.restraint >= 10 && CityPrisonEscape.recapture(p, s, state.clock)) {
+      e.escortId = officer.id;
+      for (const task of [...state.tasks].filter(isScientistQueueTask)) cancelTask(task.id, { quiet: true });
+      surveyEvent('The existing unit officer completed physical restraint. The same local remainder resumes; no new conviction or punishment was created.'); state.paused = true;
+    } else if (CityPrisonEscape.escape(p, s, state.clock, { mobile: !actorIsIncapacitated('scientist'), outside: outside && cell.x >= 38, controlled: witnesses.length > 0 })) {
+      surveyEvent('You broke prison control in an urban service lane. The exact local remainder is frozen; the city still has jurisdiction and the collar still suppresses magic. No automatic rescue or laboratory return.'); state.paused = true;
+    }
   }
   function localPrisonProperty(p, mode) {
     if (mode === 'take') {
@@ -77856,6 +77996,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (scientistIsDead()) { p.phase = 'deceased'; p.nextAt = null; return; }
     const old = p.phase, elapsed = Math.max(0, state.clock - p.lastAt); CityPrison.tick(p, s, c, r, state.clock, cityExecutionFacts(g, g.enforcement, c));
     p.recordsPowerSeconds = Math.max(0, p.recordsPowerSeconds - elapsed);
+    if (p.escape?.work || CityPrisonEscape.phases.includes(p.phase) || p.escape?.restrained) {
+      updateLocalPrisonEscape(p, s, elapsed);
+      if (CityPrisonEscape.phases.includes(p.phase)) return;
+    }
     if (old !== p.phase && p.phase === 'releaseDue') { localPrisonRemoveCollar(p); surveyEvent(p.interimRelease ? 'The local judge ordered interim release from the failed transfer. Actual detention was credited, but the remaining sentence is outstanding. Request physical return to the checkpoint.' : 'The local finite term is complete. Custody authority and magic suppression have ended; request physical discharge to the checkpoint.'); state.paused = true; }
     const escort = r.crew[1];
     if (elapsed <= 0) return;
@@ -77866,13 +78010,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     } else if (p.phase === 'intake') {
       if (scientistRoomId() === p.rooms.cabin) { moveSurveyScientist(p.rooms.intake, p.points.intake); r.crew.forEach(a => a.mapCell = { ...p.points.intake }); r.vehicle.mapCell = { ...p.points.intake }; }
       if (state.clock >= p.nextAt && CityPrison.admit(p, s, c, r, state.clock)) {
+        materializeLocalPrisonEscape(p);
         for (const id of p.propertyIds) { const stack = state.physicalItemStacks.find(s => s.id === id && s.reservedTaskId === p.id); if (stack) { stack.roomId = p.rooms.intake; stack.cell = { ...p.points.intake, x: p.points.intake.x + 2, y: p.points.intake.y + 1 }; } }
         p.followRoutine = true;
       } else p.delay = 'Intake requires the exact available reserved bed; the actual detention clock and review continue.';
     } else if (p.phase === 'imprisoned') {
       const routine = PrisonCustody.routineAt(p.admittedAt, state.clock, p.assignment, p.priority), mapping = { statePrisonHousing: 'housing', statePrisonDayroom: 'dayroom', statePrisonWorkshop: 'workshop', statePrisonProgram: 'workshop', statePrisonClinic: 'clinic', statePrisonExercise: 'dayroom', statePrisonCommunications: 'clinic' }, room = mapping[routine.currentRoomId] || 'housing';
       p.routine = { label: routine.currentLabel, room, nextAt: routine.nextEventAt }; p.nextAt = Math.min(state.clock + 60, p.termEndsAt);
-      if (p.followRoutine && !surveyBusy()) localPrisonStep(p, p.staff[0], p.points[room]);
+      if (p.followRoutine && !surveyBusy() && !sameMapCell(scientistMapCell(), p.points[room])) localPrisonStep(p, p.staff[0], p.points[room]);
+      else if (room === 'workshop' && p.staff[0].status === 'alive' && p.staff[0].health >= 50 && state.clock >= (p.patrolNextAt || 0)) {
+        p.patrolNextAt = state.clock + 3;
+        localPrisonStep(p, p.staff[0], Math.floor((state.clock - p.admittedAt) / 180) % 2 ? p.points.intake : p.points.workshop, false);
+      }
       const present = sameMapCell(scientistMapCell(), p.points[room]), staffAble = p.staff[0].status === 'alive' && p.staff[0].health >= 50;
       if (present && staffAble) {
         if (room === 'housing') ensureWildernessSurvival().exertion = Math.max(0, ensureWildernessSurvival().exertion - elapsed / 120);
@@ -77898,7 +78047,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function renderLocalPrison(g, c) {
     const p = c.execution.prison, r = g.enforcement.executionResources, panel = document.createElement('section'); panel.dataset.cityPrison = 'true';
-    panel.append(textEl('strong', `${r.facility.label}: ${p.phase}`), textEl('p', `${p.delay} Remaining: ${formatDuration(p.releasedAt == null ? Math.max(0, p.termEndsAt - state.clock) : c.execution.ledger.remainingSeconds)}. Actual transport credit: ${formatDuration(p.transportCreditSeconds)}. Prison service: ${formatDuration(p.serviceSeconds)}. ${p.interimRelease ? 'Interim release: custody has ended, but the unserved sentence remains outstanding.' : p.releasedAt != null ? 'Punishment and this custody authority have ended.' : 'Finite local custody; no life sentence.'}`), textEl('p', `Van ${r.vehicle.id}: ${formatNumber(r.vehicle.fuelKm)} km fuel, ${formatNumber(p.distanceTravelledKm || 0)} km travelled. Driver ${r.crew[0].name}; escort ${r.crew[1].name}. Property receipt: ${p.propertyIds.length} stacks. ${p.suppressionActive ? 'Physical magic suppression active.' : 'No local corrections suppression.'}`));
+    panel.append(textEl('strong', `${r.facility.label}: ${p.phase}`), textEl('p', `${p.delay} Remaining: ${formatDuration(p.releasedAt == null && p.escape?.suspendedAt == null ? Math.max(0, p.termEndsAt - state.clock) : c.execution.ledger.remainingSeconds)}. Actual transport credit: ${formatDuration(p.transportCreditSeconds)}. Prison service: ${formatDuration(p.serviceSeconds)}. ${p.escape?.suspendedAt != null ? 'Escape interrupted service; the exact remainder is frozen.' : p.interimRelease ? 'Interim release: custody has ended, but the unserved sentence remains outstanding.' : p.releasedAt != null ? 'Punishment and this custody authority have ended.' : 'Finite local custody; no life sentence.'}`), textEl('p', `Van ${r.vehicle.id}: ${formatNumber(r.vehicle.fuelKm)} km fuel, ${formatNumber(p.distanceTravelledKm || 0)} km travelled. Driver ${r.crew[0].name}; escort ${r.crew[1].name}. Property receipt: ${p.propertyIds.length} stacks. ${p.suppressionActive ? 'Physical magic suppression active.' : 'No local corrections suppression.'}`));
     const button = (label, kind, data = {}) => { const b = document.createElement('button'); b.textContent = label; b.disabled = surveyBusy() || Boolean(localPrisonWorkReason({ kind, ...data }, g, g.enforcement)); b.onclick = () => queueGateWork(kind, data); panel.append(b); };
     button('Use Onboard Repair Kit (15 minutes)', 'prisonRepair'); button('Request Judicial Review of Failed Transfer (15 minutes)', 'prisonTransferReview'); button('Begin Physical Discharge to Checkpoint', 'prisonDischarge');
     if (p.transferReview) panel.append(textEl('p', `Transfer review: ${p.transferReview.status}; ${p.transferReview.reason}. ${p.transferReview.paused ? 'Named judge or powered records unavailable.' : ''}`));
@@ -77910,6 +78059,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       panel.append(textEl('p', `Local communications power reserve: ${formatDuration(p.recordsPowerSeconds)}. Clinic supplies are finite; treatment uses the shared injury recovery system.`));
       for (const injury of actorInjuries('scientist').filter(i => i.status !== 'healed')) button(`Request Clinic Care: ${INJURY_TYPE_DEFS[injury.typeId].label}`, 'prisonCare', { injuryId: injury.id });
       for (const m of p.communications) { panel.append(textEl('p', `${m.channel}: ${m.status}${m.report ? ' — ' + JSON.stringify(m.report) : ''}`)); button('Attend Available Communication Session', 'prisonRead', { requestId: m.id }); }
+    }
+    if (p.escape && p.releasedAt == null) {
+      const e = p.escape;
+      panel.append(textEl('strong', 'Maintenance-access escape'), textEl('p', 'Inspect the workshop during your real routine. The officer patrols physically; watch their position. Solo escape does not remove the collar, recover property, leave the city, or promise rescue.'));
+      const action = (label, kind, id = '') => { const b = document.createElement('button'); b.textContent = label; b.disabled = surveyBusy() || e.restrained; b.onclick = () => { if (!localPrisonEscapeAction(kind, id)) { surveyEvent('Required local position, knowledge, tool, skill, or opportunity is missing.'); render(); } }; panel.append(b); };
+      action('Inspect Workshop Security (60 seconds, workshop only)', 'inspect');
+      if (e.facts.length) {
+        panel.append(textEl('p', 'Observed: maintenance implement at 27,5; service fastening at 25,9. Use ordinary walking, then act from an adjacent tile. Urban lane begins at x38 beyond the yard; break immediate control to escape. Property remains at intake 6,6; reaching it is optional and internal doors need physical access.'));
+        action('Begin Solo Maintenance Escape', 'attempt'); action('Take and Conceal Adjacent Implement (15 seconds)', 'tool');
+        for (const id of [e.doorId, ...p.doorIds]) { const cell = ensureLabMap().doors[id]?.cell; action(`Work Adjacent Fastening at ${cell?.x},${cell?.y} (60 seconds)`, 'fastening', id); }
+        action('Recover Receipted Property at Intake (30 seconds)', 'property'); action('Remove Collar Outside Prison (analysis 3, implement, 5 minutes)', 'collar'); action('Abandon Untouched, Unobserved Attempt', 'cancel');
+      }
+      if (e.work) panel.append(textEl('p', `${e.work.kind}: ${Math.floor(e.work.progress)}/${e.work.duration} seconds. Moving or incapacity interrupts the work.`));
+      panel.append(textEl('p', `${e.reports.length} observed reports, allegations only. ${e.restrained ? 'Physically restrained for escorted return.' : 'No automatic conviction or lethal punishment.'}`));
+      for (const row of e.interruptions) panel.append(textEl('p', `Escape interval ${formatClock(row.from)} — ${row.to == null ? 'ongoing' : formatClock(row.to)}; remainder ${formatDuration(row.remainingSeconds)}.`));
     }
     return panel;
   }

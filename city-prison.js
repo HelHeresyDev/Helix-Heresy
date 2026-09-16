@@ -6,7 +6,7 @@
   'use strict';
   const able = a => a?.status === 'alive' && a.health >= 50;
   const copy = a => JSON.parse(JSON.stringify(a));
-  function custody(p) { return Boolean(p?.collectedAt != null && !p.completedAt && !p.releasedAt && p.phase !== 'deceased'); }
+  function custody(p) { return Boolean(p?.collectedAt != null && p.completedAt == null && p.releasedAt == null && p.escape?.suspendedAt == null && p.phase !== 'deceased'); }
   function stage(p, phase, now, duration = 0) { p.phase = phase; p.lastAt = now; p.nextAt = now + duration; p.delay = ''; p.history.push({ at: now, phase }); }
   function authorize(s, c, r, f, now, execution) {
     if (s.phase !== 'readyForPhysicalTransfer' || s.prison || now >= s.plan.expiresAt || !f.channel || !able(f.judge) || f.judge.id !== c.trial.judgment.judgeId || f.judge.institutionId !== f.judiciaryId || execution.legalReason(s, c, f) || execution.resourceReason(s, r, s.plan) || s.review.key !== execution.reviewKey(c, f)) return false;
@@ -43,7 +43,7 @@
     c.trial.sentence.executionStartedAt = now; c.trial.sentence.status = 'active'; stage(p, 'imprisoned', now, 60); return true;
   }
   function finishTerm(p, s, c, now) {
-    if (p.releasedAt != null) return false;
+    if (p.releasedAt != null || p.escape?.suspendedAt != null) return false;
     p.releaseOriginPhase = p.phase; p.releasedAt = Math.min(now, p.termEndsAt); p.suppressionActive = false; s.custodyAuthority.status = 'expired';
     s.ledger.remainingSeconds = 0; s.ledger.creditAppliedAt ??= p.releasedAt;
     if (p.admittedAt == null) { p.transportCreditSeconds = Math.min(s.ledger.termSeconds - s.ledger.recognizedCustodyCreditSeconds, p.releasedAt - p.collectedAt); s.ledger.transportCustodyCreditSeconds = p.transportCreditSeconds; }
@@ -57,8 +57,8 @@
   }
   function tick(p, s, c, r, now, f = null) {
     const elapsed = Math.max(0, now - p.lastAt); p.lastAt = now;
-    if (p.phase === 'deceased' || p.completedAt != null) return false;
-    if (p.admittedAt != null) { p.serviceSeconds = Math.max(0, Math.min(now, p.termEndsAt) - p.admittedAt); s.ledger.prisonServedSeconds = p.serviceSeconds; s.ledger.remainingSeconds = Math.max(0, p.termEndsAt - now); }
+    if (p.phase === 'deceased' || p.completedAt != null || p.escape?.suspendedAt != null) return false;
+    if (p.admittedAt != null) { p.serviceSeconds = Math.max(0, Math.min(now, p.termEndsAt) - p.admittedAt - (p.escape?.interruptions || []).reduce((n, i) => n + (i.to == null ? 0 : i.to - i.from), 0)); s.ledger.prisonServedSeconds = p.serviceSeconds; s.ledger.remainingSeconds = Math.max(0, p.termEndsAt - now); }
     if (p.releasedAt == null && now >= p.termEndsAt) return finishTerm(p, s, c, now);
     const review = p.transferReview;
     if (review?.status === 'pending') {
