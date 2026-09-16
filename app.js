@@ -9055,9 +9055,9 @@
   function scientistRaidCustodyStatus() {
     if (state.penalLegion?.desertion?.restrained) return 'restrained';
     if (state.penalLegion?.phase === 'deserted') return 'free';
-    if (state.penalLegion?.startedAt != null && state.penalLegion.serviceEndedAt == null) return 'militaryService';
+    if (state.penalLegion?.startedAt != null && state.penalLegion.serviceEndedAt == null && state.penalLegion.phase !== 'extracted') return 'militaryService';
     const raid = activeLawEnforcementRaid() || currentDetentionRaid();
-    if (state.penalLegion?.serviceEndedAt != null && raid?.id === state.jailCustody?.stays.find(j => j.id === state.penalLegion.jailStayId)?.raidId) return 'free';
+    if ((state.penalLegion?.serviceEndedAt != null || state.penalLegion?.phase === 'extracted') && raid?.id === state.jailCustody?.stays.find(j => j.id === state.penalLegion.jailStayId)?.raidId) return 'free';
     return raid?.custody?.status || "free";
   }
 
@@ -15211,6 +15211,27 @@
       penalLegionAction: legionAction,
       penalDesertionAction,
       legionSocialAction,
+      configurePenalExtractionForTest: (options = {}) => {
+        const saved = ensureCastawayAssistance();
+        let contact = blackMarketContactById('desertion-test-contact');
+        if (!contact) {
+          contact = normalizeBlackMarketContact({ id: 'desertion-test-contact', name: 'Mara Fen', archetype: 'industrialSmuggler', trust: 70, discoveredAt: 0 });
+          ensureEconomy().contacts.push(contact);
+          const provider = CastawayAssistance.service(contact, { id: 'private-pad:desertion-test', cellId: 'planet-cell:00004', ownerId: contact.id, label: 'Mara private receiving pad', temperatureC: 18, precipitationMm: 500, description: 'Private receiving; not a laboratory or city admission.' }, 'Irena Vale', state.clock);
+          provider.testDistanceKm = 10; saved.services.push(provider); saved.initializedContacts.push(contact.id);
+          ensureEconomy().money = 10000;
+        }
+        if (options.trust != null) contact.trust = options.trust;
+        if (options.radio && !wildernessRadio()) {
+          const stack = createPhysicalItemStack('inventory', 'satelliteCommunicator', 1, { roomId: scientistRoomId(), cell: scientistMapCell() }, { suppressEvidence: true });
+          stack.carriedBy = 'scientist'; syncActorInventories();
+        }
+        if (options.powered != null && wildernessRadio()) wildernessRadio().powered = options.powered;
+        if (options.radioCharge != null && wildernessRadio()) wildernessRadio().charge = options.radioCharge;
+        if (options.condition != null) saved.services.find(p => p.contactId === contact.id).aircraft.condition = options.condition;
+        ensureWildernessSurvival().autoCare = false;
+        persist(); return true;
+      },
       configurePenalDesertionForTest: (options = {}) => {
         const squad = legionSquad();
         if (options.guards) options.guards.forEach((cell, i) => { squad[i + 1].mapCell = legionCell('penalLegionField', cell.x, cell.y); });
@@ -15221,7 +15242,7 @@
       advancePenalDesertionForTest: (seconds = 1, options = {}) => {
         for (let i = 0; i < seconds; i++) {
           if (options.ordinary) advanceTime(1, { quiet: true });
-          else { state.clock++; updateScientistMovementTask(); updatePenalLegion(1); completeDueTasks(); }
+          else { state.clock++; updateScientistMovementTask(); updatePenalLegion(1); updateCastawayAssistance(1); completeDueTasks(); }
           if (options.untilPhase && state.penalLegion.phase === options.untilPhase) break;
         }
         syncActorInventories(); persist(); render(); return state.penalLegion.phase;
@@ -20798,7 +20819,7 @@
   function advanceTime(seconds, options = {}) {
     const advanceStartedAt = performance.now();
     const elapsed = Math.max(0, Number(seconds) || 0);
-    if (state.penalLegion && !options.legionStep && elapsed > 1) {
+    if (state.penalLegion && state.penalLegion.phase !== 'extracted' && !options.legionStep && elapsed > 1) {
       let remaining = elapsed, changed = 0;
       while (remaining > 0 && !scientistIsDead()) {
         const previous = state.penalLegion.phase;
@@ -20806,9 +20827,10 @@
         const deadline = state.penalLegion.serviceEndedAt == null && state.penalLegion.ledger?.suspendedAt == null ? state.penalLegion.ledger?.releaseAt ?? Infinity : Infinity;
         const beforeDepotNotice = state.penalLegion.depot?.noticeSerial;
         const beforeDesertionNotice = state.penalLegion.desertion?.noticeSerial;
+        const beforeAssistanceStatus = currentCastawayRequest()?.status;
         const step = Math.min(remaining, ['field', 'withdrawal', 'jailEscort', ...PenalDesertion.PHASES].includes(previous) ? 1 : 60, Math.max(1, deadline - state.clock));
         changed += advanceTime(step, { ...options, legionStep: true }); remaining -= step;
-        if (state.penalLegion.phase !== previous || scientistVital('health').current < beforeHealth || state.wildernessBeasts?.noticeSerial !== beforeNotice || state.penalLegion.depot?.noticeSerial !== beforeDepotNotice || state.penalLegion.desertion?.noticeSerial !== beforeDesertionNotice) break;
+        if (state.penalLegion.phase !== previous || scientistVital('health').current < beforeHealth || state.wildernessBeasts?.noticeSerial !== beforeNotice || state.penalLegion.depot?.noticeSerial !== beforeDepotNotice || state.penalLegion.desertion?.noticeSerial !== beforeDesertionNotice || currentCastawayRequest()?.status !== beforeAssistanceStatus) break;
       }
       return changed;
     }
@@ -52196,7 +52218,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function scientistMoveBlockReason(toRoomId, options = {}) {
     if (state.penalLegion?.desertion?.restrained) return 'Physical military restraints require an escorted movement.';
-    if (state.penalLegion && state.penalLegion.serviceEndedAt == null && !['field', 'withdrawal', 'desertionAttempt', 'deserted'].includes(state.penalLegion.phase)) return 'Military intake or depot custody requires an authorized physical movement.';
+    if (state.penalLegion && state.penalLegion.serviceEndedAt == null && !['field', 'withdrawal', 'desertionAttempt', 'deserted', 'extracted'].includes(state.penalLegion.phase)) return 'Military intake or depot custody requires an authorized physical movement.';
     if (localPrisonRestricted()) return "Use the local prison's routed routine or discharge actions.";
     if (GateEnforcement.custodyActive(currentGateEnforcement())) return "The scientist is physically in receiving-city custody; use the local jail's actions.";
     const reception = state.penalFlights?.assistance?.cityApproach?.gates.find(g => g.annexRoomId === toRoomId);
@@ -63234,7 +63256,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function taskBlockReason(task) {
-    if (state.penalLegion && state.penalLegion.serviceEndedAt == null && !['field', 'withdrawal', 'desertionAttempt', 'deserted'].includes(state.penalLegion.phase) && task.type !== 'rest' && !(task.type === 'surveyExpeditionWork' && task.data?.action === 'consume')) return 'Military intake or depot custody prevents ordinary work.';
+    if (state.penalLegion && state.penalLegion.serviceEndedAt == null && !['field', 'withdrawal', 'desertionAttempt', 'deserted', 'extracted'].includes(state.penalLegion.phase) && task.type !== 'rest' && !(task.type === 'surveyExpeditionWork' && task.data?.action === 'consume')) return 'Military intake or depot custody prevents ordinary work.';
     if (!task || !isScientistQueueTask(task)) {
       return "";
     }
@@ -73047,13 +73069,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function renderSiteVisits() {
-    if (state.penalLegion && dom.visitsList && dom.visitsSummary) {
+    if (state.penalLegion && state.penalLegion.phase !== 'extracted' && dom.visitsList && dom.visitsSummary) {
       dom.visitsSummary.textContent = state.penalLegion.phase === 'deserted' ? 'Escaped military prisoner — unsupported wilderness' : state.penalLegion.serviceEndedAt == null ? "Penal-legion service — city-local military custody" : "Penal service completed — discharge and civilian receiving";
       dom.visitsList.replaceChildren(renderPenalLegion()); return;
     }
     if (currentCityApproach() && [CastawayAssistance.PAD, CastawayAssistance.CABIN, ...cityReceptionRoomIds()].includes(scientistRoomId())) {
       dom.visitsSummary.textContent = "City approach · receiving permission is not admission";
       dom.visitsList.replaceChildren(renderCityApproach()); return;
+    }
+    if (state.penalLegion?.phase === 'extracted' && [CastawayAssistance.PAD, CastawayAssistance.CABIN].includes(scientistRoomId())) {
+      dom.visitsSummary.textContent = 'Outside extraction — military service remains interrupted';
+      dom.visitsList.replaceChildren(renderCastawayAssistance()); return;
     }
     if (currentPenalFlight() && !currentJailStay()) {
       dom.visitsSummary.textContent = state.penalFlights.fieldActive ? "Penal Flight survivor · unsupported wilderness" : "Penal Flight · physical custody and dispatch";
@@ -75807,7 +75833,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       d.status = 'escaped'; d.escapedAt = state.clock; d.noticeSerial++; s.phase = 'deserted'; s.fieldBeasts = clonePlainObject(state.wildernessBeasts); PenalAssignments.saveSite(s);
       addEvent('You reached unsupported wilderness beyond squad control. Unserved service is frozen, not erased. Carried property and wounds remain; there is no automatic rescue or laboratory return.'); state.paused = true;
     }
-    s.delay = s.phase === 'deserted' ? 'Unsupported wilderness. Outside extraction and onward strategic travel require a later pass.' : d.restraint ? `Physical restraint in progress: ${Math.floor(d.restraint)}/10 seconds; separation interrupts it.` : 'Reach x55 or beyond and remain beyond squad control. Pursuit is limited to this operation and current sightings.';
+    s.delay = s.phase === 'deserted' ? 'Unsupported wilderness. A powered carried communicator may reach known contacts for negotiated extraction; assistance is not guaranteed.' : d.restraint ? `Physical restraint in progress: ${Math.floor(d.restraint)}/10 seconds; separation interrupts it.` : 'Reach x55 or beyond and remain beyond squad control. Pursuit is limited to this operation and current sightings.';
     return 1;
   }
   function updatePenalLegion(elapsed = 0) {
@@ -75825,7 +75851,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       else if (s.phase === 'outbound') { s.returnDistanceKm = s.truck.distanceKm; s.truck.distanceKm = 0; PenalLegion.stage(s, 'returning', state.clock); }
     }
-    if (s.phase === 'discharged') return 0;
+    if (['discharged', 'extracted'].includes(s.phase)) return 0;
     if (PenalDesertion.PHASES.includes(s.phase)) return updatePenalDesertion(elapsed);
     if (['depotService', 'releaseProcessing', 'dischargeBoarding', 'dischargeTransit', 'civilianUnloading'].includes(s.phase) || s.serviceEndedAt != null && ['briefing', 'assignmentLoading', 'returnProcessing', 'debrief'].includes(s.phase)) return updatePenalDepot(elapsed);
     if (s.phase === 'assignmentLoading') return updateAssignmentLoading(s, elapsed);
@@ -76248,6 +76274,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (s.phase === 'field') button('Recall squad to pickup', () => legionAction('recall'));
     if (['field', 'withdrawal'].includes(s.phase) && s.serviceEndedAt == null && !s.desertion?.restrained) {
+      const radio = wildernessRadio(), contacts = ensureEconomy().contacts.filter(c => c.discoveredAt <= state.clock);
+      panel.append(textEl('p', `Escape preparation: ${radio ? `carried communicator ${radio.powered ? 'on' : 'off'}, ${formatDuration(radio.charge)} battery` : 'no carried communicator'}. Known contacts: ${contacts.map(c => c.name).join(', ') || 'none'}. Equipment and familiarity do not promise willingness or transport. No communicator or contact is granted by desertion.`));
       button('Attempt field desertion', () => penalDesertionAction('attempt'));
       for (const actor of legionSquad().filter(a => a.status !== 'dead' && a.roomId === scientistRoomId() && sensoryLineOfSight(a.mapCell, scientistMapCell()) && WildernessBeasts.distance(a.mapCell, scientistMapCell()) <= 8)) {
         button(`Threaten ${actor.name}`, () => legionSocialAction('threat', actor.id));
@@ -76267,6 +76295,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const row of s.ledger?.interruptions || []) panel.append(textEl('p', `Service interruption ${row.attemptId}: ${formatClock(row.from)} to ${row.to == null ? 'ongoing; unserved remainder frozen' : formatClock(row.to)}. ${(row.remainingSeconds / 86400).toFixed(2)} days remained at escape. Prior custody and earned reductions retained.`));
     for (const event of (s.squadConduct || []).slice(-8)) panel.append(textEl('p', `${formatClock(event.at)} — ${event.kind}: ${event.reaction}`));
     if (['field', 'withdrawal', ...PenalDesertion.PHASES].includes(s.phase)) { panel.append(textEl('p', 'Technician work position: 30,16. Return pickup: 22,12. Use normal map movement and combat.')); panel.append(renderWildernessPanel()); }
+    if (s.phase === 'deserted') panel.append(renderCastawayAssistance());
     if (s.report) panel.append(textEl('p', `Debrief: ${s.report.outcome}; ${s.report.casualties.length} squad deaths. No automatic conviction or term reset.`));
     for (const report of s.assignmentReports || []) panel.append(textEl('p', `${formatClock(report.at)} — ${report.assignmentId}: ${report.outcome}; ${report.casualties.length} casualties; ${report.assignmentReceipt}.`));
     renderPenalDepot(panel, s, button);
@@ -76666,12 +76695,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function ensureCastawayAssistance() { return ensurePenalFlights().assistance ||= CastawayAssistance.create(); }
   function currentCastawayRequest() { return CastawayAssistance.active(ensureCastawayAssistance()); }
   function castawayProvider(request = currentCastawayRequest()) { return ensureCastawayAssistance().services.find(s => s.id === request?.serviceId); }
+  function castawayOrigin() {
+    const s = state.penalLegion;
+    if (s?.phase === 'deserted') return { source: 'penalDesertion', serviceId: s.id, roomId: legionFieldRoom(), destination: { ...s.environment, strategicCellId: s.destination.cellId, originCityId: s.cityId } };
+    const flight = currentPenalFlight();
+    return flight && ensurePenalFlights().fieldActive ? { source: 'penalFlight', roomId: PenalFlights.FIELD, destination: flight.destination } : null;
+  }
+  function castawayPickupEnvironment(r = currentCastawayRequest()) { return r?.message.destination || castawayOrigin()?.destination; }
+  function castawayPickupRoom(r = currentCastawayRequest()) { return r?.message.roomId || PenalFlights.FIELD; }
+  function castawayAtPickupSource(r = currentCastawayRequest()) {
+    if (r?.message.source === 'penalDesertion') return state.penalLegion?.id === r.message.serviceId && state.penalLegion.phase === 'deserted' && scientistRoomId() === r.message.roomId && scientistMapCell().x >= 55;
+    return Boolean(ensurePenalFlights().fieldActive && scientistRoomId() === PenalFlights.FIELD);
+  }
   function initializeCastawayServices() {
-    const saved = ensureCastawayAssistance(), flight = currentPenalFlight(), map = activeWorldRecord?.generatedData?.strategicMap;
-    if (!flight || !map) return;
+    const saved = ensureCastawayAssistance(), originContext = castawayOrigin(), map = activeWorldRecord?.generatedData?.strategicMap;
+    if (!originContext || !map) return;
     const contacts = ensureEconomy().contacts.filter(c => c.archetype === "industrialSmuggler" && c.discoveredAt <= state.clock && !saved.initializedContacts.includes(c.id));
     if (!contacts.length) return;
-    const city = (map.humanGeography?.cities || []).find(c => c.cellId === flight.destination.originCellId);
+    const city = (map.humanGeography?.cities || []).find(c => originContext.source === 'penalDesertion' ? c.id === originContext.destination.originCityId : c.cellId === originContext.destination.originCellId);
     if (!city || !StrategicCapabilityHistory.cityHasCapability(map, city.id, "poweredAircraft")) return;
     const topology = StrategicWorld.topologyForMap(map), origin = StrategicWorld.cellIndex(city.cellId);
     const excluded = new Set([...(map.humanGeography?.cities || []).map(c => c.cellId), ...(map.routeGraph?.routes || []).flatMap(r => r.cellPath || [])]);
@@ -76685,21 +76726,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
   }
   function castawayChannel() {
-    if (!ensurePenalFlights().fieldActive || !scientistInWilderness() || scientistIsDead() || actorIsIncapacitated("scientist")) return null;
+    const origin = castawayOrigin();
+    if (!origin || scientistRoomId() !== origin.roomId || scientistIsDead() || actorIsIncapacitated("scientist") || origin.source === 'penalDesertion' && scientistMapCell().x < 55) return null;
     const radio = wildernessRadio(); if (radio?.powered && radio.charge > 0) return { kind: "portable", stackId: radio.stackId };
+    if (origin.source === 'penalDesertion') return null;
     const terminal = ensureCastawayCamp()?.terminal;
     return terminal?.online && terminal.remainingSeconds > 0 && WildernessBeasts.distance(scientistMapCell(), terminal.cell) <= 1 && sensoryLineOfSight(scientistMapCell(), terminal.cell) ? { kind: "terminal" } : null;
   }
   function castawayDistance(service) {
     if (service?.testDistanceKm != null) return service.testDistanceKm;
     const map = activeWorldRecord?.generatedData?.strategicMap;
-    return map && service ? StrategicWorld.greatCircleDistanceKm(map, StrategicWorld.cellIndex(service.pad.cellId), StrategicWorld.cellIndex(currentPenalFlight().destination.strategicCellId)) : NaN;
+    return map && service && castawayOrigin() ? StrategicWorld.greatCircleDistanceKm(map, StrategicWorld.cellIndex(service.pad.cellId), StrategicWorld.cellIndex(castawayOrigin().destination.strategicCellId)) : NaN;
   }
   function requestCastawayPickup(contactId, options = {}) {
     initializeCastawayServices(); const channel = castawayChannel(), contact = blackMarketContactById(contactId);
     if (!channel || !contact || contact.discoveredAt > state.clock && !ensureCastawayAssistance().introductions.includes(contactId)) return false;
     const saved = ensureCastawayAssistance(), provider = saved.services.find(s => s.contactId === contactId);
-    const request = CastawayAssistance.request(saved, contact, provider, { cell: cleanMapCell(scientistMapCell()), strategicCellId: currentPenalFlight().destination.strategicCellId, distanceKm: castawayDistance(provider), channel }, state.clock);
+    const origin = castawayOrigin();
+    const request = CastawayAssistance.request(saved, contact, provider, { ...origin, cell: cleanMapCell(scientistMapCell()), strategicCellId: origin.destination.strategicCellId, distanceKm: castawayDistance(provider), channel }, state.clock);
     if (!request) { surveyEvent("An assessment is already active, or the same refused facts have not changed. Repeating the request cannot reroll willingness."); return false; }
     persist(); if (!options.deferRender) render(); return true;
   }
@@ -76711,7 +76755,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function acceptCastawayPickup(payment, companionId = "", options = {}) {
     const saved = ensureCastawayAssistance(), r = currentCastawayRequest(), p = castawayProvider(), contact = blackMarketContactById(r?.contactId);
-    if (!castawayChannel() || !r?.offer || !p || CastawayAssistance.reason(contact, p, r.message.distanceKm, state.clock)) return false;
+    if (!castawayChannel() || !r?.offer || !p || !castawayAtPickupSource(r) || CastawayAssistance.reason(contact, p, r.message.distanceKm, state.clock, r.message)) return false;
+    if (r.message.source === 'penalDesertion' && companionId) return false; // Squad recruitment is not part of this route.
     const actor = companionId && castawayPartner(companionId);
     if (companionId && (!actor || !castawayAgreement(actor, "pickup") || actorIsIncapacitated(actor))) return false;
     if (!options.confirmed && !window.confirm(`Authorize ${payment === "debt" ? formatMoney(Math.ceil(r.offer.fee * 1.25)) + " debt in your name only" : formatMoney(r.offer.fee) + " escrow"} for this attempt? Departure commits the charge even if pickup fails. Walking passengers only. Receiving pad: ${r.offer.destination.label}. No city admission or laboratory return.`)) return false;
@@ -76743,15 +76788,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const scientist = id === "scientist", actor = scientist ? state.scientist : castawayPartner(id);
       if (!actor || actorIsIncapacitated(scientist ? "scientist" : actor) || (scientist ? scientistIsDead() : actor.health <= 0 || CastawayCamp.willingness(actor, "pickup"))) return false;
       const cell = scientist ? scientistMapCell() : actor.mapCell, room = scientist ? scientistRoomId() : actor.roomId;
-      return room === PenalFlights.FIELD && WildernessBeasts.distance(cell, p.pilot.cell) <= 1 && sensoryLineOfSight(cell, p.pilot.cell);
+      return room === castawayPickupRoom(r) && WildernessBeasts.distance(cell, p.pilot.cell) <= 1 && sensoryLineOfSight(cell, p.pilot.cell);
     });
   }
   function castawayBoardReason() {
     const r = currentCastawayRequest(), p = castawayProvider();
-    if (r?.status !== "waiting" || state.clock >= r.closesAt || !scientistInWilderness()) return "No aircraft is waiting inside its agreed pickup window.";
+    if (r?.status !== "waiting" || state.clock >= r.closesAt || !castawayAtPickupSource(r)) return "No aircraft is waiting inside its agreed pickup window at an accessible extraction site.";
+    if (scientistIsDead() || actorIsIncapacitated('scientist')) return 'Walking passengers only; this aircraft has no casualty equipment.';
     if (!p || p.pilot.health < 50 || p.pilot.status !== "alive") return "The pilot cannot perform the pickup.";
     if (p.aircraft.condition < 50 || p.aircraft.fuelKm < r.message.distanceKm) return "The aircraft cannot safely perform the return flight.";
-    const weather = UnsupportedExcursions.weatherReason(currentPenalFlight().destination, state.clock) || UnsupportedExcursions.weatherReason(p.pad, state.clock + r.offer.flightSeconds);
+    const weather = UnsupportedExcursions.weatherReason(castawayPickupEnvironment(r), state.clock) || UnsupportedExcursions.weatherReason(p.pad, state.clock + r.offer.flightSeconds);
     if (weather) return weather;
     const party = castawayBoardingParty(), stacks = party.flatMap(id => actorInventoryStacks(id));
     if (stacks.reduce((n,s) => n + s.unitMassKg * s.quantity, 0) > r.offer.cargoKg || stacks.reduce((n,s) => n + s.unitVolumeL * s.quantity, 0) > r.offer.cargoL) return "The actual passenger cargo exceeds the negotiated aircraft capacity.";
@@ -76768,6 +76814,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const r = currentCastawayRequest(), p = castawayProvider(); if (castawayBoardReason() || r?.id !== task.data.requestId) return true;
     const party = castawayBoardingParty(); if (!party.includes("scientist")) return true;
     r.boardedIds = [...party]; materializeCastawayReceiving(p);
+    if (r.message.source === 'penalDesertion') {
+      const s = state.penalLegion;
+      s.fieldBeasts = clonePlainObject(state.wildernessBeasts); PenalAssignments.saveSite(s);
+      s.phase = 'extracted'; s.desertion.extractionRequestId = r.id; s.desertion.extractedAt = state.clock;
+    }
     party.forEach((id,i) => { const cell = { x: 6+i, y: 6, z: 14 }; if (id === "scientist") moveSurveyScientist(CastawayAssistance.CABIN, cell); else { const a = castawayPartner(id); a.roomId = CastawayAssistance.CABIN; a.mapCell = cell; } });
     p.pilot.location = "inbound"; p.pilot.cell = { x: 5, y: 6, z: 14 }; p.aircraft.fuelKm -= r.message.distanceKm; state.surveyExpeditions.phase = "inbound";
     CastawayAssistance.stage(r, "inbound", state.clock, r.offer.flightSeconds, "Actual passengers boarded. Flying to the agreed private receiving pad; wounds, possessions, and local banishment persist."); syncActorInventories(); castawayReport(); return true;
@@ -76781,20 +76832,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!CastawayAssistance.ongoing(r)) return 0;
     const seenThreats = p?.pilot.location === "pickup" ? (state.wildernessBeasts?.actors || []).filter(a => a.status !== "dead" && WildernessBeasts.distance(a.mapCell, p.pilot.cell) <= 6 && sensoryLineOfSight(p.pilot.cell, a.mapCell)).length : 0;
     if (r.status === "waiting" && (p.pilot.health <= 0 || p.pilot.status !== "alive" || p.aircraft.condition <= 0)) { CastawayAssistance.stage(r, "failed", state.clock, 0, "The aircraft or pilot is disabled at the actual pickup point. Neither return nor passenger transport is invented."); castawayReport(); return 1; }
-    if (r.status === "waiting" && (seenThreats >= 2 || p.pilot.health < 50 || p.aircraft.condition < 50 || state.clock >= r.closesAt || UnsupportedExcursions.weatherReason(currentPenalFlight().destination, state.clock))) {
+    if (r.status === "waiting" && (seenThreats >= 2 || p.pilot.health < 50 || p.aircraft.condition < 50 || state.clock >= r.closesAt || UnsupportedExcursions.weatherReason(castawayPickupEnvironment(r), state.clock))) {
       p.aircraft.fuelKm -= r.message.distanceKm; p.pilot.location = "returningEmpty";
       CastawayAssistance.stage(r, "returningEmpty", state.clock, r.offer.flightSeconds, "The crew withdrew because of its observed danger, aircraft limits, weather, or the expired pickup window. No passengers teleported aboard."); castawayReport(); return 1;
     }
     if (state.clock < r.nextAt) return 0;
     const contact = blackMarketContactById(r.contactId);
-    if (r.status === "assessing") CastawayAssistance.assess(r, contact, p, state.clock, UnsupportedExcursions.weatherReason(currentPenalFlight().destination, state.clock));
+    if (r.status === "assessing") CastawayAssistance.assess(r, contact, p, state.clock, UnsupportedExcursions.weatherReason(castawayPickupEnvironment(r), state.clock));
     else if (r.status === "offered") CastawayAssistance.stage(r, "expired", state.clock, 0, "The unaccepted offer expired; no money charged or aircraft dispatched.");
     else if (r.status === "preparing") {
-      const reason = CastawayAssistance.reason(contact, { ...p, aircraft: { ...p.aircraft, reservedBy: null } }, r.message.distanceKm, state.clock) || UnsupportedExcursions.weatherReason(currentPenalFlight().destination, state.clock + r.offer.flightSeconds);
+      const reason = CastawayAssistance.reason(contact, { ...p, aircraft: { ...p.aircraft, reservedBy: null } }, r.message.distanceKm, state.clock, r.message) || UnsupportedExcursions.weatherReason(castawayPickupEnvironment(r), state.clock + r.offer.flightSeconds);
       if (reason) { ensureEconomy().money += CastawayAssistance.refund(saved, r); p.aircraft.reservedBy = null; CastawayAssistance.stage(r, "failed", state.clock, 0, reason); }
       else { r.departedAt = state.clock; r.arriveAt = state.clock + r.offer.flightSeconds; r.closesAt = r.arriveAt + 900; p.aircraft.fuelKm -= r.message.distanceKm; p.pilot.location = "outbound"; p.radioSeconds ??= 14400; const debt = saved.debts.find(d => d.requestId === r.id); if (debt) debt.status = "owed"; CastawayAssistance.stage(r, "outbound", state.clock, r.offer.flightSeconds, "The named pilot departed in the reserved aircraft toward the last agreed coordinates."); }
     } else if (r.status === "outbound") {
-      if (UnsupportedExcursions.weatherReason(currentPenalFlight().destination, state.clock)) { p.aircraft.fuelKm -= r.message.distanceKm; p.pilot.location = "returningEmpty"; CastawayAssistance.stage(r, "returningEmpty", state.clock, r.offer.flightSeconds, "Actual landing weather prevented pickup; the occupied aircraft is returning without passengers."); }
+      if (UnsupportedExcursions.weatherReason(castawayPickupEnvironment(r), state.clock)) { p.aircraft.fuelKm -= r.message.distanceKm; p.pilot.location = "returningEmpty"; CastawayAssistance.stage(r, "returningEmpty", state.clock, r.offer.flightSeconds, "Actual landing weather prevented pickup; the occupied aircraft is returning without passengers."); }
       else { p.pilot.location = "pickup"; p.pilot.cell = cleanMapCell(r.offer.rendezvous); CastawayAssistance.stage(r, "waiting", state.clock, 900, "The aircraft is at the agreed coordinates. Walk to it within the pickup window; the crew has no omniscient survivor tracker."); }
     } else if (r.status === "inbound") {
       CastawayAssistance.stage(r, "unloading", state.clock, 30, "The occupied aircraft arrived at its private pad. Physical unloading is underway.");
@@ -76812,12 +76863,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     initializeCastawayServices(); const panel = document.createElement("section"), saved = ensureCastawayAssistance(), r = currentCastawayRequest(); panel.dataset.castawayAssistance = "true";
     panel.append(textEl("strong", "Outside Assistance"), textEl("p", "A request is not rescue. Known contacts need actual transport and a controlled receiving pad. Tracking beacons cannot make calls. Walking passengers only; no casualty lifting, guaranteed pickup, or city admission."));
     const button = (label, fn, disabled = false) => { const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.disabled = disabled; b.onclick = fn; panel.append(b); };
+    const military = castawayOrigin()?.source === 'penalDesertion' || r?.message.source === 'penalDesertion';
+    if (military) panel.append(textEl('p', 'Military extraction needs a stronger established relationship. Outstanding service remains frozen, not forgiven; no new conviction follows from requesting help. Only the scientist is eligible on this route; squad recruitment and casualty evacuation are not available.'));
+    if (military && state.penalLegion) panel.append(textEl('p', `Unserved military commitment: ${(state.penalLegion.remainingSeconds / 86400).toFixed(2)} days. Prior custody, earned reductions, carried property and witnessed reports remain intact.`));
     if (r?.status === "complete") { panel.append(textEl("p", r.reason), renderCityApproach()); return panel; }
-    const camp = ensureCastawayCamp();
-    button("Build Glider Messaging Terminal (5 minutes)", () => queueCastawayWork("terminal"), surveyBusy());
+    const camp = military ? null : ensureCastawayCamp();
+    if (!military) button("Build Glider Messaging Terminal (5 minutes)", () => queueCastawayWork("terminal"), surveyBusy());
     if (camp?.terminal) { panel.append(textEl("p", `Glider terminal: ${camp.terminal.online ? "on" : "off"}; ${formatDuration(camp.terminal.remainingSeconds)} power. Fixed at the glider, not a handheld communicator.`)); button("Toggle Glider Terminal", () => { const t = camp.terminal; if (WildernessBeasts.distance(scientistMapCell(), t.cell) <= 1 && t.remainingSeconds > 0) { t.online = !t.online; t.lastAt = state.clock; persist(); render(); } }); }
     for (const c of ensureEconomy().contacts.filter(c => c.discoveredAt <= state.clock || saved.introductions.includes(c.id))) button(`Request Pickup: ${c.name}`, () => requestCastawayPickup(c.id), !castawayChannel() || CastawayAssistance.ongoing(r));
-    for (const actor of ensurePenalFlights().actors.filter(a => penalActorObserved(a) && a.status !== "dead")) { button(`Ask ${actor.name} for an Introduction`, () => { if (CastawayCamp.willingness(actor, "assist")) return; const ids = (actor.assistanceContactIds || []).filter(id => blackMarketContactById(id)); saved.introductions = [...new Set([...saved.introductions, ...ids])]; surveyEvent(ids.length ? `${actor.name} shared their actual contact channel.` : `${actor.name} has no available introduction; no stranger is invented.`); persist(); render(); }); button(`Ask ${actor.name} to Join Pickup`, () => queueCastawayWork("pickup", actor.id), surveyBusy()); }
+    for (const actor of ensurePenalFlights().actors.filter(a => !military && penalActorObserved(a) && a.status !== "dead")) { button(`Ask ${actor.name} for an Introduction`, () => { if (CastawayCamp.willingness(actor, "assist")) return; const ids = (actor.assistanceContactIds || []).filter(id => blackMarketContactById(id)); saved.introductions = [...new Set([...saved.introductions, ...ids])]; surveyEvent(ids.length ? `${actor.name} shared their actual contact channel.` : `${actor.name} has no available introduction; no stranger is invented.`); persist(); render(); }); button(`Ask ${actor.name} to Join Pickup`, () => queueCastawayWork("pickup", actor.id), surveyBusy()); }
     if (r) {
       const report = r.lastReport; panel.append(textEl("p", `Last received ${formatClock(report.at)}: ${report.status}. ${report.reason}`));
       panel.append(textEl("p", `Agreed request coordinates: ${r.message.cell.x}, ${r.message.cell.y}, layer ${r.message.cell.z}. The pilot does not follow later movements.${report.arriveAt ? ` Reported pickup window: ${formatClock(report.arriveAt)}–${formatClock(report.closesAt)}.` : ""}`));
@@ -76825,7 +76879,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (report.offer && report.status === "offered") {
         panel.append(textEl("p", `${report.offer.pilotName} · ${report.offer.aircraftId}; ${report.offer.seats} seats, ${report.offer.cargoKg} kg / ${report.offer.cargoL} L. Fee ${formatMoney(report.offer.fee)}. Receiving point: ${report.offer.destination.label}.`));
         const select = document.createElement("select"); select.setAttribute("aria-label", "Consenting pickup companion"); const solo = document.createElement("option"); solo.value = ""; solo.textContent = "Scientist only"; select.append(solo);
-        for (const a of ensurePenalFlights().actors.filter(a => castawayAgreement(a, "pickup"))) { const o = document.createElement("option"); o.value = a.id; o.textContent = a.name; select.append(o); } panel.append(select);
+        for (const a of ensurePenalFlights().actors.filter(a => !military && castawayAgreement(a, "pickup"))) { const o = document.createElement("option"); o.value = a.id; o.textContent = a.name; select.append(o); } panel.append(select);
         button("Accept Pickup — Pay Escrow", () => acceptCastawayPickup("cash", select.value), !castawayChannel()); if (report.offer.debtAvailable) button("Accept Pickup — Personal Debt (+25%)", () => acceptCastawayPickup("debt", select.value), !castawayChannel());
       }
       button("Cancel Before Departure", cancelCastawayPickup, !castawayChannel()); button("Walk to and Board Agreed Pickup", () => queueCastawayBoard(), surveyBusy() || r.lastReport.status !== "waiting");

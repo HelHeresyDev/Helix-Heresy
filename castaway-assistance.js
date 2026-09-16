@@ -14,8 +14,9 @@
       pilot: { id: `castaway-pilot:${contact.id}`, name: pilotName, health: 100, status: "alive", location: "receivingPad", cell: null },
       aircraft: { id: `castaway-aircraft:${contact.id}`, ownerId: contact.id, condition: 100, fuelKm: 1600, rangeKm: 800, passengerSeats: 2, cargoKg: 40, cargoL: 60, readyAt: now, reservedBy: null } };
   }
-  function reason(contact, provider, distance, now) {
+  function reason(contact, provider, distance, now, message = {}) {
     if (!contact || contact.trust < 25) return "The contact is unwilling to risk a pickup without an established working relationship.";
+    if (message.source === 'penalDesertion' && contact.trust < 60) return "The contact refuses the additional risk of extracting an escaped military prisoner without a stronger established relationship.";
     if (contact.unavailableUntil > now) return "The contact cannot arrange assistance while unavailable.";
     if (!provider) return "No existing aircraft, named pilot, and controlled receiving pad are available through this contact.";
     const a = provider.aircraft, p = provider.pilot;
@@ -34,7 +35,7 @@
   function stage(r, status, now, delay, reason) { r.status = status; r.nextAt = now + delay; r.reason = reason; r.history.push({ at: now, status, reason }); }
   function assess(r, contact, provider, now, weatherReason = "") {
     if (r.status !== "assessing") return false;
-    const blocked = reason(contact, provider, r.message.distanceKm, now) || weatherReason;
+    const blocked = reason(contact, provider, r.message.distanceKm, now, r.message) || weatherReason;
     if (blocked) { stage(r, "refused", now, 0, blocked); return true; }
     r.offer = { fee: Math.ceil(500 + r.message.distanceKm * 4), debtAvailable: contact.trust >= 60, expiresAt: now + 3600, seats: provider.aircraft.passengerSeats, cargoKg: provider.aircraft.cargoKg, cargoL: provider.aircraft.cargoL, destination: clone(provider.pad), pilotName: provider.pilot.name, aircraftId: provider.aircraft.id, rendezvous: clone(r.message.cell), flightSeconds: Math.ceil(r.message.distanceKm / 210 * 3600) };
     stage(r, "offered", now, 3600, "A specific pickup is offered, not dispatched. Pre-departure cancellation refunds payment; a launched attempt is charged even if unsuccessful. Walking passengers only; no casualty equipment."); return true;
