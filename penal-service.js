@@ -20,10 +20,10 @@
   function accrue(s, now) {
     if (!s.ledger) return false;
     const l = s.ledger;
-    l.servedSeconds = Math.max(0, Math.min(now, l.releaseAt) - s.startedAt);
+    l.servedSeconds = Math.max(0, Math.min(l.suspendedAt ?? now, l.releaseAt) - s.startedAt - (l.interruptions || []).reduce((sum, r) => sum + (r.to == null ? 0 : r.to - r.from), 0));
     s.creditedSeconds = Math.min(l.originalSeconds, l.recognizedCustodySeconds + l.servedSeconds + l.reductions.reduce((sum, r) => sum + r.seconds, 0));
     s.remainingSeconds = Math.max(0, l.originalSeconds - s.creditedSeconds);
-    if (s.remainingSeconds || s.serviceEndedAt != null) return false;
+    if (l.suspendedAt != null || s.remainingSeconds || s.serviceEndedAt != null) return false;
     s.serviceEndedAt = l.releaseAt;
     s.history.push({ at: l.releaseAt, phase: 'serviceExpired', reason: 'Compulsory service ended at the fixed boundary; transport and paperwork cannot extend the sentence.' });
     return true;
@@ -31,10 +31,21 @@
   function depot(s, now) {
     return s.depot ||= { createdAt: now, materialized: false, activity: null, communications: [], nextCommunication: { company: now, counsel: now }, notices: [], noticeSerial: 0, condition: 100, recordsOnline: true, lastAt: now, mealProgress: {}, medicalProgress: {}, supplyIds: {}, medicalIds: {}, cityStock: { drinkingWater: 48000, trailMeal: 24000, medicalBandage: 480, neutralizingWash: 120 }, delivery: null, deliverySerial: 0, deliveryHistory: [], supplyVan: { condition: 100, fuelKm: 2400, distanceKm: 0, location: 'depot', occupants: [] }, route: { cityId: s.cityId, distanceKm: 4, open: true }, discharge: null };
   }
+  function interrupt(s, now, attemptId) {
+    const l = s.ledger; if (!l || l.suspendedAt != null || s.serviceEndedAt != null) return false;
+    accrue(s, now); if (s.serviceEndedAt != null) return false;
+    l.interruptions ||= []; l.interruptions.push({ attemptId, from: now, to: null, remainingSeconds: s.remainingSeconds, reason: 'Successful deliberate escape from military custody; no new sentence.' });
+    l.suspendedAt = now; return true;
+  }
+  function resume(s, now) {
+    const l = s.ledger; if (!l || l.suspendedAt == null) return false;
+    const interruption = l.interruptions.at(-1); interruption.to = Math.max(l.suspendedAt, now);
+    l.releaseAt += interruption.to - l.suspendedAt; l.suspendedAt = null; accrue(s, now); return true;
+  }
   function awardReduction(s, award, now) {
     const l = s.ledger;
     const assignment = s.assignments?.find(a => a.id === award?.assignmentId);
-    if (!l || !assignment || assignment.completedAt == null || assignment.receipt !== award.receiptId || assignment.authorityId !== award.authorityId || assignment.reductionSeconds !== award.seconds || !(award.seconds > 0) || l.reductions.some(r => r.assignmentId === award.assignmentId)) return false;
+    if (!l || l.suspendedAt != null || !assignment || assignment.completedAt == null || assignment.receipt !== award.receiptId || assignment.authorityId !== award.authorityId || assignment.reductionSeconds !== award.seconds || !(award.seconds > 0) || l.reductions.some(r => r.assignmentId === award.assignmentId)) return false;
     l.originalReleaseAt ??= l.releaseAt;
     const seconds = Math.min(award.seconds, Math.max(0, l.releaseAt - now));
     l.reductions.push({ ...award, authorizedSeconds: award.seconds, seconds, at: now });
@@ -102,5 +113,5 @@
     r.distanceKm += km; s.truck.fuelKm -= km; s.truck.location = `civilianReceivingRoad:${r.distanceKm.toFixed(3)}`;
     return r.distanceKm >= 4;
   }
-  return { DAY, MONTH, ACTIVITIES, able, ledger, accrue, depot, notice, activity, work, orderDelivery, deliveryTick, beginDischarge, dischargeTravel, awardReduction };
+  return { DAY, MONTH, ACTIVITIES, able, ledger, accrue, depot, notice, activity, work, orderDelivery, deliveryTick, beginDischarge, dischargeTravel, awardReduction, interrupt, resume };
 });

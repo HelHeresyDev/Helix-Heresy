@@ -27,7 +27,7 @@
   function credit(s, now) {
     if (s.startedAt == null) return;
     if (s.ledger) {
-      s.ledger.servedSeconds = Math.max(0, Math.min(now, s.ledger.releaseAt) - s.startedAt);
+      s.ledger.servedSeconds = Math.max(0, Math.min(s.ledger.suspendedAt ?? now, s.ledger.releaseAt) - s.startedAt - (s.ledger.interruptions || []).reduce((sum, r) => sum + (r.to == null ? 0 : r.to - r.from), 0));
       s.creditedSeconds = Math.min(s.ledger.originalSeconds, s.ledger.recognizedCustodySeconds + s.ledger.servedSeconds + s.ledger.reductions.reduce((sum, r) => sum + r.seconds, 0));
       s.remainingSeconds = Math.max(0, s.ledger.originalSeconds - s.creditedSeconds); return;
     }

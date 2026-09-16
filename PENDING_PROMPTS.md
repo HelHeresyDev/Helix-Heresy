@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Penal Legion Desertion and Outside Rescue
+1. Outside-Assisted Penal Extraction
 2. Receiving-City Prison Escapes and Outside Rescue
 3. World Integration: Economy and Logistics
 4. World Integration: Investigations and Institutional Pressure
@@ -89,9 +89,9 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Penal Legion Desertion and Outside Rescue
+## 1. Outside-Assisted Penal Extraction
 
-Discuss one physical desertion or outside-rescue route from military service, including squad relationships, observed conduct, detection, pursuit, recapture, and finite local authority. Preserve actual actors, assets, wounds, outstanding service, and laboratory continuity. Neither leaving the squad nor a failed operation automatically proves a new offense. No explosive suppressors, instant punishment, or automatic laboratory return.
+Discuss a negotiated extraction from unsupported wilderness after military desertion. Reuse actual known contacts, willingness, named pilots, finite aircraft, fuel, payment, rendezvous, physical boarding, and permitted receiving locations where appropriate. Preserve the interrupted sentence, local reports, companions' individual consent, wounds, and carried property. Neither contact nor payment guarantees rescue, and arrival must not teleport the scientist home or erase outstanding legal obligations. This follow-up requires its own discussion and approval.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
