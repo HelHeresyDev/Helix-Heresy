@@ -52,6 +52,17 @@ test('weather can refuse an assessment without fabricating a dispatch', () => {
   const c = contact(), p = provider(c), s = Aid.create(), r = Aid.request(s, c, p, message, 0);
   Aid.assess(r, c, p, 60, 'Unsafe landing weather'); expect(r.status).toBe('refused'); expect(p.aircraft.reservedBy).toBeNull();
 });
+test('military extraction requires stronger willingness and preserves the disclosed origin across reload', () => {
+  const c = contact(), p = provider(c), s = Aid.create(); c.trust = 40;
+  expect(Aid.reason(c, p, 90, 0)).toBe('');
+  const origin = { ...message, source: 'penalDesertion', serviceId: 'military-1', roomId: 'actual-field', destination: { strategicCellId: 'cell-frontier' } };
+  const r = Aid.request(s, c, p, origin, 0); Aid.assess(r, c, p, 60);
+  expect(r.status).toBe('refused'); expect(r.reason).toContain('military prisoner');
+  c.trust = 70; const accepted = Aid.request(s, c, p, origin, 90); Aid.assess(accepted, c, p, 150);
+  expect(accepted.status).toBe('offered');
+  expect(JSON.parse(JSON.stringify(s)).requests.at(-1).message).toEqual(origin);
+  expect(Aid.reason({ ...c, trust: 40 }, p, 90, 160, origin)).toContain('military prisoner');
+});
 test('expired offers and duplicate passenger identities cannot reserve transport', () => {
   const c = contact(), p = provider(c), s = Aid.create(), r = Aid.request(s, c, p, message, 0);
   Aid.assess(r, c, p, 60);

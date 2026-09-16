@@ -130,3 +130,57 @@ test('browser witnessed aid and departure persist; interrupted escape is physica
   expect(await walk(page, 22, 12)).toBeTruthy();
   expect(errors).toEqual([]);
 });
+
+test('browser negotiated military extraction preserves the interrupted sentence through refusal, failed pickup and physical arrival', async ({ page }) => {
+  test.setTimeout(600000); const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await setup(page);
+  const dcall = (method, ...args) => page.evaluate(({ method, args }) => window.helixHeresyDebug[method](...args), { method, args });
+  const aid = () => dcall('castawayAssistanceSnapshot');
+  const request = () => dcall('requestCastawayPickup', 'desertion-test-contact', { deferRender: true });
+  const accept = () => dcall('acceptCastawayPickup', 'cash', '', { confirmed: true, deferRender: true });
+  const tick = n => dcall('advanceCastawayAssistanceForTest', n);
+  await dcall('configurePenalExtractionForTest', { trust: 40 });
+  expect(await request()).toBe(false); // Not an escaped prisoner and no communicator.
+  await dcall('penalDesertionAction', 'attempt'); expect(await walk(page, 64, 16)).toBeTruthy();
+  await advance(page, 240, 'deserted'); await advance(page, 90);
+  const escaped = await snapshot(page), remainder = escaped.service.remainingSeconds;
+  expect(await request()).toBe(false);
+  await dcall('configurePenalExtractionForTest', { radio: true, powered: false }); expect(await request()).toBe(false);
+  await dcall('configurePenalExtractionForTest', { powered: true, radioCharge: 0 }); expect(await request()).toBe(false);
+  await dcall('configurePenalExtractionForTest', { radioCharge: 14400 }); expect(await request()).toBe(true);
+  await tick(60); expect((await aid()).requests.at(-1).status).toBe('refused');
+  await dcall('configurePenalExtractionForTest', { trust: 70 }); expect(await request()).toBe(true);
+  await tick(60); expect(await accept()).toBe(true);
+  expect(await dcall('acceptCastawayPickup', 'cash', escaped.squad[1].id, { confirmed: true, deferRender: true })).toBe(false);
+  await dcall('configurePenalExtractionForTest', { condition: 20 }); await tick(300);
+  expect((await aid()).money).toBe(10000); expect((await aid()).requests.at(-1).status).toBe('failed');
+  await dcall('configurePenalExtractionForTest', { condition: 100 }); expect(await request()).toBe(true);
+  await tick(60); expect(await accept()).toBe(true);
+  const offered = (await aid()).requests.at(-1).offer;
+  await tick(300 + offered.flightSeconds * 2 + 900); let a = await aid();
+  expect(a.requests.at(-1).status).toBe('failed'); expect(a.roomId).toBe(escaped.roomId);
+  expect(a.money).toBe(10000 - offered.fee); expect(a.services[0].aircraft.fuelKm).toBe(1580);
+  await tick(7200); expect(await request()).toBe(true); await tick(60); expect(await accept()).toBe(true);
+  await dcall('reloadSurveyExpeditionTestState');
+  await dcall('configurePenalExtractionForTest', { powered: false }); // Accepted dispatch survives communication loss.
+  await tick(300 + offered.flightSeconds); a = await aid();
+  expect(a.requests.at(-1).status).toBe('waiting'); expect(a.requests.at(-1).message.serviceId).toBe(escaped.service.id);
+  expect(a.services[0].pilot.cell).toEqual(escaped.cell);
+  expect(await dcall('queueCastawayBoard', { confirmed: true, deferRender: true })).toBe(true);
+  await advance(page, 60); a = await aid();
+  expect(a.roomId, JSON.stringify(a.tasks)).toBe('castawayPickupCabin');
+  expect(a.requests.at(-1).boardedIds).toEqual(['scientist']);
+  expect((await snapshot(page)).service.phase).toBe('extracted');
+  await tick(offered.flightSeconds + 30);
+  await dcall('advancePenalDesertionForTest', 1, { ordinary: true });
+  a = await aid(); const end = await snapshot(page);
+  expect(a.roomId).toBe('castawayReceivingPad'); expect(a.requests.at(-1).status).toBe('complete');
+  expect(end.service.remainingSeconds).toBe(remainder); expect(end.service.ledger).toEqual(escaped.service.ledger);
+  expect(end.service.desertion.observations).toEqual(escaped.service.desertion.observations);
+  expect(end.service.desertion.newConviction).toBe(false); expect(end.squad.map(s => s.id)).toEqual(escaped.squad.map(s => s.id));
+  expect(a.services[0].aircraft.fuelKm).toBe(1560); expect(a.money).toBe(10000 - offered.fee * 2);
+  await page.locator('[data-workspace-tab="visits"]').click();
+  await expect(page.locator('[data-castaway-assistance]')).toContainText('Unserved military commitment');
+  expect(await walk(page, 8, 6)).toBeTruthy(); // Military controller no longer owns receiving-pad movement.
+  expect(errors).toEqual([]);
+});
