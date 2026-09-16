@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Receiving-City Prison Escapes and Outside Rescue
+1. Receiving-City Prison Outside Rescue
 2. World Integration: Economy and Logistics
 3. World Integration: Investigations and Institutional Pressure
 4. Lazy Local Detail and World Discovery
@@ -88,9 +88,9 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Receiving-City Prison Escapes and Outside Rescue
+## 1. Receiving-City Prison Outside Rescue
 
-Discuss adapting escape preparation and outside rescue to the receiving city's existing physical correctional unit. Use its own named staff, persistent stocks, doors, property receipts, suppressor, local sentence, exact unserved remainder and communication records. Start with one bounded playable route; reuse appropriate original-prison mechanics without importing the original city's authority, map, escape outcomes or automatic laboratory return. Discovery, assistance, physical traversal, detection, interruption, recapture and outside staging must preserve real actors and assets. A failed plan does not prove a new offense without observed supporting conduct, and a successful escape does not erase the sentence or city-local banishment. Expand prisoner relationships and institutional recovery only as the chosen route requires, splitting further work into separate prompts where appropriate.
+Discuss one outside-assisted route using this city's actual prison, known contacts, monitored or privileged communication rules, named helpers, finite vehicles and payment, physical handoff and a permitted receiving location. Reuse appropriate original-prison rescue mechanics without importing foreign authority or resetting staff, stocks, property, wounds, suppression, or the remaining local sentence. Assistance does not guarantee release, grant city admission, or return the scientist home. This follow-up requires its own discussion and approval.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 

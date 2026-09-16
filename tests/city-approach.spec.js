@@ -4,10 +4,10 @@ const Aid = require('../castaway-assistance');
 const { pathToFileURL } = require('url');
 const path = require('path');
 const destination = { id: 'castaway-test', strategicCellId: 'planet-cell:00003', originCellId: 'planet-cell:00001', label: 'Camp', distanceKm: 90, temperatureC: 18, precipitationMm: 500, slopePercent: 10 };
-async function setup(page, companions = []) {
+async function setup(page, companions = [], renderer = 'dom') {
   page.on('dialog', d => d.accept());
   await page.goto(pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href);
-  await page.evaluate(() => { localStorage.clear(); localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: 'dom' })); });
+  await page.evaluate(renderer => { localStorage.clear(); localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: renderer })); }, renderer);
   await page.reload();
   await page.evaluate(() => window.helixHeresyDebug.setSurveyExpeditionTestContext({ network: { homeDestinationId: 'site:lab', nearestSettlementDestinationId: 'city:a', routes: [], destinations: [
     { id: 'site:lab', kind: 'laboratorySite', cityId: 'a', label: 'Lab', cellId: 'planet-cell:00009', supportComponentId: 'one', known: true, localDistanceKm: 2, routeContinuity: 'municipal', dangerBand: 'veryLow' },
@@ -66,7 +66,7 @@ test('city scenes and gate staff remain independently identified across repeat j
   expect(a.checkpointRoomId).not.toBe(b.checkpointRoomId); expect(a.doorId).not.toBe(b.doorId); expect(b.clerk.mapCell.z).toBe(17);
 });
 async function fixture(page, options = {}) {
-  await setup(page, options.companion ? [{ name: 'Dara Fen' }] : []);
+  await setup(page, options.companion ? [{ name: 'Dara Fen' }] : [], options.renderer || 'dom');
   expect(await page.evaluate(() => window.helixHeresyDebug.prepareCastawayAssistanceForTest())).toBe(true);
   expect(await page.evaluate(options => window.helixHeresyDebug.prepareCityApproachForTest(options), options)).toBe(true);
 }
@@ -242,6 +242,70 @@ test('receiving-city execution reserves exact assets and records reporting witho
   s = await snapshot(page); e = s.gates[0].enforcement; execution = e.cases[0].execution; expect(execution.phase).toBe('postponed'); expect(execution.notices[0].reportedAt).toBe(reportedAt); expect(e.executionResources.vehicle.reservedBy).toBeNull(); expect(e.executionResources.vehicle.fuelKm).toBe(40); expect(e.executionResources.crew.every(a => !a.reservedBy)).toBe(true); expect(e.executionResources.facility.beds.every(b => !b.reservedBy)).toBe(true); expect(e.response.stage).toBe('released'); expect(e.cases[0].trial.sentence.executionStartedAt).toBeNull();
   const saved = execution; await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState()); expect((await snapshot(page)).gates[0].enforcement.cases[0].execution).toEqual(saved); expect(errors).toEqual([]);
 });
+test('receiving-city maintenance escape walks through its own exit, preserves suppression and credit, and physically recaptures', async ({ page }) => {
+  test.setTimeout(600000); const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await localTrialFixture(page, { trialSanctions: ['finitePrison'], renderer: 'canvas' }); await reliefWork(page, 'trialNotice');
+  let s = await snapshot(page); await advance(page, s.gates[0].enforcement.cases[0].trial.notice.trialAt - s.clock);
+  await reliefWork(page, 'trialAttend'); await advance(page, 700); await reliefWork(page, 'trialDefense'); await advance(page, 1500); await reliefWork(page, 'trialSentence'); await advance(page, 750);
+  await reliefWork(page, 'executionOpen'); await reliefWork(page, 'executionReview'); await advance(page, 1000); await reliefWork(page, 'executionReserve'); await reliefWork(page, 'executionNotice');
+  s = await snapshot(page); await advance(page, s.gates[0].enforcement.cases[0].execution.notice.reportAt - s.clock); await reliefWork(page, 'executionReport');
+  await reliefWork(page, 'prisonCommitment'); await reliefWork(page, 'prisonCollect'); await advance(page, 1800);
+  const call = (method, ...args) => page.evaluate(({ method, args }) => window.helixHeresyDebug[method](...args), { method, args });
+  const action = (kind, id = '') => call('localPrisonEscapeAction', kind, id);
+  const tick = n => call('advanceLocalPrisonEscapeForTest', n);
+  const prison = async () => (await snapshot(page)).gates[0].enforcement.cases[0].execution.prison;
+  const walk = async (x, y, room) => {
+    const p = await prison(); expect(await call('startScientistMove', room || p.rooms.workshop, { toCell: { x, y, z: p.z }, allowMultiRoom: true })).toBeTruthy(); await tick(90);
+  };
+  expect((await prison()).phase).toBe('imprisoned'); expect(await action('attempt')).toBe(false);
+  await call('configureCityExecutionForTest', { localClockAdvance: 8 * 3600 }); await tick(90);
+  expect((await snapshot(page)).roomId).toBe((await prison()).rooms.workshop);
+  expect(await action('inspect')).toBe(true); await tick(60);
+  let p = await prison(); expect(p.escape.facts).toHaveLength(1);
+  await call('configureLocalPrisonEscapeForTest', { officerHealth: 0 }); // A real unavailable guard, not a replaced actor.
+  expect(await action('attempt')).toBe(true); expect(await action('property')).toBe(false);
+  await walk(26, 5); expect(await action('tool')).toBe(true); await tick(15);
+  p = await prison(); s = await snapshot(page); expect(s.stacks.find(a => a.id === p.escape.toolId).carriedBy).toBe('scientist');
+  await walk(25, 8); expect(await action('fastening', p.escape.doorId)).toBe(true); await tick(60);
+  const beforeExit = await snapshot(page), beforeP = await prison(), beforeExitState = await call('exportSurveyExpeditionTestState');
+  await walk(40, 12, p.rooms.yard); p = await prison(); s = await snapshot(page);
+  expect(p.phase, JSON.stringify({ p, tasks: s.tasks, room: s.roomId })).toBe('escaped'); expect(p.suppressionActive).toBe(true);
+  expect(s.roomId).toBe(p.rooms.yard); expect(s.gates[0].enforcement.cases[0].execution.ledger.remainingSeconds).toBeGreaterThan(0);
+  expect(p.propertyIds.every(id => s.stacks.find(a => a.id === id)?.carriedBy !== 'scientist')).toBe(true);
+  const remainder = s.gates[0].enforcement.cases[0].execution.ledger.remainingSeconds, deadline = p.termEndsAt;
+  await call('reloadSurveyExpeditionTestState'); await call('configureCityExecutionForTest', { localClockAdvance: 3600 });
+  expect((await snapshot(page)).gates[0].enforcement.cases[0].execution.ledger.remainingSeconds).toBe(remainder);
+  expect((await prison()).escape.toolId).toBe(beforeP.escape.toolId);
+  await call('configureLocalPrisonEscapeForTest', { officerHealth: 100, officerCell: { x: 39, y: 12 } }); await tick(11);
+  p = await prison(); expect(p.phase).toBe('escapeEscort'); expect(p.escape.restrained).toBe(true); expect(p.termEndsAt).toBeGreaterThan(deadline);
+  expect(await call('startScientistMove', p.rooms.yard, { toCell: { x: 44, y: 12, z: p.z } })).toBeFalsy();
+  await tick(240); p = await prison(); expect(p.phase).toBe('imprisoned'); expect(p.escape.restrained).toBe(false);
+  expect(p.propertyIds).toEqual(beforeP.propertyIds); expect(p.staff.map(a => a.id)).toEqual(beforeP.staff.map(a => a.id));
+  expect((await snapshot(page)).banishments).toEqual(beforeExit.banishments);
+  expect(p.escape.reports.every(r => r.allegationOnly)).toBe(true);
+  await call('advanceLocalPrisonEscapeForTest', 1, { ordinary: true, render: true });
+  await page.locator('[data-workspace-tab="visits"]').click(); await expect(page.locator('[data-city-prison]')).toContainText('Maintenance-access escape');
+  // Optional recovery uses the same saved intake stacks and each actual internal door.
+  await call('importSurveyExpeditionTestState', beforeExitState); p = await prison();
+  for (const [x, room, door] of [[23, p.rooms.workshop, p.doorIds[2]], [16, p.rooms.dayroom, p.doorIds[1]], [9, p.rooms.housing, p.doorIds[0]]]) {
+    await walk(x, 5, room); expect(await action('fastening', door)).toBe(true); await tick(60);
+  }
+  await walk(5, 6, p.rooms.intake); expect(await action('property')).toBe(true); await tick(30);
+  s = await snapshot(page); expect(p.propertyIds.length).toBeGreaterThan(0);
+  expect(p.propertyIds.every(id => s.stacks.find(a => a.id === id)?.reservedTaskId !== p.id)).toBe(true);
+  await walk(40, 12, p.rooms.yard); expect((await prison()).phase).toBe('escaped');
+  const ready = await call('configureLocalPrisonEscapeForTest', { analysis: 3 }); expect(ready.analysis).toBe(3);
+  if (ready.busy) await tick(90); // Complete the already-issued long walk before starting stationary work.
+  expect(await action('collar'), JSON.stringify(await call('localPrisonDiagnostic', 'prisonRoutine'))).toBe(true); await tick(300);
+  p = await prison(); s = await snapshot(page); expect(p.suppressionActive).toBe(false);
+  expect(s.stacks.find(a => a.id === p.suppressorId).roomId).toBe(p.rooms.yard);
+  expect(s.stacks.find(a => a.id === p.suppressorId).carriedBy).toBe('');
+  await call('importSurveyExpeditionTestState', beforeExitState);
+  await call('configureCityExecutionForTest', { localTermRemaining: 1 }); await tick(1);
+  p = await prison(); expect(p.phase).toBe('releaseDue'); expect(p.suppressionActive).toBe(false); expect(p.escape.suspendedAt).toBeNull();
+  expect(errors).toEqual([]);
+});
+
 test('receiving-city prison physically collects, credits detention, houses and discharges to its checkpoint', async ({ page }) => {
   test.setTimeout(420000); const errors = []; page.on('pageerror', e => errors.push(e.message));
   await localTrialFixture(page, { trialSanctions: ['finitePrison'] }); await reliefWork(page, 'trialNotice');
