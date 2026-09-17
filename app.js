@@ -32,6 +32,7 @@
   const CityCommodityMarket = window.HelixCityCommodityMarket;
   const LocalMarketProduction = window.HelixLocalMarketProduction;
   const LocalExchangeCarrier = window.HelixLocalExchangeCarrier;
+  const IntercityTrade = window.HelixIntercityTrade;
   const StrategicDivineHistory = window.HelixStrategicDivineHistory;
   const StrategicCrisisHistory = window.HelixStrategicCrisisHistory;
   const StrategicPoliticalHistory = window.HelixStrategicPoliticalHistory;
@@ -11386,6 +11387,16 @@
     if (!context) return null; // Debug worlds and older worlds retain an explicitly unbound exchange.
     market.cityContext = clonePlainObject(context);
     market.localProduction = LocalMarketProduction.create(context, state.clock);
+    if (map && network) {
+      const directory = StrategicSettlements.publicSettlementDirectory(map);
+      const direct = network.routes.filter(r => r.endpointCityIds.includes(cityId));
+      const ids = [...new Set(direct.flatMap(r => r.endpointCityIds))];
+      const profiles = ids.filter(id => id !== cityId).map(id => CityCommodityMarket.profile(id, directory, map.publicPlayableSettlementDirectory, COMMODITY_MARKET_LISTING_DEFS,
+        (a, b) => StrategicWorld.greatCircleDistanceKm(map, StrategicWorld.cellIndex(a), StrategicWorld.cellIndex(b)))).filter(Boolean);
+      const commerce = Object.fromEntries(ids.map(id => [id, map.publicNonStateNetworkHistoryDirectory
+        ? StrategicNonStateNetworkHistory.cityCurrentNetworkProfile(map, id) : StrategicNonStateNetworks.cityNetworkProfile(map, id)]));
+      market.intercityTrade = IntercityTrade.create(context, profiles, direct, direct.map(r => IntercityTrade.permit(r, commerce)), COMMODITY_MARKET_LISTING_DEFS, state.clock);
+    }
     const pristine = market.lastTickAt === 0 && !economy.commodityOrders.length && !economy.commodityConsignments.length && !economy.legalLedger.length;
     if (pristine) for (const def of COMMODITY_MARKET_LISTING_DEFS) {
       const baseline = context.listings[def.id], listing = market.listings[def.id];
@@ -11941,6 +11952,7 @@
       const at = market.localProduction.lastAt + LocalMarketProduction.HOUR;
       LocalMarketProduction.advance(market.localProduction, at, market.listings, support.supplier);
       if (at >= support.lastAt) LocalExchangeCarrier.advanceSupport(exchangeCarrier(), at);
+      if (market.intercityTrade) IntercityTrade.advance(market.intercityTrade, at, market.listings, support.supplier, COMMODITY_MARKET_LISTING_DEFS, ensureStrategicJourneys().routes);
     }
     return (market.localProduction.lastAt - previous) / LocalMarketProduction.HOUR;
   }
@@ -14839,6 +14851,12 @@
       configureCityCommodityMarketForTest: ({ cityId, directory, current }) => {
         const context = CityCommodityMarket.profile(cityId, directory, current, COMMODITY_MARKET_LISTING_DEFS);
         bindCityCommodityMarket(ensureEconomy(), context); persist(); render(); return clonePlainObject(ensureEconomy().commodityMarket);
+      },
+      configureIntercityTradeForTest: ({ profiles, routes, permissions }) => {
+        const market = ensureEconomy().commodityMarket;
+        market.intercityTrade = IntercityTrade.create(market.cityContext, profiles, routes, permissions, COMMODITY_MARKET_LISTING_DEFS, state.clock);
+        ensureStrategicJourneys().routes = clonePlainObject(routes);
+        persist(); render(); return clonePlainObject(market.intercityTrade);
       },
       commodityMarketSnapshot: () => clonePlainObject({
         money: ensureEconomy().money,
@@ -61038,6 +61056,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!dom.economyFreightList) return;
     const section = storesSectionEl("Loading Bay Freight", "Executed purchases and outbound pickups use saved physical journeys. Inbound stock still needs local unloading; outbound payment settles only after carrier arrival.", { economyCategory: "freight" });
     const fleet = exchangeCarrier();
+    if (economy.commodityMarket.intercityTrade) {
+      const trade = IntercityTrade.publicView(economy.commodityMarket.intercityTrade);
+      section.append(textEl("p", "Neighboring-city wholesale: NPC cargo is not player-owned. Imports become purchasable only after exchange arrival. Commercial permits do not create an alliance.", "journal-meta"));
+      if (!trade.operators.length) section.append(emptyText("No known direct neighboring city market is available for wholesale trade."));
+      for (const op of trade.operators) section.append(storesRowEl(`Intercity convoy: ${op.endpoints.join(" ↔ ")}`, op.reason || (op.shipment ? op.shipment.delivered ? "Delivered; vehicle returning" : "Allocated wholesale shipment" : "Awaiting a funded trade opportunity"), {
+        subtitle: `Report ${formatClock(op.reportedAt)}; ${op.vehicleId}; ${op.crew.join(", ")}; ${op.location}. Endpoint permits: ${op.permits.map(p => `${p.cityId}: ${p.allowed ? "allowed" : "not granted"}`).join("; ")}. ${op.advertisement ? `Wholesale quote at ${formatClock(op.advertisement.at)}: ${op.advertisement.good}, source ask ${formatMoney(op.advertisement.unitAsk)}, receiving bid ${formatMoney(op.advertisement.unitBid)}. ` : ""}${op.shipment ? `${op.shipment.quantity} ${op.shipment.good}: ${op.shipment.sourceId} to ${op.shipment.destinationId}; ${op.shipment.delivered ? "received by city exchange" : `${op.shipment.pickedUp ? "cargo aboard" : "reserved at source"}; ${op.shipment.remainingHours} travel/handling hours remaining if unobstructed`}.` : "No delivery promised by a quote."}`,
+        dataset: { intercityOperator: op.id }
+      }));
+    }
     const production = economy.commodityMarket.localProduction;
     if (production) {
       section.append(storesRowEl("Local producer network", production.reason || "Basic local production", {
@@ -83272,7 +83299,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       };
     }
     return { listings, lastTickAt: finiteTime(candidate?.lastTickAt, 0), cityContext: candidate?.cityContext ? clonePlainObject(candidate.cityContext) : null,
-      localProduction: candidate?.localProduction ? clonePlainObject(candidate.localProduction) : null };
+      localProduction: candidate?.localProduction ? clonePlainObject(candidate.localProduction) : null,
+      intercityTrade: candidate?.intercityTrade ? clonePlainObject(candidate.intercityTrade) : null };
   }
 
   function normalizeCommodityOrders(candidate) {
