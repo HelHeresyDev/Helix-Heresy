@@ -36,6 +36,10 @@
   function advanceSupport(fleet, now) {
     const s = support(fleet, now), elapsed = Math.max(0, now - s.lastAt), supplier = s.supplier, truck = supplier.vehicle;
     s.lastAt = Math.max(now, s.lastAt);
+    if (supplier.repairAt && !supplier.shipment && now >= supplier.repairAt) {
+      truck.condition = Math.min(100, truck.condition + 25); supplier.repairAt = null;
+      record(s, now, 'Supplier workshop completed truck maintenance using allocated local parts.');
+    }
     for (const v of fleet.vehicles.filter(v => !v.assignment && v.location === 'depot')) v.driver.fatigue = Math.max(0, v.driver.fatigue - elapsed / 3600 * 15);
     if (!supplier.shipment) truck.driver.fatigue = Math.max(0, truck.driver.fatigue - elapsed / 3600 * 15);
     // Explicit saved legs: supplier -> exchange depot -> supplier. Cargo is credited
@@ -76,7 +80,8 @@
       const parts = Math.min(12 - s.parts, supplier.partsStock);
       const quantityParts = Math.max(0, parts), cost = fuelKm * 0.05 + quantityParts * 5;
       const journeyFuel = supplier.distanceKm * 2, topUp = Math.max(0, journeyFuel - truck.fuelKm);
-      if (!supplier.routeOpen) s.reason = 'Awaiting supplier route reopening.';
+      if (supplier.repairAt) s.reason = 'Supplier truck under timed maintenance.';
+      else if (!supplier.routeOpen) s.reason = 'Awaiting supplier route reopening.';
       else if (!capable(truck) || !rested(truck, journeyFuel)) s.reason = 'Supplier vehicle or named driver unavailable; no replacement is generated.';
       else if (!fuelKm && !quantityParts) s.reason = 'Local supplier stocks exhausted.';
       else if (supplier.operatingFuelKm < topUp) s.reason = 'Supplier operating fuel exhausted; no emergency refill.';

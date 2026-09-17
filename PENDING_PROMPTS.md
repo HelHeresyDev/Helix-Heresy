@@ -18,8 +18,8 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Physical Local Market Replenishment
-2. Physical Intercity Trade
+1. Physical Intercity Trade
+2. Advanced Local Manufacturing
 3. World-Aware Black Markets
 4. World Integration: Investigations and Institutional Pressure
 5. Lazy Local Detail and World Discovery
@@ -89,15 +89,15 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Physical Local Market Replenishment
+## 1. Physical Intercity Trade
 
-Discuss physically replenishing the city exchange from its own producers and dependent satellites, with finite available cargo, appropriate production inputs, local routes, carrier capacity and arrival. Local delivery and automatic carrier support are implemented: bounded paid depot queues, exact reserved sale lots, saved vans/drivers, finite fuel, round trips, recovery, operator finances, workshop maintenance, driver rest, and separately transported supplier fuel/parts. Build on those assets rather than replacing or resetting them. The municipal support supplier currently has finite authored starting stocks and its own finite operating reserve; establish supported production/input sources and appropriate supplier upkeep without circular fuel dependencies. An ore deposit alone must not regenerate advanced finished goods. Aggregate market turnover currently remains active: replace or partition its replenishment contribution so physical supply is never counted twice. Preserve local bid/ask history, maintain-stock accounting, locked consignment prices and paid property during disruption. Goods without supported local production retain finite merchant stocks pending later intercity trade.
+Discuss limited shipments between independent city markets using generated usable corridors, actual goods, finite transport assets, custody and arrival. Internet connectivity and global resource coverage do not guarantee accessible stock or feasible long-distance support. Disconnected networks remain disconnected; jointly supported strongholds do not become free suppliers or sovereign cities. Preserve each city's independent market and avoid duplicating local producer replenishment. Distinguish a quoted opportunity from allocated cargo, a physically dispatched shipment and final delivered settlement. Build on local delivery and replenishment only after those loops are usable.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 2. Physical Intercity Trade
+## 2. Advanced Local Manufacturing
 
-Discuss limited shipments between independent city markets using generated usable corridors, actual goods, finite transport assets, custody and arrival. Internet connectivity and global resource coverage do not guarantee accessible stock or feasible long-distance support. Disconnected networks remain disconnected; jointly supported strongholds do not become free suppliers or sovereign cities. Preserve each city's independent market and avoid duplicating local producer replenishment. Distinguish a quoted opportunity from allocated cargo, a physically dispatched shipment and final delivered settlement. Build on local delivery and replenishment only after those loops are usable.
+Discuss city-local production of specialist chemicals, glassware, medical supplies, batteries, communicators and other advanced equipment. Basic biological supplies, construction goods and carrier fuel/parts already use saved producers, consumed inputs, timed workshops and physical shipments; extend those rules without inventing finished goods from a resource-family label. Require appropriate industrial facilities, expertise, utilities, intermediate inputs and available transport. Keep unsupported goods finite until a feasible production chain or physical import supplies them. Preserve municipal supplier upkeep, extraction limits, delivery custody, locked customer prices and local consumption without restoring automatic positive stock recovery. Broader producer finances and workforce detail should remain bounded and receive separate discussion if needed.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 

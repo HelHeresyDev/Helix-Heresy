@@ -27,10 +27,11 @@ test('canonical profiles repeat across independent runs; JSON persistence retain
   expect(second).toEqual(profile); expect(saved.stock).toBe(second.listings.steelPanels.targetSupply - 20);
   expect(Market.profile('missing', f.directory, f.current, defs)).toBeNull();
 });
-test('market turnover tends to the saved local baseline, permits zero stock and preserves sales pressure', () => {
+test('market turnover only consumes unowned stock, permits zero and never replenishes unsupported goods', () => {
   const baseline = { targetSupply: 0, targetDemand: 1.2 };
   expect(Market.evolve({ supply: 0, demand: 1.2 }, baseline, defs[0], 1, 0.5).supply).toBe(0);
   const normal = Market.evolve({ supply: 40, demand: 1 }, { targetSupply: 80, targetDemand: 1 }, defs[0], 0.5, 0.5);
   const sold = Market.evolve({ supply: 60, demand: 1 }, { targetSupply: 80, targetDemand: 1 }, defs[0], 0.5, 0.5);
-  expect(sold.supply).toBeGreaterThan(normal.supply); expect(normal.supply).toBeGreaterThan(40);
+  expect(sold.supply).toBeGreaterThan(normal.supply); expect(normal.supply).toBeLessThan(40);
+  expect(Market.evolve({ supply: 0, demand: 1 }, { targetSupply: 100, targetDemand: 1 }, defs[0], 1, 0.5).supply).toBe(0);
 });

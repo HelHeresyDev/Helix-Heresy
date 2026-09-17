@@ -30,6 +30,7 @@
   const StrategicNonStateNetworks = window.HelixStrategicNonStateNetworks;
   const StrategicSettlements = window.HelixStrategicSettlements;
   const CityCommodityMarket = window.HelixCityCommodityMarket;
+  const LocalMarketProduction = window.HelixLocalMarketProduction;
   const LocalExchangeCarrier = window.HelixLocalExchangeCarrier;
   const StrategicDivineHistory = window.HelixStrategicDivineHistory;
   const StrategicCrisisHistory = window.HelixStrategicCrisisHistory;
@@ -11380,9 +11381,11 @@
     const map = activeWorldRecord?.generatedData?.strategicMap;
     const network = state.strategicJourneys || (map ? ensureStrategicJourneys() : null);
     const cityId = network?.destinations.find(d => d.id === network.homeDestinationId)?.cityId || state.startingSite?.nearestSettlement?.cityId;
-    const context = suppliedProfile || (cityId && map?.publicSettlementDirectory ? CityCommodityMarket.profile(cityId, StrategicSettlements.publicSettlementDirectory(map), map.publicPlayableSettlementDirectory, COMMODITY_MARKET_LISTING_DEFS) : null);
+    const context = suppliedProfile || (cityId && map?.publicSettlementDirectory ? CityCommodityMarket.profile(cityId, StrategicSettlements.publicSettlementDirectory(map), map.publicPlayableSettlementDirectory, COMMODITY_MARKET_LISTING_DEFS,
+      (a, b) => StrategicWorld.greatCircleDistanceKm(map, StrategicWorld.cellIndex(a), StrategicWorld.cellIndex(b))) : null);
     if (!context) return null; // Debug worlds and older worlds retain an explicitly unbound exchange.
     market.cityContext = clonePlainObject(context);
+    market.localProduction = LocalMarketProduction.create(context, state.clock);
     const pristine = market.lastTickAt === 0 && !economy.commodityOrders.length && !economy.commodityConsignments.length && !economy.legalLedger.length;
     if (pristine) for (const def of COMMODITY_MARKET_LISTING_DEFS) {
       const baseline = context.listings[def.id], listing = market.listings[def.id];
@@ -11856,8 +11859,9 @@
   function updateCommodityMarket() {
     const economy = ensureEconomy();
     bindCityCommodityMarket(economy);
+    let changes = advanceCommodityTurnover();
+    changes += advanceLocalMarketProduction(state.clock);
     LocalExchangeCarrier.advanceSupport(exchangeCarrier(), state.clock);
-    let changes = 0;
     for (const consignment of economy.commodityConsignments) {
       if (consignment.status === "awaitingCarrier" && dispatchCommodityConsignment(consignment)) changes += 1;
       const journey = commodityConsignmentJourney(consignment);
@@ -11885,8 +11889,18 @@
         changes += 1;
       }
     }
+    changes += processCommodityOrders();
+    economy.commodityOrders = retainCommodityHistory(economy.commodityOrders, ["open", "executing"]);
+    economy.commodityConsignments = retainCommodityHistory(economy.commodityConsignments, LocalExchangeCarrier.ACTIVE);
+    return changes;
+  }
+
+  function advanceCommodityTurnover() {
+    const economy = ensureEconomy();
+    let changes = 0;
     while (economy.commodityMarket.lastTickAt + COMMODITY_MARKET_TICK_SECONDS <= state.clock) {
       const tickAt = economy.commodityMarket.lastTickAt + COMMODITY_MARKET_TICK_SECONDS;
+      changes += advanceLocalMarketProduction(tickAt);
       for (const def of COMMODITY_MARKET_LISTING_DEFS) {
         const listing = economy.commodityMarket.listings[def.id];
         const tickNumber = Math.round(tickAt / COMMODITY_MARKET_TICK_SECONDS);
@@ -11902,21 +11916,33 @@
       economy.commodityMarket.lastTickAt = tickAt;
       changes += 1;
     }
-    changes += processCommodityOrders();
-    economy.commodityOrders = retainCommodityHistory(economy.commodityOrders, ["open", "executing"]);
-    economy.commodityConsignments = retainCommodityHistory(economy.commodityConsignments, LocalExchangeCarrier.ACTIVE);
     return changes;
   }
 
   function nextCommodityMarketEvent() {
     const economy = ensureEconomy();
     const events = [{ time: economy.commodityMarket.lastTickAt + COMMODITY_MARKET_TICK_SECONDS, label: "Commodity exchange update", type: "market" }];
+    if (economy.commodityMarket.localProduction) events.push({ time: economy.commodityMarket.localProduction.lastAt + LocalMarketProduction.HOUR, label: "Local production and shipments", type: "freight" });
     const support = LocalExchangeCarrier.support(exchangeCarrier(), state.clock);
     const shipment = support.supplier.shipment;
     for (const time of [support.workshop?.finishAt, shipment?.delivered ? shipment.returnAt : shipment?.arriveAt]) {
       if (Number.isFinite(time) && time > state.clock) events.push({ time, label: "Local carrier support", type: "freight" });
     }
     return events.filter((event) => event.time >= state.clock).sort((a, b) => a.time - b.time)[0] || null;
+  }
+
+  function advanceLocalMarketProduction(now) {
+    const market = ensureEconomy().commodityMarket;
+    if (!market.localProduction) return 0;
+    const previous = market.localProduction.lastAt;
+    const support = LocalExchangeCarrier.support(exchangeCarrier(), state.clock);
+    // Advance producer and supplier events together, preserving causality on long waits.
+    while (market.localProduction.lastAt + LocalMarketProduction.HOUR <= now) {
+      const at = market.localProduction.lastAt + LocalMarketProduction.HOUR;
+      LocalMarketProduction.advance(market.localProduction, at, market.listings, support.supplier);
+      if (at >= support.lastAt) LocalExchangeCarrier.advanceSupport(exchangeCarrier(), at);
+    }
+    return (market.localProduction.lastAt - previous) / LocalMarketProduction.HOUR;
   }
 
   function createBlackMarketContact(seed, number = 1) {
@@ -60929,6 +60955,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       summary.className = "journal-meta";
       card.append(heading, commodityChartEl(def, listing), summary);
       if (context?.listings[def.id]) card.append(textEl('p', context.listings[def.id].reasons.join(' '), 'journal-meta'));
+      card.append(textEl('p', LocalMarketProduction.status(economy.commodityMarket.localProduction, def.id), 'journal-meta'));
       if (quote.freightPerUnit) card.append(textEl("span", `Road freight: ${formatNumber(quote.freightPerUnit)} credits per unit included in landed ask and net bid.`, "journal-meta"));
       const controls = document.createElement("div");
       controls.className = "commodity-order-controls";
@@ -61011,6 +61038,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!dom.economyFreightList) return;
     const section = storesSectionEl("Loading Bay Freight", "Executed purchases and outbound pickups use saved physical journeys. Inbound stock still needs local unloading; outbound payment settles only after carrier arrival.", { economyCategory: "freight" });
     const fleet = exchangeCarrier();
+    const production = economy.commodityMarket.localProduction;
+    if (production) {
+      section.append(storesRowEl("Local producer network", production.reason || "Basic local production", {
+        subtitle: `${production.sources.length} supported sources; ${production.workshops.length} basic workshops; ${production.trucks.length} persistent producer trucks. Producer depot fuel ${formatNumber(production.depotFuelKm)} vehicle-km; maintenance parts ${production.depotParts}. Advanced manufacturing is not implemented.`,
+        dataset: { localProduction: production.cityId }
+      }));
+      for (const truck of production.trucks) section.append(storesRowEl(`Producer transport: ${truck.driver.name}`, truck.shipment || (truck.repairAt ? "Under maintenance" : "At distribution compound"), {
+        subtitle: `${truck.id}; health ${truck.driver.health}, ${truck.driver.status}; fatigue ${formatNumber(truck.driver.fatigue)}; condition ${formatNumber(truck.condition)}; fuel ${formatNumber(truck.fuelKm)} vehicle-km; capacity ${truck.capacity}.`, dataset: { producerTruck: truck.id }
+      }));
+      for (const shipment of production.shipments.filter(s => !s.returned)) section.append(storesRowEl(`Producer shipment: ${shipment.cargo}`, shipment.reason || (shipment.delivered ? "Delivered; truck returning" : state.clock < shipment.pickupAt ? "Truck travelling to reserved source cargo" : "Cargo in transit"), {
+        subtitle: `${shipment.quantity} units; ${shipment.truckId}; destination ${shipment.target}; ${shipment.delivered ? "delivered once" : `planned arrival ${formatClock(shipment.arriveAt)}`}. Delivery can be delayed.`, dataset: { producerShipment: shipment.id }
+      }));
+    }
     const support = LocalExchangeCarrier.support(fleet, state.clock), supplier = support.supplier, shipment = supplier.shipment;
     section.append(textEl("p", `City depot: ${formatNumber(LocalExchangeCarrier.depotSpace(economy.commodityConsignments))}/${LocalExchangeCarrier.DEPOT_CAPACITY} units of booking space free; fuel reserve ${formatNumber(fleet.fuelReserveKm)} vehicle-km; ${support.parts} maintenance parts. No daily reserve or asset resets.`, "journal-meta"));
     section.append(storesRowEl("Automatic carrier support", support.reason || "Depot support ready", {
@@ -83231,7 +83271,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         history: history.length ? history : fallback.listings[def.id].history
       };
     }
-    return { listings, lastTickAt: finiteTime(candidate?.lastTickAt, 0), cityContext: candidate?.cityContext ? clonePlainObject(candidate.cityContext) : null };
+    return { listings, lastTickAt: finiteTime(candidate?.lastTickAt, 0), cityContext: candidate?.cityContext ? clonePlainObject(candidate.cityContext) : null,
+      localProduction: candidate?.localProduction ? clonePlainObject(candidate.localProduction) : null };
   }
 
   function normalizeCommodityOrders(candidate) {
