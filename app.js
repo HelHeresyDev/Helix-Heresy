@@ -11430,7 +11430,7 @@
     const listing = commodityListingState(listingId);
     if (!def || !listing) return null;
     const quote = commodityQuoteValues(def, commodityMidPrice(def, listing.supply, listing.demand));
-    const freightPerUnit = strategicFreightUnitCost();
+    const freightPerUnit = roundOutputValue(strategicFreightUnitCost() * LocalExchangeCarrier.tariffMultiplier(exchangeCarrier()));
     return { ...quote, ask: roundOutputValue(quote.ask + freightPerUnit), bid: Math.max(0, roundOutputValue(quote.bid - freightPerUnit)), freightPerUnit, supply: listing.supply };
   }
 
@@ -11500,6 +11500,7 @@
   function exchangeCarrier() {
     const economy = ensureEconomy();
     if (!economy.exchangeCarrier) economy.exchangeCarrier = LocalExchangeCarrier.create(ensureStrategicJourneys().nearestSettlementDestinationId || "local-city");
+    LocalExchangeCarrier.support(economy.exchangeCarrier, state.clock);
     return economy.exchangeCarrier;
   }
 
@@ -11590,6 +11591,7 @@
       quantity,
       unitPrice: quote.ask,
       total,
+      freightFee: roundOutputValue(quantity * quote.freightPerUnit),
       orderId: String(options.orderId || ""),
       stackId: "",
       status: "awaitingCarrier",
@@ -11600,6 +11602,7 @@
       journeyId: ""
     };
     economy.commodityConsignments.push(consignment);
+    LocalExchangeCarrier.credit(exchangeCarrier(), consignment.freightFee, state.clock);
     dispatchCommodityConsignment(consignment);
     recordLegalLedger("purchase", `Purchased ${formatNumber(quantity)} ${def.label} at ${formatMoney(quote.ask)} per unit; ${consignment.status === "awaitingCarrier" ? "owned goods awaiting carrier at city depot" : "physical freight booked"}.`, { listingId, orderId: options.orderId, consignmentId: consignment.id, amount: -total, quantity });
     addEvent(`Open market purchase: ${formatNumber(quantity)} ${def.label} for ${formatMoney(total)}; ${consignment.delay || "delivery inbound to the Loading Bay"}.`);
@@ -11754,6 +11757,7 @@
           id: `legal-consignment-${economy.nextCommodityConsignmentNumber++}`,
           direction: "outbound", listingId: order.listingId, quantity, unitPrice: saleUnitPrice,
           total: Math.round(quantity * saleUnitPrice), orderId: order.id, stackId: stack.id,
+          freightFee: roundOutputValue(quantity * quote.freightPerUnit),
           status: "awaitingCarrier", createdAt: state.clock, eta: state.clock, completedAt: null, taskId: "", journeyId: ""
         };
         economy.commodityConsignments.push(consignment);
@@ -11787,6 +11791,7 @@
     listing.supply = roundOutputValue(listing.supply + consignment.quantity);
     listing.demand = roundOutputValue(clamp(listing.demand - consignment.quantity / Math.max(20, def.liquidity * 5), 0.55, 1.8));
     economy.money += consignment.total;
+    LocalExchangeCarrier.credit(exchangeCarrier(), consignment.freightFee, state.clock);
     economy.businessReputation = Math.min(1000, economy.businessReputation + Math.max(1, Math.ceil(consignment.total / 80)));
     consignment.status = "sold";
     consignment.completedAt = state.clock;
@@ -11851,6 +11856,7 @@
   function updateCommodityMarket() {
     const economy = ensureEconomy();
     bindCityCommodityMarket(economy);
+    LocalExchangeCarrier.advanceSupport(exchangeCarrier(), state.clock);
     let changes = 0;
     for (const consignment of economy.commodityConsignments) {
       if (consignment.status === "awaitingCarrier" && dispatchCommodityConsignment(consignment)) changes += 1;
@@ -11905,6 +11911,11 @@
   function nextCommodityMarketEvent() {
     const economy = ensureEconomy();
     const events = [{ time: economy.commodityMarket.lastTickAt + COMMODITY_MARKET_TICK_SECONDS, label: "Commodity exchange update", type: "market" }];
+    const support = LocalExchangeCarrier.support(exchangeCarrier(), state.clock);
+    const shipment = support.supplier.shipment;
+    for (const time of [support.workshop?.finishAt, shipment?.delivered ? shipment.returnAt : shipment?.arriveAt]) {
+      if (Number.isFinite(time) && time > state.clock) events.push({ time, label: "Local carrier support", type: "freight" });
+    }
     return events.filter((event) => event.time >= state.clock).sort((a, b) => a.time - b.time)[0] || null;
   }
 
@@ -13897,6 +13908,14 @@
         return state.clock;
       },
       renderStrategicServices: () => { renderSiteVisits(); renderCommodityFreight(ensureEconomy()); return true; },
+      configureExchangeSupportForTest: (options = {}) => {
+        const fleet = exchangeCarrier(), support = LocalExchangeCarrier.support(fleet, state.clock);
+        if (Number.isFinite(options.fuelReserveKm)) fleet.fuelReserveKm = Math.max(0, options.fuelReserveKm);
+        if (Number.isFinite(options.money)) support.money = Math.max(0, options.money);
+        if (Number.isFinite(options.parts)) support.parts = Math.max(0, options.parts);
+        if (typeof options.routeOpen === "boolean") support.supplier.routeOpen = options.routeOpen;
+        return clonePlainObject(fleet);
+      },
       setExchangeCarrierTestCondition: (vehicleId, condition, health = 100) => {
         const vehicle = exchangeCarrier().vehicles.find(v => v.id === vehicleId);
         if (!vehicle) return false;
@@ -60992,9 +61011,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!dom.economyFreightList) return;
     const section = storesSectionEl("Loading Bay Freight", "Executed purchases and outbound pickups use saved physical journeys. Inbound stock still needs local unloading; outbound payment settles only after carrier arrival.", { economyCategory: "freight" });
     const fleet = exchangeCarrier();
-    section.append(textEl("p", `City depot: ${formatNumber(LocalExchangeCarrier.depotSpace(economy.commodityConsignments))}/${LocalExchangeCarrier.DEPOT_CAPACITY} units of booking space free; fuel reserve ${formatNumber(fleet.fuelReserveKm)} vehicle-km. No automatic refuelling or replacement vehicles.`, "journal-meta"));
-    for (const vehicle of fleet.vehicles) section.append(storesRowEl(`${vehicle.recovery ? "Recovery" : "Freight"}: ${vehicle.id}`, vehicle.assignment || "Available at depot", {
-      subtitle: `${vehicle.driver.name}: ${vehicle.driver.status}, health ${vehicle.driver.health}; condition ${vehicle.condition}; capacity ${vehicle.capacity}; fuel ${formatNumber(vehicle.fuelKm)} vehicle-km; ${vehicle.location}`,
+    const support = LocalExchangeCarrier.support(fleet, state.clock), supplier = support.supplier, shipment = supplier.shipment;
+    section.append(textEl("p", `City depot: ${formatNumber(LocalExchangeCarrier.depotSpace(economy.commodityConsignments))}/${LocalExchangeCarrier.DEPOT_CAPACITY} units of booking space free; fuel reserve ${formatNumber(fleet.fuelReserveKm)} vehicle-km; ${support.parts} maintenance parts. No daily reserve or asset resets.`, "journal-meta"));
+    section.append(storesRowEl("Automatic carrier support", support.reason || "Depot support ready", {
+      subtitle: `Operator account ${formatMoney(support.money)}; freight revenue ${formatMoney(support.revenue)}; operating expenses ${formatMoney(support.expenses)}. Workshop: ${support.workshop ? `${support.workshop.vehicleId}, completion ${formatClock(support.workshop.finishAt)}` : "free"}. Supplier stocks: ${formatNumber(supplier.fuelStockKm)} vehicle-km, ${supplier.partsStock} parts; separate operating reserve ${formatNumber(supplier.operatingFuelKm)} vehicle-km. ${supplier.vehicle.driver.name} / ${supplier.vehicle.id}: ${supplier.vehicle.location}, fuel ${formatNumber(supplier.vehicle.fuelKm)}, condition ${formatNumber(supplier.vehicle.condition)}. ${shipment ? `${shipment.delivered ? "Cargo delivered; truck returning" : `Allocated cargo ${shipment.fuelKm} fuel / ${shipment.parts} parts; depot arrival ${formatClock(shipment.arriveAt)}`}; return ${formatClock(shipment.returnAt)}.` : "No supplier shipment in transit."}`,
+      dataset: { exchangeCarrierSupport: "operator" }
+    }));
+    for (const vehicle of fleet.vehicles) section.append(storesRowEl(`${vehicle.recovery ? "Recovery" : "Freight"}: ${vehicle.id}`, vehicle.assignment || (support.workshop?.vehicleId === vehicle.id ? "Under maintenance" : vehicle.driver.fatigue >= 80 ? "Driver resting" : LocalExchangeCarrier.capable(vehicle) ? "At depot" : "Vehicle or driver unavailable"), {
+      subtitle: `${vehicle.driver.name}: ${vehicle.driver.status}, health ${vehicle.driver.health}, fatigue ${formatNumber(vehicle.driver.fatigue)}; condition ${formatNumber(vehicle.condition)}; capacity ${vehicle.capacity}; fuel ${formatNumber(vehicle.fuelKm)} vehicle-km; ${vehicle.location}`,
       dataset: { exchangeVehicle: vehicle.id }
     }));
     const consignments = [...economy.commodityConsignments].reverse();
@@ -83237,6 +83261,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       quantity: Math.max(0, Number(entry?.quantity) || 0),
       unitPrice: Math.max(0, Number(entry?.unitPrice) || 0),
       total: Math.max(0, Math.round(Number(entry?.total) || 0)),
+      freightFee: Math.max(0, Number(entry?.freightFee) || 0),
       orderId: String(entry?.orderId || ""),
       stackId: String(entry?.stackId || ""),
       status: [...LocalExchangeCarrier.ACTIVE, "received", "sold", "failed"].includes(entry?.status) ? entry.status : "awaitingCarrier",
