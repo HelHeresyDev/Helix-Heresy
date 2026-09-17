@@ -18,15 +18,16 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Physical Trade and Delivery
-2. World-Aware Black Markets
-3. World Integration: Investigations and Institutional Pressure
-4. Lazy Local Detail and World Discovery
-5. Roguelike Run Lifecycle, Death, Postmortem, and Restart
-6. Campaign Roadmap: From Hidden Laboratory to World Domination
-7. New-Run Onboarding and Contextual Tutorial
-8. Sound, Notifications, and Accessibility Audit
-9. Production Art Pass Using the Sprite Pipeline
+1. Physical Local Market Replenishment and Carrier Support
+2. Physical Intercity Trade
+3. World-Aware Black Markets
+4. World Integration: Investigations and Institutional Pressure
+5. Lazy Local Detail and World Discovery
+6. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+7. Campaign Roadmap: From Hidden Laboratory to World Domination
+8. New-Run Onboarding and Contextual Tutorial
+9. Sound, Notifications, and Accessibility Audit
+10. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -88,55 +89,61 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Physical Trade and Delivery
+## 1. Physical Local Market Replenishment and Carrier Support
 
-Discuss connecting physical replenishment and trade shipments to generated local and intercity routes, finite transport capacity, available cargo, disruption and arrival. Preserve existing Loading Bay consignments, exact property, paid carrier custody and contract flows. Internet connectivity and global resource availability do not guarantee local goods or feasible long-distance support. Aggregate market turnover must not be double-counted when physical replenishment is introduced.
+Discuss physically replenishing the city exchange from its own producers and dependent satellites, with finite available cargo, local routes, carrier capacity and arrival. The completed local delivery slice already provides a bounded paid depot queue, exact reserved sale lots, persistent vans and named drivers, finite fuel, round trips and asset-backed recovery. Build on those saved assets rather than replacing or resetting them. Include a bounded physical carrier-support loop for depot fuel, maintenance and driver availability, with explicit sources, costs, delays and failure conditions. Aggregate market turnover currently remains active: replace or partition its replenishment contribution so physical supply is never counted twice. Preserve local bid/ask history, maintain-stock accounting and paid property during disruption.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 2. World-Aware Black Markets
+## 2. Physical Intercity Trade
+
+Discuss limited shipments between independent city markets using generated usable corridors, actual goods, finite transport assets, custody and arrival. Internet connectivity and global resource coverage do not guarantee accessible stock or feasible long-distance support. Disconnected networks remain disconnected; jointly supported strongholds do not become free suppliers or sovereign cities. Preserve each city's independent market and avoid duplicating local producer replenishment. Distinguish a quoted opportunity from allocated cargo, a physically dispatched shipment and final delivered settlement. Build on local delivery and replenishment only after those loops are usable.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 3. World-Aware Black Markets
 
 Discuss giving known contacts explicit city-local reach, jurisdiction-specific offerings and physically supported smuggling routes. Preserve existing contacts, agreements, Concealed Exit flows, risks and saved assets. Remote contact is not local transport capacity, local market access or foreign enforcement authority. Coordinate this with the completed local market and delivery work without automatically treating market activity as proof of guilt.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. World Integration: Investigations and Institutional Pressure
+## 4. World Integration: Investigations and Institutional Pressure
 
 Design and implement world-context effects on company plausibility, inspections, investigations, religious scrutiny, escalation, and authority response. Context may alter priorities, schedules, thresholds, and available actions, but must not invent player guilt.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Lazy Local Detail and World Discovery
+## 5. Lazy Local Detail and World Discovery
 
 Design and implement deterministic elaboration of the already generated strategic world when a run encounters it. Lazy generation may fill minor places, institution branches, contacts, local histories, individuals, encounters, and exact maps while respecting canonical world facts and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+## 6. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 
 Design and implement the loop for beginning, losing, reviewing, and replacing a run without altering its reusable world. Only the scientist’s death ends a run; arrest, jail, prison, penal service, death sentence, loss of laboratory, and similar catastrophes remain playable while the scientist lives.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 7. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. The final campaign goal is rare world domination, but early hidden-laboratory survival must remain a complete roguelike experience.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. New-Run Onboarding and Contextual Tutorial
+## 8. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Sound, Notifications, and Accessibility Audit
+## 9. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. Production Art Pass Using the Sprite Pipeline
+## 10. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 
