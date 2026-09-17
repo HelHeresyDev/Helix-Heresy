@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Physical Local Market Replenishment and Carrier Support
+1. Physical Local Market Replenishment
 2. Physical Intercity Trade
 3. World-Aware Black Markets
 4. World Integration: Investigations and Institutional Pressure
@@ -89,9 +89,9 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Physical Local Market Replenishment and Carrier Support
+## 1. Physical Local Market Replenishment
 
-Discuss physically replenishing the city exchange from its own producers and dependent satellites, with finite available cargo, local routes, carrier capacity and arrival. The completed local delivery slice already provides a bounded paid depot queue, exact reserved sale lots, persistent vans and named drivers, finite fuel, round trips and asset-backed recovery. Build on those saved assets rather than replacing or resetting them. Include a bounded physical carrier-support loop for depot fuel, maintenance and driver availability, with explicit sources, costs, delays and failure conditions. Aggregate market turnover currently remains active: replace or partition its replenishment contribution so physical supply is never counted twice. Preserve local bid/ask history, maintain-stock accounting and paid property during disruption.
+Discuss physically replenishing the city exchange from its own producers and dependent satellites, with finite available cargo, appropriate production inputs, local routes, carrier capacity and arrival. Local delivery and automatic carrier support are implemented: bounded paid depot queues, exact reserved sale lots, saved vans/drivers, finite fuel, round trips, recovery, operator finances, workshop maintenance, driver rest, and separately transported supplier fuel/parts. Build on those assets rather than replacing or resetting them. The municipal support supplier currently has finite authored starting stocks and its own finite operating reserve; establish supported production/input sources and appropriate supplier upkeep without circular fuel dependencies. An ore deposit alone must not regenerate advanced finished goods. Aggregate market turnover currently remains active: replace or partition its replenishment contribution so physical supply is never counted twice. Preserve local bid/ask history, maintain-stock accounting, locked consignment prices and paid property during disruption. Goods without supported local production retain finite merchant stocks pending later intercity trade.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 

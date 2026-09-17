@@ -297,6 +297,40 @@ test('bounded depot fills partially and a triggered sale waits on its reserved s
   expect(result.after.carrier.vehicles.filter(v => !v.recovery && v.assignment)).toHaveLength(2);
 });
 
+test('carrier support resupply persists through reload without changing locked customer charges', async ({ page }) => {
+  await startRun(page);
+  const initial = await page.evaluate(() => {
+    const d = window.helixHeresyDebug;
+    d.setMarketCash(1000);
+    const buy = d.buyCommodity('steelPanels', 1);
+    const before = d.commodityMarketSnapshot();
+    d.configureExchangeSupportForTest({ fuelReserveKm: 0, parts: 0 });
+    d.advanceStrategicServices(0);
+    return { buy, before, after: d.commodityMarketSnapshot() };
+  });
+  expect(initial.after.carrier.support.supplier.shipment).toMatchObject({ delivered: false, fuelKm: 600, parts: 12 });
+  expect(initial.after.carrier.fuelReserveKm).toBe(0);
+  expect(initial.after.money).toBe(initial.before.money);
+  expect(initial.after.consignments[0].total).toBe(initial.buy.total);
+  expect(initial.after.carrier.support.revenue).toBe(initial.buy.consignment.freightFee);
+  expect(initial.after.quotes.steelPanels.freightPerUnit).toBeGreaterThan(initial.before.quotes.steelPanels.freightPerUnit);
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  const loaded = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  expect(loaded.carrier).toEqual(initial.after.carrier);
+  await page.evaluate(arrival => {
+    const d = window.helixHeresyDebug;
+    d.advanceStrategicServices(arrival - d.strategicJourneysSnapshot().clock);
+  }, loaded.carrier.support.supplier.shipment.arriveAt);
+  const delivered = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  expect(delivered.carrier.fuelReserveKm).toBe(600);
+  expect(delivered.carrier.support.parts).toBe(12);
+  expect(delivered.money).toBe(initial.before.money);
+  expect(delivered.consignments[0].unitPrice).toBe(initial.buy.consignment.unitPrice);
+  await page.keyboard.press('B');
+  await page.locator('[data-economy-menu-tab="freight"]').click();
+  await expect(page.locator('[data-exchange-carrier-support="operator"]')).toContainText('Cargo delivered; truck returning');
+});
+
 test('limit sells reserve an exact physical stack and settle only after carrier arrival', async ({ page }) => {
   await startRun(page);
   const setup = await page.evaluate(() => {
