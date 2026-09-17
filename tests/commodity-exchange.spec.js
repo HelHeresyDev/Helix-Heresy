@@ -203,6 +203,100 @@ test('maintain-stock buys only the deficit and respects a protected cash floor',
   expect(snapshot.orders.at(-1).status).toBe('open');
 });
 
+test('finite exchange queue preserves owned stock through reload and waits for empty returns', async ({ page }) => {
+  await startRun(page);
+  const setup = await page.evaluate(() => {
+    const d = window.helixHeresyDebug, network = d.strategicJourneysSnapshot();
+    let seed;
+    for (let i = 0; i < 1000; i++) {
+      const candidate = `finite-carrier-${i}`;
+      const clear = ['commodityConsignment', 'commodityReturn'].every(kind => [1, 2].every(n => {
+        const j = window.HelixStrategicJourneys.createJourney(network, { seed: `${candidate}:${kind}:legal-consignment-${n}`, originId: kind === 'commodityReturn' ? 'site:lab' : 'city:a', destinationId: kind === 'commodityReturn' ? 'city:a' : 'site:lab', modeId: 'hiredFreightRoad' }).journey;
+        return j.route.legs.every(l => !l.interruption);
+      }));
+      if (clear) { seed = candidate; break; }
+    }
+    if (!seed) throw new Error('No clear route seed');
+    d.setStrategicServiceTestNetwork(network, seed); d.setMarketCash(100000);
+    d.buyCommodity('steelPanels', 1); d.buyCommodity('stoneBlocks', 1);
+    const owned = d.physicalStockSnapshot().stacks.filter(s => s.section === 'resources' && s.key === 'assayReagent').reduce((n, s) => n + s.quantity, 0);
+    d.createCommodityBuyOrder('assayReagent', { kind: 'maintainStock', quantity: 1, targetQuantity: owned + 1, limitPrice: 10000, maxOutstanding: 6 });
+    return d.commodityMarketSnapshot();
+  });
+  expect(setup.carrier.vehicles.filter(v => !v.recovery && v.assignment)).toHaveLength(2);
+  expect(setup.consignments).toHaveLength(3);
+  expect(setup.consignments[2]).toMatchObject({ status: 'awaitingCarrier', journeyId: '', quantity: 1 });
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  let current = await page.evaluate(() => {
+    const d = window.helixHeresyDebug;
+    d.processCommodityOrders(); return d.commodityMarketSnapshot();
+  });
+  expect(current.carrier).toEqual(setup.carrier);
+  expect(current.consignments).toHaveLength(3);
+  await page.evaluate(() => {
+    const d = window.helixHeresyDebug, s = d.strategicJourneysSnapshot();
+    d.advanceStrategicServices(Math.max(...s.journeys.filter(j => j.subject.kind === 'commodityConsignment').map(j => j.exactArrivalAt)) - s.clock);
+    d.advanceStrategicServices(360);
+  });
+  current = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  expect(current.consignments.slice(0, 2).every(c => c.status === 'received' && c.carrierBusy && c.returnJourneyId)).toBe(true);
+  expect(current.consignments[2].status).toBe('awaitingCarrier');
+  await page.evaluate(() => {
+    const d = window.helixHeresyDebug, s = d.strategicJourneysSnapshot();
+    d.advanceStrategicServices(Math.max(...s.journeys.filter(j => j.subject.kind === 'commodityReturn').map(j => j.exactArrivalAt)) - s.clock);
+  });
+  current = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  expect(current.consignments[2].status).toBe('inTransit');
+  expect(current.carrier.vehicles).toHaveLength(3);
+  expect(current.carrier.vehicles.slice(0, 2).every(v => v.fuelKm === 184)).toBe(true);
+  expect(current.money).toBe(setup.money);
+});
+
+test('unavailable named driver pauses a paid convoy without conjuring delivery', async ({ page }) => {
+  await startRun(page);
+  const setup = await page.evaluate(() => {
+    const d = window.helixHeresyDebug;
+    d.setMarketCash(1000); d.buyCommodity('steelPanels', 1);
+    const market = d.commodityMarketSnapshot(), vehicle = market.carrier.vehicles.find(v => v.assignment);
+    d.setExchangeCarrierTestCondition(vehicle.id, 100, 0);
+    d.advanceStrategicServices(86400);
+    return { vehicleId: vehicle.id, before: market, after: d.commodityMarketSnapshot(), journeys: d.strategicJourneysSnapshot() };
+  });
+  expect(setup.after.consignments[0].status).toBe('inTransit');
+  expect(setup.after.consignments[0].delay).toContain('driver unavailable');
+  expect(setup.after.money).toBe(setup.before.money);
+  expect(setup.after.carrier.vehicles[0].fuelKm).toBe(200);
+  expect(setup.journeys.journeys.find(j => j.subject.kind === 'commodityConsignment').status).toBe('scheduled');
+  await page.evaluate(id => {
+    const d = window.helixHeresyDebug;
+    d.setExchangeCarrierTestCondition(id, 100, 100);
+    d.advanceStrategicServices(86400); d.advanceStrategicServices(360);
+  }, setup.vehicleId);
+  expect((await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot())).consignments[0].status).toBe('received');
+});
+
+test('bounded depot fills partially and a triggered sale waits on its reserved stack', async ({ page }) => {
+  await startRun(page);
+  const result = await page.evaluate(() => {
+    const d = window.helixHeresyDebug;
+    d.setMarketCash(100000);
+    const fills = ['biomass', 'stoneBlocks', 'steelPanels'].map(id => d.buyCommodity(id, 999).filled);
+    const before = d.commodityMarketSnapshot();
+    const refused = d.buyCommodity('assayReagent', 1);
+    const stack = d.physicalStockSnapshot().stacks.find(s => s.section === 'resources' && s.key === 'stoneBlocks' && s.quantity >= 2);
+    const sale = d.createCommoditySellOrder('stoneBlocks', 2, 0, stack.id);
+    return { fills, before, refused, sale, after: d.commodityMarketSnapshot(), stack: d.physicalStockSnapshot().stacks.find(s => s.id === stack.id), journeys: d.strategicJourneysSnapshot() };
+  });
+  expect(result.fills).toEqual([48, 48, 48]);
+  expect(result.refused.filled).toBe(0);
+  expect(result.refused.reason).toContain('depot');
+  expect(result.after.money).toBe(result.before.money);
+  expect(result.after.consignments.at(-1)).toMatchObject({ status: 'awaitingCarrier', direction: 'outbound', journeyId: '' });
+  expect(result.stack.reservedTaskId).toBe(result.sale.order.id);
+  expect(result.journeys.journeys.filter(j => j.subject.kind === 'commodityPickup')).toHaveLength(0);
+  expect(result.after.carrier.vehicles.filter(v => !v.recovery && v.assignment)).toHaveLength(2);
+});
+
 test('limit sells reserve an exact physical stack and settle only after carrier arrival', async ({ page }) => {
   await startRun(page);
   const setup = await page.evaluate(() => {
