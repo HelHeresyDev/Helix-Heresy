@@ -306,6 +306,54 @@ test('receiving-city maintenance escape walks through its own exit, preserves su
   expect(errors).toEqual([]);
 });
 
+test('receiving-city outside rescue reserves local assets, boards physically and preserves the escaped sentence', async ({ page }) => {
+  test.setTimeout(600000); const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await fixture(page, { trialSanctions: ['finitePrison'], renderer: 'canvas' });
+  expect(await page.evaluate(() => window.helixHeresyDebug.prepareLocalPrisonRescueSceneForTest())).toBe(true);
+  let s;
+  const call = (method, ...args) => test.step(`${method} ${JSON.stringify(args).slice(0, 100)}`, () => page.evaluate(({ method, args }) => window.helixHeresyDebug[method](...args), { method, args }));
+  const tick = n => call('advanceLocalPrisonEscapeForTest', n);
+  const prison = async () => (await snapshot(page)).gates[0].enforcement.cases[0].execution.prison;
+  const rescue = (kind, id = '') => call('localPrisonRescueAction', kind, id);
+  const escape = (kind, id = '') => call('localPrisonEscapeAction', kind, id);
+  const walk = async (x, y, room) => { const p = await prison(); expect(await call('startScientistMove', room || p.rooms.workshop, { toCell: { x, y, z: p.z }, allowMultiRoom: true })).toBeTruthy(); await tick(90); };
+  expect(await escape('inspect')).toBe(true); await tick(60);
+  let config = await call('configureLocalPrisonRescueForTest', { localService: true, contactReady: true, session: 'legalCounsel' });
+  expect(config.contactId).toBeTruthy(); expect(await rescue('request', config.contactId)).toBe(false);
+  config = await call('configureLocalPrisonRescueForTest', { session: 'companyPortal' });
+  expect(await rescue('request', config.contactId)).toBe(true);
+  let p = await prison(); expect(p.rescueRequests.at(-1).status, JSON.stringify(p.rescueRequests)).toBe('offered');
+  expect(p.escape.reports.some(r => r.kind === 'monitoredRescueRequest' && r.allegationOnly)).toBe(true);
+  expect(await rescue('request', config.contactId)).toBe(false); expect(await rescue('accept')).toBe(true);
+  const accepted = await snapshot(page), provider = accepted.gates[0].rescueServices.find(v => v.id === p.rescueRequests.at(-1).serviceId);
+  expect(accepted.money).toBe(4250); expect(provider.vehicle.reservedBy).toBe(p.rescueRequests.at(-1).id);
+  await call('reloadSurveyExpeditionTestState'); expect((await prison()).rescueRequests.at(-1).status).toBe('planned');
+  await call('configureLocalPrisonRescueForTest', { atWorkshop: true, clock: p.rescueRequests.at(-1).pickupAt - 600 });
+  await call('configureLocalPrisonEscapeForTest', { officerHealth: 0 });
+  expect(await escape('attempt')).toBe(true); await walk(26, 5); expect(await escape('tool')).toBe(true); await tick(15);
+  p = await prison(); await walk(25, 8); expect(await escape('fastening', p.escape.doorId)).toBe(true); await tick(60);
+  await walk(41, 12, p.rooms.yard); await tick(500);
+  p = await prison(); expect(p.phase).toBe('escaped'); expect(p.rescueRequests.at(-1).status).toBe('waiting');
+  const waiting = await snapshot(page), saved = await call('exportSurveyExpeditionTestState');
+  await call('advanceLocalPrisonEscapeForTest', 1, { ordinary: true, render: true });
+  await page.locator('[data-workspace-tab="visits"]').click(); await expect(page.locator('[data-city-prison-rescue]')).toContainText('Board Beside the Driver');
+  expect(await rescue('board')).toBe(true); await tick(15); expect((await snapshot(page)).roomId).toBe(p.rooms.yard);
+  await tick(15); s = await snapshot(page); expect(s.roomId).toBe(provider.rooms.cabin);
+  expect(await call('startScientistMove', p.rooms.yard, { toCell: { x: 41, y: 12, z: p.z } })).toBeFalsy();
+  await call('reloadSurveyExpeditionTestState'); await tick(480);
+  s = await snapshot(page); p = await prison(); expect(s.roomId).toBe(provider.rooms.receiving); expect(p.rescueRequests.at(-1).status).toBe('complete');
+  expect(p.suppressionActive).toBe(true); expect(s.banishments).toEqual(waiting.banishments);
+  expect(s.gates[0].enforcement.cases[0].execution.ledger.remainingSeconds).toBe(waiting.gates[0].enforcement.cases[0].execution.ledger.remainingSeconds);
+  expect(s.gates[0].rescueServices.find(v => v.id === provider.id).vehicle.fuelKm).toBeCloseTo(32);
+  expect(p.propertyIds.every(id => s.stacks.find(a => a.id === id)?.carriedBy !== 'scientist')).toBe(true);
+  // A saved alternate outcome uses this same helper; actual sighting interrupts boarding.
+  await call('importSurveyExpeditionTestState', saved); expect(await rescue('board')).toBe(true);
+  await call('configureLocalPrisonEscapeForTest', { officerHealth: 100, officerCell: { x: 42, y: 11 } }); await tick(1);
+  p = await prison(); expect(p.rescueRequests.at(-1).status).toBe('withdrawing'); expect(p.rescueRequests.at(-1).occupied).toBe(false);
+  expect(p.escape.reports.some(r => r.kind === 'observedRescueVehicle' && r.helperId === provider.driver.id && r.allegationOnly)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
 test('receiving-city prison physically collects, credits detention, houses and discharges to its checkpoint', async ({ page }) => {
   test.setTimeout(420000); const errors = []; page.on('pageerror', e => errors.push(e.message));
   await localTrialFixture(page, { trialSanctions: ['finitePrison'] }); await reliefWork(page, 'trialNotice');

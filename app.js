@@ -64,6 +64,7 @@
   const CitySentenceExecution = window.HelixCitySentenceExecution;
   const CityPrison = window.HelixCityPrison;
   const CityPrisonEscape = window.HelixCityPrisonEscape;
+  const CityPrisonRescue = window.HelixCityPrisonRescue;
   const BanishmentRelief = window.HelixBanishmentRelief;
   const WildernessSurvival = window.HelixWildernessSurvival;
   const WildernessBeasts = window.HelixWildernessBeasts;
@@ -15096,6 +15097,40 @@
         persist();
       },
       localPrisonEscapeAction,
+      localPrisonRescueAction,
+      prepareLocalPrisonRescueSceneForTest: () => {
+        // Focused post-intake fixture: legal-model tests cover the preceding handoff.
+        const g = ensureCityApproach().gates[0], e = ensureGateEnforcement(g), resources = ensureCityExecutionResources(g, e), base = state.clock;
+        const judgment = { id: 'rescue-fixture-judgment', caseId: 'rescue-fixture-case', cityId: g.cityId, judgeId: e.reviewer.id, verdict: 'guilty' };
+        const c = { id: judgment.caseId, cityId: g.cityId, personId: 'scientist', status: 'resolved', judgment, trial: { phase: 'sentenceHandoff', releaseHandled: true, judgment,
+          sentence: { id: 'rescue-fixture-sentence', cityId: g.cityId, judgmentId: judgment.id, issuedById: e.reviewer.id, kind: 'finitePrison', status: 'awaitingTransferProceeding', executionStartedAt: null, months: 3, custodyCreditSeconds: 3600 }, packet: { sourcePersonId: 'scientist', evidence: { localLaw: { rule: e.policy.offenseRule } } } } };
+        const f = { cityId: g.cityId, personId: 'scientist', sourcePersonId: 'scientist', identityVerified: true, correctionsId: resources.institutionId, judiciaryId: e.policy.judiciaryId, jailId: e.policy.jailInstitutionId, localCustodySeconds: 3600, judge: e.reviewer, clerk: g.clerk, channel: true, atCheckpoint: true };
+        const s = CitySentenceExecution.open(c, base); CitySentenceExecution.requestReview(s, c, f, base); CitySentenceExecution.tick(s, c, resources, f, base + 900);
+        CitySentenceExecution.reserve(s, c, resources, f, base + 1000); CitySentenceExecution.serve(s, c, resources, f, base + 1100); CitySentenceExecution.report(s, c, resources, f, base + 8300);
+        if (!CityPrison.authorize(s, c, resources, f, base + 8400, CitySentenceExecution) || !CityPrison.collect(s, c, resources, f, base + 8500, CitySentenceExecution)) return false;
+        e.cases.push(c); e.response = { caseId: c.id, stage: 'released' }; state.clock = base + 9000;
+        const p = s.prison; localPrisonMaterialize(g, p, resources); localPrisonProperty(p, 'take'); p.phase = 'intake';
+        if (!CityPrison.admit(p, s, c, resources, state.clock)) return false;
+        materializeLocalPrisonEscape(p); initializeLocalPrisonRescue(g);
+        for (const id of p.propertyIds) { const stack = state.physicalItemStacks.find(a => a.id === id); stack.roomId = p.rooms.intake; stack.cell = { ...p.points.intake, x: 6, y: 6 }; }
+        state.clock += 8 * 3600; p.lastAt = state.clock; p.followRoutine = false; moveSurveyScientist(p.rooms.workshop, p.points.workshop); state.paused = true;
+        syncActorInventories(); persist(); render(); return true;
+      },
+      configureLocalPrisonRescueForTest: (options = {}) => {
+        const record = localPrisonRecord(); if (!record) return false;
+        const { g, p } = record; initializeLocalPrisonRescue(g);
+        if (options.localService && !g.rescueServices.length) {
+          const known = blackMarketContactById('castaway-test-contact');
+          if (known) g.rescueServices.push(CityPrisonRescue.service(known, g.cityId, 'Irena Vale'));
+        }
+        const provider = g.rescueServices[0], contact = blackMarketContactById(provider?.contactId);
+        if (options.contactReady && contact) { contact.trust = 90; contact.reliability = 0.99; contact.unavailableUntil = 0; ensureEconomy().money = 5000; }
+        if (options.session) { p.communications.push({ id: `${p.id}:fixture-session-${p.communications.length}`, channel: options.session, status: 'ready' }); p.followRoutine = false; moveSurveyScientist(p.rooms.clinic, p.points.clinic); }
+        if (options.atWorkshop) { moveSurveyScientist(p.rooms.workshop, p.points.workshop); p.followRoutine = false; }
+        if (options.clock != null) { state.clock = options.clock; p.lastAt = state.clock; }
+        if (options.vehicleCondition != null) provider.vehicle.condition = options.vehicleCondition;
+        persist(); return clonePlainObject({ contactId: contact?.id, provider, request: localPrisonRescueRequest(p) });
+      },
       configureLocalPrisonEscapeForTest: (options = {}) => {
         const p = localPrisonRecord()?.p; if (!p) return false;
         if (options.officerHealth != null) p.staff[0].health = options.officerHealth;
@@ -52234,6 +52269,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function scientistMoveBlockReason(toRoomId, options = {}) {
+    if (localPrisonRescueOccupied()) return 'Remain in the occupied rescue vehicle until the physical journey finishes.';
     if (localPrisonRecord()?.p.escape?.restrained) return 'Physical local prison restraints require an escorted return.';
     if (state.penalLegion?.desertion?.restrained) return 'Physical military restraints require an escorted movement.';
     if (state.penalLegion && state.penalLegion.serviceEndedAt == null && !['field', 'withdrawal', 'desertionAttempt', 'deserted', 'extracted'].includes(state.penalLegion.phase)) return 'Military intake or depot custody requires an authorized physical movement.';
@@ -62000,6 +62036,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function labMapOverlayAssignments(overlayId, map, context = {}) {
     const assignments = baseLabMapOverlayAssignments(overlayId, map, context);
     const localPrison = localPrisonRecord();
+    for (const provider of localPrison?.g.rescueServices || []) for (const [kind, actor] of [['Driver', provider.driver], ['Vehicle', provider.vehicle]]) if (actor.mapCell && cityApproachNear('scientist', actor.mapCell, 8) && sensoryLineOfSight(scientistMapCell(), actor.mapCell)) setLabMapOverlayEntry(assignments, actor.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: actor.name || actor.id, title: `Local rescue ${kind}`, value: kind === 'Driver' ? 'D' : 'V', source: 'Direct observation', target: { kind: 'tile', tile: actor.mapCell } }, map);
     if (localPrison) for (const actor of [...localPrison.r.crew, ...(localPrison.p.staff || [])]) if (actor.mapCell && cityApproachNear('scientist', actor.mapCell, 8)) setLabMapOverlayEntry(assignments, actor.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: actor.name, title: `Local corrections ${actor.role}`, value: actor.role === 'clinician' ? 'M' : 'G', source: 'Direct observation', target: { kind: 'tile', tile: actor.mapCell } }, map);
     const reception = state.penalFlights?.assistance?.cityApproach?.gates.find(g => g.z === scientistMapCell().z && g.materialized);
     if (reception) for (const person of [reception.clerk, reception.guard]) if (cityApproachNear("scientist", person.mapCell, 8)) setLabMapOverlayEntry(assignments, person.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: person.name, title: person.id === reception.clerk.id ? "City identity clerk" : "City reception gate guard", value: person.status === "dead" ? "†" : person.id === reception.clerk.id ? "C" : "G", source: "Direct observation", target: { kind: "tile", tile: person.mapCell } }, map);
@@ -62932,6 +62969,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         });
       }
     }
+    for (const provider of localPrisonRecord()?.g.rescueServices || []) for (const [kind, actor] of [['driver', provider.driver], ['vehicle', provider.vehicle]]) {
+      if (!actor.mapCell || !cityApproachNear('scientist', actor.mapCell, 8) || !sensoryLineOfSight(scientistMapCell(), actor.mapCell)) continue;
+      entities.push({ id: actor.id, kind: 'localRescue', category: kind === 'driver' ? 'actor' : 'object', subtype: kind, target: { kind: 'tile', tile: actor.mapCell }, anchorCell: cleanMapCell(actor.mapCell), footprintCells: [cleanMapCell(actor.mapCell)], orientation: 'square', facing: 'west', pose: 'waiting', activity: { id: actor.location, label: actor.name || actor.id, source: 'local rescue' }, motion: null, condition: { ratio: (actor.health ?? actor.condition) / 100, band: 'healthy', cues: [] }, statusCues: [], knowledge: { state: 'current', observedAt: state.clock, confidence: 1, source: 'direct observation' }, visual: { key: 'actor.scientist', glyph: kind === 'driver' ? 'D' : 'V', recipeKey: `local-rescue:${kind}` }, blocking: false });
+    }
     for (const stay of ensurePrisonCustody().stays.filter((entry) => ["active", "releaseDue", "releaseAuthorized", "discharging"].includes(entry.status))) {
       for (const actor of stay.actors.filter((entry) => entry.present && entry.mapCell)) {
         const prisoner = actor.role === "prisoner";
@@ -63274,6 +63315,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function taskBlockReason(task) {
+    if (localPrisonRescueOccupied() && task && isScientistQueueTask(task) && task.type !== 'rest') return 'The scientist is aboard the moving or stranded local rescue vehicle.';
     if (localPrisonRecord()?.p.escape?.restrained && isScientistQueueTask(task)) return 'Physical local prison restraints prevent ordinary work.';
     if (state.penalLegion && state.penalLegion.serviceEndedAt == null && !['field', 'withdrawal', 'desertionAttempt', 'deserted', 'extracted'].includes(state.penalLegion.phase) && task.type !== 'rest' && !(task.type === 'surveyExpeditionWork' && task.data?.action === 'consume')) return 'Military intake or depot custody prevents ordinary work.';
     if (!task || !isScientistQueueTask(task)) {
@@ -73089,7 +73131,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function renderSiteVisits() {
     const localStay = localPrisonRecord();
-    if (localStay && scientistMapCell().z === localStay.p.z) {
+    if (localStay && (scientistMapCell().z === localStay.p.z || localStay.g.rescueServices?.some(s => Object.values(s.rooms || {}).includes(scientistRoomId())))) {
       dom.visitsSummary.textContent = 'Receiving-city corrections — local sentence and physical escape';
       dom.visitsList.replaceChildren(renderLocalPrison(localStay.g, localStay.c)); return;
     }
@@ -77333,6 +77375,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const e = currentGateEnforcement(), reliefAt = nextBanishmentReliefEvent();
     const localPrison = localPrisonRecord()?.p;
     const executionTimes = (state.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => (g.enforcement?.cases || []).filter(c => c.execution?.nextAt != null).map(c => Math.max(state.clock + (c.execution.delay ? 60 : 1), c.execution.nextAt)));
+    const rescue = localPrisonRescueRequest(localPrison);
+    if (rescue && !CityPrisonRescue.terminal.includes(rescue.status)) {
+      const provider = localPrisonRecord()?.g.rescueServices?.find(s => s.id === rescue.serviceId);
+      const at = rescue.status === 'offered' ? rescue.expiresAt : rescue.status === 'planned' ? rescue.pickupAt - (provider?.distanceKm || 0) * 120 : state.clock + 1;
+      executionTimes.push(Math.max(state.clock + 1, at));
+    }
     if (localPrison && localPrison.phase !== 'deceased') executionTimes.push(Math.max(state.clock + 1, Math.min(localPrison.nextAt ?? state.clock + 60, localPrison.releasedAt == null ? localPrison.termEndsAt : Infinity)));
     const trialTimes = (state.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => (g.enforcement?.cases || []).flatMap(c => c.trial ? [c.trial.nextAt, c.trial.sentence?.status === "active" ? c.trial.sentence.endsAt : null, ["completed", "sentenceHandoff"].includes(c.trial.phase) && !c.trial.releaseHandled ? state.clock + 1 : null].filter(at => at != null).map(at => Math.max(state.clock + (c.trial.delay ? 60 : 1), at)) : []));
     if (!e) return [...executionTimes, ...trialTimes, ...(reliefAt == null ? [] : [reliefAt])].sort((a, b) => a - b)[0] ?? null;
@@ -77767,6 +77815,90 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return null;
   }
   function localPrisonRestricted() { const p = localPrisonRecord()?.p; return Boolean(p && (!['escapeAttempt', 'escaped'].includes(p.phase) || p.escape?.restrained)); }
+  function localPrisonRescueRequest(p = localPrisonRecord()?.p) { return p?.rescueRequests?.at(-1); }
+  function localPrisonRescueOccupied() { const r = localPrisonRescueRequest(); return r?.occupied && r.status !== 'complete'; }
+  function initializeLocalPrisonRescue(g) {
+    g.rescueServices ||= []; g.rescueContactsChecked ||= [];
+    const network = ensureStrategicJourneys(), home = network.destinations.find(d => d.id === network.homeDestinationId);
+    // Existing commerce establishes local reach only in the laboratory's associated city.
+    if (!home?.cityId || home.cityId !== g.cityId) return;
+    for (const contact of ensureEconomy().contacts.filter(c => c.archetype === 'industrialSmuggler' && c.discoveredAt <= state.clock)) {
+      if (g.rescueContactsChecked.includes(contact.id)) continue;
+      g.rescueContactsChecked.push(contact.id);
+      const rng = seedRng(`${state.seed}:${g.cityId}:${contact.id}:local-rescue`);
+      const name = `${BLACK_MARKET_FIRST_NAMES[Math.floor(rng() * BLACK_MARKET_FIRST_NAMES.length)]} ${BLACK_MARKET_LAST_NAMES[Math.floor(rng() * BLACK_MARKET_LAST_NAMES.length)]}`;
+      g.rescueServices.push(CityPrisonRescue.service(contact, g.cityId, name));
+    }
+  }
+  function materializeLocalRescueRooms(provider) {
+    if (provider.rooms) return;
+    const map = ensureLabMap(), z = Math.max(...Object.keys(map.layers).map(Number)) + 1;
+    provider.rooms = {}; provider.points = {};
+    for (const [i, key] of ['cabin', 'receiving'].entries()) {
+      const id = cleanRoomId(`${provider.id}-${key}`), layer = z + i, name = key === 'cabin' ? 'Reserved Local Rescue Van' : provider.destination.label;
+      const room = normalizeRoom({ id, name, purposeId: 'corridor', facilityClass: 'surveyExpedition', connections: [], description: 'Local transport only. No immunity, city admission, supplies or laboratory connection.', geometry: { lengthM: 8, widthM: 6, heightM: 3, floorAreaM2: 48, volumeM3: 144 }, purposeSource: 'localPrisonRescue' });
+      state.rooms = normalizeRooms([...state.rooms, room]);
+      const rect = { roomId: id, x: 3, y: 3, z: layer, width: 8, height: 6 }, cells = rectangularRoomCells(rect), point = { x: 5, y: 5, z: layer };
+      map.layers[String(layer)] = { id, kind: 'structure', label: name };
+      map.rooms[id] = normalizeLabMapRoom({ ...rect, cells, anchor: point }, room);
+      map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...cells]);
+      map.terrain.constructedFloors = normalizeConstructedSurfaces([...(map.terrain.constructedFloors || []), ...cells.map(cell => ({ cell, materialId: 'steel', purpose: 'floor', supportSpanM: 24, condition: 100, builtAt: state.clock }))]);
+      state.roomStockpiles[id] = emptyRoomStockpile(); provider.rooms[key] = id; provider.points[key] = point;
+    }
+    bumpNavigationRevision('topology');
+  }
+  function localRescueFacts(p, provider, checkCargo = true) {
+    const cell = scientistMapCell(), pickup = { x: 42, y: 12, z: p.z };
+    const witnesses = provider?.driver.location === 'pickup' ? localEscapeWitnesses(p, pickup) : [];
+    const stacks = checkCargo ? actorInventoryStacks('scientist') : [];
+    return { released: p.releasedAt != null, recaptured: p.phase === 'escapeEscort', escaped: p.phase === 'escaped', mobile: !scientistIsDead() && !actorIsIncapacitated('scientist'), busy: surveyBusy(),
+      adjacent: scientistRoomId() === p.rooms.yard && WildernessBeasts.distance(cell, pickup) <= 1 && sensoryLineOfSight(cell, pickup), detected: witnesses.length > 0,
+      cargoKg: stacks.reduce((n, s) => n + s.unitMassKg * s.quantity, 0), cargoL: stacks.reduce((n, s) => n + s.unitVolumeL * s.quantity, 0) };
+  }
+  function localPrisonRescueAction(kind, contactId = '') {
+    const record = localPrisonRecord(); if (!record || scientistIsDead() || actorIsIncapacitated('scientist') || surveyBusy()) return false;
+    const { g, p } = record; initializeLocalPrisonRescue(g);
+    let r = localPrisonRescueRequest(p), provider = g.rescueServices.find(s => s.id === r?.serviceId);
+    if (kind === 'request') {
+      const session = p.communications.find(m => m.channel === 'companyPortal' && m.status === 'ready');
+      const contact = blackMarketContactById(contactId);
+      if (p.phase !== 'imprisoned' || scientistRoomId() !== p.rooms.clinic || !session || p.recordsPowerSeconds <= 0 || p.staff[1].status !== 'alive' || p.staff[1].health < 50 || !contact || contact.discoveredAt > state.clock || !p.escape?.facts.length) return false;
+      provider = g.rescueServices.find(s => s.contactId === contactId);
+      const message = { sessionId: session.id, channel: 'companyPortal', monitored: true, sentAt: state.clock, text: 'Request local pickup at the prison urban service lane, 42,12, tomorrow. Walking passenger; no secure-unit entry.' };
+      const roll = seedRng(`${state.seed}:${p.id}:${session.id}:${contactId}:rescue-decision`)();
+      r = CityPrisonRescue.request(p, contact, provider, message, g.cityId, state.clock, roll); if (!r) return false;
+      session.status = 'completed'; session.completedAt = state.clock; session.report = message; r.sessionUntil = state.clock + 300;
+      const e = CityPrisonEscape.ensure(p);
+      e.reports.push({ kind: 'monitoredRescueRequest', actorId: p.staff[1].id, at: state.clock, message: message.text, contactId, allegationOnly: true });
+      if (r.disclosed) e.reports.push({ kind: 'contactDisclosure', at: state.clock, contactId, message: message.text, allegationOnly: true });
+      e.noticeSerial++;
+    } else if (kind === 'accept') {
+      if (!r || scientistRoomId() !== p.rooms.clinic || state.clock >= r.sessionUntil || p.recordsPowerSeconds <= 0 || p.phase !== 'imprisoned' || !CityPrisonRescue.accept(r, provider, blackMarketContactById(r.contactId), g.cityId, state.clock, ensureEconomy().money)) return false;
+      ensureEconomy().money -= r.paid; materializeLocalRescueRooms(provider);
+    } else if (kind === 'board') {
+      if (!provider || !CityPrisonRescue.board(r, provider, localRescueFacts(p, provider), state.clock)) return false;
+    } else return false;
+    surveyEvent(`Local outside rescue: ${r.status}. ${r.reason || 'A specific rendezvous is offered; no rescue is guaranteed.'}`); persist(); render(); return true;
+  }
+  function updateLocalPrisonRescue(g, p) {
+    const r = localPrisonRescueRequest(p); if (!r || CityPrisonRescue.terminal.includes(r.status)) return;
+    const provider = g.rescueServices?.find(s => s.id === r.serviceId), old = r.status;
+    const facts = localRescueFacts(p, provider, r.status === 'boarding');
+    if (scientistIsDead() && !r.occupied) CityPrisonRescue.cancel(r, provider, state.clock, 'The passenger died; no pickup can proceed.');
+    CityPrisonRescue.tick(r, provider, state.clock, facts);
+    if (r.status === 'cancelled') ensureEconomy().money += CityPrisonRescue.refund(r);
+    if (provider?.rooms) {
+      const location = provider.driver.location, point = location === 'pickup' ? { x: 42, y: 12, z: p.z } : provider.points[location === 'receiving' ? 'receiving' : 'cabin'];
+      provider.driver.mapCell = { ...point }; provider.vehicle.mapCell = { ...point, y: point.y + 1 };
+      if (old !== 'returning' && r.status === 'returning' && r.occupied) moveSurveyScientist(provider.rooms.cabin, provider.points.cabin);
+      if (old !== 'complete' && r.status === 'complete') { moveSurveyScientist(provider.rooms.receiving, provider.points.receiving); syncActorInventories(); }
+    }
+    if (old !== r.status) {
+      const e = CityPrisonEscape.ensure(p); e.noticeSerial++;
+      if (r.identified) for (const a of localEscapeWitnesses(p, { x: 42, y: 12, z: p.z })) if (!e.reports.some(v => v.requestId === r.id && v.actorId === a.id)) e.reports.push({ requestId: r.id, actorId: a.id, helperId: provider.driver.id, kind: 'observedRescueVehicle', at: state.clock, allegationOnly: true });
+      state.paused = true; surveyEvent(`Local outside rescue: ${r.status}. ${r.reason}`);
+    }
+  }
   function localPrisonMaterialize(g, p, r) {
     if (p.rooms) return;
     const prior = g.enforcement.cases.flatMap(c => [c.execution?.prison, ...(c.execution?.prisonStays || [])]).find(old => old && old !== p && old.facilityId === p.facilityId && old.rooms);
@@ -77992,14 +78124,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function updateLocalPrison(g, c) {
     const s = c.execution, p = s.prison, r = g.enforcement.executionResources;
-    if (p.completedAt != null || p.phase === 'deceased') return;
-    if (scientistIsDead()) { p.phase = 'deceased'; p.nextAt = null; return; }
+    if (p.completedAt != null || p.phase === 'deceased') { updateLocalPrisonRescue(g, p); return; }
+    if (scientistIsDead()) { updateLocalPrisonRescue(g, p); p.phase = 'deceased'; p.nextAt = null; return; }
     const old = p.phase, elapsed = Math.max(0, state.clock - p.lastAt); CityPrison.tick(p, s, c, r, state.clock, cityExecutionFacts(g, g.enforcement, c));
     p.recordsPowerSeconds = Math.max(0, p.recordsPowerSeconds - elapsed);
     if (p.escape?.work || CityPrisonEscape.phases.includes(p.phase) || p.escape?.restrained) {
       updateLocalPrisonEscape(p, s, elapsed);
-      if (CityPrisonEscape.phases.includes(p.phase)) return;
+      if (CityPrisonEscape.phases.includes(p.phase)) { updateLocalPrisonRescue(g, p); return; }
     }
+    updateLocalPrisonRescue(g, p);
     if (old !== p.phase && p.phase === 'releaseDue') { localPrisonRemoveCollar(p); surveyEvent(p.interimRelease ? 'The local judge ordered interim release from the failed transfer. Actual detention was credited, but the remaining sentence is outstanding. Request physical return to the checkpoint.' : 'The local finite term is complete. Custody authority and magic suppression have ended; request physical discharge to the checkpoint.'); state.paused = true; }
     const escort = r.crew[1];
     if (elapsed <= 0) return;
@@ -78011,6 +78144,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (scientistRoomId() === p.rooms.cabin) { moveSurveyScientist(p.rooms.intake, p.points.intake); r.crew.forEach(a => a.mapCell = { ...p.points.intake }); r.vehicle.mapCell = { ...p.points.intake }; }
       if (state.clock >= p.nextAt && CityPrison.admit(p, s, c, r, state.clock)) {
         materializeLocalPrisonEscape(p);
+        initializeLocalPrisonRescue(g);
         for (const id of p.propertyIds) { const stack = state.physicalItemStacks.find(s => s.id === id && s.reservedTaskId === p.id); if (stack) { stack.roomId = p.rooms.intake; stack.cell = { ...p.points.intake, x: p.points.intake.x + 2, y: p.points.intake.y + 1 }; } }
         p.followRoutine = true;
       } else p.delay = 'Intake requires the exact available reserved bed; the actual detention clock and review continue.';
@@ -78074,6 +78208,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (e.work) panel.append(textEl('p', `${e.work.kind}: ${Math.floor(e.work.progress)}/${e.work.duration} seconds. Moving or incapacity interrupts the work.`));
       panel.append(textEl('p', `${e.reports.length} observed reports, allegations only. ${e.restrained ? 'Physically restrained for escorted return.' : 'No automatic conviction or lethal punishment.'}`));
       for (const row of e.interruptions) panel.append(textEl('p', `Escape interval ${formatClock(row.from)} — ${row.to == null ? 'ongoing' : formatClock(row.to)}; remainder ${formatDuration(row.remainingSeconds)}.`));
+    }
+    panel.append(renderLocalPrisonRescue(g, p));
+    return panel;
+  }
+  function renderLocalPrisonRescue(g, p) {
+    const panel = document.createElement('section'); panel.dataset.cityPrisonRescue = 'true';
+    panel.append(textEl('strong', 'Outside rescue — local rendezvous'), textEl('p', 'Inspect the maintenance route first. Request a Company Report session, then attend the clinic and send an explicit pickup request instead of reading the report. This channel is monitored: its actual contents become allegations, never an automatic conviction. Confidential counsel does not arrange criminal extraction.'));
+    const button = (label, kind, id = '') => { const b = document.createElement('button'); b.textContent = label; b.disabled = surveyBusy(); b.onclick = () => { if (!localPrisonRescueAction(kind, id)) { surveyEvent('Rescue action unavailable: check physical session, contact, funds, timing and boarding requirements.'); render(); } }; panel.append(b); };
+    for (const contact of ensureEconomy().contacts.filter(c => c.discoveredAt <= state.clock)) button(`Send monitored pickup request to ${contact.name}`, 'request', contact.id);
+    const r = localPrisonRescueRequest(p), provider = g.rescueServices?.find(s => s.id === r?.serviceId);
+    if (!r) panel.append(textEl('p', 'Only an established industrial smuggler with local reach in the laboratory-associated city can supply this route. Remote contacts cannot conjure a local vehicle.'));
+    else {
+      panel.append(textEl('p', `${r.status}: ${r.reason || 'Offer awaiting acceptance during this session.'}`));
+      if (provider) panel.append(textEl('p', `Named driver: ${provider.driver.name}. Vehicle: ${provider.vehicle.id}. Pickup at service lane 42,12, ${formatClock(r.pickupAt)}–${formatClock(r.closesAt)}. Fee: ${r.fee}; refunded only before departure. Destination: ${provider.destination.label}; host permission is not legal immunity. One walking passenger, ${provider.vehicle.cargoKg} kg / ${provider.vehicle.cargoL} L cargo. Four-kilometre local route; no laboratory return or supplies.`));
+      if (r.status === 'offered') button('Accept and Pay During This Session (offer lasts 5 minutes)', 'accept');
+      if (r.status === 'waiting') button('Board Beside the Driver (30 uninterrupted seconds)', 'board');
+      if (r.status === 'boarding') panel.append(textEl('p', `Boarding: ${Math.floor(r.boardingSeconds)}/30 seconds. Movement, incapacity or detection interrupts boarding.`));
+      if (['outbound', 'returning', 'withdrawing', 'stranded'].includes(r.status)) panel.append(textEl('p', `Saved road position: ${r.distanceTravelledKm.toFixed(2)} km from receiving. ${r.occupied ? 'Scientist aboard.' : 'Driver only.'} ${r.status === 'stranded' ? 'No replacement vehicle or automatic recovery.' : ''}`));
     }
     return panel;
   }
