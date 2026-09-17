@@ -104,6 +104,31 @@ test('stranded paid freight remains in carrier custody until physical recovery',
   expect(result.market.money).toBe(1000 - booked.total);
 });
 
+test('city-local exchange preserves its baseline, charts and orders through save/load', async ({ page }) => {
+  await startRun(page);
+  const facts = { cityId: 'a', directory: { foundations: [{ city: { id: 'a', name: 'Aster' }, primaryExploitation: { id: 'ferrousOre', label: 'Ferrous Ore' }, arableLandBand: 'abundant' }], satellites: [] }, current: { playableYear: 500, cityRows: [{ cityId: 'a', physicalCondition: 'damaged', populationBand: 'immense', services: { utilities: 'strained' } }], satelliteRows: [] } };
+  const initialized = await page.evaluate(f => window.helixHeresyDebug.configureCityCommodityMarketForTest(f), facts);
+  expect(initialized.cityContext.cityId).toBe('a');
+  expect(initialized.listings.steelPanels.supply).toBe(initialized.cityContext.listings.steelPanels.targetSupply);
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="exchange"]').click();
+  await expect(page.locator('[data-city-commodity-context="a"]')).toContainText('Aster local exchange');
+  await expect(page.locator('[data-commodity-listing="steelPanels"]')).toContainText('Ferrous Ore');
+  const before = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  await expect(page.locator('[data-commodity-chart]')).toHaveCount(Object.keys(before.market.listings).length);
+  await page.evaluate(() => window.helixHeresyDebug.setMarketCash(10000));
+  await page.evaluate(() => window.helixHeresyDebug.buyCommodity('steelPanels', 2));
+  const bought = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  expect(bought.market.listings.steelPanels.supply).toBe(before.market.listings.steelPanels.supply - 2);
+  expect(bought.quotes.steelPanels.ask).toBeGreaterThan(before.quotes.steelPanels.ask);
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  const loaded = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  expect(loaded.market).toEqual(bought.market); expect(loaded.consignments).toMatchObject(bought.consignments);
+  await page.evaluate(() => window.helixHeresyDebug.advanceStrategicServices(6 * 3600 + 1));
+  const advanced = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  expect(advanced.market.cityContext).toEqual(initialized.cityContext);
+  expect(advanced.market.listings.steelPanels.history.length).toBeGreaterThan(loaded.market.listings.steelPanels.history.length);
+});
+
 test('legal exchange renders saved stock charts and deterministic bid/ask history', async ({ page }) => {
   await startRun(page);
   await page.keyboard.press('B');
