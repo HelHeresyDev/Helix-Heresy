@@ -129,6 +129,29 @@ test('city-local exchange preserves its baseline, charts and orders through save
   expect(advanced.market.listings.steelPanels.history.length).toBeGreaterThan(loaded.market.listings.steelPanels.history.length);
 });
 
+test('local production reaches exchange only after input processing and physical receipt', async ({ page }) => {
+  await startRun(page);
+  await page.evaluate(() => window.helixHeresyDebug.configureCityCommodityMarketForTest({ cityId: 'a', directory: { foundations: [{ city: { id: 'a', name: 'Quarry City' }, primaryExploitation: { id: 'constructionStone', label: 'Stone' } }], satellites: [] }, current: { cityRows: [{ cityId: 'a', physicalCondition: 'intact', services: { utilities: 'functional' } }], satelliteRows: [] } }));
+  const before = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  await page.evaluate(() => window.helixHeresyDebug.advanceStrategicServices(3 * 3600));
+  let current = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  expect(current.market.listings.stoneBlocks.supply).toBe(before.market.listings.stoneBlocks.supply);
+  expect(current.market.localProduction.inputs.constructionStone).toBeGreaterThan(0);
+  expect(current.market.localProduction.workshops[0].produced).toBe(0);
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  expect((await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot())).market.localProduction).toEqual(current.market.localProduction);
+  await page.evaluate(() => window.helixHeresyDebug.advanceStrategicServices(3 * 3600));
+  current = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  expect(current.market.localProduction.receipts.some(r => r.cargo === 'stoneBlocks' && r.target === 'exchange')).toBe(true);
+  expect(current.market.listings.stoneBlocks.supply).toBeGreaterThan(before.market.listings.stoneBlocks.supply);
+  expect(current.market.listings.assayReagent.supply).toBeLessThan(before.market.listings.assayReagent.supply);
+  expect(current.market.localProduction.trucks).toHaveLength(2);
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="exchange"]').click();
+  await expect(page.locator('[data-commodity-listing="assayReagent"]')).toContainText('No supported local producer');
+  await page.locator('[data-economy-menu-tab="freight"]').click();
+  await expect(page.locator('[data-local-production="a"]')).toContainText('2 persistent producer trucks');
+});
+
 test('legal exchange renders saved stock charts and deterministic bid/ask history', async ({ page }) => {
   await startRun(page);
   await page.keyboard.press('B');
