@@ -152,6 +152,34 @@ test('local production reaches exchange only after input processing and physical
   await expect(page.locator('[data-local-production="a"]')).toContainText('2 persistent producer trucks');
 });
 
+test('neighbor wholesale stays separate from player property and persists until physical import arrival', async ({ page }) => {
+  await startRun(page);
+  const initial = await page.evaluate(() => {
+    const d = window.helixHeresyDebug;
+    d.configureCityCommodityMarketForTest({ cityId: 'a', directory: { foundations: [{ city: { id: 'a', name: 'Home' } }], satellites: [] }, current: null });
+    d.setMarketCash(100000); d.buyCommodity('steelPanels', 999);
+    const home = d.commodityMarketSnapshot(), foreign = JSON.parse(JSON.stringify(home.market.cityContext));
+    foreign.cityId = 'b'; foreign.cityName = 'Neighbor'; foreign.listings.steelPanels.targetSupply = 120;
+    foreign.productionSources = []; foreign.workshopCapacity = 0;
+    d.configureIntercityTradeForTest({ profiles: [foreign], routes: [{ id: 'ab', endpointCityIds: ['a', 'b'], distanceKm: 38, supportCapable: true, continuity: 'operational', cellPath: ['a1', 'b1'] }], permissions: [{ corridorId: 'ab', approvals: [{ cityId: 'a', allowed: true }, { cityId: 'b', allowed: true }] }] });
+    d.advanceStrategicServices(3600);
+    return d.commodityMarketSnapshot();
+  });
+  expect(initial.market.intercityTrade.shipments[0]).toMatchObject({ good: 'steelPanels', destinationId: 'a', delivered: false });
+  expect(initial.market.listings.steelPanels.supply).toBe(0);
+  expect(initial.consignments).toHaveLength(1);
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  const loaded = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  expect(loaded.market.intercityTrade).toEqual(initial.market.intercityTrade);
+  await page.evaluate(() => window.helixHeresyDebug.advanceStrategicServices(4 * 3600));
+  const after = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  expect(after.market.intercityTrade.shipments[0].delivered).toBe(true);
+  expect(after.market.listings.steelPanels.supply).toBeGreaterThan(0);
+  expect(after.money).toBe(initial.money); expect(after.consignments).toHaveLength(1);
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="freight"]').click();
+  await expect(page.locator('[data-intercity-operator="wholesaler:ab"]')).toContainText('Endpoint permits');
+});
+
 test('legal exchange renders saved stock charts and deterministic bid/ask history', async ({ page }) => {
   await startRun(page);
   await page.keyboard.press('B');

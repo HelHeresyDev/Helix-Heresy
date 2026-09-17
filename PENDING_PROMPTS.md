@@ -18,8 +18,8 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Physical Intercity Trade
-2. Advanced Local Manufacturing
+1. Advanced Local Manufacturing
+2. Player-Commissioned Intercity Trade
 3. World-Aware Black Markets
 4. World Integration: Investigations and Institutional Pressure
 5. Lazy Local Detail and World Discovery
@@ -89,15 +89,15 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Physical Intercity Trade
+## 1. Advanced Local Manufacturing
 
-Discuss limited shipments between independent city markets using generated usable corridors, actual goods, finite transport assets, custody and arrival. Internet connectivity and global resource coverage do not guarantee accessible stock or feasible long-distance support. Disconnected networks remain disconnected; jointly supported strongholds do not become free suppliers or sovereign cities. Preserve each city's independent market and avoid duplicating local producer replenishment. Distinguish a quoted opportunity from allocated cargo, a physically dispatched shipment and final delivered settlement. Build on local delivery and replenishment only after those loops are usable.
+Discuss city-local production of specialist chemicals, glassware, medical supplies, batteries, communicators and other advanced equipment. Basic biological supplies, construction goods and carrier fuel/parts already use saved producers, consumed inputs, timed workshops and physical shipments; extend those rules without inventing finished goods from a resource-family label. Require appropriate industrial facilities, expertise, utilities, intermediate inputs and available transport. Keep unsupported goods finite until a feasible production chain or physical import supplies them. Preserve municipal supplier upkeep, extraction limits, delivery custody, locked customer prices and local consumption without restoring automatic positive stock recovery. Broader producer finances and workforce detail should remain bounded and receive separate discussion if needed.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 2. Advanced Local Manufacturing
+## 2. Player-Commissioned Intercity Trade
 
-Discuss city-local production of specialist chemicals, glassware, medical supplies, batteries, communicators and other advanced equipment. Basic biological supplies, construction goods and carrier fuel/parts already use saved producers, consumed inputs, timed workshops and physical shipments; extend those rules without inventing finished goods from a resource-family label. Require appropriate industrial facilities, expertise, utilities, intermediate inputs and available transport. Keep unsupported goods finite until a feasible production chain or physical import supplies them. Preserve municipal supplier upkeep, extraction limits, delivery custody, locked customer prices and local consumption without restoring automatic positive stock recovery. Broader producer finances and workforce detail should remain bounded and receive separate discussion if needed.
+Discuss explicit player import/export contracts on top of completed automatic neighboring-city wholesale. Distinguish advertised quotes from allocated goods, player ownership, escrow, cargo custody, local pickup and final settlement. Preserve limit-order and maintain-stock ownership rules; do not count an NPC convoy as player-owned inventory. Retain direct-route feasibility, source reserves, separately saved endpoint commercial permits and finite operator assets. Broader tariffs, embargo negotiations, transit resupply and convoy recovery need separate bounded designs rather than automatic exceptions. Exhausted-provision convoys currently retain cargo, crew and financial records without automatic rescue or death.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
