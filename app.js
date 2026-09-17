@@ -29,6 +29,7 @@
   const StrategicCapabilityHistory = window.HelixStrategicCapabilityHistory;
   const StrategicNonStateNetworks = window.HelixStrategicNonStateNetworks;
   const StrategicSettlements = window.HelixStrategicSettlements;
+  const CityCommodityMarket = window.HelixCityCommodityMarket;
   const StrategicDivineHistory = window.HelixStrategicDivineHistory;
   const StrategicCrisisHistory = window.HelixStrategicCrisisHistory;
   const StrategicPoliticalHistory = window.HelixStrategicPoliticalHistory;
@@ -11341,6 +11342,26 @@
     return { listings, lastTickAt: 0 };
   }
 
+  function bindCityCommodityMarket(economy, suppliedProfile = null) {
+    const market = economy.commodityMarket;
+    if (market.cityContext) return market.cityContext;
+    const map = activeWorldRecord?.generatedData?.strategicMap;
+    const network = state.strategicJourneys || (map ? ensureStrategicJourneys() : null);
+    const cityId = network?.destinations.find(d => d.id === network.homeDestinationId)?.cityId || state.startingSite?.nearestSettlement?.cityId;
+    const context = suppliedProfile || (cityId && map?.publicSettlementDirectory ? CityCommodityMarket.profile(cityId, StrategicSettlements.publicSettlementDirectory(map), map.publicPlayableSettlementDirectory, COMMODITY_MARKET_LISTING_DEFS) : null);
+    if (!context) return null; // Debug worlds and older worlds retain an explicitly unbound exchange.
+    market.cityContext = clonePlainObject(context);
+    const pristine = market.lastTickAt === 0 && !economy.commodityOrders.length && !economy.commodityConsignments.length && !economy.legalLedger.length;
+    if (pristine) for (const def of COMMODITY_MARKET_LISTING_DEFS) {
+      const baseline = context.listings[def.id], listing = market.listings[def.id];
+      if (!baseline) continue;
+      listing.supply = baseline.targetSupply; listing.demand = baseline.targetDemand;
+      const mid = commodityMidPrice(def, listing.supply, listing.demand), quote = commodityQuoteValues(def, mid, 0);
+      listing.history = [{ at: 0, mid, bid: quote.bid, ask: quote.ask, supply: listing.supply }];
+    }
+    return market.cityContext;
+  }
+
   function commodityMidPrice(def, supply, demand = 1) {
     const scarcity = Math.pow(Math.max(0.2, def.supply) / Math.max(1, Number(supply) || 1), 0.42);
     return Math.max(1, roundOutputValue(def.basePrice * clamp(Number(demand) || 1, 0.55, 1.8) * scarcity));
@@ -11368,6 +11389,7 @@
 
   function commodityListingState(listingId) {
     const economy = ensureEconomy();
+    bindCityCommodityMarket(economy);
     return economy.commodityMarket?.listings?.[listingId] || null;
   }
 
@@ -11751,6 +11773,7 @@
 
   function updateCommodityMarket() {
     const economy = ensureEconomy();
+    bindCityCommodityMarket(economy);
     let changes = 0;
     for (const consignment of economy.commodityConsignments) {
       const journey = commodityConsignmentJourney(consignment);
@@ -11768,9 +11791,9 @@
         const listing = economy.commodityMarket.listings[def.id];
         const tickNumber = Math.round(tickAt / COMMODITY_MARKET_TICK_SECONDS);
         const rng = seedRng(`${state.seed}:commodity-tick:${def.id}:${tickNumber}`);
-        const supplyReturn = (def.supply - listing.supply) * 0.12;
-        listing.supply = roundOutputValue(Math.max(1, listing.supply + supplyReturn + (rng() - 0.48) * def.liquidity * 0.12));
-        listing.demand = roundOutputValue(clamp(listing.demand * 0.82 + (0.82 + rng() * 0.36) * 0.18, 0.55, 1.8));
+        const next = CityCommodityMarket.evolve(listing, economy.commodityMarket.cityContext?.listings[def.id], def, rng(), rng());
+        listing.supply = roundOutputValue(next.supply);
+        listing.demand = roundOutputValue(next.demand);
         listing.lastTickAt = tickAt;
         const quote = commodityQuote(def.id);
         listing.history.push({ at: tickAt, mid: quote.mid, bid: quote.bid, ask: quote.ask, supply: listing.supply });
@@ -14670,6 +14693,10 @@
         roomId: stack.roomId,
         visualKey: itemStackSceneVisualKey(stack)
       }))),
+      configureCityCommodityMarketForTest: ({ cityId, directory, current }) => {
+        const context = CityCommodityMarket.profile(cityId, directory, current, COMMODITY_MARKET_LISTING_DEFS);
+        bindCityCommodityMarket(ensureEconomy(), context); persist(); render(); return clonePlainObject(ensureEconomy().commodityMarket);
+      },
       commodityMarketSnapshot: () => clonePlainObject({
         money: ensureEconomy().money,
         businessReputation: ensureEconomy().businessReputation,
@@ -60761,6 +60788,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function renderCommodityExchange(economy) {
     if (!dom.economyExchangeList) return;
+    const context = bindCityCommodityMarket(economy);
+    const locality = textEl('p', context ? `${context.cityName} local exchange. Conditions reflect public local production, population and infrastructure. Turnover is aggregate merchant activity, not simulated intercity replenishment.` : 'Unbound exchange: public city market context is unavailable. Baseline prototype quotes apply.');
+    locality.dataset.cityCommodityContext = context?.cityId || 'unbound';
+    dom.economyExchangeList.append(locality);
     const intro = document.createElement("p");
     intro.className = "journal-meta";
     intro.textContent = "Quotes are all-in: asks include legal purchasing fees and bids show net sale proceeds. Purchases lift prices; sales add public supply and depress prices. Every fill becomes physical Loading Bay freight.";
@@ -60778,6 +60809,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const summary = textEl("p", `Public supply ${formatNumber(listing.supply)} · Owned ${formatNumber(commodityOwnedAmount(def.id))} · Inbound ${formatNumber(commodityInboundAmount(def.id))} · ${listing.history.length} saved price samples`);
       summary.className = "journal-meta";
       card.append(heading, commodityChartEl(def, listing), summary);
+      if (context?.listings[def.id]) card.append(textEl('p', context.listings[def.id].reasons.join(' '), 'journal-meta'));
       if (quote.freightPerUnit) card.append(textEl("span", `Road freight: ${formatNumber(quote.freightPerUnit)} credits per unit included in landed ask and net bid.`, "journal-meta"));
       const controls = document.createElement("div");
       controls.className = "commodity-order-controls";
@@ -83064,7 +83096,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         history: history.length ? history : fallback.listings[def.id].history
       };
     }
-    return { listings, lastTickAt: finiteTime(candidate?.lastTickAt, 0) };
+    return { listings, lastTickAt: finiteTime(candidate?.lastTickAt, 0), cityContext: candidate?.cityContext ? clonePlainObject(candidate.cityContext) : null };
   }
 
   function normalizeCommodityOrders(candidate) {
