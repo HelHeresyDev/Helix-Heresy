@@ -246,6 +246,101 @@ async function prepareCommissionedImport(page) {
   });
 }
 
+async function prepareCommissionedExport(page) {
+  await prepareCommissionedImport(page);
+  return page.evaluate(() => {
+    const d = window.helixHeresyDebug, market = d.commodityMarketSnapshot();
+    const foreign = JSON.parse(JSON.stringify(market.market.cityContext));
+    foreign.cityId = 'b'; foreign.cityName = 'Neighbor'; foreign.listings.stoneBlocks.targetSupply = 1;
+    const route = { id: 'ab', endpointCityIds: ['a', 'b'], distanceKm: 38, supportCapable: true, continuity: 'operational' };
+    d.configureIntercityTradeForTest({ profiles: [foreign], routes: [route], permissions: [{ corridorId: 'ab', approvals: [{ cityId: 'a', allowed: true }, { cityId: 'b', allowed: true }] }] });
+    const stack = d.physicalStockSnapshot().stacks.find(s => s.key === 'stoneBlocks' && !s.reservedTaskId && s.quantity >= 4);
+    return { stack, market: d.commodityMarketSnapshot() };
+  });
+}
+
+test('commissioned exports preserve exact custody through pickup, depot, foreign settlement and reload', async ({ page }) => {
+  test.setTimeout(120000);
+  const initial = await prepareCommissionedExport(page);
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="exchange"]').click();
+  const form = page.locator('[data-commissioned-exports="exports"]');
+  await form.getByLabel('Export exact physical lot').selectOption(initial.stack.id);
+  await form.getByLabel('Export quantity').fill('4');
+  await form.getByRole('button', { name: 'Request Export Quote', exact: true }).click();
+  const q = (await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot())).market.exportOffer;
+  expect(q.ok).toBe(true); expect(q.net).toBeGreaterThan(0);
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  await form.getByRole('button', { name: 'Confirm Export', exact: true }).click();
+  let current = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  expect(current.money).toBe(initial.market.money);
+  expect(current.market.intercityTrade.neighbors[0].treasury).toBe(10000 - q.gross);
+  const id = current.consignments[0].id;
+  expect((await page.evaluate(() => window.helixHeresyDebug.confirmCommissionedExport())).ok).toBe(false);
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  const reserved = await page.evaluate(id => window.helixHeresyDebug.physicalStockSnapshot().stacks.find(s => s.id === id), initial.stack.id);
+  expect(reserved.reservedTaskId).toBe(id);
+  await page.evaluate(() => {
+    const d = window.helixHeresyDebug, net = d.strategicJourneysSnapshot();
+    d.advanceStrategicServices(net.journeys.find(j => j.subject.kind === 'commodityPickup').exactArrivalAt - net.clock);
+    d.advanceStrategicServices(360);
+  });
+  current = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  expect(current.consignments[0]).toMatchObject({ status: 'inTransit', cargoManifest: { id: initial.stack.id, quantity: 4 } });
+  expect(current.market.intercityTrade.shipments[0]).toMatchObject({ collected: true, waitingCargo: true, cargoManifest: null });
+  await page.evaluate(() => {
+    const d = window.helixHeresyDebug, net = d.strategicJourneysSnapshot();
+    d.advanceStrategicServices(net.journeys.find(j => j.subject.kind === 'commodityConsignment').exactArrivalAt - net.clock);
+  });
+  current = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  expect(current.consignments[0]).toMatchObject({ status: 'awaitingExport', cargoManifest: null, carrierBusy: false });
+  expect(current.market.intercityTrade.shipments[0].cargoManifest).toMatchObject({ id: initial.stack.id, quantity: 4 });
+  expect(current.market.listings.stoneBlocks.supply).toBe(initial.market.market.listings.stoneBlocks.supply);
+  expect(current.carrier.support.revenue).toBe(q.localFreight); expect(current.money).toBe(initial.market.money);
+  await page.evaluate(() => { const d = window.helixHeresyDebug; d.reloadSurveyExpeditionTestState(); d.advanceStrategicServices(3 * 3600); });
+  current = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  expect(current.consignments[0].status).toBe('sold'); expect(current.money).toBe(initial.market.money + q.net);
+  expect(current.market.intercityTrade.shipments[0]).toMatchObject({ owner: 'buyer', delivered: true, settled: true, playerEscrow: 0, escrow: 0, returned: false });
+  await page.evaluate(() => { const d = window.helixHeresyDebug; d.reloadSurveyExpeditionTestState(); d.advanceStrategicServices(3600); });
+  expect((await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot())).money).toBe(current.money);
+});
+
+test('commissioned exports respect local sale reservations and maintain-stock excludes committed lots', async ({ page }) => {
+  const initial = await prepareCommissionedExport(page);
+  const result = await page.evaluate(({ stack }) => {
+    const d = window.helixHeresyDebug;
+    const q = d.requestCommissionedExport('wholesaler:ab', 'stoneBlocks', stack.id, 4);
+    const local = d.createCommoditySellOrder('stoneBlocks', 1, 100000, stack.id);
+    const refused = d.confirmCommissionedExport(); d.cancelCommodityOrder(local.order.id);
+    d.requestCommissionedExport('wholesaler:ab', 'stoneBlocks', stack.id, 4); const accepted = d.confirmCommissionedExport();
+    const owned = d.physicalStockSnapshot().stacks.filter(s => s.key === 'stoneBlocks').reduce((n, s) => n + s.knownQuantity, 0);
+    d.createCommodityBuyOrder('stoneBlocks', { kind: 'maintainStock', targetQuantity: owned, limitPrice: 1000, maxOutstanding: 6 });
+    return { q, refused, accepted, market: d.commodityMarketSnapshot() };
+  }, initial);
+  expect(result.q.ok).toBe(true); expect(result.refused.ok).toBe(false); expect(result.accepted.ok).toBe(true);
+  expect(result.market.consignments.filter(c => c.direction === 'inbound').map(c => c.quantity)).toEqual([4]);
+});
+
+test('commissioned export handling cancellation before pickup refunds buyer escrow and releases the exact lot', async ({ page }) => {
+  const initial = await prepareCommissionedExport(page);
+  const result = await page.evaluate(({ stack }) => {
+    const d = window.helixHeresyDebug;
+    d.requestCommissionedExport('wholesaler:ab', 'stoneBlocks', stack.id, 4); d.confirmCommissionedExport();
+    const net = d.strategicJourneysSnapshot();
+    d.advanceStrategicServices(net.journeys.find(j => j.subject.kind === 'commodityPickup').exactArrivalAt - net.clock);
+    const c = d.commodityMarketSnapshot().consignments[0];
+    const cancelled = d.cancelTask(c.taskId);
+    d.reloadSurveyExpeditionTestState();
+    return { cancelled, market: d.commodityMarketSnapshot(), stack: d.physicalStockSnapshot().stacks.find(s => s.id === stack.id) };
+  }, initial);
+  expect(result.cancelled).toBe(true);
+  expect(result.market.consignments[0]).toMatchObject({ status: 'failed' });
+  expect(result.market.market.intercityTrade.shipments[0]).toMatchObject({ failed: true, settled: true, escrow: 0, localEscrow: 0, playerEscrow: 0 });
+  expect(result.market.market.intercityTrade.operators[0].shipment).toBe(null);
+  expect(result.market.market.intercityTrade.neighbors[0].treasury).toBe(10000);
+  expect(result.stack).toMatchObject({ quantity: initial.stack.quantity, reservedTaskId: '' });
+  expect(result.market.money).toBe(initial.market.money); expect(result.market.carrier.support.revenue).toBe(0);
+});
+
 test('commissioned imports keep ownership across both delivery stages, escrow, reload and maintain-stock', async ({ page }) => {
   test.setTimeout(120000);
   const initial = await prepareCommissionedImport(page);
