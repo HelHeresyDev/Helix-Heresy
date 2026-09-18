@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Player-Commissioned Intercity Trade
+1. Player-Commissioned Intercity Exports
 2. World-Aware Black Markets
 3. World Integration: Investigations and Institutional Pressure
 4. Lazy Local Detail and World Discovery
@@ -88,9 +88,9 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Player-Commissioned Intercity Trade
+## 1. Player-Commissioned Intercity Exports
 
-Discuss explicit player import/export contracts on top of completed automatic neighboring-city wholesale. Distinguish advertised quotes from allocated goods, player ownership, escrow, cargo custody, local pickup and final settlement. Preserve limit-order and maintain-stock ownership rules; do not count an NPC convoy as player-owned inventory. Retain direct-route feasibility, source reserves, separately saved endpoint commercial permits and finite operator assets. Broader tariffs, embargo negotiations, transit resupply and convoy recovery need separate bounded designs rather than automatic exceptions. Exhausted-provision convoys currently retain cargo, crew and financial records without automatic rescue or death.
+Discuss explicit player export contracts on top of completed automatic neighboring-city wholesale and manual commissioned imports. Imports already use dated non-reserving quotes, explicit revalidation, actual foreign allocation, player ownership from booking, supplier payment, separate freight escrows, existing available convoys and physical local delivery. Exports need exact lab sale lots, local collection, foreign buyer acceptance and funded payment reserved before collection, with proceeds released only on physical destination receipt. Keep quotes, reserved lots, cargo custody and settlement distinct. Preserve existing limit-sale reservations and maintain-stock ownership; never count NPC cargo as player property or duplicate a consignment between transport stages. Retain direct-route feasibility, endpoint commercial permits and finite operator assets. Automated foreign purchasing, tariffs, embargo negotiations, cancellation, transit resupply and convoy recovery need separate bounded designs. Exhausted-provision convoys preserve cargo, crew and payment records without automatic rescue or death; this risk is disclosed before commissioned imports are accepted.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 

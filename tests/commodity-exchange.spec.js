@@ -232,6 +232,86 @@ test('precision city factories produce charged equipment through saved component
   await expect(page.locator('[data-manufacturing-facility="a:batteryWorks"]')).toContainText('batteryFabrication');
 });
 
+async function prepareCommissionedImport(page) {
+  await startRun(page);
+  return page.evaluate(() => {
+    const d = window.helixHeresyDebug;
+    d.configureCityCommodityMarketForTest({ cityId: 'a', directory: { foundations: [{ city: { id: 'a', name: 'Home' } }], satellites: [] }, current: null });
+    d.setMarketCash(10000);
+    const foreign = JSON.parse(JSON.stringify(d.commodityMarketSnapshot().market.cityContext));
+    foreign.cityId = 'b'; foreign.cityName = 'Neighbor'; foreign.listings.refinedConductors.targetSupply = 120;
+    const route = { id: 'ab', endpointCityIds: ['a', 'b'], distanceKm: 38, supportCapable: true, continuity: 'operational' };
+    d.configureIntercityTradeForTest({ profiles: [foreign], routes: [route], permissions: [{ corridorId: 'ab', approvals: [{ cityId: 'a', allowed: true }, { cityId: 'b', allowed: true }] }] });
+    return d.commodityMarketSnapshot();
+  });
+}
+
+test('commissioned imports keep ownership across both delivery stages, escrow, reload and maintain-stock', async ({ page }) => {
+  test.setTimeout(120000);
+  const initial = await prepareCommissionedImport(page);
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="exchange"]').click();
+  const form = page.locator('[data-commissioned-imports="imports"]');
+  await form.getByLabel('Import commodity').selectOption('refinedConductors');
+  await form.locator('input[type="number"]').fill('2');
+  await form.getByRole('button', { name: 'Request Import Quote', exact: true }).click();
+  const quoted = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  const q = quoted.market.importOffer;
+  expect(q.ok).toBe(true); expect(q.quantity).toBe(2); expect(quoted.money).toBe(initial.money);
+  expect(quoted.market.intercityTrade.shipments).toHaveLength(0);
+  await expect(form).toContainText('no automatic refund');
+  await form.getByRole('button', { name: 'Confirm Import', exact: true }).click();
+  const accepted = await page.evaluate(() => {
+    const d = window.helixHeresyDebug;
+    d.createCommodityBuyOrder('refinedConductors', { kind: 'maintainStock', targetQuantity: 2, quantity: 2, limitPrice: 1000, maxOutstanding: 6 });
+    return d.commodityMarketSnapshot();
+  });
+  expect(accepted.money).toBe(initial.money - q.total); expect(accepted.consignments).toHaveLength(1);
+  expect(accepted.consignments[0]).toMatchObject({ status: 'awaitingIntercity', quantity: 2, localFreightEscrow: q.localFreight });
+  expect(accepted.market.intercityTrade.shipments[0].escrow).toBe(q.intercityFreight);
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  const loaded = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  expect(loaded.market).toEqual(accepted.market); expect(loaded.consignments).toMatchObject(accepted.consignments);
+  expect((await page.evaluate(() => window.helixHeresyDebug.confirmCommissionedImport())).ok).toBe(false);
+  await page.evaluate(() => window.helixHeresyDebug.advanceStrategicServices(4 * 3600));
+  const depot = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  expect(depot.market.intercityTrade.shipments[0]).toMatchObject({ delivered: true, handedOff: true, escrow: 0, owner: 'player' });
+  expect(depot.market.listings.refinedConductors.supply).toBe(initial.market.listings.refinedConductors.supply);
+  expect(depot.consignments[0]).toMatchObject({ status: 'inTransit', localFreightEscrow: q.localFreight });
+  expect(depot.carrier.support.revenue).toBe(0);
+  await page.evaluate(() => {
+    const d = window.helixHeresyDebug, net = d.strategicJourneysSnapshot();
+    const journey = net.journeys.find(j => j.subject.kind === 'commodityConsignment');
+    d.advanceStrategicServices(journey.exactArrivalAt - net.clock);
+  });
+  const arrived = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  expect(arrived.consignments[0]).toMatchObject({ status: 'unloading', localFreightEscrow: 0 });
+  expect(arrived.carrier.support.revenue).toBe(q.localFreight);
+  await page.evaluate(() => window.helixHeresyDebug.advanceStrategicServices(360));
+  const final = await page.evaluate(() => ({ market: window.helixHeresyDebug.commodityMarketSnapshot(), stock: window.helixHeresyDebug.physicalStockSnapshot() }));
+  expect(final.market.consignments).toHaveLength(1); expect(final.market.consignments[0].status).toBe('received');
+  expect(final.market.money).toBe(initial.money - q.total);
+  expect(final.stock.stacks.filter(s => s.key === 'refinedConductors').reduce((n, s) => n + s.quantity, 0)).toBe(2);
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  expect((await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot())).carrier.support.revenue).toBe(q.localFreight);
+});
+
+test('commissioned import confirmation refuses changed access without charging or allocating', async ({ page }) => {
+  const initial = await prepareCommissionedImport(page);
+  const result = await page.evaluate(() => {
+    const d = window.helixHeresyDebug;
+    const offer = d.requestCommissionedImport('wholesaler:ab', 'refinedConductors', 2);
+    d.reloadSurveyExpeditionTestState();
+    const restoredOffer = d.commodityMarketSnapshot().market.importOffer;
+    const net = d.strategicJourneysSnapshot(); net.routes[0].supportCapable = false;
+    d.setStrategicServiceTestNetwork(net, 'commodity-exchange-tests');
+    return { offer, restoredOffer, result: d.confirmCommissionedImport(), market: d.commodityMarketSnapshot() };
+  });
+  expect(result.restoredOffer).toEqual(result.offer);
+  expect(result.offer.ok).toBe(true); expect(result.result.ok).toBe(false);
+  expect(result.market.money).toBe(initial.money); expect(result.market.consignments).toHaveLength(0);
+  expect(result.market.market.intercityTrade.shipments).toHaveLength(0);
+});
+
 test('neighbor wholesale stays separate from player property and persists until physical import arrival', async ({ page }) => {
   await startRun(page);
   const initial = await page.evaluate(() => {
