@@ -11379,7 +11379,7 @@
         history: [{ at: 0, mid, bid: commodityQuoteValues(def, mid, 0).bid, ask: commodityQuoteValues(def, mid, 0).ask, supply }]
       };
     }
-    return { listings, lastTickAt: 0 };
+    return { listings, lastTickAt: 0, importOffer: null, importMessage: "" };
   }
 
   function bindCityCommodityMarket(economy, suppliedProfile = null) {
@@ -11499,7 +11499,7 @@
 
   function commodityInboundAmount(listingId) {
     return roundOutputValue(ensureEconomy().commodityConsignments
-      .filter((consignment) => consignment.direction === "inbound" && consignment.listingId === listingId && ["awaitingCarrier", "inTransit", "arrived", "unloading"].includes(consignment.status))
+      .filter((consignment) => consignment.direction === "inbound" && consignment.listingId === listingId && ["awaitingIntercity", "awaitingCarrier", "inTransit", "arrived", "unloading"].includes(consignment.status))
       .reduce((total, consignment) => total + consignment.quantity, 0));
   }
 
@@ -11628,6 +11628,53 @@
     recordLegalLedger("purchase", `Purchased ${formatNumber(quantity)} ${def.label} at ${formatMoney(quote.ask)} per unit; ${consignment.status === "awaitingCarrier" ? "owned goods awaiting carrier at city depot" : "physical freight booked"}.`, { listingId, orderId: options.orderId, consignmentId: consignment.id, amount: -total, quantity });
     addEvent(`Open market purchase: ${formatNumber(quantity)} ${def.label} for ${formatMoney(total)}; ${consignment.delay || "delivery inbound to the Loading Bay"}.`);
     return { filled: quantity, total, consignment };
+  }
+
+  function commissionedImportOffer(operatorId, good, requested) {
+    const economy = ensureEconomy(), trade = economy.commodityMarket.intercityTrade, route = exchangeRoute();
+    if (!trade || !route.ok) return { ok: false, reason: route.reason || "No neighboring-city trade is available." };
+    // Refresh physical corridor support even between hourly simulation ticks.
+    for (const op of trade.operators) {
+      const current = ensureStrategicJourneys().routes.find(r => r.id === op.route.id);
+      op.route.supportCapable = Boolean(current?.supportCapable);
+      if (current) op.route.continuity = current.continuity;
+    }
+    const fee = roundOutputValue(strategicFreightUnitCost() * LocalExchangeCarrier.tariffMultiplier(exchangeCarrier()));
+    const offer = IntercityTrade.importOffer(trade, operatorId, good, requested, COMMODITY_MARKET_LISTING_DEFS, state.clock, fee);
+    if (offer.ok && (commodityOutstandingCount() >= COMMODITY_MARKET_MAX_OUTSTANDING || LocalExchangeCarrier.depotSpace(economy.commodityConsignments) < offer.quantity)) return { ok: false, reason: "Insufficient local freight booking/depot capacity for the complete offered lot." };
+    return offer;
+  }
+
+  function requestCommissionedImport(operatorId, good, requested) {
+    const market = ensureEconomy().commodityMarket;
+    market.importOffer = commissionedImportOffer(operatorId, good, requested);
+    market.importMessage = market.importOffer.ok ? "Review this dated offer; no cargo or carrier is reserved yet." : market.importOffer.reason;
+    persist(); render(); return clonePlainObject(market.importOffer);
+  }
+
+  function confirmCommissionedImport() {
+    const economy = ensureEconomy(), market = economy.commodityMarket, offered = market.importOffer;
+    if (!offered?.ok) return { ok: false, reason: "Request and review an import quote first." };
+    const fresh = commissionedImportOffer(offered.operatorId, offered.good, offered.requested);
+    let result = fresh;
+    if (fresh.ok) {
+      const fee = roundOutputValue(strategicFreightUnitCost() * LocalExchangeCarrier.tariffMultiplier(exchangeCarrier()));
+      result = IntercityTrade.bookImport(market.intercityTrade, offered, COMMODITY_MARKET_LISTING_DEFS, state.clock, fee, economy.money);
+    }
+    if (!result.ok) {
+      market.importOffer = result.revised || fresh; market.importMessage = result.reason;
+      persist(); render(); return clonePlainObject(result);
+    }
+    const q = result.offer, sh = result.shipment;
+    economy.money -= q.total;
+    const consignment = { id: `legal-consignment-${economy.nextCommodityConsignmentNumber++}`, direction: "inbound", listingId: q.good, quantity: q.quantity,
+      unitPrice: q.total / q.quantity, total: q.total, freightFee: q.localFreight, localFreightEscrow: q.localFreight, importShipmentId: sh.id,
+      orderId: "", stackId: "", status: "awaitingIntercity", createdAt: state.clock, eta: state.clock, completedAt: null, taskId: "", journeyId: "", delay: "Player-owned cargo allocated abroad; awaiting convoy pickup." };
+    economy.commodityConsignments.push(consignment);
+    sh.consignmentId = consignment.id;
+    market.importOffer = null; market.importMessage = "Import accepted. Cargo is player-owned; both freight stages remain physical.";
+    recordLegalLedger("commissionedImport", `Commissioned ${q.quantity} ${COMMODITY_MARKET_LISTING_BY_ID[q.good].label} from ${q.sourceId}: goods paid ${formatMoney(q.purchase)}, intercity freight escrow ${formatMoney(q.intercityFreight)}, local freight escrow ${formatMoney(q.localFreight)}.`, { listingId: q.good, consignmentId: consignment.id, amount: -q.total });
+    persist(); render(); return clonePlainObject({ ok: true, consignment, shipment: sh });
   }
 
   function commoditySaleEligibleStacks(listingId) {
@@ -11881,6 +11928,14 @@
     changes += advanceLocalMarketProduction(state.clock);
     LocalExchangeCarrier.advanceSupport(exchangeCarrier(), state.clock);
     for (const consignment of economy.commodityConsignments) {
+      if (consignment.status === "awaitingIntercity") {
+        const trade = economy.commodityMarket.intercityTrade, shipment = trade?.shipments.find(s => s.id === consignment.importShipmentId);
+        const op = trade?.operators.find(o => o.id === shipment?.operatorId);
+        if (shipment?.delivered) {
+          shipment.handedOff = true; consignment.status = "awaitingCarrier"; consignment.eta = state.clock;
+          consignment.delay = "Player-owned import at home depot; awaiting local carrier."; changes += 1;
+        } else consignment.delay = op?.reason || (shipment?.pickedUp ? "Player-owned cargo aboard intercity convoy." : "Player-owned cargo allocated abroad; convoy travelling to pickup.");
+      }
       if (consignment.status === "awaitingCarrier" && dispatchCommodityConsignment(consignment)) changes += 1;
       const journey = commodityConsignmentJourney(consignment);
       const network = ensureStrategicJourneys();
@@ -11896,7 +11951,13 @@
       const physicallyArrived = journey?.status === "arrived";
       if (consignment.status === "inTransit" && physicallyArrived) {
         if (consignment.direction === "outbound") changes += finalizeCommoditySale(consignment) ? 1 : 0;
-        else { consignment.status = "arrived"; changes += 1; }
+        else {
+          if (consignment.localFreightEscrow > 0) {
+            LocalExchangeCarrier.credit(exchangeCarrier(), consignment.localFreightEscrow, state.clock);
+            consignment.localFreightEscrow = 0;
+          }
+          consignment.status = "arrived"; changes += 1;
+        }
       }
       if (consignment.status === "arrived" && queueCommodityFreight(consignment)) changes += 1;
       if (consignment.status === "dispatching" && queueCommodityFreight(consignment)) changes += 1;
@@ -14875,6 +14936,8 @@
         carrier: exchangeCarrier(),
         legalLedger: ensureEconomy().legalLedger
       }),
+      requestCommissionedImport: (operatorId, good, quantity) => requestCommissionedImport(operatorId, good, quantity),
+      confirmCommissionedImport: () => confirmCommissionedImport(),
       setMarketCash: (amount) => {
         ensureEconomy().money = Math.max(0, Math.round(Number(amount) || 0));
         persist(); render(); return ensureEconomy().money;
@@ -60959,6 +61022,34 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { wrapper, input };
   }
 
+  function renderCommissionedImports(economy) {
+    const market = economy.commodityMarket, trade = market.intercityTrade;
+    if (!trade?.operators.length) return;
+    const section = storesSectionEl("Commissioned Imports", "Buy a confirmed lot from a direct neighboring city. Quotes reserve nothing; accepted cargo belongs to you, never to the public exchange.", { commissionedImports: "imports" });
+    const operator = document.createElement("select"), good = document.createElement("select");
+    operator.setAttribute("aria-label", "Import operator and source city"); good.setAttribute("aria-label", "Import commodity");
+    for (const op of trade.operators) {
+      const neighbor = trade.neighbors.find(n => op.route.endpointCityIds.includes(n.id));
+      const option = document.createElement("option"); option.value = op.id; option.textContent = `${neighbor?.profile.cityName || "Neighbor"} — ${op.vehicleId}${op.shipment ? " (busy)" : ""}`; operator.append(option);
+    }
+    for (const def of COMMODITY_MARKET_LISTING_DEFS.filter(d => d.buyable && d.sellable)) {
+      const option = document.createElement("option"); option.value = def.id; option.textContent = def.label; good.append(option);
+    }
+    const q = market.importOffer;
+    if (q?.ok) { operator.value = q.operatorId; good.value = q.good; }
+    const quantity = commodityNumberInput("Import quantity", q?.requested || 1, 1, 1);
+    section.append(operator, good, quantity.wrapper, storesActionButton("Request Import Quote", "Check stock, permits and an available convoy without allocating goods.", () => requestCommissionedImport(operator.value, good.value, Number(quantity.input.value))));
+    section.append(textEl("p", "Risk: prolonged holds can exhaust convoy provisions. Intercity rescue and cancellation after acceptance are not implemented; no automatic refund or replacement is promised.", "journal-meta"));
+    if (market.importMessage) section.append(textEl("p", market.importMessage, "journal-meta"));
+    if (q?.ok) {
+      section.append(storesRowEl(`${q.quantity} ${COMMODITY_MARKET_LISTING_BY_ID[q.good]?.label || q.good} offered (requested ${q.requested})`, `${formatMoney(q.total)} landed total`, {
+        subtitle: `Quoted ${formatClock(q.at)}; expires ${formatClock(q.expiresAt)}. Goods ${formatMoney(q.purchase)}; intercity freight ${formatMoney(q.intercityFreight)}; local delivery ${formatMoney(q.localFreight)}. ${q.totalHours} intercity travel/handling hours if unobstructed, plus up to one scheduling hour and local carrier waiting, travel and unloading. Local delivery timing is published when its vehicle is booked.`,
+        dataset: { commissionedImportQuote: q.operatorId }, actions: [storesActionButton("Confirm Import", "Accept exactly this displayed lot and total; changed terms require another confirmation.", () => confirmCommissionedImport())]
+      }));
+    }
+    dom.economyExchangeList.append(section);
+  }
+
   function renderCommodityExchange(economy) {
     if (!dom.economyExchangeList) return;
     const context = bindCityCommodityMarket(economy);
@@ -60969,6 +61060,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     intro.className = "journal-meta";
     intro.textContent = "Quotes are all-in: asks include legal purchasing fees and bids show net sale proceeds. Purchases lift prices; sales add public supply and depress prices. Every fill becomes physical Loading Bay freight.";
     dom.economyExchangeList.append(intro);
+    renderCommissionedImports(economy);
     for (const def of COMMODITY_MARKET_LISTING_DEFS) {
       const listing = economy.commodityMarket.listings[def.id];
       const quote = commodityQuote(def.id);
@@ -61068,10 +61160,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const fleet = exchangeCarrier();
     if (economy.commodityMarket.intercityTrade) {
       const trade = IntercityTrade.publicView(economy.commodityMarket.intercityTrade);
-      section.append(textEl("p", "Neighboring-city wholesale: NPC cargo is not player-owned. Imports become purchasable only after exchange arrival. Commercial permits do not create an alliance.", "journal-meta"));
+      section.append(textEl("p", "Neighboring-city trade: automatic wholesale is NPC-owned; commissioned cargo is player-owned and held separately for local delivery. Commercial permits do not create an alliance.", "journal-meta"));
       if (!trade.operators.length) section.append(emptyText("No known direct neighboring city market is available for wholesale trade."));
-      for (const op of trade.operators) section.append(storesRowEl(`Intercity convoy: ${op.endpoints.join(" ↔ ")}`, op.reason || (op.shipment ? op.shipment.delivered ? "Delivered; vehicle returning" : "Allocated wholesale shipment" : "Awaiting a funded trade opportunity"), {
-        subtitle: `Report ${formatClock(op.reportedAt)}; ${op.vehicleId}; ${op.crew.join(", ")}; ${op.location}. Endpoint permits: ${op.permits.map(p => `${p.cityId}: ${p.allowed ? "allowed" : "not granted"}`).join("; ")}. ${op.advertisement ? `Wholesale quote at ${formatClock(op.advertisement.at)}: ${op.advertisement.good}, source ask ${formatMoney(op.advertisement.unitAsk)}, receiving bid ${formatMoney(op.advertisement.unitBid)}. ` : ""}${op.shipment ? `${op.shipment.quantity} ${op.shipment.good}: ${op.shipment.sourceId} to ${op.shipment.destinationId}; ${op.shipment.delivered ? "received by city exchange" : `${op.shipment.pickedUp ? "cargo aboard" : "reserved at source"}; ${op.shipment.remainingHours} travel/handling hours remaining if unobstructed`}.` : "No delivery promised by a quote."}`,
+      for (const op of trade.operators) section.append(storesRowEl(`Intercity convoy: ${op.endpoints.join(" ↔ ")}`, op.reason || (op.shipment ? op.shipment.delivered ? "Delivered; vehicle returning" : op.shipment.owner === "player" ? "Commissioned player import" : "Allocated wholesale shipment" : "Awaiting a funded trade opportunity"), {
+        subtitle: `Report ${formatClock(op.reportedAt)}; ${op.vehicleId}; ${op.crew.join(", ")}; ${op.location}. Endpoint permits: ${op.permits.map(p => `${p.cityId}: ${p.allowed ? "allowed" : "not granted"}`).join("; ")}. ${op.advertisement ? `Wholesale quote at ${formatClock(op.advertisement.at)}: ${op.advertisement.good}, source ask ${formatMoney(op.advertisement.unitAsk)}, receiving bid ${formatMoney(op.advertisement.unitBid)}. ` : ""}${op.shipment ? `${op.shipment.owner === "player" ? "Player-owned" : "NPC-owned"}: ${op.shipment.quantity} ${op.shipment.good}: ${op.shipment.sourceId} to ${op.shipment.destinationId}; ${op.shipment.delivered ? "received at destination depot" : `${op.shipment.pickedUp ? "cargo aboard" : "reserved at source"}; ${op.shipment.remainingHours} travel/handling hours remaining if unobstructed`}.` : "No delivery promised by a quote."}`,
         dataset: { intercityOperator: op.id }
       }));
     }
@@ -61113,7 +61205,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ? journey ? `${titleCase(journey.status)}; supported arrival window ${formatClock(journey.arrivalWindow.start)}–${formatClock(journey.arrivalWindow.end)}` : "Awaiting physical booking; no arrival estimate"
         : consignment.completedAt !== null ? `Completed ${formatClock(consignment.completedAt)}` : "Loading Bay handling pending";
       section.append(storesRowEl(`${consignment.direction === "inbound" ? "Inbound" : "Outbound"}: ${def?.label || consignment.listingId}`, titleCase(consignment.status), {
-        subtitle: `${formatNumber(consignment.quantity)} units at ${formatMoney(consignment.unitPrice)}; ${formatMoney(consignment.total)} total; ${consignment.status === "awaitingCarrier" ? "Awaiting carrier; goods remain at " + (consignment.direction === "inbound" ? "city depot" : "reserved lab stack") : timing}${consignment.delay ? `; ${consignment.delay}` : ""}${consignment.carrierBusy ? `; assigned convoy ${consignment.returnJourneyId ? "returning to depot (see Travel and Arrivals)" : "busy"}` : ""}`,
+        subtitle: `${formatNumber(consignment.quantity)} units at ${formatMoney(consignment.unitPrice)}; ${formatMoney(consignment.total)} total; ${consignment.importShipmentId ? `Player-owned import ${consignment.importShipmentId}; local freight escrow ${formatMoney(consignment.localFreightEscrow)}. ` : ""}${consignment.status === "awaitingIntercity" ? "Intercity delivery pending" : consignment.status === "awaitingCarrier" ? "Awaiting carrier; goods remain at " + (consignment.direction === "inbound" ? "city depot" : "reserved lab stack") : timing}${consignment.delay ? `; ${consignment.delay}` : ""}${consignment.carrierBusy ? `; assigned convoy ${consignment.returnJourneyId ? "returning to depot (see Travel and Arrivals)" : "busy"}` : ""}`,
         dataset: { commodityConsignment: consignment.id, commodityListing: consignment.listingId, freightStatus: consignment.status },
         actions: [storesFocusRoomButton(SURFACE_LOADING_ROOM_ID, "Focus Loading Bay")]
       }));
@@ -83316,7 +83408,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     return { listings, lastTickAt: finiteTime(candidate?.lastTickAt, 0), cityContext: candidate?.cityContext ? clonePlainObject(candidate.cityContext) : null,
       localProduction: candidate?.localProduction ? clonePlainObject(candidate.localProduction) : null,
-      intercityTrade: candidate?.intercityTrade ? clonePlainObject(candidate.intercityTrade) : null };
+      intercityTrade: candidate?.intercityTrade ? clonePlainObject(candidate.intercityTrade) : null,
+      importOffer: candidate?.importOffer ? clonePlainObject(candidate.importOffer) : null, importMessage: String(candidate?.importMessage || "") };
   }
 
   function normalizeCommodityOrders(candidate) {
@@ -83347,6 +83440,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       unitPrice: Math.max(0, Number(entry?.unitPrice) || 0),
       total: Math.max(0, Math.round(Number(entry?.total) || 0)),
       freightFee: Math.max(0, Number(entry?.freightFee) || 0),
+      localFreightEscrow: Math.max(0, Number(entry?.localFreightEscrow) || 0),
+      importShipmentId: String(entry?.importShipmentId || ""),
       orderId: String(entry?.orderId || ""),
       stackId: String(entry?.stackId || ""),
       status: [...LocalExchangeCarrier.ACTIVE, "received", "sold", "failed"].includes(entry?.status) ? entry.status : "awaitingCarrier",
