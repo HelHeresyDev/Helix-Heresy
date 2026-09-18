@@ -15,7 +15,7 @@
   };
   const familyFor = id => Object.keys(groups).find(k => groups[k].includes(id)) || 'manufacturedGoods';
   const condition = value => ({ intact: 1, worn: 0.85, damaged: 0.5, ruined: 0 }[value] ?? 1);
-  function profile(cityId, directory, current, definitions, distanceBetween = null) {
+  function profile(cityId, directory, current, definitions, distanceBetween = null, capabilities = null) {
     const foundation = directory?.foundations?.find(f => f.city.id === cityId);
     if (!foundation) return null;
     const city = current?.cityRows?.find(c => c.cityId === cityId || c.assetId === cityId);
@@ -60,7 +60,31 @@
       listings[def.id] = { targetSupply: Math.round(def.supply * supplyFactor), targetDemand: demand,
         reasons: [...new Set(reasons[family] || ['No published local production anchor for this commodity family; limited merchant stocks.']), `City infrastructure: ${city?.physicalCondition || 'not reported'}; utilities: ${city?.services?.utilities || 'not reported'}; population: ${city?.populationBand || 'not reported'}.`] };
     }
-    return { cityId, cityName: foundation.city.name || foundation.city.label || cityId, playableYear: current?.playableYear ?? null, source: 'publicSettlementFacts', listings,
+    // Run-local workshop detail elaborates an actual deployed industrial site.
+    // Resource labels select a specialism; they never establish industry alone.
+    const adoption = capabilities?.cityProfiles?.find(p => p.city.id === cityId);
+    const industrial = capabilities?.milestones?.find(m => m.capability.id === 'industrialFabrication');
+    const site = industrial?.infrastructureSites?.find(s => s.cityId === cityId && s.function === 'industrialWorks' && s.operationalAtPlayableYear);
+    const roles = industrial?.institution?.roles || [];
+    const families = new Set(productionSources.map(s => s.family));
+    const manufacturingFacilities = [];
+    if (viable && adoption?.deployedCapabilityIds.includes('industrialFabrication') && adoption.deployedCapabilityIds.includes('standardManaPower') && site) {
+      const establish = (kind, label, expertise, requiredRole) => {
+        if (!roles.includes(requiredRole)) return;
+        manufacturingFacilities.push({ id: `${cityId}:${kind}`, kind, name: `${foundation.city.name || cityId} ${label}`, siteId: site.id,
+          basis: 'Run-local specialism of published deployed industrial works and expertise.', expertise: [expertise],
+          condition: condition(city?.physicalCondition) * 100, labour: 1, utilities: city?.services?.utilities === 'failed' ? 0 : infrastructure,
+          routeOpen: city?.services?.transport !== 'failed' });
+      };
+      if (families.has('industrialMinerals')) establish('glassworks', 'Glassworks', 'glassworking', 'precisionManufacturing');
+      if (families.has('timberFiber')) establish('textileWorks', 'Textile Works', 'textileProcessing', 'precisionManufacturing');
+      if (families.has('chemicalFeedstock')) {
+        establish('chemicalWorks', 'Chemical Works', 'chemicalProcessing', 'chemicalIndustry');
+        establish('medicalSupplies', 'Sterile Dressing Works', 'sterileProcessing', 'chemicalIndustry');
+      }
+    }
+    return { cityId, cityName: foundation.city.name || foundation.city.label || cityId, playableYear: current?.playableYear ?? null, source: 'publicSettlementFacts', listings, manufacturingFacilities,
+      commodityDefinitions: definitions.map(d => ({ id: d.id, label: d.label || d.id, basePrice: d.basePrice, supply: d.supply })),
       productionSources: productionSources.sort((a, b) => a.id.localeCompare(b.id)), workshopCapacity: viable && city?.services?.utilities !== 'failed' ? infrastructure : 0 };
   }
   function evolve(listing, baseline, def, randomSupply, randomDemand) {
