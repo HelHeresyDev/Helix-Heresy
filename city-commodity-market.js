@@ -7,8 +7,8 @@
   const groups = {
     biologicalProductivity: ['biomass', 'fieldRation', 'trailMeal'],
     constructionStone: ['stoneBlocks'], timberFiber: ['lumber', 'cloth', 'medicalBandage', 'filterBag', 'escortVest', 'fieldShelter'],
-    ferrousOre: ['steelPanels', 'metalParts', 'escortBaton', 'satelliteCommunicator'],
-    baseMetalOre: ['relayBattery'],
+    ferrousOre: ['steelPanels', 'metalParts', 'escortBaton'],
+    baseMetalOre: ['refinedConductors', 'relayBattery'], manaCrystals: ['preparedManaCrystals'],
     industrialMinerals: ['bricks', 'glass', 'sealedCollectionJar', 'linedScrapeJar', 'condenserFlask', 'mixedOutputJar', 'sealedReagentBottle'],
     chemicalFeedstock: ['rubber', 'assayReagent', 'neutralizingWash', 'membraneSealant', 'helixBufferSolution'],
     freshWater: ['drinkingWater']
@@ -82,6 +82,19 @@
         establish('chemicalWorks', 'Chemical Works', 'chemicalProcessing', 'chemicalIndustry');
         establish('medicalSupplies', 'Sterile Dressing Works', 'sterileProcessing', 'chemicalIndustry');
       }
+      if (families.has('baseMetalOre')) establish('metalRefinery', 'Conductor Refinery', 'conductorRefining', 'precisionManufacturing');
+      const deployedSite = (id, fn, role) => {
+        const milestone = capabilities.milestones.find(m => m.capability.id === id);
+        return adoption.deployedCapabilityIds.includes(id) && milestone?.institution?.roles?.includes(role)
+          && milestone.infrastructureSites?.some(s => s.cityId === cityId && s.function === fn && s.operationalAtPlayableYear);
+      };
+      // An operating gateway alone is not a radio factory. These specialisms
+      // require industrial works plus the appropriate deployed engineering base.
+      if (deployedSite('standardManaPower', 'powerWorks', 'powerEngineering')) {
+        if (families.has('manaCrystals')) establish('crystalWorks', 'Crystal Preparation Works', 'crystalPreparation', 'precisionManufacturing');
+        if (families.has('chemicalFeedstock')) establish('batteryWorks', 'Battery Works', 'batteryFabrication', 'chemicalIndustry');
+      }
+      if (deployedSite('regionalDataRelays', 'regionalRelayHub', 'relayEngineering')) establish('electronicsWorks', 'Relay Electronics Works', 'relayFabrication', 'precisionManufacturing');
     }
     return { cityId, cityName: foundation.city.name || foundation.city.label || cityId, playableYear: current?.playableYear ?? null, source: 'publicSettlementFacts', listings, manufacturingFacilities,
       commodityDefinitions: definitions.map(d => ({ id: d.id, label: d.label || d.id, basePrice: d.basePrice, supply: d.supply })),
