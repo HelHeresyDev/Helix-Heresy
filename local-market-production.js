@@ -16,17 +16,45 @@
     { id: 'maintenanceParts', family: 'ferrousOre', input: 2, output: 2, target: 'supplier' },
     { id: 'transportFuel', family: 'chemicalFeedstock', input: 1, output: 2, target: 'supplier' }
   ];
+  const INDUSTRIAL_RECIPES = [
+    { id: 'glass', facility: 'glassworks', expertise: 'glassworking', inputs: { industrialMinerals: 2 }, output: 2, hours: 2 },
+    { id: 'cloth', facility: 'textileWorks', expertise: 'textileProcessing', inputs: { timberFiber: 2 }, output: 3, hours: 2 },
+    { id: 'filterBag', facility: 'textileWorks', expertise: 'textileProcessing', inputs: { cloth: 1 }, output: 2, hours: 2 },
+    { id: 'rubber', facility: 'chemicalWorks', expertise: 'chemicalProcessing', inputs: { chemicalFeedstock: 2 }, output: 3, hours: 2 },
+    { id: 'assayReagent', facility: 'chemicalWorks', expertise: 'chemicalProcessing', inputs: { chemicalFeedstock: 2, glass: 1 }, output: 2, hours: 3 },
+    { id: 'neutralizingWash', facility: 'chemicalWorks', expertise: 'chemicalProcessing', inputs: { chemicalFeedstock: 1, glass: 1 }, output: 2, hours: 2 },
+    { id: 'membraneSealant', facility: 'chemicalWorks', expertise: 'chemicalProcessing', inputs: { chemicalFeedstock: 1, rubber: 1, glass: 1 }, output: 2, hours: 3 },
+    { id: 'medicalBandage', facility: 'medicalSupplies', expertise: 'sterileProcessing', inputs: { cloth: 2, neutralizingWash: 1 }, output: 4, hours: 2 },
+    ...['sealedCollectionJar', 'linedScrapeJar', 'condenserFlask', 'mixedOutputJar', 'sealedReagentBottle'].map(id => ({ id, facility: 'glassworks', expertise: 'glassworking',
+      inputs: id === 'condenserFlask' ? { glass: 2 } : id === 'mixedOutputJar' ? { glass: 1 } : { glass: 1, rubber: id === 'linedScrapeJar' ? 2 : 1 }, output: 2, hours: 2 }))
+  ];
   const copy = x => JSON.parse(JSON.stringify(x));
   function create(context, now = 0) {
     const sources = (context?.productionSources || []).filter(s => RECIPES.some(r => r.family === s.family)).map(s => ({ ...copy(s), stock: 0, condition: 100, labour: s.capacity, utilities: context.workshopCapacity,
       // A bounded run-owned extraction allocation, not disclosure of geological reserves.
       remaining: ['biologicalProductivity', 'timberFiber'].includes(s.family) ? null : Math.ceil(2000 * s.capacity), produced: 0 }));
-    return { cityId: context?.cityId || '', lastAt: now, sources, inputs: {}, workshops: RECIPES.filter(r => sources.some(s => s.family === r.family)).map(r => ({ ...r, stock: 0, condition: 100, labour: 1, utilities: context.workshopCapacity, progress: 0, produced: 0 })),
+    const facilities = copy(context?.manufacturingFacilities || []);
+    const industrial = INDUSTRIAL_RECIPES.filter(r => facilities.some(f => f.kind === r.facility)).map(r => ({ ...copy(r), facilityId: facilities.find(f => f.kind === r.facility).id, target: 'exchange', stock: 0, progress: 0, produced: 0 }));
+    return { cityId: context?.cityId || '', lastAt: now, sources, inputs: {}, facilities,
+      finance: { money: 1500, exchangeMoney: 6000, spent: 0, earned: 0, ledger: [] }, definitions: copy(context?.commodityDefinitions || []),
+      workshops: [...RECIPES.filter(r => sources.some(s => s.family === r.family)).map(r => ({ ...r, stock: 0, condition: 100, labour: 1, utilities: context.workshopCapacity, progress: 0, produced: 0 })), ...industrial],
       trucks: ['Oren Pike', 'Lina Ash'].map((name, i) => ({ id: `${context?.cityId || 'unbound'}:producer-truck-${i + 1}`, capacity: 24, fuelKm: 240, condition: 100, driver: { id: `${context?.cityId || 'unbound'}:producer-driver-${i + 1}`, name, health: 100, status: 'alive', fatigue: 0 }, shipment: null, repairAt: null })),
       warehouseCaps: Object.fromEntries(Object.entries(context?.listings || {}).map(([id, listing]) => [id, Math.max(192, listing.targetSupply * 4)])),
       depotFuelKm: 1200, depotParts: 8, shipments: [], nextNumber: 1, cursor: 0, receipts: [], reason: '' };
   }
   const capable = truck => truck.condition >= 50 && truck.driver.health >= 50 && truck.driver.status === 'alive';
+  const facilityFor = (state, w) => state.facilities?.find(f => f.id === w.facilityId);
+  const working = (f, w) => f && f.condition >= 50 && f.labour > 0 && f.utilities > 0 && f.expertise.includes(w.expertise);
+  const inputRouteOpen = (state, cargo) => state.facilities.some(f => f.routeOpen && state.workshops.some(w => w.facilityId === f.id && w.inputs[cargo]));
+  function price(state, listings, id, selling) {
+    const def = state.definitions?.find(d => d.id === id), listing = listings[id];
+    if (!def || !listing || !Number.isFinite(def.basePrice)) return null;
+    return Math.max(1, def.basePrice * Math.max(0.55, Math.min(1.8, listing.demand || 1)) * Math.pow(Math.max(0.2, def.supply) / Math.max(1, listing.supply), 0.42)) * (selling ? 0.94 : 1.06);
+  }
+  function payment(state, at, kind, amount, cargo, quantity) {
+    state.finance.ledger.push({ at, kind, amount, cargo, quantity });
+    state.finance.ledger = state.finance.ledger.slice(-60);
+  }
   function record(state, at, cargo, quantity, target) {
     state.receipts.push({ at, cargo, quantity, target }); state.receipts = state.receipts.slice(-60);
   }
@@ -64,6 +92,10 @@
     if (shipment.target === 'workshops') state.inputs[shipment.cargo] = (state.inputs[shipment.cargo] || 0) + shipment.quantity;
     else if (shipment.target === 'exchange') {
       if (listings[shipment.cargo]) listings[shipment.cargo].supply += shipment.quantity;
+      if (shipment.escrow) {
+        state.finance.money += shipment.escrow; state.finance.earned += shipment.escrow;
+        payment(state, at, 'saleReceipt', shipment.escrow, shipment.cargo, shipment.quantity); shipment.escrow = 0;
+      }
     } else if (shipment.cargo === 'transportFuel') {
       // Each sealed fuel lot represents twenty vehicle-kilometres. One quarter
       // services the producer depot; the rest becomes supplier stock, never both.
@@ -86,6 +118,7 @@
     }
     for (let i = 0; i < state.workshops.length; i++) {
       const w = state.workshops[(i + state.cursor) % state.workshops.length];
+      if (w.facilityId) continue;
       if (w.stock >= 96 || w.utilities <= 0 || w.labour <= 0 || w.condition < 50) continue;
       if ((state.inputs[w.family] || 0) < w.input) continue;
       w.progress = Math.min(4, w.progress + w.utilities * w.labour * w.condition / 100);
@@ -93,11 +126,30 @@
       state.inputs[w.family] = (state.inputs[w.family] || 0) - batches * w.input;
       w.stock += batches * w.output; w.produced += batches * w.output; w.progress -= batches;
     }
+    // One active line per facility; shared labour/utilities cannot be multiplied
+    // by the number of recipes. Inputs are consumed into a saved workpiece.
+    const factories = state.facilities || [];
+    for (let fi = 0; fi < factories.length; fi++) {
+      const f = factories[(fi + Math.floor(at / HOUR)) % factories.length];
+      const lines = state.workshops.filter(w => w.facilityId === f.id);
+      if (!f.activeRecipe) {
+        for (let i = 0; i < lines.length; i++) {
+          const w = lines[((f.cursor || 0) + i) % lines.length];
+          if (!working(f, w) || w.stock + w.output > 96 || !Object.entries(w.inputs).every(([id, n]) => (state.inputs[id] || 0) >= n)) continue;
+          for (const [id, n] of Object.entries(w.inputs)) state.inputs[id] -= n;
+          f.activeRecipe = w.id; f.cursor = ((f.cursor || 0) + i + 1) % lines.length; break;
+        }
+      }
+      const w = lines.find(w => w.id === f.activeRecipe);
+      if (!w || !working(f, w)) continue;
+      w.progress += Math.min(1, f.labour) * Math.min(1, f.utilities) * f.condition / 100;
+      if (w.progress >= w.hours) { w.stock += w.output; w.produced += w.output; w.progress = 0; f.activeRecipe = null; }
+    }
     // Receipts at this hour boundary cannot retroactively feed the preceding
     // hour's production work. They become inputs for the next hour.
     for (const truck of state.trucks.filter(t => t.shipment)) {
       const sh = state.shipments.find(s => s.id === truck.shipment), source = state.sources.find(s => s.id === sh.sourceId);
-      if (!capable(truck) || !sh.route.open || (source && !source.route.open) || (sh.target === 'supplier' && !supplier.routeOpen)) {
+      if (!capable(truck) || !sh.route.open || (source && !source.route.open) || (sh.procurement && !inputRouteOpen(state, sh.cargo)) || (sh.facilityIds || []).some(id => state.facilities.find(f => f.id === id)?.routeOpen === false) || (sh.target === 'supplier' && !supplier.routeOpen)) {
         if (sh.pickupAt > at - HOUR) sh.pickupAt += HOUR;
         sh.arriveAt += HOUR; sh.returnAt += HOUR; sh.reason = 'Shipment delayed: saved route, vehicle or driver unavailable.'; continue;
       }
@@ -107,23 +159,35 @@
     }
     const candidates = [
       ...state.sources.map(s => ({ entry: s, cargo: s.family, target: 'workshops', sourceId: s.id, route: s.route })),
-      ...state.workshops.map(w => ({ entry: w, cargo: w.id, target: w.target, sourceId: '', route: { open: true, distanceKm: 4, cellIds: [], mode: 'groundConvoy' } }))
+      ...state.workshops.map(w => ({ entry: w, cargo: w.id, target: w.target, sourceId: '', industrial: Boolean(w.facilityId), facilityIds: w.facilityId ? [w.facilityId] : [], route: { open: !w.facilityId || facilityFor(state, w).routeOpen, distanceKm: 4, cellIds: [], mode: 'groundConvoy' } })),
+      ...[...new Set(state.workshops.filter(w => w.facilityId && working(facilityFor(state, w), w)).flatMap(w => Object.keys(w.inputs)))].filter(id => listings[id]).map(id => ({
+        entry: listings[id], cargo: id, target: 'workshops', sourceId: '', procurement: true, facilityIds: [], route: { open: inputRouteOpen(state, id), distanceKm: 4, cellIds: [], mode: 'groundConvoy' }
+      }))
     ];
     state.reason = '';
     for (const truck of state.trucks.filter(t => !t.shipment && !t.repairAt && capable(t))) {
       for (let i = 0; i < candidates.length; i++) {
         const index = (state.cursor + i) % candidates.length, c = candidates[index], distance = c.route.distanceKm * 2;
-        let quantity = Math.min(truck.capacity, Math.floor(c.entry.stock));
+        let quantity = Math.min(truck.capacity, Math.floor(c.procurement ? c.entry.supply : c.entry.stock));
         const inbound = state.shipments.filter(s => !s.delivered && s.target === c.target && s.cargo === c.cargo).reduce((n, s) => n + s.quantity, 0);
+        const unitPrice = c.procurement || c.industrial ? price(state, listings, c.cargo, c.industrial) : null;
+        if (c.procurement) quantity = Math.min(quantity, Math.max(0, 8 - (state.inputs[c.cargo] || 0) - inbound), unitPrice ? Math.floor(state.finance.money / unitPrice) : 0);
+        if (c.industrial) quantity = Math.min(quantity, unitPrice ? Math.floor(state.finance.exchangeMoney / unitPrice) : 0);
         if (c.target === 'exchange') quantity = Math.min(quantity, Math.floor(Math.max(0, (state.warehouseCaps[c.cargo] || 192) - (listings[c.cargo]?.supply || 0) - inbound)));
         if (c.target === 'supplier') quantity = Math.min(quantity, Math.floor(Math.max(0, c.cargo === 'transportFuel' ? (16000 - supplier.fuelStockKm) / 20 - inbound : 160 - supplier.partsStock - inbound)));
         if (!quantity || !c.route.open || truck.fuelKm < distance || truck.condition - distance * 0.02 < 50 || truck.driver.fatigue + distance * 0.04 > 80) continue;
         if (c.target === 'supplier' && !supplier.routeOpen) continue;
         if (c.target === 'workshops' && (state.inputs[c.cargo] || 0) + state.shipments.filter(s => !s.delivered && s.target === 'workshops' && s.cargo === c.cargo).reduce((n, s) => n + s.quantity, 0) + quantity > 192) continue;
-        c.entry.stock -= quantity;
+        if (c.procurement) {
+          c.entry.supply -= quantity; state.finance.money -= quantity * unitPrice; state.finance.spent += quantity * unitPrice; state.finance.exchangeMoney += quantity * unitPrice;
+          payment(state, at, 'inputPurchase', quantity * unitPrice, c.cargo, quantity);
+        } else c.entry.stock -= quantity;
+        const escrow = c.industrial ? quantity * unitPrice : 0;
+        if (escrow) state.finance.exchangeMoney -= escrow;
         truck.fuelKm -= distance; truck.condition -= distance * 0.02; truck.driver.fatigue += distance * 0.04;
         const legTime = Math.max(HOUR, Math.ceil(c.route.distanceKm / 30) * HOUR);
         const sh = { id: `producer-shipment-${state.nextNumber++}`, sourceId: c.sourceId, cargo: c.cargo, target: c.target, quantity, route: copy(c.route), truckId: truck.id, departedAt: at,
+          procurement: Boolean(c.procurement), facilityIds: c.facilityIds || [], unitPrice, escrow,
           // Extraction pickups travel out empty and return loaded. City workshop
           // deliveries travel out loaded and retain the truck for its empty return.
           pickupAt: c.target === 'workshops' ? at + legTime : at, arriveAt: at + legTime * (c.target === 'workshops' ? 2 : 1), returnAt: at + legTime * 2, delivered: false, returned: false, reason: '' };
@@ -140,13 +204,22 @@
   function status(state, listingId) {
     const workshop = state?.workshops.find(w => w.id === listingId);
     if (!workshop) return 'No supported local producer; remaining merchant stock is finite.';
-    if (state.shipments.some(s => s.cargo === listingId && !s.delivered && s.reason)) return 'Shipment delayed; allocated goods remain in saved carrier custody.';
-    if (state.shipments.some(s => s.cargo === listingId && !s.delivered)) return 'Incoming allocated shipment; stock becomes available only after delivery.';
+    if (state.shipments.some(s => s.target === 'exchange' && s.cargo === listingId && !s.delivered && s.reason)) return 'Shipment delayed; allocated goods remain in saved carrier custody.';
+    if (state.shipments.some(s => s.target === 'exchange' && s.cargo === listingId && !s.delivered)) return 'Incoming allocated shipment; stock becomes available only after delivery.';
+    if (workshop.facilityId) {
+      const f = facilityFor(state, workshop);
+      if (!working(f, workshop)) return 'Production interrupted: facility, expertise, labour or utilities unavailable.';
+      if (workshop.stock) return 'Produced goods awaiting funded exchange purchasing or finite transport.';
+      if (f.activeRecipe === listingId) return 'Factory processing reserved inputs; interrupted work is retained.';
+      const missing = Object.entries(workshop.inputs).filter(([id, n]) => (state.inputs[id] || 0) < n).map(([id]) => state.definitions.find(d => d.id === id)?.label || id);
+      if (missing.length) return `Awaiting physically delivered inputs: ${missing.join(', ')}.${state.finance.money < 1 ? ' Producer procurement budget exhausted.' : ''}`;
+      return 'Inputs available; awaiting shared factory capacity.';
+    }
     if (workshop.condition < 50 || workshop.utilities <= 0 || workshop.labour <= 0) return 'Production interrupted: facility, labour or utilities unavailable.';
     if (workshop.stock >= 1) return 'Produced goods awaiting finite local transport.';
     if (state.sources.filter(s => s.family === workshop.family).every(s => s.remaining === 0 && s.stock < 1) && !(state.inputs[workshop.family] >= workshop.input)) return 'Local extraction allocation exhausted; no automatic deposit reset.';
     if ((state.inputs[workshop.family] || 0) < workshop.input) return 'Awaiting physically delivered production inputs.';
     return 'Local workshop processing delivered inputs.';
   }
-  return { HOUR, RECIPES, create, advance, status };
+  return { HOUR, RECIPES, INDUSTRIAL_RECIPES, create, advance, status };
 });

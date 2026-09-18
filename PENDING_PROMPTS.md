@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Advanced Local Manufacturing
+1. Precision Equipment Manufacturing
 2. Player-Commissioned Intercity Trade
 3. World-Aware Black Markets
 4. World Integration: Investigations and Institutional Pressure
@@ -89,9 +89,9 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Advanced Local Manufacturing
+## 1. Precision Equipment Manufacturing
 
-Discuss city-local production of specialist chemicals, glassware, medical supplies, batteries, communicators and other advanced equipment. Basic biological supplies, construction goods and carrier fuel/parts already use saved producers, consumed inputs, timed workshops and physical shipments; extend those rules without inventing finished goods from a resource-family label. Require appropriate industrial facilities, expertise, utilities, intermediate inputs and available transport. Keep unsupported goods finite until a feasible production chain or physical import supplies them. Preserve municipal supplier upkeep, extraction limits, delivery custody, locked customer prices and local consumption without restoring automatic positive stock recovery. Broader producer finances and workforce detail should remain bounded and receive separate discussion if needed.
+Discuss city-local production of batteries, communicators and other precision equipment. Industrial consumables are implemented: glass, cloth, rubber, glassware, filter bags, specialist chemicals and sterile dressings use saved facilities derived from published deployed industrial works, appropriate expertise, consumed inputs, shared timed capacity, bounded manufacturer procurement funds, exchange sale escrow and physical deliveries. Extend those rules with explicit refined materials and components, specialist facilities and expertise rather than manufacturing electronics directly from an ore-family label. Existing imports may supply inputs only after physical receipt. Keep unsupported goods finite until a feasible chain or import supplies them. Preserve producer and municipal supplier upkeep, extraction limits, delivery custody, locked customer prices, independent neighboring-city production and local consumption without restoring automatic stock recovery. Individual hiring, industrial construction and detailed business finance require separate bounded discussions; current labour/utilities and upstream production costs remain aggregate abstractions.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 

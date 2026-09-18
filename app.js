@@ -11382,8 +11382,9 @@
     const map = activeWorldRecord?.generatedData?.strategicMap;
     const network = state.strategicJourneys || (map ? ensureStrategicJourneys() : null);
     const cityId = network?.destinations.find(d => d.id === network.homeDestinationId)?.cityId || state.startingSite?.nearestSettlement?.cityId;
+    const capabilities = map?.publicCapabilityHistory ? StrategicCapabilityHistory.publicCapabilityHistory(map) : null;
     const context = suppliedProfile || (cityId && map?.publicSettlementDirectory ? CityCommodityMarket.profile(cityId, StrategicSettlements.publicSettlementDirectory(map), map.publicPlayableSettlementDirectory, COMMODITY_MARKET_LISTING_DEFS,
-      (a, b) => StrategicWorld.greatCircleDistanceKm(map, StrategicWorld.cellIndex(a), StrategicWorld.cellIndex(b))) : null);
+      (a, b) => StrategicWorld.greatCircleDistanceKm(map, StrategicWorld.cellIndex(a), StrategicWorld.cellIndex(b)), capabilities) : null);
     if (!context) return null; // Debug worlds and older worlds retain an explicitly unbound exchange.
     market.cityContext = clonePlainObject(context);
     market.localProduction = LocalMarketProduction.create(context, state.clock);
@@ -11392,7 +11393,7 @@
       const direct = network.routes.filter(r => r.endpointCityIds.includes(cityId));
       const ids = [...new Set(direct.flatMap(r => r.endpointCityIds))];
       const profiles = ids.filter(id => id !== cityId).map(id => CityCommodityMarket.profile(id, directory, map.publicPlayableSettlementDirectory, COMMODITY_MARKET_LISTING_DEFS,
-        (a, b) => StrategicWorld.greatCircleDistanceKm(map, StrategicWorld.cellIndex(a), StrategicWorld.cellIndex(b)))).filter(Boolean);
+        (a, b) => StrategicWorld.greatCircleDistanceKm(map, StrategicWorld.cellIndex(a), StrategicWorld.cellIndex(b)), capabilities)).filter(Boolean);
       const commerce = Object.fromEntries(ids.map(id => [id, map.publicNonStateNetworkHistoryDirectory
         ? StrategicNonStateNetworkHistory.cityCurrentNetworkProfile(map, id) : StrategicNonStateNetworks.cityNetworkProfile(map, id)]));
       market.intercityTrade = IntercityTrade.create(context, profiles, direct, direct.map(r => IntercityTrade.permit(r, commerce)), COMMODITY_MARKET_LISTING_DEFS, state.clock);
@@ -14848,8 +14849,8 @@
         roomId: stack.roomId,
         visualKey: itemStackSceneVisualKey(stack)
       }))),
-      configureCityCommodityMarketForTest: ({ cityId, directory, current }) => {
-        const context = CityCommodityMarket.profile(cityId, directory, current, COMMODITY_MARKET_LISTING_DEFS);
+      configureCityCommodityMarketForTest: ({ cityId, directory, current, capabilities = null }) => {
+        const context = CityCommodityMarket.profile(cityId, directory, current, COMMODITY_MARKET_LISTING_DEFS, null, capabilities);
         bindCityCommodityMarket(ensureEconomy(), context); persist(); render(); return clonePlainObject(ensureEconomy().commodityMarket);
       },
       configureIntercityTradeForTest: ({ profiles, routes, permissions }) => {
@@ -61067,9 +61068,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const production = economy.commodityMarket.localProduction;
     if (production) {
-      section.append(storesRowEl("Local producer network", production.reason || "Basic local production", {
-        subtitle: `${production.sources.length} supported sources; ${production.workshops.length} basic workshops; ${production.trucks.length} persistent producer trucks. Producer depot fuel ${formatNumber(production.depotFuelKm)} vehicle-km; maintenance parts ${production.depotParts}. Advanced manufacturing is not implemented.`,
+      section.append(storesRowEl("Local producer network", production.reason || "City-local production", {
+        subtitle: `${production.sources.length} supported sources; ${production.workshops.filter(w => !w.facilityId).length} basic workshops; ${production.facilities?.length || 0} industrial facilities; ${production.trucks.length} persistent producer trucks. Producer depot fuel ${formatNumber(production.depotFuelKm)} vehicle-km; maintenance parts ${production.depotParts}. Precision equipment manufacturing remains unsupported.`,
         dataset: { localProduction: production.cityId }
+      }));
+      for (const facility of production.facilities || []) section.append(storesRowEl(facility.name, facility.activeRecipe ? `Processing ${COMMODITY_MARKET_LISTING_BY_ID[facility.activeRecipe]?.label || facility.activeRecipe}` : "Waiting for inputs or capacity", {
+        subtitle: `${facility.basis} Expertise: ${facility.expertise.join(", ")}; condition ${formatNumber(facility.condition)}; labour ${formatNumber(facility.labour)}; utilities ${formatNumber(facility.utilities)}; local route ${facility.routeOpen ? "open" : "closed"}.`, dataset: { manufacturingFacility: facility.id }
+      }));
+      if (production.facilities?.length) section.append(storesRowEl("Industrial procurement", formatMoney(production.finance.money), {
+        subtitle: `Bounded manufacturer account; paid inputs ${formatMoney(production.finance.spent)}, settled sales ${formatMoney(production.finance.earned)}. Separate exchange purchasing reserve ${formatMoney(production.finance.exchangeMoney)}. Input purchases reserve exchange stock; sale proceeds settle only on physical delivery.`, dataset: { manufacturingFinance: production.cityId }
       }));
       for (const truck of production.trucks) section.append(storesRowEl(`Producer transport: ${truck.driver.name}`, truck.shipment || (truck.repairAt ? "Under maintenance" : "At distribution compound"), {
         subtitle: `${truck.id}; health ${truck.driver.health}, ${truck.driver.status}; fatigue ${formatNumber(truck.driver.fatigue)}; condition ${formatNumber(truck.condition)}; fuel ${formatNumber(truck.fuelKm)} vehicle-km; capacity ${truck.capacity}.`, dataset: { producerTruck: truck.id }

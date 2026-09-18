@@ -152,6 +152,35 @@ test('local production reaches exchange only after input processing and physical
   await expect(page.locator('[data-local-production="a"]')).toContainText('2 persistent producer trucks');
 });
 
+test('industrial consumables expose saved factories, funded procurement and physical receipts in the exchange', async ({ page }) => {
+  await startRun(page);
+  await page.evaluate(() => window.helixHeresyDebug.configureCityCommodityMarketForTest({
+    cityId: 'a', directory: { foundations: [{ city: { id: 'a', name: 'Industrial City' }, primaryExploitation: { id: 'industrialMinerals' }, secondaryExploitation: { id: 'chemicalFeedstock' } }], satellites: [] },
+    current: { cityRows: [{ cityId: 'a', physicalCondition: 'intact', services: { utilities: 'functional', transport: 'functional' } }] },
+    capabilities: { cityProfiles: [{ city: { id: 'a' }, deployedCapabilityIds: ['standardManaPower', 'industrialFabrication'] }], milestones: [{ capability: { id: 'industrialFabrication' }, institution: { roles: ['precisionManufacturing', 'chemicalIndustry'] }, infrastructureSites: [{ id: 'a:industrial-site', cityId: 'a', function: 'industrialWorks', operationalAtPlayableYear: true }] }] }
+  }));
+  const initial = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  expect(initial.market.localProduction.facilities).toHaveLength(3);
+  await page.evaluate(() => window.helixHeresyDebug.advanceStrategicServices(4 * 3600));
+  const purchased = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  expect(purchased.market.localProduction.finance.spent).toBeGreaterThan(0);
+  expect(purchased.money).toBe(initial.money);
+  expect(purchased.consignments).toHaveLength(0);
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  expect((await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot())).market.localProduction).toEqual(purchased.market.localProduction);
+  await page.evaluate(() => window.helixHeresyDebug.advanceStrategicServices(20 * 3600));
+  const produced = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  expect(produced.market.localProduction.finance.earned).toBeGreaterThan(0);
+  expect(produced.market.localProduction.receipts.some(r => r.target === 'exchange' && ['glass', 'rubber', 'medicalBandage'].includes(r.cargo))).toBe(true);
+  expect(produced.money).toBe(initial.money);
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="freight"]').click();
+  await expect(page.locator('[data-manufacturing-facility="a:glassworks"]')).toContainText('glassworking');
+  await expect(page.locator('[data-manufacturing-finance="a"]')).toContainText('sale proceeds settle only on physical delivery');
+  await expect(page.locator('[data-local-production="a"]')).toContainText('3 industrial facilities');
+  await page.locator('[data-economy-menu-tab="exchange"]').click();
+  await expect(page.locator('[data-commodity-listing="relayBattery"]')).toContainText('No supported local producer');
+});
+
 test('neighbor wholesale stays separate from player property and persists until physical import arrival', async ({ page }) => {
   await startRun(page);
   const initial = await page.evaluate(() => {
