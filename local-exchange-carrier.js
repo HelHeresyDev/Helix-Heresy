@@ -4,7 +4,7 @@
   if (root) root.HelixLocalExchangeCarrier = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
-  const ACTIVE = ['awaitingIntercity', 'awaitingCarrier', 'inTransit', 'arrived', 'unloading', 'dispatching'];
+  const ACTIVE = ['awaitingIntercity', 'awaitingExport', 'awaitingCarrier', 'inTransit', 'arrived', 'unloading', 'dispatching'];
   const DEPOT_CAPACITY = 144, CONVOY_CAPACITY = 48;
   function create(cityId) {
     return { cityId, fuelReserveKm: 800, vehicles: ['Mara Vale', 'Irena Moss', 'Ren Kestrel'].map((name, i) => ({ id: `${cityId}:exchange-van-${i + 1}`, capacity: i === 2 ? 0 : 24, recovery: i === 2, condition: 100, fuelKm: 200, reservedFuelKm: 0, assignment: null, location: 'depot', driver: { id: `${cityId}:exchange-driver-${i + 1}`, name, health: 100, status: 'alive' } })), meters: {} };

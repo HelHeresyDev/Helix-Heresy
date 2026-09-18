@@ -11379,7 +11379,7 @@
         history: [{ at: 0, mid, bid: commodityQuoteValues(def, mid, 0).bid, ask: commodityQuoteValues(def, mid, 0).ask, supply }]
       };
     }
-    return { listings, lastTickAt: 0, importOffer: null, importMessage: "" };
+    return { listings, lastTickAt: 0, importOffer: null, importMessage: "", exportOffer: null, exportMessage: "" };
   }
 
   function bindCityCommodityMarket(economy, suppliedProfile = null) {
@@ -11511,7 +11511,9 @@
   function commodityOwnedAmount(listingId) {
     const def = COMMODITY_MARKET_LISTING_BY_ID[listingId];
     if (!def) return 0;
-    return physicalKnownAmount(def.section, def.key);
+    const outgoing = ensureEconomy().commodityConsignments.filter(c => c.exportShipmentId && c.listingId === listingId && ["awaitingCarrier", "dispatching"].includes(c.status))
+      .reduce((sum, c) => sum + Math.min(c.quantity, ensurePhysicalItemStacks().find(s => s.id === c.stackId)?.knownQuantity || 0), 0);
+    return Math.max(0, physicalKnownAmount(def.section, def.key) - outgoing);
   }
 
   function commodityOutstandingCount() {
@@ -11674,6 +11676,49 @@
     sh.consignmentId = consignment.id;
     market.importOffer = null; market.importMessage = "Import accepted. Cargo is player-owned; both freight stages remain physical.";
     recordLegalLedger("commissionedImport", `Commissioned ${q.quantity} ${COMMODITY_MARKET_LISTING_BY_ID[q.good].label} from ${q.sourceId}: goods paid ${formatMoney(q.purchase)}, intercity freight escrow ${formatMoney(q.intercityFreight)}, local freight escrow ${formatMoney(q.localFreight)}.`, { listingId: q.good, consignmentId: consignment.id, amount: -q.total });
+    persist(); render(); return clonePlainObject({ ok: true, consignment, shipment: sh });
+  }
+
+  function commissionedExportOffer(operatorId, good, stackId, requested) {
+    const economy = ensureEconomy(), trade = economy.commodityMarket.intercityTrade, route = exchangeRoute();
+    if (!trade || !route.ok) return { ok: false, reason: route.reason || "No neighboring trade available." };
+    for (const op of trade.operators) {
+      const current = ensureStrategicJourneys().routes.find(r => r.id === op.route.id);
+      op.route.supportCapable = Boolean(current?.supportCapable);
+      if (current) op.route.continuity = current.continuity;
+    }
+    if (commodityOutstandingCount() >= COMMODITY_MARKET_MAX_OUTSTANDING) return { ok: false, reason: "Local freight booking capacity is full." };
+    const fee = roundOutputValue(strategicFreightUnitCost() * LocalExchangeCarrier.tariffMultiplier(exchangeCarrier()));
+    return IntercityTrade.exportOffer(trade, operatorId, good, ensurePhysicalItemStacks().find(s => s.id === stackId), requested, COMMODITY_MARKET_LISTING_DEFS, state.clock, fee);
+  }
+
+  function requestCommissionedExport(operatorId, good, stackId, requested) {
+    const market = ensureEconomy().commodityMarket;
+    market.exportOffer = commissionedExportOffer(operatorId, good, stackId, requested);
+    market.exportMessage = market.exportOffer.ok ? "Review the dated exact-lot offer; nothing is reserved yet." : market.exportOffer.reason;
+    persist(); render(); return clonePlainObject(market.exportOffer);
+  }
+
+  function confirmCommissionedExport() {
+    const economy = ensureEconomy(), market = economy.commodityMarket, offered = market.exportOffer;
+    if (!offered?.ok) return { ok: false, reason: "Request and review an export quote first." };
+    const fresh = commissionedExportOffer(offered.operatorId, offered.good, offered.stackId, offered.requested);
+    let result = fresh;
+    const stack = ensurePhysicalItemStacks().find(s => s.id === offered.stackId);
+    if (fresh.ok) result = IntercityTrade.bookExport(market.intercityTrade, offered, stack, COMMODITY_MARKET_LISTING_DEFS, state.clock,
+      roundOutputValue(strategicFreightUnitCost() * LocalExchangeCarrier.tariffMultiplier(exchangeCarrier())));
+    if (!result.ok) {
+      market.exportOffer = result.revised || fresh; market.exportMessage = result.reason;
+      persist(); render(); return clonePlainObject(result);
+    }
+    const q = result.offer, sh = result.shipment;
+    const consignment = { id: `legal-consignment-${economy.nextCommodityConsignmentNumber++}`, direction: "outbound", listingId: q.good, quantity: q.quantity,
+      unitPrice: q.net / q.quantity, total: q.net, freightFee: q.localFreight, exportShipmentId: sh.id, orderId: "", stackId: stack.id,
+      status: "awaitingCarrier", createdAt: state.clock, eta: state.clock, completedAt: null, taskId: "", journeyId: "" };
+    stack.reservedTaskId = consignment.id; sh.consignmentId = consignment.id;
+    economy.commodityConsignments.push(consignment); dispatchCommodityConsignment(consignment);
+    market.exportOffer = null; market.exportMessage = "Export accepted. Buyer payment escrowed; exact lot and intercity convoy reserved.";
+    recordLegalLedger("commissionedExport", `Export ${sh.id}: buyer reserved ${formatMoney(q.gross)}; net proceeds ${formatMoney(q.net)} payable only at foreign receipt.`, { listingId: q.good, consignmentId: consignment.id });
     persist(); render(); return clonePlainObject({ ok: true, consignment, shipment: sh });
   }
 
@@ -11897,8 +11942,11 @@
       addEvent(`${formatNumber(consignment.quantity)} ${def.label} received at the Loading Bay; normal stockpile hauling can move it onward.`);
     } else {
       const stack = ensurePhysicalItemStacks().find((entry) => entry.id === consignment.stackId);
-      if (!stack || stack.quantity + 1e-6 < consignment.quantity) {
+      const exportShipment = economy.commodityMarket.intercityTrade?.shipments.find(s => s.id === consignment.exportShipmentId);
+      const exportLot = exportShipment && IntercityTrade.exportLot(def, stack, consignment.quantity, task.id);
+      if (!stack || stack.quantity + 1e-6 < consignment.quantity || (consignment.exportShipmentId && (!exportShipment || !exportLot || exportLot.fingerprint !== exportShipment.fingerprint || exportLot.quantity !== consignment.quantity))) {
         consignment.status = "failed";
+        if (exportShipment) IntercityTrade.failExport(economy.commodityMarket.intercityTrade, exportShipment.id, state.clock);
         bookCommodityConsignmentJourney(consignment, false, true);
         const order = economy.commodityOrders.find(o => o.id === consignment.orderId);
         if (order) { order.status = "failed"; order.updatedAt = state.clock; }
@@ -11909,6 +11957,7 @@
       const journey = bookCommodityConsignmentJourney(consignment);
       if (!journey) return false;
       consignment.cargoManifest = clonePlainObject({ ...stack, quantity: consignment.quantity, knownQuantity: consignment.quantity });
+      if (exportShipment) exportShipment.collected = true;
       stack.quantity = roundOutputValue(stack.quantity - consignment.quantity);
       stack.knownQuantity = Math.min(stack.knownQuantity, stack.quantity);
       stack.reservedTaskId = consignment.orderId;
@@ -11950,7 +11999,14 @@
       }
       const physicallyArrived = journey?.status === "arrived";
       if (consignment.status === "inTransit" && physicallyArrived) {
-        if (consignment.direction === "outbound") changes += finalizeCommoditySale(consignment) ? 1 : 0;
+        if (consignment.exportShipmentId) {
+          const paid = IntercityTrade.receiveExport(economy.commodityMarket.intercityTrade, consignment.exportShipmentId, consignment.cargoManifest, state.clock);
+          if (paid === null) { consignment.delay = "Exact export manifest mismatch at depot; cargo preserved for reconciliation."; continue; }
+          LocalExchangeCarrier.credit(exchangeCarrier(), paid, state.clock);
+          consignment.cargoManifest = null; // Custody moves to the intercity manifest, not a second cargo lot.
+          consignment.status = "awaitingExport"; changes += 1;
+        }
+        else if (consignment.direction === "outbound") changes += finalizeCommoditySale(consignment) ? 1 : 0;
         else {
           if (consignment.localFreightEscrow > 0) {
             LocalExchangeCarrier.credit(exchangeCarrier(), consignment.localFreightEscrow, state.clock);
@@ -11961,7 +12017,17 @@
       }
       if (consignment.status === "arrived" && queueCommodityFreight(consignment)) changes += 1;
       if (consignment.status === "dispatching" && queueCommodityFreight(consignment)) changes += 1;
-      if (consignment.carrierBusy && (returning?.status === "arrived" || consignment.status === "sold")) {
+      if (consignment.status === "awaitingExport") {
+        const trade = economy.commodityMarket.intercityTrade, shipment = trade.shipments.find(s => s.id === consignment.exportShipmentId);
+        const op = trade.operators.find(o => o.id === shipment?.operatorId);
+        consignment.delay = op?.reason || "Exact cargo aboard reserved convoy; proceeds held until foreign receipt.";
+        if (shipment?.delivered) {
+          const paid = IntercityTrade.settleExport(trade, shipment.id); economy.money += paid;
+          consignment.status = "sold"; consignment.completedAt = shipment.deliveredAt; consignment.delay = "Foreign buyer received cargo; convoy returns empty.";
+          recordLegalLedger("exportSale", `Foreign receipt settled ${formatMoney(paid)} net for ${consignment.quantity} ${consignment.listingId}.`, { listingId: consignment.listingId, consignmentId: consignment.id, amount: paid }); changes += 1;
+        }
+      }
+      if (consignment.carrierBusy && (returning?.status === "arrived" || ["sold", "awaitingExport"].includes(consignment.status))) {
         LocalExchangeCarrier.release(exchangeCarrier(), consignment.id);
         for (const id of [consignment.journeyId, consignment.pickupJourneyId, consignment.returnJourneyId]) delete exchangeCarrier().meters[id];
         consignment.carrierBusy = false;
@@ -14938,6 +15004,8 @@
       }),
       requestCommissionedImport: (operatorId, good, quantity) => requestCommissionedImport(operatorId, good, quantity),
       confirmCommissionedImport: () => confirmCommissionedImport(),
+      requestCommissionedExport: (operatorId, good, stackId, quantity) => requestCommissionedExport(operatorId, good, stackId, quantity),
+      confirmCommissionedExport: () => confirmCommissionedExport(),
       setMarketCash: (amount) => {
         ensureEconomy().money = Math.max(0, Math.round(Number(amount) || 0));
         persist(); render(); return ensureEconomy().money;
@@ -61050,6 +61118,33 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.economyExchangeList.append(section);
   }
 
+  function renderCommissionedExports(economy) {
+    const market = economy.commodityMarket, trade = market.intercityTrade;
+    if (!trade?.operators.length) return;
+    const section = storesSectionEl("Commissioned Exports", "Sell an exact legal lot to a direct neighbor. The buyer funds freight and proceeds before collection; you are paid only on foreign receipt.", { commissionedExports: "exports" });
+    const operator = document.createElement("select"), lot = document.createElement("select");
+    operator.setAttribute("aria-label", "Export operator and buyer city"); lot.setAttribute("aria-label", "Export exact physical lot");
+    for (const op of trade.operators) {
+      const neighbor = trade.neighbors.find(n => op.route.endpointCityIds.includes(n.id));
+      const option = document.createElement("option"); option.value = op.id; option.textContent = `${neighbor?.profile.cityName || "Neighbor"} — ${op.vehicleId}${op.shipment ? " (busy)" : ""}`; operator.append(option);
+    }
+    for (const def of COMMODITY_MARKET_LISTING_DEFS.filter(d => d.sellable)) for (const stack of commoditySaleEligibleStacks(def.id)) {
+      const option = document.createElement("option"); option.value = stack.id; option.dataset.good = def.id;
+      option.textContent = `${def.label} · ${stack.id} · ${formatNumber(stack.quantity)}${stack.chemicalBatch ? ` · full certified package; purity ${formatNumber(stack.chemicalBatch.purity)}, quality ${formatNumber(stack.chemicalBatch.craftsmanship)}` : ""}`; lot.append(option);
+    }
+    const q = market.exportOffer;
+    if (q?.ok) { operator.value = q.operatorId; lot.value = q.stackId; }
+    const quantity = commodityNumberInput("Export quantity", q?.requested || 1, 1, 1);
+    section.append(operator, lot, quantity.wrapper, storesActionButton("Request Export Quote", "No reservation until explicit confirmation. Chemical packages are indivisible.", () => requestCommissionedExport(operator.value, lot.selectedOptions[0]?.dataset.good, lot.value, Number(quantity.input.value))));
+    section.append(textEl("p", "Timing includes local collection, depot departure checks and intercity transit. Holds preserve cargo and escrow; no automatic rescue after provisions run out. No cancellation after collection. Certified chemical packages travel whole.", "journal-meta"));
+    if (market.exportMessage) section.append(textEl("p", market.exportMessage, "journal-meta"));
+    if (q?.ok) section.append(storesRowEl(`${q.quantity} ${COMMODITY_MARKET_LISTING_BY_ID[q.good]?.label} · exact lot ${q.stackId}`, `${formatMoney(q.net)} net proceeds`, {
+      subtitle: `Buyer ${q.destinationId}; quoted ${formatClock(q.at)}, expires ${formatClock(q.expiresAt)}. Gross ${formatMoney(q.gross)}; local freight ${formatMoney(q.localFreight)}; intercity freight ${formatMoney(q.intercityFreight)}. ${q.legHours + 1} travel/handling hours to foreign receipt after depot departure, if unobstructed; ${q.totalHours} hours for convoy round trip.`,
+      dataset: { commissionedExportQuote: q.operatorId }, actions: [storesActionButton("Confirm Export", "Reserve this exact lot, buyer payment and convoy. Changed terms require reconfirmation.", () => confirmCommissionedExport())]
+    }));
+    dom.economyExchangeList.append(section);
+  }
+
   function renderCommodityExchange(economy) {
     if (!dom.economyExchangeList) return;
     const context = bindCityCommodityMarket(economy);
@@ -61061,6 +61156,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     intro.textContent = "Quotes are all-in: asks include legal purchasing fees and bids show net sale proceeds. Purchases lift prices; sales add public supply and depress prices. Every fill becomes physical Loading Bay freight.";
     dom.economyExchangeList.append(intro);
     renderCommissionedImports(economy);
+    renderCommissionedExports(economy);
     for (const def of COMMODITY_MARKET_LISTING_DEFS) {
       const listing = economy.commodityMarket.listings[def.id];
       const quote = commodityQuote(def.id);
@@ -61160,9 +61256,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const fleet = exchangeCarrier();
     if (economy.commodityMarket.intercityTrade) {
       const trade = IntercityTrade.publicView(economy.commodityMarket.intercityTrade);
-      section.append(textEl("p", "Neighboring-city trade: automatic wholesale is NPC-owned; commissioned cargo is player-owned and held separately for local delivery. Commercial permits do not create an alliance.", "journal-meta"));
+      section.append(textEl("p", "Neighboring-city trade: automatic wholesale is NPC-owned. Commissioned imports stay player-owned; exports transfer ownership only at foreign receipt. Commercial permits do not create an alliance.", "journal-meta"));
       if (!trade.operators.length) section.append(emptyText("No known direct neighboring city market is available for wholesale trade."));
-      for (const op of trade.operators) section.append(storesRowEl(`Intercity convoy: ${op.endpoints.join(" ↔ ")}`, op.reason || (op.shipment ? op.shipment.delivered ? "Delivered; vehicle returning" : op.shipment.owner === "player" ? "Commissioned player import" : "Allocated wholesale shipment" : "Awaiting a funded trade opportunity"), {
+      for (const op of trade.operators) section.append(storesRowEl(`Intercity convoy: ${op.endpoints.join(" ↔ ")}`, op.reason || (op.shipment ? op.shipment.delivered ? "Delivered; vehicle returning" : op.shipment.kind === "export" ? "Commissioned player export" : op.shipment.owner === "player" ? "Commissioned player import" : "Allocated wholesale shipment" : "Awaiting a funded trade opportunity"), {
         subtitle: `Report ${formatClock(op.reportedAt)}; ${op.vehicleId}; ${op.crew.join(", ")}; ${op.location}. Endpoint permits: ${op.permits.map(p => `${p.cityId}: ${p.allowed ? "allowed" : "not granted"}`).join("; ")}. ${op.advertisement ? `Wholesale quote at ${formatClock(op.advertisement.at)}: ${op.advertisement.good}, source ask ${formatMoney(op.advertisement.unitAsk)}, receiving bid ${formatMoney(op.advertisement.unitBid)}. ` : ""}${op.shipment ? `${op.shipment.owner === "player" ? "Player-owned" : "NPC-owned"}: ${op.shipment.quantity} ${op.shipment.good}: ${op.shipment.sourceId} to ${op.shipment.destinationId}; ${op.shipment.delivered ? "received at destination depot" : `${op.shipment.pickedUp ? "cargo aboard" : "reserved at source"}; ${op.shipment.remainingHours} travel/handling hours remaining if unobstructed`}.` : "No delivery promised by a quote."}`,
         dataset: { intercityOperator: op.id }
       }));
@@ -61203,7 +61299,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const journey = commodityConsignmentJourney(consignment);
       const timing = consignment.status === "inTransit"
         ? journey ? `${titleCase(journey.status)}; supported arrival window ${formatClock(journey.arrivalWindow.start)}–${formatClock(journey.arrivalWindow.end)}` : "Awaiting physical booking; no arrival estimate"
-        : consignment.completedAt !== null ? `Completed ${formatClock(consignment.completedAt)}` : "Loading Bay handling pending";
+        : consignment.completedAt !== null ? `Completed ${formatClock(consignment.completedAt)}` : consignment.status === "awaitingExport" ? "Intercity export pending; net proceeds escrowed until foreign receipt" : "Loading Bay handling pending";
       section.append(storesRowEl(`${consignment.direction === "inbound" ? "Inbound" : "Outbound"}: ${def?.label || consignment.listingId}`, titleCase(consignment.status), {
         subtitle: `${formatNumber(consignment.quantity)} units at ${formatMoney(consignment.unitPrice)}; ${formatMoney(consignment.total)} total; ${consignment.importShipmentId ? `Player-owned import ${consignment.importShipmentId}; local freight escrow ${formatMoney(consignment.localFreightEscrow)}. ` : ""}${consignment.status === "awaitingIntercity" ? "Intercity delivery pending" : consignment.status === "awaitingCarrier" ? "Awaiting carrier; goods remain at " + (consignment.direction === "inbound" ? "city depot" : "reserved lab stack") : timing}${consignment.delay ? `; ${consignment.delay}` : ""}${consignment.carrierBusy ? `; assigned convoy ${consignment.returnJourneyId ? "returning to depot (see Travel and Arrivals)" : "busy"}` : ""}`,
         dataset: { commodityConsignment: consignment.id, commodityListing: consignment.listingId, freightStatus: consignment.status },
@@ -63971,6 +64067,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function cleanupCancelledTask(task) {
     if (!task) {
       return;
+    }
+    if (task.type === "commodityFreight") {
+      const economy = ensureEconomy(), consignment = economy.commodityConsignments.find(c => c.id === task.data?.consignmentId);
+      if (consignment?.exportShipmentId && IntercityTrade.failExport(economy.commodityMarket.intercityTrade, consignment.exportShipmentId, state.clock)) {
+        consignment.status = "failed"; consignment.taskId = ""; consignment.completedAt = state.clock;
+        const stack = ensurePhysicalItemStacks().find(s => s.id === consignment.stackId);
+        if (stack?.reservedTaskId === task.id) stack.reservedTaskId = "";
+        bookCommodityConsignmentJourney(consignment, false, true);
+        recordLegalLedger("exportFailed", "Export collection canceled before pickup; buyer escrow refunded and exact lot released.", { listingId: consignment.listingId, consignmentId: consignment.id });
+      }
     }
     if (task.type !== "laborWork" && task.data?.resourceCosts && Object.keys(task.data.resourceCosts).length) {
       addResources(task.data.resourceCosts, task.data.resourceRoomId || task.data.roomId || STORAGE_ROOM_ID);
@@ -83409,7 +83515,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { listings, lastTickAt: finiteTime(candidate?.lastTickAt, 0), cityContext: candidate?.cityContext ? clonePlainObject(candidate.cityContext) : null,
       localProduction: candidate?.localProduction ? clonePlainObject(candidate.localProduction) : null,
       intercityTrade: candidate?.intercityTrade ? clonePlainObject(candidate.intercityTrade) : null,
-      importOffer: candidate?.importOffer ? clonePlainObject(candidate.importOffer) : null, importMessage: String(candidate?.importMessage || "") };
+      importOffer: candidate?.importOffer ? clonePlainObject(candidate.importOffer) : null, importMessage: String(candidate?.importMessage || ""),
+      exportOffer: candidate?.exportOffer ? clonePlainObject(candidate.exportOffer) : null, exportMessage: String(candidate?.exportMessage || "") };
   }
 
   function normalizeCommodityOrders(candidate) {
@@ -83442,6 +83549,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       freightFee: Math.max(0, Number(entry?.freightFee) || 0),
       localFreightEscrow: Math.max(0, Number(entry?.localFreightEscrow) || 0),
       importShipmentId: String(entry?.importShipmentId || ""),
+      exportShipmentId: String(entry?.exportShipmentId || ""),
       orderId: String(entry?.orderId || ""),
       stackId: String(entry?.stackId || ""),
       status: [...LocalExchangeCarrier.ACTIVE, "received", "sold", "failed"].includes(entry?.status) ? entry.status : "awaitingCarrier",

@@ -43,6 +43,80 @@
   function cities(state, homeListings) {
     return [{ id: state.homeId, profile: state.homeProfile, listings: homeListings, treasury: state.homeTreasury, reserveFraction: state.homeReserveFraction }, ...state.neighbors];
   }
+  function exportLot(def, stack, requested, reservation = '') {
+    if (!def?.sellable || !stack || stack.section !== def.section || stack.key !== def.key || stack.carriedBy || (stack.reservedTaskId && stack.reservedTaskId !== reservation)) return null;
+    const batch = stack.chemicalBatch, chemical = def.section === 'chemicalBatches';
+    if (chemical && (batch?.classification?.known !== 'ordinary' || batch?.classification?.actual !== 'ordinary' || batch?.packaging?.state !== 'packaged' || batch?.documentation?.status !== 'certified')) return null;
+    const quantity = chemical ? stack.quantity : requested;
+    if (!Number.isFinite(quantity) || quantity <= 0 || (!chemical && !Number.isSafeInteger(quantity)) || stack.quantity < quantity) return null;
+    const quality = chemical ? .8 + (.65 * Math.max(0, Math.min(100, Number(batch.purity) || 0)) + .35 * Math.max(0, Math.min(100, Number(batch.craftsmanship) || 0))) * .004 : 1;
+    return { stackId: stack.id, quantity, quality, fingerprint: JSON.stringify({ id: stack.id, section: stack.section, key: stack.key, batch: batch || null }) };
+  }
+  function exportReadiness(op, state) {
+    if (!op || op.location !== state.homeId || !access(op)) return false;
+    const distance = op.route.distanceKm;
+    const legHours = Math.max(1, Math.ceil(distance / 38 * (op.route.continuity === 'intermittent' ? 1.55 : op.route.continuity === 'degraded' ? 1.25 : 1)));
+    const totalHours = legHours * 2 + 2, provisions = Math.ceil(totalHours / 8) * 2;
+    if (!Number.isFinite(distance) || distance <= 0 || totalHours > 48 || distance * 2 > op.fuelKm || op.provisions < provisions || !capable(op) || op.repairAt || op.condition - distance * 2 * .015 < 50 || op.crew.some(c => c.fatigue + distance * 2 * .025 > 80) || op.money < totalHours) return false;
+    return { distanceKm: distance, legHours, totalHours, provisions };
+  }
+  function exportOffer(state, operatorId, good, stack, requested, defs, at, localUnitFreight) {
+    const op = state?.operators.find(o => o.id === operatorId), def = defs.find(d => d.id === good);
+    const lot = exportLot(def, stack, requested);
+    if (!lot) return { ok: false, reason: 'An exact unreserved legally saleable lot is required.' };
+    const trip = exportReadiness(op, state);
+    if (!trip || op.shipment) return { ok: false, reason: 'An available capable home-depot convoy, supported direct route, both commercial permits and funded round trip are required.' };
+    if (lot.quantity > op.capacity || !Number.isFinite(localUnitFreight) || localUnitFreight < 0) return { ok: false, reason: 'The complete lot exceeds convoy capacity or has no local freight quote.' };
+    const buyer = state.neighbors.find(n => op.route.endpointCityIds.includes(n.id));
+    if (!buyer?.listings[good]) return { ok: false, reason: 'No neighboring buyer for this good.' };
+    const gross = Math.floor(lot.quantity * quote(def, buyer.listings[good]).bid * lot.quality);
+    const intercityFreight = Math.ceil(10 + 1.2 * (trip.totalHours + trip.distanceKm * .1 + trip.provisions * (defs.find(d => d.id === 'fieldRation')?.basePrice || 12)));
+    const localFreight = Math.ceil(lot.quantity * localUnitFreight), net = gross - intercityFreight - localFreight;
+    if (net <= 0 || buyer.treasury < gross) return { ok: false, reason: net <= 0 ? 'Sale proceeds do not cover both freight stages.' : 'Buyer cannot fund the complete payment.' };
+    return { ok: true, operatorId, destinationId: buyer.id, good, requested, ...lot, ...trip, gross, intercityFreight, localFreight, net, at, expiresAt: at + HOUR };
+  }
+  function bookExport(state, offered, stack, defs, at, localUnitFreight) {
+    const fresh = exportOffer(state, offered?.operatorId, offered?.good, stack, offered?.requested, defs, at, localUnitFreight);
+    if (!fresh.ok) return fresh;
+    if (at > offered.expiresAt || Object.keys(fresh).filter(k => !['at', 'expiresAt'].includes(k)).some(k => fresh[k] !== offered[k])) return { ok: false, reason: 'Quote or exact lot changed or expired. Review and confirm again.', revised: fresh };
+    const op = state.operators.find(o => o.id === fresh.operatorId), buyer = state.neighbors.find(n => n.id === fresh.destinationId);
+    buyer.treasury -= fresh.gross;
+    const shipment = { id: `wholesale-${state.nextNumber++}`, kind: 'export', owner: 'player', operatorId: op.id, vehicleId: op.vehicleId,
+      sourceId: state.homeId, destinationId: buyer.id, good: fresh.good, quantity: fresh.quantity, stackId: fresh.stackId, fingerprint: fresh.fingerprint,
+      gross: fresh.gross, escrow: fresh.intercityFreight, localEscrow: fresh.localFreight, playerEscrow: fresh.net,
+      waitingCargo: true, collected: false, cargoManifest: null, bookedAt: at, dispatchedAt: null, elapsedHours: 0,
+      legHours: fresh.legHours, distanceKm: fresh.distanceKm, totalHours: fresh.totalHours, deliveryHour: fresh.legHours + 1,
+      travelledKm: 0, foodReserve: 0, pickupHour: 0, pickedUp: false, delivered: false, returned: false };
+    state.shipments.push(shipment); op.shipment = shipment.id; op.advertisement = null; op.reason = 'Reserved for exact player export; awaiting local collection.';
+    ledger(state, at, `${shipment.id}: buyer funded all proceeds and freight; convoy reserved pending exact-lot collection.`);
+    return { ok: true, shipment, offer: fresh };
+  }
+  function failExport(state, id, at) {
+    const sh = state.shipments.find(s => s.id === id);
+    if (!sh || sh.kind !== 'export' || sh.collected || sh.failed) return false;
+    state.neighbors.find(n => n.id === sh.destinationId).treasury += sh.escrow + sh.localEscrow + sh.playerEscrow;
+    sh.escrow = sh.localEscrow = sh.playerEscrow = 0; sh.failed = true; sh.returned = true; sh.returnedAt = at; sh.settled = true;
+    const op = state.operators.find(o => o.id === sh.operatorId);
+    if (op.shipment === id) { op.shipment = null; op.reason = 'Export failed before collection; buyer escrow refunded.'; }
+    ledger(state, at, `${id}: exact lot unavailable before collection; unused buyer escrow refunded.`);
+    return true;
+  }
+  function receiveExport(state, id, manifest, at) {
+    const sh = state.shipments.find(s => s.id === id);
+    if (!sh || sh.kind !== 'export' || !sh.collected || sh.failed || manifest?.id !== sh.stackId || manifest.quantity !== sh.quantity
+      || JSON.stringify({ id: manifest.id, section: manifest.section, key: manifest.key, batch: manifest.chemicalBatch || null }) !== sh.fingerprint) return null;
+    if (sh.cargoManifest) return 0;
+    sh.cargoManifest = copy(manifest); sh.depotAt = at;
+    const paid = sh.localEscrow; sh.localEscrow = 0;
+    ledger(state, at, `${id}: exact cargo at home depot, outside public stock; local freight settled.`);
+    return paid;
+  }
+  function settleExport(state, id) {
+    const sh = state.shipments.find(s => s.id === id);
+    if (!sh || sh.kind !== 'export' || !sh.delivered || sh.settled) return 0;
+    const paid = sh.playerEscrow; sh.playerEscrow = 0; sh.settled = true;
+    return paid;
+  }
   function importOffer(state, operatorId, good, requested, defs, at, localUnitFreight) {
     const op = state?.operators.find(o => o.id === operatorId), def = defs.find(d => d.id === good);
     const refuse = reason => ({ ok: false, reason });
@@ -84,8 +158,8 @@
     return { ok: true, shipment, offer: fresh };
   }
   function ledger(state, at, text) { state.ledger.push({ at, text }); state.ledger = state.ledger.slice(-60); }
-  function service(op, homeListings, supplier, defs, at) {
-    if (op.shipment) return;
+  function service(op, homeListings, supplier, defs, at, waiting = false) {
+    if (op.shipment && !waiting) return;
     op.crew.forEach(c => { c.fatigue = Math.max(0, c.fatigue - 15); });
     if (op.repairAt && at >= op.repairAt) { op.condition = Math.min(100, op.condition + 25); op.repairAt = null; }
     if (!supplier.routeOpen) return;
@@ -118,10 +192,18 @@
       }
       const all = cities(state, homeListings);
       for (const op of state.operators) {
-        service(op, homeListings, homeSupplier, defs, at);
+        const reserved = state.shipments.find(s => s.id === op.shipment);
+        service(op, homeListings, homeSupplier, defs, at, reserved?.waitingCargo);
         op.reportedAt = at;
         if (op.shipment) {
           const sh = state.shipments.find(s => s.id === op.shipment);
+          if (sh.waitingCargo) {
+            const trip = exportReadiness(op, state);
+            if (!sh.cargoManifest || sh.depotAt > at || !trip) { op.reason = sh.cargoManifest ? 'Export held at depot: departure route, permits or operating resources unavailable.' : 'Convoy reserved; awaiting exact export lot at home depot.'; continue; }
+            Object.assign(sh, trip, { waitingCargo: false, dispatchedAt: at, deliveryHour: trip.legHours + 1, pickedUp: true, foodReserve: trip.provisions });
+            op.money -= trip.totalHours; op.provisions -= trip.provisions; op.reason = ''; op.location = `outbound:${op.route.id}:0km`;
+            continue;
+          }
           if (sh.dispatchedAt > at - HOUR) continue; // Never travel the hour preceding a mid-tick booking.
           if (sh.foodReserve < 0.25) { op.reason = 'Convoy held: onboard provisions exhausted; no automatic rescue, replacement or death.'; continue; }
           sh.foodReserve -= 0.25;
@@ -135,7 +217,8 @@
           if (sh.elapsedHours >= sh.pickupHour) sh.pickedUp = true;
           if (!sh.delivered && sh.elapsedHours >= sh.deliveryHour) {
             const destination = all.find(c => c.id === sh.destinationId);
-            if (sh.owner !== 'player') destination.listings[sh.good].supply += sh.quantity;
+            if (sh.owner !== 'player' || sh.kind === 'export') destination.listings[sh.good].supply += sh.quantity;
+            if (sh.kind === 'export') { sh.owner = 'buyer'; sh.cargoManifest.owner = 'buyer'; }
             op.money += sh.escrow; sh.escrow = 0; sh.delivered = true; sh.deliveredAt = at;
             ledger(state, at, `${sh.quantity} ${sh.good} delivered to ${sh.destinationId}; ${sh.owner === 'player' ? 'player cargo held separately at depot; intercity freight settled' : 'wholesale settlement completed'}.`);
           }
@@ -155,7 +238,7 @@
         for (const [source, dest] of [[partner, home], [home, partner]]) for (const def of defs.filter(d => d.buyable !== false && d.sellable !== false)) {
           const sourceStock = source.listings[def.id], destStock = dest.listings[def.id];
           const reserve = Math.max(4, (source.profile.listings[def.id]?.targetSupply || def.supply) * source.reserveFraction);
-          const incoming = state.shipments.filter(s => s.owner !== 'player' && !s.delivered && s.destinationId === dest.id && s.good === def.id).reduce((n, s) => n + s.quantity, 0);
+          const incoming = state.shipments.filter(s => (s.owner !== 'player' || s.kind === 'export') && !s.failed && !s.delivered && s.destinationId === dest.id && s.good === def.id).reduce((n, s) => n + s.quantity, 0);
           const shortage = Math.max(0, Math.max(12, (dest.profile.listings[def.id]?.targetSupply || def.supply * 0.5) * 0.8) - destStock.supply - incoming);
           const ask = quote(def, sourceStock).ask, bid = quote(def, destStock).bid, wages = totalHours;
           const quantity = Math.floor(Math.min(op.capacity, Math.max(0, sourceStock.supply - reserve), shortage, Math.max(0, op.money - wages) / ask, dest.treasury / bid));
@@ -175,14 +258,14 @@
         ledger(state, at, `${sh.id}: ${sh.quantity} ${sh.good} allocated from ${sh.sourceId}; receiving exchange funds escrowed. Not player-owned stock.`);
       }
       state.homeTreasury = all[0].treasury;
-      state.shipments = state.shipments.filter(s => (s.owner === 'player' && !s.handedOff) || !s.returned || s.returnedAt >= at - 7 * 24 * HOUR);
+      state.shipments = state.shipments.filter(s => (s.kind === 'export' ? !s.settled : s.owner === 'player' && !s.handedOff) || !s.returned || s.returnedAt >= at - 7 * 24 * HOUR);
     }
     return state;
   }
   function publicView(state) {
     return { neighbors: state.neighbors.map(n => ({ cityId: n.id, name: n.profile.cityName })), operators: state.operators.map(op => ({ id: op.id, corridorId: op.route.id, endpoints: op.route.endpointCityIds,
       permits: copy(op.permit.approvals), reportedAt: op.reportedAt, reason: op.reason, vehicleId: op.vehicleId, crew: op.crew.map(c => c.name), location: op.location,
-      advertisement: copy(op.advertisement), shipment: op.shipment ? (() => { const s = state.shipments.find(s => s.id === op.shipment); return { id: s.id, owner: s.owner || 'npc', good: s.good, quantity: s.quantity, sourceId: s.sourceId, destinationId: s.destinationId, delivered: s.delivered, pickedUp: s.pickedUp, remainingHours: Math.max(0, s.deliveryHour - s.elapsedHours) }; })() : null })) };
+      advertisement: copy(op.advertisement), shipment: op.shipment ? (() => { const s = state.shipments.find(s => s.id === op.shipment); return { id: s.id, kind: s.kind || '', waitingCargo: Boolean(s.waitingCargo), owner: s.owner || 'npc', good: s.good, quantity: s.quantity, sourceId: s.sourceId, destinationId: s.destinationId, delivered: s.delivered, pickedUp: s.pickedUp, remainingHours: Math.max(0, s.deliveryHour - s.elapsedHours) }; })() : null })) };
   }
-  return { create, permit, advance, publicView, quote, importOffer, bookImport };
+  return { create, permit, advance, publicView, quote, importOffer, bookImport, exportLot, exportOffer, bookExport, failExport, receiveExport, settleExport };
 });
