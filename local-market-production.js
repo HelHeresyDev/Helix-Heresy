@@ -29,12 +29,21 @@
       inputs: id === 'condenserFlask' ? { glass: 2 } : id === 'mixedOutputJar' ? { glass: 1 } : { glass: 1, rubber: id === 'linedScrapeJar' ? 2 : 1 }, output: 2, hours: 2 }))
   ];
   const copy = x => JSON.parse(JSON.stringify(x));
+  const PRECISION_RECIPES = [
+    { id: 'refinedConductors', facility: 'metalRefinery', expertise: 'conductorRefining', inputs: { baseMetalOre: 2 }, output: 3, hours: 3 },
+    { id: 'preparedManaCrystals', facility: 'crystalWorks', expertise: 'crystalPreparation', inputs: { manaCrystals: 2 }, output: 2, hours: 3 },
+    { id: 'relayAssembly', facility: 'electronicsWorks', expertise: 'relayFabrication', inputs: { refinedConductors: 1, preparedManaCrystals: 1, glass: 1, metalParts: 1 }, output: 1, hours: 4 },
+    { id: 'relayBattery', facility: 'batteryWorks', expertise: 'batteryFabrication', inputs: { refinedConductors: 1, chemicalFeedstock: 1, rubber: 1 }, output: 2, hours: 3 },
+    // The consumed battery is installed, accounting for the existing four-hour
+    // initial charge of a finished communicator; no separate battery is output.
+    { id: 'satelliteCommunicator', facility: 'electronicsWorks', expertise: 'relayFabrication', inputs: { relayAssembly: 1, metalParts: 1, rubber: 1, relayBattery: 1 }, output: 1, hours: 4 }
+  ];
   function create(context, now = 0) {
-    const sources = (context?.productionSources || []).filter(s => RECIPES.some(r => r.family === s.family)).map(s => ({ ...copy(s), stock: 0, condition: 100, labour: s.capacity, utilities: context.workshopCapacity,
+    const facilities = copy(context?.manufacturingFacilities || []);
+    const industrial = [...INDUSTRIAL_RECIPES, ...PRECISION_RECIPES].filter(r => facilities.some(f => f.kind === r.facility)).map(r => ({ ...copy(r), facilityId: facilities.find(f => f.kind === r.facility).id, target: 'exchange', stock: 0, progress: 0, produced: 0 }));
+    const sources = (context?.productionSources || []).filter(s => RECIPES.some(r => r.family === s.family) || industrial.some(r => r.inputs[s.family])).map(s => ({ ...copy(s), stock: 0, condition: 100, labour: s.capacity, utilities: context.workshopCapacity,
       // A bounded run-owned extraction allocation, not disclosure of geological reserves.
       remaining: ['biologicalProductivity', 'timberFiber'].includes(s.family) ? null : Math.ceil(2000 * s.capacity), produced: 0 }));
-    const facilities = copy(context?.manufacturingFacilities || []);
-    const industrial = INDUSTRIAL_RECIPES.filter(r => facilities.some(f => f.kind === r.facility)).map(r => ({ ...copy(r), facilityId: facilities.find(f => f.kind === r.facility).id, target: 'exchange', stock: 0, progress: 0, produced: 0 }));
     return { cityId: context?.cityId || '', lastAt: now, sources, inputs: {}, facilities,
       finance: { money: 1500, exchangeMoney: 6000, spent: 0, earned: 0, ledger: [] }, definitions: copy(context?.commodityDefinitions || []),
       workshops: [...RECIPES.filter(r => sources.some(s => s.family === r.family)).map(r => ({ ...r, stock: 0, condition: 100, labour: 1, utilities: context.workshopCapacity, progress: 0, produced: 0 })), ...industrial],
@@ -221,5 +230,5 @@
     if ((state.inputs[workshop.family] || 0) < workshop.input) return 'Awaiting physically delivered production inputs.';
     return 'Local workshop processing delivered inputs.';
   }
-  return { HOUR, RECIPES, INDUSTRIAL_RECIPES, create, advance, status };
+  return { HOUR, RECIPES, INDUSTRIAL_RECIPES, PRECISION_RECIPES, create, advance, status };
 });

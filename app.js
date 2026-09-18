@@ -3283,6 +3283,9 @@
     { id: "lumber", section: "resources", key: "lumber", label: "Lumber", basePrice: 11, supply: 80, liquidity: 36, buyable: true, sellable: true },
     { id: "steelPanels", section: "resources", key: "steelPanels", label: "Steel Panels", basePrice: 24, supply: 55, liquidity: 24, buyable: true, sellable: true },
     { id: "metalParts", section: "resources", key: "metalParts", label: "Metal Parts", basePrice: 19, supply: 60, liquidity: 28, buyable: true, sellable: true },
+    { id: "refinedConductors", section: "resources", key: "refinedConductors", label: "Refined Conductors", basePrice: 10, supply: 45, liquidity: 18, buyable: true, sellable: true },
+    { id: "preparedManaCrystals", section: "resources", key: "preparedManaCrystals", label: "Prepared Mana Crystals", basePrice: 16, supply: 30, liquidity: 12, buyable: true, sellable: true },
+    { id: "relayAssembly", section: "resources", key: "relayAssembly", label: "Calibrated Relay Assembly", basePrice: 58, supply: 16, liquidity: 6, buyable: true, sellable: true },
     { id: "bricks", section: "resources", key: "bricks", label: "Bricks", basePrice: 6, supply: 130, liquidity: 55, buyable: true, sellable: true },
     { id: "glass", section: "resources", key: "glass", label: "Glass", basePrice: 14, supply: 70, liquidity: 30, buyable: true, sellable: true },
     { id: "cloth", section: "resources", key: "cloth", label: "Cloth", basePrice: 10, supply: 90, liquidity: 38, buyable: true, sellable: true },
@@ -3558,6 +3561,9 @@
     { key: "lumber", label: "Lumber", initial: 20 },
     { key: "steelPanels", label: "Steel Panels", initial: 12 },
     { key: "metalParts", label: "Metal Parts", initial: 12 },
+    { key: "refinedConductors", label: "Refined Conductors", initial: 0 },
+    { key: "preparedManaCrystals", label: "Prepared Mana Crystals", initial: 0 },
+    { key: "relayAssembly", label: "Calibrated Relay Assembly", initial: 0 },
     { key: "bricks", label: "Bricks", initial: 24 },
     { key: "glass", label: "Glass", initial: 24 },
     { key: "cloth", label: "Cloth", initial: 20 },
@@ -30647,6 +30653,9 @@
         stoneBlocks: { volumeL: 5, massKg: 8 },
         bricks: { volumeL: 3, massKg: 4 },
         metalParts: { volumeL: 0.5, massKg: 1 },
+        refinedConductors: { volumeL: 0.2, massKg: 0.3 },
+        preparedManaCrystals: { volumeL: 0.1, massKg: 0.15 },
+        relayAssembly: { volumeL: 0.25, massKg: 0.3 },
         glass: { volumeL: 1.5, massKg: 1.2 },
         cloth: { volumeL: 2, massKg: 0.5 },
         rubber: { volumeL: 1, massKg: 0.8 }
@@ -61069,7 +61078,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const production = economy.commodityMarket.localProduction;
     if (production) {
       section.append(storesRowEl("Local producer network", production.reason || "City-local production", {
-        subtitle: `${production.sources.length} supported sources; ${production.workshops.filter(w => !w.facilityId).length} basic workshops; ${production.facilities?.length || 0} industrial facilities; ${production.trucks.length} persistent producer trucks. Producer depot fuel ${formatNumber(production.depotFuelKm)} vehicle-km; maintenance parts ${production.depotParts}. Precision equipment manufacturing remains unsupported.`,
+        subtitle: `${production.sources.length} supported sources; ${production.workshops.filter(w => !w.facilityId).length} basic workshops; ${production.facilities?.length || 0} industrial facilities; ${production.trucks.length} persistent producer trucks. Producer depot fuel ${formatNumber(production.depotFuelKm)} vehicle-km; maintenance parts ${production.depotParts}. Qualified precision works consume components and installed batteries; finished equipment requires physical delivery.`,
         dataset: { localProduction: production.cityId }
       }));
       for (const facility of production.facilities || []) section.append(storesRowEl(facility.name, facility.activeRecipe ? `Processing ${COMMODITY_MARKET_LISTING_BY_ID[facility.activeRecipe]?.label || facility.activeRecipe}` : "Waiting for inputs or capacity", {

@@ -181,6 +181,57 @@ test('industrial consumables expose saved factories, funded procurement and phys
   await expect(page.locator('[data-commodity-listing="relayBattery"]')).toContainText('No supported local producer');
 });
 
+test('precision components support paid delivery, standing orders, physical storage and exact sale reservations', async ({ page }) => {
+  await startRun(page);
+  const booked = await page.evaluate(() => {
+    const d = window.helixHeresyDebug;
+    d.setMarketCash(5000);
+    const initial = d.physicalStockSnapshot();
+    const buy = d.buyCommodity('refinedConductors', 2);
+    const limit = d.createCommodityBuyOrder('preparedManaCrystals', { quantity: 1, limitPrice: 1000, protectedCash: 500 });
+    const maintain = d.createCommodityBuyOrder('relayAssembly', { kind: 'maintainStock', quantity: 1, targetQuantity: 1, limitPrice: 1000, protectedCash: 500, maxOutstanding: 6 });
+    return { initial, buy, limit, maintain, market: d.commodityMarketSnapshot() };
+  });
+  expect(booked.initial.stacks.some(s => ['refinedConductors', 'preparedManaCrystals', 'relayAssembly'].includes(s.key))).toBe(false);
+  expect(booked.buy.filled).toBe(2); expect(booked.limit.order.listingId).toBe('preparedManaCrystals'); expect(booked.maintain.order.kind).toBe('maintainStock');
+  expect(booked.market.consignments.filter(s => s.listingId === 'relayAssembly')).toHaveLength(1);
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  expect((await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot())).consignments).toMatchObject(booked.market.consignments);
+  await page.evaluate(() => window.helixHeresyDebug.advanceStrategicServices(86400));
+  await page.evaluate(() => window.helixHeresyDebug.advanceStrategicServices(360));
+  const result = await page.evaluate(() => ({ market: window.helixHeresyDebug.commodityMarketSnapshot(), stock: window.helixHeresyDebug.physicalStockSnapshot() }));
+  const stack = result.stock.stacks.find(s => s.key === 'refinedConductors');
+  expect(stack).toMatchObject({ section: 'resources', quantity: 2, roomId: 'surfaceLoadingBay', unitMassKg: 0.3, unitVolumeL: 0.2 });
+  expect(result.market.consignments.filter(s => s.listingId === 'relayAssembly')).toHaveLength(1);
+  const sale = await page.evaluate(({ id, bid }) => window.helixHeresyDebug.createCommoditySellOrder('refinedConductors', 1, bid, id), { id: stack.id, bid: result.market.quotes.refinedConductors.bid });
+  expect(sale.order).toMatchObject({ stackId: stack.id, listingId: 'refinedConductors' });
+  expect(await page.evaluate(id => window.helixHeresyDebug.physicalStockSnapshot().stacks.find(s => s.id === id).reservedTaskId, stack.id)).toBe(sale.order.id);
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="exchange"]').click();
+  await expect(page.locator('.commodity-listing-card[data-commodity-listing="relayAssembly"]')).toContainText('Calibrated Relay Assembly');
+});
+
+test('precision city factories produce charged equipment through saved component procurement and delivery', async ({ page }) => {
+  await startRun(page);
+  await page.evaluate(() => window.helixHeresyDebug.configureCityCommodityMarketForTest({
+    cityId: 'a', directory: { foundations: [{ city: { id: 'a', name: 'Relay City' }, primaryExploitation: { id: 'baseMetalOre' }, secondaryExploitation: { id: 'chemicalFeedstock' } }], satellites: [] },
+    current: { cityRows: [{ cityId: 'a', physicalCondition: 'intact', services: { utilities: 'functional', transport: 'functional' } }] },
+    capabilities: { cityProfiles: [{ city: { id: 'a' }, deployedCapabilityIds: ['industrialFabrication', 'standardManaPower', 'regionalDataRelays'] }], milestones: [
+      ['industrialFabrication', 'industrialWorks', ['precisionManufacturing', 'chemicalIndustry']], ['standardManaPower', 'powerWorks', ['powerEngineering']], ['regionalDataRelays', 'regionalRelayHub', ['relayEngineering']]
+    ].map(([id, fn, roles]) => ({ capability: { id }, institution: { roles }, infrastructureSites: [{ id: `a:${fn}`, cityId: 'a', function: fn, operationalAtPlayableYear: true }] })) }
+  }));
+  await page.evaluate(() => window.helixHeresyDebug.advanceStrategicServices(48 * 3600));
+  const snapshot = await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot());
+  const producer = snapshot.market.localProduction;
+  expect(producer.workshops.find(w => w.id === 'satelliteCommunicator').produced).toBeGreaterThan(0);
+  expect(producer.finance.spent).toBeGreaterThan(0);
+  expect(producer.receipts.some(r => r.target === 'exchange' && r.cargo === 'satelliteCommunicator')).toBe(true);
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  expect((await page.evaluate(() => window.helixHeresyDebug.commodityMarketSnapshot())).market.localProduction).toEqual(producer);
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="freight"]').click();
+  await expect(page.locator('[data-manufacturing-facility="a:electronicsWorks"]')).toContainText('relayFabrication');
+  await expect(page.locator('[data-manufacturing-facility="a:batteryWorks"]')).toContainText('batteryFabrication');
+});
+
 test('neighbor wholesale stays separate from player property and persists until physical import arrival', async ({ page }) => {
   await startRun(page);
   const initial = await page.evaluate(() => {

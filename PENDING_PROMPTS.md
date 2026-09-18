@@ -18,16 +18,15 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Precision Equipment Manufacturing
-2. Player-Commissioned Intercity Trade
-3. World-Aware Black Markets
-4. World Integration: Investigations and Institutional Pressure
-5. Lazy Local Detail and World Discovery
-6. Roguelike Run Lifecycle, Death, Postmortem, and Restart
-7. Campaign Roadmap: From Hidden Laboratory to World Domination
-8. New-Run Onboarding and Contextual Tutorial
-9. Sound, Notifications, and Accessibility Audit
-10. Production Art Pass Using the Sprite Pipeline
+1. Player-Commissioned Intercity Trade
+2. World-Aware Black Markets
+3. World Integration: Investigations and Institutional Pressure
+4. Lazy Local Detail and World Discovery
+5. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+6. Campaign Roadmap: From Hidden Laboratory to World Domination
+7. New-Run Onboarding and Contextual Tutorial
+8. Sound, Notifications, and Accessibility Audit
+9. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -89,61 +88,55 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Precision Equipment Manufacturing
-
-Discuss city-local production of batteries, communicators and other precision equipment. Industrial consumables are implemented: glass, cloth, rubber, glassware, filter bags, specialist chemicals and sterile dressings use saved facilities derived from published deployed industrial works, appropriate expertise, consumed inputs, shared timed capacity, bounded manufacturer procurement funds, exchange sale escrow and physical deliveries. Extend those rules with explicit refined materials and components, specialist facilities and expertise rather than manufacturing electronics directly from an ore-family label. Existing imports may supply inputs only after physical receipt. Keep unsupported goods finite until a feasible chain or import supplies them. Preserve producer and municipal supplier upkeep, extraction limits, delivery custody, locked customer prices, independent neighboring-city production and local consumption without restoring automatic stock recovery. Individual hiring, industrial construction and detailed business finance require separate bounded discussions; current labour/utilities and upstream production costs remain aggregate abstractions.
-
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. Player-Commissioned Intercity Trade
+## 1. Player-Commissioned Intercity Trade
 
 Discuss explicit player import/export contracts on top of completed automatic neighboring-city wholesale. Distinguish advertised quotes from allocated goods, player ownership, escrow, cargo custody, local pickup and final settlement. Preserve limit-order and maintain-stock ownership rules; do not count an NPC convoy as player-owned inventory. Retain direct-route feasibility, source reserves, separately saved endpoint commercial permits and finite operator assets. Broader tariffs, embargo negotiations, transit resupply and convoy recovery need separate bounded designs rather than automatic exceptions. Exhausted-provision convoys currently retain cargo, crew and financial records without automatic rescue or death.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. World-Aware Black Markets
+## 2. World-Aware Black Markets
 
 Discuss giving known contacts explicit city-local reach, jurisdiction-specific offerings and physically supported smuggling routes. Preserve existing contacts, agreements, Concealed Exit flows, risks and saved assets. Remote contact is not local transport capacity, local market access or foreign enforcement authority. Coordinate this with the completed local market and delivery work without automatically treating market activity as proof of guilt.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. World Integration: Investigations and Institutional Pressure
+## 3. World Integration: Investigations and Institutional Pressure
 
 Design and implement world-context effects on company plausibility, inspections, investigations, religious scrutiny, escalation, and authority response. Context may alter priorities, schedules, thresholds, and available actions, but must not invent player guilt.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. Lazy Local Detail and World Discovery
+## 4. Lazy Local Detail and World Discovery
 
 Design and implement deterministic elaboration of the already generated strategic world when a run encounters it. Lazy generation may fill minor places, institution branches, contacts, local histories, individuals, encounters, and exact maps while respecting canonical world facts and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+## 5. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 
 Design and implement the loop for beginning, losing, reviewing, and replacing a run without altering its reusable world. Only the scientist’s death ends a run; arrest, jail, prison, penal service, death sentence, loss of laboratory, and similar catastrophes remain playable while the scientist lives.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 6. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. The final campaign goal is rare world domination, but early hidden-laboratory survival must remain a complete roguelike experience.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. New-Run Onboarding and Contextual Tutorial
+## 7. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. Sound, Notifications, and Accessibility Audit
+## 8. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 10. Production Art Pass Using the Sprite Pipeline
+## 9. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 
