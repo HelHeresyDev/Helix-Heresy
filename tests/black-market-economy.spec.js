@@ -5,7 +5,7 @@ const { pathToFileURL } = require('url');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const { activeRunStorageKey } = require('./helpers/active-run-storage');
+test.setTimeout(60000);
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -14,27 +14,29 @@ async function startRun(page) {
     window.localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: 'dom' }));
   });
   await page.reload();
-  await page.locator('#titleNewRunBtn').click();
-  await page.locator('#setupForm button[type="submit"]').click();
+  await page.evaluate(() => window.helixHeresyDebug.setStrategicServiceTestNetwork({
+    homeDestinationId: 'site:lab', nearestSettlementDestinationId: 'city:a', routes: [],
+    destinations: [
+      { id: 'site:lab', kind: 'laboratorySite', cityId: 'a', label: 'Test laboratory', cellId: 'cell:1', supportComponentId: 'component:a', known: true, reachable: true, localDistanceKm: 8, routeContinuity: 'municipal', dangerBand: 'low' },
+      { id: 'city:a', kind: 'fortifiedCity', cityId: 'a', label: 'Local city', cellId: 'cell:1', supportComponentId: 'component:a', known: true, reachable: true }
+    ]
+  }, 'local-covert-tests'));
+  await page.keyboard.press('B');
 }
 
 async function savedState(page) {
-  return page.evaluate(({ key }) => {
-    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
-    return payload.state || payload;
-  }, { key: await activeRunStorageKey(page) });
+  return page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState());
 }
 
 async function firstOpenDeal(page) {
-  return page.evaluate(({ key }) => {
-    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
-    const state = payload.state || payload;
+  return page.evaluate(() => {
+    const state = window.helixHeresyDebug.exportSurveyExpeditionTestState();
     const deal = (state.economy?.deals || []).find((candidate) => candidate.status === 'open');
     if (!deal) {
       throw new Error('No open black market deal found.');
     }
     return deal;
-  }, { key: await activeRunStorageKey(page) });
+  });
 }
 
 async function openCheats(page) {
@@ -83,6 +85,11 @@ test('@smoke queued black market trade sells collected byproduct and updates eco
   const queuedDeal = queuedState.economy.deals.find((candidate) => candidate.id === deal.id);
   expect(queuedDeal.status).toBe('queued');
   expect(queuedState.tasks.some((task) => task.type === 'blackMarketTrade' && task.data.dealId === deal.id)).toBe(true);
+  expect(queuedDeal.pendingShipment.reservations.length).toBeGreaterThan(0);
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  const restored = await savedState(page);
+  expect(restored.economy.deals.find(d => d.id === deal.id).pendingShipment).toEqual(queuedDeal.pendingShipment);
+  expect(restored.economy.localCovertMarket).toEqual(queuedState.economy.localCovertMarket);
 
   await page.locator('[data-workspace-tab="tasks"]').click();
   const taskRow = page.locator('[data-task-row]').filter({ hasText: 'Trade' }).filter({ hasText: deal.material });
@@ -98,6 +105,9 @@ test('@smoke queued black market trade sells collected byproduct and updates eco
     entry.source.includes('Sold to') && Math.abs(entry.amount + deal.amount) < 0.001
   ))).toBe(true);
   expect(finalState.scientist.roomId).toBe('concealedExit');
+  const cargo = finalState.economy.localCovertMarket.collections.find(c => c.obligationId === deal.id);
+  expect(cargo.owner).toBe(deal.contactId);
+  expect(cargo.manifest.entries.reduce((n, e) => n + e.contents.reduce((m, content) => m + content.amount, 0), 0)).toBeCloseTo(deal.amount, 3);
   expect(finalState.taskHistory[0].type).toBe('blackMarketTrade');
 });
 

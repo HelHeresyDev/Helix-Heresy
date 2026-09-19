@@ -33,6 +33,8 @@
   const LocalMarketProduction = window.HelixLocalMarketProduction;
   const LocalExchangeCarrier = window.HelixLocalExchangeCarrier;
   const IntercityTrade = window.HelixIntercityTrade;
+  const LocalCovertMarket = window.HelixLocalCovertMarket;
+  const IntercitySmuggling = window.HelixIntercitySmuggling;
   const StrategicDivineHistory = window.HelixStrategicDivineHistory;
   const StrategicCrisisHistory = window.HelixStrategicCrisisHistory;
   const StrategicPoliticalHistory = window.HelixStrategicPoliticalHistory;
@@ -12155,7 +12157,7 @@
   }
 
   function blackMarketMaterialPoolForContact(contact) {
-    const wanted = new Set(contact?.preferredTags || []);
+    const wanted = new Set([...(contact?.preferredTags || []), ...(contact?.localPreferredTags || [])]);
     const matches = BLACK_MARKET_BYPRODUCT_LABELS.filter((label) =>
       blackMarketByproductTags(label).some((tag) => wanted.has(tag))
     );
@@ -12163,7 +12165,7 @@
   }
 
   function blackMarketManufacturedPoolForContact(contact) {
-    const wanted = new Set(contact?.preferredTags || []);
+    const wanted = new Set([...(contact?.preferredTags || []), ...(contact?.localPreferredTags || [])]);
     const matching = BLACK_MARKET_MANUFACTURED_PRODUCT_IDS.filter((productId) =>
       (CHEMICAL_PRODUCT_BY_ID[productId]?.tags || []).some((tag) => wanted.has(tag))
     );
@@ -13734,6 +13736,17 @@
       },
       mapViewSnapshot: () => buildLabMapView(),
       economySnapshot: () => clonePlainObject(ensureEconomy()),
+      requestForeignSmuggling: (dealId, operatorId, selectedId = "") => requestForeignSmuggling(dealId, operatorId, selectedId),
+      confirmForeignSmuggling: () => confirmForeignSmuggling(),
+      configureCovertContactForTest: (contactId, options = {}) => {
+        const market = ensureLocalCovertMarket(), contact = blackMarketContactById(contactId), courier = market.couriers.find(c => c.contactId === contactId);
+        if (!contact) return false;
+        if (typeof options.homeCityId === "string") contact.homeCityId = options.homeCityId;
+        if (Array.isArray(options.serviceCityIds)) contact.serviceCityIds = [...options.serviceCityIds];
+        if (courier && Number.isFinite(options.health)) courier.driver.health = options.health;
+        if (courier && Number.isFinite(options.condition)) courier.condition = options.condition;
+        persist(); render(); return true;
+      },
       companySnapshot: () => clonePlainObject({ company: ensureCompany(), assessment: companyCredibilityAssessment(), identity: state.siteIdentity }),
       propertyPresentationSnapshot: () => clonePlainObject({
         state: ensurePropertyPresentation(),
@@ -14075,7 +14088,7 @@
       },
       advanceStrategicServices: (seconds = 0) => {
         state.clock += Math.max(0, Number(seconds) || 0);
-        updateStrategicJourneys(); updateSiteVisits(0); updateCommodityMarket();
+        updateStrategicJourneys(); updateSiteVisits(0); updateCommodityMarket(); updateBlackMarketEconomy();
         completeDueTasks(); persist(); render();
         return state.clock;
       },
@@ -60818,10 +60831,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       },
       {
         label: "Active contracts",
-        value: formatNumber(blackMarketActiveContracts().filter((contract) => ["active", "queued"].includes(contract.status)).length),
+        value: formatNumber(blackMarketActiveContracts().filter((contract) => ["active", "queued", "inTransit"].includes(contract.status)).length),
         note: blackMarketActiveContracts().find((contract) => ["active", "queued"].includes(contract.status))
           ? `Next deadline: ${formatClock(blackMarketActiveContracts().find((contract) => ["active", "queued"].includes(contract.status)).dueAt)}.`
-          : "No accepted delivery obligations.",
+          : blackMarketActiveContracts().some(contract => contract.status === "inTransit") ? "Foreign shipments awaiting destination receipt." : "No accepted delivery obligations.",
         action: storesActionButton("View Contracts", "Review reserved shipments, deadlines, and payments.", () => setEconomyMenuTab("contracts"))
       },
       {
@@ -61327,6 +61340,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return;
     }
     const section = storesSectionEl("Contacts", "Persistent illicit buyers and brokers. Trust is per-contact; reputation is global.", { economyCategory: "contacts" });
+    const local = ensureLocalCovertMarket();
     const escapeContingency = JailEscapeRescue.activeContingency(ensureJailEscapeRescue());
     for (const contact of economy.contacts) {
       const profile = BLACK_MARKET_RISK_PROFILES[contact.riskProfile] || BLACK_MARKET_RISK_PROFILES.steady;
@@ -61339,14 +61353,26 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       } else if (escapeContingency.contact?.id === contact.id) actions.push(textEl("span", `Active extraction contingency · ${escapeContingency.extractor?.name || "extractor assigned"}`, "journal-meta"));
       section.append(storesRowEl(contact.name, `Trust ${formatNumber(contact.trust)}/${BLACK_MARKET_TRUST_MAX}`, {
         title: `${contact.name}\n${contact.archetypeLabel}\nRisk profile: ${profile.label}.\nObserved payment reliability: ${blackMarketContactReliabilityLabel(contact)}.\nPreferred goods: ${contact.preferredTags.join(", ")}.`,
-        subtitle: `${contact.archetypeLabel}; ${availability.label}; ${blackMarketContactReliabilityLabel(contact)} payments; ${formatNumber(activeDeals)} open ${activeDeals === 1 ? "offer" : "offers"}; id ${contact.id}`,
+        subtitle: `${contact.archetypeLabel}; home ${contact.homeCityId === local.cityId ? local.cityName : contact.homeCityId || "not established"}; collection area ${(contact.serviceCityIds || []).join(", ") || "none"}; ${availability.label}; ${blackMarketContactReliabilityLabel(contact)} payments; ${formatNumber(activeDeals)} open ${activeDeals === 1 ? "offer" : "offers"}; id ${contact.id}. ${LocalCovertMarket.reachable(local, contact, localCovertRoute()) || "City-local collection only; no foreign transport or enforcement authority."}`,
         dataset: { blackMarketContact: contact.id },
         actions
       }));
+      const courier = local.couriers.find(c => c.contactId === contact.id);
+      if (courier) {
+        const job = local.collections.find(c => c.id === courier.assignment);
+        section.append(storesRowEl(courier.driver.name, job ? titleCase(job.phase) : "At local depot", {
+          subtitle: `${courier.vehicleId}; ${courier.mode}; ${courier.capacityKg} kg / ${courier.capacityL} L; fuel ${formatNumber(courier.fuelKm)} km; condition ${formatNumber(courier.condition)}; health ${courier.driver.health}; fatigue ${formatNumber(courier.driver.fatigue)}. ${courier.location}. ${job?.reason || ""}`,
+          dataset: { covertCourier: courier.id }
+        }));
+      }
     }
     if (!economy.contacts.length) {
       section.append(emptyText("No black market contacts yet."));
     }
+    for (const job of local.collections.filter(c => c.manifest)) section.append(storesRowEl(`${job.owner === "player" ? "Player-owned freight" : "Buyer custody"}: ${job.manifest.material}`, `${job.phase === "returned" ? "Local depot" : "Courier cargo"}`, {
+      subtitle: `${job.obligationId}; owner ${blackMarketContactById(job.owner)?.name || job.owner}; ${job.manifest.entries.map(e => e.creature ? `${e.creature.name} (${e.creature.id}), living specimen` : `${e.amount} from ${e.sourceStackId || e.sourceReceptacleId}`).join("; ")}. Handoff ${formatClock(job.handedOffAt)}; not lab inventory or public exchange stock.`,
+      dataset: { covertCustody: job.id }
+    }));
     dom.economyContactsList.append(section);
   }
 
@@ -61354,6 +61380,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!dom.economyDealsList) {
       return;
     }
+    renderForeignSmuggling();
     const deals = openDeals.filter((deal) => deal.status === "open" || deal.status === "queued");
     if (!deals.length) {
       const section = storesSectionEl("Available Offers", "Spot sales dispatch immediately. Formal offers may be accepted as saved obligations or answered with one structured counteroffer.", { economyCategory: "deals" });
@@ -61376,7 +61403,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         const reason = blackMarketDealBlockReason(deal);
         const button = storesActionButton(
           deal.status === "queued" ? "Queued" : "Queue Trade",
-          reason || `Queue a scientist trip through the Concealed Exit. Duration: ${formatDuration(blackMarketTradeDuration(deal))}.`,
+          reason || "Reserve exact contents and a local collector. Handoff waits for source hauling and physical courier arrival at the Concealed Exit.",
           () => startBlackMarketTrade(deal.id)
         );
         setActionButtonState(button, Boolean(reason), reason);
@@ -61397,6 +61424,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           setActionButtonState(button, Boolean(reason), reason);
           actions.push(button);
         }
+        if (deal.commodityKind !== "specimen") for (const op of ensureIntercitySmuggling().operators) {
+          const button = storesActionButton(`Foreign quote: ${op.destinationId}`, "A separate foreign buyer request using these cargo specifications. Ownership and payment transfer only at foreign receipt; the local offer is unchanged.",
+            () => requestForeignSmuggling(deal.id, op.id, shipmentSelection?.select.value || ""));
+          setActionButtonState(button, Boolean(reason) || Boolean(op.assignment), reason || (op.assignment ? "Dedicated smuggler busy." : ""));
+          actions.push(button);
+        }
       }
       const availabilityText = deal.commodityKind === "rawByproduct"
         ? `${formatCollectionAmount(available)} unreserved`
@@ -61407,7 +61440,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       categoryCounts[deal.commodityKind] = (categoryCounts[deal.commodityKind] || 0) + 1;
       section.append(storesRowEl(`${deal.material} for ${contact?.name || "Unknown contact"}`, formatMoney(deal.payout), {
         title: economyDealTitle(deal),
-        subtitle: `${deal.offerKind === "contract" ? "Contract" : "Spot sale"}; ${blackMarketOfferRequirementLabel(deal)} ${availabilityText}; ${risk.label} exposure; expires ${formatClock(deal.expiresAt)}; ${deal.flavor}`,
+        subtitle: `${deal.offerKind === "contract" ? "Contract" : "Spot sale"}; ${blackMarketOfferRequirementLabel(deal)} ${availabilityText}; ${risk.label} exposure; expires ${formatClock(deal.expiresAt)}; ${deal.flavor} ${deal.cityTerms?.summary || "Local conditions not established."} Payment terms apply at the physical Concealed Exit handoff, not remote contact.`,
         dataset: { blackMarketDeal: deal.id, blackMarketContact: deal.contactId, blackMarketMaterial: deal.material, blackMarketCommodityKind: deal.commodityKind, dealStatus: deal.status },
         actions
       }));
@@ -61417,11 +61450,36 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
   }
 
+  function renderForeignSmuggling() {
+    const market = ensureIntercitySmuggling();
+    const section = storesSectionEl("Foreign Smuggling", "Separate destination-delivery contracts for nonliving cargo. Local sales remain local. No multi-hop, living cargo, automated trading or interception simulation yet.", { economyCategory: "foreignSmuggling" });
+    section.append(emptyText(market.message || "Request a foreign quote beside an eligible raw or manufactured contract offer below."));
+    if (!market.operators.length) section.append(emptyText("No referred operator on a known supported direct neighboring corridor. Remote contact alone supplies no vehicle."));
+    const q = market.quote;
+    if (q) section.append(storesRowEl(`${q.buyerName} · destination ${q.destinationId}`, `${formatMoney(q.net)} net on receipt`, {
+      subtitle: `${q.material}; ${q.selectedId || "exact reserved receptacle contents"}; ${formatNumber(q.cargo.massKg)} kg / ${formatNumber(q.cargo.volumeL)} L; corridor ${q.routeId}, ${formatNumber(q.distanceKm)} km. Buyer escrow ${formatMoney(q.gross)}; local freight ${formatMoney(q.localFreight)} paid at home depot; intercity freight ${formatMoney(q.intercityFreight)} paid at foreign receipt. Expected intercity leg ${formatDuration(q.seconds)}, plus local hauling and collection. Quote expires ${formatClock(q.expiresAt)}. Collection uses the offer's deadline; afterward delays hold player-owned cargo and unpaid escrow indefinitely, without automatic forfeiture or recovery. ${q.terms}`,
+      dataset: { foreignSmugglingQuote: q.operatorId }, actions: [storesActionButton("Confirm Foreign Contract", "Reserve this exact lot and dedicated intercity vehicle; the buyer funds all proceeds and freight.", confirmForeignSmuggling)]
+    }));
+    for (const op of market.operators) {
+      const sh = market.shipments.find(s => s.id === op.assignment);
+      const route = ensureStrategicJourneys().routes.find(r => r.id === op.routeId);
+      section.append(storesRowEl(op.name, sh?.phase || "At home depot", {
+        subtitle: `${op.sourceId} → ${op.destinationId}; corridor ${op.routeId}: ${route?.continuity || "unavailable"}, ${route?.supportCapable ? "supported" : "unsupported"}; ${op.vehicleId}; ${op.capacityKg} kg / ${op.capacityL} L; fuel ${formatNumber(op.fuelKm)} km; provisions ${formatNumber(op.provisions)}; funds ${formatMoney(op.money)}; condition ${formatNumber(op.condition)}; crew ${op.crew.map(c => `${c.name}: ${c.status}, health ${formatNumber(c.health)}, fatigue ${formatNumber(c.fatigue)}`).join("; ")}. ${op.location}. ${sh?.reason || "No lawful permit or sovereign authority implied."}`,
+        dataset: { smugglingOperator: op.id }
+      }));
+    }
+    for (const sh of market.shipments) section.append(storesRowEl(sh.id, sh.phase, {
+      subtitle: `${sh.contractId}; owner ${sh.owner}; custodian ${sh.custodian}; destination ${sh.destinationId}; unpaid player escrow ${formatMoney(sh.playerEscrow)}. ${sh.receiptAt !== null ? `Buyer receipt ${formatClock(sh.receiptAt)}; cargo held separately from public stock.` : "No destination receipt yet."} ${sh.reason}`,
+      dataset: { foreignShipment: sh.id }
+    }));
+    dom.economyDealsList.append(section);
+  }
+
   function renderEconomyContracts(economy) {
     if (!dom.economyContractsList) return;
     const section = storesSectionEl("Accepted Contracts", "Exact raw receptacles, manufactured batches, living creatures, and specimen transport pods are protected from conflicting work. Dispatch routes through every physical source and the Concealed Exit.", { economyCategory: "contracts" });
     const contracts = [...economy.contracts]
-      .filter((contract) => ["active", "queued", "delivered"].includes(contract.status))
+      .filter((contract) => ["active", "queued", "inTransit", "delivered"].includes(contract.status))
       .sort((a, b) => a.dueAt - b.dueAt || String(a.id).localeCompare(String(b.id)));
     if (!contracts.length) section.append(emptyText("No active contracts. Unaccepted offers expire without penalty."));
     for (const contract of contracts) {
@@ -61442,7 +61500,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (["active", "queued"].includes(contract.status)) {
         actions.push(storesActionButton("Cancel Contract", "Release the shipment and accept a reputation and trust penalty.", () => cancelBlackMarketContract(contract.id)));
       }
-      const timing = contract.status === "delivered"
+      const timing = contract.status === "inTransit" ? "Awaiting foreign receipt; cargo and escrow retained during delays" : contract.status === "delivered"
         ? `Payment due ${formatClock(contract.paymentDueAt)}`
         : `${formatDuration(Math.max(0, contract.dueAt - state.clock))} remaining; due ${formatClock(contract.dueAt)}`;
       const reservationLabel = contract.commodityKind === "specimen"
@@ -61452,7 +61510,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           : `${formatCollectionAmount(contract.amount)} designated across ${contract.reservations.length} physical receptacle${contract.reservations.length === 1 ? "" : "s"}`;
       section.append(storesRowEl(`${contract.material} for ${contact?.name || "Unknown contact"}`, formatMoney(contract.payout), {
         title: `${contract.id}\n${blackMarketShipmentAmountLabel(contract)}.\n${timing}.\nPayment: ${paymentTerm.label}; security ${paymentTerm.riskLabel}.\nExposure: ${blackMarketRiskBand(contract.exposureChance).label}.\nNegotiation: ${BLACK_MARKET_NEGOTIATION_DEFS[contract.negotiationId]?.label || "Accepted terms"}.`,
-        subtitle: `${titleCase(contract.status)}; ${reservationLabel}; ${timing}; ${paymentTerm.label}${contract.commodityKind === "specimen" ? `; transport risk ${blackMarketRiskBand(contract.transportFailureChance).label}` : ""}`,
+        subtitle: `${contract.foreignShipmentId ? `Foreign delivery ${contract.foreignShipmentId}; collection deadline, not foreign arrival deadline. ` : ""}${titleCase(contract.status)}; ${reservationLabel}; ${timing}; ${paymentTerm.label}${contract.commodityKind === "specimen" ? `; transport risk ${blackMarketRiskBand(contract.transportFailureChance).label}` : ""}`,
         dataset: { blackMarketContract: contract.id, blackMarketContact: contract.contactId, blackMarketCommodityKind: contract.commodityKind, contractStatus: contract.status },
         actions
       }));
@@ -61477,6 +61535,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function renderEconomy() {
     const economy = ensureEconomy();
+    ensureLocalCovertMarket();
     const openDeals = blackMarketOpenDeals();
     const activeTrade = activeBlackMarketTradeTask();
     if (dom.economySummary) {
@@ -64082,6 +64141,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       addResources(task.data.resourceCosts, task.data.resourceRoomId || task.data.roomId || STORAGE_ROOM_ID);
     }
     if (task.type === "blackMarketTrade") {
+      cancelCovertCollection(task.data?.contractId || task.data?.dealId);
       const contract = blackMarketContractById(task.data?.contractId);
       if (contract && contract.taskId === task.id) {
         contract.status = "active";
@@ -64089,6 +64149,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       } else {
         const deal = blackMarketDealById(task.data?.dealId);
         if (deal && deal.taskId === task.id) {
+          deal.pendingShipment = null;
           deal.status = "open";
           deal.taskId = "";
         }
@@ -81959,6 +82020,175 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return ensureEconomy().contacts.find((contact) => contact.id === contactId) || null;
   }
 
+  function localCovertContext(requestedCityId = "") {
+    const network = ensureStrategicJourneys(), home = network.destinations.find(d => d.id === network.homeDestinationId);
+    const context = bindCityCommodityMarket(ensureEconomy());
+    const cityId = requestedCityId || home?.cityId || context?.cityId || state.startingSite?.nearestSettlement?.cityId || "";
+    const map = activeWorldRecord?.generatedData?.strategicMap;
+    const religions = map?.publicReligiousInstitutionHistoryDirectory
+      ? StrategicReligiousInstitutionHistory.cityCurrentReligiousInstitutions(map, cityId)
+      : map?.publicReligionDirectory ? StrategicReligions.cityReligiousStanding(map, cityId) : null;
+    const deityIds = new Set((religions?.standings || []).filter(e => e.standing === "established").flatMap(e => e.tradition?.deityIds || []));
+    const institutions = map?.publicNonStateNetworkHistoryDirectory ? StrategicNonStateNetworkHistory.cityCurrentNetworkProfile(map, cityId)
+      : map?.publicNonStateNetworkDirectory ? StrategicNonStateNetworks.cityNetworkProfile(map, cityId) : null;
+    const legal = map?.strategicLegalHistory ? StrategicLegalHistory.currentRecognizedCityCodes(map)
+      : map?.publicCityLawDirectory ? StrategicCityLaws.publicCityLawDirectory(map) : [];
+    const cityContext = context?.cityId === cityId ? context : ensureEconomy().commodityMarket.intercityTrade?.neighbors.find(n => n.id === cityId)?.profile;
+    return { ...(cityContext || {}), cityId, cityName: cityContext?.cityName || network.destinations.find(d => d.kind === "fortifiedCity" && d.cityId === cityId)?.label || cityId || "Unbound locality",
+      lawRules: (legal.find(c => c.city.id === cityId)?.offenseRules || []).filter(r => ["corporateLicensing", "contrabandCommerce", "geneticEngineering", "artificialCreatureCreation", "prohibitedMagic"].includes(r.offenseId)).map(r => ({ offenseId: r.offenseId, label: r.label, legalStatus: r.legalStatus })),
+      institutions: (institutions?.standings || []).filter(e => e.network?.category === "blackMarket").map(e => ({ standing: e.standing })),
+      beliefs: (map?.publicReligionDirectory?.gods || []).filter(g => deityIds.has(g.id)).flatMap(g => g.prohibitions || []) };
+  }
+
+  function ensureLocalCovertMarket() {
+    const economy = ensureEconomy();
+    if (!economy.localCovertMarket) {
+      const context = localCovertContext();
+      economy.localCovertMarket = LocalCovertMarket.create(context.cityId, context.cityName);
+      economy.localCovertMarket.context = clonePlainObject(context);
+    }
+    const market = economy.localCovertMarket;
+    if (!market.cityId && !market.collections.length) {
+      const context = localCovertContext();
+      if (context.cityId) { market.cityId = context.cityId; market.cityName = context.cityName; market.context = clonePlainObject(context); }
+    }
+    if (market.cityId) for (const contact of economy.contacts) {
+      LocalCovertMarket.bind(market, contact, state.clock);
+      if (contact.homeCityId === market.cityId) contact.localPreferredTags = [...new Set((market.context.productionSources || []).flatMap(s => ({ manaCrystals: ["arcane"], chemicalFeedstock: ["chemical", "reagent"], biologicalProductivity: ["organic", "living"] }[s.family] || [])))];
+    }
+    for (const deal of economy.deals) if (!deal.cityTerms && deal.status === "open" && market.cityId && economy.contacts.find(c => c.id === deal.contactId)?.homeCityId === market.cityId) {
+      const terms = LocalCovertMarket.terms({ ...market.context, marketListings: economy.commodityMarket.cityContext?.cityId === market.cityId ? economy.commodityMarket.listings : null }, deal.commodityKind, deal.tags || [], deal.productId);
+      deal.cityTerms = { ...terms, cityId: market.cityId };
+      deal.payout = Math.max(1, Math.round(deal.payout * terms.multiplier));
+      deal.exposureChance = clamp(deal.exposureChance + terms.exposureDelta, 0, .9);
+      if (terms.requireAssay && deal.batchRequirements) deal.batchRequirements.requireAssay = true;
+    }
+    return market;
+  }
+
+  function localCovertRoute() {
+    const network = ensureStrategicJourneys(), home = network.destinations.find(d => d.id === network.homeDestinationId), route = exchangeRoute();
+    return { ok: route.ok, reason: route.reason, cityId: home?.cityId || "", distanceKm: route.ok ? route.legs.reduce((n, leg) => n + leg.distanceKm, 0) : 0 };
+  }
+
+  function advanceLocalCovertCollections() {
+    const market = ensureLocalCovertMarket();
+    LocalCovertMarket.advance(market, state.clock, localCovertRoute(), LocalExchangeCarrier.support(exchangeCarrier(), state.clock).supplier);
+    return market;
+  }
+
+  function localCovertAvailability(contact, cargo) {
+    return LocalCovertMarket.availability(advanceLocalCovertCollections(), contact, localCovertRoute(), cargo);
+  }
+
+  function covertCargoManifest(contract) {
+    return { obligationId: contract.id, commodityKind: contract.commodityKind, material: contract.material, amount: contract.amount,
+      entries: (contract.reservations || []).map(r => r.kind === "creature"
+        ? { kind: r.kind, amount: 1, sourceContainerId: r.containerId, transportPodStackId: contract.selectedPodStackId,
+          creature: clonePlainObject({ ...findSlime(r.slimeId), ownerId: contract.contactId, blackMarketContractId: "", containerId: null, roomId: null, mapCell: null }) }
+        : r.kind === "rawByproduct" ? (() => {
+          const source = ensurePhysicalItemStacks().find(s => s.id === r.stackId), contents = [];
+          let remaining = r.amount;
+          for (const content of source?.contents || []) if (remaining > 0 && content.kind === "byproduct" && byproductInventoryKey(content.label || content.key) === contract.material) {
+            const amount = Math.min(remaining, content.amount); remaining = roundOutputValue(remaining - amount);
+            contents.push(clonePlainObject({ ...content, amount }));
+          }
+          return { kind: r.kind, amount: r.amount, material: contract.material, sourceReceptacleId: r.stackId, itemKey: r.itemKey, contents };
+        })()
+        : { kind: r.kind, amount: r.amount, sourceStackId: r.stackId, stack: clonePlainObject({ ...ensurePhysicalItemStacks().find(s => s.id === r.stackId), quantity: r.amount, knownQuantity: r.amount, reservedTaskId: "" }) }) };
+  }
+
+  function cancelCovertCollection(id) {
+    const market = advanceLocalCovertCollections();
+    LocalCovertMarket.cancel(market, id, state.clock);
+  }
+
+  function ensureIntercitySmuggling() {
+    const economy = ensureEconomy(), local = ensureLocalCovertMarket(), network = ensureStrategicJourneys();
+    if (!economy.intercitySmuggling) economy.intercitySmuggling = IntercitySmuggling.create(local.cityId, state.clock);
+    const smuggling = economy.intercitySmuggling;
+    if (!smuggling.homeId && !smuggling.operators.length) smuggling.homeId = local.cityId;
+    const broker = economy.contacts.find(c => c.homeCityId === local.cityId && c.serviceCityIds?.includes(local.cityId));
+    IntercitySmuggling.discover(smuggling, network.routes, network.destinations, broker, state.clock);
+    return smuggling;
+  }
+
+  function foreignSmugglingRequest(dealId, operatorId, selectedId = "") {
+    const market = ensureIntercitySmuggling(), deal = blackMarketDealById(dealId), op = market.operators.find(o => o.id === operatorId);
+    if (!op || !deal || !["rawByproduct", "manufactured"].includes(deal.commodityKind)) return { ok: false, reason: "Only exact nonliving foreign requests are supported." };
+    const reason = blackMarketContractAcceptanceBlockReason(deal, selectedId);
+    if (reason) return { ok: false, reason };
+    const preview = createBlackMarketContract(deal, "standard", ensureEconomy().nextContractNumber, state.clock);
+    const foreignTerms = LocalCovertMarket.terms(localCovertContext(op.destinationId), deal.commodityKind, deal.tags || [], deal.productId);
+    if (foreignTerms.requireAssay && preview.batchRequirements) preview.batchRequirements.requireAssay = true;
+    preview.reservations = reserveBlackMarketShipment(preview, selectedId, true);
+    if (!preview.reservations.length) return { ok: false, reason: "Exact cargo is unavailable." };
+    const manifest = covertCargoManifest(preview);
+    const cargo = preview.commodityKind === "rawByproduct" ? { massKg: preview.amount, volumeL: preview.amount }
+      : preview.reservations.reduce((sum, r) => {
+        const stack = ensurePhysicalItemStacks().find(s => s.id === r.stackId);
+        sum.massKg += Math.max(.01, stack.unitMassKg || .01) * r.amount; sum.volumeL += Math.max(.01, stack.unitVolumeL || .01) * r.amount; return sum;
+      }, { massKg: 0, volumeL: 0 });
+    const collection = localCovertAvailability(blackMarketContactById(deal.contactId), cargo);
+    if (!collection.ok) return collection;
+    const request = { templateId: deal.id, selectedId, brokerId: deal.contactId, manifest, cargo, localDistanceKm: localCovertRoute().distanceKm,
+      batchRequirements: preview.batchRequirements,
+      value: Math.round(preview.payout * 1.8 * foreignTerms.multiplier), terms: `${deal.cityTerms?.summary || "Source rules not established."} Destination: ${foreignTerms.summary}` };
+    const route = ensureStrategicJourneys().routes.find(r => r.id === op.routeId);
+    return { ...IntercitySmuggling.offer(market, operatorId, request, route, state.clock), request, route };
+  }
+
+  function requestForeignSmuggling(dealId, operatorId, selectedId = "") {
+    const market = ensureIntercitySmuggling(), { request, route, ...offer } = foreignSmugglingRequest(dealId, operatorId, selectedId);
+    market.quote = offer.ok ? offer : null; market.message = offer.ok ? "Review destination receipt and freight terms before confirming." : offer.reason;
+    persist(); render(); return clonePlainObject(offer);
+  }
+
+  function confirmForeignSmuggling() {
+    const economy = ensureEconomy(), market = ensureIntercitySmuggling(), quote = market.quote;
+    if (!quote) return false;
+    const fresh = foreignSmugglingRequest(quote.templateId, quote.operatorId, quote.selectedId);
+    if (!fresh.ok) { market.message = fresh.reason; persist(); render(); return false; }
+    const deal = blackMarketDealById(quote.templateId), contract = createBlackMarketContract(deal, "standard", economy.nextContractNumber, state.clock);
+    contract.batchRequirements = fresh.request.batchRequirements ? clonePlainObject(fresh.request.batchRequirements) : null;
+    const booking = IntercitySmuggling.book(market, quote, fresh.request, fresh.route, contract.id, state.clock);
+    if (!booking.ok) {
+      market.quote = booking.revised || quote; market.message = booking.reason; persist(); render(); return false;
+    }
+    contract.reservations = reserveBlackMarketShipment(contract, quote.selectedId);
+    if (!contract.reservations.length) { IntercitySmuggling.cancel(market, booking.shipment.id, state.clock); return false; }
+    contract.foreignShipmentId = booking.shipment.id; contract.payout = quote.net; contract.paymentTerm = "escrow"; contract.paymentFraction = 1;
+    contract.notes = "Foreign destination receipt required. Collection deadline only; transit delays retain ownership and escrow, without automatic forfeiture or recovery.";
+    economy.nextContractNumber++; economy.contracts.push(contract);
+    market.quote = null; market.message = `Foreign contract ${contract.id} accepted; ${formatMoney(quote.gross)} funded by the destination buyer. Dispatch from Accepted Contracts.`;
+    recordBlackMarketLedger("foreignAccepted", market.message, { contactId: contract.contactId, contractId: contract.id });
+    persist(); render(); return true;
+  }
+
+  function advanceIntercitySmuggling(local) {
+    const market = ensureIntercitySmuggling();
+    for (const sh of market.shipments) {
+      const collection = local.collections.find(c => c.obligationId === sh.contractId && c.phase === "returned" && c.manifest);
+      if (sh.phase === "localTransit" && collection) {
+        const paid = IntercitySmuggling.receiveDepot(market, sh.id, collection.manifest, state.clock);
+        if (paid) {
+          local.couriers.find(c => c.id === collection.courierId).money += paid;
+          collection.manifest = null; collection.transferredTo = sh.id; collection.transferredAt = state.clock;
+        }
+      }
+    }
+    IntercitySmuggling.advance(market, state.clock, ensureStrategicJourneys().routes, LocalExchangeCarrier.support(exchangeCarrier(), state.clock).supplier);
+    for (const sh of market.shipments) if (sh.receiptAt !== null && sh.settledAt === null) {
+      const contract = blackMarketContractById(sh.contractId), paid = IntercitySmuggling.settle(market, sh.id, state.clock);
+      addMoney(paid, `Foreign receipt ${sh.id}`);
+      if (contract) {
+        contract.status = "completed"; contract.deliveredAt = sh.receiptAt; contract.settledAt = state.clock; contract.outcome = "Foreign buyer received exact cargo; escrow settled";
+        addBlackMarketReputation(contract.reputationGain); adjustBlackMarketContactTrust(contract.contactId, contract.trustGain);
+        recordBlackMarketLedger("foreignReceipt", `${sh.destinationId} received ${contract.material}; ${formatMoney(paid)} paid once from escrow.`, { contractId: contract.id, contactId: contract.contactId, amount: paid });
+      }
+    }
+  }
+
   function blackMarketDealById(dealId) {
     return ensureEconomy().deals.find((deal) => deal.id === dealId) || null;
   }
@@ -81975,7 +82205,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function blackMarketActiveContracts() {
     return ensureEconomy().contracts
-      .filter((contract) => ["active", "queued", "delivered"].includes(contract.status))
+      .filter((contract) => ["active", "queued", "inTransit", "delivered"].includes(contract.status))
       .sort((a, b) => a.dueAt - b.dueAt || String(a.id).localeCompare(String(b.id)));
   }
 
@@ -82017,10 +82247,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return new Set(["active", "queued"]);
   }
 
+  function blackMarketReservedShipments() {
+    const economy = ensureEconomy();
+    return [...economy.contracts, ...economy.deals.filter(d => d.status === "queued" && d.pendingShipment).map(d => ({ ...d.pendingShipment, status: "queued" }))];
+  }
+
   function blackMarketReservedAmountsByStack(ignoreContractId = "", material = "") {
     const reserved = new Map();
     const key = byproductInventoryKey(material);
-    for (const contract of ensureEconomy().contracts || []) {
+    for (const contract of blackMarketReservedShipments()) {
       if (contract.id === ignoreContractId || !blackMarketReservationStatuses().has(contract.status) || key && contract.material !== key) continue;
       for (const reservation of contract.reservations || []) {
         reserved.set(reservation.stackId, roundOutputValue((reserved.get(reservation.stackId) || 0) + (Number(reservation.amount) || 0)));
@@ -82031,7 +82266,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function blackMarketReservedByproductAmount(material, ignoreContractId = "") {
     const key = byproductInventoryKey(material);
-    return roundOutputValue((ensureEconomy().contracts || [])
+    return roundOutputValue(blackMarketReservedShipments()
       .filter((contract) => contract.id !== ignoreContractId && blackMarketReservationStatuses().has(contract.status) && contract.material === key)
       .reduce((total, contract) => total + (contract.reservations || []).reduce((sum, reservation) => sum + (Number(reservation.amount) || 0), 0), 0));
   }
@@ -82131,12 +82366,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return clamp((knownLarge ? 0.12 : 0) + Math.max(0, mass - 40) / 260 + hazardous * 0.05 + Math.max(0, 45 - quality) / 300, 0.01, 0.42);
   }
 
-  function reserveBlackMarketShipment(contract, selectedId = "") {
+  function reserveBlackMarketShipment(contract, selectedId = "", preview = false) {
     if (!contract) return [];
     if (contract.commodityKind === "manufactured") {
       const stack = blackMarketManufacturedCandidates(contract).find((candidate) => candidate.id === selectedId);
       if (!stack) return [];
-      stack.reservedTaskId = contract.id;
+      if (!preview) stack.reservedTaskId = contract.id;
       contract.selectedStackId = stack.id;
       contract.shipmentValueModifier = roundOutputValue(blackMarketShipmentValueModifier(contract, stack));
       contract.payout = Math.max(1, Math.round(contract.payout * contract.shipmentValueModifier));
@@ -82327,6 +82562,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (state.clock >= deal.expiresAt) return "Offer has expired.";
     const availability = blackMarketContactAvailability(blackMarketContactById(deal.contactId));
     if (!availability.available) return availability.reason;
+    const collection = localCovertAvailability(blackMarketContactById(deal.contactId));
+    if (!collection.ok) return collection.reason;
     if (deal.commodityKind === "manufactured") {
       const candidates = blackMarketManufacturedCandidates(deal);
       if (!candidates.length) return `No unreserved ${deal.material} batch meets the saved purity, craftsmanship, assay, packaging, and classification requirements.`;
@@ -82396,6 +82633,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function cancelBlackMarketContract(contractId, options = {}) {
     const contract = blackMarketContractById(contractId);
     if (!contract || !["active", "queued"].includes(contract.status)) return false;
+    if (contract.foreignShipmentId) IntercitySmuggling.cancel(ensureIntercitySmuggling(), contract.foreignShipmentId, state.clock);
     const contact = blackMarketContactById(contract.contactId);
     if (contract.taskId) {
       const task = findTask(contract.taskId);
@@ -82407,6 +82645,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     contract.status = options.status || "canceled";
     contract.failedAt = state.clock;
     contract.taskId = "";
+    cancelCovertCollection(contract.id);
     releaseBlackMarketShipment(contract);
     contract.reservations = [];
     contract.outcome = String(options.outcome || "Canceled by seller");
@@ -82426,6 +82665,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function failBlackMarketContract(contract, reason = "Delivery deadline missed") {
     if (!contract || !["active", "queued"].includes(contract.status)) return false;
+    if (contract.foreignShipmentId) IntercitySmuggling.cancel(ensureIntercitySmuggling(), contract.foreignShipmentId, state.clock);
     const contact = blackMarketContactById(contract.contactId);
     if (contract.taskId) {
       const task = findTask(contract.taskId);
@@ -82437,6 +82677,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     contract.status = "failed";
     contract.failedAt = state.clock;
     contract.taskId = "";
+    cancelCovertCollection(contract.id);
     releaseBlackMarketShipment(contract);
     contract.reservations = [];
     contract.outcome = reason;
@@ -82551,6 +82792,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const availability = blackMarketContactAvailability(contact);
     if (!availability.available) return availability.reason;
+    const collection = localCovertAvailability(contact, { massKg: deal.amount, volumeL: deal.amount });
+    if (!collection.ok) return collection.reason;
     const busyReason = blackMarketTradeBusyReason();
     if (busyReason) {
       return busyReason;
@@ -82571,13 +82814,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return doorReason;
     }
     return staminaBlockReason(adjustedStaminaCost(BLACK_MARKET_TRADE_STAMINA, ["analysis", "creatureHandling"]));
-  }
-
-  function blackMarketTradeDuration(deal, route = []) {
-    const distance = roomPathDistanceMeters(scientistRoomId(), CONCEALED_EXIT_ROOM_ID, { ignoreDoors: true });
-    const travelSeconds = Number.isFinite(distance) ? distance / scientistMoveSpeedMps() : 0;
-    const doorDelay = Math.max(0, route.length - 1) * SCIENTIST_DOOR_TRANSIT_SECONDS;
-    return Math.max(1, Math.round(BLACK_MARKET_TRADE_BASE_SECONDS + (Number(deal?.amount) || 0) * BLACK_MARKET_TRADE_AMOUNT_SECONDS + travelSeconds + doorDelay));
   }
 
   function blackMarketContractRoutePlan(contract) {
@@ -82654,7 +82890,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (busyReason) return busyReason;
     const plan = blackMarketContractRoutePlan(contract);
     if (!plan.ok) return plan.reason;
-    if (state.clock + plan.duration > contract.dueAt) return `Estimated arrival ${formatClock(state.clock + plan.duration)} is after the ${formatClock(contract.dueAt)} deadline.`;
+    const collection = localCovertAvailability(blackMarketContactById(contract.contactId), { ...plan.cargo, specimen: contract.commodityKind === "specimen" });
+    if (!collection.ok) return collection.reason;
+    if (state.clock + Math.max(plan.duration, collection.travelSeconds) > contract.dueAt) return `Estimated handoff is after the ${formatClock(contract.dueAt)} deadline.`;
     return staminaBlockReason(adjustedStaminaCost(BLACK_MARKET_TRADE_STAMINA, ["analysis", "creatureHandling"]));
   }
 
@@ -82670,7 +82908,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const contact = blackMarketContactById(contract.contactId);
     const plan = blackMarketContractRoutePlan(contract);
     const cost = adjustedStaminaCost(BLACK_MARKET_TRADE_STAMINA, ["analysis", "creatureHandling"]);
-    if (!spendStamina(cost)) return false;
+    const collection = LocalCovertMarket.book(ensureLocalCovertMarket(), contact, localCovertRoute(), contract.id, { ...plan.cargo, specimen: contract.commodityKind === "specimen" }, state.clock);
+    if (!collection.ok) return false;
+    if (!spendStamina(cost)) { cancelCovertCollection(contract.id); return false; }
     if (contract.commodityKind === "specimen" && contract.transportOutcome === "pending") {
       contract.transportOutcome = contract.transportRoll < contract.transportFailureChance ? "breach" : "secure";
     }
@@ -82679,7 +82919,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       type: "blackMarketTrade",
       label: `Deliver ${contract.material} contract to ${contact.name}`,
       createdAt: state.clock,
-      dueAt: state.clock + plan.duration,
+      dueAt: state.clock + Math.max(plan.duration, collection.travelSeconds),
       data: {
         contractId: contract.id,
         contactId: contact.id,
@@ -82712,10 +82952,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       addEvent("Contract delivery could not complete because its saved obligation is no longer active.");
       return false;
     }
+    const collectionMarket = advanceLocalCovertCollections();
+    if (!LocalCovertMarket.ready(collectionMarket, contract.id)) return false;
     applyDoorTransitPolicy(task.data?.doorTransit, "Black market contract delivery");
     state.scientist.roomId = CONCEALED_EXIT_ROOM_ID;
     state.scientist.mapCell = labMapRoomAnchor(CONCEALED_EXIT_ROOM_ID);
-    if (task.dueAt > contract.dueAt) {
+    if (state.clock > contract.dueAt) {
       failBlackMarketContract(contract, "Contract delivery arrived after its deadline");
       return false;
     }
@@ -82747,11 +82989,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ? ensurePhysicalItemStacks().find((stack) => stack.id === contract.selectedStackId)?.chemicalBatch?.id
         || contract.reservations.find((entry) => entry.kind === "chemicalBatch")?.batchId
       : "";
+    const manifest = covertCargoManifest(contract);
+    if (contract.foreignShipmentId) {
+      const sh = ensureIntercitySmuggling().shipments.find(s => s.id === contract.foreignShipmentId);
+      if (!sh || sh.phase !== "awaitingCollection" || IntercitySmuggling.fingerprint(manifest) !== sh.fingerprint) {
+        failBlackMarketContract(contract, "Foreign exact lot changed before collection"); return false;
+      }
+    }
     const spent = spendBlackMarketContractShipment(contract, `Delivered under ${contract.id} to ${contact.name}`);
     if (spent + 0.0001 < contract.amount) {
       failBlackMarketContract(contract, "Designated contract shipment was incomplete");
       return false;
     }
+    LocalCovertMarket.handoff(collectionMarket, contract.id, manifest, state.clock, contract.foreignShipmentId ? "player" : null);
+    if (contract.foreignShipmentId) IntercitySmuggling.markCollected(ensureIntercitySmuggling(), contract.foreignShipmentId, manifest,
+      collectionMarket.collections.find(c => c.obligationId === contract.id && c.manifest)?.courierId, state.clock);
     if (contract.commodityKind === "manufactured") {
       recordCompanyVariance("unexplainedInventoryLoss", `${contract.material} left inventory without a lawful shipment record`, {
         severity: "serious",
@@ -82778,11 +83030,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       reliability: "weak", specificity: "generic", knowledge: "hidden",
       summary: "unusual off-books commerce associated with the area"
     });
-    contract.deliveredAt = task.dueAt;
+    contract.deliveredAt = state.clock;
     contract.taskId = "";
     contract.reservations = [];
     const observed = contract.exposureRoll < contract.exposureChance;
     if (observed) recordBlackMarketExposure(contract, contact);
+    if (contract.foreignShipmentId) {
+      contract.status = "inTransit"; contract.deliveredAt = null;
+      recordBlackMarketLedger("foreignCollected", `${contract.material} collected for foreign delivery; player still owns cargo and no sale proceeds are payable yet.`, { contactId: contact.id, contractId: contract.id });
+      return true;
+    }
     const repGain = addBlackMarketReputation(contract.reputationGain);
     const trustGain = adjustBlackMarketContactTrust(contact.id, contract.trustGain);
     contact.nextOfferAt = Math.max(Number(contact.nextOfferAt) || 0, state.clock + BLACK_MARKET_OFFER_REFRESH_SECONDS);
@@ -82806,11 +83063,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return false;
     }
     const contact = blackMarketContactById(deal.contactId);
-    const route = roomRouteBetween(scientistRoomId(), CONCEALED_EXIT_ROOM_ID, { ignoreDoors: true });
-    const mapPath = roomPathBetween(scientistRoomId(), CONCEALED_EXIT_ROOM_ID, { ignoreDoors: true });
-    const doorTransit = doorTransitPlan(route);
     const cost = adjustedStaminaCost(BLACK_MARKET_TRADE_STAMINA, ["analysis", "creatureHandling"]);
+    const shipment = { id: deal.id, commodityKind: "rawByproduct", material: deal.material, amount: deal.amount, extraSeconds: 0 };
+    shipment.reservations = reserveBlackMarketShipment(shipment);
+    const plan = blackMarketContractRoutePlan(shipment);
+    if (!plan.ok) { addEvent(plan.reason); persist(); render(); return false; }
+    const collection = LocalCovertMarket.book(ensureLocalCovertMarket(), contact, localCovertRoute(), deal.id, plan.cargo, state.clock);
+    if (!collection.ok) { addEvent(collection.reason); persist(); render(); return false; }
     if (!spendStamina(cost)) {
+      cancelCovertCollection(deal.id);
       addEvent(`Not enough stamina. ${cost} required.`);
       persist();
       render();
@@ -82821,7 +83082,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       type: "blackMarketTrade",
       label: `Trade ${deal.material} with ${contact.name}`,
       createdAt: state.clock,
-      dueAt: state.clock + blackMarketTradeDuration(deal, route),
+      dueAt: state.clock + Math.max(plan.duration, collection.travelSeconds),
       data: {
         dealId: deal.id,
         contactId: contact.id,
@@ -82831,13 +83092,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         staminaCost: cost,
         fromRoomId: scientistRoomId(),
         toRoomId: CONCEALED_EXIT_ROOM_ID,
-        route,
-        mapPath,
-        doorTransit
+        doorTransit: plan.doorTransit,
+        routes: plan.routes,
+        mapPaths: plan.mapPaths,
+        toCell: labMapRoomAnchor(CONCEALED_EXIT_ROOM_ID),
+        shipmentTrips: plan.trips
       }
     };
     state.tasks.push(task);
     deal.status = "queued";
+    deal.pendingShipment = shipment;
     deal.taskId = task.id;
     addEvent(`Black market trade queued: ${formatCollectionAmount(deal.amount)} ${deal.material} for ${formatMoney(deal.payout)} with ${contact.name}.`);
     persist();
@@ -82846,6 +83110,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function blackMarketTradeTaskBlockReason(task) {
+    const collectionMarket = advanceLocalCovertCollections(), obligationId = task.data?.contractId || task.data?.dealId;
+    const collection = collectionMarket.collections.find(c => c.obligationId === obligationId && !c.canceled);
+    if (!LocalCovertMarket.ready(collectionMarket, obligationId) && (!collection || collection.reason || state.clock >= task.dueAt)) return collection?.reason || "Waiting for the assigned local courier at the Concealed Exit.";
     if (task.data?.contractId) {
       const contract = blackMarketContractById(task.data.contractId);
       if (!contract) return "Contract no longer exists.";
@@ -82863,10 +83130,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!blackMarketContactById(deal.contactId)) {
       return "Contact is no longer available.";
     }
-    if (collectedByproductAmount(deal.material) < deal.amount) {
-      return `Not enough ${deal.material} remains for the trade.`;
-    }
-    return "";
+    return blackMarketContractReservationReason(deal.pendingShipment);
   }
 
   function completeBlackMarketTrade(task) {
@@ -82876,13 +83140,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       addEvent("Black market trade could not complete; the contact or deal vanished.");
       return false;
     }
-    const spent = spendCollectedByproduct(deal.material, deal.amount, `Sold to ${contact.name}`);
+    const market = advanceLocalCovertCollections();
+    if (deal.status !== "queued" || !LocalCovertMarket.ready(market, deal.id)) return false;
+    const manifest = covertCargoManifest(deal.pendingShipment);
+    const spent = spendBlackMarketContractShipment(deal.pendingShipment, `Sold to ${contact.name}`);
     if (spent < deal.amount) {
       deal.status = "open";
       deal.taskId = "";
+      deal.pendingShipment = null; cancelCovertCollection(deal.id);
       addEvent(`Black market trade with ${contact.name} failed; ${deal.material} was no longer available.`);
       return false;
     }
+    LocalCovertMarket.handoff(market, deal.id, manifest, state.clock);
+    deal.pendingShipment = null;
     applyDoorTransitPolicy(task.data?.doorTransit, "Black market trade");
     state.scientist.roomId = CONCEALED_EXIT_ROOM_ID;
     state.scientist.mapCell = labMapRoomAnchor(CONCEALED_EXIT_ROOM_ID);
@@ -82931,6 +83201,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function nextBlackMarketEvent() {
     const economy = ensureEconomy();
     const events = [];
+    if (economy.intercitySmuggling?.shipments.some(s => ["depot", "outbound", "returning"].includes(s.phase))) events.push({ time: state.clock + SECONDS_PER_HOUR, label: "Intercity smuggling progress", type: "freight" });
+    if (localCovertRoute().ok) for (const job of economy.localCovertMarket?.collections || []) {
+      if (["outbound", "returning"].includes(job.phase)) events.push({ time: state.clock + Math.max(1, (job.phase === "outbound" ? job.distanceKm - job.positionKm : job.positionKm) / 24 * 3600), label: "Local covert courier arrival", type: "freight" });
+    }
     for (const deal of economy.deals) {
       if (deal.status === "open" && deal.expiresAt >= state.clock) events.push({ time: deal.expiresAt, label: `${blackMarketContactById(deal.contactId)?.name || "Black market"} offer expires`, type: "market" });
     }
@@ -82943,6 +83217,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function updateBlackMarketEconomy() {
     const economy = ensureEconomy();
+    advanceIntercitySmuggling(advanceLocalCovertCollections());
     let changes = 0;
     for (const deal of economy.deals) {
       if (deal.status !== "open" || state.clock < deal.expiresAt) continue;
@@ -82991,7 +83266,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       if (activeKinds.size >= BLACK_MARKET_DEALS_PER_CONTACT) contact.nextOfferAt = state.clock + BLACK_MARKET_OFFER_REFRESH_SECONDS;
     }
-    economy.deals = economy.deals.slice(-200);
+    economy.deals = retainCommodityHistory(economy.deals, ["open", "queued"]);
     economy.lastOfferRefreshAt = state.clock;
     return changes;
   }
@@ -83341,6 +83616,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       nextOfferAt: finiteTime(candidate?.nextOfferAt, 0),
       riskProfile,
       preferredTags,
+      homeCityId: String(candidate?.homeCityId || ""),
+      serviceCityIds: Array.isArray(candidate?.serviceCityIds) ? [...candidate.serviceCityIds] : [],
+      localPreferredTags: Array.isArray(candidate?.localPreferredTags) ? [...candidate.localPreferredTags] : [],
+      networkId: String(candidate?.networkId || ""),
       discoveredAt: finiteTime(candidate?.discoveredAt, 0),
       notes: String(candidate?.notes || `${archetype.label}; prefers ${preferredTags.join(", ")} byproducts.`)
     };
@@ -83394,18 +83673,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       taskId: status === "queued" ? String(candidate?.taskId || "") : "",
       createdAt: finiteTime(candidate?.createdAt, 0),
       completedAt: candidate?.completedAt === null || candidate?.completedAt === undefined ? null : finiteTime(candidate.completedAt, 0),
-      flavor: String(candidate?.flavor || blackMarketDealFlavor(contact, material, tags))
+      flavor: String(candidate?.flavor || blackMarketDealFlavor(contact, material, tags)),
+      cityTerms: candidate?.cityTerms ? clonePlainObject(candidate.cityTerms) : null,
+      pendingShipment: candidate?.pendingShipment ? clonePlainObject(candidate.pendingShipment) : null
     };
   }
 
   function normalizeBlackMarketContract(candidate, contacts = [], index = 0, seed = state?.seed || "seed") {
     const contact = contacts.find((entry) => entry.id === candidate?.contactId) || contacts[0] || createBlackMarketContact(seed, 1);
-    const status = ["active", "queued", "delivered", "completed", "defaulted", "failed", "canceled"].includes(candidate?.status) ? candidate.status : "active";
+    const status = ["active", "queued", "inTransit", "delivered", "completed", "defaulted", "failed", "canceled"].includes(candidate?.status) ? candidate.status : "active";
     const paymentTerm = BLACK_MARKET_PAYMENT_TERMS[candidate?.paymentTerm] ? candidate.paymentTerm : "delivery";
     const commodityKind = ["rawByproduct", "manufactured", "specimen"].includes(candidate?.commodityKind) ? candidate.commodityKind : "rawByproduct";
     const material = commodityKind === "rawByproduct" ? byproductInventoryKey(candidate?.material || "trace slime") || "trace slime" : String(candidate?.material || "Contraband shipment");
     return {
       id: String(candidate?.id || `contract-${index + 1}`),
+      foreignShipmentId: String(candidate?.foreignShipmentId || ""),
       offerId: String(candidate?.offerId || ""),
       contactId: contact.id,
       commodityKind,
@@ -83588,6 +83870,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       commodityOrders: normalizeCommodityOrders(candidate?.commodityOrders),
       commodityConsignments: normalizeCommodityConsignments(candidate?.commodityConsignments),
       exchangeCarrier: candidate?.exchangeCarrier ? clonePlainObject(candidate.exchangeCarrier) : null,
+      localCovertMarket: candidate?.localCovertMarket ? clonePlainObject(candidate.localCovertMarket) : null,
+      intercitySmuggling: candidate?.intercitySmuggling ? clonePlainObject(candidate.intercitySmuggling) : null,
       legalLedger: normalizeLegalLedger(candidate?.legalLedger),
       blackMarketReputation: clamp(Math.round(Number(candidate?.blackMarketReputation ?? fallback.blackMarketReputation) || 0), 0, BLACK_MARKET_REPUTATION_MAX),
       contacts: [],
