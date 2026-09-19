@@ -5,7 +5,7 @@ const { pathToFileURL } = require('url');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const { activeRunStorageKey } = require('./helpers/active-run-storage');
+test.setTimeout(60000);
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -14,15 +14,18 @@ async function startRun(page) {
     window.localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: 'dom' }));
   });
   await page.reload();
-  await page.locator('#titleNewRunBtn').click();
-  await page.locator('#setupForm button[type="submit"]').click();
+  await page.evaluate(() => window.helixHeresyDebug.setStrategicServiceTestNetwork({
+    homeDestinationId: 'site:lab', nearestSettlementDestinationId: 'city:a', routes: [],
+    destinations: [
+      { id: 'site:lab', kind: 'laboratorySite', cityId: 'a', label: 'Test laboratory', cellId: 'cell:1', supportComponentId: 'component:a', known: true, reachable: true, localDistanceKm: 8, routeContinuity: 'municipal', dangerBand: 'low' },
+      { id: 'city:a', kind: 'fortifiedCity', cityId: 'a', label: 'Local city', cellId: 'cell:1', supportComponentId: 'component:a', known: true, reachable: true }
+    ]
+  }, 'local-covert-tests'));
+  await page.keyboard.press('B');
 }
 
 async function savedState(page) {
-  return page.evaluate(({ key }) => {
-    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
-    return payload.state || payload;
-  }, { key: await activeRunStorageKey(page) });
+  return page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState());
 }
 
 test('contraband catalog exposes illicit formulas, transport pods, and separated offer categories', async ({ page }) => {
@@ -45,6 +48,77 @@ test('contraband catalog exposes illicit formulas, transport pods, and separated
   await expect(page.locator('[data-economy-category="rawByproducts"]')).toContainText('Raw Materials');
   await expect(page.locator('[data-economy-category="manufacturedContraband"]')).toContainText('Manufactured Goods');
   await expect(page.locator('[data-economy-category="livingSpecimens"]')).toContainText('Living Specimens');
+});
+
+test('local courier holds retain exact stock and terms through reload, then settle once at handoff', async ({ page }) => {
+  test.setTimeout(120000);
+  await startRun(page);
+  const setup = await page.evaluate(() => {
+    const d = window.helixHeresyDebug, offer = d.economySnapshot().deals.find(o => o.commodityKind === 'manufactured' && o.offerKind === 'contract');
+    const batch = d.addBlackMarketManufacturedBatch(offer.id);
+    d.acceptMarketContract(offer.id, 'standard', batch.id);
+    const contract = d.economySnapshot().contracts.find(c => c.offerId === offer.id);
+    d.setMarketContractOutcome(contract.id, { paymentFraction: 1, exposureRoll: 1 });
+    const booked = d.startMarketContractDelivery(contract.id);
+    return { offer, batch, contract, booked, clock: d.strategicJourneysSnapshot().clock };
+  });
+  expect(setup.booked).toBe(true);
+  const held = await page.evaluate(contactId => {
+    const d = window.helixHeresyDebug;
+    d.configureCovertContactForTest(contactId, { health: 0 });
+    d.advanceStrategicServices(1800);
+    const before = d.economySnapshot();
+    d.reloadSurveyExpeditionTestState();
+    return { before, after: d.economySnapshot(), state: d.exportSurveyExpeditionTestState() };
+  }, setup.offer.contactId);
+  expect(held.after.localCovertMarket).toEqual(held.before.localCovertMarket);
+  expect(held.after.money).toBe(0);
+  expect(held.after.localCovertMarket.collections[0]).toMatchObject({ phase: 'outbound', positionKm: 0, manifest: null });
+  expect(held.state.physicalItemStacks.some(s => s.id === setup.batch.id)).toBe(true);
+  await page.evaluate(contactId => {
+    const d = window.helixHeresyDebug; d.configureCovertContactForTest(contactId, { health: 100 });
+    d.advanceStrategicServices(1800);
+  }, setup.offer.contactId);
+  if ((await page.evaluate(() => window.helixHeresyDebug.economySnapshot().contracts[0].status)) === 'queued') {
+    await page.locator('[data-workspace-tab="tasks"]').click();
+    await page.locator('[data-task-row]').filter({ hasText: 'Deliver' }).filter({ hasText: setup.offer.material }).getByRole('button', { name: 'Finish' }).click();
+  }
+  const result = await page.evaluate(() => {
+    const d = window.helixHeresyDebug;
+    const delivered = d.economySnapshot();
+    d.reloadSurveyExpeditionTestState(); d.advanceStrategicServices(1800);
+    return { delivered, after: d.economySnapshot() };
+  });
+  expect(result.delivered.contracts[0].status).toBe('completed');
+  expect(result.delivered.localCovertMarket.collections[0]).toMatchObject({ phase: 'returning', owner: setup.offer.contactId });
+  expect(result.after.localCovertMarket.collections[0].phase).toBe('returned');
+  expect(result.after.money).toBe(result.delivered.money);
+  expect(result.after.money).toBeGreaterThan(0);
+});
+
+test('remote contact cannot reserve local cargo, and interrupted collection returns its original courier empty', async ({ page }) => {
+  test.setTimeout(90000);
+  await startRun(page);
+  const result = await page.evaluate(() => {
+    const d = window.helixHeresyDebug, offer = d.economySnapshot().deals.find(o => o.commodityKind === 'manufactured' && o.offerKind === 'contract');
+    const batch = d.addBlackMarketManufacturedBatch(offer.id);
+    d.configureCovertContactForTest(offer.contactId, { homeCityId: 'b', serviceCityIds: ['b'] });
+    const remoteAccepted = d.acceptMarketContract(offer.id, 'standard', batch.id);
+    const remote = d.economySnapshot();
+    d.configureCovertContactForTest(offer.contactId, { homeCityId: 'a', serviceCityIds: ['a'] });
+    d.acceptMarketContract(offer.id, 'standard', batch.id);
+    const contract = d.economySnapshot().contracts[0]; d.startMarketContractDelivery(contract.id);
+    d.advanceStrategicServices(300);
+    d.cancelTask(d.exportSurveyExpeditionTestState().tasks.find(t => t.data.contractId === contract.id).id);
+    const canceled = d.economySnapshot();
+    d.advanceStrategicServices(300);
+    return { remoteAccepted, remote, canceled, returned: d.economySnapshot(), batch };
+  });
+  expect(result.remoteAccepted).toBe(false); expect(result.remote.contracts).toHaveLength(0);
+  expect(result.canceled.localCovertMarket.collections[0]).toMatchObject({ phase: 'returning', canceled: true, manifest: null, positionKm: 2 });
+  expect(result.returned.localCovertMarket.collections[0].phase).toBe('canceled');
+  expect(result.returned.contracts[0].status).toBe('active');
+  expect(result.returned.money).toBe(0);
 });
 
 test('manufactured contracts reserve and deliver one exact qualifying batch', async ({ page }) => {
@@ -74,6 +148,9 @@ test('manufactured contracts reserve and deliver one exact qualifying batch', as
   const delivered = finalState.economy.contracts.find((candidate) => candidate.id === contract.id);
   expect(['delivered', 'completed']).toContain(delivered.status);
   expect(finalState.physicalItemStacks.some((stack) => stack.id === batch.id)).toBe(false);
+  const collection = finalState.economy.localCovertMarket.collections.find(c => c.obligationId === contract.id);
+  expect(collection).toMatchObject({ owner: contract.contactId, phase: 'returning' });
+  expect(collection.manifest.entries[0].stack).toMatchObject({ id: batch.id, chemicalBatch: batch.chemicalBatch });
   expect(finalState.economy.ledger.some((entry) => entry.contractId === contract.id && entry.kind === 'delivered')).toBe(true);
   expect(finalState.company.variances).toContainEqual(expect.objectContaining({
     kind: 'unexplainedInventoryLoss',
@@ -135,6 +212,10 @@ test('living-specimen contracts reserve a creature and pod, freeze high transpor
   const delivered = state.economy.contracts.find((candidate) => candidate.id === contract.id);
   expect(['delivered', 'completed']).toContain(delivered.status);
   expect(state.slimes.some((slime) => slime.id === specimen.id)).toBe(false);
+  const collection = state.economy.localCovertMarket.collections.find(c => c.obligationId === contract.id);
+  expect(collection).toMatchObject({ owner: contract.contactId, phase: 'returning' });
+  expect(collection.manifest.entries.find(e => e.kind === 'creature').creature).toMatchObject({ id: specimen.id, name: specimen.name });
+  expect(collection.manifest.entries.find(e => e.kind === 'transportPod').stack.id).toBe(pod.id);
   expect(state.physicalItemStacks.some((stack) => stack.id === pod.id)).toBe(false);
   expect(delivered.transportOutcome).toBe('secure');
 });
