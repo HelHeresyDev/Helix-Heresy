@@ -99,6 +99,53 @@ test('checkpoint UI submits an existing manifest and preserves detention across 
   expect(after.intercitySmuggling.shipments[0].inspection.documents).toHaveLength(1);
   expect(after.money).toBeGreaterThan(0); expect(errors).toEqual([]);
 });
+test('returned cargo recovery UI charges once and physically receives the original batch across reload', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const f = await setup(page);
+  const id = await page.evaluate(f => {
+    const d = window.helixHeresyDebug;
+    d.requestForeignSmuggling(f.deal.id, f.operatorId, f.batch.id); d.confirmForeignSmuggling();
+    return d.economySnapshot().contracts.find(c => c.foreignShipmentId).id;
+  }, f);
+  expect(await page.evaluate(id => window.helixHeresyDebug.startMarketContractDelivery(id), id)).toBe(true);
+  await page.locator('[data-workspace-tab="tasks"]').click();
+  await page.locator('[data-task-row]').filter({ hasText: 'Deliver' }).filter({ hasText: f.deal.material }).getByRole('button', { name: 'Finish' }).click();
+  const shipmentId = await page.evaluate(() => {
+    const d = window.helixHeresyDebug, saved = d.exportSurveyExpeditionTestState();
+    window.HelixSmugglingCheckpoints.bind(saved.economy.intercitySmuggling, [{ cityId: 'b', cellId: 'cell:2', institutionId: 'watch:b', jurisdiction: 'city' }]);
+    saved.economy.money = 100; d.importSurveyExpeditionTestState(saved);
+    d.advanceStrategicServices(1800); d.advanceStrategicServices(6000);
+    const id = d.economySnapshot().intercitySmuggling.shipments[0].id;
+    d.smugglingInspectionAction(id, 'return'); d.smugglingInspectionAction(id, 'manifest'); d.advanceStrategicServices(7200);
+    return id;
+  });
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  await page.getByRole('button', { name: 'Quote Depot Recovery' }).click();
+  await page.getByRole('button', { name: 'Confirm Paid Recovery' }).click();
+  const transit = await page.evaluate(() => {
+    const d = window.helixHeresyDebug; const before = d.economySnapshot(); d.reloadSurveyExpeditionTestState();
+    return { before, after: d.economySnapshot() };
+  });
+  expect(transit.after.intercitySmuggling).toEqual(transit.before.intercitySmuggling);
+  expect(transit.after.money).toBeLessThan(100); expect(transit.after.intercitySmuggling.shipments[0].manifest).toBeNull();
+  await page.evaluate(() => window.helixHeresyDebug.advanceStrategicServices(1800));
+  // Reload preserves UI state, but ensure the market panel is open after the test-state helper.
+  if (!(await page.getByRole('button', { name: 'Receive Recovered Cargo' }).isVisible())) {
+    await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  }
+  await page.getByRole('button', { name: 'Receive Recovered Cargo' }).click();
+  const received = await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState());
+  const stack = received.physicalItemStacks.find(s => s.chemicalBatch?.id === f.batch.chemicalBatch.id);
+  expect(stack).toBeTruthy(); expect(stack.roomId).toBe('concealedExit'); expect(stack.quantity).toBe(f.deal.amount);
+  expect(received.economy.money).toBe(transit.after.money);
+  expect(received.economy.intercitySmuggling.shipments[0].receiptAt).toBeNull();
+  const result = await page.evaluate(id => {
+    const d = window.helixHeresyDebug; const duplicate = d.cargoRecoveryAction(id, 'receive'); d.advanceStrategicServices(1800);
+    return { duplicate, local: d.economySnapshot().localCovertMarket };
+  }, shipmentId);
+  expect(result.duplicate.ok).toBe(false); expect(result.local.collections.find(j => j.kind === 'depotRecovery').phase).toBe('returned');
+  expect(errors).toEqual([]);
+});
 test('foreign cancellation releases exact stock and refunds buyer without altering local sale terms', async ({ page }) => {
   const f = await setup(page);
   const result = await page.evaluate(f => {
