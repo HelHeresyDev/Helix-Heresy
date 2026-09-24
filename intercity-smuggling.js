@@ -1,12 +1,12 @@
 (function (root, factory) {
-  const api = factory(typeof module === 'object' && module.exports ? require('./living-smuggling') : root.HelixLivingSmuggling);
+  const api = factory(typeof module === 'object' && module.exports ? require('./living-smuggling') : root.HelixLivingSmuggling,
+    typeof module === 'object' && module.exports ? require('./smuggling-checkpoints') : root.HelixSmugglingCheckpoints);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixIntercitySmuggling = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints) {
   'use strict';
   const HOUR = 3600, copy = v => JSON.parse(JSON.stringify(v));
-  const fingerprint = m => JSON.stringify({ commodityKind: m.commodityKind, material: m.material, amount: m.amount,
-    entries: m.commodityKind === 'specimen' ? m.entries.map(e => e.creature ? { id: e.creature.id, genome: e.creature.genome, pod: e.transportPodStackId } : { id: e.stack?.id, quality: e.stack?.craftsmanship, amount: e.amount }) : m.entries });
+  const fingerprint = Checkpoints.fingerprint;
   const physical = r => r?.supportCapable && !['closed', 'none'].includes(r.continuity) && Number.isFinite(r.distanceKm) && r.distanceKm > 0;
   const connects = (o, r) => physical(r) && r.id === o.routeId && r.endpointCityIds?.length === 2 && r.endpointCityIds.includes(o.sourceId) && r.endpointCityIds.includes(o.destinationId);
   const capable = o => o.condition >= 50 && o.crew.every(c => c.status === 'alive' && c.health >= 50 && c.fatigue < 80);
@@ -52,7 +52,7 @@
     if (net <= 0 || buyer.money < gross) return refuse(net <= 0 ? 'Foreign proceeds do not cover both freight legs.' : 'Foreign buyer cannot fund escrow.');
     return { ok: true, operatorId, buyerId: buyer.id, buyerName: buyer.name, destinationId: buyer.cityId, routeId: op.routeId, brokerId: request.brokerId, templateId: request.templateId,
       selectedId: request.selectedId, fingerprint: fingerprint(request.manifest), cargo: copy(request.cargo), gross, localFreight, intercityFreight, net,
-      material: request.manifest.material, batchRequirements: copy(request.batchRequirements || null),
+      material: request.manifest.material, batchRequirements: copy(request.batchRequirements || null), deliveryWindowSeconds: 72 * HOUR,
       ...journey, livingPlan: living, returnFee, localDistanceKm: request.localDistanceKm, terms: request.terms || '', at, expiresAt: at + HOUR };
   }
   function book(state, quoted, request, route, contractId, at) {
@@ -63,7 +63,7 @@
     const op = state.operators.find(o => o.id === fresh.operatorId), buyer = state.buyers.find(b => b.id === fresh.buyerId);
     buyer.money -= fresh.gross;
     const shipment = { ...copy(fresh), id: `smuggling-${state.nextNumber++}`, contractId, sourceId: state.homeId, owner: 'player', custodian: 'laboratory',
-      phase: 'awaitingCollection', bookedAt: at, lastAt: at, manifest: null, positionKm: 0, localEscrow: fresh.localFreight, freightEscrow: fresh.intercityFreight, playerEscrow: fresh.net,
+      phase: 'awaitingCollection', bookedAt: at, deliveryDeadlineAt: at + fresh.deliveryWindowSeconds, lastAt: at, manifest: null, positionKm: 0, localEscrow: fresh.localFreight, freightEscrow: fresh.intercityFreight, playerEscrow: fresh.net,
       returnEscrow: fresh.returnFee, receiptAt: null, settledAt: null, reason: '' };
     delete shipment.ok;
     state.shipments.push(shipment); op.assignment = shipment.id; op.lastAt = at;
@@ -107,11 +107,20 @@
       let cursor = s.lastAt, seconds = Math.max(0, now - s.lastAt); s.lastAt = Math.max(s.lastAt, now);
       const route = routes.find(r => r.id === op.routeId);
       if (s.phase === 'depot') {
+        Checkpoints.expire(state, s, now);
+        if (s.saleFailedAt != null) { s.phase = 'returned'; s.custodian = `covert-depot:${state.homeId}`; s.returnedAt = now; op.assignment = null; continue; }
         const journey = trip(op, route);
         if (!journey || route.distanceKm !== s.distanceKm) { s.reason = 'Departure held: route, crew or round-trip resources unavailable.'; continue; }
         op.money -= journey.hours; s.phase = 'outbound'; s.departedAt = now; s.custodian = op.vehicleId; s.reason = ''; continue;
       }
-      while (['outbound', 'returning'].includes(s.phase) && seconds > 0) {
+      while (['outbound', 'returning', 'inspecting', 'detained'].includes(s.phase) && seconds > 0) {
+        Checkpoints.expire(state, s, cursor);
+        if (Checkpoints.pending(s)) {
+          if (Checkpoints.tick(state, s, op, cursor)) {
+            const step = Math.min(seconds, 60); op.provisions = Math.max(0, op.provisions - step / (8 * HOUR));
+            seconds -= step; cursor += step; continue;
+          }
+        }
         if (!connects(op, route) || route.distanceKm !== s.distanceKm || !capable(op)) {
           op.provisions = Math.max(0, op.provisions - seconds / (8 * HOUR));
           s.reason = 'Transit held: route or crew unavailable; cargo, people and escrow preserved.'; break;
@@ -119,8 +128,9 @@
         const speed = 30 / (route.continuity === 'intermittent' ? 1.55 : route.continuity === 'degraded' ? 1.25 : 1);
         const remaining = s.phase === 'outbound' ? s.distanceKm - s.positionKm : s.positionKm;
         const conditionRange = Math.max(0, (op.condition - 50) / .02), fatigueRange = Math.min(...op.crew.map(c => Math.max(0, (80 - c.fatigue) / .04)));
-        const moved = Math.max(0, Math.min(remaining, seconds / HOUR * speed, op.provisions * 8 * speed, op.fuelKm, conditionRange, fatigueRange));
-        const arrived = moved + 1e-8 >= remaining, usedSeconds = arrived ? remaining / speed * HOUR : seconds;
+        const available = s.receiptAt === null && s.saleFailedAt == null ? Math.min(seconds, Math.max(0, s.deliveryDeadlineAt - cursor)) : seconds;
+        const moved = Math.max(0, Math.min(remaining, available / HOUR * speed, op.provisions * 8 * speed, op.fuelKm, conditionRange, fatigueRange));
+        const arrived = moved + 1e-8 >= remaining, usedSeconds = arrived ? remaining / speed * HOUR : available;
         op.provisions = Math.max(0, op.provisions - usedSeconds / (8 * HOUR));
         op.fuelKm -= moved; op.condition -= moved * .02; op.crew.forEach(c => { c.fatigue += moved * .04; });
         s.positionKm += s.phase === 'outbound' ? moved : -moved;
@@ -129,14 +139,18 @@
         seconds = Math.max(0, seconds - usedSeconds); cursor += usedSeconds;
         if (arrived) {
           if (s.phase === 'outbound') {
+            if (Checkpoints.expire(state, s, cursor)) continue;
+            if (Checkpoints.enter(state, s, op, cursor)) continue;
             s.phase = 'returning'; s.receiptAt = cursor; s.owner = s.buyerId; s.custodian = s.buyerId;
             op.money += s.freightEscrow; s.freightEscrow = 0;
           } else {
             s.phase = 'returned'; s.returnedAt = cursor; op.assignment = null; op.location = state.homeId;
+            if (s.receiptAt === null) s.custodian = `covert-depot:${state.homeId}`;
             op.crew.forEach(c => { c.fatigue = Math.max(0, c.fatigue - seconds / HOUR * 15); });
           }
         }
       }
+      Checkpoints.expire(state, s, now);
     }
     state.lastAt = Math.max(state.lastAt, now);
   }

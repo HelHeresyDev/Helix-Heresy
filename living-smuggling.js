@@ -1,8 +1,8 @@
 (function (root, factory) {
-  const api = factory();
+  const api = factory(typeof module === 'object' && module.exports ? require('./smuggling-checkpoints') : root.HelixSmugglingCheckpoints);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixLivingSmuggling = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Checkpoints) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v)), HOUR = 3600;
   const stat = (c, key) => Number(c.stats?.[key]?.current) || 0;
@@ -66,7 +66,7 @@
       sh.offsiteCreature = { creature: copy(c), kind: outcome === 'dead' ? 'corpse' : 'escapedCreature', at,
         location: { routeId: ['localTransit', 'depot', 'returnLocal', 'returnWaiting'].includes(sh.phase) ? `local:${sh.sourceId}` : sh.routeId, phase: sh.phase, positionKm: sh.positionKm, custodian: sh.custodian }, owner: 'player' };
       sh.manifest.entries = sh.manifest.entries.filter(e => !e.creature);
-      sh.custodian = 'offsite-record';
+      if (!Checkpoints.pending(sh)) sh.custodian = 'offsite-record';
     }
   }
   function care(state, sh, seconds, at) {
@@ -107,6 +107,8 @@
         op.provisions = Math.max(0, op.provisions - 60 / (8 * HOUR));
         if (sh.phase === 'localTransit') sh.positionKm = job?.positionKm || 0;
         if (sh.receiptAt === null) care(state, sh, 60, at);
+        Checkpoints.expire(state, sh, at);
+        if (Checkpoints.tick(state, sh, op, at)) continue;
         if (sh.phase === 'localTransit') {
           sh.positionKm = job?.positionKm || 0;
           if (job?.phase !== 'returned' || job.returnedAt > at) continue;
@@ -145,6 +147,7 @@
         if (sh.receiptAt === null && !sh.offsiteCreature) sh.custodian = op.vehicleId;
         if (moved + 1e-8 < remaining) continue;
         if (sh.phase === 'outbound') {
+          if (Checkpoints.enter(state, sh, op, at)) continue;
           const c = sh.manifest.entries.find(e => e.creature)?.creature;
           if (!c || stat(c, 'bodyIntegrity') < l.minimumHealth || stat(c, 'stress') > l.maximumStress) { fail(state, sh, 'arrivalRejected', at); sh.phase = 'returning'; }
           else {

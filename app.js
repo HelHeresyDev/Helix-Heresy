@@ -35,6 +35,7 @@
   const IntercityTrade = window.HelixIntercityTrade;
   const LocalCovertMarket = window.HelixLocalCovertMarket;
   const IntercitySmuggling = window.HelixIntercitySmuggling;
+  const SmugglingCheckpoints = window.HelixSmugglingCheckpoints;
   const LivingSmuggling = window.HelixLivingSmuggling;
   const StrategicDivineHistory = window.HelixStrategicDivineHistory;
   const StrategicCrisisHistory = window.HelixStrategicCrisisHistory;
@@ -13740,6 +13741,7 @@
       requestForeignSmuggling: (dealId, operatorId, selectedId = "") => requestForeignSmuggling(dealId, operatorId, selectedId),
       confirmForeignSmuggling: () => confirmForeignSmuggling(),
       receiveReturnedSpecimen: id => receiveReturnedSpecimen(id),
+      smugglingInspectionAction: (id, action) => smugglingInspectionAction(id, action),
       configureCovertContactForTest: (contactId, options = {}) => {
         const market = ensureLocalCovertMarket(), contact = blackMarketContactById(contactId), courier = market.couriers.find(c => c.contactId === contactId);
         if (!contact) return false;
@@ -61459,15 +61461,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function renderForeignSmuggling() {
     const market = ensureIntercitySmuggling();
-    const section = storesSectionEl("Foreign Smuggling", "Separate destination-delivery contracts. Living specimens require a biological carrier, known diet, suitable pod and finite care kit. Local sales remain local. No multi-hop, automated trading or interception simulation yet.", { economyCategory: "foreignSmuggling" });
+    const section = storesSectionEl("Foreign Smuggling", "Separate destination-delivery contracts. Destination gates can inspect and temporarily detain cargo. Living care continues. No automatic conviction, forfeiture, crew arrest or remote scientist arrest.", { economyCategory: "foreignSmuggling" });
     section.append(emptyText(market.message || "Request a foreign quote beside an eligible raw, manufactured or specimen contract offer below."));
     if (!market.operators.length) section.append(emptyText("No referred operator on a known supported direct neighboring corridor. Remote contact alone supplies no vehicle."));
     const q = market.quote;
     if (q) section.append(storesRowEl(`${q.buyerName} · destination ${q.destinationId}`, `${formatMoney(q.net)} net on receipt`, {
-      subtitle: `${q.material}; ${q.selectedId || "exact reserved receptacle contents"}; ${formatNumber(q.cargo.massKg)} kg / ${formatNumber(q.cargo.volumeL)} L; corridor ${q.routeId}, ${formatNumber(q.distanceKm)} km. Buyer escrow ${formatMoney(q.gross)}; local freight ${formatMoney(q.localFreight)} paid at home depot; intercity freight ${formatMoney(q.intercityFreight)} paid at foreign receipt. Expected intercity leg ${formatDuration(q.seconds)}, plus local hauling and collection. Quote expires ${formatClock(q.expiresAt)}. Collection uses the offer's deadline; nonliving delays preserve cargo and escrow, while biological contracts follow the survival and return terms below. ${q.terms}`,
+      subtitle: `${q.material}; ${q.selectedId || "exact reserved receptacle contents"}; ${formatNumber(q.cargo.massKg)} kg / ${formatNumber(q.cargo.volumeL)} L; corridor ${q.routeId}, ${formatNumber(q.distanceKm)} km. Buyer escrow ${formatMoney(q.gross)}; local freight ${formatMoney(q.localFreight)} paid at home depot; intercity freight ${formatMoney(q.intercityFreight)} paid at foreign receipt. Expected intercity leg ${formatDuration(q.seconds)}, plus local hauling and collection. Quote expires ${formatClock(q.expiresAt)}. Collection uses the offer's deadline; destination delivery, checkpoint and living-return terms follow below. ${q.terms}`,
       dataset: { foreignSmugglingQuote: q.operatorId }, actions: [storesActionButton("Confirm Foreign Contract", "Reserve this exact lot and dedicated intercity vehicle; the buyer funds all proceeds and freight.", confirmForeignSmuggling)]
     }));
     if (q?.livingPlan) section.append(emptyText(`Living terms: alive, health at least ${q.livingPlan.minimumHealth}, stress at most ${q.livingPlan.maximumStress} on arrival. ${q.livingPlan.reserveHours} hours of ${q.livingPlan.feedKey}, moisture and containment power reserved, including a six-hour safety margin. Seller bears failed-delivery risk: no sale proceeds after death, escape or rejection. Completed freight remains paid; unearned sale/transit escrow refunds the buyer. Emergency return reserve ${formatMoney(q.returnFee)} is deducted from gross, paid for a completed local return and refunded to the buyer if unused. Return only when physically feasible; bring the scientist and an empty usable container to the Concealed Exit to receive a returned specimen. Care continues while waiting.`));
+    if (q) section.append(emptyText(`Delivery deadline: ${formatClock(state.clock + q.deliveryWindowSeconds)} if booked now (72 hours from booking). Inspection keeps escrow reserved until receipt or failed delivery. Failure refunds unearned sale/transit escrow; earned freight stays paid. Nonliving returns stop at the home covert depot, not laboratory storage. Living return reserves remain committed until the physical return or their existing refund condition.`));
+    for (const gate of market.checkpoints || []) section.append(emptyText(`${gate.institutionName || gate.institutionId} · ${gate.id}: ${gate.policy}`));
     for (const op of market.operators) {
       const sh = market.shipments.find(s => s.id === op.assignment);
       const route = ensureStrategicJourneys().routes.find(r => r.id === op.routeId);
@@ -61480,10 +61484,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const sh of market.shipments) {
       const report = sh.living?.report;
       section.append(storesRowEl(sh.id, sh.phase, {
-      subtitle: `${sh.contractId}; owner ${sh.owner}; custodian ${sh.custodian}; destination ${sh.destinationId}; unpaid player escrow ${formatMoney(sh.playerEscrow)}. ${sh.receiptAt !== null ? `Buyer receipt ${formatClock(sh.receiptAt)}; cargo held separately from public stock.` : "No destination receipt yet."} ${sh.reason}`,
+      subtitle: `${sh.contractId}; owner ${sh.owner}; custodian ${sh.custodian}; destination ${sh.destinationId}; unpaid player escrow ${formatMoney(sh.playerEscrow)}. Delivery deadline ${formatClock(sh.deliveryDeadlineAt)}. ${sh.saleFailedAt != null ? "Sale ended; no later payment on recovered cargo." : ""} ${sh.receiptAt !== null ? `Buyer receipt ${formatClock(sh.receiptAt)}; cargo held separately from public stock.` : "No destination receipt yet."} ${sh.reason}`,
       dataset: { foreignShipment: sh.id },
-      actions: sh.phase === "returnWaiting" ? [storesActionButton("Receive Returned Specimen", "The scientist and an empty usable container must be present at the Concealed Exit. Then use ordinary container hauling or creature transfer to move it deeper into the lab.", () => receiveReturnedSpecimen(sh.id))] : []
+      actions: sh.phase === "returnWaiting" ? [storesActionButton("Receive Returned Specimen", "The scientist and an empty usable container must be present at the Concealed Exit. Then use ordinary container hauling or creature transfer to move it deeper into the lab.", () => receiveReturnedSpecimen(sh.id))] : SmugglingCheckpoints.pending(sh) ? [
+        storesActionButton("Submit Booked Cargo Manifest", "Submit the existing identity/quantity record. This is not permission to carry contraband.", () => smugglingInspectionAction(sh.id, "manifest")),
+        storesActionButton("Abandon Sale and Request Return", "Refund unearned sale/transit escrow. Detained cargo must first be released; the same carrier returns only over a feasible route.", () => smugglingInspectionAction(sh.id, "return"))] : []
     }));
+      if (sh.inspection) section.append(emptyText(`Checkpoint notice ${formatClock(sh.inspection.arrivedAt)} · ${sh.inspection.institutionName || sh.inspection.institutionId} · ${sh.inspection.status}. ${sh.inspection.reason} ${sh.inspection.releaseBy != null ? `Temporary custody expires ${formatClock(sh.inspection.releaseBy)}.` : ""} Owner ${sh.owner}; vehicle ${sh.inspection.vehicleId} not seized; crew not arrested. ${sh.inspection.documents.length} manifest submission(s). Deadline ${formatClock(sh.deliveryDeadlineAt)}. ${sh.saleFailedAt != null ? "Sale ended; recovered cargo cannot settle this contract." : ""}`));
       if (report) section.append(emptyText(`Handler report ${formatClock(report.at)}: health ${formatNumber(report.health)}, stress ${formatNumber(report.stress)}, nutrition ${formatNumber(report.nutrition)}, pod ${formatNumber(report.podCondition)}, care reserve about ${formatNumber(report.reserveHours)} hours. ${sh.living.outcome || "In care"}. This is a dated report, not continuous remote observation.`));
       if (sh.offsiteCreature) section.append(emptyText(`${sh.offsiteCreature.kind}: ${sh.offsiteCreature.creature.name} (${sh.offsiteCreature.creature.id}) retained at ${sh.offsiteCreature.location.routeId}, ${sh.offsiteCreature.location.phase}, ${formatNumber(sh.offsiteCreature.location.positionKm)} km. Recovery is not yet available.`));
     }
@@ -82126,7 +82133,25 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const broker = economy.contacts.find(c => c.homeCityId === local.cityId && c.serviceCityIds?.includes(local.cityId));
     IntercitySmuggling.discover(smuggling, network.routes, network.destinations, broker, state.clock);
     LivingSmuggling.provision(smuggling, FEEDSTOCK_DEFS.map(f => f.key), state.clock);
+    const map = activeWorldRecord?.generatedData?.strategicMap;
+    if (map) SmugglingCheckpoints.bind(smuggling, network.destinations.filter(d => d.kind === "fortifiedCity" && d.known && d.jurisdiction?.kind === "city" && !smuggling.checkpoints?.some(g => g.cityId === d.cityId)).flatMap(d => {
+      const government = map.cityGovernments?.governments.find(g => g.cityId === d.cityId);
+      const watch = government?.institutions.find(i => i.id === government.roleAssignments.civilWatch);
+      const current = map.strategicCivicHistory ? StrategicCivicHistory.currentInstitutionForRole(map, d.cityId, "civilWatch") : null;
+      if (!watch || map.strategicCivicHistory && (!current || ["displaced", "disrupted"].includes(current.operationalStatus))) return [];
+      return [{ cityId: d.cityId, cellId: d.cellId, jurisdiction: "city", institutionId: current?.institutionId || watch.id, institutionName: watch.publicName }];
+    }));
     return smuggling;
+  }
+
+  function smugglingInspectionAction(id, action) {
+    advanceIntercitySmuggling(advanceLocalCovertCollections());
+    const market = ensureIntercitySmuggling(), sh = market.shipments.find(s => s.id === id);
+    if (!sh || !SmugglingCheckpoints.pending(sh)) return false;
+    const ok = action === "manifest" ? SmugglingCheckpoints.submit(sh, sh.fingerprint, state.clock)
+      : action === "return" && SmugglingCheckpoints.requestReturn(market, sh, state.clock);
+    if (ok) market.message = action === "manifest" ? "Existing cargo manifest submitted for the next gate review; no authorization or guilt inferred." : "Sale abandoned. Physical return awaits release; earned freight is not refunded.";
+    persist(); render(); return Boolean(ok);
   }
 
   function foreignSmugglingRequest(dealId, operatorId, selectedId = "") {
@@ -82213,6 +82238,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     IntercitySmuggling.advance(market, state.clock, ensureStrategicJourneys().routes, LocalExchangeCarrier.support(exchangeCarrier(), state.clock).supplier);
     LivingSmuggling.advance(market, state.clock, ensureStrategicJourneys().routes, localCovertRoute(), local.collections);
+    for (const sh of market.shipments.filter(s => s.saleFailedAt != null)) {
+      const contract = blackMarketContractById(sh.contractId);
+      if (contract) { contract.status = "failed"; contract.outcome = "Foreign delivery ended without receipt; unearned sale/transit escrow refunded, exact property retained."; }
+    }
     for (const sh of market.shipments.filter(s => s.living)) {
       if (sh.localPaymentDue) {
         const collection = local.collections.find(c => c.obligationId === sh.contractId && !c.canceled);
@@ -83279,7 +83308,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function nextBlackMarketEvent() {
     const economy = ensureEconomy();
     const events = [];
-    if (economy.intercitySmuggling?.shipments.some(s => ["localTransit", "depot", "outbound", "returning", "returnLocal", "returnWaiting", "localEmpty"].includes(s.phase))) events.push({ time: state.clock + SECONDS_PER_HOUR, label: "Intercity smuggling progress", type: "freight" });
+    if (economy.intercitySmuggling?.shipments.some(s => ["localTransit", "depot", "outbound", "inspecting", "detained", "returning", "returnLocal", "returnWaiting", "localEmpty"].includes(s.phase))) events.push({ time: state.clock + SECONDS_PER_HOUR, label: "Intercity smuggling progress", type: "freight" });
     if (localCovertRoute().ok) for (const job of economy.localCovertMarket?.collections || []) {
       if (["outbound", "returning"].includes(job.phase)) events.push({ time: state.clock + Math.max(1, (job.phase === "outbound" ? job.distanceKm - job.positionKm : job.positionKm) / 24 * 3600), label: "Local covert courier arrival", type: "freight" });
     }
