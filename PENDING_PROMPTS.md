@@ -18,15 +18,14 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Living-Cargo Intercity Smuggling
-2. Smuggling Interception, Seizure, and Recovery
-3. World Integration: Investigations and Institutional Pressure
-4. Lazy Local Detail and World Discovery
-5. Roguelike Run Lifecycle, Death, Postmortem, and Restart
-6. Campaign Roadmap: From Hidden Laboratory to World Domination
-7. New-Run Onboarding and Contextual Tutorial
-8. Sound, Notifications, and Accessibility Audit
-9. Production Art Pass Using the Sprite Pipeline
+1. Smuggling Interception, Seizure, and Recovery
+2. World Integration: Investigations and Institutional Pressure
+3. Lazy Local Detail and World Discovery
+4. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+5. Campaign Roadmap: From Hidden Laboratory to World Domination
+6. New-Run Onboarding and Contextual Tutorial
+7. Sound, Notifications, and Accessibility Audit
+8. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -88,55 +87,51 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Living-Cargo Intercity Smuggling
-
-Discuss high-risk foreign creature requests on top of completed direct-neighbor nonliving smuggling. Existing local specimen sales still settle at the Concealed Exit, with exact creature/pod custody and saved breach outcomes. Foreign living cargo needs explicit destination-delivery terms, a capable dedicated carrier, feeding and other survival needs, finite containment support, stress and health during delays, escape or death outcomes that preserve the actual creature, and clear responsibility for transport failure and escrow. A living specimen must never become an inert generic crate. Bound the first playable slice before implementing; interception, remote rescue, transit resupply, multi-hop routing and automated foreign trading are not implicitly included.
-
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. Smuggling Interception, Seizure, and Recovery
+## 1. Smuggling Interception, Seizure, and Recovery
 
 Discuss causal discovery and interception of physical smuggling shipments. Nonliving foreign contracts already preserve player ownership until foreign receipt, exact cargo custody, buyer-funded escrow, finite separate operators, collection deadlines, local-depot and destination freight settlement, route/resource holds and empty returns. Build actual encounters, captors or seizing institutions, identified cargo/property custody, supported evidence and explicit recovery options rather than abstract disappearance rolls. Authorities act only within their supported jurisdiction; a lawful commercial permit does not authorize contraband, network branches create neither sovereignty nor free vehicles, and market activity alone does not prove guilt. Decide contract liability and treatment of unpaid escrow before changing existing hold behavior. Remote rescue, crew survival, physical reclaim/return routes and institutional proceedings may require separately approved slices; never invent replacement cargo or an automatic scientist death.
 
+Living freight now adds separately identified biological carriers and handlers, finite reserved diet/moisture/power kits, continuing needs and containment during holds, alive-arrival inspection, seller-risk escrow refunds, physically feasible safety/rejection returns, and an explicit laboratory receipt into containment at the Concealed Exit. Death and escape preserve an offsite individual/corpse with its actual location. Preserve these records, care clocks, paid freight, kit/handler custody and return commitments when introducing interception; captivity or recovery must not duplicate, reset or silently replace a specimen.
+
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. World Integration: Investigations and Institutional Pressure
+## 2. World Integration: Investigations and Institutional Pressure
 
 Design and implement world-context effects on company plausibility, inspections, investigations, religious scrutiny, escalation, and authority response. Context may alter priorities, schedules, thresholds, and available actions, but must not invent player guilt.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Lazy Local Detail and World Discovery
+## 3. Lazy Local Detail and World Discovery
 
 Design and implement deterministic elaboration of the already generated strategic world when a run encounters it. Lazy generation may fill minor places, institution branches, contacts, local histories, individuals, encounters, and exact maps while respecting canonical world facts and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+## 4. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 
 Design and implement the loop for beginning, losing, reviewing, and replacing a run without altering its reusable world. Only the scientist’s death ends a run; arrest, jail, prison, penal service, death sentence, loss of laboratory, and similar catastrophes remain playable while the scientist lives.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 5. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. The final campaign goal is rare world domination, but early hidden-laboratory survival must remain a complete roguelike experience.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. New-Run Onboarding and Contextual Tutorial
+## 6. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Sound, Notifications, and Accessibility Audit
+## 7. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. Production Art Pass Using the Sprite Pipeline
+## 8. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 

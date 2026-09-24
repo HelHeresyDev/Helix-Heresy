@@ -1,11 +1,12 @@
 (function (root, factory) {
-  const api = factory();
+  const api = factory(typeof module === 'object' && module.exports ? require('./living-smuggling') : root.HelixLivingSmuggling);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixIntercitySmuggling = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living) {
   'use strict';
   const HOUR = 3600, copy = v => JSON.parse(JSON.stringify(v));
-  const fingerprint = m => JSON.stringify({ commodityKind: m.commodityKind, material: m.material, amount: m.amount, entries: m.entries });
+  const fingerprint = m => JSON.stringify({ commodityKind: m.commodityKind, material: m.material, amount: m.amount,
+    entries: m.commodityKind === 'specimen' ? m.entries.map(e => e.creature ? { id: e.creature.id, genome: e.creature.genome, pod: e.transportPodStackId } : { id: e.stack?.id, quality: e.stack?.craftsmanship, amount: e.amount }) : m.entries });
   const physical = r => r?.supportCapable && !['closed', 'none'].includes(r.continuity) && Number.isFinite(r.distanceKm) && r.distanceKm > 0;
   const connects = (o, r) => physical(r) && r.id === o.routeId && r.endpointCityIds?.length === 2 && r.endpointCityIds.includes(o.sourceId) && r.endpointCityIds.includes(o.destinationId);
   const capable = o => o.condition >= 50 && o.crew.every(c => c.status === 'alive' && c.health >= 50 && c.fatigue < 80);
@@ -39,16 +40,20 @@
     const op = state.operators.find(o => o.id === operatorId), journey = trip(op, route);
     const refuse = reason => ({ ok: false, reason });
     if (!journey || op.assignment || op.location !== state.homeId) return refuse('No idle dedicated smuggler with a supported direct route and funded round trip.');
-    if (!['rawByproduct', 'manufactured'].includes(request?.manifest?.commodityKind) || request.manifest.entries?.some(e => e.creature || ['creature', 'transportPod'].includes(e.kind))) return refuse('Living cargo requires a separate containment and survival contract.');
+    const living = request?.manifest?.commodityKind === 'specimen' ? Living.plan(op, request, journey) : null;
+    if (living && !living.ok) return living;
+    if (!living && (!['rawByproduct', 'manufactured'].includes(request?.manifest?.commodityKind) || request.manifest.entries?.some(e => e.creature || ['creature', 'transportPod'].includes(e.kind)))) return refuse('Living cargo requires a separate containment and survival contract.');
     if (!request.manifest.entries?.length || !Number.isFinite(request.cargo?.massKg) || !Number.isFinite(request.cargo?.volumeL) || request.cargo.massKg <= 0 || request.cargo.volumeL <= 0 || request.cargo.massKg > op.capacityKg || request.cargo.volumeL > op.capacityL) return refuse('Exact nonliving cargo must fit the dedicated vehicle.');
     if (!Number.isFinite(request.localDistanceKm) || request.localDistanceKm <= 0 || !Number.isFinite(request.value) || request.value <= 0) return refuse('A local collection route and buyer valuation are required.');
     const gross = Math.floor(request.value), localFreight = Math.ceil(8 + request.localDistanceKm * .2), intercityFreight = Math.ceil(12 + journey.hours * 1.2 + journey.distanceKm * .12 + journey.food * 12);
-    const net = gross - localFreight - intercityFreight, buyer = state.buyers.find(b => b.id === op.buyerId);
+    if (living && (request.cargo.massKg + living.kitKg > op.capacityKg || request.cargo.volumeL + living.kitL > op.capacityL)) return refuse('Specimen, pod and care kit exceed biological vehicle capacity.');
+    const returnFee = living?.returnFee || 0;
+    const net = gross - localFreight - intercityFreight - returnFee, buyer = state.buyers.find(b => b.id === op.buyerId);
     if (net <= 0 || buyer.money < gross) return refuse(net <= 0 ? 'Foreign proceeds do not cover both freight legs.' : 'Foreign buyer cannot fund escrow.');
     return { ok: true, operatorId, buyerId: buyer.id, buyerName: buyer.name, destinationId: buyer.cityId, routeId: op.routeId, brokerId: request.brokerId, templateId: request.templateId,
       selectedId: request.selectedId, fingerprint: fingerprint(request.manifest), cargo: copy(request.cargo), gross, localFreight, intercityFreight, net,
       material: request.manifest.material, batchRequirements: copy(request.batchRequirements || null),
-      ...journey, localDistanceKm: request.localDistanceKm, terms: request.terms || '', at, expiresAt: at + HOUR };
+      ...journey, livingPlan: living, returnFee, localDistanceKm: request.localDistanceKm, terms: request.terms || '', at, expiresAt: at + HOUR };
   }
   function book(state, quoted, request, route, contractId, at) {
     const fresh = offer(state, quoted?.operatorId, request, route, at);
@@ -59,9 +64,10 @@
     buyer.money -= fresh.gross;
     const shipment = { ...copy(fresh), id: `smuggling-${state.nextNumber++}`, contractId, sourceId: state.homeId, owner: 'player', custodian: 'laboratory',
       phase: 'awaitingCollection', bookedAt: at, lastAt: at, manifest: null, positionKm: 0, localEscrow: fresh.localFreight, freightEscrow: fresh.intercityFreight, playerEscrow: fresh.net,
-      receiptAt: null, settledAt: null, reason: '' };
+      returnEscrow: fresh.returnFee, receiptAt: null, settledAt: null, reason: '' };
     delete shipment.ok;
     state.shipments.push(shipment); op.assignment = shipment.id; op.lastAt = at;
+    if (fresh.livingPlan) Living.reserve(op, shipment, fresh.livingPlan);
     return { ok: true, shipment };
   }
   function markCollected(state, id, manifest, courierId, at) {
@@ -78,14 +84,17 @@
   function cancel(state, id, at) {
     const s = state.shipments.find(s => s.id === id);
     if (!s || s.phase !== 'awaitingCollection') return false;
-    state.buyers.find(b => b.id === s.buyerId).money += s.localEscrow + s.freightEscrow + s.playerEscrow;
-    s.localEscrow = s.freightEscrow = s.playerEscrow = 0; s.phase = 'canceled'; s.canceledAt = at;
-    state.operators.find(o => o.id === s.operatorId).assignment = null; return true;
+    state.buyers.find(b => b.id === s.buyerId).money += s.localEscrow + s.freightEscrow + s.playerEscrow + (s.returnEscrow || 0);
+    const op = state.operators.find(o => o.id === s.operatorId), kitAway = s.living?.localJobId && !s.living.kitAtDepot;
+    if (!kitAway) Living.release(op, s);
+    s.localEscrow = s.freightEscrow = s.playerEscrow = s.returnEscrow = 0; s.phase = 'canceled'; s.canceledAt = at;
+    if (!kitAway) op.assignment = null; return true;
   }
   function advance(state, now, routes, supplier = null) {
     for (const op of state.operators) {
       const elapsed = Math.max(0, now - op.lastAt); op.lastAt = Math.max(op.lastAt, now);
       const s = state.shipments.find(s => s.id === op.assignment);
+      if (s?.living) continue;
       if (!s || ['awaitingCollection', 'localTransit', 'depot'].includes(s.phase)) {
         op.crew.forEach(c => { c.fatigue = Math.max(0, c.fatigue - elapsed / HOUR * 15); });
         if (supplier?.routeOpen) {
