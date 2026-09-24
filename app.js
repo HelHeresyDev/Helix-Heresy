@@ -34,6 +34,7 @@
   const LocalExchangeCarrier = window.HelixLocalExchangeCarrier;
   const IntercityTrade = window.HelixIntercityTrade;
   const LocalCovertMarket = window.HelixLocalCovertMarket;
+  const CargoRecovery = window.HelixCargoRecovery;
   const IntercitySmuggling = window.HelixIntercitySmuggling;
   const SmugglingCheckpoints = window.HelixSmugglingCheckpoints;
   const LivingSmuggling = window.HelixLivingSmuggling;
@@ -13741,6 +13742,7 @@
       requestForeignSmuggling: (dealId, operatorId, selectedId = "") => requestForeignSmuggling(dealId, operatorId, selectedId),
       confirmForeignSmuggling: () => confirmForeignSmuggling(),
       receiveReturnedSpecimen: id => receiveReturnedSpecimen(id),
+      cargoRecoveryAction: (id, action) => cargoRecoveryAction(id, action),
       smugglingInspectionAction: (id, action) => smugglingInspectionAction(id, action),
       configureCovertContactForTest: (contactId, options = {}) => {
         const market = ensureLocalCovertMarket(), contact = blackMarketContactById(contactId), courier = market.couriers.find(c => c.contactId === contactId);
@@ -61465,6 +61467,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     section.append(emptyText(market.message || "Request a foreign quote beside an eligible raw, manufactured or specimen contract offer below."));
     if (!market.operators.length) section.append(emptyText("No referred operator on a known supported direct neighboring corridor. Remote contact alone supplies no vehicle."));
     const q = market.quote;
+    const recoveryQuote = market.recoveryQuote;
+    if (recoveryQuote) section.append(storesRowEl(`Recover ${recoveryQuote.shipmentId}`, formatMoney(recoveryQuote.fee), {
+      subtitle: `Player-funded local round trip, ${formatNumber(recoveryQuote.distanceKm)} km each way; ${formatDuration(recoveryQuote.travelSeconds)} outward. Fee paid to the courier on dispatch, nonrefundable after departure. Whole manifest only. Quote expires ${formatClock(recoveryQuote.expiresAt)}. Scientist receipt at the Concealed Exit required; raw cargo needs empty compatible receptacles there. No revival of the failed sale.`,
+      actions: [storesActionButton("Confirm Paid Recovery", "Reserve the actual covert courier and pay this new fee from player funds.", () => cargoRecoveryAction(recoveryQuote.shipmentId, "confirm"))]
+    }));
     if (q) section.append(storesRowEl(`${q.buyerName} · destination ${q.destinationId}`, `${formatMoney(q.net)} net on receipt`, {
       subtitle: `${q.material}; ${q.selectedId || "exact reserved receptacle contents"}; ${formatNumber(q.cargo.massKg)} kg / ${formatNumber(q.cargo.volumeL)} L; corridor ${q.routeId}, ${formatNumber(q.distanceKm)} km. Buyer escrow ${formatMoney(q.gross)}; local freight ${formatMoney(q.localFreight)} paid at home depot; intercity freight ${formatMoney(q.intercityFreight)} paid at foreign receipt. Expected intercity leg ${formatDuration(q.seconds)}, plus local hauling and collection. Quote expires ${formatClock(q.expiresAt)}. Collection uses the offer's deadline; destination delivery, checkpoint and living-return terms follow below. ${q.terms}`,
       dataset: { foreignSmugglingQuote: q.operatorId }, actions: [storesActionButton("Confirm Foreign Contract", "Reserve this exact lot and dedicated intercity vehicle; the buyer funds all proceeds and freight.", confirmForeignSmuggling)]
@@ -61483,13 +61490,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     for (const sh of market.shipments) {
       const report = sh.living?.report;
+      const recovery = ensureLocalCovertMarket().collections.find(j => j.id === sh.recoveryJobId);
       section.append(storesRowEl(sh.id, sh.phase, {
       subtitle: `${sh.contractId}; owner ${sh.owner}; custodian ${sh.custodian}; destination ${sh.destinationId}; unpaid player escrow ${formatMoney(sh.playerEscrow)}. Delivery deadline ${formatClock(sh.deliveryDeadlineAt)}. ${sh.saleFailedAt != null ? "Sale ended; no later payment on recovered cargo." : ""} ${sh.receiptAt !== null ? `Buyer receipt ${formatClock(sh.receiptAt)}; cargo held separately from public stock.` : "No destination receipt yet."} ${sh.reason}`,
       dataset: { foreignShipment: sh.id },
       actions: sh.phase === "returnWaiting" ? [storesActionButton("Receive Returned Specimen", "The scientist and an empty usable container must be present at the Concealed Exit. Then use ordinary container hauling or creature transfer to move it deeper into the lab.", () => receiveReturnedSpecimen(sh.id))] : SmugglingCheckpoints.pending(sh) ? [
         storesActionButton("Submit Booked Cargo Manifest", "Submit the existing identity/quantity record. This is not permission to carry contraband.", () => smugglingInspectionAction(sh.id, "manifest")),
-        storesActionButton("Abandon Sale and Request Return", "Refund unearned sale/transit escrow. Detained cargo must first be released; the same carrier returns only over a feasible route.", () => smugglingInspectionAction(sh.id, "return"))] : []
+        storesActionButton("Abandon Sale and Request Return", "Refund unearned sale/transit escrow. Detained cargo must first be released; the same carrier returns only over a feasible route.", () => smugglingInspectionAction(sh.id, "return"))] : recovery?.phase === "waiting" ? [storesActionButton("Receive Recovered Cargo", "Receive the whole manifest at the Concealed Exit; raw cargo requires compatible empty receptacles.", () => cargoRecoveryAction(sh.id, "receive"))] : !sh.living && sh.phase === "returned" && sh.owner === "player" && sh.manifest && !sh.recoveryJobId ? [storesActionButton("Quote Depot Recovery", "Request a separate player-funded local courier trip for this exact manifest.", () => cargoRecoveryAction(sh.id, "quote"))] : []
     }));
+      if (recovery) section.append(emptyText(`Recovery ${recovery.id}: ${recovery.phase}; courier ${recovery.courierId}; ${formatNumber(recovery.positionKm)} / ${formatNumber(recovery.distanceKm)} km; ${formatMoney(recovery.fee)} paid separately. ${recovery.reason || ""} ${recovery.receivedAt != null ? "Cargo received in laboratory; courier must return empty before reuse." : "Player-owned cargo remains aboard the courier; no sale proceeds."}`));
       if (sh.inspection) section.append(emptyText(`Checkpoint notice ${formatClock(sh.inspection.arrivedAt)} · ${sh.inspection.institutionName || sh.inspection.institutionId} · ${sh.inspection.status}. ${sh.inspection.reason} ${sh.inspection.releaseBy != null ? `Temporary custody expires ${formatClock(sh.inspection.releaseBy)}.` : ""} Owner ${sh.owner}; vehicle ${sh.inspection.vehicleId} not seized; crew not arrested. ${sh.inspection.documents.length} manifest submission(s). Deadline ${formatClock(sh.deliveryDeadlineAt)}. ${sh.saleFailedAt != null ? "Sale ended; recovered cargo cannot settle this contract." : ""}`));
       if (report) section.append(emptyText(`Handler report ${formatClock(report.at)}: health ${formatNumber(report.health)}, stress ${formatNumber(report.stress)}, nutrition ${formatNumber(report.nutrition)}, pod ${formatNumber(report.podCondition)}, care reserve about ${formatNumber(report.reserveHours)} hours. ${sh.living.outcome || "In care"}. This is a dated report, not continuous remote observation.`));
       if (sh.offsiteCreature) section.append(emptyText(`${sh.offsiteCreature.kind}: ${sh.offsiteCreature.creature.name} (${sh.offsiteCreature.creature.id}) retained at ${sh.offsiteCreature.location.routeId}, ${sh.offsiteCreature.location.phase}, ${formatNumber(sh.offsiteCreature.location.positionKm)} km. Recovery is not yet available.`));
@@ -82266,6 +82275,29 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         recordBlackMarketLedger("foreignReceipt", `${sh.destinationId} received ${contract.material}; ${formatMoney(paid)} paid once from escrow.`, { contractId: contract.id, contactId: contract.contactId, amount: paid });
       }
     }
+  }
+
+  function cargoRecoveryAction(id, action) {
+    const local = advanceLocalCovertCollections(); advanceIntercitySmuggling(local);
+    const market = ensureIntercitySmuggling(), sh = market.shipments.find(s => s.id === id), economy = ensureEconomy();
+    const contact = blackMarketContactById(sh?.brokerId);
+    let result = { ok: false, reason: "Unknown recovery action." };
+    if (action === "quote") {
+      result = CargoRecovery.quote(local, sh, contact, localCovertRoute(), state.clock);
+      market.recoveryQuote = result.ok ? result : null;
+    } else if (action === "confirm") {
+      result = CargoRecovery.book(local, sh, contact, localCovertRoute(), market.recoveryQuote, economy, state.clock);
+      if (result.ok) { market.recoveryQuote = null; recordBlackMarketLedger("cargoRecovery", `${sh.id}: ${formatMoney(result.job.fee)} paid for local recovery. Original sale remains closed.`, { contractId: sh.contractId, amount: -result.job.fee }); }
+    } else if (action === "receive") {
+      result = CargoRecovery.receive(local, sh, ensurePhysicalItemStacks(), {
+        scientistPresent: scientistRoomId() === CONCEALED_EXIT_ROOM_ID && !scientistIsDead() && !actorIsIncapacitated("scientist"),
+        roomId: CONCEALED_EXIT_ROOM_ID, cell: scientistMapCell(),
+        capacities: Object.fromEntries(Object.values(COLLECTION_BAY_RECEPTACLE_DEFS).map(d => [d.itemKey, d.capacity]))
+      }, state.clock);
+      if (result.ok) { syncPhysicalReadModels(); recordBlackMarketLedger("cargoRecovered", `${sh.id}: exact cargo received at Concealed Exit; use normal hauling for laboratory storage.`, { contractId: sh.contractId }); }
+    }
+    market.message = result.ok ? action === "quote" ? "Review and explicitly confirm the separate recovery fee." : action === "confirm" ? "Paid recovery dispatched; cargo remains player-owned aboard the actual courier." : "Whole manifest received at the Concealed Exit. No sale payment was issued." : result.reason;
+    persist(); render(); return result;
   }
 
   function receiveReturnedSpecimen(id) {

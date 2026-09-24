@@ -57,7 +57,7 @@
       }
       const job = state.collections.find(c => c.id === courier.assignment);
       const seconds = Math.max(0, now - job.lastAt); job.lastAt = Math.max(now, job.lastAt);
-      if (!route?.ok || route.cityId !== job.cityId || !capable(courier)) { job.reason = 'Collection held: local route or courier unavailable; cargo and ownership preserved.'; continue; }
+      if (!route?.ok || route.cityId !== job.cityId || job.kind === 'depotRecovery' && route.distanceKm !== job.distanceKm || !capable(courier)) { job.reason = 'Collection held: local route or courier unavailable; cargo and ownership preserved.'; continue; }
       job.reason = '';
       if (job.phase === 'waiting') continue;
       const remaining = job.phase === 'outbound' ? job.distanceKm - job.positionKm : job.positionKm;
@@ -80,7 +80,7 @@
   }
   function cancel(state, obligationId, at) {
     const job = state.collections.find(c => c.obligationId === obligationId && ['outbound', 'waiting'].includes(c.phase));
-    if (!job) return false;
+    if (!job || job.kind === 'depotRecovery') return false;
     job.canceled = true; job.phase = 'returning'; job.lastAt = at;
     const courier = state.couriers.find(c => c.id === job.courierId); courier.location = 'returning empty';
     if (job.positionKm <= 0) { job.phase = 'canceled'; job.returnedAt = at; courier.assignment = null; courier.location = 'city depot'; }
