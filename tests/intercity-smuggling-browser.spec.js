@@ -71,6 +71,34 @@ test('foreign UI confirms exact cargo, preserves local offer, and settles only a
   expect(result.returned.intercitySmuggling.shipments[0].manifest.entries[0].stack.chemicalBatch.id).toBe(f.batch.chemicalBatch.id);
   expect(errors).toEqual([]);
 });
+test('checkpoint UI submits an existing manifest and preserves detention across reload before physical release', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const f = await setup(page);
+  const id = await page.evaluate(f => {
+    const d = window.helixHeresyDebug;
+    d.requestForeignSmuggling(f.deal.id, f.operatorId, f.batch.id); d.confirmForeignSmuggling();
+    return d.economySnapshot().contracts.find(c => c.foreignShipmentId).id;
+  }, f);
+  expect(await page.evaluate(id => window.helixHeresyDebug.startMarketContractDelivery(id), id)).toBe(true);
+  await page.locator('[data-workspace-tab="tasks"]').click();
+  await page.locator('[data-task-row]').filter({ hasText: 'Deliver' }).filter({ hasText: f.deal.material }).getByRole('button', { name: 'Finish' }).click();
+  const before = await page.evaluate(() => {
+    const d = window.helixHeresyDebug, saved = d.exportSurveyExpeditionTestState();
+    window.HelixSmugglingCheckpoints.bind(saved.economy.intercitySmuggling, [{ cityId: 'b', cellId: 'cell:2', institutionId: 'watch:b', institutionName: 'Neighbor Watch', jurisdiction: 'city' }]);
+    d.importSurveyExpeditionTestState(saved); d.advanceStrategicServices(1800); d.advanceStrategicServices(6000);
+    const before = d.economySnapshot(); d.reloadSurveyExpeditionTestState();
+    return { before, after: d.economySnapshot() };
+  });
+  expect(before.after.intercitySmuggling).toEqual(before.before.intercitySmuggling);
+  expect(before.after.intercitySmuggling.shipments[0].phase).toBe('detained'); expect(before.after.money).toBe(0);
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  await expect(page.locator('[data-foreign-shipment]')).toContainText('freight-gate:b');
+  await page.getByRole('button', { name: 'Submit Booked Cargo Manifest' }).click();
+  const after = await page.evaluate(() => { const d = window.helixHeresyDebug; d.advanceStrategicServices(600); return d.economySnapshot(); });
+  expect(after.intercitySmuggling.shipments[0].inspection.status).toBe('released');
+  expect(after.intercitySmuggling.shipments[0].inspection.documents).toHaveLength(1);
+  expect(after.money).toBeGreaterThan(0); expect(errors).toEqual([]);
+});
 test('foreign cancellation releases exact stock and refunds buyer without altering local sale terms', async ({ page }) => {
   const f = await setup(page);
   const result = await page.evaluate(f => {
