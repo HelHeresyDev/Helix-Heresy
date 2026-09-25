@@ -1,8 +1,8 @@
 (function (root, factory) {
-  const api = factory();
+  const api = factory(typeof module === 'object' && module.exports ? require('./cargo-examination') : root.HelixCargoExamination);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixCargoPropertyReview = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Examination) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v));
   // Authored named goods, not a mapping from arbitrary market or creature tags to offenses.
@@ -14,6 +14,7 @@
     if (gate.propertyRules || !court?.institutionId || !['prohibited', 'restricted'].includes(code?.legalStatus)) return;
     gate.judiciary = { ...copy(court), cityId: gate.cityId, active: true };
     gate.authorizations = [];
+    Examination.provision(gate);
     gate.propertyRules = PRODUCTS.map(([productId, label]) => ({ id: `${gate.cityId}:cargo:${productId}`, cityId: gate.cityId,
       productId, label, offenseId: 'contrabandCommerce', publishedAt: at, effectiveAt: at, active: true,
       sourceCodeId: `city-code:${gate.cityId}`, authority: 'publishedCityCode', scope: 'destinationGateCargo', permitsSpecificAuthorization: true,
@@ -42,6 +43,7 @@
         stackId: g.entry.stack.id, label: g.entry.stack.chemicalBatch.label, quantity: g.entry.amount,
         finding: 'Readable package label at the gate supports inquiry, not verified composition, knowledge or criminal guilt.' },
       owner: sh.owner, vehicleSeized: false, crewDetained: false, handlerCareAccess: true, petitions: [], decisions: [] };
+    Examination.authorize(gate, sh, at);
     return true;
   }
   function petition(sh, kind, at, documentIds = []) {
@@ -57,7 +59,8 @@
     const rule = gate.propertyRules?.find(r => r.id === order.rule.id);
     if (!rule?.active || rule.cityId !== order.cityId || rule.scope !== 'destinationGateCargo' || rule.publishedAt > order.issuedAt || rule.effectiveAt > order.issuedAt) return 'The cited published rule does not apply to this order.';
     const entry = sh.manifest?.entries.find(e => e.stack?.id === order.evidence.stackId);
-    if (!entry || entry.stack.chemicalBatch?.packaging?.state !== 'packaged' || entry.stack.chemicalBatch.label !== order.evidence.label || rule.label !== order.evidence.label || entry.amount !== order.evidence.quantity) return 'The recorded property identification is not supported by the retained consignment.';
+    if (!entry || entry.stack.chemicalBatch?.packaging?.state !== 'packaged' || entry.stack.chemicalBatch.label !== order.evidence.label || rule.label !== order.evidence.label || Math.abs(entry.amount + Examination.sampled(sh) - order.evidence.quantity) > 1e-8) return 'The recorded property identification is not supported by the retained consignment.';
+    if (sh.examination?.reports.some(r => r.method === 'sealedSampleConfirmatoryAssay' && r.result === 'targetNotDetected' && r.supported)) return 'Supported confirmation did not detect the scheduled substance; the label alone no longer supports this inquiry.';
     const permit = (gate.authorizations || []).find(d => petition?.documentIds.includes(d.id) && d.status === 'active'
       && d.cityId === order.cityId && d.issuerId === order.institutionId && d.holderId === sh.owner && d.productId === rule.productId
       && d.scope === 'destinationGateCargo' && d.validFrom <= order.evidence.at && d.expiresAt > at && d.quantity >= entry.amount);
@@ -67,6 +70,7 @@
     const o = sh.propertyOrder; if (!o || o.status !== 'active') return false;
     const p = o.petitions.find(p => p.status === 'pending' && p.reviewAt <= at);
     const reason = basis(gate, sh, o, p, at);
+    if (!reason && at < o.expiresAt) Examination.tick(gate, sh, at);
     if (p || reason || at >= o.expiresAt) {
       const release = Boolean(reason) || at >= o.expiresAt;
       const decision = { at, petitionId: p?.id || null, institutionId: gate?.judiciary?.institutionId || o.institutionId,
@@ -74,7 +78,7 @@
         reason: reason || (release ? 'Temporary order expired; no renewal or forfeiture authority exists.' : 'Recorded label, exact property, applicable published restriction and local jurisdiction support temporary verification only. No criminal guilt determined.'),
         expiresAt: o.expiresAt };
       o.decisions.push(decision); if (p) p.status = 'decided';
-      if (release) { o.status = 'released'; o.releasedAt = at; o.reason = decision.reason; for (const pending of o.petitions.filter(p => p.status === 'pending')) pending.status = 'moot'; return false; }
+      if (release) { o.status = 'released'; o.releasedAt = at; o.reason = decision.reason; Examination.stop(gate, sh, at, decision.reason); for (const pending of o.petitions.filter(p => p.status === 'pending')) pending.status = 'moot'; return false; }
     }
     sh.phase = 'detained'; sh.custodian = gate.id; sh.inspection.status = 'propertySeized';
     sh.reason = `${o.id}: temporary cargo custody until ${o.expiresAt}; ownership unchanged, handler care permitted. Remote factual review available.`;

@@ -38,6 +38,7 @@
   const IntercitySmuggling = window.HelixIntercitySmuggling;
   const SmugglingCheckpoints = window.HelixSmugglingCheckpoints;
   const CargoPropertyReview = window.HelixCargoPropertyReview;
+  const CargoExamination = window.HelixCargoExamination;
   const LivingSmuggling = window.HelixLivingSmuggling;
   const StrategicDivineHistory = window.HelixStrategicDivineHistory;
   const StrategicCrisisHistory = window.HelixStrategicCrisisHistory;
@@ -13746,6 +13747,7 @@
       cargoRecoveryAction: (id, action) => cargoRecoveryAction(id, action),
       smugglingInspectionAction: (id, action) => smugglingInspectionAction(id, action),
       cargoPropertyReviewAction: (id, kind) => cargoPropertyReviewAction(id, kind),
+      cargoExaminationChallenge: (id, reportId, kind) => cargoExaminationChallenge(id, reportId, kind),
       configureCovertContactForTest: (contactId, options = {}) => {
         const market = ensureLocalCovertMarket(), contact = blackMarketContactById(contactId), courier = market.couriers.find(c => c.contactId === contactId);
         if (!contact) return false;
@@ -61483,6 +61485,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const gate of market.checkpoints || []) {
       section.append(emptyText(`${gate.institutionName || gate.institutionId} · ${gate.id}: ${gate.policy}`));
       for (const rule of gate.propertyRules || []) section.append(emptyText(`${rule.id} · published ${formatClock(rule.publishedAt)}: ${rule.text}`));
+      if (gate.examinationLab) { const lab = gate.examinationLab; section.append(emptyText(`Gate examination ${lab.id}: examiner ${lab.examiner.id} (${lab.examiner.status}); instrument condition ${formatNumber(lab.instrument.condition)}, calibration ${formatNumber(lab.instrument.calibration)}; institutional funds ${formatMoney(lab.funds)}, power ${lab.power}, reagents ${lab.reagents}, seals ${lab.seals}. Screening is non-destructive; confirmation samples 0.01 unit, ending an exact-lot sale with unearned escrow refunded. No automatic restocking or player fee.`)); }
     }
     for (const op of market.operators) {
       const sh = market.shipments.find(s => s.id === op.assignment);
@@ -61510,6 +61513,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           subtitle: `${order.institutionName}; ${order.purpose} Rule ${order.rule.id}. Observed label: ${order.evidence.label}; stack ${order.evidence.stackId}, quantity ${order.evidence.quantity}, observer ${order.evidence.observerId}, gate ${order.evidence.gateId}, ${formatClock(order.evidence.at)}. ${order.evidence.finding} Property ${order.propertyIds.join(", ")}; owner ${order.owner}. Expires ${formatClock(order.expiresAt)}. Crew and vehicle not seized; supervised handler care continues with existing finite kit. ${order.decisions.map(d => `${formatClock(d.at)}: ${d.result}: ${d.reason}`).join(" ")}`,
           dataset: { cargoPropertyOrder: order.id },
           actions: order.status === "active" ? [["identity", "Challenge Cargo Identification"], ["jurisdiction", "Challenge Jurisdiction"], ["applicability", "Challenge Rule Applicability"], ["authorization", "Submit Existing Cargo Authorization"]].map(([kind, label]) => storesActionButton(label, "Authenticated remote property filing. Review facts, not persuasion; no automatic release or criminal finding.", () => cargoPropertyReviewAction(sh.id, kind))) : []
+        }));
+      }
+      if (sh.examination) {
+        const exam = sh.examination;
+        section.append(emptyText(`Examination ${exam.id}: ${exam.phase}. ${exam.reason} Authority ${exam.authorization.orderId}; expires ${formatClock(exam.authorization.expiresAt)} without extension. ${exam.samples.map(s => `Sample ${s.id}: ${s.quantity} unit from ${s.sourceStackId}/${s.sourceBatchId}, seal ${s.sealId}, ${s.status} at ${s.locationId}; custody ${s.custody.map(c => `${formatClock(c.at)} ${c.action} by ${c.custodian}`).join("; ")}`).join(" ")}`));
+        for (const report of exam.reports) section.append(storesRowEl(report.id, report.result, {
+          subtitle: `${formatClock(report.at)} · ${report.method}; examiner ${report.examinerId}, instrument ${report.instrumentId}; sample ${report.sampleId || "none (non-destructive)"}; stack ${report.sourceStackId}. ${report.uncertainty} ${report.purityRange ? `Sample purity range ${report.purityRange.join("–")}.` : ""} Evidentiary support: ${report.supported ? "within stated limits" : "unsupported"}. ${exam.challenges.filter(c => c.reportId === report.id).map(c => `${c.kind}: ${c.result}. ${c.reason}`).join(" ")}`,
+          dataset: { cargoExaminationReport: report.id }, actions: [["identity", "Challenge Sample Identity"], ["custody", "Challenge Sample Custody"], ["method", "Challenge Method Sufficiency"]].map(([kind, label]) => storesActionButton(label, "Compare the report's claimed use with the saved source, chain and method. No random persuasion or automatic guilt.", () => cargoExaminationChallenge(sh.id, report.id, kind)))
         }));
       }
       if (sh.inspection) section.append(emptyText(`Checkpoint notice ${formatClock(sh.inspection.arrivedAt)} · ${sh.inspection.institutionName || sh.inspection.institutionId} · ${sh.inspection.status}. ${sh.inspection.reason} ${sh.inspection.releaseBy != null ? `Temporary custody expires ${formatClock(sh.propertyOrder?.status === "active" ? sh.propertyOrder.expiresAt : sh.inspection.releaseBy)}.` : ""} Owner ${sh.owner}; vehicle ${sh.inspection.vehicleId} not seized; crew not arrested. ${sh.inspection.documents.length} manifest submission(s). Deadline ${formatClock(sh.deliveryDeadlineAt)}. ${sh.saleFailedAt != null ? "Sale ended; recovered cargo cannot settle this contract." : ""}`));
@@ -82171,6 +82182,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       CargoPropertyReview.publish(gate, gate.productScheduleCode, gate.productScheduleCourt, state.clock); gate.productScheduleChecked = true;
     }
     return smuggling;
+  }
+
+  function cargoExaminationChallenge(id, reportId, kind) {
+    advanceIntercitySmuggling(advanceLocalCovertCollections());
+    const market = ensureIntercitySmuggling(), sh = market.shipments.find(s => s.id === id);
+    const ok = CargoExamination.challenge(sh, reportId, kind, state.clock);
+    market.message = ok ? "Report objection recorded with factual reasons. Custody, ownership and criminal guilt are separate." : "No report or this objection has already been decided.";
+    persist(); render(); return ok;
   }
 
   function cargoPropertyReviewAction(id, kind) {

@@ -18,15 +18,16 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Smuggling: Forfeiture and Separate Criminal Proceedings
-2. Smuggling: Violent Interception and Crew Rescue
-3. World Integration: Investigations and Institutional Pressure
-4. Lazy Local Detail and World Discovery
-5. Roguelike Run Lifecycle, Death, Postmortem, and Restart
-6. Campaign Roadmap: From Hidden Laboratory to World Domination
-7. New-Run Onboarding and Contextual Tutorial
-8. Sound, Notifications, and Accessibility Audit
-9. Production Art Pass Using the Sprite Pipeline
+1. Smuggling: Forfeiture Hearings and Appeals
+2. Smuggling: Separate Criminal Referrals
+3. Smuggling: Violent Interception and Crew Rescue
+4. World Integration: Investigations and Institutional Pressure
+5. Lazy Local Detail and World Discovery
+6. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+7. Campaign Roadmap: From Hidden Laboratory to World Domination
+8. New-Run Onboarding and Contextual Tutorial
+9. Sound, Notifications, and Accessibility Audit
+10. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -88,61 +89,69 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Smuggling: Forfeiture and Separate Criminal Proceedings
+## 1. Smuggling: Forfeiture Hearings and Appeals
 
 Destination-city inspection, bounded cargo detention and paid depot-to-laboratory recovery are implemented. The 72-hour delivery deadline or an explicit return request ends the sale and refunds unearned sale/transit escrow once; earned freight stays paid. Returned nonliving property uses a separate player-funded courier trip with whole-manifest receipt at the Concealed Exit, compatible receptacles for raw cargo and an empty courier return. Preserve exact property, custody, care clocks and failed-contract markers; recovered cargo cannot settle an ended contract.
 
 Provisional seizure and authenticated remote factual review are now implemented. City-local published schedules explicitly identify two named chemical products where the city's contraband-commerce code supports restrictions. A readable package label and physical consignment observation can support one competent local court's 24-hour verification order, not a criminal finding. Orders retain exact property, owner, institution, grounds, evidence, purpose and a nonrenewing deadline. Identity, jurisdiction, applicability and existing specific-authorization challenges receive reasoned decisions; unsupported or expired orders release cargo. Commercial permits are not cargo authorizations, and no new permit-issuance service is implied. Bulk chemistry and creatures have no inferred restriction from hidden composition, genes or market tags. The original sale deadline, refunds, care and physical recovery continue independently.
 
-Discuss permanent forfeiture and any separate criminal referral. Require published grounds, element-specific evidence, competent local adjudication, notice, challenge and review protections before ownership can transfer. Distinguish property restrictions from an individual's knowing unlawful conduct. Do not turn temporary label-based inquiry into proof of composition or culpability, or automatically arrest crew or the remote scientist. Supported testing, specific authorization issuance, joint-stronghold authority, long-term storage/care and criminal proceedings may require separate approved slices. No automatic renewal of completed provisional orders. Preserve exact property and physical return/recovery on release.
+Cargo examination is implemented: a co-located identified examiner and calibrated instrument use finite institutional funds, power, reagents and seals for a non-destructive screen and a timed 0.01-unit confirmatory sample. Samples are deducted from the exact lot and preserve batch identity, seal and custody records. Consumption is never silently undone. Sampling ends the original exact-lot sale with unearned escrow refunded; remaining property still needs release and physical return. Reports state method, uncertainty, sample scope and factual objections. Supported negative confirmation defeats label-only inquiry; positive findings establish neither culpability nor forfeiture. Testing stops at the original custody deadline. Intact unconsumed samples reunite with their source at that gate; compromised released samples remain separately recorded there.
+
+Discuss permanent forfeiture hearings and appeals using the saved examination reports and their limitations. Require published grounds, evidence sufficient for each required finding, competent local adjudication, notice, challenge and review protections before ownership transfers. Do not treat a screen as confirmation or chemical identity as knowing unlawful conduct. Decide independently quoted retesting, specific authorization issuance, sample reclaim, joint-stronghold authority and long-term storage/care in additional slices if needed. Do not automatically renew completed provisional orders or arrest crew/the remote scientist. Preserve exact property and physical return/recovery on release.
 
 Living freight now adds separately identified biological carriers and handlers, finite reserved diet/moisture/power kits, continuing needs and containment during holds, alive-arrival inspection, seller-risk escrow refunds, physically feasible safety/rejection returns, and an explicit laboratory receipt into containment at the Concealed Exit. Death and escape preserve an offsite individual/corpse with its actual location. Preserve these records, care clocks, paid freight, kit/handler custody and return commitments when introducing interception; captivity or recovery must not duplicate, reset or silently replace a specimen.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 2. Smuggling: Violent Interception and Crew Rescue
+## 2. Smuggling: Separate Criminal Referrals
+
+Discuss referral of supported cargo evidence into a separate local criminal process. Preserve report scope, sample custody, uncertainty, challenged findings and each actor's identity. Product identity, ownership, a shipment label or a property ruling alone does not prove knowledge, authorship or a completed unlawful transaction. Require element-specific evidence and existing local judicial procedures before charges, warrants or physical arrest; no remote arrest, foreign automatic enforcement or inherited guilt for carriers. Referral must not transfer property ownership or revive expired custody. Split investigation, charging and physical enforcement into further prompts if needed.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 3. Smuggling: Violent Interception and Crew Rescue
 
 Discuss physical beast attacks, robbery and armed interception as distinct encounters with actual actors, approach, vehicles, cargo, crew and location. No abstract disappearance rolls, replacement cargo, automatic scientist death or remote arrest. Keep living care and containment active through captivity. Decide feasible crew survival, negotiation, recapture, rescue and return options in bounded playable slices. Captors possess only their actual capabilities; wilderness grants no sovereign police jurisdiction. Existing failed-sale escrow and property identities must survive recovery.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. World Integration: Investigations and Institutional Pressure
+## 4. World Integration: Investigations and Institutional Pressure
 
 Design and implement world-context effects on company plausibility, inspections, investigations, religious scrutiny, escalation, and authority response. Context may alter priorities, schedules, thresholds, and available actions, but must not invent player guilt.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Lazy Local Detail and World Discovery
+## 5. Lazy Local Detail and World Discovery
 
 Design and implement deterministic elaboration of the already generated strategic world when a run encounters it. Lazy generation may fill minor places, institution branches, contacts, local histories, individuals, encounters, and exact maps while respecting canonical world facts and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+## 6. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 
 Design and implement the loop for beginning, losing, reviewing, and replacing a run without altering its reusable world. Only the scientist’s death ends a run; arrest, jail, prison, penal service, death sentence, loss of laboratory, and similar catastrophes remain playable while the scientist lives.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 7. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. The final campaign goal is rare world domination, but early hidden-laboratory survival must remain a complete roguelike experience.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. New-Run Onboarding and Contextual Tutorial
+## 8. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Sound, Notifications, and Accessibility Audit
+## 9. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. Production Art Pass Using the Sprite Pipeline
+## 10. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 
