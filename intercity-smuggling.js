@@ -2,10 +2,11 @@
   const api = factory(typeof module === 'object' && module.exports ? require('./living-smuggling') : root.HelixLivingSmuggling,
     typeof module === 'object' && module.exports ? require('./smuggling-checkpoints') : root.HelixSmugglingCheckpoints,
     typeof module === 'object' && module.exports ? require('./cargo-criminal-referrals') : root.HelixCargoCriminalReferrals,
-    typeof module === 'object' && module.exports ? require('./carrier-corroboration') : root.HelixCarrierCorroboration);
+    typeof module === 'object' && module.exports ? require('./carrier-corroboration') : root.HelixCarrierCorroboration,
+    typeof module === 'object' && module.exports ? require('./buyer-corroboration') : root.HelixBuyerCorroboration);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixIntercitySmuggling = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer) {
   'use strict';
   const HOUR = 3600, copy = v => JSON.parse(JSON.stringify(v));
   const fingerprint = Checkpoints.fingerprint;
@@ -23,7 +24,10 @@
       const city = destinations.find(d => d.kind === 'fortifiedCity' && d.cityId === cityId && d.known);
       if (!city || state.operators.some(o => o.routeId === r.id)) continue;
       const buyerId = `covert-buyer:${cityId}`;
-      if (!state.buyers.some(b => b.id === buyerId)) state.buyers.push({ id: buyerId, cityId, name: `${city.label} private buyer`, money: 10000 });
+      if (!state.buyers.some(b => b.id === buyerId)) {
+        state.buyers.push({ id: buyerId, cityId, name: `${city.label} private buyer`, money: 10000 });
+        Buyer.provision(state.buyers.at(-1), at);
+      }
       state.operators.push({ id: `smuggler:${r.id}`, routeId: r.id, sourceId: state.homeId, destinationId: cityId, buyerId,
         brokerId: broker.id, name: `${broker.name}'s corridor associate`, vehicleId: `smuggling-van:${r.id}`, capacityKg: 120, capacityL: 240,
         fuelKm: 600, provisions: 40, money: 1200, condition: 100, assignment: null, location: state.homeId, lastAt: at,
@@ -71,6 +75,7 @@
     delete shipment.ok;
     state.shipments.push(shipment); op.assignment = shipment.id; op.lastAt = at;
     if (fresh.livingPlan) Living.reserve(op, shipment, fresh.livingPlan);
+    Buyer.record(buyer, shipment, 'orderAcknowledged', at, request.manifest);
     if (!shipment.living && op.carrierService) {
       shipment.carrierContact = copy(op.carrierService.contact);
       Carrier.record(op, shipment, 'transportBooked', at, op.sourceId, 'carrier booking channel', request.manifest);
@@ -96,6 +101,7 @@
     const op = state.operators.find(o => o.id === s.operatorId), kitAway = s.living?.localJobId && !s.living.kitAtDepot;
     if (!kitAway) Living.release(op, s);
     s.localEscrow = s.freightEscrow = s.playerEscrow = s.returnEscrow = 0; s.phase = 'canceled'; s.canceledAt = at;
+    Buyer.record(state.buyers.find(b => b.id === s.buyerId), s, 'cancellationAcknowledged', at);
     if (!kitAway) op.assignment = null; return true;
   }
   function advance(state, now, routes, supplier = null) {
@@ -151,7 +157,12 @@
             if (Checkpoints.expire(state, s, cursor)) continue;
             Carrier.record(op, s, 'destinationArrival', cursor, s.destinationId, 'destination approach');
             if (Checkpoints.enter(state, s, op, cursor)) continue;
+            if (!Buyer.canReceive(state.buyers.find(b => b.id === s.buyerId))) {
+              s.reason = 'Buyer representative unavailable; no receipt or ownership transfer. Carrier retains cargo pending a real handoff.';
+              op.provisions = Math.max(0, op.provisions - seconds / (8 * HOUR)); break;
+            }
             s.phase = 'returning'; s.receiptAt = cursor; s.owner = s.buyerId; s.custodian = s.buyerId;
+            Buyer.record(state.buyers.find(b => b.id === s.buyerId), s, 'deliveryReceived', cursor);
             op.money += s.freightEscrow; s.freightEscrow = 0;
             Carrier.record(op, s, 'buyerHandoff', cursor, s.destinationId, 'destination handoff');
           } else {
