@@ -1,8 +1,9 @@
 (function (root, factory) {
-  const api = factory(typeof module === 'object' && module.exports ? require('./cargo-examination') : root.HelixCargoExamination);
+  const api = factory(typeof module === 'object' && module.exports ? require('./cargo-examination') : root.HelixCargoExamination,
+    typeof module === 'object' && module.exports ? require('./cargo-investigations') : root.HelixCargoInvestigations);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixCargoCriminalReferrals = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Exam) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Exam, Investigations) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v));
   const PRODUCTS = ['unlicensedMutagenicPrimer', 'arcaneCatalyticSuspension'];
@@ -13,6 +14,7 @@
         reviewer: { id: `${gate.id}:intake-reviewer`, name: `${prosecution.name || prosecution.institutionId} intake reviewer`, status: 'alive', health: 100 },
         active: true, channelPowered: true, power: 12, lastAt: at, wasReady: false, referrals: [] };
     }
+    Investigations.provision(gate, at);
     // Explicit criminal commerce schedule, separate from possession/property powers.
     if (!gate.criminalRule && law?.id && law.offenseId === 'contrabandCommerce' && law.legalStatus === 'prohibited'
       && ELEMENTS.every(id => law.elements?.some(e => e.id === id))) {
@@ -26,7 +28,7 @@
     // Whitelist authority-visible sources. Never copy private chemistry, contract,
     // customer, scientist, owner ID, vehicle crew IDs, or internal financial records.
     return copy({ cityId: gate.cityId, arrivedAt: sh.inspection.arrivedAt, observation: o.evidence, productId: o.rule.productId,
-      observations: sh.inspection.observations, law: gate.criminalRule || null,
+      observations: sh.inspection.observations, personObservations: sh.inspection.personObservations || [], law: gate.criminalRule || null,
       reports: e.reports, challenges: e.challenges, examinationAuthority: e.authorization,
       samples: e.samples.map(s => ({ id: s.id, sourceStackId: s.sourceStackId, sourceBatchId: s.sourceBatchId,
         quantity: s.quantity, locationId: s.locationId, examinerId: s.examinerId, labId: s.labId,
@@ -111,11 +113,13 @@
   }
   function tick(gate, sh, at) {
     capture(gate, sh, at); advanceGate(gate, at);
+    Investigations.advance(gate, at);
   }
   function advance(state, at) {
     for (const gate of state.checkpoints || []) {
       for (const sh of state.shipments.filter(s => s.inspection?.gateId === gate.id)) capture(gate, sh, at);
       advanceGate(gate, at);
+      Investigations.advance(gate, at);
     }
   }
   return { provision, tick, advance, findings };

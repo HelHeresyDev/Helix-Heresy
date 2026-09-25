@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Smuggling: Cargo Investigations and Actor Attribution
+1. Smuggling: Documentary Corroboration and Voluntary Witnesses
 2. Smuggling: Charging and Judicial Review
 3. Smuggling: Physical Enforcement of Local Orders
 4. Smuggling: Violent Interception and Crew Rescue
@@ -90,11 +90,11 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Smuggling: Cargo Investigations and Actor Attribution
+## 1. Smuggling: Documentary Corroboration and Voluntary Witnesses
 
-Evidence-only destination-city criminal referral intake is implemented. Supported confirmatory assays can produce an append-only packet for a named local prosecution reviewer. Separate prospective criminal commerce rules retain transaction, contraband and knowledge elements. Intake can decline, await specific corroboration or accept only a lead for investigation; served notices create no response or appearance obligation. Private contracts, buyer/crew identities and hidden composition do not become authority evidence. Corrections and property outcomes append revisions without erasing earlier records, duplicating dockets or reviving custody.
+The gate-witness investigation slice is implemented. An identified local investigator interviews the available original gate officer and examiner, reconciles source records with finite work and power, and issues dated voluntary requests and findings. Observed cargo presenters, authenticated property claimants and names asserted in supplied contracts remain separate, unverified actor records. Existing manifests and contract excerpts require an exact preview and explicit consent before disclosure. Source-identity and scope corrections, potentially exculpatory nonperformance claims and earlier findings remain saved. Silence and repeated testimony add no proof. Missing transaction, verified identity and contemporaneous knowledge evidence can leave an investigation waiting indefinitely; an unsupported legal basis exhausts the lead without changing property custody.
 
-Discuss actual investigative work on accepted cargo leads, using available local actors, records channels and finite resources. Establish how witnesses, lawfully obtained documents and corroboration may identify each carrier, handler, sender or buyer without treating internal game IDs, property ownership or a cargo label as proof. Preserve provenance, reliability, challenged findings, exculpatory material and knowledge boundaries. Missing transaction or knowledge evidence must remain missing until a supported source supplies it. No charges, automatic home-city referral, warrants or physical arrest in this slice. Independently commissioned retests, specific authorization issuance, sample reclaim and institutional disposal remain separate scope if needed.
+Discuss a bounded path for independently authenticating voluntarily supplied documents and obtaining voluntary statements from actual reachable carriers or counterparties. Require real sources, availability, consent, lawful record access, provenance and corroboration. Names, document assertions and repeated copies cannot become verified identities or independent witnesses by repetition. A source may refuse, be unavailable, know nothing relevant or supply exculpatory information; no cooperation or completed transaction is guaranteed. Keep transaction jurisdiction and each actor's knowledge at the relevant time explicit. Do not retrospectively generate observations of historical events. Split carrier cooperation/negotiation, documentary authentication and new transaction observations further if needed. Compelled disclosure, fabricated statements, retesting and foreign authority require separate discussion. No charges, warrants, arrests or renewed cargo detention in this slice.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
