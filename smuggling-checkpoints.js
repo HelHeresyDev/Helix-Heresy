@@ -1,9 +1,10 @@
 (function (root, factory) {
   const api = factory(typeof module === 'object' && module.exports ? require('./cargo-property-review') : root.HelixCargoPropertyReview,
-    typeof module === 'object' && module.exports ? require('./cargo-criminal-referrals') : root.HelixCargoCriminalReferrals);
+    typeof module === 'object' && module.exports ? require('./cargo-criminal-referrals') : root.HelixCargoCriminalReferrals,
+    typeof module === 'object' && module.exports ? require('./buyer-corroboration') : root.HelixBuyerCorroboration);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixSmugglingCheckpoints = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (PropertyReview, Referrals) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (PropertyReview, Referrals, Buyer) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v));
   const fingerprint = m => JSON.stringify({ commodityKind: m.commodityKind, material: m.material, amount: m.amount,
@@ -38,6 +39,7 @@
     sh.saleFailedAt = sh.returnRequestedAt ?? sh.deliveryDeadlineAt;
     state.buyers.find(b => b.id === sh.buyerId).money += sh.playerEscrow + sh.freightEscrow;
     sh.playerEscrow = sh.freightEscrow = 0;
+    Buyer.record(state.buyers.find(b => b.id === sh.buyerId), sh, 'cancellationAcknowledged', at);
     if (sh.living) { sh.living.refunded = true; if (!sh.living.outcome) sh.living.outcome = sh.returnRequestedAt != null ? 'returnRequested' : 'deliveryExpired'; }
     if (sh.phase === 'outbound') sh.phase = 'returning';
     sh.reason = 'Delivery deadline expired; unearned sale and transit escrow refunded. Exact cargo remains player property; return requires release and a feasible route.';

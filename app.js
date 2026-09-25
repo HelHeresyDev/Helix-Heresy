@@ -61512,12 +61512,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           actions: [storesActionButton("Preview Booked Manifest", "Inspect the exact copy before deciding whether to disclose it.", () => cargoInvestigationAction(referral.id, "preview:manifest")),
             storesActionButton("Preview Contract Excerpt", "Preview material, quantity, named counterparty, destination and contract status. No record is sent yet.", () => cargoInvestigationAction(referral.id, "preview:contract")),
             storesActionButton("Preview Carrier Contact and Records", "Preview the contact and exact customer copies before disclosure. The carrier can refuse or limit cooperation; no investigator can compel a foreign witness.", () => cargoInvestigationAction(referral.id, "preview:carrier")),
+            storesActionButton("Preview Buyer Contact and Records", "Preview only the buyer contact and customer-held acknowledgments or receipts. Buyer cooperation remains voluntary; private accounts and escrow are not evidence.", () => cargoInvestigationAction(referral.id, "preview:buyer")),
             storesActionButton("Flag Source Identity Error", "Ask the investigator to reconcile source stack and batch identities without inventing an alternative account.", () => cargoInvestigationAction(referral.id, "correct:identity")),
             storesActionButton("Flag Evidence Scope Error", "Record that sample evidence cannot prove a transaction or earlier knowledge.", () => cargoInvestigationAction(referral.id, "correct:scope"))]
         }));
         for (const finding of investigationNotice?.assessment.carrierFindings || []) section.append(storesRowEl(finding.account.label, titleCase(finding.decision), {
           dataset: { carrierCorroboration: finding.id },
           subtitle: `${formatClock(finding.at)}. ${finding.authentication} ${finding.statement} ${(finding.comparisons || []).map(c => `${c.recordId}: ${c.result}. ${c.scope}`).join(" ")} ${finding.events.map(e => `${e.kind} at ${formatClock(e.at)}, ${e.cityId}: ${e.jurisdiction}`).join(" ")} ${finding.exculpatory} ${finding.limit}`
+        }));
+        for (const finding of investigationNotice?.assessment.buyerFindings || []) section.append(storesRowEl(finding.account.label, titleCase(finding.decision), {
+          dataset: { buyerCorroboration: finding.id },
+          subtitle: `${formatClock(finding.at)}. ${finding.authentication} ${finding.statement} ${(finding.comparisons || []).map(c => `${c.recordId}: ${c.result}. ${c.scope}`).join(" ")} ${finding.events.map(e => `${e.kind} at ${formatClock(e.at)}, ${e.cityId}: ${e.jurisdiction}; participant claim ${e.participantClaim || "unverified"}; source ${e.sourceGroup}, ${e.independentObservation ? "own observation" : "derived material, not another independent source"}`).join(" ")} ${finding.exculpatory} ${finding.limit}`
         }));
       }
       if (gate.forfeitureStore) section.append(emptyText(`Institutional property store ${gate.forfeitureStore.id}: ${formatNumber(gate.forfeitureStore.usedKg)} / ${gate.forfeitureStore.capacityKg} kg; ${formatNumber(gate.forfeitureStore.usedL)} / ${gate.forfeitureStore.capacityL} L. ${gate.forfeitureStore.lots.map(l => `${l.entry.stack.id}: ${l.entry.amount} units, owner ${l.owner}, physically held at ${l.locationId}`).join("; ")}`));
