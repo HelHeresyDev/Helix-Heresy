@@ -175,13 +175,24 @@ test('property order UI files factual remote review, persists its reasons and re
   });
   expect(reviewed.after.intercitySmuggling).toEqual(reviewed.before.intercitySmuggling);
   expect(reviewed.after.intercitySmuggling.shipments[0].propertyOrder.decisions[0].result).toBe('upholdBoundedCustody');
+  const examined = await page.evaluate(() => { const d = window.helixHeresyDebug; d.advanceStrategicServices(9000); const before = d.economySnapshot(); d.reloadSurveyExpeditionTestState(); return { before, after: d.economySnapshot() }; });
+  expect(examined.after.intercitySmuggling).toEqual(examined.before.intercitySmuggling);
+  const shipment = examined.after.intercitySmuggling.shipments[0];
+  expect(shipment.examination.reports).toHaveLength(2); expect(shipment.examination.samples[0].status).toBe('consumedByAssay');
+  expect(shipment.manifest.amount).toBeCloseTo(shipment.propertyOrder.evidence.quantity - .01);
+  expect(shipment.playerEscrow).toBe(0); expect(shipment.receiptAt).toBeNull();
+  if (!(await page.getByRole('button', { name: 'Challenge Method Sufficiency' }).first().isVisible())) {
+    await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  }
+  await page.getByRole('button', { name: 'Challenge Method Sufficiency' }).first().click();
+  await expect(page.locator('[data-cargo-examination-report]').first()).toContainText('sustained');
   const released = await page.evaluate(() => {
     const d = window.helixHeresyDebug, saved = d.exportSurveyExpeditionTestState();
     saved.economy.intercitySmuggling.checkpoints[0].propertyRules.forEach(r => r.active = false);
     d.importSurveyExpeditionTestState(saved); d.advanceStrategicServices(600); return d.economySnapshot();
   });
   expect(released.intercitySmuggling.shipments[0].propertyOrder.status).toBe('released');
-  expect(released.intercitySmuggling.shipments[0].propertyOrder.decisions.at(-1).reason).toContain('does not apply');
+  expect(released.intercitySmuggling.shipments[0].propertyOrder.decisions.at(-1).reason).toContain(shipment.examination.reports[1].result === 'targetNotDetected' ? 'did not detect' : 'does not apply');
   expect(errors).toEqual([]);
 });
 test('foreign cancellation releases exact stock and refunds buyer without altering local sale terms', async ({ page }) => {

@@ -67,7 +67,12 @@
     }
     if (at < i.reviewAt) return true;
     PropertyReview.issue(gate, sh, at);
-    if (PropertyReview.tick(gate, sh, at)) return true;
+    const held = PropertyReview.tick(gate, sh, at);
+    if (sh.examinationChangedLot && sh.saleFailedAt == null) {
+      requestReturn(state, sh, at);
+      sh.reason = 'Authorized sampling changed the exact contracted lot; unearned sale/transit escrow refunded. Physical return still awaits release.';
+    }
+    if (held) return true;
     const matching = i.documents.some(d => d.submittedAt <= at && d.fingerprint === fingerprint(sh.manifest));
     if (matching || at >= i.releaseBy || sh.propertyOrder?.status === 'released') {
       if (fingerprint(sh.manifest) !== sh.fingerprint && !sh.living?.outcome) requestReturn(state, sh, at);
