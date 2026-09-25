@@ -59,6 +59,7 @@
       lab.funds -= 5; lab.power -= 2; lab.reagents--; lab.seals--; lab.assignment = e.id;
       const batch = entry.stack.chemicalBatch;
       const sample = { id: `${e.id}:sample`, sourceStackId: entry.stack.id, sourceBatchId: batch.id, quantity: SAMPLE,
+        representation: batch.phase === 'liquid' && entry.stack.section === 'chemicalBatches' ? { method: 'mixedSingleLiquidBatchAliquot', at, examinerId: lab.examiner.id, stackId: entry.stack.id, batchId: batch.id, quantity: entry.amount } : null,
         owner: sh.owner, locationId: gate.id, status: 'sealed', sealId: `${e.id}:seal`,
         examinerId: lab.examiner.id, labId: lab.id,
         composition: { productId: batch.productId, purity: batch.purity },
@@ -106,5 +107,5 @@
     if (sustained) report.supported = false;
     return true;
   }
-  return { provision, authorize, tick, stop, sampled, challenge };
+  return { provision, authorize, tick, stop, sampled, challenge, validChain };
 });

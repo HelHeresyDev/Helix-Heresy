@@ -39,6 +39,7 @@
   const SmugglingCheckpoints = window.HelixSmugglingCheckpoints;
   const CargoPropertyReview = window.HelixCargoPropertyReview;
   const CargoExamination = window.HelixCargoExamination;
+  const CargoForfeiture = window.HelixCargoForfeiture;
   const LivingSmuggling = window.HelixLivingSmuggling;
   const StrategicDivineHistory = window.HelixStrategicDivineHistory;
   const StrategicCrisisHistory = window.HelixStrategicCrisisHistory;
@@ -13748,6 +13749,7 @@
       smugglingInspectionAction: (id, action) => smugglingInspectionAction(id, action),
       cargoPropertyReviewAction: (id, kind) => cargoPropertyReviewAction(id, kind),
       cargoExaminationChallenge: (id, reportId, kind) => cargoExaminationChallenge(id, reportId, kind),
+      cargoForfeitureAction: (id, kind) => cargoForfeitureAction(id, kind),
       configureCovertContactForTest: (contactId, options = {}) => {
         const market = ensureLocalCovertMarket(), contact = blackMarketContactById(contactId), courier = market.couriers.find(c => c.contactId === contactId);
         if (!contact) return false;
@@ -61485,6 +61487,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const gate of market.checkpoints || []) {
       section.append(emptyText(`${gate.institutionName || gate.institutionId} · ${gate.id}: ${gate.policy}`));
       for (const rule of gate.propertyRules || []) section.append(emptyText(`${rule.id} · published ${formatClock(rule.publishedAt)}: ${rule.text}`));
+      for (const rule of gate.forfeitureRules || []) section.append(emptyText(`${rule.id} · published ${formatClock(rule.publishedAt)}: ${rule.text}`));
+      if (gate.forfeitureStore) section.append(emptyText(`Institutional property store ${gate.forfeitureStore.id}: ${formatNumber(gate.forfeitureStore.usedKg)} / ${gate.forfeitureStore.capacityKg} kg; ${formatNumber(gate.forfeitureStore.usedL)} / ${gate.forfeitureStore.capacityL} L. ${gate.forfeitureStore.lots.map(l => `${l.entry.stack.id}: ${l.entry.amount} units, owner ${l.owner}, physically held at ${l.locationId}`).join("; ")}`));
       if (gate.examinationLab) { const lab = gate.examinationLab; section.append(emptyText(`Gate examination ${lab.id}: examiner ${lab.examiner.id} (${lab.examiner.status}); instrument condition ${formatNumber(lab.instrument.condition)}, calibration ${formatNumber(lab.instrument.calibration)}; institutional funds ${formatMoney(lab.funds)}, power ${lab.power}, reagents ${lab.reagents}, seals ${lab.seals}. Screening is non-destructive; confirmation samples 0.01 unit, ending an exact-lot sale with unearned escrow refunded. No automatic restocking or player fee.`)); }
     }
     for (const op of market.operators) {
@@ -61515,8 +61519,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           actions: order.status === "active" ? [["identity", "Challenge Cargo Identification"], ["jurisdiction", "Challenge Jurisdiction"], ["applicability", "Challenge Rule Applicability"], ["authorization", "Submit Existing Cargo Authorization"]].map(([kind, label]) => storesActionButton(label, "Authenticated remote property filing. Review facts, not persuasion; no automatic release or criminal finding.", () => cargoPropertyReviewAction(sh.id, kind))) : []
         }));
       }
+      if (sh.forfeiture) {
+        const f = sh.forfeiture;
+        section.append(emptyText(`Noticed property: ${f.quantity} units of ${f.stackId}, owner ${f.owner}. No other lot is covered by this proceeding.`));
+        section.append(storesRowEl(f.id, f.status, {
+          dataset: { cargoForfeiture: f.id },
+          subtitle: `Notice ${formatClock(f.noticeAt)}: exact stack ${f.stackId}; evidence ${f.reportId}. ${f.rule.text} Remote response by ${formatClock(f.hearingAt)}; silence triggers evidence review, never default forfeiture. Judge ${f.judgeId}; separate appeal reviewer ${f.appealReviewerId}. ${f.appealBy != null ? `Appeal by ${formatClock(f.appealBy)}; timely filing stays transfer.` : ""} Original custody deadline ${formatClock(f.expiresAt)}. Responses: ${f.responses.join(", ") || "none"}. ${f.decisions.map(d => `${d.stage} by ${d.reviewerId}: ${d.result}. ${d.reason} ${d.findings.map(p => `${p.name}: ${p.passed ? "supported" : "unsupported"}`).join("; ")}`).join(" ")} ${f.reason || ""}`,
+          actions: ["noticed", "judgment"].includes(f.status) ? ["identity", "confirmation", "representativeLot", "publishedGround", "jurisdiction", "authorization"].map(kind => storesActionButton(`${f.status === "judgment" ? "Appeal" : "Contest"} ${titleCase(kind)}`, "Remote factual review of every required finding; no persuasion roll or custody extension.", () => cargoForfeitureAction(sh.id, kind))) : []
+        }));
+      }
       if (sh.examination) {
         const exam = sh.examination;
+        for (const sample of exam.samples.filter(s => s.representation)) section.append(emptyText(`Sampling scope ${sample.id}: ${sample.representation.method}, examiner ${sample.representation.examinerId}, ${formatClock(sample.representation.at)}; single source batch ${sample.representation.batchId}, original quantity ${sample.representation.quantity}. No other batch is represented.`));
         section.append(emptyText(`Examination ${exam.id}: ${exam.phase}. ${exam.reason} Authority ${exam.authorization.orderId}; expires ${formatClock(exam.authorization.expiresAt)} without extension. ${exam.samples.map(s => `Sample ${s.id}: ${s.quantity} unit from ${s.sourceStackId}/${s.sourceBatchId}, seal ${s.sealId}, ${s.status} at ${s.locationId}; custody ${s.custody.map(c => `${formatClock(c.at)} ${c.action} by ${c.custodian}`).join("; ")}`).join(" ")}`));
         for (const report of exam.reports) section.append(storesRowEl(report.id, report.result, {
           subtitle: `${formatClock(report.at)} · ${report.method}; examiner ${report.examinerId}, instrument ${report.instrumentId}; sample ${report.sampleId || "none (non-destructive)"}; stack ${report.sourceStackId}. ${report.uncertainty} ${report.purityRange ? `Sample purity range ${report.purityRange.join("–")}.` : ""} Evidentiary support: ${report.supported ? "within stated limits" : "unsupported"}. ${exam.challenges.filter(c => c.reportId === report.id).map(c => `${c.kind}: ${c.result}. ${c.reason}`).join(" ")}`,
@@ -82182,6 +82196,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       CargoPropertyReview.publish(gate, gate.productScheduleCode, gate.productScheduleCourt, state.clock); gate.productScheduleChecked = true;
     }
     return smuggling;
+  }
+
+  function cargoForfeitureAction(id, kind) {
+    advanceIntercitySmuggling(advanceLocalCovertCollections());
+    const market = ensureIntercitySmuggling(), sh = market.shipments.find(s => s.id === id);
+    const ok = CargoForfeiture.file(sh, kind, state.clock);
+    market.message = ok ? "Remote property filing recorded. A timely appeal stays ownership transfer; the original custody deadline remains unchanged." : "No open filing window or this filing is already recorded.";
+    persist(); render(); return ok;
   }
 
   function cargoExaminationChallenge(id, reportId, kind) {

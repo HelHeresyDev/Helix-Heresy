@@ -145,7 +145,7 @@
             op.money += s.freightEscrow; s.freightEscrow = 0;
           } else {
             s.phase = 'returned'; s.returnedAt = cursor; op.assignment = null; op.location = state.homeId;
-            if (s.receiptAt === null) s.custodian = `covert-depot:${state.homeId}`;
+            if (s.receiptAt === null && s.owner === 'player') s.custodian = `covert-depot:${state.homeId}`;
             op.crew.forEach(c => { c.fatigue = Math.max(0, c.fatigue - seconds / HOUR * 15); });
           }
         }

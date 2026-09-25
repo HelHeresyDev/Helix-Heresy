@@ -74,12 +74,12 @@
     }
     if (held) return true;
     const matching = i.documents.some(d => d.submittedAt <= at && d.fingerprint === fingerprint(sh.manifest));
-    if (matching || at >= i.releaseBy || sh.propertyOrder?.status === 'released') {
+    if (matching || at >= i.releaseBy || ['released', 'forfeited'].includes(sh.propertyOrder?.status)) {
       if (fingerprint(sh.manifest) !== sh.fingerprint && !sh.living?.outcome) requestReturn(state, sh, at);
       i.status = 'released'; i.releasedAt = at; i.reason = matching ? 'Manifest verified; no independently supported detention basis.' : 'Temporary verification authority expired; no independently supported seizure order.';
-      if (sh.propertyOrder?.status === 'released') i.reason = sh.propertyOrder.reason;
+      if (['released', 'forfeited'].includes(sh.propertyOrder?.status)) i.reason = sh.propertyOrder.reason;
       if (gate) { gate.assignment = null; gate.availableAt = at; }
-      sh.custodian = op.vehicleId;
+      if (sh.owner === 'player') sh.custodian = op.vehicleId;
       sh.phase = sh.saleFailedAt != null || sh.living?.outcome ? 'returning' : 'outbound'; sh.reason = i.reason;
       return false;
     }
