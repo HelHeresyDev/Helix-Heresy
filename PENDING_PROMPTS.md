@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Smuggling: Supported Seizure and Judicial Property Review
+1. Smuggling: Forfeiture and Separate Criminal Proceedings
 2. Smuggling: Violent Interception and Crew Rescue
 3. World Integration: Investigations and Institutional Pressure
 4. Lazy Local Detail and World Discovery
@@ -88,11 +88,13 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Smuggling: Supported Seizure and Judicial Property Review
+## 1. Smuggling: Forfeiture and Separate Criminal Proceedings
 
-Destination-city checkpoint inspection, bounded temporary cargo detention and paid depot-to-laboratory recovery are implemented. A named officer verifies cargo through a saved physical encounter, accepts the booked manifest, and releases cargo after clearance or expiry of temporary verification authority. This narrow admission procedure creates no criminal offense, forfeiture or arrest. A 72-hour delivery deadline or explicit checkpoint return request ends the sale and refunds unearned sale/transit escrow once; earned freight stays paid. Returned nonliving property can be recovered through a separate quoted, player-funded local courier trip. Whole-manifest receipt requires the scientist at the Concealed Exit and compatible empty receptacles there for raw cargo. Exact batch metadata and raw provenance survive; the same courier returns empty before reuse. Extend this completed recovery path with separately supported contested seizure, review, release and forfeiture decisions. Preserve property, custody, care clocks and failed-contract markers; recovered cargo cannot settle an ended contract.
+Destination-city inspection, bounded cargo detention and paid depot-to-laboratory recovery are implemented. The 72-hour delivery deadline or an explicit return request ends the sale and refunds unearned sale/transit escrow once; earned freight stays paid. Returned nonliving property uses a separate player-funded courier trip with whole-manifest receipt at the Concealed Exit, compatible receptacles for raw cargo and an empty courier return. Preserve exact property, custody, care clocks and failed-contract markers; recovered cargo cannot settle an ended contract.
 
-Use actual published offense elements, observed facts and relevant authorizations. Market labels, missing paperwork, generic commercial permits and doctrine are not proof of contraband or guilt. Identify the competent institution, local order, property covered and review route; seizure does not transfer ownership. Any joint-stronghold inspection requires that facility's joint authority, not arbitrary corridor-wide sovereignty. Crew custody and criminal proceedings remain separate from cargo custody. Split procedural work further if needed before implementation.
+Provisional seizure and authenticated remote factual review are now implemented. City-local published schedules explicitly identify two named chemical products where the city's contraband-commerce code supports restrictions. A readable package label and physical consignment observation can support one competent local court's 24-hour verification order, not a criminal finding. Orders retain exact property, owner, institution, grounds, evidence, purpose and a nonrenewing deadline. Identity, jurisdiction, applicability and existing specific-authorization challenges receive reasoned decisions; unsupported or expired orders release cargo. Commercial permits are not cargo authorizations, and no new permit-issuance service is implied. Bulk chemistry and creatures have no inferred restriction from hidden composition, genes or market tags. The original sale deadline, refunds, care and physical recovery continue independently.
+
+Discuss permanent forfeiture and any separate criminal referral. Require published grounds, element-specific evidence, competent local adjudication, notice, challenge and review protections before ownership can transfer. Distinguish property restrictions from an individual's knowing unlawful conduct. Do not turn temporary label-based inquiry into proof of composition or culpability, or automatically arrest crew or the remote scientist. Supported testing, specific authorization issuance, joint-stronghold authority, long-term storage/care and criminal proceedings may require separate approved slices. No automatic renewal of completed provisional orders. Preserve exact property and physical return/recovery on release.
 
 Living freight now adds separately identified biological carriers and handlers, finite reserved diet/moisture/power kits, continuing needs and containment during holds, alive-arrival inspection, seller-risk escrow refunds, physically feasible safety/rejection returns, and an explicit laboratory receipt into containment at the Concealed Exit. Death and escape preserve an offsite individual/corpse with its actual location. Preserve these records, care clocks, paid freight, kit/handler custody and return commitments when introducing interception; captivity or recovery must not duplicate, reset or silently replace a specimen.
 

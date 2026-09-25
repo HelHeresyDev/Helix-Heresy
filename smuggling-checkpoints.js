@@ -1,8 +1,8 @@
 (function (root, factory) {
-  const api = factory();
+  const api = factory(typeof module === 'object' && module.exports ? require('./cargo-property-review') : root.HelixCargoPropertyReview);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixSmugglingCheckpoints = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (PropertyReview) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v));
   const fingerprint = m => JSON.stringify({ commodityKind: m.commodityKind, material: m.material, amount: m.amount,
@@ -66,11 +66,15 @@
         supports: 'Physical cargo present at gate; no finding about knowledge, origin, unlawful sale or scientist involvement.' });
     }
     if (at < i.reviewAt) return true;
+    PropertyReview.issue(gate, sh, at);
+    if (PropertyReview.tick(gate, sh, at)) return true;
     const matching = i.documents.some(d => d.submittedAt <= at && d.fingerprint === fingerprint(sh.manifest));
-    if (matching || at >= i.releaseBy) {
+    if (matching || at >= i.releaseBy || sh.propertyOrder?.status === 'released') {
       if (fingerprint(sh.manifest) !== sh.fingerprint && !sh.living?.outcome) requestReturn(state, sh, at);
       i.status = 'released'; i.releasedAt = at; i.reason = matching ? 'Manifest verified; no independently supported detention basis.' : 'Temporary verification authority expired; no independently supported seizure order.';
-      gate.assignment = null; gate.availableAt = at; sh.custodian = op.vehicleId;
+      if (sh.propertyOrder?.status === 'released') i.reason = sh.propertyOrder.reason;
+      if (gate) { gate.assignment = null; gate.availableAt = at; }
+      sh.custodian = op.vehicleId;
       sh.phase = sh.saleFailedAt != null || sh.living?.outcome ? 'returning' : 'outbound'; sh.reason = i.reason;
       return false;
     }
