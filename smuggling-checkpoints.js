@@ -74,7 +74,7 @@
     if (at < i.reviewAt) return true;
     PropertyReview.issue(gate, sh, at);
     const held = PropertyReview.tick(gate, sh, at);
-    Referrals.tick(gate, sh, at);
+    Referrals.tick(gate, sh, at, state);
     if (sh.examinationChangedLot && sh.saleFailedAt == null) {
       requestReturn(state, sh, at);
       sh.reason = 'Authorized sampling changed the exact contracted lot; unearned sale/transit escrow refunded. Physical return still awaits release.';

@@ -1,10 +1,11 @@
 (function (root, factory) {
   const api = factory(typeof module === 'object' && module.exports ? require('./living-smuggling') : root.HelixLivingSmuggling,
     typeof module === 'object' && module.exports ? require('./smuggling-checkpoints') : root.HelixSmugglingCheckpoints,
-    typeof module === 'object' && module.exports ? require('./cargo-criminal-referrals') : root.HelixCargoCriminalReferrals);
+    typeof module === 'object' && module.exports ? require('./cargo-criminal-referrals') : root.HelixCargoCriminalReferrals,
+    typeof module === 'object' && module.exports ? require('./carrier-corroboration') : root.HelixCarrierCorroboration);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixIntercitySmuggling = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier) {
   'use strict';
   const HOUR = 3600, copy = v => JSON.parse(JSON.stringify(v));
   const fingerprint = Checkpoints.fingerprint;
@@ -27,6 +28,7 @@
         brokerId: broker.id, name: `${broker.name}'s corridor associate`, vehicleId: `smuggling-van:${r.id}`, capacityKg: 120, capacityL: 240,
         fuelKm: 600, provisions: 40, money: 1200, condition: 100, assignment: null, location: state.homeId, lastAt: at,
         crew: [{ id: `smuggler-driver:${r.id}`, name: `${city.label} corridor driver`, status: 'alive', health: 100, fatigue: 0 }], reason: '' });
+      Carrier.provision(state.operators.at(-1), at);
     }
   }
   function trip(op, route) {
@@ -40,7 +42,7 @@
   function offer(state, operatorId, request, route, at) {
     const op = state.operators.find(o => o.id === operatorId), journey = trip(op, route);
     const refuse = reason => ({ ok: false, reason });
-    if (!journey || op.assignment || op.location !== state.homeId) return refuse('No idle dedicated smuggler with a supported direct route and funded round trip.');
+    if (!journey || op.assignment || op.carrierService?.assignment || op.location !== state.homeId) return refuse('No idle dedicated smuggler with a supported direct route and funded round trip.');
     const living = request?.manifest?.commodityKind === 'specimen' ? Living.plan(op, request, journey) : null;
     if (living && !living.ok) return living;
     if (!living && (!['rawByproduct', 'manufactured'].includes(request?.manifest?.commodityKind) || request.manifest.entries?.some(e => e.creature || ['creature', 'transportPod'].includes(e.kind)))) return refuse('Living cargo requires a separate containment and survival contract.');
@@ -69,6 +71,10 @@
     delete shipment.ok;
     state.shipments.push(shipment); op.assignment = shipment.id; op.lastAt = at;
     if (fresh.livingPlan) Living.reserve(op, shipment, fresh.livingPlan);
+    if (!shipment.living && op.carrierService) {
+      shipment.carrierContact = copy(op.carrierService.contact);
+      Carrier.record(op, shipment, 'transportBooked', at, op.sourceId, 'carrier booking channel', request.manifest);
+    }
     return { ok: true, shipment };
   }
   function markCollected(state, id, manifest, courierId, at) {
@@ -80,6 +86,7 @@
     const s = state.shipments.find(s => s.id === id);
     if (!s || s.phase !== 'localTransit' || fingerprint(manifest) !== s.fingerprint) return 0;
     s.manifest = copy(manifest); s.phase = 'depot'; s.custodian = `covert-depot:${state.homeId}`; s.depotAt = at; s.lastAt = at;
+    Carrier.record(state.operators.find(o => o.id === s.operatorId), s, 'receivedAtDepot', at, s.sourceId, `covert-depot:${state.homeId}`);
     const fee = s.localEscrow; s.localEscrow = 0; return fee;
   }
   function cancel(state, id, at) {
@@ -112,7 +119,8 @@
         if (s.saleFailedAt != null) { s.phase = 'returned'; s.custodian = `covert-depot:${state.homeId}`; s.returnedAt = now; op.assignment = null; continue; }
         const journey = trip(op, route);
         if (!journey || route.distanceKm !== s.distanceKm) { s.reason = 'Departure held: route, crew or round-trip resources unavailable.'; continue; }
-        op.money -= journey.hours; s.phase = 'outbound'; s.departedAt = now; s.custodian = op.vehicleId; s.reason = ''; continue;
+        op.money -= journey.hours; s.phase = 'outbound'; s.departedAt = now; s.custodian = op.vehicleId; s.reason = '';
+        Carrier.record(op, s, 'departedDepot', now, s.sourceId, `covert-depot:${state.homeId}`); continue;
       }
       while (['outbound', 'returning', 'inspecting', 'detained'].includes(s.phase) && seconds > 0) {
         Checkpoints.expire(state, s, cursor);
@@ -141,12 +149,15 @@
         if (arrived) {
           if (s.phase === 'outbound') {
             if (Checkpoints.expire(state, s, cursor)) continue;
+            Carrier.record(op, s, 'destinationArrival', cursor, s.destinationId, 'destination approach');
             if (Checkpoints.enter(state, s, op, cursor)) continue;
             s.phase = 'returning'; s.receiptAt = cursor; s.owner = s.buyerId; s.custodian = s.buyerId;
             op.money += s.freightEscrow; s.freightEscrow = 0;
+            Carrier.record(op, s, 'buyerHandoff', cursor, s.destinationId, 'destination handoff');
           } else {
             s.phase = 'returned'; s.returnedAt = cursor; op.assignment = null; op.location = state.homeId;
             if (s.receiptAt === null && s.owner === 'player') s.custodian = `covert-depot:${state.homeId}`;
+            Carrier.record(op, s, 'returnedToDepot', cursor, s.sourceId, `covert-depot:${state.homeId}`, s.receiptAt == null ? s.manifest : { entries: [] });
             op.crew.forEach(c => { c.fatigue = Math.max(0, c.fatigue - seconds / HOUR * 15); });
           }
         }
