@@ -37,6 +37,7 @@
   const CargoRecovery = window.HelixCargoRecovery;
   const IntercitySmuggling = window.HelixIntercitySmuggling;
   const SmugglingCheckpoints = window.HelixSmugglingCheckpoints;
+  const CargoPropertyReview = window.HelixCargoPropertyReview;
   const LivingSmuggling = window.HelixLivingSmuggling;
   const StrategicDivineHistory = window.HelixStrategicDivineHistory;
   const StrategicCrisisHistory = window.HelixStrategicCrisisHistory;
@@ -13744,6 +13745,7 @@
       receiveReturnedSpecimen: id => receiveReturnedSpecimen(id),
       cargoRecoveryAction: (id, action) => cargoRecoveryAction(id, action),
       smugglingInspectionAction: (id, action) => smugglingInspectionAction(id, action),
+      cargoPropertyReviewAction: (id, kind) => cargoPropertyReviewAction(id, kind),
       configureCovertContactForTest: (contactId, options = {}) => {
         const market = ensureLocalCovertMarket(), contact = blackMarketContactById(contactId), courier = market.couriers.find(c => c.contactId === contactId);
         if (!contact) return false;
@@ -61478,7 +61480,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }));
     if (q?.livingPlan) section.append(emptyText(`Living terms: alive, health at least ${q.livingPlan.minimumHealth}, stress at most ${q.livingPlan.maximumStress} on arrival. ${q.livingPlan.reserveHours} hours of ${q.livingPlan.feedKey}, moisture and containment power reserved, including a six-hour safety margin. Seller bears failed-delivery risk: no sale proceeds after death, escape or rejection. Completed freight remains paid; unearned sale/transit escrow refunds the buyer. Emergency return reserve ${formatMoney(q.returnFee)} is deducted from gross, paid for a completed local return and refunded to the buyer if unused. Return only when physically feasible; bring the scientist and an empty usable container to the Concealed Exit to receive a returned specimen. Care continues while waiting.`));
     if (q) section.append(emptyText(`Delivery deadline: ${formatClock(state.clock + q.deliveryWindowSeconds)} if booked now (72 hours from booking). Inspection keeps escrow reserved until receipt or failed delivery. Failure refunds unearned sale/transit escrow; earned freight stays paid. Nonliving returns stop at the home covert depot, not laboratory storage. Living return reserves remain committed until the physical return or their existing refund condition.`));
-    for (const gate of market.checkpoints || []) section.append(emptyText(`${gate.institutionName || gate.institutionId} · ${gate.id}: ${gate.policy}`));
+    for (const gate of market.checkpoints || []) {
+      section.append(emptyText(`${gate.institutionName || gate.institutionId} · ${gate.id}: ${gate.policy}`));
+      for (const rule of gate.propertyRules || []) section.append(emptyText(`${rule.id} · published ${formatClock(rule.publishedAt)}: ${rule.text}`));
+    }
     for (const op of market.operators) {
       const sh = market.shipments.find(s => s.id === op.assignment);
       const route = ensureStrategicJourneys().routes.find(r => r.id === op.routeId);
@@ -61499,7 +61504,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         storesActionButton("Abandon Sale and Request Return", "Refund unearned sale/transit escrow. Detained cargo must first be released; the same carrier returns only over a feasible route.", () => smugglingInspectionAction(sh.id, "return"))] : recovery?.phase === "waiting" ? [storesActionButton("Receive Recovered Cargo", "Receive the whole manifest at the Concealed Exit; raw cargo requires compatible empty receptacles.", () => cargoRecoveryAction(sh.id, "receive"))] : !sh.living && sh.phase === "returned" && sh.owner === "player" && sh.manifest && !sh.recoveryJobId ? [storesActionButton("Quote Depot Recovery", "Request a separate player-funded local courier trip for this exact manifest.", () => cargoRecoveryAction(sh.id, "quote"))] : []
     }));
       if (recovery) section.append(emptyText(`Recovery ${recovery.id}: ${recovery.phase}; courier ${recovery.courierId}; ${formatNumber(recovery.positionKm)} / ${formatNumber(recovery.distanceKm)} km; ${formatMoney(recovery.fee)} paid separately. ${recovery.reason || ""} ${recovery.receivedAt != null ? "Cargo received in laboratory; courier must return empty before reuse." : "Player-owned cargo remains aboard the courier; no sale proceeds."}`));
-      if (sh.inspection) section.append(emptyText(`Checkpoint notice ${formatClock(sh.inspection.arrivedAt)} · ${sh.inspection.institutionName || sh.inspection.institutionId} · ${sh.inspection.status}. ${sh.inspection.reason} ${sh.inspection.releaseBy != null ? `Temporary custody expires ${formatClock(sh.inspection.releaseBy)}.` : ""} Owner ${sh.owner}; vehicle ${sh.inspection.vehicleId} not seized; crew not arrested. ${sh.inspection.documents.length} manifest submission(s). Deadline ${formatClock(sh.deliveryDeadlineAt)}. ${sh.saleFailedAt != null ? "Sale ended; recovered cargo cannot settle this contract." : ""}`));
+      if (sh.propertyOrder) {
+        const order = sh.propertyOrder;
+        section.append(storesRowEl(order.id, order.status, {
+          subtitle: `${order.institutionName}; ${order.purpose} Rule ${order.rule.id}. Observed label: ${order.evidence.label}; stack ${order.evidence.stackId}, quantity ${order.evidence.quantity}, observer ${order.evidence.observerId}, gate ${order.evidence.gateId}, ${formatClock(order.evidence.at)}. ${order.evidence.finding} Property ${order.propertyIds.join(", ")}; owner ${order.owner}. Expires ${formatClock(order.expiresAt)}. Crew and vehicle not seized; supervised handler care continues with existing finite kit. ${order.decisions.map(d => `${formatClock(d.at)}: ${d.result}: ${d.reason}`).join(" ")}`,
+          dataset: { cargoPropertyOrder: order.id },
+          actions: order.status === "active" ? [["identity", "Challenge Cargo Identification"], ["jurisdiction", "Challenge Jurisdiction"], ["applicability", "Challenge Rule Applicability"], ["authorization", "Submit Existing Cargo Authorization"]].map(([kind, label]) => storesActionButton(label, "Authenticated remote property filing. Review facts, not persuasion; no automatic release or criminal finding.", () => cargoPropertyReviewAction(sh.id, kind))) : []
+        }));
+      }
+      if (sh.inspection) section.append(emptyText(`Checkpoint notice ${formatClock(sh.inspection.arrivedAt)} · ${sh.inspection.institutionName || sh.inspection.institutionId} · ${sh.inspection.status}. ${sh.inspection.reason} ${sh.inspection.releaseBy != null ? `Temporary custody expires ${formatClock(sh.propertyOrder?.status === "active" ? sh.propertyOrder.expiresAt : sh.inspection.releaseBy)}.` : ""} Owner ${sh.owner}; vehicle ${sh.inspection.vehicleId} not seized; crew not arrested. ${sh.inspection.documents.length} manifest submission(s). Deadline ${formatClock(sh.deliveryDeadlineAt)}. ${sh.saleFailedAt != null ? "Sale ended; recovered cargo cannot settle this contract." : ""}`));
       if (report) section.append(emptyText(`Handler report ${formatClock(report.at)}: health ${formatNumber(report.health)}, stress ${formatNumber(report.stress)}, nutrition ${formatNumber(report.nutrition)}, pod ${formatNumber(report.podCondition)}, care reserve about ${formatNumber(report.reserveHours)} hours. ${sh.living.outcome || "In care"}. This is a dated report, not continuous remote observation.`));
       if (sh.offsiteCreature) section.append(emptyText(`${sh.offsiteCreature.kind}: ${sh.offsiteCreature.creature.name} (${sh.offsiteCreature.creature.id}) retained at ${sh.offsiteCreature.location.routeId}, ${sh.offsiteCreature.location.phase}, ${formatNumber(sh.offsiteCreature.location.positionKm)} km. Recovery is not yet available.`));
     }
@@ -82148,9 +82161,27 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const watch = government?.institutions.find(i => i.id === government.roleAssignments.civilWatch);
       const current = map.strategicCivicHistory ? StrategicCivicHistory.currentInstitutionForRole(map, d.cityId, "civilWatch") : null;
       if (!watch || map.strategicCivicHistory && (!current || ["displaced", "disrupted"].includes(current.operationalStatus))) return [];
-      return [{ cityId: d.cityId, cellId: d.cellId, jurisdiction: "city", institutionId: current?.institutionId || watch.id, institutionName: watch.publicName }];
+      const court = government.institutions.find(i => i.id === government.roleAssignments.judiciary);
+      const courtCurrent = map.strategicCivicHistory ? StrategicCivicHistory.currentInstitutionForRole(map, d.cityId, "judiciary") : null;
+      const judiciary = court && (!map.strategicCivicHistory || courtCurrent && !["displaced", "disrupted"].includes(courtCurrent.operationalStatus)) ? { institutionId: courtCurrent?.institutionId || court.id, name: court.publicName } : null;
+      return [{ cityId: d.cityId, cellId: d.cellId, jurisdiction: "city", institutionId: current?.institutionId || watch.id, institutionName: watch.publicName,
+        productScheduleCode: localCovertContext(d.cityId).lawRules.find(r => r.offenseId === "contrabandCommerce"), productScheduleCourt: judiciary }];
     }));
+    for (const gate of smuggling.checkpoints || []) if (!gate.productScheduleChecked) {
+      CargoPropertyReview.publish(gate, gate.productScheduleCode, gate.productScheduleCourt, state.clock); gate.productScheduleChecked = true;
+    }
     return smuggling;
+  }
+
+  function cargoPropertyReviewAction(id, kind) {
+    advanceIntercitySmuggling(advanceLocalCovertCollections());
+    const market = ensureIntercitySmuggling(), sh = market.shipments.find(s => s.id === id);
+    const gate = market.checkpoints?.find(g => g.id === sh?.inspection?.gateId);
+    const ids = kind === "authorization" ? (gate?.authorizations || []).filter(d => d.holderId === "player").map(d => d.id) : [];
+    if (kind === "authorization" && !ids.length) { market.message = "No existing specific cargo authorization is held. A commercial permit or assay certificate is not one."; persist(); render(); return false; }
+    const ok = CargoPropertyReview.petition(sh, kind, state.clock, ids);
+    market.message = ok ? "Authenticated property challenge filed. Review in thirty minutes; custody, care and the original delivery deadline continue." : "No active order or a property review is already pending.";
+    persist(); render(); return ok;
   }
 
   function smugglingInspectionAction(id, action) {

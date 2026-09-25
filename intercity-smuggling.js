@@ -151,6 +151,8 @@
         }
       }
       Checkpoints.expire(state, s, now);
+      // Resolve a review due exactly at this clock boundary, without inventing further travel.
+      if (Checkpoints.pending(s)) Checkpoints.tick(state, s, op, now);
     }
     state.lastAt = Math.max(state.lastAt, now);
   }
