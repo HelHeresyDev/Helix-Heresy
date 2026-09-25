@@ -1,8 +1,9 @@
 (function (root, factory) {
-  const api = factory(typeof module === 'object' && module.exports ? require('./cargo-examination') : root.HelixCargoExamination);
+  const api = factory(typeof module === 'object' && module.exports ? require('./cargo-examination') : root.HelixCargoExamination,
+    typeof module === 'object' && module.exports ? require('./cargo-forfeiture') : root.HelixCargoForfeiture);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixCargoPropertyReview = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Examination) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Examination, Forfeiture) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v));
   // Authored named goods, not a mapping from arbitrary market or creature tags to offenses.
@@ -19,6 +20,7 @@
       productId, label, offenseId: 'contrabandCommerce', publishedAt: at, effectiveAt: at, active: true,
       sourceCodeId: `city-code:${gate.cityId}`, authority: 'publishedCityCode', scope: 'destinationGateCargo', permitsSpecificAuthorization: true,
       text: `Published cargo schedule: ${label} is restricted at this city's gate unless specifically authorized. An identified consignment may be preserved for up to 24 hours for judicial verification. This does not prove knowing unlawful commerce.` }));
+    Forfeiture.publish(gate, code, at);
   }
   const ready = gate => gate?.active && gate.jurisdiction === 'city' && gate.judiciary?.active && gate.judiciary.cityId === gate.cityId && gate.judiciary.institutionId;
   function grounds(gate, sh, at) {
@@ -69,8 +71,10 @@
   function tick(gate, sh, at) {
     const o = sh.propertyOrder; if (!o || o.status !== 'active') return false;
     const p = o.petitions.find(p => p.status === 'pending' && p.reviewAt <= at);
-    const reason = basis(gate, sh, o, p, at);
+    let reason = basis(gate, sh, o, p, at);
     if (!reason && at < o.expiresAt) Examination.tick(gate, sh, at);
+    reason = Forfeiture.tick(gate, sh, at, reason) || reason;
+    if (o.status === 'forfeited') return false;
     if (p || reason || at >= o.expiresAt) {
       const release = Boolean(reason) || at >= o.expiresAt;
       const decision = { at, petitionId: p?.id || null, institutionId: gate?.judiciary?.institutionId || o.institutionId,

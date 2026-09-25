@@ -195,6 +195,46 @@ test('property order UI files factual remote review, persists its reasons and re
   expect(released.intercitySmuggling.shipments[0].propertyOrder.decisions.at(-1).reason).toContain(shipment.examination.reports[1].result === 'targetNotDetected' ? 'did not detect' : 'does not apply');
   expect(errors).toEqual([]);
 });
+test('forfeiture UI exposes notice, stayed appeal and preserved institutional property across reload', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const f = await setup(page);
+  const contractId = await page.evaluate(f => {
+    const d = window.helixHeresyDebug, saved = d.exportSurveyExpeditionTestState();
+    const batch = saved.physicalItemStacks.find(s => s.id === f.batch.id);
+    Object.assign(batch.chemicalBatch, { phase: 'liquid', productId: 'unlicensedMutagenicPrimer', label: 'Unlicensed Mutagenic Primer', purity: 90 });
+    batch.chemicalBatch.packaging.state = 'packaged';
+    d.importSurveyExpeditionTestState(saved); d.requestForeignSmuggling(f.deal.id, f.operatorId, f.batch.id); d.confirmForeignSmuggling();
+    return d.economySnapshot().contracts.find(c => c.foreignShipmentId).id;
+  }, f);
+  expect(await page.evaluate(id => window.helixHeresyDebug.startMarketContractDelivery(id), contractId)).toBe(true);
+  await page.locator('[data-workspace-tab="tasks"]').click();
+  await page.locator('[data-task-row]').filter({ hasText: 'Deliver' }).filter({ hasText: f.deal.material }).getByRole('button', { name: 'Finish' }).click();
+  await page.evaluate(() => {
+    const d = window.helixHeresyDebug, saved = d.exportSurveyExpeditionTestState(), market = saved.economy.intercitySmuggling;
+    window.HelixSmugglingCheckpoints.bind(market, [{ cityId: 'b', cellId: 'cell:2', institutionId: 'watch:b', jurisdiction: 'city' }]);
+    window.HelixCargoPropertyReview.publish(market.checkpoints[0], { legalStatus: 'prohibited' }, { institutionId: 'court:b', name: 'Neighbor Court' }, saved.clock);
+    d.importSurveyExpeditionTestState(saved); d.advanceStrategicServices(1800); d.advanceStrategicServices(15000);
+  });
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  await expect(page.locator('[data-cargo-forfeiture]')).toContainText('never default forfeiture');
+  await page.getByRole('button', { name: 'Contest Identity', exact: true }).click();
+  await page.evaluate(() => {
+    const d = window.helixHeresyDebug, saved = d.exportSurveyExpeditionTestState();
+    d.advanceStrategicServices(saved.economy.intercitySmuggling.shipments[0].forfeiture.hearingAt - saved.clock);
+  });
+  await page.getByRole('button', { name: 'Appeal Confirmation', exact: true }).click();
+  const stayed = await page.evaluate(() => {
+    const d = window.helixHeresyDebug, before = d.economySnapshot(); d.reloadSurveyExpeditionTestState(); return { before, after: d.economySnapshot() };
+  });
+  expect(stayed.after.intercitySmuggling).toEqual(stayed.before.intercitySmuggling);
+  expect(stayed.after.intercitySmuggling.shipments[0]).toMatchObject({ owner: 'player', forfeiture: { status: 'appealed', responses: ['identity'] } });
+  const final = await page.evaluate(() => {
+    const d = window.helixHeresyDebug; d.advanceStrategicServices(12000); d.reloadSurveyExpeditionTestState(); return d.economySnapshot().intercitySmuggling;
+  });
+  expect(final.shipments[0]).toMatchObject({ owner: 'court:b', receiptAt: null, phase: 'returned', forfeiture: { status: 'final' } });
+  expect(final.checkpoints[0].forfeitureStore.lots).toHaveLength(1);
+  expect(errors).toEqual([]);
+});
 test('foreign cancellation releases exact stock and refunds buyer without altering local sale terms', async ({ page }) => {
   const f = await setup(page);
   const result = await page.evaluate(f => {
