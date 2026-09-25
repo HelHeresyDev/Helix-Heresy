@@ -1,9 +1,10 @@
 (function (root, factory) {
   const api = factory(typeof module === 'object' && module.exports ? require('./living-smuggling') : root.HelixLivingSmuggling,
-    typeof module === 'object' && module.exports ? require('./smuggling-checkpoints') : root.HelixSmugglingCheckpoints);
+    typeof module === 'object' && module.exports ? require('./smuggling-checkpoints') : root.HelixSmugglingCheckpoints,
+    typeof module === 'object' && module.exports ? require('./cargo-criminal-referrals') : root.HelixCargoCriminalReferrals);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixIntercitySmuggling = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals) {
   'use strict';
   const HOUR = 3600, copy = v => JSON.parse(JSON.stringify(v));
   const fingerprint = Checkpoints.fingerprint;
@@ -154,6 +155,7 @@
       // Resolve a review due exactly at this clock boundary, without inventing further travel.
       if (Checkpoints.pending(s)) Checkpoints.tick(state, s, op, now);
     }
+    Referrals.advance(state, now);
     state.lastAt = Math.max(state.lastAt, now);
   }
   function settle(state, id, at) {

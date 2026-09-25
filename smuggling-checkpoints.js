@@ -1,8 +1,9 @@
 (function (root, factory) {
-  const api = factory(typeof module === 'object' && module.exports ? require('./cargo-property-review') : root.HelixCargoPropertyReview);
+  const api = factory(typeof module === 'object' && module.exports ? require('./cargo-property-review') : root.HelixCargoPropertyReview,
+    typeof module === 'object' && module.exports ? require('./cargo-criminal-referrals') : root.HelixCargoCriminalReferrals);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixSmugglingCheckpoints = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (PropertyReview) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (PropertyReview, Referrals) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v));
   const fingerprint = m => JSON.stringify({ commodityKind: m.commodityKind, material: m.material, amount: m.amount,
@@ -68,6 +69,7 @@
     if (at < i.reviewAt) return true;
     PropertyReview.issue(gate, sh, at);
     const held = PropertyReview.tick(gate, sh, at);
+    Referrals.tick(gate, sh, at);
     if (sh.examinationChangedLot && sh.saleFailedAt == null) {
       requestReturn(state, sh, at);
       sh.reason = 'Authorized sampling changed the exact contracted lot; unearned sale/transit escrow refunded. Physical return still awaits release.';

@@ -18,15 +18,17 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Smuggling: Separate Criminal Referrals
-2. Smuggling: Violent Interception and Crew Rescue
-3. World Integration: Investigations and Institutional Pressure
-4. Lazy Local Detail and World Discovery
-5. Roguelike Run Lifecycle, Death, Postmortem, and Restart
-6. Campaign Roadmap: From Hidden Laboratory to World Domination
-7. New-Run Onboarding and Contextual Tutorial
-8. Sound, Notifications, and Accessibility Audit
-9. Production Art Pass Using the Sprite Pipeline
+1. Smuggling: Cargo Investigations and Actor Attribution
+2. Smuggling: Charging and Judicial Review
+3. Smuggling: Physical Enforcement of Local Orders
+4. Smuggling: Violent Interception and Crew Rescue
+5. World Integration: Investigations and Institutional Pressure
+6. Lazy Local Detail and World Discovery
+7. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+8. Campaign Roadmap: From Hidden Laboratory to World Domination
+9. New-Run Onboarding and Contextual Tutorial
+10. Sound, Notifications, and Accessibility Audit
+11. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -88,57 +90,69 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Smuggling: Separate Criminal Referrals
+## 1. Smuggling: Cargo Investigations and Actor Attribution
 
-Chemical-cargo forfeiture hearings and stayed appeals are implemented under separate prospective property rules, within the original 24-hour custody limit. Final judgments move only the exact supported liquid lot into finite gate-local institutional storage; neither the property ruling nor a positive assay proves criminal guilt. Retesting, specific authorization issuance, sample reclaim, joint-stronghold jurisdiction and later disposal remain separate scope.
+Evidence-only destination-city criminal referral intake is implemented. Supported confirmatory assays can produce an append-only packet for a named local prosecution reviewer. Separate prospective criminal commerce rules retain transaction, contraband and knowledge elements. Intake can decline, await specific corroboration or accept only a lead for investigation; served notices create no response or appearance obligation. Private contracts, buyer/crew identities and hidden composition do not become authority evidence. Corrections and property outcomes append revisions without erasing earlier records, duplicating dockets or reviving custody.
 
-Discuss referral of supported cargo evidence into a separate local criminal process. Preserve report scope, sample custody, uncertainty, challenged findings and each actor's identity. Product identity, ownership, a shipment label or a property ruling alone does not prove knowledge, authorship or a completed unlawful transaction. Require element-specific evidence and existing local judicial procedures before charges, warrants or physical arrest; no remote arrest, foreign automatic enforcement or inherited guilt for carriers. Referral must not transfer property ownership or revive expired custody. Split investigation, charging and physical enforcement into further prompts if needed.
+Discuss actual investigative work on accepted cargo leads, using available local actors, records channels and finite resources. Establish how witnesses, lawfully obtained documents and corroboration may identify each carrier, handler, sender or buyer without treating internal game IDs, property ownership or a cargo label as proof. Preserve provenance, reliability, challenged findings, exculpatory material and knowledge boundaries. Missing transaction or knowledge evidence must remain missing until a supported source supplies it. No charges, automatic home-city referral, warrants or physical arrest in this slice. Independently commissioned retests, specific authorization issuance, sample reclaim and institutional disposal remain separate scope if needed.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 2. Smuggling: Violent Interception and Crew Rescue
+## 2. Smuggling: Charging and Judicial Review
+
+Discuss prosecution screening of investigated cargo allegations against separately identified actors under the destination city's published criminal law. Require source-linked support for each applicable element, actor attribution and defenses; neither an intake acceptance nor a property judgment supplies missing proof. Integrate only with compatible existing local pretrial and judicial procedures, preserving disclosure, counsel, reasoned decisions and correction paths. Distinguish suspicion, charging thresholds and proof beyond reasonable doubt. Do not generate automatic remote arrest, physical custody or foreign enforcement. Split trial integration further if required.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 3. Smuggling: Physical Enforcement of Local Orders
+
+Discuss how a supported judicial order can reach and be executed by actual competent local officers against the correctly identified person. Require jurisdiction, current valid authority, physical location, available personnel and feasible transport. An internet connection is not cross-city enforcement authority. Keep the scientist, carriers, handlers and buyers separate; an absent person cannot be arrested remotely. Integrate any real custody with existing jail, review and court systems without treating arrest as defeat or extending cargo custody. Foreign recognition, extradition and joint-stronghold jurisdiction require their own explicit design if needed.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 4. Smuggling: Violent Interception and Crew Rescue
 
 Discuss physical beast attacks, robbery and armed interception as distinct encounters with actual actors, approach, vehicles, cargo, crew and location. No abstract disappearance rolls, replacement cargo, automatic scientist death or remote arrest. Keep living care and containment active through captivity. Decide feasible crew survival, negotiation, recapture, rescue and return options in bounded playable slices. Captors possess only their actual capabilities; wilderness grants no sovereign police jurisdiction. Existing failed-sale escrow and property identities must survive recovery.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. World Integration: Investigations and Institutional Pressure
+## 5. World Integration: Investigations and Institutional Pressure
 
 Design and implement world-context effects on company plausibility, inspections, investigations, religious scrutiny, escalation, and authority response. Context may alter priorities, schedules, thresholds, and available actions, but must not invent player guilt.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Lazy Local Detail and World Discovery
+## 6. Lazy Local Detail and World Discovery
 
 Design and implement deterministic elaboration of the already generated strategic world when a run encounters it. Lazy generation may fill minor places, institution branches, contacts, local histories, individuals, encounters, and exact maps while respecting canonical world facts and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+## 7. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 
 Design and implement the loop for beginning, losing, reviewing, and replacing a run without altering its reusable world. Only the scientist’s death ends a run; arrest, jail, prison, penal service, death sentence, loss of laboratory, and similar catastrophes remain playable while the scientist lives.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 8. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. The final campaign goal is rare world domination, but early hidden-laboratory survival must remain a complete roguelike experience.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. New-Run Onboarding and Contextual Tutorial
+## 9. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Sound, Notifications, and Accessibility Audit
+## 10. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. Production Art Pass Using the Sprite Pipeline
+## 11. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 

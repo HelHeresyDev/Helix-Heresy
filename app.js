@@ -40,6 +40,7 @@
   const CargoPropertyReview = window.HelixCargoPropertyReview;
   const CargoExamination = window.HelixCargoExamination;
   const CargoForfeiture = window.HelixCargoForfeiture;
+  const CargoCriminalReferrals = window.HelixCargoCriminalReferrals;
   const LivingSmuggling = window.HelixLivingSmuggling;
   const StrategicDivineHistory = window.HelixStrategicDivineHistory;
   const StrategicCrisisHistory = window.HelixStrategicCrisisHistory;
@@ -61488,6 +61489,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       section.append(emptyText(`${gate.institutionName || gate.institutionId} · ${gate.id}: ${gate.policy}`));
       for (const rule of gate.propertyRules || []) section.append(emptyText(`${rule.id} · published ${formatClock(rule.publishedAt)}: ${rule.text}`));
       for (const rule of gate.forfeitureRules || []) section.append(emptyText(`${rule.id} · published ${formatClock(rule.publishedAt)}: ${rule.text}`));
+      if (gate.criminalRule) section.append(emptyText(`${gate.criminalRule.id} · published ${formatClock(gate.criminalRule.publishedAt)}: ${gate.criminalRule.text}`));
+      for (const referral of gate.criminalIntake?.referrals || []) {
+        const notice = referral.disclosed.at(-1);
+        if (notice) section.append(storesRowEl(referral.id, titleCase(notice.status), {
+          dataset: { cargoCriminalReferral: referral.id },
+          subtitle: `Served ${formatClock(notice.at)} by ${notice.reviewerName}, ${notice.institutionId}. ${notice.reason} ${notice.obligation} ${notice.elements.map(e => `${titleCase(e.id)}: ${e.support.length ? "limited cited support" : "not established"}. ${e.missing}`).join(" ")} This is the last served notice, not a live view of undisclosed investigation work.`
+        }));
+      }
       if (gate.forfeitureStore) section.append(emptyText(`Institutional property store ${gate.forfeitureStore.id}: ${formatNumber(gate.forfeitureStore.usedKg)} / ${gate.forfeitureStore.capacityKg} kg; ${formatNumber(gate.forfeitureStore.usedL)} / ${gate.forfeitureStore.capacityL} L. ${gate.forfeitureStore.lots.map(l => `${l.entry.stack.id}: ${l.entry.amount} units, owner ${l.owner}, physically held at ${l.locationId}`).join("; ")}`));
       if (gate.examinationLab) { const lab = gate.examinationLab; section.append(emptyText(`Gate examination ${lab.id}: examiner ${lab.examiner.id} (${lab.examiner.status}); instrument condition ${formatNumber(lab.instrument.condition)}, calibration ${formatNumber(lab.instrument.calibration)}; institutional funds ${formatMoney(lab.funds)}, power ${lab.power}, reagents ${lab.reagents}, seals ${lab.seals}. Screening is non-destructive; confirmation samples 0.01 unit, ending an exact-lot sale with unearned escrow refunded. No automatic restocking or player fee.`)); }
     }
@@ -82104,7 +82113,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       : map?.publicCityLawDirectory ? StrategicCityLaws.publicCityLawDirectory(map) : [];
     const cityContext = context?.cityId === cityId ? context : ensureEconomy().commodityMarket.intercityTrade?.neighbors.find(n => n.id === cityId)?.profile;
     return { ...(cityContext || {}), cityId, cityName: cityContext?.cityName || network.destinations.find(d => d.kind === "fortifiedCity" && d.cityId === cityId)?.label || cityId || "Unbound locality",
-      lawRules: (legal.find(c => c.city.id === cityId)?.offenseRules || []).filter(r => ["corporateLicensing", "contrabandCommerce", "geneticEngineering", "artificialCreatureCreation", "prohibitedMagic"].includes(r.offenseId)).map(r => ({ offenseId: r.offenseId, label: r.label, legalStatus: r.legalStatus })),
+      lawRules: (legal.find(c => c.city.id === cityId)?.offenseRules || []).filter(r => ["corporateLicensing", "contrabandCommerce", "geneticEngineering", "artificialCreatureCreation", "prohibitedMagic"].includes(r.offenseId)).map(r => ({ id: r.id, offenseId: r.offenseId, label: r.label, legalStatus: r.legalStatus, elements: r.elements })),
       institutions: (institutions?.standings || []).filter(e => e.network?.category === "blackMarket").map(e => ({ standing: e.standing })),
       beliefs: (map?.publicReligionDirectory?.gods || []).filter(g => deityIds.has(g.id)).flatMap(g => g.prohibitions || []) };
   }
@@ -82189,11 +82198,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const court = government.institutions.find(i => i.id === government.roleAssignments.judiciary);
       const courtCurrent = map.strategicCivicHistory ? StrategicCivicHistory.currentInstitutionForRole(map, d.cityId, "judiciary") : null;
       const judiciary = court && (!map.strategicCivicHistory || courtCurrent && !["displaced", "disrupted"].includes(courtCurrent.operationalStatus)) ? { institutionId: courtCurrent?.institutionId || court.id, name: court.publicName } : null;
+      const prosecution = government.institutions.find(i => i.id === government.roleAssignments.publicProsecution);
+      const prosecutionCurrent = map.strategicCivicHistory ? StrategicCivicHistory.currentInstitutionForRole(map, d.cityId, "publicProsecution") : null;
+      const criminalIntakeInstitution = prosecution && (!map.strategicCivicHistory || prosecutionCurrent && !["displaced", "disrupted"].includes(prosecutionCurrent.operationalStatus)) ? { institutionId: prosecutionCurrent?.institutionId || prosecution.id, name: prosecution.publicName } : null;
       return [{ cityId: d.cityId, cellId: d.cellId, jurisdiction: "city", institutionId: current?.institutionId || watch.id, institutionName: watch.publicName,
-        productScheduleCode: localCovertContext(d.cityId).lawRules.find(r => r.offenseId === "contrabandCommerce"), productScheduleCourt: judiciary }];
+        productScheduleCode: localCovertContext(d.cityId).lawRules.find(r => r.offenseId === "contrabandCommerce"), productScheduleCourt: judiciary, criminalIntakeInstitution }];
     }));
     for (const gate of smuggling.checkpoints || []) if (!gate.productScheduleChecked) {
       CargoPropertyReview.publish(gate, gate.productScheduleCode, gate.productScheduleCourt, state.clock); gate.productScheduleChecked = true;
+      CargoCriminalReferrals.provision(gate, gate.productScheduleCode, gate.criminalIntakeInstitution, state.clock);
     }
     return smuggling;
   }

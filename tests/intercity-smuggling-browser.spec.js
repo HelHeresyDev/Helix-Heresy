@@ -195,7 +195,7 @@ test('property order UI files factual remote review, persists its reasons and re
   expect(released.intercitySmuggling.shipments[0].propertyOrder.decisions.at(-1).reason).toContain(shipment.examination.reports[1].result === 'targetNotDetected' ? 'did not detect' : 'does not apply');
   expect(errors).toEqual([]);
 });
-test('forfeiture UI exposes notice, stayed appeal and preserved institutional property across reload', async ({ page }) => {
+test('forfeiture UI and separate criminal referral notices preserve property, evidence and reload boundaries', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   const f = await setup(page);
   const contractId = await page.evaluate(f => {
@@ -213,6 +213,8 @@ test('forfeiture UI exposes notice, stayed appeal and preserved institutional pr
     const d = window.helixHeresyDebug, saved = d.exportSurveyExpeditionTestState(), market = saved.economy.intercitySmuggling;
     window.HelixSmugglingCheckpoints.bind(market, [{ cityId: 'b', cellId: 'cell:2', institutionId: 'watch:b', jurisdiction: 'city' }]);
     window.HelixCargoPropertyReview.publish(market.checkpoints[0], { legalStatus: 'prohibited' }, { institutionId: 'court:b', name: 'Neighbor Court' }, saved.clock);
+    market.checkpoints[0].productScheduleCode = { id: 'city-law:b:contrabandCommerce', offenseId: 'contrabandCommerce', legalStatus: 'prohibited', elements: window.HelixStrategicCityLaws.OFFENSE_CATALOG.find(o => o.id === 'contrabandCommerce').elements };
+    market.checkpoints[0].criminalIntakeInstitution = { institutionId: 'prosecution:b', name: 'Neighbor Prosecution' };
     d.importSurveyExpeditionTestState(saved); d.advanceStrategicServices(1800); d.advanceStrategicServices(15000);
   });
   await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
@@ -223,6 +225,8 @@ test('forfeiture UI exposes notice, stayed appeal and preserved institutional pr
     d.advanceStrategicServices(saved.economy.intercitySmuggling.shipments[0].forfeiture.hearingAt - saved.clock);
   });
   await page.getByRole('button', { name: 'Appeal Confirmation', exact: true }).click();
+  await expect(page.locator('[data-cargo-criminal-referral]')).toContainText('No response or appearance required');
+  await expect(page.locator('[data-cargo-criminal-referral]')).toContainText('Transaction, actor attribution and knowledge remain unproved');
   const stayed = await page.evaluate(() => {
     const d = window.helixHeresyDebug, before = d.economySnapshot(); d.reloadSurveyExpeditionTestState(); return { before, after: d.economySnapshot() };
   });
@@ -233,6 +237,16 @@ test('forfeiture UI exposes notice, stayed appeal and preserved institutional pr
   });
   expect(final.shipments[0]).toMatchObject({ owner: 'court:b', receiptAt: null, phase: 'returned', forfeiture: { status: 'final' } });
   expect(final.checkpoints[0].forfeitureStore.lots).toHaveLength(1);
+  expect(final.checkpoints[0].criminalIntake.referrals).toHaveLength(1);
+  const corrected = await page.evaluate(() => {
+    const d = window.helixHeresyDebug, saved = d.exportSurveyExpeditionTestState();
+    saved.economy.intercitySmuggling.shipments[0].examination.reports[1].supported = false;
+    d.importSurveyExpeditionTestState(saved); d.advanceStrategicServices(1); d.advanceStrategicServices(1800); d.reloadSurveyExpeditionTestState();
+    return d.economySnapshot().intercitySmuggling;
+  });
+  expect(corrected.checkpoints[0].criminalIntake.referrals[0].status).toBe('awaitingCorroboration');
+  expect(corrected.shipments[0]).toMatchObject({ owner: 'court:b', phase: 'returned', propertyOrder: { status: 'forfeited' } });
+  expect(corrected.checkpoints[0].forfeitureStore.lots).toEqual(final.checkpoints[0].forfeitureStore.lots);
   expect(errors).toEqual([]);
 });
 test('foreign cancellation releases exact stock and refunds buyer without altering local sale terms', async ({ page }) => {
