@@ -111,15 +111,15 @@
         obligation: 'Informational notice only. No response or appearance required. No charge, custody authority or finding of guilt.' });
     }
   }
-  function tick(gate, sh, at) {
+  function tick(gate, sh, at, state) {
     capture(gate, sh, at); advanceGate(gate, at);
-    Investigations.advance(gate, at);
+    Investigations.advance(gate, at, state?.operators || []);
   }
   function advance(state, at) {
     for (const gate of state.checkpoints || []) {
       for (const sh of state.shipments.filter(s => s.inspection?.gateId === gate.id)) capture(gate, sh, at);
       advanceGate(gate, at);
-      Investigations.advance(gate, at);
+      Investigations.advance(gate, at, state.operators);
     }
   }
   return { provision, tick, advance, findings };

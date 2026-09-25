@@ -18,17 +18,18 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Smuggling: Documentary Corroboration and Voluntary Witnesses
-2. Smuggling: Charging and Judicial Review
-3. Smuggling: Physical Enforcement of Local Orders
-4. Smuggling: Violent Interception and Crew Rescue
-5. World Integration: Investigations and Institutional Pressure
-6. Lazy Local Detail and World Discovery
-7. Roguelike Run Lifecycle, Death, Postmortem, and Restart
-8. Campaign Roadmap: From Hidden Laboratory to World Domination
-9. New-Run Onboarding and Contextual Tutorial
-10. Sound, Notifications, and Accessibility Audit
-11. Production Art Pass Using the Sprite Pipeline
+1. Smuggling: Voluntary Buyer Records and Statements
+2. Smuggling: Independent Documentary Authentication
+3. Smuggling: Charging and Judicial Review
+4. Smuggling: Physical Enforcement of Local Orders
+5. Smuggling: Violent Interception and Crew Rescue
+6. World Integration: Investigations and Institutional Pressure
+7. Lazy Local Detail and World Discovery
+8. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+9. Campaign Roadmap: From Hidden Laboratory to World Domination
+10. New-Run Onboarding and Contextual Tutorial
+11. Sound, Notifications, and Accessibility Audit
+12. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -90,69 +91,75 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Smuggling: Documentary Corroboration and Voluntary Witnesses
+## 1. Smuggling: Voluntary Buyer Records and Statements
 
-The gate-witness investigation slice is implemented. An identified local investigator interviews the available original gate officer and examiner, reconciles source records with finite work and power, and issues dated voluntary requests and findings. Observed cargo presenters, authenticated property claimants and names asserted in supplied contracts remain separate, unverified actor records. Existing manifests and contract excerpts require an exact preview and explicit consent before disclosure. Source-identity and scope corrections, potentially exculpatory nonperformance claims and earlier findings remain saved. Silence and repeated testimony add no proof. Missing transaction, verified identity and contemporaneous knowledge evidence can leave an investigation waiting indefinitely; an unsupported legal basis exhausts the lead without changing property custody.
+The carrier-first corroboration slice is implemented. New carriers retain prospective booking and physical transport records, with customer copies only over working channels. Existing cases and journeys receive no invented history. Explicitly previewed disclosure of the actual contact and selected customer copies is required before investigators can reach that carrier. Cooperation is saved and circumstance-based: refusal, records-only or limited personal testimony, with finite time, communications and available people. Account-authenticated matching, contradicted and unavailable copies are distinguished; the carrier's log and testimony remain one source. Home-city handoffs are not destination-city commerce. Return/non-delivery evidence is retained, but civil identity, earlier knowledge and knowing unlawful commerce remain unproved. Cargo ownership and custody remain independent.
 
-Discuss a bounded path for independently authenticating voluntarily supplied documents and obtaining voluntary statements from actual reachable carriers or counterparties. Require real sources, availability, consent, lawful record access, provenance and corroboration. Names, document assertions and repeated copies cannot become verified identities or independent witnesses by repetition. A source may refuse, be unavailable, know nothing relevant or supply exculpatory information; no cooperation or completed transaction is guaranteed. Keep transaction jurisdiction and each actor's knowledge at the relevant time explicit. Do not retrospectively generate observations of historical events. Split carrier cooperation/negotiation, documentary authentication and new transaction observations further if needed. Compelled disclosure, fabricated statements, retesting and foreign authority require separate discussion. No charges, warrants, arrests or renewed cargo detention in this slice.
+Discuss a separate voluntary path to actual reachable buyers, using disclosed contact routes and prospectively created buyer records. Do not read private buyer IDs, escrow or contract state as authority evidence. A buyer may refuse, be unavailable, have no relevant observation or offer exculpatory material. Require explicit scope and lawful access before records or statements transfer; retain separate source provenance, jurisdictions and participant identity claims. Do not invent historical receipts or assume a failed delivery nevertheless completed a sale. Keep bribery, bargaining, compelled testimony, charges and foreign enforcement outside this slice unless separately discussed.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 2. Smuggling: Charging and Judicial Review
+## 2. Smuggling: Independent Documentary Authentication
+
+Discuss a bounded path for authenticating supplied contracts, identity claims or transaction records against genuinely independent, lawfully accessible sources. Verifying an account or comparing its own copies does not verify civil identity, document truth or every offense element. Identify the actual issuing institution or independent witness, their jurisdiction, access/consent requirements, available records, finite resources and evidentiary limits before implementing a service. Repeated copies or testimony derived from one record count as one source. Preserve contradictions, uncertainty, corrections and exculpatory findings. Missing historical records remain missing; new identity or transaction observations must be prospective. Split distinct authentication services into additional prompts if necessary. No automatic charges, warrants or arrest.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 3. Smuggling: Charging and Judicial Review
 
 Discuss prosecution screening of investigated cargo allegations against separately identified actors under the destination city's published criminal law. Require source-linked support for each applicable element, actor attribution and defenses; neither an intake acceptance nor a property judgment supplies missing proof. Integrate only with compatible existing local pretrial and judicial procedures, preserving disclosure, counsel, reasoned decisions and correction paths. Distinguish suspicion, charging thresholds and proof beyond reasonable doubt. Do not generate automatic remote arrest, physical custody or foreign enforcement. Split trial integration further if required.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Smuggling: Physical Enforcement of Local Orders
+## 4. Smuggling: Physical Enforcement of Local Orders
 
 Discuss how a supported judicial order can reach and be executed by actual competent local officers against the correctly identified person. Require jurisdiction, current valid authority, physical location, available personnel and feasible transport. An internet connection is not cross-city enforcement authority. Keep the scientist, carriers, handlers and buyers separate; an absent person cannot be arrested remotely. Integrate any real custody with existing jail, review and court systems without treating arrest as defeat or extending cargo custody. Foreign recognition, extradition and joint-stronghold jurisdiction require their own explicit design if needed.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Smuggling: Violent Interception and Crew Rescue
+## 5. Smuggling: Violent Interception and Crew Rescue
 
 Discuss physical beast attacks, robbery and armed interception as distinct encounters with actual actors, approach, vehicles, cargo, crew and location. No abstract disappearance rolls, replacement cargo, automatic scientist death or remote arrest. Keep living care and containment active through captivity. Decide feasible crew survival, negotiation, recapture, rescue and return options in bounded playable slices. Captors possess only their actual capabilities; wilderness grants no sovereign police jurisdiction. Existing failed-sale escrow and property identities must survive recovery.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. World Integration: Investigations and Institutional Pressure
+## 6. World Integration: Investigations and Institutional Pressure
 
 Design and implement world-context effects on company plausibility, inspections, investigations, religious scrutiny, escalation, and authority response. Context may alter priorities, schedules, thresholds, and available actions, but must not invent player guilt.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Lazy Local Detail and World Discovery
+## 7. Lazy Local Detail and World Discovery
 
 Design and implement deterministic elaboration of the already generated strategic world when a run encounters it. Lazy generation may fill minor places, institution branches, contacts, local histories, individuals, encounters, and exact maps while respecting canonical world facts and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+## 8. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 
 Design and implement the loop for beginning, losing, reviewing, and replacing a run without altering its reusable world. Only the scientist’s death ends a run; arrest, jail, prison, penal service, death sentence, loss of laboratory, and similar catastrophes remain playable while the scientist lives.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 9. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. The final campaign goal is rare world domination, but early hidden-laboratory survival must remain a complete roguelike experience.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. New-Run Onboarding and Contextual Tutorial
+## 10. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 10. Sound, Notifications, and Accessibility Audit
+## 11. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 11. Production Art Pass Using the Sprite Pipeline
+## 12. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 
