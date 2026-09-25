@@ -196,6 +196,7 @@ test('property order UI files factual remote review, persists its reasons and re
   expect(errors).toEqual([]);
 });
 test('forfeiture UI and separate criminal referral notices preserve property, evidence and reload boundaries', async ({ page }) => {
+  test.setTimeout(180000);
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   const f = await setup(page);
   const contractId = await page.evaluate(f => {
@@ -238,6 +239,40 @@ test('forfeiture UI and separate criminal referral notices preserve property, ev
   expect(final.shipments[0]).toMatchObject({ owner: 'court:b', receiptAt: null, phase: 'returned', forfeiture: { status: 'final' } });
   expect(final.checkpoints[0].forfeitureStore.lots).toHaveLength(1);
   expect(final.checkpoints[0].criminalIntake.referrals).toHaveLength(1);
+  await page.evaluate(() => window.helixHeresyDebug.advanceStrategicServices(8000));
+  if (!(await page.getByRole('button', { name: 'Preview Contract Excerpt', exact: true }).isVisible())) {
+    await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  }
+  await expect(page.locator('[data-cargo-investigation]')).toContainText('No deadline, adverse inference from silence');
+  await page.getByRole('button', { name: 'Preview Contract Excerpt', exact: true }).click();
+  await expect(page.locator('[data-cargo-disclosure-preview]')).toContainText('Nothing sent yet');
+  expect(await page.evaluate(() => window.helixHeresyDebug.economySnapshot().intercitySmuggling.checkpoints[0].criminalIntake.referrals[0].investigation.submissions.length)).toBe(0);
+  await page.getByRole('button', { name: 'Cancel Disclosure', exact: true }).click();
+  await expect(page.locator('[data-cargo-disclosure-preview]')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Preview Contract Excerpt', exact: true }).click();
+  const stale = await page.evaluate(() => {
+    const d = window.helixHeresyDebug, saved = d.exportSurveyExpeditionTestState();
+    const sh = saved.economy.intercitySmuggling.shipments[0], contract = saved.economy.contracts.find(c => c.id === sh.contractId);
+    const amount = contract.amount; contract.amount += 1;
+    d.importSurveyExpeditionTestState(saved);
+    const accepted = d.cargoInvestigationAction(sh.criminalReferralId, 'confirm');
+    const restore = d.exportSurveyExpeditionTestState(); restore.economy.contracts.find(c => c.id === sh.contractId).amount = amount;
+    d.importSurveyExpeditionTestState(restore); return accepted;
+  });
+  expect(stale).toBe(false);
+  if (!(await page.getByRole('button', { name: 'Preview Contract Excerpt', exact: true }).isVisible())) {
+    await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  }
+  await page.getByRole('button', { name: 'Preview Contract Excerpt', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm Voluntary Disclosure', exact: true }).click();
+  const submitted = await page.evaluate(() => {
+    const d = window.helixHeresyDebug; d.advanceStrategicServices(1); d.advanceStrategicServices(1800);
+    const before = d.economySnapshot(); d.reloadSurveyExpeditionTestState(); return { before, after: d.economySnapshot() };
+  });
+  expect(submitted.after.intercitySmuggling).toEqual(submitted.before.intercitySmuggling);
+  const investigation = submitted.after.intercitySmuggling.checkpoints[0].criminalIntake.referrals[0].investigation;
+  expect(investigation.interviews).toHaveLength(2); expect(investigation.submissions).toHaveLength(1);
+  expect(investigation.assessments.at(-1).actors.every(a => a.transaction === 'not established')).toBe(true);
   const corrected = await page.evaluate(() => {
     const d = window.helixHeresyDebug, saved = d.exportSurveyExpeditionTestState();
     saved.economy.intercitySmuggling.shipments[0].examination.reports[1].supported = false;

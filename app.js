@@ -41,6 +41,7 @@
   const CargoExamination = window.HelixCargoExamination;
   const CargoForfeiture = window.HelixCargoForfeiture;
   const CargoCriminalReferrals = window.HelixCargoCriminalReferrals;
+  const CargoInvestigations = window.HelixCargoInvestigations;
   const LivingSmuggling = window.HelixLivingSmuggling;
   const StrategicDivineHistory = window.HelixStrategicDivineHistory;
   const StrategicCrisisHistory = window.HelixStrategicCrisisHistory;
@@ -13751,6 +13752,7 @@
       cargoPropertyReviewAction: (id, kind) => cargoPropertyReviewAction(id, kind),
       cargoExaminationChallenge: (id, reportId, kind) => cargoExaminationChallenge(id, reportId, kind),
       cargoForfeitureAction: (id, kind) => cargoForfeitureAction(id, kind),
+      cargoInvestigationAction: (id, action) => cargoInvestigationAction(id, action),
       configureCovertContactForTest: (contactId, options = {}) => {
         const market = ensureLocalCovertMarket(), contact = blackMarketContactById(contactId), courier = market.couriers.find(c => c.contactId === contactId);
         if (!contact) return false;
@@ -61474,6 +61476,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     section.append(emptyText(market.message || "Request a foreign quote beside an eligible raw, manufactured or specimen contract offer below."));
     if (!market.operators.length) section.append(emptyText("No referred operator on a known supported direct neighboring corridor. Remote contact alone supplies no vehicle."));
     const q = market.quote;
+    const disclosure = market.investigationDisclosurePreview;
+    if (disclosure) section.append(storesRowEl("Voluntary disclosure preview", "Nothing sent yet", {
+      dataset: { cargoDisclosurePreview: disclosure.referralId },
+      subtitle: `These exact fields will be sent to the local investigator: ${JSON.stringify(disclosure.document)}. The recipient retains the submitted copy. Canceling or remaining silent creates no adverse inference.`,
+      actions: [storesActionButton("Confirm Voluntary Disclosure", "Send only the previewed fields. A changed source requires a fresh preview.", () => cargoInvestigationAction(disclosure.referralId, "confirm")),
+        storesActionButton("Cancel Disclosure", "Keep this document private.", () => cargoInvestigationAction(disclosure.referralId, "cancel"))]
+    }));
     const recoveryQuote = market.recoveryQuote;
     if (recoveryQuote) section.append(storesRowEl(`Recover ${recoveryQuote.shipmentId}`, formatMoney(recoveryQuote.fee), {
       subtitle: `Player-funded local round trip, ${formatNumber(recoveryQuote.distanceKm)} km each way; ${formatDuration(recoveryQuote.travelSeconds)} outward. Fee paid to the courier on dispatch, nonrefundable after departure. Whole manifest only. Quote expires ${formatClock(recoveryQuote.expiresAt)}. Scientist receipt at the Concealed Exit required; raw cargo needs empty compatible receptacles there. No revival of the failed sale.`,
@@ -61495,6 +61504,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         if (notice) section.append(storesRowEl(referral.id, titleCase(notice.status), {
           dataset: { cargoCriminalReferral: referral.id },
           subtitle: `Served ${formatClock(notice.at)} by ${notice.reviewerName}, ${notice.institutionId}. ${notice.reason} ${notice.obligation} ${notice.elements.map(e => `${titleCase(e.id)}: ${e.support.length ? "limited cited support" : "not established"}. ${e.missing}`).join(" ")} This is the last served notice, not a live view of undisclosed investigation work.`
+        }));
+        const investigationNotice = referral.investigation?.notices.at(-1);
+        if (investigationNotice) section.append(storesRowEl(referral.investigation.id, titleCase(investigationNotice.assessment.status), {
+          dataset: { cargoInvestigation: referral.id },
+          subtitle: `Served ${formatClock(investigationNotice.at)} by ${investigationNotice.investigatorName}. ${investigationNotice.assessment.reason} ${investigationNotice.request} ${investigationNotice.obligation} ${investigationNotice.assessment.actors.map(a => `${a.id}: ${a.identity}; ${a.role}; ${a.conduct} Transaction ${a.transaction}; knowledge ${a.knowledge}.`).join(" ")} ${investigationNotice.assessment.documents.map(d => `${d.sourceId}: ${d.finding}`).join(" ")} ${investigationNotice.assessment.correctionFindings.map(c => `${c.kind}: ${c.result}`).join(" ")} Dated findings only; no hidden leads shown.`,
+          actions: [storesActionButton("Preview Booked Manifest", "Inspect the exact copy before deciding whether to disclose it.", () => cargoInvestigationAction(referral.id, "preview:manifest")),
+            storesActionButton("Preview Contract Excerpt", "Preview material, quantity, named counterparty, destination and contract status. No record is sent yet.", () => cargoInvestigationAction(referral.id, "preview:contract")),
+            storesActionButton("Flag Source Identity Error", "Ask the investigator to reconcile source stack and batch identities without inventing an alternative account.", () => cargoInvestigationAction(referral.id, "correct:identity")),
+            storesActionButton("Flag Evidence Scope Error", "Record that sample evidence cannot prove a transaction or earlier knowledge.", () => cargoInvestigationAction(referral.id, "correct:scope"))]
         }));
       }
       if (gate.forfeitureStore) section.append(emptyText(`Institutional property store ${gate.forfeitureStore.id}: ${formatNumber(gate.forfeitureStore.usedKg)} / ${gate.forfeitureStore.capacityKg} kg; ${formatNumber(gate.forfeitureStore.usedL)} / ${gate.forfeitureStore.capacityL} L. ${gate.forfeitureStore.lots.map(l => `${l.entry.stack.id}: ${l.entry.amount} units, owner ${l.owner}, physically held at ${l.locationId}`).join("; ")}`));
@@ -82209,6 +82227,26 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       CargoCriminalReferrals.provision(gate, gate.productScheduleCode, gate.criminalIntakeInstitution, state.clock);
     }
     return smuggling;
+  }
+
+  function cargoInvestigationAction(id, action) {
+    advanceIntercitySmuggling(advanceLocalCovertCollections());
+    const market = ensureIntercitySmuggling(), gate = market.checkpoints?.find(g => g.criminalIntake?.referrals.some(r => r.id === id));
+    const referral = gate?.criminalIntake.referrals.find(r => r.id === id);
+    const sh = market.shipments.find(s => s.propertyOrder?.id === referral?.sourceOrderId);
+    const makeDocument = kind => CargoInvestigations.preview(kind, sh, blackMarketContractById(sh?.contractId), market.buyers.find(b => b.id === sh?.buyerId)?.name);
+    let ok = false;
+    if (action === "cancel") { market.investigationDisclosurePreview = null; ok = true; }
+    else if (action.startsWith("preview:") && referral?.investigation?.notices.length) {
+      const kind = action.slice(8), document = makeDocument(kind);
+      if (document) { market.investigationDisclosurePreview = { referralId: id, kind, document }; ok = true; }
+    } else if (action === "confirm") {
+      const preview = market.investigationDisclosurePreview;
+      if (preview?.referralId === id && JSON.stringify(preview.document) === JSON.stringify(makeDocument(preview.kind))) ok = CargoInvestigations.submit(gate, referral, preview.document, state.clock);
+      market.investigationDisclosurePreview = null;
+    } else if (action.startsWith("correct:")) ok = CargoInvestigations.correct(gate, referral, action.slice(8), state.clock);
+    market.message = ok ? action.startsWith("preview:") ? "Review the exact disclosure. Nothing has been sent." : action === "cancel" ? "Disclosure canceled; document remains private." : "Voluntary filing recorded for factual review. No admission, charge or change in cargo custody follows automatically." : "No available request, duplicate filing, or changed document. Nothing sent; preview again if needed.";
+    persist(); render(); return ok;
   }
 
   function cargoForfeitureAction(id, kind) {

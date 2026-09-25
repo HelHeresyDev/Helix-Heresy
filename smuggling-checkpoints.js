@@ -65,6 +65,11 @@
       i.observations.push({ at, observerId: gate.officer.id, locationId: gate.id, material: sh.manifest.material,
         amount: sh.manifest.amount, entryIds: sh.manifest.entries.map(e => e.creature?.id || e.stack?.id || e.sourceReceptacleId),
         supports: 'Physical cargo present at gate; no finding about knowledge, origin, unlawful sale or scientist involvement.' });
+      i.personObservations = op.crew.some(c => c.status === 'alive' && c.health >= 50) ? [{
+        id: `${sh.id}:observed-presenter`, at, observerId: gate.officer.id, locationId: gate.id,
+        description: 'Person presenting the cargo with the arriving vehicle; civil identity not checked.',
+        conduct: 'Presented cargo for admission inspection, not a witnessed commercial transaction.'
+      }] : [];
     }
     if (at < i.reviewAt) return true;
     PropertyReview.issue(gate, sh, at);
