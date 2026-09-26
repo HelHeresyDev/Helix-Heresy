@@ -29,6 +29,7 @@
     // customer, scientist, owner ID, vehicle crew IDs, or internal financial records.
     return copy({ cityId: gate.cityId, arrivedAt: sh.inspection.arrivedAt, observation: o.evidence, productId: o.rule.productId,
       observations: sh.inspection.observations, personObservations: sh.inspection.personObservations || [], law: gate.criminalRule || null,
+      identityChecks: sh.inspection.identityChecks || [],
       reports: e.reports, challenges: e.challenges, examinationAuthority: e.authorization,
       samples: e.samples.map(s => ({ id: s.id, sourceStackId: s.sourceStackId, sourceBatchId: s.sourceBatchId,
         quantity: s.quantity, locationId: s.locationId, examinerId: s.examinerId, labId: s.labId,
