@@ -44,6 +44,7 @@
   const CargoInvestigations = window.HelixCargoInvestigations;
   const ContractWitnessing = window.HelixContractWitnessing;
   const CarrierIdentity = window.HelixCarrierIdentity;
+  const BuyerIdentity = window.HelixBuyerIdentity;
   const LivingSmuggling = window.HelixLivingSmuggling;
   const StrategicDivineHistory = window.HelixStrategicDivineHistory;
   const StrategicCrisisHistory = window.HelixStrategicCrisisHistory;
@@ -13757,6 +13758,7 @@
       cargoInvestigationAction: (id, action) => cargoInvestigationAction(id, action),
       contractWitnessAction: (id, action, note = "") => contractWitnessAction(id, action, note),
       carrierIdentityAction: (id, action) => carrierIdentityAction(id, action),
+      buyerIdentityAction: (id, action) => buyerIdentityAction(id, action),
       configureCovertContactForTest: (contactId, options = {}) => {
         const market = ensureLocalCovertMarket(), contact = blackMarketContactById(contactId), courier = market.couriers.find(c => c.contactId === contactId);
         if (!contact) return false;
@@ -61481,6 +61483,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!market.operators.length) section.append(emptyText("No referred operator on a known supported direct neighboring corridor. Remote contact alone supplies no vehicle."));
     const q = market.quote;
     const disclosure = market.investigationDisclosurePreview;
+    if (market.buyerRegistrationPreview) {
+      const p = market.buyerRegistrationPreview;
+      section.append(storesRowEl("Receiver registration visit preview", "No journey started", {
+        dataset: { buyerRegistrationPreview: p.buyerId }, subtitle: JSON.stringify(p),
+        actions: [storesActionButton("Request Receiver Registration Visit", "Ask the representative to walk to the local registry on these buyer-funded terms. Consent remains voluntary.", () => buyerIdentityAction(p.buyerId, "confirm")),
+          storesActionButton("Cancel Receiver Registration Preview", "Start no journey and pay no fee.", () => buyerIdentityAction(p.buyerId, "cancel"))]
+      }));
+    }
+    for (const buyer of market.buyers) section.append(storesRowEl(buyer.name, "Receiving representative", {
+      dataset: { buyerRegistration: buyer.id },
+      subtitle: buyer.identityTrip ? `Registration visit ${buyer.identityTrip.phase}; ${formatNumber(buyer.identityTrip.positionKm)} km along the local road, clerk work ${formatDuration(buyer.identityTrip.progress)}. Representative unavailable while away.` : "Optional prospective civic registration, not proof of principal identity or account control.",
+      actions: [storesActionButton("Preview Receiver Registration", "Preview a voluntary physical visit to a real destination-city registry.", () => buyerIdentityAction(buyer.id, "preview"))]
+    }));
     if (market.identityRegistrationPreview) {
       const p = market.identityRegistrationPreview;
       section.append(storesRowEl("Driver registration visit preview", "No journey started", {
@@ -61536,6 +61551,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
             storesActionButton("Preview Contract Excerpt", "Preview material, quantity, named counterparty, destination and contract status. No record is sent yet.", () => cargoInvestigationAction(referral.id, "preview:contract")),
             storesActionButton("Preview Carrier Contact and Records", "Preview the contact and exact customer copies before disclosure. The carrier can refuse or limit cooperation; no investigator can compel a foreign witness.", () => cargoInvestigationAction(referral.id, "preview:carrier")),
             storesActionButton("Preview Buyer Contact and Records", "Preview only the buyer contact and customer-held acknowledgments or receipts. Buyer cooperation remains voluntary; private accounts and escrow are not evidence.", () => cargoInvestigationAction(referral.id, "preview:buyer")),
+            storesActionButton("Preview Receiver Identification", "Preview only customer-held receiver observations and corrections. No access to private identities or undisclosed records.", () => cargoInvestigationAction(referral.id, "preview:recipient")),
             storesActionButton("Preview Independent Witness Receipts", "Consent to verification of only the previewed receipts. The other party must consent separately; there is no unrestricted archive search.", () => cargoInvestigationAction(referral.id, "preview:witness")),
             storesActionButton("Flag Source Identity Error", "Ask the investigator to reconcile source stack and batch identities without inventing an alternative account.", () => cargoInvestigationAction(referral.id, "correct:identity")),
             storesActionButton("Flag Evidence Scope Error", "Record that sample evidence cannot prove a transaction or earlier knowledge.", () => cargoInvestigationAction(referral.id, "correct:scope"))]
@@ -61547,6 +61563,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         for (const finding of investigationNotice?.assessment.buyerFindings || []) section.append(storesRowEl(finding.account.label, titleCase(finding.decision), {
           dataset: { buyerCorroboration: finding.id },
           subtitle: `${formatClock(finding.at)}. ${finding.authentication} ${finding.statement} ${(finding.comparisons || []).map(c => `${c.recordId}: ${c.result}. ${c.scope}`).join(" ")} ${finding.events.map(e => `${e.kind} at ${formatClock(e.at)}, ${e.cityId}: ${e.jurisdiction}; participant claim ${e.participantClaim || "unverified"}; source ${e.sourceGroup}, ${e.independentObservation ? "own observation" : "derived material, not another independent source"}`).join(" ")} ${finding.exculpatory} ${finding.limit}`
+        }));
+        for (const finding of investigationNotice?.assessment.recipientFindings || []) section.append(storesRowEl(finding.account.label, "Receiver identification response", {
+          dataset: { recipientFinding: finding.id }, subtitle: `${formatClock(finding.at)}; ${finding.decision}. ${JSON.stringify(finding.comparisons)} ${JSON.stringify(finding.events)} ${finding.limit}`
         }));
         for (const finding of investigationNotice?.assessment.witnessFindings || []) section.append(storesRowEl(finding.account.label, "Independent documentary response", {
           dataset: { witnessCorroboration: finding.id },
@@ -61574,6 +61593,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     for (const sh of market.shipments) {
       const report = sh.living?.report;
+      if (!sh.living) section.append(storesRowEl(`Receiver check · ${sh.id}`, sh.recipientCheckRequested ? "Requested" : "Optional", {
+        dataset: { recipientCheck: sh.id },
+        subtitle: `Customer-held reports only: ${JSON.stringify(sh.recipientDocuments || [])}. Identity and cargo acceptance are separate. Refusal is not guilt and does not invalidate a willing handoff.`,
+        actions: [storesActionButton("Request Named Receiver Check", "Before delivery, request a voluntary check lasting at most ten minutes. Presentation, issuer verification and customer copying require the representative's consent.", () => buyerIdentityAction(sh.id, "check")),
+          storesActionButton("Recheck Receiver Document", "Ask the available original carrier to recheck the original document with its issuer. This neither changes title nor discloses corrections to investigators automatically.", () => buyerIdentityAction(sh.id, "recheck"))]
+      }));
       if (!sh.living && (market.witnessOffices?.length || sh.witnessFilingIds?.length)) {
         const amendment = document.createElement("input"); amendment.type = "text"; amendment.maxLength = 500;
         amendment.placeholder = "Proposed documentary amendment (does not change the sale)";
@@ -82288,13 +82313,40 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ContractWitnessing.provision(smuggling, { institutionId: registryCurrent?.institutionId || registry.id, cityId: smuggling.homeId, name: registry.publicName, active }, state.clock);
       CarrierIdentity.provision(smuggling, { institutionId: registryCurrent?.institutionId || registry.id, cityId: smuggling.homeId, name: registry.publicName, active, localDistanceKm: 2 }, state.clock);
       for (const office of smuggling.witnessOffices || []) office.witnessService.active = active && office.institutionId === (registryCurrent?.institutionId || registry.id);
-      for (const office of smuggling.identityOffices || []) office.active = active && office.institutionId === (registryCurrent?.institutionId || registry.id);
+      for (const office of smuggling.identityOffices || []) if (office.cityId === smuggling.homeId) office.active = active && office.institutionId === (registryCurrent?.institutionId || registry.id);
+    }
+    for (const cityId of new Set(smuggling.buyers.map(b => b.cityId))) {
+      const government = map?.cityGovernments?.governments.find(g => g.cityId === cityId);
+      const localRegistry = government?.institutions.find(i => i.id === government.roleAssignments.centralAdministration);
+      const current = map?.strategicCivicHistory ? StrategicCivicHistory.currentInstitutionForRole(map, cityId, "centralAdministration") : null;
+      const active = Boolean(localRegistry && (!map.strategicCivicHistory || current && !["displaced", "disrupted"].includes(current.operationalStatus)));
+      if (localRegistry) BuyerIdentity.provision(smuggling, { institutionId: current?.institutionId || localRegistry.id, cityId, name: localRegistry.publicName, active, localDistanceKm: 2 }, state.clock);
+      if (map) for (const office of smuggling.identityOffices || []) if (office.cityId === cityId) office.active = active && office.institutionId === (current?.institutionId || localRegistry?.id);
     }
     for (const gate of smuggling.checkpoints || []) if (!gate.productScheduleChecked) {
       CargoPropertyReview.publish(gate, gate.productScheduleCode, gate.productScheduleCourt, state.clock); gate.productScheduleChecked = true;
       CargoCriminalReferrals.provision(gate, gate.productScheduleCode, gate.criminalIntakeInstitution, state.clock);
     }
     return smuggling;
+  }
+
+  function buyerIdentityAction(id, action) {
+    advanceIntercitySmuggling(advanceLocalCovertCollections());
+    const market = ensureIntercitySmuggling(), buyer = market.buyers.find(b => b.id === id), sh = market.shipments.find(s => s.id === id);
+    let ok = false;
+    if (action === "cancel") { market.buyerRegistrationPreview = null; ok = true; }
+    else if (action === "preview") {
+      const p = BuyerIdentity.preview(market, buyer); if (p) { market.buyerRegistrationPreview = p; ok = true; }
+    } else if (action === "confirm") {
+      const p = market.buyerRegistrationPreview;
+      if (p?.buyerId === id) ok = BuyerIdentity.request(market, buyer, p, state.clock);
+      market.buyerRegistrationPreview = null;
+    } else if (action === "check") ok = BuyerIdentity.requestCheck(sh);
+    else if (action === "recheck") ok = BuyerIdentity.recheck(market, sh, state.clock);
+    market.message = ok ? action === "preview" ? "Review the exact buyer-funded visit; nothing started yet."
+      : action === "cancel" ? "Preview canceled; nothing sent." : "Receiver request accepted. Voluntary identification does not prove cargo acceptance, principal identity or guilt."
+      : "No eligible available person, local registry, consent, resources or unchanged preview. No compulsory identification or adverse inference.";
+    persist(); render(); return ok;
   }
 
   function carrierIdentityAction(id, action) {

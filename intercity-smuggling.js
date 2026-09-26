@@ -5,10 +5,11 @@
     typeof module === 'object' && module.exports ? require('./carrier-corroboration') : root.HelixCarrierCorroboration,
     typeof module === 'object' && module.exports ? require('./buyer-corroboration') : root.HelixBuyerCorroboration,
     typeof module === 'object' && module.exports ? require('./contract-witnessing') : root.HelixContractWitnessing,
-    typeof module === 'object' && module.exports ? require('./carrier-identity') : root.HelixCarrierIdentity);
+    typeof module === 'object' && module.exports ? require('./carrier-identity') : root.HelixCarrierIdentity,
+    typeof module === 'object' && module.exports ? require('./buyer-identity') : root.HelixBuyerIdentity);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixIntercitySmuggling = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer, Witness, Identity) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer, Witness, Identity, Recipient) {
   'use strict';
   const HOUR = 3600, copy = v => JSON.parse(JSON.stringify(v));
   const fingerprint = Checkpoints.fingerprint;
@@ -29,6 +30,7 @@
       if (!state.buyers.some(b => b.id === buyerId)) {
         state.buyers.push({ id: buyerId, cityId, name: `${city.label} private buyer`, money: 10000 });
         Buyer.provision(state.buyers.at(-1), at);
+        state.buyers.at(-1).buyerService.representatives.forEach(Recipient.provisionPerson);
       }
       state.operators.push({ id: `smuggler:${r.id}`, routeId: r.id, sourceId: state.homeId, destinationId: cityId, buyerId,
         brokerId: broker.id, name: `${broker.name}'s corridor associate`, vehicleId: `smuggling-van:${r.id}`, capacityKg: 120, capacityL: 240,
@@ -110,6 +112,7 @@
   function advance(state, now, routes, supplier = null) {
     Witness.advance(state, now);
     Identity.advance(state, now);
+    Recipient.advance(state, now);
     for (const op of state.operators) {
       if (op.identityTrip) continue;
       const elapsed = Math.max(0, now - op.lastAt); op.lastAt = Math.max(op.lastAt, now);
@@ -136,6 +139,9 @@
       }
       while (['outbound', 'returning', 'inspecting', 'detained'].includes(s.phase) && seconds > 0) {
         Checkpoints.expire(state, s, cursor);
+        if (s.saleFailedAt != null && s.recipientEncounter?.job) {
+          Recipient.release(state, s, op, cursor); s.recipientEncounter.job = null;
+        }
         if (Checkpoints.pending(s)) {
           if (Checkpoints.tick(state, s, op, cursor)) {
             const step = Math.min(seconds, 60); op.provisions = Math.max(0, op.provisions - step / (8 * HOUR));
@@ -163,12 +169,20 @@
             if (Checkpoints.expire(state, s, cursor)) continue;
             Carrier.record(op, s, 'destinationArrival', cursor, s.destinationId, 'destination approach');
             if (Checkpoints.enter(state, s, op, cursor)) continue;
-            if (!Buyer.canReceive(state.buyers.find(b => b.id === s.buyerId))) {
+            if (Recipient.encounter(state, s, op, cursor)) {
+              const step = Math.min(seconds, 60); seconds -= step; cursor += step;
+              op.provisions = Math.max(0, op.provisions - step / (8 * HOUR));
+              s.reason = 'Optional receiver check in progress; no identity-based detention or ownership transfer.'; continue;
+            }
+            const buyer = state.buyers.find(b => b.id === s.buyerId), receiver = Recipient.representative(buyer, cursor);
+            if (!Buyer.canReceive(buyer) || buyer?.buyerService && !receiver) {
               s.reason = 'Buyer representative unavailable; no receipt or ownership transfer. Carrier retains cargo pending a real handoff.';
               op.provisions = Math.max(0, op.provisions - seconds / (8 * HOUR)); break;
             }
+            Recipient.handoff(state, s, op, receiver, cursor);
+            if (receiver?.receiptConsent === false) { s.returnRequestedAt = cursor; Checkpoints.expire(state, s, cursor); continue; }
             s.phase = 'returning'; s.receiptAt = cursor; s.owner = s.buyerId; s.custodian = s.buyerId;
-            Buyer.record(state.buyers.find(b => b.id === s.buyerId), s, 'deliveryReceived', cursor);
+            Buyer.record(buyer, s, 'deliveryReceived', cursor, s.manifest, receiver?.id);
             op.money += s.freightEscrow; s.freightEscrow = 0;
             Carrier.record(op, s, 'buyerHandoff', cursor, s.destinationId, 'destination handoff');
           } else {
@@ -180,6 +194,8 @@
         }
       }
       Checkpoints.expire(state, s, now);
+      if (s.saleFailedAt != null && s.recipientEncounter?.job) { Recipient.release(state, s, op, now); s.recipientEncounter.job = null; }
+      Recipient.expireEncounter(state, s, op, now);
       // Resolve a review due exactly at this clock boundary, without inventing further travel.
       if (Checkpoints.pending(s)) Checkpoints.tick(state, s, op, now);
     }

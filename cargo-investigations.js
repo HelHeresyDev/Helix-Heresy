@@ -1,10 +1,11 @@
 (function (root, factory) {
   const api = factory(typeof module === 'object' && module.exports ? require('./carrier-corroboration') : root.HelixCarrierCorroboration,
     typeof module === 'object' && module.exports ? require('./buyer-corroboration') : root.HelixBuyerCorroboration,
-    typeof module === 'object' && module.exports ? require('./contract-witnessing') : root.HelixContractWitnessing);
+    typeof module === 'object' && module.exports ? require('./contract-witnessing') : root.HelixContractWitnessing,
+    typeof module === 'object' && module.exports ? require('./buyer-identity') : root.HelixBuyerIdentity);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixCargoInvestigations = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Carrier, Buyer, Witness) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Carrier, Buyer, Witness, Recipient) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v));
   const able = a => a?.status === 'alive' && a.health >= 50;
@@ -56,6 +57,19 @@
     }
     actors.push(...claims.values());
     const carrierFindings = Carrier.findings(i, gate.cityId), buyerFindings = Buyer.findings(i, gate.cityId);
+    const recipientFindings = Recipient.findings(i, gate.cityId);
+    // Reconcile only voluntarily disclosed and source-matched observations, never canonical actor IDs.
+    const recipientEvents = [...new Map(recipientFindings.flatMap(f => f.events).map(e => [e.id, e])).values()];
+    for (const observationId of new Set(recipientEvents.map(e => e.observationId))) {
+      const events = recipientEvents.filter(e => e.observationId === observationId);
+      const checks = events.filter(e => e.kind === 'recipientIdentity').sort((a, b) => a.at - b.at), latest = checks.at(-1);
+      const handoff = events.find(e => e.kind === 'recipientHandoff');
+      actors.push({ id: observationId, role: 'observed receiving representative, not an established buyer principal or account controller',
+        identity: latest?.result === 'supported' ? `Registered identity: ${latest.document.registeredName}; bounded support for this observation only`
+          : checks.some(c => c.result === 'supported') ? 'Earlier identity link withdrawn; original observation retained' : 'unverified',
+        conduct: handoff ? handoff.accepted ? 'Observed accepting this consignment.' : 'Observed declining this consignment.' : 'Identity observation only; no established cargo acceptance.',
+        sourceIds: events.map(e => e.id), transaction: 'knowing local unlawful commerce not established', knowledge: 'not established' });
+    }
     for (const account of new Map(buyerFindings.filter(f => f.decision !== 'refused').map(f => [f.account.accountId, f.account])).values()) actors.push({
       id: `${i.id}:account:${account.accountId}`, identity: 'authenticated buyer account; civil identity unverified', role: 'buyer record source, not automatically a principal or gate presenter',
       conduct: 'Supplied bounded buyer records or testimony voluntarily.', sourceIds: [account.accountId], transaction: 'not established as knowing local unlawful commerce', knowledge: 'not established' });
@@ -68,7 +82,7 @@
           ? 'Source mismatch reproduced. The disputed report cannot establish actor attribution.' : 'No source mismatch reproduced in current records. This does not verify a person’s identity.' }));
     const status = review.status === 'declined' ? 'exhaustedUnsupported' : 'awaitingNamedSource';
     const result = { at, sourceRevision: r.reviewedRevision, investigatorId: gate.investigationOffice.investigator.id, status, actors,
-      elements: copy(review.elements), correctionFindings: corrections, identityFindings, carrierFindings, buyerFindings, witnessFindings: Witness.findings(i, gate.cityId),
+      elements: copy(review.elements), correctionFindings: corrections, identityFindings, carrierFindings, buyerFindings, recipientFindings, witnessFindings: Witness.findings(i, gate.cityId),
       documents: i.submissions.map(s => ({ id: s.id, sourceId: s.document.sourceId, finding: 'Voluntarily supplied copy; provenance is the authenticated property channel, not independent verification of its parties or performance.' + (s.document.status === 'failed' ? ' Reported nonperformance is retained as potentially exculpatory material, not independently proven nonoccurrence.' : '') })),
       missingSources: status === 'exhaustedUnsupported' ? [] : ['A witness or independently authenticated record of a locally relevant completed transaction.', 'Independent identification of each alleged participant.', 'A source establishing each participant’s knowledge at the relevant time.'],
       reason: status === 'exhaustedUnsupported' ? `Available lead exhausted: ${review.reason}` : 'Available gate interviews and records do not establish a completed transaction, verified participants or knowing participation. Waiting creates no evidence.' };
@@ -93,15 +107,15 @@
       }
       let continuing = false;
       while (true) {
-        const sourceTask = Carrier.next(i) || Buyer.next(i) || Witness.next(i);
-        const sourceApi = sourceTask?.kind === 'witnessRecords' ? Witness : sourceTask?.kind.startsWith('buyer') ? Buyer : Carrier;
+        const sourceTask = Carrier.next(i) || Buyer.next(i) || Witness.next(i) || Recipient.next(i);
+        const sourceApi = sourceTask?.kind === 'recipientRecords' ? Recipient : sourceTask?.kind === 'witnessRecords' ? Witness : sourceTask?.kind.startsWith('buyer') ? Buyer : Carrier;
         const participants = sourceApi === Witness ? offices : sourceApi === Buyer ? buyers : operators;
         const kind = review.status !== 'acceptedForInvestigation' ? 'reconcile'
           : !i.interviews.some(w => w.kind === 'officer') ? 'officer'
             : !i.interviews.some(w => w.kind === 'examiner') ? 'examiner' : sourceTask?.kind || 'reconcile';
         if (!i.job) i.job = { kind, signature: signature(r), startedAt: Math.max(cursor, changedAt), progress: 0, paid: false, wasReady: continuing };
         const job = i.job, e = r.revisions[r.reviewedRevision - 1].evidence;
-        const isSource = ['carrierRecords', 'carrierInterview', 'buyerRecords', 'buyerInterview', 'witnessRecords'].includes(kind);
+        const isSource = ['carrierRecords', 'carrierInterview', 'buyerRecords', 'buyerInterview', 'witnessRecords', 'recipientRecords'].includes(kind);
         const sourceAssignment = isSource ? `${i.id}:${sourceTask.submission.id}:${kind}` : null;
         const officeReady = gate.active && gate.jurisdiction === 'city' && gate.criminalIntake.active && gate.criminalIntake.cityId === gate.cityId
           && office.locationId === gate.id && office.investigator.institutionId === gate.institutionId && able(office.investigator)
@@ -138,6 +152,7 @@
     if (kind === 'carrier') return Carrier.preview(sh);
     if (kind === 'buyer') return Buyer.preview(sh);
     if (kind === 'witness') return Witness.preview(sh);
+    if (kind === 'recipient') return Recipient.previewEvidence(sh);
     if (!sh || !contract || contract.id !== sh.contractId) return null;
     if (kind === 'manifest') return { kind, sourceId: `${contract.id}:booked-manifest`, material: contract.material, quantity: contract.amount,
       stackId: sh.propertyOrder?.evidence.stackId, limitation: 'Booked quantity only, not a receipt or proof of current retained quantity.' };
@@ -150,7 +165,7 @@
     && gate.investigationOffice.locationId === gate.id && gate.criminalIntake?.referrals.includes(r);
   function submit(gate, r, document, at) {
     const i = r?.investigation;
-    if (!filingAvailable(gate, r) || !i?.notices.length || i.status === 'exhaustedUnsupported' || !['manifest', 'contract', 'carrier', 'buyer', 'witness'].includes(document?.kind)
+    if (!filingAvailable(gate, r) || !i?.notices.length || i.status === 'exhaustedUnsupported' || !['manifest', 'contract', 'carrier', 'buyer', 'witness', 'recipient'].includes(document?.kind)
       || i.submissions.some(s => JSON.stringify(s.document) === JSON.stringify(document))) return false;
     i.submissions.push({ id: `${i.id}:submission:${i.submissions.length + 1}`, at, channel: 'authenticatedPropertyClaimant', document: copy(document) });
     return true;

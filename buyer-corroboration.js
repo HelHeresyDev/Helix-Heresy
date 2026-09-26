@@ -17,8 +17,8 @@
   }
   const present = service => service.representatives.filter(p => able(p) && p.locationId === service.locationId);
   const canReceive = buyer => !buyer?.buyerService || !buyer.buyerService.assignment && buyer.buyerService.locationId === buyer.cityId && present(buyer.buyerService).length > 0;
-  function record(buyer, sh, kind, at, manifest = sh.manifest) {
-    const service = buyer?.buyerService, observer = service && present(service)[0];
+  function record(buyer, sh, kind, at, manifest = sh.manifest, observerId = null) {
+    const service = buyer?.buyerService, observer = service && present(service).find(p => (!observerId || p.id === observerId) && (p.availableAt || 0) <= at);
     if (!service || sh.living || at < service.openedAt || !observer || service.assignment || service.locationId !== buyer.cityId
       || service.records.some(r => r.document.shipmentReference === sh.id && r.document.kind === kind)) return;
     // Order/cancellation acknowledgments require an actual working message channel at that event.
