@@ -45,6 +45,7 @@
   const ContractWitnessing = window.HelixContractWitnessing;
   const CarrierIdentity = window.HelixCarrierIdentity;
   const BuyerIdentity = window.HelixBuyerIdentity;
+  const AccountAccess = window.HelixAccountAccess;
   const LivingSmuggling = window.HelixLivingSmuggling;
   const StrategicDivineHistory = window.HelixStrategicDivineHistory;
   const StrategicCrisisHistory = window.HelixStrategicCrisisHistory;
@@ -13759,6 +13760,7 @@
       contractWitnessAction: (id, action, note = "") => contractWitnessAction(id, action, note),
       carrierIdentityAction: (id, action) => carrierIdentityAction(id, action),
       buyerIdentityAction: (id, action) => buyerIdentityAction(id, action),
+      accountAccessAction: (id, action, receiptId) => accountAccessAction(id, action, receiptId),
       configureCovertContactForTest: (contactId, options = {}) => {
         const market = ensureLocalCovertMarket(), contact = blackMarketContactById(contactId), courier = market.couriers.find(c => c.contactId === contactId);
         if (!contact) return false;
@@ -61483,6 +61485,26 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!market.operators.length) section.append(emptyText("No referred operator on a known supported direct neighboring corridor. Remote contact alone supplies no vehicle."));
     const q = market.quote;
     const disclosure = market.investigationDisclosurePreview;
+    if (market.accountAccessPreview) {
+      const p = market.accountAccessPreview;
+      section.append(storesRowEl("Witnessed account access preview", "No visit started", {
+        dataset: { accountAccessPreview: p.buyerId }, subtitle: JSON.stringify(p),
+        actions: [storesActionButton("Request Account Access Appointment", "Ask the willing attendee to demonstrate access under these exact buyer-funded terms. No credentials are granted by this request.", () => accountAccessAction(p.buyerId, "confirm")),
+          storesActionButton("Cancel Account Access Preview", "Send nothing and pay nothing.", () => accountAccessAction(p.buyerId, "cancel"))]
+      }));
+    }
+    for (const buyer of market.buyers) {
+      section.append(storesRowEl(buyer.name, "Witnessed account access", {
+        dataset: { accountAccessVisit: buyer.id },
+        subtitle: buyer.accessTrip ? `Visit ${buyer.accessTrip.phase}; ${formatNumber(buyer.accessTrip.positionKm)} km along the local road; clerk work ${formatDuration(buyer.accessTrip.progress)}. No receiving or interviews while away.`
+          : "Optional physical appointment after civic registration. Witnessed access is not account ownership, authorized representation or responsibility for earlier messages.",
+        actions: [storesActionButton("Preview Witnessed Account Access", "Preview a buyer-funded trip to the attendee's local issuing office, requiring actual held credentials and independent consent.", () => accountAccessAction(buyer.id, "preview"))]
+      }));
+      for (const receipt of buyer.accessDocuments || []) section.append(storesRowEl(receipt.id, receipt.result || receipt.originalSupport, {
+        dataset: { accountAccessReceipt: receipt.id }, subtitle: JSON.stringify(receipt),
+        actions: receipt.kind === "accountAccessObservation" ? [storesActionButton("Recheck Witnessed Access Record", "Request a finite, scoped issuer/account-status recheck. No new physical access demonstration or automatic investigator disclosure.", () => accountAccessAction(buyer.id, "recheck", receipt.id))] : []
+      }));
+    }
     if (market.buyerRegistrationPreview) {
       const p = market.buyerRegistrationPreview;
       section.append(storesRowEl("Receiver registration visit preview", "No journey started", {
@@ -61552,6 +61574,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
             storesActionButton("Preview Carrier Contact and Records", "Preview the contact and exact customer copies before disclosure. The carrier can refuse or limit cooperation; no investigator can compel a foreign witness.", () => cargoInvestigationAction(referral.id, "preview:carrier")),
             storesActionButton("Preview Buyer Contact and Records", "Preview only the buyer contact and customer-held acknowledgments or receipts. Buyer cooperation remains voluntary; private accounts and escrow are not evidence.", () => cargoInvestigationAction(referral.id, "preview:buyer")),
             storesActionButton("Preview Receiver Identification", "Preview only customer-held receiver observations and corrections. No access to private identities or undisclosed records.", () => cargoInvestigationAction(referral.id, "preview:recipient")),
+            storesActionButton("Preview Witnessed Account Access Receipts", "Preview customer-held appointment receipts for the acknowledged buyer account. Attendee and account consent remain separate from your disclosure.", () => cargoInvestigationAction(referral.id, "preview:accountAccess")),
             storesActionButton("Preview Independent Witness Receipts", "Consent to verification of only the previewed receipts. The other party must consent separately; there is no unrestricted archive search.", () => cargoInvestigationAction(referral.id, "preview:witness")),
             storesActionButton("Flag Source Identity Error", "Ask the investigator to reconcile source stack and batch identities without inventing an alternative account.", () => cargoInvestigationAction(referral.id, "correct:identity")),
             storesActionButton("Flag Evidence Scope Error", "Record that sample evidence cannot prove a transaction or earlier knowledge.", () => cargoInvestigationAction(referral.id, "correct:scope"))]
@@ -61566,6 +61589,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }));
         for (const finding of investigationNotice?.assessment.recipientFindings || []) section.append(storesRowEl(finding.account.label, "Receiver identification response", {
           dataset: { recipientFinding: finding.id }, subtitle: `${formatClock(finding.at)}; ${finding.decision}. ${JSON.stringify(finding.comparisons)} ${JSON.stringify(finding.events)} ${finding.limit}`
+        }));
+        for (const finding of investigationNotice?.assessment.accountAccessFindings || []) section.append(storesRowEl(finding.account.label, "Witnessed account access response", {
+          dataset: { accountAccessFinding: finding.id }, subtitle: `${formatClock(finding.at)}; ${finding.jurisdiction}. ${JSON.stringify(finding.comparisons)} ${finding.limit}`
         }));
         for (const finding of investigationNotice?.assessment.witnessFindings || []) section.append(storesRowEl(finding.account.label, "Independent documentary response", {
           dataset: { witnessCorroboration: finding.id },
@@ -82330,6 +82356,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return smuggling;
   }
 
+  function accountAccessAction(id, action, receiptId = null) {
+    advanceIntercitySmuggling(advanceLocalCovertCollections());
+    const market = ensureIntercitySmuggling(), buyer = market.buyers.find(b => b.id === id);
+    let ok = false;
+    if (action === "cancel") { market.accountAccessPreview = null; ok = true; }
+    else if (action === "preview") {
+      const p = AccountAccess.preview(market, buyer); if (p) { market.accountAccessPreview = p; ok = true; }
+    } else if (action === "confirm") {
+      const p = market.accountAccessPreview;
+      if (p?.buyerId === id) ok = AccountAccess.request(market, buyer, p, state.clock);
+      market.accountAccessPreview = null;
+    } else if (action === "recheck") ok = AccountAccess.recheck(market, buyer, receiptId, state.clock);
+    market.message = ok ? action === "preview" ? "Review the exact appointment; no visit or fee yet."
+      : action === "cancel" ? "Preview canceled. Nothing sent." : "Voluntary request recorded. Access at a witnessed appointment does not establish ownership or historical conduct."
+      : "No available attendee, held access credential, consent, registry resources or unchanged preview. No compulsory access or adverse inference.";
+    persist(); render(); return ok;
+  }
+
   function buyerIdentityAction(id, action) {
     advanceIntercitySmuggling(advanceLocalCovertCollections());
     const market = ensureIntercitySmuggling(), buyer = market.buyers.find(b => b.id === id), sh = market.shipments.find(s => s.id === id);
@@ -82392,7 +82436,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const market = ensureIntercitySmuggling(), gate = market.checkpoints?.find(g => g.criminalIntake?.referrals.some(r => r.id === id));
     const referral = gate?.criminalIntake.referrals.find(r => r.id === id);
     const sh = market.shipments.find(s => s.propertyOrder?.id === referral?.sourceOrderId);
-    const makeDocument = kind => CargoInvestigations.preview(kind, sh, blackMarketContractById(sh?.contractId), market.buyers.find(b => b.id === sh?.buyerId)?.name);
+    const makeDocument = kind => CargoInvestigations.preview(kind, sh, blackMarketContractById(sh?.contractId), market.buyers.find(b => b.id === sh?.buyerId)?.name, market);
     let ok = false;
     if (action === "cancel") { market.investigationDisclosurePreview = null; ok = true; }
     else if (action.startsWith("preview:") && referral?.investigation?.notices.length) {

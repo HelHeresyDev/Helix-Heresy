@@ -21,6 +21,48 @@ async function setup(page) {
     return { deal, batch, operatorId: d.economySnapshot().intercitySmuggling.operators[0].id };
   });
 }
+test('witnessed account access UI previews a funded visit and retains a dated access receipt and correction across reload', async ({ page }) => {
+  test.setTimeout(300000);
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await setup(page);
+  await page.evaluate(() => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState();
+    window.HelixBuyerIdentity.provision(s.economy.intercitySmuggling, { institutionId: 'registry:b', cityId: 'b', name: 'Destination Registry', active: true, localDistanceKm: 2 }, s.clock);
+    d.importSurveyExpeditionTestState(s);
+    const buyer = d.economySnapshot().intercitySmuggling.buyers[0];
+    d.buyerIdentityAction(buyer.id, 'preview'); d.buyerIdentityAction(buyer.id, 'confirm'); d.advanceStrategicServices(5400);
+  });
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  await page.getByRole('button', { name: 'Preview Witnessed Account Access', exact: true }).click();
+  await expect(page.locator('[data-account-access-preview]')).toContainText('Not ownership');
+  expect(await page.evaluate(() => window.helixHeresyDebug.economySnapshot().intercitySmuggling.buyers[0].accessTrip)).toBeUndefined();
+  await page.getByRole('button', { name: 'Cancel Account Access Preview', exact: true }).click();
+  await expect(page.locator('[data-account-access-preview]')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Preview Witnessed Account Access', exact: true }).click();
+  await page.getByRole('button', { name: 'Request Account Access Appointment', exact: true }).click();
+  const visit = await page.evaluate(() => {
+    const d = window.helixHeresyDebug; d.advanceStrategicServices(2700); const during = d.economySnapshot().intercitySmuggling;
+    d.reloadSurveyExpeditionTestState(); d.advanceStrategicServices(2700); const before = d.economySnapshot().intercitySmuggling;
+    d.reloadSurveyExpeditionTestState(); return { during, before, after: d.economySnapshot().intercitySmuggling };
+  });
+  expect(visit.during.buyers[0].accessTrip.phase).toBe('witnessing'); expect(visit.after).toEqual(visit.before);
+  expect(visit.after.buyers[0].accessTrip).toBeNull(); expect(visit.after.buyers[0].accessDocuments[0].result).toBe('supported');
+  expect(visit.after.buyers[0].accessDocuments[0].challenge.result).toBe('demonstrated');
+  await page.evaluate(() => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState(), buyer = s.economy.intercitySmuggling.buyers[0];
+    window.HelixAccountAccess.credentialEvent(buyer, buyer.buyerService.accessCredentials[0].id, 'revoked', s.clock);
+    d.importSurveyExpeditionTestState(s);
+  });
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  await expect(page.locator('[data-account-access-receipt]')).toContainText('Witnessed access at this appointment only');
+  await page.getByRole('button', { name: 'Recheck Witnessed Access Record', exact: true }).click();
+  const changed = await page.evaluate(() => {
+    const d = window.helixHeresyDebug; d.advanceStrategicServices(600); d.reloadSurveyExpeditionTestState();
+    return d.economySnapshot().intercitySmuggling.buyers[0].accessDocuments;
+  });
+  expect(changed[0]).toEqual(visit.after.buyers[0].accessDocuments[0]); expect(changed[1]).toMatchObject({ originalSupport: 'retained', accessStatus: 'revoked' });
+  expect(errors).toEqual([]);
+});
 test('receiver identification UI previews a real visit, checks a physical handoff and preserves correction across reload', async ({ page }) => {
   test.setTimeout(240000);
   const errors = []; page.on('pageerror', e => errors.push(e.message));

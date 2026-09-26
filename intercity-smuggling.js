@@ -6,10 +6,11 @@
     typeof module === 'object' && module.exports ? require('./buyer-corroboration') : root.HelixBuyerCorroboration,
     typeof module === 'object' && module.exports ? require('./contract-witnessing') : root.HelixContractWitnessing,
     typeof module === 'object' && module.exports ? require('./carrier-identity') : root.HelixCarrierIdentity,
-    typeof module === 'object' && module.exports ? require('./buyer-identity') : root.HelixBuyerIdentity);
+    typeof module === 'object' && module.exports ? require('./buyer-identity') : root.HelixBuyerIdentity,
+    typeof module === 'object' && module.exports ? require('./account-access') : root.HelixAccountAccess);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixIntercitySmuggling = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer, Witness, Identity, Recipient) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer, Witness, Identity, Recipient, Access) {
   'use strict';
   const HOUR = 3600, copy = v => JSON.parse(JSON.stringify(v));
   const fingerprint = Checkpoints.fingerprint;
@@ -31,6 +32,7 @@
         state.buyers.push({ id: buyerId, cityId, name: `${city.label} private buyer`, money: 10000 });
         Buyer.provision(state.buyers.at(-1), at);
         state.buyers.at(-1).buyerService.representatives.forEach(Recipient.provisionPerson);
+        Access.provisionBuyer(state.buyers.at(-1), at);
       }
       state.operators.push({ id: `smuggler:${r.id}`, routeId: r.id, sourceId: state.homeId, destinationId: cityId, buyerId,
         brokerId: broker.id, name: `${broker.name}'s corridor associate`, vehicleId: `smuggling-van:${r.id}`, capacityKg: 120, capacityL: 240,
@@ -113,6 +115,7 @@
     Witness.advance(state, now);
     Identity.advance(state, now);
     Recipient.advance(state, now);
+    Access.advance(state, now);
     for (const op of state.operators) {
       if (op.identityTrip) continue;
       const elapsed = Math.max(0, now - op.lastAt); op.lastAt = Math.max(op.lastAt, now);

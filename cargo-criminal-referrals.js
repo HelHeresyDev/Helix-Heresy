@@ -114,13 +114,13 @@
   }
   function tick(gate, sh, at, state) {
     capture(gate, sh, at); advanceGate(gate, at);
-    Investigations.advance(gate, at, state?.operators || [], state?.buyers || [], state?.witnessOffices || []);
+    Investigations.advance(gate, at, state?.operators || [], state?.buyers || [], state?.witnessOffices || [], state?.identityOffices || []);
   }
   function advance(state, at) {
     for (const gate of state.checkpoints || []) {
       for (const sh of state.shipments.filter(s => s.inspection?.gateId === gate.id)) capture(gate, sh, at);
       advanceGate(gate, at);
-      Investigations.advance(gate, at, state.operators, state.buyers, state.witnessOffices || []);
+      Investigations.advance(gate, at, state.operators, state.buyers, state.witnessOffices || [], state.identityOffices || []);
     }
   }
   return { provision, tick, advance, findings };
