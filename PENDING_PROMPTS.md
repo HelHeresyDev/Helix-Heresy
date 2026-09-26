@@ -18,9 +18,9 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Smuggling: Buyer-Representative Identification
-2. Smuggling: Account-to-Person Linking
-3. Smuggling: Scientist Identity Claims
+1. Smuggling: Account-to-Person Linking
+2. Smuggling: Scientist Identity Claims
+3. Smuggling: Buyer-Principal Identification
 4. Smuggling: Independent Payment Records
 5. Smuggling: Charging and Judicial Review
 6. Smuggling: Physical Enforcement of Local Orders
@@ -93,23 +93,21 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Smuggling: Buyer-Representative Identification
-
-Carrier-first civic identification is implemented. A willing idle driver can physically visit a real home-city registry using carrier funds, fuel and finite clerk work. A prospective document does not verify birth history or account ownership. At a later gate, independent driver consent governs presentation and issuer verification. Issuer confirmation and bounded appearance comparison remain separate; uncertainty or refusal never extends detention. Source-linked findings identify only that observed gate presenter, and dated issuer rechecks can withdraw a link while preserving original evidence. Private actor IDs and old anonymous observations are never converted into retrospective identification.
-
-Discuss a separate prospective identification path for an actual buyer receiving representative. Require a genuinely present person, competent issuer or firsthand identifying witness, scoped lawful access, voluntary consent where required, physical procedures and finite resources. Keep representative identity separate from the buyer principal, employer, account controller and actual transaction participant. A registered representative does not identify an absent principal or inherit another person's memories. Missing historical identification remains missing; preserve ambiguity, mismatches and corrections. Split principal identification into its own prompt if needed. No automatic guilt, charges or foreign enforcement.
-
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. Smuggling: Account-to-Person Linking
+## 1. Smuggling: Account-to-Person Linking
 
 Discuss a bounded prospective link between a specific authenticated account and an independently identified person. Civic documents and document-witness receipts alone do not prove who controlled an account at a prior transaction. Identify the actual provider or firsthand enrollment witness, access/consent requirements, recorded control demonstration, relevant dates, delegation limits and finite resources. Keep account ownership, current access, authorized representation and historical conduct distinct. Do not infer links from private actor IDs, matching names, shared employers or possession of another person's credentials. Preserve revoked access, compromised accounts, contradictory observations and missing history. No universal identity graph, automatic charges or remote arrest.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Smuggling: Scientist Identity Claims
+## 2. Smuggling: Scientist Identity Claims
 
 Discuss how the scientist's specific disclosed identity claims can be independently checked without treating the front company, inherited records, authenticated property channel or private player ID as proof of personal identity. Account for the setting's resurrection premise: a name, body, memories, inherited assets and civic registration need not establish the same historical person. Choose a bounded physical or documentary verification procedure with a real institution or witness, lawful access, actual records, time and resources. Do not create retrospective observations or automatically associate the scientist with a remote carrier, buyer, sale or gate presentation. Preserve uncertain or mistaken attribution and a correction path; keep custody and prosecution separate.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 3. Smuggling: Buyer-Principal Identification
+
+Discuss identifying the actual buyer principal separately from a registered receiving representative. Require an independently supported person, real issuer or firsthand source, scoped consent or separately approved lawful access, physical procedures where needed, jurisdiction, dates and finite resources. A representative’s document, cargo acceptance, buyer account, employer claim or private buyer ID does not identify an absent principal or establish who negotiated, paid, controlled an account or knowingly offended. Account-to-person findings, if available, have only their recorded scope and dates. Preserve delegated authority, misleading claims, missing history, contradictions and corrections; never reconstruct an unseen principal from simulation internals. No automatic charges, guilt or cross-city enforcement.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 

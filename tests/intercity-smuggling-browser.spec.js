@@ -21,6 +21,61 @@ async function setup(page) {
     return { deal, batch, operatorId: d.economySnapshot().intercitySmuggling.operators[0].id };
   });
 }
+test('receiver identification UI previews a real visit, checks a physical handoff and preserves correction across reload', async ({ page }) => {
+  test.setTimeout(240000);
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const f = await setup(page);
+  await page.evaluate(() => {
+    const d = window.helixHeresyDebug, saved = d.exportSurveyExpeditionTestState();
+    window.HelixBuyerIdentity.provision(saved.economy.intercitySmuggling, { institutionId: 'registry:b', cityId: 'b', name: 'Destination Registry', active: true, localDistanceKm: 2 }, saved.clock);
+    d.importSurveyExpeditionTestState(saved);
+  });
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  await page.getByRole('button', { name: 'Preview Receiver Registration', exact: true }).click();
+  await expect(page.locator('[data-buyer-registration-preview]')).toContainText('Buyer-funded voluntary registration');
+  expect(await page.evaluate(() => window.helixHeresyDebug.economySnapshot().intercitySmuggling.buyers[0].identityTrip)).toBeUndefined();
+  await page.getByRole('button', { name: 'Cancel Receiver Registration Preview', exact: true }).click();
+  await expect(page.locator('[data-buyer-registration-preview]')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Preview Receiver Registration', exact: true }).click();
+  await page.getByRole('button', { name: 'Request Receiver Registration Visit', exact: true }).click();
+  const visit = await page.evaluate(() => {
+    const d = window.helixHeresyDebug; d.advanceStrategicServices(900); const away = d.economySnapshot().intercitySmuggling.buyers[0];
+    d.reloadSurveyExpeditionTestState(); d.advanceStrategicServices(4500); return { away, returned: d.economySnapshot().intercitySmuggling.buyers[0] };
+  });
+  expect(visit.away.identityTrip.phase).toBe('outbound'); expect(visit.returned.identityTrip).toBeNull();
+  expect(visit.returned.buyerService.representatives[0].civicDocument).toBeTruthy();
+  const id = await page.evaluate(f => {
+    const d = window.helixHeresyDebug; d.requestForeignSmuggling(f.deal.id, f.operatorId, f.batch.id); d.confirmForeignSmuggling();
+    return d.economySnapshot().contracts.find(c => c.foreignShipmentId).id;
+  }, f);
+  // Reload closes menus; open the actual customer check control before dispatch.
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  await page.getByRole('button', { name: 'Request Named Receiver Check', exact: true }).click();
+  await expect(page.locator('[data-recipient-check]')).toContainText('Requested');
+  await page.keyboard.press('B');
+  expect(await page.evaluate(id => window.helixHeresyDebug.startMarketContractDelivery(id), id)).toBe(true);
+  await page.locator('[data-workspace-tab="tasks"]').click();
+  await page.locator('[data-task-row]').filter({ hasText: 'Deliver' }).filter({ hasText: f.deal.material }).getByRole('button', { name: 'Finish' }).click();
+  const receipt = await page.evaluate(() => {
+    const d = window.helixHeresyDebug; d.advanceStrategicServices(1800); d.advanceStrategicServices(8000);
+    const before = d.economySnapshot().intercitySmuggling; d.reloadSurveyExpeditionTestState();
+    return { before, after: d.economySnapshot().intercitySmuggling };
+  });
+  expect(receipt.after).toEqual(receipt.before); expect(receipt.after.shipments[0].recipientDocuments[0].result).toBe('supported');
+  expect(receipt.after.shipments[0].recipientDocuments[1].accepted).toBe(true);
+  await page.evaluate(() => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState();
+    s.economy.intercitySmuggling.identityOffices[0].records[0].status = 'withdrawn'; d.importSurveyExpeditionTestState(s);
+  });
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  await expect(page.locator('[data-recipient-check]')).toContainText('supported');
+  await page.getByRole('button', { name: 'Recheck Receiver Document', exact: true }).click();
+  const correction = await page.evaluate(() => {
+    const d = window.helixHeresyDebug; d.advanceStrategicServices(600); d.reloadSurveyExpeditionTestState(); return d.economySnapshot().intercitySmuggling.shipments[0];
+  });
+  expect(correction.recipientDocuments.at(-1).issuerResult).toBe('withdrawn'); expect(correction.owner).toBe(receipt.after.shipments[0].owner);
+  expect(correction.receiptAt).toBe(receipt.after.shipments[0].receiptAt); expect(errors).toEqual([]);
+});
 test('foreign UI confirms exact cargo, preserves local offer, and settles only after physical destination receipt across reload', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   const f = await setup(page);

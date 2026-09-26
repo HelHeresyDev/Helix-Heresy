@@ -14,8 +14,8 @@
       hair: ['dark', 'auburn', 'fair'][Math.floor(n / 9) % 3], mark: ['left brow scar', 'right cheek mole', 'freckled cheeks'][Math.floor(n / 27) % 3] };
     driver.civicPreferences = { registrationConsent: true, presentationConsent: true, verificationConsent: true };
   }
-  function provision(state, institution, at) {
-    if (!institution?.active || !institution.institutionId || institution.cityId !== state.homeId || !(institution.localDistanceKm > 0)) return;
+  function provision(state, institution, at, cityId = state.homeId) {
+    if (!institution?.active || !institution.institutionId || institution.cityId !== cityId || !(institution.localDistanceKm > 0)) return;
     state.identityOffices ||= [];
     if (state.identityOffices.some(o => o.institutionId === institution.institutionId)) return;
     const id = `${institution.institutionId}:civil-records`;
