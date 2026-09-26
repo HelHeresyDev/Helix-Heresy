@@ -195,7 +195,7 @@ test('property order UI files factual remote review, persists its reasons and re
   expect(released.intercitySmuggling.shipments[0].propertyOrder.decisions.at(-1).reason).toContain(shipment.examination.reports[1].result === 'targetNotDetected' ? 'did not detect' : 'does not apply');
   expect(errors).toEqual([]);
 });
-for (const source of ['carrier', 'buyer']) test(`forfeiture UI and separate ${source} corroboration preserve property, evidence and reload boundaries`, async ({ page }) => {
+for (const source of ['carrier', 'buyer', 'witness']) test(`forfeiture UI and separate ${source} corroboration preserve property, evidence and reload boundaries`, async ({ page }) => {
   test.setTimeout(240000);
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   const f = await setup(page);
@@ -207,6 +207,29 @@ for (const source of ['carrier', 'buyer']) test(`forfeiture UI and separate ${so
     d.importSurveyExpeditionTestState(saved); d.requestForeignSmuggling(f.deal.id, f.operatorId, f.batch.id); d.confirmForeignSmuggling();
     return d.economySnapshot().contracts.find(c => c.foreignShipmentId).id;
   }, f);
+  if (source === 'witness') {
+    await page.evaluate(() => {
+      const d = window.helixHeresyDebug, saved = d.exportSurveyExpeditionTestState();
+      saved.economy.money = 100;
+      window.HelixContractWitnessing.provision(saved.economy.intercitySmuggling, { institutionId: 'registry:a', name: 'Home Records', cityId: 'a', active: true }, saved.clock);
+      d.importSurveyExpeditionTestState(saved);
+    });
+    await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+    await page.getByRole('button', { name: 'Preview Contract Witness Filing', exact: true }).click();
+    await expect(page.locator('[data-witness-filing-preview]')).toContainText('Nothing filed yet');
+    await page.getByRole('button', { name: 'Cancel Witness Filing Preview', exact: true }).click();
+    expect(await page.evaluate(() => window.helixHeresyDebug.economySnapshot().intercitySmuggling.witnessOffices[0].witnessService.records.length)).toBe(0);
+    await page.getByRole('button', { name: 'Preview Contract Witness Filing', exact: true }).click();
+    await page.getByRole('button', { name: 'Confirm Paid Witness Filing', exact: true }).click();
+    const filed = await page.evaluate(() => {
+      const d = window.helixHeresyDebug; d.advanceStrategicServices(1800);
+      const before = d.economySnapshot(); d.reloadSurveyExpeditionTestState(); return { before, after: d.economySnapshot() };
+    });
+    expect(filed.after.intercitySmuggling).toEqual(filed.before.intercitySmuggling);
+    expect(filed.after.money).toBe(80);
+    expect(filed.after.intercitySmuggling.shipments[0].witnessDocuments[0].status).toBe('acknowledged');
+    await page.keyboard.press('B');
+  }
   expect(await page.evaluate(id => window.helixHeresyDebug.startMarketContractDelivery(id), contractId)).toBe(true);
   await page.locator('[data-workspace-tab="tasks"]').click();
   await page.locator('[data-task-row]').filter({ hasText: 'Deliver' }).filter({ hasText: f.deal.material }).getByRole('button', { name: 'Finish' }).click();
@@ -273,12 +296,13 @@ for (const source of ['carrier', 'buyer']) test(`forfeiture UI and separate ${so
   const investigation = submitted.after.intercitySmuggling.checkpoints[0].criminalIntake.referrals[0].investigation;
   expect(investigation.interviews).toHaveLength(2); expect(investigation.submissions).toHaveLength(1);
   expect(investigation.assessments.at(-1).actors.every(a => a.transaction === 'not established')).toBe(true);
-  if (!(await page.getByRole('button', { name: `Preview ${source === 'buyer' ? 'Buyer' : 'Carrier'} Contact and Records`, exact: true }).isVisible())) {
+  const sourceButton = source === 'witness' ? 'Preview Independent Witness Receipts' : `Preview ${source === 'buyer' ? 'Buyer' : 'Carrier'} Contact and Records`;
+  if (!(await page.getByRole('button', { name: sourceButton, exact: true }).isVisible())) {
     await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
   }
-  await page.getByRole('button', { name: `Preview ${source === 'buyer' ? 'Buyer' : 'Carrier'} Contact and Records`, exact: true }).click();
-  await expect(page.locator('[data-cargo-disclosure-preview]')).toContainText('records-contact');
-  await expect(page.locator('[data-cargo-disclosure-preview]')).toContainText(source === 'buyer' ? 'cancellationAcknowledged' : 'returnedWithoutHandoff');
+  await page.getByRole('button', { name: sourceButton, exact: true }).click();
+  await expect(page.locator('[data-cargo-disclosure-preview]')).toContainText(source === 'witness' ? 'contract-records:contact' : 'records-contact');
+  await expect(page.locator('[data-cargo-disclosure-preview]')).toContainText(source === 'witness' ? 'acknowledged' : source === 'buyer' ? 'cancellationAcknowledged' : 'returnedWithoutHandoff');
   expect(await page.evaluate(source => window.helixHeresyDebug.economySnapshot().intercitySmuggling.checkpoints[0].criminalIntake.referrals[0].investigation[`${source}Responses`] || [], source)).toEqual([]);
   await page.getByRole('button', { name: 'Confirm Voluntary Disclosure', exact: true }).click();
   const corroborated = await page.evaluate(() => {
@@ -286,13 +310,13 @@ for (const source of ['carrier', 'buyer']) test(`forfeiture UI and separate ${so
     const before = d.economySnapshot(); d.reloadSurveyExpeditionTestState(); return { before, after: d.economySnapshot() };
   });
   expect(corroborated.after.intercitySmuggling).toEqual(corroborated.before.intercitySmuggling);
-  expect(corroborated.after.intercitySmuggling.checkpoints[0].criminalIntake.referrals[0].investigation[`${source}Responses`]).toHaveLength(2);
+  expect(corroborated.after.intercitySmuggling.checkpoints[0].criminalIntake.referrals[0].investigation[`${source}Responses`]).toHaveLength(source === 'witness' ? 1 : 2);
   if (!(await page.locator(`[data-${source}-corroboration]`).first().isVisible())) {
     await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
   }
-  await expect(page.locator(`[data-${source}-corroboration]`).first()).toContainText('civil identity unverified');
-  await expect(page.locator(`[data-${source}-corroboration]`).first()).toContainText(source === 'buyer' ? 'local event' : 'outside investigating city');
-  await expect(page.locator(`[data-${source}-corroboration]`).first()).toContainText(source === 'buyer' ? 'Potentially exculpatory cancellation' : 'return/non-delivery');
+  await expect(page.locator(`[data-${source}-corroboration]`).first()).toContainText(source === 'witness' ? 'No civil identity' : 'civil identity unverified');
+  await expect(page.locator(`[data-${source}-corroboration]`).first()).toContainText(source === 'witness' ? 'foreign records office' : source === 'buyer' ? 'local event' : 'outside investigating city');
+  await expect(page.locator(`[data-${source}-corroboration]`).first()).toContainText(source === 'witness' ? 'matchesWitnessedTerms' : source === 'buyer' ? 'Potentially exculpatory cancellation' : 'return/non-delivery');
   const corrected = await page.evaluate(() => {
     const d = window.helixHeresyDebug, saved = d.exportSurveyExpeditionTestState();
     saved.economy.intercitySmuggling.shipments[0].examination.reports[1].supported = false;

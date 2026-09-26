@@ -3,10 +3,11 @@
     typeof module === 'object' && module.exports ? require('./smuggling-checkpoints') : root.HelixSmugglingCheckpoints,
     typeof module === 'object' && module.exports ? require('./cargo-criminal-referrals') : root.HelixCargoCriminalReferrals,
     typeof module === 'object' && module.exports ? require('./carrier-corroboration') : root.HelixCarrierCorroboration,
-    typeof module === 'object' && module.exports ? require('./buyer-corroboration') : root.HelixBuyerCorroboration);
+    typeof module === 'object' && module.exports ? require('./buyer-corroboration') : root.HelixBuyerCorroboration,
+    typeof module === 'object' && module.exports ? require('./contract-witnessing') : root.HelixContractWitnessing);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixIntercitySmuggling = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer, Witness) {
   'use strict';
   const HOUR = 3600, copy = v => JSON.parse(JSON.stringify(v));
   const fingerprint = Checkpoints.fingerprint;
@@ -70,7 +71,7 @@
     const op = state.operators.find(o => o.id === fresh.operatorId), buyer = state.buyers.find(b => b.id === fresh.buyerId);
     buyer.money -= fresh.gross;
     const shipment = { ...copy(fresh), id: `smuggling-${state.nextNumber++}`, contractId, sourceId: state.homeId, owner: 'player', custodian: 'laboratory',
-      phase: 'awaitingCollection', bookedAt: at, deliveryDeadlineAt: at + fresh.deliveryWindowSeconds, lastAt: at, manifest: null, positionKm: 0, localEscrow: fresh.localFreight, freightEscrow: fresh.intercityFreight, playerEscrow: fresh.net,
+      phase: 'awaitingCollection', bookedAt: at, bookedQuantity: request.manifest.amount, deliveryDeadlineAt: at + fresh.deliveryWindowSeconds, lastAt: at, manifest: null, positionKm: 0, localEscrow: fresh.localFreight, freightEscrow: fresh.intercityFreight, playerEscrow: fresh.net,
       returnEscrow: fresh.returnFee, receiptAt: null, settledAt: null, reason: '' };
     delete shipment.ok;
     state.shipments.push(shipment); op.assignment = shipment.id; op.lastAt = at;
@@ -105,6 +106,7 @@
     if (!kitAway) op.assignment = null; return true;
   }
   function advance(state, now, routes, supplier = null) {
+    Witness.advance(state, now);
     for (const op of state.operators) {
       const elapsed = Math.max(0, now - op.lastAt); op.lastAt = Math.max(op.lastAt, now);
       const s = state.shipments.find(s => s.id === op.assignment);

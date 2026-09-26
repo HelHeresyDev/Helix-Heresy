@@ -42,6 +42,7 @@
   const CargoForfeiture = window.HelixCargoForfeiture;
   const CargoCriminalReferrals = window.HelixCargoCriminalReferrals;
   const CargoInvestigations = window.HelixCargoInvestigations;
+  const ContractWitnessing = window.HelixContractWitnessing;
   const LivingSmuggling = window.HelixLivingSmuggling;
   const StrategicDivineHistory = window.HelixStrategicDivineHistory;
   const StrategicCrisisHistory = window.HelixStrategicCrisisHistory;
@@ -13753,6 +13754,7 @@
       cargoExaminationChallenge: (id, reportId, kind) => cargoExaminationChallenge(id, reportId, kind),
       cargoForfeitureAction: (id, kind) => cargoForfeitureAction(id, kind),
       cargoInvestigationAction: (id, action) => cargoInvestigationAction(id, action),
+      contractWitnessAction: (id, action, note = "") => contractWitnessAction(id, action, note),
       configureCovertContactForTest: (contactId, options = {}) => {
         const market = ensureLocalCovertMarket(), contact = blackMarketContactById(contactId), courier = market.couriers.find(c => c.contactId === contactId);
         if (!contact) return false;
@@ -61477,6 +61479,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!market.operators.length) section.append(emptyText("No referred operator on a known supported direct neighboring corridor. Remote contact alone supplies no vehicle."));
     const q = market.quote;
     const disclosure = market.investigationDisclosurePreview;
+    if (market.witnessFilingPreview) {
+      const p = market.witnessFilingPreview;
+      section.append(storesRowEl("Independent contract filing preview", "Nothing filed yet", {
+        dataset: { witnessFilingPreview: p.shipmentId },
+        subtitle: `Fee ${formatMoney(p.document.fee)}, thirty minutes of clerk work. Permanent outside record; counterpart acknowledgment is separate and may be missing. Exact disclosure: ${JSON.stringify(p.document)}`,
+        actions: [storesActionButton("Confirm Paid Witness Filing", "Pay the published nonrefundable filing fee and retain this exact outside record. This does not permit investigator access.", () => contractWitnessAction(p.shipmentId, "confirm")),
+          storesActionButton("Cancel Witness Filing Preview", "Send nothing and pay nothing.", () => contractWitnessAction(p.shipmentId, "cancel"))]
+      }));
+    }
+    for (const office of market.witnessOffices || []) section.append(emptyText(`${office.witnessService.contact.label}: ${office.witnessService.active ? "local civic records office" : "unavailable"}; filing fee ${formatMoney(office.witnessService.fee)}. Optional filing leaves permanent outside records, not a permit or proof of performance.`));
     if (disclosure) section.append(storesRowEl("Voluntary disclosure preview", "Nothing sent yet", {
       dataset: { cargoDisclosurePreview: disclosure.referralId },
       subtitle: `These exact fields will be sent to the local investigator: ${JSON.stringify(disclosure.document)}. The recipient retains the submitted copy. Canceling or remaining silent creates no adverse inference.`,
@@ -61513,6 +61525,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
             storesActionButton("Preview Contract Excerpt", "Preview material, quantity, named counterparty, destination and contract status. No record is sent yet.", () => cargoInvestigationAction(referral.id, "preview:contract")),
             storesActionButton("Preview Carrier Contact and Records", "Preview the contact and exact customer copies before disclosure. The carrier can refuse or limit cooperation; no investigator can compel a foreign witness.", () => cargoInvestigationAction(referral.id, "preview:carrier")),
             storesActionButton("Preview Buyer Contact and Records", "Preview only the buyer contact and customer-held acknowledgments or receipts. Buyer cooperation remains voluntary; private accounts and escrow are not evidence.", () => cargoInvestigationAction(referral.id, "preview:buyer")),
+            storesActionButton("Preview Independent Witness Receipts", "Consent to verification of only the previewed receipts. The other party must consent separately; there is no unrestricted archive search.", () => cargoInvestigationAction(referral.id, "preview:witness")),
             storesActionButton("Flag Source Identity Error", "Ask the investigator to reconcile source stack and batch identities without inventing an alternative account.", () => cargoInvestigationAction(referral.id, "correct:identity")),
             storesActionButton("Flag Evidence Scope Error", "Record that sample evidence cannot prove a transaction or earlier knowledge.", () => cargoInvestigationAction(referral.id, "correct:scope"))]
         }));
@@ -61523,6 +61536,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         for (const finding of investigationNotice?.assessment.buyerFindings || []) section.append(storesRowEl(finding.account.label, titleCase(finding.decision), {
           dataset: { buyerCorroboration: finding.id },
           subtitle: `${formatClock(finding.at)}. ${finding.authentication} ${finding.statement} ${(finding.comparisons || []).map(c => `${c.recordId}: ${c.result}. ${c.scope}`).join(" ")} ${finding.events.map(e => `${e.kind} at ${formatClock(e.at)}, ${e.cityId}: ${e.jurisdiction}; participant claim ${e.participantClaim || "unverified"}; source ${e.sourceGroup}, ${e.independentObservation ? "own observation" : "derived material, not another independent source"}`).join(" ")} ${finding.exculpatory} ${finding.limit}`
+        }));
+        for (const finding of investigationNotice?.assessment.witnessFindings || []) section.append(storesRowEl(finding.account.label, "Independent documentary response", {
+          dataset: { witnessCorroboration: finding.id },
+          subtitle: `${formatClock(finding.at)}; ${finding.jurisdiction}. ${finding.comparisons.map(c => `${c.recordId}: ${c.result}${c.receipt ? `; witnessed record ${JSON.stringify(c.receipt)}` : ""}`).join(" ")} ${finding.exculpatory} ${finding.limit}`
         }));
       }
       if (gate.forfeitureStore) section.append(emptyText(`Institutional property store ${gate.forfeitureStore.id}: ${formatNumber(gate.forfeitureStore.usedKg)} / ${gate.forfeitureStore.capacityKg} kg; ${formatNumber(gate.forfeitureStore.usedL)} / ${gate.forfeitureStore.capacityL} L. ${gate.forfeitureStore.lots.map(l => `${l.entry.stack.id}: ${l.entry.amount} units, owner ${l.owner}, physically held at ${l.locationId}`).join("; ")}`));
@@ -61539,6 +61556,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     for (const sh of market.shipments) {
       const report = sh.living?.report;
+      if (!sh.living && (market.witnessOffices?.length || sh.witnessFilingIds?.length)) {
+        const amendment = document.createElement("input"); amendment.type = "text"; amendment.maxLength = 500;
+        amendment.placeholder = "Proposed documentary amendment (does not change the sale)";
+        amendment.setAttribute("aria-label", `Witness amendment for ${sh.id}`);
+        const row = storesRowEl(`Contract witness · ${sh.id}`, sh.witnessDocuments?.at(-1)?.status || (sh.witnessFilingIds?.length ? "Filing pending" : "Not filed"), {
+          dataset: { contractWitness: sh.id },
+          subtitle: `Only customer-held receipts: ${JSON.stringify(sh.witnessDocuments || [])}. Accounts are not verified people; missing acknowledgments are not signatures.`,
+          actions: [storesActionButton("Preview Contract Witness Filing", "Fresh acknowledgment of an uncollected contract only; no earlier signature is invented.", () => contractWitnessAction(sh.id, "preview:terms")),
+            storesActionButton("Preview Witness Cancellation Statement", "Append a sender cancellation statement. It does not delete the original or prove no exchange occurred.", () => contractWitnessAction(sh.id, "preview:cancellation")),
+            storesActionButton("Preview Witness Amendment", "Append the proposed statement; counterparty agreement is separately required and the actual sale terms remain unchanged.", () => contractWitnessAction(sh.id, "preview:amendment", amendment.value))]
+        });
+        row.append(amendment); section.append(row);
+      }
       const recovery = ensureLocalCovertMarket().collections.find(j => j.id === sh.recoveryJobId);
       section.append(storesRowEl(sh.id, sh.phase, {
       subtitle: `${sh.contractId}; owner ${sh.owner}; custodian ${sh.custodian}; destination ${sh.destinationId}; unpaid player escrow ${formatMoney(sh.playerEscrow)}. Delivery deadline ${formatClock(sh.deliveryDeadlineAt)}. ${sh.saleFailedAt != null ? "Sale ended; no later payment on recovered cargo." : ""} ${sh.receiptAt !== null ? `Buyer receipt ${formatClock(sh.receiptAt)}; cargo held separately from public stock.` : "No destination receipt yet."} ${sh.reason}`,
@@ -82232,11 +82262,38 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return [{ cityId: d.cityId, cellId: d.cellId, jurisdiction: "city", institutionId: current?.institutionId || watch.id, institutionName: watch.publicName,
         productScheduleCode: localCovertContext(d.cityId).lawRules.find(r => r.offenseId === "contrabandCommerce"), productScheduleCourt: judiciary, criminalIntakeInstitution }];
     }));
+    const homeGovernment = map?.cityGovernments?.governments.find(g => g.cityId === smuggling.homeId);
+    const registry = homeGovernment?.institutions.find(i => i.id === homeGovernment.roleAssignments.centralAdministration);
+    const registryCurrent = map?.strategicCivicHistory ? StrategicCivicHistory.currentInstitutionForRole(map, smuggling.homeId, "centralAdministration") : null;
+    if (registry) {
+      const active = !map.strategicCivicHistory || Boolean(registryCurrent && !["displaced", "disrupted"].includes(registryCurrent.operationalStatus));
+      ContractWitnessing.provision(smuggling, { institutionId: registryCurrent?.institutionId || registry.id, cityId: smuggling.homeId, name: registry.publicName, active }, state.clock);
+      for (const office of smuggling.witnessOffices || []) office.witnessService.active = active && office.institutionId === (registryCurrent?.institutionId || registry.id);
+    }
     for (const gate of smuggling.checkpoints || []) if (!gate.productScheduleChecked) {
       CargoPropertyReview.publish(gate, gate.productScheduleCode, gate.productScheduleCourt, state.clock); gate.productScheduleChecked = true;
       CargoCriminalReferrals.provision(gate, gate.productScheduleCode, gate.criminalIntakeInstitution, state.clock);
     }
     return smuggling;
+  }
+
+  function contractWitnessAction(id, action, note = "") {
+    advanceIntercitySmuggling(advanceLocalCovertCollections());
+    const market = ensureIntercitySmuggling(), sh = market.shipments.find(s => s.id === id);
+    let ok = false;
+    if (action === "cancel") { market.witnessFilingPreview = null; ok = true; }
+    else if (action.startsWith("preview:")) {
+      const document = ContractWitnessing.filingPreview(market, sh, action.slice(8), note);
+      if (document) { market.witnessFilingPreview = { shipmentId: id, document }; ok = true; }
+    } else if (action === "confirm") {
+      const p = market.witnessFilingPreview;
+      if (p?.shipmentId === id) ok = ContractWitnessing.file(market, sh, p.document, ensureEconomy(), state.clock);
+      market.witnessFilingPreview = null;
+    }
+    market.message = ok ? action.startsWith("preview:") ? "Review the exact permanent filing. Nothing sent or paid yet."
+      : action === "cancel" ? "Preview canceled; nothing filed." : "Filing paid and retained outside the laboratory. Clerk processing and separate buyer acknowledgment remain pending."
+      : "No eligible filing, changed preview, duplicate, unavailable records office, or insufficient funds/work capacity. Nothing filed.";
+    persist(); render(); return ok;
   }
 
   function cargoInvestigationAction(id, action) {

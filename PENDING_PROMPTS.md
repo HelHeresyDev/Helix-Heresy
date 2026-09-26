@@ -18,17 +18,18 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Smuggling: Independent Documentary Authentication
-2. Smuggling: Charging and Judicial Review
-3. Smuggling: Physical Enforcement of Local Orders
-4. Smuggling: Violent Interception and Crew Rescue
-5. World Integration: Investigations and Institutional Pressure
-6. Lazy Local Detail and World Discovery
-7. Roguelike Run Lifecycle, Death, Postmortem, and Restart
-8. Campaign Roadmap: From Hidden Laboratory to World Domination
-9. New-Run Onboarding and Contextual Tutorial
-10. Sound, Notifications, and Accessibility Audit
-11. Production Art Pass Using the Sprite Pipeline
+1. Smuggling: Civil-Identity Verification
+2. Smuggling: Independent Payment Records
+3. Smuggling: Charging and Judicial Review
+4. Smuggling: Physical Enforcement of Local Orders
+5. Smuggling: Violent Interception and Crew Rescue
+6. World Integration: Investigations and Institutional Pressure
+7. Lazy Local Detail and World Discovery
+8. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+9. Campaign Roadmap: From Hidden Laboratory to World Domination
+10. New-Run Onboarding and Contextual Tutorial
+11. Sound, Notifications, and Accessibility Audit
+12. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -90,69 +91,75 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Smuggling: Independent Documentary Authentication
+## 1. Smuggling: Civil-Identity Verification
 
-Carrier and buyer voluntary corroboration are implemented: prospective source records, explicitly disclosed contacts/customer copies, saved source consent, finite shared investigative work and source-bounded served findings. Account responses remain distinct from civil identity or independent documentary verification; missing historical observations remain missing.
+Optional independent contract witnessing is implemented. An actual home-city civic records institution can retain explicitly previewed, paid filings and fresh account acknowledgments, with finite clerk work and powered channels. Uncollected contracts are eligible; old signatures are not invented. Cancellation statements and proposed documentary amendments append without changing the commercial contract or erasing the original. Investigation disclosure and other-party consent are separate from filing; only scoped served comparisons leave the archive. Matching terms, missing acknowledgments, altered copies, unavailable records and nonrelease remain distinct. The archive and clerk are one source, not proof of civil identity, payment, delivery, prior knowledge or guilt.
 
-Discuss a bounded path for authenticating supplied contracts, identity claims or transaction records against genuinely independent, lawfully accessible sources. Verifying an account or comparing its own copies does not verify civil identity, document truth or every offense element. Identify the actual issuing institution or independent witness, their jurisdiction, access/consent requirements, available records, finite resources and evidentiary limits before implementing a service. Repeated copies or testimony derived from one record count as one source. Preserve contradictions, uncertainty, corrections and exculpatory findings. Missing historical records remain missing; new identity or transaction observations must be prospective. Split distinct authentication services into additional prompts if necessary. No automatic charges, warrants or arrest.
+Discuss a bounded path from a specific participant's disclosed identity claim to genuinely independent civil-identity evidence. Identify the actual issuing institution or firsthand identifying witness, records, jurisdiction, lawful access, costs and physical procedures before implementing a service. An authenticated account, company name, filing receipt or internal simulation ID is not a verified person. Keep the scientist, company, buyer principal, receiving representative, carrier and gate presenter separate. New identity checks must be prospective; preserve mistaken identity, contradictions and missing historical identification. No universal person lookup, retrospective signatures, automatic charges or remote arrest. Split distinct identification services if necessary.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 2. Smuggling: Charging and Judicial Review
+## 2. Smuggling: Independent Payment Records
+
+Discuss an independently maintained record of actual payment or escrow handling by a real, separately materialized provider. Private buyer balances, simulated escrow fields and quoted prices are not authority evidence. Require a genuinely involved source, prospective entries, authenticated account routes, scoped consent or separately discussed lawful access, jurisdiction and finite work/resources. Distinguish funding, reservation, release, earned freight, refund and completed sale; a payment does not prove physical delivery, civil identity, knowing illegality or every offense element. Do not invent historical bank records or silently migrate existing escrow into an institution that never handled it. Retain cancellations, contradictions and exculpatory refunds. This is separate from identity verification, documentary acknowledgment and charging decisions.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 3. Smuggling: Charging and Judicial Review
 
 Discuss prosecution screening of investigated cargo allegations against separately identified actors under the destination city's published criminal law. Require source-linked support for each applicable element, actor attribution and defenses; neither an intake acceptance nor a property judgment supplies missing proof. Integrate only with compatible existing local pretrial and judicial procedures, preserving disclosure, counsel, reasoned decisions and correction paths. Distinguish suspicion, charging thresholds and proof beyond reasonable doubt. Do not generate automatic remote arrest, physical custody or foreign enforcement. Split trial integration further if required.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Smuggling: Physical Enforcement of Local Orders
+## 4. Smuggling: Physical Enforcement of Local Orders
 
 Discuss how a supported judicial order can reach and be executed by actual competent local officers against the correctly identified person. Require jurisdiction, current valid authority, physical location, available personnel and feasible transport. An internet connection is not cross-city enforcement authority. Keep the scientist, carriers, handlers and buyers separate; an absent person cannot be arrested remotely. Integrate any real custody with existing jail, review and court systems without treating arrest as defeat or extending cargo custody. Foreign recognition, extradition and joint-stronghold jurisdiction require their own explicit design if needed.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Smuggling: Violent Interception and Crew Rescue
+## 5. Smuggling: Violent Interception and Crew Rescue
 
 Discuss physical beast attacks, robbery and armed interception as distinct encounters with actual actors, approach, vehicles, cargo, crew and location. No abstract disappearance rolls, replacement cargo, automatic scientist death or remote arrest. Keep living care and containment active through captivity. Decide feasible crew survival, negotiation, recapture, rescue and return options in bounded playable slices. Captors possess only their actual capabilities; wilderness grants no sovereign police jurisdiction. Existing failed-sale escrow and property identities must survive recovery.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. World Integration: Investigations and Institutional Pressure
+## 6. World Integration: Investigations and Institutional Pressure
 
 Design and implement world-context effects on company plausibility, inspections, investigations, religious scrutiny, escalation, and authority response. Context may alter priorities, schedules, thresholds, and available actions, but must not invent player guilt.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Lazy Local Detail and World Discovery
+## 7. Lazy Local Detail and World Discovery
 
 Design and implement deterministic elaboration of the already generated strategic world when a run encounters it. Lazy generation may fill minor places, institution branches, contacts, local histories, individuals, encounters, and exact maps while respecting canonical world facts and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+## 8. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 
 Design and implement the loop for beginning, losing, reviewing, and replacing a run without altering its reusable world. Only the scientist’s death ends a run; arrest, jail, prison, penal service, death sentence, loss of laboratory, and similar catastrophes remain playable while the scientist lives.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 9. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. The final campaign goal is rare world domination, but early hidden-laboratory survival must remain a complete roguelike experience.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. New-Run Onboarding and Contextual Tutorial
+## 10. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 10. Sound, Notifications, and Accessibility Audit
+## 11. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 11. Production Art Pass Using the Sprite Pipeline
+## 12. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 
