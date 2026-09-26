@@ -11,7 +11,9 @@
     buyer.buyerService = { openedAt: at, locationId: buyer.cityId,
       contact: { handle: `${buyer.id}:records-contact`, accountId: `${buyer.id}:records-account`, label: `${buyer.name} records account` },
       representatives: [{ id: `${buyer.id}:representative`, name: `${buyer.name} receiving representative`, status: 'alive', health: 100, fatigue: 0, locationId: buyer.cityId }],
-      channelPowered: true, credentialActive: true, policy: 'protectCompletedPurchases', interviewConsent: true, power: 6, workSeconds: 7200, records: [] };
+      channelPowered: true, credentialActive: true, policy: 'protectCompletedPurchases', interviewConsent: true,
+      witnessTermsConsent: true, witnessAmendmentConsent: false, witnessReleaseConsent: true,
+      power: 6, workSeconds: 7200, records: [] };
   }
   const present = service => service.representatives.filter(p => able(p) && p.locationId === service.locationId);
   const canReceive = buyer => !buyer?.buyerService || !buyer.buyerService.assignment && buyer.buyerService.locationId === buyer.cityId && present(buyer.buyerService).length > 0;
