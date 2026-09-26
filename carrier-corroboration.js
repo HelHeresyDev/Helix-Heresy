@@ -37,7 +37,7 @@
   function prepare(operators, i, submission, kind, at, allocated = false, assignment = null) {
     const { op, service } = context(operators, submission.document);
     if (!service || !service.channelPowered || !service.credentialActive || service.workSeconds <= 0 || !allocated && service.power < 1
-      || service.assignment && service.assignment !== assignment || op.assignment || op.location !== op.sourceId || !op.crew.some(able)) return null;
+      || service.assignment && service.assignment !== assignment || op.assignment || op.identityTrip || op.location !== op.sourceId || !op.crew.some(able)) return null;
     i.carrierChoices ||= [];
     let choice = i.carrierChoices.find(c => c.handle === service.contact.handle);
     if (!choice) {

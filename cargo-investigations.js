@@ -29,7 +29,7 @@
     i.interviews.push({ id: `${i.id}:${kind}`, kind, at, witnessId: source, sourceRevision: r.reviewedRevision,
       sourceIds: officer ? [`${r.sourceOrderId}:gate-observation`] : e.reports.map(p => p.id),
       persons: officer ? copy(e.personObservations || []) : [],
-      statement: officer ? 'I can confirm only the retained gate observations. Presenting cargo for inspection is not a sale or delivery to a buyer; no civil identity was checked.' : 'My testimony concerns the recorded sample, method and uncertainty only. I did not observe a commercial transaction or anyone’s earlier knowledge.',
+      statement: officer ? 'I can confirm only the retained gate observations. Presenting cargo is not a sale or delivery to a buyer. Any separate identity check is limited to its dated issuer response and physical description comparison.' : 'My testimony concerns the recorded sample, method and uncertainty only. I did not observe a commercial transaction or anyone’s earlier knowledge.',
       reliability: 'Bounded to contemporaneous source records; repeating this account is not independent corroboration.' });
   }
   function assess(gate, r, at) {
@@ -38,6 +38,14 @@
       .filter(p => (e.personObservations || []).some(current => JSON.stringify(current) === JSON.stringify(p)));
     const actors = [...new Map(persons.map(p => [p.id, { id: p.id, identity: 'unverified', role: 'observed cargo presenter', conduct: p.conduct,
       sourceIds: [p.id], transaction: 'not established', knowledge: 'not established' }])).values()];
+    const identityFindings = copy(e.identityChecks || []);
+    for (const actor of actors) {
+      const checks = identityFindings.filter(c => c.personObservationId === actor.id), latest = checks.at(-1);
+      if (!latest) continue;
+      actor.sourceIds.push(...checks.map(c => c.id));
+      actor.identity = latest.result === 'supported' ? `Registered identity: ${latest.document.registeredName}, ${latest.document.number}; bounded appearance support for this gate event only`
+        : checks.some(c => c.result === 'supported') ? 'Earlier supported identity link withdrawn pending reliable verification; original findings retained' : 'unverified';
+    }
     if (i.submissions.length) actors.push({ id: `${i.id}:claimant`, identity: 'authenticated property channel only; civil identity unverified', role: 'voluntary document submitter, not an established sender',
       conduct: 'Submitted the selected copies after inquiry.', sourceIds: i.submissions.map(s => s.id), transaction: 'not established', knowledge: 'not established at any earlier transaction' });
     const claims = new Map();
@@ -60,7 +68,7 @@
           ? 'Source mismatch reproduced. The disputed report cannot establish actor attribution.' : 'No source mismatch reproduced in current records. This does not verify a person’s identity.' }));
     const status = review.status === 'declined' ? 'exhaustedUnsupported' : 'awaitingNamedSource';
     const result = { at, sourceRevision: r.reviewedRevision, investigatorId: gate.investigationOffice.investigator.id, status, actors,
-      elements: copy(review.elements), correctionFindings: corrections, carrierFindings, buyerFindings, witnessFindings: Witness.findings(i, gate.cityId),
+      elements: copy(review.elements), correctionFindings: corrections, identityFindings, carrierFindings, buyerFindings, witnessFindings: Witness.findings(i, gate.cityId),
       documents: i.submissions.map(s => ({ id: s.id, sourceId: s.document.sourceId, finding: 'Voluntarily supplied copy; provenance is the authenticated property channel, not independent verification of its parties or performance.' + (s.document.status === 'failed' ? ' Reported nonperformance is retained as potentially exculpatory material, not independently proven nonoccurrence.' : '') })),
       missingSources: status === 'exhaustedUnsupported' ? [] : ['A witness or independently authenticated record of a locally relevant completed transaction.', 'Independent identification of each alleged participant.', 'A source establishing each participant’s knowledge at the relevant time.'],
       reason: status === 'exhaustedUnsupported' ? `Available lead exhausted: ${review.reason}` : 'Available gate interviews and records do not establish a completed transaction, verified participants or knowing participation. Waiting creates no evidence.' };
@@ -103,7 +111,7 @@
         const expected = kind === 'officer' ? e.observation.observerId : e.reports.find(p => p.method === 'sealedSampleConfirmatoryAssay')?.examinerId;
         const ready = officeReady && (kind === 'reconcile' || (isSource ? Boolean(source) : able(witness) && witness.id === expected))
           && (kind !== 'examiner' || gate.examinationLab.locationId === gate.id && !gate.examinationLab.assignment)
-          && (kind !== 'officer' || !gate.assignment) && office.workSeconds > 0
+          && (kind !== 'officer' || !gate.assignment && !gate.identityDesk?.assignment) && office.workSeconds > 0
           && (!isSource || source && source.service.workSeconds > 0 && (!source.service.assignment || source.service.assignment === sourceAssignment)
             && (!job.sourceWitnessId || job.sourceWitnessId === source.witness.id));
         if (!ready || !job.paid && (office.power < 1 || isSource && source.service.power < 1)) { job.wasReady = false; releaseSource(operators, buyers, offices, job, at); i.status = 'paused'; return; }

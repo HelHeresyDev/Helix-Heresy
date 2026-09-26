@@ -43,6 +43,7 @@
   const CargoCriminalReferrals = window.HelixCargoCriminalReferrals;
   const CargoInvestigations = window.HelixCargoInvestigations;
   const ContractWitnessing = window.HelixContractWitnessing;
+  const CarrierIdentity = window.HelixCarrierIdentity;
   const LivingSmuggling = window.HelixLivingSmuggling;
   const StrategicDivineHistory = window.HelixStrategicDivineHistory;
   const StrategicCrisisHistory = window.HelixStrategicCrisisHistory;
@@ -13755,6 +13756,7 @@
       cargoForfeitureAction: (id, kind) => cargoForfeitureAction(id, kind),
       cargoInvestigationAction: (id, action) => cargoInvestigationAction(id, action),
       contractWitnessAction: (id, action, note = "") => contractWitnessAction(id, action, note),
+      carrierIdentityAction: (id, action) => carrierIdentityAction(id, action),
       configureCovertContactForTest: (contactId, options = {}) => {
         const market = ensureLocalCovertMarket(), contact = blackMarketContactById(contactId), courier = market.couriers.find(c => c.contactId === contactId);
         if (!contact) return false;
@@ -61479,6 +61481,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!market.operators.length) section.append(emptyText("No referred operator on a known supported direct neighboring corridor. Remote contact alone supplies no vehicle."));
     const q = market.quote;
     const disclosure = market.investigationDisclosurePreview;
+    if (market.identityRegistrationPreview) {
+      const p = market.identityRegistrationPreview;
+      section.append(storesRowEl("Driver registration visit preview", "No journey started", {
+        dataset: { identityRegistrationPreview: p.operatorId },
+        subtitle: `${JSON.stringify(p)}. Fee paid from carrier funds; ${p.roundTripKm} km local round trip and thirty minutes at the office. The driver controls registration and later presentation consent.`,
+        actions: [storesActionButton("Request Driver Registration Visit", "Ask the driver to undertake this physical visit on the quoted terms; this does not compel consent.", () => carrierIdentityAction(p.operatorId, "confirm")),
+          storesActionButton("Cancel Registration Preview", "Send no request and start no trip.", () => carrierIdentityAction(p.operatorId, "cancel"))]
+      }));
+    }
     if (market.witnessFilingPreview) {
       const p = market.witnessFilingPreview;
       section.append(storesRowEl("Independent contract filing preview", "Nothing filed yet", {
@@ -61541,6 +61552,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           dataset: { witnessCorroboration: finding.id },
           subtitle: `${formatClock(finding.at)}; ${finding.jurisdiction}. ${finding.comparisons.map(c => `${c.recordId}: ${c.result}${c.receipt ? `; witnessed record ${JSON.stringify(c.receipt)}` : ""}`).join(" ")} ${finding.exculpatory} ${finding.limit}`
         }));
+        for (const finding of investigationNotice?.assessment.identityFindings || []) section.append(storesRowEl(finding.document.registeredName, `Gate identity: ${finding.result}`, {
+          dataset: { carrierIdentityFinding: finding.id },
+          subtitle: `${formatClock(finding.at)}; presentation ${formatClock(finding.presentedAt)}. Issuer: ${finding.issuerResult}; appearance: ${finding.appearance}. ${finding.jurisdiction}. Document ${finding.document.number}; ${finding.document.scope}. ${finding.supersedes ? `Supersedes ${finding.supersedes}; original retained.` : ""} ${finding.limit}`,
+          actions: [storesActionButton("Recheck Presented Identity Document", "Request a finite issuer recheck of the original disclosed document. No new physical identification, document substitution or extension of custody.", () => carrierIdentityAction(market.shipments.find(s => s.criminalReferralId === referral.id)?.id, "recheck"))]
+        }));
       }
       if (gate.forfeitureStore) section.append(emptyText(`Institutional property store ${gate.forfeitureStore.id}: ${formatNumber(gate.forfeitureStore.usedKg)} / ${gate.forfeitureStore.capacityKg} kg; ${formatNumber(gate.forfeitureStore.usedL)} / ${gate.forfeitureStore.capacityL} L. ${gate.forfeitureStore.lots.map(l => `${l.entry.stack.id}: ${l.entry.amount} units, owner ${l.owner}, physically held at ${l.locationId}`).join("; ")}`));
       if (gate.examinationLab) { const lab = gate.examinationLab; section.append(emptyText(`Gate examination ${lab.id}: examiner ${lab.examiner.id} (${lab.examiner.status}); instrument condition ${formatNumber(lab.instrument.condition)}, calibration ${formatNumber(lab.instrument.calibration)}; institutional funds ${formatMoney(lab.funds)}, power ${lab.power}, reagents ${lab.reagents}, seals ${lab.seals}. Screening is non-destructive; confirmation samples 0.01 unit, ending an exact-lot sale with unearned escrow refunded. No automatic restocking or player fee.`)); }
@@ -61550,8 +61566,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const route = ensureStrategicJourneys().routes.find(r => r.id === op.routeId);
       section.append(storesRowEl(op.name, sh?.phase || "At home depot", {
         subtitle: `${op.sourceId} → ${op.destinationId}; corridor ${op.routeId}: ${route?.continuity || "unavailable"}, ${route?.supportCapable ? "supported" : "unsupported"}; ${op.vehicleId}; ${op.capacityKg} kg / ${op.capacityL} L; fuel ${formatNumber(op.fuelKm)} km; provisions ${formatNumber(op.provisions)}; funds ${formatMoney(op.money)}; condition ${formatNumber(op.condition)}; crew ${op.crew.map(c => `${c.name}: ${c.status}, health ${formatNumber(c.health)}, fatigue ${formatNumber(c.fatigue)}`).join("; ")}. ${op.location}. ${sh?.reason || "No lawful permit or sovereign authority implied."}`,
-        dataset: { smugglingOperator: op.id }
+        dataset: { smugglingOperator: op.id },
+        actions: [storesActionButton("Preview Driver Registration", "Preview an optional driver-funded physical civic registration visit before taking a shipment.", () => carrierIdentityAction(op.id, "preview"))]
       }));
+      if (op.identityTrip || op.identityMessage) section.append(emptyText(`${op.identityMessage || ""} ${op.identityTrip ? `Visit ${op.identityTrip.phase}, ${formatNumber(op.identityTrip.positionKm)} / ${op.identityTrip.distanceKm} km; clerk work ${formatDuration(op.identityTrip.progress)} / thirty minutes. No cargo booking while away.` : ""}`));
       if (op.biological) section.append(emptyText(`Specialist depot stocks: ${Object.entries(op.careStock.feeds).map(([key, amount]) => `${key} ${formatNumber(amount)}`).join(", ")}; moisture ${formatNumber(op.careStock.water)}; containment power ${formatNumber(op.careStock.power)}. Reserved kits are excluded. These finite stocks do not regenerate automatically.`));
     }
     for (const sh of market.shipments) {
@@ -82268,13 +82286,34 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (registry) {
       const active = !map.strategicCivicHistory || Boolean(registryCurrent && !["displaced", "disrupted"].includes(registryCurrent.operationalStatus));
       ContractWitnessing.provision(smuggling, { institutionId: registryCurrent?.institutionId || registry.id, cityId: smuggling.homeId, name: registry.publicName, active }, state.clock);
+      CarrierIdentity.provision(smuggling, { institutionId: registryCurrent?.institutionId || registry.id, cityId: smuggling.homeId, name: registry.publicName, active, localDistanceKm: 2 }, state.clock);
       for (const office of smuggling.witnessOffices || []) office.witnessService.active = active && office.institutionId === (registryCurrent?.institutionId || registry.id);
+      for (const office of smuggling.identityOffices || []) office.active = active && office.institutionId === (registryCurrent?.institutionId || registry.id);
     }
     for (const gate of smuggling.checkpoints || []) if (!gate.productScheduleChecked) {
       CargoPropertyReview.publish(gate, gate.productScheduleCode, gate.productScheduleCourt, state.clock); gate.productScheduleChecked = true;
       CargoCriminalReferrals.provision(gate, gate.productScheduleCode, gate.criminalIntakeInstitution, state.clock);
     }
     return smuggling;
+  }
+
+  function carrierIdentityAction(id, action) {
+    advanceIntercitySmuggling(advanceLocalCovertCollections());
+    const market = ensureIntercitySmuggling(), op = market.operators.find(o => o.id === id);
+    let ok = false;
+    if (action === "cancel") { market.identityRegistrationPreview = null; ok = true; }
+    else if (action === "preview") {
+      const p = CarrierIdentity.preview(market, op); if (p) { market.identityRegistrationPreview = p; ok = true; }
+    } else if (action === "confirm") {
+      const p = market.identityRegistrationPreview;
+      if (p?.operatorId === id) ok = CarrierIdentity.request(market, op, p, state.clock);
+      market.identityRegistrationPreview = null;
+    } else if (action === "recheck") ok = CarrierIdentity.recheck(market, market.shipments.find(s => s.id === id), state.clock);
+    market.message = ok ? action === "preview" ? "Review the proposed visit. No request, travel or fee yet."
+      : action === "cancel" ? "Registration preview canceled." : action === "recheck" ? "Issuer recheck requested. Original observation retained; custody is unchanged."
+        : "Driver accepted the local registration visit. Carrier funds and physical travel are required; no document exists yet."
+      : op?.identityMessage || "No eligible idle driver, usable local office, consent, resources or unchanged preview. No compulsory identification.";
+    persist(); render(); return ok;
   }
 
   function contractWitnessAction(id, action, note = "") {

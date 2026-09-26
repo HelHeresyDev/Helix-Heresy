@@ -4,10 +4,11 @@
     typeof module === 'object' && module.exports ? require('./cargo-criminal-referrals') : root.HelixCargoCriminalReferrals,
     typeof module === 'object' && module.exports ? require('./carrier-corroboration') : root.HelixCarrierCorroboration,
     typeof module === 'object' && module.exports ? require('./buyer-corroboration') : root.HelixBuyerCorroboration,
-    typeof module === 'object' && module.exports ? require('./contract-witnessing') : root.HelixContractWitnessing);
+    typeof module === 'object' && module.exports ? require('./contract-witnessing') : root.HelixContractWitnessing,
+    typeof module === 'object' && module.exports ? require('./carrier-identity') : root.HelixCarrierIdentity);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixIntercitySmuggling = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer, Witness) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer, Witness, Identity) {
   'use strict';
   const HOUR = 3600, copy = v => JSON.parse(JSON.stringify(v));
   const fingerprint = Checkpoints.fingerprint;
@@ -34,6 +35,7 @@
         fuelKm: 600, provisions: 40, money: 1200, condition: 100, assignment: null, location: state.homeId, lastAt: at,
         crew: [{ id: `smuggler-driver:${r.id}`, name: `${city.label} corridor driver`, status: 'alive', health: 100, fatigue: 0 }], reason: '' });
       Carrier.provision(state.operators.at(-1), at);
+      Identity.provisionDriver(state.operators.at(-1).crew[0]);
     }
   }
   function trip(op, route) {
@@ -47,7 +49,7 @@
   function offer(state, operatorId, request, route, at) {
     const op = state.operators.find(o => o.id === operatorId), journey = trip(op, route);
     const refuse = reason => ({ ok: false, reason });
-    if (!journey || op.assignment || op.carrierService?.assignment || op.location !== state.homeId) return refuse('No idle dedicated smuggler with a supported direct route and funded round trip.');
+    if (!journey || op.assignment || op.identityTrip || op.carrierService?.assignment || op.location !== state.homeId) return refuse('No idle dedicated smuggler with a supported direct route and funded round trip.');
     const living = request?.manifest?.commodityKind === 'specimen' ? Living.plan(op, request, journey) : null;
     if (living && !living.ok) return living;
     if (!living && (!['rawByproduct', 'manufactured'].includes(request?.manifest?.commodityKind) || request.manifest.entries?.some(e => e.creature || ['creature', 'transportPod'].includes(e.kind)))) return refuse('Living cargo requires a separate containment and survival contract.');
@@ -107,7 +109,9 @@
   }
   function advance(state, now, routes, supplier = null) {
     Witness.advance(state, now);
+    Identity.advance(state, now);
     for (const op of state.operators) {
+      if (op.identityTrip) continue;
       const elapsed = Math.max(0, now - op.lastAt); op.lastAt = Math.max(op.lastAt, now);
       const s = state.shipments.find(s => s.id === op.assignment);
       if (s?.living) continue;

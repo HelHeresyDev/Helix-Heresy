@@ -1,10 +1,11 @@
 (function (root, factory) {
   const api = factory(typeof module === 'object' && module.exports ? require('./cargo-property-review') : root.HelixCargoPropertyReview,
     typeof module === 'object' && module.exports ? require('./cargo-criminal-referrals') : root.HelixCargoCriminalReferrals,
-    typeof module === 'object' && module.exports ? require('./buyer-corroboration') : root.HelixBuyerCorroboration);
+    typeof module === 'object' && module.exports ? require('./buyer-corroboration') : root.HelixBuyerCorroboration,
+    typeof module === 'object' && module.exports ? require('./carrier-identity') : root.HelixCarrierIdentity);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixSmugglingCheckpoints = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (PropertyReview, Referrals, Buyer) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (PropertyReview, Referrals, Buyer, Identity) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v));
   const fingerprint = m => JSON.stringify({ commodityKind: m.commodityKind, material: m.material, amount: m.amount,
@@ -72,7 +73,9 @@
         description: 'Person presenting the cargo with the arriving vehicle; civil identity not checked.',
         conduct: 'Presented cargo for admission inspection, not a witnessed commercial transaction.'
       }] : [];
+      Identity.start(state, gate, sh, op, at);
     }
+    Identity.tick(state, gate, sh, at);
     if (at < i.reviewAt) return true;
     PropertyReview.issue(gate, sh, at);
     const held = PropertyReview.tick(gate, sh, at);
