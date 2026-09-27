@@ -5,10 +5,11 @@
     typeof module === 'object' && module.exports ? require('./buyer-identity') : root.HelixBuyerIdentity,
     typeof module === 'object' && module.exports ? require('./account-access') : root.HelixAccountAccess,
     typeof module === 'object' && module.exports ? require('./scientist-identity') : root.HelixScientistIdentity,
-    typeof module === 'object' && module.exports ? require('./buyer-principal') : root.HelixBuyerPrincipal);
+    typeof module === 'object' && module.exports ? require('./buyer-principal') : root.HelixBuyerPrincipal,
+    typeof module === 'object' && module.exports ? require('./payment-records') : root.HelixPaymentRecords);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixCargoInvestigations = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Carrier, Buyer, Witness, Recipient, Access, Civic, Principal) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Carrier, Buyer, Witness, Recipient, Access, Civic, Principal, Payments) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v));
   const able = a => a?.status === 'alive' && a.health >= 50;
@@ -22,9 +23,9 @@
     return { id: `${r.id}:investigation`, openedAt: at, status: 'working', interviews: [], submissions: [], corrections: [], assessments: [], notices: [], job: null, assessedSignature: '' };
   }
   function signature(r) { const i = r.investigation; return `${r.reviewedRevision}:${i.submissions.length}:${i.corrections.length}`; }
-  function releaseSource(operators, buyers, offices, job, at, identityOffices = []) {
+  function releaseSource(operators, buyers, offices, job, at, identityOffices = [], paymentProviders = []) {
     if (!job?.sourceAssignment) return;
-    for (const service of [...operators.map(o => o.carrierService), ...buyers.map(b => b.buyerService), ...offices.map(o => o.witnessService), ...identityOffices].filter(Boolean))
+    for (const service of [...operators.map(o => o.carrierService), ...buyers.map(b => b.buyerService), ...offices.map(o => o.witnessService), ...identityOffices, ...paymentProviders].filter(Boolean))
       if (service.assignment === job.sourceAssignment) { service.assignment = null; service.availableAt = at; }
   }
   function interview(gate, r, kind, at) {
@@ -118,7 +119,7 @@
           ? 'Source mismatch reproduced. The disputed report cannot establish actor attribution.' : 'No source mismatch reproduced in current records. This does not verify a person’s identity.' }));
     const status = review.status === 'declined' ? 'exhaustedUnsupported' : 'awaitingNamedSource';
     const result = { at, sourceRevision: r.reviewedRevision, investigatorId: gate.investigationOffice.investigator.id, status, actors,
-      elements: copy(review.elements), correctionFindings: corrections, identityFindings, carrierFindings, buyerFindings, recipientFindings, accountAccessFindings, scientistIdentityFindings, principalFindings, witnessFindings: Witness.findings(i, gate.cityId),
+      elements: copy(review.elements), correctionFindings: corrections, identityFindings, carrierFindings, buyerFindings, recipientFindings, accountAccessFindings, scientistIdentityFindings, principalFindings, paymentFindings: Payments.findings(i, gate.cityId), witnessFindings: Witness.findings(i, gate.cityId),
       documents: i.submissions.map(s => ({ id: s.id, sourceId: s.document.sourceId, finding: 'Voluntarily supplied copy; provenance is the authenticated property channel, not independent verification of its parties or performance.' + (s.document.status === 'failed' ? ' Reported nonperformance is retained as potentially exculpatory material, not independently proven nonoccurrence.' : '') })),
       missingSources: status === 'exhaustedUnsupported' ? [] : ['A witness or independently authenticated record of a locally relevant completed transaction.', 'Independent identification of each alleged participant.', 'A source establishing each participant’s knowledge at the relevant time.'],
       reason: status === 'exhaustedUnsupported' ? `Available lead exhausted: ${review.reason}` : 'Available gate interviews and records do not establish a completed transaction, verified participants or knowing participation. Waiting creates no evidence.' };
@@ -127,31 +128,31 @@
       request: status === 'exhaustedUnsupported' ? 'No further voluntary material requested on the current unsupported lead.' : 'Optional: supply a booked manifest, contract excerpt or carrier/buyer contact and customer records or independent witness receipts, or identify a source-identity or scope error. Source cooperation remains voluntary; copies alone are not verified.',
       obligation: 'Voluntary only. No deadline, adverse inference from silence, charge, warrant or custody authority.' });
   }
-  function advance(gate, at, operators = [], buyers = [], offices = [], identityOffices = []) {
+  function advance(gate, at, operators = [], buyers = [], offices = [], identityOffices = [], paymentProviders = []) {
     const office = gate?.investigationOffice; if (!office || at < office.lastAt) return;
     let cursor = office.lastAt; office.lastAt = at;
     for (const r of gate.criminalIntake.referrals) {
       const review = r.reviews.at(-1);
       if (!r.investigation && review?.status === 'acceptedForInvestigation') r.investigation = create(r, review.at);
       const i = r.investigation; if (!i) continue;
-      if (r.reviewedRevision !== r.revisions.length) { i.status = 'awaitingSourceReview'; if (i.job) i.job.wasReady = false; releaseSource(operators, buyers, offices, i.job, at, identityOffices); continue; }
+      if (r.reviewedRevision !== r.revisions.length) { i.status = 'awaitingSourceReview'; if (i.job) i.job.wasReady = false; releaseSource(operators, buyers, offices, i.job, at, identityOffices, paymentProviders); continue; }
       if (i.assessedSignature === signature(r)) continue;
       const changedAt = Math.max(review.at, i.submissions.at(-1)?.at || 0, i.corrections.at(-1)?.at || 0);
       if (i.job && i.job.signature !== signature(r)) {
-        releaseSource(operators, buyers, offices, i.job, at, identityOffices);
+        releaseSource(operators, buyers, offices, i.job, at, identityOffices, paymentProviders);
         i.job = null;
       }
       let continuing = false;
       while (true) {
-        const sourceTask = Carrier.next(i) || Buyer.next(i) || Witness.next(i) || Recipient.next(i) || Access.next(i) || Civic.next(i) || Principal.next(i);
-        const sourceApi = sourceTask?.kind === 'principalRecords' ? Principal : sourceTask?.kind === 'scientistIdentityRecords' ? Civic : sourceTask?.kind === 'accountAccessRecords' ? Access : sourceTask?.kind === 'recipientRecords' ? Recipient : sourceTask?.kind === 'witnessRecords' ? Witness : sourceTask?.kind.startsWith('buyer') ? Buyer : Carrier;
-        const participants = sourceApi === Principal || sourceApi === Civic || sourceApi === Access ? identityOffices : sourceApi === Witness ? offices : sourceApi === Buyer ? buyers : operators;
+        const sourceTask = Carrier.next(i) || Buyer.next(i) || Witness.next(i) || Recipient.next(i) || Access.next(i) || Civic.next(i) || Principal.next(i) || Payments.next(i);
+        const sourceApi = sourceTask?.kind === 'paymentRecords' ? Payments : sourceTask?.kind === 'principalRecords' ? Principal : sourceTask?.kind === 'scientistIdentityRecords' ? Civic : sourceTask?.kind === 'accountAccessRecords' ? Access : sourceTask?.kind === 'recipientRecords' ? Recipient : sourceTask?.kind === 'witnessRecords' ? Witness : sourceTask?.kind.startsWith('buyer') ? Buyer : Carrier;
+        const participants = sourceApi === Payments ? paymentProviders : sourceApi === Principal || sourceApi === Civic || sourceApi === Access ? identityOffices : sourceApi === Witness ? offices : sourceApi === Buyer ? buyers : operators;
         const kind = review.status !== 'acceptedForInvestigation' ? 'reconcile'
           : !i.interviews.some(w => w.kind === 'officer') ? 'officer'
             : !i.interviews.some(w => w.kind === 'examiner') ? 'examiner' : sourceTask?.kind || 'reconcile';
         if (!i.job) i.job = { kind, signature: signature(r), startedAt: Math.max(cursor, changedAt), progress: 0, paid: false, wasReady: continuing };
         const job = i.job, e = r.revisions[r.reviewedRevision - 1].evidence;
-        const isSource = ['carrierRecords', 'carrierInterview', 'buyerRecords', 'buyerInterview', 'witnessRecords', 'recipientRecords', 'accountAccessRecords', 'scientistIdentityRecords', 'principalRecords'].includes(kind);
+        const isSource = ['carrierRecords', 'carrierInterview', 'buyerRecords', 'buyerInterview', 'witnessRecords', 'recipientRecords', 'accountAccessRecords', 'scientistIdentityRecords', 'principalRecords', 'paymentRecords'].includes(kind);
         const sourceAssignment = isSource ? `${i.id}:${sourceTask.submission.id}:${kind}` : null;
         const officeReady = gate.active && gate.jurisdiction === 'city' && gate.criminalIntake.active && gate.criminalIntake.cityId === gate.cityId
           && office.locationId === gate.id && office.investigator.institutionId === gate.institutionId && able(office.investigator)
@@ -164,7 +165,7 @@
           && (kind !== 'officer' || !gate.assignment && !gate.identityDesk?.assignment) && office.workSeconds > 0
           && (!isSource || source && source.service.workSeconds > 0 && (!source.service.assignment || source.service.assignment === sourceAssignment)
             && (!job.sourceWitnessId || job.sourceWitnessId === source.witness.id));
-        if (!ready || !job.paid && (office.power < 1 || isSource && source.service.power < 1)) { job.wasReady = false; releaseSource(operators, buyers, offices, job, at, identityOffices); i.status = 'paused'; return; }
+        if (!ready || !job.paid && (office.power < 1 || isSource && source.service.power < 1)) { job.wasReady = false; releaseSource(operators, buyers, offices, job, at, identityOffices, paymentProviders); i.status = 'paused'; return; }
         if (!job.paid) {
           office.power--; job.paid = true;
           if (isSource) { source.service.power--; source.service.assignment = sourceAssignment; job.sourceAssignment = sourceAssignment; job.sourceWitnessId = source.witness.id; }
@@ -191,6 +192,7 @@
     if (kind === 'recipient') return Recipient.previewEvidence(sh);
     if (kind === 'accountAccess') return Access.previewEvidence(state, sh);
     if (kind === 'buyerPrincipal') return Principal.previewEvidence(state, sh);
+    if (kind === 'paymentRecords') return Payments.preview(sh);
     if (kind === 'scientistIdentity') return scientistIdentity ? Civic.evidencePreview(scientistIdentity) : null;
     if (!sh || !contract || contract.id !== sh.contractId) return null;
     if (kind === 'manifest') return { kind, sourceId: `${contract.id}:booked-manifest`, material: contract.material, quantity: contract.amount,
@@ -204,7 +206,7 @@
     && gate.investigationOffice.locationId === gate.id && gate.criminalIntake?.referrals.includes(r);
   function submit(gate, r, document, at) {
     const i = r?.investigation;
-    if (!filingAvailable(gate, r) || !i?.notices.length || i.status === 'exhaustedUnsupported' || !['manifest', 'contract', 'carrier', 'buyer', 'witness', 'recipient', 'accountAccess', 'scientistIdentity', 'buyerPrincipal'].includes(document?.kind)
+    if (!filingAvailable(gate, r) || !i?.notices.length || i.status === 'exhaustedUnsupported' || !['manifest', 'contract', 'carrier', 'buyer', 'witness', 'recipient', 'accountAccess', 'scientistIdentity', 'buyerPrincipal', 'paymentRecords'].includes(document?.kind)
       || i.submissions.some(s => JSON.stringify(s.document) === JSON.stringify(document))) return false;
     i.submissions.push({ id: `${i.id}:submission:${i.submissions.length + 1}`, at, channel: 'authenticatedPropertyClaimant', document: copy(document) });
     return true;

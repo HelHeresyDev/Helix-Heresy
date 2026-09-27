@@ -10,7 +10,7 @@
     if (op.carrierService) return;
     op.carrierService = { openedAt: at, contact: { handle: `${op.id}:records-contact`, accountId: `${op.id}:records-account`, label: `${op.name} records account` },
       channelPowered: true, credentialActive: true, policy: 'protectCompletedClients', interviewConsent: true,
-      power: 6, workSeconds: 7200, records: [] };
+      paymentConsent: true, power: 6, workSeconds: 7200, records: [] };
   }
   function record(op, sh, kind, at, cityId, place, manifest = sh.manifest) {
     const service = op?.carrierService, observer = op?.crew.find(able);

@@ -43,7 +43,8 @@
     Buyer.record(state.buyers.find(b => b.id === sh.buyerId), sh, 'cancellationAcknowledged', at);
     if (sh.living) { sh.living.refunded = true; if (!sh.living.outcome) sh.living.outcome = sh.returnRequestedAt != null ? 'returnRequested' : 'deliveryExpired'; }
     if (sh.phase === 'outbound') sh.phase = 'returning';
-    sh.reason = 'Delivery deadline expired; unearned sale and transit escrow refunded. Exact cargo remains player property; return requires release and a feasible route.';
+    sh.reason = sh.paymentCase ? 'Delivery ended without receipt. Provider funds await authenticated refund instructions and finite processing; no automatic payout. Exact cargo remains player property; return requires release and a feasible route.'
+      : 'Delivery deadline expired; unearned sale and transit escrow refunded. Exact cargo remains player property; return requires release and a feasible route.';
     return true;
   }
   function submit(sh, manifestFingerprint, at) {

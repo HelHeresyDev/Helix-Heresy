@@ -166,6 +166,55 @@ test('receiver identification UI previews a real visit, checks a physical handof
   expect(correction.recipientDocuments.at(-1).issuerResult).toBe('withdrawn'); expect(correction.owner).toBe(receipt.after.shipments[0].owner);
   expect(correction.receiptAt).toBe(receipt.after.shipments[0].receiptAt); expect(errors).toEqual([]);
 });
+test('independent escrow UI keeps physical delivery separate from delayed settlement and preserves exact payouts across reload', async ({ page }) => {
+  test.setTimeout(300000);
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const f = await setup(page);
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  await page.getByRole('button', { name: 'Use Independent Escrow for New Quotes', exact: true }).click();
+  await page.locator(`[data-black-market-deal="${f.deal.id}"]`).getByRole('button', { name: 'Foreign quote: b' }).click();
+  await expect(page.locator('[data-payment-quote]')).toContainText('No hidden shipment-state lookup');
+  const quote = await page.evaluate(() => window.helixHeresyDebug.economySnapshot().intercitySmuggling.quote);
+  await page.getByRole('button', { name: 'Confirm Foreign Contract', exact: true }).click();
+  const accepted = await page.evaluate(() => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState();
+    s.economy.intercitySmuggling.paymentProviders[0].workSeconds = 0; d.importSurveyExpeditionTestState(s);
+    return d.economySnapshot();
+  });
+  const contract = accepted.contracts.find(c => c.foreignShipmentId);
+  expect(accepted.intercitySmuggling.buyers[0].money).toBe(10000 - quote.gross - quote.payment.fee);
+  expect(accepted.intercitySmuggling.shipments[0]).toMatchObject({ localEscrow: 0, freightEscrow: 0, playerEscrow: 0 });
+  expect(accepted.intercitySmuggling.paymentProviders[0].held).toBe(quote.gross);
+  expect(await page.evaluate(id => window.helixHeresyDebug.startMarketContractDelivery(id), contract.id)).toBe(true);
+  await page.locator('[data-workspace-tab="tasks"]').click();
+  await page.locator('[data-task-row]').filter({ hasText: 'Deliver' }).filter({ hasText: f.deal.material }).getByRole('button', { name: 'Finish' }).click();
+  const delivered = await page.evaluate(() => {
+    const d = window.helixHeresyDebug; d.advanceStrategicServices(1800); const depot = d.economySnapshot();
+    d.advanceStrategicServices(3600); const before = d.economySnapshot(); d.reloadSurveyExpeditionTestState();
+    return { depot, before, after: d.economySnapshot() };
+  });
+  expect(delivered.depot.localCovertMarket.collections[0].manifest).toBeNull();
+  expect(delivered.depot.intercitySmuggling.shipments[0].phase).toBe('outbound');
+  expect(delivered.after.intercitySmuggling).toEqual(delivered.before.intercitySmuggling);
+  expect(delivered.after.contracts.find(c => c.id === contract.id).status).toBe('delivered'); expect(delivered.after.money).toBe(0);
+  expect(delivered.after.intercitySmuggling.shipments[0].settledAt).toBeNull();
+  const paid = await page.evaluate(() => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState(); s.economy.intercitySmuggling.paymentProviders[0].workSeconds = 1200;
+    d.importSurveyExpeditionTestState(s); d.advanceStrategicServices(1); d.advanceStrategicServices(600); d.advanceStrategicServices(600);
+    const before = d.economySnapshot(); d.reloadSurveyExpeditionTestState(); d.advanceStrategicServices(3600);
+    return { before, after: d.economySnapshot() };
+  });
+  expect(paid.before.money).toBe(contract.payout); expect(paid.after.money).toBe(contract.payout);
+  expect(paid.after.contracts.find(c => c.id === contract.id).status).toBe('completed');
+  expect(paid.after.intercitySmuggling.paymentProviders[0].held).toBe(0);
+  expect(paid.after.intercitySmuggling.paymentProviders[0].accounts.every(a => a.balance === 0)).toBe(true);
+  expect(paid.after.intercitySmuggling.shipments[0].receiptAt).toBe(delivered.after.intercitySmuggling.shipments[0].receiptAt);
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  await expect(page.locator('[data-payment-record]').filter({ hasText: 'paymentCompleted' })).toHaveCount(3);
+  await page.getByRole('button', { name: 'Use Direct Escrow for New Quotes', exact: true }).click();
+  expect(await page.evaluate(() => window.helixHeresyDebug.economySnapshot().intercitySmuggling.shipments[0].paymentCase)).toBeTruthy();
+  expect(errors).toEqual([]);
+});
 test('foreign UI confirms exact cargo, preserves local offer, and settles only after physical destination receipt across reload', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   const f = await setup(page);

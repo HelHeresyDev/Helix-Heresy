@@ -47,6 +47,7 @@
   const BuyerIdentity = window.HelixBuyerIdentity;
   const AccountAccess = window.HelixAccountAccess;
   const BuyerPrincipal = window.HelixBuyerPrincipal;
+  const PaymentRecords = window.HelixPaymentRecords;
   const ScientistIdentity = window.HelixScientistIdentity;
   const LivingSmuggling = window.HelixLivingSmuggling;
   const StrategicDivineHistory = window.HelixStrategicDivineHistory;
@@ -13768,6 +13769,7 @@
       buyerIdentityAction: (id, action) => buyerIdentityAction(id, action),
       accountAccessAction: (id, action, receiptId) => accountAccessAction(id, action, receiptId),
       buyerPrincipalAction: (id, action, reference) => buyerPrincipalAction(id, action, reference),
+      selectPaymentProvider: id => selectPaymentProvider(id),
       scientistIdentityAction: (action, name, documentNumber) => scientistIdentityAction(action, name, documentNumber),
       scientistIdentitySnapshot: () => clonePlainObject({ ...ensureScientistIdentity(), office: scientistCivicOffice(), clock: state.clock, money: ensureEconomy().money, cell: scientistMapCell(), context: scientistCivicContext(scientistCivicOffice()) }),
       configureScientistIdentityTest: (options = {}) => {
@@ -61509,6 +61511,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const q = market.quote;
     const disclosure = market.investigationDisclosurePreview;
     renderBuyerPrincipalControls(section, market);
+    for (const provider of market.paymentProviders || []) section.append(storesRowEl(provider.contact.label, market.paymentProviderId === provider.id ? "Selected for new quotes" : "Optional independent escrow", {
+      dataset: { paymentProvider: provider.id }, subtitle: `Locally established settlement office; buyer pays an additional ${formatMoney(provider.fee)}. Permanent account records, finite processing and possible settlement delays. No delivery certification or foreign authority. Existing contracts are unchanged.`,
+      actions: [storesActionButton("Use Independent Escrow for New Quotes", "Clear the current quote and opt into the provider's separately previewed terms for new nonliving contracts.", () => selectPaymentProvider(provider.id)),
+        storesActionButton("Use Direct Escrow for New Quotes", "Clear the current quote. New contracts use the existing private arrangement; refusal creates no adverse inference.", () => selectPaymentProvider(null))] }));
+    for (const sh of market.shipments.filter(s => s.paymentCase)) {
+      section.append(storesRowEl(sh.id, "Provider-held escrow", { dataset: { paymentCase: sh.id },
+        subtitle: "Last received statements below distinguish funding, reported conditions, queued work and completed payments. Physical delivery and settlement are separate; missing reports can leave funds held." }));
+      for (const document of sh.paymentDocuments || []) section.append(storesRowEl(document.kind, formatClock(document.at), {
+        dataset: { paymentRecord: document.id }, subtitle: JSON.stringify(document) }));
+    }
     if (market.accountAccessPreview) {
       const p = market.accountAccessPreview;
       section.append(storesRowEl("Witnessed account access preview", "No visit started", {
@@ -61574,8 +61586,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }));
     if (q) section.append(storesRowEl(`${q.buyerName} · destination ${q.destinationId}`, `${formatMoney(q.net)} net on receipt`, {
       subtitle: `${q.material}; ${q.selectedId || "exact reserved receptacle contents"}; ${formatNumber(q.cargo.massKg)} kg / ${formatNumber(q.cargo.volumeL)} L; corridor ${q.routeId}, ${formatNumber(q.distanceKm)} km. Buyer escrow ${formatMoney(q.gross)}; local freight ${formatMoney(q.localFreight)} paid at home depot; intercity freight ${formatMoney(q.intercityFreight)} paid at foreign receipt. Expected intercity leg ${formatDuration(q.seconds)}, plus local hauling and collection. Quote expires ${formatClock(q.expiresAt)}. Collection uses the offer's deadline; destination delivery, checkpoint and living-return terms follow below. ${q.terms}`,
-      dataset: { foreignSmugglingQuote: q.operatorId }, actions: [storesActionButton("Confirm Foreign Contract", "Reserve this exact lot and dedicated intercity vehicle; the buyer funds all proceeds and freight.", confirmForeignSmuggling)]
+      dataset: { foreignSmugglingQuote: q.operatorId }, actions: [storesActionButton("Confirm Foreign Contract", "Reserve this exact lot and dedicated intercity vehicle; the buyer funds all proceeds and freight, plus any separately disclosed provider fee.", confirmForeignSmuggling)]
     }));
+    if (q?.payment) section.append(storesRowEl("Independent escrow terms", `${formatMoney(q.payment.fee)} additional buyer-funded fee`, {
+      dataset: { paymentQuote: q.payment.provider.accountId }, subtitle: JSON.stringify(q.payment) + " These provider terms replace instant release/refund timings in the general transport summary. No double escrow balance is created." }));
     if (q?.livingPlan) section.append(emptyText(`Living terms: alive, health at least ${q.livingPlan.minimumHealth}, stress at most ${q.livingPlan.maximumStress} on arrival. ${q.livingPlan.reserveHours} hours of ${q.livingPlan.feedKey}, moisture and containment power reserved, including a six-hour safety margin. Seller bears failed-delivery risk: no sale proceeds after death, escape or rejection. Completed freight remains paid; unearned sale/transit escrow refunds the buyer. Emergency return reserve ${formatMoney(q.returnFee)} is deducted from gross, paid for a completed local return and refunded to the buyer if unused. Return only when physically feasible; bring the scientist and an empty usable container to the Concealed Exit to receive a returned specimen. Care continues while waiting.`));
     if (q) section.append(emptyText(`Delivery deadline: ${formatClock(state.clock + q.deliveryWindowSeconds)} if booked now (72 hours from booking). Inspection keeps escrow reserved until receipt or failed delivery. Failure refunds unearned sale/transit escrow; earned freight stays paid. Nonliving returns stop at the home covert depot, not laboratory storage. Living return reserves remain committed until the physical return or their existing refund condition.`));
     for (const gate of market.checkpoints || []) {
@@ -61601,6 +61615,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
             storesActionButton("Preview Witnessed Account Access Receipts", "Preview customer-held appointment receipts for the acknowledged buyer account. Attendee and account consent remain separate from your disclosure.", () => cargoInvestigationAction(referral.id, "preview:accountAccess")),
             storesActionButton("Preview Scientist Civic Receipts", "Disclose only explicitly previewed registration and physical-check receipts. This does not identify the remote submitter or link them to earlier shipments.", () => cargoInvestigationAction(referral.id, "preview:scientistIdentity")),
             storesActionButton("Preview Purchasing Authority Receipts", "Disclose exact consignment copies; both attendees and the office separately control release.", () => cargoInvestigationAction(referral.id, "preview:buyerPrincipal")),
+            storesActionButton("Preview Independent Payment Records", "Disclose exact customer-held provider statements; scoped source permission and finite verification remain separate.", () => cargoInvestigationAction(referral.id, "preview:paymentRecords")),
             storesActionButton("Preview Independent Witness Receipts", "Consent to verification of only the previewed receipts. The other party must consent separately; there is no unrestricted archive search.", () => cargoInvestigationAction(referral.id, "preview:witness")),
             storesActionButton("Flag Source Identity Error", "Ask the investigator to reconcile source stack and batch identities without inventing an alternative account.", () => cargoInvestigationAction(referral.id, "correct:identity")),
             storesActionButton("Flag Evidence Scope Error", "Record that sample evidence cannot prove a transaction or earlier knowledge.", () => cargoInvestigationAction(referral.id, "correct:scope"))]
@@ -61624,6 +61639,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }));
         for (const finding of investigationNotice?.assessment.principalFindings || []) section.append(storesRowEl(finding.account.label, "Purchasing authority response", {
           dataset: { principalFinding: finding.id }, subtitle: `${formatClock(finding.at)}; ${finding.jurisdiction}. ${JSON.stringify(finding.comparisons)} ${finding.limit}`
+        }));
+        for (const finding of investigationNotice?.assessment.paymentFindings || []) section.append(storesRowEl(finding.account.label, "Independent payment response", {
+          dataset: { paymentFinding: finding.id }, subtitle: `${formatClock(finding.at)}; ${finding.jurisdiction}. ${JSON.stringify(finding.comparisons)} ${finding.limit}`
         }));
         for (const finding of investigationNotice?.assessment.witnessFindings || []) section.append(storesRowEl(finding.account.label, "Independent documentary response", {
           dataset: { witnessCorroboration: finding.id },
@@ -61738,7 +61756,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         actions.push(storesActionButton("Cancel Contract", "Release the shipment and accept a reputation and trust penalty.", () => cancelBlackMarketContract(contract.id)));
       }
       const timing = contract.status === "inTransit" ? "Awaiting foreign receipt; cargo and escrow retained during delays" : contract.status === "delivered"
-        ? `Payment due ${formatClock(contract.paymentDueAt)}`
+        ? contract.foreignShipmentId && state.economy?.intercitySmuggling?.shipments.some(s => s.id === contract.foreignShipmentId && s.paymentCase)
+          ? "Physical receipt recorded; awaiting authenticated provider settlement" : `Payment due ${formatClock(contract.paymentDueAt)}`
         : `${formatDuration(Math.max(0, contract.dueAt - state.clock))} remaining; due ${formatClock(contract.dueAt)}`;
       const reservationLabel = contract.commodityKind === "specimen"
         ? `${findSlime(contract.selectedSlimeId)?.name || contract.selectedSlimeId || "specimen"} and pod ${contract.selectedPodStackId}`
@@ -82684,6 +82703,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const collection = localCovertAvailability(blackMarketContactById(deal.contactId), cargo);
     if (!collection.ok) return collection;
     const request = { templateId: deal.id, selectedId, brokerId: deal.contactId, manifest, cargo, localDistanceKm: localCovertRoute().distanceKm,
+      paymentProviderId: market.paymentProviderId || null,
+      localPayee: { accountId: `${deal.contactId}:freight-account`, handle: `${deal.contactId}:freight-channel`, label: `${blackMarketContactById(deal.contactId)?.name || "Local collector"} freight account` },
       batchRequirements: preview.batchRequirements, livingProfile,
       value: Math.round(preview.payout * 1.8 * foreignTerms.multiplier), terms: `${deal.cityTerms?.summary || "Source rules not established."} Destination: ${foreignTerms.summary}` };
     const route = ensureStrategicJourneys().routes.find(r => r.id === op.routeId);
@@ -82695,6 +82716,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { ...offer, request, route };
   }
 
+  function selectPaymentProvider(id) {
+    const market = ensureIntercitySmuggling();
+    if (id && !market.paymentProviders?.some(p => p.id === id && p.active)) return false;
+    market.paymentProviderId = id || null; market.quote = null;
+    market.message = "Payment selection changed for new quotes only. Review a fresh exact quote before booking; existing contracts and records are unchanged.";
+    persist(); render(); return true;
+  }
   function requestForeignSmuggling(dealId, operatorId, selectedId = "") {
     const market = ensureIntercitySmuggling(), { request, route, ...offer } = foreignSmugglingRequest(dealId, operatorId, selectedId);
     market.quote = offer.ok ? offer : null; market.message = offer.ok ? "Review destination receipt and freight terms before confirming." : offer.reason;
@@ -82716,6 +82744,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!contract.reservations.length) { IntercitySmuggling.cancel(market, booking.shipment.id, state.clock); return false; }
     contract.foreignShipmentId = booking.shipment.id; contract.payout = quote.net; contract.paymentTerm = "escrow"; contract.paymentFraction = 1;
     contract.notes = quote.livingPlan ? "Alive destination receipt meeting health/stress terms required. Finite care continues during holds. Seller risk, buyer escrow refunds on failure, and preauthorized physically feasible return apply." : "Foreign destination receipt required. Collection deadline only; transit delays retain ownership and escrow, without automatic forfeiture or recovery.";
+    if (quote.payment) contract.notes = "Independent provider holds actual funds. Authenticated reports trigger finite settlement work, not instant payment or automatic refunds. Physical receipt does not certify payment. Provider statements remain outside records.";
     economy.nextContractNumber++; economy.contracts.push(contract);
     market.quote = null; market.message = `Foreign contract ${contract.id} accepted; ${formatMoney(quote.gross)} funded by the destination buyer. Dispatch from Accepted Contracts.`;
     recordBlackMarketLedger("foreignAccepted", market.message, { contactId: contract.contactId, contractId: contract.id });
@@ -82728,17 +82757,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const collection = local.collections.find(c => c.obligationId === sh.contractId && c.phase === "returned" && c.manifest);
       if (!sh.living && sh.phase === "localTransit" && collection) {
         const paid = IntercitySmuggling.receiveDepot(market, sh.id, collection.manifest, state.clock);
-        if (paid) {
-          local.couriers.find(c => c.id === collection.courierId).money += paid;
+        if (sh.phase === "depot") {
+          if (paid) local.couriers.find(c => c.id === collection.courierId).money += paid;
           collection.manifest = null; collection.transferredTo = sh.id; collection.transferredAt = state.clock;
         }
       }
     }
     IntercitySmuggling.advance(market, state.clock, ensureStrategicJourneys().routes, LocalExchangeCarrier.support(exchangeCarrier(), state.clock).supplier);
     LivingSmuggling.advance(market, state.clock, ensureStrategicJourneys().routes, localCovertRoute(), local.collections);
+    for (const sh of market.shipments.filter(s => s.paymentCase)) {
+      const collection = local.collections.find(c => c.obligationId === sh.contractId && c.transferredTo === sh.id);
+      const courier = local.couriers.find(c => c.id === collection?.courierId && c.contactId === sh.brokerId);
+      if (courier) courier.money += PaymentRecords.claim(market, sh, "local", sh.payment.local, state.clock);
+    }
     for (const sh of market.shipments.filter(s => s.saleFailedAt != null)) {
       const contract = blackMarketContractById(sh.contractId);
-      if (contract) { contract.status = "failed"; contract.outcome = "Foreign delivery ended without receipt; unearned sale/transit escrow refunded, exact property retained."; }
+      if (contract) { contract.status = "failed"; contract.outcome = sh.paymentCase ? "Foreign delivery ended without receipt; provider refund requires authenticated instructions and processing. Exact property retained." : "Foreign delivery ended without receipt; unearned sale/transit escrow refunded, exact property retained."; }
     }
     for (const sh of market.shipments.filter(s => s.living)) {
       if (sh.localPaymentDue) {
@@ -82755,9 +82789,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }
       }
     }
-    for (const sh of market.shipments) if (sh.receiptAt !== null && sh.settledAt === null) {
+    for (const sh of market.shipments) if ((sh.receiptAt !== null || sh.paymentCase) && sh.settledAt === null) {
       const contract = blackMarketContractById(sh.contractId), paid = IntercitySmuggling.settle(market, sh.id, state.clock);
+      if (sh.paymentCase && !paid) {
+        if (contract && sh.receiptAt !== null) { contract.status = "delivered"; contract.deliveredAt = sh.receiptAt; contract.outcome = "Physical delivery complete; independent settlement still pending."; }
+        continue;
+      }
       addMoney(paid, `Foreign receipt ${sh.id}`);
+      if (sh.paymentCase && sh.receiptAt === null) {
+        if (contract) { contract.settledAt = state.clock; contract.outcome = "Provider payment completed on authenticated reports; physical delivery remains unconfirmed."; }
+        continue;
+      }
       if (contract) {
         contract.status = "completed"; contract.deliveredAt = sh.receiptAt; contract.settledAt = state.clock; contract.outcome = "Foreign buyer received exact cargo; escrow settled";
         addBlackMarketReputation(contract.reputationGain); adjustBlackMarketContactTrust(contract.contactId, contract.trustGain);

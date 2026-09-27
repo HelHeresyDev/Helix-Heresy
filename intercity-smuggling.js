@@ -8,10 +8,11 @@
     typeof module === 'object' && module.exports ? require('./carrier-identity') : root.HelixCarrierIdentity,
     typeof module === 'object' && module.exports ? require('./buyer-identity') : root.HelixBuyerIdentity,
     typeof module === 'object' && module.exports ? require('./account-access') : root.HelixAccountAccess,
-    typeof module === 'object' && module.exports ? require('./buyer-principal') : root.HelixBuyerPrincipal);
+    typeof module === 'object' && module.exports ? require('./buyer-principal') : root.HelixBuyerPrincipal,
+    typeof module === 'object' && module.exports ? require('./payment-records') : root.HelixPaymentRecords);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixIntercitySmuggling = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer, Witness, Identity, Recipient, Access, Principal) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer, Witness, Identity, Recipient, Access, Principal, Payments) {
   'use strict';
   const HOUR = 3600, copy = v => JSON.parse(JSON.stringify(v));
   const fingerprint = Checkpoints.fingerprint;
@@ -23,6 +24,7 @@
   // Neither lawful permits nor network membership supplies these assets.
   function discover(state, routes, destinations, broker, at) {
     if (!state.homeId || !broker || broker.homeCityId !== state.homeId || !broker.serviceCityIds?.includes(state.homeId)) return;
+    Payments.provision(state, broker, at);
     for (const r of routes) {
       if (r.endpointCityIds?.length !== 2 || new Set(r.endpointCityIds).size !== 2 || !r.endpointCityIds.includes(state.homeId) || !physical(r)) continue;
       const cityId = r.endpointCityIds.find(id => id !== state.homeId);
@@ -66,22 +68,32 @@
     const returnFee = living?.returnFee || 0;
     const net = gross - localFreight - intercityFreight - returnFee, buyer = state.buyers.find(b => b.id === op.buyerId);
     if (net <= 0 || buyer.money < gross) return refuse(net <= 0 ? 'Foreign proceeds do not cover both freight legs.' : 'Foreign buyer cannot fund escrow.');
-    return { ok: true, operatorId, buyerId: buyer.id, buyerName: buyer.name, destinationId: buyer.cityId, routeId: op.routeId, brokerId: request.brokerId, templateId: request.templateId,
+    const result = { ok: true, operatorId, buyerId: buyer.id, buyerName: buyer.name, destinationId: buyer.cityId, routeId: op.routeId, brokerId: request.brokerId, templateId: request.templateId,
       selectedId: request.selectedId, fingerprint: fingerprint(request.manifest), cargo: copy(request.cargo), gross, localFreight, intercityFreight, net,
       material: request.manifest.material, batchRequirements: copy(request.batchRequirements || null), deliveryWindowSeconds: 72 * HOUR,
       ...journey, livingPlan: living, returnFee, localDistanceKm: request.localDistanceKm, terms: request.terms || '', at, expiresAt: at + HOUR };
+    if (request.paymentProviderId) {
+      const payment = Payments.quote(state, result, request);
+      if (!payment) return refuse('Selected settlement provider, authenticated accounts, consent or funds unavailable. Independent escrow supports new nonliving contracts only; no silent fallback.');
+      result.payment = payment;
+    }
+    return result;
   }
   function book(state, quoted, request, route, contractId, at) {
     const fresh = offer(state, quoted?.operatorId, request, route, at);
     if (!fresh.ok) return fresh;
-    if (at > quoted.expiresAt || Object.keys(fresh).filter(k => !['at', 'expiresAt'].includes(k)).some(k => JSON.stringify(fresh[k]) !== JSON.stringify(quoted[k]))) return { ok: false, reason: 'Quote or exact cargo changed; review and confirm again.', revised: fresh };
+    if (at > quoted.expiresAt || Object.keys({ ...fresh, ...quoted }).filter(k => !['at', 'expiresAt'].includes(k)).some(k => JSON.stringify(fresh[k]) !== JSON.stringify(quoted[k]))) return { ok: false, reason: 'Quote or exact cargo changed; review and confirm again.', revised: fresh };
     if (state.shipments.some(s => s.contractId === contractId)) return { ok: false, reason: 'Contract already booked.' };
     const op = state.operators.find(o => o.id === fresh.operatorId), buyer = state.buyers.find(b => b.id === fresh.buyerId);
-    buyer.money -= fresh.gross;
+    if (!fresh.payment) buyer.money -= fresh.gross;
     const shipment = { ...copy(fresh), id: `smuggling-${state.nextNumber++}`, contractId, sourceId: state.homeId, owner: 'player', custodian: 'laboratory',
       phase: 'awaitingCollection', bookedAt: at, bookedQuantity: request.manifest.amount, deliveryDeadlineAt: at + fresh.deliveryWindowSeconds, lastAt: at, manifest: null, positionKm: 0, localEscrow: fresh.localFreight, freightEscrow: fresh.intercityFreight, playerEscrow: fresh.net,
       returnEscrow: fresh.returnFee, receiptAt: null, settledAt: null, reason: '' };
     delete shipment.ok;
+    if (fresh.payment) {
+      if (!Payments.fund(state, shipment, fresh.payment, at)) { state.nextNumber--; return { ok: false, reason: 'Provider funding changed; no booking or debit.' }; }
+      shipment.localEscrow = shipment.freightEscrow = shipment.playerEscrow = 0;
+    }
     state.shipments.push(shipment); op.assignment = shipment.id; op.lastAt = at;
     if (fresh.livingPlan) Living.reserve(op, shipment, fresh.livingPlan);
     Buyer.record(buyer, shipment, 'orderAcknowledged', at, request.manifest);
@@ -111,6 +123,7 @@
     if (!kitAway) Living.release(op, s);
     s.localEscrow = s.freightEscrow = s.playerEscrow = s.returnEscrow = 0; s.phase = 'canceled'; s.canceledAt = at;
     Buyer.record(state.buyers.find(b => b.id === s.buyerId), s, 'cancellationAcknowledged', at);
+    if (s.paymentCase) { Payments.customerCancel(state, s, at); Payments.relay(state, s, at); }
     if (!kitAway) op.assignment = null; return true;
   }
   function advance(state, now, routes, supplier = null) {
@@ -206,11 +219,20 @@
       // Resolve a review due exactly at this clock boundary, without inventing further travel.
       if (Checkpoints.pending(s)) Checkpoints.tick(state, s, op, now);
     }
+    // Source accounts relay retained reports, not hidden cargo state, to the provider.
+    for (const sh of state.shipments) Payments.relay(state, sh, now);
+    Payments.advance(state, now);
     Referrals.advance(state, now);
     state.lastAt = Math.max(state.lastAt, now);
   }
   function settle(state, id, at) {
     const s = state.shipments.find(s => s.id === id);
+    if (s?.paymentCase) {
+      if (s.settledAt !== null) return 0;
+      const paid = Payments.claim(state, s, 'seller', s.payment.seller, at);
+      if (paid) s.settledAt = at;
+      return paid;
+    }
     if (!s || s.receiptAt === null || s.settledAt !== null) return 0;
     const paid = s.playerEscrow; s.playerEscrow = 0; s.settledAt = at; return paid;
   }
