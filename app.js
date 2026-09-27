@@ -61604,6 +61604,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           subtitle: `Served ${formatClock(notice.at)} by ${notice.reviewerName}, ${notice.institutionId}. ${notice.reason} ${notice.obligation} ${notice.elements.map(e => `${titleCase(e.id)}: ${e.support.length ? "limited cited support" : "not established"}. ${e.missing}`).join(" ")} This is the last served notice, not a live view of undisclosed investigation work.`
         }));
         const investigationNotice = referral.investigation?.notices.at(-1);
+        const chargingNotice = referral.charging?.notices.at(-1);
+        if (chargingNotice) section.append(storesRowEl(chargingNotice.id, "Prosecution screening", {
+          dataset: { cargoCharging: referral.id },
+          subtitle: `Served ${formatClock(chargingNotice.at)} by ${chargingNotice.prosecutorName}. ${chargingNotice.reason} ${chargingNotice.unresolved} ${chargingNotice.counts.map(c => `${c.actor.id} (${c.actor.role}): ${titleCase(c.status)}. ${c.reason} Sources: ${c.sourceIds.join(", ") || "none"}. ${c.gaps.map(g => `${g.element}: ${g.sourceNeeded}`).join(" ")}`).join(" ")} Last served disposition only; later evidence requires a new review.`
+        }));
         if (investigationNotice) section.append(storesRowEl(referral.investigation.id, titleCase(investigationNotice.assessment.status), {
           dataset: { cargoInvestigation: referral.id },
           subtitle: `Served ${formatClock(investigationNotice.at)} by ${investigationNotice.investigatorName}. ${investigationNotice.assessment.reason} ${investigationNotice.request} ${investigationNotice.obligation} ${investigationNotice.assessment.actors.map(a => `${a.id}: ${a.identity}; ${a.role}; ${a.conduct} Transaction ${a.transaction}; knowledge ${a.knowledge}.`).join(" ")} ${investigationNotice.assessment.documents.map(d => `${d.sourceId}: ${d.finding}`).join(" ")} ${investigationNotice.assessment.correctionFindings.map(c => `${c.kind}: ${c.result}`).join(" ")} Dated findings only; no hidden leads shown.`,

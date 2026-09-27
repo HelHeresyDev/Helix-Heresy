@@ -487,6 +487,17 @@ for (const scenario of ['carrier', 'buyer', 'witness', 'identity']) test(`forfei
     await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
   }
   await expect(page.locator('[data-cargo-investigation]')).toContainText('No deadline, adverse inference from silence');
+  await page.evaluate(() => window.helixHeresyDebug.advanceStrategicServices(1800));
+  await expect(page.locator('[data-cargo-charging]')).toContainText('No charge proposed');
+  await expect(page.locator('[data-cargo-charging]')).toContainText('knowledge');
+  const screeningReload = await page.evaluate(() => {
+    const d = window.helixHeresyDebug;
+    const before = d.economySnapshot().intercitySmuggling.checkpoints[0].criminalIntake.referrals[0].charging;
+    d.reloadSurveyExpeditionTestState();
+    return { before, after: d.economySnapshot().intercitySmuggling.checkpoints[0].criminalIntake.referrals[0].charging };
+  });
+  expect(screeningReload.after).toEqual(screeningReload.before);
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
   if (scenario === 'identity') {
     await expect(page.locator('[data-carrier-identity-finding]').first()).toContainText('Gate identity: supported');
     await expect(page.locator('[data-carrier-identity-finding]').first()).toContainText('not certain identity');

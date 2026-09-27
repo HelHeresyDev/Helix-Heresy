@@ -1,9 +1,10 @@
 (function (root, factory) {
   const api = factory(typeof module === 'object' && module.exports ? require('./cargo-examination') : root.HelixCargoExamination,
-    typeof module === 'object' && module.exports ? require('./cargo-investigations') : root.HelixCargoInvestigations);
+    typeof module === 'object' && module.exports ? require('./cargo-investigations') : root.HelixCargoInvestigations,
+    typeof module === 'object' && module.exports ? require('./cargo-charging') : root.HelixCargoCharging);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixCargoCriminalReferrals = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Exam, Investigations) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Exam, Investigations, Charging) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v));
   const PRODUCTS = ['unlicensedMutagenicPrimer', 'arcaneCatalyticSuspension'];
@@ -15,6 +16,7 @@
         active: true, channelPowered: true, power: 12, lastAt: at, wasReady: false, referrals: [] };
     }
     Investigations.provision(gate, at);
+    Charging.provision(gate, at);
     // Explicit criminal commerce schedule, separate from possession/property powers.
     if (!gate.criminalRule && law?.id && law.offenseId === 'contrabandCommerce' && law.legalStatus === 'prohibited'
       && ELEMENTS.every(id => law.elements?.some(e => e.id === id))) {
@@ -115,12 +117,14 @@
   function tick(gate, sh, at, state) {
     capture(gate, sh, at); advanceGate(gate, at);
     Investigations.advance(gate, at, state?.operators || [], state?.buyers || [], state?.witnessOffices || [], state?.identityOffices || [], state?.paymentProviders || []);
+    Charging.advance(gate, at, findings);
   }
   function advance(state, at) {
     for (const gate of state.checkpoints || []) {
       for (const sh of state.shipments.filter(s => s.inspection?.gateId === gate.id)) capture(gate, sh, at);
       advanceGate(gate, at);
       Investigations.advance(gate, at, state.operators, state.buyers, state.witnessOffices || [], state.identityOffices || [], state.paymentProviders || []);
+      Charging.advance(gate, at, findings);
     }
   }
   return { provision, tick, advance, findings };
