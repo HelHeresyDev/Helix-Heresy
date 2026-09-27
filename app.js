@@ -46,6 +46,7 @@
   const CarrierIdentity = window.HelixCarrierIdentity;
   const BuyerIdentity = window.HelixBuyerIdentity;
   const AccountAccess = window.HelixAccountAccess;
+  const ScientistIdentity = window.HelixScientistIdentity;
   const LivingSmuggling = window.HelixLivingSmuggling;
   const StrategicDivineHistory = window.HelixStrategicDivineHistory;
   const StrategicCrisisHistory = window.HelixStrategicCrisisHistory;
@@ -10134,6 +10135,10 @@
   }
   function recordScientistPhysicalDeath(options = {}) {
     const result = ScientistDeath.recordDeath(ensureScientistDeath(), { causeKind: options.causeKind, causeLabel: options.causeLabel, location: { roomId: options.roomId || scientistRoomId(), mapCell: options.mapCell || scientistMapCell() }, physiology: options.physiology || { healthAtDeath: 0, consciousness: "absent", circulation: "stopped", lethal: true }, injuryIds: options.injuryIds, body: options.body, legal: options.legal, summary: options.summary }, state.clock); state.scientistDeath = result.state; if (!result.created) return result;
+    if (state.scientistIdentity) {
+      ScientistIdentity.endBody(state.scientistIdentity, state.economy?.intercitySmuggling?.identityOffices || [], state.clock);
+      if (state.combat?.routineSuspension?.reason === "civic registration visit") resumeScientistRoutineWork();
+    }
     state.paused = true; state.runEnded = result.terminal; addEvent(result.resurrectionPending ? `${result.record.summary} A completed remote resurrection contingency accepted the death handoff; physical resurrection remains pending.` : `${result.record.summary} No valid completed resurrection contingency survived, so the run ended.`, { sourceKind: "scientistDeath", sourceId: result.record.id }); return result;
   }
   function finishPublicExecutionAction(task) {
@@ -13761,6 +13766,20 @@
       carrierIdentityAction: (id, action) => carrierIdentityAction(id, action),
       buyerIdentityAction: (id, action) => buyerIdentityAction(id, action),
       accountAccessAction: (id, action, receiptId) => accountAccessAction(id, action, receiptId),
+      scientistIdentityAction: (action, name, documentNumber) => scientistIdentityAction(action, name, documentNumber),
+      scientistIdentitySnapshot: () => clonePlainObject({ ...ensureScientistIdentity(), office: scientistCivicOffice(), clock: state.clock, money: ensureEconomy().money, cell: scientistMapCell(), context: scientistCivicContext(scientistCivicOffice()) }),
+      configureScientistIdentityTest: (options = {}) => {
+        const market = ensureIntercitySmuggling();
+        if (options.office) CarrierIdentity.provision(market, { institutionId: "test-civic-registry", cityId: market.homeId, name: "Test Civic Registry", active: true, localDistanceKm: 2 }, state.clock);
+        const office = scientistCivicOffice();
+        if (options.money != null) ensureEconomy().money = options.money;
+        if (options.description) ensureScientistIdentity().description = clonePlainObject(options.description);
+        if (office && options.power != null) office.power = options.power;
+        if (office && options.workSeconds != null) office.workSeconds = options.workSeconds;
+        if (office && options.channelPowered != null) office.channelPowered = options.channelPowered;
+        if (office && options.clerkHealth != null) office.clerk.health = options.clerkHealth;
+        persist(); render();
+      },
       configureCovertContactForTest: (contactId, options = {}) => {
         const market = ensureLocalCovertMarket(), contact = blackMarketContactById(contactId), courier = market.couriers.find(c => c.contactId === contactId);
         if (!contact) return false;
@@ -21172,6 +21191,7 @@
     changes.combatChanged += updateExpeditionEscort(elapsed);
     changes.scientistMovementChanged += updateMedicalExtraction(elapsed);
     changes.scientistMovementChanged += updateMunicipalClinic();
+    changes.scientistMovementChanged += updateScientistIdentity();
     changes.scientistMovementChanged += updatePenalFlights(elapsed);
     changes.scientistMovementChanged += updatePenalLegion(elapsed);
     changes.scientistMovementChanged += updateCastawayAssistance(elapsed);
@@ -34541,6 +34561,7 @@
     if (medic && medic.id !== excludeActor?.id && mapCellKey(medic.mapCell) === key) occupied += .6;
     const clinician = state.medicalExtraction?.clinic?.clinician;
     if (clinician && clinician.id !== excludeActor?.id && mapCellKey(clinician.mapCell) === key) occupied += .6;
+    for (const office of state.economy?.intercitySmuggling?.identityOffices || []) if (office.civicCounter && office.clerk.id !== excludeActor?.id && mapCellKey(office.clerk.mapCell) === key) occupied += .6;
     for (const actor of state.penalFlights?.actors || []) if (actor.id !== excludeActor?.id && mapCellKey(actor.mapCell) === key) occupied += .6;
     for (const beast of state.wildernessBeasts?.actors || []) {
       if (beast.id !== excludeActor?.id && mapCellKey(beast.mapCell) === key) occupied += MAP_TILE_AREA_M2;
@@ -61575,6 +61596,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
             storesActionButton("Preview Buyer Contact and Records", "Preview only the buyer contact and customer-held acknowledgments or receipts. Buyer cooperation remains voluntary; private accounts and escrow are not evidence.", () => cargoInvestigationAction(referral.id, "preview:buyer")),
             storesActionButton("Preview Receiver Identification", "Preview only customer-held receiver observations and corrections. No access to private identities or undisclosed records.", () => cargoInvestigationAction(referral.id, "preview:recipient")),
             storesActionButton("Preview Witnessed Account Access Receipts", "Preview customer-held appointment receipts for the acknowledged buyer account. Attendee and account consent remain separate from your disclosure.", () => cargoInvestigationAction(referral.id, "preview:accountAccess")),
+            storesActionButton("Preview Scientist Civic Receipts", "Disclose only explicitly previewed registration and physical-check receipts. This does not identify the remote submitter or link them to earlier shipments.", () => cargoInvestigationAction(referral.id, "preview:scientistIdentity")),
             storesActionButton("Preview Independent Witness Receipts", "Consent to verification of only the previewed receipts. The other party must consent separately; there is no unrestricted archive search.", () => cargoInvestigationAction(referral.id, "preview:witness")),
             storesActionButton("Flag Source Identity Error", "Ask the investigator to reconcile source stack and batch identities without inventing an alternative account.", () => cargoInvestigationAction(referral.id, "correct:identity")),
             storesActionButton("Flag Evidence Scope Error", "Record that sample evidence cannot prove a transaction or earlier knowledge.", () => cargoInvestigationAction(referral.id, "correct:scope"))]
@@ -61592,6 +61614,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }));
         for (const finding of investigationNotice?.assessment.accountAccessFindings || []) section.append(storesRowEl(finding.account.label, "Witnessed account access response", {
           dataset: { accountAccessFinding: finding.id }, subtitle: `${formatClock(finding.at)}; ${finding.jurisdiction}. ${JSON.stringify(finding.comparisons)} ${finding.limit}`
+        }));
+        for (const finding of investigationNotice?.assessment.scientistIdentityFindings || []) section.append(storesRowEl(finding.account.label, "Civic registration response", {
+          dataset: { scientistIdentityFinding: finding.id }, subtitle: `${formatClock(finding.at)}; ${finding.jurisdiction}. ${JSON.stringify(finding.comparisons)} ${finding.limit}`
         }));
         for (const finding of investigationNotice?.assessment.witnessFindings || []) section.append(storesRowEl(finding.account.label, "Independent documentary response", {
           dataset: { witnessCorroboration: finding.id },
@@ -62772,6 +62797,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const assignments = new Map();
       if (unsupportedActive()) setLabMapOverlayEntry(assignments, UnsupportedExcursions.LANDING, { overlayId, classNames: ["map-overlay-resources"], label: "Scheduled remote pickup point", title: "Unprotected landing point; scheduled pickup only, no waiting guarantee", value: "P", source: "Agreed charter rendezvous", target: { kind: "tile", tile: UnsupportedExcursions.LANDING } }, map);
       if (state.surveyExpeditions?.materialized && !unsupportedActive()) {
+        for (const office of state.economy?.intercitySmuggling?.identityOffices || []) if (office.active && office.civicCounter) {
+          setLabMapOverlayEntry(assignments, office.civicCounter.cell, { overlayId, classNames: ["map-overlay-resources"], label: "Public civic registration counter", title: "Walk here for a voluntary paid registration or document check; no automatic historical identity or immunity", value: "R", source: "Municipal registry notice", target: { kind: "tile", tile: office.civicCounter.cell } }, map);
+          if (office.clerk.mapCell && sensoryLineOfSight(scientistMapCell(), office.clerk.mapCell)) setLabMapOverlayEntry(assignments, office.clerk.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: "Civic records clerk", title: office.contact.label, value: "C", source: "Direct observation", target: { kind: "tile", tile: office.clerk.mapCell } }, map);
+        }
         for (const [cell, value, label] of [[SurveyExpeditions.RENDEZVOUS, "V", "Waiting survey vehicle; walk here to return or read company account reports"], [SurveyExpeditions.HAZARD, "!", state.surveyExpeditions.hazardDisturbed ? "Settled loose rock; previously disturbed" : "Flagged loose rock: crossing this tile risks a minor leg injury"]]) {
           setLabMapOverlayEntry(assignments, cell, { overlayId, classNames: ["map-overlay-resources", "map-overlay-resources-high"], label, title: label, source: "Municipal site notice", value, target: { kind: "tile", tile: cell } }, map);
         }
@@ -79042,6 +79071,84 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     return panel;
   }
+  function ensureScientistIdentity() { return state.scientistIdentity ||= ScientistIdentity.create(); }
+  function scientistCivicOffice() {
+    const expedition = ensureSurveyExpeditions(), market = ensureIntercitySmuggling();
+    const office = market.identityOffices?.find(o => o.cityId === market.homeId && o.cityId === expedition.destination?.cityId && o.active);
+    if (office && expedition.materialized && !office.civicCounter) {
+      // A local public counter of the actual registry, not a second clerk or an intercity teleport.
+      office.civicCounter = { roomId: SurveyExpeditions.FIELD_ROOM, cell: { ...ScientistIdentity.COUNTER } };
+      office.clerk.mapCell = { ...ScientistIdentity.CLERK };
+    }
+    return office || null;
+  }
+  function scientistCivicContext(office) {
+    const cell = scientistMapCell(), clerk = office?.clerk, local = state.surveyExpeditions?.phase === "field" && scientistRoomId() === SurveyExpeditions.FIELD_ROOM && !unsupportedActive();
+    const facialInjury = actorInjuries("scientist").some(i => i.status !== "healed" && /head|face|eye/i.test(String(i.location || "")));
+    return { alive: !scientistIsDead(), capable: !actorIsIncapacitated("scientist"), cityId: local ? state.surveyExpeditions.destination?.cityId : null,
+      atCounter: local && mapCellKey(cell) === mapCellKey(office?.civicCounter?.cell),
+      clerkPresent: Boolean(office?.civicCounter && clerk.mapCell && WildernessBeasts.distance(clerk.mapCell, ScientistIdentity.COUNTER) <= 1),
+      lineOfSight: Boolean(local && clerk?.mapCell && sensoryLineOfSight(cell, clerk.mapCell)), visibility: facialInjury ? "obscured" : "clear",
+      busy: clinicActive() || rescueMissionActive() || (!state.scientistIdentity?.job && surveyBusy()) };
+  }
+  function updateScientistIdentity() {
+    const profile = state.scientistIdentity; if (!profile?.job) return 0;
+    const market = ensureIntercitySmuggling(), office = market.identityOffices?.find(o => o.id === profile.job.officeId);
+    const changed = ScientistIdentity.advance(profile, market.identityOffices || [], scientistCivicContext(office), state.clock);
+    if (!profile.job && state.combat?.routineSuspension?.reason === "civic registration visit") resumeScientistRoutineWork();
+    return changed ? 1 : 0;
+  }
+  function scientistIdentityAction(action, name = "", documentNumber = null) {
+    updateScientistIdentity();
+    const profile = ensureScientistIdentity(), office = scientistCivicOffice(), market = ensureIntercitySmuggling();
+    let ok = false;
+    if (action === "cancelPreview") { profile.preview = null; ok = true; }
+    else if (action === "cancelVisit") ok = ScientistIdentity.cancel(profile, market.identityOffices || [], state.clock);
+    else if (action === "walk") {
+      if (office?.civicCounter && scientistCivicContext(office).cityId && !profile.job && !surveyBusy())
+        ok = Boolean(startScientistMove(SurveyExpeditions.FIELD_ROOM, { toCell: ScientistIdentity.COUNTER, allowMultiRoom: true }));
+    } else if (action === "preview" || action === "previewCheck") {
+      const p = ScientistIdentity.preview(profile, office, name, action === "preview" ? "register" : "check", documentNumber);
+      if (p) { profile.preview = p; ok = true; }
+    } else if (action === "confirm") {
+      if (!state.combat?.routineSuspension) ok = ScientistIdentity.begin(profile, office, profile.preview, ensureEconomy(), scientistCivicContext(office), state.clock);
+      if (ok) suspendScientistRoutineWork("civic registration visit");
+      profile.preview = null;
+    }
+    if (!profile.job && state.combat?.routineSuspension?.reason === "civic registration visit") resumeScientistRoutineWork();
+    if (!ok) profile.message = "No physical attendance, available clerk, adequate resources or unchanged preview. No registration, travel or identity inference was created.";
+    persist(); render(); return ok;
+  }
+  function renderScientistIdentity() {
+    const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.scientistCivicRegistration = "true";
+    panel.append(textEl("strong", "Prospective Civic Registration"));
+    const profile = ensureScientistIdentity(), office = scientistCivicOffice();
+    panel.append(textEl("p", office ? `${office.contact.label}. Physically attend the municipal counter at 17,8, level 6 using supported municipal travel and ordinary walking. Registration is not immunity, anonymity, verified birth history or proof of continuity with the original scientist.` : "No active home-city registry is available at the known municipal ground. No office or identity record is invented."));
+    const button = (label, action, disabled = false) => { const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.disabled = disabled; b.addEventListener("click", action); panel.append(b); };
+    const input = document.createElement("input"); input.type = "text"; input.maxLength = 80; input.setAttribute("aria-label", "Chosen civic registration name");
+    input.value = profile.proposedName || ""; input.addEventListener("input", () => { profile.proposedName = input.value; }); panel.append(input);
+    button("Preview Civic Registration", () => scientistIdentityAction("preview", input.value), !office || Boolean(profile.job));
+    button("Walk to Civic Counter", () => scientistIdentityAction("walk"), !office?.civicCounter || !scientistCivicContext(office).cityId || Boolean(profile.job));
+    if (profile.preview) {
+      const row = document.createElement("p"); row.dataset.scientistCivicPreview = "true"; row.textContent = JSON.stringify(profile.preview); panel.append(row);
+      button("Confirm Civic Appointment", () => scientistIdentityAction("confirm"));
+      button("Cancel Civic Preview", () => scientistIdentityAction("cancelPreview"));
+    }
+    if (profile.job) {
+      panel.append(textEl("p", `Civic appointment: ${formatDuration(profile.job.progress)} / ${formatDuration(profile.job.quote.workSeconds)}. Remain at the counter. The laboratory and ordinary needs continue; cancel to stop and leave.`));
+      button("Cancel Civic Appointment", () => scientistIdentityAction("cancelVisit"));
+    }
+    if (profile.message) panel.append(textEl("p", profile.message));
+    for (const document of profile.documents) {
+      panel.append(textEl("p", `Retained document copy: ${JSON.stringify(document)}. This dated description is not automatically updated after bodily change.`));
+      button(`Preview Physical Check: ${document.number}`, () => scientistIdentityAction("previewCheck", "", document.number), Boolean(profile.job));
+    }
+    for (const receipt of profile.receipts) {
+      const row = document.createElement("p"); row.dataset.scientistCivicReceipt = receipt.id; row.textContent = JSON.stringify(receipt); panel.append(row);
+    }
+    return panel;
+  }
+
   function ensureClinic() {
     const clinic = ensureMedicalExtraction().clinic ||= MunicipalClinic.defaultState();
     if (state.surveyExpeditions?.materialized && !clinic.stockCreated) {
@@ -79057,7 +79164,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function clinicLocal() { return !unsupportedActive() && scientistRoomId() === SurveyExpeditions.FIELD_ROOM; }
   function clinicNextAt() { return clinicActive() ? state.medicalExtraction.clinic.stay.nextAt : Infinity; }
   function admitMunicipalClinic(emergency = false) {
-    if (!clinicLocal() || scientistIsDead() || clinicActive() || rescueMissionActive() || WildernessBeasts.distance(scientistMapCell(), MedicalExtraction.RECEIVING) > 1) return false;
+    if (!clinicLocal() || scientistIsDead() || clinicActive() || state.scientistIdentity?.job || rescueMissionActive() || WildernessBeasts.distance(scientistMapCell(), MedicalExtraction.RECEIVING) > 1) return false;
     if (!emergency && actorIsIncapacitated("scientist")) return false;
     if (!emergency && !window.confirm("Request a timed clinic examination and physical admission? Examination is free. Further care requires approval; extraction coverage does not pay clinic fees.")) return false;
     const clinic = ensureClinic(); clinic.stay = MunicipalClinic.admit(clinic.nextStay++, state.clock, emergency && actorIsIncapacitated("scientist"));
@@ -80277,6 +80384,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function surveyScientistAway() { return Boolean(state?.surveyExpeditions && state.surveyExpeditions.phase !== "home"); }
   function surveyScientistReserved() { return surveyScientistAway() || Boolean(state?.surveyExpeditions?.preparing); }
   function surveyTaskAllowed(task) {
+    if (state.scientistIdentity?.job) return false;
     if (state.penalLegion?.serviceEndedAt != null && task.type === 'scientistMove' && task.data?.toCell?.z === scientistMapCell().z) return true;
     if (currentPenalFlight() && currentPenalFlight().stage !== "released") return false;
     if (!surveyScientistAway()) return true;
@@ -80353,7 +80461,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function boardSurveyVehicle() {
     if (currentPenalFlight()) return false;
-    if (clinicActive()) return false;
+    if (clinicActive() || state.scientistIdentity?.job) return false;
     if (rescueMissionPhysical() || state.medicalExtraction?.mission?.status === "inbound") return false;
     if (unsupportedActive()) return false;
     if (escortContractActive()) { surveyEvent("Complete the escort's local contract at the defended meeting point before boarding. The hired vehicle waits; no extra escort seat has been booked."); persist(); render(); return false; }
@@ -80542,6 +80650,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(renderUnsupportedExcursions());
     panel.append(renderMedicalExtraction());
     panel.append(renderMunicipalClinic());
+    panel.append(renderScientistIdentity());
     const button = (label, action, disabled = false, reason = "") => {
       const element = document.createElement("button"); element.type = "button"; element.textContent = label; element.disabled = disabled; element.title = reason; element.addEventListener("click", action); panel.append(element);
     };
@@ -82436,7 +82545,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const market = ensureIntercitySmuggling(), gate = market.checkpoints?.find(g => g.criminalIntake?.referrals.some(r => r.id === id));
     const referral = gate?.criminalIntake.referrals.find(r => r.id === id);
     const sh = market.shipments.find(s => s.propertyOrder?.id === referral?.sourceOrderId);
-    const makeDocument = kind => CargoInvestigations.preview(kind, sh, blackMarketContractById(sh?.contractId), market.buyers.find(b => b.id === sh?.buyerId)?.name, market);
+    const makeDocument = kind => CargoInvestigations.preview(kind, sh, blackMarketContractById(sh?.contractId), market.buyers.find(b => b.id === sh?.buyerId)?.name, market, state.scientistIdentity);
     let ok = false;
     if (action === "cancel") { market.investigationDisclosurePreview = null; ok = true; }
     else if (action.startsWith("preview:") && referral?.investigation?.notices.length) {

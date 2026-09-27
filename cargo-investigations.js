@@ -3,10 +3,11 @@
     typeof module === 'object' && module.exports ? require('./buyer-corroboration') : root.HelixBuyerCorroboration,
     typeof module === 'object' && module.exports ? require('./contract-witnessing') : root.HelixContractWitnessing,
     typeof module === 'object' && module.exports ? require('./buyer-identity') : root.HelixBuyerIdentity,
-    typeof module === 'object' && module.exports ? require('./account-access') : root.HelixAccountAccess);
+    typeof module === 'object' && module.exports ? require('./account-access') : root.HelixAccountAccess,
+    typeof module === 'object' && module.exports ? require('./scientist-identity') : root.HelixScientistIdentity);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixCargoInvestigations = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Carrier, Buyer, Witness, Recipient, Access) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Carrier, Buyer, Witness, Recipient, Access, Civic) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v));
   const able = a => a?.status === 'alive' && a.health >= 50;
@@ -60,6 +61,17 @@
     const carrierFindings = Carrier.findings(i, gate.cityId), buyerFindings = Buyer.findings(i, gate.cityId);
     const recipientFindings = Recipient.findings(i, gate.cityId);
     const accountAccessFindings = Access.findings(i, gate.cityId);
+    const scientistIdentityFindings = Civic.findings(i, gate.cityId);
+    const civicRecords = new Map();
+    for (const finding of scientistIdentityFindings) for (const c of finding.comparisons) if (c.receipt) civicRecords.set(c.recordId, c);
+    for (const c of civicRecords.values()) {
+      const receipt = c.receipt, supported = c.issuerStatus === 'active' && ['registered', 'supported'].includes(receipt.result);
+      actors.push({ id: receipt.observationId, role: receipt.kind === 'scientistCivicRegistration' ? 'registered civic attendee, not an established historical person' : 'observed document presenter at a separate civic visit',
+        identity: supported ? `Locally registered name: ${receipt.document.registeredName}; historical identity and continuity unverified`
+          : 'Unverified or withdrawn civic identity support; original dated observation retained',
+        conduct: receipt.kind === 'scientistCivicRegistration' ? 'Attended prospective local registration under a chosen name.' : 'Presented the cited document at this dated physical check.',
+        sourceIds: [receipt.id], transaction: 'not established', knowledge: 'not established' });
+    }
     const accessReceipts = [...new Map(accountAccessFindings.flatMap(f => f.comparisons.map(c => c.receipt).filter(Boolean)).map(r => [r.id, r])).values()];
     for (const original of accessReceipts.filter(r => r.kind === 'accountAccessObservation')) {
       const changes = accessReceipts.filter(r => r.observationId === original.id && r.kind === 'accountAccessRecheck').sort((a, b) => a.at - b.at);
@@ -94,7 +106,7 @@
           ? 'Source mismatch reproduced. The disputed report cannot establish actor attribution.' : 'No source mismatch reproduced in current records. This does not verify a person’s identity.' }));
     const status = review.status === 'declined' ? 'exhaustedUnsupported' : 'awaitingNamedSource';
     const result = { at, sourceRevision: r.reviewedRevision, investigatorId: gate.investigationOffice.investigator.id, status, actors,
-      elements: copy(review.elements), correctionFindings: corrections, identityFindings, carrierFindings, buyerFindings, recipientFindings, accountAccessFindings, witnessFindings: Witness.findings(i, gate.cityId),
+      elements: copy(review.elements), correctionFindings: corrections, identityFindings, carrierFindings, buyerFindings, recipientFindings, accountAccessFindings, scientistIdentityFindings, witnessFindings: Witness.findings(i, gate.cityId),
       documents: i.submissions.map(s => ({ id: s.id, sourceId: s.document.sourceId, finding: 'Voluntarily supplied copy; provenance is the authenticated property channel, not independent verification of its parties or performance.' + (s.document.status === 'failed' ? ' Reported nonperformance is retained as potentially exculpatory material, not independently proven nonoccurrence.' : '') })),
       missingSources: status === 'exhaustedUnsupported' ? [] : ['A witness or independently authenticated record of a locally relevant completed transaction.', 'Independent identification of each alleged participant.', 'A source establishing each participant’s knowledge at the relevant time.'],
       reason: status === 'exhaustedUnsupported' ? `Available lead exhausted: ${review.reason}` : 'Available gate interviews and records do not establish a completed transaction, verified participants or knowing participation. Waiting creates no evidence.' };
@@ -119,15 +131,15 @@
       }
       let continuing = false;
       while (true) {
-        const sourceTask = Carrier.next(i) || Buyer.next(i) || Witness.next(i) || Recipient.next(i) || Access.next(i);
-        const sourceApi = sourceTask?.kind === 'accountAccessRecords' ? Access : sourceTask?.kind === 'recipientRecords' ? Recipient : sourceTask?.kind === 'witnessRecords' ? Witness : sourceTask?.kind.startsWith('buyer') ? Buyer : Carrier;
-        const participants = sourceApi === Access ? identityOffices : sourceApi === Witness ? offices : sourceApi === Buyer ? buyers : operators;
+        const sourceTask = Carrier.next(i) || Buyer.next(i) || Witness.next(i) || Recipient.next(i) || Access.next(i) || Civic.next(i);
+        const sourceApi = sourceTask?.kind === 'scientistIdentityRecords' ? Civic : sourceTask?.kind === 'accountAccessRecords' ? Access : sourceTask?.kind === 'recipientRecords' ? Recipient : sourceTask?.kind === 'witnessRecords' ? Witness : sourceTask?.kind.startsWith('buyer') ? Buyer : Carrier;
+        const participants = sourceApi === Civic || sourceApi === Access ? identityOffices : sourceApi === Witness ? offices : sourceApi === Buyer ? buyers : operators;
         const kind = review.status !== 'acceptedForInvestigation' ? 'reconcile'
           : !i.interviews.some(w => w.kind === 'officer') ? 'officer'
             : !i.interviews.some(w => w.kind === 'examiner') ? 'examiner' : sourceTask?.kind || 'reconcile';
         if (!i.job) i.job = { kind, signature: signature(r), startedAt: Math.max(cursor, changedAt), progress: 0, paid: false, wasReady: continuing };
         const job = i.job, e = r.revisions[r.reviewedRevision - 1].evidence;
-        const isSource = ['carrierRecords', 'carrierInterview', 'buyerRecords', 'buyerInterview', 'witnessRecords', 'recipientRecords', 'accountAccessRecords'].includes(kind);
+        const isSource = ['carrierRecords', 'carrierInterview', 'buyerRecords', 'buyerInterview', 'witnessRecords', 'recipientRecords', 'accountAccessRecords', 'scientistIdentityRecords'].includes(kind);
         const sourceAssignment = isSource ? `${i.id}:${sourceTask.submission.id}:${kind}` : null;
         const officeReady = gate.active && gate.jurisdiction === 'city' && gate.criminalIntake.active && gate.criminalIntake.cityId === gate.cityId
           && office.locationId === gate.id && office.investigator.institutionId === gate.institutionId && able(office.investigator)
@@ -160,12 +172,13 @@
       }
     }
   }
-  function preview(kind, sh, contract, buyerName, state = null) {
+  function preview(kind, sh, contract, buyerName, state = null, scientistIdentity = null) {
     if (kind === 'carrier') return Carrier.preview(sh);
     if (kind === 'buyer') return Buyer.preview(sh);
     if (kind === 'witness') return Witness.preview(sh);
     if (kind === 'recipient') return Recipient.previewEvidence(sh);
     if (kind === 'accountAccess') return Access.previewEvidence(state, sh);
+    if (kind === 'scientistIdentity') return scientistIdentity ? Civic.evidencePreview(scientistIdentity) : null;
     if (!sh || !contract || contract.id !== sh.contractId) return null;
     if (kind === 'manifest') return { kind, sourceId: `${contract.id}:booked-manifest`, material: contract.material, quantity: contract.amount,
       stackId: sh.propertyOrder?.evidence.stackId, limitation: 'Booked quantity only, not a receipt or proof of current retained quantity.' };
@@ -178,7 +191,7 @@
     && gate.investigationOffice.locationId === gate.id && gate.criminalIntake?.referrals.includes(r);
   function submit(gate, r, document, at) {
     const i = r?.investigation;
-    if (!filingAvailable(gate, r) || !i?.notices.length || i.status === 'exhaustedUnsupported' || !['manifest', 'contract', 'carrier', 'buyer', 'witness', 'recipient', 'accountAccess'].includes(document?.kind)
+    if (!filingAvailable(gate, r) || !i?.notices.length || i.status === 'exhaustedUnsupported' || !['manifest', 'contract', 'carrier', 'buyer', 'witness', 'recipient', 'accountAccess', 'scientistIdentity'].includes(document?.kind)
       || i.submissions.some(s => JSON.stringify(s.document) === JSON.stringify(document))) return false;
     i.submissions.push({ id: `${i.id}:submission:${i.submissions.length + 1}`, at, channel: 'authenticatedPropertyClaimant', document: copy(document) });
     return true;
