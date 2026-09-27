@@ -7,10 +7,11 @@
     typeof module === 'object' && module.exports ? require('./contract-witnessing') : root.HelixContractWitnessing,
     typeof module === 'object' && module.exports ? require('./carrier-identity') : root.HelixCarrierIdentity,
     typeof module === 'object' && module.exports ? require('./buyer-identity') : root.HelixBuyerIdentity,
-    typeof module === 'object' && module.exports ? require('./account-access') : root.HelixAccountAccess);
+    typeof module === 'object' && module.exports ? require('./account-access') : root.HelixAccountAccess,
+    typeof module === 'object' && module.exports ? require('./buyer-principal') : root.HelixBuyerPrincipal);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixIntercitySmuggling = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer, Witness, Identity, Recipient, Access) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer, Witness, Identity, Recipient, Access, Principal) {
   'use strict';
   const HOUR = 3600, copy = v => JSON.parse(JSON.stringify(v));
   const fingerprint = Checkpoints.fingerprint;
@@ -33,6 +34,7 @@
         Buyer.provision(state.buyers.at(-1), at);
         state.buyers.at(-1).buyerService.representatives.forEach(Recipient.provisionPerson);
         Access.provisionBuyer(state.buyers.at(-1), at);
+        Principal.provision(state.buyers.at(-1), at);
       }
       state.operators.push({ id: `smuggler:${r.id}`, routeId: r.id, sourceId: state.homeId, destinationId: cityId, buyerId,
         brokerId: broker.id, name: `${broker.name}'s corridor associate`, vehicleId: `smuggling-van:${r.id}`, capacityKg: 120, capacityL: 240,
@@ -116,6 +118,7 @@
     Identity.advance(state, now);
     Recipient.advance(state, now);
     Access.advance(state, now);
+    Principal.advance(state, now);
     for (const op of state.operators) {
       if (op.identityTrip) continue;
       const elapsed = Math.max(0, now - op.lastAt); op.lastAt = Math.max(op.lastAt, now);
@@ -185,6 +188,7 @@
             Recipient.handoff(state, s, op, receiver, cursor);
             if (receiver?.receiptConsent === false) { s.returnRequestedAt = cursor; Checkpoints.expire(state, s, cursor); continue; }
             s.phase = 'returning'; s.receiptAt = cursor; s.owner = s.buyerId; s.custodian = s.buyerId;
+            Principal.action(state, buyer, s, receiver, 'receiveSpecifiedConsignment', cursor);
             Buyer.record(buyer, s, 'deliveryReceived', cursor, s.manifest, receiver?.id);
             op.money += s.freightEscrow; s.freightEscrow = 0;
             Carrier.record(op, s, 'buyerHandoff', cursor, s.destinationId, 'destination handoff');

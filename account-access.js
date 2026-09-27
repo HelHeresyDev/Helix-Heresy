@@ -212,5 +212,5 @@
   function findings(i, cityId) {
     return (i.accountAccessResponses || []).map(r => ({ ...copy(r), jurisdiction: r.cityId === cityId ? 'local office' : 'foreign office; voluntary access only' }));
   }
-  return { provisionBuyer, credentialEvent, preview, request, advance, recheck, withdrawObservation, previewEvidence, next, prepare, complete, findings };
+  return { provisionBuyer, credentialEvent, identityResult, preview, request, advance, recheck, withdrawObservation, previewEvidence, next, prepare, complete, findings };
 });

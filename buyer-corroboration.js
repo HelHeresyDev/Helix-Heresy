@@ -27,6 +27,8 @@
     const document = { id: `${service.contact.accountId}:record:${service.records.length + 1}`, sourceAccountId: service.contact.accountId,
       shipmentReference: sh.id, kind, at, cityId: buyer.cityId,
       provenance: 'buyerOriginal', participantClaim: observer.name,
+      ...(sh.authorityActions?.some(a => a.kind === 'receiveSpecifiedConsignment' && a.at === at) && kind === 'deliveryReceived'
+        ? { authorityReference: sh.authorityActions.find(a => a.kind === 'receiveSpecifiedConsignment' && a.at === at).authorityId } : {}),
       items: kind === 'cancellationAcknowledged' ? [] : (manifest?.entries || []).map(e => ({ stackId: e.stack?.id || e.sourceReceptacleId,
         label: e.stack?.chemicalBatch?.label || e.material || manifest.material, quantity: e.amount })),
       scope: kind === 'orderAcknowledged' ? 'Acknowledged order terms, not delivery, payment proof or earlier knowledge.'

@@ -46,6 +46,7 @@
   const CarrierIdentity = window.HelixCarrierIdentity;
   const BuyerIdentity = window.HelixBuyerIdentity;
   const AccountAccess = window.HelixAccountAccess;
+  const BuyerPrincipal = window.HelixBuyerPrincipal;
   const ScientistIdentity = window.HelixScientistIdentity;
   const LivingSmuggling = window.HelixLivingSmuggling;
   const StrategicDivineHistory = window.HelixStrategicDivineHistory;
@@ -13766,6 +13767,7 @@
       carrierIdentityAction: (id, action) => carrierIdentityAction(id, action),
       buyerIdentityAction: (id, action) => buyerIdentityAction(id, action),
       accountAccessAction: (id, action, receiptId) => accountAccessAction(id, action, receiptId),
+      buyerPrincipalAction: (id, action, reference) => buyerPrincipalAction(id, action, reference),
       scientistIdentityAction: (action, name, documentNumber) => scientistIdentityAction(action, name, documentNumber),
       scientistIdentitySnapshot: () => clonePlainObject({ ...ensureScientistIdentity(), office: scientistCivicOffice(), clock: state.clock, money: ensureEconomy().money, cell: scientistMapCell(), context: scientistCivicContext(scientistCivicOffice()) }),
       configureScientistIdentityTest: (options = {}) => {
@@ -61506,6 +61508,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!market.operators.length) section.append(emptyText("No referred operator on a known supported direct neighboring corridor. Remote contact alone supplies no vehicle."));
     const q = market.quote;
     const disclosure = market.investigationDisclosurePreview;
+    renderBuyerPrincipalControls(section, market);
     if (market.accountAccessPreview) {
       const p = market.accountAccessPreview;
       section.append(storesRowEl("Witnessed account access preview", "No visit started", {
@@ -61597,6 +61600,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
             storesActionButton("Preview Receiver Identification", "Preview only customer-held receiver observations and corrections. No access to private identities or undisclosed records.", () => cargoInvestigationAction(referral.id, "preview:recipient")),
             storesActionButton("Preview Witnessed Account Access Receipts", "Preview customer-held appointment receipts for the acknowledged buyer account. Attendee and account consent remain separate from your disclosure.", () => cargoInvestigationAction(referral.id, "preview:accountAccess")),
             storesActionButton("Preview Scientist Civic Receipts", "Disclose only explicitly previewed registration and physical-check receipts. This does not identify the remote submitter or link them to earlier shipments.", () => cargoInvestigationAction(referral.id, "preview:scientistIdentity")),
+            storesActionButton("Preview Purchasing Authority Receipts", "Disclose exact consignment copies; both attendees and the office separately control release.", () => cargoInvestigationAction(referral.id, "preview:buyerPrincipal")),
             storesActionButton("Preview Independent Witness Receipts", "Consent to verification of only the previewed receipts. The other party must consent separately; there is no unrestricted archive search.", () => cargoInvestigationAction(referral.id, "preview:witness")),
             storesActionButton("Flag Source Identity Error", "Ask the investigator to reconcile source stack and batch identities without inventing an alternative account.", () => cargoInvestigationAction(referral.id, "correct:identity")),
             storesActionButton("Flag Evidence Scope Error", "Record that sample evidence cannot prove a transaction or earlier knowledge.", () => cargoInvestigationAction(referral.id, "correct:scope"))]
@@ -61617,6 +61621,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }));
         for (const finding of investigationNotice?.assessment.scientistIdentityFindings || []) section.append(storesRowEl(finding.account.label, "Civic registration response", {
           dataset: { scientistIdentityFinding: finding.id }, subtitle: `${formatClock(finding.at)}; ${finding.jurisdiction}. ${JSON.stringify(finding.comparisons)} ${finding.limit}`
+        }));
+        for (const finding of investigationNotice?.assessment.principalFindings || []) section.append(storesRowEl(finding.account.label, "Purchasing authority response", {
+          dataset: { principalFinding: finding.id }, subtitle: `${formatClock(finding.at)}; ${finding.jurisdiction}. ${JSON.stringify(finding.comparisons)} ${finding.limit}`
         }));
         for (const finding of investigationNotice?.assessment.witnessFindings || []) section.append(storesRowEl(finding.account.label, "Independent documentary response", {
           dataset: { witnessCorroboration: finding.id },
@@ -82463,6 +82470,54 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       CargoCriminalReferrals.provision(gate, gate.productScheduleCode, gate.criminalIntakeInstitution, state.clock);
     }
     return smuggling;
+  }
+
+  function renderBuyerPrincipalControls(section, market) {
+    if (market.principalPreview) {
+      const p = market.principalPreview;
+      section.append(storesRowEl("Purchasing authority preview", "Nothing started", { dataset: { principalPreview: p.buyerId }, subtitle: JSON.stringify(p),
+        actions: [storesActionButton("Confirm Principal Request", "Request this exact voluntary buyer-funded procedure.", () => buyerPrincipalAction(p.buyerId, "confirm")),
+          storesActionButton("Cancel Principal Preview", "Send nothing and pay nothing.", () => buyerPrincipalAction(p.buyerId, "cancelPreview"))] }));
+    }
+    for (const buyer of market.buyers) {
+      section.append(storesRowEl(buyer.name, "Purchasing principal", { dataset: { buyerPrincipal: buyer.id },
+        subtitle: buyer.authorityTrip ? `Joint visit: ${buyer.authorityTrip.phase}; ${formatNumber(buyer.authorityTrip.positionKm)} km along the local road; ${formatDuration(buyer.authorityTrip.progress)} of clerk work. No automatic return.`
+          : buyer.principalRegistrationTrip ? `Principal registration: ${buyer.principalRegistrationTrip.phase}. No document until physical clerk work finishes.`
+          : "Optional prospective identification and instruction. A receiver or account credential does not identify an unseen owner.",
+        actions: [storesActionButton("Preview Principal Registration", "Use the existing physical registration procedure for the willing principal.", () => buyerPrincipalAction(buyer.id, "register")),
+          ...(buyer.authorityTrip ? [storesActionButton("Cancel Authority Visit and Walk Back", "Retain fees already paid and physically return from the current position.", () => buyerPrincipalAction(buyer.id, "cancelVisit"))] : [])] }));
+      for (const sh of market.shipments.filter(s => s.buyerId === buyer.id && !s.living && s.receiptAt == null && !['canceled', 'returned', 'returning'].includes(s.phase))) section.append(storesRowEl(sh.id, "Prospective purchasing instruction", {
+        dataset: { principalConsignment: sh.id }, subtitle: `${sh.material}; quantity ${sh.bookedQuantity}. Future acknowledgment and receipt of this consignment only.`,
+        actions: [storesActionButton("Preview Purchasing Authority Appointment", "Both identified attendees must walk to the local registry and explicitly give and accept these instructions.", () => buyerPrincipalAction(buyer.id, "preview", sh.id)),
+          storesActionButton("Request New Acknowledgment Under Authority", "One minute of available representative and service work. Never relabel an old acknowledgment.", () => buyerPrincipalAction(buyer.id, "acknowledge", sh.id))] }));
+      for (const receipt of buyer.authorityDocuments || []) section.append(storesRowEl(receipt.id, receipt.result || receipt.originalSupport, {
+        dataset: { principalReceipt: receipt.id }, subtitle: JSON.stringify(receipt),
+        actions: receipt.kind === "purchasingAuthority" ? [storesActionButton("Preview Authority Revocation", "A separate physical appointment revokes and communicates the instruction without erasing the past.", () => buyerPrincipalAction(buyer.id, "revoke", receipt.id)),
+          storesActionButton("Recheck Purchasing Authority", "Ten minutes of finite clerk work on dated issuer status and corrections, not fresh identification.", () => buyerPrincipalAction(buyer.id, "recheck", receipt.id))] : [] }));
+    }
+  }
+  function buyerPrincipalAction(id, action, reference = null) {
+    advanceIntercitySmuggling(advanceLocalCovertCollections());
+    const market = ensureIntercitySmuggling(), buyer = market.buyers.find(b => b.id === id);
+    let ok = false;
+    if (action === "cancelPreview") { market.principalPreview = null; ok = true; }
+    else if (buyer && action === "register") {
+      const q = BuyerPrincipal.registrationPreview(market, buyer); if (q) { market.principalPreview = { buyerId: id, procedure: "register", quote: q }; ok = true; }
+    } else if (buyer && ["preview", "revoke"].includes(action)) {
+      const receipt = buyer.authorityDocuments?.find(d => d.id === reference);
+      const sh = market.shipments.find(s => s.id === (action === "revoke" ? receipt?.terms.shipmentReference : reference));
+      const q = BuyerPrincipal.preview(market, buyer, sh, action === "revoke" ? "revoke" : "authorize", action === "revoke" ? reference : null);
+      if (q) { market.principalPreview = { buyerId: id, procedure: "appointment", quote: q }; ok = true; }
+    } else if (buyer && action === "confirm") {
+      const p = market.principalPreview;
+      if (p?.buyerId === id) ok = p.procedure === "register" ? BuyerPrincipal.register(market, buyer, p.quote, state.clock) : BuyerPrincipal.request(market, buyer, p.quote, state.clock);
+      market.principalPreview = null;
+    } else if (buyer && action === "cancelVisit") ok = BuyerPrincipal.cancel(market, buyer, state.clock);
+    else if (buyer && action === "recheck") ok = BuyerPrincipal.recheck(market, buyer, reference, state.clock);
+    else if (buyer && action === "acknowledge") ok = BuyerPrincipal.acknowledge(market, buyer, market.shipments.find(s => s.id === reference), state.clock);
+    market.message = ok ? "Voluntary purchasing-authority request recorded. Identity, instruction, performance and ownership remain separate."
+      : "No eligible identified attendees, consent, exact pending terms or finite resources. No instruction or adverse inference invented.";
+    persist(); render(); return ok;
   }
 
   function accountAccessAction(id, action, receiptId = null) {

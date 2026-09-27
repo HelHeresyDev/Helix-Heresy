@@ -21,6 +21,54 @@ async function setup(page) {
     return { deal, batch, operatorId: d.economySnapshot().intercitySmuggling.operators[0].id };
   });
 }
+test('purchasing authority UI registers a separate principal, previews joint attendance and preserves new instructions across reload', async ({ page }) => {
+  test.setTimeout(300000);
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await setup(page);
+  const buyerId = await page.evaluate(() => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState(), m = s.economy.intercitySmuggling;
+    window.HelixBuyerIdentity.provision(m, { institutionId: 'registry:b', cityId: 'b', name: 'Destination Registry', active: true, localDistanceKm: 2 }, s.clock);
+    const route = { id: 'ab', endpointCityIds: ['a', 'b'], distanceKm: 30, supportCapable: true, continuity: 'continuous' };
+    const request = { templateId: 'offer', selectedId: 'batch', brokerId: 'broker', value: 500, cargo: { massKg: 5, volumeL: 6 }, localDistanceKm: 8,
+      manifest: { commodityKind: 'manufactured', material: 'Primer', amount: 1, entries: [{ kind: 'chemicalBatch', amount: 5, sourceStackId: 'batch', stack: { id: 'batch', quantity: 5, purity: 90 } }] } };
+    const quote = window.HelixIntercitySmuggling.offer(m, m.operators[0].id, request, route, s.clock);
+    if (!window.HelixIntercitySmuggling.book(m, quote, request, route, 'authority-test-contract', s.clock).ok) throw new Error('Booking failed');
+    d.importSurveyExpeditionTestState(s);
+    const buyer = d.economySnapshot().intercitySmuggling.buyers[0];
+    d.buyerIdentityAction(buyer.id, 'preview'); d.buyerIdentityAction(buyer.id, 'confirm'); d.advanceStrategicServices(5400);
+    return buyer.id;
+  });
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  await page.getByRole('button', { name: 'Preview Principal Registration', exact: true }).click();
+  await expect(page.locator('[data-principal-preview]')).toContainText('Prospective registration');
+  await page.getByRole('button', { name: 'Confirm Principal Request', exact: true }).click();
+  await page.evaluate(() => window.helixHeresyDebug.advanceStrategicServices(5400));
+  await page.getByRole('button', { name: 'Preview Purchasing Authority Appointment', exact: true }).click();
+  await expect(page.locator('[data-principal-preview]')).toContainText('ultimate beneficiary');
+  await page.getByRole('button', { name: 'Cancel Principal Preview', exact: true }).click();
+  expect(await page.evaluate(() => window.helixHeresyDebug.economySnapshot().intercitySmuggling.buyers[0].authorityTrip)).toBeUndefined();
+  await page.getByRole('button', { name: 'Preview Purchasing Authority Appointment', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm Principal Request', exact: true }).click();
+  const result = await page.evaluate(() => {
+    const d = window.helixHeresyDebug; d.advanceStrategicServices(2700); const during = d.economySnapshot().intercitySmuggling;
+    d.reloadSurveyExpeditionTestState(); d.advanceStrategicServices(2700); const before = d.economySnapshot().intercitySmuggling;
+    d.reloadSurveyExpeditionTestState(); return { during, before, after: d.economySnapshot().intercitySmuggling };
+  });
+  expect(result.during.buyers[0].authorityTrip.progress).toBe(900); expect(result.after).toEqual(result.before);
+  expect(result.after.buyers[0].authorityDocuments[0]).toMatchObject({ result: 'supported', instruction: 'givenAndAccepted' });
+  expect(result.after.shipments[0].buyerDocuments).toHaveLength(1);
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  await expect(page.locator('[data-principal-receipt]')).toContainText('No onward delegation');
+  await page.getByRole('button', { name: 'Request New Acknowledgment Under Authority', exact: true }).click();
+  await page.evaluate(() => window.helixHeresyDebug.advanceStrategicServices(60));
+  expect(await page.evaluate(() => window.helixHeresyDebug.economySnapshot().intercitySmuggling.shipments[0].buyerDocuments.at(-1).kind)).toBe('authorityTermsAcknowledged');
+  expect(await page.evaluate(id => window.helixHeresyDebug.buyerPrincipalAction(id, 'revoke', window.helixHeresyDebug.economySnapshot().intercitySmuggling.buyers[0].authorityDocuments[0].id), buyerId)).toBe(true);
+  await page.getByRole('button', { name: 'Confirm Principal Request', exact: true }).click();
+  await page.evaluate(() => window.helixHeresyDebug.advanceStrategicServices(5400));
+  await expect(page.locator('[data-principal-receipt]')).toHaveCount(2);
+  expect(await page.evaluate(() => window.helixHeresyDebug.economySnapshot().intercitySmuggling.buyers[0].authorityDocuments.at(-1).instruction)).toBe('revokedAndCommunicated');
+  expect(errors).toEqual([]);
+});
 test('witnessed account access UI previews a funded visit and retains a dated access receipt and correction across reload', async ({ page }) => {
   test.setTimeout(300000);
   const errors = []; page.on('pageerror', e => errors.push(e.message));
