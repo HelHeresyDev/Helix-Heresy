@@ -46,6 +46,7 @@
   const ContractWitnessing = window.HelixContractWitnessing;
   const CarrierIdentity = window.HelixCarrierIdentity;
   const BuyerIdentity = window.HelixBuyerIdentity;
+  const ChemicalHandoff = window.HelixChemicalHandoff;
   const AccountAccess = window.HelixAccountAccess;
   const BuyerPrincipal = window.HelixBuyerPrincipal;
   const PaymentRecords = window.HelixPaymentRecords;
@@ -61600,6 +61601,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (q) section.append(emptyText(`Delivery deadline: ${formatClock(state.clock + q.deliveryWindowSeconds)} if booked now (72 hours from booking). Inspection keeps escrow reserved until receipt or failed delivery. Failure refunds unearned sale/transit escrow; earned freight stays paid. Nonliving returns stop at the home covert depot, not laboratory storage. Living return reserves remain committed until the physical return or their existing refund condition.`));
     for (const gate of market.checkpoints || []) {
       section.append(emptyText(`${gate.institutionName || gate.institutionId} · ${gate.id}: ${gate.policy}`));
+      if (gate.appearanceOffice) section.append(emptyText(gate.appearanceOffice.policy.text));
+      if (gate.custodyOffice) section.append(emptyText(gate.custodyOffice.policy.text));
       renderCargoCourt(section, gate, market);
       for (const rule of gate.propertyRules || []) section.append(emptyText(`${rule.id} · published ${formatClock(rule.publishedAt)}: ${rule.text}`));
       for (const rule of gate.forfeitureRules || []) section.append(emptyText(`${rule.id} · published ${formatClock(rule.publishedAt)}: ${rule.text}`));
@@ -61681,6 +61684,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     for (const sh of market.shipments) {
       const report = sh.living?.report;
+      if (!sh.living && ChemicalHandoff.preview(sh)) section.append(storesRowEl(`Product disclosure · ${sh.id}`, sh.chemicalDisclosure ? "Queued for receiver" : "Optional", {
+        dataset: { chemicalDisclosure: sh.id }, subtitle: "Readable labels are declarations, not verified chemistry. The receiver controls acceptance and may request verification or refuse. No held cargo is released by this request.",
+        actions: [storesActionButton("Preview Product Disclosure", "Inspect the exact declarations and existing report copies before offering them.", () => buyerIdentityAction(sh.id, "chemicalPreview"))]
+      }));
+      if (market.chemicalDisclosurePreview?.shipmentId === sh.id) section.append(storesRowEl(sh.id, "Product disclosure preview", {
+        dataset: { chemicalDisclosurePreview: sh.id }, subtitle: JSON.stringify(market.chemicalDisclosurePreview),
+        actions: [storesActionButton("Offer Product Disclosure", "Send only this unchanged packet. The receiver independently decides whether to accept.", () => buyerIdentityAction(sh.id, "chemicalConfirm")),
+          storesActionButton("Cancel Product Disclosure", "Nothing will be sent.", () => buyerIdentityAction(sh.id, "chemicalCancel"))]
+      }));
       if (!sh.living) section.append(storesRowEl(`Receiver check · ${sh.id}`, sh.recipientCheckRequested ? "Requested" : "Optional", {
         dataset: { recipientCheck: sh.id },
         subtitle: `Customer-held reports only: ${JSON.stringify(sh.recipientDocuments || [])}. Identity and cargo acceptance are separate. Refusal is not guilt and does not invalidate a willing handoff.`,
@@ -82585,7 +82597,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     advanceIntercitySmuggling(advanceLocalCovertCollections());
     const market = ensureIntercitySmuggling(), buyer = market.buyers.find(b => b.id === id), sh = market.shipments.find(s => s.id === id);
     let ok = false;
-    if (action === "cancel") { market.buyerRegistrationPreview = null; ok = true; }
+    if (action === "chemicalPreview") { const p = ChemicalHandoff.preview(sh); if (p) { market.chemicalDisclosurePreview = p; ok = true; } }
+    else if (action === "chemicalCancel") { market.chemicalDisclosurePreview = null; ok = true; }
+    else if (action === "chemicalConfirm") { ok = ChemicalHandoff.request(sh, market.chemicalDisclosurePreview); market.chemicalDisclosurePreview = null; }
+    else if (action === "cancel") { market.buyerRegistrationPreview = null; ok = true; }
     else if (action === "preview") {
       const p = BuyerIdentity.preview(market, buyer); if (p) { market.buyerRegistrationPreview = p; ok = true; }
     } else if (action === "confirm") {
@@ -82678,6 +82693,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     persist(); render(); return ok;
   }
   function renderCargoCourt(section, gate, market) {
+    for (const buyer of market.buyers.filter(b => b.cityId === gate.cityId)) {
+      const availability = buyer.buyerService?.availabilityNotices?.at(-1);
+      if (availability) section.append(storesRowEl(buyer.name, "Last received availability report", {
+        dataset: { cargoAppearanceAvailability: buyer.id }, subtitle: `${formatClock(availability.at)}: ${availability.text} This is a received report, not live location tracking.` }));
+      for (const notice of buyer.buyerService?.appearanceNotices || []) section.append(storesRowEl(buyer.name, "Receiver-shared court notice", {
+        dataset: { cargoAppearanceNotice: notice.orderId }, subtitle: `${formatClock(notice.at)}: ${notice.text} ${notice.scope}` }));
+    }
     for (const docket of gate.cargoCourt?.dockets || []) {
       const notice = docket.notices.at(-1);
       if (notice) section.append(storesRowEl(docket.id, titleCase(notice.status), { dataset: { cargoJudicialReview: docket.id },

@@ -72,7 +72,8 @@
       shift: ["day", "swing", "night"].includes(source.shift) ? source.shift : "day",
       present: source.present !== false,
       roomId: cleanId(source.roomId) || "municipalHoldingGuardStation",
-      mapCell: cleanCell(source.mapCell, { x: 22 + index, y: 7, z: 3 }),
+      ...(source.locationId ? { locationId: cleanId(source.locationId) } : {}),
+      mapCell: source.locationId ? cleanCell(source.mapCell) : cleanCell(source.mapCell, { x: 22 + index, y: 7, z: 3 }),
       targetCell: cleanCell(source.targetCell),
       movementAccumulator: Math.max(0, finite(source.movementAccumulator)),
       inventory: source.inventory && typeof source.inventory === "object" ? source.inventory : null
@@ -110,7 +111,7 @@
       .filter((id) => OBSERVATIONS.some((entry) => entry.id === id));
     return {
       id: cleanId(source.id) || `jail-stay-${index + 1}`,
-      raidId: cleanId(source.raidId), docket: String(source.docket || "Pretrial custody").trim(), detaineeId: "scientist",
+      raidId: cleanId(source.raidId), docket: String(source.docket || "Pretrial custody").trim(), detaineeId: cleanId(source.detaineeId) || "scientist",
       status: STATUSES.includes(source.status) ? source.status : "active", bookedAt,
       facility: {
         id: cleanId(source.facility?.id) || "municipal-holding", label: String(source.facility?.label || "Municipal Holding Facility").trim(),
@@ -168,8 +169,8 @@
     };
   }
 
-  function activeStay(candidate) {
-    return normalizeState(candidate).stays.find((stay) => stay.status === "active") || null;
+  function activeStay(candidate, detaineeId = "scientist") {
+    return normalizeState(candidate).stays.find((stay) => stay.status === "active" && stay.detaineeId === cleanId(detaineeId)) || null;
   }
 
   function book(candidate, options = {}) {
@@ -197,9 +198,32 @@
     return { state, stay, created: true };
   }
 
-  function advance(candidate, clock = 0) {
+  // Explicit physical admission for a named detainee. Unlike the legacy scientist
+  // scenario builder, this API cannot invent transport, officers or equipment.
+  function admit(candidate, options = {}) {
+    const state = normalizeState(candidate), p = options.person, f = options.facility, t = options.transport;
+    const at = options.clock, officers = options.actors;
+    if (!cleanId(p?.id) || !cleanId(f?.id) || !cleanId(f.cityId) || f.kind !== 'jail' || p.locationId !== f.id || !Number.isFinite(at)
+      || !cleanId(options.orderId) || !cleanId(t?.id) || t.arrivedAt !== at || !Number.isFinite(t.departedAt) || t.departedAt > at
+      || p.status !== 'alive' || !Array.isArray(officers) || !officers.length || new Set(officers.map(o => cleanId(o.id))).size !== officers.length
+      || officers.some(o => !cleanId(o.id) || !o.name || o.status !== 'alive' || !(o.health >= 50) || o.locationId !== f.id)
+      || !cleanId(options.suppressor?.id) || !cleanId(options.suppressor.physicalStackId)) return { state, stay: null, created: false };
+    const prior = state.stays.find(s => s.raidId === cleanId(options.orderId));
+    if (prior) return { state, stay: prior.detaineeId === cleanId(p.id) ? prior : null, created: false };
+    if (state.stays.some(s => s.detaineeId === cleanId(p.id) && s.status === 'active')) return { state, stay: null, created: false };
+    const stay = normalizeStay({ id: `jail-stay-${state.nextStayNumber++}`, raidId: options.orderId,
+      detaineeId: p.id, docket: options.docket, bookedAt: at, facility: f, transport: t,
+      actors: officers.map(o => ({ ...o, present: true, roomId: f.id })), suppressor: options.suppressor,
+      knowledge: { labSnapshotAt: at, labSnapshot: {} }, history: [
+        { at: t.departedAt, action: 'transported', summary: `Actual escort of ${p.id} departed under ${options.orderId}.` },
+        { at, action: 'booked', summary: `${p.id} admitted to this temporary jail after actual transport; no conviction or prison sentence.` }
+      ] });
+    state.stays.push(stay); return { state, stay, created: true };
+  }
+
+  function advance(candidate, clock = 0, detaineeId = "scientist") {
     const state = normalizeState(candidate);
-    const stay = state.stays.find((entry) => entry.status === "active");
+    const stay = state.stays.find((entry) => entry.status === "active" && entry.detaineeId === cleanId(detaineeId));
     if (!stay) return { state, stay: null, changed: false };
     const at = Math.max(stay.bookedAt, finite(clock));
     const previousKind = stay.routine.currentKind;
@@ -318,5 +342,5 @@
     return { at, kind: pending && pending.readyAt === at ? "communicationReady" : routine.nextEventKind, label: pending && pending.readyAt === at ? `${CHANNELS.find((entry) => entry.id === pending.channelId)?.label} ready` : routine.nextEventLabel };
   }
 
-  return Object.freeze({ VERSION, OBSERVATIONS, CHANNELS, ROUTINE, defaultState, normalizeState, activeStay, book, advance, requestCommunication, completeCommunication, observeSecurity, disableSuppressor, escape, resecure, release, remand, nextEvent });
+  return Object.freeze({ VERSION, OBSERVATIONS, CHANNELS, ROUTINE, defaultState, normalizeState, activeStay, book, admit, advance, requestCommunication, completeCommunication, observeSecurity, disableSuppressor, escape, resecure, release, remand, nextEvent });
 }));

@@ -32,6 +32,9 @@
     const a = review.disclosure.assessment;
     const check = (a.identityFindings || []).filter(c => c.personObservationId === actorId).at(-1);
     if (check?.result === 'supported') return copy(check.document);
+    const receiverCheck = (a.recipientFindings || []).flatMap(f => f.events || [])
+      .filter(e => e.kind === 'recipientIdentity' && e.observationId === actorId).sort((a, b) => a.at - b.at).at(-1);
+    if (receiverCheck?.result === 'supported') return copy(receiverCheck.document);
     for (const f of a.scientistIdentityFindings || []) for (const c of f.comparisons || [])
       if (c.receipt?.observationId === actorId && c.issuerStatus === 'active' && ['registered', 'supported'].includes(c.receipt.result)) return copy(c.receipt.document);
     // No name/account/consignment inference. Other identity adapters need an
@@ -83,7 +86,7 @@
       const r = gate.criminalIntake?.referrals.find(r => r.id === d.referralId);
       if (d.handoff && d.reviewedKey !== key(d, r)) { d.handoff = null; d.status = 'reviewRequired'; }
     }
-    const available = ready(gate) && court.workSeconds > 0 && (court.job || court.power >= 1);
+    const available = ready(gate) && !court.appearanceJob && !court.custodyJob && court.workSeconds > 0 && (court.job || court.power >= 1);
     let cursor = court.lastAt;
     const elapsedReady = available && court.wasReady;
     court.lastAt = at; court.wasReady = Boolean(available);

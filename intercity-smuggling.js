@@ -9,10 +9,11 @@
     typeof module === 'object' && module.exports ? require('./buyer-identity') : root.HelixBuyerIdentity,
     typeof module === 'object' && module.exports ? require('./account-access') : root.HelixAccountAccess,
     typeof module === 'object' && module.exports ? require('./buyer-principal') : root.HelixBuyerPrincipal,
-    typeof module === 'object' && module.exports ? require('./payment-records') : root.HelixPaymentRecords);
+    typeof module === 'object' && module.exports ? require('./payment-records') : root.HelixPaymentRecords,
+    typeof module === 'object' && module.exports ? require('./chemical-handoff') : root.HelixChemicalHandoff);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixIntercitySmuggling = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer, Witness, Identity, Recipient, Access, Principal, Payments) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer, Witness, Identity, Recipient, Access, Principal, Payments, Chemical) {
   'use strict';
   const HOUR = 3600, copy = v => JSON.parse(JSON.stringify(v));
   const fingerprint = Checkpoints.fingerprint;
@@ -158,6 +159,7 @@
       }
       while (['outbound', 'returning', 'inspecting', 'detained'].includes(s.phase) && seconds > 0) {
         Checkpoints.expire(state, s, cursor);
+        if (s.saleFailedAt != null) Chemical.release(state, s, op, cursor);
         if (s.saleFailedAt != null && s.recipientEncounter?.job) {
           Recipient.release(state, s, op, cursor); s.recipientEncounter.job = null;
         }
@@ -193,13 +195,21 @@
               op.provisions = Math.max(0, op.provisions - step / (8 * HOUR));
               s.reason = 'Optional receiver check in progress; no identity-based detention or ownership transfer.'; continue;
             }
-            const buyer = state.buyers.find(b => b.id === s.buyerId), receiver = Recipient.representative(buyer, cursor);
+            const buyer = state.buyers.find(b => b.id === s.buyerId);
+            if (Chemical.encounter(state, s, op, Recipient.representative(buyer, cursor), cursor)) {
+              const step = Math.min(seconds, 60); seconds -= step; cursor += step;
+              op.provisions = Math.max(0, op.provisions - step / (8 * HOUR));
+              s.reason = s.chemicalHandoff ? 'Receiver inspecting offered product declarations; no new assay or ownership transfer.' : 'Awaiting an available receiver, witness and finite inspection resources; no ownership transfer.'; continue;
+            }
+            const receiver = s.chemicalHandoff ? buyer?.buyerService?.representatives.find(p => p.id === s.chemicalHandoff.personId && !p.assignment && p.status === 'alive' && p.health >= 50 && p.locationId === s.destinationId) : Recipient.representative(buyer, cursor);
             if (!Buyer.canReceive(buyer) || buyer?.buyerService && !receiver) {
               s.reason = 'Buyer representative unavailable; no receipt or ownership transfer. Carrier retains cargo pending a real handoff.';
               op.provisions = Math.max(0, op.provisions - seconds / (8 * HOUR)); break;
             }
-            Recipient.handoff(state, s, op, receiver, cursor);
-            if (receiver?.receiptConsent === false) { s.returnRequestedAt = cursor; Checkpoints.expire(state, s, cursor); continue; }
+            const refused = receiver?.receiptConsent === false || s.chemicalHandoff?.accepted === false;
+            if (s.chemicalHandoff) Chemical.outcome(state, s, op, receiver, cursor, !refused);
+            else Recipient.handoff(state, s, op, receiver, cursor);
+            if (refused) { s.returnRequestedAt = cursor; Checkpoints.expire(state, s, cursor); continue; }
             s.phase = 'returning'; s.receiptAt = cursor; s.owner = s.buyerId; s.custodian = s.buyerId;
             Principal.action(state, buyer, s, receiver, 'receiveSpecifiedConsignment', cursor);
             Buyer.record(buyer, s, 'deliveryReceived', cursor, s.manifest, receiver?.id);

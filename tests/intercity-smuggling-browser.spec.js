@@ -111,7 +111,7 @@ test('witnessed account access UI previews a funded visit and retains a dated ac
   expect(changed[0]).toEqual(visit.after.buyers[0].accessDocuments[0]); expect(changed[1]).toMatchObject({ originalSupport: 'retained', accessStatus: 'revoked' });
   expect(errors).toEqual([]);
 });
-test('receiver identification UI previews a real visit, checks a physical handoff and preserves correction across reload', async ({ page }) => {
+test('receiver identification UI previews a real visit, product disclosure and physical handoff with correction across reload', async ({ page }) => {
   test.setTimeout(240000);
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   const f = await setup(page);
@@ -146,13 +146,23 @@ test('receiver identification UI previews a real visit, checks a physical handof
   expect(await page.evaluate(id => window.helixHeresyDebug.startMarketContractDelivery(id), id)).toBe(true);
   await page.locator('[data-workspace-tab="tasks"]').click();
   await page.locator('[data-task-row]').filter({ hasText: 'Deliver' }).filter({ hasText: f.deal.material }).getByRole('button', { name: 'Finish' }).click();
+  await page.evaluate(() => window.helixHeresyDebug.advanceStrategicServices(1800));
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  await page.getByRole('button', { name: 'Preview Product Disclosure', exact: true }).click();
+  await expect(page.locator('[data-chemical-disclosure-preview]')).toContainText('Labels are claims, not assays');
+  expect(await page.evaluate(() => window.helixHeresyDebug.economySnapshot().intercitySmuggling.shipments[0].chemicalDisclosure)).toBeUndefined();
+  await page.getByRole('button', { name: 'Cancel Product Disclosure', exact: true }).click();
+  await expect(page.locator('[data-chemical-disclosure-preview]')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Preview Product Disclosure', exact: true }).click();
+  await page.getByRole('button', { name: 'Offer Product Disclosure', exact: true }).click();
   const receipt = await page.evaluate(() => {
-    const d = window.helixHeresyDebug; d.advanceStrategicServices(1800); d.advanceStrategicServices(8000);
+    const d = window.helixHeresyDebug; d.advanceStrategicServices(10000);
     const before = d.economySnapshot().intercitySmuggling; d.reloadSurveyExpeditionTestState();
     return { before, after: d.economySnapshot().intercitySmuggling };
   });
   expect(receipt.after).toEqual(receipt.before); expect(receipt.after.shipments[0].recipientDocuments[0].result).toBe('supported');
-  expect(receipt.after.shipments[0].recipientDocuments[1].accepted).toBe(true);
+  expect(receipt.after.shipments[0].recipientDocuments.find(d => d.kind === 'chemicalDisclosure').response).toBe('willingToAccept');
+  expect(receipt.after.shipments[0].recipientDocuments.find(d => d.kind === 'recipientHandoff')).toMatchObject({ accepted: true, observationId: receipt.after.shipments[0].recipientDocuments[0].observationId });
   await page.evaluate(() => {
     const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState();
     s.economy.intercitySmuggling.identityOffices[0].records[0].status = 'withdrawn'; d.importSurveyExpeditionTestState(s);

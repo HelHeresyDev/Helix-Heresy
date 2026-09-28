@@ -9,6 +9,9 @@
   function provision(buyer, at) {
     if (buyer.buyerService) return;
     buyer.buyerService = { openedAt: at, locationId: buyer.cityId,
+      premises: { id: `${buyer.id}:receiving-desk`, cityId: buyer.cityId, publicAccess: true,
+        departureStand: { id: `${buyer.id}:public-departure-stand`, distanceKm: 1, open: true, publicAccess: true },
+        route: { id: `${buyer.id}:local-court-route`, distanceKm: 2, open: true } },
       contact: { handle: `${buyer.id}:records-contact`, accountId: `${buyer.id}:records-account`, label: `${buyer.name} records account` },
       representatives: [{ id: `${buyer.id}:representative`, name: `${buyer.name} receiving representative`, status: 'alive', health: 100, fatigue: 0, locationId: buyer.cityId }],
       channelPowered: true, credentialActive: true, policy: 'protectCompletedPurchases', interviewConsent: true,

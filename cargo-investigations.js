@@ -6,10 +6,11 @@
     typeof module === 'object' && module.exports ? require('./account-access') : root.HelixAccountAccess,
     typeof module === 'object' && module.exports ? require('./scientist-identity') : root.HelixScientistIdentity,
     typeof module === 'object' && module.exports ? require('./buyer-principal') : root.HelixBuyerPrincipal,
-    typeof module === 'object' && module.exports ? require('./payment-records') : root.HelixPaymentRecords);
+    typeof module === 'object' && module.exports ? require('./payment-records') : root.HelixPaymentRecords,
+    typeof module === 'object' && module.exports ? require('./chemical-handoff') : root.HelixChemicalHandoff);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixCargoInvestigations = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Carrier, Buyer, Witness, Recipient, Access, Civic, Principal, Payments) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Carrier, Buyer, Witness, Recipient, Access, Civic, Principal, Payments, Chemical) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v));
   const able = a => a?.status === 'alive' && a.health >= 50;
@@ -123,6 +124,18 @@
       documents: i.submissions.map(s => ({ id: s.id, sourceId: s.document.sourceId, finding: 'Voluntarily supplied copy; provenance is the authenticated property channel, not independent verification of its parties or performance.' + (s.document.status === 'failed' ? ' Reported nonperformance is retained as potentially exculpatory material, not independently proven nonoccurrence.' : '') })),
       missingSources: status === 'exhaustedUnsupported' ? [] : ['A witness or independently authenticated record of a locally relevant completed transaction.', 'Independent identification of each alleged participant.', 'A source establishing each participant’s knowledge at the relevant time.'],
       reason: status === 'exhaustedUnsupported' ? `Available lead exhausted: ${review.reason}` : 'Available gate interviews and records do not establish a completed transaction, verified participants or knowing participation. Waiting creates no evidence.' };
+    result.receivingFindings = [];
+    for (const actor of actors) {
+      const proof = Chemical.proof(e, result, actor.id);
+      if (!proof.transaction.length && !proof.knowledge.length) continue;
+      result.receivingFindings.push({ actorId: actor.id, ...proof });
+      if (proof.transaction.length) actor.transaction = 'Source-matched completed receiving event; legality, goods scope and other participants remain separate.';
+      if (proof.knowledge.length) actor.knowledge = 'Source-matched pre-transfer report disclosure and expressed understanding; bounded charging support, not a verdict or historical knowledge.';
+    }
+    if (result.receivingFindings.length && status !== 'exhaustedUnsupported') {
+      result.reason = 'Source-matched receiving observations are available for actor-specific prosecution screening. Goods scope, credible disclosure, authorizations and contradictions require separate review; no other actor inherits this evidence.';
+      result.missingSources = ['Resolve each actor’s remaining element gaps and any presented authorization claims from cited sources; neither waiting nor silence creates proof.'];
+    }
     i.assessments.push(result); i.status = status; i.assessedSignature = signature(r);
     i.notices.push({ at, assessment: copy(result), investigatorName: gate.investigationOffice.investigator.name,
       request: status === 'exhaustedUnsupported' ? 'No further voluntary material requested on the current unsupported lead.' : 'Optional: supply a booked manifest, contract excerpt or carrier/buyer contact and customer records or independent witness receipts, or identify a source-identity or scope error. Source cooperation remains voluntary; copies alone are not verified.',

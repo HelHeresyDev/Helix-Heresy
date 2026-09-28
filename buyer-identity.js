@@ -13,6 +13,9 @@
   function provisionPerson(person) {
     Identity.provisionDriver(person);
     person.provisions = 2; person.receiptConsent = true; person.identityDisclosureConsent = true;
+    person.courtPreferences = { attend: true, shareNotices: false, shareAvailability: true };
+    person.custodyPreferences = { followup: 'cooperate', peacefulSurrender: true, challenge: 'grounds' };
+    person.chemicalPreferences = { understandsDeclarations: true, acknowledgesDeclarations: true, requireVerification: false, requireAuthorization: false, refuseDeclaredProducts: [] };
   }
   function provision(state, institution, at) {
     if (state.buyers.some(b => b.cityId === institution?.cityId)) Identity.provision(state, institution, at, institution.cityId);
@@ -150,7 +153,8 @@
     const e = sh.recipientEncounter; if (!e || e.outcomeRecorded || !person) return;
     const witness = op.crew.find(c => c.id === e.witnessId && able(c));
     if (!witness) return;
-    const observationId = person.id === e.personId && person.locationId === sh.destinationId && at === e.completedAt ? e.id : `${sh.id}:replacement-recipient`;
+    const continuous = sh.chemicalHandoff?.observationId === e.id && sh.chemicalHandoff.completedAt === at;
+    const observationId = person.id === e.personId && person.locationId === sh.destinationId && (at === e.completedAt || continuous) ? e.id : `${sh.id}:replacement-recipient`;
     retain(op, sh, { id: `${sh.id}:recipient-handoff`, kind: 'recipientHandoff', shipmentReference: sh.id, observationId, at, cityId: sh.destinationId,
       accepted: person.receiptConsent !== false, sourceAccountId: op.carrierService.contact.accountId,
       items: (sh.manifest?.entries || []).map(e => ({ stackId: e.stack?.id || e.sourceReceptacleId, quantity: e.amount })),
