@@ -18,14 +18,16 @@
       documents: [], receipts: [], preview: null, job: null, message: '' };
   }
   function preview(value, office, name, kind = 'register', documentNumber = null) {
-    if (!ready(office) || value.job || value.bodyEnded || !['register', 'check'].includes(kind)) return null;
-    const document = kind === 'check' ? value.documents.find(d => d.number === documentNumber) : null;
-    if (kind === 'check' && (!document || document.issuer.handle !== office.contact.handle)) return null;
+    if (!ready(office) || value.job || value.bodyEnded || !['register', 'check', 'courtAccess'].includes(kind)) return null;
+    if (kind === 'courtAccess' && (!office.courtAuthority?.active || office.courtAuthority.cityId !== office.cityId || !office.courtAuthority.institutionId)) return null;
+    const document = kind !== 'register' ? value.documents.find(d => d.number === documentNumber) : null;
+    if (kind !== 'register' && (!document || document.issuer.handle !== office.contact.handle)) return null;
     const registeredName = kind === 'register' ? cleanName(name) : document.registeredName;
     if (!registeredName) return null;
     return { kind, office: contact(office), cityId: office.cityId, registeredName, description: copy(value.description), document: document ? copy(document) : null,
+      ...(kind === 'courtAccess' ? { courtId: office.courtAuthority.institutionId } : {}),
       fee: kind === 'register' ? office.fee : 0, workSeconds: kind === 'register' ? 1800 : 600,
-      warning: 'Attendance at the staffed civic counter is required. Confirmation creates a permanent local visit record and charges the stated nonrefundable fee. Leaving or cancelling stops work; no completed document is invented. Registration is not anonymity or immunity. ' + scope };
+      warning: (kind === 'courtAccess' ? 'Fresh physical identity comparison for a thirty-day local court-access credential. It grants neither access to unrelated defendants nor counsel authority, and proves no criminal participation. ' : '') + 'Attendance at the staffed civic counter is required. Confirmation creates a permanent local visit record and charges the stated nonrefundable fee. Leaving or cancelling stops work; no completed document is invented. Registration is not anonymity or immunity. ' + scope };
   }
   function present(ctx, office) {
     return ctx?.alive && ctx.capable && ctx.atCounter && ctx.cityId === office.cityId && ctx.clerkPresent && ctx.lineOfSight && !ctx.busy;
@@ -68,13 +70,14 @@
       cancel(value, offices, at, 'interrupted'); return true;
     }
     const available = ready(office) && visit && present(ctx, office) && office.clerk.id === job.clerkId && (!office.assignment || office.assignment === job.id)
-      && office.workSeconds > 0 && same(value.description, job.quote.description) && (job.quote.kind !== 'register' || ctx.visibility === 'clear');
+      && office.workSeconds > 0 && same(value.description, job.quote.description) && (job.quote.kind !== 'register' || ctx.visibility === 'clear')
+      && (job.quote.kind !== 'courtAccess' || office.courtAuthority?.active && office.courtAuthority.cityId === office.cityId && office.courtAuthority.institutionId === job.quote.courtId);
     if (!available) { release(office, job, at); job.lastAt = at; job.wasReady = false; value.message = 'Work paused: attendee, original clerk, visibility, description or finite resources unavailable. No retroactive work.'; return false; }
     office.assignment = job.id;
     const start = Math.max(job.lastAt, office.availableAt || 0);
     const work = job.wasReady ? Math.min(job.quote.workSeconds - job.progress, Math.max(0, at - start), office.workSeconds) : 0;
     office.workSeconds -= work; job.progress += work; job.lastAt = at; job.wasReady = true;
-    if (job.progress < job.quote.workSeconds) return false;
+    if (job.progress + 1e-8 < job.quote.workSeconds) return false;
     const completedAt = start + work;
     let document = job.quote.document, result;
     if (job.quote.kind === 'register') {
@@ -88,6 +91,12 @@
       scope: job.quote.kind === 'register' ? scope : 'Comparison with this dated physical presenter only, not proof of historical, bodily or soul continuity. ' + scope };
     visit.status = 'completed'; visit.endedAt = completedAt; visit.receipt = copy(receipt);
     value.receipts.push(copy(receipt)); release(office, job, completedAt); value.job = null;
+    if (job.quote.kind === 'courtAccess' && result.result === 'supported') {
+      const credential = { id: `${job.id}:court-access`, officeId: office.id, courtId: job.quote.courtId, cityId: office.cityId,
+        document: copy(document), observationId: job.id, issuedAt: completedAt, expiresAt: Math.min(document.expiresAt, completedAt + 2592000) };
+      (value.courtCredentials ||= []).push({ ...copy(credential), bodyEpoch: value.bodyEpoch });
+      (office.courtCredentials ||= []).push({ credential: copy(credential), status: 'active' });
+    }
     value.message = 'Civic visit completed. You remain at the counter; return transport must still be reached and boarded physically.'; return true;
   }
   function evidencePreview(value, officeId = null) {
@@ -125,5 +134,16 @@
   function findings(i, cityId) {
     return (i.scientistIdentityResponses || []).map(r => ({ ...copy(r), jurisdiction: r.cityId === cityId ? 'local civic record' : 'foreign civic record; voluntary information only' }));
   }
-  return { COUNTER, CLERK, create, preview, begin, cancel, endBody, replaceBody, advance, evidencePreview, next, prepare, complete, findings };
+  function courtAccess(value, offices, id, courtId, at, connected) {
+    const credential = value?.courtCredentials?.find(c => c.id === id), office = offices.find(o => o.id === credential?.officeId);
+    const record = office?.courtCredentials?.find(r => r.credential.id === id);
+    const { bodyEpoch, ...presented } = credential || {};
+    if (!connected || value?.bodyEnded || !credential || credential.bodyEpoch !== value.bodyEpoch || credential.courtId !== courtId
+      || credential.issuedAt > at || credential.expiresAt <= at || !ready(office) || !office.courtAuthority?.active
+      || office.courtAuthority.institutionId !== courtId || office.courtAuthority.cityId !== credential.cityId
+      || record?.status !== 'active' || !same(record.credential, presented)
+      || compare(office, credential.document, value.description, at).result !== 'supported') return null;
+    return copy(credential);
+  }
+  return { COUNTER, CLERK, create, preview, begin, cancel, endBody, replaceBody, advance, evidencePreview, next, prepare, complete, findings, courtAccess };
 });

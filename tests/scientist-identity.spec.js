@@ -14,6 +14,13 @@ function check(f, at = 2000) {
   const quote = Civic.preview(f.value, f.office, '', 'check', f.value.documents[0].number);
   expect(Civic.begin(f.value, f.office, quote, f.wallet, f.ctx, at)).toBe(true); Civic.advance(f.value, f.offices, f.ctx, at + 600);
 }
+test('a fractional-clock identity appointment completes at its displayed duration', () => {
+  const f = finished(), start = 3737.6506287878788;
+  const quote = Civic.preview(f.value, f.office, '', 'check', f.value.documents[0].number);
+  expect(Civic.begin(f.value, f.office, quote, f.wallet, f.ctx, start)).toBe(true);
+  Civic.advance(f.value, f.offices, f.ctx, start + 600 - 1e-10);
+  expect(f.value.job).toBeNull(); expect(f.value.receipts.at(-1).result).toBe('supported');
+});
 function inquiry(f, at = 3000) {
   const r = { id: 'inquiry', sourceOrderId: 'order', reviewedRevision: 1, revisions: [{ evidence: { personObservations: [], reports: [], observation: { observerId: 'officer' } } }], reviews: [{ at, status: 'acceptedForInvestigation', elements: [] }] };
   r.investigation = { id: 'inquiry:investigation', status: 'awaitingNamedSource', interviews: [{ kind: 'officer', persons: [] }, { kind: 'examiner' }], submissions: [], corrections: [], assessments: [], notices: [{}], job: null, assessedSignature: '' };

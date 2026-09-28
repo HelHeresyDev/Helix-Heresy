@@ -41,6 +41,7 @@
   const CargoExamination = window.HelixCargoExamination;
   const CargoForfeiture = window.HelixCargoForfeiture;
   const CargoCriminalReferrals = window.HelixCargoCriminalReferrals;
+  const CargoJudicialReview = window.HelixCargoJudicialReview;
   const CargoInvestigations = window.HelixCargoInvestigations;
   const ContractWitnessing = window.HelixContractWitnessing;
   const CarrierIdentity = window.HelixCarrierIdentity;
@@ -13771,10 +13772,15 @@
       buyerPrincipalAction: (id, action, reference) => buyerPrincipalAction(id, action, reference),
       selectPaymentProvider: id => selectPaymentProvider(id),
       scientistIdentityAction: (action, name, documentNumber) => scientistIdentityAction(action, name, documentNumber),
+      cargoCourtAction: (gateId, docketId, credentialId, action) => cargoCourtAction(gateId, docketId, credentialId, action),
       scientistIdentitySnapshot: () => clonePlainObject({ ...ensureScientistIdentity(), office: scientistCivicOffice(), clock: state.clock, money: ensureEconomy().money, cell: scientistMapCell(), context: scientistCivicContext(scientistCivicOffice()) }),
       configureScientistIdentityTest: (options = {}) => {
         const market = ensureIntercitySmuggling();
         if (options.office) CarrierIdentity.provision(market, { institutionId: "test-civic-registry", cityId: market.homeId, name: "Test Civic Registry", active: true, localDistanceKm: 2 }, state.clock);
+        if (options.court) {
+          SmugglingCheckpoints.bind(market, [{ cityId: market.homeId, cellId: "test-civic-cell", institutionId: "test-watch", jurisdiction: "city" }]);
+          market.checkpoints.find(g => g.cityId === market.homeId).judiciary = { institutionId: "test-court", cityId: market.homeId, active: true, name: "Test Court" };
+        }
         const office = scientistCivicOffice();
         if (options.money != null) ensureEconomy().money = options.money;
         if (options.description) ensureScientistIdentity().description = clonePlainObject(options.description);
@@ -61594,6 +61600,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (q) section.append(emptyText(`Delivery deadline: ${formatClock(state.clock + q.deliveryWindowSeconds)} if booked now (72 hours from booking). Inspection keeps escrow reserved until receipt or failed delivery. Failure refunds unearned sale/transit escrow; earned freight stays paid. Nonliving returns stop at the home covert depot, not laboratory storage. Living return reserves remain committed until the physical return or their existing refund condition.`));
     for (const gate of market.checkpoints || []) {
       section.append(emptyText(`${gate.institutionName || gate.institutionId} · ${gate.id}: ${gate.policy}`));
+      renderCargoCourt(section, gate, market);
       for (const rule of gate.propertyRules || []) section.append(emptyText(`${rule.id} · published ${formatClock(rule.publishedAt)}: ${rule.text}`));
       for (const rule of gate.forfeitureRules || []) section.append(emptyText(`${rule.id} · published ${formatClock(rule.publishedAt)}: ${rule.text}`));
       if (gate.criminalRule) section.append(emptyText(`${gate.criminalRule.id} · published ${formatClock(gate.criminalRule.publishedAt)}: ${gate.criminalRule.text}`));
@@ -79106,6 +79113,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function scientistCivicOffice() {
     const expedition = ensureSurveyExpeditions(), market = ensureIntercitySmuggling();
     const office = market.identityOffices?.find(o => o.cityId === market.homeId && o.cityId === expedition.destination?.cityId && o.active);
+    if (office) {
+      const gate = market.checkpoints?.find(g => g.cityId === office.cityId && g.active && g.jurisdiction === "city");
+      const court = gate?.judiciary || gate?.productScheduleCourt;
+      office.courtAuthority = court?.institutionId && court.active !== false && (!court.cityId || court.cityId === office.cityId)
+        ? { institutionId: court.institutionId, cityId: office.cityId, active: true } : null;
+    }
     if (office && expedition.materialized && !office.civicCounter) {
       // A local public counter of the actual registry, not a second clerk or an intercity teleport.
       office.civicCounter = { roomId: SurveyExpeditions.FIELD_ROOM, cell: { ...ScientistIdentity.COUNTER } };
@@ -79138,8 +79151,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     else if (action === "walk") {
       if (office?.civicCounter && scientistCivicContext(office).cityId && !profile.job && !surveyBusy())
         ok = Boolean(startScientistMove(SurveyExpeditions.FIELD_ROOM, { toCell: ScientistIdentity.COUNTER, allowMultiRoom: true }));
-    } else if (action === "preview" || action === "previewCheck") {
-      const p = ScientistIdentity.preview(profile, office, name, action === "preview" ? "register" : "check", documentNumber);
+    } else if (action === "preview" || action === "previewCheck" || action === "previewCourtAccess") {
+      const p = ScientistIdentity.preview(profile, office, name, action === "preview" ? "register" : action === "previewCourtAccess" ? "courtAccess" : "check", documentNumber);
       if (p) { profile.preview = p; ok = true; }
     } else if (action === "confirm") {
       if (!state.combat?.routineSuspension) ok = ScientistIdentity.begin(profile, office, profile.preview, ensureEconomy(), scientistCivicContext(office), state.clock);
@@ -79173,6 +79186,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const document of profile.documents) {
       panel.append(textEl("p", `Retained document copy: ${JSON.stringify(document)}. This dated description is not automatically updated after bodily change.`));
       button(`Preview Physical Check: ${document.number}`, () => scientistIdentityAction("previewCheck", "", document.number), Boolean(profile.job));
+      button(`Preview Court Access: ${document.number}`, () => scientistIdentityAction("previewCourtAccess", "", document.number), Boolean(profile.job) || !office?.courtAuthority?.active);
+    }
+    for (const credential of profile.courtCredentials || []) {
+      const row = document.createElement("p"); row.dataset.courtAccessCredential = credential.id;
+      row.textContent = `${credential.id}: ${credential.courtId}, expires ${formatClock(credential.expiresAt)}. Issued following a fresh physical identity check. No criminal attribution or automatic docket access; no NPC representation. Use the powered civic counter for remote court filings.`;
+      panel.append(row);
     }
     for (const receipt of profile.receipts) {
       const row = document.createElement("p"); row.dataset.scientistCivicReceipt = receipt.id; row.textContent = JSON.stringify(receipt); panel.append(row);
@@ -82639,6 +82658,45 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     persist(); render(); return ok;
   }
 
+  function cargoCourtConnected(office) {
+    const ctx = scientistCivicContext(office);
+    return Boolean(ctx.alive && ctx.capable && ctx.atCounter && ctx.clerkPresent && ctx.lineOfSight && !ctx.busy && office?.channelPowered && office.power > 0);
+  }
+  function cargoCourtAction(gateId, docketId, credentialId, action) {
+    const market = ensureIntercitySmuggling(), gate = market.checkpoints.find(g => g.id === gateId);
+    const docket = gate?.cargoCourt?.dockets.find(d => d.id === docketId), profile = ensureScientistIdentity();
+    const credential = profile.courtCredentials?.find(c => c.id === credentialId), office = market.identityOffices?.find(o => o.id === credential?.officeId);
+    let ok = false;
+    if (docket) {
+      const args = [gate, docket, profile, market.identityOffices || [], credentialId];
+      if (action === "authorize") ok = CargoJudicialReview.authorize(...args, state.clock, cargoCourtConnected(office));
+      else if (action === "revoke") ok = CargoJudicialReview.revoke(...args, state.clock, cargoCourtConnected(office));
+      else if (action.startsWith("challenge:") || action.startsWith("counsel:")) ok = CargoJudicialReview.challenge(...args, action.split(":")[1], state.clock, cargoCourtConnected(office), action.startsWith("counsel:"));
+    }
+    if (ok) office.power--;
+    market.message = ok ? "Docket-specific filing recorded. No admission, custody, appearance order or foreign enforcement follows." : "No verified access to this defendant's docket, working terminal, available counsel, or new permitted filing. Nothing filed.";
+    persist(); render(); return ok;
+  }
+  function renderCargoCourt(section, gate, market) {
+    for (const docket of gate.cargoCourt?.dockets || []) {
+      const notice = docket.notices.at(-1);
+      if (notice) section.append(storesRowEl(docket.id, titleCase(notice.status), { dataset: { cargoJudicialReview: docket.id },
+        subtitle: `${notice.judgeName}, ${formatClock(notice.at)}. ${notice.actorId}: ${notice.allegation}. ${notice.reason} Sources: ${notice.sourceFindings?.sourceIds.join(", ") || "no current supporting sources"}. ${notice.gaps.map(g => g.sourceNeeded).join(" ")} ${notice.limitation}` }));
+      for (const credential of state.scientistIdentity?.courtCredentials || []) {
+        const office = market.identityOffices?.find(o => o.id === credential.officeId);
+        if (!CargoJudicialReview.access(gate, docket, state.scientistIdentity, market.identityOffices || [], credential.id, state.clock, cargoCourtConnected(office))) continue;
+        const act = action => cargoCourtAction(gate.id, docket.id, credential.id, action);
+        const actions = [storesActionButton("Authorize Docket Counsel", "Express authority for this defendant and this docket only; no pleas, settlement or onward delegation.", () => act("authorize")),
+          storesActionButton("Revoke Docket Counsel", "Stop further representation without deleting past filings.", () => act("revoke"))];
+        for (const kind of CargoJudicialReview.kinds) {
+          actions.push(storesActionButton(`Challenge ${titleCase(kind)}`, "Request review of the retained sources, not invented testimony.", () => act(`challenge:${kind}`)));
+          actions.push(storesActionButton(`Counsel Review: ${titleCase(kind)}`, "Requires an active express mandate and finite counsel work before filing.", () => act(`counsel:${kind}`)));
+        }
+        section.append(storesRowEl(docket.id, "Authenticated defense access", {
+          subtitle: `Identity access does not establish participation or guilt. One challenge of each kind per proposal; no adverse inference from silence. Each accepted filing uses one civic-counter power allocation. Counsel: ${gate.cargoCourt.counsel.name}. Mandate: ${docket.mandates.some(m => m.status === "active" && m.credentialId === credential.id) ? "authorized for this docket" : "not authorized"}. ${(docket.counselRequests || []).map(r => `${titleCase(r.kind)}: ${r.status}`).join("; ")}`, actions }));
+      }
+    }
+  }
   function cargoForfeitureAction(id, kind) {
     advanceIntercitySmuggling(advanceLocalCovertCollections());
     const market = ensureIntercitySmuggling(), sh = market.shipments.find(s => s.id === id);

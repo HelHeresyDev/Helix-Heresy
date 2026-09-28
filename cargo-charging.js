@@ -105,5 +105,16 @@
       r.charging.notices.push(copy(result)); r.charging.reviewedKey = input.key; office.job = null;
     }
   }
-  return { provision, advance };
+  function proposalFindings(gate, r, actorId, findings) {
+    const input = current(r);
+    if (!input || r.charging?.reviewedKey !== input.key) return { supported: false, reason: 'The investigation or prosecution review is stale.', gaps: [] };
+    const count = screen(gate, r, input, findings(input.evidence)).find(c => c.actor.id === actorId);
+    if (!count) return { supported: false, reason: 'No source-reported observed person supports this count.', gaps: [] };
+    // Reconstruct from source adapters, never from a caller-supplied charge flag,
+    // assessment prose, a property judgment or the prosecutor's conclusion.
+    const supported = count.status !== 'declined' && !count.gaps.length
+      && ['transaction', 'contraband', 'knowledge'].every(id => count.elements.some(e => e.id === id && e.support.length));
+    return { supported, reason: count.reason, gaps: copy(count.gaps), count };
+  }
+  return { provision, advance, proposalFindings };
 });

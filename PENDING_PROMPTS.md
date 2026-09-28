@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Smuggling: Charging and Judicial Review
+1. Smuggling: Witnessed Transactions and Relevant-Time Knowledge
 2. Smuggling: Physical Enforcement of Local Orders
 3. Smuggling: Contested Trial Integration
 4. Smuggling: Violent Interception and Crew Rescue
@@ -90,11 +90,9 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Smuggling: Charging and Judicial Review
+## 1. Smuggling: Witnessed Transactions and Relevant-Time Knowledge
 
-Approved and in progress. Actor-specific prosecution screening is implemented with finite resources, immutable disclosures, reasoned declines/returns, and a served UI result. Remaining approved work: separately staffed local judicial review, supported-count proposal/handoff safeguards, and bounded challenges by an authenticated defendant or authorized counsel. The property claimant channel does not establish either role. Keep this prompt until that work is implemented, documented and tested; do not treat the screening slice as completion.
-
-Discuss prosecution screening of investigated cargo allegations against separately identified actors under the destination city's published criminal law. Require source-linked support for each applicable element, actor attribution and defenses; neither an intake acceptance nor a property judgment supplies missing proof. Integrate only with compatible existing local pretrial and judicial procedures, preserving disclosure, counsel, reasoned decisions and correction paths. Distinguish suspicion, charging thresholds and proof beyond reasonable doubt. Do not generate automatic remote arrest, physical custody or foreign enforcement. Split trial integration further if required.
+Discuss a bounded playable transaction that can produce genuinely person-attributable conduct and relevant-time knowledge evidence, including innocent, authorized and contradictory outcomes. Existing identity, payment, instruction, gate and sample records do not supply those missing elements. Define actual participants, goods, local jurisdiction, timing, what each witness can observe, what each participant can know, and how retained records reach investigators through lawful or voluntary access. Feed verified structured findings into the existing prosecution screening and independent judicial safeguards; do not treat free-form assertions, waiting, a property judgment or a prosecutor flag as proof. Preserve separately identified people, exculpatory records and exact event scope. Also identify any additional supported person-to-document bridges or physically reachable local credential appointments needed for the involved defendants; do not infer NPC representation or foreign access. Implement no automatic custody or trial. This discussion precedes physical enforcement because current live cargo sources correctly produce no charge-ready cases.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 

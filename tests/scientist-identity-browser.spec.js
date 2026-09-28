@@ -25,7 +25,7 @@ test('scientist travels, walks to a real civic counter, registers and retains da
       { id: 'site:lab', kind: 'laboratorySite', cityId: 'a', label: 'Helix Laboratory', cellId: 'planet-cell:00009', supportComponentId: 'component:one', known: true, reachable: true, localDistanceKm: 2, routeContinuity: 'municipal', dangerBand: 'veryLow' },
       { id: 'city:a', kind: 'fortifiedCity', cityId: 'a', label: 'Aster', cellId: 'planet-cell:00001', supportComponentId: 'component:one', known: true, reachable: true, jurisdiction: { kind: 'city', cityId: 'a' } }
     ] }, context: { worldId: 'survey-world', siteId: 'parcel-test', strategicCellId: 'planet-cell:00009', seed: 'survey-test', publicProspects: { prospectBands: { ferrousOre: 'moderate' } }, truth: { potentialPermille: { ferrousOre: 900 }, typicalDepth: { ferrousOre: 'exposed' }, surfaceAccessibilityPermille: 1000, environmentalDifficultyPermille: 0 } } });
-    d.configureScientistIdentityTest({ office: true, money: 1000 });
+    d.configureScientistIdentityTest({ office: true, court: true, money: 1000 });
   });
   expect(await page.evaluate(() => window.helixHeresyDebug.scientistIdentityAction('preview', 'Dr. New Name'))).toBe(true);
   const home = await snapshot(page);
@@ -68,13 +68,26 @@ test('scientist travels, walks to a real civic counter, registers and retains da
   expect(registered.documents[0].registeredName).toBe('Dr. New Name');
   expect(registered.cell).toEqual(before.cell);
   await expect(page.locator('[data-scientist-civic-receipt]')).toHaveCount(1);
-  await page.evaluate(() => {
+  await page.getByRole('button', { name: `Preview Court Access: ${registered.documents[0].number}`, exact: true }).click();
+  await expect(page.locator('[data-scientist-civic-preview]')).toContainText('thirty-day local court-access credential');
+  await page.getByRole('button', { name: 'Confirm Civic Appointment', exact: true }).click();
+  await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(300));
+  const duringAccess = await snapshot(page);
+  expect(duringAccess.courtCredentials || []).toEqual([]);
+  await page.evaluate(() => { window.helixHeresyDebug.reloadSurveyExpeditionTestState(); window.helixHeresyDebug.advanceSimulation(300); });
+  const access = await snapshot(page);
+  expect(access.courtCredentials).toHaveLength(1);
+  expect(access.cell).toEqual(registered.cell);
+  await expect(page.locator('[data-court-access-credential]')).toContainText('No criminal attribution');
+  const recheckActions = await page.evaluate(() => {
     const d = window.helixHeresyDebug, s = d.scientistIdentitySnapshot();
     d.configureScientistIdentityTest({ description: { ...s.description, hair: 'white' } });
-    d.scientistIdentityAction('previewCheck', '', s.documents[0].number);
-    d.scientistIdentityAction('confirm');
+    const preview = d.scientistIdentityAction('previewCheck', '', s.documents[0].number);
+    const confirm = d.scientistIdentityAction('confirm');
     d.advanceSimulation(600);
+    return { preview, confirm };
   });
+  expect(recheckActions).toEqual({ preview: true, confirm: true });
   const checked = await snapshot(page);
   expect(checked.documents).toEqual(registered.documents);
   expect(checked.receipts.at(-1)).toMatchObject({ appearance: 'mismatch', result: 'unverified' });
