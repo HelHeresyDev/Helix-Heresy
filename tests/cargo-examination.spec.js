@@ -26,6 +26,12 @@ test('screen is timed and non-destructive; confirmation consumes an exact sample
   f.advance(15000); expect(f.sh.examination.reports[1]).toMatchObject({ result: 'targetDetected', purityRange: [85, 95], chainIntact: true });
   expect(f.sh.examination.samples[0].status).toBe('consumedByAssay'); expect(f.sh.propertyOrder.status).toBe('active');
   expect(f.sh.examination.samples[0].quantity + f.sh.manifest.amount).toBe(1);
+  const retained = f.gate.examinationLab.records[1];
+  expect(retained.report).toEqual(f.sh.examination.reports[1]);
+  expect(retained.sample.custody).toEqual(f.sh.examination.samples[0].custody);
+  expect(retained.sample.composition).toBeUndefined();
+  expect(retained.sample.owner).toBeUndefined();
+  expect(retained.report).not.toBe(f.sh.examination.reports[1]);
 });
 test('reload preserves progress, sample identity, custody and exactly-once resource use', () => {
   const f = fixture(); f.advance(8000); const loaded = JSON.parse(JSON.stringify(f.state));

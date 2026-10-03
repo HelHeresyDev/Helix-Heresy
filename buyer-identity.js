@@ -14,6 +14,9 @@
     Identity.provisionDriver(person);
     person.provisions = 2; person.receiptConsent = true; person.identityDisclosureConsent = true;
     person.courtPreferences = { attend: true, shareNotices: false, shareAvailability: true };
+    person.trialPreferences = { acceptNotice: true, attend: true, representation: 'counsel',
+      challenges: ['identity', 'transaction', 'contraband', 'knowledge', 'authorization'] };
+    person.sentencingPreferences = { acceptNotice: true, attend: true, representation: 'counsel', requestMitigation: true };
     person.custodyPreferences = { followup: 'cooperate', peacefulSurrender: true, challenge: 'grounds' };
     person.chemicalPreferences = { understandsDeclarations: true, acknowledgesDeclarations: true, requireVerification: false, requireAuthorization: false, refuseDeclaredProducts: [] };
   }

@@ -18,16 +18,17 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Smuggling: Contested Trial Integration
-2. Smuggling: Threats, Witness Interference, and Evidence Destruction
-3. Smuggling: Violent Interception and Crew Rescue
-4. World Integration: Investigations and Institutional Pressure
-5. Lazy Local Detail and World Discovery
-6. Roguelike Run Lifecycle, Death, Postmortem, and Restart
-7. Campaign Roadmap: From Hidden Laboratory to World Domination
-8. New-Run Onboarding and Contextual Tutorial
-9. Sound, Notifications, and Accessibility Audit
-10. Production Art Pass Using the Sprite Pipeline
+1. Smuggling: Cargo Judgment and Sentence Review
+2. Smuggling: Lawful Cargo Sentence Enforcement
+3. Smuggling: Threats, Witness Interference, and Evidence Destruction
+4. Smuggling: Violent Interception and Crew Rescue
+5. World Integration: Investigations and Institutional Pressure
+6. Lazy Local Detail and World Discovery
+7. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+8. Campaign Roadmap: From Hidden Laboratory to World Domination
+9. New-Run Onboarding and Contextual Tutorial
+10. Sound, Notifications, and Accessibility Audit
+11. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -89,61 +90,67 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Smuggling: Contested Trial Integration
+## 1. Smuggling: Cargo Judgment and Sentence Review
 
-Discuss a cargo-specific contested trial handoff after charging review and feasible local appearance procedures exist. Preserve separately attributed defendants, published offense elements, immutable disclosure, authorized counsel, challenges, exculpatory evidence and proof beyond reasonable doubt for every element. A charging threshold is not a verdict. Reuse existing court mechanics only where their factual prerequisites apply; never fabricate arrest, unlawful entry, physical presence or testimony to fit an adapter. Decide dismissal, acquittal and supported conviction with separate lawful sentencing, retaining local jurisdiction and physical enforcement boundaries.
+Cargo sentencing now produces a reasoned, immutable sentence stayed indefinitely pending review, with no expiring review deadline while the review procedure is unavailable. Discuss fresh notice, supported grounds, separate authorized counsel, actual reviewers, new exculpatory evidence, penalty challenges and explicit stay/review windows. Preserve original convictions, disclosures and sentences; corrections must create linked decisions rather than silently rerolling history. Decide narrowly bounded affirmance, correction, vacatur or retrial handoffs and supported mitigation submissions. Missing actors or evidence cannot waive rights or release an enforcement stay by waiting. Do not implement collection, arrest or prison intake here.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 2. Smuggling: Threats, Witness Interference, and Evidence Destruction
+## 2. Smuggling: Lawful Cargo Sentence Enforcement
+
+After separately completed judgment review, discuss a bounded enforcement slice for a final, unstayed local sentence. A fine belongs to its actual defendant, not automatically to the company, buyer account, employer or scientist; collection needs supported asset ownership and lawful access. A custodial sanction needs separate current authority, correct identity, actual escorts, available transport and a receiving institution. Temporary jail and long-term prison remain distinct, life imprisonment does not exist, and conviction or confinement is never game over. Split financial collection, physical commitment and other sanctions into further prompts as needed. Never turn a sentencing handoff into automatic payment, arrest, teleportation or foreign enforcement.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 3. Smuggling: Threats, Witness Interference, and Evidence Destruction
 
 The deliberate-evasion custody slice is implemented; immediate threats, witness interference and evidence destruction remain approved policy grounds without encounter producers. Discuss actual person-attributable conduct, independent NPC choices, witnesses, exact locations, affected people or objects, retained source access, innocent explanations and contradictory outcomes for each additional ground. Split these into bounded playable passes before implementation. Never infer threats from reputation, interference from silence, destruction from missing records, or guilt from a custody order. Reuse separate judicial authorization, current local identity and authority checks, finite physical execution and prompt release safeguards only when the facts support them. Forced entry, violence, protective relocation and foreign authority require their own explicit design rather than being silently added to this adapter.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Smuggling: Violent Interception and Crew Rescue
+## 4. Smuggling: Violent Interception and Crew Rescue
 
 Discuss physical beast attacks, robbery and armed interception as distinct encounters with actual actors, approach, vehicles, cargo, crew and location. No abstract disappearance rolls, replacement cargo, automatic scientist death or remote arrest. Keep living care and containment active through captivity. Decide feasible crew survival, negotiation, recapture, rescue and return options in bounded playable slices. Captors possess only their actual capabilities; wilderness grants no sovereign police jurisdiction. Existing failed-sale escrow and property identities must survive recovery.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. World Integration: Investigations and Institutional Pressure
+## 5. World Integration: Investigations and Institutional Pressure
 
 Design and implement world-context effects on company plausibility, inspections, investigations, religious scrutiny, escalation, and authority response. Context may alter priorities, schedules, thresholds, and available actions, but must not invent player guilt.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. Lazy Local Detail and World Discovery
+## 6. Lazy Local Detail and World Discovery
 
 Design and implement deterministic elaboration of the already generated strategic world when a run encounters it. Lazy generation may fill minor places, institution branches, contacts, local histories, individuals, encounters, and exact maps while respecting canonical world facts and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+## 7. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 
 Design and implement the loop for beginning, losing, reviewing, and replacing a run without altering its reusable world. Only the scientist’s death ends a run; arrest, jail, prison, penal service, death sentence, loss of laboratory, and similar catastrophes remain playable while the scientist lives.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 8. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. The final campaign goal is rare world domination, but early hidden-laboratory survival must remain a complete roguelike experience.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. New-Run Onboarding and Contextual Tutorial
+## 9. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. Sound, Notifications, and Accessibility Audit
+## 10. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 10. Production Art Pass Using the Sprite Pipeline
+## 11. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 

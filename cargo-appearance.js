@@ -78,7 +78,7 @@
         if (o.clerk.assignment === a.id) o.clerk.assignment = null;
         if (o.job === a.id) returnOfficer(o, a);
       }
-      if (!a && current && powered && able(c.judge) && c.judge.locationId === c.id && !c.job && !c.appearanceJob && !c.custodyJob) {
+      if (!a && current && powered && able(c.judge) && c.judge.locationId === c.id && !c.job && !c.appearanceJob && !c.custodyJob && !c.trialJob) {
         const s = source(d);
         if (!s) continue; // No canonical lookup supplies a missing address or identity.
         a = d.appearance = { id: `${d.id}:appearance:${d.decisions.at(-1).id}`, decisionId: d.handoff.decisionId,

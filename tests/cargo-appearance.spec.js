@@ -143,5 +143,33 @@ test('appearance notices browser shows received availability, not undisclosed co
   await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
   await expect(page.locator('[data-cargo-appearance-notice]').filter({ hasText: 'Actual jail admission' })).toHaveCount(1);
   await expect(page.locator('[data-cargo-appearance-notice]').last()).toContainText('no continuing detention');
+  await expect(page.locator('[data-cargo-trial-notice]')).toHaveCount(0);
+  const { trialFixture } = require('./helpers/cargo-trial-fixture');
+  const tried = trialFixture(); tried.person.courtPreferences.shareNotices = true; tried.untilTrial('judgment');
+  await page.evaluate(notices => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState();
+    s.economy.intercitySmuggling.buyers[0].buyerService.trialNotices = notices;
+    d.importSurveyExpeditionTestState(s); d.reloadSurveyExpeditionTestState();
+  }, tried.buyer.buyerService.trialNotices);
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  await expect(page.locator('[data-cargo-trial-notice]')).toHaveCount(2);
+  await expect(page.locator('[data-cargo-trial-notice]').last()).toContainText('Cargo trial convicted');
+  await expect(page.locator('[data-cargo-trial-notice]').last()).toContainText('No punishment or custody authorized');
+  await expect(page.locator('[data-cargo-sentencing-notice]')).toHaveCount(0);
+  const { sentencingFixture, finePolicy } = require('./helpers/cargo-sentencing-fixture');
+  const Laws = require('../strategic-city-laws');
+  const published = Laws.createMonetaryPenaltyPolicy('notice-ui', 'b', [{ offenseId: 'contrabandCommerce', sentencing: finePolicy }]);
+  const sentenced = sentencingFixture({ ...finePolicy, fineRangeCredits: published.ranges.contrabandCommerce });
+  sentenced.person.courtPreferences.shareNotices = true; sentenced.untilSentence('sentence');
+  await page.evaluate(notices => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState();
+    s.economy.intercitySmuggling.buyers[0].buyerService.sentencingNotices = notices;
+    d.importSurveyExpeditionTestState(s); d.reloadSurveyExpeditionTestState();
+  }, sentenced.buyer.buyerService.sentencingNotices);
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  await expect(page.locator('[data-cargo-sentencing-notice]')).toHaveCount(2);
+  await expect(page.locator('[data-cargo-sentencing-notice]').last()).toContainText('stayed pending separate judgment review');
+  await expect(page.locator('[data-cargo-sentencing-notice]').last()).toContainText(`fine of ${published.ranges.contrabandCommerce.minimum} credits`);
+  await expect(page.locator('[data-cargo-sentencing-notice]').last()).toContainText('No payment, custody, imprisonment or enforcement authorized');
   expect(errors).toEqual([]);
 });

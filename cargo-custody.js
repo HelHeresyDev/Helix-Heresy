@@ -152,7 +152,7 @@
         o.witnessRecords.push({ report: copy(report), status: 'retained' }); j.submission = copy(report); j.phase = 'authorization'; j.progress = 0; j.wasReady = false; continue;
       }
       if (j.phase === 'authorization') {
-        const canReview = local && o.channelPowered && c.channelPowered && o.power > 0 && able(c.judge) && c.judge.locationId === c.id && c.workSeconds > 0 && !c.job && !c.appearanceJob && (!c.custodyJob || c.custodyJob === j.id);
+        const canReview = local && o.channelPowered && c.channelPowered && o.power > 0 && able(c.judge) && c.judge.locationId === c.id && c.workSeconds > 0 && !c.job && !c.appearanceJob && !c.trialJob && (!c.custodyJob || c.custodyJob === j.id);
         if (!canReview) { j.reviewReady = false; continue; }
         if (!c.custodyJob) { c.custodyJob = j.id; j.judgeId = c.judge.id; j.reviewReady = false; }
         if (j.judgeId !== c.judge.id) { j.progress = 0; j.judgeId = c.judge.id; j.reviewReady = false; }
@@ -203,7 +203,7 @@
       }
       if (j.phase === 'review') {
         o.jail = Jail.advance(o.jail, at, p.id).state;
-        const canReview = o.channelPowered && c.channelPowered && o.power > 0 && able(c.judge) && c.judge.locationId === c.id && c.workSeconds > 0 && !c.job && !c.appearanceJob && (!c.custodyJob || c.custodyJob === j.id)
+        const canReview = o.channelPowered && c.channelPowered && o.power > 0 && able(c.judge) && c.judge.locationId === c.id && c.workSeconds > 0 && !c.job && !c.appearanceJob && !c.trialJob && (!c.custodyJob || c.custodyJob === j.id)
           && able(p) && p.locationId === o.id && o.officers.some(x => able(x) && x.locationId === o.id);
         if (!canReview) { j.reviewReady = false; continue; }
         if (!c.custodyJob) { c.custodyJob = j.id; j.reviewReady = false; j.judgeId = c.judge.id; }

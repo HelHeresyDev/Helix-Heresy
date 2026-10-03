@@ -16542,8 +16542,10 @@
         for (const rule of entry.offenseRules) {
           const item = document.createElement("p");
           const prison = rule.sentencing.finitePrisonRangeMonths ? ` · finite prison up to ${rule.sentencing.finitePrisonRangeMonths.maximum} months` : "";
+          const monetary = StrategicCityLaws.monetaryPenaltyLabel(rule);
           const pressure = attitudeProfiles.find((profile) => profile.offenseId === rule.offenseId);
           item.textContent = `${rule.label} — ${readable(rule.legalStatus)} · ${readable(rule.culpability)} culpability · elements: ${rule.elements.map((element) => element.label).join(" / ")} · defenses: ${rule.defenses.map(readable).join(", ") || "none"} · founding attitude: ${readable(rule.publicAttitude)}${pressure ? ` · current regulation support: ${readable(pressure.pressures.regulationSupport)} · reporting cooperation: ${readable(pressure.pressures.reportingCooperation)}` : ""}${prison}`;
+          if (monetary) item.append(` · ${monetary}`);
           rules.append(item);
         }
       });
@@ -82699,6 +82701,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         dataset: { cargoAppearanceAvailability: buyer.id }, subtitle: `${formatClock(availability.at)}: ${availability.text} This is a received report, not live location tracking.` }));
       for (const notice of buyer.buyerService?.appearanceNotices || []) section.append(storesRowEl(buyer.name, "Receiver-shared court notice", {
         dataset: { cargoAppearanceNotice: notice.orderId }, subtitle: `${formatClock(notice.at)}: ${notice.text} ${notice.scope}` }));
+      for (const notice of buyer.buyerService?.trialNotices || []) section.append(storesRowEl(buyer.name, "Receiver-shared trial notice", {
+        dataset: { cargoTrialNotice: notice.trialId }, subtitle: `${formatClock(notice.at)}: ${notice.text} ${notice.scope}` }));
+      for (const notice of buyer.buyerService?.sentencingNotices || []) section.append(storesRowEl(buyer.name, "Receiver-shared sentencing notice", {
+        dataset: { cargoSentencingNotice: notice.sentencingId }, subtitle: `${formatClock(notice.at)}: ${notice.text} ${notice.scope}` }));
     }
     for (const docket of gate.cargoCourt?.dockets || []) {
       const notice = docket.notices.at(-1);

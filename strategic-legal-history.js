@@ -93,7 +93,11 @@
     for (const rule of code.offenseRules) {
       const definition = StrategicCityLaws.OFFENSE_CATALOG.find((entry) => entry.id === rule.offenseId);
       rule.authorizationExceptions = authorizationExceptions(rule.offenseId, rule.legalStatus);
+      const savedFineRange = rule.sentencing.fineRangeCredits;
       rule.sentencing = sentencingFor(definition, rule.legalStatus, code.punishmentPolicy);
+      // Existing status/prison amendments do not amend published monetary terms.
+      // Never derive missing historical fines from today's authored baselines.
+      if (savedFineRange && rule.sentencing.ordinarySanctions.includes('fine')) rule.sentencing.fineRangeCredits = clone(savedFineRange);
     }
     code.legalHistory = {
       foundingCodeId: baseCode.id,

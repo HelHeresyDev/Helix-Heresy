@@ -81,6 +81,48 @@
     return parseInt(StrategicWorld.stableHash(`${seed}:${channel}`), 16) / 0xffffffff;
   }
 
+  // Authored economic anchors, not live prices: local escort wages are 20/hour,
+  // ordinary materials list around 6–31 and legal buffer lists at 74 before costs.
+  // Store the final ranges: later balance edits must not rewrite existing worlds.
+  const FINE_BASELINES = Object.freeze({
+    unlawfulViolence: [400, 4000], propertyOffenses: [150, 1500], fraudAndCorruption: [400, 4000],
+    emergencyInterference: [400, 4000], contrabandCommerce: [300, 3000], corporateLicensing: [60, 600],
+    hazardousBiologicalConduct: [400, 4000], geneticEngineering: [300, 3000], artificialCreatureCreation: [300, 3000],
+    prohibitedMagic: [150, 1500], warrantObstruction: [300, 3000], failureToAppear: [100, 1000],
+    evidenceTampering: [400, 4000], falseStatement: [150, 1500]
+  });
+
+  function createMonetaryPenaltyPolicy(seed, cityId, rules) {
+    if (!String(seed || '').trim() || !cityId) throw new Error('Monetary policy requires a world seed and city.');
+    const scales = [80, 90, 100, 110, 120];
+    const scalePercent = scales[Math.min(4, Math.floor(seededNumber(seed, `${cityId}:monetary-penalties`) * scales.length))];
+    const ranges = {};
+    for (const rule of rules) {
+      if (!rule.sentencing.ordinarySanctions.includes('fine')) continue;
+      const base = FINE_BASELINES[rule.offenseId];
+      if (!base) throw new Error(`No authored monetary baseline for ${rule.offenseId}.`);
+      ranges[rule.offenseId] = { minimum: Math.round(base[0] * scalePercent / 100), maximum: Math.round(base[1] * scalePercent / 100) };
+    }
+    return { cityId, denomination: 'credits', scalePercent, ranges };
+  }
+
+  function validateMonetaryPenaltyPolicy(policy, cityId, rules) {
+    if (policy === undefined) return; // Historical worlds intentionally lack it.
+    const eligible = rules.filter(r => r.sentencing.ordinarySanctions.includes('fine')).map(r => r.offenseId);
+    if (!policy || policy.cityId !== cityId || policy.denomination !== 'credits' || ![80, 90, 100, 110, 120].includes(policy.scalePercent)
+      || !policy.ranges || Object.keys(policy.ranges).length !== eligible.length
+      || Object.keys(policy.ranges).some(id => !eligible.includes(id)) || eligible.some(id => {
+        const range = policy.ranges[id];
+        return !range || !Number.isSafeInteger(range.minimum) || !Number.isSafeInteger(range.maximum) || range.minimum <= 0 || range.maximum < range.minimum;
+      })) throw new Error('Invalid saved monetary penalty policy.');
+  }
+
+  function monetaryPenaltyLabel(rule) {
+    if (!rule.sentencing?.ordinarySanctions?.includes('fine')) return '';
+    const range = rule.sentencing.fineRangeCredits;
+    return range ? `fine ${range.minimum}–${range.maximum} credits (existing money unit; amount requires sentencing)` : 'fine amounts not published';
+  }
+
   function rankValues(values, seed, channel) {
     return [...values].sort((left, right) => seededNumber(seed, `${channel}:${left.id}`) - seededNumber(seed, `${channel}:${right.id}`) || left.id.localeCompare(right.id));
   }
@@ -322,6 +364,7 @@
       governmentId: code.governmentId,
       procedureProfile: procedureProfile(code.procedure),
       punishmentProfile: punishmentProfile(code.punishmentPolicy),
+      monetaryPenaltyPolicy: clone(code.monetaryPenaltyPolicy),
       legalStatusCodes: code.offenseRules.map((rule) => STATUS_CODES[rule.legalStatus]).join(""),
       publicAttitudeCodes: code.offenseRules.map((rule) => ATTITUDE_CODES[rule.publicAttitude]).join("")
     };
@@ -360,6 +403,11 @@
         responsibleInstitutionIds: [government.roleAssignments.publicProsecution, government.roleAssignments.judiciary, government.roleAssignments.civilWatch]
       };
     });
+    validateMonetaryPenaltyPolicy(entry.monetaryPenaltyPolicy, city.id, offenseRules);
+    for (const rule of offenseRules) {
+      const range = entry.monetaryPenaltyPolicy?.ranges[rule.offenseId];
+      if (range) rule.sentencing.fineRangeCredits = clone(range);
+    }
     return {
       id: entry.id,
       city: { id: city.id, name: city.name, cellId: city.cellId },
@@ -368,6 +416,7 @@
       jurisdictionClaim: clone(government.charter.jurisdictionClaim),
       procedure: expandProcedure(entry.procedureProfile, government),
       punishmentPolicy: policy,
+      ...(entry.monetaryPenaltyPolicy ? { monetaryPenaltyPolicy: clone(entry.monetaryPenaltyPolicy) } : {}),
       offenseRules,
       runtimeChargeMappings: clone(RUNTIME_CHARGE_TO_OFFENSE)
     };
@@ -411,6 +460,7 @@
       return {
         id: `city-legal-code:${city.id.slice(5)}`, cityId: city.id, polityId: polity.id, governmentId: government.id,
         procedure: procedureFor(government, seed), punishmentPolicy: policy, offenseRules,
+        monetaryPenaltyPolicy: createMonetaryPenaltyPolicy(seed, city.id, offenseRules),
         hiddenEnforcement: OFFENSE_CATALOG.map((definition, index) => hiddenDirective(definition, offenseRules[index], city, polity, government, seed))
       };
     });
@@ -531,6 +581,9 @@
     SANCTIONS,
     RUNTIME_CHARGE_TO_OFFENSE,
     OFFENSE_CATALOG,
+    createMonetaryPenaltyPolicy,
+    validateMonetaryPenaltyPolicy,
+    monetaryPenaltyLabel,
     createCityLegalCodes,
     validateCityLegalCodes,
     attachCityLegalCodes,

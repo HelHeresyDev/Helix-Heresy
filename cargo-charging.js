@@ -10,7 +10,7 @@
     const intake = gate.criminalIntake;
     if (!gate.chargingOffice && intake?.institutionId && intake.cityId === gate.cityId && gate.jurisdiction === 'city') {
       gate.chargingOffice = { institutionId: intake.institutionId, cityId: gate.cityId, locationId: gate.id,
-        prosecutor: { id: `${gate.id}:charging-prosecutor`, name: `${intake.institutionId} charging prosecutor`, status: 'alive', health: 100 },
+        prosecutor: { id: `${gate.id}:charging-prosecutor`, name: `${intake.institutionId} charging prosecutor`, status: 'alive', health: 100, locationId: gate.id },
         active: true, channelPowered: true, power: 12, workSeconds: 21600, lastAt: at, wasReady: false, job: null };
     }
   }
@@ -76,7 +76,7 @@
     const ready = Boolean(gate.active && gate.jurisdiction === 'city' && office.active && office.channelPowered
       && office.cityId === gate.cityId && office.locationId === gate.id && able(office.prosecutor)
       && gate.criminalIntake?.active && office.institutionId === gate.criminalIntake.institutionId
-      && office.workSeconds > 0 && (office.job || office.power >= 1));
+      && !office.trialJob && office.workSeconds > 0 && (office.job || office.power >= 1));
     let cursor = office.lastAt;
     const elapsedReady = ready && office.wasReady;
     office.lastAt = at; office.wasReady = ready;

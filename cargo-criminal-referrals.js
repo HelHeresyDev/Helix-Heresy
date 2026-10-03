@@ -4,10 +4,12 @@
     typeof module === 'object' && module.exports ? require('./cargo-charging') : root.HelixCargoCharging,
     typeof module === 'object' && module.exports ? require('./cargo-judicial-review') : root.HelixCargoJudicialReview,
     typeof module === 'object' && module.exports ? require('./cargo-appearance') : root.HelixCargoAppearance,
-    typeof module === 'object' && module.exports ? require('./cargo-custody') : root.HelixCargoCustody);
+    typeof module === 'object' && module.exports ? require('./cargo-custody') : root.HelixCargoCustody,
+    typeof module === 'object' && module.exports ? require('./cargo-trial') : root.HelixCargoTrial,
+    typeof module === 'object' && module.exports ? require('./cargo-sentencing') : root.HelixCargoSentencing);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixCargoCriminalReferrals = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Exam, Investigations, Charging, Judicial, Appearance, Custody) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Exam, Investigations, Charging, Judicial, Appearance, Custody, Trial, Sentencing) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v));
   const PRODUCTS = ['unlicensedMutagenicPrimer', 'arcaneCatalyticSuspension'];
@@ -25,6 +27,7 @@
       && ELEMENTS.every(id => law.elements?.some(e => e.id === id))) {
       gate.criminalRule = { id: `${gate.id}:criminal-commerce`, sourceLawId: law.id, cityId: gate.cityId,
         offenseId: law.offenseId, active: true, publishedAt: at, effectiveAt: at, products: [...PRODUCTS], elements: copy(law.elements),
+        sentencing: copy(law.sentencing || null),
         text: 'Knowing contraband commerce: a transfer, sale, purchase or delivery of a scheduled chemical, prohibited by this published city rule, with knowledge or deliberate disregard of its status. Presence or possession alone is not a transaction. Specific lawful authorization remains a defense.' };
     }
   }
@@ -132,6 +135,8 @@
       Judicial.advance(gate, at, findings);
       Appearance.advance(state, gate, at, findings);
       Custody.advance(state, gate, at, findings);
+      Trial.advance(state, gate, at, findings);
+      Sentencing.advance(state, gate, at);
     }
   }
   return { provision, tick, advance, findings };

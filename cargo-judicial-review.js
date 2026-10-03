@@ -69,7 +69,7 @@
       if (request) { request.status = 'cancelled'; request.endedAt = at; request.workSeconds = job.progress; }
       lawyer.job = null; return;
     }
-    const available = connectedCourt(gate) && able(lawyer) && lawyer.locationId === court.id && lawyer.workSeconds > 0;
+    const available = connectedCourt(gate) && able(lawyer) && lawyer.locationId === court.id && lawyer.workSeconds > 0 && !lawyer.trialJob;
     const work = available && job.wasReady ? Math.min(600 - job.progress, lawyer.workSeconds, at - job.lastAt) : 0;
     const completedAt = job.lastAt + work;
     lawyer.workSeconds -= work; job.progress += work; job.lastAt = at; job.wasReady = Boolean(available);
@@ -86,7 +86,7 @@
       const r = gate.criminalIntake?.referrals.find(r => r.id === d.referralId);
       if (d.handoff && d.reviewedKey !== key(d, r)) { d.handoff = null; d.status = 'reviewRequired'; }
     }
-    const available = ready(gate) && !court.appearanceJob && !court.custodyJob && court.workSeconds > 0 && (court.job || court.power >= 1);
+    const available = ready(gate) && !court.appearanceJob && !court.custodyJob && !court.trialJob && court.workSeconds > 0 && (court.job || court.power >= 1);
     let cursor = court.lastAt;
     const elapsedReady = available && court.wasReady;
     court.lastAt = at; court.wasReady = Boolean(available);
@@ -151,7 +151,7 @@
       || gate.cargoCourt.counsel.job?.docketId === d.id && gate.cargoCourt.counsel.job.filing.kind === kind) return false;
     const lawyer = gate.cargoCourt.counsel;
     const mandate = d.mandates.find(m => m.status === 'active' && m.credentialId === credential.id && m.counselId === lawyer.id);
-    if (throughCounsel && (!mandate || !able(lawyer) || lawyer.locationId !== gate.cargoCourt.id || lawyer.workSeconds < 600 || lawyer.job)) return false;
+    if (throughCounsel && (!mandate || !able(lawyer) || lawyer.locationId !== gate.cargoCourt.id || lawyer.workSeconds < 600 || lawyer.job || lawyer.trialJob)) return false;
     d.filingSequence = (d.filingSequence || 0) + 1;
     const filing = { id: `${d.id}:challenge:${d.filingSequence}`, at,
       submittedAt: at, kind, credentialId: credential.id, mandateId: throughCounsel ? mandate.id : null,

@@ -8,9 +8,10 @@
   function provision(gate) {
     if (gate.examinationLab) return;
     gate.examinationLab = { id: `${gate.id}:examination`, locationId: gate.id, institutionId: gate.judiciary.institutionId,
-      examiner: { id: `${gate.id}:examiner`, health: 100, status: 'alive', skill: 80 },
+      examiner: { id: `${gate.id}:examiner`, health: 100, status: 'alive', skill: 80, locationId: gate.id },
       instrument: { id: `${gate.id}:spectrometer`, condition: 100, calibration: 90 },
-      funds: 200, power: 40, reagents: 12, seals: 12, assignment: null };
+      funds: 200, power: 40, reagents: 12, seals: 12, assignment: null,
+      channelPowered: true, trialConsent: true, testimonySeconds: 7200, records: [] };
   }
   function authorize(gate, sh, at) {
     if (!gate.examinationLab || sh.examination || sh.living) return;
@@ -47,6 +48,7 @@
     const e = sh.examination, o = sh.propertyOrder, lab = gate?.examinationLab;
     if (!e || ['complete', 'stopped'].includes(e.phase)) return;
     const elapsed = Math.max(0, at - e.lastAt); e.lastAt = Math.max(e.lastAt, at);
+    if (lab?.trialJob) return;
     if (o.status !== 'active' || at >= o.expiresAt || at >= e.authorization.expiresAt || e.authorization.scope !== 'chemicalIdentification' || e.authorization.maximumSample < SAMPLE || e.authorization.cityId !== o.cityId || e.authorization.stackId !== o.evidence.stackId || e.authorization.orderId !== o.id || e.authorization.institutionId !== gate?.judiciary?.institutionId) { stop(gate, sh, at, 'Examination authority ended; no custody extension.'); return; }
     const entry = sh.manifest?.entries.find(v => v.stack?.id === e.authorization.stackId);
     if (!entry || !capable(lab) || lab.institutionId !== o.institutionId || lab.locationId !== gate.id || (lab.assignment && lab.assignment !== e.id)) { e.reason = 'Awaiting the actual authorized cargo, capable examiner and calibrated local equipment. Custody expiry unchanged.'; return; }
@@ -88,6 +90,10 @@
     e.reports.push(report); lab.instrument.condition = Math.max(0, lab.instrument.condition - 1);
     if (screening) { e.phase = measurable ? 'awaitingConfirmation' : 'complete'; e.progress = 0; if (!measurable) lab.assignment = null; }
     else { sample.status = 'consumedByAssay'; sample.consumedAt = at; sample.custody.push({ at, action: 'consumedByAssay', custodian: lab.id }); e.phase = 'complete'; lab.assignment = null; }
+    // Retain only the public assay and chain fields, never private composition.
+    (lab.records ||= []).push({ report: copy(report), sample: screening ? null : copy({ id: sample.id, sourceStackId: sample.sourceStackId,
+      sourceBatchId: sample.sourceBatchId, quantity: sample.quantity, locationId: sample.locationId, examinerId: sample.examinerId,
+      labId: sample.labId, sealId: sample.sealId, status: sample.status, custody: sample.custody, representation: sample.representation }) });
   }
   function validChain(sample) {
     const first = sample.custody[0], last = sample.custody[1];
