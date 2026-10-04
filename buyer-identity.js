@@ -23,6 +23,8 @@
     person.commitmentPreferences = { acceptNotice: true, response: 'cooperate' };
     person.prisonPreferences = { peacefulSurrender: true, acceptReturnRide: true };
     person.custodyPreferences = { followup: 'cooperate', peacefulSurrender: true, challenge: 'grounds' };
+    person.physicalCapabilities = { unarmedStrike: true };
+    person.threatPreferences = { response: 'none', reaction: 'remain', explanation: '' };
     person.chemicalPreferences = { understandsDeclarations: true, acknowledgesDeclarations: true, requireVerification: false, requireAuthorization: false, refuseDeclaredProducts: [] };
   }
   function provision(state, institution, at) {

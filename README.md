@@ -154,6 +154,8 @@ Final reviewed cargo fines can be paid through separate voluntary local settleme
 
 Reviewed finite-prison sentences support separate commitment planning and peaceful physical execution: fresh notice and voluntary cooperation, judicial authorization, actual van pickup, verified admission, finite care and sentence service. Detention starts only at surrender; documented credit is counted once, including interrupted transfers. Failed admission has a six-hour release safeguard. Sentence expiry, lost authority or interrupted care ends confinement and magic suppression independently of internet or return transport. Released NPCs need an actual voluntary ride home; they are never teleported or held awaiting one. Renewals require fresh arrangements, and no resources replenish automatically. Foreign Smuggling shows only consented planning and prison notices, with no control of other people.
 
+Local cargo follow-ups also support a separate immediate-threat encounter: actual participants, visible physical conduct and current opportunity are required, not reputation, insults or silence. A distinct prospective procedure and local judge review retained observations; retraction, conflicting explanations or a stale encounter prevent execution. Peaceful custody reuses actual escort, temporary jail, offline six-hour release and once-only custody credit. Only consented court and availability notices are shown. Witness interference and evidence destruction remain separate designs.
+
 ## Running Locally
 
 No build step is required.

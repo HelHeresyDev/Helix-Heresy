@@ -10,6 +10,7 @@
     if (buyer.buyerService) return;
     buyer.buyerService = { openedAt: at, locationId: buyer.cityId,
       premises: { id: `${buyer.id}:receiving-desk`, cityId: buyer.cityId, publicAccess: true,
+        encounter: { separationMeters: 3, visible: true, barrier: false },
         departureStand: { id: `${buyer.id}:public-departure-stand`, distanceKm: 1, open: true, publicAccess: true },
         route: { id: `${buyer.id}:local-court-route`, distanceKm: 2, open: true } },
       contact: { handle: `${buyer.id}:records-contact`, accountId: `${buyer.id}:records-account`, label: `${buyer.name} records account` },

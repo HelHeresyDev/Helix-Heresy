@@ -1,9 +1,10 @@
 (function (root, factory) {
   const api = factory(typeof module === 'object' && module.exports ? require('./cargo-charging') : root.HelixCargoCharging,
-    typeof module === 'object' && module.exports ? require('./jail-custody') : root.HelixJailCustody);
+    typeof module === 'object' && module.exports ? require('./jail-custody') : root.HelixJailCustody,
+    typeof module === 'object' && module.exports ? require('./cargo-threats') : root.HelixCargoThreats);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixCargoCustody = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Charging, Jail) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Charging, Jail, Threats) {
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x)), same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const able = p => p?.status === 'alive' && p.health >= 50 && (p.fatigue || 0) < 80;
@@ -17,11 +18,13 @@
       cell: { id, kind: 'jail', cityId: g.cityId, label: 'Local cargo pretrial holding cell', roomIds: [id], reservation: null, occupant: null, locked: false, failOpenTimer: true },
       collar: { id: `${id}:collar`, available: true, condition: 100, locationId: id, failOpenTimer: true }, meals: 4, power: 12,
       jail: Jail.defaultState(), witnessRecords: [], job: null, lastAt: at };
+    Threats.provision(g.custodyOffice, at);
   }
   function current(g, d, findings) {
     const o = g.custodyOffice, c = g.cargoCourt, a = d.appearance;
     const r = g.criminalIntake?.referrals.find(r => r.id === d.referralId);
-    return Boolean(g.active && g.jurisdiction === 'city' && o?.active && o.policy.active && c?.active
+    const policy = d.custodyCase?.ground === 'immediateThreat' ? o?.threatPolicy : o?.policy;
+    return Boolean(g.active && g.jurisdiction === 'city' && o?.active && policy?.active && c?.active
       && g.judiciary?.active && g.judiciary.cityId === g.cityId && g.judiciary.institutionId === c.institutionId
       && o.cityId === g.cityId && o.institutionId === c.institutionId && d.cityId === g.cityId
       && d.status === 'allowed' && d.handoff?.decisionId === a?.decisionId && a.servedAt != null && !a.withdrawnAt
@@ -44,6 +47,7 @@
       (s.availabilityNotices ||= []).push({ at, text });
   }
   function grounds(g, d, j, findings) {
+    if (j.ground === 'immediateThreat') return current(g, d, findings) && Threats.supported(g, d, j);
     const r = j.submission, original = g.custodyOffice.witnessRecords.find(x => x.report.id === r?.id);
     const a = d.appearance;
     return Boolean(current(g, d, findings) && a.phase === 'notAttended' && original?.status === 'retained' && same(original.report, r)
@@ -58,8 +62,11 @@
   }
   function orderValid(g, d, j, at) {
     const order = j.order, decision = j.decisions.find(x => x.id === order?.decisionId);
+    const law = j.ground === 'immediateThreat' ? g.custodyOffice.threatPolicy : g.custodyOffice.policy;
     return Boolean(order?.status === 'active' && order.kind === 'peacefulProduction' && order.cityId === g.cityId
-      && order.actorId === d.actorId && order.institutionId === g.cargoCourt.institutionId && order.lawId === g.custodyOffice.policy.id
+      && order.actorId === d.actorId && order.institutionId === g.cargoCourt.institutionId && order.lawId === law?.id
+      && (j.ground !== 'immediateThreat' || (order.ground === j.ground && decision?.ground === j.ground
+        && order.executeBy === j.submission.validUntil && (j.custodyActive || at < order.executeBy)))
       && same(order.document, d.appearance.document) && order.issuedAt <= at && at < order.expiresAt
       && decision?.status === 'authorized' && decision.at === order.issuedAt && decision.judgeId === order.judgeId);
   }
@@ -103,6 +110,7 @@
       const b = s.buyers.find(b => b.cityId === g.cityId && b.buyerService?.premises?.id === j.location.siteId);
       const site = b?.buyerService.premises, p = b?.buyerService.representatives.find(p => p.id === j.personId);
       const dt = Math.max(0, at - j.lastAt); j.lastAt = at;
+      if (j.ground === 'immediateThreat') Threats.update(g, j, p, site, at);
       if (j.custodyActive && (at >= j.releaseBy || !current(g, d, findings) || !grounds(g, d, j, findings) || !orderValid(g, d, j, at)))
         release(g, d, b, p, j, Math.min(at, j.releaseBy), at >= j.releaseBy ? 'The six-hour custody limit expired; the physical timed-release safeguard operated.' : 'Authority or supporting evidence withdrawn; release authorized.');
       if (!site) { j.wasReady = false; continue; }
@@ -129,6 +137,10 @@
         j.attempts.push({ at, siteId: site.id, outcome: target ? 'identified' : 'noVerifiedPerson' });
         if (!target) { j.phase = 'officerReturn'; j.wasReady = false; continue; }
         j.personId = target.id; const response = target.custodyPreferences?.followup || 'silent';
+        if (Threats.begin(g, j, target, site, at)) {
+          availability(b, target, at, 'Receiving representative is occupied in a local public-desk encounter; no custody has begun.');
+          continue;
+        }
         j.response = { at, witnessId: o.officers[0].id, kind: response, explanation: String(target.custodyPreferences?.explanation || '').slice(0, 400) };
         if (response === 'cooperate' || response === 'reschedule') {
           a.phase = 'awaitingAttendance'; a.dueAt = at + 86400; a.lastAt = at; a.wasReady = false;
@@ -146,6 +158,13 @@
         availability(b, target, at, 'Receiving representative has left the receiving desk; no replacement assigned.');
         continue;
       }
+      if (j.phase === 'threatEncounter') {
+        if (!ready || !identified(s, p, j.document, at)) { j.wasReady = false; continue; }
+        if (!Threats.observe(g, d, j, p, site, at, seconds)) continue;
+        j.phase = 'authorization'; j.progress = 0; j.reviewReady = false;
+        tell(b, p, j, at, 'Public-desk conduct report retained for separate immediate-threat review. Words, observed movement, apparent means and contrary explanations are recorded; no custody or guilt follows from the report.');
+        continue;
+      }
       if (j.phase === 'observedDeparture') {
         if (!ready || !able(p) || p.assignment !== j.id || p.locationId !== j.personLocation || !stand.open) { j.wasReady = false; continue; }
         const moved = Math.min(seconds / 900, stand.distanceKm - j.personKm, p.provisions * 32, 80 - p.fatigue,
@@ -161,17 +180,27 @@
         o.witnessRecords.push({ report: copy(report), status: 'retained' }); j.submission = copy(report); j.phase = 'authorization'; j.progress = 0; j.wasReady = false; continue;
       }
       if (j.phase === 'authorization') {
+        const threat = j.ground === 'immediateThreat';
+        if (threat && at >= j.submission.validUntil) {
+          freeJudge(c, j, at); j.phase = 'releaseReturn'; j.wasReady = false;
+          tell(b, p, j, at, 'Immediate-threat encounter expired before executable review. No stale threat order, detention or adverse finding.'); continue;
+        }
         const canReview = local && o.channelPowered && c.channelPowered && o.power > 0 && able(c.judge) && c.judge.locationId === c.id && c.workSeconds > 0 && !c.job && !c.appearanceJob && !c.trialJob && (!c.custodyJob || c.custodyJob === j.id);
         if (!canReview) { j.reviewReady = false; continue; }
         if (!c.custodyJob) { c.custodyJob = j.id; j.judgeId = c.judge.id; j.reviewReady = false; }
         if (j.judgeId !== c.judge.id) { j.progress = 0; j.judgeId = c.judge.id; j.reviewReady = false; }
-        const work = j.reviewReady ? Math.min(dt, 1800 - j.progress, c.workSeconds) : 0; j.reviewReady = true; j.progress += work; c.workSeconds -= work;
-        if (j.progress < 1800) continue;
-        const supported = grounds(g, d, j, findings); o.power--; freeJudge(c, j, at);
+        const requiredWork = threat ? 60 : 1800;
+        const work = j.reviewReady ? Math.min(dt, requiredWork - j.progress, c.workSeconds) : 0; j.reviewReady = true; j.progress += work; c.workSeconds -= work;
+        if (j.progress < requiredWork) continue;
+        const supported = grounds(g, d, j, findings) && (!threat || Threats.current(g, j, p, site, at)); o.power--; freeJudge(c, j, at);
         j.decisions.push({ id: `${j.id}:decision:${j.decisions.length + 1}`, at, judgeId: c.judge.id, status: supported ? 'authorized' : 'insufficientGrounds', sources: [a.id, j.submission.id],
-          reason: supported ? 'Source-matched acknowledgment and actual witnessed departure expressly to evade the served obligation support temporary production for review only.' : 'No sufficient uncontradicted evasion grounds: ordinary departure, silence, unresolved explanations and defective source records cannot justify custody.' });
+          ...(threat ? { ground: 'immediateThreat' } : {}),
+          reason: threat ? (supported ? 'Specific threatened harm, witnessed close approach with an apparently functional raised fist, and a still-current unobstructed opportunity support peaceful temporary production and prompt review only.'
+            : 'Immediate threat not established: words alone, blocked opportunity, retraction, contrary explanations or defective retained sources are insufficient.')
+            : supported ? 'Source-matched acknowledgment and actual witnessed departure expressly to evade the served obligation support temporary production for review only.' : 'No sufficient uncontradicted evasion grounds: ordinary departure, silence, unresolved explanations and defective source records cannot justify custody.' });
         if (!supported) { j.phase = 'releaseReturn'; j.wasReady = false; continue; }
-        j.order = { id: `${j.id}:custody-order`, kind: 'peacefulProduction', decisionId: j.decisions.at(-1).id, judgeId: c.judge.id, institutionId: c.institutionId, lawId: o.policy.id,
+        j.order = { id: `${j.id}:custody-order`, kind: 'peacefulProduction', decisionId: j.decisions.at(-1).id, judgeId: c.judge.id, institutionId: c.institutionId, lawId: threat ? o.threatPolicy.id : o.policy.id,
+          ...(threat ? { ground: 'immediateThreat', executeBy: j.submission.validUntil } : {}),
           cityId: g.cityId, actorId: d.actorId, document: copy(j.document), issuedAt: at, expiresAt: at + 86400, status: 'active',
           scope: 'Peaceful local production to temporary jail and prompt review only. No forced entry, conviction, prison sentence or authority over cargo.' };
         tell(b, p, j, at, 'Separate judicial custody order issued on the retained witnessed conduct. No conviction or cargo power follows.');
@@ -179,7 +208,9 @@
       }
       if (j.phase === 'execution') {
         if (!orderValid(g, d, j, at) || !grounds(g, d, j, findings)) { j.order.status = 'expiredOrWithdrawn'; j.phase = 'releaseReturn'; j.wasReady = false; continue; }
-        if (!ready || !stand.publicAccess || !o.officers.every(x => x.locationId === stand.id) || p?.locationId !== stand.id || !identified(s, p, j.document, at)) { j.delay = 'No feasible encounter with the verified subject at the witnessed public location. No remote arrest or pursuit by hidden state.'; j.wasReady = false; continue; }
+        const place = j.ground === 'immediateThreat' ? site : stand;
+        if (j.ground === 'immediateThreat' && !Threats.current(g, j, p, site, at)) { j.order.status = 'expiredOrWithdrawn'; j.phase = 'releaseReturn'; j.wasReady = false; continue; }
+        if (!ready || !place.publicAccess || !o.officers.every(x => x.locationId === place.id) || p?.locationId !== place.id || !identified(s, p, j.document, at)) { j.delay = 'No feasible encounter with the verified subject at the witnessed public location. No remote arrest or pursuit by hidden state.'; j.wasReady = false; continue; }
         if (p.custodyPreferences?.peacefulSurrender !== true) { tell(b, p, j, at, 'Peaceful compliance not obtained. Force is outside this procedure; execution unresolved.'); j.phase = 'releaseReturn'; j.wasReady = false; continue; }
         const required = j.distanceKm * 1800 + 7200;
         if (o.cell.reservation || o.cell.occupant || !o.cell.failOpenTimer || !o.collar.failOpenTimer || !o.collar.available || o.collar.condition < 50 || o.meals < 1 || o.power < 2
@@ -187,6 +218,7 @@
         o.cell.reservation = j.id; o.collar.available = false; o.power--; j.arrestedAt = at; j.releaseBy = at + 21600; j.custodyActive = true;
         o.collar.locationId = p.id; o.collar.timedReleaseAt = o.cell.timedReleaseAt = j.releaseBy; j.order.executedAt = at;
         p.custody = { caseId: j.id, orderId: j.order.id, active: true, startedAt: at, releaseBy: j.releaseBy, collarId: o.collar.id, suppressionActive: true };
+        if (j.ground === 'immediateThreat') p.localPosition = null;
         j.transportDepartedAt = at; j.phase = 'escort'; j.wasReady = false;
         tell(b, p, j, at, 'Order personally served and peaceful surrender recorded. Cell and escort reserved; timed collar suppresses magic. Review and physical release are due within six hours of arrest.');
         continue;
@@ -220,19 +252,24 @@
         const work = j.reviewReady ? Math.min(dt, 600 - j.progress, c.workSeconds) : 0; j.reviewReady = true; j.progress += work; c.workSeconds -= work;
         if (j.progress < 600) continue;
         j.review = { at, judgeId: c.judge.id, challengeIds: j.challenges.map(x => x.kind), sources: [a.id, j.submission.id],
-          reason: 'Identity, service, cited conduct and challenges reviewed. Defendant now physically available and case documents supplied; this bounded production purpose is satisfied. No continued detention, trial or guilt determination.' };
+          reason: j.ground === 'immediateThreat'
+            ? 'Identity, observed threat, contrary explanations and challenges reviewed after peaceful surrender. This bounded encounter has ended; no continuing custody, new conviction or punishment is authorized.'
+            : 'Identity, service, cited conduct and challenges reviewed. Defendant now physically available and case documents supplied; this bounded production purpose is satisfied. No continued detention, trial or guilt determination.' };
         j.caseDisclosure = copy(d.proposals.at(-1)); o.power--; release(g, d, b, p, j, at, j.review.reason); continue;
       }
       if (['releaseReturn', 'officerReturn'].includes(j.phase)) {
         // Released people walk independently: unavailable officers cannot prolong custody.
         if (p?.assignment === j.id) {
           if (j.returnPersonKm == null) j.returnPersonKm = j.distanceKm;
-          const pReady = able(p) && p.locationId === j.personLocation && p.provisions > 0 && route.open && (j.returnPersonKm <= route.distanceKm || stand.open);
+          const alreadyAtDesk = Math.abs(route.distanceKm - j.returnPersonKm) < 1e-8;
+          const pReady = able(p) && p.locationId === j.personLocation && (alreadyAtDesk
+            || (p.provisions > 0 && route.open && (j.returnPersonKm <= route.distanceKm || stand.open)));
           const moved = pReady && j.personReturnReady ? Math.min(Math.abs(route.distanceKm - j.returnPersonKm), dt / 900, p.provisions * 32) : 0; j.personReturnReady = Boolean(pReady);
           j.returnPersonKm += Math.sign(route.distanceKm - j.returnPersonKm) * moved; p.provisions -= moved / 32;
           if (moved > 0) p.locationId = j.personLocation = `${j.id}:free-return:${j.returnPersonKm}`;
           if (pReady && Math.abs(route.distanceKm - j.returnPersonKm) < 1e-8) {
-            p.assignment = null; p.locationId = b.cityId; p.availableAt = at; j.personReturnedAt = at;
+            p.assignment = null; p.locationId = b.cityId; if (j.ground === 'immediateThreat') p.localPosition = null;
+            p.availableAt = at; j.personReturnedAt = at;
             availability(b, p, at, 'Receiving representative has returned to the desk; no replacement or account-wide finding.');
           }
         }
