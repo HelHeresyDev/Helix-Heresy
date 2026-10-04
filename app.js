@@ -82707,6 +82707,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         dataset: { cargoSentencingNotice: notice.sentencingId }, subtitle: `${formatClock(notice.at)}: ${notice.text} ${notice.scope}` }));
       for (const notice of buyer.buyerService?.judgmentReviewNotices || []) section.append(storesRowEl(buyer.name, "Receiver-shared judgment review", {
         dataset: { cargoJudgmentReviewNotice: notice.reviewId }, subtitle: `${formatClock(notice.at)}: ${notice.text} ${notice.scope}` }));
+      for (const notice of buyer.buyerService?.finePaymentNotices || []) section.append(storesRowEl(buyer.name, "Receiver-shared fine payment", {
+        dataset: { cargoFinePaymentNotice: notice.fineId }, subtitle: `${formatClock(notice.at)}: ${notice.text} ${notice.scope}` }));
     }
     for (const docket of gate.cargoCourt?.dockets || []) {
       const notice = docket.notices.at(-1);

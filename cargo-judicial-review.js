@@ -23,6 +23,10 @@
           role: 'cargoJudgmentReview', status: 'alive', health: 100, locationId: id },
         counsel: { id: `${id}:review-counsel`, name: 'Cargo review defense counsel', status: 'alive', health: 100,
           locationId: id, acceptsAppointments: true, workSeconds: 7200 } },
+      fineOffice: { id: `${id}:fine-office`, cityId: gate.cityId, institutionId: court.institutionId, locationId: id,
+        active: true, channelPowered: true, power: 12, workSeconds: 7200, money: 0, receipts: [],
+        officer: { id: `${id}:fine-officer`, name: `${court.name || court.institutionId} fine settlement officer`,
+          role: 'voluntaryFineSettlement', status: 'alive', health: 100, locationId: id } },
       power: 12, workSeconds: 21600, lastAt: at, wasReady: false, job: null, dockets: [] };
   }
   function connectedCourt(gate) {

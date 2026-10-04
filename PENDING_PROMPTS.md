@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Smuggling: Lawful Cargo Sentence Enforcement
+1. Smuggling: Physical Cargo Custodial Commitment
 2. Smuggling: Threats, Witness Interference, and Evidence Destruction
 3. Smuggling: Violent Interception and Crew Rescue
 4. World Integration: Investigations and Institutional Pressure
@@ -89,11 +89,11 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Smuggling: Lawful Cargo Sentence Enforcement
+## 1. Smuggling: Physical Cargo Custodial Commitment
 
-After separately completed judgment review, discuss a bounded enforcement slice for a final, unstayed local sentence. A fine belongs to its actual defendant, not automatically to the company, buyer account, employer or scientist; collection needs supported asset ownership and lawful access. A custodial sanction needs separate current authority, correct identity, actual escorts, available transport and a receiving institution. Temporary jail and long-term prison remain distinct, life imprisonment does not exist, and conviction or confinement is never game over. Split financial collection, physical commitment and other sanctions into further prompts as needed. Never turn a sentencing handoff into automatic payment, arrest, teleportation or foreign enforcement.
+After separately completed judgment review, discuss a bounded physical commitment slice for a final, unstayed local custodial sentence. Custody needs separate current authority, correct identity, actual escorts, available transport and a receiving institution. Temporary jail and long-term prison remain distinct, life imprisonment does not exist, and conviction or confinement is never game over. Split transport, admission and other sanctions into further prompts as needed. Never turn a sentencing handoff into automatic payment, arrest, teleportation or foreign enforcement. Unpaid fines are not custodial sentences.
 
-Consume the linked independent-review disposition, not the immutable original sentence's historical stay alone. Affirmance and correction currently grant no collection or custody power. Retrial/resentencing handoff execution, authenticated hardship mitigation and extraordinary post-review relief remain separate designs, not implicit parts of enforcement.
+Consume the linked independent-review disposition, not the immutable original sentence's historical stay alone. Affirmance and correction themselves grant no collection or custody power. Voluntary local employer-sponsored fine settlement is implemented separately; it cannot seize assets or turn unpaid balances into custody. Compulsory collection, authenticated personal accounts and hardship assessment, negotiated payment plans, additional sponsorship grants, cross-city company support, refunds after later relief, retrial/resentencing handoff execution and extraordinary post-review relief remain separate designs, not implicit parts of custodial commitment.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 

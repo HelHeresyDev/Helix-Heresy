@@ -150,6 +150,8 @@ Trait outcomes and gene mappings are intentionally hidden during normal play so 
 
 Completed cargo sentences receive a separate mandatory independent review, with fresh notice, optional supported challenges and review-specific counsel. Linked decisions preserve the original records and may affirm, reduce an unsupported excessive penalty, vacate or refer for a separate rehearing. Missing actors or evidence keep enforcement stayed. Receiver-consented review notices appear in Foreign Smuggling; even an affirmed sentence does not automatically collect money or authorize custody.
 
+Final reviewed cargo fines can be paid through separate voluntary local settlement. A verified defendant may consent to a distinct employer treasurer contributing business funds within a saved limit. Fresh notices, partial-payment receipts and full satisfaction are retained across saves; the defendant's personal wealth is never inferred. No automatic reimbursement debt, interest, arrest or imprisonment follows from sponsorship or an unpaid balance. Consented payment notices appear in Foreign Smuggling without exposing private balances or granting control of NPC finances.
+
 ## Running Locally
 
 No build step is required.

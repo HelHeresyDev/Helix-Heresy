@@ -19,6 +19,7 @@
     person.sentencingPreferences = { acceptNotice: true, attend: true, representation: 'counsel', requestMitigation: true };
     person.judgmentReviewPreferences = { acceptNotice: true, attend: true, representation: 'counsel',
       challenges: ['identity', 'transaction', 'contraband', 'knowledge', 'authorization', 'procedure', 'penalty'] };
+    person.finePaymentPreferences = { acceptNotice: true, discloseToEmployer: true, acceptEmployerContribution: true };
     person.custodyPreferences = { followup: 'cooperate', peacefulSurrender: true, challenge: 'grounds' };
     person.chemicalPreferences = { understandsDeclarations: true, acknowledgesDeclarations: true, requireVerification: false, requireAuthorization: false, refuseDeclaredProducts: [] };
   }
