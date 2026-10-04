@@ -152,6 +152,8 @@ Completed cargo sentences receive a separate mandatory independent review, with 
 
 Final reviewed cargo fines can be paid through separate voluntary local settlement. A verified defendant may consent to a distinct employer treasurer contributing business funds within a saved limit. Fresh notices, partial-payment receipts and full satisfaction are retained across saves; the defendant's personal wealth is never inferred. No automatic reimbursement debt, interest, arrest or imprisonment follows from sponsorship or an unpaid balance. Consented payment notices appear in Foreign Smuggling without exposing private balances or granting control of NPC finances.
 
+Reviewed finite-prison sentences now support separate commitment planning: local judicial verification, once-only documented custody credit, fresh notice, an independent voluntary response and an actual receiving-prison placement reservation. Bed, vehicle and crew reservations expire without penalizing the defendant. The person remains free; planning does not move, detain or imprison them. Physical transfer, prison service and release remain the next separate pass. Consented planning notices are visible in Foreign Smuggling.
+
 ## Running Locally
 
 No build step is required.

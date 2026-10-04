@@ -82522,9 +82522,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (localRegistry) BuyerIdentity.provision(smuggling, { institutionId: current?.institutionId || localRegistry.id, cityId, name: localRegistry.publicName, active, localDistanceKm: 2 }, state.clock);
       if (map) for (const office of smuggling.identityOffices || []) if (office.cityId === cityId) office.active = active && office.institutionId === (current?.institutionId || localRegistry?.id);
     }
-    for (const gate of smuggling.checkpoints || []) if (!gate.productScheduleChecked) {
-      CargoPropertyReview.publish(gate, gate.productScheduleCode, gate.productScheduleCourt, state.clock); gate.productScheduleChecked = true;
-      CargoCriminalReferrals.provision(gate, gate.productScheduleCode, gate.criminalIntakeInstitution, state.clock);
+    for (const gate of smuggling.checkpoints || []) {
+      if (!gate.productScheduleChecked) {
+        CargoPropertyReview.publish(gate, gate.productScheduleCode, gate.productScheduleCourt, state.clock); gate.productScheduleChecked = true;
+        CargoCriminalReferrals.provision(gate, gate.productScheduleCode, gate.criminalIntakeInstitution, state.clock);
+      }
+      const government = map?.cityGovernments?.governments.find(g => g.cityId === gate.cityId);
+      const correctionsId = government?.roleAssignments.longTermCorrectionsAuthority;
+      const corrections = government?.institutions.find(i => i.id === correctionsId);
+      const correctionsCurrent = map?.strategicCivicHistory ? StrategicCivicHistory.currentInstitutionForRole(map, gate.cityId, "longTermCorrectionsAuthority") : null;
+      gate.correctionsAuthority = corrections ? { cityId: gate.cityId, role: "longTermCorrectionsAuthority",
+        institutionId: correctionsCurrent?.institutionId || corrections.id, name: corrections.publicName,
+        jailInstitutionId: government.roleAssignments.temporaryJailAuthority,
+        active: !map.strategicCivicHistory || Boolean(correctionsCurrent && !["displaced", "disrupted"].includes(correctionsCurrent.operationalStatus)),
+        capacityBand: correctionsCurrent?.capacityBand || corrections.capacityBand || "adequate" } : null;
     }
     return smuggling;
   }
@@ -82709,6 +82720,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         dataset: { cargoJudgmentReviewNotice: notice.reviewId }, subtitle: `${formatClock(notice.at)}: ${notice.text} ${notice.scope}` }));
       for (const notice of buyer.buyerService?.finePaymentNotices || []) section.append(storesRowEl(buyer.name, "Receiver-shared fine payment", {
         dataset: { cargoFinePaymentNotice: notice.fineId }, subtitle: `${formatClock(notice.at)}: ${notice.text} ${notice.scope}` }));
+      for (const notice of buyer.buyerService?.commitmentNotices || []) section.append(storesRowEl(buyer.name, "Receiver-shared commitment planning", {
+        dataset: { cargoCommitmentNotice: notice.commitmentId }, subtitle: `${formatClock(notice.at)}: ${notice.text} ${notice.scope}` }));
     }
     for (const docket of gate.cargoCourt?.dockets || []) {
       const notice = docket.notices.at(-1);

@@ -39,5 +39,20 @@ test('fine notices persist in Foreign Smuggling without leaking balances or gran
   await expect(notices.locator('button')).toHaveCount(0);
   expect((await notices.allTextContents()).join(' ')).not.toContain('880');
   expect(await page.evaluate(() => typeof window.HelixCargoFinePayment.advance)).toBe('function');
+  await expect(page.locator('[data-cargo-commitment-notice]')).toHaveCount(0);
+  const { commitmentFixture } = require('./helpers/cargo-commitment-fixture');
+  const planned = commitmentFixture(); planned.person.courtPreferences.shareNotices = true; planned.untilCommitment('reserved');
+  await page.evaluate(notices => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState();
+    s.economy.intercitySmuggling.buyers[0].buyerService.commitmentNotices = notices;
+    d.importSurveyExpeditionTestState(s); d.reloadSurveyExpeditionTestState();
+  }, planned.buyer.buyerService.commitmentNotices);
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  const planning = page.locator('[data-cargo-commitment-notice]');
+  await expect(planning).toHaveCount(3);
+  await expect(planning.first()).toContainText('2 months finite prison');
+  await expect(planning.last()).toContainText('Defendant remains free');
+  await expect(planning.locator('button')).toHaveCount(0);
+  expect(await page.evaluate(() => typeof window.HelixCargoCommitment.advance)).toBe('function');
   expect(errors).toEqual([]);
 });

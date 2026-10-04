@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Smuggling: Physical Cargo Custodial Commitment
+1. Smuggling: Physical Cargo Transfer, Prison Service, and Release
 2. Smuggling: Threats, Witness Interference, and Evidence Destruction
 3. Smuggling: Violent Interception and Crew Rescue
 4. World Integration: Investigations and Institutional Pressure
@@ -89,7 +89,9 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Smuggling: Physical Cargo Custodial Commitment
+## 1. Smuggling: Physical Cargo Transfer, Prison Service, and Release
+
+Separate commitment planning is implemented: exact local reviewed sentence, documented case-linked credit, fresh notice, voluntary response and a receiving-prison acceptance with one-hour asset reservations. Persons remain free, credit is allocated but not consumed, and expired arrangements do not automatically rebook or create failure-to-appear findings. Discuss fresh arrangements after postponement or a changed response, then actual custody authorization, pickup, transport, admission, finite prison service and physical release. Include the release path before enabling admission. Count lawful detention from actual custody, including transport delays; do not count free waiting or apply the same prior credit twice. The current cargo-jail receipt adapter covers its bounded six-hour detention; any additional intervals need actual sources and non-overlapping accounting. Do not adapt scientist-only identity, vehicles or prison beds by substituting an NPC name.
 
 After separately completed judgment review, discuss a bounded physical commitment slice for a final, unstayed local custodial sentence. Custody needs separate current authority, correct identity, actual escorts, available transport and a receiving institution. Temporary jail and long-term prison remain distinct, life imprisonment does not exist, and conviction or confinement is never game over. Split transport, admission and other sanctions into further prompts as needed. Never turn a sentencing handoff into automatic payment, arrest, teleportation or foreign enforcement. Unpaid fines are not custodial sentences.
 

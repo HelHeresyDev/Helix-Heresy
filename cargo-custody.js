@@ -67,6 +67,15 @@
     const o = g.custodyOffice;
     if (j.releasedAt != null) return;
     j.releasedAt = at; j.custodyActive = false;
+    // Retain actual, closed detention intervals for later case-specific sentence
+    // credit. Released walking time and unexecuted orders supply no credit.
+    if (p?.id === j.personId && Number.isFinite(j.arrestedAt) && j.order?.executedAt === j.arrestedAt && at >= j.arrestedAt) {
+      o.custodyReceipts ||= [];
+      const id = `${j.id}:detention-receipt`;
+      if (!o.custodyReceipts.some(r => r.id === id)) o.custodyReceipts.push({ id, caseId: j.id, docketId: d.id,
+        personId: p.id, cityId: g.cityId, institutionId: o.institutionId, orderId: j.order.id,
+        startedAt: j.arrestedAt, endedAt: at, reason, document: copy(j.document) });
+    }
     j.collarRecovered = o.officers.some(x => able(x) && x.locationId === p?.locationId);
     o.collar.locationId = j.collarRecovered ? o.officers.find(x => able(x) && x.locationId === p.locationId).id : o.collar.locationId;
     o.collar.timedReleaseAt = null; o.cell.timedReleaseAt = null;

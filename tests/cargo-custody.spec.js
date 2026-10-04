@@ -29,6 +29,9 @@ test('witnessed deliberate evasion leads through independent authorization, phys
   expect(JSON.stringify(stay.history)).not.toContain('scientist'); expect(stay.knowledge.labSnapshot).toEqual({});
   expect(f.job().challenges).toHaveLength(1); expect(f.job().defendantPacket.order.id).toBe(f.job().order.id);
   f.until('closed'); expect(f.office().jail.stays[0].status).toBe('released');
+  expect(f.office().custodyReceipts).toHaveLength(1);
+  expect(f.office().custodyReceipts[0]).toMatchObject({ personId: f.person.id, docketId: f.d.id,
+    startedAt: f.job().arrestedAt, endedAt: f.job().releasedAt, orderId: f.job().order.id });
   expect(f.person.custody).toMatchObject({ active: false, suppressionActive: false });
   expect(f.job().personReturnedAt).toBeGreaterThan(f.job().releasedAt); expect(f.person.locationId).toBe('b');
   expect(Buyer.canReceive(f.buyer)).toBe(true); expect(f.office().cell.occupant).toBeNull();
