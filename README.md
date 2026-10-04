@@ -148,6 +148,8 @@ For story background, long-term systems, current design direction, and open ques
 
 Trait outcomes and gene mappings are intentionally hidden during normal play so they can be discovered experimentally.
 
+Completed cargo sentences receive a separate mandatory independent review, with fresh notice, optional supported challenges and review-specific counsel. Linked decisions preserve the original records and may affirm, reduce an unsupported excessive penalty, vacate or refer for a separate rehearing. Missing actors or evidence keep enforcement stayed. Receiver-consented review notices appear in Foreign Smuggling; even an affirmed sentence does not automatically collect money or authorize custody.
+
 ## Running Locally
 
 No build step is required.

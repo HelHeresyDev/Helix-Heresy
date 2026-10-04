@@ -171,5 +171,22 @@ test('appearance notices browser shows received availability, not undisclosed co
   await expect(page.locator('[data-cargo-sentencing-notice]').last()).toContainText('stayed pending separate judgment review');
   await expect(page.locator('[data-cargo-sentencing-notice]').last()).toContainText(`fine of ${published.ranges.contrabandCommerce.minimum} credits`);
   await expect(page.locator('[data-cargo-sentencing-notice]').last()).toContainText('No payment, custody, imprisonment or enforcement authorized');
+  await expect(page.locator('[data-cargo-judgment-review-notice]')).toHaveCount(0);
+  const Review = require('../cargo-judgment-review');
+  let reviewAt = sentenced.sentencingClock();
+  for (let n = 0; n < 1600 && sentenced.d.judgmentReview?.phase !== 'decided'; n++) {
+    reviewAt += 60; Review.advance(sentenced.state, sentenced.gate, reviewAt, Referrals.findings);
+  }
+  expect(sentenced.d.judgmentReview.decision.outcome).toBe('affirmed');
+  await page.evaluate(notices => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState();
+    s.economy.intercitySmuggling.buyers[0].buyerService.judgmentReviewNotices = notices;
+    d.importSurveyExpeditionTestState(s); d.reloadSurveyExpeditionTestState();
+  }, sentenced.buyer.buyerService.judgmentReviewNotices);
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  await expect(page.locator('[data-cargo-judgment-review-notice]')).toHaveCount(2);
+  await expect(page.locator('[data-cargo-judgment-review-notice]').last()).toContainText('Cargo review affirmed');
+  await expect(page.locator('[data-cargo-judgment-review-notice]').last()).toContainText('No collection, arrest, custody or foreign enforcement');
+  expect(await page.evaluate(() => typeof window.HelixCargoJudgmentReview.advance)).toBe('function');
   expect(errors).toEqual([]);
 });

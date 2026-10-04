@@ -17,6 +17,12 @@
       judge: { id: `${id}:judge`, name: `${court.name || court.institutionId} cargo judge`, status: 'alive', health: 100, locationId: id },
       counsel: { id: `${id}:public-counsel`, name: `${court.name || court.institutionId} public defense counsel`, status: 'alive', health: 100,
         locationId: id, acceptsAppointments: true, workSeconds: 7200 },
+      reviewOffice: { id: `${id}:review`, institutionId: court.institutionId, cityId: gate.cityId,
+        active: true, channelPowered: true, power: 12, workSeconds: 7200,
+        reviewer: { id: `${id}:reviewer`, name: `${court.name || court.institutionId} independent cargo reviewer`,
+          role: 'cargoJudgmentReview', status: 'alive', health: 100, locationId: id },
+        counsel: { id: `${id}:review-counsel`, name: 'Cargo review defense counsel', status: 'alive', health: 100,
+          locationId: id, acceptsAppointments: true, workSeconds: 7200 } },
       power: 12, workSeconds: 21600, lastAt: at, wasReady: false, job: null, dockets: [] };
   }
   function connectedCourt(gate) {
