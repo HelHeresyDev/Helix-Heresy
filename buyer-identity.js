@@ -25,6 +25,7 @@
     person.custodyPreferences = { followup: 'cooperate', peacefulSurrender: true, challenge: 'grounds' };
     person.physicalCapabilities = { unarmedStrike: true };
     person.threatPreferences = { response: 'none', reaction: 'remain', explanation: '' };
+    person.interferencePreferences = { request: 'none', continuePressing: false, reaction: 'remain', explanation: '' };
     person.chemicalPreferences = { understandsDeclarations: true, acknowledgesDeclarations: true, requireVerification: false, requireAuthorization: false, refuseDeclaredProducts: [] };
   }
   function provision(state, institution, at) {

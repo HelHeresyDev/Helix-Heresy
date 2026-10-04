@@ -2,7 +2,7 @@ const { test, expect } = require('@playwright/test');
 const { pathToFileURL } = require('url');
 const path = require('path');
 const { threatFixture } = require('./helpers/cargo-threat-fixture');
-test('consented threat review and release notices persist without private intent or NPC controls', async ({ page }) => {
+test('consented threat and interference notices persist without private intent or NPC controls', async ({ page }) => {
   test.setTimeout(180000);
   const f = threatFixture(); f.person.courtPreferences.shareNotices = true; f.until('closed');
   const errors = []; page.on('pageerror', e => errors.push(e.message));
@@ -40,5 +40,19 @@ test('consented threat review and release notices persist without private intent
   expect((await notices.allTextContents()).join(' ')).not.toContain('threatPreferences');
   await expect(page.locator('[data-cargo-appearance-availability]')).toContainText('not live location tracking');
   expect(await page.evaluate(() => typeof window.HelixCargoThreats.supported)).toBe('function');
+  const { interferenceFixture } = require('./helpers/cargo-interference-fixture');
+  const interfered = interferenceFixture(); interfered.person.courtPreferences.shareNotices = true; interfered.until('closed');
+  await page.evaluate(notices => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState();
+    s.economy.intercitySmuggling.buyers[0].buyerService.appearanceNotices = notices;
+    d.importSurveyExpeditionTestState(s); d.reloadSurveyExpeditionTestState();
+  }, interfered.buyer.buyerService.appearanceNotices);
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  await expect(notices).toHaveCount(interfered.buyer.buyerService.appearanceNotices.length);
+  expect((await notices.allTextContents()).join(' ')).toContain('Witness-interference report retained');
+  await expect(notices.last()).toContainText('original and amended testimony');
+  await expect(notices.locator('button')).toHaveCount(0);
+  expect((await notices.allTextContents()).join(' ')).not.toContain('continuePressing');
+  expect(await page.evaluate(() => typeof window.HelixCargoWitnessInterference.supported)).toBe('function');
   expect(errors).toEqual([]);
 });
