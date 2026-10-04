@@ -82722,6 +82722,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         dataset: { cargoFinePaymentNotice: notice.fineId }, subtitle: `${formatClock(notice.at)}: ${notice.text} ${notice.scope}` }));
       for (const notice of buyer.buyerService?.commitmentNotices || []) section.append(storesRowEl(buyer.name, "Receiver-shared commitment planning", {
         dataset: { cargoCommitmentNotice: notice.commitmentId }, subtitle: `${formatClock(notice.at)}: ${notice.text} ${notice.scope}` }));
+      for (const notice of buyer.buyerService?.prisonNotices || []) section.append(storesRowEl(buyer.name, "Receiver-shared prison notice", {
+        dataset: { cargoPrisonNotice: notice.commitmentId }, subtitle: `${formatClock(notice.at)}: ${notice.text} ${notice.scope}` }));
     }
     for (const docket of gate.cargoCourt?.dockets || []) {
       const notice = docket.notices.at(-1);

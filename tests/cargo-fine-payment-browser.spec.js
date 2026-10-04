@@ -2,7 +2,7 @@ const { test, expect } = require('@playwright/test');
 const { pathToFileURL } = require('url');
 const path = require('path');
 const { fineFixture } = require('./helpers/cargo-fine-payment-fixture');
-test('fine notices persist in Foreign Smuggling without leaking balances or granting NPC controls', async ({ page }) => {
+test('fine, commitment and prison notices persist without leaking balances or granting NPC controls', async ({ page }) => {
   test.setTimeout(180000);
   const f = fineFixture(); f.person.courtPreferences.shareNotices = true; f.untilFine('satisfied');
   const errors = []; page.on('pageerror', e => errors.push(e.message));
@@ -54,5 +54,23 @@ test('fine notices persist in Foreign Smuggling without leaking balances or gran
   await expect(planning.last()).toContainText('Defendant remains free');
   await expect(planning.locator('button')).toHaveCount(0);
   expect(await page.evaluate(() => typeof window.HelixCargoCommitment.advance)).toBe('function');
+  await expect(page.locator('[data-cargo-prison-notice]')).toHaveCount(0);
+  const { prisonFixture } = require('./helpers/cargo-prison-fixture');
+  const served = prisonFixture(); served.person.courtPreferences.shareNotices = true;
+  served.untilPrison('imprisoned'); served.stepPrison(served.d.commitment.execution.termEndsAt - served.prisonClock());
+  served.untilPrison('closed');
+  await page.evaluate(notices => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState();
+    s.economy.intercitySmuggling.buyers[0].buyerService.prisonNotices = notices;
+    d.importSurveyExpeditionTestState(s); d.reloadSurveyExpeditionTestState();
+  }, served.buyer.buyerService.prisonNotices);
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  const prison = page.locator('[data-cargo-prison-notice]');
+  await expect(prison).toHaveCount(served.buyer.buyerService.prisonNotices.length);
+  await expect(prison.first()).toContainText('defendant is still free');
+  await expect(prison.last()).toContainText('Free voluntary return completed');
+  expect((await prison.allTextContents()).join(' ')).toContain('Finite sentence completed');
+  await expect(prison.locator('button')).toHaveCount(0);
+  expect(await page.evaluate(() => typeof window.HelixCargoPrison.advance)).toBe('function');
   expect(errors).toEqual([]);
 });

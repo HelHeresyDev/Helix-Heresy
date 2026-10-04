@@ -21,6 +21,7 @@
       challenges: ['identity', 'transaction', 'contraband', 'knowledge', 'authorization', 'procedure', 'penalty'] };
     person.finePaymentPreferences = { acceptNotice: true, discloseToEmployer: true, acceptEmployerContribution: true };
     person.commitmentPreferences = { acceptNotice: true, response: 'cooperate' };
+    person.prisonPreferences = { peacefulSurrender: true, acceptReturnRide: true };
     person.custodyPreferences = { followup: 'cooperate', peacefulSurrender: true, challenge: 'grounds' };
     person.chemicalPreferences = { understandsDeclarations: true, acknowledgesDeclarations: true, requireVerification: false, requireAuthorization: false, refuseDeclaredProducts: [] };
   }

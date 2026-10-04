@@ -9,10 +9,11 @@
     typeof module === 'object' && module.exports ? require('./cargo-sentencing') : root.HelixCargoSentencing,
     typeof module === 'object' && module.exports ? require('./cargo-judgment-review') : root.HelixCargoJudgmentReview,
     typeof module === 'object' && module.exports ? require('./cargo-fine-payment') : root.HelixCargoFinePayment,
-    typeof module === 'object' && module.exports ? require('./cargo-commitment') : root.HelixCargoCommitment);
+    typeof module === 'object' && module.exports ? require('./cargo-commitment') : root.HelixCargoCommitment,
+    typeof module === 'object' && module.exports ? require('./cargo-prison') : root.HelixCargoPrison);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixCargoCriminalReferrals = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Exam, Investigations, Charging, Judicial, Appearance, Custody, Trial, Sentencing, Review, Fines, Commitment) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Exam, Investigations, Charging, Judicial, Appearance, Custody, Trial, Sentencing, Review, Fines, Commitment, Prison) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v));
   const PRODUCTS = ['unlicensedMutagenicPrimer', 'arcaneCatalyticSuspension'];
@@ -143,6 +144,7 @@
       Review.advance(state, gate, at, findings);
       Fines.advance(state, gate, at);
       Commitment.advance(state, gate, at);
+      Prison.advance(state, gate, at);
     }
   }
   return { provision, tick, advance, findings };

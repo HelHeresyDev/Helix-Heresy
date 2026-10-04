@@ -21,10 +21,13 @@
     g.cargoCorrections = { id, cityId: g.cityId, institutionId: a.institutionId, active: true, channelPowered: true,
       establishedAt: at, power: 12, creditClaims: [], dispatcher: actor('dispatcher'), intake: { ...actor('intake'), acceptsPlacements: true },
       facility: { id: prison, kind: 'prison', cityId: g.cityId, institutionId: a.institutionId, status: 'open', capacity: 96,
-        beds: Array.from({ length: 96 }, (_, n) => ({ id: `${prison}:bed:${n}`, reservedBy: null,
+        beds: Array.from({ length: 96 }, (_, n) => ({ id: `${prison}:bed:${n}`, reservedBy: null, condition: 100, failOpen: true, locked: false,
           occupiedBy: n < 96 - vacancies ? `${prison}:registered-occupant:${n}` : null })) },
       vehicle: { id: `${id}:van`, institutionId: a.institutionId, locationId: prison, condition: 100, seats: 4, fuelKm: 40, reservedBy: null },
       crew: [actor('driver'), actor('escort')],
+      care: { ...actor('care'), workSeconds: 72000, rationSeconds: 120 * 86400 },
+      suppressors: Array.from({ length: vacancies }, (_, n) => ({ id: `${id}:bracelet:${n}`, condition: 100,
+        failOpen: true, locationId: prison, reservedBy: null, wearerId: null, active: false })),
       route: { id: `${id}:court-road`, cityId: g.cityId, originId: prison, destinationId: g.cargoCourt.id, open: true, condition: 100, distanceKm: 4, speedKmPerHour: 20 } };
   }
   function basis(g, d) {
@@ -92,7 +95,7 @@
       return 'A proper receiving prison is unavailable; temporary jail is not a substitute.';
     if (!able(r.dispatcher) || !able(r.intake) || r.dispatcher.role !== 'dispatcher' || r.intake.role !== 'intake' || r.intake.acceptsPlacements !== true || r.dispatcher.id === r.intake.id
       || [r.dispatcher, r.intake].some(p => p.institutionId !== r.institutionId || p.locationId !== r.facility.id || p.assignment)
-      || !free(r.job, s.id)) return 'Actual corrections dispatcher or intake staff unavailable.';
+      || r.intake.job || !free(r.job, s.id)) return 'Actual corrections dispatcher or intake staff unavailable.';
     if (!r.facility.beds.some(bed => !bed.occupiedBy && (plan ? bed.id === plan.bedId && bed.reservedBy === plan.id : !bed.reservedBy))) return 'No actual vacant prison bed.';
     if (!route?.open || !(route.distanceKm > 0) || !Number.isFinite(route.distanceKm) || !b.buyerService.premises.publicAccess
       || !r.route?.open || r.route.cityId !== g.cityId || r.route.originId !== r.facility.id || r.route.destinationId !== g.cargoCourt.id
@@ -116,6 +119,8 @@
     const c = g.cargoCourt;
     for (const d of c.dockets) {
       let s = d.commitment, input = basis(g, d);
+      // Physical execution owns its assets and clocks until everyone has returned.
+      if (s?.phase === 'complete' || (s?.execution && s.execution.phase !== 'closed')) continue;
       if (at < (s?.lastAt ?? 0)) continue;
       if (!s && (!input || at < input.reviewAt)) continue;
       provision(g, at);
@@ -162,13 +167,22 @@
       const reachable = bs.channelPowered && bs.credentialActive && !bs.assignment && !p.assignment && (p.availableAt || 0) <= at
         && p.locationId === g.cityId && bs.locationId === g.cityId && Trial.identified(state, p, input.document, at);
       const prefs = p.commitmentPreferences;
+      if (['declined', 'postponed'].includes(s.phase)) {
+        const last = Math.max(s.responses.at(-1)?.at || 0, s.plans.at(-1)?.releasedAt || 0, s.execution?.closedAt || 0);
+        const changedResponse = s.phase === 'declined' && s.responses.at(-1)?.response !== 'cooperate' && prefs?.response === 'cooperate';
+        const requested = Number.isFinite(prefs?.renewalRequestedAt) && prefs.renewalRequestedAt > last
+          && prefs.renewalRequestedAt <= at && prefs.renewalRequestedAt > (s.renewalConsumedAt || 0);
+        if (!reachable || (!changedResponse && !requested)) continue;
+        s.renewalConsumedAt = at; s.phase = 'notice'; s.progress = 0; s.wasReady = false;
+        tell(b, p, s, at, 'Fresh voluntary arrangements requested. Previous reservations and replies do not authorize a new pickup.');
+      }
       if (s.phase === 'notice') {
         if (!reachable || prefs?.acceptNotice !== true || !r.channelPowered || r.power < 1) { pause('Fresh authenticated defendant notice unavailable.'); continue; }
-        s.notices.push({ id: `${s.id}:notice`, at, personId: p.id, reviewId: s.reviews.at(-1).id, remainingSeconds: s.ledger.remainingSeconds,
+        s.notices.push({ id: `${s.id}:notice:${s.notices.length + 1}`, at, personId: p.id, reviewId: s.reviews.at(-1).id, remainingSeconds: s.ledger.remainingSeconds,
           reportingLocationId: input.address.siteId, reportingDueAt: null,
           terms: 'Voluntary reporting arrangement at the verified receiving desk. Wait freely until an actual transfer is arranged; no reporting deadline while execution is unavailable.' });
         r.power--; s.phase = 'response';
-        tell(b, p, s, at, `Commitment notice: ${input.months} months finite prison, ${s.ledger.recognizedCustodySeconds} seconds documented custody credit. Proposed reporting point: ${input.address.siteId}. Remain free; physical transfer is not yet enabled.`); continue;
+        tell(b, p, s, at, `Commitment notice: ${input.months} months finite prison, ${s.ledger.recognizedCustodySeconds} seconds documented custody credit. Proposed reporting point: ${input.address.siteId}. Remain free until separately authorized physical surrender.`); continue;
       }
       if (s.phase === 'response') {
         if (!reachable || !['cooperate', 'decline', 'defer'].includes(prefs?.response)) { pause('Voluntary response unavailable; silence is not evasion.'); continue; }
@@ -192,7 +206,7 @@
       const work = s.wasReady ? Math.min(dt, 300 - s.progress, r.dispatcher.workSeconds, r.intake.workSeconds) : 0;
       s.wasReady = true; s.progress += work; r.dispatcher.workSeconds -= work; r.intake.workSeconds -= work;
       if (s.progress < 300) continue;
-      const bed = r.facility.beds.find(x => !x.occupiedBy && !x.reservedBy), id = `${s.id}:plan`;
+      const bed = r.facility.beds.find(x => !x.occupiedBy && !x.reservedBy), id = `${s.id}:plan:${s.plans.length + 1}`;
       const accepted = { id, at, expiresAt: at + 3600, status: 'reserved', personId: p.id, reviewId: s.reviews.at(-1).id,
         institutionId: r.institutionId, facilityId: r.facility.id, bedId: bed.id, vehicleId: r.vehicle.id, crewIds: r.crew.map(x => x.id),
         dispatcherId: r.dispatcher.id, intakeId: r.intake.id, route: copy(r.route), pickupRoute: copy(bs.premises.route),
