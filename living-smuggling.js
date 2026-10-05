@@ -1,8 +1,9 @@
 (function (root, factory) {
-  const api = factory(typeof module === 'object' && module.exports ? require('./smuggling-checkpoints') : root.HelixSmugglingCheckpoints);
+  const api = factory(typeof module === 'object' && module.exports ? require('./smuggling-checkpoints') : root.HelixSmugglingCheckpoints,
+    typeof module === 'object' && module.exports ? require('./corridor-beasts') : root.HelixCorridorBeasts);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixLivingSmuggling = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Checkpoints) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Checkpoints, Beasts) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v)), HOUR = 3600;
   const stat = (c, key) => Number(c.stats?.[key]?.current) || 0;
@@ -69,7 +70,7 @@
       if (!Checkpoints.pending(sh)) sh.custodian = 'offsite-record';
     }
   }
-  function care(state, sh, seconds, at) {
+  function care(state, sh, seconds, at, op) {
     const l = sh.living, c = sh.manifest?.entries.find(e => e.creature)?.creature;
     if (!c || ['dead', 'escaped', 'received'].includes(l.outcome)) return;
     const hours = seconds / HOUR;
@@ -84,7 +85,10 @@
     l.strain += hours * l.hazard * (1 + stat(c, 'stress') / 20 + (100 - l.podCondition) / 10 + unsupported * 3);
     if (stat(c, 'bodyIntegrity') <= 0 || Number.isFinite(c.deathAt) && at >= c.deathAt) fail(state, sh, 'dead', at);
     else if (l.podCondition <= 0 || l.strain >= l.threshold) fail(state, sh, 'escaped', at);
-    if (l.reportAt === null || at - l.reportAt >= HOUR) {
+    const radio = op?.roadSafety?.radio;
+    const contact = !radio || radio.powered && radio.connected && radio.charges >= 1 && op.crew.some(p => p.trainedHandler && p.status === 'alive' && p.health >= 50);
+    if (contact && (l.reportAt === null || at - l.reportAt >= HOUR)) {
+      if (radio) radio.charges--;
       l.reportAt = at; l.report = { at, health: stat(c, 'bodyIntegrity'), stress: stat(c, 'stress'), nutrition: stat(c, 'nutrition'), podCondition: l.podCondition,
         reserveHours: Math.min(l.foodLeft / l.foodRate, l.waterLeft / .25, l.powerLeft), outcome: l.outcome };
     }
@@ -102,11 +106,13 @@
       }
       if (['returned', 'labReceived'].includes(sh.phase)) continue;
       // Small fixed steps give live needs time to fail before a destination receipt on large clock jumps.
-      while (l.lastAt + 60 <= now) {
-        l.lastAt += 60; const at = l.lastAt;
-        op.provisions = Math.max(0, op.provisions - 60 / (8 * HOUR));
+      const step = Beasts.active(state, sh) ? 1 : 60;
+      while (l.lastAt + step <= now) {
+        l.lastAt += step; const at = l.lastAt;
+        op.provisions = Math.max(0, op.provisions - step / (8 * HOUR));
         if (sh.phase === 'localTransit') sh.positionKm = job?.positionKm || 0;
-        if (sh.receiptAt === null) care(state, sh, 60, at);
+        if (sh.receiptAt === null) care(state, sh, step, at, op);
+        Beasts.tick(state, sh, op, routes.find(r => r.id === sh.routeId), at);
         Checkpoints.expire(state, sh, at);
         if (Checkpoints.tick(state, sh, op, at)) continue;
         if (sh.phase === 'localTransit') {
@@ -141,7 +147,8 @@
         if (!open || !crewReady || op.fuelKm <= 0 || op.provisions <= 0) { sh.reason = 'Biological convoy held; no teleport, rescue or replacement. Care continues.'; continue; }
         const length = local ? sh.localDistanceKm : sh.distanceKm, speed = local ? 24 : 30 / (route.continuity === 'intermittent' ? 1.55 : route.continuity === 'degraded' ? 1.25 : 1);
         const remaining = outward ? length - sh.positionKm : sh.positionKm;
-        const moved = Math.max(0, Math.min(remaining, speed / 60, op.fuelKm));
+        const moved = Math.max(0, Math.min(remaining, speed * step / HOUR, op.fuelKm,
+          Math.max(0, (op.condition - 50) / .02), ...op.crew.map(c => Math.max(0, (80 - c.fatigue) / .04))));
         op.fuelKm -= moved; op.condition -= moved * .02; op.crew.forEach(c => { c.fatigue += moved * .04; });
         sh.positionKm += outward ? moved : -moved; op.location = `${sh.phase}:${sh.positionKm.toFixed(2)}km`; sh.reason = '';
         if (sh.receiptAt === null && !sh.offsiteCreature) sh.custodian = op.vehicleId;

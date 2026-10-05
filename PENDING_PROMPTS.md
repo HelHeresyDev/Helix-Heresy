@@ -18,14 +18,16 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Smuggling: Violent Interception and Crew Rescue
-2. World Integration: Investigations and Institutional Pressure
-3. Lazy Local Detail and World Discovery
-4. Roguelike Run Lifecycle, Death, Postmortem, and Restart
-5. Campaign Roadmap: From Hidden Laboratory to World Domination
-6. New-Run Onboarding and Contextual Tutorial
-7. Sound, Notifications, and Accessibility Audit
-8. Production Art Pass Using the Sprite Pipeline
+1. Smuggling: Armed Robbery and Capture
+2. Smuggling: Captivity, Negotiation, and Recovery
+3. Smuggling: Armed Rescue and Recapture
+4. World Integration: Investigations and Institutional Pressure
+5. Lazy Local Detail and World Discovery
+6. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+7. Campaign Roadmap: From Hidden Laboratory to World Domination
+8. New-Run Onboarding and Contextual Tutorial
+9. Sound, Notifications, and Accessibility Audit
+10. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -87,49 +89,61 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Smuggling: Violent Interception and Crew Rescue
+## 1. Smuggling: Armed Robbery and Capture
 
-Discuss physical beast attacks, robbery and armed interception as distinct encounters with actual actors, approach, vehicles, cargo, crew and location. No abstract disappearance rolls, replacement cargo, automatic scientist death or remote arrest. Keep living care and containment active through captivity. Decide feasible crew survival, negotiation, recapture, rescue and return options in bounded playable slices. Captors possess only their actual capabilities; wilderness grants no sovereign police jurisdiction. Existing failed-sale escrow and property identities must survive recovery.
+Build on the completed bounded beast-encounter transport path, but keep human attackers distinct from beast behavior. Discuss an actual armed group with its own objectives, location, equipment, finite supplies, transport and carrying capacity. Model approach, threats, driver responses, surrender, physical seizure and capture separately from injury or killing. Theft changes custody, not rightful ownership. No abstract disappearance rolls, replacement cargo, automatic scientist death or remote arrest. Captors have only their actual capabilities; wilderness grants no sovereign police jurisdiction. Keep living care and containment active and retain exact people, vehicle, cargo and failed-sale escrow identities. Do not imply an automatic rescue or general tactical combat system.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 2. World Integration: Investigations and Institutional Pressure
+## 2. Smuggling: Captivity, Negotiation, and Recovery
+
+Discuss continued survival and care for actual stranded or captive crews and living cargo. Use credible witnessed messages, actual contacts and separately funded offers for negotiation, release, roadside assistance or peaceful pickup. A ransom payment is not proof of release, and lost contact is not proof of death. Recovery requires real transport, fuel, crew, capacity, access and physical loading; decide separately how incapacitated patients, broken vehicles and containment pods can travel. Preserve wounds, ownership, spent resources, failed contracts and independent copies of reports. No teleportation, free rescue assets or restored sale proceeds. Start with one bounded feasible recovery route; armed entry belongs to the following prompt.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 3. Smuggling: Armed Rescue and Recapture
+
+Discuss actual rescuers, captors, observed locations, travel, equipment, engagement, surrender and extraction. Assistance depends on independent willingness and feasible physical capabilities, not remote player commands or a success roll. Rescue and recapture can fail or cause further casualties; surviving crew and exact cargo remain somewhere real. Keep living care active and distinguish freeing people, recovering property and moving a damaged vehicle. No automatic sovereign authority in wilderness, reinforcement spawning, replacement people or cargo, or scientist game over unless the scientist actually dies. Prefer a bounded encounter using the prior captivity and recovery mechanics.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 4. World Integration: Investigations and Institutional Pressure
 
 Design and implement world-context effects on company plausibility, inspections, investigations, religious scrutiny, escalation, and authority response. Context may alter priorities, schedules, thresholds, and available actions, but must not invent player guilt.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Lazy Local Detail and World Discovery
+## 5. Lazy Local Detail and World Discovery
 
 Design and implement deterministic elaboration of the already generated strategic world when a run encounters it. Lazy generation may fill minor places, institution branches, contacts, local histories, individuals, encounters, and exact maps while respecting canonical world facts and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+## 6. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 
 Design and implement the loop for beginning, losing, reviewing, and replacing a run without altering its reusable world. Only the scientist’s death ends a run; arrest, jail, prison, penal service, death sentence, loss of laboratory, and similar catastrophes remain playable while the scientist lives.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 7. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. The final campaign goal is rare world domination, but early hidden-laboratory survival must remain a complete roguelike experience.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. New-Run Onboarding and Contextual Tutorial
+## 8. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Sound, Notifications, and Accessibility Audit
+## 9. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Production Art Pass Using the Sprite Pipeline
+## 10. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 
