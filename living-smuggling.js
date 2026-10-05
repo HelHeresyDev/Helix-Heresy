@@ -1,9 +1,10 @@
 (function (root, factory) {
   const api = factory(typeof module === 'object' && module.exports ? require('./smuggling-checkpoints') : root.HelixSmugglingCheckpoints,
-    typeof module === 'object' && module.exports ? require('./corridor-beasts') : root.HelixCorridorBeasts);
+    typeof module === 'object' && module.exports ? require('./corridor-beasts') : root.HelixCorridorBeasts,
+    typeof module === 'object' && module.exports ? require('./corridor-robbery') : root.HelixCorridorRobbery);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixLivingSmuggling = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Checkpoints, Beasts) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Checkpoints, Beasts, Robbery) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v)), HOUR = 3600;
   const stat = (c, key) => Number(c.stats?.[key]?.current) || 0;
@@ -65,7 +66,7 @@
     if (['dead', 'escaped'].includes(outcome)) {
       c.status = outcome === 'dead' ? 'dead' : 'released'; if (outcome === 'dead') { c.deathAt = at; c.deathCause = c.deathCause || 'biological transport condition failure'; }
       sh.offsiteCreature = { creature: copy(c), kind: outcome === 'dead' ? 'corpse' : 'escapedCreature', at,
-        location: { routeId: ['localTransit', 'depot', 'returnLocal', 'returnWaiting'].includes(sh.phase) ? `local:${sh.sourceId}` : sh.routeId, phase: sh.phase, positionKm: sh.positionKm, custodian: sh.custodian }, owner: 'player' };
+        location: { routeId: ['localTransit', 'depot', 'returnLocal', 'returnWaiting'].includes(sh.phase) ? `local:${sh.sourceId}` : sh.routeId, phase: sh.phase, positionKm: sh.positionKm, offRoadKm: sh.offRoadKm || 0, custodian: sh.custodian }, owner: 'player' };
       sh.manifest.entries = sh.manifest.entries.filter(e => !e.creature);
       if (!Checkpoints.pending(sh)) sh.custodian = 'offsite-record';
     }
@@ -86,7 +87,7 @@
     if (stat(c, 'bodyIntegrity') <= 0 || Number.isFinite(c.deathAt) && at >= c.deathAt) fail(state, sh, 'dead', at);
     else if (l.podCondition <= 0 || l.strain >= l.threshold) fail(state, sh, 'escaped', at);
     const radio = op?.roadSafety?.radio;
-    const contact = !radio || radio.powered && radio.connected && radio.charges >= 1 && op.crew.some(p => p.trainedHandler && p.status === 'alive' && p.health >= 50);
+    const contact = !radio || radio.powered && radio.connected && radio.charges >= 1 && op.crew.some(p => p.trainedHandler && p.status === 'alive' && p.health >= 50 && (!radio.custodianId || radio.custodianId === p.id));
     if (contact && (l.reportAt === null || at - l.reportAt >= HOUR)) {
       if (radio) radio.charges--;
       l.reportAt = at; l.report = { at, health: stat(c, 'bodyIntegrity'), stress: stat(c, 'stress'), nutrition: stat(c, 'nutrition'), podCondition: l.podCondition,
@@ -106,14 +107,16 @@
       }
       if (['returned', 'labReceived'].includes(sh.phase)) continue;
       // Small fixed steps give live needs time to fail before a destination receipt on large clock jumps.
-      const step = Beasts.active(state, sh) ? 1 : 60;
+      const step = Beasts.active(state, sh) || Robbery.active(state, sh) ? 1 : 60;
       while (l.lastAt + step <= now) {
         l.lastAt += step; const at = l.lastAt;
         op.provisions = Math.max(0, op.provisions - step / (8 * HOUR));
         if (sh.phase === 'localTransit') sh.positionKm = job?.positionKm || 0;
         if (sh.receiptAt === null) care(state, sh, step, at, op);
         Beasts.tick(state, sh, op, routes.find(r => r.id === sh.routeId), at);
+        const held = Robbery.tick(state, sh, op, at);
         Checkpoints.expire(state, sh, at);
+        if (held || ['captured', 'stranded'].includes(sh.phase)) continue;
         if (Checkpoints.tick(state, sh, op, at)) continue;
         if (sh.phase === 'localTransit') {
           sh.positionKm = job?.positionKm || 0;

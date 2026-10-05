@@ -11,10 +11,11 @@
     typeof module === 'object' && module.exports ? require('./buyer-principal') : root.HelixBuyerPrincipal,
     typeof module === 'object' && module.exports ? require('./payment-records') : root.HelixPaymentRecords,
     typeof module === 'object' && module.exports ? require('./chemical-handoff') : root.HelixChemicalHandoff,
-    typeof module === 'object' && module.exports ? require('./corridor-beasts') : root.HelixCorridorBeasts);
+    typeof module === 'object' && module.exports ? require('./corridor-beasts') : root.HelixCorridorBeasts,
+    typeof module === 'object' && module.exports ? require('./corridor-robbery') : root.HelixCorridorRobbery);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixIntercitySmuggling = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer, Witness, Identity, Recipient, Access, Principal, Payments, Chemical, Beasts) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer, Witness, Identity, Recipient, Access, Principal, Payments, Chemical, Beasts, Robbery) {
   'use strict';
   const HOUR = 3600, copy = v => JSON.parse(JSON.stringify(v));
   const fingerprint = Checkpoints.fingerprint;
@@ -158,10 +159,16 @@
         op.money -= journey.hours; s.phase = 'outbound'; s.departedAt = now; s.custodian = op.vehicleId; s.reason = '';
         Carrier.record(op, s, 'departedDepot', now, s.sourceId, `covert-depot:${state.homeId}`); continue;
       }
-      while (['outbound', 'returning', 'inspecting', 'detained'].includes(s.phase) && seconds > 0) {
-        const beastStep = Beasts.active(state, s) ? Math.min(1, seconds) : seconds;
+      while (['outbound', 'returning', 'inspecting', 'detained', 'captured', 'stranded'].includes(s.phase) && seconds > 0) {
+        const localEncounter = Beasts.active(state, s) || Robbery.active(state, s);
+        const beastStep = localEncounter ? Math.min(1, seconds) : seconds;
         Beasts.tick(state, s, op, route, cursor);
+        const held = Robbery.tick(state, s, op, cursor);
         Checkpoints.expire(state, s, cursor);
+        if (held || ['captured', 'stranded'].includes(s.phase)) {
+          op.provisions = Math.max(0, op.provisions - beastStep / (8 * HOUR));
+          seconds -= beastStep; cursor += beastStep; continue;
+        }
         if (s.saleFailedAt != null) Chemical.release(state, s, op, cursor);
         if (s.saleFailedAt != null && s.recipientEncounter?.job) {
           Recipient.release(state, s, op, cursor); s.recipientEncounter.job = null;
@@ -175,7 +182,7 @@
         if (!connects(op, route) || route.distanceKm !== s.distanceKm || !capable(op)) {
           op.provisions = Math.max(0, op.provisions - beastStep / (8 * HOUR));
           s.reason = 'Transit held: route or crew unavailable; cargo, people and escrow preserved.';
-          if (Beasts.active(state, s)) { seconds -= beastStep; cursor += beastStep; continue; }
+          if (localEncounter) { seconds -= beastStep; cursor += beastStep; continue; }
           break;
         }
         const speed = 30 / (route.continuity === 'intermittent' ? 1.55 : route.continuity === 'degraded' ? 1.25 : 1);
@@ -256,10 +263,11 @@
   // retain their existing coarse scheduling.
   function advanceConvoys(state, now, routes, supplier, localRoute, collections) {
     const run = at => { advance(state, at, routes, supplier); Living.advance(state, at, routes, localRoute, collections); };
-    const concurrent = (state.corridorBeasts || []).some(site => site.actors.length && state.shipments.filter(s =>
-      s.routeId === site.routeId && ['depot', 'outbound', 'returning', 'localTransit', 'inspecting', 'detained'].includes(s.phase)).length > 1);
+    const sites = [...(state.corridorBeasts || []).filter(s => s.actors.length), ...(state.roadsideGroups || []).filter(s => s.group)];
+    const phases = ['depot', 'outbound', 'returning', 'localTransit', 'inspecting', 'detained', 'captured', 'stranded'];
+    const concurrent = sites.some(site => state.shipments.filter(s => s.routeId === site.routeId && phases.includes(s.phase)).length > 1);
     if (!concurrent) { run(now); return; }
-    const clocks = state.shipments.filter(s => ['depot', 'outbound', 'returning', 'localTransit', 'inspecting', 'detained'].includes(s.phase))
+    const clocks = state.shipments.filter(s => phases.includes(s.phase))
       .map(s => s.living?.lastAt ?? s.lastAt).filter(Number.isFinite);
     const from = Math.min(now, ...clocks);
     for (let at = from + 1; at <= now; at++) run(at);

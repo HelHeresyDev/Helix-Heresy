@@ -37,6 +37,7 @@
   const CargoRecovery = window.HelixCargoRecovery;
   const IntercitySmuggling = window.HelixIntercitySmuggling;
   const CorridorBeasts = window.HelixCorridorBeasts;
+  const CorridorRobbery = window.HelixCorridorRobbery;
   const SmugglingCheckpoints = window.HelixSmugglingCheckpoints;
   const CargoPropertyReview = window.HelixCargoPropertyReview;
   const CargoExamination = window.HelixCargoExamination;
@@ -61515,7 +61516,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function renderForeignSmuggling() {
     const market = ensureIntercitySmuggling();
-    const section = storesSectionEl("Foreign Smuggling", "Separate destination-delivery contracts. Roadside beasts may damage or strand actual convoys; received driver messages are dated, not live tracking. Destination gates can inspect and temporarily detain cargo. Living care continues. No automatic conviction, forfeiture, crew arrest or remote scientist arrest.", { economyCategory: "foreignSmuggling" });
+    const section = storesSectionEl("Foreign Smuggling", "Separate destination-delivery contracts. Roadside beasts and robbers can endanger actual convoys; received driver messages are dated, not live tracking. Destination gates can inspect and temporarily detain cargo. Living care continues through delays and capture. No automatic conviction, forfeiture, lawful crew arrest or remote scientist arrest.", { economyCategory: "foreignSmuggling" });
     section.append(emptyText(market.message || "Request a foreign quote beside an eligible raw, manufactured or specimen contract offer below."));
     if (!market.operators.length) section.append(emptyText("No referred operator on a known supported direct neighboring corridor. Remote contact alone supplies no vehicle."));
     const q = market.quote;
@@ -61677,7 +61678,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const op of market.operators) {
       const sh = market.shipments.find(s => s.id === op.assignment);
       const route = ensureStrategicJourneys().routes.find(r => r.id === op.routeId);
-      const away = sh && ["outbound", "returning"].includes(sh.phase);
+      const away = sh && ["outbound", "returning", "captured", "stranded"].includes(sh.phase);
       section.append(storesRowEl(op.name, away ? "Away · dated messages only" : sh?.phase || "At home depot", {
         subtitle: away ? `${op.vehicleId}; assigned corridor ${op.routeId}. No live crew, vehicle-condition or position feed. Loss of contact does not establish death or capture.` : `${op.sourceId} → ${op.destinationId}; corridor ${op.routeId}: ${route?.continuity || "unavailable"}, ${route?.supportCapable ? "supported" : "unsupported"}; ${op.vehicleId}; ${op.capacityKg} kg / ${op.capacityL} L; fuel ${formatNumber(op.fuelKm)} km; provisions ${formatNumber(op.provisions)}; funds ${formatMoney(op.money)}; condition ${formatNumber(op.condition)}; crew ${op.crew.map(c => `${c.name}: ${c.status}, health ${formatNumber(c.health)}, fatigue ${formatNumber(c.fatigue)}`).join("; ")}. ${op.location}. ${sh?.reason || "No lawful permit or sovereign authority implied."}`,
         dataset: { smugglingOperator: op.id },
@@ -61717,7 +61718,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         row.append(amendment); section.append(row);
       }
       const recovery = ensureLocalCovertMarket().collections.find(j => j.id === sh.recoveryJobId);
-      const onRoad = ["outbound", "returning"].includes(sh.phase);
+      const onRoad = ["outbound", "returning", "captured", "stranded"].includes(sh.phase);
       for (const message of sh.corridorReports || []) section.append(storesRowEl("Driver message", formatClock(message.at), {
         dataset: { corridorReport: sh.id }, subtitle: `${message.text} Reported position ${formatNumber(message.positionKm)} km on ${message.routeId}. ${message.scope}`
       }));
@@ -82505,6 +82506,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     LivingSmuggling.provision(smuggling, FEEDSTOCK_DEFS.map(f => f.key), state.clock);
     const map = activeWorldRecord?.generatedData?.strategicMap;
     for (const op of smuggling.operators) CorridorBeasts.equipment(op);
+    if (map) for (const route of network.routes) if (smuggling.operators.some(o => o.routeId === route.id)
+      && route.cellPath?.length > 2 && route.cellPath.every(id => StrategicWorld.cellIndex(id) >= 0))
+      CorridorRobbery.provision(smuggling, route, state.seed, state.clock);
     if (map?.beastEcology) for (const route of network.routes) {
       if (!smuggling.operators.some(o => o.routeId === route.id) || smuggling.corridorBeasts?.some(s => s.routeId === route.id)) continue;
       const cells = route.cellPath || [], populations = [];
@@ -82919,7 +82923,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         const courier = local.couriers.find(c => c.id === collection?.courierId);
         if (courier) { courier.money += sh.localPaymentDue; sh.localPaymentDue = 0; }
       }
-      const knownOutcome = ["outbound", "returning"].includes(sh.phase) ? sh.living.report?.outcome : sh.living.outcome;
+      const knownOutcome = ["outbound", "returning", "captured", "stranded"].includes(sh.phase) ? sh.living.report?.outcome : sh.living.outcome;
       if (sh.living.outcome && sh.living.outcome !== "received") {
         const contract = blackMarketContractById(sh.contractId);
         if (contract) { contract.status = "failed"; contract.outcome = `Living transport: ${knownOutcome || "no current condition report"}; no sale proceeds`; }
@@ -84011,7 +84015,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function nextBlackMarketEvent() {
     const economy = ensureEconomy();
     const events = [];
-    if (economy.intercitySmuggling?.shipments.some(s => ["localTransit", "depot", "outbound", "inspecting", "detained", "returning", "returnLocal", "returnWaiting", "localEmpty"].includes(s.phase))) events.push({ time: state.clock + SECONDS_PER_HOUR, label: "Intercity smuggling progress", type: "freight" });
+    if (economy.intercitySmuggling?.shipments.some(s => ["localTransit", "depot", "outbound", "inspecting", "detained", "returning", "returnLocal", "returnWaiting", "localEmpty", "captured", "stranded"].includes(s.phase))) events.push({ time: state.clock + SECONDS_PER_HOUR, label: "Intercity smuggling progress", type: "freight" });
     if (localCovertRoute().ok) for (const job of economy.localCovertMarket?.collections || []) {
       if (["outbound", "returning"].includes(job.phase)) events.push({ time: state.clock + Math.max(1, (job.phase === "outbound" ? job.distanceKm - job.positionKm : job.positionKm) / 24 * 3600), label: "Local covert courier arrival", type: "freight" });
     }

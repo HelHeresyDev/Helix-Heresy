@@ -43,5 +43,20 @@ test('road UI shows only received dated reports and contact requests, not hidden
   await expect(reports.first()).toContainText('not live tracking');
   await page.getByRole('button', { name: 'Request Driver to Abandon Delivery', exact: true }).click();
   expect((await reports.allTextContents()).join(' ')).toContain('Driver accepts');
+  const { robberyFixture } = require('./helpers/corridor-robbery-fixture');
+  const captured = robberyFixture(); captured.until('holding');
+  await page.evaluate(({ market, clock }) => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState();
+    s.economy.intercitySmuggling = market; s.clock = clock;
+    d.importSurveyExpeditionTestState(s); d.reloadSurveyExpeditionTestState();
+  }, { market: captured.state, clock: captured.now() });
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  await expect(reports.last()).toContainText('not a lawful arrest');
+  await expect(operator).toContainText('No live crew');
+  expect(await operator.textContent()).not.toMatch(/refuge|holding|captured|offRoadKm/);
+  const count = await reports.count();
+  await page.getByRole('button', { name: 'Request Driver to Abandon Delivery', exact: true }).click();
+  await expect(reports).toHaveCount(count);
+  expect(await page.evaluate(() => typeof window.HelixCorridorRobbery.tick)).toBe('function');
   expect(errors).toEqual([]);
 });
