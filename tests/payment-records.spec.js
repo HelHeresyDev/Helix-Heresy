@@ -58,6 +58,18 @@ test('hidden delivery fields alone cannot release provider money or fabricate so
   const f = booked(); f.sh.receiptAt = 10; f.sh.owner = f.b.id; Payments.relay(f.state, f.sh, 100); Payments.advance(f.state, 10000);
   expect(f.p.jobs).toEqual([]); expect(Market.settle(f.state, f.sh.id, 10000)).toBe(0); expect(f.p.held).toBe(500);
 });
+test('deleted buyer payloads cannot be relayed, while previously received provider copies survive', () => {
+  for (const alreadySent of [false, true]) {
+    const f = booked(); Buyer.record(f.b, f.sh, 'deliveryReceived', 100, f.request.manifest);
+    if (alreadySent) Payments.relay(f.state, f.sh, 100);
+    const jobs = copy(f.p.jobs), customerCopies = copy(f.sh.buyerDocuments);
+    const original = f.b.buyerService.records.find(r => r.document.kind === 'deliveryReceived');
+    original.document = null; original.status = 'deleted';
+    Payments.relay(f.state, f.sh, 200);
+    expect(f.p.jobs).toEqual(jobs); expect(f.sh.buyerDocuments).toEqual(customerCopies);
+    expect(f.p.jobs.length > 0).toBe(alreadySent);
+  }
+});
 test('authenticated reports queue work; completion is dated and cannot duplicate across reload or replay', () => {
   const f = booked(); report(f, 'receivedAtDepot', 100); expect(f.c.legs.local.status).toBe('queued'); expect(f.p.held).toBe(500);
   Payments.advance(f.state, 400); expect(f.p.jobs[0].progress).toBe(300); const saved = copy(f.state);

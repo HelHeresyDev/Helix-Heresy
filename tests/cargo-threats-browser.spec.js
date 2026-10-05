@@ -2,7 +2,7 @@ const { test, expect } = require('@playwright/test');
 const { pathToFileURL } = require('url');
 const path = require('path');
 const { threatFixture } = require('./helpers/cargo-threat-fixture');
-test('consented threat and interference notices persist without private intent or NPC controls', async ({ page }) => {
+test('consented threat, interference and record-handling notices persist without private intent or NPC controls', async ({ page }) => {
   test.setTimeout(180000);
   const f = threatFixture(); f.person.courtPreferences.shareNotices = true; f.until('closed');
   const errors = []; page.on('pageerror', e => errors.push(e.message));
@@ -54,5 +54,19 @@ test('consented threat and interference notices persist without private intent o
   await expect(notices.locator('button')).toHaveCount(0);
   expect((await notices.allTextContents()).join(' ')).not.toContain('continuePressing');
   expect(await page.evaluate(() => typeof window.HelixCargoWitnessInterference.supported)).toBe('function');
+  const { destructionFixture } = require('./helpers/cargo-destruction-fixture');
+  const deletion = destructionFixture(); deletion.person.courtPreferences.shareNotices = true; deletion.until('closed');
+  await page.evaluate(notices => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState();
+    s.economy.intercitySmuggling.buyers[0].buyerService.appearanceNotices = notices;
+    d.importSurveyExpeditionTestState(s); d.reloadSurveyExpeditionTestState();
+  }, deletion.buyer.buyerService.appearanceNotices);
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  await expect(notices).toHaveCount(deletion.buyer.buyerService.appearanceNotices.length);
+  expect((await notices.allTextContents()).join(' ')).toContain('separate evidence-destruction review');
+  await expect(notices.last()).toContainText('no continued detention');
+  await expect(notices.locator('button')).toHaveCount(0);
+  expect((await notices.allTextContents()).join(' ')).not.toMatch(/recordPreferences|Private formulation/);
+  expect(await page.evaluate(() => typeof window.HelixCargoEvidenceDestruction.supported)).toBe('function');
   expect(errors).toEqual([]);
 });

@@ -15,6 +15,10 @@
         route: { id: `${buyer.id}:local-court-route`, distanceKm: 2, open: true } },
       contact: { handle: `${buyer.id}:records-contact`, accountId: `${buyer.id}:records-account`, label: `${buyer.name} records account` },
       representatives: [{ id: `${buyer.id}:representative`, name: `${buyer.name} receiving representative`, status: 'alive', health: 100, fatigue: 0, locationId: buyer.cityId }],
+      recordsTerminal: { id: `${buyer.id}:records-terminal`, ownerId: buyer.id, locationId: `${buyer.id}:receiving-desk`,
+        condition: 100, powered: true, energySeconds: 3600, workSeconds: 3600, publicDisplay: true, job: null,
+        permissions: [{ personId: `${buyer.id}:representative`, read: true, delete: true }],
+        disposalPermissions: [], correctionRequests: [] },
       fineSponsor: { id: `${buyer.id}:fine-sponsor`, cityId: buyer.cityId, active: true, channelPowered: true,
         power: 8, workSeconds: 3600, receipts: [],
         controller: { id: `${buyer.id}:treasurer`, name: `${buyer.name} business treasurer`, role: 'businessTreasurer',
@@ -34,7 +38,7 @@
   function record(buyer, sh, kind, at, manifest = sh.manifest, observerId = null) {
     const service = buyer?.buyerService, observer = service && present(service).find(p => (!observerId || p.id === observerId) && (p.availableAt || 0) <= at);
     if (!service || sh.living || at < service.openedAt || !observer || service.assignment || service.locationId !== buyer.cityId
-      || service.records.some(r => r.document.shipmentReference === sh.id && r.document.kind === kind)) return;
+      || service.records.some(r => (r.document || r.header)?.shipmentReference === sh.id && (r.document || r.header)?.kind === kind)) return;
     // Order/cancellation acknowledgments require an actual working message channel at that event.
     if (kind !== 'deliveryReceived' && (!service.channelPowered || !service.credentialActive)) return;
     if (!['orderAcknowledged', 'deliveryReceived', 'cancellationAcknowledged'].includes(kind)) return;
@@ -48,7 +52,11 @@
       scope: kind === 'orderAcknowledged' ? 'Acknowledged order terms, not delivery, payment proof or earlier knowledge.'
         : kind === 'cancellationAcknowledged' ? 'Cancellation message received, not personal observation of the journey or proof that no exchange ever occurred.'
           : 'Personal receipt of the listed cargo only; sealed contents, civil identities and anyone’s earlier knowledge remain unverified.' };
-    service.records.push({ document: copy(document), observerId: observer.id });
+    service.records.push({ document: copy(document), observerId: observer.id, status: 'retained',
+      header: { id: document.id, shipmentReference: sh.id, kind, at, cityId: buyer.cityId },
+      recollection: { recordId: document.id, observerId: observer.id, participantClaim: observer.name,
+        shipmentReference: sh.id, kind, at, cityId: buyer.cityId,
+        scope: 'Personal recollection of this acknowledgment or receipt only, not retained contents, quantities, chemistry or anyone else’s knowledge.' } });
     if (service.channelPowered && service.credentialActive) {
       sh.buyerContact = copy(service.contact); sh.buyerDocuments ||= []; sh.buyerDocuments.push(copy(document));
     }
@@ -63,21 +71,24 @@
       && b.buyerService.contact.accountId === submission.document.contact?.accountId), service = buyer?.buyerService;
     if (!service || !service.channelPowered || !service.credentialActive || service.locationId !== buyer.cityId
       || service.workSeconds <= 0 || !allocated && service.power < 1 || service.assignment && service.assignment !== assignment || !present(service).length) return null;
-    const selected = service.records.filter(r => submission.document.records.some(d => d.id === r.document.id));
+    const selected = service.records.filter(r => r.status !== 'deleted' && r.document && submission.document.records.some(d => d.id === r.document.id));
+    const memories = service.records.filter(r => r.status === 'deleted' && r.recollection && submission.document.records.some(d =>
+      d.id === r.recollection.recordId && d.at === r.recollection.at && d.kind === r.recollection.kind
+      && d.shipmentReference === r.recollection.shipmentReference && d.cityId === r.recollection.cityId)).map(r => r.recollection);
     i.buyerChoices ||= [];
     let choice = i.buyerChoices.find(c => c.handle === service.contact.handle);
     if (!choice) {
       const references = new Set(submission.document.records.map(d => d.shipmentReference));
-      const delivered = service.records.some(r => references.has(r.document.shipmentReference) && r.document.kind === 'deliveryReceived');
+      const delivered = service.records.some(r => references.has((r.document || r.header)?.shipmentReference) && (r.document || r.header)?.kind === 'deliveryReceived');
       const decision = service.policy === 'refuse' || service.policy === 'protectCompletedPurchases' && delivered ? 'refused'
         : service.policy === 'recordsOnly' || !service.interviewConsent ? 'recordsOnly' : 'limitedInterview';
       choice = { handle: service.contact.handle, at, decision, basis: { policy: service.policy, delivered, interviewConsent: service.interviewConsent } };
       i.buyerChoices.push(choice);
     }
     // A replacement may answer for the account, but must not inherit personal memories.
-    const witness = kind === 'buyerInterview' ? present(service).find(p => selected.some(r => r.observerId === p.id)) : present(service)[0];
+    const witness = kind === 'buyerInterview' ? present(service).find(p => selected.some(r => r.observerId === p.id) || memories.some(m => m.observerId === p.id)) : present(service)[0];
     if (!witness) return null;
-    return { service, choice, witness, selected };
+    return { service, choice, witness, selected, memories };
   }
   function next(i) {
     for (const submission of i.submissions.filter(s => s.document.kind === 'buyer')) {
@@ -97,16 +108,18 @@
     }
     if (kind === 'buyerRecords') {
       i.buyerResponses.push({ ...common, comparisons: submission.document.records.map(d => {
-        const retained = ctx.selected.find(r => r.document.id === d.id);
+        const retained = ctx.selected.find(r => r.status !== 'deleted' && r.document?.id === d.id);
         return { recordId: d.id, result: !retained ? 'unavailable' : JSON.stringify(retained.document) === JSON.stringify(d) ? 'matchesBuyerCopy' : 'contradicted',
           scope: 'Comparison with this account’s retained copy, not independent authentication of every assertion.' };
       }), statement: 'Only matching selected records are confirmed. Missing records remain missing; no undisclosed replacement is supplied.' });
     } else {
-      const records = ctx.selected.filter(r => r.observerId === ctx.witness.id && r.document.provenance === 'buyerOriginal'
+      const records = ctx.selected.filter(r => r.status !== 'deleted' && r.document && r.observerId === ctx.witness.id && r.document.provenance === 'buyerOriginal'
         && submission.document.records.some(d => JSON.stringify(d) === JSON.stringify(r.document)));
-      i.buyerResponses.push({ ...common, participantClaim: ctx.witness.name, recordIds: records.map(r => r.document.id),
+      const recollections = (ctx.memories || []).filter(m => m.observerId === ctx.witness.id).map(({ observerId, ...memory }) => copy(memory));
+      i.buyerResponses.push({ ...common, participantClaim: ctx.witness.name, recordIds: records.map(r => r.document.id), recollections,
         statement: records.length ? 'I personally handled only the acknowledgments or receipts cited here. An order is not delivery; a cancellation message is not an observation of the journey. I cannot establish anyone else’s identity or earlier knowledge.'
-          : 'I have no relevant matching firsthand observation. Missing facts cannot be supplied from another person’s records.' });
+          : recollections.length ? 'I recall the listed events, but cannot authenticate the contents of a deleted local record from memory.'
+            : 'I have no relevant matching firsthand observation. Missing facts cannot be supplied from another person’s records.' });
     }
   }
   function findings(i, cityId) {
@@ -114,10 +127,13 @@
       const document = i.submissions.find(s => s.id === response.submissionId).document;
       const ids = response.recordIds || (response.comparisons || []).filter(c => c.result === 'matchesBuyerCopy').map(c => c.recordId);
       const matched = document.records.filter(d => ids.includes(d.id));
-      return { ...copy(response), events: matched.map(d => ({ recordId: d.id, kind: d.kind, at: d.at, cityId: d.cityId,
+      const memories = response.recollections || [];
+      return { ...copy(response), events: [...matched.map(d => ({ recordId: d.id, kind: d.kind, at: d.at, cityId: d.cityId,
         participantClaim: d.participantClaim, sourceGroup: d.sourceAccountId, independentObservation: d.provenance === 'buyerOriginal', scope: d.scope,
         jurisdiction: d.cityId === cityId ? 'local event; offense elements still require proof' : 'outside investigating city; no automatic local transaction inference' })),
-        exculpatory: matched.some(d => d.kind === 'cancellationAcknowledged' && d.provenance === 'buyerOriginal') ? 'Potentially exculpatory cancellation acknowledgment; not proof that no exchange ever occurred.' : '',
+        ...memories.map(m => ({ ...copy(m), sourceGroup: response.sourceGroup, independentObservation: true, memoryOnly: true,
+          jurisdiction: m.cityId === cityId ? 'local recollection; offense elements still require proof' : 'foreign recollection; no local transaction inference' }))],
+        exculpatory: matched.some(d => d.kind === 'cancellationAcknowledged' && d.provenance === 'buyerOriginal') || memories.some(m => m.kind === 'cancellationAcknowledged') ? 'Potentially exculpatory cancellation acknowledgment; not proof that no exchange ever occurred.' : '',
         limit: 'Buyer records and their author are one source. Copied carrier material is not an independent buyer observation. Separate original receipt and carrier handoff may corroborate that event only, not civil identity, knowing unlawful commerce or foreign enforcement authority.' };
     });
   }

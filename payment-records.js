@@ -66,7 +66,7 @@
   }
   function receive(p, c, document, service, at) {
     if (!ready(p) || !online(service) || !document || document.shipmentReference !== c.shipmentReference || document.at < c.openedAt || document.at > at
-      || !service.records?.some(r => same(r.document, document)) || c.received.some(r => r.id === document.id && same(r.from, service.contact))) return false;
+      || !service.records?.some(r => r.status !== 'deleted' && same(r.document, document)) || c.received.some(r => r.id === document.id && same(r.from, service.contact))) return false;
     const depot = document.kind === 'receivedAtDepot' && same(service.contact, c.quote.freight);
     const receipt = document.kind === 'deliveryReceived' && same(service.contact, c.quote.payer);
     const cancellation = document.kind === 'cancellationAcknowledged' && same(service.contact, c.quote.payer)
@@ -95,7 +95,7 @@
     const f = lookup(state, sh); if (!f) return;
     const { p, c } = f, b = state.buyers.find(b => same(b.buyerService?.contact, c.quote.payer)), op = state.operators.find(o => same(o.carrierService?.contact, c.quote.freight));
     const sources = [op?.carrierService, b?.buyerService, { ...p.customer, records: c.customerInstructions || [] }].filter(Boolean);
-    for (const s of sources) for (const r of s.records || []) if (r.document.shipmentReference === c.shipmentReference) receive(p, c, r.document, s, at);
+    for (const s of sources) for (const r of s.records || []) if (r.status !== 'deleted' && r.document?.shipmentReference === c.shipmentReference) receive(p, c, r.document, s, at);
     // Customer copies survive reload independently; later outages never backfill missing statements.
     sh.paymentDocuments = copy(c.documents);
   }
