@@ -65,7 +65,8 @@
     for (const b of site.actors) {
       if (b.targetId && b.targetId !== sh.id) {
         const previous = state.shipments.find(s => s.id === b.targetId)
-          || state.shipments.find(s => s.assistance?.convoy.id === b.targetId)?.assistance.convoy;
+          || state.shipments.find(s => s.assistance?.convoy.id === b.targetId)?.assistance.convoy
+          || state.shipments.find(s => s.rescue?.convoy.id === b.targetId)?.rescue.convoy;
         if (!previous || !['outbound', 'returning', 'captured', 'stranded'].includes(previous.phase)) { b.finished.push(b.targetId); b.targetId = null; }
         else continue;
       }

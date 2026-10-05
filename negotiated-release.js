@@ -91,7 +91,7 @@
     }
     if (n.releasedAt != null && n.roadReachedAt == null) {
       if (op.controllerId || !g?.refuge.trailOpen || !Road.equipment(op).controlsAccessible || op.condition <= 50 || op.fuelKm <= 0 || op.provisions <= 0
-        || !op.crew.length || !op.crew.every(able)) return;
+        || !op.crew.length || !op.crew.every(p => able(p) && (!p.locationId || p.locationId === op.vehicleId))) return;
       const moved = Math.min(s.offRoadKm || 0, dt * 10 / 3600, op.fuelKm, (op.condition - 50) / .02,
         ...op.crew.map(p => Math.max(0, (80 - p.fatigue) / .04)));
       s.offRoadKm = Math.max(0, (s.offRoadKm || 0) - moved); op.fuelKm -= moved; op.condition -= moved * .02;

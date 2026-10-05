@@ -14,10 +14,11 @@
     typeof module === 'object' && module.exports ? require('./corridor-beasts') : root.HelixCorridorBeasts,
     typeof module === 'object' && module.exports ? require('./corridor-robbery') : root.HelixCorridorRobbery,
     typeof module === 'object' && module.exports ? require('./negotiated-release') : root.HelixNegotiatedRelease,
-    typeof module === 'object' && module.exports ? require('./roadside-assistance') : root.HelixRoadsideAssistance);
+    typeof module === 'object' && module.exports ? require('./roadside-assistance') : root.HelixRoadsideAssistance,
+    typeof module === 'object' && module.exports ? require('./armed-rescue') : root.HelixArmedRescue);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixIntercitySmuggling = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer, Witness, Identity, Recipient, Access, Principal, Payments, Chemical, Beasts, Robbery, Negotiation, Assistance) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer, Witness, Identity, Recipient, Access, Principal, Payments, Chemical, Beasts, Robbery, Negotiation, Assistance, Rescue) {
   'use strict';
   const HOUR = 3600, copy = v => JSON.parse(JSON.stringify(v));
   const fingerprint = Checkpoints.fingerprint;
@@ -31,6 +32,7 @@
     if (!state.homeId || !broker || broker.homeCityId !== state.homeId || !broker.serviceCityIds?.includes(state.homeId)) return;
     Payments.provision(state, broker, at);
     Assistance.provision(state, broker, at);
+    Rescue.provision(state, broker, at);
     for (const r of routes) {
       if (r.endpointCityIds?.length !== 2 || new Set(r.endpointCityIds).size !== 2 || !r.endpointCityIds.includes(state.homeId) || !physical(r)) continue;
       const cityId = r.endpointCityIds.find(id => id !== state.homeId);
@@ -163,14 +165,15 @@
         Carrier.record(op, s, 'departedDepot', now, s.sourceId, `covert-depot:${state.homeId}`); continue;
       }
       while (['outbound', 'returning', 'inspecting', 'detained', 'captured', 'stranded'].includes(s.phase) && seconds > 0) {
-        const localEncounter = Beasts.active(state, s) || Robbery.active(state, s) || Assistance.active(state, s);
+        const localEncounter = Beasts.active(state, s) || Robbery.active(state, s) || Assistance.active(state, s) || Rescue.active(state, s);
         const beastStep = localEncounter ? Math.min(1, seconds) : seconds;
         Beasts.tick(state, s, op, route, cursor);
         const held = Robbery.tick(state, s, op, cursor);
+        const extracting = Rescue.tick(state, s, op, route, cursor);
         const assisted = Assistance.tick(state, s, op, route, null, cursor);
-        if (!assisted) Negotiation.tick(state, s, op, cursor);
+        if (!assisted && !extracting) Negotiation.tick(state, s, op, cursor);
         Checkpoints.expire(state, s, cursor);
-        if (assisted || held || ['captured', 'stranded'].includes(s.phase)) {
+        if (extracting || assisted || held || ['captured', 'stranded'].includes(s.phase)) {
           op.provisions = Math.max(0, op.provisions - beastStep / (8 * HOUR));
           seconds -= beastStep; cursor += beastStep; continue;
         }
@@ -251,6 +254,7 @@
     for (const sh of state.shipments) Payments.relay(state, sh, now);
     Payments.advance(state, now);
     Assistance.advanceDetached(state, now, routes, null);
+    Rescue.advanceDetached(state, now, routes);
     Referrals.advance(state, now);
     state.lastAt = Math.max(state.lastAt, now);
   }

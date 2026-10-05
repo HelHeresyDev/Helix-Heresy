@@ -12,11 +12,12 @@
       objective: 'takeLoadedVan', firePolicy: 'holdFire', visible: true, barrier: false,
       releasePreferences: { offer: true, amount: 300, honor: true, allowProof: true },
       recoveryPassage: true,
+      rescueResponse: 'yieldWhenOutmatched', recaptureWilling: true,
       receivingAccount: { id: `${id}:receiving-account`, active: true, channelPowered: true, balance: 0 },
       refuge: { id: `${id}:refuge`, distanceKm: .5, trailOpen: true },
       truck: { id: `${id}:truck`, positionKm: km, condition: 80, fuelKm: 20, seats: 3, ownerId: id, assignment: null },
       members: ['leader', 'driver', 'lookout'].map((role, n) => ({ id: `${id}:${role}`, name: `Roadside ${role}`, role,
-        status: 'alive', health: 100, fatigue: 0, provisions: 2, positionKm: km, offRoadKm: 0,
+        status: 'alive', health: 100, protection: 24, fatigue: 0, provisions: 2, positionKm: km, offRoadKm: 0,
         canDrive: role === 'driver', weapon: { id: `${id}:rifle:${n}`, condition: 100, ammunition: 6, rangeKm: .08, nextShotAt: at } })) };
   }
   function provision(state, route, seed, at) {
@@ -30,7 +31,7 @@
   const groupFor = (state, sh) => state.roadsideGroups?.find(s => s.routeId === sh.routeId && s.lengthKm === sh.distanceKm)?.group;
   const active = (state, sh) => Boolean(groupFor(state, sh));
   const separation = (p, sh) => Math.hypot(p.positionKm - sh.positionKm, p.offRoadKm - (sh.offRoadKm || 0));
-  const armed = p => p.weapon?.condition >= 50 && p.weapon.ammunition > 0;
+  const armed = p => !p.surrendered && p.weapon?.condition >= 50 && p.weapon.ammunition > 0;
   function tell(sh, op, at, key, text) {
     sh.robberyNotices ||= [];
     if (sh.robberyNotices.includes(key)) return;
@@ -48,7 +49,7 @@
       const radio = Road.equipment(op).radio;
       const holder = g.members?.find(p => p.id === r.guardId);
       if (radio.custodianId === r.guardId && holder && separation(holder, sh) <= .003
-        && op.crew.some(p => p.status === 'alive' && p.health >= 25)) {
+        && op.crew.some(p => p.status === 'alive' && p.health >= 25 && (!p.locationId || p.locationId === op.vehicleId))) {
         if (r.radioPreviousCustodian) radio.custodianId = r.radioPreviousCustodian;
         else delete radio.custodianId;
         r.radioTaken = false;
@@ -65,7 +66,10 @@
     if (!['outbound', 'returning', 'captured', 'stranded'].includes(sh.phase)) return false;
     if (g.assignment && g.assignment !== sh.id) return false;
     const safety = Road.equipment(op), r = sh.robbery;
-    if (r?.endedAt != null) return sh.phase === 'stranded';
+    if (r?.endedAt != null) {
+      recapture(state, g, sh, op, at);
+      return ['stranded', 'captured'].includes(sh.phase);
+    }
     const members = g.members.filter(able);
     if (!r) {
       const leader = members.find(p => armed(p) && separation(p, sh) <= .1);
@@ -122,8 +126,9 @@
       r.radioPreviousCustodian = safety.radio.custodianId || null; r.radioTaken = true; safety.radio.custodianId = r.guardId;
       return true;
     }
-    const guard = members.find(p => p.role === 'leader' && armed(p) && separation(p, sh) <= .003);
+    const guard = members.find(p => p.id === r.guardId && armed(p) && separation(p, sh) <= .003);
     if (!guard || g.barrier || !g.visible) { finish(g, sh, op, at, 'guardLost'); return sh.phase === 'stranded'; }
+    r.lastSeenVan = { positionKm: sh.positionKm, offRoadKm: sh.offRoadKm || 0, at };
     if (r.phase === 'inspect') {
       r.progress += dt; if (r.progress < 30) return true;
       r.observations.push({ at, observerId: guard.id, vehicleId: op.vehicleId,
@@ -141,6 +146,40 @@
       if (sh.offRoadKm + 1e-8 >= g.refuge.distanceKm) { r.phase = 'holding'; r.arrivedAt = at; op.location = g.refuge.id; }
     }
     return true;
+  }
+  function recapture(state, g, sh, op, at) {
+    const r = sh.robbery, safety = Road.equipment(op);
+    if (!sh.rescue?.departedAt || !g.recaptureWilling || at < r.endedAt + 60 || at > r.endedAt + 600
+      || !r.lastSeenVan || at <= (r.recaptureLastAt || r.endedAt)) return;
+    const dt = Math.min(1, at - (r.recaptureLastAt || r.endedAt)); r.recaptureLastAt = at;
+    const candidates = g.members.filter(p => able(p) && armed(p));
+    const team = state.armedRescue;
+    const threatened = team?.assignment === sh.id && team.crew.some(p => p.status === 'alive' && p.health >= 50 && p.weapon?.ammunition > 0
+      && candidates.some(c => Math.hypot(p.positionKm - c.positionKm, (p.offRoadKm || 0) - c.offRoadKm) < .15));
+    if (candidates.length < 2 || threatened || !g.visible || g.barrier || !safety.visibility || safety.barrier || !g.refuge.trailOpen) { r.recaptureProgress = 0; return; }
+    const present = op.crew.filter(p => p.status === 'alive' && (!p.locationId || p.locationId === op.vehicleId));
+    if (!present.length || op.controllerId || !['stranded', 'outbound', 'returning'].includes(sh.phase)) return;
+    if (candidates.some(p => separation(p, sh) <= .1)) r.lastSeenVan = { at, positionKm: sh.positionKm, offRoadKm: sh.offRoadKm || 0 };
+    for (const p of candidates) {
+      p.provisions = Math.max(0, p.provisions - dt / 28800); p.fatigue += dt / 3600;
+      const d = Math.hypot(r.lastSeenVan.positionKm - p.positionKm, r.lastSeenVan.offRoadKm - p.offRoadKm);
+      const moved = Math.min(d, .003 * dt);
+      if (d) { p.positionKm += (r.lastSeenVan.positionKm - p.positionKm) / d * moved; p.offRoadKm += (r.lastSeenVan.offRoadKm - p.offRoadKm) / d * moved; }
+    }
+    if (candidates.filter(p => separation(p, sh) <= .003).length < 2 || !safety.controlsAccessible) { r.recaptureProgress = 0; return; }
+    r.recaptureProgress = (r.recaptureProgress || 0) + dt; if (r.recaptureProgress < 30) return;
+    (sh.robberyHistory ||= []).push(JSON.parse(JSON.stringify(r)));
+    const guard = candidates.find(p => separation(p, sh) <= .003);
+    sh.robbery = { groupId: g.id, at, lastAt: at, phase: 'holding', originalPhase: sh.phase, progress: 0,
+      observations: [], shots: [], controlAt: at, endedAt: null, guardId: guard.id, lastSeenVan: { ...r.lastSeenVan } };
+    g.assignment = sh.id; op.controllerId = g.id; sh.phase = 'captured';
+    for (const p of present) p.capture = { groupId: g.id, active: true, at, restraint: 'physicalGuard' };
+    Road.report(sh, op, at, 'Crew reports armed people physically regaining control of the van. This is recapture, not lawful arrest.');
+    const radio = safety.radio;
+    if (!radio.custodianId || present.some(p => p.id === radio.custodianId)) {
+      sh.robbery.radioPreviousCustodian = radio.custodianId || null;
+      sh.robbery.radioTaken = true; radio.custodianId = guard.id;
+    }
   }
   return { createGroup, provision, active, tick, groupFor, release: finish };
 });

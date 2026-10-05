@@ -40,6 +40,7 @@
   const CorridorRobbery = window.HelixCorridorRobbery;
   const NegotiatedRelease = window.HelixNegotiatedRelease;
   const RoadsideAssistance = window.HelixRoadsideAssistance;
+  const ArmedRescue = window.HelixArmedRescue;
   const SmugglingCheckpoints = window.HelixSmugglingCheckpoints;
   const CargoPropertyReview = window.HelixCargoPropertyReview;
   const CargoExamination = window.HelixCargoExamination;
@@ -61721,6 +61722,28 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       const recovery = ensureLocalCovertMarket().collections.find(j => j.id === sh.recoveryJobId);
       const negotiation = sh.negotiatedRelease;
+      const rescueAction = action => {
+        advanceIntercitySmuggling(advanceLocalCovertCollections());
+        const route = ensureStrategicJourneys().routes.find(r => r.id === sh.routeId);
+        const ok = action === "quote" ? ArmedRescue.quote(market, sh.id, route, state.clock)
+          : action === "accept" ? ArmedRescue.accept(market, sh.id, market.armedRescue?.quote?.id, ensureEconomy(), route, state.clock)
+          : ArmedRescue.cancel(market, sh.id, ensureEconomy(), state.clock);
+        market.message = ok ? "Extraction response recorded. Consult dated reports, not predicted outcomes." : "No extraction offer or response available.";
+        persist(); renderEconomy();
+      };
+      if (sh.corridorReports?.length || negotiation?.offer) section.append(storesRowEl("Armed extraction", "People first", {
+        dataset: { rescueContact: sh.id }, subtitle: "A separate specialist team attempts the reported location. No guarantee, medical evacuation, towing or prisoner transport.",
+        actions: [storesActionButton("Request Armed Extraction Quote", "Use a recent convoy report or relayed captor claim; local observation determines what the team finds.", () => rescueAction("quote"))]
+      }));
+      const rescueQuote = market.armedRescue?.quote;
+      if (rescueQuote?.shipmentId === sh.id) section.append(storesRowEl("Extraction offer", formatMoney(rescueQuote.fee), {
+        dataset: { rescueQuote: sh.id }, subtitle: `${rescueQuote.terms} Crew ${rescueQuote.crew.join(", ")}; vehicle ${rescueQuote.vehicleId}. Source: ${rescueQuote.report.source}, ${formatClock(rescueQuote.report.at)}; reported position ${formatNumber(rescueQuote.report.positionKm)} km, ${formatNumber(rescueQuote.report.offRoadKm)} km off road. Offer expires ${formatClock(rescueQuote.expiresAt)}.`,
+        actions: [storesActionButton("Reserve Armed Extraction Attempt", "Hold the disclosed fee and reserve the actual team. Departure commits the charge.", () => rescueAction("accept"))]
+      }));
+      for (const job of [...(sh.rescueHistory || []), ...(sh.rescue ? [sh.rescue] : [])]) {
+        for (const message of job.messages) section.append(storesRowEl("Extraction report", formatClock(message.at), { dataset: { rescueReport: sh.id }, subtitle: message.text }));
+      }
+      if (sh.rescue?.phase === "reserved") section.append(storesActionButton("Cancel Undispatched Extraction", "Refund the held fee only before departure.", () => rescueAction("cancel")));
       const assistanceAction = action => {
         advanceIntercitySmuggling(advanceLocalCovertCollections());
         const route = ensureStrategicJourneys().routes.find(r => r.id === sh.routeId);

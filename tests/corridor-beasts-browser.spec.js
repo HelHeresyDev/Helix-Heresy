@@ -91,6 +91,17 @@ test('road UI shows only received dated reports and contact requests, not hidden
   await page.getByRole('button', { name: 'Cancel Undispatched Recovery', exact: true }).click();
   await expect(page.locator('[data-assistance-report]').last()).toContainText('refunded');
   expect(await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState().economy.money)).toBe(1000);
+  await page.getByRole('button', { name: 'Request Armed Extraction Quote', exact: true }).click();
+  const extractionOffer = page.locator('[data-rescue-quote]');
+  await expect(extractionOffer).toContainText('People first');
+  await expect(extractionOffer).toContainText('dated convoy witness');
+  expect(await extractionOffer.textContent()).not.toMatch(/rescueResponse|recaptureWilling|protection|ammunition/);
+  await page.getByRole('button', { name: 'Reserve Armed Extraction Attempt', exact: true }).click();
+  await expect(page.locator('[data-rescue-report]').last()).toContainText('fee held');
+  expect(await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState().economy.money)).toBe(490);
+  await page.getByRole('button', { name: 'Cancel Undispatched Extraction', exact: true }).click();
+  await expect(page.locator('[data-rescue-report]').last()).toContainText('refunded');
+  expect(await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState().economy.money)).toBe(1000);
   expect(await page.evaluate(() => typeof window.HelixCorridorRobbery.tick)).toBe('function');
   expect(errors).toEqual([]);
 });

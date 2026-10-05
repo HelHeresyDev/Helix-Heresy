@@ -3,10 +3,11 @@
     typeof module === 'object' && module.exports ? require('./corridor-beasts') : root.HelixCorridorBeasts,
     typeof module === 'object' && module.exports ? require('./corridor-robbery') : root.HelixCorridorRobbery,
     typeof module === 'object' && module.exports ? require('./negotiated-release') : root.HelixNegotiatedRelease,
-    typeof module === 'object' && module.exports ? require('./roadside-assistance') : root.HelixRoadsideAssistance);
+    typeof module === 'object' && module.exports ? require('./roadside-assistance') : root.HelixRoadsideAssistance,
+    typeof module === 'object' && module.exports ? require('./armed-rescue') : root.HelixArmedRescue);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixLivingSmuggling = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Checkpoints, Beasts, Robbery, Negotiation, Assistance) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Checkpoints, Beasts, Robbery, Negotiation, Assistance, Rescue) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v)), HOUR = 3600;
   const stat = (c, key) => Number(c.stats?.[key]?.current) || 0;
@@ -109,7 +110,7 @@
       }
       if (['returned', 'labReceived'].includes(sh.phase)) continue;
       // Small fixed steps give live needs time to fail before a destination receipt on large clock jumps.
-      const step = Beasts.active(state, sh) || Robbery.active(state, sh) || Assistance.active(state, sh) ? 1 : 60;
+      const step = Beasts.active(state, sh) || Robbery.active(state, sh) || Assistance.active(state, sh) || Rescue.active(state, sh) ? 1 : 60;
       while (l.lastAt + step <= now) {
         l.lastAt += step; const at = l.lastAt;
         op.provisions = Math.max(0, op.provisions - step / (8 * HOUR));
@@ -117,10 +118,11 @@
         if (sh.receiptAt === null) care(state, sh, step, at, op);
         Beasts.tick(state, sh, op, routes.find(r => r.id === sh.routeId), at);
         const held = Robbery.tick(state, sh, op, at);
+        const extracting = Rescue.tick(state, sh, op, routes.find(r => r.id === sh.routeId), at);
         const assisted = Assistance.tick(state, sh, op, routes.find(r => r.id === sh.routeId), localRoute, at);
-        if (!assisted) Negotiation.tick(state, sh, op, at);
+        if (!assisted && !extracting) Negotiation.tick(state, sh, op, at);
         Checkpoints.expire(state, sh, at);
-        if (assisted || held || ['captured', 'stranded'].includes(sh.phase)) {
+        if (extracting || assisted || held || ['captured', 'stranded'].includes(sh.phase)) {
           if (sh.phase === 'returned') { release(op, sh); break; }
           continue;
         }
@@ -185,6 +187,7 @@
       Negotiation.arrival(sh, op, l.lastAt);
     }
     Assistance.advanceDetached(state, now, routes, localRoute);
+    Rescue.advanceDetached(state, now, routes);
   }
   function receive(state, id, at) {
     const sh = state.shipments.find(s => s.id === id);

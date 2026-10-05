@@ -6,6 +6,7 @@
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x));
   const able = p => p?.status === 'alive' && p.health >= 50 && p.fatigue < 80;
+  const atVan = (p, op) => !p.locationId || p.locationId === op.vehicleId;
   const open = (route, sh) => route?.id === sh.routeId && route.supportCapable && !['closed', 'none'].includes(route.continuity)
     && route.distanceKm === sh.distanceKm && route.endpointCityIds?.includes(sh.sourceId) && route.endpointCityIds?.includes(sh.destinationId);
   function provision(state, broker, at) {
@@ -151,8 +152,8 @@
     if (j.attached && (op.controllerId || op.crew.some(p => p.capture?.active))) return true;
     if (j.phase === 'assess') {
       j.progress += dt; if (j.progress < 60) return true;
-      const patients = op.crew.filter(p => p.status === 'alive' && !able(p));
-      const walking = op.crew.filter(able);
+      const patients = op.crew.filter(p => atVan(p, op) && p.status === 'alive' && !able(p));
+      const walking = op.crew.filter(p => atVan(p, op) && able(p));
       const mass = 2400 + (sh.cargo?.massKg || 0);
       const repair = op.condition >= 40 && op.condition < 60 ? 60 - op.condition : 0;
       if (!Road.equipment(op).controlsAccessible || !a.equipment.winch || op.towPointIntact === false || mass > a.equipment.towCapacityKg
@@ -166,10 +167,10 @@
     }
     if (j.phase === 'service') {
       if (op.condition !== j.assessedCondition) { j.phase = 'assess'; j.progress = 0; return true; }
-      const patients = op.crew.filter(p => p.status === 'alive' && !able(p));
+      const patients = op.crew.filter(p => atVan(p, op) && p.status === 'alive' && !able(p));
       if (!Road.equipment(op).controlsAccessible || !a.equipment.winch || op.towPointIntact === false
         || 2400 + (sh.cargo?.massKg || 0) > a.equipment.towCapacityKg
-        || patients.length > a.equipment.patientSpaces || op.crew.filter(able).length > a.equipment.passengerSeats
+        || patients.length > a.equipment.patientSpaces || op.crew.filter(p => atVan(p, op) && able(p)).length > a.equipment.passengerSeats
         || patients.length && (!a.equipment.stretcher || a.supplies.medicalPacks < patients.length)
         || a.supplies.repairParts < j.repair) { j.progress = 0; return true; }
       j.progress += dt; if (j.progress < 120 + j.repair * 10) return true;
@@ -178,9 +179,9 @@
       const fuel = Math.min(a.supplies.fuelKm, Math.max(0, 2 * (sh.positionKm + (sh.offRoadKm || 0)) + 5 - op.fuelKm));
       a.supplies.fuelKm -= fuel; op.fuelKm += fuel;
       const food = Math.min(a.supplies.food, Math.max(0, 2 - op.provisions)); a.supplies.food -= food; op.provisions += food;
-      j.mode = op.condition > 50 && op.crew.every(able) && op.fuelKm > sh.positionKm + (sh.offRoadKm || 0) + j.quote.localDistanceKm * 2 && op.provisions > 0 ? 'escort' : 'tow';
+      j.mode = op.condition > 50 && op.crew.length > 0 && op.crew.every(p => atVan(p, op) && able(p)) && op.fuelKm > sh.positionKm + (sh.offRoadKm || 0) + j.quote.localDistanceKm * 2 && op.provisions > 0 ? 'escort' : 'tow';
       a.supplies.medicalPacks -= j.patients.length;
-      for (const p of op.crew) if (j.mode === 'tow' && p.status === 'alive') p.locationId = a.vehicleId;
+      for (const p of op.crew) if (j.mode === 'tow' && p.status === 'alive' && atVan(p, op)) p.locationId = a.vehicleId;
       j.phase = 'return'; j.progress = 0;
       message(a, j, at, 'Recovery crew reports completed loading and ' + j.mode + ' preparation. Wounds remain; departure is not arrival.'); return true;
     }
