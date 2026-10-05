@@ -1,10 +1,11 @@
 (function (root, factory) {
   const api = factory(typeof module === 'object' && module.exports ? require('./smuggling-checkpoints') : root.HelixSmugglingCheckpoints,
     typeof module === 'object' && module.exports ? require('./corridor-beasts') : root.HelixCorridorBeasts,
-    typeof module === 'object' && module.exports ? require('./corridor-robbery') : root.HelixCorridorRobbery);
+    typeof module === 'object' && module.exports ? require('./corridor-robbery') : root.HelixCorridorRobbery,
+    typeof module === 'object' && module.exports ? require('./negotiated-release') : root.HelixNegotiatedRelease);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixLivingSmuggling = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Checkpoints, Beasts, Robbery) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Checkpoints, Beasts, Robbery, Negotiation) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v)), HOUR = 3600;
   const stat = (c, key) => Number(c.stats?.[key]?.current) || 0;
@@ -115,6 +116,7 @@
         if (sh.receiptAt === null) care(state, sh, step, at, op);
         Beasts.tick(state, sh, op, routes.find(r => r.id === sh.routeId), at);
         const held = Robbery.tick(state, sh, op, at);
+        Negotiation.tick(state, sh, op, at);
         Checkpoints.expire(state, sh, at);
         if (held || ['captured', 'stranded'].includes(sh.phase)) continue;
         if (Checkpoints.tick(state, sh, op, at)) continue;
@@ -170,11 +172,12 @@
           if (['dead', 'escaped'].includes(l.outcome)) { emptyHome(state, sh, op); break; }
           sh.phase = 'returnLocal'; sh.positionKm = 0;
         } else if (sh.phase === 'returnLocal') {
-          if (sh.manifest.entries.some(e => e.creature)) sh.phase = 'returnWaiting';
+          if (sh.manifest.entries.some(e => e.creature)) { sh.phase = 'returnWaiting'; Negotiation.arrival(sh, op, at); }
           else { op.money += sh.returnEscrow; sh.returnEscrow = 0; sh.phase = 'localEmpty'; }
         } else if (sh.phase === 'localEmpty') { sh.phase = 'returned'; op.assignment = null; op.location = state.homeId; release(op, sh); break; }
       }
       sh.lastAt = l.lastAt; op.lastAt = now;
+      Negotiation.arrival(sh, op, l.lastAt);
     }
   }
   function receive(state, id, at) {

@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Smuggling: Captivity, Negotiation, and Recovery
+1. Smuggling: Roadside Assistance, Patient Transport, and Vehicle Recovery
 2. Smuggling: Armed Rescue and Recapture
 3. World Integration: Investigations and Institutional Pressure
 4. Lazy Local Detail and World Discovery
@@ -88,9 +88,9 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Smuggling: Captivity, Negotiation, and Recovery
+## 1. Smuggling: Roadside Assistance, Patient Transport, and Vehicle Recovery
 
-Discuss continued survival and care for actual stranded or captive crews and living cargo. Use credible witnessed messages, actual contacts and separately funded offers for negotiation, release, roadside assistance or peaceful pickup. A ransom payment is not proof of release, and lost contact is not proof of death. Recovery requires real transport, fuel, crew, capacity, access and physical loading; decide separately how incapacitated patients, broken vehicles and containment pods can travel. Preserve wounds, ownership, spent resources, failed contracts and independent copies of reports. No teleportation, free rescue assets or restored sale proceeds. Start with one bounded feasible recovery route; armed entry belongs to the following prompt.
+Discuss one bounded peaceful assistance route for an actually free but stranded convoy. Negotiated release using the original operational van is implemented; payment, release and arrival remain separate facts. A damaged van, incapacitated original driver, blocked trail or exhausted supplies still requires help. Use dated witnessed locations, working communications, actual known contacts and separately funded offers. Helpers need saved willingness, real available people and vehicles, fuel, equipment, capacity, access, travel and physical loading. Decide separately what permits roadside repair or resupply, moving incapacitated patients, carrying containment pods with continued finite care, and towing or transporting a broken vehicle. Reuse existing suitable assets where possible; do not allocate free rescuers on demand. Preserve wounds, ownership, spent resources, failed contracts and independent reports. No teleportation, automatic refunds or restored sale proceeds. Lost contact is not proof of death. Captives who have not actually been released cannot be collected as though free; armed entry belongs to the following prompt.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 

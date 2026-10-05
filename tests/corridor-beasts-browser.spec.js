@@ -44,10 +44,12 @@ test('road UI shows only received dated reports and contact requests, not hidden
   await page.getByRole('button', { name: 'Request Driver to Abandon Delivery', exact: true }).click();
   expect((await reports.allTextContents()).join(' ')).toContain('Driver accepts');
   const { robberyFixture } = require('./helpers/corridor-robbery-fixture');
-  const captured = robberyFixture(); captured.until('holding');
+  const captured = robberyFixture();
+  require('../negotiated-release').bind(captured.state, { id: 'broker', name: 'Sera', homeCityId: 'a', serviceCityIds: ['a'] }, 0);
+  captured.until('holding'); captured.step(2);
   await page.evaluate(({ market, clock }) => {
     const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState();
-    s.economy.intercitySmuggling = market; s.clock = clock;
+    s.economy.intercitySmuggling = market; s.clock = clock; s.economy.money = 1000;
     d.importSurveyExpeditionTestState(s); d.reloadSurveyExpeditionTestState();
   }, { market: captured.state, clock: captured.now() });
   await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
@@ -57,6 +59,19 @@ test('road UI shows only received dated reports and contact requests, not hidden
   const count = await reports.count();
   await page.getByRole('button', { name: 'Request Driver to Abandon Delivery', exact: true }).click();
   await expect(reports).toHaveCount(count);
+  const demand = page.locator('[data-release-offer]');
+  await expect(demand).toContainText('Payment is not proof');
+  expect(await demand.textContent()).not.toMatch(/releaseProgress|honor|receivingAccount|genome/);
+  await page.getByRole('button', { name: 'Request Supervised Proof of Life', exact: true }).click();
+  await expect(page.getByText(/Supervised contact with the original crew member/)).toBeVisible();
+  await page.getByRole('button', { name: 'Pay for Claimed Release', exact: true }).click();
+  await expect(page.locator('[data-release-receipt]')).toContainText('Not proof of release');
+  await expect(page.getByRole('button', { name: 'Pay for Claimed Release', exact: true })).toHaveCount(0);
+  const paid = await page.evaluate(() => {
+    const s = window.helixHeresyDebug.exportSurveyExpeditionTestState();
+    return { money: s.economy.money, phase: s.economy.intercitySmuggling.shipments[0].phase };
+  });
+  expect(paid).toEqual({ money: 680, phase: 'captured' });
   expect(await page.evaluate(() => typeof window.HelixCorridorRobbery.tick)).toBe('function');
   expect(errors).toEqual([]);
 });

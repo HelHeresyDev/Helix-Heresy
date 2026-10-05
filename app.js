@@ -38,6 +38,7 @@
   const IntercitySmuggling = window.HelixIntercitySmuggling;
   const CorridorBeasts = window.HelixCorridorBeasts;
   const CorridorRobbery = window.HelixCorridorRobbery;
+  const NegotiatedRelease = window.HelixNegotiatedRelease;
   const SmugglingCheckpoints = window.HelixSmugglingCheckpoints;
   const CargoPropertyReview = window.HelixCargoPropertyReview;
   const CargoExamination = window.HelixCargoExamination;
@@ -61718,6 +61719,29 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         row.append(amendment); section.append(row);
       }
       const recovery = ensureLocalCovertMarket().collections.find(j => j.id === sh.recoveryJobId);
+      const negotiation = sh.negotiatedRelease;
+      if (negotiation) {
+        const offer = negotiation.offer;
+        const respond = action => {
+          advanceIntercitySmuggling(advanceLocalCovertCollections());
+          market.message = NegotiatedRelease.act(market, sh.id, action, offer.id, ensureEconomy(), state.clock)
+            ? "Response recorded; consult dated messages and receipts." : "No response or transfer available. No new condition report received.";
+          persist(); renderEconomy();
+        };
+        section.append(storesRowEl("Relayed release demand", formatClock(offer.at), {
+          dataset: { releaseOffer: sh.id },
+          subtitle: `${offer.terms} Claimed crew ${offer.crewIds.join(", ")}; van ${offer.vehicleId}; observed cargo ${offer.cargoIds.join(", ")}. Claimed rendezvous ${offer.rendezvous.routeId}, ${formatNumber(offer.rendezvous.positionKm)} km, ${formatNumber(offer.rendezvous.offRoadKm)} km off road. Demand ${formatMoney(offer.amount)} plus ${formatMoney(offer.fee)} provider fee; deadline ${formatClock(offer.expiresAt)}.`,
+          actions: !negotiation.receipt && negotiation.declinedAt == null && state.clock < offer.expiresAt ? [
+            storesActionButton("Request Supervised Proof of Life", "Limited dated contact, not proof of freedom or cargo condition.", () => respond("proof")),
+            storesActionButton("Pay for Claimed Release", "Pay the disclosed amount and fee from your funds. No guaranteed release or automatic refund.", () => respond("accept")),
+            storesActionButton("Decline Release Demand", "Relay a refusal without predicting captor behavior.", () => respond("decline"))] : []
+        }));
+        for (const message of negotiation.messages) section.append(emptyText(`${formatClock(message.at)}: ${message.text}`));
+        if (negotiation.proof) section.append(emptyText(`${formatClock(negotiation.proof.at)}: ${negotiation.proof.speakerClaim}: ${negotiation.proof.statement} ${negotiation.proof.scope}`));
+        if (negotiation.receipt) section.append(storesRowEl("Release payment receipt", formatClock(negotiation.receipt.at), {
+          dataset: { releaseReceipt: sh.id }, subtitle: `${formatMoney(negotiation.receipt.amount)} plus ${formatMoney(negotiation.receipt.fee)} fee. ${negotiation.receipt.scope}`
+        }));
+      }
       const onRoad = ["outbound", "returning", "captured", "stranded"].includes(sh.phase);
       for (const message of sh.corridorReports || []) section.append(storesRowEl("Driver message", formatClock(message.at), {
         dataset: { corridorReport: sh.id }, subtitle: `${message.text} Reported position ${formatNumber(message.positionKm)} km on ${message.routeId}. ${message.scope}`
@@ -82504,6 +82528,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const broker = economy.contacts.find(c => c.homeCityId === local.cityId && c.serviceCityIds?.includes(local.cityId));
     IntercitySmuggling.discover(smuggling, network.routes, network.destinations, broker, state.clock);
     LivingSmuggling.provision(smuggling, FEEDSTOCK_DEFS.map(f => f.key), state.clock);
+    NegotiatedRelease.bind(smuggling, broker, state.clock);
     const map = activeWorldRecord?.generatedData?.strategicMap;
     for (const op of smuggling.operators) CorridorBeasts.equipment(op);
     if (map) for (const route of network.routes) if (smuggling.operators.some(o => o.routeId === route.id)

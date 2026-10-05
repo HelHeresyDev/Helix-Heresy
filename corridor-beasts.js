@@ -8,7 +8,7 @@
   const hash = s => { let n = 2166136261; for (const c of String(s)) n = Math.imul(n ^ c.charCodeAt(0), 16777619); return (n >>> 0) / 4294967296; };
   function equipment(op) {
     op.roadSafety ||= { cabinIntegrity: 100, sightKm: .1, visibility: true, barrier: false,
-      radio: { powered: true, connected: true, charges: 24 }, driverChoice: 'escape', acceptAbort: true,
+      radio: { powered: true, connected: true, charges: 24, contacts: [{ brokerId: op.brokerId, carrierId: op.id }] }, driverChoice: 'escape', acceptAbort: true,
       robberyResponse: 'surrender', controlsAccessible: true, cabinSeats: 3 };
     return op.roadSafety;
   }

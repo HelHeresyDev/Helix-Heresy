@@ -12,10 +12,11 @@
     typeof module === 'object' && module.exports ? require('./payment-records') : root.HelixPaymentRecords,
     typeof module === 'object' && module.exports ? require('./chemical-handoff') : root.HelixChemicalHandoff,
     typeof module === 'object' && module.exports ? require('./corridor-beasts') : root.HelixCorridorBeasts,
-    typeof module === 'object' && module.exports ? require('./corridor-robbery') : root.HelixCorridorRobbery);
+    typeof module === 'object' && module.exports ? require('./corridor-robbery') : root.HelixCorridorRobbery,
+    typeof module === 'object' && module.exports ? require('./negotiated-release') : root.HelixNegotiatedRelease);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixIntercitySmuggling = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer, Witness, Identity, Recipient, Access, Principal, Payments, Chemical, Beasts, Robbery) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer, Witness, Identity, Recipient, Access, Principal, Payments, Chemical, Beasts, Robbery, Negotiation) {
   'use strict';
   const HOUR = 3600, copy = v => JSON.parse(JSON.stringify(v));
   const fingerprint = Checkpoints.fingerprint;
@@ -164,6 +165,7 @@
         const beastStep = localEncounter ? Math.min(1, seconds) : seconds;
         Beasts.tick(state, s, op, route, cursor);
         const held = Robbery.tick(state, s, op, cursor);
+        Negotiation.tick(state, s, op, cursor);
         Checkpoints.expire(state, s, cursor);
         if (held || ['captured', 'stranded'].includes(s.phase)) {
           op.provisions = Math.max(0, op.provisions - beastStep / (8 * HOUR));
@@ -231,6 +233,7 @@
             s.phase = 'returned'; s.returnedAt = cursor; op.assignment = null; op.location = state.homeId;
             if (s.receiptAt === null && s.owner === 'player') s.custodian = `covert-depot:${state.homeId}`;
             Carrier.record(op, s, 'returnedToDepot', cursor, s.sourceId, `covert-depot:${state.homeId}`, s.receiptAt == null ? s.manifest : { entries: [] });
+            Negotiation.arrival(s, op, cursor);
             op.crew.forEach(c => { c.fatigue = Math.max(0, c.fatigue - seconds / HOUR * 15); });
           }
         }

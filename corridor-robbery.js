@@ -10,6 +10,8 @@
     const id = `${route.id}:roadside-robbers`, km = route.distanceKm / 2;
     return { id, routeId: route.id, lengthKm: route.distanceKm, siteKm: km, lastAt: at, assignment: null, attempted: [],
       objective: 'takeLoadedVan', firePolicy: 'holdFire', visible: true, barrier: false,
+      releasePreferences: { offer: true, amount: 300, honor: true, allowProof: true },
+      receivingAccount: { id: `${id}:receiving-account`, active: true, channelPowered: true, balance: 0 },
       refuge: { id: `${id}:refuge`, distanceKm: .5, trailOpen: true },
       truck: { id: `${id}:truck`, positionKm: km, condition: 80, fuelKm: 20, seats: 3, ownerId: id, assignment: null },
       members: ['leader', 'driver', 'lookout'].map((role, n) => ({ id: `${id}:${role}`, name: `Roadside ${role}`, role,
@@ -139,5 +141,5 @@
     }
     return true;
   }
-  return { createGroup, provision, active, tick, groupFor };
+  return { createGroup, provision, active, tick, groupFor, release: finish };
 });

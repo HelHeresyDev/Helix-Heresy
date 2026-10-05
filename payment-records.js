@@ -179,5 +179,23 @@
       limit: 'Provider ledger and operator are one source. Embedded buyer/carrier reports remain derived from those accounts, not independent delivery evidence. Refusal implies no guilt. ' + scope });
   }
   const findings = (i, cityId) => (i.paymentResponses || []).map(r => ({ ...copy(r), jurisdiction: r.cityId === cityId ? 'local provider record' : 'foreign provider record; voluntary information only' }));
-  return { provision, quote, fund, lookup, receive, customerCancel, relay, advance, claim, correct, preview, next, prepare, complete, findings };
+  // A voluntary customer-funded transfer, separate from every sale escrow.
+  // This small transaction consumes available processing capacity immediately;
+  // its receipt attests to money movement only, never physical release.
+  function voluntaryTransfer(p, payer, recipient, terms, at) {
+    if (!ready(p) || !online(p.customer) || !p.customer.consent || p.assignment || p.jobs.some(j => !j.paid)
+      || p.power < 1 || p.workSeconds < 60 || at < p.availableAt || !recipient?.active || !recipient.channelPowered
+      || recipient.id !== terms?.recipientId || !Number.isFinite(recipient.balance) || recipient.balance < 0
+      || !Number.isFinite(terms.amount) || terms.amount <= 0 || !Number.isFinite(terms.fee) || terms.fee < 0 || terms.fee !== p.fee || terms.providerId !== p.id
+      || !terms.id || !Number.isFinite(terms.at) || !Number.isFinite(terms.expiresAt)
+      || !Number.isFinite(at) || at < terms.at || at >= terms.expiresAt || !Number.isFinite(payer?.money)
+      || payer.money < terms.amount + terms.fee || p.voluntaryTransfers?.some(r => r.offerId === terms.id)) return null;
+    payer.money -= terms.amount + terms.fee; recipient.balance += terms.amount; p.money += terms.fee;
+    p.power--; p.workSeconds -= 60;
+    const receipt = { id: `${p.id}:voluntary:${terms.id}`, offerId: terms.id, at, providerId: p.id,
+      recipientId: recipient.id, amount: terms.amount, fee: terms.fee,
+      scope: 'Customer-funded transfer completed. Not proof of release, survival, ownership, cargo condition or a completed sale; no automatic refund.' };
+    (p.voluntaryTransfers ||= []).push(copy(receipt)); return copy(receipt);
+  }
+  return { provision, quote, fund, lookup, receive, customerCancel, relay, advance, claim, correct, preview, next, prepare, complete, findings, voluntaryTransfer };
 });
