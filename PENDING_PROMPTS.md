@@ -18,15 +18,14 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Smuggling: Roadside Assistance, Patient Transport, and Vehicle Recovery
-2. Smuggling: Armed Rescue and Recapture
-3. World Integration: Investigations and Institutional Pressure
-4. Lazy Local Detail and World Discovery
-5. Roguelike Run Lifecycle, Death, Postmortem, and Restart
-6. Campaign Roadmap: From Hidden Laboratory to World Domination
-7. New-Run Onboarding and Contextual Tutorial
-8. Sound, Notifications, and Accessibility Audit
-9. Production Art Pass Using the Sprite Pipeline
+1. Smuggling: Armed Rescue and Recapture
+2. World Integration: Investigations and Institutional Pressure
+3. Lazy Local Detail and World Discovery
+4. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+5. Campaign Roadmap: From Hidden Laboratory to World Domination
+6. New-Run Onboarding and Contextual Tutorial
+7. Sound, Notifications, and Accessibility Audit
+8. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -88,55 +87,49 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Smuggling: Roadside Assistance, Patient Transport, and Vehicle Recovery
-
-Discuss one bounded peaceful assistance route for an actually free but stranded convoy. Negotiated release using the original operational van is implemented; payment, release and arrival remain separate facts. A damaged van, incapacitated original driver, blocked trail or exhausted supplies still requires help. Use dated witnessed locations, working communications, actual known contacts and separately funded offers. Helpers need saved willingness, real available people and vehicles, fuel, equipment, capacity, access, travel and physical loading. Decide separately what permits roadside repair or resupply, moving incapacitated patients, carrying containment pods with continued finite care, and towing or transporting a broken vehicle. Reuse existing suitable assets where possible; do not allocate free rescuers on demand. Preserve wounds, ownership, spent resources, failed contracts and independent reports. No teleportation, automatic refunds or restored sale proceeds. Lost contact is not proof of death. Captives who have not actually been released cannot be collected as though free; armed entry belongs to the following prompt.
-
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. Smuggling: Armed Rescue and Recapture
+## 1. Smuggling: Armed Rescue and Recapture
 
 Discuss actual rescuers, captors, observed locations, travel, equipment, engagement, surrender and extraction. Assistance depends on independent willingness and feasible physical capabilities, not remote player commands or a success roll. Rescue and recapture can fail or cause further casualties; surviving crew and exact cargo remain somewhere real. Keep living care active and distinguish freeing people, recovering property and moving a damaged vehicle. No automatic sovereign authority in wilderness, reinforcement spawning, replacement people or cargo, or scientist game over unless the scientist actually dies. Prefer a bounded encounter using the prior captivity and recovery mechanics.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. World Integration: Investigations and Institutional Pressure
+## 2. World Integration: Investigations and Institutional Pressure
 
 Design and implement world-context effects on company plausibility, inspections, investigations, religious scrutiny, escalation, and authority response. Context may alter priorities, schedules, thresholds, and available actions, but must not invent player guilt.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Lazy Local Detail and World Discovery
+## 3. Lazy Local Detail and World Discovery
 
 Design and implement deterministic elaboration of the already generated strategic world when a run encounters it. Lazy generation may fill minor places, institution branches, contacts, local histories, individuals, encounters, and exact maps while respecting canonical world facts and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+## 4. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 
 Design and implement the loop for beginning, losing, reviewing, and replacing a run without altering its reusable world. Only the scientist’s death ends a run; arrest, jail, prison, penal service, death sentence, loss of laboratory, and similar catastrophes remain playable while the scientist lives.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 5. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. The final campaign goal is rare world domination, but early hidden-laboratory survival must remain a complete roguelike experience.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. New-Run Onboarding and Contextual Tutorial
+## 6. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Sound, Notifications, and Accessibility Audit
+## 7. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. Production Art Pass Using the Sprite Pipeline
+## 8. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 

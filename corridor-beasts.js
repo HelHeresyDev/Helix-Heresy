@@ -34,12 +34,13 @@
   const siteFor = (state, sh) => state.corridorBeasts?.find(s => s.routeId === sh.routeId && s.lengthKm === sh.distanceKm);
   const active = (state, sh) => Boolean(siteFor(state, sh)?.actors.length);
   function report(sh, op, at, text) {
-    const safety = equipment(op), driver = op.crew.find(conscious);
+    const safety = equipment(op), driver = op.crew.find(p => conscious(p) && (!p.locationId || p.locationId === op.vehicleId));
     // Nothing is queued for retrospective transmission after an outage.
     if (!driver || !safety.radio.powered || !safety.radio.connected || safety.radio.charges < 1
       || safety.radio.custodianId && safety.radio.custodianId !== driver.id) return false;
     safety.radio.charges--; sh.corridorReports ||= [];
-    sh.corridorReports.push({ at, witnessId: driver.id, positionKm: sh.positionKm, routeId: sh.routeId, text,
+    sh.corridorReports.push({ at, witnessId: driver.id, positionKm: sh.positionKm, offRoadKm: sh.offRoadKm || 0,
+      availableForAssistance: !op.controllerId, routeId: sh.routeId, text,
       scope: 'Dated driver message, not live tracking or proof of unseen outcomes.' }); return true;
   }
   function note(sh, op, at, key, text) {
@@ -60,10 +61,11 @@
   }
   function tick(state, sh, op, route, at) {
     const site = siteFor(state, sh); if (!site || !['outbound', 'returning', 'captured', 'stranded'].includes(sh.phase)) return;
-    const safety = equipment(op), driver = op.crew.find(conscious);
+    const safety = equipment(op), driver = op.crew.find(p => conscious(p) && (!p.locationId || p.locationId === op.vehicleId));
     for (const b of site.actors) {
       if (b.targetId && b.targetId !== sh.id) {
-        const previous = state.shipments.find(s => s.id === b.targetId);
+        const previous = state.shipments.find(s => s.id === b.targetId)
+          || state.shipments.find(s => s.assistance?.convoy.id === b.targetId)?.assistance.convoy;
         if (!previous || !['outbound', 'returning', 'captured', 'stranded'].includes(previous.phase)) { b.finished.push(b.targetId); b.targetId = null; }
         else continue;
       }
@@ -103,8 +105,8 @@
         op.condition = Math.max(0, op.condition - profile.damage);
         safety.cabinIntegrity = Math.max(0, safety.cabinIntegrity - profile.damage);
         note(sh, op, at, `${b.id}:impact`, 'Driver reports a physical strike on the vehicle exterior. Cargo contents have not been inspected.');
-      } else if (op.crew.some(p => p.status === 'alive')) {
-        const occupant = op.crew.find(p => p.status === 'alive');
+      } else if (op.crew.some(p => p.status === 'alive' && (!p.locationId || p.locationId === op.vehicleId))) {
+        const occupant = op.crew.find(p => p.status === 'alive' && (!p.locationId || p.locationId === op.vehicleId));
         occupant.health = Math.max(0, occupant.health - profile.damage);
         occupant.injuries ||= []; occupant.injuries.push({ at, cause: 'beast contact through breached cabin', damage: profile.damage });
         if (occupant.health === 0) { occupant.status = 'dead'; occupant.deathAt = at; }

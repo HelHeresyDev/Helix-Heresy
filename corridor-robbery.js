@@ -11,6 +11,7 @@
     return { id, routeId: route.id, lengthKm: route.distanceKm, siteKm: km, lastAt: at, assignment: null, attempted: [],
       objective: 'takeLoadedVan', firePolicy: 'holdFire', visible: true, barrier: false,
       releasePreferences: { offer: true, amount: 300, honor: true, allowProof: true },
+      recoveryPassage: true,
       receivingAccount: { id: `${id}:receiving-account`, active: true, channelPowered: true, balance: 0 },
       refuge: { id: `${id}:refuge`, distanceKm: .5, trailOpen: true },
       truck: { id: `${id}:truck`, positionKm: km, condition: 80, fuelKm: 20, seats: 3, ownerId: id, assignment: null },
@@ -78,7 +79,7 @@
     if (at <= r.lastAt) return ['approach', 'secure', 'inspect', 'withdrawing', 'holding'].includes(r.phase);
     const dt = Math.min(1, at - r.lastAt); r.lastAt = at; g.lastAt = at;
     g.members.filter(p => p.status === 'alive').forEach(p => { p.provisions = Math.max(0, p.provisions - dt / 28800); p.fatigue += dt / 3600; });
-    const crew = op.crew.find(p => p.status === 'alive' && p.health >= 25);
+    const crew = op.crew.find(p => p.status === 'alive' && p.health >= 25 && (!p.locationId || p.locationId === op.vehicleId));
     if (r.controlAt == null) {
       if (at > r.at + 180 || !members.some(armed)) { finish(g, sh, op, at, 'attemptAbandoned'); return false; }
       const response = safety.robberyResponse || 'surrender';

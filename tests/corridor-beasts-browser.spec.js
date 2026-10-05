@@ -72,6 +72,25 @@ test('road UI shows only received dated reports and contact requests, not hidden
     return { money: s.economy.money, phase: s.economy.intercitySmuggling.shipments[0].phase };
   });
   expect(paid).toEqual({ money: 680, phase: 'captured' });
+  const stranded = beastFixture(); stranded.state.corridorBeasts = [];
+  stranded.op.condition = 20; stranded.sh.positionKm = 1;
+  require('../corridor-beasts').report(stranded.sh, stranded.op, 0, 'Driver requests assistance at the reported position.');
+  await page.evaluate(market => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState();
+    s.economy.intercitySmuggling = market; s.clock = 0; s.economy.money = 1000;
+    d.importSurveyExpeditionTestState(s); d.reloadSurveyExpeditionTestState();
+  }, stranded.state);
+  await page.keyboard.press('B'); await page.locator('[data-economy-menu-tab="deals"]').click();
+  await page.getByRole('button', { name: 'Request Roadside Assistance Quote', exact: true }).click();
+  const recoveryOffer = page.locator('[data-assistance-quote]');
+  await expect(recoveryOffer).toContainText('not tracking or guaranteed recovery');
+  expect(await recoveryOffer.textContent()).not.toMatch(/medicalPacks|repairParts|willing|health/);
+  await page.getByRole('button', { name: 'Reserve Paid Recovery Attempt', exact: true }).click();
+  await expect(page.locator('[data-assistance-report]').last()).toContainText('fee held until departure');
+  expect(await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState().economy.money)).toBe(814);
+  await page.getByRole('button', { name: 'Cancel Undispatched Recovery', exact: true }).click();
+  await expect(page.locator('[data-assistance-report]').last()).toContainText('refunded');
+  expect(await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState().economy.money)).toBe(1000);
   expect(await page.evaluate(() => typeof window.HelixCorridorRobbery.tick)).toBe('function');
   expect(errors).toEqual([]);
 });

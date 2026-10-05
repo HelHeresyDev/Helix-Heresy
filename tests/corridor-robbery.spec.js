@@ -56,7 +56,10 @@ test('seized communicator prevents remote commands and reports, without revealin
   expect(Road.requestAbort(f.state, f.sh.id, f.now())).toBe(false);
   expect(Road.report(f.sh, f.op, f.now(), 'not allowed')).toBe(false);
   f.until('holding'); expect(f.sh.corridorReports).toEqual(reports);
-  expect(JSON.stringify(reports)).not.toMatch(/observations|refuge|offRoadKm|original-lot|ammunition/);
+  expect(JSON.stringify(reports)).not.toMatch(/observations|refuge|original-lot|ammunition/);
+  // Dated road coordinates are shared; later hidden withdrawal is never backfilled.
+  expect(reports.every(r => r.offRoadKm === 0)).toBe(true);
+  expect(f.sh.offRoadKm).toBeGreaterThan(0);
 });
 test('offline robbery remains physical and unsent messages are never backfilled', () => {
   const f = robberyFixture(); f.safety.radio.connected = false; f.until('holding');

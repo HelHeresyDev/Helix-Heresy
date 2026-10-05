@@ -13,22 +13,24 @@
     typeof module === 'object' && module.exports ? require('./chemical-handoff') : root.HelixChemicalHandoff,
     typeof module === 'object' && module.exports ? require('./corridor-beasts') : root.HelixCorridorBeasts,
     typeof module === 'object' && module.exports ? require('./corridor-robbery') : root.HelixCorridorRobbery,
-    typeof module === 'object' && module.exports ? require('./negotiated-release') : root.HelixNegotiatedRelease);
+    typeof module === 'object' && module.exports ? require('./negotiated-release') : root.HelixNegotiatedRelease,
+    typeof module === 'object' && module.exports ? require('./roadside-assistance') : root.HelixRoadsideAssistance);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixIntercitySmuggling = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer, Witness, Identity, Recipient, Access, Principal, Payments, Chemical, Beasts, Robbery, Negotiation) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Living, Checkpoints, Referrals, Carrier, Buyer, Witness, Identity, Recipient, Access, Principal, Payments, Chemical, Beasts, Robbery, Negotiation, Assistance) {
   'use strict';
   const HOUR = 3600, copy = v => JSON.parse(JSON.stringify(v));
   const fingerprint = Checkpoints.fingerprint;
   const physical = r => r?.supportCapable && !['closed', 'none'].includes(r.continuity) && Number.isFinite(r.distanceKm) && r.distanceKm > 0;
   const connects = (o, r) => physical(r) && r.id === o.routeId && r.endpointCityIds?.length === 2 && r.endpointCityIds.includes(o.sourceId) && r.endpointCityIds.includes(o.destinationId);
-  const capable = o => o.condition >= 50 && o.crew.every(c => c.status === 'alive' && c.health >= 50 && c.fatigue < 80);
+  const capable = o => o.condition >= 50 && o.crew.every(c => c.status === 'alive' && c.health >= 50 && c.fatigue < 80 && (!c.locationId || c.locationId === o.vehicleId));
   function create(homeId, at = 0) { return { homeId, lastAt: at, operators: [], buyers: [], shipments: [], quote: null, message: '', nextNumber: 1 }; }
   // A bounded scenario allocation, once per known direct corridor, sponsored by a local broker.
   // Neither lawful permits nor network membership supplies these assets.
   function discover(state, routes, destinations, broker, at) {
     if (!state.homeId || !broker || broker.homeCityId !== state.homeId || !broker.serviceCityIds?.includes(state.homeId)) return;
     Payments.provision(state, broker, at);
+    Assistance.provision(state, broker, at);
     for (const r of routes) {
       if (r.endpointCityIds?.length !== 2 || new Set(r.endpointCityIds).size !== 2 || !r.endpointCityIds.includes(state.homeId) || !physical(r)) continue;
       const cityId = r.endpointCityIds.find(id => id !== state.homeId);
@@ -161,13 +163,14 @@
         Carrier.record(op, s, 'departedDepot', now, s.sourceId, `covert-depot:${state.homeId}`); continue;
       }
       while (['outbound', 'returning', 'inspecting', 'detained', 'captured', 'stranded'].includes(s.phase) && seconds > 0) {
-        const localEncounter = Beasts.active(state, s) || Robbery.active(state, s);
+        const localEncounter = Beasts.active(state, s) || Robbery.active(state, s) || Assistance.active(state, s);
         const beastStep = localEncounter ? Math.min(1, seconds) : seconds;
         Beasts.tick(state, s, op, route, cursor);
         const held = Robbery.tick(state, s, op, cursor);
-        Negotiation.tick(state, s, op, cursor);
+        const assisted = Assistance.tick(state, s, op, route, null, cursor);
+        if (!assisted) Negotiation.tick(state, s, op, cursor);
         Checkpoints.expire(state, s, cursor);
-        if (held || ['captured', 'stranded'].includes(s.phase)) {
+        if (assisted || held || ['captured', 'stranded'].includes(s.phase)) {
           op.provisions = Math.max(0, op.provisions - beastStep / (8 * HOUR));
           seconds -= beastStep; cursor += beastStep; continue;
         }
@@ -247,6 +250,7 @@
     // Source accounts relay retained reports, not hidden cargo state, to the provider.
     for (const sh of state.shipments) Payments.relay(state, sh, now);
     Payments.advance(state, now);
+    Assistance.advanceDetached(state, now, routes, null);
     Referrals.advance(state, now);
     state.lastAt = Math.max(state.lastAt, now);
   }

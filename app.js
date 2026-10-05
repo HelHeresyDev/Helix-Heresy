@@ -39,6 +39,7 @@
   const CorridorBeasts = window.HelixCorridorBeasts;
   const CorridorRobbery = window.HelixCorridorRobbery;
   const NegotiatedRelease = window.HelixNegotiatedRelease;
+  const RoadsideAssistance = window.HelixRoadsideAssistance;
   const SmugglingCheckpoints = window.HelixSmugglingCheckpoints;
   const CargoPropertyReview = window.HelixCargoPropertyReview;
   const CargoExamination = window.HelixCargoExamination;
@@ -61720,6 +61721,29 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       const recovery = ensureLocalCovertMarket().collections.find(j => j.id === sh.recoveryJobId);
       const negotiation = sh.negotiatedRelease;
+      const assistanceAction = action => {
+        advanceIntercitySmuggling(advanceLocalCovertCollections());
+        const route = ensureStrategicJourneys().routes.find(r => r.id === sh.routeId);
+        let ok;
+        if (action === "quote") ok = RoadsideAssistance.quote(market, sh.id, route, localCovertRoute(), state.clock);
+        else if (action === "accept") ok = RoadsideAssistance.accept(market, sh.id, market.roadsideAssistance?.quote?.id, ensureEconomy(), route, state.clock);
+        else ok = RoadsideAssistance.cancel(market, sh.id, ensureEconomy(), state.clock);
+        market.message = ok ? "Recovery response recorded. Consult dated messages; dispatch is not a guarantee." : "No recovery offer or response available through this contact.";
+        persist(); renderEconomy();
+      };
+      if (sh.corridorReports?.some(r => r.availableForAssistance)) section.append(storesRowEl("Roadside assistance", "Known broker referral", {
+        dataset: { assistanceContact: sh.id }, subtitle: "A dated reported position is required. No live tracking, armed rescue or automatic recovery.",
+        actions: [storesActionButton("Request Roadside Assistance Quote", "Ask the existing recovery outfit for a paid attempt at a reported location.", () => assistanceAction("quote"))]
+      }));
+      const assistanceQuote = market.roadsideAssistance?.quote;
+      if (assistanceQuote?.shipmentId === sh.id) section.append(storesRowEl("Recovery offer", formatMoney(assistanceQuote.fee), {
+        dataset: { assistanceQuote: sh.id }, subtitle: `${assistanceQuote.terms} Vehicle ${assistanceQuote.vehicleId}; crew ${assistanceQuote.crew.join(", ")}. Report ${formatClock(assistanceQuote.reportAt)} at ${assistanceQuote.positionKm} km, ${assistanceQuote.offRoadKm} km off road. Patient destination ${assistanceQuote.destination}; offer expires ${formatClock(assistanceQuote.expiresAt)}.`,
+        actions: [storesActionButton("Reserve Paid Recovery Attempt", "Reserve the quoted assets and hold the fee. Departure commits the charge.", () => assistanceAction("accept"))]
+      }));
+      for (const job of [...(sh.assistanceHistory || []), ...(sh.assistance ? [sh.assistance] : [])]) {
+        for (const message of job.messages) section.append(storesRowEl("Recovery message", formatClock(message.at), { dataset: { assistanceReport: sh.id }, subtitle: message.text }));
+      }
+      if (sh.assistance?.phase === "reserved") section.append(storesActionButton("Cancel Undispatched Recovery", "Refund the held fee only before actual departure.", () => assistanceAction("cancel")));
       if (negotiation) {
         const offer = negotiation.offer;
         const respond = action => {
@@ -61747,7 +61771,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         dataset: { corridorReport: sh.id }, subtitle: `${message.text} Reported position ${formatNumber(message.positionKm)} km on ${message.routeId}. ${message.scope}`
       }));
       if (onRoad) section.append(storesRowEl("Convoy contact", "Request, not remote driving", {
-        dataset: { corridorContact: sh.id }, subtitle: "A functioning crew communicator and a conscious willing driver are required. No rescue dispatch is available in this pass.",
+        dataset: { corridorContact: sh.id }, subtitle: "A functioning crew communicator and a conscious willing driver are required. Peaceful assistance requires a separate paid attempt.",
         actions: [storesActionButton("Request Driver to Abandon Delivery", "Ask the driver to return if feasible; silence supplies no information about unseen outcomes.", () => {
           advanceIntercitySmuggling(advanceLocalCovertCollections());
           market.message = CorridorBeasts.requestAbort(market, sh.id, state.clock) ? "Driver response received." : "No response available; current condition is unknown.";

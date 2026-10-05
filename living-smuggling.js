@@ -2,10 +2,11 @@
   const api = factory(typeof module === 'object' && module.exports ? require('./smuggling-checkpoints') : root.HelixSmugglingCheckpoints,
     typeof module === 'object' && module.exports ? require('./corridor-beasts') : root.HelixCorridorBeasts,
     typeof module === 'object' && module.exports ? require('./corridor-robbery') : root.HelixCorridorRobbery,
-    typeof module === 'object' && module.exports ? require('./negotiated-release') : root.HelixNegotiatedRelease);
+    typeof module === 'object' && module.exports ? require('./negotiated-release') : root.HelixNegotiatedRelease,
+    typeof module === 'object' && module.exports ? require('./roadside-assistance') : root.HelixRoadsideAssistance);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixLivingSmuggling = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Checkpoints, Beasts, Robbery, Negotiation) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Checkpoints, Beasts, Robbery, Negotiation, Assistance) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v)), HOUR = 3600;
   const stat = (c, key) => Number(c.stats?.[key]?.current) || 0;
@@ -88,7 +89,7 @@
     if (stat(c, 'bodyIntegrity') <= 0 || Number.isFinite(c.deathAt) && at >= c.deathAt) fail(state, sh, 'dead', at);
     else if (l.podCondition <= 0 || l.strain >= l.threshold) fail(state, sh, 'escaped', at);
     const radio = op?.roadSafety?.radio;
-    const contact = !radio || radio.powered && radio.connected && radio.charges >= 1 && op.crew.some(p => p.trainedHandler && p.status === 'alive' && p.health >= 50 && (!radio.custodianId || radio.custodianId === p.id));
+    const contact = !radio || radio.powered && radio.connected && radio.charges >= 1 && op.crew.some(p => p.trainedHandler && p.status === 'alive' && p.health >= 50 && (!p.locationId || p.locationId === op.vehicleId) && (!radio.custodianId || radio.custodianId === p.id));
     if (contact && (l.reportAt === null || at - l.reportAt >= HOUR)) {
       if (radio) radio.charges--;
       l.reportAt = at; l.report = { at, health: stat(c, 'bodyIntegrity'), stress: stat(c, 'stress'), nutrition: stat(c, 'nutrition'), podCondition: l.podCondition,
@@ -108,7 +109,7 @@
       }
       if (['returned', 'labReceived'].includes(sh.phase)) continue;
       // Small fixed steps give live needs time to fail before a destination receipt on large clock jumps.
-      const step = Beasts.active(state, sh) || Robbery.active(state, sh) ? 1 : 60;
+      const step = Beasts.active(state, sh) || Robbery.active(state, sh) || Assistance.active(state, sh) ? 1 : 60;
       while (l.lastAt + step <= now) {
         l.lastAt += step; const at = l.lastAt;
         op.provisions = Math.max(0, op.provisions - step / (8 * HOUR));
@@ -116,9 +117,13 @@
         if (sh.receiptAt === null) care(state, sh, step, at, op);
         Beasts.tick(state, sh, op, routes.find(r => r.id === sh.routeId), at);
         const held = Robbery.tick(state, sh, op, at);
-        Negotiation.tick(state, sh, op, at);
+        const assisted = Assistance.tick(state, sh, op, routes.find(r => r.id === sh.routeId), localRoute, at);
+        if (!assisted) Negotiation.tick(state, sh, op, at);
         Checkpoints.expire(state, sh, at);
-        if (held || ['captured', 'stranded'].includes(sh.phase)) continue;
+        if (assisted || held || ['captured', 'stranded'].includes(sh.phase)) {
+          if (sh.phase === 'returned') { release(op, sh); break; }
+          continue;
+        }
         if (Checkpoints.tick(state, sh, op, at)) continue;
         if (sh.phase === 'localTransit') {
           sh.positionKm = job?.positionKm || 0;
@@ -129,7 +134,7 @@
         }
         const route = routes.find(r => r.id === sh.routeId);
         const routeOpen = route?.supportCapable && !['closed', 'none'].includes(route.continuity) && route.distanceKm === sh.distanceKm && route.endpointCityIds?.includes(sh.sourceId) && route.endpointCityIds?.includes(sh.destinationId);
-        const crewReady = op.condition >= 50 && op.crew.every(c => c.status === 'alive' && c.health >= 50 && c.fatigue < 80);
+        const crewReady = op.condition >= 50 && op.crew.every(c => c.status === 'alive' && c.health >= 50 && c.fatigue < 80 && (!c.locationId || c.locationId === op.vehicleId));
         const reserveHours = Math.min(l.foodLeft / l.foodRate, l.waterLeft / .25, l.powerLeft);
         if (!l.outcome && ['depot', 'outbound'].includes(sh.phase) && (reserveHours < (sh.distanceKm - sh.positionKm) / 20 + sh.localDistanceKm / 24 + 2 || l.podCondition < 35)) fail(state, sh, 'returningUnsafe', at);
         if (sh.phase === 'depot') {
@@ -179,6 +184,7 @@
       sh.lastAt = l.lastAt; op.lastAt = now;
       Negotiation.arrival(sh, op, l.lastAt);
     }
+    Assistance.advanceDetached(state, now, routes, localRoute);
   }
   function receive(state, id, at) {
     const sh = state.shipments.find(s => s.id === id);
