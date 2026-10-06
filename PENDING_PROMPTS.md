@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Local Institutions, People, and Controlled Map Access
+1. Institutional Contacts and Restricted Information Networks
 2. Additional Local Maps and Encounters
 3. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 4. Campaign Roadmap: From Hidden Laboratory to World Domination
@@ -86,9 +86,9 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Local Institutions, People, and Controlled Map Access
+## 1. Institutional Contacts and Restricted Information Networks
 
-Build on the municipal place/discovery record to materialize local institution branches, staff, and contacts within canonical population and capacity limits. Organizations deliberately withhold maps to discourage emigration and guard costly resource surveys. Design purpose-limited extracts, purchase or privileged access, provenance, stale information, and revocation without erasing retained copies. Audit ordinary strategic-map projections separately from omniscient generation previews; do not expose private maps just because satellite imagery exists. Keep map knowledge, travel permission, land ownership, and extraction rights distinct. Split organizational actors and map distribution further if needed for a bounded playable pass.
+The first municipal map provider, shared civic clerk, purpose-limited purchased extracts, retained copies, and generation-preview separation are implemented. Design a bounded next extension for local institutional branches and contacts within canonical population and capacity limits. Reuse existing actors and offices instead of duplicating personnel. Consider competing organizational sources, privileged access, conflicting or stale records, and illicit map trading as separate extensions rather than one pass. Maps are deliberately withheld to discourage emigration; material surveys are costly guarded records, never a free satellite-imagery layer. Preserve provenance, physical service constraints, permission checks, and retained copies after revocation. Knowledge must remain separate from travel, settlement, ownership, and extraction rights.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 

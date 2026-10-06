@@ -76,6 +76,7 @@
   const ResourceSurveys = window.HelixResourceSurveys;
   const SurveyExpeditions = window.HelixSurveyExpeditions;
   const LocalDiscovery = window.HelixLocalDiscovery;
+  const MunicipalMaps = window.HelixMunicipalMaps;
   const UnsupportedExcursions = window.HelixUnsupportedExcursions;
   const MedicalExtraction = window.HelixMedicalExtraction;
   const MunicipalClinic = window.HelixMunicipalClinic;
@@ -13834,6 +13835,8 @@
         persist(); render(); return true;
       },
       companySnapshot: () => clonePlainObject({ company: ensureCompany(), assessment: companyCredibilityAssessment(), identity: state.siteIdentity }),
+      municipalMapSnapshot: () => clonePlainObject({ service: ensureMunicipalMapService(), public: MunicipalMaps.publicView(ensureMunicipalMapService()), office: scientistCivicOffice(), clock: state.clock, money: ensureEconomy().money }),
+      municipalMapAction: (action, extractId) => municipalMapAction(action, extractId),
       propertyPresentationSnapshot: () => clonePlainObject({
         state: ensurePropertyPresentation(),
         assessment: propertyPresentationAssessment(),
@@ -16003,6 +16006,10 @@
 
   function enterGameplay(options = {}) {
     startupOverlayOpen = false;
+    cancelConfiguredWorldPreview();
+    // Generation previews are not a run-owned map or a source of discovery.
+    strategicGlobeRenderer?.setMap(null);
+    if (dom.strategicWorldInspector) dom.strategicWorldInspector.hidden = true;
     lastTickAt = Date.now();
     syncStartupShell();
     if (options.focus !== false) window.requestAnimationFrame(() => dom.pauseBtn?.focus());
@@ -16105,6 +16112,7 @@
   }
 
   function renderStrategicCellInspector(cell) {
+    if (!startupOverlayOpen || startupView !== "setup") return;
     const relief = cell && currentStrategicPreviewMap?.relief
       ? PlanetaryRelief.cellReliefSnapshot(currentStrategicPreviewMap, cell.index)
       : null;
@@ -17198,6 +17206,7 @@
   }
 
   function renderStrategicWorldPreview(world) {
+    if (!startupOverlayOpen) { strategicGlobeRenderer?.setMap(null); return; }
     const map = world?.generatedData?.strategicMap;
     currentStrategicPreviewMap = map || null;
     currentStrategicPreviewWorldSeed = world?.worldSeed || "";
@@ -21239,6 +21248,7 @@
     changes.scientistMovementChanged += updateMedicalExtraction(elapsed);
     changes.scientistMovementChanged += updateMunicipalClinic();
     changes.scientistMovementChanged += updateScientistIdentity();
+    changes.scientistMovementChanged += updateMunicipalMapService();
     changes.scientistMovementChanged += updatePenalFlights(elapsed);
     changes.scientistMovementChanged += updatePenalLegion(elapsed);
     changes.scientistMovementChanged += updateCastawayAssistance(elapsed);
@@ -79251,6 +79261,75 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
   function ensureScientistIdentity() { return state.scientistIdentity ||= ScientistIdentity.create(); }
+  function municipalMapContext(office) {
+    const expedition = ensureSurveyExpeditions(), service = expedition.mapService;
+    const ctx = scientistCivicContext(office);
+    return { ...ctx, bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      busy: clinicActive() || rescueMissionActive() || Boolean(state.scientistIdentity?.job) || (!service?.job && surveyBusy()),
+      placeId: expedition.destination?.id, visitPermission: expedition.discovery?.access.active === true,
+      returnBooking: expedition.visits > 0 && expedition.journeyId && expedition.departure
+        ? { id: expedition.journeyId, destinationLabel: "Registered laboratory departure point" } : null };
+  }
+  function ensureMunicipalMapService() {
+    const expedition = ensureSurveyExpeditions();
+    if (expedition.mapService) return expedition.mapService;
+    const office = scientistCivicOffice(), ctx = scientistCivicContext(office);
+    if (!office || !ctx.atCounter || !ctx.clerkPresent || !ctx.lineOfSight || !ctx.alive || !ctx.capable) return null;
+    expedition.mapService = MunicipalMaps.bind(office, expedition.destination, expedition.discovery?.baseline, state.clock);
+    return expedition.mapService;
+  }
+  function updateMunicipalMapService() {
+    const service = state.surveyExpeditions?.mapService;
+    if (!service?.job) return 0;
+    const office = ensureIntercitySmuggling().identityOffices?.find(row => row.id === service.officeId);
+    const changed = MunicipalMaps.advance(service, office, municipalMapContext(office), state.clock);
+    if (!service.job && state.combat?.routineSuspension?.reason === "municipal map request") resumeScientistRoutineWork();
+    return changed ? 1 : 0;
+  }
+  function municipalMapAction(action, extractId = "") {
+    if (action === "walk") return scientistIdentityAction("walk");
+    updateMunicipalMapService();
+    const service = ensureMunicipalMapService(), office = scientistCivicOffice();
+    let ok = false;
+    if (action === "cancel") ok = MunicipalMaps.cancel(service, office, state.clock);
+    if (action === "request" && !state.combat?.routineSuspension) {
+      ok = MunicipalMaps.request(service, office, extractId, municipalMapContext(office), ensureEconomy(), state.clock);
+      if (ok) suspendScientistRoutineWork("municipal map request");
+    }
+    if (!service?.job && state.combat?.routineSuspension?.reason === "municipal map request") resumeScientistRoutineWork();
+    persist(); render(); return ok;
+  }
+  function renderMunicipalMaps() {
+    const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.municipalMaps = "true";
+    panel.append(textEl("strong", "Municipal Map Extracts"));
+    const service = ensureMunicipalMapService(), office = scientistCivicOffice(), view = MunicipalMaps.publicView(service);
+    const button = (label, action, disabled, reason = "") => { const b = document.createElement("button"); b.textContent = label; b.disabled = disabled; b.title = reason; b.addEventListener("click", action); panel.append(b); };
+    button("Ask at Civic Counter", () => municipalMapAction("walk"), !office?.civicCounter || !scientistCivicContext(office).cityId || Boolean(service?.job));
+    if (!view) { panel.append(textEl("p", "Ask the existing municipal records clerk in person. No new office, staff, maps or survey knowledge are created if that service is absent.")); return panel; }
+    panel.append(textEl("p", `${view.contact.label}. Organizations restrict maps to discourage emigration and protect their information. Money alone does not buy access.`), textEl("p", view.limitations));
+    if (!view.accessActive) panel.append(textEl("p", "Further map access withdrawn. Previously received copies remain available below."));
+    for (const item of MunicipalMaps.CATALOG) {
+      const reason = MunicipalMaps.reason(service, office, item.id, municipalMapContext(office));
+      panel.append(textEl("p", `${item.label}: ${formatMoney(item.fee)}, ${formatDuration(item.seconds)} of clerk work. Purpose: ${item.purpose}. ${reason || "Fee is nonrefundable once preparation starts; remain at the counter."}`));
+      button(`Request ${item.label}`, () => municipalMapAction("request", item.id), Boolean(reason), reason);
+    }
+    if (view.working) button("Cancel Map Request", () => municipalMapAction("cancel"), false);
+    if (view.message) panel.append(textEl("p", view.message));
+    for (const record of view.copies) {
+      const section = document.createElement("section"); section.dataset.municipalMapCopy = record.id;
+      section.append(textEl("strong", MunicipalMaps.CATALOG.find(row => row.id === record.extractId)?.label || "Retained extract"),
+        textEl("p", `${record.issuer.label} · copied ${formatClock(record.issuedAt)} · source survey date not supplied. ${record.contents.source}`),
+        textEl("p", `Coverage: ${JSON.stringify(record.contents.coverage)}. ${record.contents.notes.join(" ")}`), textEl("p", record.limitations));
+      if (record.extractId === "groundPlan") {
+        const diagram = textEl("pre", MunicipalMaps.parcelDiagram(record));
+        diagram.setAttribute("aria-label", "Dated authorized parcel plan with vehicle rendezvous and civic counter");
+        section.append(diagram);
+      }
+      panel.append(section);
+    }
+    return panel;
+  }
+
   function scientistCivicOffice() {
     const expedition = ensureSurveyExpeditions(), market = ensureIntercitySmuggling();
     const office = market.identityOffices?.find(o => o.cityId === market.homeId && o.cityId === expedition.destination?.cityId && o.active);
@@ -80576,7 +80655,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function surveyScientistAway() { return Boolean(state?.surveyExpeditions && state.surveyExpeditions.phase !== "home"); }
   function surveyScientistReserved() { return surveyScientistAway() || Boolean(state?.surveyExpeditions?.preparing); }
   function surveyTaskAllowed(task) {
-    if (state.scientistIdentity?.job) return false;
+    if (state.scientistIdentity?.job || state.surveyExpeditions?.mapService?.job) return false;
     if (state.penalLegion?.serviceEndedAt != null && task.type === 'scientistMove' && task.data?.toCell?.z === scientistMapCell().z) return true;
     if (currentPenalFlight() && currentPenalFlight().stage !== "released") return false;
     if (!surveyScientistAway()) return true;
@@ -80653,7 +80732,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function boardSurveyVehicle() {
     if (currentPenalFlight()) return false;
-    if (clinicActive() || state.scientistIdentity?.job) return false;
+    if (clinicActive() || state.scientistIdentity?.job || state.surveyExpeditions?.mapService?.job) return false;
     if (rescueMissionPhysical() || state.medicalExtraction?.mission?.status === "inbound") return false;
     if (unsupportedActive()) return false;
     if (escortContractActive()) { surveyEvent("Complete the escort's local contract at the defended meeting point before boarding. The hired vehicle waits; no extra escort seat has been booked."); persist(); render(); return false; }
@@ -80856,6 +80935,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(renderMedicalExtraction());
     panel.append(renderMunicipalClinic());
     panel.append(renderScientistIdentity());
+    panel.append(renderMunicipalMaps());
     const button = (label, action, disabled = false, reason = "") => {
       const element = document.createElement("button"); element.type = "button"; element.textContent = label; element.disabled = disabled; element.title = reason; element.addEventListener("click", action); panel.append(element);
     };
