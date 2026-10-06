@@ -75,6 +75,7 @@
   const StrategicJourneys = window.HelixStrategicJourneys;
   const ResourceSurveys = window.HelixResourceSurveys;
   const SurveyExpeditions = window.HelixSurveyExpeditions;
+  const LocalDiscovery = window.HelixLocalDiscovery;
   const UnsupportedExcursions = window.HelixUnsupportedExcursions;
   const MedicalExtraction = window.HelixMedicalExtraction;
   const MunicipalClinic = window.HelixMunicipalClinic;
@@ -62977,8 +62978,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           setLabMapOverlayEntry(assignments, office.civicCounter.cell, { overlayId, classNames: ["map-overlay-resources"], label: "Public civic registration counter", title: "Walk here for a voluntary paid registration or document check; no automatic historical identity or immunity", value: "R", source: "Municipal registry notice", target: { kind: "tile", tile: office.civicCounter.cell } }, map);
           if (office.clerk.mapCell && sensoryLineOfSight(scientistMapCell(), office.clerk.mapCell)) setLabMapOverlayEntry(assignments, office.clerk.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: "Civic records clerk", title: office.contact.label, value: "C", source: "Direct observation", target: { kind: "tile", tile: office.clerk.mapCell } }, map);
         }
-        for (const [cell, value, label] of [[SurveyExpeditions.RENDEZVOUS, "V", "Waiting survey vehicle; walk here to return or read company account reports"], [SurveyExpeditions.HAZARD, "!", state.surveyExpeditions.hazardDisturbed ? "Settled loose rock; previously disturbed" : "Flagged loose rock: crossing this tile risks a minor leg injury"]]) {
-          setLabMapOverlayEntry(assignments, cell, { overlayId, classNames: ["map-overlay-resources", "map-overlay-resources-high"], label, title: label, source: "Municipal site notice", value, target: { kind: "tile", tile: cell } }, map);
+        const observations = new Map((LocalDiscovery.publicView(state.surveyExpeditions.discovery)?.records || []).filter(row => row.cell).map(row => [row.subject, row]));
+        for (const record of observations.values()) {
+          const cell = record.cell, label = `${record.text} — observed ${formatClock(record.at)}; last known, not live telemetry`;
+          setLabMapOverlayEntry(assignments, cell, { overlayId, classNames: ["map-overlay-resources", "map-overlay-resources-high"], label, title: label, source: record.source, value: record.subject === "vehicle" ? "V" : record.subject === "marker" ? "M" : "!", target: { kind: "tile", tile: cell } }, map);
         }
       }
       const surveys = ResourceSurveys.publicKnowledge(ensureResourceSurveys());
@@ -80558,7 +80561,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!expedition.destination) {
       const network = ensureStrategicJourneys();
       const destination = SurveyExpeditions.destinationFor(network);
-      const context = destination && resourceSurveyContext(activeWorldRecord, { strategicLocation: { id: destination.id, strategicCellId: destination.cellId } }, state.seed);
+      const context = destination && resourceSurveyContext(activeWorldRecord, { strategicLocation: { id: destination.id, strategicCellId: destination.cellId } }, activeWorldRecord?.worldSeed || state.seed);
       if (context) {
         expedition.destination = destination;
         expedition.fieldContext = context;
@@ -80566,6 +80569,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
     }
     if (expedition.destination && !ensureStrategicJourneys().destinations.some((entry) => entry.id === expedition.destination.id)) ensureStrategicJourneys().destinations.push(clonePlainObject(expedition.destination));
+    if (expedition.destination && !expedition.discovery) expedition.discovery = LocalDiscovery.create(expedition.destination, state.clock);
     return expedition;
   }
 
@@ -80697,9 +80701,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function materializeSurveySpaces() {
     const expedition = ensureSurveyExpeditions();
+    const baseline = LocalDiscovery.materialize(expedition.discovery, activeWorldRecord?.id || expedition.fieldContext?.worldId || "unbound", activeWorldRecord?.worldSeed || expedition.fieldContext?.worldId || "unbound");
     if (expedition.materialized) return;
     for (const spec of [
-      { id: SurveyExpeditions.FIELD_ROOM, name: expedition.destination.label, z: SurveyExpeditions.FIELD_Z, x: 8, y: 8, width: 12, height: 10, purposeId: "corridor", description: `${expedition.destination.permission} ${expedition.destination.publicDanger}` },
+      { id: SurveyExpeditions.FIELD_ROOM, name: expedition.destination.label, ...baseline.bounds, purposeId: "corridor", description: `${expedition.destination.permission} ${expedition.destination.publicDanger}` },
       { id: SurveyExpeditions.CABIN_ROOM, name: "Hired Survey Vehicle", z: SurveyExpeditions.CABIN_Z, x: 8, y: 8, width: 4, height: 3, purposeId: "quarters", description: "A physical passenger cabin with a driver and satellite-magical account relay. The laboratory is unreachable while travelling." }
     ]) {
       const room = normalizeRoom({ ...spec, articleName: `the ${spec.name}`, facilityClass: "surveyExpedition", connections: [], geometry: { shape: "bounded survey space", lengthM: spec.width, widthM: spec.height, heightM: 3, floorAreaM2: spec.width * spec.height, volumeM3: spec.width * spec.height * 3 }, purposeSource: "supportedSurvey", purposeReason: "Run-local supported scientific excursion" });
@@ -80788,6 +80793,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const expedition = state.surveyExpeditions;
     if (!expedition || !surveyScientistAway() || scientistIsDead()) return 0;
     if (expedition.phase === "field") {
+      if (scientistRoomId() === SurveyExpeditions.FIELD_ROOM) {
+        LocalDiscovery.observe(expedition.discovery, state.clock, scientistMapCell(), cell => sensoryLineOfSight(scientistMapCell(), cell), expedition.hazardDisturbed);
+      }
       const desired = scientistInWilderness() ? ensureWildernessSurvival().context : expedition.fieldContext;
       if (desired && ensureResourceSurveys().context?.siteId !== desired.siteId) useSurveyContext(desired);
     }
@@ -80799,6 +80807,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         if (field) {
           expedition.visits += 1; expedition.fieldArrivedAt = state.clock;
           useSurveyContext(expedition.fieldContext); moveSurveyScientist(SurveyExpeditions.FIELD_ROOM, SurveyExpeditions.RENDEZVOUS);
+          LocalDiscovery.observe(expedition.discovery, state.clock, scientistMapCell(), cell => sensoryLineOfSight(scientistMapCell(), cell), expedition.hazardDisturbed);
           ensureUiState().mapOverlay = "prospecting";
           surveyEvent(`Arrived at ${expedition.destination.label}. ${expedition.destination.publicDanger} ${expedition.destination.permission}`);
         } else {
@@ -80811,6 +80820,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (expedition.phase === "field" && !expedition.hazardDisturbed && mapCellKey(scientistMapCell()) === mapCellKey(SurveyExpeditions.HAZARD)) {
       expedition.hazardDisturbed = true;
+      LocalDiscovery.observe(expedition.discovery, state.clock, scientistMapCell(), cell => sensoryLineOfSight(scientistMapCell(), cell), true);
       const previous = surveyDirectEvent; surveyDirectEvent = true;
       try { recordCombatInjury(state.scientist, 2, ["physical"], "Flagged loose rock disturbed during field exploration", { location: "left leg", observed: true }); }
       finally { surveyDirectEvent = previous; }
@@ -80834,6 +80844,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const expedition = ensureSurveyExpeditions();
     const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.surveyExpeditions = "true";
     panel.append(textEl("strong", "Supported Survey Excursions"));
+    const discovery = LocalDiscovery.publicView(expedition.discovery);
+    if (discovery) {
+      const journal = document.createElement("section"); journal.className = "subpanel"; journal.dataset.localDiscovery = "true";
+      journal.append(textEl("strong", "Local Knowledge — Limited Municipal Extract"), textEl("p", discovery.limitations));
+      for (const record of discovery.records) journal.append(textEl("p", `${formatClock(record.at)} · ${record.source}: ${record.text}${record.cell ? ` (${record.cell.x},${record.cell.y})` : ""}`));
+      panel.append(journal);
+    }
     panel.append(renderWildernessPanel());
     panel.append(renderUnsupportedExcursions());
     panel.append(renderMedicalExtraction());

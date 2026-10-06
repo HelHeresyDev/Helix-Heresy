@@ -92,18 +92,27 @@ test.describe('supported survey integration', () => {
   test('physical packing, travel, field sample, reload, return, and home assay', async ({ page }) => {
     await start(page);
     expect(await page.evaluate(() => window.helixHeresyDebug.boardSurveyVehicle())).toBe(false);
+    const initialKnowledge = await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState().surveyExpeditions.discovery);
+    expect(initialKnowledge.baseline).toBeNull();
+    expect(initialKnowledge.records).toHaveLength(2);
     await pack(page);
     const prepared = await snapshot(page); expect(prepared.departureReason).toBe('');
     expect(await page.evaluate(() => window.helixHeresyDebug.boardSurveyVehicle())).toBe(true);
     expect((await snapshot(page)).phase).toBe('home');
     await finishWork(page);
     let saved = await snapshot(page); expect(saved.phase).toBe('outbound'); expect(saved.scientistCell.z).toBe(7);
+    const departingKnowledge = await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState().surveyExpeditions.discovery);
+    expect(departingKnowledge.baseline.placeId).toBe('survey:a');
+    expect(departingKnowledge.records).toHaveLength(2);
     expect(saved.money).toBe(prepared.money - prepared.quote.fee);
     expect(saved.carried.find((entry) => entry.key === 'fieldRation').quantity).toBe(1);
     await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
     expect((await snapshot(page)).journeyId).toBe(saved.journeyId);
     await travel(page);
     saved = await snapshot(page); expect(saved.phase).toBe('field'); expect(saved.scientistCell).toEqual(Expeditions.RENDEZVOUS);
+    const arrivedKnowledge = await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState().surveyExpeditions.discovery);
+    expect(arrivedKnowledge.records.some(row => row.kind === 'directObservation' && row.subject === 'vehicle')).toBe(true);
+    expect(arrivedKnowledge.baseline).toEqual(departingKnowledge.baseline);
     const cell = { x: 13, y: 12, z: 6 };
     expect(await page.evaluate((cell) => window.helixHeresyDebug.resourceSurveyBlockReason('surfaceSample', cell), cell)).toBe('');
     expect(await page.evaluate((cell) => window.helixHeresyDebug.startResourceSurvey('surfaceSample', cell), cell)).toBe(true);
@@ -123,6 +132,9 @@ test.describe('supported survey integration', () => {
     expect(findings.observations[0]).toMatchObject({ siteId: 'survey:a', sampleStackId: sample.stackId });
     expect(findings.samples).toHaveLength(0);
     expect(findings.wholeCellSurveyed).toBe(false);
+    const retained = await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState().surveyExpeditions.discovery);
+    expect(retained.records).toEqual(expect.arrayContaining(arrivedKnowledge.records));
+    expect(retained.baseline).toEqual(arrivedKnowledge.baseline);
   });
 
   test('knowledge boundaries, carried first aid, cancelled treatment, and persistent revisits', async ({ page }) => {

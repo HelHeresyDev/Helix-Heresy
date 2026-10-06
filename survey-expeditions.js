@@ -30,7 +30,7 @@
     if (!city?.known || !city.supportComponentId || city.jurisdiction?.kind !== "city") return null;
     return { ...clone(city), id: `survey:${city.cityId}`, kind: "laboratorySite", label: `${city.label} Municipal Survey Ground`, localDistanceKm: 2, routeContinuity: "municipal", dangerBand: "veryLow",
       permission: "Municipal permission for noncommercial reconnaissance and small scientific samples only. No ownership, extraction, construction, or creature collection.",
-      publicDanger: "Maintained approaches; flagged loose rock at local tile 15,14. Crossing it risks a minor leg injury. The vehicle waits at 10,10." };
+      publicDanger: "Municipal visit directions only. Stay within the authorized ground and heed flagged loose rock; crossing it risks injury. Locate the waiting vehicle on arrival. Surrounding maps and mineral surveys are withheld." };
   }
   function quote(route) {
     if (!route?.ok) return { ok: false, reason: route?.reason || "No supported route is available." };
