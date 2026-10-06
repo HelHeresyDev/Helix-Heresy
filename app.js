@@ -76,6 +76,7 @@
   const ResourceSurveys = window.HelixResourceSurveys;
   const SurveyExpeditions = window.HelixSurveyExpeditions;
   const MunicipalCarrier = window.HelixMunicipalCarrier;
+  const CarrierBriefings = window.HelixCarrierBriefings;
   const LocalDiscovery = window.HelixLocalDiscovery;
   const MunicipalMaps = window.HelixMunicipalMaps;
   const UnsupportedExcursions = window.HelixUnsupportedExcursions;
@@ -15457,6 +15458,8 @@
       packSurveyItem,
       reserveMunicipalCarrier,
       cancelMunicipalCollection,
+      carrierBriefingAction,
+      carrierBriefingSnapshot: () => clonePlainObject({ public: CarrierBriefings.publicView(ensureMunicipalCarrier()), context: carrierBriefingContext(), reason: CarrierBriefings.reason(ensureMunicipalCarrier(), carrierBriefingContext()) }),
       boardSurveyVehicle,
       controlSurveyJourney,
       refreshSurveyReport,
@@ -21272,6 +21275,7 @@
     changes.scientistMovementChanged += updateMunicipalClinic();
     changes.scientistMovementChanged += updateScientistIdentity();
     changes.scientistMovementChanged += updateMunicipalMapService();
+    changes.scientistMovementChanged += updateCarrierBriefing();
     changes.scientistMovementChanged += updatePenalFlights(elapsed);
     changes.scientistMovementChanged += updatePenalLegion(elapsed);
     changes.scientistMovementChanged += updateCastawayAssistance(elapsed);
@@ -80695,7 +80699,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function surveyScientistAway() { return Boolean(state?.surveyExpeditions && state.surveyExpeditions.phase !== "home"); }
   function surveyScientistReserved() { return surveyScientistAway() || Boolean(state?.surveyExpeditions?.preparing); }
   function surveyTaskAllowed(task) {
-    if (state.scientistIdentity?.job || state.surveyExpeditions?.mapService?.job) return false;
+    if (state.scientistIdentity?.job || state.surveyExpeditions?.mapService?.job || state.surveyExpeditions?.carrier?.briefingState?.job) return false;
     if (state.penalLegion?.serviceEndedAt != null && task.type === 'scientistMove' && task.data?.toCell?.z === scientistMapCell().z) return true;
     if (currentPenalFlight() && currentPenalFlight().stage !== "released") return false;
     if (!surveyScientistAway()) return true;
@@ -80729,6 +80733,85 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function municipalCollectionPlan() {
     const network = ensureStrategicJourneys();
     return StrategicJourneys.routePlan(network, network.nearestSettlementDestinationId, network.homeDestinationId, "hiredFreightRoad");
+  }
+  function surveyVehicleBoardingPoint() {
+    const expedition = ensureSurveyExpeditions();
+    const homeRoomId = roomById(SURFACE_RECEPTION_ROOM_ID) ? SURFACE_RECEPTION_ROOM_ID : CONCEALED_EXIT_ROOM_ID;
+    return expedition.phase === "field" ? { roomId: SurveyExpeditions.FIELD_ROOM, cell: SurveyExpeditions.RENDEZVOUS }
+      : { roomId: homeRoomId, cell: labMapRoomAnchor(homeRoomId) };
+  }
+  function carrierBriefingContext() {
+    const expedition = ensureSurveyExpeditions(), point = surveyVehicleBoardingPoint();
+    const homeRoomId = roomById(SURFACE_RECEPTION_ROOM_ID) ? SURFACE_RECEPTION_ROOM_ID : CONCEALED_EXIT_ROOM_ID;
+    const homeCell = expedition.phase === "field" ? expedition.departure?.cell || labMapRoomAnchor(homeRoomId) : labMapRoomAnchor(homeRoomId);
+    const boardingRoomId = expedition.phase === "field" ? expedition.departure?.roomId || homeRoomId : homeRoomId;
+    const local = !unsupportedActive() && ["home", "field"].includes(expedition.phase) && scientistRoomId() === point.roomId;
+    return { alive: !scientistIsDead(), capable: !actorIsIncapacitated("scientist"),
+      atVehicle: Boolean(local && point.cell && WildernessBeasts.distance(scientistMapCell(), point.cell) <= 1),
+      lineOfSight: Boolean(local && point.cell && sensoryLineOfSight(scientistMapCell(), point.cell)),
+      location: expedition.phase === "home" ? "laboratory" : expedition.phase === "field" ? "field" : null,
+      cityId: expedition.destination?.cityId, bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      busy: clinicActive() || rescueMissionActive() || Boolean(state.scientistIdentity?.job || expedition.mapService?.job)
+        || Boolean(state.combat?.routineSuspension && state.combat.routineSuspension.reason !== "carrier briefing") || surveyBusy(),
+      destination: expedition.destination ? { id: expedition.destination.id, label: expedition.destination.label } : null,
+      boardingPoint: `${roomById(boardingRoomId)?.name || boardingRoomId} at local ${homeCell?.x},${homeCell?.y}`,
+      returnPoint: "Survey-ground vehicle rendezvous at local 10,10" };
+  }
+  function finishCarrierBriefing() {
+    if (!state.surveyExpeditions?.carrier?.briefingState?.job && state.combat?.routineSuspension?.reason === "carrier briefing") resumeScientistRoutineWork();
+  }
+  function updateCarrierBriefing() {
+    const carrier = state.surveyExpeditions?.carrier;
+    if (!carrier?.briefingState?.job) { finishCarrierBriefing(); return 0; }
+    const changed = CarrierBriefings.advance(carrier, carrierBriefingContext(), state.clock);
+    finishCarrierBriefing(); return changed ? 1 : 0;
+  }
+  function carrierBriefingAction(action) {
+    updateCarrierBriefing();
+    const carrier = ensureMunicipalCarrier();
+    let ok = false;
+    if (action === "walk") {
+      const point = surveyVehicleBoardingPoint();
+      if (!unsupportedActive() && carrier?.contract && !carrier.contract.returnToBase && !carrier.journeyId && carrier.location === carrierBriefingContext().location && !carrier.briefingState?.job)
+        ok = Boolean(startScientistMove(point.roomId, { toCell: point.cell, allowMultiRoom: true }));
+    } else if (action === "speak" && !state.combat?.routineSuspension) {
+      ok = CarrierBriefings.begin(carrier, carrierBriefingContext(), ensureStrategicJourneys().journeys, state.clock);
+      if (ok) suspendScientistRoutineWork("carrier briefing");
+    } else if (action === "cancel") ok = CarrierBriefings.cancel(carrier);
+    finishCarrierBriefing(); persist(); render(); return ok;
+  }
+  function renderCarrierBriefings() {
+    const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.carrierBriefings = "true";
+    const carrier = ensureMunicipalCarrier(), view = CarrierBriefings.publicView(carrier);
+    const button = (label, action, disabled = false, reason = "") => {
+      const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.disabled = disabled; b.title = reason;
+      b.addEventListener("click", () => carrierBriefingAction(action)); panel.append(b);
+    };
+    panel.append(textEl("strong", "Carrier Contact and Passenger Briefings"), textEl("p", "Meet the driver at the parked vehicle. A 30-second passenger briefing is included in your fare."));
+    const ctx = carrierBriefingContext(), reason = CarrierBriefings.reason(carrier, ctx);
+    button("Walk to Driver", "walk", unsupportedActive() || !carrier?.contract || carrier.contract.returnToBase || Boolean(carrier.journeyId) || carrier.location !== ctx.location || view.working);
+    button("Speak with Driver", "speak", Boolean(reason), reason);
+    if (reason && !view.working) panel.append(textEl("p", reason));
+    if (view.working) button("Cancel Driver Conversation", "cancel");
+    if (view.message) panel.append(textEl("p", view.message));
+    for (const contact of view.contacts) {
+      const entry = document.createElement("section"); entry.dataset.carrierContact = contact.personId;
+      entry.append(textEl("strong", contact.label), textEl("p", `${contact.institutionLabel} · ${contact.role}. First met ${formatClock(contact.firstMetAt)}; last confirmed ${formatClock(contact.lastConfirmedAt)} at ${contact.meetingPoint}. ${contact.source}.`),
+        textEl("p", "This dated contact record does not confirm current staffing or grant additional access."));
+      for (const record of view.copies.filter(row => row.suppliedBy.personId === contact.personId)) {
+        const copy = document.createElement("section"); copy.dataset.carrierBriefingCopy = record.id;
+        copy.append(textEl("strong", `Passenger briefing received ${formatClock(record.receivedAt)}`),
+          textEl("p", `Booking ${record.bookingId} · supplied by ${record.suppliedBy.label}. Destination: ${record.destination.label}.`),
+          textEl("p", `Boarding / meeting point: ${record.boardingPoint}. Return meeting point: ${record.returnPoint}. Seats: ${record.passengerSeats}; cargo capacity: ${record.cargoCapacity} crate-equivalents.`),
+          textEl("p", `Standing service instructions: ${record.standingInstructions.join(" ")}`));
+        if (!record.reports.length) copy.append(textEl("p", "No dated operational report was available when this conversation began."));
+        for (const report of record.reports) copy.append(textEl("p", `${report.source}, originally reported ${formatClock(report.reportedAt)}: ${report.text}`));
+        copy.append(textEl("p", "Retained information only. Current travel requires an active booking and authorization; cancellation does not erase this copy."));
+        entry.append(copy);
+      }
+      panel.append(entry);
+    }
+    return panel;
   }
   function municipalCarrierBookingReason() {
     const plan = municipalCollectionPlan(), quote = surveyQuote();
@@ -80770,6 +80853,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (result.reason) return false;
       state.strategicJourneys = result.state;
     }
+    CarrierBriefings.cancel(carrier, "Booking cancelled; the unfinished conversation ended. Previously received briefings remain yours."); finishCarrierBriefing();
     carrier.contract.returnToBase = true; updateMunicipalCarrier(); persist(); render(); return true;
   }
 
@@ -80785,7 +80869,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       || (!wilderness && !surveyCarriedStacks().some((stack) => stack.key === "environmentalSurveyKit" && toolInstanceById(stack.toolInstanceId)?.instance.current > 0) ? "A usable packed survey instrument is required." : "")
       || (!ensureMunicipalCarrier()?.contract ? "Reserve municipal collection before boarding." : "")
       || (ensureMunicipalCarrier()?.location !== "laboratory" || ensureMunicipalCarrier()?.journeyId || ensureMunicipalCarrier()?.contract?.returnToBase ? "Wait for the allocated collection vehicle at the laboratory." : "")
-      || MunicipalCarrier.movementReason(ensureMunicipalCarrier());
+      || (!MunicipalCarrier.capable(ensureMunicipalCarrier()) ? "The municipal driver or vehicle is unavailable." : "");
   }
 
   function queueSurveyWork(action, cell, data = {}, options = {}) {
@@ -80837,7 +80921,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const expedition = ensureSurveyExpeditions();
     if (!["home", "field"].includes(expedition.phase) || surveyBusy()) return false;
     const carrier = ensureMunicipalCarrier();
-    if (!carrier?.contract || carrier.journeyId || carrier.location !== (expedition.phase === "home" ? "laboratory" : "field") || MunicipalCarrier.movementReason(carrier)
+    if (!carrier?.contract || carrier.contract.returnToBase || carrier.journeyId || carrier.location !== (expedition.phase === "home" ? "laboratory" : "field") || !MunicipalCarrier.capable(carrier)
       || SurveyExpeditions.cargoUnits(surveyCarriedStacks()) > carrier.vehicle.cargoCapacity || carrier.vehicle.fuelKm < surveyQuote().distanceKm + carrier.contract.collectionKm) return false;
     const reason = expedition.phase === "home" ? surveyDepartureReason() : "";
     if (reason) { surveyEvent(reason); persist(); render(); return false; }
@@ -80845,9 +80929,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const warnings = WildernessSurvival.warnings(surveyCarriedStacks());
       if (warnings.length && !window.confirm(`Wilderness preparation warnings:\n${warnings.join("\n")}\nProceed with the actual packed load?`)) return false;
     }
-    const homeRoomId = roomById(SURFACE_RECEPTION_ROOM_ID) ? SURFACE_RECEPTION_ROOM_ID : CONCEALED_EXIT_ROOM_ID;
-    const cell = expedition.phase === "field" ? SurveyExpeditions.RENDEZVOUS : labMapRoomAnchor(homeRoomId);
-    return queueSurveyWork("board", cell);
+    CarrierBriefings.cancel(carrier, "Boarding interrupted the conversation. Previously received briefings remain yours."); finishCarrierBriefing();
+    return queueSurveyWork("board", surveyVehicleBoardingPoint().cell);
   }
 
   function surveyWorkBlockReason(task) {
@@ -81048,6 +81131,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(renderMunicipalClinic());
     panel.append(renderScientistIdentity());
     panel.append(renderMunicipalMaps());
+    panel.append(renderCarrierBriefings());
     const button = (label, action, disabled = false, reason = "") => {
       const element = document.createElement("button"); element.type = "button"; element.textContent = label; element.disabled = disabled; element.title = reason; element.addEventListener("click", action); panel.append(element);
     };

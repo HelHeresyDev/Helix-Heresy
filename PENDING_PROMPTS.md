@@ -18,13 +18,12 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Carrier Operational Briefings
-2. Additional Local Maps and Encounters
-3. Roguelike Run Lifecycle, Death, Postmortem, and Restart
-4. Campaign Roadmap: From Hidden Laboratory to World Domination
-5. New-Run Onboarding and Contextual Tutorial
-6. Sound, Notifications, and Accessibility Audit
-7. Production Art Pass Using the Sprite Pipeline
+1. Additional Local Maps and Encounters
+2. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+3. Campaign Roadmap: From Hidden Laboratory to World Domination
+4. New-Run Onboarding and Contextual Tutorial
+5. Sound, Notifications, and Accessibility Audit
+6. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -86,43 +85,37 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Carrier Operational Briefings
-
-The municipal map provider, personal contacts and physical municipal carrier allocation are implemented. The carrier prerequisite reserves one population-backed driver and institution-backed vehicle for collection, both passenger legs, waiting and physical return to base, with finite fuel, wear and fatigue and no automatic replacement or recovery. Resume the bounded operational-briefing discussion against that implementation: a physically present available crew member may provide booking-limited passenger instructions included in the fare. Preserve personal provenance, standing instructions versus dated reports, retained copies after cancellation, and the distinction between knowledge and travel rights. Do not infer reports from hidden world state or disclose wider routes, other customers or material surveys. Privileged introductions/archive access, competing commercial archives, conflicting-record comparison, illicit map trading, and municipal maintenance/resupply/recovery remain separate future discussions, not requirements of this pass.
-
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. Additional Local Maps and Encounters
+## 1. Additional Local Maps and Encounters
 
 Extend deterministic local elaboration to additional physically visitable places and encounters, using world seed and stable place identity for baseline geography and run seed for run-specific circumstances. Respect canonical settlements, institutional damage, resources, beast populations, and historical outcomes. Preserve removed property, damage, casualties, and discoveries across visits without altering the reusable world. Generate detail only when needed, reveal it only through authorized information or observation, and never equate surface imagery with an expensive material survey. Reuse existing physical travel, survey, and encounter systems rather than introducing parallel simulations.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+## 2. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 
 Design and implement the loop for beginning, losing, reviewing, and replacing a run without altering its reusable world. Only the scientist’s death ends a run; arrest, jail, prison, penal service, death sentence, loss of laboratory, and similar catastrophes remain playable while the scientist lives.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 3. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. The final campaign goal is rare world domination, but early hidden-laboratory survival must remain a complete roguelike experience.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. New-Run Onboarding and Contextual Tutorial
+## 4. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Sound, Notifications, and Accessibility Audit
+## 5. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Production Art Pass Using the Sprite Pipeline
+## 6. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 

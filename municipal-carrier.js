@@ -40,18 +40,23 @@
     return true;
   }
   function attach(s, journey, kind) {
-    if (!s?.contract || s.journeyId || !journey) return false;
+    if (!s?.contract || s.journeyId || s.briefingState?.job || !journey) return false;
+    if (journey.subject?.kind === 'scientistSurvey') {
+      s.contract.passengerJourneyIds ||= [];
+      if (!s.contract.passengerJourneyIds.includes(journey.id)) s.contract.passengerJourneyIds.push(journey.id);
+    }
     s.journeyId = journey.id; s.legKind = kind; s.location = `road:${journey.id}`;
     s.meters[journey.id] = { km: 0 }; return true;
   }
   function movementReason(s) {
+    if (s?.briefingState?.job) return 'The driver is occupied with a passenger briefing.';
     return !capable(s) ? 'Allocated driver or vehicle cannot move.' : s.vehicle.fuelKm <= 0 ? 'Allocated vehicle fuel exhausted.' : '';
   }
   function advance(s, journey, distance, at) {
     if (!s) return;
     const elapsed = Math.max(0, at - s.lastAt); s.lastAt = Math.max(s.lastAt, at);
     if (!s.journeyId) {
-      if (['depot', 'laboratory', 'field'].includes(s.location)) s.driver.fatigue = Math.max(0, s.driver.fatigue - elapsed / 3600 * 15);
+      if (!s.briefingState?.job && ['depot', 'laboratory', 'field'].includes(s.location)) s.driver.fatigue = Math.max(0, s.driver.fatigue - elapsed / 3600 * 15);
       return;
     }
     if (journey?.id !== s.journeyId) return;

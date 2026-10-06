@@ -103,6 +103,58 @@ async function travel(page) {
 }
 test.describe('supported survey integration', () => {
   test.setTimeout(300000);
+  test('driver briefings require physical conversation, survive reload and release the driver on boarding', async ({ page }) => {
+    const errors = []; page.on('pageerror', error => errors.push(error.message));
+    await start(page);
+    expect(await page.evaluate(() => window.helixHeresyDebug.carrierBriefingAction('speak'))).toBe(false);
+    await pack(page);
+    await page.locator('[data-workspace-tab="visits"]').click();
+    const panel = page.locator('[data-carrier-briefings]');
+    await expect(panel).toContainText('included in your fare');
+    await expect(panel.locator('[data-carrier-contact]')).toHaveCount(0);
+    await panel.getByRole('button', { name: 'Walk to Driver', exact: true }).click();
+    await finishWork(page);
+    const before = await snapshot(page);
+    await panel.getByRole('button', { name: 'Speak with Driver', exact: true }).click();
+    await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(15));
+    let saved = await snapshot(page);
+    expect(saved.carrier.briefingState.job.progress).toBeCloseTo(15, 4);
+    expect(saved.carrier.briefingState.copies).toHaveLength(0);
+    await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+    await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(16));
+    saved = await snapshot(page);
+    expect(saved.carrier.briefingState.job).toBeNull();
+    expect(saved.carrier.briefingState.copies).toHaveLength(1);
+    expect(saved.money).toBe(before.money); expect(saved.carrier.vehicle).toEqual(before.carrier.vehicle);
+    await expect(panel.locator('[data-carrier-contact]')).toHaveCount(1);
+    await expect(panel.locator('[data-carrier-briefing-copy]')).toContainText('Standing service instructions');
+    await expect(panel.locator('[data-carrier-briefing-copy]')).toContainText('No dated operational report');
+    const first = saved.carrier.briefingState.copies[0];
+    await panel.getByRole('button', { name: 'Speak with Driver', exact: true }).click();
+    await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(5));
+    await page.getByRole('button', { name: 'Walk to Departure and Board', exact: true }).click();
+    saved = await snapshot(page);
+    expect(saved.carrier.briefingState.job).toBeNull(); expect(saved.carrier.briefingState.copies).toHaveLength(1);
+    await finishWork(page); await travel(page);
+    expect((await snapshot(page)).phase).toBe('field');
+    await panel.getByRole('button', { name: 'Speak with Driver', exact: true }).click();
+    await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(31));
+    saved = await snapshot(page);
+    expect(saved.carrier.briefingState.copies).toHaveLength(2);
+    expect(saved.carrier.briefingState.contacts).toHaveLength(1);
+    expect(saved.carrier.briefingState.contacts[0].location).toBe('field');
+    expect(saved.carrier.briefingState.copies[0]).toEqual(first);
+    await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+    await panel.getByRole('button', { name: 'Speak with Driver', exact: true }).click();
+    await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(2));
+    await page.getByRole('button', { name: 'Walk to Vehicle and Return', exact: true }).click();
+    expect((await snapshot(page)).carrier.briefingState.job).toBeNull();
+    await finishWork(page); await travel(page);
+    saved = await snapshot(page);
+    expect(saved.phase).toBe('home'); expect(saved.carrier.briefingState.copies).toHaveLength(2);
+    await expect(panel.locator('[data-carrier-briefing-copy]')).toHaveCount(2);
+    expect(errors).toEqual([]);
+  });
   test('municipal collection pauses for driver incapacity and cancellation retains the physical allocation', async ({ page }) => {
     await start(page);
     await page.locator('[data-workspace-tab="visits"]').click();
