@@ -386,10 +386,11 @@
     return false;
   }
 
-  function processDeadlines(authorityCase, reports, correlations, clock) {
+  function processDeadlines(authorityCase, reports, correlations, clock, permitWork) {
     let changed = false;
     for (const lead of authorityCase.leads) {
       if (lead.status === "stalled" && leadCanResolve(lead, authorityCase, reports, correlations)) {
+        if (permitWork && !permitWork(authorityCase.institutionId, `lead-revisit:${authorityCase.id}:${lead.id}`, authorityCase.theoryId)) continue;
         lead.status = "resolved";
         lead.updatedAt = clock;
         lead.resolvedAt = clock;
@@ -399,6 +400,7 @@
         continue;
       }
       if (lead.status !== "open" || lead.dueAt > clock) continue;
+      if (permitWork && !permitWork(authorityCase.institutionId, `lead:${authorityCase.id}:${lead.id}`, authorityCase.theoryId)) continue;
       const deadline = authorityCase.deadlines.find((entry) => entry.id === lead.deadlineId);
       const resolved = leadCanResolve(lead, authorityCase, reports, correlations);
       lead.status = resolved ? "resolved" : "stalled";
@@ -459,7 +461,8 @@
         intake.reviewAt = clock + intakeDelay(seed, `${group.key}:${intake.reportIds.length}`, intake.institutionId);
       }
 
-      if (!authorityCase && intake.status === "pending" && intake.reviewAt <= clock) {
+      if (!authorityCase && intake.status === "pending" && intake.reviewAt <= clock
+        && (!context.permitWork || context.permitWork(intake.institutionId, `intake:${intake.id}:${intake.reviewCount}`, intake.theoryId))) {
         intake.reviewCount += 1;
         if (openingThresholdMet(group.reports, correlationRows, group.theory)) {
           authorityCase = createCase(state, intake, group.theory, group.reports, correlationRows, seed, clock);
@@ -476,7 +479,7 @@
       authorityCase.reportIds = uniqueIds([...authorityCase.reportIds, ...group.reports.map((report) => report.id)]);
       authorityCase.correlationIds = uniqueIds([...authorityCase.correlationIds, ...correlationRows.map((entry) => entry.id)]);
       linkAuthorityEvidence(state, authorityCase, group.reports);
-      const deadlinesChanged = processDeadlines(authorityCase, reports, correlations, clock);
+      const deadlinesChanged = processDeadlines(authorityCase, reports, correlations, clock, context.permitWork);
       const beforeBand = authorityCase.strength.bandId;
       const beforeEscalation = authorityCase.escalationStage;
       authorityCase.strength.score = caseStrength(authorityCase, reports, correlations);
@@ -499,7 +502,7 @@
       }
     }
     for (const authorityCase of state.cases.filter((entry) => !processedCaseIds.has(entry.id) && !["closed", "referred"].includes(entry.status))) {
-      const deadlinesChanged = processDeadlines(authorityCase, reports, correlations, clock);
+      const deadlinesChanged = processDeadlines(authorityCase, reports, correlations, clock, context.permitWork);
       const beforeBand = authorityCase.strength.bandId;
       authorityCase.strength.score = caseStrength(authorityCase, reports, correlations);
       authorityCase.strength.bandId = strengthBandForScore(authorityCase.strength.score).id;

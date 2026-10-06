@@ -4580,6 +4580,7 @@
     throw new Error("HelixExternalDetection must load before app.js");
   }
   const InvestigationCases = window.HelixInvestigationCases;
+  const HomeInstitutionContext = window.HelixHomeInstitutionContext;
   if (!InvestigationCases) {
     throw new Error("HelixInvestigationCases must load before app.js");
   }
@@ -6154,6 +6155,7 @@
       enabled: true,
       legalName,
       nameSource: ["seeded", "generated", "custom", "scenario"].includes(source.nameSource) ? source.nameSource : identity.nameSource || "seeded",
+      homeInstitutionContext: source.homeInstitutionContext ? clonePlainObject(source.homeInstitutionContext) : null,
       operatingState: COMPANY_OPERATING_STATE_DEFS[source.operatingState] ? source.operatingState : "renovation",
       operatingStateChangedAt: finiteTime(source.operatingStateChangedAt, 0),
       declarationIds: [...new Set((Array.isArray(source.declarationIds) ? source.declarationIds : fallback.declarationIds).filter((id) => COMPANY_DECLARATION_BY_ID[id]))],
@@ -7174,12 +7176,35 @@
       + InstitutionalResponses.actionPressure(ensureInstitutionalResponses());
   }
 
+  function ensureHomeInstitutionContext() {
+    const company = ensureCompany();
+    if (!company.enabled) return null;
+    if (company.homeInstitutionContext) return company.homeInstitutionContext;
+    const map = activeWorldRecord?.generatedData?.strategicMap;
+    if (!map?.cityGovernments) return null;
+    const profile = localCovertContext();
+    const standing = map.publicReligiousInstitutionHistoryDirectory
+      ? StrategicReligiousInstitutionHistory.cityCurrentReligiousInstitutions(map, profile.cityId) : null;
+    const faiths = (standing?.standings || []).filter(row => row.branch?.publicPhysicalPresence).map(row => ({
+      name: row.branch.publicName,
+      prohibitions: (map.publicReligionDirectory?.gods || []).filter(god => row.tradition?.deityIds?.includes(god.id)).flatMap(god => god.prohibitions || [])
+    })).filter(row => row.prohibitions.length);
+    company.homeInstitutionContext = HomeInstitutionContext.fromWorld({ ...profile, faiths }, map, state.clock);
+    return company.homeInstitutionContext;
+  }
+
+  function permitHomeInstitutionWork(institutionId, jobId, theoryId) {
+    const context = ensureHomeInstitutionContext();
+    return HomeInstitutionContext.permit(context, institutionId, jobId, state.clock, HomeInstitutionContext.priority(context, theoryId));
+  }
+
   function updateInvestigationCases() {
     const result = InvestigationCases.update(ensureInvestigations(), {
       seed: state.seed,
       clock: state.clock,
       reports: investigationReportSignals(),
-      correlations: ensureExternalDetection().correlations
+      correlations: ensureExternalDetection().correlations,
+      permitWork: permitHomeInstitutionWork
     });
     state.investigations = result.state;
     for (const caseId of result.disclosedCaseIds) {
@@ -7472,6 +7497,7 @@
       }
       if (action.kind === "followUpInspection" && action.status === "active"
         && !action.history.some((entry) => entry.action === "visitScheduled")) {
+        if (!permitHomeInstitutionWork(action.institutionId, `inspection:${action.id}`)) continue;
         const arrivalAt = Math.max(state.clock + 4 * SECONDS_PER_HOUR, action.dueAt || state.clock + 2 * SECONDS_PER_DAY);
         const scheduled = SiteVisits.scheduleVisit(ensureSiteVisits(), {
           typeId: action.visitTypeId || "environmentalInspector",
@@ -7490,7 +7516,8 @@
 
   function updateInstitutionalResponses() {
     const result = InstitutionalResponses.update(ensureInstitutionalResponses(), {
-      seed: state.seed, clock: state.clock, cases: ensureInvestigations().cases
+      seed: state.seed, clock: state.clock, cases: ensureInvestigations().cases,
+      permitWork: permitHomeInstitutionWork
     });
     state.institutionalResponses = result.state;
     for (const taskId of result.missedTaskIds) {
@@ -17594,6 +17621,7 @@
       clock: state.clock,
       enabled: state.company.enabled && Boolean(state.siteAccessPoints.some((point) => point.lawful))
     });
+    state.siteVisits.visits = HomeInstitutionContext.initialInspections(ensureHomeInstitutionContext(), state.siteVisits.visits, state.clock);
     syncStrategicVisitJourneys();
     ensureCompanyRecordPackets();
     clearMapFeedbackEvents();
@@ -61065,6 +61093,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (declaration) identity.append(storesRowEl(declaration.label, "Declared", { subtitle: declaration.description, dataset: { companyDeclaration: declaration.id } }));
     }
     dom.economyCompanyList.append(identity);
+
+    const localContext = HomeInstitutionContext.publicView(ensureHomeInstitutionContext(), company);
+    if (localContext) {
+      const locality = storesSectionEl("Home-City Institutional Context", "Published context, not a finding of guilt. Private workload and investigative priorities are not public. Received case notices remain in the investigation records.", { economyCategory: "homeInstitutionContext" });
+      locality.append(storesRowEl(localContext.cityName, "Published business context", { subtitle: `${localContext.plausibility} ${localContext.documentation}` }));
+      for (const law of localContext.laws) locality.append(storesRowEl(law.label, titleCase(law.status), { subtitle: "The city's published code and its required elements govern legal findings; unfamiliar commerce alone proves nothing." }));
+      for (const faith of localContext.faiths) locality.append(storesRowEl(faith.name, "Published religious concerns", { subtitle: `Prohibitions: ${faith.prohibitions.join("; ")}. Doctrine is not automatically city law, an allegation, or a divine observation of this company.` }));
+      locality.append(emptyText("Registry officers review declarations and filings; environmental officers review supported discharge and safety concerns; investigators require reported transactions and attribution. Local offices have finite processing time. Issued response deadlines still apply."));
+      dom.economyCompanyList.append(locality);
+    }
 
     const credibility = storesSectionEl("Cover Credibility", "A qualitative recent-window assessment derived from actual lawful activity, reconciled books, physical equipment, safety, public presentation, and access separation. Exact aggregate math is not shown in normal play.", { economyCategory: "coverCredibility" });
     credibility.append(storesRowEl(assessment.band.label, titleCase(assessment.trend), {

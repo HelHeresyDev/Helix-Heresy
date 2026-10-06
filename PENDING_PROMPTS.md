@@ -18,13 +18,12 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. World Integration: Investigations and Institutional Pressure
-2. Lazy Local Detail and World Discovery
-3. Roguelike Run Lifecycle, Death, Postmortem, and Restart
-4. Campaign Roadmap: From Hidden Laboratory to World Domination
-5. New-Run Onboarding and Contextual Tutorial
-6. Sound, Notifications, and Accessibility Audit
-7. Production Art Pass Using the Sprite Pipeline
+1. Lazy Local Detail and World Discovery
+2. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+3. Campaign Roadmap: From Hidden Laboratory to World Domination
+4. New-Run Onboarding and Contextual Tutorial
+5. Sound, Notifications, and Accessibility Audit
+6. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -86,43 +85,37 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. World Integration: Investigations and Institutional Pressure
-
-Design and implement world-context effects on company plausibility, inspections, investigations, religious scrutiny, escalation, and authority response. Context may alter priorities, schedules, thresholds, and available actions, but must not invent player guilt.
-
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. Lazy Local Detail and World Discovery
+## 1. Lazy Local Detail and World Discovery
 
 Design and implement deterministic elaboration of the already generated strategic world when a run encounters it. Lazy generation may fill minor places, institution branches, contacts, local histories, individuals, encounters, and exact maps while respecting canonical world facts and run-specific state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+## 2. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 
 Design and implement the loop for beginning, losing, reviewing, and replacing a run without altering its reusable world. Only the scientist’s death ends a run; arrest, jail, prison, penal service, death sentence, loss of laboratory, and similar catastrophes remain playable while the scientist lives.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 3. Campaign Roadmap: From Hidden Laboratory to World Domination
 
 Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. The final campaign goal is rare world domination, but early hidden-laboratory survival must remain a complete roguelike experience.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. New-Run Onboarding and Contextual Tutorial
+## 4. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Sound, Notifications, and Accessibility Audit
+## 5. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Production Art Pass Using the Sprite Pipeline
+## 6. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 

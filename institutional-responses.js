@@ -508,6 +508,7 @@
     const clarification = ["clarification", "correctiveOrder"].includes(action?.kind);
     if (!newEvidence && !clarification) return;
     if (caseDemands.length >= 4) return;
+    if (context.permitWork && !context.permitWork(authorityCase.institutionId, `demand:${authorityCase.id}:${latest.sequence + 1}`, authorityCase.theoryId)) return;
     const demand = createDemandInState(state, authorityCase, {
       clock: context.clock, seed: context.seed, sequence: latest.sequence + 1,
       priorResponseIds: response ? [response.id] : [],
@@ -531,6 +532,7 @@
       if (authorityCase?.disclosure?.state !== "disclosed" || ["closed", "referred"].includes(authorityCase.status)) continue;
       const existing = state.demands.filter((entry) => entry.caseId === authorityCase.id);
       if (!existing.length) {
+        if (context.permitWork && !context.permitWork(authorityCase.institutionId, `demand:${authorityCase.id}:1`, authorityCase.theoryId)) continue;
         const demand = createDemandInState(state, authorityCase, { clock, seed: context.seed });
         if (demand) createdDemandIds.push(demand.id);
       }
@@ -550,7 +552,7 @@
     }
 
     for (const authorityCase of cases) {
-      if (authorityCase?.disclosure?.state === "disclosed") maybeCreateFollowUp(state, authorityCase, { clock, seed: context.seed }, createdDemandIds);
+      if (authorityCase?.disclosure?.state === "disclosed") maybeCreateFollowUp(state, authorityCase, { clock, seed: context.seed, permitWork: context.permitWork }, createdDemandIds);
     }
 
     for (const action of [...state.actions]) {
