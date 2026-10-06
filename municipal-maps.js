@@ -28,6 +28,7 @@
     const item = CATALOG.find(row => row.id === id);
     if (!state || office?.id !== state.officeId || office.institutionId !== state.institutionId || office.cityId !== state.cityId) return 'No discovered municipal provider for this locality.';
     if (!item) return 'This provider withholds wider maps and all material surveys.';
+    if (!present(office, ctx)) return 'Attend the recorded civic counter to confirm current service availability; contact records are not live tracking.';
     if (!state.accessActive) return 'Further access has been withdrawn; acquired copies remain yours.';
     if (!ctx?.visitPermission || ctx.placeId !== state.archive.placeId) return 'A current permission for this municipal visit is required; money alone is insufficient.';
     if (id === 'returnBrief' && (!ctx.returnBooking?.id || !ctx.returnBooking?.destinationLabel)) return 'No existing municipal return booking supports this request.';
@@ -37,11 +38,35 @@
     if (office.power < 1 || office.workSeconds < item.seconds) return 'The office lacks finite power or work capacity for this copy.';
     return '';
   }
+  function meet(state, office, ctx, at) {
+    if (!state || office?.id !== state.officeId || office.institutionId !== state.institutionId || office.cityId !== state.cityId
+      || !present(office, ctx) || !ready(office) || ctx.busy || office.assignment || !office.clerk.id) {
+      if (state) state.message = 'No introduction recorded. Speak in person with an available civic clerk; remote records cannot confirm current staffing.';
+      return false;
+    }
+    const records = state.contacts ||= [];
+    let record = records.find(row => row.personId === office.clerk.id && row.officeId === office.id);
+    if (!record) {
+      record = { personId: office.clerk.id, officeId: office.id, firstMetAt: at };
+      records.push(record);
+    }
+    Object.assign(record, { label: office.clerk.name || 'Municipal records clerk (name not supplied)',
+      institutionId: office.institutionId, institutionLabel: office.contact.label, cityId: office.cityId,
+      role: 'Civil records clerk — purpose-limited map copying', lastConfirmedAt: at,
+      location: { placeId: state.archive.placeId, label: state.archive.label, directions: 'Civic counter at local 17,8.' },
+      services: CATALOG.map(item => ({ ...item })), source: 'In-person conversation at the civic counter' });
+    state.message = 'Contact recorded through personal conversation. No trust, archive access or travel rights granted.';
+    return true;
+  }
+  function contactsView(state) {
+    return copy(state?.contacts || []);
+  }
   function request(state, office, id, ctx, wallet, at) {
     const blocked = reason(state, office, id, ctx);
     if (blocked) { if (state) state.message = blocked; return false; }
     const item = CATALOG.find(row => row.id === id);
     if (!(wallet.money >= item.fee)) { state.message = 'Insufficient funds; no fee or office resource consumed.'; return false; }
+    if (!meet(state, office, ctx, at)) return false;
     const requestId = `${office.id}:map-request:${state.requests.length + 1}`;
     const contents = id === 'groundPlan' ? copy(state.archive) : {
       source: 'Existing municipal return booking', surveyDate: null,
@@ -50,7 +75,7 @@
       bookingId: String(ctx.returnBooking.id)
     };
     state.requests.push({ id: requestId, extractId: id, at, fee: item.fee, purpose: item.purpose, status: 'working' });
-    state.job = { id: requestId, extractId: id, clerkId: office.clerk.id, bodyEpoch: ctx.bodyEpoch,
+    state.job = { id: requestId, extractId: id, clerkId: office.clerk.id, suppliedBy: copy(state.contacts.find(row => row.personId === office.clerk.id && row.officeId === office.id)), bodyEpoch: ctx.bodyEpoch,
       contents, progress: 0, seconds: item.seconds, lastAt: at, wasReady: true };
     office.assignment = requestId; office.power--; office.money += item.fee; wallet.money -= item.fee;
     state.message = 'Request accepted. Remain at the counter while the clerk prepares the copy. The fee pays for work, not new access rights.';
@@ -81,6 +106,7 @@
     if (job.progress + 1e-8 < job.seconds) return false;
     const completedAt = start + work;
     state.copies.push({ id: `${job.id}:copy`, extractId: job.extractId, issuer: copy(state.contact), cityId: state.cityId,
+      suppliedBy: job.suppliedBy ? copy(job.suppliedBy) : null,
       issuedAt: completedAt, sourceDate: null, contents: copy(job.contents), limitations: limits });
     Object.assign(state.requests.find(row => row.id === job.id), { status: 'completed', endedAt: completedAt });
     release(office, job, completedAt); state.job = null; state.message = 'Dated extract received. Your copy persists; current terrain, threats and resources remain unverified.';
@@ -105,5 +131,5 @@
     rows.push('V: vehicle rendezvous; C: civic counter. Positions from an undated municipal plan, not live tracking.');
     return rows.join('\n');
   }
-  return { CATALOG, bind, reason, request, advance, cancel, publicView, parcelDiagram };
+  return { CATALOG, bind, reason, request, advance, cancel, publicView, parcelDiagram, meet, contactsView };
 });

@@ -79291,6 +79291,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     updateMunicipalMapService();
     const service = ensureMunicipalMapService(), office = scientistCivicOffice();
     let ok = false;
+    if (action === "meet") ok = MunicipalMaps.meet(service, office, municipalMapContext(office), state.clock);
     if (action === "cancel") ok = MunicipalMaps.cancel(service, office, state.clock);
     if (action === "request" && !state.combat?.routineSuspension) {
       ok = MunicipalMaps.request(service, office, extractId, municipalMapContext(office), ensureEconomy(), state.clock);
@@ -79306,6 +79307,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const button = (label, action, disabled, reason = "") => { const b = document.createElement("button"); b.textContent = label; b.disabled = disabled; b.title = reason; b.addEventListener("click", action); panel.append(b); };
     button("Ask at Civic Counter", () => municipalMapAction("walk"), !office?.civicCounter || !scientistCivicContext(office).cityId || Boolean(service?.job));
     if (!view) { panel.append(textEl("p", "Ask the existing municipal records clerk in person. No new office, staff, maps or survey knowledge are created if that service is absent.")); return panel; }
+    button("Introduce Yourself to the Clerk", () => municipalMapAction("meet"), Boolean(view.working));
+    const contacts = document.createElement("section"); contacts.dataset.institutionalContacts = "true";
+    contacts.append(textEl("strong", "Institutional Contacts"), textEl("p", "Dated personal records, not live tracking. Return to the recorded counter to confirm the person's role and current availability. Familiarity grants no archive access or travel rights."));
+    const records = MunicipalMaps.contactsView(service);
+    if (!records.length) contacts.append(textEl("p", "No personal introduction recorded. Speak with the available clerk or request an authorized service in person."));
+    for (const record of records) {
+      const entry = document.createElement("section"); entry.dataset.institutionalContact = record.personId;
+      entry.append(textEl("strong", record.label), textEl("p", `${record.institutionLabel} · ${record.role}. First met ${formatClock(record.firstMetAt)}; last confirmed ${formatClock(record.lastConfirmedAt)}. Source: ${record.source}.`),
+        textEl("p", `Last confirmed service location: ${record.location.label}. ${record.location.directions}`));
+      for (const item of record.services) entry.append(textEl("p", `${item.label}: ${formatMoney(item.fee)}, ${formatDuration(item.seconds)}. Purpose: ${item.purpose}. Requires current municipal visit permission, physical attendance and available staff, power and work capacity; return briefs also require an existing booking. Payment does not unlock restricted archives.`));
+      const copies = view.copies.filter(row => row.suppliedBy?.personId === record.personId);
+      entry.append(textEl("p", `${copies.length} retained extract(s) supplied by this person; read acquired copies below. Records do not confirm whether this person still holds the post.`));
+      contacts.append(entry);
+    }
+    panel.append(contacts);
     panel.append(textEl("p", `${view.contact.label}. Organizations restrict maps to discourage emigration and protect their information. Money alone does not buy access.`), textEl("p", view.limitations));
     if (!view.accessActive) panel.append(textEl("p", "Further map access withdrawn. Previously received copies remain available below."));
     for (const item of MunicipalMaps.CATALOG) {
@@ -79320,6 +79336,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       section.append(textEl("strong", MunicipalMaps.CATALOG.find(row => row.id === record.extractId)?.label || "Retained extract"),
         textEl("p", `${record.issuer.label} · copied ${formatClock(record.issuedAt)} · source survey date not supplied. ${record.contents.source}`),
         textEl("p", `Coverage: ${JSON.stringify(record.contents.coverage)}. ${record.contents.notes.join(" ")}`), textEl("p", record.limitations));
+      if (record.suppliedBy) section.append(textEl("p", `Supplied by ${record.suppliedBy.label}, personally confirmed ${formatClock(record.suppliedBy.lastConfirmedAt)}. This attribution does not track later employment or life status.`));
       if (record.extractId === "groundPlan") {
         const diagram = textEl("pre", MunicipalMaps.parcelDiagram(record));
         diagram.setAttribute("aria-label", "Dated authorized parcel plan with vehicle rendezvous and civic counter");

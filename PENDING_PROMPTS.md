@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Institutional Contacts and Restricted Information Networks
+1. Competing Institutional Information Providers
 2. Additional Local Maps and Encounters
 3. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 4. Campaign Roadmap: From Hidden Laboratory to World Domination
@@ -86,9 +86,9 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Institutional Contacts and Restricted Information Networks
+## 1. Competing Institutional Information Providers
 
-The first municipal map provider, shared civic clerk, purpose-limited purchased extracts, retained copies, and generation-preview separation are implemented. Design a bounded next extension for local institutional branches and contacts within canonical population and capacity limits. Reuse existing actors and offices instead of duplicating personnel. Consider competing organizational sources, privileged access, conflicting or stale records, and illicit map trading as separate extensions rather than one pass. Maps are deliberately withheld to discourage emigration; material surveys are costly guarded records, never a free satellite-imagery layer. Preserve provenance, physical service constraints, permission checks, and retained copies after revocation. Knowledge must remain separate from travel, settlement, ownership, and extraction rights.
+The municipal provider and persistent personal contacts are implemented: direct conversations record the existing clerk separately from the office, service requests preserve personal attribution, and dated records and acquired copies survive replacement or revocation without live tracking or inherited familiarity. Design one bounded competing organizational source only when a canonical local branch, existing personnel and a useful distinct information product support it. Do not invent extra personnel or a universal reputation-unlocks-secrets meter. Preserve finite capacity, provenance, attendance and purpose-specific authorization. Maps are deliberately withheld to discourage emigration; material surveys are costly guarded records, never a free satellite-imagery layer. Knowledge must remain separate from travel, settlement, ownership, and extraction rights. Privileged introductions/archive access, conflicting-record comparison, and illicit map trading remain separate future discussions, not requirements of this pass.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 

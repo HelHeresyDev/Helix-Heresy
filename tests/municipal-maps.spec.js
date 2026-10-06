@@ -17,6 +17,58 @@ function fixture() {
 }
 const begin = (f, id = 'groundPlan', at = 0) => Maps.request(f.state, f.office, id, f.ctx, f.wallet, at);
 
+test('contacts require an actual available person and never provision staff or grant access', () => {
+  const f = fixture(), before = copy(f.office);
+  expect(Maps.contactsView(f.state)).toEqual([]);
+  for (const key of ['atCounter', 'clerkPresent', 'lineOfSight', 'alive', 'capable']) {
+    expect(Maps.meet(f.state, f.office, { ...f.ctx, [key]: false }, 10)).toBe(false);
+  }
+  f.office.assignment = 'identity-work';
+  expect(Maps.meet(f.state, f.office, f.ctx, 10)).toBe(false);
+  f.office.assignment = null;
+  f.state.accessActive = false;
+  expect(Maps.meet(f.state, f.office, f.ctx, 10)).toBe(true);
+  expect(f.office).toEqual(before); expect(f.state.accessActive).toBe(false);
+  expect(Maps.contactsView(f.state)[0].firstMetAt).toBe(10);
+  expect(JSON.stringify(Maps.contactsView(f.state))).not.toMatch(/health|workSeconds|power|archive|potentialPermille/);
+});
+
+test('contacts retain dated knowledge through replacement, closure and reload without inheriting familiarity', () => {
+  const f = fixture(); f.office.clerk.name = 'Mira';
+  Maps.meet(f.state, f.office, f.ctx, 10);
+  const original = Maps.contactsView(f.state);
+  f.office.clerk.status = 'dead'; f.office.active = false;
+  expect(Maps.meet(f.state, f.office, f.ctx, 20)).toBe(false);
+  expect(Maps.contactsView(f.state)).toEqual(original);
+  f.office.active = true; f.office.clerk = { ...f.office.clerk, id: 'replacement', name: 'Orin', status: 'alive' };
+  expect(Maps.contactsView(f.state)).toEqual(original);
+  expect(Maps.meet(f.state, f.office, { ...f.ctx, atCounter: false }, 30)).toBe(false);
+  Maps.meet(f.state, f.office, f.ctx, 40);
+  Maps.meet(f.state, f.office, f.ctx, 50);
+  const saved = Expeditions.normalizeState(copy({ mapService: f.state })).mapService;
+  const records = Maps.contactsView(saved);
+  expect(records).toHaveLength(2); expect(records[0]).toEqual(original[0]);
+  expect(records[1].firstMetAt).toBe(40); expect(records[1].lastConfirmedAt).toBe(50);
+  records[0].label = 'tampered'; expect(Maps.contactsView(saved)[0].label).toBe('Mira');
+  const remote = { ...f.ctx, atCounter: false };
+  const reason = Maps.reason(saved, f.office, 'groundPlan', remote);
+  f.office.assignment = 'secret-work'; f.office.clerk.status = 'dead';
+  expect(Maps.reason(saved, f.office, 'groundPlan', remote)).toBe(reason);
+});
+
+test('service conversations freeze personal attribution and preserve copies after revocation', () => {
+  const f = fixture(); f.office.clerk.name = 'Mira';
+  expect(begin(f)).toBe(true);
+  const person = copy(Maps.contactsView(f.state)[0]);
+  f.office.clerk.name = 'Changed after request';
+  Maps.advance(f.state, f.office, f.ctx, 600);
+  expect(f.state.copies[0].suppliedBy).toEqual(person);
+  f.state.accessActive = false;
+  const saved = Expeditions.normalizeState(copy({ mapService: f.state })).mapService;
+  expect(Maps.publicView(saved).copies[0].suppliedBy).toEqual(person);
+  expect(Maps.contactsView(saved)[0]).toEqual(person);
+});
+
 test('maps reuse the existing institution and cannot create a foreign branch or expose its private archive', () => {
   const f = fixture(), before = copy(f.office);
   expect(Maps.bind(null, f.destination, f.baseline, 0)).toBeNull();
