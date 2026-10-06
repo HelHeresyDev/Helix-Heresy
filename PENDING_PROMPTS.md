@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Competing Institutional Information Providers
+1. Carrier Operational Briefings
 2. Additional Local Maps and Encounters
 3. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 4. Campaign Roadmap: From Hidden Laboratory to World Domination
@@ -86,9 +86,9 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Competing Institutional Information Providers
+## 1. Carrier Operational Briefings
 
-The municipal provider and persistent personal contacts are implemented: direct conversations record the existing clerk separately from the office, service requests preserve personal attribution, and dated records and acquired copies survive replacement or revocation without live tracking or inherited familiarity. Design one bounded competing organizational source only when a canonical local branch, existing personnel and a useful distinct information product support it. Do not invent extra personnel or a universal reputation-unlocks-secrets meter. Preserve finite capacity, provenance, attendance and purpose-specific authorization. Maps are deliberately withheld to discourage emigration; material surveys are costly guarded records, never a free satellite-imagery layer. Knowledge must remain separate from travel, settlement, ownership, and extraction rights. Privileged introductions/archive access, conflicting-record comparison, and illicit map trading remain separate future discussions, not requirements of this pass.
+The municipal map provider, personal contacts and physical municipal carrier allocation are implemented. The carrier prerequisite reserves one population-backed driver and institution-backed vehicle for collection, both passenger legs, waiting and physical return to base, with finite fuel, wear and fatigue and no automatic replacement or recovery. Resume the bounded operational-briefing discussion against that implementation: a physically present available crew member may provide booking-limited passenger instructions included in the fare. Preserve personal provenance, standing instructions versus dated reports, retained copies after cancellation, and the distinction between knowledge and travel rights. Do not infer reports from hidden world state or disclose wider routes, other customers or material surveys. Privileged introductions/archive access, competing commercial archives, conflicting-record comparison, illicit map trading, and municipal maintenance/resupply/recovery remain separate future discussions, not requirements of this pass.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 

@@ -156,5 +156,5 @@
     if (fleet.fuelReserveKm < extra) return false;
     fleet.fuelReserveKm -= extra; v.fuelKm += extra; v.fuelKm -= cost; work(v, cost); v.assignment = id; v.location = 'recoveryRoute'; return true;
   }
-  return { ACTIVE, DEPOT_CAPACITY, CONVOY_CAPACITY, create, capable, assigned, depotSpace, reserve, movementReason, meter, release, reserveRecovery, support, advanceSupport, credit, tariffMultiplier };
+  return { ACTIVE, DEPOT_CAPACITY, CONVOY_CAPACITY, create, capable, assigned, depotSpace, reserve, movementReason, distanceTravelled, meter, release, reserveRecovery, support, advanceSupport, credit, tariffMultiplier };
 });

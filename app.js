@@ -75,6 +75,7 @@
   const StrategicJourneys = window.HelixStrategicJourneys;
   const ResourceSurveys = window.HelixResourceSurveys;
   const SurveyExpeditions = window.HelixSurveyExpeditions;
+  const MunicipalCarrier = window.HelixMunicipalCarrier;
   const LocalDiscovery = window.HelixLocalDiscovery;
   const MunicipalMaps = window.HelixMunicipalMaps;
   const UnsupportedExcursions = window.HelixUnsupportedExcursions;
@@ -7878,6 +7879,19 @@
     syncStrategicVisitJourneys();
     const network = ensureStrategicJourneys();
     const elapsed = Math.max(0, state.clock - network.lastAdvancedAt);
+    const municipal = state.surveyExpeditions?.carrier;
+    if (municipal?.journeyId && MunicipalCarrier.movementReason(municipal)) {
+      const journey = network.journeys.find(row => row.id === municipal.journeyId);
+      if (journey && ["scheduled", "enRoute", "held", "diverted", "returning"].includes(journey.status)) {
+        for (const leg of journey.route.legs.filter(row => row.status !== "completed")) {
+          leg.plannedStartAt += elapsed; leg.plannedEndAt += elapsed;
+          if (leg.interruption?.revealed) leg.interruption.revealedAt += elapsed;
+        }
+        if (journey.status === "scheduled") journey.departAt += elapsed;
+        journey.exactArrivalAt += elapsed; journey.arrivalWindow.start += elapsed; journey.arrivalWindow.end += elapsed;
+        const meter = municipal.meters[journey.id]; if (meter?.returnAt != null) meter.returnAt += elapsed;
+      }
+    }
     for (const journey of network.journeys) {
       if (!["commodityConsignment", "commodityPickup", "commodityReturn"].includes(journey.subject.kind) || !["scheduled", "enRoute", "held", "diverted"].includes(journey.status)) continue;
       const consignment = ensureEconomy().commodityConsignments.find(c => c.id === journey.subject.id);
@@ -7896,6 +7910,7 @@
     }
     const result = StrategicJourneys.advance(network, state.clock);
     state.strategicJourneys = result.state;
+    updateMunicipalCarrier();
     syncStrategicVisitJourneys();
     for (const event of result.events) {
       const journey = state.strategicJourneys.journeys.find((entry) => entry.id === event.journeyId);
@@ -7932,6 +7947,11 @@
   }
 
   function recoverStrategicJourney(journeyId) {
+    const municipalJourney = ensureStrategicJourneys().journeys.find(row => row.id === journeyId);
+    if (["municipalCarrier", "scientistSurvey"].includes(municipalJourney?.subject.kind)) {
+      addEvent("Municipal recovery needs a separately allocated physical crew and vehicle; no automatic rescue is available.");
+      return false;
+    }
     const result = StrategicJourneys.recoverStrandedJourney(ensureStrategicJourneys(), journeyId, state.clock);
     if (result.reason) return false;
     if (["commodityConsignment", "commodityPickup", "commodityReturn"].includes(result.journey.subject.kind)) {
@@ -15435,15 +15455,18 @@
       startEnvironmentalSample: (methodId, recordId) => startEnvironmentalSample(methodId, recordId),
       startResourceSurvey: (methodId, cell) => startResourceSurvey(methodId, cell),
       packSurveyItem,
+      reserveMunicipalCarrier,
+      cancelMunicipalCollection,
       boardSurveyVehicle,
       controlSurveyJourney,
       refreshSurveyReport,
       surveyExpeditionSnapshot: () => clonePlainObject({ ...ensureSurveyExpeditions(), clock: state.clock, scientistCell: scientistMapCell(), scientistRoomId: scientistRoomId(), carried: surveyCarriedStacks(), injuries: actorInjuries("scientist"), tasks: scientistQueueTasks().map((task) => ({ ...task, reason: taskBlockReason(task) })), departureReason: surveyDepartureReason(), quote: surveyQuote(), money: ensureEconomy().money, visibleTabs: ["map", "visits", "log", "economy", "resources", "tasks"].filter(workspaceTabVisible), visibleEvents: jailVisibleMessages(state.events) }),
-      setSurveyExpeditionTestContext: ({ network, context }) => {
+      setSurveyExpeditionTestContext: ({ network, context, carrierSource }) => {
         state.started = true; state.seed = "supported-survey-test"; ensureEconomy().money = 5000;
         state.strategicJourneys = StrategicJourneys.defaultState({ network, clock: state.clock });
         state.surveyExpeditions = SurveyExpeditions.defaultState();
         state.surveyExpeditions.destination = SurveyExpeditions.destinationFor(network);
+        if (carrierSource) state.surveyExpeditions.carrier = MunicipalCarrier.fromWorld(carrierSource, state.surveyExpeditions.destination.cityId, state.clock);
         state.surveyExpeditions.homeContext = clonePlainObject(context);
         state.surveyExpeditions.fieldContext = { ...clonePlainObject(context), siteId: state.surveyExpeditions.destination.id, strategicCellId: state.surveyExpeditions.destination.cellId };
         state.resourceSurveys = ResourceSurveys.defaultState(context);
@@ -80694,6 +80717,62 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return SurveyExpeditions.quote(StrategicJourneys.routePlan(network, network.homeDestinationId, expedition.destination?.id, "hiredFreightRoad"));
   }
 
+  function ensureMunicipalCarrier() {
+    const expedition = ensureSurveyExpeditions();
+    if (!Object.prototype.hasOwnProperty.call(expedition, "carrier")) {
+      const map = activeWorldRecord?.generatedData?.strategicMap;
+      if (!state.started || !map || !expedition.destination?.cityId) return null;
+      expedition.carrier = MunicipalCarrier.fromWorld(map, expedition.destination.cityId, state.clock);
+    }
+    return expedition.carrier;
+  }
+  function municipalCollectionPlan() {
+    const network = ensureStrategicJourneys();
+    return StrategicJourneys.routePlan(network, network.nearestSettlementDestinationId, network.homeDestinationId, "hiredFreightRoad");
+  }
+  function municipalCarrierBookingReason() {
+    const plan = municipalCollectionPlan(), quote = surveyQuote();
+    if (!plan.ok || !quote.ok) return plan.reason || quote.reason;
+    return MunicipalCarrier.reason(ensureMunicipalCarrier(), plan.legs.reduce((n, l) => n + l.distanceKm, 0), quote.distanceKm, SurveyExpeditions.cargoUnits(surveyCarriedStacks()));
+  }
+  function dispatchMunicipalCarrier(kind) {
+    const carrier = ensureMunicipalCarrier(), network = ensureStrategicJourneys();
+    if (!carrier?.contract || carrier.journeyId || MunicipalCarrier.movementReason(carrier)) return false;
+    const plan = municipalCollectionPlan();
+    if (!plan.ok || carrier.vehicle.fuelKm < plan.legs.reduce((n, l) => n + l.distanceKm, 0)) return false;
+    const result = bookStrategicJourney({ originId: kind === "collection" ? network.nearestSettlementDestinationId : network.homeDestinationId,
+      destinationId: kind === "collection" ? network.homeDestinationId : network.nearestSettlementDestinationId,
+      modeId: "hiredFreightRoad", passengers: 0, cargo: 0, subject: { kind: "municipalCarrier", id: carrier.contract.id },
+      purpose: "surveyVehiclePositioning", label: kind === "collection" ? "Survey vehicle collection" : "Survey vehicle return to base", provider: carrier.label, departureDelaySeconds: 30 });
+    if (!result.journey) return false;
+    return MunicipalCarrier.attach(carrier, result.journey, kind);
+  }
+  function reserveMunicipalCarrier() {
+    const expedition = ensureSurveyExpeditions(), carrier = ensureMunicipalCarrier();
+    if (expedition.phase !== "home" || municipalCarrierBookingReason() || scientistIsDead() || actorIsIncapacitated("scientist") || restrictedOffsiteStay() || currentDetentionRaid()) return false;
+    const plan = municipalCollectionPlan(), quote = surveyQuote(), wallet = ensureEconomy();
+    if (!MunicipalCarrier.reserve(carrier, plan.legs.reduce((n, l) => n + l.distanceKm, 0), quote.distanceKm, SurveyExpeditions.cargoUnits(surveyCarriedStacks()), quote.fee, wallet, state.clock)) return false;
+    if (!dispatchMunicipalCarrier("collection")) { wallet.money += carrier.contract.fee; carrier.revenue -= carrier.contract.fee; carrier.contract = null; return false; }
+    persist(); render(); return true;
+  }
+  function updateMunicipalCarrier() {
+    const carrier = state.surveyExpeditions?.carrier;
+    if (!carrier) return;
+    const journey = ensureStrategicJourneys().journeys.find(row => row.id === carrier.journeyId);
+    MunicipalCarrier.advance(carrier, journey, journey ? LocalExchangeCarrier.distanceTravelled(journey, state.clock) : 0, state.clock);
+    if (carrier.contract?.returnToBase && !carrier.journeyId && carrier.location === "laboratory") dispatchMunicipalCarrier("depot");
+  }
+  function cancelMunicipalCollection() {
+    const carrier = ensureMunicipalCarrier();
+    if (!carrier?.contract || ensureSurveyExpeditions().phase !== "home" || carrier.legKind === "depot") return false;
+    if (carrier.journeyId) {
+      const result = StrategicJourneys.cancelJourney(ensureStrategicJourneys(), carrier.journeyId, state.clock);
+      if (result.reason) return false;
+      state.strategicJourneys = result.state;
+    }
+    carrier.contract.returnToBase = true; updateMunicipalCarrier(); persist(); render(); return true;
+  }
+
   function surveyDepartureReason() {
     const expedition = ensureSurveyExpeditions();
     if (scientistIsDead() || actorIsIncapacitated("scientist") || restrictedOffsiteStay() || currentDetentionRaid()) return "The scientist is not free and fit to depart.";
@@ -80704,7 +80783,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return !quote.ok ? quote.reason : (!wilderness ? SurveyExpeditions.manifestReason(surveyCarriedStacks()) : "")
       || (SurveyExpeditions.cargoUnits(surveyCarriedStacks()) > quote.cargoCapacity ? "The packed load exceeds the hired vehicle's cargo capacity." : "")
       || (!wilderness && !surveyCarriedStacks().some((stack) => stack.key === "environmentalSurveyKit" && toolInstanceById(stack.toolInstanceId)?.instance.current > 0) ? "A usable packed survey instrument is required." : "")
-      || (ensureEconomy().money < quote.fee ? "Insufficient funds for the quoted round trip." : "");
+      || (!ensureMunicipalCarrier()?.contract ? "Reserve municipal collection before boarding." : "")
+      || (ensureMunicipalCarrier()?.location !== "laboratory" || ensureMunicipalCarrier()?.journeyId || ensureMunicipalCarrier()?.contract?.returnToBase ? "Wait for the allocated collection vehicle at the laboratory." : "")
+      || MunicipalCarrier.movementReason(ensureMunicipalCarrier());
   }
 
   function queueSurveyWork(action, cell, data = {}, options = {}) {
@@ -80755,6 +80836,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (escortContractActive()) { surveyEvent("Complete the escort's local contract at the defended meeting point before boarding. The hired vehicle waits; no extra escort seat has been booked."); persist(); render(); return false; }
     const expedition = ensureSurveyExpeditions();
     if (!["home", "field"].includes(expedition.phase) || surveyBusy()) return false;
+    const carrier = ensureMunicipalCarrier();
+    if (!carrier?.contract || carrier.journeyId || carrier.location !== (expedition.phase === "home" ? "laboratory" : "field") || MunicipalCarrier.movementReason(carrier)
+      || SurveyExpeditions.cargoUnits(surveyCarriedStacks()) > carrier.vehicle.cargoCapacity || carrier.vehicle.fuelKm < surveyQuote().distanceKm + carrier.contract.collectionKm) return false;
     const reason = expedition.phase === "home" ? surveyDepartureReason() : "";
     if (reason) { surveyEvent(reason); persist(); render(); return false; }
     if (expedition.phase === "home" && ensureWildernessSurvival().mode === "wilderness") {
@@ -80776,6 +80860,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (task.data?.action === "board" && unsupportedActive()) return "The municipal vehicle is at defended ground, not at this remote site.";
     if (task.data?.action === "board" && escortContractActive()) return "The local escort contract must finish at the municipal meeting point before departure.";
+    if (task.data?.action === "board") {
+      const carrier = ensureMunicipalCarrier();
+      if (!carrier?.contract || carrier.journeyId || carrier.contract.returnToBase || MunicipalCarrier.movementReason(carrier)) return "The allocated municipal vehicle or driver is unavailable.";
+      if (carrier.location !== (ensureSurveyExpeditions().phase === "home" ? "laboratory" : "field")) return "The allocated vehicle has not physically arrived at this boarding point.";
+      if (carrier.vehicle.fuelKm < surveyQuote().distanceKm + carrier.contract.collectionKm) return "Insufficient remaining fuel for this passenger leg and return to base.";
+      if (SurveyExpeditions.cargoUnits(surveyCarriedStacks()) > carrier.vehicle.cargoCapacity) return "The actual carried load exceeds vehicle capacity.";
+    }
     const campReason = castawayWorkReason(task); if (campReason) return campReason;
     if (task.data?.action === "castawayBoard") return castawayBoardReason();
     const survivalReason = wildernessWorkBlockReason(task);
@@ -80864,19 +80955,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (reason) { surveyEvent(reason); return; }
     const quote = surveyQuote();
     const result = bookStrategicJourney({ originId: outbound ? network.homeDestinationId : expedition.destination.id, destinationId: outbound ? expedition.destination.id : network.homeDestinationId,
-      modeId: "hiredFreightRoad", passengers: 1, cargo: SurveyExpeditions.cargoUnits(surveyCarriedStacks()), subject: { kind: "scientistSurvey", id: `survey-trip-${outbound ? expedition.tripNumber + 1 : expedition.tripNumber}` }, purpose: "supportedSurvey", label: outbound ? "Scientist survey outbound" : "Scientist survey return", provider: "Municipal survey carrier", departureDelaySeconds: 30 });
+      modeId: "hiredFreightRoad", passengers: 1, cargo: SurveyExpeditions.cargoUnits(surveyCarriedStacks()), subject: { kind: "scientistSurvey", id: `survey-trip-${outbound ? expedition.tripNumber + 1 : expedition.tripNumber}` }, purpose: "supportedSurvey", label: outbound ? "Scientist survey outbound" : "Scientist survey return", provider: ensureMunicipalCarrier().label, departureDelaySeconds: 30 });
     if (!result.journey) { surveyEvent(result.reason); return; }
     if (outbound) {
       expedition.tripNumber += 1; expedition.departure = { roomId: scientistRoomId(), cell: scientistMapCell() };
       expedition.departedAt = state.clock; expedition.homeContext = clonePlainObject(ensureResourceSurveys().context);
       expedition.manifest = surveyCarriedStacks().map((stack) => ({ stackId: stack.id, key: stack.key, quantity: stack.quantity, toolInstanceId: stack.toolInstanceId }));
-      expedition.lastFee = quote.fee; ensureEconomy().money -= quote.fee;
+      expedition.lastFee = ensureMunicipalCarrier().contract.fee;
       expedition.headerSnapshot = { storage: dom.storageReadout.textContent, waste: dom.wasteReadout.textContent, suspicion: dom.suspicionReadout.textContent };
       materializeSurveySpaces();
     }
     const ration = surveyCarriedStacks().find((stack) => stack.key === "fieldRation" && stack.quantity > 0 && !stack.reservedTaskId);
     if (ration) { ration.quantity -= 1; ration.knownQuantity = Math.min(ration.knownQuantity, ration.quantity); if (!ration.quantity) state.physicalItemStacks = state.physicalItemStacks.filter((stack) => stack.id !== ration.id); state.wildernessSurvival = WildernessSurvival.consume(ensureWildernessSurvival(), "fieldRation"); syncPhysicalReadModels(); }
     expedition.phase = outbound ? "outbound" : "inbound"; expedition.preparing = false; expedition.journeyId = result.journey.id;
+    MunicipalCarrier.attach(ensureMunicipalCarrier(), result.journey, outbound ? "outbound" : "inbound");
     moveSurveyScientist(SurveyExpeditions.CABIN_ROOM, { x: 10, y: 10, z: SurveyExpeditions.CABIN_Z });
     surveyEvent(`Scientist boarded the hired vehicle${ration ? "; one provision pack consumed" : "; no combined provision pack consumed"}. Arrival is governed by the saved road journey; no unseen expedition death roll.`);
     refreshSurveyReport();
@@ -80910,6 +81002,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           expedition.returnedAt = state.clock;
           useSurveyContext(expedition.homeContext); moveSurveyScientist(expedition.departure.roomId, expedition.departure.cell);
           surveyEvent("Scientist and carried samples physically returned. Laboratory access has resumed; field findings and ground persist for revisits.");
+          const carrier = ensureMunicipalCarrier();
+          if (carrier?.contract) { carrier.contract.returnToBase = true; updateMunicipalCarrier(); }
         }
         state.paused = true; persist(); return 1;
       }
@@ -80928,12 +81022,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function controlSurveyJourney(action) {
     if (unsupportedActive()) return false;
+    if (action === "recover") { surveyEvent("No separate municipal recovery crew and vehicle are allocated. Automatic rescue is unavailable."); persist(); render(); return false; }
     const expedition = ensureSurveyExpeditions();
     if (!["outbound", "inbound"].includes(expedition.phase)) return false;
     const result = action === "recover" ? StrategicJourneys.recoverStrandedJourney(ensureStrategicJourneys(), expedition.journeyId, state.clock)
       : StrategicJourneys.cancelJourney(ensureStrategicJourneys(), expedition.journeyId, state.clock);
     if (result.reason || !result.journey) return false;
-    state.strategicJourneys = result.state; updateSurveyExpedition(); persist(); render(); return true;
+    state.strategicJourneys = result.state; updateMunicipalCarrier(); updateSurveyExpedition(); persist(); render(); return true;
   }
 
   function renderSurveyExpeditions() {
@@ -80970,6 +81065,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const [key, band] of Object.entries(expedition.fieldContext?.publicProspects?.prospectBands || {})) panel.append(textEl("span", `${ResourceSurveys.FAMILIES[key] || key}: ${titleCase(band)} public prospect · `, "journal-meta"));
     if (expedition.phase === "home") {
       const quote = surveyQuote();
+      const carrier = ensureMunicipalCarrier(), service = MunicipalCarrier.publicView(carrier);
+      panel.append(textEl("p", `${service.label || "Municipal survey transport"}: ${service.message} Passenger seats: ${service.passengerSeats || 0}; cargo capacity: ${service.cargoCapacity || 0}. No automatic refill, replacement or rescue.`));
+      const collection = carrier?.journeyId && ensureStrategicJourneys().journeys.find(row => row.id === carrier.journeyId);
+      if (collection) panel.append(textEl("p", `Vehicle service ${collection.status}; communicated arrival window ${formatClock(collection.arrivalWindow.start)}–${formatClock(collection.arrivalWindow.end)}.`));
+      const bookingReason = municipalCarrierBookingReason();
+      button("Reserve Municipal Collection", reserveMunicipalCarrier, Boolean(bookingReason) || ensureEconomy().money < quote.fee, bookingReason);
+      button("Cancel Collection / Release Vehicle", cancelMunicipalCollection, !carrier?.contract || carrier.legKind === "depot");
       panel.append(textEl("p", quote.ok ? `${formatMoney(quote.fee)} for ${formatNumber(quote.distanceKm)} km each way; estimated ${formatDuration(quote.windowSeconds[0])}–${formatDuration(quote.windowSeconds[1])} per leg, subject to reported interruptions. ${quote.waiting} ${quote.cargoCapacity} crate-equivalents (10 kg / 20 L each). Actual personal carrying limits also apply.` : quote.reason));
       for (const item of SurveyExpeditions.PACK_LIST) {
         const count = surveyCarriedStacks().filter((stack) => stack.key === item.key && !stack.reservedTaskId).reduce((n, stack) => n + stack.quantity, 0);
@@ -80993,7 +81095,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           panel.append(textEl("p", `${journey.label}: ${titleCase(journey.status)}. Arrival window ${formatClock(journey.arrivalWindow.start)}–${formatClock(journey.arrivalWindow.end)}.`));
           for (const leg of journey.route.legs) if (leg.interruption?.revealed) panel.append(textEl("p", leg.interruption.summary));
           button("Cancel / Request Physical Return", () => controlSurveyJourney("cancel"), !["scheduled", "enRoute", "held", "diverted"].includes(journey.status));
-          if (journey.status === "stranded") button("Request Included Supported Recovery", () => controlSurveyJourney("recover"));
+          if (journey.status === "stranded") panel.append(textEl("p", "Recovery unavailable: no separate physical municipal recovery crew and vehicle are allocated. Passengers and cargo remain with the saved vehicle."));
         }
       }
       button("Read Company Account Report at Vehicle", refreshSurveyReport, !expedition.relayOnline || (expedition.phase === "field" && mapCellKey(scientistMapCell()) !== mapCellKey(SurveyExpeditions.RENDEZVOUS)));

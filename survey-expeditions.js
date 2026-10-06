@@ -36,7 +36,7 @@
     if (!route?.ok) return { ok: false, reason: route?.reason || "No supported route is available." };
     const distanceKm = route.legs.reduce((total, leg) => total + leg.distanceKm, 0);
     const oneWaySeconds = route.legs.reduce((total, leg) => total + Math.max(600, Math.ceil(leg.distanceKm / 38 * 3600 * (leg.continuity === "localApproach" ? 1.05 : 1.25))), 0);
-    return { ok: true, fee: Math.ceil(80 + distanceKm * 6), distanceKm, windowSeconds: [Math.max(600, oneWaySeconds - 420), oneWaySeconds + 1200], cargoCapacity: 24, waiting: "Round trip, field waiting, and supported recovery included; no abandonment deadline." };
+    return { ok: true, fee: Math.ceil(80 + distanceKm * 6), distanceKm, windowSeconds: [Math.max(600, oneWaySeconds - 420), oneWaySeconds + 1200], cargoCapacity: 24, waiting: "Collection, round trip and field waiting included; no abandonment deadline. Recovery requires separate physically allocated resources and is not automatic." };
   }
   function manifestReason(stacks) {
     const carried = (stacks || []).filter((entry) => entry.carriedBy === "scientist" && !entry.reservedTaskId);

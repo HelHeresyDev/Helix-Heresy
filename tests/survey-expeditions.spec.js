@@ -47,7 +47,10 @@ test('off-site samples can be assayed at home without accepting unknown sites or
 async function start(page) {
   await page.addInitScript(() => { localStorage.clear(); localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: 'dom' })); });
   await page.goto(pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href);
-  await page.evaluate((options) => window.helixHeresyDebug.setSurveyExpeditionTestContext(options), { network: network(), context: context() });
+  await page.evaluate((options) => window.helixHeresyDebug.setSurveyExpeditionTestContext(options), { network: network(), context: context(), carrierSource: {
+    strategicPlayableSettlementState: { cityRows: [{ cityId: 'a', assetId: 'a', currentPopulation: 100, physicalCondition: 'intact', services: { transport: 'functional' } }] },
+    cityGovernments: { governments: [{ cityId: 'a', roleAssignments: { publicWorksAndProvisioning: 'works:a' }, institutions: [{ id: 'works:a', name: 'Aster Works', capacityBand: 'functional' }] }] }
+  } });
 }
 const snapshot = (page) => page.evaluate(() => window.helixHeresyDebug.surveyExpeditionSnapshot());
 let packedState;
@@ -67,6 +70,17 @@ async function pack(page) {
     expect(await page.evaluate((key) => window.helixHeresyDebug.packSurveyItem(key), item.key), item.key).toBe(true);
     await finishWork(page);
   }
+  const before = await snapshot(page);
+  expect(await page.evaluate(() => window.helixHeresyDebug.reserveMunicipalCarrier())).toBe(true);
+  expect(await page.evaluate(() => window.helixHeresyDebug.boardSurveyVehicle())).toBe(false);
+  expect((await snapshot(page)).money).toBe(before.money - before.quote.fee);
+  await page.evaluate(() => {
+    const d = window.helixHeresyDebug;
+    const s = d.surveyExpeditionSnapshot();
+    const j = d.strategicJourneysSnapshot().journeys.find(row => row.id === s.carrier.journeyId);
+    d.advanceSimulation(j.exactArrivalAt - s.clock + 1);
+  });
+  expect((await snapshot(page)).carrier.location).toBe('laboratory');
   packedState = await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState());
 }
 async function prepared(page) {
@@ -89,6 +103,38 @@ async function travel(page) {
 }
 test.describe('supported survey integration', () => {
   test.setTimeout(300000);
+  test('municipal collection pauses for driver incapacity and cancellation retains the physical allocation', async ({ page }) => {
+    await start(page);
+    await page.locator('[data-workspace-tab="visits"]').click();
+    await page.getByRole('button', { name: 'Reserve Municipal Collection', exact: true }).click();
+    let saved = await snapshot(page);
+    expect(saved.carrier.contract).not.toBeNull();
+    const bookingId = saved.carrier.contract.id, fuel = saved.carrier.vehicle.fuelKm;
+    const raw = await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState());
+    raw.surveyExpeditions.carrier.driver.health = 0;
+    await page.evaluate(value => window.helixHeresyDebug.importSurveyExpeditionTestState(value), raw);
+    await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(120));
+    saved = await snapshot(page);
+    expect(saved.carrier.vehicle.fuelKm).toBe(fuel);
+    expect(saved.carrier.location).toContain('road:');
+    expect(await page.evaluate(() => window.helixHeresyDebug.reserveMunicipalCarrier())).toBe(false);
+    const restored = await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState());
+    restored.surveyExpeditions.carrier.driver.health = 100;
+    await page.evaluate(value => window.helixHeresyDebug.importSurveyExpeditionTestState(value), restored);
+    await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(90));
+    expect(await page.evaluate(() => window.helixHeresyDebug.cancelMunicipalCollection())).toBe(true);
+    saved = await snapshot(page);
+    expect(saved.carrier.contract.id).toBe(bookingId);
+    expect(saved.carrier.vehicle.fuelKm).toBeLessThan(fuel);
+    await page.evaluate(() => {
+      const d = window.helixHeresyDebug, s = d.surveyExpeditionSnapshot();
+      const j = d.strategicJourneysSnapshot().journeys.find(row => row.id === s.carrier.journeyId);
+      d.advanceSimulation(j.exactArrivalAt - s.clock + 1);
+    });
+    saved = await snapshot(page);
+    expect(saved.carrier.contract).toBeNull(); expect(saved.carrier.location).toBe('depot');
+    expect(saved.money).toBe(5000 - saved.quote.fee);
+  });
   test('physical packing, travel, field sample, reload, return, and home assay', async ({ page }) => {
     await start(page);
     expect(await page.evaluate(() => window.helixHeresyDebug.boardSurveyVehicle())).toBe(false);
@@ -104,7 +150,7 @@ test.describe('supported survey integration', () => {
     const departingKnowledge = await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState().surveyExpeditions.discovery);
     expect(departingKnowledge.baseline.placeId).toBe('survey:a');
     expect(departingKnowledge.records).toHaveLength(2);
-    expect(saved.money).toBe(prepared.money - prepared.quote.fee);
+    expect(saved.money).toBe(prepared.money);
     expect(saved.carried.find((entry) => entry.key === 'fieldRation').quantity).toBe(1);
     await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
     expect((await snapshot(page)).journeyId).toBe(saved.journeyId);
@@ -125,6 +171,14 @@ test.describe('supported survey integration', () => {
     expect((await snapshot(page)).phase).toBe('field');
     await finishWork(page); await travel(page);
     saved = await snapshot(page); expect(saved.phase).toBe('home'); expect(saved.scientistCell.z).not.toBe(6);
+    expect(saved.carrier.contract).not.toBeNull();
+    expect(saved.carrier.legKind).toBe('depot');
+    await page.evaluate(() => {
+      const d = window.helixHeresyDebug, s = d.surveyExpeditionSnapshot();
+      const j = d.strategicJourneysSnapshot().journeys.find(row => row.id === s.carrier.journeyId);
+      d.advanceSimulation(j.exactArrivalAt - s.clock + 1);
+    });
+    expect((await snapshot(page)).carrier.contract).toBeNull();
     expect(saved.carried.find((entry) => entry.id === sample.stackId)).toBeTruthy();
     expect(await page.evaluate((id) => window.helixHeresyDebug.startDiagnosticSampleAssay(id), sample.stackId)).toBe(true);
     await finishWork(page);
@@ -197,8 +251,8 @@ test.describe('supported survey integration', () => {
     await page.evaluate(() => window.helixHeresyDebug.boardSurveyVehicle()); await finishWork(page);
     const outbound = await snapshot(page);
     await page.evaluate(() => window.helixHeresyDebug.strandSurveyJourneyForTest());
-    expect(await page.evaluate(() => window.helixHeresyDebug.controlSurveyJourney('recover'))).toBe(true);
+    expect(await page.evaluate(() => window.helixHeresyDebug.controlSurveyJourney('recover'))).toBe(false);
     expect((await snapshot(page)).carried.map((stack) => stack.id)).toEqual(outbound.carried.map((stack) => stack.id));
-    await travel(page); expect((await snapshot(page)).phase).toBe('field');
+    expect((await snapshot(page)).phase).toBe('outbound');
   });
 });
