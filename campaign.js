@@ -36,6 +36,9 @@
     return {
       guidanceEnabled: value?.guidanceEnabled !== false,
       objectives: Object.fromEntries(OBJECTIVES.map(({ id }) => [id, normalizeReceipt(value?.objectives?.[id])])),
+      localLeverage: Object.fromEntries(["service", "reservation"].map(id => [id, normalizeReceipt(value?.localLeverage?.[id]) ? {
+        ...normalizeReceipt(value.localLeverage[id]), clientId: text(value.localLeverage[id].clientId)
+      } : null])),
       readiness: value?.readiness && Number.isFinite(value.readiness.at) ? {
         at: time(value.readiness.at), checks: Object.fromEntries(CHECKS.map(id => [id, value.readiness.checks?.[id] === true]))
       } : null,
@@ -52,6 +55,14 @@
   function record(value, outcome = {}, clock = 0) {
     const state = normalize(value);
     if (outcome.known !== true || outcome.alive === false) return state;
+    if (outcome.kind === "localService" || outcome.kind === "localReservation") {
+      if (!outcome.clientId || !outcome.sourceId) return state;
+      const id = outcome.kind === "localService" ? "service" : "reservation";
+      if (id === "service" && !(outcome.received === true && outcome.settled === true)) return state;
+      if (id === "reservation" && outcome.granted !== true) return state;
+      state.localLeverage[id] ||= { at: time(clock), sourceId: text(outcome.sourceId), clientId: text(outcome.clientId), summary: text(outcome.summary) };
+      return state;
+    }
     const id = outcome.kind;
     if (!OBJECTIVES.some(entry => entry.id === id) || id === "operations") return state;
     if (id === "care" && !(outcome.createdByScientist && outcome.nutritionGain > 0 && outcome.feedingDamage === 0 && outcome.survived)) return state;
@@ -71,6 +82,9 @@
     const state = normalize(value);
     const result = OBJECTIVES.filter(({ id }) => state.objectives[id]).map(({ id, label }) => ({ label, at: state.objectives[id].at }));
     if (state.accomplishedAt !== null) result.push({ label: "Establish the laboratory", at: state.accomplishedAt });
+    for (const [id, label] of [["service", "Complete useful work for a local customer"], ["reservation", "Negotiate a real materials reservation"]]) {
+      if (state.localLeverage[id]) result.push({ label, at: state.localLeverage[id].at });
+    }
     return result;
   }
   function roadmap(worldTheme) { return Theme.eligibleDefinitions(registry, { kind: "campaignAmbition", worldTheme }); }

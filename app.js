@@ -4503,6 +4503,8 @@
     throw new Error("HelixResearchSystem must load before app.js");
   }
   const Diagnostics = window.HelixDiagnosticSystem;
+  const LocalServices = window.HelixLocalServices;
+  if (!LocalServices) throw new Error("HelixLocalServices must load before app.js");
   if (!Diagnostics) {
     throw new Error("HelixDiagnosticSystem must load before app.js");
   }
@@ -4814,6 +4816,7 @@
     { id: "deals", label: "Offers" },
     { id: "contracts", label: "Contracts" },
     { id: "contacts", label: "Contacts" },
+    { id: "services", label: "Services" },
     { id: "ledger", label: "Ledger" }
   ];
   const ECONOMY_MENU_TAB_BY_ID = Object.fromEntries(ECONOMY_MENU_TAB_DEFS.map((tab) => [tab.id, tab]));
@@ -4991,6 +4994,7 @@
     deals: "B L",
     contracts: "B K",
     contacts: "B C",
+    services: "B S",
     ledger: "B H"
   };
   const POLICY_MENU_TAB_HOTKEYS = {
@@ -5329,6 +5333,8 @@
       runEnded: false,
       postmortem: null,
       campaign: Campaign.normalize(),
+      localServices: null,
+      localServiceKnowledge: null,
       lastSuspicionGainAt: null,
       lastSuspicionDecayAt: null,
       rooms: defaultRooms(),
@@ -11667,13 +11673,18 @@
     return ensureStrategicJourneys().journeys.find((journey) => journey.id === consignment.journeyId) || null;
   }
 
+  function commodityFreightDefinition(consignment) {
+    return consignment?.serviceJobId ? { id: "diagnosticSample", section: "inventory", key: "diagnosticSample", label: "Customer contamination sample" }
+      : COMMODITY_MARKET_LISTING_BY_ID[consignment?.listingId];
+  }
+
   function bookCommodityConsignmentJourney(consignment, pickup = false, emptyReturn = false) {
     if (!consignment || (!pickup && !emptyReturn && consignment.journeyId)) return commodityConsignmentJourney(consignment);
     const journeys = ensureStrategicJourneys();
     if (!journeys.homeDestinationId || !journeys.nearestSettlementDestinationId) return null;
     const vehicles = LocalExchangeCarrier.assigned(exchangeCarrier(), consignment.id);
     if (!vehicles.length || LocalExchangeCarrier.movementReason(exchangeCarrier(), consignment.id) || !exchangeRoute().ok) return null;
-    const def = COMMODITY_MARKET_LISTING_BY_ID[consignment.listingId];
+    const def = commodityFreightDefinition(consignment);
     const inbound = !emptyReturn && (pickup || consignment.direction === "inbound");
     const result = bookStrategicJourney({
       purpose: emptyReturn ? "lawfulCarrierReturn" : pickup ? "lawfulSalePickup" : inbound ? "lawfulPurchaseDelivery" : "lawfulSaleDelivery",
@@ -11945,14 +11956,23 @@
     if (!consignment || consignment.taskId || !["arrived", "dispatching"].includes(consignment.status)) return false;
     const pickup = consignment.pickupJourneyId && ensureStrategicJourneys().journeys.find((entry) => entry.id === consignment.pickupJourneyId);
     if (consignment.direction === "outbound" && (!pickup || pickup.status !== "arrived")) return false;
-    const def = COMMODITY_MARKET_LISTING_BY_ID[consignment.listingId];
+    const def = commodityFreightDefinition(consignment);
+    const serviceDelivery = Boolean(consignment.serviceJobId || consignment.serviceReservationId);
+    const targetCell = labMapRoomAnchor(SURFACE_LOADING_ROOM_ID);
+    const path = serviceDelivery && !surveyScientistAway() && !restrictedOffsiteStay()
+      ? labMapPathBetweenCells(scientistMapCell(), targetCell, { map: ensureLabMap(), ignoreDoors: true, actor: state.scientist }) : [];
+    if (serviceDelivery && !path.length) return false;
+    const travel = serviceDelivery ? mapPathTravelDistanceMeters(path, ensureLabMap()) / scientistMoveSpeedMps() : 0;
+    const route = serviceDelivery ? [scientistRoomId(), ...roomsFromMapPath(path)].filter(Boolean).filter((id, i, values) => i === 0 || id !== values[i - 1]) : [];
     const task = {
       id: `task-${state.nextTaskNumber++}`,
       type: "commodityFreight",
       label: consignment.direction === "inbound" ? `Receive ${def?.label || "legal freight"}` : `Dispatch ${def?.label || "legal freight"}`,
       createdAt: state.clock,
-      dueAt: state.clock + minutesToSeconds(5),
-      data: { consignmentId: consignment.id, targetCell: labMapRoomAnchor(SURFACE_LOADING_ROOM_ID), toRoomId: SURFACE_LOADING_ROOM_ID, staminaCost: 1 }
+      dueAt: state.clock + travel + minutesToSeconds(5),
+      data: { consignmentId: consignment.id, targetCell, toRoomId: SURFACE_LOADING_ROOM_ID, staminaCost: 1,
+        ...(serviceDelivery ? { mapPath: path, toCell: targetCell, route, doorTransit: doorTransitPlan(route), movementStartedAt: state.clock,
+          movement: createScientistMovementRecord(path, travel, state.clock, { intent: "hauling" }), workStartsAt: state.clock + travel } : {}) }
     };
     consignment.taskId = task.id;
     consignment.status = consignment.direction === "inbound" ? "unloading" : "dispatching";
@@ -12036,16 +12056,28 @@
   function completeCommodityFreight(task) {
     const economy = ensureEconomy();
     const consignment = economy.commodityConsignments.find((entry) => entry.id === task.data?.consignmentId);
-    const def = COMMODITY_MARKET_LISTING_BY_ID[consignment?.listingId];
+    const def = commodityFreightDefinition(consignment);
     if (!consignment || !def) return false;
     if (!["unloading", "dispatching"].includes(consignment.status)) return false;
     state.scientist.roomId = SURFACE_LOADING_ROOM_ID;
     state.scientist.mapCell = labMapRoomAnchor(SURFACE_LOADING_ROOM_ID);
     if (consignment.direction === "inbound") {
-      createPhysicalItemStack(def.section, def.key, consignment.quantity, physicalFallbackLocation(SURFACE_LOADING_ROOM_ID), {
+      const receivedStack = createPhysicalItemStack(def.section, def.key, consignment.quantity, physicalFallbackLocation(SURFACE_LOADING_ROOM_ID), {
         phase: def.section === "chemicalBatches" ? CHEMICAL_PRODUCT_BY_ID[def.key]?.phase : "solid",
         tags: ["legalfreight"]
       });
+      if (consignment.serviceJobId && receivedStack) {
+        const job = state.localServices?.jobs.find(entry => entry.id === consignment.serviceJobId);
+        if (job && job.consignmentId === consignment.id && job.sampleAt === consignment.serviceSampleAt) {
+          job.sampleStackId = receivedStack.id; job.receivedAt = state.clock;
+          if (LocalServices.active(job)) job.status = "awaitingAssay";
+          const diagnostics = ensureDiagnosticState();
+          diagnostics.samples.push(Diagnostics.normalizeSample({ id: `diagnostic-sample-${diagnostics.nextSampleNumber++}`,
+            stackId: receivedStack.id, methodId: "industrialBatchPortion", targetKind: "industrialService", targetId: job.id,
+            targetLabel: `${state.localServices.client.organization} captured ${job.sourceGood} batch`, cell: receivedStack.cell,
+            collectedAt: job.sampleAt, captured: { industrialService: { jobId: job.id, burden: job.burden } } }, diagnostics.samples.length));
+        }
+      }
       consignment.status = "received";
       consignment.completedAt = state.clock;
       bookCommodityConsignmentJourney(consignment, false, true);
@@ -12147,6 +12179,7 @@
       }
     }
     changes += processCommodityOrders();
+    changes += updateLocalServices();
     economy.commodityOrders = retainCommodityHistory(economy.commodityOrders, ["open", "executing"]);
     economy.commodityConsignments = retainCommodityHistory(economy.commodityConsignments, LocalExchangeCarrier.ACTIVE);
     return changes;
@@ -13026,6 +13059,7 @@
       "economyFreightBadge",
       "economyLegalLedgerBadge",
       "economyContactsBadge",
+      "economyServicesBadge",
       "economyDealsBadge",
       "economyContractsBadge",
       "economyLedgerBadge",
@@ -13036,6 +13070,7 @@
       "economyFreightList",
       "economyLegalLedgerList",
       "economyContactsList",
+      "economyServicesList",
       "economyDealsList",
       "economyContractsList",
       "economyLedgerList",
@@ -13383,6 +13418,40 @@
       worldLibrarySnapshot: () => clonePlainObject(worldRepository.snapshot()),
       runLifecycleSnapshot: () => clonePlainObject({ phase: RunLifecycle.phase(state), clock: state.clock, postmortem: state.postmortem, deaths: ensureScientistDeath().records }),
       campaignSnapshot: () => clonePlainObject(Campaign.normalize(state.campaign)),
+      localServicesSnapshot: () => clonePlainObject({ service: state.localServices, known: state.localServiceKnowledge,
+        channelReason: localServiceChannelReason(), samples: ensureDiagnosticState().samples,
+        tasks: state.tasks.filter(task => ["commodityFreight", "physicalDiagnostic"].includes(task.type)),
+        stacks: ensurePhysicalItemStacks().filter(stack => ["diagnosticSample", "assayReagent"].includes(stack.key)), clock: state.clock }),
+      localServiceAction: (action, jobId = "") => localServiceAction(action, jobId),
+      configureLocalServiceTestSupport: (options = {}) => {
+        const network = ensureStrategicJourneys();
+        const cityId = network.destinations.find(d => d.id === network.nearestSettlementDestinationId)?.cityId || "local-city";
+        const production = LocalMarketProduction.create({ cityId, workshopCapacity: 1, productionSources: [], commodityDefinitions: [], listings: {},
+          manufacturingFacilities: [{ id: `${cityId}:test-chemicalWorks`, kind: "chemicalWorks", name: "Test City Chemical Works", condition: options.condition ?? 95,
+            labour: 1, utilities: 1, routeOpen: true, expertise: ["chemicalProcessing"], basis: "Explicit test fixture" }] }, state.clock);
+        production.workshops.find(w => w.id === "rubber").stock = 10;
+        production.workshops.find(w => w.id === "assayReagent").stock = 8;
+        ensureEconomy().commodityMarket.localProduction = production;
+        state.localServices = LocalServices.create(production); state.localServiceKnowledge = null;
+        ensureCompany().operatingState = "limited";
+        for (const fixture of state.fixtures.filter(chemistryProcessDef)) { fixture.process.commissioned = true; fixture.process.online = true; fixture.utility.enabled = true; }
+        const generator = fixtureById("starter-fuel-generator"); generator.utility.enabled = true; generator.utility.fuel = 100;
+        const instrument = diagnosticInstrumentInstance("assayCase");
+        if (instrument) { instrument.current = instrument.max; diagnosticInstrumentRecord(instrument.id).calibration = 100; }
+        persist(); render(); return localServiceChannelReason();
+      },
+      setLocalServiceCustomerForTest: (options = {}) => {
+        const production = ensureEconomy().commodityMarket.localProduction;
+        const facility = production.facilities.find(f => f.id === state.localServices.client.facilityId);
+        for (const key of ["condition", "labour", "utilities", "routeOpen"]) if (options[key] !== undefined) facility[key] = options[key];
+        if (options.reserveStock != null) production.workshops.find(w => w.id === state.localServices.client.reserveGood).stock = options.reserveStock;
+        if (options.away != null) {
+          state.surveyExpeditions.phase = options.away ? "outbound" : "home";
+          if (options.away) { state.surveyExpeditions.destination = { id: "survey:service-test", cityId: production.cityId, label: "Test Municipal Survey Ground", cellId: "cell:1" }; state.surveyExpeditions.departedAt = state.clock; }
+        }
+        persist(); render();
+      },
+      reloadLocalServiceStateForTest: () => { state = normalizeState(clonePlainObject(state)); persist(); render(); return true; },
       feedTestCampaignSpecimen: (slimeId, feedstockKey) => {
         const result = feedSlime(findSlime(slimeId), feedstockKey, { source: "manual", requireLocal: true });
         persist(); render(); return result;
@@ -61045,6 +61114,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       dom.economyFreightList,
       dom.economyLegalLedgerList,
       dom.economyContactsList,
+      dom.economyServicesList,
       dom.economyDealsList,
       dom.economyContractsList,
       dom.economyLedgerList
@@ -61065,6 +61135,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       freight: dom.economyFreightBadge,
       legalLedger: dom.economyLegalLedgerBadge,
       contacts: dom.economyContactsBadge,
+      services: dom.economyServicesBadge,
       deals: dom.economyDealsBadge,
       contracts: dom.economyContractsBadge,
       ledger: dom.economyLedgerBadge
@@ -61667,7 +61738,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const consignments = [...economy.commodityConsignments].reverse();
     if (!consignments.length) section.append(emptyText("No legal freight booked."));
     for (const consignment of consignments) {
-      const def = COMMODITY_MARKET_LISTING_BY_ID[consignment.listingId];
+      const def = commodityFreightDefinition(consignment);
       const journey = commodityConsignmentJourney(consignment);
       const timing = consignment.status === "inTransit"
         ? journey ? `${titleCase(journey.status)}; supported arrival window ${formatClock(journey.arrivalWindow.start)}–${formatClock(journey.arrivalWindow.end)}` : "Awaiting physical booking; no arrival estimate"
@@ -62193,6 +62264,161 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.economyLedgerList.append(section);
   }
 
+  function ensureLocalServices() {
+    const production = ensureEconomy().commodityMarket.localProduction;
+    if (!state.localServices && campaignLocalKnowledgeAvailable()) state.localServices = LocalServices.create(production);
+    return state.localServices;
+  }
+
+  function localServiceChannelReason() {
+    if (!campaignLocalKnowledgeAvailable() || actorIsIncapacitated("scientist")) return "Return to the laboratory while capable; no remote service control or customer surveillance is available.";
+    const company = ensureCompany();
+    if (!company.enabled || company.operatingState === "renovation" || !company.declarationIds.includes("analysisPackaging")) return "A front company in Limited or Fully Open Operations declaring Chemical analysis and packaging is required.";
+    const station = (state.fixtures || []).find(f => f.typeId === "analysisStation");
+    if (!station || !station.process?.commissioned || station.condition <= 0 || station.operationalState !== "operational" || !utilityFixtureEnabled(station)
+      || utilityPowerAvailability(station, utilityNetworkContext()) <= 0) return "Commission and power the Staff Operations Analysis Station to use the company service account.";
+    return "";
+  }
+
+  function serviceFreightCost() {
+    return roundOutputValue(strategicFreightUnitCost() * LocalExchangeCarrier.tariffMultiplier(exchangeCarrier()));
+  }
+
+  function bookServiceLastMile(good, quantity, freight, options = {}) {
+    const economy = ensureEconomy();
+    const consignment = { id: `legal-consignment-${economy.nextCommodityConsignmentNumber++}`, direction: "inbound", listingId: good,
+      quantity, unitPrice: options.unitPrice || 0, total: options.total || 0, freightFee: freight,
+      serviceJobId: options.jobId || "", serviceSampleAt: options.sampleAt || 0, orderId: "", stackId: "", status: "awaitingCarrier",
+      serviceReservationId: options.reservationId || "",
+      createdAt: state.clock, eta: state.clock + COMMODITY_MARKET_FREIGHT_SECONDS, completedAt: null, taskId: "", journeyId: "" };
+    economy.commodityConsignments.push(consignment);
+    LocalExchangeCarrier.credit(exchangeCarrier(), freight, state.clock);
+    dispatchCommodityConsignment(consignment); return consignment;
+  }
+
+  function updateLocalServices() {
+    const service = state.localServices, production = ensureEconomy().commodityMarket.localProduction;
+    if (!service || !production || scientistIsDead()) return 0;
+    let changes = Number(LocalServices.advance(service, production, state.clock));
+    const allocations = service.jobs.filter(LocalServices.active).filter(job => !job.consignmentId)
+      .map(job => ({ entry: job, cargo: "diagnosticSample", quantity: 1, job }));
+    if (service.reservation?.status === "purchased" && !service.reservation.consignmentId) allocations.push({ entry: service.reservation,
+      cargo: service.reservation.good, quantity: service.reservation.quantity });
+    for (const { entry, cargo, quantity, job } of allocations) {
+      if (!entry.shipmentId) {
+        const shipment = LocalMarketProduction.bookServiceCargo(production, service.client.facilityId, cargo, quantity, state.clock);
+        if (shipment) { entry.shipmentId = shipment.id; changes++; }
+      }
+      if (!entry.shipmentId || !production.serviceDepot?.[entry.shipmentId]) continue;
+      if (commodityOutstandingCount() >= COMMODITY_MARKET_MAX_OUTSTANDING || LocalExchangeCarrier.depotSpace(ensureEconomy().commodityConsignments) < quantity) continue;
+      const cost = job ? job.sampleFreight : entry.freightPerUnit * quantity;
+      const consignment = bookServiceLastMile(cargo, quantity, cost, job ? { jobId: job.id, sampleAt: job.sampleAt } : { reservationId: entry.id, unitPrice: entry.unitPrice, total: Math.round(quantity * entry.unitPrice) });
+      entry.consignmentId = consignment.id;
+      if (job) job.status = "sampleInTransit";
+      delete production.serviceDepot[entry.shipmentId]; changes++;
+    }
+    return changes;
+  }
+
+  function localServiceAction(action, jobId = "", expectedFreight = null) {
+    if (scientistIsDead()) return false;
+    const service = ensureLocalServices(), production = ensureEconomy().commodityMarket.localProduction;
+    let reason = localServiceChannelReason(), result = { ok: false };
+    if (!service || !production) reason ||= "No supported local industrial customer exists in this city.";
+    if (reason) { addEvent(reason); persist(); render(); return false; }
+    LocalServices.advance(service, production, state.clock);
+    const job = service.jobs.find(entry => entry.id === jobId), freight = serviceFreightCost();
+    if (["accept", "resample"].includes(action) && expectedFreight != null && freight !== expectedFreight) result.reason = "Sample freight changed; review the refreshed terms before accepting.";
+    else if (action === "accept") {
+      if (!exchangeRoute().ok) result.reason = exchangeRoute().reason;
+      else result = LocalServices.accept(service, production, state.clock, freight);
+    } else if (action === "decline") result.ok = LocalServices.decline(service, state.clock);
+    else if (action === "cancel") result.ok = LocalServices.stop(service, production, job, state.clock);
+    else if (action === "resample") result = LocalServices.resample(service, production, jobId, state.clock, freight);
+    else if (action === "preview") result.ok = Boolean(LocalServices.preview(service, jobId));
+    else if (action === "submit") {
+      result = LocalServices.submit(service, production, jobId, ensureEconomy(), state.clock);
+      if (result.ok) {
+        recordLegalLedger("serviceIncome", `${service.client.name} received the exact contamination report and paid ${formatMoney(result.amount)}; captured batch ${job.lotStatus}.`, { amount: result.amount });
+        recordCampaignOutcome({ kind: "localService", sourceId: job.id, settled: true, received: true, clientId: service.client.id,
+          summary: `Useful report received by ${service.client.name}; the customer ${job.lotStatus === "released" ? "released" : "quarantined"} its actual batch.` });
+      }
+    } else if (action === "reserve") {
+      const quote = commodityQuote(service.client.reserveGood);
+      result = LocalServices.reserve(service, production, state.clock, quote?.ask, quote?.freightPerUnit);
+      if (result.ok) recordCampaignOutcome({ kind: "localReservation", sourceId: result.reservation.id, clientId: service.client.id, granted: true,
+        summary: `${service.client.name} agreed to hold two actual material units for four hours; payment and delivery still required.` });
+    } else if (action === "purchase") {
+      result = LocalServices.purchase(service, production, ensureEconomy(), state.clock);
+      if (result.ok) recordLegalLedger("serviceReservationPurchase", `Paid ${formatMoney(result.total)} for ${result.reservation.quantity} reserved ${inventoryItemLabel(result.reservation.good)}; awaiting producer and exchange freight.`, { amount: -result.total, listingId: result.reservation.good });
+    }
+    if (result.ok) {
+      updateLocalServices();
+      recordCompanyEvent(`industrialService:${action}`, `${service.client.name}: ${action} for scoped industrial testing.`, { category: "analysis", details: job?.preview ? JSON.stringify(job.preview) : "No unrelated research, maps or laboratory access disclosed." });
+      addEvent(result.job?.status === "completed" ? `Customer report delivered: ${job.result.summary} Captured batch ${job.lotStatus}; fee received.`
+        : result.reservation ? service.history.at(-1).summary : `Industrial service: ${action}. ${service.history.at(-1)?.summary || "Exact report preview prepared; nothing sent yet."}`, { sourceKind: "localService", sourceId: jobId });
+    } else if (result.reason) addEvent(result.reason);
+    refreshLocalServiceKnowledge(); persist(); render(); return result.ok;
+  }
+
+  function refreshLocalServiceKnowledge() {
+    if (!localServiceChannelReason() && state.localServices && !LocalServices.available(state.localServices, ensureEconomy().commodityMarket.localProduction)) {
+      state.localServiceKnowledge = { ...LocalServices.publicView(state.localServices), reportedAt: state.clock };
+      markStateDirty();
+    }
+  }
+
+  function renderLocalServices() {
+    const section = dom.economyServicesList; if (!section) return;
+    const service = ensureLocalServices(), channelReason = localServiceChannelReason();
+    if (!channelReason) refreshLocalServiceKnowledge();
+    const known = state.localServiceKnowledge;
+    section.append(textEl("h3", "Industrial testing services"), textEl("p", "Optional work for one local customer. Commodity trading remains the stock-market model. A service report neither licenses other activities nor discloses your research, maps or underground facilities."));
+    if (channelReason) section.append(textEl("p", channelReason));
+    if (!known) { section.append(emptyText(service ? "Open a working company service channel to obtain the customer's scoped terms." : "No supported chemical, glass or textile works customer is known in this city.")); return; }
+    section.append(textEl("h4", `${known.client.name} — ${known.client.organization}`), textEl("p", `Dated account report ${formatClock(known.reportedAt)}. Working confidence: ${known.trust < 2 ? "new customer" : "reliable working relationship"}; not loyalty, legal immunity or city-wide indispensability.`));
+    if (channelReason) section.append(textEl("p", "This is the last received report; current customer stock, decisions and laboratory work are not being monitored remotely."));
+    const button = (label, action, id = "", reason = "", freight = null) => {
+      const element = storesActionButton(label, reason || label, () => localServiceAction(action, id, freight));
+      setActionButtonState(element, Boolean(channelReason || reason), channelReason || reason); return element;
+    };
+    const freight = serviceFreightCost(), production = ensureEconomy().commodityMarket.localProduction;
+    if (!channelReason && !known.jobs.some(LocalServices.active)) {
+      section.append(textEl("p", `Proposed work: one customer-owned ${known.client.sampleGood} batch; contamination assessment only, minimum confidence ${LocalServices.MIN_CONFIDENCE}. Fee ${formatMoney(LocalServices.FEE)}, payable after truthful useful report receipt, positive or negative. Customer-funded sample freight ${formatMoney(freight)}. Deadline ${formatDuration(LocalServices.WINDOW)} from acceptance, including transport. Sealed nonliving sample portions remain stable for 24 hours, then ordinary sample-age uncertainty applies. Cancellation or lateness returns the unearned fee, retains launched freight charges and costs one customer-confidence point; declining costs nothing.`));
+      const route = exchangeRoute();
+      section.append(button("Accept testing service", "accept", "", LocalServices.offerReason(service, production, state.clock, freight) || (route.ok ? "" : route.reason), freight), button("Decline proposed work", "decline"));
+    }
+    for (const job of [...known.jobs].reverse().slice(0, 10)) {
+      const row = document.createElement("section"); row.dataset.localServiceJob = job.id;
+      row.append(textEl("h4", `${job.id} — ${titleCase(job.status)}`), textEl("p", `Sample collected ${formatClock(job.sampleAt)}; report deadline ${formatClock(job.dueAt)}. Captured lot: ${titleCase(job.lotStatus)}.`));
+      if (job.consignmentId) row.append(textEl("p", `Freight ${job.consignmentId}; arrival is not receipt. Unload at the Loading Bay before analysis.`));
+      if (LocalServices.active(job)) row.append(button("Cancel accepted service", "cancel", job.id));
+      if (job.status === "awaitingAssay") {
+        const analyze = storesActionButton("Analyze customer sample", "Use physical sample, assay reagent, instrument and operational workbench.", () => startDiagnosticSampleAssay(job.sampleStackId));
+        setActionButtonState(analyze, Boolean(channelReason || diagnosticSampleAssayBlockReason(job.sampleStackId)), channelReason || diagnosticSampleAssayBlockReason(job.sampleStackId)); row.append(analyze);
+      }
+      if (job.result) row.append(textEl("p", `${job.result.summary} Confidence ${job.result.confidence}; measured ${formatClock(job.result.measuredAt)}. Describes only this captured sample, not the customer's whole operation.`));
+      if (job.status === "assayed") {
+        if (job.result?.finding === "inconclusive") row.append(button("Request fresh sample", "resample", job.id, "", freight));
+        else row.append(button("Preview exact report disclosure", "preview", job.id));
+      }
+      if (job.preview) {
+        const preview = document.createElement("pre"); preview.dataset.serviceDisclosurePreview = job.id; preview.textContent = JSON.stringify(job.preview, null, 2);
+        row.append(textEl("p", "Only these exact report fields go to this customer account. Cancel the preview by leaving it unsent; no other records or access are included."), preview,
+          button("Send previewed report", "submit", job.id));
+      }
+      section.append(row);
+    }
+    section.append(textEl("h4", "Emergency materials reservation"), textEl("p", "After two reliable assessments, ask for two units at the normal all-in quote. The customer must retain two units for its own obligations. Refusal gives no free stock or automatic obedience; each completed service supports at most one allocation."));
+    section.append(button("Request materials reservation", "reserve"));
+    if (known.reservation) {
+      const r = known.reservation;
+      section.append(textEl("p", `${titleCase(r.status)}: ${r.quantity} ${inventoryItemLabel(r.good)}, ${formatMoney(r.unitPrice)} each; held until ${formatClock(r.expiresAt)}. ${r.consignmentId ? `Physical freight ${r.consignmentId}.` : "No delivery has occurred."}`));
+      if (r.status === "held") section.append(button("Buy reserved materials", "purchase"));
+    }
+    for (const entry of known.history.slice(-8).reverse()) section.append(textEl("p", `${formatClock(entry.at)} — ${entry.summary}`, "journal-meta"));
+  }
+
   function renderEconomy() {
     const economy = ensureEconomy();
     ensureLocalCovertMarket();
@@ -62213,6 +62439,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       freight: economy.commodityConsignments.filter((consignment) => !["received", "sold", "failed"].includes(consignment.status)).length,
       legalLedger: economy.legalLedger.length,
       contacts: economy.contacts.length,
+      services: state.localServiceKnowledge?.jobs.filter(LocalServices.active).length || 0,
       deals: openDeals.length,
       contracts: blackMarketActiveContracts().length,
       ledger: economy.ledger.length
@@ -62224,6 +62451,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     renderCommodityFreight(economy);
     renderLegalLedger(economy);
     renderEconomyContacts(economy, openDeals);
+    renderLocalServices();
     renderEconomyDeals(openDeals);
     renderEconomyContracts(economy);
     renderEconomyLedger(economy);
@@ -74828,11 +75056,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       assess.addEventListener("click", () => { assessCampaignLaboratory(); persist(); renderCampaign(); });
       assessment.append(assess);
       content.append(assessment);
-      if (campaign.accomplishedAt !== null) content.append(textEl("p", "Next opportunities: build on completed research, strengthen legal production or covert trade, and cultivate known contacts. Local-leverage campaign mechanics remain future work."));
+      if (campaign.accomplishedAt !== null) content.append(textEl("p", "Next opportunities: build on completed research, strengthen legal production or covert trade, and cultivate known contacts. Economy → Services offers scoped industrial testing where supported local works exist."));
+      content.append(textEl("h4", "Local leverage — first working relationship"));
+      for (const [id, label] of [["service", "Complete a useful received and paid assessment"], ["reservation", "Negotiate a real materials reservation"]]) {
+        const receipt = campaign.localLeverage[id];
+        content.append(textEl("p", `${label}: ${receipt ? `${formatClock(receipt.at)} — ${receipt.summary}` : "not yet recorded"}`));
+      }
+      content.append(textEl("p", "These are dated outcomes with one customer, not proof of city-wide indispensability or continuing supply. Damage, shortages and refusal can still affect operations."));
       const roadmap = document.createElement("details");
       roadmap.append(textEl("summary", "Six ambitions — long-term roadmap"));
       for (const ambition of Campaign.roadmap(activeWorldRecord?.worldTheme || state.worldTheme || "madcap")) {
-        roadmap.append(textEl("h4", `${ambition.label}${ambition.id === "laboratory" ? "" : " — future mechanics"}`), textEl("p", ambition.template));
+        roadmap.append(textEl("h4", `${ambition.label}${ambition.id === "laboratory" ? "" : ambition.id === "localLeverage" ? " — first customer service available; broader dependency remains future work" : " — future mechanics"}`), textEl("p", ambition.template));
       }
       roadmap.append(textEl("p", "World domination and divine supremacy are separate accomplishments, not run endings or a fixed-order dependency. Gods that lose followers descend rather than die. No undiscovered powers or hidden totals are listed here."));
       content.append(roadmap);
@@ -82116,7 +82350,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       condition: tool ? tool.current / Math.max(1, tool.max) * 100 : 0,
       skill,
       methodQuality,
-      sampleAgeSeconds: sample ? state.clock - sample.collectedAt : 0
+      // Sealed nonliving industrial portions have a declared 24-hour stable
+      // handling interval. Field/biological samples retain their existing decay.
+      sampleAgeSeconds: sample ? Math.max(0, state.clock - sample.collectedAt - (sample.captured?.industrialService ? SECONDS_PER_DAY : 0)) : 0
     });
     return {
       score, record, tool,
@@ -82296,7 +82532,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         readings = keys.map((key) => instrumentDiagnosticReading(key, captured.attributes[key]?.current || 0, confidence.score));
       } else if (sample) {
         const captured = sample.captured || {};
-        if (captured.resourceSurvey) {
+        if (captured.industrialService) {
+          const assessment = LocalServices.assay(captured.industrialService.burden, confidence.score);
+          readings = [{ key: "industrialContamination", label: "Captured batch contamination", value: assessment.summary,
+            band: Diagnostics.confidenceBand(confidence.score).label }];
+        } else if (captured.resourceSurvey) {
           readings = ResourceSurveys.assess(captured.resourceSurvey, confidence.score).map((finding) => ({ key: finding.familyId, label: finding.label, value: finding.summary, band: finding.confidence }));
         } else if (captured.environmentalExposure) {
           environmentalAssay = EnvironmentalMonitoring.assaySample(captured.environmentalExposure, confidence.score);
@@ -82389,6 +82629,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         sampleCollectedAt: sample?.collectedAt ?? null
       });
       if (sample?.captured.resourceSurvey) saveResourceObservation(sample.captured.resourceSurvey, task, confidence, result, sample);
+      if (sample?.captured.industrialService && state.localServices) {
+        LocalServices.recordAssay(state.localServices, sample.captured.industrialService.jobId, result, sample.collectedAt, state.clock);
+      }
       if (environmentalAssay && sample) {
         const sourceEvidence = ensureInvestigativeEvidence().records.find((entry) => entry.refs.stackIds.includes(sample.stackId) && entry.type === "environmentalFieldSample");
         const exposureRecord = surfaceExposureRecord(environmentalAssay.exposureRecordId);
@@ -85459,7 +85702,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return retainCommodityHistory((Array.isArray(candidate) ? candidate : []).map((entry, index) => ({
       id: String(entry?.id || `legal-consignment-${index + 1}`),
       direction: entry?.direction === "outbound" ? "outbound" : "inbound",
-      listingId: COMMODITY_MARKET_LISTING_BY_ID[entry?.listingId] ? entry.listingId : COMMODITY_MARKET_LISTING_DEFS[0].id,
+      listingId: entry?.serviceJobId ? "diagnosticSample" : COMMODITY_MARKET_LISTING_BY_ID[entry?.listingId] ? entry.listingId : COMMODITY_MARKET_LISTING_DEFS[0].id,
+      serviceJobId: String(entry?.serviceJobId || ""),
+      serviceReservationId: String(entry?.serviceReservationId || ""),
+      serviceSampleAt: finiteTime(entry?.serviceSampleAt, 0),
       quantity: Math.max(0, Number(entry?.quantity) || 0),
       unitPrice: Math.max(0, Number(entry?.unitPrice) || 0),
       total: Math.max(0, Math.round(Number(entry?.total) || 0)),
@@ -88506,6 +88752,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.runEnded = Boolean(next.runEnded) || Boolean(latestDeath?.terminal) || (next.scientist.vitals.health.current <= 0 && latestDeath?.resurrection.status !== "pending");
     next.postmortem = RunLifecycle.normalizeReport(candidate?.postmortem);
     next.campaign = Campaign.normalize(candidate?.campaign);
+    next.localServices = LocalServices.normalize(candidate?.localServices);
+    next.localServiceKnowledge = candidate?.localServiceKnowledge ? clonePlainObject(candidate.localServiceKnowledge) : null;
     if (next.runEnded || latestDeath?.resurrection.status === "pending") {
       next.paused = true;
     }

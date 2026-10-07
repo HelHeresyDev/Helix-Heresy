@@ -25,6 +25,7 @@
   ]);
   const INSTRUMENT_BY_ID = Object.freeze(Object.fromEntries(INSTRUMENTS.map((entry) => [entry.id, entry])));
   const SAMPLE_METHODS = Object.freeze([
+    Object.freeze({ id: "industrialBatchPortion", label: "Sealed Industrial Batch Portion", targetKinds: Object.freeze(["industrialService"]), quality: 85, collectionSeconds: 60, stress: 0, bodyDamage: 0 }),
     Object.freeze({ id: "resourceSurfaceSample", label: "Resource Surface Sample", targetKinds: Object.freeze(["tile"]), quality: 65, collectionSeconds: 90, stress: 0, bodyDamage: 0 }),
     Object.freeze({ id: "resourceShallowCore", label: "Prospecting Core", targetKinds: Object.freeze(["tile"]), quality: 78, collectionSeconds: 180, stress: 0, bodyDamage: 0 }),
     Object.freeze({ id: "airVial", label: "Air Vial", targetKinds: Object.freeze(["tile", "container"]), quality: 62, collectionSeconds: 10, stress: 0, bodyDamage: 0 }),

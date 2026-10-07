@@ -18,15 +18,17 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Reconstructed Resurrection: Research, Infrastructure, and Physical Recovery
-2. Local Leverage: Products, Services, and Relationships
-3. Independent Power Base: People, Creations, and Additional Facilities
-4. City Power: Enforceable Influence and Control
-5. Strategic Expansion and World Domination
-6. Divine Supremacy: Rule over the Gods
-7. New-Run Onboarding and Contextual Tutorial
-8. Sound, Notifications, and Accessibility Audit
-9. Production Art Pass Using the Sprite Pipeline
+1. Confidential Analytical Services: Black-Market Customers and Secrecy
+2. Independent Power Base: People, Creations, and Additional Facilities
+3. City Power: Enforceable Influence and Control
+4. Late-Game Soul Beacons: Research, Infrastructure, and Physical Recovery
+5. Perfected Memory Transfer and Embodied Retraining
+6. Hidden-Base Contingencies and Multiple Beacon Destinations
+7. Strategic Expansion and World Domination
+8. Divine Supremacy: Rule over the Gods
+9. New-Run Onboarding and Contextual Tutorial
+10. Sound, Notifications, and Accessibility Audit
+11. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -85,60 +87,81 @@ Apply these rules throughout the world-generation and campaign prompts:
 - Helix Heresy is a roguelike. Ordinary play must be compelling when a run ends in the laboratory or local-power phase; the overwhelming majority of runs should end long before world domination.
 - World domination is a rare terrestrial accomplishment, not the expected length or balance target of an average run; ruling over the gods is the ultimate ambition beyond it.
 - Campaign ambitions overlap rather than forming compulsory chapters: establish the laboratory, become locally indispensable, build an independent power base, challenge city powers, pursue world domination, and rule over the gods. Optional guidance grants no free resources or artificial feature gates. Separate dated accomplishments from current operational conditions.
+- Player-built resurrection belongs to the very late-game independent-power-base or city-power phases (roughly stages three or four), with demanding scientific, animantic, biological, material, and infrastructure prerequisites rather than a chapter-completion gate. Soul beacons guide departed souls; they do not permanently store souls or hold backup copies. The player chooses among eligible beacons after death. Recorded soul damage can impair or prevent recovery; soul destruction prevents it even with perfected apparatus. Physical death still leaves remains and worldly consequences intact.
 - Divine supremacy goes beyond terrestrial domination: impose real enforceable submission on gods, kill those who refuse, and reign over the rest. Losing followers or forcing descent does not kill a god. Surviving descended individuals and new ascendants matter; do not expose undiscovered gods or an omniscient pantheon checklist. Personal ascension is not mandatory. World domination and divine supremacy are separate accomplishments, neither requires the other in a fixed order, and neither ends the run.
 - Do not build individual population, dynasty, migration, tactical-war, or global pathfinding simulations until an approved mechanic needs them. Strategic simulation may remain aggregated while still producing causal history.
 
 ---
 
-## 1. Reconstructed Resurrection: Research, Infrastructure, and Physical Recovery
+## 1. Confidential Analytical Services: Black-Market Customers and Secrecy
 
-Design and implement player-built resurrection beyond the existing saved death handoff. Require recovered knowledge, research, a compatible prepared body, charged soul-transfer apparatus, utilities and materials, and an accessible uncompromised site. Validate and consume or degrade physical components, select among eligible sites, and restore the scientist in an actual replacement body rather than granting a free revival. Imperfect reconstruction may lose memories or skills; perfected reconstruction retains memories and cognitive or animantic competence, while body-bound skills require easier reacquisition. Main-lab and hidden-base contingencies have distinct recovery circumstances. Preserve old remains, property losses, authority, investigations, sentences, and the same run/world branch; finalize irreversible death if no contingency can complete recovery. Discuss how eligibility and a pending handoff resolve without leaving a run indefinitely suspended.
+Build on the implemented lawful industrial-testing service with one bounded confidential analytical service for an already known black-market customer. Discuss the customer's actual need, finite funding, sample ownership, disclosed hazards, confidentiality terms, refusal, and customer-specific consequences before coding. Samples require supported physical covert transport and handling; internet contact grants neither delivery nor remote knowledge of the source operation. Split covert logistics or hazardous-sample handling into additional prompts if they cannot fit one coherent playable slice.
 
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. Local Leverage: Products, Services, and Relationships
-
-Build on the implemented laboratory ambition with a small playable local-leverage loop. Useful products, services, discoveries, and creations should earn concrete relationships or institutional dependency from known named actors. Discuss a first bounded service or customer relationship before implementing it; do not turn reputation into automatic obedience. Include scarcity, obligations, refusal, lawful and covert alternatives, and knowledge-safe saved consequences. Campaign records consume actual outcomes rather than granting unexplained rewards or gating existing mechanics.
+Use accurate, scoped results and a separate exact disclosure preview and confirmation. Never reward fabricated favorable findings or disclose unrelated research, maps, identities, or laboratory access implicitly. Apply supported goods classifications and the local city's actual law rather than treating confidentiality itself as proof of legality or guilt. Preserve dated knowledge, save/load, custody and death boundaries, customer scarcity, payment, and physical material conservation. Working trust does not confer loyalty, political control, legal immunity, or city-wide indispensability. Ordinary legal goods continue to use the stock-market model; this service must not replace it with purchase orders. Campaign records consume actual known outcomes rather than granting unexplained rewards or gating existing mechanics.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Independent Power Base: People, Creations, and Additional Facilities
+## 2. Independent Power Base: People, Creations, and Additional Facilities
 
 Design recruitment, delegation, intelligent creations, and physically supportable additional facilities, then implement one coherent slice. Relationships and created beings do not imply automatic loyalty. Each facility needs people, resources, utilities, secrecy, access, and actual transport; worldwide communication creates no material delivery. Losing the original laboratory remains playable. Discuss how independent operations and dated reports interact with custody, discoveries, research, property, and resurrection sites. Split these systems further if needed rather than implementing them all together.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. City Power: Enforceable Influence and Control
+## 3. City Power: Enforceable Influence and Control
 
 Design ways to bargain with, influence, replace, or defeat independent city authorities and implement one supported route. Control requires actual people, defenses, resources, and enforceable arrangements; reputation and internet recognition alone are insufficient. Preserve local charters, civic responsibilities, religious interests, legal consequences, opposition, revolt, and the narrow two-sponsor status of route strongholds. No durable nation-state or instant omniscient takeover may replace the city-polity model.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. Strategic Expansion and World Domination
+## 4. Late-Game Soul Beacons: Research, Infrastructure, and Physical Recovery
+
+Design and implement a first player-built soul-beacon contingency in the main laboratory beyond the existing placeholder death handoff. This is very late-game technology, targeted at the independent-power-base or city-power phases, not a basic early-lab research unlock. Agree the concrete demanding skill, recovered-evidence, research, materials, and infrastructure prerequisites before coding; campaign checklist completion must not substitute for them. The exhausted starting beacon is evidence of the original scientist's work, not a reusable free extra life, and the original's notes must not conveniently explain a failure they did not anticipate.
+
+Require an actual compatible grown replacement body occupying a dedicated chamber, a functioning charged soul beacon and transfer apparatus, finite supplies, utilities, and an accessible uncompromised site. A beacon guides the soul after bodily death rather than permanently storing it. Add recorded soul integrity distinct from bodily injuries and the memory-transfer defect: ordinary bodily death does not inherently damage the soul, supported soul-affecting causes can impair or prevent recovery, and soul destruction prevents every beacon from resurrecting the scientist. Discuss concrete damage and compatibility rules rather than introducing an unexplained death-time failure roll.
+
+After recording lethal-event injuries, remains, and legal consequences, offer a saved paused post-death beacon selection and confirmation, even if the first slice has only one eligible destination. Design selection to support later multiple destinations; no pre-death priority can remove the player's post-death choice. Revalidate physical eligibility and consume the chosen body's preparation and beacon charge exactly once before restoring control in the replacement body. No post-death building, charging, repair, remote surveillance, or duplicate soul copies. A real unanswered player choice may remain paused without a real-time deadline; a destroyed soul, zero recoverable destinations, or an invalid unsupported legacy handoff must finalize irreversible death instead of creating a non-actionable permanent suspension. Include save/load and repeated-death coverage.
+
+The first reconstruction reproduces the original memory-transfer flaw with predictable disclosed loss of personal memory and practiced competence, not random deletion of external knowledge. Preserve physical notebooks, maps, completed research records, possessions at their actual locations, old remains, relationships, authority, investigations, sentences, and the same run/world branch. A replacement body is neither automatic legal absolution nor automatic proof of identity. Keep perfected transfer and additional-site recovery for the following prompts.
+
+Do not modify files until the revised design has been discussed and the developer explicitly approves implementation.
+
+## 5. Perfected Memory Transfer and Embodied Retraining
+
+Build on physically functioning soul-beacon resurrection with advanced research that identifies and repairs the original separation between soul continuity, neural memory, and embodied practice. Perfected transfer retains personal memory and cognitive or animantic competence when the soul survives sufficiently intact; perfection does not immunize the soul against damage or recreate a destroyed soul. Classify skill components explicitly rather than treating every skill as wholly mental or physical. Body-bound strength, conditioning, reflex calibration, manual adaptations, and combat execution must be reacquired in the new body, with retained knowledge making genuine physical retraining substantially easier. Discuss the first coherent research and retraining slice, transparent imperfect-transfer losses, and actual body preparation before coding. Preserve durable external records and distinguish historical expertise from current bodily capability. No free physical mastery, clone duplication, or early-game resurrection unlock.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 6. Hidden-Base Contingencies and Multiple Beacon Destinations
+
+After additional facilities have physically supportable infrastructure and transport, implement soul beacons at separately prepared hidden sites and player choice among multiple eligible destinations after death. Every beacon needs its own compatible body, charge, utilities, materials, access, and uncompromised receiving site; internet contact is not material delivery. Preserve only actionable beacon-linked destination information, without leaking unknown inventory, enemies, or canonical geography. Revalidate the selected destination, consume only its actual components, and retain unselected contingencies without duplicating the scientist. Soul damage can affect different receiving arrangements; a destroyed soul has no eligible destination. Recovery in the original laboratory gives access only to its surviving actual assets, while a remote hidden-base return may require rebuilding with only what was prepared there. Preserve lost and seized property, old remains, legal consequences, continued bodily identities, and the same run/world branch. Discuss finite physical handoff resolution and fallback choice if a selected destination cannot complete recovery.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 7. Strategic Expansion and World Domination
 
 Design physically supportable expansion between existing support components, significant beast powers, and divine interests, then implement only the next mechanically supported slice. Specify finite, testable durable-supremacy criteria before adding victory evaluation; occupation of every empty globe cell is not required. Bind campaigns to actual routes, transport, manpower, resources, defense, agreements, and resistance. Keep unknown powers and hidden totals out of ordinary campaign records. World domination is an exceptionally rare dated accomplishment, not a game-over transition, and remains separate from divine supremacy.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Divine Supremacy: Rule over the Gods
+## 8. Divine Supremacy: Rule over the Gods
 
 Design and implement the ultimate ambition of imposing enforceable submission on the gods, killing those who refuse, and reigning over the rest. Submission must impose actual terms and consequences rather than a reputation threshold or cosmetic declaration. Cover discovery, human and beast gods, living descended individuals, avatars versus the actual divine individual, rebellion, and new ascendants. Destroying worship or forcing descent is not a kill. Scientific, animantic, engineered-creature, and personal-power approaches should remain possible without requiring the scientist to ascend. Theme-compatible presentations do not remove the refusal-and-death requirement. Define finite, testable accomplishment criteria without exposing hidden identities or counts; allow continued play after success and keep world domination a separate accomplishment. Split prerequisite combat, submission, or enforcement systems into further prompts if needed.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. New-Run Onboarding and Contextual Tutorial
+## 9. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Sound, Notifications, and Accessibility Audit
+## 10. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. Production Art Pass Using the Sprite Pipeline
+## 11. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 
