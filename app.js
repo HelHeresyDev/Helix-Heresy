@@ -34,6 +34,8 @@
   const LocalExchangeCarrier = window.HelixLocalExchangeCarrier;
   const IntercityTrade = window.HelixIntercityTrade;
   const LocalCovertMarket = window.HelixLocalCovertMarket;
+  const ConfidentialServices = window.HelixConfidentialServices;
+  if (!ConfidentialServices) throw new Error("HelixConfidentialServices must load before app.js");
   const CargoRecovery = window.HelixCargoRecovery;
   const IntercitySmuggling = window.HelixIntercitySmuggling;
   const CorridorBeasts = window.HelixCorridorBeasts;
@@ -3774,6 +3776,13 @@
       description: "The physical local books and supporting documents for one reporting period. Filed registry copies remain outside site custody."
     },
     {
+      key: "confidentialReportPacket",
+      label: "Confidential analytical record",
+      category: "materials",
+      initial: 0,
+      description: "One local saved analytical report, not a public registry filing. Its physical record remains subject to supported discovery and authorized seizure."
+    },
+    {
       key: "shreddedRecords",
       label: "Shredded records waste",
       category: "materials",
@@ -5335,6 +5344,8 @@
       campaign: Campaign.normalize(),
       localServices: null,
       localServiceKnowledge: null,
+      confidentialServices: null,
+      confidentialServiceKnowledge: null,
       lastSuspicionGainAt: null,
       lastSuspicionDecayAt: null,
       rooms: defaultRooms(),
@@ -8339,7 +8350,7 @@
   function warrantStackSubjectCategories(stack) {
     const categories = new Set();
     const tags = new Set((stack?.tags || []).map((tag) => String(tag).toLowerCase()));
-    if (stack?.key === "companyRecordsPacket" || stack?.evidenceDocument?.kind === "companyPeriodPacket") categories.add("companyRecords");
+    if (["companyRecordsPacket", "confidentialReportPacket"].includes(stack?.key) || stack?.evidenceDocument?.kind === "companyPeriodPacket") categories.add("companyRecords");
     if (stack?.key === "licensedDisposalManifest" || stack?.evidenceDocument?.kind === "disposalManifest") categories.add("disposalManifest");
     if (stack?.form === "waste" || stack?.key === "waste" || tags.has("waste")) categories.add("wasteMaterial");
     if (stack?.section === "chemicalBatches") categories.add("chemicalProduct");
@@ -13452,6 +13463,45 @@
         persist(); render();
       },
       reloadLocalServiceStateForTest: () => { state = normalizeState(clonePlainObject(state)); persist(); render(); return true; },
+      confidentialServiceSnapshot: () => clonePlainObject({ service: state.confidentialServices, known: state.confidentialServiceKnowledge,
+        local: ensureLocalCovertMarket(), money: ensureEconomy().money, contacts: ensureEconomy().contacts,
+        samples: ensureDiagnosticState().samples, tasks: state.tasks.filter(t => ["scientistMove", "physicalDiagnostic"].includes(t.type)),
+        stacks: ensurePhysicalItemStacks().filter(s => ["diagnosticSample", "assayReagent", "confidentialReportPacket"].includes(s.key)),
+        evidence: ensureInvestigativeEvidence().records.filter(e => e.type === "confidentialAnalyticalRecord"),
+        scientist: { roomId: scientistRoomId(), cell: scientistMapCell() }, company: ensureCompany().enabled, clock: state.clock }),
+      confidentialServiceAction: (action, id = "") => confidentialServiceAction(action, id),
+      configureConfidentialServiceTestSupport: (options = {}) => {
+        const local = ensureLocalCovertMarket(), contact = ensureEconomy().contacts.find(c => c.homeCityId === local.cityId);
+        if (!contact) return false;
+        const route = localCovertRoute(), booking = LocalCovertMarket.book(local, contact, route, "confidential-test-source", { massKg: 1, volumeL: 1 }, state.clock);
+        if (!booking.ok) return false;
+        const b = normalizeChemicalBatch({ id: "confidential-test-batch", productId: "unlicensedMutagenicPrimer", purity: options.purity ?? 95,
+          contaminants: options.contamination ? { crossContamination: options.contamination } : {}, hazards: ["toxic"], phase: "liquid",
+          packaging: { state: "packaged", containerKey: "chemicalProductBottle" }, classification: { actual: "prohibited", known: "prohibited" },
+          lineage: [{ sourceId: "private-lineage-not-disclosed" }], producedAt: state.clock });
+        const manifest = { obligationId: "confidential-test-source", commodityKind: "manufactured", material: b.label, amount: 0.9,
+          entries: [{ kind: "chemicalBatch", sourceStackId: "confidential-test-source-stack", amount: 0.9,
+            stack: { id: "confidential-test-source-stack", section: "chemicalBatches", key: b.productId, quantity: 0.9, knownQuantity: 0.9, chemicalBatch: b } }] };
+        state.clock += booking.travelSeconds;
+        LocalCovertMarket.advance(local, state.clock, route);
+        LocalCovertMarket.handoff(local, "confidential-test-source", manifest, state.clock);
+        state.clock += booking.travelSeconds; LocalCovertMarket.advance(local, state.clock, route);
+        state.confidentialServices = null; state.confidentialServiceKnowledge = null;
+        ensureCompany().enabled = false;
+        persist(); render(); return booking.collection.phase === "returned";
+      },
+      setConfidentialServiceCustomerForTest: (options = {}) => {
+        const service = state.confidentialServices, contact = blackMarketContactById(service?.client.id);
+        if (!service || !contact) return false;
+        if (options.money != null) service.money = options.money;
+        if (options.unavailable != null) contact.unavailableUntil = options.unavailable ? state.clock + SECONDS_PER_DAY : 0;
+        if (options.away != null) {
+          state.surveyExpeditions.phase = options.away ? "outbound" : "home";
+          if (options.away) { state.surveyExpeditions.destination = { id: "survey:confidential-test", cityId: service.client.cityId, label: "Test Municipal Survey Ground", cellId: "cell:1" }; state.surveyExpeditions.departedAt = state.clock; }
+        }
+        persist(); render(); return true;
+      },
+      confidentialWarrantCategoriesForTest: (stackId) => [...warrantStackSubjectCategories(ensurePhysicalItemStacks().find(s => s.id === stackId))],
       feedTestCampaignSpecimen: (slimeId, feedstockKey) => {
         const result = feedSlime(findSlime(slimeId), feedstockKey, { source: "manual", requireLocal: true });
         persist(); render(); return result;
@@ -61771,8 +61821,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const section = storesSectionEl("Contacts", "Persistent illicit buyers and brokers. Trust is per-contact; reputation is global.", { economyCategory: "contacts" });
     const local = ensureLocalCovertMarket();
+    const privateClientId = state.confidentialServices?.client.id;
+    const privateAccountUnavailable = Boolean(privateClientId && (confidentialServiceChannelReason()
+      || ConfidentialServices.channel(state.confidentialServices, economy.contacts, state.clock)));
     const escapeContingency = JailEscapeRescue.activeContingency(ensureJailEscapeRescue());
     for (const contact of economy.contacts) {
+      if (privateAccountUnavailable && contact.id === privateClientId) {
+        const known = state.confidentialServiceKnowledge;
+        section.append(storesRowEl(known?.client.name || contact.name, known ? `Last received trust ${formatNumber(known.workingTrust)}` : "Account report unavailable", {
+          subtitle: `Confidential account information is dated ${known ? formatClock(known.reportedAt) : "not yet received"}; current customer, depot and courier facts are not monitored remotely.`,
+          dataset: { blackMarketContact: contact.id }
+        }));
+        continue;
+      }
       const profile = BLACK_MARKET_RISK_PROFILES[contact.riskProfile] || BLACK_MARKET_RISK_PROFILES.steady;
       const availability = blackMarketContactAvailability(contact);
       const activeDeals = openDeals.filter((deal) => deal.contactId === contact.id && deal.status === "open").length;
@@ -61799,8 +61860,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!economy.contacts.length) {
       section.append(emptyText("No black market contacts yet."));
     }
-    for (const job of local.collections.filter(c => c.manifest)) section.append(storesRowEl(`${job.owner === "player" ? "Player-owned freight" : "Buyer custody"}: ${job.manifest.material}`, `${job.phase === "returned" ? "Local depot" : "Courier cargo"}`, {
-      subtitle: `${job.obligationId}; owner ${blackMarketContactById(job.owner)?.name || job.owner}; ${job.manifest.entries.map(e => e.creature ? `${e.creature.name} (${e.creature.id}), living specimen` : `${e.amount} from ${e.sourceStackId || e.sourceReceptacleId}`).join("; ")}. Handoff ${formatClock(job.handedOffAt)}; not lab inventory or public exchange stock.`,
+    for (const job of local.collections.filter(c => c.manifest && !(privateAccountUnavailable && c.contactId === privateClientId))) section.append(storesRowEl(`${job.owner === "player" ? "Player-owned freight" : "Buyer custody"}: ${job.manifest.material}`, `${job.phase === "returned" ? "Local depot" : "Courier cargo"}`, {
+      subtitle: `${job.obligationId}; owner ${blackMarketContactById(job.owner)?.name || job.owner}; ${job.manifest.entries.map(e => e.creature ? `${e.creature.name} (${e.creature.id}), living specimen` : `${e.amount} from ${e.sourceStackId || e.sourceReceptacleId}`).join("; ")}. ${job.handedOffAt != null ? `Handoff ${formatClock(job.handedOffAt)}` : "No laboratory handoff yet"}; not lab inventory or public exchange stock.`,
       dataset: { covertCustody: job.id }
     }));
     dom.economyContactsList.append(section);
@@ -62419,6 +62480,153 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const entry of known.history.slice(-8).reverse()) section.append(textEl("p", `${formatClock(entry.at)} — ${entry.summary}`, "journal-meta"));
   }
 
+  function confidentialServiceChannelReason() {
+    return !campaignLocalKnowledgeAvailable() || actorIsIncapacitated("scientist") || ["surrendered", "restraining", "restrained", "extracting", "booked", "militaryService"].includes(scientistRaidCustodyStatus())
+      ? "Return to the laboratory while capable. Confidential accounts cannot be controlled or monitored from custody or an excursion." : "";
+  }
+
+  function ensureConfidentialServices() {
+    if (!state.confidentialServices && !confidentialServiceChannelReason()) {
+      state.confidentialServices = ConfidentialServices.create(ensureLocalCovertMarket(), ensureEconomy().contacts);
+    }
+    return state.confidentialServices;
+  }
+
+  function confidentialServiceEquipmentReason() {
+    const tools = diagnosticToolPlan("assayCase", scientistMapCell());
+    if (!tools.ok) return tools.reason;
+    if (!diagnosticWorkbenchPlan(tools.endpoint)) return "A reachable operational research workbench is required; no registered front company is needed.";
+    if (!ensurePhysicalItemStacks().some(s => s.key === "assayReagent" && s.quantity > 0 && !s.reservedTaskId)) return "Obtain physical assay reagent before accepting analytical work.";
+    return "";
+  }
+
+  function refreshConfidentialServiceKnowledge() {
+    const service = ensureConfidentialServices();
+    if (service && !confidentialServiceChannelReason() && !ConfidentialServices.channel(service, ensureEconomy().contacts, state.clock)) {
+      const route = localCovertRoute();
+      state.confidentialServiceKnowledge = { ...ConfidentialServices.publicView(service), reportedAt: state.clock,
+        workingTrust: blackMarketContactById(service.client.id).trust,
+        freshSampleFreight: { freight: Math.ceil(12 + route.distanceKm * 0.8), distanceKm: route.distanceKm },
+        lawSummary: localCovertContext().lawRules.map(r => `${r.label}: ${r.legalStatus}`).join("; ") };
+      markStateDirty();
+    }
+  }
+
+  function confidentialServiceAction(action, jobId = "", expected = null) {
+    if (scientistIsDead()) return false;
+    const reason = confidentialServiceChannelReason();
+    if (reason) { addEvent(reason); persist(); render(); return false; }
+    const service = ensureConfidentialServices(), economy = ensureEconomy(), local = advanceLocalCovertCollections(), route = localCovertRoute();
+    if (!service) { addEvent("No known local customer has a supported physically delivered chemical lot to assess."); persist(); render(); return false; }
+    ConfidentialServices.advance(service, local, economy.contacts, state.clock);
+    const job = service.jobs.find(j => j.id === jobId);
+    let result = { ok: false, reason: "Unknown confidential service action." };
+    if (["quote", "accept", "resample"].includes(action) && confidentialServiceEquipmentReason()) result.reason = confidentialServiceEquipmentReason();
+    else if (action === "quote") result = ConfidentialServices.request(service, local, economy.contacts, route, state.clock);
+    else if (action === "accept") result = ConfidentialServices.accept(service, local, economy.contacts, route, expected || service.quote, state.clock);
+    else if (action === "decline") result.ok = ConfidentialServices.decline(service, state.clock);
+    else if (action === "cancel") result.ok = ConfidentialServices.stop(service, local, economy.contacts, jobId, state.clock);
+    else if (action === "resample") result = ConfidentialServices.resample(service, local, economy.contacts, route, jobId,
+      expected || { freight: Math.ceil(12 + route.distanceKm * 0.8), distanceKm: route.distanceKm }, state.clock);
+    else if (action === "preview") result.ok = Boolean(ConfidentialServices.preview(service, jobId));
+    else if (action === "submit") {
+      result = ConfidentialServices.submit(service, local, economy.contacts, jobId, economy, state.clock);
+      if (result.ok) {
+        addBlackMarketReputation(1);
+        recordBlackMarketLedger("confidentialServiceIncome", `${service.client.name} received a scoped truthful report and paid ${formatMoney(result.amount)}; its lot is ${job.lotStatus}.`, {
+          contactId: service.client.id, contractId: job.id, amount: result.amount
+        });
+        recordCampaignOutcome({ kind: "localService", sourceId: job.id, clientId: service.client.id, received: true, settled: true,
+          summary: "A known local customer received and paid for a confidential chemical assessment; only the scoped report was disclosed." });
+      }
+    } else if (action === "walk") {
+      result.ok = Boolean(startScientistMove(CONCEALED_EXIT_ROOM_ID, { allowMultiRoom: true }));
+    } else if (action === "receive") {
+      const context = { scientistPresent: scientistRoomId() === CONCEALED_EXIT_ROOM_ID && !actorIsIncapacitated("scientist") && !scientistMoveTask() };
+      result = ConfidentialServices.ready(service, local, jobId, context, state.clock);
+      if (result.ok) {
+        const batch = clonePlainObject(result.collection.manifest.batch);
+        const stack = createPhysicalItemStack("inventory", "diagnosticSample", 1, { roomId: CONCEALED_EXIT_ROOM_ID, cell: scientistMapCell() }, {
+          tags: ["sealed", "chemical", "confidential-sample", ...job.declaredHazards], chemicalBatch: batch,
+          sourceLabel: `Customer-owned sealed ${ConfidentialServices.PORTION}-unit portion; ${job.id}`,
+          dimensionsM: { width: 0.08, length: 0.08, height: 0.14 }
+        });
+        result = ConfidentialServices.receive(service, local, jobId, stack?.id, context, state.clock);
+        if (result.ok) {
+          const diagnostics = ensureDiagnosticState();
+          diagnostics.samples.push(Diagnostics.normalizeSample({ id: `diagnostic-sample-${diagnostics.nextSampleNumber++}`, stackId: stack.id,
+            methodId: "confidentialChemicalPortion", targetKind: "confidentialService", targetId: job.id,
+            targetLabel: `${job.label} — confidential captured portion`, cell: stack.cell, collectedAt: job.sampleAt,
+            captured: { confidentialService: { jobId: job.id, round: job.round, batchId: job.batchId, signal: clonePlainObject(job.signal) } }
+          }));
+          syncPhysicalReadModels();
+        }
+      }
+    }
+    if (result.ok && !["quote", "preview", "walk"].includes(action)) {
+      recordBlackMarketLedger(`confidentialService:${action}`, `${service.client.name}: ${action} of scoped confidential work. No registry filing or unrelated disclosure.`, { contactId: service.client.id, contractId: jobId || result.job?.id });
+    }
+    addEvent(result.ok ? action === "preview" ? "Exact report preview prepared; nothing sent yet."
+      : action === "quote" ? "Review the exact source lot, fee, freight, hazards and confidentiality terms before accepting."
+        : `Confidential service: ${action}. ${result.job?.lotStatus ? `Customer lot ${result.job.lotStatus}.` : ""}` : result.reason || "Confidential service unavailable.");
+    refreshConfidentialServiceKnowledge(); persist(); render(); return Boolean(result.ok);
+  }
+
+  function renderConfidentialServices() {
+    const section = dom.economyServicesList; if (!section) return;
+    const service = ensureConfidentialServices(), channelReason = confidentialServiceChannelReason()
+      || (service ? ConfidentialServices.channel(service, ensureEconomy().contacts, state.clock) : "");
+    if (!channelReason) refreshConfidentialServiceKnowledge();
+    const known = state.confidentialServiceKnowledge;
+    section.append(textEl("h3", "Confidential chemical testing"), textEl("p", "Private analytical work for an existing local black-market customer. No registered front is required. Confidentiality grants neither legal immunity nor permission to misrepresent findings."));
+    if (channelReason) section.append(textEl("p", channelReason));
+    if (!known) { section.append(emptyText("No available customer account report. A known local contact must first physically receive a supported packaged nonliving liquid chemical lot bought from you.")); return; }
+    section.append(textEl("h4", known.client.name), textEl("p", `Dated confidential account report ${formatClock(known.reportedAt)}. ${channelReason ? "Last received information only; no remote customer or courier surveillance." : "Working trust is not loyalty or city-wide indispensability."}`));
+    const local = ensureLocalCovertMarket(), route = localCovertRoute();
+    const button = (label, action, id = "", reason = "", expected = null) => {
+      const b = storesActionButton(label, channelReason || reason || label, () => confidentialServiceAction(action, id, expected));
+      setActionButtonState(b, Boolean(channelReason || reason), channelReason || reason); return b;
+    };
+    const terms = "One sealed 0.1-unit portion; purity at least 70% and contaminant load at most 0.25 assay units, with minimum confidence 66. Forty-eight-hour deadline includes transport. Sample remains stable for 24 hours before ordinary age uncertainty. Bench analysis consumes the sample and one assay reagent. Clean and unacceptable findings earn the same $180 fee only after exact report receipt. Inconclusive work requires another funded finite portion. Cancellation or lateness refunds unearned fee once, retains departed freight, leaves physical custody intact and costs one customer trust point. Declining costs nothing. Only the confirmed report goes to this account; research, maps, recipes and site access are excluded. Samples and a local analytical record remain discoverable through supported observation or authorized search.";
+    if (!known.jobs.some(ConfidentialServices.active)) {
+      const offer = !channelReason ? ConfidentialServices.offer(service, local, ensureEconomy().contacts, route, state.clock) : null;
+      section.append(button("Request confidential testing terms", "quote", "", confidentialServiceEquipmentReason() || (offer?.ok ? "" : offer?.reason || "")));
+    }
+    if (known.quote) {
+      const q = known.quote;
+      section.append(textEl("p", `${q.label}, source ${q.sourceId}, batch ${q.batchId}, ${formatNumber(q.sourceQuantity)} customer-owned units. Declared hazards: ${q.declaredHazards.join(", ") || "none declared; not a guarantee"}. Fee ${formatMoney(q.fee)}, customer-funded freight ${formatMoney(q.freight)}, ${formatNumber(q.distanceKm)} km each way. Quote expires ${formatClock(q.expiresAt)}.`), textEl("p", terms),
+        button("Accept confidential testing", "accept", "", "", service?.quote ? clonePlainObject(service.quote) : null), button("Decline confidential testing", "decline"));
+    }
+    for (const job of [...known.jobs].reverse()) {
+      const row = document.createElement("section"); row.dataset.confidentialServiceJob = job.id;
+      row.append(textEl("h4", `${job.id} — ${titleCase(job.status)}`), textEl("p", `${job.label}; captured ${formatClock(job.sampleAt)}, deadline ${formatClock(job.dueAt)}. Customer lot ${job.lotStatus}; sample ${job.sampleStatus}.`));
+      if (ConfidentialServices.active(job)) row.append(button("Cancel confidential assessment", "cancel", job.id));
+      if (job.status === "sampleInTransit") {
+        const ready = !channelReason ? ConfidentialServices.ready(service, local, job.id, { scientistPresent: scientistRoomId() === CONCEALED_EXIT_ROOM_ID && !scientistMoveTask() }, state.clock) : null;
+        row.append(button("Walk to confidential handoff", "walk", job.id, scientistMoveBlockReason(CONCEALED_EXIT_ROOM_ID, { allowMultiRoom: true })),
+          button("Receive confidential sample", "receive", job.id, ready?.ok ? "" : ready?.reason || ""));
+      }
+      if (job.status === "awaitingAssay") {
+        const b = storesActionButton("Analyze confidential sample", "Route the received sample, reagent and instrument to a real operational workbench.", () => startDiagnosticSampleAssay(job.sampleStackId));
+        setActionButtonState(b, Boolean(channelReason || diagnosticSampleAssayBlockReason(job.sampleStackId)), channelReason || diagnosticSampleAssayBlockReason(job.sampleStackId)); row.append(b);
+      }
+      if (job.result) row.append(textEl("p", `${job.result.summary} Purity ${formatNumber(job.result.purity.low)}–${formatNumber(job.result.purity.high)}%; contaminant load ${formatNumber(job.result.contamination.low)}–${formatNumber(job.result.contamination.high)}; confidence ${formatNumber(job.result.confidence)}.`));
+      if (job.status === "assayed") {
+        const freight = known.freshSampleFreight;
+        row.append(job.result?.finding === "inconclusive"
+          ? button(`Request fresh confidential sample (${formatMoney(freight.freight)} customer freight)`, "resample", job.id, "", freight)
+          : button("Preview confidential report", "preview", job.id));
+      }
+      if (job.preview) {
+        const pre = document.createElement("pre"); pre.dataset.confidentialDisclosurePreview = job.id; pre.textContent = JSON.stringify(job.preview, null, 2);
+        row.append(textEl("p", "Only these exact fields will be sent. Leaving the preview unsent discloses nothing."), pre, button("Send confidential report", "submit", job.id));
+      }
+      section.append(row);
+    }
+    section.append(textEl("p", `Published local activity rules in this dated account report: ${known.lawSummary || "no applicable rules established by this account"}. These rules and a product label do not themselves establish guilt, authorization or a legal classification assay.`));
+    for (const e of known.history.slice(-6).reverse()) section.append(textEl("p", `${formatClock(e.at)} — ${e.summary}`, "journal-meta"));
+  }
+
   function renderEconomy() {
     const economy = ensureEconomy();
     ensureLocalCovertMarket();
@@ -62439,7 +62647,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       freight: economy.commodityConsignments.filter((consignment) => !["received", "sold", "failed"].includes(consignment.status)).length,
       legalLedger: economy.legalLedger.length,
       contacts: economy.contacts.length,
-      services: state.localServiceKnowledge?.jobs.filter(LocalServices.active).length || 0,
+      services: (state.localServiceKnowledge?.jobs.filter(LocalServices.active).length || 0) + (state.confidentialServiceKnowledge?.jobs.filter(ConfidentialServices.active).length || 0),
       deals: openDeals.length,
       contracts: blackMarketActiveContracts().length,
       ledger: economy.ledger.length
@@ -62452,6 +62660,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     renderLegalLedger(economy);
     renderEconomyContacts(economy, openDeals);
     renderLocalServices();
+    renderConfidentialServices();
     renderEconomyDeals(openDeals);
     renderEconomyContracts(economy);
     renderEconomyLedger(economy);
@@ -82137,6 +82346,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function diagnosticSampleAssayBlockReason(stackId) {
+    if (diagnosticSampleByStackId(stackId)?.captured.confidentialService && confidentialServiceChannelReason()) return confidentialServiceChannelReason();
     const base = diagnosticBaseBlockReason();
     if (base) return base;
     const plan = diagnosticSampleAssayPlan(stackId);
@@ -82350,9 +82560,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       condition: tool ? tool.current / Math.max(1, tool.max) * 100 : 0,
       skill,
       methodQuality,
-      // Sealed nonliving industrial portions have a declared 24-hour stable
+      // Sealed stable nonliving service portions have a declared 24-hour stable
       // handling interval. Field/biological samples retain their existing decay.
-      sampleAgeSeconds: sample ? Math.max(0, state.clock - sample.collectedAt - (sample.captured?.industrialService ? SECONDS_PER_DAY : 0)) : 0
+      sampleAgeSeconds: sample ? Math.max(0, state.clock - sample.collectedAt - (sample.captured?.industrialService || sample.captured?.confidentialService ? SECONDS_PER_DAY : 0)) : 0
     });
     return {
       score, record, tool,
@@ -82532,7 +82742,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         readings = keys.map((key) => instrumentDiagnosticReading(key, captured.attributes[key]?.current || 0, confidence.score));
       } else if (sample) {
         const captured = sample.captured || {};
-        if (captured.industrialService) {
+        if (captured.confidentialService) {
+          const assessment = ConfidentialServices.assay(captured.confidentialService.signal, confidence.score);
+          readings = [
+            { key: "samplePurity", label: "Sample purity", value: `${formatNumber(assessment.purity.low)}–${formatNumber(assessment.purity.high)}%`, band: Diagnostics.confidenceBand(confidence.score).label },
+            { key: "sampleContamination", label: "Sample contaminant load", value: `${formatNumber(assessment.contamination.low)}–${formatNumber(assessment.contamination.high)} assay units`, band: assessment.finding },
+            { key: "sampleScope", label: "Scope", value: assessment.summary, band: "Captured portion only" }
+          ];
+        } else if (captured.industrialService) {
           const assessment = LocalServices.assay(captured.industrialService.burden, confidence.score);
           readings = [{ key: "industrialContamination", label: "Captured batch contamination", value: assessment.summary,
             band: Diagnostics.confidenceBand(confidence.score).label }];
@@ -82631,6 +82848,26 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (sample?.captured.resourceSurvey) saveResourceObservation(sample.captured.resourceSurvey, task, confidence, result, sample);
       if (sample?.captured.industrialService && state.localServices) {
         LocalServices.recordAssay(state.localServices, sample.captured.industrialService.jobId, result, sample.collectedAt, state.clock);
+      }
+      if (sample?.captured.confidentialService && state.confidentialServices) {
+        const captured = sample.captured.confidentialService;
+        if (ConfidentialServices.recordAssay(state.confidentialServices, captured.jobId, result, captured.round, state.clock)) {
+          const job = state.confidentialServices.jobs.find(j => j.id === captured.jobId);
+          const packet = createPhysicalItemStack("inventory", "confidentialReportPacket", 1, { roomId: taskTargetRoomId(task), cell: task.data.toCell }, {
+            tags: ["documentary", "confidential", "analytical-record"], evidenceDocument: { kind: "confidentialAnalyticalReport", packetId: job.id, manifestId: result.id },
+            suppressEvidence: true
+          });
+          job.reportStackId = packet?.id || "";
+          if (packet) recordInvestigativeEvidence("confidentialAnalyticalRecord", {
+            category: "documentary", label: `Confidential analysis of ${job.label}`, significance: "minor",
+            subject: { kind: "physicalStack", id: packet.id }, origin: { kind: "diagnosticResult", id: result.id, label: "Saved local analytical record" },
+            locus: { kind: "mapCell", roomId: packet.roomId, cell: packet.cell, label: "Local analytical record; not filed with a registry" },
+            refs: { stackIds: [packet.id], batchIds: [job.batchId] }, traits: ["confidential analysis", "scoped sample report", "not proof of illegality"],
+            discoverability: { level: "subtle", methods: ["recordReview", "physicalSearch"] }, persistence: { kind: "subject" },
+            knowledge: { state: "known", source: "assay", sourceIdentityKnown: false }, details: JSON.stringify(job.result),
+            coalesceKey: `confidential-analysis:${result.id}`
+          });
+        }
       }
       if (environmentalAssay && sample) {
         const sourceEvidence = ensureInvestigativeEvidence().records.find((entry) => entry.refs.stackIds.includes(sample.stackId) && entry.type === "environmentalFieldSample");
@@ -83525,7 +83762,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function advanceLocalCovertCollections() {
     const market = ensureLocalCovertMarket();
-    LocalCovertMarket.advance(market, state.clock, localCovertRoute(), LocalExchangeCarrier.support(exchangeCarrier(), state.clock).supplier);
+    if (!scientistIsDead()) LocalCovertMarket.advance(market, state.clock, localCovertRoute(), LocalExchangeCarrier.support(exchangeCarrier(), state.clock).supplier);
     return market;
   }
 
@@ -85094,9 +85331,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function updateBlackMarketEconomy() {
+    if (scientistIsDead()) return 0;
     const economy = ensureEconomy();
     advanceIntercitySmuggling(advanceLocalCovertCollections());
     let changes = 0;
+    if (state.confidentialServices) changes += ConfidentialServices.advance(state.confidentialServices, economy.localCovertMarket, economy.contacts, state.clock);
     for (const deal of economy.deals) {
       if (deal.status !== "open" || state.clock < deal.expiresAt) continue;
       deal.status = "expired";
@@ -88754,6 +88993,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.campaign = Campaign.normalize(candidate?.campaign);
     next.localServices = LocalServices.normalize(candidate?.localServices);
     next.localServiceKnowledge = candidate?.localServiceKnowledge ? clonePlainObject(candidate.localServiceKnowledge) : null;
+    next.confidentialServices = ConfidentialServices.normalize(candidate?.confidentialServices);
+    next.confidentialServiceKnowledge = candidate?.confidentialServiceKnowledge ? clonePlainObject(candidate.confidentialServiceKnowledge) : null;
     if (next.runEnded || latestDeath?.resurrection.status === "pending") {
       next.paused = true;
     }

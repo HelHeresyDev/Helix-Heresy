@@ -7,6 +7,7 @@ const { genomeForTraits } = require('./gene-fixtures');
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
 const { activeRunStorageKey } = require('./helpers/active-run-storage');
+const { startLifecycleRun } = require('./helpers/start-lifecycle-run');
 
 function normalXpToNextLevel(level) {
   return Math.round(25 + Math.pow(level + 1, 1.25) * 4);
@@ -109,7 +110,7 @@ test('skill sheet hides level-zero practice and reveals Initiate skills', async 
 
 test('low-confidence diagnostic grants reduced XP', async ({ page }) => {
   test.setTimeout(120_000);
-  await startRun(page);
+  await startLifecycleRun(page);
   const firstBreakthrough = xpToNextLevel(0);
 
   await openWorkspace(page, 'resources');
@@ -121,7 +122,7 @@ test('low-confidence diagnostic grants reduced XP', async ({ page }) => {
   await page.locator('#skipTimeBtn').evaluate((element) => element.click());
 
   const skill = await page.evaluate(({ key }) => {
-    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const payload = JSON.parse(window.HelixWorldRunLibrary.decompressStorageText(window.localStorage.getItem(key) || '{}'));
     const state = payload.state || payload;
     return state.scientist?.skills?.analysis || null;
   }, { key: await activeRunStorageKey(page) });

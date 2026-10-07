@@ -3,6 +3,7 @@ const { test, expect } = require('@playwright/test');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const Warrants = require('../warrant-executions.js');
+const { startLifecycleRun } = require('./helpers/start-lifecycle-run');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
@@ -178,7 +179,8 @@ test('plain-view expansion records its physical justification separately and vio
 });
 
 test('@smoke a registry warrant is served, physically searches records, carries exact packets out, and survives reload', async ({ page }) => {
-  await startRun(page);
+  test.setTimeout(120000);
+  await startLifecycleRun(page);
   const scheduled = await page.evaluate(() => {
     window.helixHeresyDebug.ensureCompanyRecordPackets();
     return window.helixHeresyDebug.issueTestWarrant('commercial-registry', { immediate: true });
