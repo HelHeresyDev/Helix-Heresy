@@ -310,6 +310,10 @@ New Run explicitly selects an existing world or generates one before beginning i
 
 JSON export produces a run bundle containing the run and its exact canonical world. Import validates the canonical digest, reuses an identical saved world, and remaps colliding IDs without overwriting different records. Obsolete single-continuation saves are intentionally not loaded because they have no authoritative world or World Theme.
 
+Irreversible scientist death now promptly saves and freezes the run, opens a postmortem, and replaces Resume with Review in the World Library. The report preserves the cause, location, time survived, starting circumstances, and up to twelve known messages; it does not unlock hidden information. Review and Export Run Archive are read-only, and ended records cannot be overwritten or continued. New Run in This World offers normal scenario/site selection and a fresh default seed without deleting the archive or carrying player labs, possessions, or discoveries into the unchanged reusable world. Living custody, sentences, penal service, and laboratory loss are not game-over conditions.
+
+A valid completed resurrection contingency instead opens an explicit pending-handoff screen and remains an active saved branch. Physical recovery, player-built apparatus, and restored bodily skills are not implemented yet; the dead scientist cannot act or advance simulation while that handoff is pending. A separate pending prompt covers physical resurrection rather than granting a free revival.
+
 ## Development Notes
 
 - Keep the game runtime dependency-free unless a feature clearly needs a library.

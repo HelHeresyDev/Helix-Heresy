@@ -709,16 +709,21 @@
       if (run.state && Object.hasOwn(run.state, "runEnded") && Boolean(run.state.runEnded) !== (run.status === "ended")) {
         throw new Error("The run lifecycle does not match its saved simulation state.");
       }
+      if (run.state?.scientistDeath?.records?.at(-1)?.terminal && run.status !== "ended") {
+        throw new Error("A terminal death cannot be saved as an active run.");
+      }
       if (run.state?.runIdentity?.runId && cleanId(run.state.runIdentity.runId) !== run.id) {
         throw new Error("The simulation state does not match its run ID.");
       }
       if (run.state?.worldReference?.worldId && cleanId(run.state.worldReference.worldId) !== world.id) {
         throw new Error("The simulation state does not match its world ID.");
       }
-      if (!options.overwrite && getRun(run.id)) throw new Error("A run already uses this ID.");
+      const existing = getRun(run.id);
+      if (existing?.status === "ended") throw new Error("Ended run archives are read-only.");
+      if (!options.overwrite && existing) throw new Error("A run already uses this ID.");
       const next = manifest();
       if (!next.runIds.includes(run.id)) next.runIds.push(run.id);
-      if (options.activate !== false) {
+      if (options.activate !== false && run.status === "active") {
         next.activeRunId = run.id;
         next.lastPlayedRunId = run.id;
       } else if (next.activeRunId === run.id && run.status !== "active") {

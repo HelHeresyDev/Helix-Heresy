@@ -726,6 +726,18 @@
         <p class="title-build-note">Prototype · Reusable worlds and independent roguelike runs</p>
       </section>
 
+      <section id="runOutcomePanel" class="setup-card world-library-panel" aria-labelledby="runOutcomeHeading" hidden>
+        <p class="title-kicker">Scientist's fate</p>
+        <h2 id="runOutcomeHeading" tabindex="-1">Run ended</h2>
+        <div id="runOutcomeReport"></div>
+        <nav class="run-library-actions" aria-label="Run outcome actions">
+          <button id="runOutcomeRestartBtn" class="primary" type="button">New Run in This World</button>
+          <button id="runOutcomeExportBtn" type="button">Export Run Archive</button>
+          <button id="runOutcomeLibraryBtn" type="button">World Library</button>
+        </nav>
+        <p id="runOutcomeStatus" class="journal-meta" role="status"></p>
+      </section>
+
       <section id="worldLibraryPanel" class="setup-card world-library-panel" aria-labelledby="worldLibraryHeading" hidden>
         <div class="startup-panel-heading">
           <div>
@@ -1215,6 +1227,7 @@
     <script src="prison-break.js"></script>
     <script src="death-row-escape.js"></script>
     <script src="scientist-death.js"></script>
+    <script src="run-lifecycle.js"></script>
     <script src="public-execution.js"></script>
     <script src="jail-escape-rescue.js"></script>
     <script src="city-commodity-market.js"></script>

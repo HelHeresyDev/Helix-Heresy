@@ -4646,6 +4646,8 @@
     throw new Error("HelixDeathRowEscape must load before app.js");
   }
   const ScientistDeath = window.HelixScientistDeath;
+  const RunLifecycle = window.HelixRunLifecycle;
+  if (!RunLifecycle) throw new Error("HelixRunLifecycle must load before app.js");
   if (!ScientistDeath) {
     throw new Error("HelixScientistDeath must load before app.js");
   }
@@ -4689,6 +4691,8 @@
   let selectedStartingSiteId = "";
   let uiPreferences = null;
   let startupView = "title";
+  let reviewedRun = null;
+  let deathSaveQueued = false;
   let startupOverlayOpen = true;
   let debugToolsSessionEnabled = true;
   let lastTickAt = Date.now();
@@ -4738,6 +4742,7 @@
   let mapWheelZoomDirection = 0;
   let mapWheelZoomLastAppliedAt = 0;
   let objectPlacementInProgress = false;
+  let physicalPlacementEnvelope = null;
   let activeWorkspaceTab = "map";
   const heldMapPanKeys = new Set();
   let mapPanAnimationFrame = 0;
@@ -5320,6 +5325,7 @@
       suspicion: 0,
       suspicionPeakBand: "quiet",
       runEnded: false,
+      postmortem: null,
       lastSuspicionGainAt: null,
       lastSuspicionDecayAt: null,
       rooms: defaultRooms(),
@@ -10199,7 +10205,28 @@
       ScientistIdentity.endBody(state.scientistIdentity, state.economy?.intercitySmuggling?.identityOffices || [], state.clock);
       if (state.combat?.routineSuspension?.reason === "civic registration visit") resumeScientistRoutineWork();
     }
-    state.paused = true; state.runEnded = result.terminal; addEvent(result.resurrectionPending ? `${result.record.summary} A completed remote resurrection contingency accepted the death handoff; physical resurrection remains pending.` : `${result.record.summary} No valid completed resurrection contingency survived, so the run ended.`, { sourceKind: "scientistDeath", sourceId: result.record.id }); return result;
+    state.paused = true; state.runEnded = result.terminal;
+    addEvent(result.resurrectionPending ? `${result.record.summary} A completed remote resurrection contingency accepted the death handoff; physical resurrection remains pending.` : `${result.record.summary} No valid completed resurrection contingency survived, so the run ended.`, { sourceKind: "scientistDeath", sourceId: result.record.id });
+    if (result.terminal) state.postmortem = RunLifecycle.captureReport(state, {
+      ...postmortemContext(state, activeWorldRecord),
+      location: roomName(result.record.location.roomId),
+      events: jailVisibleMessages(state.events)
+    });
+    markStateDirty();
+    // Finish the lethal action's legal/body bookkeeping before saving. This also
+    // covers realtime death, which otherwise waited for the autosave interval.
+    if (!deathSaveQueued) {
+      deathSaveQueued = true;
+      const dyingState = state;
+      window.queueMicrotask(() => {
+        deathSaveQueued = false;
+        if (state !== dyingState || !activeRunRecord || !activeWorldRecord) return;
+        const saved = persist();
+        showRunOutcome(saved ? worldRepository.getRun(activeRunRecord.id) : currentRunRecord());
+        if (!saved) dom.runOutcomeStatus.textContent = "Saving failed. Export the run archive before leaving or reloading.";
+      });
+    }
+    return result;
   }
   function finishPublicExecutionAction(task) {
     const current = ensurePublicExecution().records.find((entry) => entry.id === task.data?.recordId); const stay = current && ensureDeathRowCustody().stays.find((entry) => entry.id === current.stayId); if (!current || !stay) return false;
@@ -13128,6 +13155,13 @@
       "generateWorldBtn",
       "worldLibraryStatus",
       "worldLibraryList",
+      "runOutcomePanel",
+      "runOutcomeHeading",
+      "runOutcomeReport",
+      "runOutcomeRestartBtn",
+      "runOutcomeExportBtn",
+      "runOutcomeLibraryBtn",
+      "runOutcomeStatus",
       "setupForm",
       "setupBackBtn",
       "selectedWorldSummary",
@@ -13340,6 +13374,31 @@
   function installDebugHooks() {
     window.helixHeresyDebug = {
       worldLibrarySnapshot: () => clonePlainObject(worldRepository.snapshot()),
+      runLifecycleSnapshot: () => clonePlainObject({ phase: RunLifecycle.phase(state), clock: state.clock, postmortem: state.postmortem, deaths: ensureScientistDeath().records }),
+      inflictTestScientistDamage: (kind = "combat") => {
+        if (kind === "handling") damageScientistHealth(100000, "test handling trauma");
+        else damageScientistCombat(100000, "test combat trauma");
+        return RunLifecycle.phase(state);
+      },
+      advanceTestRunTime: (seconds) => advanceTime(seconds, { quiet: true }),
+      surfaceEnvelopeForTest: (cell) => clonePlainObject({
+        direct: surfaceEnvelopeAtCell(cell),
+        batched: surfaceEnvelopeAtCell(cell, ensureLabMap(), buildSurfaceEnvelopeContext())
+      }),
+      materializeTestCapitalSentence: (caseRecord) => {
+        // Start execution-focused checks at a completed judgment; do not rerun
+        // the unrelated raid/pathfinding/trial pipeline to reach this boundary.
+        state.jailCustody = JailCustody.book(ensureJailCustody(), {
+          seed: state.seed, clock: state.clock, raidId: "test-capital-commitment", docket: caseRecord.docket
+        }).state;
+        if (!materializeDeathRow(caseRecord)) return false;
+        const stay = currentDeathRowStay();
+        stay.status = "executionProcessDue";
+        stay.calendar.provisionalExecutionAt = state.clock;
+        stay.calendar.executionStatus = "due";
+        persist(); render();
+        return caseRecord.id;
+      },
       currentWorldRunSnapshot: () => clonePlainObject({
         world: activeWorldRecord,
         run: activeRunRecord ? currentRunRecord(activeRunRecord.updatedAt) : null
@@ -15997,6 +16056,7 @@
     dom.setupOverlay.dataset.startupView = startupView;
     dom.titleScreen.hidden = !open || startupView !== "title";
     dom.worldLibraryPanel.hidden = !open || startupView !== "worlds";
+    dom.runOutcomePanel.hidden = !open || startupView !== "outcome";
     dom.setupForm.hidden = !open || startupView !== "setup";
     dom.titleSettingsPanel.hidden = !open || startupView !== "settings";
     dom.titleAboutPanel.hidden = !open || startupView !== "about";
@@ -16008,7 +16068,7 @@
   function focusStartupView() {
     if (!startupOverlayOpen) return;
     window.requestAnimationFrame(() => {
-      const target = startupView === "setup"
+      const target = startupView === "outcome" ? dom.runOutcomeHeading : startupView === "setup"
         ? dom.setupBackBtn
         : startupView === "worlds"
           ? dom.worldLibraryBackBtn
@@ -16024,7 +16084,7 @@
   }
 
   function showStartupView(view = "title", options = {}) {
-    startupView = ["title", "worlds", "setup", "settings", "about"].includes(view) ? view : "title";
+    startupView = ["title", "worlds", "setup", "settings", "about", "outcome"].includes(view) ? view : "title";
     startupOverlayOpen = true;
     lastTickAt = Date.now();
     if (startupView === "title") syncTitleContinue();
@@ -16036,6 +16096,10 @@
   }
 
   function enterGameplay(options = {}) {
+    if (RunLifecycle.phase(state) !== "active") {
+      if (activeRunRecord && activeWorldRecord) showRunOutcome(currentRunRecord());
+      return;
+    }
     startupOverlayOpen = false;
     cancelConfiguredWorldPreview();
     // Generation previews are not a run-owned map or a source of discovery.
@@ -16061,6 +16125,75 @@
       || "Unnamed laboratory";
     const day = Math.floor(Math.max(0, Number(run?.state?.clock) || 0) / SECONDS_PER_DAY) + 1;
     return `${company} · ${scenario.label} · Day ${day}`;
+  }
+
+  function postmortemContext(target, world) {
+    return {
+      worldName: world?.name,
+      scenario: target.startingScenario?.id ? startingScenarioDef(target.startingScenario.id).label : undefined,
+      startingSite: target.startingSite?.strategicLocation?.name || target.startingSite?.name || target.startingSite?.label,
+      company: cleanCompanyName(target.siteIdentity?.legalName || target.company?.legalName || target.company?.name)
+    };
+  }
+
+  function showRunOutcome(run) {
+    if (!run || RunLifecycle.phase(run.state) === "active") return false;
+    const world = worldRepository.getWorld(run.worldId);
+    reviewedRun = run;
+    const pending = RunLifecycle.phase(run.state) === "resurrectionPending";
+    const report = RunLifecycle.captureReport(run.state, postmortemContext(run.state, world));
+    dom.runOutcomeHeading.textContent = pending ? "Resurrection handoff pending" : "Run ended";
+    const content = document.createElement("div");
+    const paragraph = (value) => {
+      const element = document.createElement("p");
+      element.textContent = value;
+      content.append(element);
+    };
+    if (pending) {
+      paragraph("The scientist's body is dead, but a completed contingency accepted the soul handoff. This run has not ended.");
+      paragraph("Physical resurrection is not implemented yet. No replacement body, restored skills, or reset consequences are granted. The saved handoff remains pending and simulation is paused.");
+      paragraph(ScientistDeath.latestRecord(run.state.scientistDeath)?.summary || "Physical death recorded.");
+    } else {
+      paragraph(report.summary);
+      paragraph(`Cause: ${report.cause} · Location: ${report.location}`);
+      paragraph(`Time survived: ${formatDuration(report.diedAt)} · ${report.worldName} · Run seed ${report.runSeed}`);
+      paragraph(`Start: ${report.scenario} · ${report.startingSite} · ${report.company}`);
+      paragraph("This is a frozen, read-only record of what you learned. The run cannot be continued. Its reusable world remains unchanged.");
+      if (report.events.length) {
+        const heading = document.createElement("h3");
+        heading.textContent = "Recent known events";
+        const events = document.createElement("ol");
+        for (const event of report.events) {
+          const item = document.createElement("li");
+          item.textContent = `${formatClock(event.time)} — ${event.message}`;
+          events.append(item);
+        }
+        content.append(heading, events);
+      }
+    }
+    dom.runOutcomeReport.replaceChildren(content);
+    dom.runOutcomeRestartBtn.disabled = !world;
+    dom.runOutcomeExportBtn.textContent = pending ? "Export Pending Run" : "Export Run Archive";
+    dom.runOutcomeStatus.textContent = "";
+    showStartupView("outcome");
+    return true;
+  }
+
+  function exportReviewedRun() {
+    if (!reviewedRun) return;
+    const world = worldRepository.getWorld(reviewedRun.worldId);
+    if (!world) return;
+    const blob = new Blob([JSON.stringify({ format: "helix-heresy-run-bundle", version: 2,
+      exportedAt: new Date().toISOString(), world, run: reviewedRun }, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = SAVE_FILE_NAME;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    dom.runOutcomeStatus.textContent = "Run archive exported. The saved run was not changed.";
   }
 
   function prepareWorldLibrary(options = {}) {
@@ -17439,11 +17572,13 @@
     heading.textContent = runDisplaySummary(run).split(" · ")[0];
     const meta = document.createElement("p");
     meta.className = "run-library-meta";
-    meta.textContent = `${run.status === "ended" ? "Ended" : "Active"} · ${runDisplaySummary(run)} · Run seed ${run.runSeed}`;
+    const pending = RunLifecycle.phase(run.state) === "resurrectionPending";
+    meta.textContent = `${run.status === "ended" ? "Ended" : pending ? "Resurrection pending" : "Active"} · ${runDisplaySummary(run)} · Run seed ${run.runSeed}`;
     copy.append(heading, meta);
     const actions = document.createElement("div");
     actions.className = "run-library-actions";
-    if (run.status === "active") actions.append(libraryActionButton("Resume", "resume-run", run.id, { primary: true }));
+    if (run.status === "active") actions.append(libraryActionButton(pending ? "View Handoff" : "Resume", "resume-run", run.id, { primary: true }));
+    else actions.append(libraryActionButton("Review", "review-run", run.id, { primary: true }));
     actions.append(libraryActionButton("Delete Run", "delete-run", run.id));
     entry.append(copy, actions);
     return entry;
@@ -17567,6 +17702,7 @@
   }
 
   function beginConfiguredRun() {
+    if (state?.started && activeRunRecord && !persist()) throw new Error("Save or export the current run before replacing it.");
     let world = selectedWorldId ? worldRepository.getWorld(selectedWorldId) : null;
     if (!world) {
       const worldSeed = WorldRunLibrary.cleanSeed(dom.setupWorldSeedInput.value) || makeSeed();
@@ -17706,6 +17842,10 @@
       syncTitleContinue();
       return false;
     }
+    if (RunLifecycle.phase(state) !== "active") {
+      showRunOutcome(currentRunRecord());
+      return true;
+    }
     clearMapFeedbackEvents();
     markAnimationDiscontinuity("load");
     state.started = true;
@@ -17737,6 +17877,7 @@
       || !run.state?.started
       || cleanSeed(run.state.seed) !== run.runSeed
       || Boolean(run.state.runEnded) !== (run.status === "ended")
+      || (run.state.scientistDeath?.records?.at(-1)?.terminal && run.status !== "ended")
     ) {
       throw new Error("The bundled run does not reference its bundled canonical world.");
     }
@@ -17776,8 +17917,8 @@
     });
     const savedImportedRun = worldRepository.putRun(importedRun, { activate: importedRun.status === "active" });
     if (importedRun.status !== "active") {
-      activeRunRecord = worldRepository.continuation();
-      activeWorldRecord = activeRunRecord ? worldRepository.getWorld(activeRunRecord.worldId) : null;
+      // An archive import is not a continuation switch. Keep the current live
+      // state paired with its own run, even when other active branches exist.
       selectedWorldId = world.id;
       dom.titleImportStatus.textContent = `Imported ended run into ${world.name}.`;
       prepareWorldLibrary();
@@ -17870,6 +18011,9 @@
       try {
         if (action === "start-run") {
           if (prepareNewRunForm(id)) showStartupView("setup");
+        } else if (action === "review-run") {
+          const run = worldRepository.getRun(id);
+          if (run?.status === "ended") showRunOutcome(run);
         } else if (action === "resume-run") {
           loadContinuation(id);
         } else if (action === "delete-run") {
@@ -17893,6 +18037,17 @@
       } catch (error) {
         dom.worldLibraryStatus.textContent = error?.message || "That library action could not be completed.";
       }
+    });
+
+    dom.runOutcomeLibraryBtn.addEventListener("click", () => prepareWorldLibrary());
+    dom.runOutcomeExportBtn.addEventListener("click", exportReviewedRun);
+    dom.runOutcomeRestartBtn.addEventListener("click", () => {
+      if (!reviewedRun) return;
+      if (reviewedRun.id === activeRunRecord?.id && !persist()) {
+        dom.runOutcomeStatus.textContent = "Saving failed. Export the run archive before replacing the current run.";
+        return;
+      }
+      if (prepareNewRunForm(reviewedRun.worldId)) showStartupView("setup");
     });
 
     dom.startingScenarioList?.addEventListener("change", (event) => {
@@ -20563,7 +20718,7 @@
   function commitRealtimeElapsed(now = Date.now()) {
     const elapsedSeconds = (now - lastTickAt) / 1000;
     lastTickAt = now;
-    if (!state?.started || startupOverlayOpen || state.paused || elapsedSeconds <= 0) return 0;
+    if (!state?.started || startupOverlayOpen || state.paused || scientistIsDead() || elapsedSeconds <= 0) return 0;
     animationTimelineMode = "running";
     return advanceTime(elapsedSeconds * currentTimeSpeed().secondsPerSecond, { quiet: true, realtime: true });
   }
@@ -20673,6 +20828,7 @@
   function togglePause() {
     const now = Date.now();
     if (!state.paused) commitRealtimeElapsed(now);
+    if (scientistIsDead()) return;
     state.paused = !state.paused;
     lastTickAt = now;
     persist();
@@ -21270,22 +21426,25 @@
     simulationPerformance.backlog = SIMULATION_SYSTEM_DEFS.filter((definition) => schedule.state[definition.id]?.nextRunAt <= state.clock).length;
     const changes = emptySimulationChanges();
     for (const system of schedule.due) {
+      if (scientistIsDead()) break;
       profileSimulationSystem(system.id, () => runSimulationSystem(system.id, system.elapsed, changes, options));
     }
+    if (scientistIsDead()) return changes;
     if (syncActorInventories()) syncPhysicalReadModels();
-    changes.scientistMovementChanged += updateUnsupportedExcursion();
-    changes.combatChanged += updateWildernessBeasts(elapsed);
-    changes.combatChanged += updateExpeditionEscort(elapsed);
-    changes.scientistMovementChanged += updateMedicalExtraction(elapsed);
-    changes.scientistMovementChanged += updateMunicipalClinic();
-    changes.scientistMovementChanged += updateScientistIdentity();
-    changes.scientistMovementChanged += updateMunicipalMapService();
-    changes.scientistMovementChanged += updateCarrierBriefing();
-    changes.scientistMovementChanged += updatePenalFlights(elapsed);
-    changes.scientistMovementChanged += updatePenalLegion(elapsed);
-    changes.scientistMovementChanged += updateCastawayAssistance(elapsed);
-    changes.scientistMovementChanged += updateCityApproach(elapsed);
-    changes.scientistMovementChanged += updateGateEnforcement(elapsed);
+    const livingUpdate = (update) => scientistIsDead() ? 0 : update();
+    changes.scientistMovementChanged += livingUpdate(() => updateUnsupportedExcursion());
+    changes.combatChanged += livingUpdate(() => updateWildernessBeasts(elapsed));
+    changes.combatChanged += livingUpdate(() => updateExpeditionEscort(elapsed));
+    changes.scientistMovementChanged += livingUpdate(() => updateMedicalExtraction(elapsed));
+    changes.scientistMovementChanged += livingUpdate(() => updateMunicipalClinic());
+    changes.scientistMovementChanged += livingUpdate(() => updateScientistIdentity());
+    changes.scientistMovementChanged += livingUpdate(() => updateMunicipalMapService());
+    changes.scientistMovementChanged += livingUpdate(() => updateCarrierBriefing());
+    changes.scientistMovementChanged += livingUpdate(() => updatePenalFlights(elapsed));
+    changes.scientistMovementChanged += livingUpdate(() => updatePenalLegion(elapsed));
+    changes.scientistMovementChanged += livingUpdate(() => updateCastawayAssistance(elapsed));
+    changes.scientistMovementChanged += livingUpdate(() => updateCityApproach(elapsed));
+    changes.scientistMovementChanged += livingUpdate(() => updateGateEnforcement(elapsed));
     return changes;
   }
 
@@ -21345,6 +21504,7 @@
   }
 
   function advanceTime(seconds, options = {}) {
+    if (scientistIsDead()) return 0;
     const advanceStartedAt = performance.now();
     const elapsed = Math.max(0, Number(seconds) || 0);
     if (state.penalLegion && state.penalLegion.phase !== 'extracted' && !options.legionStep && elapsed > 1) {
@@ -21445,7 +21605,7 @@
     const changes = runSimulationSystems(elapsed, { fromClock, forceAll });
     lastSimulationChanges = changes;
     if (options.realtime && elapsed > 0) markStateDirty();
-    if (!options.quiet) {
+    if (!options.quiet && !scientistIsDead()) {
       addEvent(`Advanced ${formatDuration(elapsed)}.`);
     }
     const changed = simulationChangeCount(changes);
@@ -21468,6 +21628,7 @@
         .filter((task) => !state.combat?.routineSuspension || (suspensionTaskId && task.id === suspensionTaskId))
         .sort((a, b) => a.dueAt - b.dueAt);
       for (const task of due) {
+        if (scientistIsDead()) return changeCount;
         if (task.type === "surveyExpeditionWork" && mapCellKey(scientistMapCell()) !== mapCellKey(task.data.toCell)) {
           task.dueAt = state.clock + 1;
           continue;
@@ -30194,9 +30355,16 @@
       .filter((entry) => entry.cell.z === surfaceZ && entry.condition > 0)
       .map((entry) => mapCellKey(entry.cell)));
     const breachedDoorKeys = new Set();
+    let envelopeDoors = null;
     for (const mapDoor of Object.values(map.doors || {})) {
       if (mapDoor.cell.z !== surfaceZ) continue;
-      const door = doorFixtureState(mapDoor) || mapDoor;
+      // Normalization is idempotent and this synchronous flood-fill never
+      // changes a door. Normalize once per build, not once per surface door.
+      if (!envelopeDoors) {
+        state.doors = normalizeDoors(state.doors);
+        envelopeDoors = state.doors;
+      }
+      const door = envelopeDoors[mapDoor.id || mapDoor.key] || mapDoor;
       for (const cell of labMapDoorCells(mapDoor)) {
         const key = mapCellKey(cell);
         if (doorIsBreached(door)) breachedDoorKeys.add(key);
@@ -30239,15 +30407,21 @@
     if ([SurveyExpeditions.FIELD_Z, UnsupportedExcursions.Z].includes(clean.z) && surfaceGroundAtCell(clean, map)) return { kind: "outdoor", roofed: false, openSky: true };
     if (clean.z === UnsupportedExcursions.CABIN_Z && map.rooms?.[UnsupportedExcursions.CABIN_ROOM]) return { kind: "interior", roofed: true, openSky: false };
     if (clean.z === SurveyExpeditions.CABIN_Z && map.rooms?.[SurveyExpeditions.CABIN_ROOM]) return { kind: "interior", roofed: true, openSky: false };
-    const envelope = context || buildSurfaceEnvelopeContext(map);
-    const key = mapCellKey(clean);
+    // Other physical layers do not need the main surface's flood-filled
+    // envelope. Custody/execution materialization checks hundreds of cells.
+    const surfaceZ = context ? context.surfaceZ : map.surfaceZ === null ? null : Number(map.surfaceZ) || LAB_MAP_DEFAULT_SURFACE_Z;
     const floor = constructedFloorAtCell(clean, map);
-    if (envelope.surfaceZ === null) return { kind: "subterranean", roofed: true, openSky: false };
-    if (clean.z > envelope.surfaceZ && floor?.purpose === "roof") {
+    if (surfaceZ === null) return { kind: "subterranean", roofed: true, openSky: false };
+    if (clean.z > surfaceZ && floor?.purpose === "roof") {
       return { kind: "roof", roofed: false, openSky: true };
     }
-    if (clean.z !== envelope.surfaceZ || !envelope.cellsByKey.has(key)) {
-      return { kind: clean.z < envelope.surfaceZ ? "subterranean" : "openAir", roofed: false, openSky: clean.z >= envelope.surfaceZ };
+    if (clean.z !== surfaceZ) {
+      return { kind: clean.z < surfaceZ ? "subterranean" : "openAir", roofed: false, openSky: clean.z >= surfaceZ };
+    }
+    const envelope = context || (physicalPlacementEnvelope?.map === map ? physicalPlacementEnvelope.context : buildSurfaceEnvelopeContext(map));
+    const key = mapCellKey(clean);
+    if (!envelope.cellsByKey.has(key)) {
+      return { kind: "openAir", roofed: false, openSky: true };
     }
     if (constructedWallAtCell(clean, map)) return { kind: "buildingEnvelope", roofed: envelope.roofed.has(key), openSky: !envelope.roofed.has(key) };
     if (labMapDoorAtCell(clean, map)) {
@@ -35032,6 +35206,9 @@
       state.corpses ||= [];
 
       const map = state.labMap;
+      // Placement only relocates bodies/objects; it does not alter walls,
+      // floors, or doors. Share this read model for this synchronous batch only.
+      physicalPlacementEnvelope = { map, context: buildSurfaceEnvelopeContext(map) };
       const occupied = new Set();
       state.scientist = normalizeScientist(state.scientist);
       const scientistCell = cleanMapCell(state.scientist.mapCell);
@@ -35136,6 +35313,7 @@
       }
       return true;
     } finally {
+      physicalPlacementEnvelope = null;
       objectPlacementInProgress = false;
     }
   }
@@ -49007,6 +49185,7 @@
   }
 
   function render(options = {}) {
+    if (state?.started && activeRunRecord && RunLifecycle.phase(state) !== "active" && !startupOverlayOpen) showRunOutcome(currentRunRecord());
     const scrollSnapshot = options.preserveWorkspaceScroll ? captureWorkspaceScroll() : null;
     syncSelectionState();
     renderLiveReadouts();
@@ -87946,7 +88125,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function renderStartingSiteOptions() {
     if (!dom.startingSiteList) return;
     const candidates = startingSiteCandidates();
-    dom.startingSiteFieldset.hidden = !currentStrategicPreviewMap?.publicEnforcementPracticeDirectory;
+    dom.startingSiteFieldset.hidden = !currentStrategicPreviewMap?.publicStartingSiteDirectory && !currentStrategicPreviewMap?.publicEnforcementPracticeDirectory;
     if (!candidates.length) {
       selectedStartingSiteId = "";
       dom.startingSiteStatus.textContent = currentStrategicPreviewMap ? "This saved world has no compatible candidate-site catalog." : "Generating candidate sites with the world preview…";
@@ -88061,9 +88240,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const startedAt = performance.now();
     try {
       if (!state?.started || !activeRunRecord || !activeWorldRecord) return false;
+      if (activeRunRecord.status === "ended" && worldRepository.getRun(activeRunRecord.id)?.status === "ended") {
+        stateDirtySinceAutosave = false;
+        return true;
+      }
       ensurePhysicalObjectPlacements();
-      activeRunRecord = currentRunRecord();
-      worldRepository.putRun(activeRunRecord, { overwrite: true, activate: activeRunRecord.status === "active" });
+      const candidate = currentRunRecord();
+      worldRepository.putRun(candidate, { overwrite: true, activate: candidate.status === "active" });
+      activeRunRecord = candidate;
       stateDirtySinceAutosave = false;
       lastAutosaveAt = Date.now();
       return true;
@@ -88170,8 +88354,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.regionLocks = normalizeRegionLocks(next.regionLocks);
     next.scientist = normalizeScientist(next.scientist, next.rooms);
     const latestDeath = ScientistDeath.latestRecord(next.scientistDeath);
-    next.runEnded = Boolean(next.runEnded) || (next.scientist.vitals.health.current <= 0 && latestDeath?.resurrection.status !== "pending");
-    if (next.runEnded) {
+    next.runEnded = Boolean(next.runEnded) || Boolean(latestDeath?.terminal) || (next.scientist.vitals.health.current <= 0 && latestDeath?.resurrection.status !== "pending");
+    next.postmortem = RunLifecycle.normalizeReport(candidate?.postmortem);
+    if (next.runEnded || latestDeath?.resurrection.status === "pending") {
       next.paused = true;
     }
     next.roomObservations = normalizeRoomObservations(next.roomObservations);

@@ -84,15 +84,15 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Roguelike Run Lifecycle, Death, Postmortem, and Restart
+## 1. Campaign Roadmap: From Hidden Laboratory to World Domination
 
-Design and implement the loop for beginning, losing, reviewing, and replacing a run without altering its reusable world. Only the scientist’s death ends a run; arrest, jail, prison, penal service, death sentence, loss of laboratory, and similar catastrophes remain playable while the scientist lives.
+Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. The final campaign goal is rare world domination, but early hidden-laboratory survival must remain a complete roguelike experience.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 2. Campaign Roadmap: From Hidden Laboratory to World Domination
+## 2. Reconstructed Resurrection: Research, Infrastructure, and Physical Recovery
 
-Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. The final campaign goal is rare world domination, but early hidden-laboratory survival must remain a complete roguelike experience.
+Design and implement player-built resurrection beyond the existing saved death handoff. Require recovered knowledge, research, a compatible prepared body, charged soul-transfer apparatus, utilities and materials, and an accessible uncompromised site. Validate and consume or degrade physical components, select among eligible sites, and restore the scientist in an actual replacement body rather than granting a free revival. Imperfect reconstruction may lose memories or skills; perfected reconstruction retains memories and cognitive or animantic competence, while body-bound skills require easier reacquisition. Main-lab and hidden-base contingencies have distinct recovery circumstances. Preserve old remains, property losses, authority, investigations, sentences, and the same run/world branch; finalize irreversible death if no contingency can complete recovery. Discuss how eligibility and a pending handoff resolve without leaving a run indefinitely suspended.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 

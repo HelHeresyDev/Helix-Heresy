@@ -386,6 +386,7 @@ test('several run records branch independently without modifying their canonical
   const world = repository.putWorld(Library.createWorld({
     id: 'shared-world',
     worldSeed: 'shared-world-seed',
+    generationVersion: 1,
     worldTheme: 'madcap',
     createdAt: '2026-08-25T00:00:00.000Z',
   }));
@@ -427,7 +428,7 @@ test('several run records branch independently without modifying their canonical
 
 test('ended runs remain in the library but are not continuations', () => {
   const repository = Library.createRepository(memoryStorage());
-  const world = repository.putWorld(Library.createWorld({ id: 'world', worldSeed: 'seed', worldTheme: 'madcap' }));
+  const world = repository.putWorld(Library.createWorld({ id: 'world', worldSeed: 'seed', worldTheme: 'madcap', generationVersion: 1 }));
   const run = Library.createRun({
     id: 'run',
     worldId: world.id,
@@ -447,6 +448,12 @@ test('ended runs remain in the library but are not continuations', () => {
   expect(repository.getRun('run')).toMatchObject({ status: 'ended', endReason: 'death' });
   expect(repository.continuation()).toBeNull();
   expect(repository.manifest().activeRunId).toBeNull();
+  const archive = repository.getRun('run');
+  expect(() => repository.setActiveRun('run')).toThrow(/active saved run/);
+  expect(() => repository.putRun({ ...archive, status: 'active', state: { runEnded: false } }, { overwrite: true })).toThrow(/read-only/);
+  expect(() => repository.putRun({ ...archive, state: { ...archive.state, clock: 900 } }, { overwrite: true })).toThrow(/read-only/);
+  expect(() => repository.putRun({ ...run, id: 'forged-active', state: { runEnded: false, scientistDeath: { records: [{ terminal: true }] } } })).toThrow(/terminal death/);
+  expect(repository.getRun('run')).toEqual(archive);
 });
 
 test('state-only test projections retain world and run identity when normalized from storage', () => {

@@ -5,6 +5,8 @@ const { pathToFileURL } = require('url');
 const Capital = require('../death-row-custody.js');
 const Execution = require('../public-execution.js');
 const Death = require('../scientist-death.js');
+const Library = require('../world-run-library');
+const { lifecycleWorld } = require('./helpers/lifecycle-world');
 const appUrl = pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href;
 
 function dueStay() {
@@ -58,19 +60,45 @@ test('capital custody records execution start, failed survival hold, and medical
   ({ state, stay } = dueStay()); begun = Capital.beginExecution(state, stay.id, 'execution-2', 2000); const dead = Capital.markDeceased(begun.state, stay.id, { deathRecordId: 'death-1' }, 2200); expect(dead.stay).toMatchObject({ status: 'deceased', calendar: { executionStatus: 'completed' }, execution: { status: 'completed', deathRecordId: 'death-1' }, suppressor: { suppressionActive: true } });
 });
 
-async function startRun(page) { await page.goto(appUrl); await page.evaluate(() => { window.localStorage.clear(); window.localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: 'dom' })); }); await page.reload(); await page.locator('#titleNewRunBtn').click(); await page.locator('#startRunSubmitBtn').click(); }
+async function startRun(page) {
+  page.setDefaultTimeout(20000);
+  const world = lifecycleWorld();
+  await page.goto(appUrl);
+  await page.evaluate(({ id, payload }) => {
+    localStorage.clear(); localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: 'dom' }));
+    localStorage.setItem('helix-heresy-v2-library', JSON.stringify({ version: 2, worldIds: [id], runIds: [] }));
+    localStorage.setItem(`helix-heresy-v2-world:${id}`, payload);
+  }, { id: world.id, payload: Library.compressStorageText(JSON.stringify(world)) });
+  await page.reload(); await page.locator('#titleWorldLibraryBtn').click();
+  await page.locator('[data-library-action="start-run"]').click();
+  await page.locator('[data-starting-site-input]').first().check(); await page.locator('#startRunSubmitBtn').click();
+}
 async function enterCapitalCustody(page) {
-  const warrant = await page.evaluate(() => window.helixHeresyDebug.issueTestWarrant('law-enforcement', { immediate: true })); await page.evaluate((raidId) => { window.helixHeresyDebug.placeScientistAtRaidEntry(raidId); window.helixHeresyDebug.updateLawEnforcementRaids(1); window.helixHeresyDebug.surrenderToRaid(raidId); for (let index = 0; index < 8; index += 1) window.helixHeresyDebug.updateLawEnforcementRaids(1, { defer: index < 7 }); }, warrant.raidId);
-  const caseId = await page.evaluate(() => window.helixHeresyDebug.makeTrialReady({ custodial: true, capital: true })); for (let index = 0; index < 3; index += 1) { await page.evaluate((id) => window.helixHeresyDebug.beginTrialCourtAppearance(id), caseId); await page.evaluate(() => window.helixHeresyDebug.completeTrialCourtActionNow()); } await page.evaluate((id) => window.helixHeresyDebug.makeTrialAppearanceDueNow(id), caseId); await page.evaluate((id) => window.helixHeresyDebug.beginTrialCourtAppearance(id), caseId); await page.evaluate(() => window.helixHeresyDebug.completeTrialCourtActionNow()); await page.evaluate((id) => window.helixHeresyDebug.makeDeathRowTransferDueNow(id), caseId); return caseId;
+  return page.evaluate(() => window.helixHeresyDebug.materializeTestCapitalSentence({
+    id: 'test-capital-case', docket: 'CR-0199', charges: [],
+    sentencing: { order: { id: 'test-capital-order', kind: 'deathRow', label: 'Capital commitment', executionMethod: 'publicBeheading',
+      publicEnemyDesignation: { status: 'entered', kind: 'publicEnemy', label: 'Public Enemy', enteredAt: 0,
+        grounds: ['Saved reviewed public-enemy finding for execution-focused testing.'] } } }
+  }));
 }
 
-test('@smoke public execution physically reaches the scaffold, records separated remains, and survives save/load', async ({ page }) => {
-  test.setTimeout(360_000); await startRun(page); const caseId = await enterCapitalCustody(page); expect(await page.evaluate(() => window.helixHeresyDebug.makeDeathRowExecutionDueNow())).toBe(true);
+test('@smoke public execution physically reaches the scaffold, records separated remains, and archives for review', async ({ page }) => {
+  test.setTimeout(360_000); await startRun(page); const caseId = await enterCapitalCustody(page); expect(caseId).toBe('test-capital-case');
   let snapshot = await page.evaluate(() => window.helixHeresyDebug.deathRowCustodySnapshot()); expect(snapshot.activeStay).toMatchObject({ status: 'executionProcessDue', sentence: { executionMethod: 'publicBeheading', publicEnemyDesignation: { status: 'entered', kind: 'publicEnemy' } } });
+  expect(snapshot.runEnded).toBe(false); expect(snapshot.scientist.health).toBeGreaterThan(0);
   await page.locator('[data-workspace-tab="visits"]').click(); await expect(page.locator(`[data-death-row-custody="${snapshot.activeStay.id}"]`)).toContainText('Public Enemy Execution');
   expect(await page.evaluate(() => window.helixHeresyDebug.planPublicExecution({ counsel: true, spiritualAccess: true, statementStanceId: 'scientificManifesto', statementText: 'The work will outlive this state.' }))).toBe(true); snapshot = await page.evaluate(() => window.helixHeresyDebug.deathRowCustodySnapshot()); const executionId = snapshot.activePublicExecution.id; expect(snapshot.activeStay.status).toBe('executionInProgress');
-  for (let index = 0; index < 10; index += 1) { expect(await page.evaluate((id) => window.helixHeresyDebug.queueNextPublicExecutionStage(id), executionId)).toBe(true); expect(await page.evaluate(() => window.helixHeresyDebug.completePublicExecutionActionNow())).toBe(true); }
+  for (let index = 0; index < 10; index += 1) await test.step(`Complete saved execution stage ${index + 1}`, async () => {
+    expect(await page.evaluate((id) => window.helixHeresyDebug.queueNextPublicExecutionStage(id), executionId)).toBe(true);
+    expect(await page.evaluate(() => window.helixHeresyDebug.completePublicExecutionActionNow())).toBe(true);
+  });
   snapshot = await page.evaluate(() => window.helixHeresyDebug.deathRowCustodySnapshot()); const deceasedStay = snapshot.stays.find((entry) => entry.caseId === caseId); const completedExecution = snapshot.publicExecution.records.find((entry) => entry.id === executionId);
   expect(deceasedStay).toMatchObject({ caseId, status: 'deceased', calendar: { executionStatus: 'completed' }, execution: { status: 'completed', deathRecordId: expect.any(String) } }); expect(completedExecution).toMatchObject({ id: executionId, status: 'completed', broadcast: { status: 'completed' }, deathRecordId: expect.any(String), outcome: { kind: 'physicalDeath' } }); expect(snapshot).toMatchObject({ latestDeath: { causeKind: 'statePublicExecution', terminal: true, body: { roomId: 'civicExecutionScaffold', partIds: ['scientist-head-remains', 'scientist-body-remains'] }, legal: { caseId, executionId } }, scientist: { roomId: 'civicExecutionScaffold', mapCell: { z: 7 }, health: 0 }, runEnded: true });
-  await page.reload(); await page.locator('#loadLastSaveBtn').click(); snapshot = await page.evaluate(() => window.helixHeresyDebug.deathRowCustodySnapshot()); expect(snapshot.publicExecution.records.find((entry) => entry.id === executionId)).toMatchObject({ id: executionId, status: 'completed' }); expect(snapshot).toMatchObject({ latestDeath: { resurrection: { status: 'unavailable' } }, runEnded: true });
+  await expect(page.locator('#runOutcomeHeading')).toHaveText('Run ended');
+  await page.reload(); await expect(page.locator('#loadLastSaveBtn')).toBeDisabled();
+  await page.locator('#titleWorldLibraryBtn').click(); await page.locator('[data-library-action="review-run"]').click();
+  await expect(page.locator('#runOutcomeReport')).toContainText("executioner's axe");
+  const archived = await page.evaluate(() => window.helixHeresyDebug.worldLibrarySnapshot().runs[0]);
+  expect(archived.state.publicExecution.records.find((entry) => entry.id === executionId)).toMatchObject({ id: executionId, status: 'completed' });
+  expect(archived.state).toMatchObject({ scientistDeath: { records: [{ resurrection: { status: 'unavailable' } }] }, runEnded: true });
 });
