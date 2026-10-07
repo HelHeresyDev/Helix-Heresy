@@ -4648,6 +4648,8 @@
   const ScientistDeath = window.HelixScientistDeath;
   const RunLifecycle = window.HelixRunLifecycle;
   if (!RunLifecycle) throw new Error("HelixRunLifecycle must load before app.js");
+  const Campaign = window.HelixCampaign;
+  if (!Campaign) throw new Error("HelixCampaign must load before app.js");
   if (!ScientistDeath) {
     throw new Error("HelixScientistDeath must load before app.js");
   }
@@ -5326,6 +5328,7 @@
       suspicionPeakBand: "quiet",
       runEnded: false,
       postmortem: null,
+      campaign: Campaign.normalize(),
       lastSuspicionGainAt: null,
       lastSuspicionDecayAt: null,
       rooms: defaultRooms(),
@@ -10210,7 +10213,8 @@
     if (result.terminal) state.postmortem = RunLifecycle.captureReport(state, {
       ...postmortemContext(state, activeWorldRecord),
       location: roomName(result.record.location.roomId),
-      events: jailVisibleMessages(state.events)
+      events: jailVisibleMessages(state.events),
+      accomplishments: Campaign.accomplishments(state.campaign)
     });
     markStateDirty();
     // Finish the lethal action's legal/body bookkeeping before saving. This also
@@ -11600,6 +11604,8 @@
       lawful: true,
       roomId: options.roomId || (kind === "received" || kind === "sale" ? SURFACE_LOADING_ROOM_ID : SURFACE_STAFF_ROOM_ID)
     });
+    if (kind === "sale") recordCampaignOutcome({ kind: "income", delivered: true, settled: true,
+      amount: entry.amount, sourceId: entry.id, summary: "Completed legal shipment proceeds received." });
     return entry;
   }
 
@@ -13162,6 +13168,7 @@
       "runOutcomeExportBtn",
       "runOutcomeLibraryBtn",
       "runOutcomeStatus",
+      "campaignContent",
       "setupForm",
       "setupBackBtn",
       "selectedWorldSummary",
@@ -13375,6 +13382,15 @@
     window.helixHeresyDebug = {
       worldLibrarySnapshot: () => clonePlainObject(worldRepository.snapshot()),
       runLifecycleSnapshot: () => clonePlainObject({ phase: RunLifecycle.phase(state), clock: state.clock, postmortem: state.postmortem, deaths: ensureScientistDeath().records }),
+      campaignSnapshot: () => clonePlainObject(Campaign.normalize(state.campaign)),
+      feedTestCampaignSpecimen: (slimeId, feedstockKey) => {
+        const result = feedSlime(findSlime(slimeId), feedstockKey, { source: "manual", requireLocal: true });
+        persist(); render(); return result;
+      },
+      settleTestCommodityConsignment: (id) => {
+        const result = finalizeCommoditySale(ensureEconomy().commodityConsignments.find(entry => entry.id === id));
+        persist(); render(); return result;
+      },
       inflictTestScientistDamage: (kind = "combat") => {
         if (kind === "handling") damageScientistHealth(100000, "test handling trauma");
         else damageScientistCombat(100000, "test combat trauma");
@@ -16159,6 +16175,10 @@
       paragraph(`Time survived: ${formatDuration(report.diedAt)} · ${report.worldName} · Run seed ${report.runSeed}`);
       paragraph(`Start: ${report.scenario} · ${report.startingSite} · ${report.company}`);
       paragraph("This is a frozen, read-only record of what you learned. The run cannot be continued. Its reusable world remains unchanged.");
+      if (report.accomplishments.length) {
+        paragraph("Campaign accomplishments");
+        for (const entry of report.accomplishments) paragraph(`${entry.label} — ${formatClock(entry.at)}`);
+      }
       if (report.events.length) {
         const heading = document.createElement("h3");
         heading.textContent = "Recent known events";
@@ -21732,6 +21752,7 @@
         return;
       }
       const slime = createSlime(task.data.genome, "Synthetic", { containerId: tube.id, roomId: tube.roomId });
+      recordCampaignOutcome({ kind: "creation", sourceId: slime.id, summary: `${slime.name} stabilized through synthesis.` });
       const reveal = revealTraits(slime, TESTS.find((test) => test.id === "visual").traits);
       awardActionXp(task.data.skillId, task.data.baseXp, reveal, "Synthesis");
       if (task.data?.experimentId) attachSynthesizedExperimentSubject(task, slime);
@@ -33935,6 +33956,7 @@
     if (!evidence) return null;
     research.evidence.push(evidence);
     state.research = Research.normalizeState(research);
+    recordCampaignOutcome({ kind: "evidence", sourceId: evidence.id, specimenId: evidence.specimenId, category: evidence.category, summary: evidence.summary });
     return evidence;
   }
 
@@ -34147,6 +34169,7 @@
     record.progressSeconds = project.workSeconds;
     record.status = "completed";
     record.completedAt = state.clock;
+    recordCampaignOutcome({ kind: "research", sourceId: project.id, summary: `${project.label} completed at a physical workbench.` });
     record.taskId = "";
     record.workstationId = workstation.id;
     research.activeProjectId = "";
@@ -52863,6 +52886,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const effects = FEED_MATCH_EFFECTS[match.quality] || FEED_MATCH_EFFECTS.bad;
     addResource(feedstock.key, -1, roomId);
     const nutritionGain = adjustedSlimeNutritionGain(slime, effects.nutrition);
+    const nutritionBefore = slimeStat(slime, "nutrition").current;
     adjustSlimeStat(slime, "nutrition", nutritionGain);
     const mass = slimeStat(slime, "currentMass");
     const massGain = Math.max(0, Math.min(effects.mass, mass.max - mass.current));
@@ -52884,6 +52908,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const leftResidue = applyFeedstockResidue(slime, feedstock, match, effects, options.source);
     addEvent(`${slime.name} ${options.source === "auto" ? "auto-fed" : "fed"} ${feedstock.label}: ${effects.label}, +${formatNumber(nutritionGain)} Nutrition${massGain ? `, +${formatNumber(massGain)} Current Mass` : ""}${leftResidue ? ", left local residue" : ""}.`);
     expireSlimes();
+    if (scientistCurrentlyPerceivesSlime(slime)) recordCampaignOutcome({
+      kind: "care", sourceId: slime.id, createdByScientist: slime.source === "Synthetic",
+      nutritionGain: slimeStat(slime, "nutrition").current - nutritionBefore, feedingDamage: effects.bodyDamage || 0, survived: slime.status !== "dead",
+      summary: `${slime.name} received nourishing feed without feeding injury.`
+    });
     return true;
   }
 
@@ -74699,10 +74728,125 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
   }
 
+  function campaignLocalKnowledgeAvailable() {
+    return Boolean(state?.started && !scientistIsDead() && !surveyScientistAway() && !restrictedOffsiteStay()
+      && Number(scientistMapCell()?.z || 0) <= LAB_MAP_DEFAULT_SURFACE_Z);
+  }
+
+  function setCampaignState(next) {
+    const previous = Campaign.normalize(state.campaign);
+    if (JSON.stringify(previous) === JSON.stringify(next)) return false;
+    state.campaign = next;
+    markStateDirty();
+    if (previous.accomplishedAt === null && next.accomplishedAt !== null) {
+      addEvent("Campaign accomplishment: Establish the laboratory. No free rewards or feature unlocks were granted; existing opportunities remain yours to pursue.", { sourceKind: "campaign" });
+    }
+    return true;
+  }
+
+  function assessCampaignLaboratory() {
+    if (!campaignLocalKnowledgeAvailable() || scientistRoomId() !== MAIN_ROOM_ID) return false;
+    const map = ensureLabMap();
+    const local = (state.fixtures || []).filter(fixture => labMapCellRoomId(fixture.origin, map) === MAIN_ROOM_ID);
+    const tube = synthesisTube();
+    const context = utilityNetworkContext();
+    const biomass = ensurePhysicalItemStacks().filter(stack => stack.roomId === MAIN_ROOM_ID && !stack.carriedBy
+      && !stack.reservedTaskId && !stack.containerId && (!stack.fixtureId || storageFixtureScientistAccessible(fixtureById(stack.fixtureId))))
+      .reduce((sum, stack) => sum + physicalStackSectionAmount(stack, "resources", "biomass"), 0);
+    return setCampaignState(Campaign.assess(state.campaign, {
+      synthesis: Boolean(tube && tube.roomId === MAIN_ROOM_ID && containerCondition(tube) > 0),
+      workbench: local.some(fixture => fixtureDef(fixture)?.capabilities?.includes("research") && fixture.condition > 0 && fixture.operationalState === "operational"),
+      power: local.some(fixture => fixtureInfrastructureDef(fixture)?.powerModes?.length && utilityFixtureEnabled(fixture) && utilityPowerAvailability(fixture, context) > 0),
+      materials: biomass >= SYNTHESIS_BIOMASS_COST
+    }, state.clock, { known: true, alive: true }));
+  }
+
+  function recordCampaignOutcome(outcome) {
+    if (!campaignLocalKnowledgeAvailable()) return false;
+    if (state.campaign?.readiness) assessCampaignLaboratory();
+    return setCampaignState(Campaign.record(state.campaign, { ...outcome, known: true, alive: true }, state.clock));
+  }
+
+  function syncCampaignKnowledge() {
+    if (!campaignLocalKnowledgeAvailable()) return;
+    // Settlement may happen while off-site. Only reconcile disclosed local
+    // ledgers on return, never inspect remote consignment or creature truth.
+    if (!state.campaign?.objectives?.income) {
+      const legal = (state.economy?.legalLedger || []).find(entry => entry.kind === "sale" && entry.amount > 0);
+      const covert = (state.economy?.ledger || []).find(entry => ["spotSale", "completed", "defaulted", "foreignReceipt"].includes(entry.kind) && entry.amount > 0);
+      const sale = legal || covert;
+      if (sale) recordCampaignOutcome({ kind: "income", sourceId: sale.id, amount: sale.amount, delivered: true, settled: true, summary: "Positive proceeds from a completed sale confirmed in the local ledger." });
+    }
+    if (state.campaign?.readiness) assessCampaignLaboratory();
+  }
+
+  function renderCampaign() {
+    syncCampaignKnowledge();
+    const campaign = Campaign.normalize(state.campaign);
+    const content = dom.campaignContent;
+    content.replaceChildren();
+    content.append(textEl("p", "Ambitions are optional and overlapping, not mandatory chapters. Only irreversible death ends a run. No deadlines, free rewards, or campaign gates."));
+    const label = document.createElement("label");
+    const toggle = document.createElement("input");
+    toggle.type = "checkbox";
+    toggle.checked = campaign.guidanceEnabled;
+    toggle.addEventListener("change", () => {
+      setCampaignState({ ...Campaign.normalize(state.campaign), guidanceEnabled: toggle.checked });
+      persist(); renderCampaign();
+    });
+    label.append(toggle, document.createTextNode(" Show campaign guidance"));
+    content.append(label);
+    content.append(textEl("h4", campaign.accomplishedAt === null ? "Establish the laboratory" : `Establish the laboratory — accomplished ${formatClock(campaign.accomplishedAt)}`));
+    if (campaign.guidanceEnabled) {
+      const objectives = document.createElement("ul");
+      for (const objective of Campaign.objectives(activeWorldRecord?.worldTheme || state.worldTheme || "madcap")) {
+        const row = document.createElement("li");
+        row.dataset.campaignObjective = objective.id;
+        const receipt = campaign.objectives[objective.id];
+        row.append(textEl("strong", `${objective.label}: ${receipt ? "recorded " + formatClock(receipt.at) : "not yet recorded"}`), textEl("p", objective.requirement));
+        if (receipt) row.append(textEl("p", receipt.summary));
+        const open = document.createElement("button");
+        open.type = "button";
+        open.textContent = `Open ${{ foundry: "Foundry", specimens: "Creature Records", research: "Research", economy: "Economy", map: "Map" }[objective.workspace]}`;
+        open.addEventListener("click", () => setActiveWorkspaceTab(objective.workspace, { scroll: true }));
+        row.append(open);
+        objectives.append(row);
+      }
+      content.append(objectives);
+      const assessment = document.createElement("div");
+      assessment.dataset.campaignReadiness = "";
+      assessment.append(textEl("h4", "Current operational assessment"));
+      assessment.append(textEl("p", campaign.readiness ? `${Campaign.ready(campaign) ? "Ready" : "Compromised"} at ${formatClock(campaign.readiness.at)}. This dated local assessment is not remote monitoring.` : "Not assessed. Return to the Main Lab to check local supplies and infrastructure."));
+      if (campaign.readiness) for (const [id, description] of [["synthesis", "Intact synthesis tube"], ["workbench", "Operational research workbench"], ["power", "Powered local utility"], ["materials", "Accessible unreserved biomass for another synthesis"]]) {
+        assessment.append(textEl("p", `${description}: ${campaign.readiness.checks[id] ? "confirmed" : "not confirmed"}`));
+      }
+      const assess = document.createElement("button");
+      assess.type = "button";
+      assess.textContent = "Assess Laboratory";
+      assess.disabled = !campaignLocalKnowledgeAvailable() || scientistRoomId() !== MAIN_ROOM_ID;
+      assess.title = assess.disabled ? "The living scientist must be present in the Main Lab. No remote assessment is available." : "Check existing local infrastructure and physical supplies; this neither repairs nor grants anything.";
+      assess.addEventListener("click", () => { assessCampaignLaboratory(); persist(); renderCampaign(); });
+      assessment.append(assess);
+      content.append(assessment);
+      if (campaign.accomplishedAt !== null) content.append(textEl("p", "Next opportunities: build on completed research, strengthen legal production or covert trade, and cultivate known contacts. Local-leverage campaign mechanics remain future work."));
+      const roadmap = document.createElement("details");
+      roadmap.append(textEl("summary", "Six ambitions — long-term roadmap"));
+      for (const ambition of Campaign.roadmap(activeWorldRecord?.worldTheme || state.worldTheme || "madcap")) {
+        roadmap.append(textEl("h4", `${ambition.label}${ambition.id === "laboratory" ? "" : " — future mechanics"}`), textEl("p", ambition.template));
+      }
+      roadmap.append(textEl("p", "World domination and divine supremacy are separate accomplishments, not run endings or a fixed-order dependency. Gods that lose followers descend rather than die. No undiscovered powers or hidden totals are listed here."));
+      content.append(roadmap);
+    } else {
+      for (const entry of Campaign.accomplishments(campaign)) content.append(textEl("p", `${entry.label} — ${formatClock(entry.at)}`));
+      content.append(textEl("p", "Guidance is hidden; successful actions still record accomplishments."));
+    }
+  }
+
   function renderJournal() {
+    renderCampaign();
     dom.journalContent.textContent = "";
     if (state.journalMode === "none") {
-      dom.journalContent.append(emptyText("Journal disabled."));
+      dom.journalContent.append(emptyText("Genetic notes disabled."));
       return;
     }
 
@@ -83698,6 +83842,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       at: state.clock
     });
     economy.ledger = economy.ledger.slice(0, BLACK_MARKET_LEDGER_LIMIT);
+    if (["spotSale", "completed", "defaulted", "foreignReceipt"].includes(kind)) recordCampaignOutcome({
+      kind: "income", sourceId: economy.ledger[0].id, amount: options.amount, delivered: true, settled: true,
+      summary: "Completed black-market sale proceeds received."
+    });
   }
 
   function blackMarketContactReliabilityLabel(contact) {
@@ -88245,6 +88393,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         return true;
       }
       ensurePhysicalObjectPlacements();
+      syncCampaignKnowledge();
       const candidate = currentRunRecord();
       worldRepository.putRun(candidate, { overwrite: true, activate: candidate.status === "active" });
       activeRunRecord = candidate;
@@ -88356,6 +88505,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const latestDeath = ScientistDeath.latestRecord(next.scientistDeath);
     next.runEnded = Boolean(next.runEnded) || Boolean(latestDeath?.terminal) || (next.scientist.vitals.health.current <= 0 && latestDeath?.resurrection.status !== "pending");
     next.postmortem = RunLifecycle.normalizeReport(candidate?.postmortem);
+    next.campaign = Campaign.normalize(candidate?.campaign);
     if (next.runEnded || latestDeath?.resurrection.status === "pending") {
       next.paused = true;
     }

@@ -18,11 +18,15 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Roguelike Run Lifecycle, Death, Postmortem, and Restart
-2. Campaign Roadmap: From Hidden Laboratory to World Domination
-3. New-Run Onboarding and Contextual Tutorial
-4. Sound, Notifications, and Accessibility Audit
-5. Production Art Pass Using the Sprite Pipeline
+1. Reconstructed Resurrection: Research, Infrastructure, and Physical Recovery
+2. Local Leverage: Products, Services, and Relationships
+3. Independent Power Base: People, Creations, and Additional Facilities
+4. City Power: Enforceable Influence and Control
+5. Strategic Expansion and World Domination
+6. Divine Supremacy: Rule over the Gods
+7. New-Run Onboarding and Contextual Tutorial
+8. Sound, Notifications, and Accessibility Audit
+9. Production Art Pass Using the Sprite Pipeline
 
 ## World and Run Guardrails
 
@@ -79,36 +83,62 @@ Apply these rules throughout the world-generation and campaign prompts:
 - Keep generation and simulation renderer-neutral. UI previews and maps are projections of authoritative saved state.
 - Every implementation pass must include deterministic tests, save/load coverage for its new state, and at least one player-visible or mechanically consumed result.
 - Helix Heresy is a roguelike. Ordinary play must be compelling when a run ends in the laboratory or local-power phase; the overwhelming majority of runs should end long before world domination.
-- World domination is the rare ultimate accomplishment, not the expected length or balance target of an average run.
+- World domination is a rare terrestrial accomplishment, not the expected length or balance target of an average run; ruling over the gods is the ultimate ambition beyond it.
+- Campaign ambitions overlap rather than forming compulsory chapters: establish the laboratory, become locally indispensable, build an independent power base, challenge city powers, pursue world domination, and rule over the gods. Optional guidance grants no free resources or artificial feature gates. Separate dated accomplishments from current operational conditions.
+- Divine supremacy goes beyond terrestrial domination: impose real enforceable submission on gods, kill those who refuse, and reign over the rest. Losing followers or forcing descent does not kill a god. Surviving descended individuals and new ascendants matter; do not expose undiscovered gods or an omniscient pantheon checklist. Personal ascension is not mandatory. World domination and divine supremacy are separate accomplishments, neither requires the other in a fixed order, and neither ends the run.
 - Do not build individual population, dynasty, migration, tactical-war, or global pathfinding simulations until an approved mechanic needs them. Strategic simulation may remain aggregated while still producing causal history.
 
 ---
 
-## 1. Campaign Roadmap: From Hidden Laboratory to World Domination
-
-Design the complete campaign progression against the generated strategic world, then implement only the campaign framework and first coherent playable phase. The final campaign goal is rare world domination, but early hidden-laboratory survival must remain a complete roguelike experience.
-
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. Reconstructed Resurrection: Research, Infrastructure, and Physical Recovery
+## 1. Reconstructed Resurrection: Research, Infrastructure, and Physical Recovery
 
 Design and implement player-built resurrection beyond the existing saved death handoff. Require recovered knowledge, research, a compatible prepared body, charged soul-transfer apparatus, utilities and materials, and an accessible uncompromised site. Validate and consume or degrade physical components, select among eligible sites, and restore the scientist in an actual replacement body rather than granting a free revival. Imperfect reconstruction may lose memories or skills; perfected reconstruction retains memories and cognitive or animantic competence, while body-bound skills require easier reacquisition. Main-lab and hidden-base contingencies have distinct recovery circumstances. Preserve old remains, property losses, authority, investigations, sentences, and the same run/world branch; finalize irreversible death if no contingency can complete recovery. Discuss how eligibility and a pending handoff resolve without leaving a run indefinitely suspended.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. New-Run Onboarding and Contextual Tutorial
+## 2. Local Leverage: Products, Services, and Relationships
+
+Build on the implemented laboratory ambition with a small playable local-leverage loop. Useful products, services, discoveries, and creations should earn concrete relationships or institutional dependency from known named actors. Discuss a first bounded service or customer relationship before implementing it; do not turn reputation into automatic obedience. Include scarcity, obligations, refusal, lawful and covert alternatives, and knowledge-safe saved consequences. Campaign records consume actual outcomes rather than granting unexplained rewards or gating existing mechanics.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 3. Independent Power Base: People, Creations, and Additional Facilities
+
+Design recruitment, delegation, intelligent creations, and physically supportable additional facilities, then implement one coherent slice. Relationships and created beings do not imply automatic loyalty. Each facility needs people, resources, utilities, secrecy, access, and actual transport; worldwide communication creates no material delivery. Losing the original laboratory remains playable. Discuss how independent operations and dated reports interact with custody, discoveries, research, property, and resurrection sites. Split these systems further if needed rather than implementing them all together.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 4. City Power: Enforceable Influence and Control
+
+Design ways to bargain with, influence, replace, or defeat independent city authorities and implement one supported route. Control requires actual people, defenses, resources, and enforceable arrangements; reputation and internet recognition alone are insufficient. Preserve local charters, civic responsibilities, religious interests, legal consequences, opposition, revolt, and the narrow two-sponsor status of route strongholds. No durable nation-state or instant omniscient takeover may replace the city-polity model.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 5. Strategic Expansion and World Domination
+
+Design physically supportable expansion between existing support components, significant beast powers, and divine interests, then implement only the next mechanically supported slice. Specify finite, testable durable-supremacy criteria before adding victory evaluation; occupation of every empty globe cell is not required. Bind campaigns to actual routes, transport, manpower, resources, defense, agreements, and resistance. Keep unknown powers and hidden totals out of ordinary campaign records. World domination is an exceptionally rare dated accomplishment, not a game-over transition, and remains separate from divine supremacy.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 6. Divine Supremacy: Rule over the Gods
+
+Design and implement the ultimate ambition of imposing enforceable submission on the gods, killing those who refuse, and reigning over the rest. Submission must impose actual terms and consequences rather than a reputation threshold or cosmetic declaration. Cover discovery, human and beast gods, living descended individuals, avatars versus the actual divine individual, rebellion, and new ascendants. Destroying worship or forcing descent is not a kill. Scientific, animantic, engineered-creature, and personal-power approaches should remain possible without requiring the scientist to ascend. Theme-compatible presentations do not remove the refusal-and-death requirement. Define finite, testable accomplishment criteria without exposing hidden identities or counts; allow continued play after success and keep world domination a separate accomplishment. Split prerequisite combat, submission, or enforcement systems into further prompts if needed.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 7. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Sound, Notifications, and Accessibility Audit
+## 8. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. Production Art Pass Using the Sprite Pipeline
+## 9. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 

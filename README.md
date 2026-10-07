@@ -249,6 +249,7 @@ The smoke command is a quick cross-system check, but routine changes should run 
 - `app.js` - Game state, genetics, time simulation, world/run save integration, tests, slime reproduction, jobs, derived Suspicion, rooms, corpses, and rendering.
 - `geology-field.js` - Deterministic coordinate-based strata, mineral deposits, excavation hazards, exposed-face knowledge, and physical mining yields.
 - `research-system.js` - Deterministic research project definitions, evidence requirements, saved project records, and technology-unlock evaluation.
+- `campaign.js` - Renderer-independent known-outcome receipts, local readiness, optional guidance state, and the theme-selected six-ambition roadmap.
 - `investigative-evidence.js` - Renderer-independent normalization, persistence, significance, lifecycle, provenance, and deterministic integrity rules for suspicious site evidence.
 - `evidence-handling.js` - Renderer-independent evidence-work orders, qualitative risk assessment, frozen seeded outcomes, record packets, disposal manifests, and physically derived custody labels.
 - `external-detection.js` - Renderer-independent saved sources, seeded exposure and reporting outcomes, report correlation, institutional memory, knowledge boundaries, and derived-attention scoring.
@@ -313,6 +314,12 @@ JSON export produces a run bundle containing the run and its exact canonical wor
 Irreversible scientist death now promptly saves and freezes the run, opens a postmortem, and replaces Resume with Review in the World Library. The report preserves the cause, location, time survived, starting circumstances, and up to twelve known messages; it does not unlock hidden information. Review and Export Run Archive are read-only, and ended records cannot be overwritten or continued. New Run in This World offers normal scenario/site selection and a fresh default seed without deleting the archive or carrying player labs, possessions, or discoveries into the unchanged reusable world. Living custody, sentences, penal service, and laboratory loss are not game-over conditions.
 
 A valid completed resurrection contingency instead opens an explicit pending-handoff screen and remains an active saved branch. Physical recovery, player-built apparatus, and restored bodily skills are not implemented yet; the dead scientist cannot act or advance simulation while that handoff is pending. A separate pending prompt covers physical resurrection rather than granting a free revival.
+
+## Campaign Ambitions
+
+Journal includes an optional Campaign guide, separate from genetic-note mode. Establish the laboratory records real synthesis, successful nourishing care, specimen evidence, completed research, and received proceeds from completed sales. Assess Laboratory in the Main Lab checks local synthesis/research equipment, a powered utility, and accessible unreserved biomass for another synthesis. Assessments refresh locally after the first check but remain dated while away; broken infrastructure does not erase historical accomplishments. No deadlines, free rewards, or artificial unlock gates are added. Campaign progress survives save/load, appears in death postmortems, and starts fresh in another run.
+
+The six overlapping ambitions are establishing the laboratory, local indispensability, an independent power base, city power, world domination, and ruling over the gods. Only the laboratory ambition is mechanically implemented. Divine supremacy ultimately requires enforceable submission or killing gods who refuse; descent is not death and personal ascension is not mandatory. World domination and divine supremacy are separate future accomplishments, neither a run ending nor a fixed-order dependency.
 
 ## Development Notes
 
