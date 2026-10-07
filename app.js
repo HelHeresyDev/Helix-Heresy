@@ -38,6 +38,8 @@
   if (!ConfidentialServices) throw new Error("HelixConfidentialServices must load before app.js");
   const SurfaceWorkers = window.HelixSurfaceWorkers;
   if (!SurfaceWorkers) throw new Error("HelixSurfaceWorkers must load before app.js");
+  const LaboratoryAssistant = window.HelixLaboratoryAssistant;
+  if (!LaboratoryAssistant) throw new Error("HelixLaboratoryAssistant must load before app.js");
   const CargoRecovery = window.HelixCargoRecovery;
   const IntercitySmuggling = window.HelixIntercitySmuggling;
   const CorridorBeasts = window.HelixCorridorBeasts;
@@ -3785,6 +3787,10 @@
       description: "One local saved analytical report, not a public registry filing. Its physical record remains subject to supported discovery and authorized seizure."
     },
     {
+      key: "assistantReportPacket", label: "Technician analytical record", category: "materials", initial: 0,
+      description: "A physical dated sealed-sample assay report. Findings become known only through local receipt or retrieval."
+    },
+    {
       key: "shreddedRecords",
       label: "Shredded records waste",
       category: "materials",
@@ -5352,6 +5358,8 @@
       confidentialServiceKnowledge: null,
       surfaceWorkers: null,
       surfaceWorkerKnowledge: null,
+      laboratoryAssistant: null,
+      laboratoryAssistantKnowledge: null,
       lastSuspicionGainAt: null,
       lastSuspicionDecayAt: null,
       rooms: defaultRooms(),
@@ -5818,7 +5826,7 @@
       : actorOrId?.actorKind === "expeditionEscort" ? { maxMassKg: 25, maxVolumeL: 30 }
       : actorOrId?.actorKind === "rescueMedic" ? { maxMassKg: 35, maxVolumeL: 45 }
       : actorOrId?.actorKind === "penalPrisoner" ? { maxMassKg: 25, maxVolumeL: 30 }
-      : actorOrId?.actorKind === "surfaceWorker" ? { maxMassKg: 18, maxVolumeL: 24 }
+      : ["surfaceWorker", "laboratoryAssistant"].includes(actorOrId?.actorKind) ? { maxMassKg: 18, maxVolumeL: 24 }
       : visitor ? { maxMassKg: 18, maxVolumeL: 24 }
       : slimeInventoryCapacity(actorOrId);
     return {
@@ -8357,7 +8365,7 @@
   function warrantStackSubjectCategories(stack) {
     const categories = new Set();
     const tags = new Set((stack?.tags || []).map((tag) => String(tag).toLowerCase()));
-    if (["companyRecordsPacket", "confidentialReportPacket"].includes(stack?.key) || stack?.evidenceDocument?.kind === "companyPeriodPacket") categories.add("companyRecords");
+    if (["companyRecordsPacket", "confidentialReportPacket", "assistantReportPacket"].includes(stack?.key) || stack?.evidenceDocument?.kind === "companyPeriodPacket") categories.add("companyRecords");
     if (stack?.key === "licensedDisposalManifest" || stack?.evidenceDocument?.kind === "disposalManifest") categories.add("disposalManifest");
     if (stack?.form === "waste" || stack?.key === "waste" || tags.has("waste")) categories.add("wasteMaterial");
     if (stack?.section === "chemicalBatches") categories.add("chemicalProduct");
@@ -12090,6 +12098,7 @@
           job.sampleStackId = receivedStack.id; job.receivedAt = state.clock;
           if (LocalServices.active(job)) job.status = "awaitingAssay";
           const diagnostics = ensureDiagnosticState();
+          receivedStack.tags = [...new Set([...receivedStack.tags, "sealed"])];
           diagnostics.samples.push(Diagnostics.normalizeSample({ id: `diagnostic-sample-${diagnostics.nextSampleNumber++}`,
             stackId: receivedStack.id, methodId: "industrialBatchPortion", targetKind: "industrialService", targetId: job.id,
             targetLabel: `${state.localServices.client.organization} captured ${job.sourceGood} batch`, cell: receivedStack.cell,
@@ -13487,6 +13496,56 @@
           access: surfaceWorkerGateCell() && state.surfaceWorkers ? actorAccessCellBlockReason(state.surfaceWorkers.actor, surfaceWorkerGateCell()) : "",
           hazard: surfaceWorkerGateCell() ? surfaceWorkerHazard(surfaceWorkerGateCell()) : "No cell" } }),
       surfaceWorkerAction: (action, options = {}) => surfaceWorkerAction(action, options),
+      laboratoryAssistantSnapshot: () => clonePlainObject({ saved: state.laboratoryAssistant, known: state.laboratoryAssistantKnowledge,
+        porter: state.surfaceWorkers, money: ensureEconomy().money, clock: state.clock, route: surfaceWorkerRoute(),
+        scientist: { cell: scientistMapCell(), roomId: scientistRoomId(), skills: state.scientist.skills, vitals: state.scientist.vitals },
+        tasks: state.tasks, stacks: ensurePhysicalItemStacks(), diagnostics: ensureDiagnosticState(), research: ensureResearchState(), injuries: state.injuries,
+        tools: toolInstancesForItem("assayCase"), bench: fixtureById("starter-workbench"),
+        evidence: ensureInvestigativeEvidence().records.filter(e => e.origin.kind === "diagnosticResult") }),
+      laboratoryAssistantAction: (action, options = {}) => laboratoryAssistantAction(action, options),
+      laboratoryAssistantCombatForTest: (amount) => { const actor = state.laboratoryAssistant.actor;
+        const result = resolveSharedCombatAction("scientist", "strike", { kind: "creature", id: actor.id, lastKnownCell: actor.mapCell }, { baseDamage: amount });
+        updateLaboratoryAssistant(); persist(); render(); return result; },
+      advanceLaboratoryAssistantForTest: (seconds) => { state.clock += seconds; updateLaboratoryAssistant(); persist(); render(); },
+      configureLaboratoryAssistantTestSupport: () => {
+        ensureEconomy().money = 1000;
+        for (const roomId of ASSISTANT_ROOMS) for (const cell of ensureLabMap().rooms[roomId]?.cells || []) {
+          const env = tileEnvironmentAtCell(cell); if (env) { env.temperatureC = 20; env.airborne = {}; }
+        }
+        const cell = nearestOpenMapCellInRoom(SURFACE_LOADING_ROOM_ID, labMapRoomAnchor(SURFACE_LOADING_ROOM_ID));
+        const tool = toolInstancesForItem("assayCase")[0], reagent = ensurePhysicalItemStacks().find(s => s.key === "assayReagent" && !s.reservedTaskId && !s.carriedBy);
+        const toolStack = ensurePhysicalItemStacks().find(s => s.key === "assayCase" && !s.carriedBy && !s.reservedTaskId);
+        if (!tool || !toolStack || !reagent) return false;
+        for (const stack of [reagent, toolStack]) { stack.roomId = SURFACE_LOADING_ROOM_ID; stack.cell = cell; stack.fixtureId = ""; stack.stockpileId = ""; stack.containerId = ""; }
+        toolStack.toolInstanceId = tool.id; tool.roomId = SURFACE_LOADING_ROOM_ID; tool.carriedBy = "";
+        diagnosticInstrumentRecord(tool.id).calibration = 90;
+        const stack = createPhysicalItemStack("inventory", "diagnosticSample", 1, { roomId: SURFACE_LOADING_ROOM_ID, cell }, {
+          tags: ["sealed"], sourceLabels: ["Explicit sealed nonliving air sample test endowment"]
+        });
+        const diagnostics = ensureDiagnosticState();
+        diagnostics.samples.push(Diagnostics.normalizeSample({ id: `diagnostic-sample-${diagnostics.nextSampleNumber++}`, stackId: stack.id,
+          methodId: "airVial", targetKind: "tile", targetId: mapCellKey(cell), targetLabel: "Test sealed air portion", cell,
+          collectedAt: state.clock, captured: { environment: { airborne: { chemicalVapor: 2 } } } }));
+        syncPhysicalReadModels(); persist(); render(); return stack.id;
+      },
+      setLaboratoryAssistantForTest: (options = {}) => {
+        const s = state.laboratoryAssistant, a = s?.actor; if (!a) return false;
+        if (options.nearby && a.present || options.nearRecord) {
+          const packet = options.nearRecord && ensurePhysicalItemStacks().find(item => item.id === options.nearRecord);
+          const point = packet?.cell || a.mapCell, roomId = packet?.roomId || a.roomId;
+          const cell = cardinalMapCells(point).find(c => labMapCellRoomId(c) === roomId && labMapCellIsWalkable(c, ensureLabMap()) && !labMapDoorAtCell(c));
+          state.scientist.mapCell = cleanMapCell(cell || point); state.scientist.roomId = roomId;
+        }
+        if (options.away != null) { state.surveyExpeditions.phase = options.away ? "outbound" : "home";
+          if (options.away) { state.surveyExpeditions.destination = { id: "technician-test", cityId: a.cityId, label: "Municipal survey", cellId: "cell:1" }; state.surveyExpeditions.departedAt = state.clock; } }
+        if (options.toolCondition != null) toolInstanceById(s.orders.at(-1)?.instrumentInstanceId)?.instance && (toolInstanceById(s.orders.at(-1).instrumentInstanceId).instance.current = options.toolCondition);
+        if (options.blockRoom || options.clearBlock) {
+          const access = ensureAccessControl(), profile = accessProfileForActor(a);
+          access.areas = access.areas.filter(area => area.id !== "technician-test-block"); profile.areaIds = profile.areaIds.filter(id => id !== "technician-test-block");
+          if (ASSISTANT_ROOMS.includes(options.blockRoom)) { access.areas.push({ id: "technician-test-block", name: "Technician Test Block", kind: "forbidden", emergencyOnly: false, cells: clonePlainObject(ensureLabMap().rooms[options.blockRoom].cells) }); profile.areaIds.push("technician-test-block"); }
+        }
+        persist(); render(); return true;
+      },
       surfaceWorkerCombatForTest: (amount) => { const actor = state.surfaceWorkers.actor;
         const result = resolveSharedCombatAction("scientist", "strike", { kind: "creature", id: actor.id, lastKnownCell: actor.mapCell }, { baseDamage: amount });
         updateSurfaceWorkers(); persist(); render(); return result; },
@@ -21633,6 +21692,7 @@
     changes.combatChanged += livingUpdate(() => updateWildernessBeasts(elapsed));
     changes.combatChanged += livingUpdate(() => updateExpeditionEscort(elapsed));
     changes.scientistMovementChanged += livingUpdate(() => updateSurfaceWorkers());
+    changes.scientistMovementChanged += livingUpdate(() => updateLaboratoryAssistant());
     changes.scientistMovementChanged += livingUpdate(() => updateMedicalExtraction(elapsed));
     changes.scientistMovementChanged += livingUpdate(() => updateMunicipalClinic());
     changes.scientistMovementChanged += livingUpdate(() => updateScientistIdentity());
@@ -22256,6 +22316,8 @@
     if (escort?.id === injury.actorId) return { actor: escort, label: escort.name, cell: cleanMapCell(escort.mapCell), roomId: escort.roomId };
     const worker = state.surfaceWorkers?.actor;
     if (worker?.present && worker.id === injury.actorId) return { actor: worker, label: worker.name, cell: cleanMapCell(worker.mapCell), roomId: worker.roomId };
+    const assistant = state.laboratoryAssistant?.actor;
+    if (assistant?.present && assistant.id === injury.actorId) return { actor: assistant, label: assistant.name, cell: cleanMapCell(assistant.mapCell), roomId: assistant.roomId };
     const medic = state.medicalExtraction?.medic;
     if (medic?.id === injury.actorId) return { actor: medic, label: medic.name, cell: cleanMapCell(medic.mapCell), roomId: medic.roomId };
     const slime = findSlime(injury.actorId);
@@ -22334,7 +22396,7 @@
     const target = injuryTreatmentTarget(injury);
     if (mode === "treat" && target?.actor === state.scientist) scientistVital("health").current = clamp(scientistVital("health").current + 4, 0, scientistVital("health").max);
     if (mode === "treat" && target?.actor && target.actor !== state.scientist) {
-      if (target.actor.actorKind === "surfaceWorker") target.actor.health = Math.min(target.actor.maxHealth, target.actor.health + 4);
+      if (["surfaceWorker", "laboratoryAssistant"].includes(target.actor.actorKind)) target.actor.health = Math.min(target.actor.maxHealth, target.actor.health + 4);
       else adjustSlimeStat(target.actor, "bodyIntegrity", 4);
     }
     addEvent(`${task.label} complete. ${mode === "examine" ? "The injury is now diagnosed." : mode === "stabilize" ? "Progressive harm has been stopped." : "Recovery has begun."}`);
@@ -31578,6 +31640,7 @@
     if (id === "scientist") return context?.scientist || null;
     if (context?.expeditionEscorts?.actor?.id === id) return context.expeditionEscorts.actor;
     if (context?.surfaceWorkers?.actor?.id === id) return context.surfaceWorkers.actor;
+    if (context?.laboratoryAssistant?.actor?.id === id) return context.laboratoryAssistant.actor;
     if (context?.medicalExtraction?.medic?.id === id) return context.medicalExtraction.medic;
     if (context?.penalFlights?.actors?.some(a => a.id === id)) return context.penalFlights.actors.find(a => a.id === id);
     return (context?.slimes || []).find((slime) => slime.id === id && slime.status !== "dead")
@@ -31613,6 +31676,7 @@
       { id: "scientist", actor: context.scientist },
       ...(context.expeditionEscorts?.actor ? [{ id: context.expeditionEscorts.actor.id, actor: context.expeditionEscorts.actor }] : []),
       ...(context.surfaceWorkers?.actor ? [{ id: context.surfaceWorkers.actor.id, actor: context.surfaceWorkers.actor }] : []),
+      ...(context.laboratoryAssistant?.actor ? [{ id: context.laboratoryAssistant.actor.id, actor: context.laboratoryAssistant.actor }] : []),
       ...(context.medicalExtraction?.medic ? [{ id: context.medicalExtraction.medic.id, actor: context.medicalExtraction.medic }] : []),
       ...(context.penalFlights?.actors || []).map(actor => ({ id: actor.id, actor })),
       ...(context.slimes || []).map((slime) => ({ id: slime.id, actor: slime })),
@@ -31691,7 +31755,7 @@
   }
 
   function actorInventoryUsage(actorId) {
-    const pack = state.surfaceWorkers?.actor.id === actorId ? state.surfaceWorkers.actor : null;
+    const pack = [state.surfaceWorkers?.actor, state.laboratoryAssistant?.actor].find(a => a?.id === actorId);
     return actorInventoryStacks(actorId).reduce((usage, stack) => {
       usage.massKg += Math.max(0, Number(stack.quantity) || 0) * Math.max(0, Number(stack.unitMassKg) || 0);
       usage.volumeL += Math.max(0, Number(stack.quantity) || 0) * Math.max(0, Number(stack.unitVolumeL) || 0);
@@ -35017,7 +35081,7 @@
 
   function actorFloorLoadM2(actor) {
     if (!actor) return 0;
-    if (actor.actorKind === "surfaceWorker") return .6;
+    if (["surfaceWorker", "laboratoryAssistant"].includes(actor.actorKind)) return .6;
     if (["expeditionEscort", "rescueMedic", "municipalClinician", "penalPrisoner"].includes(actor.actorKind)) return .6;
     if (actor.actorKind === "wildernessBeast") return 1;
     if (actor === state.scientist || actor.physicalPresence) {
@@ -35035,6 +35099,8 @@
     if (escort && escort.id !== excludeActor?.id && mapCellKey(escort.mapCell) === key) occupied += .6;
     const worker = state.surfaceWorkers?.actor;
     if (worker?.present && worker.id !== excludeActor?.id && mapCellKey(worker.mapCell) === key) occupied += .6;
+    const assistant = state.laboratoryAssistant?.actor;
+    if (assistant?.present && assistant.id !== excludeActor?.id && mapCellKey(assistant.mapCell) === key) occupied += .6;
     const medic = state.medicalExtraction?.medic;
     if (medic && medic.id !== excludeActor?.id && mapCellKey(medic.mapCell) === key) occupied += .6;
     const clinician = state.medicalExtraction?.clinic?.clinician;
@@ -35127,7 +35193,7 @@
   }
 
   function navigationFootprintForActor(actor) {
-    if (actor?.actorKind === "surfaceWorker") return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
+    if (["surfaceWorker", "laboratoryAssistant"].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (["expeditionEscort", "rescueMedic", "penalPrisoner"].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (actor?.actorKind === "wildernessBeast") return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: 1, exclusive: true });
     const loadM2 = clamp(actorFloorLoadM2(actor), 0.015, MAP_TILE_AREA_M2);
@@ -38563,6 +38629,7 @@
 
   function combatActor(actorId) {
     if (state.surfaceWorkers?.actor?.id === actorId) return state.surfaceWorkers.actor;
+    if (state.laboratoryAssistant?.actor?.id === actorId) return state.laboratoryAssistant.actor;
     return actorId === "scientist" ? state.scientist : findSlime(actorId) || wildernessBeast(actorId) || (state.expeditionEscorts?.actor?.id === actorId ? state.expeditionEscorts.actor : null) || (state.medicalExtraction?.medic?.id === actorId ? state.medicalExtraction.medic : null) || state.penalFlights?.actors.find(a => a.id === actorId);
   }
 
@@ -38574,7 +38641,7 @@
   }
 
   function combatActorSkillLevel(actor, skillId) {
-    if (actor?.actorKind === "surfaceWorker") return actor.skills[skillId] || 1;
+    if (["surfaceWorker", "laboratoryAssistant"].includes(actor?.actorKind)) return actor.skills[skillId] || 1;
     if (["expeditionEscort", "rescueMedic", "penalPrisoner"].includes(actor?.actorKind)) return actor.skills[skillId] || 1;
     if (actor?.actorKind === "wildernessBeast") return ["evasion", "perception", "brawling"].includes(skillId) ? 5 : 1;
     return actor === state.scientist || actor?.physicalPresence
@@ -38583,7 +38650,7 @@
   }
 
   function combatActorVitalPercent(actor, key) {
-    if (actor?.actorKind === "surfaceWorker") return actor.health / actor.maxHealth * 100;
+    if (["surfaceWorker", "laboratoryAssistant"].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
     if (["expeditionEscort", "rescueMedic", "penalPrisoner"].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
     if (actor?.actorKind === "wildernessBeast") return actor.health / actor.maxHealth * 100;
     if (actor === state.scientist || actor?.physicalPresence) {
@@ -38716,7 +38783,7 @@
 
   function normalizeInjury(candidate, index = 0) {
     if (!candidate || typeof candidate !== "object") return null;
-    const actorKind = ["scientist", "wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker"].includes(candidate.actorKind) ? candidate.actorKind : "slime";
+    const actorKind = ["scientist", "wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant"].includes(candidate.actorKind) ? candidate.actorKind : "slime";
     const actorId = actorKind === "scientist" ? "scientist" : String(candidate.actorId || "");
     const typeId = INJURY_TYPE_DEFS[candidate.typeId] ? candidate.typeId : "bruising";
     const severityId = INJURY_SEVERITY_DEFS[candidate.severityId] ? candidate.severityId : "minor";
@@ -38773,7 +38840,7 @@
     if (tags.has("heat") || tags.has("cold") || tags.has("radiant")) return "burn";
     if (tags.has("electrical")) return "electricalTrauma";
     if (tags.has("arcane") || tags.has("shadow")) return "arcaneTrauma";
-    if (["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker"].includes(actor?.actorKind)) return amount >= 8 ? "bleeding" : "bruising";
+    if (["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant"].includes(actor?.actorKind)) return amount >= 8 ? "bleeding" : "bruising";
     if (actor !== state.scientist && location === "core") return "coreTrauma";
     if (actor !== state.scientist && (location === "membrane" || amount >= 10)) return "membraneTear";
     if (actor === state.scientist && amount >= 13 && tags.has("physical")) return "fracture";
@@ -38786,7 +38853,7 @@
     state.injuries = normalizeInjuries(state.injuries);
     const scientist = actor === state.scientist || actor?.physicalPresence;
     const actorId = scientist ? "scientist" : actor.id;
-    const locations = scientist || ["expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker"].includes(actor.actorKind) ? SCIENTIST_INJURY_LOCATIONS : actor.actorKind === "wildernessBeast" ? ["head", "torso", "left leg", "right leg"] : slimeInjuryLocations(actor);
+    const locations = scientist || ["expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant"].includes(actor.actorKind) ? SCIENTIST_INJURY_LOCATIONS : actor.actorKind === "wildernessBeast" ? ["head", "torso", "left leg", "right leg"] : slimeInjuryLocations(actor);
     const rng = seedRng(`${state.seed}:injury:${actorId}:${state.combat?.nextActionNumber || 0}:${Math.round(state.clock)}:${damageTypes.join(":")}`);
     const location = options.location || locations[Math.floor(rng() * locations.length)] || (scientist ? "torso" : "body mass");
     const typeId = injuryTypeForDamage(actor, damageTypes, amount, location);
@@ -38804,7 +38871,7 @@
     const visible = INJURY_TYPE_DEFS[typeId].visible;
     const observed = scientist || visible || options.observed;
     const injury = normalizeInjury({
-      id: `injury-${state.nextInjuryNumber++}`, actorKind: scientist ? "scientist" : ["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker"].includes(actor.actorKind) ? actor.actorKind : "slime", actorId,
+      id: `injury-${state.nextInjuryNumber++}`, actorKind: scientist ? "scientist" : ["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant"].includes(actor.actorKind) ? actor.actorKind : "slime", actorId,
       typeId, severityId, location, status: "active", cause, damageTypes,
       createdAt: state.clock, updatedAt: state.clock, observedAt: observed ? state.clock : null
     }, state.nextInjuryNumber);
@@ -38813,6 +38880,7 @@
     if (actor.actorKind === "rescueMedic" && !rescueMedicObserved()) return injury;
     if (actor.actorKind === "penalPrisoner" && !penalActorObserved(actor)) return injury;
     if (actor.actorKind === "surfaceWorker" && !surfaceWorkerObserved()) return injury;
+    if (actor.actorKind === "laboratoryAssistant" && !laboratoryAssistantNearby(true)) return injury;
     addEvent(scientist || visible
       ? `${scientist ? "Scientist" : actor.name} suffered ${INJURY_SEVERITY_DEFS[severityId].label.toLowerCase()} ${INJURY_TYPE_DEFS[typeId].label.toLowerCase()} at the ${location}.`
       : `${actor.name} is showing uncertain symptoms of internal trauma; examination is required.`);
@@ -38872,6 +38940,7 @@
       else if (actor.actorKind === "rescueMedic") damageRescueMedic(damage, { injuryProgress: true });
       else if (actor.actorKind === "penalPrisoner") damagePenalPrisoner(actor, damage, { injuryProgress: true });
       else if (actor.actorKind === "surfaceWorker") damageSurfaceWorker(damage, { injuryProgress: true });
+      else if (actor.actorKind === "laboratoryAssistant") damageSurfaceWorker(damage, { injuryProgress: true }, actor);
       else {
         applySlimeCombatDamage(actor, damage, "injury", `${INJURY_TYPE_DEFS[injury.typeId].label} progression`, { injuryProgress: true });
         if (injury.typeId === "membraneTear") adjustRoomAttribute(slimeEffectiveRoomId(actor), "contamination", damage * 0.25);
@@ -38882,7 +38951,7 @@
   }
 
   function awardCombatActionXp(actor, skillId, amount, reason, outcome) {
-    if (["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker"].includes(actor?.actorKind)) return;
+    if (["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant"].includes(actor?.actorKind)) return;
     if (actor === state.scientist || actor?.physicalPresence) {
       awardXp(skillId, amount * skillXpOutcomeMultiplier(outcome), reason);
       return;
@@ -38929,7 +38998,7 @@
         coalesceKey: "miss:" + actorId + ":" + target.id
       });
       awardCombatActionXp(actor, action.skillId, options.xp || 4, action.label, "failure");
-      if (targetActor !== state.scientist && !["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker"].includes(targetActor.actorKind)) awardCreatureSkillXp(targetActor, "evasion", 3, `evading ${action.label.toLowerCase()}`);
+      if (targetActor !== state.scientist && !["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant"].includes(targetActor.actorKind)) awardCreatureSkillXp(targetActor, "evasion", 3, `evading ${action.label.toLowerCase()}`);
       return { ok: true, hit: false, damage: 0, accuracy };
     }
     const targetId = targetActor === state.scientist ? "scientist" : targetActor.id;
@@ -38941,6 +39010,7 @@
       : targetActor.actorKind === "rescueMedic" ? damageRescueMedic(guardedDamage, { damageTypes: action.damageTypes })
       : targetActor.actorKind === "penalPrisoner" ? damagePenalPrisoner(targetActor, guardedDamage, { damageTypes: action.damageTypes })
       : targetActor.actorKind === "surfaceWorker" ? damageSurfaceWorker(guardedDamage, { damageTypes: action.damageTypes })
+      : targetActor.actorKind === "laboratoryAssistant" ? damageSurfaceWorker(guardedDamage, { damageTypes: action.damageTypes }, targetActor)
       : applySlimeCombatDamage(targetActor, guardedDamage, actorId, action.label, { damageTypes: action.damageTypes, observed: actor === state.scientist });
     if (changed && !options.hideFeedback) {
       emitMapFeedback("feedbackImpact", combatActorCell(targetActor), {
@@ -62708,12 +62778,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   const WORKER_SURFACE_ROOMS = [SURFACE_FACILITY_ROOM_ID, SURFACE_RECEPTION_ROOM_ID, SURFACE_STAFF_ROOM_ID, SURFACE_LOADING_ROOM_ID];
 
-  function damageSurfaceWorker(amount, options = {}) {
-    const actor = state.surfaceWorkers?.actor;
+  function damageSurfaceWorker(amount, options = {}, actor = state.surfaceWorkers?.actor) {
     if (!actor?.present || actor.status === "dead" || amount <= 0) return false;
     const damage = Math.max(1, Math.round(amount));
     actor.health = Math.max(0, actor.health - damage);
-    if (!options.injuryProgress) recordCombatInjury(actor, damage, options.damageTypes || ["physical"], "Surface worker trauma", { observed: surfaceWorkerObserved() });
+    if (!options.injuryProgress) recordCombatInjury(actor, damage, options.damageTypes || ["physical"], "Employee trauma", { observed: actor.actorKind === "laboratoryAssistant" ? laboratoryAssistantNearby(true) : surfaceWorkerObserved() });
     if (!actor.health) { actor.status = "dead"; actor.diedAt = state.clock; }
     markStateDirty(); return true;
   }
@@ -62763,14 +62832,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function surfaceWorkerPath(actor, target, load = null) {
-    if (!target || target.z !== LAB_MAP_DEFAULT_SURFACE_Z) return { found: false, reason: "No underground or off-site access is authorized." };
+    const assistant = actor.actorKind === "laboratoryAssistant";
+    const rooms = assistant ? state.laboratoryAssistant?.contract?.disclosure?.roomIds || [SURFACE_LOADING_ROOM_ID] : WORKER_SURFACE_ROOMS;
+    if (!target || !assistant && target.z !== LAB_MAP_DEFAULT_SURFACE_Z) return { found: false, reason: "No underground or off-site access is authorized." };
+    const accessReason = actorAccessCellBlockReason(actor, target);
+    if (accessReason) return { found: false, reason: accessReason };
     const plan = labNavigationPlanBetweenCells(actor.mapCell, target, { actor, ignoreDoors: true, carriedLoad: load });
     if (plan.found && plan.path.some(cell => {
       const door = labMapDoorAtCell(cell);
-      return cell.z !== LAB_MAP_DEFAULT_SURFACE_Z || !(WORKER_SURFACE_ROOMS.includes(labMapCellRoomId(cell))
-        || door?.roomIds.length && door.roomIds.every(roomId => WORKER_SURFACE_ROOMS.includes(roomId)));
+      return !assistant && cell.z !== LAB_MAP_DEFAULT_SURFACE_Z || !(rooms.includes(labMapCellRoomId(cell))
+        || door?.roomIds.length && door.roomIds.every(roomId => rooms.includes(roomId)));
     }))
-      return { found: false, reason: "The route crosses a room outside the surface employment agreement." };
+      return { found: false, reason: "The route crosses a room outside the employment agreement." };
     return plan;
   }
 
@@ -62787,13 +62860,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       actor.mapCell = cleanMapCell(next); actor.roomId = labMapCellRoomId(next) || actor.roomId;
       applyDoorTransitPolicy([{ key: mapDoor.id, previousState, fromRoomId: labMapCellRoomId(plan.path[0]), toRoomId: actor.roomId }], actor.name);
     } else { actor.mapCell = cleanMapCell(next); actor.roomId = labMapCellRoomId(next) || actor.roomId; }
-    if (!actor.observations.some(o => o.roomId === actor.roomId)) actor.observations.push({ roomId: actor.roomId, at: state.surfaceWorkers.lastAt });
+    if (!actor.observations.some(o => o.roomId === actor.roomId)) actor.observations.push({ roomId: actor.roomId, at: (actor.actorKind === "laboratoryAssistant" ? state.laboratoryAssistant : state.surfaceWorkers).lastAt });
     syncActorInventories();
     return { done: false };
   }
 
-  function surfaceWorkerHooks() {
-    const saved = state.surfaceWorkers, a = saved?.actor;
+  function surfaceWorkerHooks(saved = state.surfaceWorkers) {
+    const a = saved?.actor;
     const release = order => {
       if (order.carriedStackId) dropActorInventoryStack(a.id, order.carriedStackId, { roomId: a.roomId, cell: a.mapCell });
       order.carriedStackId = "";
@@ -62947,6 +63020,312 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const entry of known.history.slice(-6).reverse()) section.append(textEl("p", `${formatClock(entry.at)} — ${entry.summary}`, "journal-meta"));
   }
 
+  const ASSISTANT_ROOMS = [SURFACE_LOADING_ROOM_ID, SURFACE_STAFF_ROOM_ID, SURFACE_BASEMENT_ROOM_ID, STORAGE_ROOM_ID, MAIN_ROOM_ID];
+
+  function ensureLaboratoryAssistant() {
+    if (!state.laboratoryAssistant && campaignLocalKnowledgeAvailable() && roomById(SURFACE_LOADING_ROOM_ID)) {
+      const route = surfaceWorkerRoute(), context = localCovertContext();
+      state.laboratoryAssistant = LaboratoryAssistant.create(state.seed, { id: route.cityId, name: context.cityName,
+        supported: route.ok && route.municipal && route.distanceKm <= 5 }, activeWorldRecord?.worldTheme || state.worldTheme || "madcap", state.clock);
+      if (state.laboratoryAssistant) state.laboratoryAssistantKnowledge = LaboratoryAssistant.publicView(state.laboratoryAssistant, state.clock);
+    }
+    return state.laboratoryAssistant;
+  }
+
+  function laboratoryAssistantNearby(observeOnly = false) {
+    const a = state.laboratoryAssistant?.actor;
+    return Boolean(campaignLocalKnowledgeAvailable() && !actorIsIncapacitated("scientist") && a?.present
+      && a.mapCell?.z === scientistMapCell().z && mapCellDistance(a.mapCell, scientistMapCell()) <= 8 && sensoryLineOfSight(scientistMapCell(), a.mapCell)
+      && (observeOnly || a.status !== "dead" && !actorIsIncapacitated(a)));
+  }
+
+  function laboratoryAssistantDisclosure() {
+    const bench = researchWorkstations().find(f => labMapCellRoomId(f.origin) === MAIN_ROOM_ID);
+    return { underground: true, benchId: bench?.id || "", workspaceRoomId: MAIN_ROOM_ID, roomIds: [...ASSISTANT_ROOMS],
+      sampleCategories: [...LaboratoryAssistant.CATEGORIES], noLivingWork: true, confidentialityRequested: true,
+      hazards: ["Research specimens are kept in this laboratory. No handling of living creatures or biological samples is agreed.",
+        "No protective equipment is provided. Visible loose specimens, unsafe air, heat or cold require withdrawal; sealed samples must remain sealed."],
+      purpose: "One sealed nonliving sample assay at the selected underground bench; no other research or access promised." };
+  }
+
+  function installLaboratoryAssistantAccess() {
+    const s = state.laboratoryAssistant, access = ensureAccessControl(), map = ensureLabMap();
+    if (access.assignments[s.actor.id]) return;
+    const cells = s.contract.disclosure.roomIds.flatMap(id => map.rooms[id]?.cells || []);
+    for (const door of Object.values(map.doors || {})) if (door.roomIds?.length && door.roomIds.every(id => s.contract.disclosure.roomIds.includes(id))) cells.push(...(door.cells || [door.cell]));
+    access.areas.push({ id: "laboratory-assistant-area", name: "Technician agreed laboratory passage", kind: "allowed", emergencyOnly: false, cells });
+    access.profiles.push({ id: "laboratory-assistant-profile", name: "Assay technician", actorIds: [s.actor.id], areaIds: ["laboratory-assistant-area"], doorAccessRuleIds: ["staff", "restricted", "exterior"] });
+    access.assignments[s.actor.id] = "laboratory-assistant-profile";
+  }
+
+  function laboratoryAssistantStackCell(stack) {
+    if (!stack || stack.carriedBy || stack.containerId) return null;
+    const fixture = stack.fixtureId && fixtureById(stack.fixtureId);
+    if (fixture && fixture.accessState !== "open") return null;
+    return stockpileHaulAccessCell(stack);
+  }
+
+  function laboratoryAssistantAssayPlan(stackId) {
+    const s = state.laboratoryAssistant, a = s?.actor, disclosure = s?.contract?.disclosure;
+    const stack = ensurePhysicalItemStacks().find(item => item.id === stackId), sample = diagnosticSampleByStackId(stackId);
+    if (!a?.present || !LaboratoryAssistant.eligible(sample, stack)) return { ok: false, reason: "Stage an available sealed nonliving sample; carried, claimed, open or biological samples are outside this agreement." };
+    const bench = fixtureById(disclosure.benchId);
+    if (!researchWorkstations().some(f => f.id === bench?.id) || state.tasks.some(t => t.data?.workstationId === bench.id)) return { ok: false, reason: "The exact disclosed bench is unavailable or already claimed." };
+    const benchCell = fixtureAccessCells(bench).map(p => p.cell).find(cell => surfaceWorkerPath(a, cell).found);
+    const tool = toolInstancesForItem("assayCase").find(t => t.current > 0 && !t.carriedBy && !t.reservedTaskId
+      && ensurePhysicalItemStacks().some(item => item.toolInstanceId === t.id && !item.reservedTaskId
+        && laboratoryAssistantStackCell(item) && surfaceWorkerPath(a, laboratoryAssistantStackCell(item)).found));
+    const toolStack = tool && ensurePhysicalItemStacks().find(item => item.toolInstanceId === tool.id && !item.carriedBy && !item.reservedTaskId);
+    const reagent = ensurePhysicalItemStacks().find(item => item.key === "assayReagent" && item.quantity >= 1 && !item.reservedTaskId
+      && laboratoryAssistantStackCell(item) && surfaceWorkerPath(a, laboratoryAssistantStackCell(item)).found);
+    const inputs = [stack, reagent, toolStack];
+    if (!benchCell || inputs.some(item => !item || !laboratoryAssistantStackCell(item)
+      || !surfaceWorkerPath(a, laboratoryAssistantStackCell(item)).found)) return { ok: false, reason: "Stage an actual usable unclaimed Assay Case, one reagent and the sample in accessible agreed rooms; open their storage. The disclosed bench must be reachable." };
+    const remaining = actorInventorySnapshot(a.id).remaining;
+    if (inputs.reduce((n, item) => n + item.unitMassKg, 0) > remaining.massKg || inputs.reduce((n, item) => n + item.unitVolumeL, 0) > remaining.volumeL) return { ok: false, reason: "The technician cannot carry this sample, reagent and instrument with the actual personal pack." };
+    return { ok: true, stack, sample, benchId: bench.id, benchCell, instrumentInstanceId: tool.id, inputs };
+  }
+
+  function reserveLaboratoryAssay(plan, id) {
+    const bench = fixtureById(plan.benchId), tool = toolInstanceById(plan.instrumentInstanceId)?.instance;
+    if (!bench || bench.productionTaskId || state.tasks.some(t => t.data?.workstationId === bench.id) || !tool || tool.reservedTaskId || tool.carriedBy
+      || plan.inputs.some(item => !ensurePhysicalItemStacks().includes(item) || item.reservedTaskId || item.carriedBy || item.quantity < 1)) return null;
+    const reservations = plan.inputs.map(item => ({ stackId: item.id, key: item.key, quantity: 1 }));
+    if (!reserveProductionMaterialSlices(reservations, id)) return null;
+    bench.productionTaskId = id; tool.reservedTaskId = id;
+    return reservations.map((r, index) => ({ ...r, kind: index === 2 ? "instrument" : "input" }));
+  }
+
+  function releaseLaboratoryAssay(order) {
+    const a = state.laboratoryAssistant.actor;
+    for (const stack of actorInventoryStacks(a.id).filter(item => item.carryTaskId === order.id))
+      dropActorInventoryStack(a.id, stack.id, { roomId: a.roomId, cell: a.mapCell });
+    for (const stack of ensurePhysicalItemStacks()) if (stack.reservedTaskId === order.id) stack.reservedTaskId = "";
+    const bench = fixtureById(order.benchId), tool = toolInstanceById(order.instrumentInstanceId)?.instance;
+    if (bench?.productionTaskId === order.id) bench.productionTaskId = "";
+    if (tool?.reservedTaskId === order.id) tool.reservedTaskId = "";
+    syncActorInventories(); syncPhysicalReadModels();
+  }
+
+  function laboratoryAssistantCarriedLoad(actor) {
+    const load = actorInventorySnapshot(actor.id).usage;
+    const carried = actorInventoryStacks(actor.id).map(item => physicalStackCarriedLoad(item, item.quantity));
+    return { massKg: load.massKg, volumeL: load.volumeL,
+      widthM: Math.max(0.05, ...carried.map(item => Math.max(item.widthM, item.lengthM))),
+      heightM: Math.max(0.05, ...carried.map(item => item.heightM)) };
+  }
+
+  function laboratoryAssistantAssayStep(actor, order) {
+    const bench = fixtureById(order.benchId), tool = toolInstanceById(order.instrumentInstanceId)?.instance;
+    if (!bench || bench.productionTaskId !== order.id || bench.condition <= 0 || bench.operationalState !== "operational") return { reason: "The original reserved workbench is damaged, disabled or unavailable; actual work remains unfinished." };
+    if (!tool || tool.current <= 0 || tool.reservedTaskId !== order.id) return { reason: "The original instrument is broken or unavailable; no replacement is invented." };
+    const sampleStack = ensurePhysicalItemStacks().find(item => item.id === order.pickups[0].stackId), sample = diagnosticSampleByStackId(order.pickups[0].stackId);
+    if (!sample || !sampleStack) return { reason: "The original physical sample was lost; no result can be produced." };
+    if (!LaboratoryAssistant.eligible(sample, { ...sampleStack, carriedBy: "" }, order.id)) return { reason: "The sample is no longer a sealed nonliving portion covered by the agreement.", withdraw: true };
+    if (order.stage === "collect") {
+      const pickup = order.pickups[order.pickupIndex];
+      if (!pickup) { order.stage = "bench"; return {}; }
+      const stack = ensurePhysicalItemStacks().find(item => item.id === pickup.stackId);
+      if (!stack || stack.reservedTaskId !== order.id || stack.carriedBy && stack.carriedBy !== actor.id) return { reason: "An exact reserved supply has disappeared or changed custody." };
+      const cell = laboratoryAssistantStackCell(stack); if (!cell) return { reason: "The reserved supply's physical storage is closed, locked or inaccessible." };
+      const moved = surfaceWorkerMove(actor, cell, laboratoryAssistantCarriedLoad(actor)); if (!moved.done) return moved;
+      const carried = carryPhysicalStack(actor.id, stack.id, 1, { allowReserved: true, carryTaskId: order.id });
+      if (!carried) return { reason: "Actual carrying capacity or pickup no longer permits this supply." };
+      carried.reservedTaskId = order.id; order.carriedStackIds.push(carried.id); order.pickupIndex++;
+      return {};
+    }
+    if (order.pickups.some(p => !actorInventoryStacks(actor.id).some(item => item.id === p.stackId && item.reservedTaskId === order.id))) return { reason: "The technician no longer possesses all reserved samples, supplies and instrument." };
+    const moved = surfaceWorkerMove(actor, order.benchCell, laboratoryAssistantCarriedLoad(actor));
+    if (!moved.done) return moved;
+    // Administrative access changes also bind stationary work, not only travel.
+    const accessReason = actorAccessCellBlockReason(actor, actor.mapCell); if (accessReason) return { reason: accessReason };
+    order.stage = "work"; order.workSeconds += SurfaceWorkers.STEP;
+    if (order.workSeconds < order.requiredSeconds) return {};
+    const result = LaboratoryAssistant.assess(sample, actor, tool, diagnosticInstrumentRecord(tool.id), state.laboratoryAssistant.lastAt);
+    if (!result) return { reason: "This exact sample cannot be assessed under the agreed protocol." };
+    const packet = createPhysicalItemStack("inventory", "assistantReportPacket", 1, { roomId: actor.roomId, cell: actor.mapCell }, {
+      tags: ["documentary", "analytical-record"], sourceLabels: [`${actor.name}: ${order.id}`],
+      evidenceDocument: { kind: "technicianAnalyticalReport", packetId: order.id, manifestId: result.id }, suppressEvidence: true
+    });
+    if (!packet) return { reason: "The physical report could not be created; inputs remain in custody." };
+    order.result = result; order.reportStackId = packet.id; order.sampleRecord = clonePlainObject(sample);
+    order.assayInstrument = { id: tool.id, instrumentId: "assayCase", calibration: diagnosticInstrumentRecord(tool.id).calibration,
+      condition: tool.current / Math.max(1, tool.max) * 100, skillId: "alchemy", skillLevel: actor.skills.alchemy, confidenceScore: result.confidenceScore };
+    recordInvestigativeEvidence("confidentialAnalyticalRecord", {
+      category: "documentary", label: `Technician assay of ${sample.targetLabel}`, significance: "minor",
+      subject: { kind: "physicalStack", id: packet.id }, origin: { kind: "diagnosticResult", id: result.id, label: "Local technician analytical record" },
+      locus: { kind: "mapCell", roomId: actor.roomId, cell: actor.mapCell, label: "Physical analytical record; not submitted externally" },
+      refs: { stackIds: [packet.id] }, traits: ["sealed sample analysis", "historical portion only", "not proof of illegality"],
+      discoverability: { level: "ordinary", methods: ["recordReview", "physicalSearch"] }, persistence: { kind: "subject" },
+      knowledge: { state: "hidden", source: "unobserved", sourceIdentityKnown: false }, details: JSON.stringify(result),
+      coalesceKey: `technician-analysis:${result.id}`
+    });
+    const consumed = new Set(order.pickups.filter(p => p.kind === "input").map(p => p.stackId));
+    state.physicalItemStacks = ensurePhysicalItemStacks().filter(item => !consumed.has(item.id));
+    state.diagnostics.samples = state.diagnostics.samples.filter(item => item.id !== sample.id);
+    state.diagnostics.instruments[tool.id] = Diagnostics.useInstrument(diagnosticInstrumentRecord(tool.id), "assayCase", result.measuredAt);
+    damageSpecificTool(tool.id, 1, "Technician sealed sample assay");
+    order.delivered = 1;
+    syncActorInventories(); syncPhysicalReadModels();
+    return {};
+  }
+
+  function laboratoryAssistantHooks() {
+    return { ...surfaceWorkerHooks(state.laboratoryAssistant), release: releaseLaboratoryAssay, haul: laboratoryAssistantAssayStep };
+  }
+
+  function updateLaboratoryAssistant() {
+    if (!state.laboratoryAssistant || scientistIsDead()) return 0;
+    const changes = LaboratoryAssistant.advance(state.laboratoryAssistant, surfaceWorkerRoute(), ensureEconomy(), state.clock, laboratoryAssistantHooks());
+    if (changes) { syncActorInventories(); syncPhysicalReadModels(); markStateDirty(); }
+    return changes;
+  }
+
+  function receiveLaboratoryAssay(order) {
+    if (!order?.result || order.receivedAt != null) return false;
+    order.receivedAt = state.clock;
+    const result = clonePlainObject(order.result), diagnostics = ensureDiagnosticState();
+    if (!diagnostics.results.some(r => r.id === result.id)) { diagnostics.results.push(result); diagnostics.results = diagnostics.results.slice(-100); }
+    recordResearchEvidence({ methodId: "diagnostic:assaySample", category: "diagnostic", specimenId: result.targetId,
+      specimenName: result.targetLabel, sourceKey: `diagnostic:${result.id}`, summary: `${state.laboratoryAssistant.actor.name}: ${result.summary}`, confidence: result.confidenceScore / 100 });
+    const sample = order.sampleRecord;
+    if (sample?.captured.industrialService && state.localServices) LocalServices.recordAssay(state.localServices, sample.captured.industrialService.jobId, result, sample.collectedAt, result.measuredAt);
+    if (sample?.captured.confidentialService && state.confidentialServices) {
+      const c = sample.captured.confidentialService;
+      if (ConfidentialServices.recordAssay(state.confidentialServices, c.jobId, result, c.round, result.measuredAt)) {
+        const job = state.confidentialServices.jobs.find(j => j.id === c.jobId); if (job) job.reportStackId = order.reportStackId;
+      }
+    }
+    if (sample?.captured.resourceSurvey) state.resourceSurveys = ResourceSurveys.record(ensureResourceSurveys(), sample.captured.resourceSurvey,
+      { at: result.measuredAt, score: result.confidenceScore, instrument: order.assayInstrument, sampleId: sample.id,
+        sampleStackId: sample.stackId, diagnosticResultId: result.id }).state;
+    if (sample?.captured.environmentalExposure) {
+      const r = EnvironmentalMonitoring.assaySample(sample.captured.environmentalExposure, result.confidenceScore);
+      if (r && surfaceExposureRecord(r.exposureRecordId)) state.surfaceExposure = SurfaceExposure.recordSampleObservation(state.surfaceExposure, state.localSiteContext,
+        r.exposureRecordId, { mediumId: r.mediumId, methodId: r.methodId, sampledAt: sample.collectedAt, analyzedAt: result.measuredAt,
+          detected: r.detected, band: r.burden, confidence: Diagnostics.confidenceBand(result.confidenceScore).id }, state.seed, state.clock);
+    }
+    const evidence = ensureInvestigativeEvidence().records.find(e => e.coalesceKey === `technician-analysis:${result.id}`);
+    if (evidence) evidence.knowledge = { state: "known", source: "recordReview", sourceIdentityKnown: true };
+    markStateDirty(); return true;
+  }
+
+  function receiveLaboratoryAssistantReport() {
+    const s = state.laboratoryAssistant;
+    if (!s || confidentialServiceChannelReason() || LaboratoryAssistant.active(s.contract) && !laboratoryAssistantNearby()
+      || s.contract?.status === "fatality" && !laboratoryAssistantNearby(true)) return false;
+    if (laboratoryAssistantNearby()) for (const order of s.orders.filter(o => o.status === "completed")) receiveLaboratoryAssay(order);
+    state.laboratoryAssistantKnowledge = LaboratoryAssistant.publicView(s, state.clock); markStateDirty(); return true;
+  }
+
+  function laboratoryAssistantSupply(key) {
+    const a = state.laboratoryAssistant.actor;
+    if (!["drinkingWater", "trailMeal"].includes(key)) return false;
+    const stack = ensurePhysicalItemStacks().find(item => item.key === key && item.quantity >= 1 && !item.reservedTaskId
+      && (item.carriedBy === "scientist" || !item.carriedBy && !item.fixtureId && !item.containerId && mapCellDistance(item.cell, a.mapCell) <= 1));
+    const remaining = actorInventorySnapshot(a.id).remaining;
+    if (!stack || remaining.massKg < (key === "trailMeal" ? .5 : 1) || remaining.volumeL < 1) return false;
+    stack.quantity--; stack.knownQuantity = Math.min(stack.quantity, stack.knownQuantity);
+    a[key === "trailMeal" ? "food" : "water"]++;
+    state.physicalItemStacks = ensurePhysicalItemStacks().filter(item => item.quantity > 0); syncPhysicalReadModels(); return true;
+  }
+
+  function laboratoryAssistantAction(action, options = {}) {
+    if (scientistIsDead() || confidentialServiceChannelReason()) return false;
+    const s = ensureLaboratoryAssistant(); if (!s) return false;
+    updateLaboratoryAssistant(); let result = { ok: false, reason: "Meet the technician to change work or supply actual provisions." };
+    if (action === "quote") result = LaboratoryAssistant.request(s, surfaceWorkerRoute(), options.hours || 2, laboratoryAssistantDisclosure(), state.clock);
+    else if (action === "hire") {
+      result = LaboratoryAssistant.hire(s, surfaceWorkerRoute(), options.expected || s.quote, laboratoryAssistantDisclosure(), options.consent === true, ensureEconomy(), state.clock);
+      if (result.ok) installLaboratoryAssistantAccess();
+    } else if (action === "decline") { s.quote = null; result.ok = true; }
+    else if (action === "walk") result.ok = Boolean(startScientistMove(SURFACE_LOADING_ROOM_ID, { allowMultiRoom: true }));
+    else if (action === "report") result.ok = receiveLaboratoryAssistantReport();
+    else if (action === "retrieve") {
+      const order = s.orders.find(o => o.reportStackId === options.stackId), packet = ensurePhysicalItemStacks().find(item => item.id === options.stackId);
+      const visible = packet && (packet.carriedBy === "scientist" || !packet.carriedBy && !packet.containerId
+        && (!packet.fixtureId || fixtureById(packet.fixtureId)?.accessState === "open") && mapCellDistance(scientistMapCell(), packet.cell) <= 1
+        && sensoryLineOfSight(scientistMapCell(), packet.cell));
+      result.ok = Boolean(visible && packet.key === "assistantReportPacket" && packet.evidenceDocument?.packetId === order?.id && receiveLaboratoryAssay(order));
+      if (result.ok) state.laboratoryAssistantKnowledge = LaboratoryAssistant.publicView(s, state.clock);
+    } else if (action === "withdraw" && s.contract?.status === "arriving" || laboratoryAssistantNearby()) {
+      if (action === "assign") result = LaboratoryAssistant.assign(s, laboratoryAssistantAssayPlan(options.stackId), state.clock, reserveLaboratoryAssay);
+      if (action === "cancel") result.ok = LaboratoryAssistant.cancel(s, laboratoryAssistantHooks(), state.clock);
+      if (action === "withdraw") result.ok = LaboratoryAssistant.withdraw(s, laboratoryAssistantHooks(), state.clock);
+      if (action === "supply") result.ok = laboratoryAssistantSupply(options.key);
+    }
+    if (result.ok) {
+      if (["quote", "hire", "decline"].includes(action)) state.laboratoryAssistantKnowledge = LaboratoryAssistant.publicView(s, state.clock);
+      else if (action !== "retrieve") receiveLaboratoryAssistantReport();
+    }
+    addEvent(result.ok ? `Technician: ${action}. Agreement covers disclosed sealed nonliving assays, not loyalty or silence.` : result.reason);
+    persist(); render(); return Boolean(result.ok);
+  }
+
+  function renderLaboratoryAssistant() {
+    const parent = dom.economyWorkersList; if (!parent) return;
+    const s = ensureLaboratoryAssistant(), known = state.laboratoryAssistantKnowledge, reason = confidentialServiceChannelReason();
+    const section = document.createElement("section"); section.id = "laboratoryAssistantList"; parent.append(section);
+    section.append(textEl("h3", "Underground assay technician"), textEl("p", "Separate qualifications, informed agreement and limited laboratory access. The porter is not promoted into a scientist. Confidentiality buys neither obedience nor erased memories."));
+    if (!known) { section.append(emptyText("No supported local technician applicant; a municipal walking route within five kilometres is required.")); return; }
+    const button = (label, action, options = {}, block = "") => {
+      const b = storesActionButton(label, block || reason || label, () => laboratoryAssistantAction(action, options));
+      setActionButtonState(b, Boolean(reason || block), reason || block); return b;
+    };
+    section.append(textEl("h4", known.applicant.name), textEl("p", `${known.applicant.affiliation}; Analysis ${known.applicant.skills.analysis}, Alchemy ${known.applicant.skills.alchemy}. Named qualifications are not verified civic identity.`),
+      textEl("p", `Last received ${formatClock(known.reportedAt)}: ${known.applicant.condition}; meals ${formatDecimal(known.applicant.food, 2)}, water ${formatDecimal(known.applicant.water, 2)}, fatigue ${formatNumber(known.applicant.fatigue)}. ${known.applicant.reason}`),
+      textEl("p", "Already authorized finite work may continue while away or detained. Reports stay dated; new orders and receipt require local access. No automatic customer submission, payment, scientist experience or experiment conclusion."));
+    if (!LaboratoryAssistant.active(known.contract)) for (const hours of [2, 4, 8]) section.append(button(`Review ${hours}-hour technician shift`, "quote", { hours }));
+    if (known.quote) {
+      const q = known.quote, d = q.disclosure;
+      section.append(textEl("p", `${formatMoney(q.fee)} nonrefundable walking engagement fee plus ${formatMoney(q.hourly)}/hour; ${q.hours} on-site hours, total prepaid ${formatMoney(q.upfront)}. ${formatDecimal(q.distanceKm, 1)} km walking each way; terms expire ${formatClock(q.expiresAt)}. Finite personal provisions, rest and physical return/refund rules apply; no tools or protective kit included.`),
+        textEl("p", `Disclosure: underground workspace ${roomName(d.workspaceRoomId)}, bench ${d.benchId || "unavailable"}. Agreed passage: ${d.roomIds.map(roomName).join(", ")}. Scope: sealed nonliving air, environmental, prospecting and chemical portions; no biological or living procedures. Confidentiality is requested, not guaranteed.`));
+      for (const hazard of d.hazards) section.append(textEl("p", hazard));
+      const label = document.createElement("label"), consent = document.createElement("input"); consent.type = "checkbox"; consent.dataset.technicianConsent = "true";
+      label.append(consent, textEl("span", "I have reviewed the exact workplace, limited scope, hazards and confidentiality request.")); section.append(label);
+      const hire = storesActionButton("Hire assay technician", "Confirm this disclosed agreement", () => laboratoryAssistantAction("hire", { expected: clonePlainObject(q), consent: consent.checked }));
+      setActionButtonState(hire, true, "Explicit disclosure review is required."); consent.addEventListener("change", () => setActionButtonState(hire, !consent.checked || Boolean(reason), reason || "Explicit disclosure review is required."));
+      section.append(hire, button("Decline technician terms", "decline"));
+    }
+    section.append(button("Walk to technician receiving area", "walk", {}, scientistMoveBlockReason(SURFACE_LOADING_ROOM_ID, { allowMultiRoom: true })),
+      button("Receive technician report", "report", {}, LaboratoryAssistant.active(known.contract) && !laboratoryAssistantNearby() ? "Meet the technician physically." : ""));
+    if (known.contract) section.append(textEl("p", `${known.contract.id}: ${titleCase(known.contract.status)}; last reported earned wages ${formatMoney(known.contract.earned)}, refund ${formatMoney(known.contract.refund)}. ${known.contract.reason}`));
+    if (LaboratoryAssistant.active(known.contract)) {
+      section.append(button(known.contract.status === "arriving" ? "Recall incoming technician" : "End technician shift", "withdraw", {}, known.contract.status === "arriving" || laboratoryAssistantNearby() ? "" : "Meet the technician first."));
+      if (known.orders.some(o => o.status === "active")) section.append(button("Cancel technician assay", "cancel", {}, laboratoryAssistantNearby() ? "" : "Meet the technician first."));
+      if (!reason && laboratoryAssistantNearby() && s.contract.status === "onSite" && !s.orders.some(o => o.status === "active")) {
+        const label = document.createElement("label"), select = document.createElement("select"); select.dataset.technicianSample = "true";
+        for (const sample of ensureDiagnosticState().samples) {
+          const stack = ensurePhysicalItemStacks().find(item => item.id === sample.stackId);
+          if (LaboratoryAssistant.eligible(sample, stack)) select.append(new Option(`${sample.targetLabel} (${stack.id})`, stack.id));
+        }
+        label.append(textEl("span", "Exact sealed nonliving sample"), select); section.append(label,
+          storesActionButton("Delegate sealed sample assay", "Reserve the actual sample, reagent, Assay Case and disclosed workbench", () => laboratoryAssistantAction("assign", { stackId: select.value })));
+        section.append(textEl("p", "Stage unused supplies and the Assay Case in the agreed rooms; open their storage. All objects and the bench remain reserved until completion or cancellation. No substitutions are made if access or condition changes."));
+      }
+      section.append(button("Give technician one meal", "supply", { key: "trailMeal" }, laboratoryAssistantNearby() ? "" : "Physical handoff required."),
+        button("Give technician one water", "supply", { key: "drinkingWater" }, laboratoryAssistantNearby() ? "" : "Physical handoff required."));
+    }
+    for (const order of known.orders.slice(-8).reverse()) {
+      section.append(textEl("p", `${order.id}: ${order.sampleLabel}; ${order.status}, last reported ${order.stage}. ${order.reason}`));
+      if (order.result) section.append(textEl("p", `${formatClock(order.result.measuredAt)} assay, ${order.result.confidence} confidence: ${order.result.summary}`));
+      else if (order.reportStackId) section.append(button("Retrieve technician analytical record", "retrieve", { stackId: order.reportStackId }));
+    }
+    // Retrieval must also work when the scientist never received the completion report.
+    if (!reason) for (const packet of ensurePhysicalItemStacks().filter(item => item.key === "assistantReportPacket"
+      && (item.carriedBy === "scientist" || !item.carriedBy && !item.containerId && (!item.fixtureId || fixtureById(item.fixtureId)?.accessState === "open")
+        && mapCellDistance(item.cell, scientistMapCell()) <= 1 && sensoryLineOfSight(scientistMapCell(), item.cell)))) {
+      if (!known.orders.some(o => o.reportStackId === packet.id)) section.append(button(`Read nearby technician record (${packet.id})`, "retrieve", { stackId: packet.id }));
+    }
+    const profile = s && accessProfileForActor(s.actor);
+    if (!reason && profile) for (const area of ensureAccessControl().areas.filter(a => !["laboratory-assistant-area", "surface-worker-area"].includes(a.id))) {
+      const label = document.createElement("label"), input = document.createElement("input"); input.type = "checkbox"; input.checked = profile.areaIds.includes(area.id); input.dataset.technicianAccessArea = area.id;
+      input.addEventListener("change", () => { if (!confidentialServiceChannelReason()) { profile.areaIds = input.checked ? [...new Set([...profile.areaIds, area.id])] : profile.areaIds.filter(id => id !== area.id); persist(); render(); } });
+      label.append(input, textEl("span", `Apply ${area.name} to technician (${area.kind}); cannot extend the agreed scope`)); section.append(label);
+    }
+    for (const entry of known.history.slice(-6).reverse()) section.append(textEl("p", `${formatClock(entry.at)} — ${entry.summary}`, "journal-meta"));
+  }
+
   function renderEconomy() {
     const economy = ensureEconomy();
     ensureLocalCovertMarket();
@@ -62968,7 +63347,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       legalLedger: economy.legalLedger.length,
       contacts: economy.contacts.length,
       services: (state.localServiceKnowledge?.jobs.filter(LocalServices.active).length || 0) + (state.confidentialServiceKnowledge?.jobs.filter(ConfidentialServices.active).length || 0),
-      workers: SurfaceWorkers.active(state.surfaceWorkerKnowledge?.contract) ? 1 : 0,
+      workers: Number(Boolean(SurfaceWorkers.active(state.surfaceWorkerKnowledge?.contract)))
+        + Number(Boolean(LaboratoryAssistant.active(state.laboratoryAssistantKnowledge?.contract))),
       deals: openDeals.length,
       contracts: blackMarketActiveContracts().length,
       ledger: economy.ledger.length
@@ -62983,6 +63363,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     renderLocalServices();
     renderConfidentialServices();
     renderSurfaceWorkers();
+    renderLaboratoryAssistant();
     renderEconomyDeals(openDeals);
     renderEconomyContracts(economy);
     renderEconomyLedger(economy);
@@ -63975,6 +64356,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const worker = state.surfaceWorkers?.actor;
     if (worker?.present && campaignLocalKnowledgeAvailable() && mapCellDistance(worker.mapCell, scientistMapCell()) <= 8 && sensoryLineOfSight(scientistMapCell(), worker.mapCell))
       setLabMapOverlayEntry(assignments, worker.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: worker.name, title: "Hired surface worker; direct observation, not remote monitoring", source: "Direct observation", value: worker.status === "dead" ? "†" : "W", target: { kind: "tile", tile: worker.mapCell } }, map);
+    const assistant = state.laboratoryAssistant?.actor;
+    if (laboratoryAssistantNearby(true)) setLabMapOverlayEntry(assignments, assistant.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: assistant.name, title: "Laboratory technician; direct observation", source: "Direct observation", value: assistant.status === "dead" ? "†" : "A", target: { kind: "tile", tile: assistant.mapCell } }, map);
     if (!state.wildernessBeasts?.materialized) return assignments;
     const knowledge = wildernessBeastKnowledge();
     const markers = [
@@ -82992,6 +83375,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         roomId: scientistRoomId(), cell: scientistMapCell()
       }, {
         carriedBy: "scientist",
+        tags: ["sealed"],
         dimensionsM: { width: 0.08, length: 0.08, height: 0.14 }
       });
       const sample = Diagnostics.normalizeSample({
@@ -83030,7 +83414,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }, {
         carriedBy: "scientist",
         dimensionsM: { width: 0.08, length: 0.08, height: 0.14 },
-        tags: ["environmental-sample", task.data.methodId, ...record.tags]
+        tags: ["sealed", "environmental-sample", task.data.methodId, ...record.tags]
       });
       const sample = Diagnostics.normalizeSample({
         id: `diagnostic-sample-${diagnostics.nextSampleNumber++}`,
@@ -89328,6 +89712,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.confidentialServiceKnowledge = candidate?.confidentialServiceKnowledge ? clonePlainObject(candidate.confidentialServiceKnowledge) : null;
     next.surfaceWorkers = SurfaceWorkers.normalize(candidate?.surfaceWorkers);
     next.surfaceWorkerKnowledge = candidate?.surfaceWorkerKnowledge ? clonePlainObject(candidate.surfaceWorkerKnowledge) : null;
+    next.laboratoryAssistant = LaboratoryAssistant.normalize(candidate?.laboratoryAssistant);
+    next.laboratoryAssistantKnowledge = candidate?.laboratoryAssistantKnowledge ? clonePlainObject(candidate.laboratoryAssistantKnowledge) : null;
     if (next.runEnded || latestDeath?.resurrection.status === "pending") {
       next.paused = true;
     }
@@ -89484,7 +89870,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const constructionTaskIds = new Set(next.tasks.filter((task) => task?.type === "constructionWork").map((task) => String(task.id || "")));
     const productionTaskIds = new Set(next.tasks.filter((task) => task?.type === "productionWork").map((task) => String(task.id || "")));
     const diagnosticTaskIds = new Set(next.tasks.filter((task) => task?.type === "physicalDiagnostic").map((task) => String(task.id || "")));
-    const toolTaskIds = new Set([...constructionTaskIds, ...productionTaskIds, ...diagnosticTaskIds]);
+    const assistantOrderIds = new Set((next.laboratoryAssistant?.orders || []).filter(o => o.status === "active").map(o => o.id));
+    const toolTaskIds = new Set([...constructionTaskIds, ...productionTaskIds, ...diagnosticTaskIds, ...assistantOrderIds]);
     for (const instances of Object.values(next.toolDurability || {})) {
       for (const tool of instances) {
         if (tool.reservedTaskId && !toolTaskIds.has(tool.reservedTaskId)) tool.reservedTaskId = "";
@@ -89502,7 +89889,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (bill.activeTaskId && !productionTaskIds.has(bill.activeTaskId)) bill.activeTaskId = "";
     }
     for (const fixture of next.fixtures || []) {
-      if (fixture.productionTaskId && !productionTaskIds.has(fixture.productionTaskId)) fixture.productionTaskId = "";
+      if (fixture.productionTaskId && !productionTaskIds.has(fixture.productionTaskId) && !assistantOrderIds.has(fixture.productionTaskId)) fixture.productionTaskId = "";
     }
     for (const workpiece of next.productionWorkpieces || []) {
       if (workpiece.reservedTaskId && !productionTaskIds.has(workpiece.reservedTaskId)) {

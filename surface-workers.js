@@ -8,7 +8,10 @@
   const GOODS = Object.freeze(['stoneBlocks', 'lumber', 'steelPanels', 'metalParts', 'bricks', 'glass', 'cloth', 'rubber']);
   const registry = Theme.createRegistry([{ id: 'surfacePorter', kind: 'employmentRole', label: 'Surface stores worker',
     template: 'Voluntary paid hauling of ordinary surface supplies; no underground, hazardous or specimen work.',
-    compatibility: 'shared', contentTags: ['scarcity', 'survival'] }]);
+    compatibility: 'shared', contentTags: ['scarcity', 'survival'] },
+    { id: 'laboratoryTechnician', kind: 'employmentRole', label: 'Laboratory assay technician',
+      template: 'Voluntary finite laboratory employment for disclosed sealed nonliving sample analysis; no living-specimen work.',
+      compatibility: 'shared', contentTags: ['scarcity', 'survival'] }]);
   const copy = x => JSON.parse(JSON.stringify(x));
   const num = x => Math.max(0, Number.isFinite(Number(x)) ? Number(x) : 0);
   const active = c => c && ['arriving', 'onSite', 'departing', 'returning'].includes(c.status);
@@ -19,13 +22,14 @@
       nextContract: Math.max(1, Math.floor(num(value.nextContract))), nextOrder: Math.max(1, Math.floor(num(value.nextOrder))),
       lastAt: num(value.lastAt) };
   }
-  function create(seed, city, theme, at = 0) {
-    if (!city?.id || !city.supported || !Theme.eligibleDefinitions(registry, { kind: 'employmentRole', worldTheme: theme }).length) return null;
-    let hash = 0; for (const c of `${seed}:${city.id}:surface-worker`) hash = (Math.imul(hash, 31) + c.charCodeAt(0)) >>> 0;
+  function create(seed, city, theme, at = 0, role = 'surfacePorter') {
+    if (!city?.id || !city.supported || !Theme.eligibleDefinitions(registry, { kind: 'employmentRole', worldTheme: theme }).some(d => d.id === role)) return null;
+    const technician = role === 'laboratoryTechnician';
+    let hash = 0; for (const c of `${seed}:${city.id}:${technician ? 'laboratory-assistant' : 'surface-worker'}`) hash = (Math.imul(hash, 31) + c.charCodeAt(0)) >>> 0;
     const name = `${['Mira', 'Ren', 'Tamsin', 'Dara', 'Ilya', 'Soren'][hash % 6]} ${['Arden', 'Vale', 'Neri', 'Voss'][Math.floor(hash / 6) % 4]}`;
-    return normalize({ actor: { id: `surface-worker:${city.id}`, actorKind: 'surfaceWorker', name, cityId: city.id,
-      affiliation: `${city.name} independent stores worker`, status: 'alive', health: 100, maxHealth: 100, present: false,
-      accessPolicyAware: true, skills: { hauling: 8, perception: 5 }, fatigue: 0, food: 2, water: 4, money: 0, trust: 50,
+    return normalize({ actor: { id: `${technician ? 'laboratory-assistant' : 'surface-worker'}:${city.id}`, actorKind: technician ? 'laboratoryAssistant' : 'surfaceWorker', name, cityId: city.id,
+      affiliation: `${city.name} independent ${technician ? 'assay technician' : 'stores worker'}`, status: 'alive', health: 100, maxHealth: 100, present: false,
+      accessPolicyAware: true, skills: technician ? { analysis: 6, alchemy: 5, perception: 5 } : { hauling: 8, perception: 5 }, fatigue: 0, food: 2, water: 4, money: 0, trust: 50,
       roomId: '', mapCell: null, observations: [], reason: '', availableAt: at }, lastAt: at, nextContract: 1, nextOrder: 1 });
   }
   function routeReason(state, route) {
@@ -42,8 +46,9 @@
     const duration = Number(hours), tripHours = route.distanceKm / 4 * 2;
     if (a.food < (duration + tripHours) * .125 || a.water < (duration + tripHours) * .25)
       return { ok: false, reason: 'The worker lacks personal provisions for the shift and both walking legs. Resupply requires a physical handoff.' };
-    return { ok: true, actorId: a.id, cityId: a.cityId, hours: duration, fee: FEE, hourly: HOURLY,
-      reserve: duration * HOURLY, upfront: FEE + duration * HOURLY, distanceKm: route.distanceKm, expiresAt: now + HOUR };
+    const hourly = a.actorKind === 'laboratoryAssistant' ? 24 : HOURLY;
+    return { ok: true, actorId: a.id, cityId: a.cityId, hours: duration, fee: FEE, hourly,
+      reserve: duration * hourly, upfront: FEE + duration * hourly, distanceKm: route.distanceKm, expiresAt: now + HOUR };
   }
   function request(state, route, hours, now) { const q = quote(state, route, hours, now); if (state) state.quote = q.ok ? q : null; return q; }
   function note(s, at, summary) { s.history.push({ at, summary }); s.history = s.history.slice(-60); }
@@ -55,10 +60,10 @@
     if (wallet.money < fresh.upfront) return { ok: false, reason: 'The engagement fee and complete wage reserve must be prepaid.' };
     wallet.money -= fresh.upfront; state.actor.money += FEE;
     state.contract = { id: `surface-shift-${state.nextContract++}`, status: 'arriving', bookedAt: now, lastAt: now,
-      hours: fresh.hours, reserve: fresh.reserve, earned: 0, refund: 0, settled: false,
+      hours: fresh.hours, hourly: fresh.hourly, reserve: fresh.reserve, earned: 0, refund: 0, settled: false,
       distanceKm: fresh.distanceKm, positionKm: 0, startedAt: null, reason: '', completedAt: null };
     state.lastAt = now; state.quote = null;
-    note(state, now, 'Accepted voluntary surface employment. Paid travel fee; wages held in finite escrow. Worker walking from the local city.');
+    note(state, now, `Accepted voluntary ${state.actor.actorKind === 'laboratoryAssistant' ? 'disclosed laboratory' : 'surface'} employment. Paid travel fee; wages held in finite escrow. Worker walking from the local city.`);
     return { ok: true, contract: state.contract };
   }
   function eligible(stack) {
@@ -81,7 +86,7 @@
   }
   function cancel(state, hooks, now) {
     const order = state?.orders.find(o => o.status === 'active'); if (!order) return false;
-    hooks.release(order); order.status = 'cancelled'; order.reason = 'Assignment cancelled; current load dropped at the worker, earlier deliveries preserved.';
+    hooks.release(order); order.status = 'cancelled'; order.reason = order.kind === 'assay' ? 'Assay cancelled; unused supplies and instrument left at the technician. No result invented or incorporated input refunded.' : 'Assignment cancelled; current load dropped at the worker, earlier deliveries preserved.';
     note(state, now, order.reason); return true;
   }
   function withdraw(state, hooks, now, reason = 'Employer ended the shift') {
@@ -106,7 +111,7 @@
       if (a.health < 35 && ['arriving', 'onSite'].includes(c.status)) withdraw(state, hooks, at, 'Serious wounds require withdrawal');
       if (c.status === 'onSite') { const danger = hooks.danger?.(a); if (danger) withdraw(state, hooks, at, danger); }
       if (c.startedAt !== null && a.present) {
-        const earned = Math.min(c.reserve, Math.max(0, at - c.startedAt) / HOUR * HOURLY);
+        const earned = Math.min(c.reserve, Math.max(0, at - c.startedAt) / HOUR * (c.hourly || HOURLY));
         a.money += earned - c.earned; c.earned = earned;
         if (earned >= c.reserve && c.status === 'onSite') withdraw(state, hooks, at, 'Agreed shift and wage reserve exhausted');
       }
@@ -138,7 +143,7 @@
             a.fatigue = Math.min(100, a.fatigue + STEP / HOUR * (result.reason ? 2 : 12));
             if (result.withdraw) withdraw(state, hooks, at, result.reason);
             else if (order.delivered >= order.amount) { hooks.release(order); order.status = 'completed'; order.completedAt = at;
-              a.trust = Math.min(100, a.trust + 1); note(state, at, `Completed ${order.amount} ${order.key} hauling; ordinary cooperation, not loyalty.`); }
+              a.trust = Math.min(100, a.trust + 1); note(state, at, order.kind === 'assay' ? 'Completed the authorized assay; a physical local analytical record awaits receipt, not automatic discovery or loyalty.' : `Completed ${order.amount} ${order.key} hauling; ordinary cooperation, not loyalty.`); }
           } else a.fatigue = Math.max(0, a.fatigue - STEP / HOUR * 18);
         }
       }
