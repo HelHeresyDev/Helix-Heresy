@@ -40,6 +40,8 @@
   if (!SurfaceWorkers) throw new Error("HelixSurfaceWorkers must load before app.js");
   const LaboratoryAssistant = window.HelixLaboratoryAssistant;
   if (!LaboratoryAssistant) throw new Error("HelixLaboratoryAssistant must load before app.js");
+  const LeasedAnnex = window.HelixLeasedAnnex;
+  if (!LeasedAnnex) throw new Error("HelixLeasedAnnex must load before app.js");
   const CargoRecovery = window.HelixCargoRecovery;
   const IntercitySmuggling = window.HelixIntercitySmuggling;
   const CorridorBeasts = window.HelixCorridorBeasts;
@@ -4835,6 +4837,7 @@
     { id: "contacts", label: "Contacts" },
     { id: "services", label: "Services" },
     { id: "workers", label: "Workers" },
+    { id: "facilities", label: "Facilities" },
     { id: "ledger", label: "Ledger" }
   ];
   const ECONOMY_MENU_TAB_BY_ID = Object.fromEntries(ECONOMY_MENU_TAB_DEFS.map((tab) => [tab.id, tab]));
@@ -5014,6 +5017,7 @@
     contacts: "B C",
     services: "B S",
     workers: "B W",
+    facilities: "B A",
     ledger: "B H"
   };
   const POLICY_MENU_TAB_HOTKEYS = {
@@ -5360,6 +5364,7 @@
       surfaceWorkerKnowledge: null,
       laboratoryAssistant: null,
       laboratoryAssistantKnowledge: null,
+      leasedAnnex: null,
       lastSuspicionGainAt: null,
       lastSuspicionDecayAt: null,
       rooms: defaultRooms(),
@@ -13088,6 +13093,7 @@
       "economyContactsBadge",
       "economyServicesBadge",
       "economyWorkersBadge",
+      "economyFacilitiesBadge",
       "economyDealsBadge",
       "economyContractsBadge",
       "economyLedgerBadge",
@@ -13100,6 +13106,7 @@
       "economyContactsList",
       "economyServicesList",
       "economyWorkersList",
+      "economyFacilitiesList",
       "economyDealsList",
       "economyContractsList",
       "economyLedgerList",
@@ -13503,6 +13510,29 @@
         tools: toolInstancesForItem("assayCase"), bench: fixtureById("starter-workbench"),
         evidence: ensureInvestigativeEvidence().records.filter(e => e.origin.kind === "diagnosticResult") }),
       laboratoryAssistantAction: (action, options = {}) => laboratoryAssistantAction(action, options),
+      leasedAnnexAction: (action, options = {}) => leasedAnnexAction(action, options),
+      leasedAnnexSnapshot: () => clonePlainObject({ saved: state.leasedAnnex, view: LeasedAnnex.publicView(state.leasedAnnex, state.clock),
+        clock: state.clock, money: ensureEconomy().money, scientist: { roomId: scientistRoomId(), cell: scientistMapCell() },
+        stacks: ensurePhysicalItemStacks(), tasks: state.tasks, diagnostics: ensureDiagnosticState(),
+        bench: fixtureById(LeasedAnnex.BENCH), route: surfaceWorkerRoute(), campaign: state.campaign,
+        expedition: state.surveyExpeditions, nextEvent: nextLeasedAnnexEvent(), runEnded: state.runEnded }),
+      advanceLeasedAnnexForTest: (seconds) => {
+        let remaining = Math.max(0, seconds);
+        while (remaining > 0 && !scientistIsDead()) {
+          const step = Math.min(remaining, 10); state.clock += step; remaining -= step;
+          updateWildernessNeeds(); updateScientistMovementTask(); updateLeasedAnnex(); completeDueTasks();
+        }
+        syncActorInventories(); observeLeasedAnnex(); persist(); render();
+      },
+      setLeasedAnnexTestSupport: (options = {}) => {
+        // Explicit diagnostic fixture only; no normal progression, travel or supplies are awarded.
+        if (options.atReception) moveSurveyScientist(SURFACE_RECEPTION_ROOM_ID, labMapRoomAnchor(SURFACE_RECEPTION_ROOM_ID));
+        if (options.atLoading) moveSurveyScientist(SURFACE_LOADING_ROOM_ID, nearestOpenMapCellInRoom(SURFACE_LOADING_ROOM_ID, labMapRoomAnchor(SURFACE_LOADING_ROOM_ID)));
+        if (options.benchCondition != null && fixtureById(LeasedAnnex.BENCH)) fixtureById(LeasedAnnex.BENCH).condition = options.benchCondition;
+        if (options.breakOriginalBench) fixtureById("starter-workbench").condition = 0;
+        if (options.expire && state.leasedAnnex?.lease) state.leasedAnnex.lease.endsAt = state.clock;
+        updateLeasedAnnex(); persist(); render();
+      },
       laboratoryAssistantCombatForTest: (amount) => { const actor = state.laboratoryAssistant.actor;
         const result = resolveSharedCombatAction("scientist", "strike", { kind: "creature", id: actor.id, lastKnownCell: actor.mapCell }, { baseDamage: amount });
         updateLaboratoryAssistant(); persist(); render(); return result; },
@@ -21179,11 +21209,12 @@
       const clinicEvent = clinicActive() ? { time: clinicNextAt(), label: "Clinic care checkpoint", type: "medical" } : null;
       const remoteAt = unsupportedActive() ? Math.min(UnsupportedExcursions.nextPublicEventAt(state.unsupportedExcursions.trip, state.unsupportedExcursions.lastReport, state.clock), reportedMedicalAt > state.clock ? reportedMedicalAt : Infinity) : Infinity;
       const travelEvent = unsupportedActive() ? (Number.isFinite(remoteAt) ? { time: remoteAt, label: "Known charter schedule checkpoint", type: "travel" } : null) : StrategicJourneys.nextPublicEvent({ journeys: journey ? [journey] : [] }, state.clock);
-      return [clinicEvent, task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
+      return [clinicEvent, task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, nextLeasedAnnexEvent(), nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
         .filter((event) => event && (!options.includeTypes || options.includeTypes.includes(event.type)) && event.time >= state.clock)
         .sort((a, b) => a.time - b.time)[0] || null;
     }
     const events = [];
+    const annexEvent = nextLeasedAnnexEvent(); if (annexEvent) events.push(annexEvent);
     for (const row of state.penalFlights?.docket || []) if (row.status === "waiting" && row.closesAt >= state.clock) events.push({ time: row.closesAt, label: "Seven-day Penal Flight docket closes", type: "travel" });
     const queueEvent = nextQueueEvent();
     if (queueEvent) {
@@ -21842,8 +21873,21 @@
       }
       return changed;
     }
+    // Bound annex time skips so walking fatigue, lease expiry and physical work resolve in causal order.
+    if (annexAway() && !options.annexStep && elapsed > 0) {
+      let changed = 0, remaining = elapsed;
+      const beforePhase = state.surveyExpeditions.phase;
+      while (remaining > 0 && !scientistIsDead() && annexAway()) {
+        const leaseAt = state.leasedAnnex.lease?.status === "active" ? state.leasedAnnex.lease.endsAt : Infinity;
+        const taskAt = scientistQueueTasks().find(t => !taskBlockReason(t) && t.dueAt > state.clock)?.dueAt || Infinity;
+        const step = Math.min(remaining, 10, Math.max(.01, Math.min(leaseAt, taskAt) - state.clock));
+        changed += advanceTime(step, { ...options, annexStep: true }); remaining -= step;
+        if (state.surveyExpeditions.phase !== beforePhase) break;
+      }
+      return changed;
+    }
     // Keep both sides physically responsive during field time skips. Stop at a newly perceived threat.
-    if (!options.fieldStep && elapsed > 1 && state.surveyExpeditions?.phase === "field" && (escortContractActive() || rescueMissionPhysical() || state.wildernessBeasts?.actors.some((beast) => beast.status !== "dead"))) {
+    if (!annexAway() && !options.fieldStep && elapsed > 1 && state.surveyExpeditions?.phase === "field" && (escortContractActive() || rescueMissionPhysical() || state.wildernessBeasts?.actors.some((beast) => beast.status !== "dead"))) {
       let changed = 0, remaining = elapsed;
       while (remaining > 0 && !scientistIsDead()) {
         const notice = state.wildernessBeasts.noticeSerial;
@@ -30670,6 +30714,8 @@
   function surfaceEnvelopeAtCell(cell, map = ensureLabMap(), context = null) {
     const clean = cleanMapCell(cell);
     if (!clean) return { kind: "subterranean", roofed: true, openSky: false };
+    if (map.rooms?.[LeasedAnnex.ROOM]?.z === clean.z && map.rooms[LeasedAnnex.ROOM].cells.some(c => sameMapCell(c, clean))) return { kind: "interior", roofed: true, openSky: true }; // Passive daylight through the leased workshop's windows, not a powered lamp.
+    if (map.rooms?.[LeasedAnnex.ROAD]?.z === clean.z && map.rooms[LeasedAnnex.ROAD].cells.some(c => sameMapCell(c, clean))) return { kind: "outdoor", roofed: false, openSky: true };
     if ([SurveyExpeditions.FIELD_Z, UnsupportedExcursions.Z].includes(clean.z) && surfaceGroundAtCell(clean, map)) return { kind: "outdoor", roofed: false, openSky: true };
     if (clean.z === UnsupportedExcursions.CABIN_Z && map.rooms?.[UnsupportedExcursions.CABIN_ROOM]) return { kind: "interior", roofed: true, openSky: false };
     if (clean.z === SurveyExpeditions.CABIN_Z && map.rooms?.[SurveyExpeditions.CABIN_ROOM]) return { kind: "interior", roofed: true, openSky: false };
@@ -31862,7 +31908,7 @@
     stack.carriedBy = "";
     stack.carryTaskId = "";
     stack.carryLegIndex = -1;
-    stack.roomId = roomById(options.roomId)?.id || location.roomId;
+    stack.roomId = (options.roomId ? roomById(options.roomId)?.id : "") || location.roomId;
     stack.cell = cleanMapCell(options.cell) || location.cell;
     stack.fixtureId = "";
     stack.stockpileId = "";
@@ -53228,6 +53274,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function scientistMoveBlockReason(toRoomId, options = {}) {
+    if (annexAway() && state.leasedAnnex.trip) return "Remain on the municipal walking route; use its pause, resume or turn-back controls.";
     if (localPrisonRescueOccupied()) return 'Remain in the occupied rescue vehicle until the physical journey finishes.';
     if (localPrisonRecord()?.p.escape?.restrained) return 'Physical local prison restraints require an escorted return.';
     if (state.penalLegion?.desertion?.restrained) return 'Physical military restraints require an escorted movement.';
@@ -53456,6 +53503,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function activeScientistTravelTask() {
+    refreshAnnexTaskClocks();
     const task = firstScientistQueueTask();
     if (!task) return null;
     const suspension = state.combat?.routineSuspension;
@@ -61313,6 +61361,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       dom.economyContactsList,
       dom.economyServicesList,
       dom.economyWorkersList,
+      dom.economyFacilitiesList,
       dom.economyDealsList,
       dom.economyContractsList,
       dom.economyLedgerList
@@ -61335,6 +61384,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       contacts: dom.economyContactsBadge,
       services: dom.economyServicesBadge,
       workers: dom.economyWorkersBadge,
+      facilities: dom.economyFacilitiesBadge,
       deals: dom.economyDealsBadge,
       contracts: dom.economyContractsBadge,
       ledger: dom.economyLedgerBadge
@@ -63349,6 +63399,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       services: (state.localServiceKnowledge?.jobs.filter(LocalServices.active).length || 0) + (state.confidentialServiceKnowledge?.jobs.filter(ConfidentialServices.active).length || 0),
       workers: Number(Boolean(SurfaceWorkers.active(state.surfaceWorkerKnowledge?.contract)))
         + Number(Boolean(LaboratoryAssistant.active(state.laboratoryAssistantKnowledge?.contract))),
+      facilities: Number(Boolean(state.leasedAnnex?.lease && state.leasedAnnex.lease.status !== "terminated")),
       deals: openDeals.length,
       contracts: blackMarketActiveContracts().length,
       ledger: economy.ledger.length
@@ -63364,6 +63415,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     renderConfidentialServices();
     renderSurfaceWorkers();
     renderLaboratoryAssistant();
+    if (dom.economyFacilitiesList) dom.economyFacilitiesList.append(renderLeasedAnnex());
     renderEconomyDeals(openDeals);
     renderEconomyContracts(economy);
     renderEconomyLedger(economy);
@@ -78051,6 +78103,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function diagnosticInstrumentInstance(itemKey, taskId = "") {
     return [...toolInstancesForItem(itemKey)]
       .filter((tool) => tool.current > 0 && (!tool.reservedTaskId || tool.reservedTaskId === taskId))
+      .filter((tool) => !annexAway() || tool.roomId === LeasedAnnex.ROOM && (!tool.carriedBy || tool.carriedBy === "scientist"))
       .sort((a, b) => Number(b.carriedBy === "scientist") - Number(a.carriedBy === "scientist") || b.current - a.current)[0] || null;
   }
 
@@ -82176,7 +82229,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function updateWildernessNeeds() {
     if (!state.started || scientistIsDead()) return 0;
     const before = ensureWildernessSurvival();
-    const task = firstScientistQueueTask(), working = Boolean(task && task.type !== "rest" && !taskBlockReason(task));
+    const task = firstScientistQueueTask(), trip = state.leasedAnnex?.trip;
+    const walking = trip && !trip.paused && !trip.reason && !surveyBusy() && annexCapable();
+    const working = Boolean(walking || task && task.type !== "rest" && !taskBlockReason(task));
     const result = WildernessSurvival.advance(before, state.clock, { working, resting: clinicActive() || task?.type === "rest", destination: scientistInWilderness() ? before.destination : null, sheltered: wildernessSheltered(), carriedRadioIds: surveyCarriedStacks().map((stack) => stack.id) });
     state.wildernessSurvival = result.state;
     if (result.warning) { surveyEvent("Field Survival warning: thirst, hunger, exertion, or exposure is worsening. Reach supplies, rest, shelter, or withdraw before the condition becomes critical."); state.paused = true; }
@@ -82232,6 +82287,263 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
 
+  function annexAway() { return Boolean(state.leasedAnnex?.away && [LeasedAnnex.ROOM, LeasedAnnex.ROAD].includes(scientistRoomId())); }
+  function annexAtProperty() { return annexAway() && !state.leasedAnnex.trip && scientistRoomId() === LeasedAnnex.ROOM; }
+  function annexCapable() {
+    return !scientistIsDead() && !actorIsIncapacitated("scientist") && !restrictedOffsiteStay()
+      && !localPrisonRestricted() && !GateEnforcement.custodyActive(currentGateEnforcement()) && !currentDetentionRaid()
+      && !["surrendered", "restraining", "restrained", "extracting", "booked", "militaryService"].includes(scientistRaidCustodyStatus());
+  }
+  function annexChannel() {
+    return annexAtProperty() ? annexCapable() : !annexAway() && !confidentialServiceChannelReason();
+  }
+  function ensureLeasedAnnex() {
+    if (!state.leasedAnnex && campaignLocalKnowledgeAvailable() && roomById(SURFACE_RECEPTION_ROOM_ID)) {
+      const route = surfaceWorkerRoute(), context = localCovertContext();
+      state.leasedAnnex = LeasedAnnex.create(state.seed, { id: route.cityId, name: context.cityName }, route, state.clock, activeWorldRecord?.worldTheme || state.worldTheme || "madcap");
+    }
+    return state.leasedAnnex;
+  }
+  function annexWorkReason(stackId = "") {
+    if (!annexAtProperty()) return "The scientist is not physically at the leased annex.";
+    if (!annexCapable()) return "Custody, death or incapacity prevents local work.";
+    if (!LeasedAnnex.usable(state.leasedAnnex, state.clock)) return "Prepaid lease expired or ended; only possessions retrieval and departure remain authorized.";
+    if (stackId) {
+      const stack = ensurePhysicalItemStacks().find(s => s.id === stackId), sample = diagnosticSampleByStackId(stackId);
+      if (!LaboratoryAssistant.category(sample) || !stack?.tags?.includes("sealed")
+        || stack.tags.some(t => /(^|[-_ ])(living|soul|biological|unsealed|broken)([-_ ]|$)/i.test(t))
+        || stack.roomId !== LeasedAnnex.ROOM || stack.carriedBy && stack.carriedBy !== "scientist")
+        return "The lease authorizes only an actual sealed nonliving sample physically present here.";
+    }
+    return "";
+  }
+  function materializeLeasedAnnex(s) {
+    if (s.site) return;
+    const map = ensureLabMap(), z = Math.max(20, ...Object.keys(map.layers).map(Number).filter(Number.isFinite)) + 1;
+    s.site = { z, roadZ: z + 1, entry: { x: 10, y: 10, z }, roadCell: { x: 10, y: 10, z: z + 1 } };
+    for (const spec of [{ id: LeasedAnnex.ROOM, name: s.property.name, z, x: 8, y: 8, width: 8, height: 6, purposeId: "laboratory" },
+      { id: LeasedAnnex.ROAD, name: "Municipal Walking Route to Assay Annex", z: z + 1, x: 9, y: 9, width: 3, height: 3, purposeId: "corridor" }]) {
+      const room = normalizeRoom({ ...spec, articleName: `the ${spec.name}`, facilityClass: "leasedAnnex", connections: [],
+        description: spec.id === LeasedAnnex.ROOM ? `${s.property.purpose} ${s.property.utilities}` : "A saved physical walking position on a local supported route. No vehicle or supply cache.",
+        geometry: { lengthM: spec.width, widthM: spec.height, heightM: 3, floorAreaM2: spec.width * spec.height, volumeM3: spec.width * spec.height * 3 }, purposeSource: "manual" });
+      state.rooms = normalizeRooms([...state.rooms, room]);
+      const rect = { roomId: spec.id, x: spec.x, y: spec.y, z: spec.z, width: spec.width, height: spec.height }, cells = rectangularRoomCells(rect);
+      map.layers[String(spec.z)] = { id: spec.id, kind: "structure", label: spec.name };
+      map.rooms[spec.id] = normalizeLabMapRoom({ ...rect, cells, anchor: spec.id === LeasedAnnex.ROOM ? s.site.entry : s.site.roadCell }, room);
+      map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...cells]);
+      map.terrain.constructedFloors = normalizeConstructedSurfaces([...(map.terrain.constructedFloors || []),
+        ...cells.map(cell => ({ cell, materialId: "stone", purpose: "floor", supportSpanM: 24, condition: 100, builtAt: state.clock }))]);
+      state.roomStockpiles[spec.id] = emptyRoomStockpile();
+    }
+    state.fixtures.push(defaultFixtureInstance(LeasedAnnex.BENCH, "basicWorkbench", { x: 12, y: 10, z }, 0,
+      { name: "Landlord's Manual Assay Bench", materialPolicy: "wood", installedAt: state.clock }));
+    state.fixtures = normalizeFixtures(state.fixtures); bumpNavigationRevision("topology");
+  }
+  function observeLeasedAnnex() {
+    if (!annexAtProperty() || !annexCapable()) return;
+    const s = state.leasedAnnex, cell = scientistMapCell();
+    s.observation ||= { at: state.clock, goods: [], benchCondition: null };
+    s.observation.at = state.clock;
+    // Refresh only actually seen cells; leaving the laboratory never creates remote inventory knowledge.
+    const seen = ensureLabMap().rooms[LeasedAnnex.ROOM].cells.filter(c => mapCellDistance(cell, c) <= 8 && sensoryLineOfSight(cell, c));
+    const keys = new Set(seen.map(mapCellKey));
+    s.observation.goods = s.observation.goods.filter(g => !keys.has(mapCellKey(g.cell)));
+    s.observation.goods.push(...ensurePhysicalItemStacks().filter(g => g.roomId === LeasedAnnex.ROOM && !g.containerId && !g.fixtureId
+      && (!g.carriedBy || g.carriedBy === "scientist") && keys.has(mapCellKey(g.cell))).map(g => ({ id: g.id, key: g.key, quantity: g.quantity, cell: clonePlainObject(g.cell), at: state.clock })));
+    const bench = fixtureById(LeasedAnnex.BENCH);
+    if (bench && keys.has(mapCellKey(bench.origin))) s.observation.benchCondition = bench.condition;
+  }
+  function annexDepartureReason(returning = false) {
+    const s = state.leasedAnnex;
+    if (!s?.lease || !annexCapable() || surveyBusy()) return "A leased property and a free, capable scientist with no active task are required.";
+    if (!LeasedAnnex.validRoute(surfaceWorkerRoute()) || surfaceWorkerRoute().cityId !== s.property.cityId) return "Municipal support to this city is unavailable.";
+    if (returning) return annexAtProperty() ? "" : "Reach the annex before starting a return walk.";
+    if (surveyScientistReserved() || escortContractActive() || clinicActive() || currentPenalFlight() && currentPenalFlight().stage !== "released" || unsupportedActive()
+      || state.combat?.routineSuspension || state.surveyExpeditions?.carrier?.contract && !state.surveyExpeditions.carrier.contract.returnToBase)
+      return "Finish current travel, medical, escort or vehicle arrangements first.";
+    if (scientistRoomId() !== SURFACE_RECEPTION_ROOM_ID || mapCellDistance(scientistMapCell(), labMapRoomAnchor(SURFACE_RECEPTION_ROOM_ID)) > 1)
+      return "Physically walk to the public reception departure point first.";
+    const gateReason = annexHomeAccessReason({ roomId: SURFACE_RECEPTION_ROOM_ID, cell: scientistMapCell() });
+    if (gateReason) return gateReason;
+    if (s.lease.status === "terminated") return "The property has been handed back.";
+    return "";
+  }
+  function annexHomeAccessReason(point = state.leasedAnnex?.departure) {
+    const door = labMapDoor("door-surface-front"), live = door && doorFixtureState(door);
+    if (!point || !roomById(point.roomId) || !labMapCellIsWalkable(point.cell, ensureLabMap())) return "Original departure premises no longer have a usable physical receiving tile; remain on the road, with no free replacement lab.";
+    if (!door || !live || !doorFixtureAllowsPassage(door, { ignoreDoors: true })) return "The original laboratory's public gate is physically impassable.";
+    return doorFixtureSecurityBlockReason(door) || actorDoorAccessBlockReason(state.scientist, live, door.id)
+      || actorAccessCellBlockReason(state.scientist, point.cell) || "";
+  }
+  function nextLeasedAnnexEvent() {
+    const s = state.leasedAnnex; if (!s?.lease) return null;
+    const times = [];
+    if (s.lease.status === "active" && s.lease.endsAt > state.clock) times.push({ time: s.lease.endsAt, label: "Prepaid annex lease expires", type: "company" });
+    if (s.trip && !s.trip.paused && !s.trip.reason && annexCapable() && LeasedAnnex.validRoute(surfaceWorkerRoute())) {
+      const remaining = s.trip.direction === "outbound" ? s.trip.distanceKm - s.trip.positionKm : s.trip.positionKm;
+      times.push({ time: state.clock + Math.max(1, remaining * 1000 / scientistMoveSpeedMps()), label: "Municipal annex walk arrival (current pace)", type: "travel" });
+    }
+    return times.sort((a, b) => a.time - b.time)[0] || null;
+  }
+  function updateLeasedAnnex() {
+    const s = state.leasedAnnex; if (!s || scientistIsDead()) return 0;
+    if (s.away && !annexAway()) {
+      // A real custody/medical relocation owns the scientist now. Retain property and the interrupted road record, never move them back.
+      if (s.trip) { s.interruptedTrip = clonePlainObject(s.trip); s.trip = null; }
+      s.away = false; s.history.push({ at: state.clock, summary: "Annex attendance interrupted by actual relocation. Property and possessions stay in place; no automatic return or evacuation." });
+      if (currentJailStay() || currentPrisonStay() || currentDeathRowStay()) state.surveyExpeditions.phase = "home"; // The ordinary custody workflow, not the annex's field wrapper, owns its task rules.
+    }
+    const result = LeasedAnnex.advance(s, surfaceWorkerRoute(), state.clock, { dead: scientistIsDead(), capable: annexCapable() && !(s.trip && surveyBusy()), speedKph: scientistMoveSpeedMps() * 3.6,
+      arrivalReasons: { home: s.trip?.direction === "inbound" ? annexHomeAccessReason() : "",
+        annex: s.site && !labMapCellIsWalkable(s.site.entry, ensureLabMap()) ? "The annex entrance has lost its physical floor; remain on the road." : "" } });
+    if (result.destination && annexAway()) {
+      const expedition = state.surveyExpeditions;
+      if (result.destination === "annex") {
+        expedition.phase = "field"; useSurveyContext(s.fieldContext); moveSurveyScientist(LeasedAnnex.ROOM, s.site.entry);
+        surveyEvent(`Physically arrived at ${s.property.name}. Only carried goods arrived; ${LeasedAnnex.usable(s, state.clock) ? "the prepaid lease allows scoped manual assays" : "lease expired: retrieval and departure only"}.`);
+      } else {
+        expedition.phase = "home"; expedition.fieldContext = s.previousFieldContext; expedition.departure = s.previousDeparture;
+        expedition.manifest = s.previousManifest || [];
+        useSurveyContext(s.homeContext); moveSurveyScientist(s.departure.roomId, s.departure.cell); s.away = false;
+        surveyEvent("Scientist and actual carried load returned from the annex; anything left there remains there.");
+      }
+      state.paused = true; markStateDirty();
+    }
+    refreshAnnexTaskClocks(); observeLeasedAnnex(); return Number(Boolean(result.changed));
+  }
+  function refreshAnnexTaskClocks() {
+    if (!state.leasedAnnex || scientistIsDead()) return;
+    for (const task of state.tasks.filter(t => t.type === "physicalDiagnostic" && t.data?.workstationId === LeasedAnnex.BENCH)) {
+      const blocked = physicalDiagnosticTaskBlockReason(task) || surveyScientistAway() && !surveyTaskAllowed(task);
+      if (blocked) {
+        task.data.annexHeldAt ??= !LeasedAnnex.usable(state.leasedAnnex, state.clock)
+          ? Math.max(task.createdAt, Math.min(state.clock, state.leasedAnnex.lease?.endsAt ?? state.clock)) : state.clock;
+      } else if (task.data.annexHeldAt != null) {
+        const held = Math.max(0, state.clock - task.data.annexHeldAt); task.dueAt += held;
+        const movement = task.data.movement;
+        if (movement) for (const key of ["segmentStartedAt", "segmentArriveAt", "startedAt", "estimatedArrivalAt"])
+          if (Number.isFinite(movement[key])) movement[key] += held;
+        delete task.data.annexHeldAt;
+      }
+    }
+  }
+  function leasedAnnexAction(action, options = {}) {
+    const s = ensureLeasedAnnex(); if (!s || scientistIsDead()) return false;
+    updateLeasedAnnex(); let result = { ok: false, reason: "Annex action unavailable at the scientist's physical location." };
+    if (["quote", "sign", "decline"].includes(action) && annexChannel()) {
+      if (action === "quote") result = LeasedAnnex.request(s, surfaceWorkerRoute(), state.clock);
+      if (action === "sign") {
+        result = LeasedAnnex.sign(s, surfaceWorkerRoute(), options.expected || s.quote, ensureEconomy(), state.clock,
+          ensureCompany().enabled ? ensureCompany().legalName : "Scientist — manual sample analyst");
+        if (result.ok) { materializeLeasedAnnex(s); recordLegalLedger("annexLease", s.history.at(-1).summary); }
+      }
+      if (action === "decline") { s.quote = null; result.ok = true; }
+    } else if (action === "walk" && !annexAway() && annexChannel()) result.ok = Boolean(startScientistMove(SURFACE_RECEPTION_ROOM_ID, { toCell: labMapRoomAnchor(SURFACE_RECEPTION_ROOM_ID), allowMultiRoom: true }));
+    else if (["depart", "return"].includes(action)) {
+      const returning = action === "return", reason = annexDepartureReason(returning);
+      if (reason) result.reason = reason;
+      else {
+        result = LeasedAnnex.startTrip(s, surfaceWorkerRoute(), returning ? "inbound" : "outbound", state.clock, { capable: true, busy: false });
+        if (result.ok) {
+          const expedition = ensureSurveyExpeditions();
+          if (!returning) {
+            s.departure = { roomId: scientistRoomId(), cell: scientistMapCell() };
+            s.homeContext = clonePlainObject(ensureResourceSurveys().context); s.previousFieldContext = expedition.fieldContext; s.previousDeparture = expedition.departure;
+            s.previousManifest = clonePlainObject(expedition.manifest);
+            expedition.manifest = surveyCarriedStacks().map(g => ({ stackId: g.id, key: g.key, quantity: g.quantity, toolInstanceId: g.toolInstanceId }));
+            const city = ensureStrategicJourneys().destinations.find(d => d.id === ensureStrategicJourneys().nearestSettlementDestinationId);
+            s.fieldContext = city && resourceSurveyContext(activeWorldRecord, { strategicLocation: { id: s.property.id, strategicCellId: city.cellId } }, activeWorldRecord?.worldSeed || state.seed);
+            s.away = true; expedition.departedAt = state.clock;
+            expedition.headerSnapshot = { storage: dom.storageReadout.textContent, waste: dom.wasteReadout.textContent, suspicion: dom.suspicionReadout.textContent };
+          }
+          expedition.fieldContext = s.fieldContext; expedition.phase = returning ? "inbound" : "outbound";
+          moveSurveyScientist(LeasedAnnex.ROAD, s.site.roadCell);
+          surveyEvent(`Started finite ${returning ? "return" : "outbound"} municipal walk: ${s.property.distanceKm.toFixed(1)} km. Actual load, injuries and fatigue affect pace; no goods are remotely transferred.`);
+        }
+      }
+    } else if (["pause", "resume", "turn"].includes(action) && annexAway() && annexCapable()) {
+      result.ok = LeasedAnnex.control(s, action, state.clock);
+      if (result.ok) { state.surveyExpeditions.phase = s.trip.direction; updateLeasedAnnex(); }
+    } else if (action === "pack" && annexCapable() && (!surveyScientistAway() || annexAtProperty()) && !surveyBusy()) {
+      const stack = ensurePhysicalItemStacks().find(g => g.id === options.stackId);
+      const amount = Math.floor(Number(options.amount) || 1), cell = stack && stockpileHaulAccessCell(stack);
+      if (stack && !stack.carriedBy && !stack.reservedTaskId && !stack.containerId && amount > 0 && amount <= stack.quantity
+        && !stack.tags?.some(t => /living|soul/i.test(t)) && (!stack.fixtureId || storageFixtureScientistAccessible(fixtureById(stack.fixtureId)))
+        && actorInventoryCanCarry("scientist", stack, amount) && cell?.z === scientistMapCell().z) {
+        result.ok = queueSurveyWork("pack", cell, { stackId: stack.id, itemKey: stack.key, amount, toolInstanceId: stack.toolInstanceId || "" }, { deferRender: true });
+        if (result.ok && !annexAway()) state.surveyExpeditions.preparing = false; // Local packing is not a survey booking.
+      }
+    } else if (action === "drop" && annexAtProperty() && annexCapable() && !surveyBusy()) {
+      const stack = surveyCarriedStacks().find(g => g.id === options.stackId && !g.reservedTaskId);
+      result.ok = Boolean(stack && dropActorInventoryStack("scientist", stack.id));
+    } else if (action === "assay" && annexAtProperty()) return startDiagnosticSampleAssay(options.stackId);
+    else if (action === "cancelAssay" && annexAtProperty() && annexCapable()) {
+      const task = state.tasks.find(t => t.type === "physicalDiagnostic" && t.data?.workstationId === LeasedAnnex.BENCH);
+      result.ok = Boolean(task && cancelTask(task.id, { quiet: true, noLaborClaim: true, noProductionClaim: true }));
+    }
+    else if (action === "handback" && annexAtProperty() && annexCapable()) {
+      const bench = fixtureById(LeasedAnnex.BENCH), empty = !ensurePhysicalItemStacks().some(g => g.roomId === LeasedAnnex.ROOM && !g.carriedBy);
+      result = LeasedAnnex.handBack(s, { atProperty: true, empty, busy: surveyBusy(), benchCondition: bench && labMapCellRoomId(bench.origin) === LeasedAnnex.ROOM ? bench.condition : 0 }, ensureEconomy(), state.clock);
+      if (result.ok) recordLegalLedger("annexHandback", s.history.at(-1).summary);
+    }
+    refreshAnnexTaskClocks(); observeLeasedAnnex(); surveyEvent(result.ok ? `Annex ${action}: ${s.property.name}.` : result.reason); persist(); render(); return Boolean(result.ok);
+  }
+  function renderLeasedAnnex() {
+    const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.leasedAnnex = "true";
+    const s = ensureLeasedAnnex(); panel.append(textEl("h3", "Leased Local Assay Annex"));
+    if (!s) { panel.append(emptyText("No known city-local premises with a supported municipal route. Internet contact provides no property or transport.")); return panel; }
+    observeLeasedAnnex(); const v = LeasedAnnex.publicView(s, state.clock), p = v.property;
+    panel.append(textEl("p", `${p.name} · landlord ${p.landlord.name} · ${p.areaM2} m² including a landlord-owned bench and floor storage · ${p.distanceKm.toFixed(1)} km local walk.`), textEl("p", p.purpose), textEl("p", p.utilities), textEl("p", p.privacy));
+    const button = (label, action, options = {}, reason = "") => {
+      const b = storesActionButton(label, reason || label, () => leasedAnnexAction(action, options)); setActionButtonState(b, Boolean(reason || scientistIsDead()), reason || "The scientist is dead."); panel.append(b);
+    };
+    if (!v.lease || v.lease.status !== "terminated") button(v.lease ? "Review annex renewal" : "Review annex lease", "quote", {}, annexChannel() ? "" : "No local lease contact from this location or custody.");
+    if (v.quote) {
+      panel.append(textEl("p", `Exact three-day terms, quote valid until ${formatClock(v.quote.expiresAt)}: rent ${formatMoney(v.quote.rent)}, deposit ${formatMoney(v.quote.deposit)}, total ${formatMoney(v.quote.total)}. ${v.quote.termination}`));
+      button("Sign exact annex terms", "sign", { expected: v.quote }, annexChannel() ? "" : "Local lease contact required."); button("Decline annex terms", "decline");
+    }
+    if (v.lease) panel.append(textEl("p", `Lease ${v.lease.id}: ${v.lease.status}; prepaid until ${formatClock(v.lease.endsAt)}; deposit ${formatMoney(v.lease.depositHeld)}. ${v.lease.termination}`));
+    if (v.trip) {
+      panel.append(textEl("p", `${v.trip.direction} walk: saved position ${v.trip.positionKm.toFixed(2)} / ${v.trip.distanceKm.toFixed(2)} km. ${v.trip.reason} No inventory delivery or laboratory observation while away.`));
+      button("Pause annex walk", "pause"); button("Resume annex walk", "resume"); button("Turn back on annex route", "turn");
+    } else if (annexAtProperty()) {
+      button("Walk back to original laboratory", "return", {}, annexDepartureReason(true));
+      if (state.tasks.some(t => t.type === "physicalDiagnostic" && t.data?.workstationId === LeasedAnnex.BENCH)) button("Cancel annex assay", "cancelAssay");
+      button("Hand back empty annex", "handback", {}, surveyBusy() ? "Finish or cancel current work." : "");
+      for (const stack of surveyCarriedStacks().filter(g => !g.reservedTaskId)) button(`Stage ${physicalStackLabel(stack)} (${stack.id})`, "drop", { stackId: stack.id }, surveyBusy() ? "Finish current work." : "");
+      for (const stack of ensurePhysicalItemStacks().filter(g => g.roomId === LeasedAnnex.ROOM && (!g.carriedBy || g.carriedBy === "scientist") && !g.fixtureId && !g.containerId
+        && mapCellDistance(g.cell, scientistMapCell()) <= 8 && sensoryLineOfSight(scientistMapCell(), g.cell))) {
+        if (diagnosticSampleByStackId(stack.id)) button(`Assay sealed portion (${stack.id})`, "assay", { stackId: stack.id }, annexWorkReason(stack.id) || diagnosticSampleAssayBlockReason(stack.id));
+        if (!stack.carriedBy) button(`Retrieve one ${physicalStackLabel(stack)} (${stack.id})`, "pack", { stackId: stack.id }, surveyBusy() || stack.reservedTaskId ? "Finish current work or release its reservation." : "");
+      }
+      const needs = ensureWildernessSurvival();
+      panel.append(textEl("p", `Thirst ${Math.round(needs.thirst)}/100; hunger ${Math.round(needs.hunger)}/100; exertion ${Math.round(needs.exertion)}/100. Bring or retrieve real provisions; the lease supplies no meals or water.`));
+      for (const key of ["drinkingWater", "trailMeal"]) {
+        const use = storesActionButton(`Use carried ${inventoryItemLabel(key)}`, "Consume one actual carried portion", () => queueSurvivalConsumption(key));
+        setActionButtonState(use, surveyBusy() || !survivalSupply(key), "A carried provision and no active work are required."); panel.append(use);
+      }
+      const rest = storesActionButton("Rest at annex (15 minutes)", "Elapsed rest, no supplies or automatic healing", () => createRestTask(15));
+      setActionButtonState(rest, surveyBusy(), "Finish current work first."); panel.append(rest);
+    } else if (!surveyScientistAway() && v.lease && v.lease.status !== "terminated") {
+      button("Walk to annex departure point", "walk", {}, annexChannel() ? "" : "Local free movement required.");
+      button("Depart for leased annex", "depart", {}, annexDepartureReason());
+    }
+    if (!surveyScientistAway() && annexChannel()) {
+      const label = document.createElement("label"), select = document.createElement("select"); select.dataset.annexPack = "true";
+      for (const g of ensurePhysicalItemStacks().filter(g => !g.carriedBy && !g.reservedTaskId && !g.containerId && g.quantity > 0 && g.cell.z === scientistMapCell().z
+        && (!g.fixtureId || storageFixtureScientistAccessible(fixtureById(g.fixtureId))))) select.append(new Option(`${physicalStackLabel(g)} · ${g.quantity} (${g.id})`, g.id));
+      label.append(textEl("span", "Exact physical supply to pack (one unit)"), select); panel.append(label);
+      const pack = storesActionButton("Pack one annex supply", "Walk to and carry one actual unreserved unit", () => leasedAnnexAction("pack", { stackId: select.value }));
+      setActionButtonState(pack, surveyBusy() || !select.value, "Finish current work and choose an actual supply."); panel.append(pack);
+    }
+    if (v.observation) {
+      panel.append(textEl("p", `Last personally observed property record: ${formatClock(v.observation.at)}. Not a remote stock report.`));
+      for (const g of v.observation.goods) panel.append(textEl("p", `${g.quantity} ${resourceLabel(g.key)} (${g.id}); last seen ${formatClock(g.at)}.`));
+    }
+    for (const h of v.history.slice(-5)) panel.append(textEl("p", `${formatClock(h.at)} — ${h.summary}`, "journal-meta"));
+    return panel;
+  }
+
   function ensureSurveyExpeditions() {
     state.surveyExpeditions ||= SurveyExpeditions.defaultState();
     const expedition = state.surveyExpeditions;
@@ -82262,6 +82574,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task?.type === "rest") return true;
     const target = task?.data?.toCell || task?.data?.targetCell;
     if (!target || target.z !== scientistMapCell().z) return false;
+    if (annexAway()) return annexAtProperty() && (task.type === "scientistMove" || task.type === "injuryTreatment" && task.data.targetActorId === "scientist"
+      || task.type === "surveyExpeditionWork" && ["pack", "consume", "radioBattery"].includes(task.data.action)
+      || task.type === "physicalDiagnostic" && task.data.workflowId === "assaySample" && !annexWorkReason(ensureDiagnosticState().samples.find(s => s.id === task.data.sampleId)?.stackId || ""));
     if (task.type === "injuryTreatment") return task.data.targetActorId === "scientist";
     if (task.type === "surveyExpeditionWork" && ["consume", "radioBattery"].includes(task.data.action)) return true;
     if (state.surveyExpeditions.phase !== "field") return false;
@@ -82562,6 +82877,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function refreshSurveyReport() {
+    if (annexAway()) return false;
     if (unsupportedActive()) return false;
     const expedition = ensureSurveyExpeditions();
     if (!surveyScientistAway() || !expedition.relayOnline || (expedition.phase === "field" && mapCellKey(scientistMapCell()) !== mapCellKey(SurveyExpeditions.RENDEZVOUS))) return false;
@@ -82612,6 +82928,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function updateSurveyExpedition() {
+    if (annexAway()) return updateLeasedAnnex();
+    updateLeasedAnnex(); // Expiry remains physical even when the scientist is elsewhere.
     if (state.penalFlights?.assistance?.cityApproach && cityReceptionRoomIds().includes(scientistRoomId())) return 0;
     if (unsupportedActive()) { updateRemoteDiscovery(); return 0; } // Travel transitions still occur after elapsed simulation systems.
     if (state.penalFlights?.fieldActive || [CastawayAssistance.CABIN, CastawayAssistance.PAD].includes(scientistRoomId())) return 0; // A previous municipal charter does not own castaway transport.
@@ -82659,6 +82977,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function controlSurveyJourney(action) {
+    if (annexAway()) return false;
     if (unsupportedActive()) return false;
     if (action === "recover") { surveyEvent("No separate municipal recovery crew and vehicle are allocated. Automatic rescue is unavailable."); persist(); render(); return false; }
     const expedition = ensureSurveyExpeditions();
@@ -82670,6 +82989,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function renderSurveyExpeditions() {
+    if (annexAway()) return renderLeasedAnnex();
     const expedition = ensureSurveyExpeditions();
     const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.surveyExpeditions = "true";
     panel.append(textEl("strong", "Supported Survey Excursions"));
@@ -82855,7 +83175,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function diagnosticWorkbenchPlan(startCell) {
     const plans = [];
-    for (const fixture of researchWorkstations()) {
+    const workstations = annexAtProperty() ? [fixtureById(LeasedAnnex.BENCH)].filter(f => f && f.condition > 0 && f.operationalState === "operational" && !f.productionTaskId) : researchWorkstations();
+    for (const fixture of workstations) {
       for (const port of fixtureAccessCells(fixture)) {
         const path = labMapPathBetweenCells(startCell, port.cell, { map: ensureLabMap(), ignoreDoors: true });
         if (path.length) plans.push({ fixture, cell: port.cell, path });
@@ -82866,6 +83187,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function physicalDiagnosticTaskBlockReason(task) {
     if (!task) return "Diagnostic task is missing.";
+    if (task.data?.workstationId === LeasedAnnex.BENCH && !annexAtProperty()) return "The scientist must physically return to the leased assay bench before this unfinished assay can continue.";
+    if (annexAway() && (task.data?.workflowId !== "assaySample" || task.data?.workstationId !== LeasedAnnex.BENCH || annexWorkReason())) return annexWorkReason() || "Only scoped manual assays at the leased bench are authorized here.";
     if (task.data?.workflowId === "resourceSurvey") {
       const reason = resourceSurveyCellReason(task.data.targetCell, task.data.resourceMethodId);
       if (reason) return reason;
@@ -82873,12 +83196,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.data?.instrumentInstanceId) {
       const tool = toolInstanceById(task.data.instrumentInstanceId)?.instance;
       if (!tool) return "The diagnostic instrument is no longer available.";
+      if (task.data.workstationId === LeasedAnnex.BENCH && (tool.roomId !== LeasedAnnex.ROOM || tool.carriedBy && tool.carriedBy !== "scientist")) return "The original instrument is no longer physically available at the annex.";
       if (tool.current <= 0) return "The diagnostic instrument is broken.";
       if (tool.reservedTaskId && tool.reservedTaskId !== task.id) return "The diagnostic instrument is reserved for other work.";
     }
     for (const stackId of task.data?.reservedStackIds || []) {
       const stack = ensurePhysicalItemStacks().find((entry) => entry.id === stackId);
       if (!stack || stack.reservedTaskId !== task.id) return "A reserved sample or assay reagent is no longer available.";
+      if (task.data.workstationId === LeasedAnnex.BENCH && (stack.roomId !== LeasedAnnex.ROOM || stack.carriedBy && stack.carriedBy !== "scientist")) return "A reserved physical portion left the annex; it cannot be consumed remotely.";
     }
     if (task.data?.workflowId === "collectEnvironmentalSample") {
       const record = surfaceExposureRecord(task.data?.exposureRecordId);
@@ -82901,6 +83226,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function queueInstrumentDiagnostic(options) {
+    if (annexAway() && (options.workflowId !== "assaySample" || annexWorkReason(options.sample?.stackId))) return null;
     const path = options.path || [scientistMapCell()];
     const task = {
       id: `task-${state.nextTaskNumber++}`,
@@ -83060,7 +83386,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function diagnosticSampleAssayBlockReason(stackId) {
-    if (diagnosticSampleByStackId(stackId)?.captured.confidentialService && confidentialServiceChannelReason()) return confidentialServiceChannelReason();
+    if (annexAway() && annexWorkReason(stackId)) return annexWorkReason(stackId);
+    if (!annexAtProperty() && diagnosticSampleByStackId(stackId)?.captured.confidentialService && confidentialServiceChannelReason()) return confidentialServiceChannelReason();
     const base = diagnosticBaseBlockReason();
     if (base) return base;
     const plan = diagnosticSampleAssayPlan(stackId);
@@ -89714,6 +90041,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.surfaceWorkerKnowledge = candidate?.surfaceWorkerKnowledge ? clonePlainObject(candidate.surfaceWorkerKnowledge) : null;
     next.laboratoryAssistant = LaboratoryAssistant.normalize(candidate?.laboratoryAssistant);
     next.laboratoryAssistantKnowledge = candidate?.laboratoryAssistantKnowledge ? clonePlainObject(candidate.laboratoryAssistantKnowledge) : null;
+    next.leasedAnnex = LeasedAnnex.normalize(candidate?.leasedAnnex);
     if (next.runEnded || latestDeath?.resurrection.status === "pending") {
       next.paused = true;
     }
