@@ -39,6 +39,7 @@
       localLeverage: Object.fromEntries(["service", "reservation"].map(id => [id, normalizeReceipt(value?.localLeverage?.[id]) ? {
         ...normalizeReceipt(value.localLeverage[id]), clientId: text(value.localLeverage[id].clientId)
       } : null])),
+      independentOperations: Object.fromEntries(["recruitment", "delegation"].map(id => [id, normalizeReceipt(value?.independentOperations?.[id])])),
       readiness: value?.readiness && Number.isFinite(value.readiness.at) ? {
         at: time(value.readiness.at), checks: Object.fromEntries(CHECKS.map(id => [id, value.readiness.checks?.[id] === true]))
       } : null,
@@ -55,6 +56,12 @@
   function record(value, outcome = {}, clock = 0) {
     const state = normalize(value);
     if (outcome.known !== true || outcome.alive === false) return state;
+    if (["workerRecruitment", "workerDelegation"].includes(outcome.kind)) {
+      const id = outcome.kind === "workerRecruitment" ? "recruitment" : "delegation";
+      if (!outcome.sourceId || (id === "recruitment" ? !(outcome.arrived && outcome.consented) : !outcome.delivered)) return state;
+      state.independentOperations[id] ||= { at: time(clock), sourceId: text(outcome.sourceId), summary: text(outcome.summary) };
+      return state;
+    }
     if (outcome.kind === "localService" || outcome.kind === "localReservation") {
       if (!outcome.clientId || !outcome.sourceId) return state;
       const id = outcome.kind === "localService" ? "service" : "reservation";
@@ -84,6 +91,9 @@
     if (state.accomplishedAt !== null) result.push({ label: "Establish the laboratory", at: state.accomplishedAt });
     for (const [id, label] of [["service", "Complete useful work for a local customer"], ["reservation", "Negotiate a real materials reservation"]]) {
       if (state.localLeverage[id]) result.push({ label, at: state.localLeverage[id].at });
+    }
+    for (const [id, label] of [["recruitment", "Engage a physically arrived voluntary worker"], ["delegation", "Delegate a physically completed supplies transfer"]]) {
+      if (state.independentOperations[id]) result.push({ label, at: state.independentOperations[id].at });
     }
     return result;
   }
