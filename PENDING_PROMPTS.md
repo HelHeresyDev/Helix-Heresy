@@ -18,7 +18,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Additional Local Maps and Encounters
+1. Remote Charter Site Detail and Encounters
 2. Roguelike Run Lifecycle, Death, Postmortem, and Restart
 3. Campaign Roadmap: From Hidden Laboratory to World Domination
 4. New-Run Onboarding and Contextual Tutorial
@@ -85,9 +85,9 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Additional Local Maps and Encounters
+## 1. Remote Charter Site Detail and Encounters
 
-Extend deterministic local elaboration to additional physically visitable places and encounters, using world seed and stable place identity for baseline geography and run seed for run-specific circumstances. Respect canonical settlements, institutional damage, resources, beast populations, and historical outcomes. Preserve removed property, damage, casualties, and discoveries across visits without altering the reusable world. Generate detail only when needed, reveal it only through authorized information or observation, and never equate surface imagery with an expensive material survey. Reuse existing physical travel, survey, and encounter systems rather than introducing parallel simulations.
+Extend the completed on-foot boundary-sector elaboration to the existing physically reachable remote aircraft-charter site. Discuss its distinct landing/pickup footprint, terrain constraints, observation rules and encounter placement before implementation. Use world seed and stable place identity for geography and run seed for encounter circumstances, preserving canonical regional beast populations, resources and historical outcomes. Elaborate exact detail on physical arrival, not booking; preserve terrain changes, removed property, casualties and dated observations across departures, reloads and revisits without modifying the reusable world. Keep hidden terrain and actors private; surface imagery or landmarks must not supply free mineral surveys. Reuse the existing charter, physical movement, survival, survey, combat and map-memory systems. Do not invent additional settlements, institutions, loot or travel services. Other kinds of local places and people should receive separate scoped discussions rather than expanding this pass.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 

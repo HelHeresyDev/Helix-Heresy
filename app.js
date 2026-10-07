@@ -99,6 +99,7 @@
   const CityPrisonRescue = window.HelixCityPrisonRescue;
   const BanishmentRelief = window.HelixBanishmentRelief;
   const WildernessSurvival = window.HelixWildernessSurvival;
+  const WildernessDiscovery = window.HelixWildernessDiscovery;
   const WildernessBeasts = window.HelixWildernessBeasts;
   const ExpeditionEscorts = window.HelixExpeditionEscorts;
   if (!ExpeditionEscorts) throw new Error("Expedition escorts must load before app.js");
@@ -15483,12 +15484,15 @@
       treatSurveyInjuryForTest: (id) => startInjuryTreatment(id),
       setSurveyRelayTestState: (online) => { ensureSurveyExpeditions().relayOnline = Boolean(online); render(); },
       wildernessSnapshot: () => clonePlainObject({ ...ensureWildernessSurvival(), scientistCell: scientistMapCell(), roomId: scientistRoomId(), sheltered: wildernessSheltered(), radio: wildernessRadio(), carried: surveyCarriedStacks(), tasks: scientistQueueTasks().map((task) => ({ ...task, reason: taskBlockReason(task) })), clock: state.clock, health: scientistVital("health").current }),
+      boundaryDiscoverySnapshot: (from = scientistMapCell(), to = WildernessSurvival.ENTRY) => clonePlainObject({ discovery: state.wildernessSurvival?.discovery || null, public: WildernessDiscovery.publicView(state.wildernessSurvival?.discovery), cells: ensureLabMap().rooms[WildernessSurvival.ROOM]?.cells || [], path: labMapPathBetweenCells(from, to, { actor: state.scientist, ignoreDoors: true }), sight: sensoryLineOfSight(from, to) }),
+      advanceBoundaryTravelForTest: (seconds) => { let remaining = seconds; while (remaining > 0) { const step = Math.min(remaining, 10); state.clock += step; remaining -= step; updateScientistMovementTask(); completeDueTasks(); updateSurveyExpedition(); } persist(); render(); },
       wildernessBeastSnapshot: () => clonePlainObject({ ...ensureWildernessBeasts(), knowledge: wildernessBeastKnowledge(), injuries: state.injuries, clock: state.clock, scientistCell: scientistMapCell(), health: scientistVital("health").current, mana: scientistVital("mana").current }),
       configureWildernessBeastsTest: (options = {}) => {
         materializeSurveySpaces(); materializeWilderness();
         state.surveyExpeditions.phase = "field"; state.wildernessSurvival.autoCare = false; state.tasks = [];
         state.wildernessBeasts = { ...WildernessBeasts.defaultState(), materialized: true, siteId: state.wildernessSurvival.destination.id, actors: (options.actors || []).map((entry, index) => ({ ...WildernessBeasts.actor(entry.speciesId || "beast:rimefang-pack", entry.id || `field-test-${index}`, entry.cell, "population-test", state.clock), ...entry, mapCell: entry.cell })) };
         moveSurveyScientist(WildernessBeasts.ROOM, options.scientistCell || WildernessSurvival.ENTRY);
+        updateBoundaryDiscovery();
         state.injuries = []; state.combat = normalizeCombatState({});
         updateWildernessBeasts(0); persist(); render(); return true;
       },
@@ -23655,6 +23659,9 @@
   }
 
   function localGeologyProfile(cell) {
+    // Boundary boulders are surface obstacles, not a second coordinate-based
+    // underground deposit field or a free mineral survey.
+    if (boundaryObstacleAtCell(cell)) return null;
     return Geology.profileForCell(state?.seed || "helix-heresy", cleanMapCell(cell), strategicLocalGeologyContext());
   }
 
@@ -62191,6 +62198,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     } else if (constructedFloorAtCell(cell, map)?.purpose === "roof") {
       const roof = constructedFloorAtCell(cell, map);
       parts.push(`${materialCompositionLabel(roof.materialComposition)} roof; ${structureConditionBand(roof.condition)}`);
+    } else if (boundaryObstacleAtCell(cell)) {
+      parts.push("surface rock obstacle; blocks walking and sight; no material survey");
     } else if (map.surfaceZ !== null && cell.z >= map.surfaceZ) {
       parts.push("outside the mapped property");
     } else {
@@ -63022,6 +63031,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }
       }
       const surveys = ResourceSurveys.publicKnowledge(ensureResourceSurveys());
+      const boundaryObservations = new Map((WildernessDiscovery.publicView(state.wildernessSurvival?.discovery)?.records || []).map(record => [record.subject, record]));
+      for (const record of boundaryObservations.values()) {
+        const cell = record.cell, label = `${record.text} — observed ${formatClock(record.at)}; last known, not live telemetry`;
+        setLabMapOverlayEntry(assignments, cell, { overlayId, classNames: ["map-overlay-resources", "map-overlay-resources-high"], label, title: label, source: record.source, value: "L", scope: "roomObservation", knowledge: { state: "stale", observedAt: record.at }, target: { kind: "tile", tile: cell } }, map);
+      }
       if (state.wildernessSurvival?.materialized) {
         const markers = unsupportedActive() ? [] : [[WildernessSurvival.GATE, "W", "Defended boundary: wilderness beyond; return requires walking"]];
         if (state.wildernessSurvival.shelter) markers.push([state.wildernessSurvival.shelter.cell, "S", "Deployed shelter: occupy this tile to reduce weather exposure"]);
@@ -69760,6 +69774,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         conditionBand: structureConditionBand(constructedWall.condition).toLowerCase()
       };
     }
+    if (!excavated && !surfaceGround && !constructedFloor && boundaryObstacleAtCell(clean)) {
+      return { known: true, kind: "naturalRock", cell: clean, roomId: "", compartmentId: "", door: null, materialId: "stone", depositId: "", surfaceStyle: "rough", conditionBand: structureConditionBand(context.naturalDamageByCell.get(key)?.condition ?? 100).toLowerCase() };
+    }
     if (!excavated && !surfaceGround && !constructedFloor && context.map.surfaceZ !== null && clean.z >= context.map.surfaceZ) {
       return { known: true, kind: "offsite", cell: clean, roomId: "", compartmentId: "", door: null, materialId: "", surfaceStyle: "boundary", conditionBand: "intact" };
     }
@@ -70127,6 +70144,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         supportStatus: structuralFailure?.status || "supported",
         spriteKey: constructedFloor ? `tile.floor.constructed.${constructedFloor.materialId}` : smoothed ? "tile.floor.smoothed" : "tile.floor.rough"
       };
+    }
+    if (boundaryObstacleAtCell(cell)) {
+      const condition = naturalDamageAtCell(cell, map)?.condition ?? 100;
+      return { kind: "solidEarth", materialId: "stone", condition, state: structureConditionBand(condition).toLowerCase(), spriteKey: `tile.solidEarth.${structureConditionBand(condition).toLowerCase()}` };
     }
     if (cell && map && map.surfaceZ !== null && cell.z >= map.surfaceZ) {
       return { kind: "offsite", spriteKey: "tile.offsite" };
@@ -80341,7 +80362,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function ensureWildernessBeasts() { return state.wildernessBeasts ||= WildernessBeasts.defaultState(); }
   function materializeWildernessBeasts() {
     const saved = ensureWildernessBeasts(), survival = ensureWildernessSurvival();
-    if (saved.materialized || !survival.materialized) return saved;
+    if (saved.materialized || !survival.discovery?.baseline) return saved;
     const map = activeWorldRecord?.generatedData?.strategicMap, index = StrategicWorld.cellIndex(survival.destination.strategicCellId);
     const populations = (map?.beastEcology?.populations || []).filter((population) => StrategicBeastEcology.maskIncludes(population.territory.rangeMask, index));
     state.wildernessBeasts = WildernessBeasts.materialize(state.seed, survival.destination.id, populations, ensureLabMap().rooms[activeWildernessRoom()].cells, state.clock);
@@ -80486,7 +80507,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const occupied = (map.publicPlayableSettlementDirectory?.cityRows || []).filter((row) => row.physicalCondition !== "ruined").map((row) => row.cellId);
       const destination = WildernessSurvival.chooseDestination(origin, candidates, occupied);
       if (destination) {
-        const context = resourceSurveyContext(activeWorldRecord, { strategicLocation: { id: destination.id, strategicCellId: destination.strategicCellId } }, state.seed);
+        const context = resourceSurveyContext(activeWorldRecord, { strategicLocation: { id: destination.id, strategicCellId: destination.strategicCellId } }, activeWorldRecord?.worldSeed || state.seed);
         if (context) { survival.destination = destination; survival.context = context; }
       }
     }
@@ -80508,10 +80529,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function materializeWilderness() {
     const survival = ensureWildernessSurvival();
     if (!survival.destination || survival.materialized || !state.surveyExpeditions.materialized) return Boolean(survival.materialized);
-    const rect = { roomId: WildernessSurvival.ROOM, x: 21, y: 8, z: SurveyExpeditions.FIELD_Z, width: 16, height: 12 };
-    // Saved local relief leaves rock obstacles without pretending to expose resource deposits.
-    const rocks = survival.destination.slopePercent > 15 ? new Set(["30,10,6", "30,11,6", "30,14,6"]) : new Set(["32,16,6"]);
-    const cells = rectangularRoomCells(rect).filter((cell) => !rocks.has(mapCellKey(cell)));
+    const rect = { roomId: WildernessSurvival.ROOM, ...WildernessDiscovery.BOUNDS };
+    // Only the known approach exists until a body actually crosses the boundary.
+    const cells = [{ x: 21, y: 12, z: rect.z }, { ...WildernessSurvival.ENTRY }];
     const room = normalizeRoom({ id: WildernessSurvival.ROOM, name: survival.destination.label, facilityClass: "wilderness", purposeId: "corridor", connections: [SurveyExpeditions.FIELD_ROOM], description: `${survival.destination.jurisdiction}. ${survival.destination.description}`, geometry: { lengthM: rect.width, widthM: rect.height, heightM: 3, floorAreaM2: cells.length, volumeM3: cells.length * 3 }, purposeSource: "wildernessSurvey" });
     state.rooms = normalizeRooms([...state.rooms, room]);
     roomById(SurveyExpeditions.FIELD_ROOM).connections.push(WildernessSurvival.ROOM);
@@ -80528,12 +80548,34 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return true;
   }
 
+  function boundaryObstacleAtCell(cell) {
+    return Boolean(cell && WildernessDiscovery.obstacleAt(state?.wildernessSurvival?.discovery, cell) && !labMapCellHasFloor(cell));
+  }
+
+  function updateBoundaryDiscovery() {
+    if (scientistRoomId() !== WildernessSurvival.ROOM || unsupportedActive() || state.penalFlights?.fieldActive) return;
+    const survival = ensureWildernessSurvival();
+    if (!survival.materialized || !survival.destination) return;
+    survival.discovery ||= WildernessDiscovery.create(survival.destination);
+    if (!survival.discovery.baseline) {
+      const map = ensureLabMap(), localRoom = map.rooms[WildernessSurvival.ROOM];
+      if (!localRoom) return;
+      const baseline = WildernessDiscovery.materialize(survival.discovery, activeWorldRecord?.id || survival.context?.worldId || "unbound", activeWorldRecord?.worldSeed || survival.context?.worldId || "unbound", survival.destination, state.clock, localRoom.cells.length > 2 ? localRoom.cells : null);
+      localRoom.cells = clonePlainObject(baseline.cells);
+      map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...baseline.cells]);
+      const room = roomById(WildernessSurvival.ROOM);
+      room.geometry.floorAreaM2 = baseline.cells.length; room.geometry.volumeM3 = baseline.cells.length * 3;
+      bumpNavigationRevision("topology");
+      materializeWildernessBeasts();
+    }
+    WildernessDiscovery.observe(survival.discovery, state.clock, scientistMapCell(), cell => sensoryLineOfSight(scientistMapCell(), cell), cell => labMapCellHasFloor(cell));
+  }
+
   function enterWilderness() {
     if (state.penalFlights?.fieldActive) return false;
     if (unsupportedActive()) return false;
     if (state.surveyExpeditions?.phase !== "field" || surveyBusy() || scientistInWilderness()) return false;
     if (!materializeWilderness()) return false;
-    materializeWildernessBeasts();
     const path = labMapPathBetweenCells(scientistMapCell(), WildernessSurvival.ENTRY, { map: ensureLabMap(), actor: state.scientist, ignoreDoors: true });
     if (!path.length || pathAccessViolations(state.scientist, path).length) return false;
     const duration = formatDuration(mapPathTravelDistanceMeters(path, ensureLabMap()) / scientistMoveSpeedMps());
@@ -81064,6 +81106,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const expedition = state.surveyExpeditions;
     if (!expedition || !surveyScientistAway() || scientistIsDead()) return 0;
     if (expedition.phase === "field") {
+      updateBoundaryDiscovery();
       if (scientistRoomId() === SurveyExpeditions.FIELD_ROOM) {
         LocalDiscovery.observe(expedition.discovery, state.clock, scientistMapCell(), cell => sensoryLineOfSight(scientistMapCell(), cell), expedition.hazardDisturbed);
       }
@@ -81123,6 +81166,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const journal = document.createElement("section"); journal.className = "subpanel"; journal.dataset.localDiscovery = "true";
       journal.append(textEl("strong", "Local Knowledge — Limited Municipal Extract"), textEl("p", discovery.limitations));
       for (const record of discovery.records) journal.append(textEl("p", `${formatClock(record.at)} · ${record.source}: ${record.text}${record.cell ? ` (${record.cell.x},${record.cell.y})` : ""}`));
+      panel.append(journal);
+    }
+    const boundaryDiscovery = WildernessDiscovery.publicView(state.wildernessSurvival?.discovery);
+    if (boundaryDiscovery) {
+      const journal = document.createElement("section"); journal.className = "subpanel"; journal.dataset.boundaryDiscovery = "true";
+      journal.append(textEl("strong", "Boundary Field Journal"), textEl("p", boundaryDiscovery.limitations));
+      if (!boundaryDiscovery.records.length) journal.append(textEl("p", "No surface landmarks observed yet."));
+      for (const record of boundaryDiscovery.records) journal.append(textEl("p", `${formatClock(record.at)} · ${record.source}: ${record.text} (${record.cell.x},${record.cell.y})`));
       panel.append(journal);
     }
     panel.append(renderWildernessPanel());
