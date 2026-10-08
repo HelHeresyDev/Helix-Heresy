@@ -4547,6 +4547,8 @@
   const Diagnostics = window.HelixDiagnosticSystem;
   const LocalServices = window.HelixLocalServices;
   if (!LocalServices) throw new Error("HelixLocalServices must load before app.js");
+  const CivicAssayMandate = window.HelixCivicAssayMandate;
+  if (!CivicAssayMandate) throw new Error("HelixCivicAssayMandate must load before app.js");
   if (!Diagnostics) {
     throw new Error("HelixDiagnosticSystem must load before app.js");
   }
@@ -5386,6 +5388,8 @@
       campaign: Campaign.normalize(),
       localServices: null,
       localServiceKnowledge: null,
+      civicAssayMandate: null,
+      civicAssayKnowledge: null,
       confidentialServices: null,
       confidentialServiceKnowledge: null,
       surfaceWorkers: null,
@@ -13488,6 +13492,28 @@
         tasks: state.tasks.filter(task => ["commodityFreight", "physicalDiagnostic"].includes(task.type)),
         stacks: ensurePhysicalItemStacks().filter(stack => ["diagnosticSample", "assayReagent"].includes(stack.key)), clock: state.clock }),
       localServiceAction: (action, jobId = "") => localServiceAction(action, jobId),
+      civicAssaySnapshot: () => clonePlainObject({ mandate: state.civicAssayMandate, known: state.civicAssayKnowledge,
+        service: state.localServices, serviceKnown: state.localServiceKnowledge, home: ensureCompany().homeInstitutionContext,
+        production: ensureEconomy().commodityMarket.localProduction, money: ensureEconomy().money,
+        campaign: state.campaign, clock: state.clock, tasks: state.tasks.filter(t => ['physicalDiagnostic', 'commodityFreight'].includes(t.type)),
+        stacks: ensurePhysicalItemStacks().filter(s => ['diagnosticSample', 'assayReagent'].includes(s.key)) }),
+      civicAssayAction: (action, id, expected) => civicAssayAction(action, id, expected),
+      configureCivicAssayTestSupport: () => {
+        window.helixHeresyDebug.configureLocalServiceTestSupport();
+        const cityId = ensureEconomy().commodityMarket.localProduction.cityId;
+        // Explicit staffed charter-office endowment for the legacy physical fixture, not an ordinary unsupported city's grant.
+        const authority = { cityId, charterId: 'explicit-test-charter', authorityId: 'explicit-test-city-ruler',
+          issuerId: 'explicit-test-public-works', reviewerId: 'explicit-test-charter-review', issuerName: 'Test Public Works', reviewerName: 'Test Charter Council' };
+        const sources = Object.values(HomeInstitutionContext.ROLES).map(role => ({ role, id: role === 'publicWorksAndProvisioning' ? authority.issuerId
+          : role === 'civicReview' ? authority.reviewerId : `explicit-test-${role}`, capacityBand: 'exceptional', status: 'operational', workload: 0 }));
+        ensureCompany().homeInstitutionContext = HomeInstitutionContext.create({ cityId, cityName: 'Test City' }, sources, state.clock);
+        state.civicAssayMandate = CivicAssayMandate.create(authority); state.civicAssayKnowledge = null;
+        persist(); render(); return true;
+      },
+      setCivicAssayTestOfficeAvailability: (role, available) => {
+        const home = ensureHomeInstitutionContext(), id = home?.roles[role]; if (!id) return false;
+        home.offices[id].available = available; persist(); render(); return true;
+      },
       configureLocalServiceTestSupport: (options = {}) => {
         const network = ensureStrategicJourneys();
         const cityId = network.destinations.find(d => d.id === network.nearestSettlementDestinationId)?.cityId || "local-city";
@@ -21468,6 +21494,13 @@
         .sort((a, b) => a.time - b.time)[0] || null;
     }
     const events = [];
+    const civicKnown = state.civicAssayKnowledge, civicTerm = CivicAssayMandate.current(civicKnown), civicProposal = civicKnown?.proposal;
+    for (const [time, label] of [
+      [civicProposal?.status === 'pending' ? civicProposal.readyAt : null, 'Disclosed civic assay application checkpoint'],
+      [civicProposal && ['pending', 'quoted'].includes(civicProposal.status) ? civicProposal.expiresAt : null, 'Civic assay quote expiry'],
+      [civicTerm?.status === 'active' ? civicTerm.endsAt : null, 'Civic assay mandate expiry'],
+      [civicTerm?.review?.status === 'pending' ? civicTerm.review.readyAt : null, 'Disclosed charter-review checkpoint']
+    ]) if (time != null && time > state.clock) events.push({ time, label, type: 'company' });
     const annexEvent = nextLeasedAnnexEvent(); if (annexEvent) events.push(annexEvent);
     for (const row of state.penalFlights?.docket || []) if (row.status === "waiting" && row.closesAt >= state.clock) events.push({ time: row.closesAt, label: "Seven-day Penal Flight docket closes", type: "travel" });
     const queueEvent = nextQueueEvent();
@@ -63538,6 +63571,145 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.economyLedgerList.append(section);
   }
 
+  function ensureCivicAssayMandate() {
+    if (state.civicAssayMandate) return state.civicAssayMandate;
+    if (localServiceChannelReason() || !state.localServices) return null;
+    const context = ensureHomeInstitutionContext(), production = ensureEconomy().commodityMarket.localProduction;
+    const government = activeWorldRecord?.generatedData?.strategicMap?.cityGovernments?.governments.find(g => g.cityId === context?.cityId);
+    if (!government || government.sovereigntyScope !== 'cityOnly' || production.cityId !== government.cityId
+      || !context.roles['environmental-health'] || !context.roles['civic-review']) return null;
+    const issuerId = government.roleAssignments.publicWorksAndProvisioning, reviewerId = government.roleAssignments.civicReview;
+    if (issuerId !== context.roles['environmental-health'] || reviewerId !== context.roles['civic-review']) return null;
+    state.civicAssayMandate = CivicAssayMandate.create({ cityId: government.cityId, charterId: government.charter.id,
+      authorityId: government.authorityId, issuerId, reviewerId,
+      issuerName: government.institutions.find(i => i.id === issuerId)?.name || 'Public works',
+      reviewerName: government.institutions.find(i => i.id === reviewerId)?.name || 'Charter review' });
+    return state.civicAssayMandate;
+  }
+  function civicAssayContext() {
+    const home = ensureHomeInstitutionContext(), s = state.civicAssayMandate;
+    const instrument = diagnosticInstrumentInstance('assayCase');
+    return { dead: scientistIsDead(), channel: !localServiceChannelReason(),
+      producerAvailable: Boolean(state.localServices && !LocalServices.available(state.localServices, ensureEconomy().commodityMarket.localProduction)),
+      issuerAvailable: Boolean(s && home?.cityId === s.authority.cityId && home.roles['environmental-health'] === s.authority.issuerId && home.offices[s.authority.issuerId]?.available),
+      reviewerAvailable: Boolean(s && home?.cityId === s.authority.cityId && home.roles['civic-review'] === s.authority.reviewerId && home.offices[s.authority.reviewerId]?.available),
+      equipment: Boolean(instrument?.current > 0 && researchWorkstations().some(f => f.condition > 0 && f.operationalState === 'operational')) };
+  }
+  function updateCivicAssayMandate() {
+    if (!state.civicAssayMandate || scientistIsDead()) return 0;
+    const s = state.civicAssayMandate, c = civicAssayContext();
+    let changed = CivicAssayMandate.advance(s, state.localServices, state.clock, c);
+    const m = CivicAssayMandate.current(s);
+    if (m?.review?.status !== 'pending' && m?.disputes.some(d => !m.review?.disputeIds.includes(d.jobId))) {
+      // The producer's own complaint needs no scientist permission or active laboratory communications.
+      const filed = CivicAssayMandate.fileReview(s, state.localServices, state.clock, { ...c, channel: true, producerFiled: true, readyAt: state.clock });
+      if (filed.ok) { reserveCivicReviewWork(m); changed++; }
+    }
+    return changed;
+  }
+  function reserveCivicReviewWork(m) {
+    m.review.readyAt = HomeInstitutionContext.reserve(ensureHomeInstitutionContext(), 'civic-review', `civic-review:${m.id}:${m.priorReviews.length}`, state.clock);
+  }
+  function refreshCivicAssayKnowledge() {
+    if (state.civicAssayMandate && !localServiceChannelReason() && state.localServices
+      && !LocalServices.available(state.localServices, ensureEconomy().commodityMarket.localProduction))
+      state.civicAssayKnowledge = CivicAssayMandate.publicView(state.civicAssayMandate, state.clock);
+  }
+  function civicAssayAction(action, id = '', expected = null) {
+    if (scientistIsDead() || localServiceChannelReason()) return false;
+    const s = ensureCivicAssayMandate(), service = state.localServices, production = ensureEconomy().commodityMarket.localProduction;
+    if (!s || !service) { addEvent('No supported home-city charter delegation is available; route strongholds and unbound legacy cities gain no invented authority.'); persist(); render(); return false; }
+    LocalServices.advance(service, production, state.clock); updateCivicAssayMandate();
+    const c = civicAssayContext(), m = CivicAssayMandate.current(s);
+    let result = { ok: false };
+    if (action === 'request') {
+      c.readyAt = state.clock;
+      result = CivicAssayMandate.request(s, service, state.clock, c);
+      if (result.ok) {
+        s.proposal.readyAt = HomeInstitutionContext.reserve(ensureHomeInstitutionContext(), 'environmental-health', `civic-application:${s.proposal.id}`, state.clock);
+        s.proposal.expiresAt = s.proposal.readyAt + CivicAssayMandate.QUOTE;
+      }
+    } else if (action === 'sign') {
+      result = CivicAssayMandate.sign(s, service, state.clock, expected, c);
+      if (result.ok) recordCampaignOutcome({ kind: 'civicMandate', sourceId: result.mandate.id, granted: true,
+        cityId: s.authority.cityId, summary: `${s.issuer.name} granted a three-day, three-batch public-works assay delegation, not city sovereignty.` });
+    } else if (action === 'enroll') {
+      const freight = serviceFreightCost();
+      if (expected?.freight !== freight) result.reason = 'Review the refreshed exact producer-funded sample freight before enrolling.';
+      else if (!exchangeRoute().ok) result.reason = exchangeRoute().reason;
+      else result = CivicAssayMandate.enroll(s, service, production, state.clock, freight, c);
+    } else if (action === 'priority') result = CivicAssayMandate.prioritize(s, service, id, state.clock);
+    else if (action === 'dispatch') result = CivicAssayMandate.dispatch(s, service, state.clock, c);
+    else if (['hold', 'clear', 'quarantine'].includes(action)) {
+      result = CivicAssayMandate.decide(s, service, production, ensureEconomy(), id, action, state.clock, c);
+      if (result.ok && result.amount) {
+        recordLegalLedger('serviceIncome', `Binding civic ${action} received for ${id}; truthful assessment fee ${formatMoney(result.amount)} settled once.`, { amount: result.amount });
+        recordCampaignOutcome({ kind: 'localService', sourceId: id, settled: true, received: true, clientId: service.client.id,
+          summary: 'A truthful scoped civic assessment was received and paid; no other authority or information was disclosed.' });
+      }
+    } else if (action === 'relinquish') result = CivicAssayMandate.relinquish(s, state.clock);
+    else if (action === 'review') {
+      c.readyAt = state.clock;
+      result = CivicAssayMandate.fileReview(s, service, state.clock, c);
+      if (result.ok) reserveCivicReviewWork(m);
+    }
+    if (result.ok) {
+      updateLocalServices();
+      addEvent(`Civic assay ${action}: ${s.history.at(-1)?.summary || 'Exact mandate action recorded.'}`);
+      recordCompanyEvent(`civicAssay:${action}`, s.history.at(-1)?.summary || 'Scoped civic assay action.', { category: 'analysis', details: 'Only the identified mandate, batch references and agreed analytical findings; no unrelated records or access.' });
+    } else if (result.reason) addEvent(result.reason);
+    refreshLocalServiceKnowledge(); refreshCivicAssayKnowledge(); persist(); render(); return result.ok;
+  }
+  function renderCivicAssayMandate() {
+    const parent = dom.economyServicesList; if (!parent) return;
+    const s = ensureCivicAssayMandate(), reason = localServiceChannelReason();
+    if (!reason) { updateCivicAssayMandate(); refreshCivicAssayKnowledge(); }
+    const panel = document.createElement('section'); panel.dataset.civicAssayMandate = 'true'; panel.className = 'subpanel'; parent.append(panel);
+    panel.append(textEl('h3', 'Civic assay mandate'), textEl('p', 'Negotiate bounded public-works authority over three identified producer batches for three days. This is neither city sovereignty, a monopoly, legal immunity nor access to divine power. Existing city law, civic review and religious obligations remain. No neighboring city or joint route stronghold is bound.'));
+    const known = state.civicAssayKnowledge;
+    if (!known) { panel.append(emptyText('No supported charter delegation has been received through a working home-city account.')); return; }
+    panel.append(textEl('p', `Received ${formatClock(known.reportedAt)}. ${known.issuer.name}, ${known.authority.issuerName}; reviewer ${known.reviewer.name}, ${known.authority.reviewerName}. Delegation under ${known.authority.charterId}, superior authority ${known.authority.authorityId}. Producer: ${state.localServiceKnowledge?.client.organization || 'Participating works'}.`));
+    if (reason) panel.append(textEl('p', 'Last received record only. Current decisions, actor whereabouts and held stocks are not remotely monitored.'));
+    const button = (label, action, id = '', expected = null, disabled = '') => {
+      const b = storesActionButton(label, label, () => civicAssayAction(action, id, expected)); b.dataset.civicAction = action; b.dataset.civicJob = id;
+      setActionButtonState(b, Boolean(reason || disabled), reason || disabled); return b;
+    };
+    const m = CivicAssayMandate.current(known), p = known.proposal;
+    if (!m || m.status !== 'active') panel.append(button('Request civic mandate terms', 'request'));
+    if (p) {
+      panel.append(textEl('p', `Application ${p.id}: ${p.status}; office completion ${formatClock(p.readyAt)}, quote expires ${formatClock(p.expiresAt)}. ${p.duties}`));
+      if (p.status === 'quoted') {
+        const pre = document.createElement('pre'); pre.dataset.civicTerms = p.id; pre.textContent = JSON.stringify(p, null, 2); panel.append(pre,
+          button('Sign exact civic mandate', 'sign', '', clonePlainObject(p)));
+      }
+    }
+    if (m) {
+      panel.append(textEl('h4', `${m.id} — ${m.status}`), textEl('p', `Delegation ${formatClock(m.startsAt)} to ${formatClock(m.endsAt)}. Enrolled ${m.jobIds.length}/3. Receipt of this appointment is historical; current authority expires and can be revoked. It does not complete the city-power ambition.`));
+      if (m.status === 'active') {
+        const freight = serviceFreightCost();
+        panel.append(textEl('p', `Enroll one actual produced batch: producer-funded fee ${formatMoney(LocalServices.FEE)} and sample freight ${formatMoney(freight)}. Original 48-hour service deadline applies. Enrollment withholds the batch but does not dispatch its sample; choose the priority then authorize dispatch.`),
+          button('Enroll identified civic batch', 'enroll', '', { freight }), button('Dispatch priority civic sample', 'dispatch'), button('Relinquish civic mandate', 'relinquish'));
+      }
+      for (const id of m.jobIds) {
+        const j = state.localServiceKnowledge?.jobs.find(j => j.id === id); if (!j) continue;
+        const row = document.createElement('section'); row.dataset.civicBatch = id;
+        row.append(textEl('h4', `${id} — ${j.lotStatus}${m.priorityJobId === id ? ' (next dispatch)' : ''}`));
+        if (m.status === 'active' && !j.civic.returned && LocalServices.active(j)) {
+          if (!j.civic.dispatchApproved) row.append(button('Prioritize this civic sample', 'priority', id));
+          row.append(button('Issue protective civic hold', 'hold', id));
+          if (j.preview) row.append(button('Issue binding clearance', 'clear', id, null, j.result?.finding !== 'acceptable' ? 'A confident acceptable assay and exact preview are required.' : ''),
+            button('Issue binding quarantine', 'quarantine', id, null, j.result?.finding !== 'contaminated' ? 'A confident contaminated assay and exact preview are required.' : ''));
+        }
+        if (j.civic.returned) row.append(textEl('p', 'Charter review returned disposition responsibility to the producer; stock remains held until an ordinary supported report. Service freight, fees and deadlines are unchanged.'));
+        panel.append(row);
+      }
+      for (const d of m.disputes) panel.append(textEl('p', `${formatClock(d.at)} — ${d.jobId}: ${d.reason}`));
+      panel.append(textEl('p', 'Filing authorizes disclosure of this mandate’s exact batch statuses, delays, analytical findings and producer complaints only. Review uses the charter office’s shared work queue; repeat facts cannot reroll a decision.'), button('File scoped charter review', 'review', '', null, m.review?.status === 'pending' ? 'The existing review is still pending.' : ''));
+      if (m.review) panel.append(textEl('p', `Review ${m.review.status}; office completion ${formatClock(m.review.readyAt)}. ${m.review.reason || 'Filed facts remain saved while the office works.'}`));
+    }
+    for (const e of known.history.slice(-10).reverse()) panel.append(textEl('p', `${formatClock(e.at)} — ${e.summary}`, 'journal-meta'));
+  }
+
   function ensureLocalServices() {
     const production = ensureEconomy().commodityMarket.localProduction;
     if (!state.localServices && campaignLocalKnowledgeAvailable()) state.localServices = LocalServices.create(production);
@@ -63574,7 +63746,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const service = state.localServices, production = ensureEconomy().commodityMarket.localProduction;
     if (!service || !production || scientistIsDead()) return 0;
     let changes = Number(LocalServices.advance(service, production, state.clock));
+    changes += updateCivicAssayMandate();
     const allocations = service.jobs.filter(LocalServices.active).filter(job => !job.consignmentId)
+      .filter(job => !job.civic || job.civic.returned || job.civic.dispatchApproved)
+      .sort((a, b) => (a.civic?.returned ? 0 : a.civic?.dispatchRank || 0) - (b.civic?.returned ? 0 : b.civic?.dispatchRank || 0))
       .map(job => ({ entry: job, cargo: "diagnosticSample", quantity: 1, job }));
     if (service.reservation?.status === "purchased" && !service.reservation.consignmentId) allocations.push({ entry: service.reservation,
       cargo: service.reservation.good, quantity: service.reservation.quantity });
@@ -63679,7 +63854,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (job.preview) {
         const preview = document.createElement("pre"); preview.dataset.serviceDisclosurePreview = job.id; preview.textContent = JSON.stringify(job.preview, null, 2);
         row.append(textEl("p", "Only these exact report fields go to this customer account. Cancel the preview by leaving it unsent; no other records or access are included."), preview,
-          button("Send previewed report", "submit", job.id));
+          button("Send previewed report", "submit", job.id, job.civic && !job.civic.returned ? "This identified batch requires a binding civic disposition in the mandate panel." : ""));
       }
       section.append(row);
     }
@@ -64517,6 +64692,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     renderLegalLedger(economy);
     renderEconomyContacts(economy, openDeals);
     renderLocalServices();
+    renderCivicAssayMandate();
     renderConfidentialServices();
     renderSurfaceWorkers();
     renderLaboratoryAssistant();
@@ -77151,10 +77327,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         content.append(textEl("p", `${label}: ${receipt ? `${formatClock(receipt.at)} — ${receipt.summary}` : "not yet recorded"}`));
       }
       content.append(textEl("p", "A paid surface shift is not loyalty or a self-sufficient independent base. Additional facilities and intelligent creations remain separate work."));
+      content.append(textEl('h4', 'City power — bounded civic delegation'));
+      const mandateReceipt = campaign.cityPower.mandate;
+      content.append(textEl('p', mandateReceipt ? `${formatClock(mandateReceipt.at)} — ${mandateReceipt.summary}` : 'No received civic assay mandate recorded. Economy → Services offers charter-backed terms where a supported home-city office and producer exist.'));
+      content.append(textEl('p', 'A historical appointment is not proof of current authority or city sovereignty. Current terms and decisions require received mandate records; broader city control remains future work.'));
       const roadmap = document.createElement("details");
       roadmap.append(textEl("summary", "Six ambitions — long-term roadmap"));
       for (const ambition of Campaign.roadmap(activeWorldRecord?.worldTheme || state.worldTheme || "madcap")) {
-        roadmap.append(textEl("h4", `${ambition.label}${ambition.id === "laboratory" ? "" : ambition.id === "localLeverage" ? " — first customer service available; broader dependency remains future work" : ambition.id === "independence" ? " — first paid surface worker available; broader autonomy remains future work" : " — future mechanics"}`), textEl("p", ambition.template));
+        roadmap.append(textEl("h4", `${ambition.label}${ambition.id === "laboratory" ? "" : ambition.id === "localLeverage" ? " — first customer service available; broader dependency remains future work" : ambition.id === "independence" ? " — first paid surface worker available; broader autonomy remains future work" : ambition.id === 'cityPower' ? ' — bounded civic assay delegation available; city sovereignty remains future work' : " — future mechanics"}`), textEl("p", ambition.template));
       }
       roadmap.append(textEl("p", "World domination and divine supremacy are separate accomplishments, not run endings or a fixed-order dependency. Gods that lose followers descend rather than die. No undiscovered powers or hidden totals are listed here."));
       content.append(roadmap);
@@ -91151,6 +91331,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.campaign = Campaign.normalize(candidate?.campaign);
     next.localServices = LocalServices.normalize(candidate?.localServices);
     next.localServiceKnowledge = candidate?.localServiceKnowledge ? clonePlainObject(candidate.localServiceKnowledge) : null;
+    next.civicAssayMandate = CivicAssayMandate.normalize(candidate?.civicAssayMandate);
+    next.civicAssayKnowledge = candidate?.civicAssayKnowledge ? clonePlainObject(candidate.civicAssayKnowledge) : null;
     next.confidentialServices = ConfidentialServices.normalize(candidate?.confidentialServices);
     next.confidentialServiceKnowledge = candidate?.confidentialServiceKnowledge ? clonePlainObject(candidate.confidentialServiceKnowledge) : null;
     next.surfaceWorkers = SurfaceWorkers.normalize(candidate?.surfaceWorkers);

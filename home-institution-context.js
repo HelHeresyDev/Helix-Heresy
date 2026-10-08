@@ -8,7 +8,8 @@
   const ROLES = Object.freeze({
     "commercial-registry": "centralAdministration",
     "environmental-health": "publicWorksAndProvisioning",
-    "law-enforcement": "civilWatch"
+    "law-enforcement": "civilWatch",
+    "civic-review": "civicReview"
   });
   const HOURS = { fragile: 24, strained: 12, functional: 6, strong: 3, exceptional: 2 };
   const THEORY_OFFENSE = Object.freeze({

@@ -36,7 +36,9 @@
         heldQuantity: number(job.heldQuantity), burden: number(job.burden), lotStatus: text(job.lotStatus),
         shipmentId: text(job.shipmentId), consignmentId: text(job.consignmentId), sampleStackId: text(job.sampleStackId),
         sampleAt: number(job.sampleAt), result: job.result ? report(job.result) : null,
-        preview: job.preview ? report(job.preview) : null, paidAt: optionalTime(job.paidAt), receivedAt: optionalTime(job.receivedAt)
+        preview: job.preview ? report(job.preview) : null, paidAt: optionalTime(job.paidAt), receivedAt: optionalTime(job.receivedAt),
+        civic: job.civic ? { mandateId: text(job.civic.mandateId), dispatchApproved: job.civic.dispatchApproved === true,
+          dispatchRank: optionalTime(job.civic.dispatchRank), returned: job.civic.returned === true, decision: text(job.civic.decision), heldAt: optionalTime(job.civic.heldAt) } : null
       })),
       reservation: value.reservation ? { id: text(value.reservation.id), good: text(value.reservation.good), quantity: number(value.reservation.quantity),
         unitPrice: number(value.reservation.unitPrice), freightPerUnit: number(value.reservation.freightPerUnit), expiresAt: number(value.reservation.expiresAt),
@@ -59,24 +61,25 @@
   function note(state, at, kind, summary, sourceId = '') {
     state.history.push({ at, kind, summary, sourceId }); state.history = state.history.slice(-60);
   }
-  function offerReason(state, production, now, freight = 0) {
+  function offerReason(state, production, now, freight = 0, civicMandateId = '') {
     if (!state) return 'No supported local industrial customer is known.';
     const reason = available(state, production); if (reason) return reason;
-    if (state.jobs.some(active)) return 'Complete or cancel the accepted service before accepting another.';
-    if (now < state.nextOfferAt) return 'The customer has no new testing allocation yet.';
+    if (!civicMandateId && state.jobs.some(active)) return 'Complete or cancel the accepted service before accepting another.';
+    if (!civicMandateId && now < state.nextOfferAt) return 'The customer has no new testing allocation yet.';
     if ((line(state, production, state.client.sampleGood)?.stock || 0) < 1) return 'The customer has no produced batch available for sampling.';
     if (production.finance.money < FEE + freight) return 'The customer cannot fund the disclosed fee and sample freight.';
     return '';
   }
-  function accept(state, production, now, freight = 0) {
-    const reason = offerReason(state, production, now, freight); if (reason) return { ok: false, reason };
+  function accept(state, production, now, freight = 0, civicMandateId = '') {
+    const reason = offerReason(state, production, now, freight, civicMandateId); if (reason) return { ok: false, reason };
     const f = facility(state, production), stock = line(state, production, state.client.sampleGood);
     stock.stock -= 1; production.finance.money -= FEE + freight; state.communicationSeconds -= 60;
     const job = { id: `industrial-service-${state.nextNumber++}`, status: 'accepted', acceptedAt: now, dueAt: now + WINDOW,
       feeEscrow: FEE, sampleFreight: freight, sourceGood: stock.id, heldQuantity: 0.9,
       // One captured run-owned batch, not a current remote-facility reading.
       burden: f.condition >= 85 ? 5 : f.condition >= 65 ? 35 : 65, lotStatus: 'awaitingTest', sampleAt: now,
-      shipmentId: '', consignmentId: '', sampleStackId: '', result: null, preview: null, paidAt: null, receivedAt: null };
+      shipmentId: '', consignmentId: '', sampleStackId: '', result: null, preview: null, paidAt: null, receivedAt: null, civic: null };
+    if (civicMandateId) job.civic = { mandateId: civicMandateId, dispatchApproved: false, dispatchRank: null, returned: false, decision: '', heldAt: null };
     state.jobs.push(job); state.nextOfferAt = now + 24 * HOUR;
     note(state, now, 'accepted', 'Accepted one captured batch. Fee escrow and sample freight funded by the customer; the remaining batch is withheld from use.', job.id);
     return { ok: true, job };
@@ -125,9 +128,11 @@
     if (!job || job.status !== 'assayed' || !job.result) return null;
     job.preview = copy(job.result); return copy(job.preview);
   }
-  function submit(state, production, jobId, wallet, now) {
+  function submit(state, production, jobId, wallet, now, civicMandateId = '') {
     const job = state?.jobs.find(j => j.id === jobId), reason = state && available(state, production);
     if (reason) return { ok: false, reason };
+    if (job?.civic && !job.civic.returned && civicMandateId !== job.civic.mandateId)
+      return { ok: false, reason: 'This batch is under a civic mandate; issue its authorized disposition or obtain an institutional handback first.' };
     if (!job || job.status !== 'assayed' || now > job.dueAt || job.feeEscrow !== FEE || !job.preview || JSON.stringify(job.preview) !== JSON.stringify(job.result)) return { ok: false, reason: 'Preview the exact current funded report before disclosure.' };
     if (job.result.finding === 'inconclusive' || job.result.confidence < MIN_CONFIDENCE) return { ok: false, reason: 'The report is inconclusive. A fresh physical sample and improved analysis are required.' };
     if (!line(state, production, job.sourceGood)) return { ok: false, reason: 'The original customer batch facility is unavailable.' };
@@ -146,6 +151,7 @@
     job.heldQuantity = Math.round((job.heldQuantity - 0.1) * 10) / 10; production.finance.money -= freight; state.communicationSeconds -= 60;
     job.sampleFreight = freight; job.sampleAt = now; job.status = 'accepted';
     job.shipmentId = ''; job.consignmentId = ''; job.sampleStackId = ''; job.result = null; job.preview = null;
+    if (job.civic && !job.civic.returned) { job.civic.dispatchApproved = false; job.civic.dispatchRank = null; }
     note(state, now, 'resampled', 'Fresh portion consumed from the same captured batch; original contamination and deadline unchanged.', job.id); return { ok: true, job };
   }
   function reserve(state, production, now, unitPrice, freightPerUnit) {
