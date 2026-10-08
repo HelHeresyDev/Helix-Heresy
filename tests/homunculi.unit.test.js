@@ -27,6 +27,8 @@ test('72-hour causal growth incorporates exact finite inputs and develops a uniq
   f.advance(12); assert.equal(f.result.run.status, 'completed'); assert.deepEqual(f.consumed, H.MODES.body.inputs); assert.equal(f.releases.length, 1);
   assert.equal(a.soulOrigin, 'naturally-developed'); assert.notEqual(a.id, a.donorId); assert.deepEqual(a.skills, {}); assert.deepEqual(a.memories, []); assert.equal(a.language, null); assert.equal(a.agreement, null);
   assert.equal(a.maturity, 1); assert.equal(a.health, 100);
+  assert.deepEqual(a.vocalAnatomy, H.VOCAL_ANATOMY); assert.deepEqual(a.receivedCare, []);
+  a.vocalAnatomy.larynx = false; assert.equal(H.normalize(f.s).individuals[0].vocalAnatomy.larynx, false);
 });
 test('culture trial is not a person; cancellation preserves progressive incorporation without refund', () => {
   const f = fixture('culture'); f.advance(4); assert.equal(H.cancel(f.s, f.result.run, f.s.lastAt, f.hooks), true); const consumed = { ...f.consumed };

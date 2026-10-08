@@ -5,6 +5,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (Theme) {
   'use strict';
   const HOUR = 3600, STEP = 60, CARE = 12 * HOUR, BUFFER = 20 * 60;
+  const VOCAL_ANATOMY = Object.freeze({ larynx: true, oralArticulation: true, respiration: true });
   const MODES = Object.freeze({
     culture: { seconds: 12 * HOUR, inputs: { biomass: 4, growthMedium: 3, geneticMaterial: 1, humanTissueTemplate: 1 } },
     body: { seconds: 72 * HOUR, inputs: { biomass: 60, growthMedium: 18, geneticMaterial: 6, humanTissueTemplate: 1 } }
@@ -57,6 +58,7 @@
       health: Math.max(1, 100 - r.damage), maxHealth: 100, massKg: 48, maturity: 0, skills: {}, memories: [], language: null,
       agreement: null, foodHours: 24, waterHours: 24, fatigue: 0, stress: r.damage,
       injuries: r.damage ? [{ cause: 'Developmental injury', damage: r.damage, at: now }] : [],
+      vocalAnatomy: { ...VOCAL_ANATOMY }, receivedCare: [],
       senses: { vision: true, hearing: true, chemical: true, taste: true, contact: true, magic: true }, createdAt: now, diedAt: null };
     s.individuals.push(a); r.personId = a.id; return a;
   }
@@ -122,5 +124,5 @@
         needs: person.foodHours < 6 || person.waterHours < 6 ? 'Care needed' : 'Recently nourished', injuries: copy(person.injuries) } : null };
     s.observations[r.id] = v; return copy(v);
   }
-  return { HOUR, STEP, CARE, BUFFER, MODES, create, normalize, active, requirements, begin, stage, injury, advance, care, cancel, observe };
+  return { HOUR, STEP, CARE, BUFFER, MODES, VOCAL_ANATOMY, create, normalize, active, requirements, begin, stage, injury, advance, care, cancel, observe };
 });
