@@ -42,6 +42,8 @@
   if (!LaboratoryAssistant) throw new Error("HelixLaboratoryAssistant must load before app.js");
   const LeasedAnnex = window.HelixLeasedAnnex;
   if (!LeasedAnnex) throw new Error("HelixLeasedAnnex must load before app.js");
+  const Homunculi = window.HelixHomunculi;
+  if (!Homunculi) throw new Error("HelixHomunculi must load before app.js");
   const CargoRecovery = window.HelixCargoRecovery;
   const IntercitySmuggling = window.HelixIntercitySmuggling;
   const CorridorBeasts = window.HelixCorridorBeasts;
@@ -325,6 +327,16 @@
     seizedMechanism: { label: "Seized mechanism", severity: "critical", performance: 0 }
   };
   const FIXTURE_DEFS = [
+    {
+      id: "homunculusChamber", label: "Dedicated Homunculus Growth Chamber", glyph: "HG", assemblyClass: "siteBuilt",
+      footprint: { width: 2, height: 2 }, collision: "blocking", layer: "floor",
+      ports: [{ id: "operator", label: "Growth Chamber Operator", x: 0, y: 2 }], capabilities: ["homunculusGrowth"],
+      infrastructure: { role: "homunculusChamber", networks: ["electricity", "mana", "water", "drain"], powerModes: ["electric"], defaultPowerMode: "electric",
+        electricDemandPerHour: 4, manaPerHour: 2, waterDemandPerHour: 1, drainDemandPerHour: 1 },
+      workMinutes: 180,
+      materialOptions: { steel: { composition: { primary: "steel", lining: "reinforcedGlass", seal: "rubber" }, costs: { steelPanels: 12, metalParts: 8, glass: 8, rubber: 6 }, score: 90 } },
+      description: "Advanced organic growth equipment. Requires tissue-culture research, Adept fabrication, finite services, personally prepared medium and scheduled physical care. Not slime synthesis or resurrection equipment."
+    },
     {
       id: "basicWorkbench",
       label: "Basic Workbench",
@@ -3663,6 +3675,9 @@
   ];
   const INVENTORY_CATEGORY_BY_ID = Object.fromEntries(INVENTORY_CATEGORY_DEFS.map((category) => [category.id, category]));
   const INVENTORY_ITEM_DEFS = [
+    { key: "humanTissueTemplate", label: "Human-Derived Tissue Template", category: "receptacles", initial: 0, description: "A sealed physical self-donated cellular template. Examine locally; no memories or skills are encoded." },
+    { key: "growthMedium", label: "Prepared Growth Medium", category: "receptacles", initial: 0, description: "Finite personally prepared non-slime nutrient medium. Quality and contamination persist." },
+    { key: "grownTissue", label: "Grown Tissue Remains", category: "receptacles", initial: 0, description: "Actual incorporated tissue and growth waste. Cancellation does not turn it back into original supplies." },
     ...WildernessSurvival.ITEMS.map((item) => ({ key: item.key, label: item.label, category: "receptacles", initial: item.initial, description: "Physical field-survival equipment or supplies. Pack and use through the Field Survival panel in Visits." })),
     ...PenalLegion.ITEMS.map(item => ({ key: item.key, label: item.label, category: 'receptacles', initial: 0, description: 'Finite issued replacement components for a satellite warning relay.' })),
     { key: "penalTrackingBeacon", label: "Penal Tracking Beacon", category: "receptacles", initial: 0, description: "A physical finite-battery tracking transmitter. No rescue service or explosive charge." },
@@ -5069,6 +5084,7 @@
   const SELECTION_INSPECTOR_TAB_BY_ID = Object.fromEntries(SELECTION_INSPECTOR_TABS.map((tab) => [tab.id, tab]));
   const DEFAULT_SELECTION_INSPECTOR_TAB = "summary";
   const SCIENTIST_QUEUE_TASK_TYPES = new Set([
+    "homunculusWork",
     "synthesize",
     "test",
     "breed",
@@ -5831,7 +5847,7 @@
       : actorOrId?.actorKind === "expeditionEscort" ? { maxMassKg: 25, maxVolumeL: 30 }
       : actorOrId?.actorKind === "rescueMedic" ? { maxMassKg: 35, maxVolumeL: 45 }
       : actorOrId?.actorKind === "penalPrisoner" ? { maxMassKg: 25, maxVolumeL: 30 }
-      : ["surfaceWorker", "laboratoryAssistant"].includes(actorOrId?.actorKind) ? { maxMassKg: 18, maxVolumeL: 24 }
+      : ["surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actorOrId?.actorKind) ? { maxMassKg: 18, maxVolumeL: 24 }
       : visitor ? { maxMassKg: 18, maxVolumeL: 24 }
       : slimeInventoryCapacity(actorOrId);
     return {
@@ -15738,6 +15754,71 @@
       setProductionBillStatus: (billId, status) => setProductionBillStatus(billId, status),
       setProductionBillComponentQuality: (billId, value) => setProductionBillComponentQuality(billId, value),
       researchSnapshot: () => JSON.parse(JSON.stringify(ensureResearchState())),
+      homunculusAction: (action, id) => queueHomunculusWork(action, id),
+      homunculusWorkPreview: (action, id) => { const t = homunculusTarget(action, id); return clonePlainObject({ cell: t.cell, fixture: t.f?.id, localReason: confidentialServiceChannelReason(), medicine: skillLevel("medicine"), alchemy: skillLevel("alchemy"),
+        scientist: scientistMapCell(), footprint: navigationFootprintForActor(state.scientist), startOccupancy: tileOccupiedAreaM2(scientistMapCell(), { excludeActor: state.scientist }), startAccess: actorAccessCellBlockReason(state.scientist, scientistMapCell()),
+        ports: t.f && fixtureAccessCells(t.f).map(p => ({ cell: p.cell, occupancy: tileOccupiedAreaM2(p.cell, { excludeActor: state.scientist }), access: actorAccessCellBlockReason(state.scientist, p.cell),
+          startWalkable: labMapCellIsWalkable(scientistMapCell()), walkable: labMapCellIsWalkable(p.cell), door: labMapDoorAtCell(p.cell), startDoor: labMapDoorAtCell(scientistMapCell()),
+          direct: navigationFootprintCanOccupy(state.scientist, p.cell, navigationFootprintForActor(state.scientist), "square", { requireCurrentCapacity: true, ignoreObjects: true, ignoreDoors: true }),
+          route: labNavigationPlanBetweenCells(scientistMapCell(), p.cell, { actor: state.scientist, ignoreDoors: true }) })), inputs: ensurePhysicalItemStacks().filter(s => s.biology || s.sourceLabels.includes("Explicit advanced homunculus test endowment")).map(s => ({ key: s.key, quantity: s.quantity, cell: s.cell, claimed: s.reservedTaskId })), events: state.events.slice(-3) }); },
+      homunculusSnapshot: () => clonePlainObject({ saved: ensureHomunculi(), clock: state.clock, tasks: state.tasks, stacks: ensurePhysicalItemStacks(), research: ensureResearchState(), campaign: state.campaign,
+        fixtures: state.fixtures.filter(f => f.id.startsWith("test-growth-")), workbench: fixtureById("starter-workbench"), scientist: { cell: scientistMapCell(), vitals: state.scientist.vitals }, injuries: state.injuries }),
+      configureHomunculusTestLaboratory: () => {
+        // Explicit advanced testing endowment only. No campaign receipts or normal-start rewards.
+        for (const id of ["medicine", "alchemy", "fabrication"]) {
+          let xp = 0; for (let n = 0; n < 101; n++) xp += xpToNextLevel(n);
+          scientistSkill(id, { create: true }).xp = xp;
+        }
+        const research = ensureResearchState();
+        for (const id of ["longitudinalVitality", "reinforcedObservationVessels"]) research.projects[id].status = "completed";
+        const entries = [["chamber", "homunculusChamber", 47, 46], ["generator", "fuelGenerator", 47, 52],
+          ["mana", "manaCollector", 50, 52], ["reserve", "manaCollector", 51, 52], ["water", "waterCisternPump", 53, 51], ["waste", "sumpTank", 54, 48]];
+        for (const [id, type, x, y] of entries) state.fixtures.push(defaultFixtureInstance(`test-growth-${id}`, type, { x, y, z: scientistMapCell().z }, 0,
+          { name: `Explicit advanced test ${id}`, condition: 100, utility: { enabled: true, powerMode: "electric", linkId: "explicit-test-growth-services", fuel: 48, storedMana: 160, contents: type === "waterCisternPump" ? { cleanWater: 120 } : {}, maintenanceIntervalHours: 0 } }));
+        fixtureById("starter-workbench").origin = { x: 49, y: 49, z: scientistMapCell().z };
+        for (const cell of ensureLabMap().rooms[MAIN_ROOM_ID].cells) { const env = tileEnvironmentAtCell(cell); if (env) { env.temperatureC = 20; env.airborne = {}; } }
+        const cell = fixtureAccessCells(fixtureById("starter-workbench"))[0].cell, location = { roomId: MAIN_ROOM_ID, cell };
+        for (const [key, quantity] of Object.entries({ biomass: 150, geneticMaterial: 30, assayReagent: 30, medicalBandage: 3, neutralizingWash: 3, drinkingWater: 30, trailMeal: 3 }))
+          createPhysicalItemStack(RESOURCE_BY_KEY[key] ? "resources" : "inventory", key, quantity, location, { tags: ["sealed"], sourceLabels: ["Explicit advanced homunculus test endowment"] });
+        state.homunculi = Homunculi.create(state.clock); syncPhysicalReadModels(); persist(); render(); return "test-growth-chamber";
+      },
+      prepareRemoteCultureObservationForTest: () => {
+        // Explicit nonliving completed-culture fixture, not an earned growth outcome.
+        const s = ensureHomunculi(), id = "test-culture-observation", f = fixtureById("test-growth-chamber"), cell = fixtureAccessCells(f)[0].cell;
+        const tissue = createPhysicalItemStack("inventory", "grownTissue", 4, { roomId: MAIN_ROOM_ID, cell: { x: 55, y: 50, z: cell.z } },
+          { tags: ["biological"], biology: { viableCulture: true, runId: id }, sourceLabels: ["Explicit completed-culture observation test endowment"] });
+        s.runs.push({ id, mode: "culture", chamberId: f.id, status: "completed", progress: 1, damage: 0, reason: "", personId: "", cleared: false,
+          remainsStackId: tissue.id, location: { roomId: MAIN_ROOM_ID, cell }, finishedAt: state.clock, stocks: [], consumed: clonePlainObject(Homunculi.MODES.culture.inputs) });
+        persist(); render(); return id;
+      },
+      stageHomunculusTestSupplies: (action, id) => {
+        const t = homunculusTarget(action, id); if (!t.cell) return false;
+        const movable = ensurePhysicalItemStacks().filter(s => !s.reservedTaskId && !s.carriedBy && !s.containerId && (s.biology || s.sourceLabels.includes("Explicit advanced homunculus test endowment")));
+        const stagedLoad = movable.reduce((n, s) => n + physicalStackFloorLoadM2(s), 0);
+        const staged = cardinalMapCells(t.cell).filter(c => labMapCellRoomId(c) === labMapCellRoomId(t.cell) && labMapCellIsWalkable(c, ensureLabMap()) && !labMapCellIsPathBlocked(c))
+          .filter(c => tileOccupiedAreaM2(c, { excludeActor: state.scientist }) - movable.filter(s => sameMapCell(s.cell, c)).reduce((n, s) => n + physicalStackFloorLoadM2(s), 0) + stagedLoad + actorFloorLoadM2(state.scientist) <= MAP_TILE_AREA_M2 + TILE_OCCUPANCY_EPSILON)
+          .sort((a, b) => mapCellDistance(b, scientistMapCell()) - mapCellDistance(a, scientistMapCell()))[0];
+        if (!staged) return false;
+        for (const s of movable) {
+          s.fixtureId = ""; s.stockpileId = ""; s.cell = clonePlainObject(staged); s.roomId = labMapCellRoomId(staged);
+        }
+        syncPhysicalReadModels(); return true;
+      },
+      setHomunculusTestSupport: (options = {}) => {
+        if (options.power != null) fixtureById("test-growth-generator").utility.enabled = options.power;
+        if (options.killScientist) damageScientistCombat(1000, "Explicit homunculus test death");
+        if (options.damageIndividual) damageHomunculus(ensureHomunculi().individuals[0], options.damageIndividual);
+        persist(); render();
+      },
+      advanceHomunculiForTest: (seconds) => {
+        let left = Math.max(0, seconds);
+        while (left > 0 && !scientistIsDead()) {
+          const task = firstScientistQueueTask(), moving = task?.data?.movement && !task.data.movement.completed;
+          const step = Math.min(left, moving ? 10 : task ? Math.max(1, task.dueAt - state.clock) : left), from = state.clock;
+          left -= step; state.clock += step; updateScientistMovementTask(); updateHomunculi(); updateResearchWorkProgress(from, state.clock); completeDueTasks();
+        }
+        persist(); render();
+      },
       diagnosticsSnapshot: () => JSON.parse(JSON.stringify(ensureDiagnosticState())),
       experimentSnapshot: () => JSON.parse(JSON.stringify(ensureExperimentState())),
       hereditySnapshot: () => JSON.parse(JSON.stringify(ensureHeredityState())),
@@ -21747,6 +21828,7 @@
     changes.combatChanged += livingUpdate(() => updateExpeditionEscort(elapsed));
     changes.scientistMovementChanged += livingUpdate(() => updateSurfaceWorkers());
     changes.scientistMovementChanged += livingUpdate(() => updateLaboratoryAssistant());
+    changes.scientistMovementChanged += livingUpdate(() => updateHomunculi());
     changes.scientistMovementChanged += livingUpdate(() => updateMedicalExtraction(elapsed));
     changes.scientistMovementChanged += livingUpdate(() => updateMunicipalClinic());
     changes.scientistMovementChanged += livingUpdate(() => updateScientistIdentity());
@@ -22003,6 +22085,7 @@
   }
 
   function completeTask(task) {
+    if (task.type === "homunculusWork") { finishHomunculusWork(task); return; }
     if (task.type === "surveyExpeditionWork") { completeSurveyWork(task); return; }
     if (task.type === "capitalAppealTransfer") { finishCapitalAppealTransfer(task); return; }
     if (task.type === "executiveCommutationTransfer") { finishExecutiveCommutationTransfer(task); return; }
@@ -22385,6 +22468,8 @@
     if (worker?.present && worker.id === injury.actorId) return { actor: worker, label: worker.name, cell: cleanMapCell(worker.mapCell), roomId: worker.roomId };
     const assistant = state.laboratoryAssistant?.actor;
     if (assistant?.present && assistant.id === injury.actorId) return { actor: assistant, label: assistant.name, cell: cleanMapCell(assistant.mapCell), roomId: assistant.roomId };
+    const homunculus = state.homunculi?.individuals.find(a => a.id === injury.actorId);
+    if (homunculus) return { actor: homunculus, label: homunculus.name, cell: homunculus.chamberId ? fixtureAccessCells(fixtureById(homunculus.chamberId))[0]?.cell : homunculus.mapCell, roomId: homunculus.roomId };
     const medic = state.medicalExtraction?.medic;
     if (medic?.id === injury.actorId) return { actor: medic, label: medic.name, cell: cleanMapCell(medic.mapCell), roomId: medic.roomId };
     const slime = findSlime(injury.actorId);
@@ -22463,7 +22548,7 @@
     const target = injuryTreatmentTarget(injury);
     if (mode === "treat" && target?.actor === state.scientist) scientistVital("health").current = clamp(scientistVital("health").current + 4, 0, scientistVital("health").max);
     if (mode === "treat" && target?.actor && target.actor !== state.scientist) {
-      if (["surfaceWorker", "laboratoryAssistant"].includes(target.actor.actorKind)) target.actor.health = Math.min(target.actor.maxHealth, target.actor.health + 4);
+      if (["surfaceWorker", "laboratoryAssistant", "homunculus"].includes(target.actor.actorKind)) target.actor.health = Math.min(target.actor.maxHealth, target.actor.health + 4);
       else adjustSlimeStat(target.actor, "bodyIntegrity", 4);
     }
     addEvent(`${task.label} complete. ${mode === "examine" ? "The injury is now diagnosed." : mode === "stabilize" ? "Progressive harm has been stopped." : "Recovery has begun."}`);
@@ -23214,6 +23299,8 @@
   }
 
   function fixturePlacementBlockReason(def, origin, rotation = 0, options = {}) {
+    if (def.id === "homunculusChamber" && (!Research.isUnlocked(ensureResearchState(), "fixtureBlueprint:homunculusChamber") || skillLevel("fabrication") < 101))
+      return "Tissue-Culture Methods and Adept Fabrication (101) are required to build a growth chamber.";
     const map = options.map || state.labMap || ensureLabMap();
     const cells = fixtureFootprintCells(origin, def, rotation);
     if (!cells.length) return "Select a valid fixture origin tile.";
@@ -27367,6 +27454,7 @@
       return Math.max(0, Number(infrastructure.electricDemandPerHour) || 0);
     }
     if (medium === "mana") {
+      if (infrastructure.role === "homunculusChamber") return Math.max(0, Number(infrastructure.manaPerHour) || 0);
       if (fixture.utility.powerMode === "mana") return Math.max(0, Number(infrastructure.manaPerHour) || 0);
       if (infrastructure.role === "manaEmitter") return Math.max(0, Number(infrastructure.outputPerHour) || 0);
     }
@@ -31426,6 +31514,9 @@
   }
 
   function physicalItemUnitMetrics(section, key) {
+    if (section === "inventory" && key === "humanTissueTemplate") return { massKg: .1, volumeL: .1 };
+    if (section === "inventory" && key === "growthMedium") return { massKg: 1.4, volumeL: 1.4 };
+    if (section === "inventory" && key === "grownTissue") return { massKg: 1, volumeL: 1.2 };
     if (section === "inventory" && key === "penalTrackingBeacon") return { massKg: .5, volumeL: .5 };
     if (section === "inventory" && key === "castawayTools") return { massKg: 1.5, volumeL: 2 };
     const escortItem = section === "inventory" && ExpeditionEscorts.GEAR.find((item) => item.key === key);
@@ -31665,6 +31756,7 @@
       form: ["stack", "waste", "spill", "receptacle"].includes(candidate.form) ? candidate.form : section === "residue" ? "spill" : key === "waste" ? "waste" : "stack",
       phase: String(candidate.phase || (section === "residue" ? "sludge" : "solid")),
       tags: normalizeResidueTags(candidate.tags),
+      biology: candidate.biology && typeof candidate.biology === "object" ? clonePlainObject(candidate.biology) : null,
       craftsmanship: clamp(Number(candidate.craftsmanship) || 0, 0, 100),
       materialComposition: candidate.materialComposition && Object.keys(candidate.materialComposition).length
         ? normalizeMaterialComposition(candidate.materialComposition)
@@ -31710,6 +31802,7 @@
     if (context?.expeditionEscorts?.actor?.id === id) return context.expeditionEscorts.actor;
     if (context?.surfaceWorkers?.actor?.id === id) return context.surfaceWorkers.actor;
     if (context?.laboratoryAssistant?.actor?.id === id) return context.laboratoryAssistant.actor;
+    if (context?.homunculi?.individuals.some(a => a.id === id)) return context.homunculi.individuals.find(a => a.id === id);
     if (context?.medicalExtraction?.medic?.id === id) return context.medicalExtraction.medic;
     if (context?.penalFlights?.actors?.some(a => a.id === id)) return context.penalFlights.actors.find(a => a.id === id);
     return (context?.slimes || []).find((slime) => slime.id === id && slime.status !== "dead")
@@ -31748,6 +31841,7 @@
       ...(context.laboratoryAssistant?.actor ? [{ id: context.laboratoryAssistant.actor.id, actor: context.laboratoryAssistant.actor }] : []),
       ...(context.medicalExtraction?.medic ? [{ id: context.medicalExtraction.medic.id, actor: context.medicalExtraction.medic }] : []),
       ...(context.penalFlights?.actors || []).map(actor => ({ id: actor.id, actor })),
+      ...(context.homunculi?.individuals || []).map(actor => ({ id: actor.id, actor })),
       ...(context.slimes || []).map((slime) => ({ id: slime.id, actor: slime })),
       ...(context.siteVisits?.visits || []).flatMap((visit) => [visit.actor, ...(visit.supportActors || [])])
         .filter((actor) => actor?.present).map((actor) => ({ id: actor.id, actor })),
@@ -32285,6 +32379,7 @@
       form: ["stack", "waste", "spill", "receptacle"].includes(options.form) ? options.form : section === "residue" ? "spill" : key === "waste" ? "waste" : "stack",
       phase: String(options.phase || (section === "residue" ? "sludge" : "solid")),
       tags: normalizeResidueTags(options.tags),
+      biology: options.biology && typeof options.biology === "object" ? clonePlainObject(options.biology) : null,
       craftsmanship: clamp(Number(options.craftsmanship) || 0, 0, 100),
       materialComposition: options.materialComposition && Object.keys(options.materialComposition).length
         ? normalizeMaterialComposition(options.materialComposition)
@@ -34360,6 +34455,7 @@
   function researchProjectBlockReason(projectOrId, options = {}) {
     const project = researchProject(projectOrId);
     if (!project) return "The research project no longer exists.";
+    for (const [id, level] of Object.entries(project.minimumSkills || {})) if (skillLevel(id) < level) return `${skillDisplayName(id)} level ${level} is required.`;
     const research = ensureResearchState();
     const evaluation = researchProjectEvaluation(project);
     if (evaluation.completed) return "Project already completed.";
@@ -35144,13 +35240,16 @@
   function samePhysicalActor(left, right) {
     if (!left || !right) return false;
     if (left === right) return true;
+    // Placement normalization may replace the scientist object during a path query.
+    // Its prior reference is still the same physical person, not a second occupant.
+    if ((left === state.scientist || left.physicalPresence) && (right === state.scientist || right.physicalPresence)) return true;
     if (left === state.scientist || right === state.scientist) return false;
     return Boolean(left.id && right.id && left.id === right.id);
   }
 
   function actorFloorLoadM2(actor) {
     if (!actor) return 0;
-    if (["surfaceWorker", "laboratoryAssistant"].includes(actor.actorKind)) return .6;
+    if (["surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor.actorKind)) return .6;
     if (["expeditionEscort", "rescueMedic", "municipalClinician", "penalPrisoner"].includes(actor.actorKind)) return .6;
     if (actor.actorKind === "wildernessBeast") return 1;
     if (actor === state.scientist || actor.physicalPresence) {
@@ -35170,6 +35269,7 @@
     if (worker?.present && worker.id !== excludeActor?.id && mapCellKey(worker.mapCell) === key) occupied += .6;
     const assistant = state.laboratoryAssistant?.actor;
     if (assistant?.present && assistant.id !== excludeActor?.id && mapCellKey(assistant.mapCell) === key) occupied += .6;
+    for (const a of state.homunculi?.individuals || []) if (!a.chamberId && a.id !== excludeActor?.id && mapCellKey(a.mapCell) === key) occupied += .6;
     const medic = state.medicalExtraction?.medic;
     if (medic && medic.id !== excludeActor?.id && mapCellKey(medic.mapCell) === key) occupied += .6;
     const clinician = state.medicalExtraction?.clinic?.clinician;
@@ -35262,7 +35362,7 @@
   }
 
   function navigationFootprintForActor(actor) {
-    if (["surfaceWorker", "laboratoryAssistant"].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
+    if (["surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (["expeditionEscort", "rescueMedic", "penalPrisoner"].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (actor?.actorKind === "wildernessBeast") return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: 1, exclusive: true });
     const loadM2 = clamp(actorFloorLoadM2(actor), 0.015, MAP_TILE_AREA_M2);
@@ -38697,6 +38797,8 @@
   }
 
   function combatActor(actorId) {
+    const homunculus = state.homunculi?.individuals.find(a => a.id === actorId);
+    if (homunculus) return homunculus;
     if (state.surfaceWorkers?.actor?.id === actorId) return state.surfaceWorkers.actor;
     if (state.laboratoryAssistant?.actor?.id === actorId) return state.laboratoryAssistant.actor;
     return actorId === "scientist" ? state.scientist : findSlime(actorId) || wildernessBeast(actorId) || (state.expeditionEscorts?.actor?.id === actorId ? state.expeditionEscorts.actor : null) || (state.medicalExtraction?.medic?.id === actorId ? state.medicalExtraction.medic : null) || state.penalFlights?.actors.find(a => a.id === actorId);
@@ -38710,7 +38812,8 @@
   }
 
   function combatActorSkillLevel(actor, skillId) {
-    if (["surfaceWorker", "laboratoryAssistant"].includes(actor?.actorKind)) return actor.skills[skillId] || 1;
+    if (actor?.actorKind === "homunculus") return actor.skills[skillId] || 0;
+    if (["surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor?.actorKind)) return actor.skills[skillId] || 1;
     if (["expeditionEscort", "rescueMedic", "penalPrisoner"].includes(actor?.actorKind)) return actor.skills[skillId] || 1;
     if (actor?.actorKind === "wildernessBeast") return ["evasion", "perception", "brawling"].includes(skillId) ? 5 : 1;
     return actor === state.scientist || actor?.physicalPresence
@@ -38719,7 +38822,7 @@
   }
 
   function combatActorVitalPercent(actor, key) {
-    if (["surfaceWorker", "laboratoryAssistant"].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
+    if (["surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
     if (["expeditionEscort", "rescueMedic", "penalPrisoner"].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
     if (actor?.actorKind === "wildernessBeast") return actor.health / actor.maxHealth * 100;
     if (actor === state.scientist || actor?.physicalPresence) {
@@ -38852,7 +38955,7 @@
 
   function normalizeInjury(candidate, index = 0) {
     if (!candidate || typeof candidate !== "object") return null;
-    const actorKind = ["scientist", "wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant"].includes(candidate.actorKind) ? candidate.actorKind : "slime";
+    const actorKind = ["scientist", "wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus"].includes(candidate.actorKind) ? candidate.actorKind : "slime";
     const actorId = actorKind === "scientist" ? "scientist" : String(candidate.actorId || "");
     const typeId = INJURY_TYPE_DEFS[candidate.typeId] ? candidate.typeId : "bruising";
     const severityId = INJURY_SEVERITY_DEFS[candidate.severityId] ? candidate.severityId : "minor";
@@ -38909,7 +39012,7 @@
     if (tags.has("heat") || tags.has("cold") || tags.has("radiant")) return "burn";
     if (tags.has("electrical")) return "electricalTrauma";
     if (tags.has("arcane") || tags.has("shadow")) return "arcaneTrauma";
-    if (["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant"].includes(actor?.actorKind)) return amount >= 8 ? "bleeding" : "bruising";
+    if (["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor?.actorKind)) return amount >= 8 ? "bleeding" : "bruising";
     if (actor !== state.scientist && location === "core") return "coreTrauma";
     if (actor !== state.scientist && (location === "membrane" || amount >= 10)) return "membraneTear";
     if (actor === state.scientist && amount >= 13 && tags.has("physical")) return "fracture";
@@ -38922,7 +39025,7 @@
     state.injuries = normalizeInjuries(state.injuries);
     const scientist = actor === state.scientist || actor?.physicalPresence;
     const actorId = scientist ? "scientist" : actor.id;
-    const locations = scientist || ["expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant"].includes(actor.actorKind) ? SCIENTIST_INJURY_LOCATIONS : actor.actorKind === "wildernessBeast" ? ["head", "torso", "left leg", "right leg"] : slimeInjuryLocations(actor);
+    const locations = scientist || ["expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor.actorKind) ? SCIENTIST_INJURY_LOCATIONS : actor.actorKind === "wildernessBeast" ? ["head", "torso", "left leg", "right leg"] : slimeInjuryLocations(actor);
     const rng = seedRng(`${state.seed}:injury:${actorId}:${state.combat?.nextActionNumber || 0}:${Math.round(state.clock)}:${damageTypes.join(":")}`);
     const location = options.location || locations[Math.floor(rng() * locations.length)] || (scientist ? "torso" : "body mass");
     const typeId = injuryTypeForDamage(actor, damageTypes, amount, location);
@@ -38940,7 +39043,7 @@
     const visible = INJURY_TYPE_DEFS[typeId].visible;
     const observed = scientist || visible || options.observed;
     const injury = normalizeInjury({
-      id: `injury-${state.nextInjuryNumber++}`, actorKind: scientist ? "scientist" : ["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant"].includes(actor.actorKind) ? actor.actorKind : "slime", actorId,
+      id: `injury-${state.nextInjuryNumber++}`, actorKind: scientist ? "scientist" : ["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor.actorKind) ? actor.actorKind : "slime", actorId,
       typeId, severityId, location, status: "active", cause, damageTypes,
       createdAt: state.clock, updatedAt: state.clock, observedAt: observed ? state.clock : null
     }, state.nextInjuryNumber);
@@ -39010,6 +39113,7 @@
       else if (actor.actorKind === "penalPrisoner") damagePenalPrisoner(actor, damage, { injuryProgress: true });
       else if (actor.actorKind === "surfaceWorker") damageSurfaceWorker(damage, { injuryProgress: true });
       else if (actor.actorKind === "laboratoryAssistant") damageSurfaceWorker(damage, { injuryProgress: true }, actor);
+      else if (actor.actorKind === "homunculus") damageHomunculus(actor, damage, { injuryProgress: true });
       else {
         applySlimeCombatDamage(actor, damage, "injury", `${INJURY_TYPE_DEFS[injury.typeId].label} progression`, { injuryProgress: true });
         if (injury.typeId === "membraneTear") adjustRoomAttribute(slimeEffectiveRoomId(actor), "contamination", damage * 0.25);
@@ -39020,7 +39124,7 @@
   }
 
   function awardCombatActionXp(actor, skillId, amount, reason, outcome) {
-    if (["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant"].includes(actor?.actorKind)) return;
+    if (["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor?.actorKind)) return;
     if (actor === state.scientist || actor?.physicalPresence) {
       awardXp(skillId, amount * skillXpOutcomeMultiplier(outcome), reason);
       return;
@@ -39067,7 +39171,7 @@
         coalesceKey: "miss:" + actorId + ":" + target.id
       });
       awardCombatActionXp(actor, action.skillId, options.xp || 4, action.label, "failure");
-      if (targetActor !== state.scientist && !["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant"].includes(targetActor.actorKind)) awardCreatureSkillXp(targetActor, "evasion", 3, `evading ${action.label.toLowerCase()}`);
+      if (targetActor !== state.scientist && !["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus"].includes(targetActor.actorKind)) awardCreatureSkillXp(targetActor, "evasion", 3, `evading ${action.label.toLowerCase()}`);
       return { ok: true, hit: false, damage: 0, accuracy };
     }
     const targetId = targetActor === state.scientist ? "scientist" : targetActor.id;
@@ -39080,6 +39184,7 @@
       : targetActor.actorKind === "penalPrisoner" ? damagePenalPrisoner(targetActor, guardedDamage, { damageTypes: action.damageTypes })
       : targetActor.actorKind === "surfaceWorker" ? damageSurfaceWorker(guardedDamage, { damageTypes: action.damageTypes })
       : targetActor.actorKind === "laboratoryAssistant" ? damageSurfaceWorker(guardedDamage, { damageTypes: action.damageTypes }, targetActor)
+      : targetActor.actorKind === "homunculus" ? damageHomunculus(targetActor, guardedDamage, { damageTypes: action.damageTypes, observed: actor === state.scientist })
       : applySlimeCombatDamage(targetActor, guardedDamage, actorId, action.label, { damageTypes: action.damageTypes, observed: actor === state.scientist });
     if (changed && !options.hideFeedback) {
       emitMapFeedback("feedbackImpact", combatActorCell(targetActor), {
@@ -48875,15 +48980,17 @@
     }, { form: "spill", tags, knownQuantity: units });
   }
 
-  function consumeChemistryWater(fixture, hours) {
-    const component = utilityComponentForFixture(fixture, "water", utilityNetworkContext());
+  function consumeChemistryWater(fixture, hours, context = utilityNetworkContext()) {
+    const component = utilityComponentForFixture(fixture, "water", context);
     let remaining = chemistryUtilityDemand(fixture, "water") * Math.max(0, hours);
+    const requested = remaining;
     for (const source of component?.fixtures?.filter((candidate) => fixtureInfrastructureDef(candidate)?.role === "waterSource") || []) {
       const taken = Math.min(remaining, Number(source.utility.contents.cleanWater) || 0);
       source.utility.contents.cleanWater = Math.max(0, (Number(source.utility.contents.cleanWater) || 0) - taken);
       remaining -= taken;
       if (remaining <= TILE_ENVIRONMENT_EPSILON) break;
     }
+    return requested - remaining;
   }
 
   function completeChemistryProcessWork(order, fixture) {
@@ -53531,8 +53638,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!task) return null;
     const suspension = state.combat?.routineSuspension;
     if (suspension && (!suspension.taskId || task.id !== suspension.taskId)) return null;
-    if (!["surveyExpeditionWork", "scientistMove", "equipmentChange", "doorOperation", "visitFixtureAccess", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) return null;
-    if (["surveyExpeditionWork", "equipmentChange", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) {
+    if (!["homunculusWork", "surveyExpeditionWork", "scientistMove", "equipmentChange", "doorOperation", "visitFixtureAccess", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) return null;
+    if (["homunculusWork", "surveyExpeditionWork", "equipmentChange", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) {
       const blockedReason = taskBlockReason(task);
       if (blockedReason) {
         task.data ||= {};
@@ -60501,12 +60608,273 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
   }
 
+  function ensureHomunculi() { return state.homunculi ||= Homunculi.create(state.clock, { seed: state.seed, theme: activeWorldRecord?.worldTheme || state.worldTheme || "madcap" }); }
+  function damageHomunculus(actor, amount, options = {}) {
+    if (actor.status === "dead") return false;
+    Homunculi.injury(actor, amount, "Physical combat injury", state.clock);
+    if (!options.injuryProgress) recordCombatInjury(actor, amount, options.damageTypes || ["physical"], "Physical combat injury", options);
+    return true;
+  }
+  function homunculusLocal(cell) {
+    return !confidentialServiceChannelReason() && cell?.z === scientistMapCell().z
+      && mapCellDistance(cell, scientistMapCell()) <= 8 && sensoryLineOfSight(scientistMapCell(), cell);
+  }
+  function homunculusInputs(costs, cell, claim = "", singleLot = false) {
+    const reservations = [];
+    for (const [key, amount] of Object.entries(costs)) {
+      let remaining = amount;
+      for (const item of ensurePhysicalItemStacks().filter(s => s.key === key && (!s.reservedTaskId || s.reservedTaskId === claim)
+        && !s.carriedBy && !s.containerId && !s.fixtureId && sameMapLayer(s.cell, cell)
+        && mapCellDistance(s.cell, cell) <= 1 && sensoryLineOfSight(s.cell, cell) && (!singleLot || s.quantity >= amount)
+        && (!singleLot || key !== "humanTissueTemplate" || s.biology?.family === "human" && s.biology.examined))) {
+        const quantity = Math.min(remaining, item.quantity); if (quantity > 0) reservations.push({ stackId: item.id, key, quantity });
+        remaining -= quantity; if (remaining <= 0) break;
+      }
+      if (remaining > 0) return null;
+    }
+    return reservations;
+  }
+  function sameMapLayer(a, b) { return a?.z === b?.z; }
+  function homunculusContext(fixture, template) {
+    const research = ensureResearchState(), context = utilityNetworkContext();
+    return { research: research.projects.tissueCultureMethods?.status === "completed", morphogenesis: research.projects.homunculusMorphogenesis?.status === "completed",
+      medicine: skillLevel("medicine"), alchemy: skillLevel("alchemy"), chamber: fixture?.typeId === "homunculusChamber", condition: fixture?.condition || 0,
+      inspected: Boolean(fixture && ensureHomunculi().inspections?.[fixture.id]?.condition === fixture.condition
+        && state.clock - ensureHomunculi().inspections[fixture.id].at <= 12 * 3600),
+      services: Boolean(fixture && utilityFixtureEnabled(fixture) && ["electricity", "mana", "water", "drain"].every(m => chemistryUtilityService(fixture, m, context).ratio >= .99)),
+      template: template?.biology, quality: 90 };
+  }
+  function homunculusHooks() {
+    // Topology cannot change inside one synchronous catch-up. Refresh finite
+    // capacities/allocation each minute, without rebuilding every physical graph.
+    const ctx = utilityNetworkContext();
+    return { dead: scientistIsDead(),
+      support: (r, seconds) => {
+        const f = fixtureById(r.chamberId), cell = f?.origin || r.location.cell, roomId = f ? labMapCellRoomId(f.origin) : r.location.roomId;
+        ctx.electricityBudget = {};
+        for (const entries of Object.values(ctx.components)) for (const c of entries) { c.metrics = utilityComponentMetrics(c); c.allocations = utilityPriorityAllocations(c.metrics); }
+        const media = ["electricity", "mana", "water", "drain"];
+        const services = f && media.every(m => chemistryUtilityService(f, m, ctx).ratio >= .99);
+        const env = tileEnvironmentAtCell(cell), missing = r.stocks.some(p => {
+          const unused = p.quantity - (r.consumed[p.key] || 0); if (unused <= 0) return false;
+          const item = ensurePhysicalItemStacks().find(s => s.id === p.stackId);
+          return !item || item.reservedTaskId !== r.id || item.fixtureId !== r.chamberId || item.quantity < unused;
+        });
+        let delivered = false;
+        if (f && services && utilityFixtureEnabled(f)) {
+          const hours = seconds / 3600, power = consumeUtilityPower(f, hours, 4, ctx), mana = drawManaFromComponent(utilityComponentForFixture(f, "mana", ctx), 2 * hours);
+          const water = consumeChemistryWater(f, hours, ctx);
+          const drain = utilityComponentForFixture(f, "drain", ctx)?.fixtures.find(s => ["drainSump", "drainExterior"].includes(fixtureInfrastructureDef(s)?.role));
+          if (drain && fixtureInfrastructureDef(drain).role === "drainSump") drain.utility.contents.homunculusWaste = (drain.utility.contents.homunculusWaste || 0) + water;
+          delivered = power >= .99 && mana >= 2 * hours - 1e-8 && water >= hours - 1e-8;
+          utilitySetStatus(f, delivered ? "operating" : "impaired", "Finite organic growth life support; readings require physical examination.");
+        }
+        const ok = Boolean(f && f.condition >= 50 && utilityFixtureEnabled(f) && delivered && !missing
+          && env && env.temperatureC >= 15 && env.temperatureC <= 32 && !surfaceWorkerHazard(cell));
+        return { ok, destroyed: !f || f.condition <= 0, cell, roomId,
+          reason: missing ? "An original loaded supply disappeared." : "Chamber condition, physical utilities or habitat cannot sustain growth." };
+      },
+      consume: (r, amounts) => {
+        const selected = [];
+        for (const [key, amount] of Object.entries(amounts)) if (amount > 0) {
+          // Each loaded key is one exact, preflight-validated stack.
+          const p = r.stocks.find(p => p.key === key), item = p && ensurePhysicalItemStacks().find(s => s.id === p.stackId);
+          if (!item || item.reservedTaskId !== r.id || item.quantity < amount) return false;
+          selected.push({ item, amount });
+        }
+        for (const { item, amount } of selected) { item.quantity -= amount; item.knownQuantity = Math.min(item.knownQuantity, item.quantity); }
+        state.physicalItemStacks = ensurePhysicalItemStacks().filter(s => s.quantity > 0); return true;
+      },
+      release: r => {
+        const f = fixtureById(r.chamberId), location = r.location;
+        const person = state.homunculi.individuals.find(a => a.id === r.personId);
+        if (!f && person) person.chamberId = ""; // The body remains at its real anchor after equipment loss.
+        for (const item of ensurePhysicalItemStacks().filter(s => s.reservedTaskId === r.id)) {
+          item.reservedTaskId = ""; item.fixtureId = ""; item.roomId = location.roomId; item.cell = clonePlainObject(location.cell);
+        }
+        if (!r.remainsStackId) {
+          const incorporated = r.consumed.biomass || 0, quantity = r.personId ? Math.max(0, incorporated - 48) : incorporated;
+          const tissue = quantity > 0 && createPhysicalItemStack("inventory", "grownTissue", quantity, location,
+            { tags: ["biological", "growth-remains"], sourceLabels: [r.id], biology: { runId: r.id, viableCulture: r.mode === "culture" && r.status === "completed" } });
+          r.remainsStackId = tissue?.id || "";
+        }
+        const current = fixtureById(r.chamberId); if (current) current.utility.enabled = false;
+      },
+      environment: a => { const env = tileEnvironmentAtCell(a.mapCell); return { floor: labMapCellHasFloor(a.mapCell), temperature: env?.temperatureC ?? -100, hazard: Boolean(surfaceWorkerHazard(a.mapCell)) }; }
+    };
+  }
+  function updateHomunculi() {
+    if (!state.homunculi || scientistIsDead()) return 0;
+    const changes = Homunculi.advance(state.homunculi, state.clock, homunculusHooks());
+    for (const a of state.homunculi.individuals) if (a.status !== "dead") {
+      a.sensory ||= defaultSensoryState("homunculus");
+      syncActorSensory(a, "homunculus", deriveActorPerceptions(a, "homunculus"));
+    }
+    if (changes) { syncPhysicalReadModels(); markStateDirty(); }
+    return changes;
+  }
+  function homunculusTarget(action, id) {
+    const s = ensureHomunculi(), r = s.runs.find(r => r.id === id), a = s.individuals.find(a => a.id === id);
+    const f = ["sample", "examineTemplate", "medium"].includes(action)
+      ? researchWorkstations()[0] : fixtureById(r?.chamberId || a?.chamberId || id);
+    const port = f && fixtureAccessCells(f).find(p => labNavigationPlanBetweenCells(scientistMapCell(), p.cell, { actor: state.scientist, ignoreDoors: true }).found);
+    const subject = a || s.individuals.find(a => a.id === r?.personId);
+    return { s, r, a: a || (!f ? subject : null), f, cell: a && (!a.chamberId || !f) ? a.mapCell : port?.cell || (!f ? subject?.mapCell || r?.location?.cell : null) };
+  }
+  function homunculusSubjectHere(r, cell) {
+    const a = ensureHomunculi().individuals.find(a => a.id === r?.personId);
+    const source = a && !a.chamberId ? a.mapCell : r?.mode === "culture" && r.status === "completed"
+      ? ensurePhysicalItemStacks().find(s => s.id === r.remainsStackId && !s.carriedBy && !s.fixtureId && !s.containerId)?.cell : null;
+    return !source ? !(r?.mode === "culture" && r.status === "completed" && !a)
+      : sameMapLayer(source, cell) && mapCellDistance(source, cell) <= 1 && sensoryLineOfSight(source, cell);
+  }
+  function homunculusTaskReason(task) {
+    const d = task.data, t = homunculusTarget(d.action, d.targetId), cell = d.toCell;
+    if (d.fixtureId) t.f = fixtureById(d.fixtureId);
+    if (!["sample", "examineTemplate", "medium", "inspect", "culture", "body", "care", "observe", "cancelGrowth", "clear", "nourish", "release"].includes(d.action)) return "Unknown physical procedure.";
+    if (skillLevel("medicine") < 101 || skillLevel("alchemy") < 101) return "Adept Medicine and Alchemy are required.";
+    if (d.fixtureId && (!t.f || t.f.productionTaskId && t.f.productionTaskId !== task.id)) return "The original equipment is missing or claimed by competing work.";
+    if (!cell || !labMapCellHasFloor(cell) || t.f && (t.f.condition <= 0 || !fixtureAccessCells(t.f).some(p => sameMapCell(p.cell, cell)))) return "The original physical work position is unavailable.";
+    for (const id of d.reservedStackIds || []) {
+      const item = ensurePhysicalItemStacks().find(s => s.id === id);
+      if (!item || item.reservedTaskId !== task.id || item.quantity < (d.inputQuantities?.[id] || 0) || item.carriedBy || item.fixtureId || item.containerId
+        || !sameMapLayer(item.cell, cell) || mapCellDistance(item.cell, cell) > 1 || !sensoryLineOfSight(item.cell, cell)) return "An original staged input moved, changed custody or became inaccessible.";
+    }
+    if (["culture", "body"].includes(d.action)) {
+      const template = ensurePhysicalItemStacks().find(s => d.reservedStackIds.includes(s.id) && s.key === "humanTissueTemplate");
+      const reason = Homunculi.requirements(d.action, homunculusContext(t.f, template)); if (reason) return reason;
+      if (Homunculi.active(t.s, t.f.id) || t.s.runs.some(r => r.chamberId === t.f.id && !r.cleared)) return "The chamber is occupied.";
+    }
+    if (d.action === "care" && t.r?.status !== "growing") return "This growth procedure no longer needs scheduled care.";
+    if (d.action === "observe" && !t.r) return "No original growth record exists.";
+    if (d.action === "observe" && !homunculusSubjectHere(t.r, cell)) return "The original tissue or individual must actually be within examination reach.";
+    if (d.action === "sample" && scientistVital("health").current < 50) return "Self-donation requires stable health.";
+    if (d.action === "nourish" && (!t.a || t.a.status === "dead" || t.a.status === "developing" || !sameMapCell(t.a.chamberId ? cell : t.a.mapCell, cell))) return "A reachable stabilized living individual is required.";
+    if (d.action === "examineTemplate" && !ensurePhysicalItemStacks().some(s => d.reservedStackIds.includes(s.id) && s.biology?.family === "human" && s.tags.includes("sealed"))) return "An actual sealed human-derived template is required.";
+    if (d.action === "cancelGrowth" && (!t.r || t.r.status !== "growing" || t.r.personId)) return "A developing individual cannot be deleted by cancelling an order.";
+    if (d.action === "release" && (!t.a?.chamberId || t.a.status === "developing")) return "Physiological stabilization must finish before transfer.";
+    if (d.action === "clear" && (!t.r || t.r.status === "growing" || t.s.individuals.some(a => a.chamberId === t.r.chamberId))) return "Move the actual individual or remains out before clearing the chamber.";
+    return "";
+  }
+  function queueHomunculusWork(action, targetId = "") {
+    if (scientistIsDead() || confidentialServiceChannelReason()) return false;
+    updateHomunculi();
+    const t = homunculusTarget(action, targetId), cell = t.cell;
+    if (!cell || !t.f && !t.a || state.tasks.some(t => t.type === "homunculusWork")) return false;
+    if (t.a && !t.a.chamberId && !homunculusLocal(t.a.mapCell)) return false;
+    const costs = action === "sample" ? { medicalBandage: 1, neutralizingWash: 1 }
+      : action === "medium" ? { biomass: 20, assayReagent: 4, drinkingWater: 8 }
+      : ["culture", "body"].includes(action) ? Homunculi.MODES[action].inputs
+      : action === "care" || action === "clear" ? { assayReagent: 1 }
+      : action === "nourish" ? { trailMeal: 1, drinkingWater: 1 } : {};
+    let reservations = homunculusInputs(costs, cell, "", ["culture", "body"].includes(action));
+    if (!reservations) { addEvent("Stage all exact inputs on the accessible floor within one tile of the operating position."); persist(); render(); return false; }
+    // Loaded growth stocks use one indivisible original lot per key; never silently combine provenance.
+    if (["culture", "body"].includes(action) && Object.keys(costs).some(key => reservations.filter(p => p.key === key).length !== 1)) return false;
+    if (action === "examineTemplate") {
+      const template = ensurePhysicalItemStacks().find(s => s.key === "humanTissueTemplate" && s.biology?.family === "human" && !s.biology.examined && !s.reservedTaskId && !s.carriedBy && !s.fixtureId && !s.containerId
+        && sameMapLayer(s.cell, cell) && mapCellDistance(s.cell, cell) <= 1 && sensoryLineOfSight(s.cell, cell));
+      if (!template) return false; reservations = [{ stackId: template.id, key: template.key, quantity: 1 }];
+    }
+    const path = labNavigationPlanBetweenCells(scientistMapCell(), cell, { actor: state.scientist, ignoreDoors: true }); if (!path.found) return false;
+    const id = `task-${state.nextTaskNumber++}`, base = ["culture", "body"].includes(action) ? 1800 : action === "medium" ? 1200 : 300;
+    const task = { id, type: "homunculusWork", label: `Homunculus: ${action}`, createdAt: state.clock, dueAt: state.clock + base,
+      data: { action, targetId, fixtureId: t.f?.id || "", toCell: cell, roomId: labMapCellRoomId(cell), mapPath: path.path, reservedStackIds: [], skillId: "medicine" } };
+    if (!reserveProductionMaterialSlices(reservations, id)) return false;
+    task.data.reservedStackIds = reservations.map(p => p.stackId);
+    task.data.inputQuantities = Object.fromEntries(reservations.map(p => [p.stackId, p.quantity]));
+    const reason = homunculusTaskReason(task);
+    if (reason) { releaseProductionMaterialReservations(task); addEvent(reason); persist(); render(); return false; }
+    const start = scientistQueueTasks().reduce((n, t) => Math.max(n, t.dueAt), state.clock), travel = mapPathTravelDistanceMeters(path.path, ensureLabMap()) / scientistMoveSpeedMps();
+    task.data.movement = createScientistMovementRecord(path.path, travel, start, { intent: "homunculus care" });
+    task.data.movementStartedAt = start; task.data.workStartsAt = start + travel; task.dueAt = start + travel + base;
+    const currentFixture = fixtureById(task.data.fixtureId); if (currentFixture) currentFixture.productionTaskId = task.id;
+    state.tasks.push(task); persist(); render(); return true;
+  }
+  function releaseHomunculusWork(task) {
+    const f = fixtureById(task.data.fixtureId); if (f?.productionTaskId === task.id) f.productionTaskId = "";
+    releaseProductionMaterialReservations(task);
+  }
+  function finishHomunculusWork(task) {
+    try { return performHomunculusWork(task); } finally { releaseHomunculusWork(task); }
+  }
+  function performHomunculusWork(task) {
+    const d = task.data, t = homunculusTarget(d.action, d.targetId), cell = d.toCell;
+    if (d.fixtureId) t.f = fixtureById(d.fixtureId);
+    if (homunculusTaskReason(task) || !sameMapCell(scientistMapCell(), cell)) { releaseProductionMaterialReservations(task); return false; }
+    // Route/placement checks normalize fixture records; mutate the current instance.
+    if (d.fixtureId) t.f = fixtureById(d.fixtureId);
+    const location = { roomId: labMapCellRoomId(cell), cell }, inputs = ensurePhysicalItemStacks().filter(s => d.reservedStackIds.includes(s.id));
+    let success = true;
+    if (d.action === "sample") {
+      if (scientistVital("health").current < 50) { releaseProductionMaterialReservations(task); return false; }
+      damageScientistCombat(2, "Voluntary self tissue sampling", { damageTypes: ["physical"] });
+      createPhysicalItemStack("inventory", "humanTissueTemplate", 1, location, { tags: ["sealed", "biological", "human"],
+        biology: { family: "human", donorId: "scientist", collectedAt: state.clock, quality: 90, examined: false }, sourceLabels: ["Physically collected self-donated tissue; not a genome or memory copy"] });
+    } else if (d.action === "examineTemplate") {
+      const item = inputs[0]; item.biology.examined = true; item.biology.examinedAt = state.clock;
+      recordResearchEvidence({ methodId: "humanTemplateExam", category: "diagnostic", specimenId: item.id, specimenName: "Self-donated human template", sourceKey: `human-template:${item.id}`, summary: "A physical human-derived tissue template was examined; no neural memories are encoded.", confidence: .9 });
+      releaseProductionMaterialReservations(task); return true;
+    } else if (d.action === "medium") {
+      const contaminated = inputs.some(s => s.tags.includes("contaminated")) || Boolean(surfaceWorkerHazard(cell));
+      createPhysicalItemStack("inventory", "growthMedium", 20, location, { tags: ["sealed", "biological"], biology: { quality: contaminated ? 40 : Math.min(95, t.f.condition), producedAt: state.clock }, sourceLabels: ["Personally prepared finite nutrient medium"] });
+    } else if (d.action === "inspect") {
+      t.s.inspections ||= {}; t.s.inspections[t.f.id] = { at: state.clock, condition: t.f.condition };
+      t.f.utility.enabled = true;
+    } else if (["culture", "body"].includes(d.action)) {
+      const template = inputs.find(s => s.key === "humanTissueTemplate"), medium = inputs.find(s => s.key === "growthMedium");
+      const context = homunculusContext(t.f, template); context.quality = Math.min(template.biology.quality, medium.biology?.quality || 0, inputs.some(s => s.tags.includes("contaminated")) ? 40 : 100);
+      const result = Homunculi.begin(t.s, d.action, t.f.id, context, state.clock, (id) => {
+        for (const s of inputs) { s.reservedTaskId = id; s.fixtureId = t.f.id; s.cell = clonePlainObject(t.f.origin); }
+        return inputs.map(s => ({ stackId: s.id, key: s.key, quantity: s.quantity }));
+      });
+      if (!result.ok) { releaseProductionMaterialReservations(task); return false; }
+      result.run.location = clonePlainObject(location); t.f.utility.enabled = true; return true;
+    } else if (d.action === "care") Homunculi.care(t.s, t.r, state.clock);
+    else if (d.action === "observe") {
+      const view = Homunculi.observe(t.s, t.r, state.clock);
+      if (view.mode === "culture" && view.status === "completed" && ensurePhysicalItemStacks().some(s => s.id === t.r.remainsStackId && s.biology?.viableCulture && !s.tags.includes("contaminated"))) recordResearchEvidence({ methodId: "tissueCultureTrial", category: "lifecycle", specimenId: t.r.id,
+        specimenName: "Non-slime human tissue culture", sourceKey: `culture-trial:${t.r.id}`, summary: "Personally examined surviving chamber-grown tissue under the documented procedure.", confidence: .9 });
+    } else if (d.action === "cancelGrowth") success = Homunculi.cancel(t.s, t.r, state.clock, homunculusHooks());
+    else if (d.action === "clear") t.r.cleared = true;
+    else if (d.action === "nourish") { if (t.a.status === "dead") success = false; else { t.a.foodHours += 24; t.a.waterHours += 24; } }
+    else if (d.action === "release") {
+      const destination = cardinalMapCells(cell).find(c => labMapCellIsWalkable(c, ensureLabMap()) && c.z === cell.z && labMapCellRoomId(c) === location.roomId
+        && !actorAccessCellBlockReason(state.scientist, c) && canActorOccupyTile(t.a, c) && sensoryLineOfSight(cell, c));
+      if (!destination) success = false;
+      else { t.a.chamberId = ""; t.a.mapCell = clonePlainObject(destination); t.a.roomId = location.roomId; }
+    } else success = false;
+    if (success) consumeProductionMaterialReservations(task); else releaseProductionMaterialReservations(task);
+    if (t.r && d.action !== "observe" && homunculusSubjectHere(t.r, cell)) Homunculi.observe(t.s, t.r, state.clock);
+    if (t.a) { const r = t.s.runs.find(r => r.id === t.a.runId); Homunculi.observe(t.s, r, state.clock); }
+    addEvent(`Homunculus ${d.action}: ${success ? "physical procedure completed" : "actual condition or receiving space prevents completion"}.`); return success;
+  }
+  function renderHomunculi(parent) {
+    const s = ensureHomunculi(), panel = document.createElement("section"); panel.dataset.homunculi = "true"; panel.className = "subpanel"; parent.append(panel);
+    panel.append(textEl("h3", "Advanced Non-Slime Growth"), textEl("p", "Adept Medicine and Alchemy (101), evidence-backed research and a dedicated chamber are required. No copied memories, communication, consent or workforce. Slimes cannot communicate or cooperate. Stage exact supplies within one tile of the work position."));
+    const button = (label, action, id = "") => { const b = storesActionButton(label, label, () => queueHomunculusWork(action, id)); setActionButtonState(b, Boolean(confidentialServiceChannelReason() || skillLevel("medicine") < 101 || skillLevel("alchemy") < 101), confidentialServiceChannelReason() || "Adept Medicine and Alchemy required."); panel.append(b); };
+    button("Collect self-donated tissue template", "sample"); button("Examine staged human template", "examineTemplate"); button("Prepare growth medium (20 biomass, 4 reagent, 8 water)", "medium");
+    for (const f of state.fixtures.filter(f => f.typeId === "homunculusChamber")) {
+      panel.append(textEl("h4", f.name)); button("Inspect growth chamber", "inspect", f.id);
+      button("Initiate 12-hour tissue culture trial", "culture", f.id); button("Initiate 72-hour homunculus growth", "body", f.id);
+    }
+    for (const r of s.runs) {
+      const v = s.observations[r.id]; panel.append(textEl("p", v ? `${r.id}: last examined ${formatClock(v.at)} — ${v.stage}, ${v.status}, ${Math.round(v.progress * 100)}%. ${v.condition}. ${v.reason}` : `${r.id}: no physical examination received.`));
+      button("Examine growth locally", "observe", r.id); button("Perform scheduled growth care (one reagent)", "care", r.id);
+      button("End pre-individual growth support", "cancelGrowth", r.id); button("Clear empty chamber (one reagent)", "clear", r.id);
+      if (v?.person) panel.append(textEl("p", `${v.person.name}: ${v.person.status}, ${v.person.healthBand}; ${v.person.needs}. No learned language or agreement.`));
+      if (v?.person) { button("Nourish individual (one meal and water)", "nourish", v.person.id); button("Move individual/remains to adjacent care bay", "release", v.person.id); }
+    }
+    panel.append(textEl("p", "Full growth loads 60 biomass, 18 prepared medium, 6 genetic material and one examined human template. Culture trials load 4 biomass, 3 medium, 1 genetic material and one template. Examinations and care are due every 12 hours. Interruptions have a finite 20-minute buffer; long failures injure or kill. No automatic supply or remote report."));
+  }
+
   function renderResearch() {
     if (!dom.researchProjectList || !dom.researchEvidenceList || !dom.researchActiveProject) return;
     const research = ensureResearchState();
     const completed = Research.PROJECTS.filter((project) => research.projects[project.id]?.status === "completed").length;
     dom.researchSummary.textContent = `${completed}/${Research.PROJECTS.length} projects complete · ${research.evidence.length} distinct evidence record${research.evidence.length === 1 ? "" : "s"}`;
     dom.researchProjectList.textContent = "";
+    renderHomunculi(dom.researchProjectList);
     dom.researchActiveProject.textContent = "";
     dom.researchEvidenceList.textContent = "";
     renderDiagnosticResults();
@@ -64524,6 +64892,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       setLabMapOverlayEntry(assignments, worker.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: worker.name, title: "Hired surface worker; direct observation, not remote monitoring", source: "Direct observation", value: worker.status === "dead" ? "†" : "W", target: { kind: "tile", tile: worker.mapCell } }, map);
     const assistant = state.laboratoryAssistant?.actor;
     if (laboratoryAssistantNearby(true)) setLabMapOverlayEntry(assignments, assistant.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: assistant.name, title: "Laboratory technician; direct observation", source: "Direct observation", value: assistant.status === "dead" ? "†" : "A", target: { kind: "tile", tile: assistant.mapCell } }, map);
+    for (const a of state.homunculi?.individuals || []) if (!a.chamberId && homunculusLocal(a.mapCell)) setLabMapOverlayEntry(assignments, a.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: a.name, title: `${a.name}: ${a.status === "dead" ? "physical remains" : "independent inexperienced individual"}`, source: "Direct observation", value: a.status === "dead" ? "†" : "H", target: { kind: "tile", tile: a.mapCell } }, map);
     if (!state.wildernessBeasts?.materialized) return assignments;
     const knowledge = wildernessBeastKnowledge();
     const markers = [
@@ -65803,6 +66172,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (GateEnforcement.custodyActive(currentGateEnforcement()) && task.type !== "rest" && !(task.type === "surveyExpeditionWork" && task.data?.action === "gateEnforcement")) return "Receiving-city custody prevents this ordinary action.";
     if (surveyScientistAway() && !surveyTaskAllowed(task)) return "The scientist is off site; laboratory work awaits physical return.";
     if (task.type === "surveyExpeditionWork") { const reason = surveyWorkBlockReason(task); if (reason) return reason; }
+    if (task.type === "homunculusWork") { const reason = homunculusTaskReason(task); if (reason) return reason; }
     if (scientistIsDead()) {
       return "The scientist is dead.";
     }
@@ -66113,6 +66483,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!task) {
       return;
     }
+    if (task.type === "homunculusWork") releaseHomunculusWork(task);
     if (task.type === "commodityFreight") {
       const economy = ensureEconomy(), consignment = economy.commodityConsignments.find(c => c.id === task.data?.consignmentId);
       if (consignment?.exportShipmentId && IntercityTrade.failExport(economy.commodityMarket.intercityTrade, consignment.exportShipmentId, state.clock)) {
@@ -90159,6 +90530,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.laboratoryAssistant = LaboratoryAssistant.normalize(candidate?.laboratoryAssistant);
     next.laboratoryAssistantKnowledge = candidate?.laboratoryAssistantKnowledge ? clonePlainObject(candidate.laboratoryAssistantKnowledge) : null;
     next.leasedAnnex = LeasedAnnex.normalize(candidate?.leasedAnnex);
+    next.homunculi = Homunculi.normalize(candidate?.homunculi, next.clock);
     if (next.runEnded || latestDeath?.resurrection.status === "pending") {
       next.paused = true;
     }
@@ -90314,6 +90686,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     );
     const constructionTaskIds = new Set(next.tasks.filter((task) => task?.type === "constructionWork").map((task) => String(task.id || "")));
     const productionTaskIds = new Set(next.tasks.filter((task) => task?.type === "productionWork").map((task) => String(task.id || "")));
+    const homunculusFixtureClaims = new Map(next.tasks.filter(task => task?.type === "homunculusWork" && task.data?.fixtureId).map(task => [task.data.fixtureId, task.id]));
     const diagnosticTaskIds = new Set(next.tasks.filter((task) => task?.type === "physicalDiagnostic").map((task) => String(task.id || "")));
     const assistantOrderIds = new Set((next.laboratoryAssistant?.orders || []).filter(o => o.status === "active").flatMap(o => [o.id, o.batchId].filter(Boolean)));
     const toolTaskIds = new Set([...constructionTaskIds, ...productionTaskIds, ...diagnosticTaskIds, ...assistantOrderIds]);
@@ -90334,7 +90707,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (bill.activeTaskId && !productionTaskIds.has(bill.activeTaskId)) bill.activeTaskId = "";
     }
     for (const fixture of next.fixtures || []) {
-      if (fixture.productionTaskId && !productionTaskIds.has(fixture.productionTaskId) && !assistantOrderIds.has(fixture.productionTaskId)) fixture.productionTaskId = "";
+      if (fixture.productionTaskId && !productionTaskIds.has(fixture.productionTaskId) && !assistantOrderIds.has(fixture.productionTaskId) && homunculusFixtureClaims.get(fixture.id) !== fixture.productionTaskId) fixture.productionTaskId = "";
     }
     for (const workpiece of next.productionWorkpieces || []) {
       if (workpiece.reservedTaskId && !productionTaskIds.has(workpiece.reservedTaskId)) {

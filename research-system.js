@@ -38,6 +38,24 @@
       unlocks: Object.freeze([{ id: "test:breeding", label: "Reproduction Survey" }])
     }),
     Object.freeze({
+      id: "tissueCultureMethods", label: "Human Tissue-Culture Methods",
+      description: "Document a human-derived biological template and develop a sterile non-slime growth procedure. No memories or skills are copied.",
+      skillId: "medicine", minimumSkills: { medicine: 101, alchemy: 101 }, workSeconds: 6 * 3600,
+      prerequisites: ["longitudinalVitality"],
+      evidence: [Object.freeze({ label: "Physically examined human-derived template", methods: ["humanTemplateExam"], count: 1, uniqueSpecimens: 1 })],
+      inputs: { resources: { biomass: 10, geneticMaterial: 5 }, specimenAmount: 0 },
+      unlocks: [{ id: "fixtureBlueprint:homunculusChamber", label: "Dedicated tissue-growth chamber" }]
+    }),
+    Object.freeze({
+      id: "homunculusMorphogenesis", label: "Homunculus Morphogenesis",
+      description: "Plan organ formation using an examined successful chamber-grown culture. A viable body is not a trained assistant.",
+      skillId: "medicine", minimumSkills: { medicine: 101, alchemy: 101 }, workSeconds: 8 * 3600,
+      prerequisites: ["tissueCultureMethods", "reinforcedObservationVessels"],
+      evidence: [Object.freeze({ label: "Locally examined successful non-slime culture trial", methods: ["tissueCultureTrial"], count: 1, uniqueSpecimens: 1 })],
+      inputs: { resources: { biomass: 12, geneticMaterial: 6 }, specimenAmount: 0 },
+      unlocks: [{ id: "procedure:homunculusGrowth", label: "Bounded homunculus growth procedure" }]
+    }),
+    Object.freeze({
       id: "reinforcedObservationVessels", label: "Reinforced Observation Vessels",
       description: "Translate observed containment loads into a visible, sealed vessel with a reinforced frame.",
       skillId: "materialsScience", workSeconds: 150, prerequisites: [],
