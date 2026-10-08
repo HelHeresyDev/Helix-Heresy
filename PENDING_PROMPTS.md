@@ -18,21 +18,20 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Annex Staffing and Independent Operations
-2. Homunculi: Advanced Non-Slime Creation and Growth Risks
-3. Non-Slime Cognition and First Contact
-4. Intelligent Creations: Voluntary Cooperation and Bounded Work
-5. City Power: Enforceable Influence and Control
-6. Late-Game Soul Beacons: Research, Infrastructure, and Physical Recovery
-7. Perfected Memory Transfer and Embodied Retraining
-8. Hidden-Base Contingencies and Multiple Beacon Destinations
-9. Strategic Expansion and World Domination
-10. Divine Supremacy: Rule over the Gods
-11. New-Run Onboarding and Contextual Tutorial
-12. Sound, Notifications, and Accessibility Audit
-13. Production Art Pass Using the Sprite Pipeline
+1. Homunculi: Advanced Non-Slime Creation and Growth Risks
+2. Non-Slime Cognition and First Contact
+3. Intelligent Creations: Voluntary Cooperation and Bounded Work
+4. City Power: Enforceable Influence and Control
+5. Late-Game Soul Beacons: Research, Infrastructure, and Physical Recovery
+6. Perfected Memory Transfer and Embodied Retraining
+7. Hidden-Base Contingencies and Multiple Beacon Destinations
+8. Strategic Expansion and World Domination
+9. Divine Supremacy: Rule over the Gods
+10. New-Run Onboarding and Contextual Tutorial
+11. Sound, Notifications, and Accessibility Audit
+12. Production Art Pass Using the Sprite Pipeline
 
-Human staffing can support the next independent-facility pass without intelligent creations. Homunculi and their later communication/cooperation passes are advanced stage-two/three work, not early-laboratory unlocks; priority order does not impose compulsory campaign chapters.
+Human staffing now supports bounded independent annex operation without intelligent creations. Homunculi and their later communication/cooperation passes are advanced stage-two/three work, not early-laboratory unlocks; priority order does not impose compulsory campaign chapters.
 
 ## World and Run Guardrails
 
@@ -98,13 +97,7 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Annex Staffing and Independent Operations
-
-Build on the actual leased annex. Discuss a consenting human assay technician's distinct identity, qualifications, exact workspace and hazard disclosure, physical arrival, finite paid shift, access permissions, needs and exact sealed-sample assignments. Require real on-site equipment, consumables, custody and interrupted-work handling; a technician cannot simultaneously occupy or work in two facilities. Previously authorized bounded work may continue during absence or custody, but new instructions and conclusions require a supported communication channel and dated received reports, not remote omniscience. Preserve surviving property and legal consequences if the original laboratory is lost. No early homunculus workforce, global colony framework or free replacement laboratory.
-
-Do not modify gameplay files until this staffing design has been discussed and the developer explicitly approves implementation.
-
-## 2. Homunculi: Advanced Non-Slime Creation and Growth Risks
+## 1. Homunculi: Advanced Non-Slime Creation and Growth Risks
 
 Design the first genuinely non-slime creature family using an organically grown magitech homunculus as a useful test case, not an uplifted slime. Normal creation belongs roughly to stages two or three and is very difficult and risky. Discuss demanding concrete skill and research prerequisites, biological templates, materials, dedicated growth infrastructure, finite utilities, sustained care, maturation and interruption consequences before implementation. Neither campaign checklist completion nor a label provides an unlock, a body or a person. Existing basic slime synthesis must not become a cheap homunculus factory.
 
@@ -114,7 +107,7 @@ Explicit automated or developer test fixtures may prepare advanced research, fac
 
 Do not modify gameplay files until this creation and risk design has been discussed and the developer explicitly approves implementation.
 
-## 3. Non-Slime Cognition and First Contact
+## 2. Non-Slime Cognition and First Contact
 
 Build on an actual viable non-slime organism, initially the homunculus. Discuss biological cognitive capacity, maturity, practiced learning, perception and a physically supportable communication channel appropriate to that organism before coding. Do not apply this system to slimes, grant senses merely because a being is intelligent, or confuse heritable capacity with inherited language, knowledge, memories or skills. A humanlike body or a cognitive label is not itself evidence that the scientist and organism understand one another.
 
@@ -122,7 +115,7 @@ Implement one repeatable local first-contact interaction that can demonstrate un
 
 Do not modify gameplay files until this cognition and communication design has been discussed and the developer explicitly approves implementation.
 
-## 4. Intelligent Creations: Voluntary Cooperation and Bounded Work
+## 3. Intelligent Creations: Voluntary Cooperation and Bounded Work
 
 After actual non-slime cognition and communication support exists, discuss one voluntary cooperation route with concrete terms, motivations, needs, promises, refusal and consequences. Slimes cannot participate. Recommend a bounded ordinary-supply carrying task with an exact source, amount and destination, using the organism's actual manipulation, movement, carrying capacity and independently practiced skills; agree the concrete task and physically deliverable benefit before coding. Genes, creator status, role labels and employment of human staff confer no consent, obedience or loyalty.
 
@@ -130,13 +123,13 @@ Use physical tools, goods, routes, permissions and received reports rather than 
 
 Do not modify gameplay files until this cooperation design has been discussed and the developer explicitly approves implementation.
 
-## 5. City Power: Enforceable Influence and Control
+## 4. City Power: Enforceable Influence and Control
 
 Design ways to bargain with, influence, replace, or defeat independent city authorities and implement one supported route. Control requires actual people, defenses, resources, and enforceable arrangements; reputation and internet recognition alone are insufficient. Preserve local charters, civic responsibilities, religious interests, legal consequences, opposition, revolt, and the narrow two-sponsor status of route strongholds. No durable nation-state or instant omniscient takeover may replace the city-polity model.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Late-Game Soul Beacons: Research, Infrastructure, and Physical Recovery
+## 5. Late-Game Soul Beacons: Research, Infrastructure, and Physical Recovery
 
 Design and implement a first player-built soul-beacon contingency in the main laboratory beyond the existing placeholder death handoff. This is very late-game technology, targeted at the independent-power-base or city-power phases, not a basic early-lab research unlock. Agree the concrete demanding skill, recovered-evidence, research, materials, and infrastructure prerequisites before coding; campaign checklist completion must not substitute for them. The exhausted starting beacon is evidence of the original scientist's work, not a reusable free extra life, and the original's notes must not conveniently explain a failure they did not anticipate.
 
@@ -148,43 +141,43 @@ The first reconstruction reproduces the original memory-transfer flaw with predi
 
 Do not modify files until the revised design has been discussed and the developer explicitly approves implementation.
 
-## 7. Perfected Memory Transfer and Embodied Retraining
+## 6. Perfected Memory Transfer and Embodied Retraining
 
 Build on physically functioning soul-beacon resurrection with advanced research that identifies and repairs the original separation between soul continuity, neural memory, and embodied practice. Perfected transfer retains personal memory and cognitive or animantic competence when the soul survives sufficiently intact; perfection does not immunize the soul against damage or recreate a destroyed soul. Classify skill components explicitly rather than treating every skill as wholly mental or physical. Body-bound strength, conditioning, reflex calibration, manual adaptations, and combat execution must be reacquired in the new body, with retained knowledge making genuine physical retraining substantially easier. Discuss the first coherent research and retraining slice, transparent imperfect-transfer losses, and actual body preparation before coding. Preserve durable external records and distinguish historical expertise from current bodily capability. No free physical mastery, clone duplication, or early-game resurrection unlock.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Hidden-Base Contingencies and Multiple Beacon Destinations
+## 7. Hidden-Base Contingencies and Multiple Beacon Destinations
 
 After additional facilities have physically supportable infrastructure and transport, implement soul beacons at separately prepared hidden sites and player choice among multiple eligible destinations after death. Every beacon needs its own compatible body, charge, utilities, materials, access, and uncompromised receiving site; internet contact is not material delivery. Preserve only actionable beacon-linked destination information, without leaking unknown inventory, enemies, or canonical geography. Revalidate the selected destination, consume only its actual components, and retain unselected contingencies without duplicating the scientist. Soul damage can affect different receiving arrangements; a destroyed soul has no eligible destination. Recovery in the original laboratory gives access only to its surviving actual assets, while a remote hidden-base return may require rebuilding with only what was prepared there. Preserve lost and seized property, old remains, legal consequences, continued bodily identities, and the same run/world branch. Discuss finite physical handoff resolution and fallback choice if a selected destination cannot complete recovery.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. Strategic Expansion and World Domination
+## 8. Strategic Expansion and World Domination
 
 Design physically supportable expansion between existing support components, significant beast powers, and divine interests, then implement only the next mechanically supported slice. Specify finite, testable durable-supremacy criteria before adding victory evaluation; occupation of every empty globe cell is not required. Bind campaigns to actual routes, transport, manpower, resources, defense, agreements, and resistance. Keep unknown powers and hidden totals out of ordinary campaign records. World domination is an exceptionally rare dated accomplishment, not a game-over transition, and remains separate from divine supremacy.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 10. Divine Supremacy: Rule over the Gods
+## 9. Divine Supremacy: Rule over the Gods
 
 Design and implement the ultimate ambition of imposing enforceable submission on the gods, killing those who refuse, and reigning over the rest. Submission must impose actual terms and consequences rather than a reputation threshold or cosmetic declaration. Cover discovery, human and beast gods, living descended individuals, avatars versus the actual divine individual, rebellion, and new ascendants. Destroying worship or forcing descent is not a kill. Scientific, animantic, engineered-creature, and personal-power approaches should remain possible without requiring the scientist to ascend. Theme-compatible presentations do not remove the refusal-and-death requirement. Define finite, testable accomplishment criteria without exposing hidden identities or counts; allow continued play after success and keep world domination a separate accomplishment. Split prerequisite combat, submission, or enforcement systems into further prompts if needed.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 11. New-Run Onboarding and Contextual Tutorial
+## 10. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 12. Sound, Notifications, and Accessibility Audit
+## 11. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 13. Production Art Pass Using the Sprite Pipeline
+## 12. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 

@@ -136,3 +136,59 @@ test('public reports never expose private captured material or unread findings, 
   order.receivedAt = 1010; view = Assistant.publicView(f.saved, 1010); expect(view.orders[0].result.summary).toBe('Private outcome');
   f.hooks.dead = true; const before = clone(f); Assistant.advance(f.saved, route, f.wallet, 20000, f.hooks); expect(clone(f)).toEqual(before);
 });
+
+const annexDisclosure = () => ({ ...disclosure(), underground: false, siteKind: 'leasedAnnex', propertyId: 'annex:a',
+  tenantStaffAuthorized: true, workspaceRoomId: 'annex', roomIds: ['annex'] });
+function annexFixture() {
+  const f = fixture(), d = annexDisclosure(), q = Assistant.request(f.saved, route, 2, d, 0);
+  expect(Assistant.hire(f.saved, route, q, d, true, f.wallet, 0).ok).toBe(true);
+  Assistant.advance(f.saved, route, f.wallet, 900, f.hooks); return f;
+}
+test('annex consent names one aboveground workplace without replacing the existing technician or granting underground access', () => {
+  const f = fixture(), d = annexDisclosure(), original = f.saved.actor.id;
+  expect(Assistant.validDisclosure({ ...d, tenantStaffAuthorized: false })).toBe(false);
+  expect(Assistant.validDisclosure({ ...d, roomIds: ['annex', 'lab'] })).toBe(false);
+  const q = Assistant.request(f.saved, route, 2, d, 0);
+  expect(q).toMatchObject({ fee: 40, hourly: 24, upfront: 88 });
+  expect(Assistant.hire(f.saved, route, q, { ...d, propertyId: 'another-annex' }, true, f.wallet, 0).ok).toBe(false);
+  expect(f.wallet.money).toBe(500);
+  expect(Assistant.hire(f.saved, route, q, d, true, f.wallet, 0).ok).toBe(true);
+  expect(f.saved.actor.id).toBe(original); expect(f.saved.contract.disclosure.roomIds).toEqual(['annex']);
+  expect(Assistant.request(f.saved, route, 2, disclosure(), 0).ok).toBe(false);
+});
+test('a finite annex queue validates distinct portions and reserves the entire queue atomically before authorization', () => {
+  const f = annexFixture();
+  const plans = [1, 2, 3].map(i => { const p = plan(); p.stack.id = p.sample.stackId = `portion-${i}`; p.sample.id = `sample-${i}`; return p; });
+  let called = 0;
+  for (const invalid of [[], [...plans, plans[0]], [plans[0], plans[0]], [plans[0], { ...plans[1], instrumentInstanceId: 'replacement' }]]) {
+    expect(Assistant.assignBatch(f.saved, invalid, 900, () => { called++; return []; }).ok).toBe(false);
+  }
+  expect(called).toBe(0); expect(f.saved.orders).toEqual([]);
+  expect(Assistant.assignBatch(f.saved, plans, 900, () => null).ok).toBe(false); expect(f.saved.orders).toEqual([]);
+  expect(Assistant.assignBatch(f.saved, plans, 900, (ps, ids, batchId) => {
+    expect(ids).toHaveLength(3); expect(batchId).toBeTruthy(); return ps.map(p => [{ stackId: p.stack.id, kind: 'input' }]);
+  }).ok).toBe(true);
+  expect(f.saved.orders).toHaveLength(3); expect(new Set(f.saved.orders.map(o => o.batchId)).size).toBe(1);
+  expect(Assistant.normalize(clone(f.saved))).toEqual(f.saved);
+  expect(Assistant.assignBatch(f.saved, [plans[0]], 900, reserve).ok).toBe(false);
+});
+test('queue cancellation and finite shift withdrawal release every unfinished order once without undoing completed work', () => {
+  const f = annexFixture();
+  f.saved.orders = [1, 2, 3].map(i => ({ id: `job-${i}`, batchId: 'batch', kind: 'assay', status: i === 1 ? 'completed' : 'active', delivered: i === 1 ? 1 : 0 }));
+  const released = []; f.hooks.release = o => released.push(o.id);
+  Assistant.withdraw(f.saved, f.hooks, 900);
+  expect(released).toEqual(['job-2', 'job-3']); expect(f.saved.orders[0].status).toBe('completed');
+  expect(Assistant.cancel(f.saved, f.hooks, 900)).toBe(false);
+  Assistant.advance(f.saved, route, f.wallet, 2000, f.hooks);
+  expect(f.saved.contract.status).toBe('completed'); expect(f.wallet.money + f.saved.actor.money).toBeCloseTo(500);
+});
+test('an exhausted annex shift cancels all unfinished queue entries without needing a new employer instruction', () => {
+  const f = annexFixture(), released = [];
+  f.saved.orders = [1, 2, 3].map(i => ({ id: `job-${i}`, batchId: 'batch', kind: 'assay', status: 'active', delivered: 0 }));
+  f.hooks.release = o => released.push(o.id);
+  Assistant.advance(f.saved, route, f.wallet, 10000, f.hooks);
+  expect(f.saved.orders.map(o => o.status)).toEqual(['cancelled', 'cancelled', 'cancelled']);
+  expect(released).toEqual(['job-1', 'job-2', 'job-3']);
+  expect(f.saved.contract).toMatchObject({ status: 'completed', earned: 48, refund: 0, settled: true });
+  expect(f.wallet.money + f.saved.actor.money).toBeCloseTo(500);
+});

@@ -13530,6 +13530,12 @@
         if (options.atLoading) moveSurveyScientist(SURFACE_LOADING_ROOM_ID, nearestOpenMapCellInRoom(SURFACE_LOADING_ROOM_ID, labMapRoomAnchor(SURFACE_LOADING_ROOM_ID)));
         if (options.benchCondition != null && fixtureById(LeasedAnnex.BENCH)) fixtureById(LeasedAnnex.BENCH).condition = options.benchCondition;
         if (options.breakOriginalBench) fixtureById("starter-workbench").condition = 0;
+        if (options.atAnnex && state.leasedAnnex?.site) {
+          const s = state.leasedAnnex, expedition = ensureSurveyExpeditions();
+          s.departure = { roomId: SURFACE_RECEPTION_ROOM_ID, cell: labMapRoomAnchor(SURFACE_RECEPTION_ROOM_ID) };
+          s.homeContext = clonePlainObject(ensureResourceSurveys().context); s.previousManifest = clonePlainObject(expedition.manifest);
+          s.away = true; expedition.phase = "field"; moveSurveyScientist(LeasedAnnex.ROOM, s.site.entry);
+        }
         if (options.expire && state.leasedAnnex?.lease) state.leasedAnnex.lease.endsAt = state.clock;
         updateLeasedAnnex(); persist(); render();
       },
@@ -13537,6 +13543,23 @@
         const result = resolveSharedCombatAction("scientist", "strike", { kind: "creature", id: actor.id, lastKnownCell: actor.mapCell }, { baseDamage: amount });
         updateLaboratoryAssistant(); persist(); render(); return result; },
       advanceLaboratoryAssistantForTest: (seconds) => { state.clock += seconds; updateLaboratoryAssistant(); persist(); render(); },
+      prepareAnnexTechnicianForTest: () => {
+        // Explicit prepared-site fixture: move existing equipment, endow three labelled portions, not normal progression.
+        const annex = state.leasedAnnex; if (!annex?.site) return false;
+        const ids = [];
+        for (const item of ensurePhysicalItemStacks().filter(s => ["assayCase", "assayReagent"].includes(s.key) && !s.carriedBy && !s.reservedTaskId)) {
+          item.roomId = LeasedAnnex.ROOM; item.cell = clonePlainObject(annex.site.entry); item.fixtureId = ""; item.stockpileId = ""; item.containerId = "";
+          const tool = item.toolInstanceId && toolInstanceById(item.toolInstanceId)?.instance; if (tool) tool.roomId = LeasedAnnex.ROOM;
+        }
+        for (let i = 0; i < 3; i++) {
+          const item = createPhysicalItemStack("inventory", "diagnosticSample", 1, { roomId: LeasedAnnex.ROOM, cell: annex.site.entry },
+            { tags: ["sealed"], sourceLabels: ["Explicit prepared annex technician test portion"] });
+          const d = ensureDiagnosticState(); d.samples.push(Diagnostics.normalizeSample({ id: `diagnostic-sample-${d.nextSampleNumber++}`,
+            stackId: item.id, methodId: "airVial", targetKind: "tile", targetId: "annex-fixture", targetLabel: `Prepared annex portion ${i + 1}`,
+            cell: annex.site.entry, collectedAt: state.clock, captured: { environment: { airborne: { chemicalVapor: 2 } } } })); ids.push(item.id);
+        }
+        syncPhysicalReadModels(); persist(); render(); return ids;
+      },
       configureLaboratoryAssistantTestSupport: () => {
         ensureEconomy().money = 1000;
         for (const roomId of ASSISTANT_ROOMS) for (const cell of ensureLabMap().rooms[roomId]?.cells || []) {
@@ -13572,7 +13595,7 @@
         if (options.blockRoom || options.clearBlock) {
           const access = ensureAccessControl(), profile = accessProfileForActor(a);
           access.areas = access.areas.filter(area => area.id !== "technician-test-block"); profile.areaIds = profile.areaIds.filter(id => id !== "technician-test-block");
-          if (ASSISTANT_ROOMS.includes(options.blockRoom)) { access.areas.push({ id: "technician-test-block", name: "Technician Test Block", kind: "forbidden", emergencyOnly: false, cells: clonePlainObject(ensureLabMap().rooms[options.blockRoom].cells) }); profile.areaIds.push("technician-test-block"); }
+          if ([...ASSISTANT_ROOMS, LeasedAnnex.ROOM].includes(options.blockRoom)) { access.areas.push({ id: "technician-test-block", name: "Technician Test Block", kind: "forbidden", emergencyOnly: false, cells: clonePlainObject(ensureLabMap().rooms[options.blockRoom].cells) }); profile.areaIds.push("technician-test-block"); }
         }
         persist(); render(); return true;
       },
@@ -63084,12 +63107,34 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function laboratoryAssistantNearby(observeOnly = false) {
     const a = state.laboratoryAssistant?.actor;
-    return Boolean(campaignLocalKnowledgeAvailable() && !actorIsIncapacitated("scientist") && a?.present
+    return Boolean(!laboratoryAssistantChannelReason() && a?.present
       && a.mapCell?.z === scientistMapCell().z && mapCellDistance(a.mapCell, scientistMapCell()) <= 8 && sensoryLineOfSight(scientistMapCell(), a.mapCell)
       && (observeOnly || a.status !== "dead" && !actorIsIncapacitated(a)));
   }
 
-  function laboratoryAssistantDisclosure() {
+  function laboratoryAssistantChannelReason() {
+    return annexAtProperty() && annexCapable() ? "" : confidentialServiceChannelReason();
+  }
+
+  function laboratoryAssistantRoute(workplace = state.laboratoryAssistant?.contract?.disclosure?.siteKind) {
+    const annex = state.leasedAnnex;
+    // The known municipal city-to-annex branch is half a kilometre; no original-lab gate is traversed.
+    if (workplace !== "leasedAnnex" || !annex) return surfaceWorkerRoute();
+    const city = ensureStrategicJourneys().destinations.find(d => d.kind === "fortifiedCity" && d.cityId === annex.property.cityId);
+    return { cityId: annex.property.cityId, municipal: true, distanceKm: .5,
+      ok: Boolean(city?.known && city.reachable), reason: "The known municipal city endpoint is unavailable; retain the original walking position." };
+  }
+
+  function laboratoryAssistantDisclosure(workplace = "laboratory") {
+    if (workplace === "leasedAnnex") {
+      const s = state.leasedAnnex;
+      return { underground: false, siteKind: "leasedAnnex", propertyId: s?.property.id || "", tenantStaffAuthorized: s?.property.tenantStaffAuthorized === true,
+        benchId: LeasedAnnex.BENCH, workspaceRoomId: LeasedAnnex.ROOM, roomIds: [LeasedAnnex.ROOM],
+        sampleCategories: [...LaboratoryAssistant.CATEGORIES], noLivingWork: true, confidentialityRequested: true,
+        hazards: ["Only sealed nonliving portions are authorized. No living handling or hazardous bulk processing.",
+          "No protective kit, utility connection, meals, water or communications equipment is supplied. Unsafe air, temperature or loose specimens require withdrawal."],
+        purpose: "A finite queue of up to three named sealed portions at the leased manual bench. No underground access or remote instructions." };
+    }
     const bench = researchWorkstations().find(f => labMapCellRoomId(f.origin) === MAIN_ROOM_ID);
     return { underground: true, benchId: bench?.id || "", workspaceRoomId: MAIN_ROOM_ID, roomIds: [...ASSISTANT_ROOMS],
       sampleCategories: [...LaboratoryAssistant.CATEGORIES], noLivingWork: true, confidentialityRequested: true,
@@ -63100,11 +63145,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function installLaboratoryAssistantAccess() {
     const s = state.laboratoryAssistant, access = ensureAccessControl(), map = ensureLabMap();
-    if (access.assignments[s.actor.id]) return;
+    const existing = access.profiles.find(p => p.id === "laboratory-assistant-profile");
+    const extraAreas = existing?.areaIds.filter(id => id !== "laboratory-assistant-area") || [];
+    access.areas = access.areas.filter(a => a.id !== "laboratory-assistant-area");
+    access.profiles = access.profiles.filter(p => p.id !== "laboratory-assistant-profile");
     const cells = s.contract.disclosure.roomIds.flatMap(id => map.rooms[id]?.cells || []);
     for (const door of Object.values(map.doors || {})) if (door.roomIds?.length && door.roomIds.every(id => s.contract.disclosure.roomIds.includes(id))) cells.push(...(door.cells || [door.cell]));
     access.areas.push({ id: "laboratory-assistant-area", name: "Technician agreed laboratory passage", kind: "allowed", emergencyOnly: false, cells });
-    access.profiles.push({ id: "laboratory-assistant-profile", name: "Assay technician", actorIds: [s.actor.id], areaIds: ["laboratory-assistant-area"], doorAccessRuleIds: ["staff", "restricted", "exterior"] });
+    access.profiles.push({ id: "laboratory-assistant-profile", name: "Assay technician", actorIds: [s.actor.id], areaIds: ["laboratory-assistant-area", ...extraAreas], doorAccessRuleIds: ["staff", "restricted", "exterior"] });
     access.assignments[s.actor.id] = "laboratory-assistant-profile";
   }
 
@@ -63115,14 +63163,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return stockpileHaulAccessCell(stack);
   }
 
-  function laboratoryAssistantAssayPlan(stackId) {
+  function laboratoryAssistantAssayPlan(stackId, selectedTool = null) {
     const s = state.laboratoryAssistant, a = s?.actor, disclosure = s?.contract?.disclosure;
     const stack = ensurePhysicalItemStacks().find(item => item.id === stackId), sample = diagnosticSampleByStackId(stackId);
     if (!a?.present || !LaboratoryAssistant.eligible(sample, stack)) return { ok: false, reason: "Stage an available sealed nonliving sample; carried, claimed, open or biological samples are outside this agreement." };
     const bench = fixtureById(disclosure.benchId);
-    if (!researchWorkstations().some(f => f.id === bench?.id) || state.tasks.some(t => t.data?.workstationId === bench.id)) return { ok: false, reason: "The exact disclosed bench is unavailable or already claimed." };
+    const annex = disclosure?.siteKind === "leasedAnnex";
+    if (annex && !LeasedAnnex.usable(state.leasedAnnex, state.clock)) return { ok: false, reason: "A valid annex lease is required for new work." };
+    if (!(annex ? bench && labMapCellRoomId(bench.origin) === LeasedAnnex.ROOM && bench.condition > 0 && bench.operationalState === "operational" && !bench.productionTaskId
+      : researchWorkstations().some(f => f.id === bench?.id)) || state.tasks.some(t => t.data?.workstationId === bench?.id)) return { ok: false, reason: "The exact disclosed bench is unavailable or already claimed." };
     const benchCell = fixtureAccessCells(bench).map(p => p.cell).find(cell => surfaceWorkerPath(a, cell).found);
-    const tool = toolInstancesForItem("assayCase").find(t => t.current > 0 && !t.carriedBy && !t.reservedTaskId
+    const tool = selectedTool || toolInstancesForItem("assayCase").find(t => t.current > 0 && !t.carriedBy && !t.reservedTaskId
       && ensurePhysicalItemStacks().some(item => item.toolInstanceId === t.id && !item.reservedTaskId
         && laboratoryAssistantStackCell(item) && surfaceWorkerPath(a, laboratoryAssistantStackCell(item)).found));
     const toolStack = tool && ensurePhysicalItemStacks().find(item => item.toolInstanceId === tool.id && !item.carriedBy && !item.reservedTaskId);
@@ -63146,14 +63197,38 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return reservations.map((r, index) => ({ ...r, kind: index === 2 ? "instrument" : "input" }));
   }
 
+  function reserveAnnexAssayBatch(plans, ids, batchId) {
+    const bench = fixtureById(plans[0].benchId), tool = toolInstanceById(plans[0].instrumentInstanceId)?.instance;
+    const amounts = new Map();
+    for (const plan of plans) for (const item of plan.inputs.slice(0, 2)) amounts.set(item.id, (amounts.get(item.id) || 0) + 1);
+    const instrument = plans[0].inputs[2];
+    if (!bench || bench.productionTaskId || !tool || tool.reservedTaskId || tool.carriedBy || !instrument || instrument.reservedTaskId || instrument.carriedBy
+      || state.tasks.some(t => t.data?.workstationId === bench.id)
+      || [...amounts].some(([id, n]) => { const item = ensurePhysicalItemStacks().find(s => s.id === id); return !item || item.quantity < n || item.reservedTaskId || item.carriedBy; })) return null;
+    // Validate the entire finite queue before splitting any real stacks.
+    const pickups = plans.map((plan, i) => {
+      const reservations = plan.inputs.slice(0, 2).map(item => ({ stackId: item.id, key: item.key, quantity: 1 }));
+      reserveProductionMaterialSlices(reservations, ids[i]);
+      return [...reservations.map(r => ({ ...r, kind: "input" })), { stackId: instrument.id, key: instrument.key, quantity: 1, kind: "instrument" }];
+    });
+    instrument.reservedTaskId = batchId; bench.productionTaskId = batchId; tool.reservedTaskId = batchId;
+    return pickups;
+  }
+
   function releaseLaboratoryAssay(order) {
     const a = state.laboratoryAssistant.actor;
+    const reservation = order.batchId || order.id;
+    const remaining = order.batchId && state.laboratoryAssistant.orders.some(o => o !== order && o.batchId === order.batchId && o.status === "active");
     for (const stack of actorInventoryStacks(a.id).filter(item => item.carryTaskId === order.id))
       dropActorInventoryStack(a.id, stack.id, { roomId: a.roomId, cell: a.mapCell });
     for (const stack of ensurePhysicalItemStacks()) if (stack.reservedTaskId === order.id) stack.reservedTaskId = "";
+    if (!remaining && order.batchId) for (const stack of ensurePhysicalItemStacks().filter(item => item.reservedTaskId === order.batchId)) {
+      if (stack.carriedBy === a.id) dropActorInventoryStack(a.id, stack.id, { roomId: a.roomId, cell: a.mapCell });
+      stack.reservedTaskId = "";
+    }
     const bench = fixtureById(order.benchId), tool = toolInstanceById(order.instrumentInstanceId)?.instance;
-    if (bench?.productionTaskId === order.id) bench.productionTaskId = "";
-    if (tool?.reservedTaskId === order.id) tool.reservedTaskId = "";
+    if (!remaining && bench?.productionTaskId === reservation) bench.productionTaskId = "";
+    if (!remaining && tool?.reservedTaskId === reservation) tool.reservedTaskId = "";
     syncActorInventories(); syncPhysicalReadModels();
   }
 
@@ -63167,8 +63242,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function laboratoryAssistantAssayStep(actor, order) {
     const bench = fixtureById(order.benchId), tool = toolInstanceById(order.instrumentInstanceId)?.instance;
-    if (!bench || bench.productionTaskId !== order.id || bench.condition <= 0 || bench.operationalState !== "operational") return { reason: "The original reserved workbench is damaged, disabled or unavailable; actual work remains unfinished." };
-    if (!tool || tool.current <= 0 || tool.reservedTaskId !== order.id) return { reason: "The original instrument is broken or unavailable; no replacement is invented." };
+    const reservation = order.batchId || order.id, at = state.laboratoryAssistant.lastAt;
+    const annex = state.laboratoryAssistant.contract?.disclosure?.siteKind === "leasedAnnex";
+    if (annex && (state.leasedAnnex?.lease?.status === "terminated" || !(at < state.leasedAnnex?.lease?.endsAt))) return { reason: "Annex lease expired; unfinished work and actual reservations remain, with no credited work time." };
+    if (annex && (labMapCellRoomId(bench?.origin) !== LeasedAnnex.ROOM || !fixtureAccessCells(bench).some(p => sameMapCell(p.cell, order.benchCell)))) return { reason: "The actual agreed bench moved; no remote or substituted workspace." };
+    if (!bench || bench.productionTaskId !== reservation || bench.condition <= 0 || bench.operationalState !== "operational") return { reason: "The original reserved workbench is damaged, disabled or unavailable; actual work remains unfinished." };
+    if (!tool || tool.current <= 0 || tool.reservedTaskId !== reservation) return { reason: "The original instrument is broken or unavailable; no replacement is invented." };
     const sampleStack = ensurePhysicalItemStacks().find(item => item.id === order.pickups[0].stackId), sample = diagnosticSampleByStackId(order.pickups[0].stackId);
     if (!sample || !sampleStack) return { reason: "The original physical sample was lost; no result can be produced." };
     if (!LaboratoryAssistant.eligible(sample, { ...sampleStack, carriedBy: "" }, order.id)) return { reason: "The sample is no longer a sealed nonliving portion covered by the agreement.", withdraw: true };
@@ -63176,15 +63255,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const pickup = order.pickups[order.pickupIndex];
       if (!pickup) { order.stage = "bench"; return {}; }
       const stack = ensurePhysicalItemStacks().find(item => item.id === pickup.stackId);
-      if (!stack || stack.reservedTaskId !== order.id || stack.carriedBy && stack.carriedBy !== actor.id) return { reason: "An exact reserved supply has disappeared or changed custody." };
+      const claim = pickup.kind === "instrument" ? reservation : order.id;
+      if (!stack || stack.reservedTaskId !== claim || stack.carriedBy && stack.carriedBy !== actor.id) return { reason: "An exact reserved supply has disappeared or changed custody." };
+      if (stack.carriedBy === actor.id) { order.pickupIndex++; return {}; }
       const cell = laboratoryAssistantStackCell(stack); if (!cell) return { reason: "The reserved supply's physical storage is closed, locked or inaccessible." };
       const moved = surfaceWorkerMove(actor, cell, laboratoryAssistantCarriedLoad(actor)); if (!moved.done) return moved;
-      const carried = carryPhysicalStack(actor.id, stack.id, 1, { allowReserved: true, carryTaskId: order.id });
+      const carried = carryPhysicalStack(actor.id, stack.id, 1, { allowReserved: true, carryTaskId: pickup.kind === "instrument" ? reservation : order.id });
       if (!carried) return { reason: "Actual carrying capacity or pickup no longer permits this supply." };
-      carried.reservedTaskId = order.id; order.carriedStackIds.push(carried.id); order.pickupIndex++;
+      carried.reservedTaskId = claim; order.carriedStackIds.push(carried.id); order.pickupIndex++;
       return {};
     }
-    if (order.pickups.some(p => !actorInventoryStacks(actor.id).some(item => item.id === p.stackId && item.reservedTaskId === order.id))) return { reason: "The technician no longer possesses all reserved samples, supplies and instrument." };
+    if (order.pickups.some(p => !actorInventoryStacks(actor.id).some(item => item.id === p.stackId && item.reservedTaskId === (p.kind === "instrument" ? reservation : order.id)))) return { reason: "The technician no longer possesses all reserved samples, supplies and instrument." };
     const moved = surfaceWorkerMove(actor, order.benchCell, laboratoryAssistantCarriedLoad(actor));
     if (!moved.done) return moved;
     // Administrative access changes also bind stationary work, not only travel.
@@ -63221,12 +63302,30 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function laboratoryAssistantHooks() {
-    return { ...surfaceWorkerHooks(state.laboratoryAssistant), release: releaseLaboratoryAssay, haul: laboratoryAssistantAssayStep };
+    const s = state.laboratoryAssistant, hooks = { ...surfaceWorkerHooks(s), release: releaseLaboratoryAssay, haul: laboratoryAssistantAssayStep };
+    if (s?.contract?.disclosure?.siteKind !== "leasedAnnex") return hooks;
+    const entranceReason = actor => {
+      const annex = state.leasedAnnex, cell = annex?.site?.entry;
+      if (!cell || !labMapCellIsWalkable(cell, ensureLabMap())) return "The annex has no physical receiving floor; wait outside.";
+      return actorAccessCellBlockReason(actor, cell) || surfaceWorkerHazard(cell) || "";
+    };
+    hooks.enter = actor => {
+      const reason = entranceReason(actor), lease = state.leasedAnnex?.lease;
+      if (reason || lease?.status === "terminated" || !(s.lastAt < lease?.endsAt)) return { ok: false, reason: reason || "Annex operating lease expired; no fresh employee admission." };
+      actor.mapCell = clonePlainObject(state.leasedAnnex.site.entry); actor.roomId = LeasedAnnex.ROOM;
+      actor.observations.push({ roomId: LeasedAnnex.ROOM, at: s.lastAt }); return true;
+    };
+    hooks.exit = actor => {
+      const cell = state.leasedAnnex?.site?.entry;
+      if (!cell || !labMapCellIsWalkable(cell, ensureLabMap())) return { reason: "The annex exit floor is missing; no evacuation or teleport." };
+      return surfaceWorkerMove(actor, cell, laboratoryAssistantCarriedLoad(actor));
+    };
+    return hooks;
   }
 
   function updateLaboratoryAssistant() {
     if (!state.laboratoryAssistant || scientistIsDead()) return 0;
-    const changes = LaboratoryAssistant.advance(state.laboratoryAssistant, surfaceWorkerRoute(), ensureEconomy(), state.clock, laboratoryAssistantHooks());
+    const changes = LaboratoryAssistant.advance(state.laboratoryAssistant, laboratoryAssistantRoute(), ensureEconomy(), state.clock, laboratoryAssistantHooks());
     if (changes) { syncActorInventories(); syncPhysicalReadModels(); markStateDirty(); }
     return changes;
   }
@@ -63262,8 +63361,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function receiveLaboratoryAssistantReport() {
     const s = state.laboratoryAssistant;
-    if (!s || confidentialServiceChannelReason() || LaboratoryAssistant.active(s.contract) && !laboratoryAssistantNearby()
+    if (!s || laboratoryAssistantChannelReason() || LaboratoryAssistant.active(s.contract) && !laboratoryAssistantNearby()
       || s.contract?.status === "fatality" && !laboratoryAssistantNearby(true)) return false;
+    if (annexAtProperty() && !laboratoryAssistantNearby(true)) return false; // No annex terminal or city-account connection is installed.
     if (laboratoryAssistantNearby()) for (const order of s.orders.filter(o => o.status === "completed")) receiveLaboratoryAssay(order);
     state.laboratoryAssistantKnowledge = LaboratoryAssistant.publicView(s, state.clock); markStateDirty(); return true;
   }
@@ -63281,12 +63381,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function laboratoryAssistantAction(action, options = {}) {
-    if (scientistIsDead() || confidentialServiceChannelReason()) return false;
+    if (scientistIsDead() || laboratoryAssistantChannelReason()) return false;
     const s = ensureLaboratoryAssistant(); if (!s) return false;
     updateLaboratoryAssistant(); let result = { ok: false, reason: "Meet the technician to change work or supply actual provisions." };
-    if (action === "quote") result = LaboratoryAssistant.request(s, surfaceWorkerRoute(), options.hours || 2, laboratoryAssistantDisclosure(), state.clock);
+    const workplace = options.workplace || s.quote?.disclosure?.siteKind || "laboratory";
+    if (["quote", "hire"].includes(action) && workplace === "leasedAnnex" && !LeasedAnnex.usable(state.leasedAnnex, state.clock)) return false;
+    if (["quote", "hire"].includes(action) && workplace !== "leasedAnnex" && annexAway()) return false;
+    if (action === "quote") result = LaboratoryAssistant.request(s, laboratoryAssistantRoute(workplace), options.hours || 2, laboratoryAssistantDisclosure(workplace), state.clock);
     else if (action === "hire") {
-      result = LaboratoryAssistant.hire(s, surfaceWorkerRoute(), options.expected || s.quote, laboratoryAssistantDisclosure(), options.consent === true, ensureEconomy(), state.clock);
+      result = LaboratoryAssistant.hire(s, laboratoryAssistantRoute(workplace), options.expected || s.quote, laboratoryAssistantDisclosure(workplace), options.consent === true, ensureEconomy(), state.clock);
       if (result.ok) installLaboratoryAssistantAccess();
     } else if (action === "decline") { s.quote = null; result.ok = true; }
     else if (action === "walk") result.ok = Boolean(startScientistMove(SURFACE_LOADING_ROOM_ID, { allowMultiRoom: true }));
@@ -63300,6 +63403,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (result.ok) state.laboratoryAssistantKnowledge = LaboratoryAssistant.publicView(s, state.clock);
     } else if (action === "withdraw" && s.contract?.status === "arriving" || laboratoryAssistantNearby()) {
       if (action === "assign") result = LaboratoryAssistant.assign(s, laboratoryAssistantAssayPlan(options.stackId), state.clock, reserveLaboratoryAssay);
+      if (action === "batch") {
+        const ids = Array.isArray(options.stackIds) ? options.stackIds : [], first = laboratoryAssistantAssayPlan(ids[0]);
+        const tool = first.ok && toolInstanceById(first.instrumentInstanceId)?.instance;
+        result = LaboratoryAssistant.assignBatch(s, ids.map(id => laboratoryAssistantAssayPlan(id, tool || null)), state.clock, reserveAnnexAssayBatch);
+      }
       if (action === "cancel") result.ok = LaboratoryAssistant.cancel(s, laboratoryAssistantHooks(), state.clock);
       if (action === "withdraw") result.ok = LaboratoryAssistant.withdraw(s, laboratoryAssistantHooks(), state.clock);
       if (action === "supply") result.ok = laboratoryAssistantSupply(options.key);
@@ -63312,11 +63420,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     persist(); render(); return Boolean(result.ok);
   }
 
-  function renderLaboratoryAssistant() {
-    const parent = dom.economyWorkersList; if (!parent) return;
-    const s = ensureLaboratoryAssistant(), known = state.laboratoryAssistantKnowledge, reason = confidentialServiceChannelReason();
-    const section = document.createElement("section"); section.id = "laboratoryAssistantList"; parent.append(section);
-    section.append(textEl("h3", "Underground assay technician"), textEl("p", "Separate qualifications, informed agreement and limited laboratory access. The porter is not promoted into a scientist. Confidentiality buys neither obedience nor erased memories."));
+  function renderLaboratoryAssistant(parent = dom.economyWorkersList, workplace = "laboratory") {
+    if (!parent) return;
+    const annex = workplace === "leasedAnnex";
+    const s = ensureLaboratoryAssistant(), known = state.laboratoryAssistantKnowledge, reason = laboratoryAssistantChannelReason();
+    const section = document.createElement("section"); if (!annex) section.id = "laboratoryAssistantList";
+    else section.dataset.annexTechnician = "true";
+    parent.append(section);
+    section.append(textEl("h3", annex ? "Annex assay technician" : "Underground assay technician"), textEl("p", "One persistent technician, one workplace per engagement. Separate qualifications, informed agreement and limited access. The porter is not promoted into a scientist. Confidentiality buys neither obedience nor erased memories."));
     if (!known) { section.append(emptyText("No supported local technician applicant; a municipal walking route within five kilometres is required.")); return; }
     const button = (label, action, options = {}, block = "") => {
       const b = storesActionButton(label, block || reason || label, () => laboratoryAssistantAction(action, options));
@@ -63325,32 +63436,35 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     section.append(textEl("h4", known.applicant.name), textEl("p", `${known.applicant.affiliation}; Analysis ${known.applicant.skills.analysis}, Alchemy ${known.applicant.skills.alchemy}. Named qualifications are not verified civic identity.`),
       textEl("p", `Last received ${formatClock(known.reportedAt)}: ${known.applicant.condition}; meals ${formatDecimal(known.applicant.food, 2)}, water ${formatDecimal(known.applicant.water, 2)}, fatigue ${formatNumber(known.applicant.fatigue)}. ${known.applicant.reason}`),
       textEl("p", "Already authorized finite work may continue while away or detained. Reports stay dated; new orders and receipt require local access. No automatic customer submission, payment, scientist experience or experiment conclusion."));
-    if (!LaboratoryAssistant.active(known.contract)) for (const hours of [2, 4, 8]) section.append(button(`Review ${hours}-hour technician shift`, "quote", { hours }));
-    if (known.quote) {
+    if (!LaboratoryAssistant.active(known.contract)) for (const hours of [2, 4, 8]) section.append(button(`Review ${hours}-hour ${annex ? "annex technician" : "technician"} shift`, "quote", { hours, workplace }, annex && !LeasedAnnex.usable(state.leasedAnnex, state.clock) ? "Valid leased premises required." : ""));
+    if (known.quote && (known.quote.disclosure.siteKind === "leasedAnnex") === annex) {
       const q = known.quote, d = q.disclosure;
       section.append(textEl("p", `${formatMoney(q.fee)} nonrefundable walking engagement fee plus ${formatMoney(q.hourly)}/hour; ${q.hours} on-site hours, total prepaid ${formatMoney(q.upfront)}. ${formatDecimal(q.distanceKm, 1)} km walking each way; terms expire ${formatClock(q.expiresAt)}. Finite personal provisions, rest and physical return/refund rules apply; no tools or protective kit included.`),
-        textEl("p", `Disclosure: underground workspace ${roomName(d.workspaceRoomId)}, bench ${d.benchId || "unavailable"}. Agreed passage: ${d.roomIds.map(roomName).join(", ")}. Scope: sealed nonliving air, environmental, prospecting and chemical portions; no biological or living procedures. Confidentiality is requested, not guaranteed.`));
+        textEl("p", `Disclosure: ${d.underground ? "underground" : "leased aboveground"} workspace ${roomName(d.workspaceRoomId)}, bench ${d.benchId || "unavailable"}. Agreed passage: ${d.roomIds.map(roomName).join(", ")}. Scope: sealed nonliving air, environmental, prospecting and chemical portions; no biological or living procedures. Confidentiality is requested, not guaranteed.`));
       for (const hazard of d.hazards) section.append(textEl("p", hazard));
       const label = document.createElement("label"), consent = document.createElement("input"); consent.type = "checkbox"; consent.dataset.technicianConsent = "true";
       label.append(consent, textEl("span", "I have reviewed the exact workplace, limited scope, hazards and confidentiality request.")); section.append(label);
-      const hire = storesActionButton("Hire assay technician", "Confirm this disclosed agreement", () => laboratoryAssistantAction("hire", { expected: clonePlainObject(q), consent: consent.checked }));
+      const hire = storesActionButton(annex ? "Hire annex assay technician" : "Hire assay technician", "Confirm this disclosed agreement", () => laboratoryAssistantAction("hire", { expected: clonePlainObject(q), consent: consent.checked, workplace }));
       setActionButtonState(hire, true, "Explicit disclosure review is required."); consent.addEventListener("change", () => setActionButtonState(hire, !consent.checked || Boolean(reason), reason || "Explicit disclosure review is required."));
       section.append(hire, button("Decline technician terms", "decline"));
     }
-    section.append(button("Walk to technician receiving area", "walk", {}, scientistMoveBlockReason(SURFACE_LOADING_ROOM_ID, { allowMultiRoom: true })),
-      button("Receive technician report", "report", {}, LaboratoryAssistant.active(known.contract) && !laboratoryAssistantNearby() ? "Meet the technician physically." : ""));
-    if (known.contract) section.append(textEl("p", `${known.contract.id}: ${titleCase(known.contract.status)}; last reported earned wages ${formatMoney(known.contract.earned)}, refund ${formatMoney(known.contract.refund)}. ${known.contract.reason}`));
+    if (!annex) section.append(button("Walk to technician receiving area", "walk", {}, scientistMoveBlockReason(SURFACE_LOADING_ROOM_ID, { allowMultiRoom: true })));
+    section.append(button("Receive technician report", "report", {}, annexAtProperty() && !laboratoryAssistantNearby(true) ? "Meet the technician physically; no annex remote connection is installed." : ""));
+    if (known.contract) section.append(textEl("p", `${known.contract.id}: ${titleCase(known.contract.status)} at ${roomName(known.contract.disclosure.workspaceRoomId)}; last reported earned wages ${formatMoney(known.contract.earned)}, refund ${formatMoney(known.contract.refund)}. ${known.contract.reason}`));
     if (LaboratoryAssistant.active(known.contract)) {
       section.append(button(known.contract.status === "arriving" ? "Recall incoming technician" : "End technician shift", "withdraw", {}, known.contract.status === "arriving" || laboratoryAssistantNearby() ? "" : "Meet the technician first."));
       if (known.orders.some(o => o.status === "active")) section.append(button("Cancel technician assay", "cancel", {}, laboratoryAssistantNearby() ? "" : "Meet the technician first."));
-      if (!reason && laboratoryAssistantNearby() && s.contract.status === "onSite" && !s.orders.some(o => o.status === "active")) {
+      if (!reason && laboratoryAssistantNearby() && s.contract.status === "onSite"
+        && (s.contract.disclosure.siteKind === "leasedAnnex") === annex && !s.orders.some(o => o.status === "active")) {
         const label = document.createElement("label"), select = document.createElement("select"); select.dataset.technicianSample = "true";
+        const batch = s.contract.disclosure.siteKind === "leasedAnnex"; select.multiple = batch; if (batch) select.size = 4;
         for (const sample of ensureDiagnosticState().samples) {
           const stack = ensurePhysicalItemStacks().find(item => item.id === sample.stackId);
-          if (LaboratoryAssistant.eligible(sample, stack)) select.append(new Option(`${sample.targetLabel} (${stack.id})`, stack.id));
+          if (LaboratoryAssistant.eligible(sample, stack) && (!batch || stack.roomId === LeasedAnnex.ROOM)) select.append(new Option(`${sample.targetLabel} (${stack.id})`, stack.id));
         }
         label.append(textEl("span", "Exact sealed nonliving sample"), select); section.append(label,
-          storesActionButton("Delegate sealed sample assay", "Reserve the actual sample, reagent, Assay Case and disclosed workbench", () => laboratoryAssistantAction("assign", { stackId: select.value })));
+          storesActionButton(batch ? "Authorize annex assay queue" : "Delegate sealed sample assay", "Reserve the exact portions, actual reagents, Assay Case and disclosed workbench; maximum three annex portions", () => batch
+            ? laboratoryAssistantAction("batch", { stackIds: [...select.selectedOptions].map(o => o.value) }) : laboratoryAssistantAction("assign", { stackId: select.value })));
         section.append(textEl("p", "Stage unused supplies and the Assay Case in the agreed rooms; open their storage. All objects and the bench remain reserved until completion or cancellation. No substitutions are made if access or condition changes."));
       }
       section.append(button("Give technician one meal", "supply", { key: "trailMeal" }, laboratoryAssistantNearby() ? "" : "Physical handoff required."),
@@ -63370,7 +63484,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const profile = s && accessProfileForActor(s.actor);
     if (!reason && profile) for (const area of ensureAccessControl().areas.filter(a => !["laboratory-assistant-area", "surface-worker-area"].includes(a.id))) {
       const label = document.createElement("label"), input = document.createElement("input"); input.type = "checkbox"; input.checked = profile.areaIds.includes(area.id); input.dataset.technicianAccessArea = area.id;
-      input.addEventListener("change", () => { if (!confidentialServiceChannelReason()) { profile.areaIds = input.checked ? [...new Set([...profile.areaIds, area.id])] : profile.areaIds.filter(id => id !== area.id); persist(); render(); } });
+      input.addEventListener("change", () => { if (!laboratoryAssistantChannelReason()) { profile.areaIds = input.checked ? [...new Set([...profile.areaIds, area.id])] : profile.areaIds.filter(id => id !== area.id); persist(); render(); } });
       label.append(input, textEl("span", `Apply ${area.name} to technician (${area.kind}); cannot extend the agreed scope`)); section.append(label);
     }
     for (const entry of known.history.slice(-6).reverse()) section.append(textEl("p", `${formatClock(entry.at)} — ${entry.summary}`, "journal-meta"));
@@ -82483,7 +82597,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     else if (action === "handback" && annexAtProperty() && annexCapable()) {
       const bench = fixtureById(LeasedAnnex.BENCH), empty = !ensurePhysicalItemStacks().some(g => g.roomId === LeasedAnnex.ROOM && !g.carriedBy);
-      result = LeasedAnnex.handBack(s, { atProperty: true, empty, busy: surveyBusy(), benchCondition: bench && labMapCellRoomId(bench.origin) === LeasedAnnex.ROOM ? bench.condition : 0 }, ensureEconomy(), state.clock);
+      const staff = state.laboratoryAssistant;
+      const staffed = staff?.contract?.disclosure?.propertyId === s.property.id && (LaboratoryAssistant.active(staff.contract) || staff.actor.present);
+      result = LeasedAnnex.handBack(s, { atProperty: true, empty, busy: surveyBusy() || staffed, benchCondition: bench && labMapCellRoomId(bench.origin) === LeasedAnnex.ROOM ? bench.condition : 0 }, ensureEconomy(), state.clock);
       if (result.ok) recordLegalLedger("annexHandback", s.history.at(-1).summary);
     }
     refreshAnnexTaskClocks(); observeLeasedAnnex(); surveyEvent(result.ok ? `Annex ${action}: ${s.property.name}.` : result.reason); persist(); render(); return Boolean(result.ok);
@@ -82541,6 +82657,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       for (const g of v.observation.goods) panel.append(textEl("p", `${g.quantity} ${resourceLabel(g.key)} (${g.id}); last seen ${formatClock(g.at)}.`));
     }
     for (const h of v.history.slice(-5)) panel.append(textEl("p", `${formatClock(h.at)} — ${h.summary}`, "journal-meta"));
+    if (v.lease) renderLaboratoryAssistant(panel, "leasedAnnex");
     return panel;
   }
 
@@ -90198,7 +90315,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const constructionTaskIds = new Set(next.tasks.filter((task) => task?.type === "constructionWork").map((task) => String(task.id || "")));
     const productionTaskIds = new Set(next.tasks.filter((task) => task?.type === "productionWork").map((task) => String(task.id || "")));
     const diagnosticTaskIds = new Set(next.tasks.filter((task) => task?.type === "physicalDiagnostic").map((task) => String(task.id || "")));
-    const assistantOrderIds = new Set((next.laboratoryAssistant?.orders || []).filter(o => o.status === "active").map(o => o.id));
+    const assistantOrderIds = new Set((next.laboratoryAssistant?.orders || []).filter(o => o.status === "active").flatMap(o => [o.id, o.batchId].filter(Boolean)));
     const toolTaskIds = new Set([...constructionTaskIds, ...productionTaskIds, ...diagnosticTaskIds, ...assistantOrderIds]);
     for (const instances of Object.values(next.toolDurability || {})) {
       for (const tool of instances) {

@@ -85,9 +85,13 @@
     return { ok: true, order };
   }
   function cancel(state, hooks, now) {
-    const order = state?.orders.find(o => o.status === 'active'); if (!order) return false;
-    hooks.release(order); order.status = 'cancelled'; order.reason = order.kind === 'assay' ? 'Assay cancelled; unused supplies and instrument left at the technician. No result invented or incorporated input refunded.' : 'Assignment cancelled; current load dropped at the worker, earlier deliveries preserved.';
-    note(state, now, order.reason); return true;
+    const orders = state?.orders.filter(o => o.status === 'active') || []; if (!orders.length) return false;
+    for (const order of orders) {
+      order.status = 'cancelled'; hooks.release(order);
+      order.reason = order.kind === 'assay' ? 'Assay cancelled; unused supplies and instrument left at the technician. No result invented or incorporated input refunded.' : 'Assignment cancelled; current load dropped at the worker, earlier deliveries preserved.';
+      note(state, now, order.reason);
+    }
+    return true;
   }
   function withdraw(state, hooks, now, reason = 'Employer ended the shift') {
     const c = state?.contract; if (!active(c) || ['departing', 'returning'].includes(c.status)) return false;
@@ -124,7 +128,7 @@
         if (c.status === 'arriving' && c.positionKm >= c.distanceKm - 1e-8) {
           const entry = hooks.enter(a);
           if (!entry || entry.ok === false) { a.reason = entry?.reason || 'Loading Bay entrance unavailable; waiting outside, no teleport through a closed portal.'; continue; }
-          a.present = true; c.status = 'onSite'; c.startedAt = at; note(state, at, 'Worker physically arrived at the Loading Bay; prepaid on-site shift started.');
+          a.present = true; c.status = 'onSite'; c.startedAt = at; note(state, at, `Worker physically arrived at ${c.disclosure?.siteKind === 'leasedAnnex' ? 'the agreed annex' : 'the Loading Bay'}; prepaid on-site shift started.`);
         } else if (c.status === 'returning' && c.positionKm <= 1e-8) {
           c.status = 'completed'; c.completedAt = at;
           if (!c.settled) { c.refund = Math.max(0, c.reserve - c.earned); wallet.money += c.refund; c.settled = true; }

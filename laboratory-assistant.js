@@ -12,14 +12,16 @@
   function create(seed, city, theme, at = 0) { return Workers.create(seed, city, theme, at, 'laboratoryTechnician'); }
   const normalize = Workers.normalize;
   function validDisclosure(d) {
-    return d?.underground === true && d.confidentialityRequested === true && d.noLivingWork === true
+    const workplace = d?.underground === true && d.roomIds?.length > 1
+      || d?.underground === false && d.siteKind === 'leasedAnnex' && d.propertyId && d.tenantStaffAuthorized === true && d.roomIds?.length === 1;
+    return Boolean(workplace && d.confidentialityRequested === true && d.noLivingWork === true
       && d.benchId && d.workspaceRoomId && Array.isArray(d.roomIds) && d.roomIds.includes(d.workspaceRoomId)
-      && d.roomIds.length > 1 && Array.isArray(d.hazards) && d.hazards.length > 0
-      && JSON.stringify(d.sampleCategories) === JSON.stringify(CATEGORIES);
+      && Array.isArray(d.hazards) && d.hazards.length > 0
+      && JSON.stringify(d.sampleCategories) === JSON.stringify(CATEGORIES));
   }
   function request(state, route, hours, disclosure, now) {
     const q = Workers.quote(state, route, hours, now);
-    if (!q.ok || !validDisclosure(disclosure)) { if (state) state.quote = null; return q.ok ? { ok: false, reason: 'A complete underground workplace and hazard disclosure is required.' } : q; }
+    if (!q.ok || !validDisclosure(disclosure)) { if (state) state.quote = null; return q.ok ? { ok: false, reason: 'A complete exact workplace and hazard disclosure is required.' } : q; }
     state.quote = { ...q, disclosure: copy(disclosure) }; return state.quote;
   }
   function hire(state, route, expected, disclosure, consent, wallet, now) {
@@ -90,6 +92,27 @@
       factors: [`Technician ${actor.name}: Analysis ${actor.skills.analysis}, Alchemy ${actor.skills.alchemy}; joint contribution ${skill}%`,
         `Actual calibration ${record.calibration}/100`, `Actual condition ${instrument.current}/${instrument.max}`, 'One historical sealed portion only; no legal classification or live remote measurement.'] });
   }
+  function assignBatch(state, plans, now, reserve) {
+    const a = state?.actor, c = state?.contract;
+    if (!a?.present || a.status === 'dead' || a.health < 35 || c?.status !== 'onSite' || !c.consented
+      || !validDisclosure(c.disclosure) || c.disclosure.siteKind !== 'leasedAnnex' || state.orders.some(o => o.status === 'active'))
+      return { ok: false, reason: 'A capable consenting annex technician with no outstanding queue is required.' };
+    if (!Array.isArray(plans) || plans.length < 1 || plans.length > 3 || new Set(plans.map(p => p?.stack?.id)).size !== plans.length
+      || plans.some(p => !p?.ok || !eligible(p.sample, p.stack) || p.benchId !== c.disclosure.benchId
+        || p.instrumentInstanceId !== plans[0].instrumentInstanceId))
+      return { ok: false, reason: 'Authorize one to three distinct exact sealed portions with the same real bench and instrument.' };
+    const batchId = `technician-batch-${state.nextOrder}`, ids = plans.map((_, i) => `technician-assay-${state.nextOrder + i}`);
+    const pickups = reserve(plans, ids, batchId);
+    if (!pickups) return { ok: false, reason: 'The complete queue could not reserve its original objects; nothing was authorized.' };
+    const orders = plans.map((p, i) => ({ id: ids[i], batchId, kind: 'assay', key: 'diagnosticSample', amount: 1, delivered: 0,
+      status: 'active', stage: 'collect', sampleId: p.sample.id, sampleLabel: p.sample.targetLabel, benchId: p.benchId,
+      benchCell: copy(p.benchCell), instrumentInstanceId: p.instrumentInstanceId, pickups: copy(pickups[i]), pickupIndex: 0,
+      carriedStackIds: [], workSeconds: 0, requiredSeconds: 30, createdAt: now, completedAt: null, receivedAt: null,
+      reportStackId: '', result: null, reason: '' }));
+    state.nextOrder += orders.length; state.orders.push(...orders);
+    state.history.push({ at: now, summary: `Authorized ${orders.length} named sealed portions at the annex; finite queue only, no replenishment or remote instructions.` });
+    return { ok: true, orders };
+  }
   function publicView(state, now) {
     const view = Workers.publicView(state, now); if (!view) return null;
     view.orders = state.orders.map(o => ({ id: o.id, sampleLabel: o.sampleLabel, benchId: o.benchId, status: o.status,
@@ -97,6 +120,6 @@
       reportStackId: o.reportStackId, result: o.receivedAt == null ? null : copy(o.result) }));
     return view;
   }
-  return { CATEGORIES, create, normalize, validDisclosure, request, hire, category, eligible, assign, assess, publicView,
+  return { CATEGORIES, create, normalize, validDisclosure, request, hire, category, eligible, assign, assignBatch, assess, publicView,
     active: Workers.active, advance: Workers.advance, cancel: Workers.cancel, withdraw: Workers.withdraw };
 });

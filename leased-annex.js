@@ -17,7 +17,8 @@
     return { property: { id: `assay-annex:${city.id}`, definitionId: 'localAssayAnnex', cityId: city.id, cityName: city.name, name: `${city.name} Local Assay Annex`,
       landlord: { id: `annex-landlord:${hash}`, name, rentReceived: 0, damageReceived: 0 },
       advertisedAt: now, distanceKm: route.distanceKm + .5, areaM2: 48, fixtureIds: [BENCH],
-      purpose: 'Manual analysis of sealed nonliving sample portions only. No living procedures, fabrication, extraction or hazardous bulk processing.',
+      tenantStaffAuthorized: true,
+      purpose: 'Manual analysis of sealed nonliving sample portions only. One disclosed consenting assay technician may attend under the tenant agreement; the landlord knows this authorized staffing purpose. No living procedures, fabrication, extraction or hazardous bulk processing.',
       utilities: 'No electricity, mana, water main, drain, consumables, instruments or staff are included. Bring real supplies; manual bench only.',
       privacy: 'The landlord knows this property, tenant and stated purpose. No secrecy guarantee or unrelated laboratory disclosure; local law still applies.' },
       quote: null, lease: null, nextLease: 1, trip: null, site: null, observation: null, history: [] };
