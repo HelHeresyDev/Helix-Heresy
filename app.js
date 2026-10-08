@@ -46,6 +46,8 @@
   if (!Homunculi) throw new Error("HelixHomunculi must load before app.js");
   const FirstContact = window.HelixFirstContact;
   if (!FirstContact) throw new Error("HelixFirstContact must load before app.js");
+  const SignedLanguage = window.HelixSignedLanguage;
+  if (!SignedLanguage) throw new Error("HelixSignedLanguage must load before app.js");
   const CreationCooperation = window.HelixCreationCooperation;
   if (!CreationCooperation) throw new Error("HelixCreationCooperation must load before app.js");
   const CargoRecovery = window.HelixCargoRecovery;
@@ -5088,6 +5090,7 @@
   const SELECTION_INSPECTOR_TAB_BY_ID = Object.fromEntries(SELECTION_INSPECTOR_TABS.map((tab) => [tab.id, tab]));
   const DEFAULT_SELECTION_INSPECTOR_TAB = "summary";
   const SCIENTIST_QUEUE_TASK_TYPES = new Set([
+    "signedLanguage",
     "creationLesson",
     "firstContact",
     "homunculusWork",
@@ -15762,6 +15765,26 @@
       researchSnapshot: () => JSON.parse(JSON.stringify(ensureResearchState())),
       homunculusAction: (action, id) => queueHomunculusWork(action, id),
       firstContactAction: (action, id) => queueFirstContact(action, id),
+      signedLanguageAction: (action, id, options) => queueSignedLanguage(action, id, options),
+      signedLanguageSnapshot: () => clonePlainObject({ saved: ensureSignedLanguage(), tasks: state.tasks.filter(t => t.type === 'signedLanguage'), clock: state.clock,
+        individuals: state.homunculi?.individuals || [], campaign: state.campaign, cell: scientistMapCell() }),
+      prepareSignedLanguageTest: () => {
+        // Explicit body, first-contact and finite example endowments; never learned language or campaign receipts.
+        const setup = window.helixHeresyDebug.prepareCreationCooperationTest(); if (!setup) return null;
+        const pairs = [];
+        for (let n = 0; n < 2; n++) {
+          const location = { roomId: firstContactActor(setup.id).roomId, cell: scientistMapCell() };
+          const food = createPhysicalItemStack('inventory', 'trailMeal', 1, location, { sourceLabels: ['Explicit signed-language test example'] });
+          const water = createPhysicalItemStack('inventory', 'drinkingWater', 1, location, { sourceLabels: ['Explicit signed-language test example'] });
+          pairs.push({ foodId: food.id, waterId: water.id });
+        }
+        firstContactActor(setup.id).signedTestExamples = pairs; persist(); render(); return { id: setup.id, pairs };
+      },
+      stageSignedLanguageTestExamples: (id, phase) => {
+        const a = firstContactActor(id), pair = a?.signedTestExamples?.[phase === 0 ? 0 : 1]; if (!pair) return null;
+        for (const key of ['foodId', 'waterId']) { const item = creationStack(pair[key]); item.cell = clonePlainObject(phase === 2 ? a.mapCell : scientistMapCell()); }
+        persist(); render(); return clonePlainObject(pair);
+      },
       creationCooperationAction: (action, id, options) => creationAction(action, id, options),
       creationCooperationPlan: (id, stackId, destination) => clonePlainObject(creationPlan(id, stackId, destination)),
       creationCooperationSnapshot: () => clonePlainObject({ saved: ensureCreationCooperation(), individuals: state.homunculi?.individuals || [], clock: state.clock,
@@ -15893,7 +15916,7 @@
         while (left > 0 && !scientistIsDead()) {
           const task = firstScientistQueueTask(), moving = task?.data?.movement && !task.data.movement.completed;
           const step = Math.min(left, moving ? 10 : task ? Math.max(1, task.dueAt - state.clock) : left), from = state.clock;
-          left -= step; state.clock += step; updateScientistMovementTask(); updateHomunculi(); updateCreationCooperation(); updateResearchWorkProgress(from, state.clock); completeDueTasks();
+          left -= step; state.clock += step; updateScientistMovementTask(); updateHomunculi(); updateSignedLanguageWork(); updateCreationCooperation(); updateResearchWorkProgress(from, state.clock); completeDueTasks();
         }
         persist(); render();
       },
@@ -21907,6 +21930,7 @@
     changes.scientistMovementChanged += livingUpdate(() => updateSurfaceWorkers());
     changes.scientistMovementChanged += livingUpdate(() => updateLaboratoryAssistant());
     changes.scientistMovementChanged += livingUpdate(() => updateHomunculi());
+    changes.scientistMovementChanged += livingUpdate(() => updateSignedLanguageWork());
     changes.scientistMovementChanged += livingUpdate(() => updateCreationCooperation());
     changes.scientistMovementChanged += livingUpdate(() => updateMedicalExtraction(elapsed));
     changes.scientistMovementChanged += livingUpdate(() => updateMunicipalClinic());
@@ -22164,6 +22188,7 @@
   }
 
   function completeTask(task) {
+    if (task.type === "signedLanguage") { finishSignedLanguage(task); return; }
     if (task.type === "creationLesson") { finishCreationLesson(task); return; }
     if (task.type === "firstContact") { finishFirstContact(task); return; }
     if (task.type === "homunculusWork") { finishHomunculusWork(task); return; }
@@ -61016,6 +61041,99 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const entry of ensureFirstContact().journal.slice(-12).reverse()) panel.append(textEl("p", `${formatClock(entry.at)} — ${entry.name}: ${entry.summary}`, "journal-meta"));
   }
 
+  function ensureSignedLanguage() { return state.signedLanguage ||= SignedLanguage.create(); }
+  function signedLanguageContext(actor, options = {}) {
+    const scientistCell = clonePlainObject(scientistMapCell()), actorCell = clonePlainObject(firstContactCell(actor));
+    const channel = firstContactContext(actor, scientistCell);
+    channel.vision &&= MapKnowledge.visualRangeForLight(perceptionLightLevelAtCell(scientistCell)) >= 1;
+    const bodyGesture = person => !actorInjuries(person).some(i => /arm|hand/i.test(i.location) && ['severe', 'critical'].includes(i.severityId));
+    channel.gesture &&= bodyGesture(actor) && bodyGesture('scientist');
+    const visibleExample = (id, key) => {
+      const item = creationStack(id);
+      return creationOrdinaryStack(item, key) && labMapCellHasFloor(item.cell) && !surfaceWorkerHazard(item.cell)
+        && sameMapLayer(item.cell, actorCell) && mapCellDistance(item.cell, actorCell) <= 1
+        && mapCellDistance(item.cell, scientistCell) <= 1 && sensoryLineOfSight(actorCell, item.cell) && sensoryLineOfSight(scientistCell, item.cell)
+        && MapKnowledge.visualRangeForLight(perceptionLightLevelAtCell(item.cell)) >= 1 ? { id: item.id, cell: clonePlainObject(item.cell) } : null;
+    };
+    const food = visibleExample(options.foodId, 'trailMeal'), water = visibleExample(options.waterId, 'drinkingWater');
+    const injuries = person => [...actorInjuries(person), ...(person?.injuries || []).filter(i => i.status !== 'healed' && i.damage > 0)];
+    const ownPain = injuries(actor).length > 0;
+    const painExample = ownPain ? { actorId: actor.id, cause: injuries(actor)[0].cause || injuries(actor)[0].typeId }
+      : injuries(state.scientist).length ? { actorId: 'scientist', cause: injuries(state.scientist)[0].cause || injuries(state.scientist)[0].typeId } : null;
+    const contact = ensureFirstContact().subjects[actor.id], relationship = state.creationCooperation?.relationships[actor.id];
+    const busy = state.creationCooperation?.lessons.some(l => l.actorId === actor.id && l.status === 'active')
+      || state.creationCooperation?.orders.some(o => o.actorId === actor.id && o.status === 'active');
+    return { ...channel, food, water, scientistCell, actorCell, ownPain, painExample, examplesValid: Boolean(food && water),
+      contactUnderstood: Boolean(contact?.understood), restUntil: Math.max(contact?.restUntil || 0, relationship?.restUntil || 0),
+      lastSessionAt: contact?.lastSessionAt, busy: Boolean(busy), question: options.question };
+  }
+  function queueSignedLanguage(action, actorId, options = {}) {
+    if (scientistIsDead() || confidentialServiceChannelReason() || scientistQueueTasks().length || !['instruct', 'check', 'talk'].includes(action)) return false;
+    const actor = firstContactActor(actorId); if (!actor || actor.status === 'dead' || !homunculusLocal(firstContactCell(actor))) return false;
+    const c = signedLanguageContext(actor, options);
+    if (!c.local || c.busy) { addEvent('Meet the individual locally after existing physical work ends; no remote or concurrent signed lesson.'); persist(); render(); return false; }
+    const duration = action === 'talk' ? SignedLanguage.CONVERSATION : action === 'instruct' ? SignedLanguage.INSTRUCTION : SignedLanguage.CHECK;
+    state.tasks.push({ id: `task-${state.nextTaskNumber++}`, type: 'signedLanguage', label: `Signed language: ${action} — ${actor.name}`,
+      createdAt: state.clock, dueAt: state.clock + duration, data: { actorId, action, group: options.group || 'references', options: clonePlainObject(options),
+        workStartsAt: state.clock, toCell: c.scientistCell, examples: { food: c.food, water: c.water, scientistCell: c.scientistCell, actorCell: c.actorCell }, interrupted: false } });
+    persist(); render(); return true;
+  }
+  function updateSignedLanguageWork() {
+    if (scientistIsDead()) return 0;
+    let changed = 0;
+    for (const task of state.tasks.filter(t => t.type === 'signedLanguage' && !t.data.interrupted)) {
+      const a = firstContactActor(task.data.actorId), c = a && signedLanguageContext(a, task.data.options), old = task.data.examples;
+      if (!c || !c.local || !c.vision || !c.gesture || !c.safe || c.busy || confidentialServiceChannelReason()
+        || !sameMapCell(c.scientistCell, old.scientistCell) || !sameMapCell(c.actorCell, old.actorCell)
+        || task.data.action !== 'talk' && JSON.stringify([c.food, c.water]) !== JSON.stringify([old.food, old.water])) {
+        task.data.interrupted = true; task.dueAt = state.clock; changed++;
+      } else if (task.data.action !== 'talk' && SignedLanguage.eligible(a) && !SignedLanguage.willing(a)) {
+        task.data.refused = true; task.dueAt = state.clock; changed++;
+      }
+    }
+    return changed;
+  }
+  function finishSignedLanguage(task) {
+    if (scientistIsDead()) return;
+    const a = firstContactActor(task.data.actorId); if (!a) return;
+    const context = signedLanguageContext(a, task.data.options), before = ensureSignedLanguage().subjects[a.id]?.lastLessonAt;
+    const examples = task.data.examples;
+    const changed = !sameMapCell(context.scientistCell, examples.scientistCell) || !sameMapCell(context.actorCell, examples.actorCell)
+      || context.busy || task.data.action !== 'talk' && JSON.stringify([context.food, context.water]) !== JSON.stringify([examples.food, examples.water]);
+    const result = SignedLanguage.session(ensureSignedLanguage(), a, task.data.action, task.data.group, state.clock,
+      { ...context, interrupted: task.data.interrupted || changed, refused: task.data.refused, attended: state.clock - task.data.workStartsAt });
+    if (!result) return;
+    const r = state.signedLanguage.subjects[a.id], contact = ensureFirstContact().subjects[a.id];
+    if (contact && r && (r.lastLessonAt !== before || result.outcome === 'refused')) {
+      contact.lastSessionAt = state.clock; contact.restUntil = Math.max(contact.restUntil || 0, r.restUntil);
+    }
+    addEvent(`${a.name}, signed exchange: ${result.summary}`);
+  }
+  function renderSignedLanguage(parent) {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.signedLanguage = 'true'; parent.append(panel);
+    panel.append(textEl('h3', 'Local Signed Language'), textEl('p', 'Teach self/you and food/water, then want/not, rest and “don’t understand.” Instruction takes twenty minutes; unguided checks take ten. Allow an hour after lessons. Check with different real lots, then changed positions. Pain needs an existing injury example. Conversation takes one minute, grants no work permission and cannot reach remote individuals.'));
+    const button = (label, action, a, options) => {
+      const b = storesActionButton(label, label, () => queueSignedLanguage(action, a.id, typeof options === 'function' ? options() : options));
+      b.dataset.signedAction = action; b.dataset.signedActor = a.id;
+      setActionButtonState(b, Boolean(scientistQueueTasks().length || confidentialServiceChannelReason()), 'Finish current work and meet the individual.'); panel.append(b);
+    };
+    for (const a of [...(state.homunculi?.individuals || []), ...state.slimes].filter(a => a.status !== 'dead' && homunculusLocal(firstContactCell(a)))) {
+      panel.append(textEl('h4', a.name));
+      const select = (label, values) => { const el = document.createElement('select'); el.setAttribute('aria-label', `${label} for ${a.name}`);
+        for (const [value, text] of values) { const option = document.createElement('option'); option.value = value; option.textContent = text; el.append(option); } panel.append(el); return el; };
+      const group = select('Signed lesson', [['references', 'Self/you and food/water'], ['preferences', 'Want/not, rest and don’t understand'], ['pain', 'Pain (existing injury only)']]);
+      const lotChoices = key => ensurePhysicalItemStacks().filter(i => creationOrdinaryStack(i, key) && homunculusLocal(i.cell))
+        .map(i => [i.id, `${i.id}: ${key} at ${i.cell.x},${i.cell.y}`]);
+      const food = select('Food example', lotChoices('trailMeal')), water = select('Water example', lotChoices('drinkingWater'));
+      const lessonOptions = () => ({ group: group.value, foodId: food.value, waterId: water.value });
+      button('Teach signed meanings with actual examples', 'instruct', a, lessonOptions);
+      button('Check unguided meanings and new combinations', 'check', a, lessonOptions);
+      const question = select('Signed question', [['want', 'What do you want?'], ['wantFood', 'Do you want food?'], ['wantWater', 'Do you want water?'], ['wantRest', 'Do you want rest?'], ['pain', 'Do you have pain?']]);
+      button('Have a local signed conversation', 'talk', a, () => ({ question: question.value }));
+    }
+    for (const entry of ensureSignedLanguage().journal.slice(-12).reverse()) panel.append(textEl('p', `${formatClock(entry.at)} — ${entry.name}: ${entry.summary}`, 'journal-meta'));
+  }
+
   function ensureCreationCooperation() { return state.creationCooperation ||= CreationCooperation.create(state.clock); }
   function creationStack(id) { return ensurePhysicalItemStacks().find(s => s.id === id); }
   function creationOrdinaryStack(s, key, claim = "") {
@@ -61226,6 +61344,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.researchProjectList.textContent = "";
     renderHomunculi(dom.researchProjectList);
     renderFirstContact(dom.researchProjectList);
+    renderSignedLanguage(dom.researchProjectList);
     renderCreationCooperation(dom.researchProjectList);
     dom.researchActiveProject.textContent = "";
     dom.researchEvidenceList.textContent = "";
@@ -90889,6 +91008,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.leasedAnnex = LeasedAnnex.normalize(candidate?.leasedAnnex);
     next.homunculi = Homunculi.normalize(candidate?.homunculi, next.clock);
     next.firstContact = FirstContact.normalize(candidate?.firstContact);
+    next.signedLanguage = SignedLanguage.normalize(candidate?.signedLanguage);
     next.creationCooperation = CreationCooperation.normalize(candidate?.creationCooperation, next.clock);
     if (next.runEnded || latestDeath?.resurrection.status === "pending") {
       next.paused = true;

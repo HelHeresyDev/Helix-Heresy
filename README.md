@@ -379,6 +379,16 @@ After understanding is demonstrated, **Ask: continue or rest?** obtains a prefer
 
 The scientist may run all these tests on slimes. Their lack of a visual channel prevents this gesture exchange, and no amount of testing, modification or biological reaction can grant understanding or cooperation.
 
+## Local Signed Language
+
+Research's **Local Signed Language** panel teaches a small expressive language independently of carrying agreements. A stabilized homunculus must first demonstrate continue/stop understanding. Both participants must meet physically, see each other and the examples in usable lighting, and be able to gesture. No donor language, speech or remote channel is supplied.
+
+Select actual ordinary **meal and Drinking Water lots** on visible floor within one tile of both participants. Teach **Self/you and food/water** through a twenty-minute attended lesson. Allow an hour of recovery, then run a ten-minute unguided check with different actual lots. After another hour, change their physical positions and check again. Repeating the demonstrated objects, same arrangement or an already passed check supplies no new evidence. Teaching and checks neither consume these examples nor authorize work.
+
+Repeat that procedure for **Want/not, rest and don't understand** after reference distinctions are demonstrated. Checks decode retained signs in new combinations with actual participant and object identities; a vocabulary count alone unlocks nothing. **Pain** is optional and needs a real existing injury example, never an injury inflicted for teaching. Changing sight, physical positions, example custody or safety during a session interrupts it without learning. Progress and in-progress sessions survive reload.
+
+One-minute local conversations can ask **What do you want?**, **Do you want food/water/rest?**, or **Do you have pain?** Replies use only demonstrated shared concepts. Unlearned meanings yield no interpretable answer or a learned **I don't understand** reply. Real needs, fatigue, stress and pain can produce **I want rest** and end the conversation, with a saved recovery interval. Severe incapacity prevents an exchange. Replies are qualitative, dated received statements, not exact health readings or live remote updates. Asking for supplies does not create, transfer or consume them; provide actual care through the existing physical procedures. Slimes may undergo every test but can never learn or converse. Speaking, literacy and wider education remain future work.
+
 ## Voluntary Carrying Agreements
 
 Research's carrying panel offers one finite task for a stabilized homunculus outside its chamber: deliver **two Drinking Water portions** to a different floor position in the same room for **one additional meal and water portion**. Establish first-contact understanding first. Basic care must not be withheld as a bargaining condition; an injured, hungry, stressed or tired individual can decline.
