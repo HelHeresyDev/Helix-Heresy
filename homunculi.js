@@ -103,7 +103,7 @@
         const env = hooks.environment(a), starving = !a.foodHours || !a.waterHours;
         const unsafe = !env.floor || env.temperature < 15 || env.temperature > 32 || env.hazard;
         if (starving || unsafe) { injury(a, STEP / HOUR * 8, starving ? 'Unmet nutrition or hydration' : 'Unsafe physical habitat', at); a.stress = Math.min(100, a.stress + STEP / HOUR * 5); }
-        else { a.fatigue = Math.max(0, a.fatigue - STEP / HOUR * 10); a.stress = Math.max(0, a.stress - STEP / HOUR * 2); }
+        else { if (!env.working) a.fatigue = Math.max(0, a.fatigue - STEP / HOUR * 10); a.stress = Math.max(0, a.stress - STEP / HOUR * 2); }
         changes++;
       }
     }

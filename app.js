@@ -46,6 +46,8 @@
   if (!Homunculi) throw new Error("HelixHomunculi must load before app.js");
   const FirstContact = window.HelixFirstContact;
   if (!FirstContact) throw new Error("HelixFirstContact must load before app.js");
+  const CreationCooperation = window.HelixCreationCooperation;
+  if (!CreationCooperation) throw new Error("HelixCreationCooperation must load before app.js");
   const CargoRecovery = window.HelixCargoRecovery;
   const IntercitySmuggling = window.HelixIntercitySmuggling;
   const CorridorBeasts = window.HelixCorridorBeasts;
@@ -5086,6 +5088,7 @@
   const SELECTION_INSPECTOR_TAB_BY_ID = Object.fromEntries(SELECTION_INSPECTOR_TABS.map((tab) => [tab.id, tab]));
   const DEFAULT_SELECTION_INSPECTOR_TAB = "summary";
   const SCIENTIST_QUEUE_TASK_TYPES = new Set([
+    "creationLesson",
     "firstContact",
     "homunculusWork",
     "synthesize",
@@ -15759,6 +15762,48 @@
       researchSnapshot: () => JSON.parse(JSON.stringify(ensureResearchState())),
       homunculusAction: (action, id) => queueHomunculusWork(action, id),
       firstContactAction: (action, id) => queueFirstContact(action, id),
+      creationCooperationAction: (action, id, options) => creationAction(action, id, options),
+      creationCooperationPlan: (id, stackId, destination) => clonePlainObject(creationPlan(id, stackId, destination)),
+      creationCooperationSnapshot: () => clonePlainObject({ saved: ensureCreationCooperation(), individuals: state.homunculi?.individuals || [], clock: state.clock,
+        stacks: ensurePhysicalItemStacks(), tasks: state.tasks, campaign: state.campaign, scientist: scientistMapCell(), events: state.events.slice(-3) }),
+      prepareCreationCooperationTest: () => {
+        const id = window.helixHeresyDebug.prepareFirstContactTestIndividual(); if (!id) return null;
+        // Explicit first-contact knowledge and finite goods fixture; no ordinary campaign receipt.
+        ensureFirstContact().subjects[id] = { understood: true, demonstrations: 2, testedContexts: ["explicit-test"], lastSessionAt: null, restUntil: 0 };
+        const a = firstContactActor(id), source = clonePlainObject(scientistMapCell()), location = { roomId: a.roomId, cell: source };
+        const cargo = createPhysicalItemStack("inventory", "drinkingWater", 2, location, { sourceLabels: ["Explicit creation-cooperation test cargo"] });
+        createPhysicalItemStack("inventory", "trailMeal", 1, location, { sourceLabels: ["Explicit creation-cooperation promised reward"] });
+        createPhysicalItemStack("inventory", "drinkingWater", 1, location, { sourceLabels: ["Explicit creation-cooperation promised reward"] });
+        state.fixtures.push(defaultFixtureInstance(`explicit-cooperation-light-${id}`, "wallLamp", { ...source, x: source.x + 1 }, 0,
+          { name: "Explicit finite cooperation test lighting", utility: { enabled: true, powerMode: "fuel", fuel: 8 } }));
+        for (const c of ensureLabMap().rooms[a.roomId].cells) { const env = tileEnvironmentAtCell(c); if (env) { env.temperatureC = 20; env.airborne = {}; } }
+        const destination = labMapRoomCells(a.roomId).filter(c => mapCellDistance(c, source) >= 1 && mapCellDistance(c, source) <= 3)
+          .find(c => creationPlan(id, cargo.id, c).ok);
+        persist(); render(); return { id, stackId: cargo.id, destination };
+      },
+      setCreationCooperationTest: (options = {}) => {
+        const order = ensureCreationCooperation().orders.at(-1);
+        if (options.away && order) {
+          const cell = labMapRoomCells(order.plan.roomId).find(c => mapCellDistance(c, order.plan.source) > 4 && labMapCellHasFloor(c) && canActorOccupyTile(state.scientist, c));
+          if (!cell) return false;
+          state.scientist.mapCell = clonePlainObject(cell); state.scientist.roomId = order.plan.roomId;
+        }
+        if (options.returnToOrder && order) { state.scientist.mapCell = clonePlainObject(order.plan.source); state.scientist.roomId = order.plan.roomId; }
+        if (options.rewardMissing && order) state.physicalItemStacks = ensurePhysicalItemStacks().filter(s => s.id !== order.stocks.meal);
+        if (options.blockFloor && order) tileEnvironmentAtCell(order.plan.destination).temperatureC = 80;
+        persist(); render();
+      },
+      advanceCreationCooperationForTest: (seconds, until = "") => {
+        let remaining = seconds;
+        while (remaining > 0 && !scientistIsDead()) {
+          const active = state.creationCooperation?.lessons.some(l => l.status === "active") || state.creationCooperation?.orders.some(o => o.status === "active");
+          const step = Math.min(remaining, active ? 10 : remaining); remaining -= step; state.clock += step;
+          updateScientistMovementTask(); updateHomunculi(); updateCreationCooperation(); completeDueTasks();
+          if (until === "carried" && state.creationCooperation.orders.some(o => o.carriedStackId)) break;
+          if (until === "partial" && state.creationCooperation.orders.some(o => o.delivered === 1)) break;
+        }
+        persist(); render(); return state.clock;
+      },
       firstContactSnapshot: () => clonePlainObject({ contact: ensureFirstContact(), individuals: state.homunculi?.individuals || [],
         tasks: state.tasks.filter(t => t.type === "firstContact"), clock: state.clock, campaign: state.campaign, cell: scientistMapCell() }),
       prepareFirstContactTestIndividual: () => {
@@ -15848,7 +15893,7 @@
         while (left > 0 && !scientistIsDead()) {
           const task = firstScientistQueueTask(), moving = task?.data?.movement && !task.data.movement.completed;
           const step = Math.min(left, moving ? 10 : task ? Math.max(1, task.dueAt - state.clock) : left), from = state.clock;
-          left -= step; state.clock += step; updateScientistMovementTask(); updateHomunculi(); updateResearchWorkProgress(from, state.clock); completeDueTasks();
+          left -= step; state.clock += step; updateScientistMovementTask(); updateHomunculi(); updateCreationCooperation(); updateResearchWorkProgress(from, state.clock); completeDueTasks();
         }
         persist(); render();
       },
@@ -21862,6 +21907,7 @@
     changes.scientistMovementChanged += livingUpdate(() => updateSurfaceWorkers());
     changes.scientistMovementChanged += livingUpdate(() => updateLaboratoryAssistant());
     changes.scientistMovementChanged += livingUpdate(() => updateHomunculi());
+    changes.scientistMovementChanged += livingUpdate(() => updateCreationCooperation());
     changes.scientistMovementChanged += livingUpdate(() => updateMedicalExtraction(elapsed));
     changes.scientistMovementChanged += livingUpdate(() => updateMunicipalClinic());
     changes.scientistMovementChanged += livingUpdate(() => updateScientistIdentity());
@@ -22118,6 +22164,7 @@
   }
 
   function completeTask(task) {
+    if (task.type === "creationLesson") { finishCreationLesson(task); return; }
     if (task.type === "firstContact") { finishFirstContact(task); return; }
     if (task.type === "homunculusWork") { finishHomunculusWork(task); return; }
     if (task.type === "surveyExpeditionWork") { completeSurveyWork(task); return; }
@@ -60734,7 +60781,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }
         const current = fixtureById(r.chamberId); if (current) current.utility.enabled = false;
       },
-      environment: a => { const env = tileEnvironmentAtCell(a.mapCell); return { floor: labMapCellHasFloor(a.mapCell), temperature: env?.temperatureC ?? -100, hazard: Boolean(surfaceWorkerHazard(a.mapCell)) }; }
+      environment: a => { const env = tileEnvironmentAtCell(a.mapCell); return { floor: labMapCellHasFloor(a.mapCell), temperature: env?.temperatureC ?? -100,
+        hazard: Boolean(surfaceWorkerHazard(a.mapCell)), working: Boolean(state.creationCooperation?.orders.some(o => o.actorId === a.id && o.status === "active")
+          || state.creationCooperation?.lessons.some(l => l.actorId === a.id && l.status === "active" && l.kind === "check")) }; }
     };
   }
   function updateHomunculi() {
@@ -60967,6 +61016,208 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const entry of ensureFirstContact().journal.slice(-12).reverse()) panel.append(textEl("p", `${formatClock(entry.at)} — ${entry.name}: ${entry.summary}`, "journal-meta"));
   }
 
+  function ensureCreationCooperation() { return state.creationCooperation ||= CreationCooperation.create(state.clock); }
+  function creationStack(id) { return ensurePhysicalItemStacks().find(s => s.id === id); }
+  function creationOrdinaryStack(s, key, claim = "") {
+    return Boolean(s && s.section === "inventory" && s.key === key && s.quantity > 0 && !s.fixtureId && !s.containerId && !s.carriedBy
+      && (!s.reservedTaskId || s.reservedTaskId === claim) && !s.chemicalBatch && !s.biology && !s.tags.some(t => /contaminated|hazard|living|soul/i.test(t)));
+  }
+  function creationPlan(actorId, stackId, destination) {
+    const a = firstContactActor(actorId), cargo = creationStack(stackId), source = cargo?.cell, dest = cleanMapCell(destination);
+    const fail = reason => ({ ok: false, reason });
+    if (!CreationCooperation.eligible(a) || !homunculusLocal(a.mapCell) || !creationOrdinaryStack(cargo, "drinkingWater") || cargo.quantity < 2)
+      return fail("Meet a stabilized individual and stage at least two ordinary water portions on accessible floor.");
+    const roomId = labMapCellRoomId(source);
+    if (!dest || sameMapCell(source, dest) || labMapCellRoomId(dest) !== roomId || roomId !== a.roomId) return fail("Choose a different floor destination in the same room.");
+    const route = labNavigationPlanBetweenCells(source, dest, { actor: a, ignoreDoors: false });
+    const approach = labNavigationPlanBetweenCells(a.mapCell, source, { actor: a, ignoreDoors: false });
+    const scientistApproach = labNavigationPlanBetweenCells(scientistMapCell(), source, { actor: state.scientist, ignoreDoors: false });
+    if (![route, approach, scientistApproach].every(p => p.found && p.path.length <= 5)) return fail("Use a short, actually walkable route and nearby operating positions (at most four steps each).");
+    const knownCells = [...route.path, ...approach.path, ...scientistApproach.path].filter((c, i, all) => all.findIndex(x => sameMapCell(x, c)) === i);
+    if (knownCells.some(c => labMapCellRoomId(c) !== roomId || labMapDoorAtCell(c) || surfaceWorkerHazard(c)
+      || !sensoryLineOfSight(a.mapCell, c) || !homunculusLocal(c))) return fail("Demonstrate a visible, safe route entirely within one room, without doors or unseen detours.");
+    const rewardHere = s => sameMapLayer(s.cell, source) && mapCellDistance(s.cell, source) <= 1 && sensoryLineOfSight(s.cell, source) && homunculusLocal(s.cell);
+    const rewardMeal = ensurePhysicalItemStacks().find(s => creationOrdinaryStack(s, "trailMeal") && rewardHere(s));
+    const rewardWater = ensurePhysicalItemStacks().find(s => creationOrdinaryStack(s, "drinkingWater") && s.quantity >= (s.id === cargo.id ? 3 : 1) && rewardHere(s));
+    if (!rewardMeal || !rewardWater) return fail("Show a real additional meal and water portion beside the source; basic bodily care is not conditional payment.");
+    const load = physicalStackFloorLoadM2({ ...cargo, quantity: 2 });
+    if (tileOccupiedAreaM2(dest, { excludeActor: a }) + actorFloorLoadM2(a) + load > MAP_TILE_AREA_M2 + TILE_OCCUPANCY_EPSILON) return fail("The receiving floor lacks space for the individual and both portions.");
+    return { ok: true, actorId, roomId, source: clonePlainObject(source), destination: dest, route: route.path,
+      knownCells, cargoId: cargo.id, mealId: rewardMeal.id, waterId: rewardWater.id };
+  }
+  function reserveCreationStocks(id, plan, reward) {
+    const slices = [{ stackId: plan.cargoId, quantity: 2 }];
+    if (reward) slices.push({ stackId: plan.mealId, quantity: 1 }, { stackId: plan.waterId, quantity: 1 });
+    if (!reserveProductionMaterialSlices(slices, id)) return null;
+    return { cargo: slices[0].stackId, meal: reward ? slices[1].stackId : "", water: reward ? slices[2].stackId : "" };
+  }
+  function creationWitness(r) {
+    const a = firstContactActor(r.actorId), scientist = scientistMapCell();
+    if (!a || scientistIsDead() || confidentialServiceChannelReason() || !sameMapLayer(a.mapCell, scientist) || mapCellDistance(a.mapCell, scientist) > 4
+      || !sensoryLineOfSight(a.mapCell, scientist)) return false;
+    const personal = firstContactContext(a, a.mapCell);
+    return personal.vision && personal.gesture && personal.safe && MapKnowledge.visualRangeForLight(perceptionLightLevelAtCell(scientist)) >= Math.max(1, mapCellDistance(a.mapCell, scientist));
+  }
+  function creationMove(actorId, target, r) {
+    let a = actorInventoryOwner(actorId);
+    if (sameMapCell(a?.mapCell, target)) return { done: true };
+    const encumbrance = actorEncumbranceInfo(actorId);
+    if (encumbrance.ratio > 1) return { reason: "Actual carried goods exceed the executor's own capacity; custody remains unchanged." };
+    const speed = actorId === "scientist" ? scientistMoveSpeedMps() : Math.max(.05, .45 * a.health / a.maxHealth
+      * (1 - Math.min(.8, injuryEffectTotals(a).movement)) * encumbrance.speedMultiplier / (1 + a.fatigue / 100));
+    r.walkSeconds = (r.walkSeconds || 0) + CreationCooperation.STEP;
+    if (r.walkSeconds < ensureLabMap().tileSizeM / speed) return {};
+    r.walkSeconds = 0;
+    const plan = labNavigationPlanBetweenCells(a?.mapCell, target, { actor: a, ignoreDoors: false });
+    if (!plan.found || plan.path.some(c => !r.plan.knownCells.some(k => sameMapCell(k, c)))) return { reason: "The demonstrated route is obstructed; no unfamiliar detour is authorized." };
+    const next = plan.path[1], env = tileEnvironmentAtCell(next);
+    if (labMapDoorAtCell(next) || actorAccessCellBlockReason(a, next) || surfaceWorkerHazard(next) || !env || env.temperatureC < 15 || env.temperatureC > 32
+      || !normalizeSensoryState(a.sensory, actorId === "scientist" ? "scientist" : "homunculus").capabilities.vision
+      || MapKnowledge.visualRangeForLight(perceptionLightLevelAtCell(next)) < 1 || !canActorOccupyTile(a, next)) return { reason: "Actual floor, lighting, access, danger or load prevents this step." };
+    // Navigation/lighting normalizes actor records; always mutate the current owner.
+    a = actorInventoryOwner(actorId); a.mapCell = clonePlainObject(next); a.roomId = r.plan.roomId;
+    if (actorId !== "scientist") a.fatigue = Math.min(100, a.fatigue + .2);
+    syncActorInventories(); return {};
+  }
+  function creationWorkStep(r, actorId, lesson) {
+    const a = actorInventoryOwner(actorId), returning = ["returnPickup", "return", "finishReturn"].includes(r.stage);
+    const target = r.stage === "pickup" || r.stage === "return" || r.stage === "finishReturn" ? r.plan.source : r.plan.destination;
+    const moved = creationMove(actorId, target, r); if (!moved.done) return moved;
+    if (r.stage === "finishReturn") return { done: true };
+    if (actorInjuries(a).some(i => /arm|hand/i.test(i.location) && ["severe", "critical"].includes(i.severityId)))
+      return { reason: "The executor's actual arm or hand injury prevents manipulation; held cargo stays in custody." };
+    const handling = actorId === "scientist" ? 0 : a.skills.handling || 0;
+    r.handlingSeconds = (r.handlingSeconds || 0) + CreationCooperation.STEP;
+    if (r.handlingSeconds < Math.max(10, 30 - handling * 5)) return {};
+    r.handlingSeconds = 0;
+    if (r.stage === "pickup" || r.stage === "returnPickup") {
+      const cargo = creationStack(r.stocks.cargo);
+      if (!creationOrdinaryStack(cargo, "drinkingWater", r.id) || cargo.reservedTaskId !== r.id || !sameMapCell(cargo.cell, target)
+        || cargo.quantity !== (lesson ? 2 : 2 - r.delivered)) return { reason: "The exact original cargo moved, changed quantity or custody; no substitute is loaded." };
+      const carried = carryPhysicalStack(actorId, cargo.id, lesson ? 2 : 1, { allowReserved: true, carryTaskId: r.id });
+      if (!carried) return { reason: "The individual's actual carrying capacity cannot support this load." };
+      r.carriedStackId = carried.id; r.stage = returning ? "return" : "deliver"; r.worked = true;
+      if (actorId !== "scientist") a.fatigue = Math.min(100, a.fatigue + 2);
+      return {};
+    }
+    const carried = creationStack(r.carriedStackId);
+    if (!carried || carried.carriedBy !== actorId || carried.key !== "drinkingWater" || carried.quantity !== (lesson ? 2 : 1)) return { reason: "Actual carried cargo is missing; partial deliveries and custody remain unchanged." };
+    if (tileOccupiedAreaM2(target, { excludeActor: a }) + actorFloorLoadM2(a) + physicalStackFloorLoadM2({ ...carried, carriedBy: "" }) > MAP_TILE_AREA_M2 + TILE_OCCUPANCY_EPSILON)
+      return { reason: "The receiving floor is occupied; retain the real carried portion." };
+    if (!dropActorInventoryStack(actorId, carried.id, { roomId: r.plan.roomId, cell: target })) return { reason: "The physical portion could not be placed." };
+    r.carriedStackId = "";
+    if (lesson) { creationStack(carried.id).reservedTaskId = r.id; r.stage = returning ? "finished" : "returnPickup"; if (returning) return { done: true }; }
+    else { r.delivered++; r.stage = r.delivered === 2 ? "finishReturn" : "pickup"; }
+    if (actorId !== "scientist") a.fatigue = Math.min(100, a.fatigue + 2);
+    return {};
+  }
+  function releaseCreationWork(r, keepReward = false) {
+    // Interruption never teleports held cargo to the source or erases a body/corpse.
+    for (const s of ensurePhysicalItemStacks()) if (s.reservedTaskId === r.id && !(keepReward && [r.stocks.meal, r.stocks.water].includes(s.id))) s.reservedTaskId = "";
+    syncPhysicalReadModels();
+  }
+  function creationRewardIntact(o) {
+    return [[o.stocks.meal, "trailMeal"], [o.stocks.water, "drinkingWater"]].every(([id, key]) => {
+      const s = creationStack(id); return s && s.key === key && s.quantity === 1 && s.reservedTaskId === o.id && !s.fixtureId && !s.containerId
+        && (!s.carriedBy || s.carriedBy === "scientist") && !s.tags.includes("contaminated");
+    });
+  }
+  function updateCreationCooperation() {
+    if (!state.creationCooperation || scientistIsDead()) return 0;
+    const s = state.creationCooperation, changed = CreationCooperation.advance(s, state.clock, { dead: false, actor: firstContactActor,
+      witness: creationWitness, danger: a => !a || actorIsIncapacitated(a) || surfaceWorkerHazard(a.mapCell),
+      rewardIntact: creationRewardIntact, step: creationWorkStep, release: releaseCreationWork });
+    for (const l of s.lessons) if (l.status !== "active") { const t = state.tasks.find(t => t.id === l.taskId); if (t) t.dueAt = state.clock; }
+    if (changed) { syncPhysicalReadModels(); markStateDirty(); } return changed;
+  }
+  function finishCreationLesson(task) {
+    const l = state.creationCooperation?.lessons.find(l => l.id === task.data.lessonId), a = l && firstContactActor(l.actorId);
+    if (l?.status === "active") { task.dueAt = state.clock + 10; state.tasks.push(task); return; }
+    if (l && a && creationWitness(l)) {
+      CreationCooperation.observe(ensureCreationCooperation(), a, state.clock);
+      addEvent(`Carrying lesson: ${l.status === "completed" ? l.kind === "demonstrate" ? "The scientist physically carried both portions out and back." : "An unguided physical carrying check was observed; the individual practiced handling." : l.reason}`);
+    }
+  }
+  function creationAction(action, actorId, options = {}) {
+    if (scientistIsDead() || confidentialServiceChannelReason() || scientistQueueTasks().length) return false;
+    const a = firstContactActor(actorId); if (!a || !homunculusLocal(a.mapCell)) return false;
+    updateCreationCooperation();
+    const s = ensureCreationCooperation(), contact = ensureFirstContact().subjects[actorId], o = s.orders.find(o => o.id === options.orderId && o.actorId === actorId);
+    const channel = firstContactContext(a, scientistMapCell());
+    if (["report", "resume", "cancel"].includes(action) && !(channel.local && channel.vision && channel.gesture && channel.safe)) {
+      addEvent("Approach the original individual through a usable visual-gesture channel before giving instructions or receiving a report."); persist(); render(); return false;
+    }
+    let result = { ok: false, reason: "Meet the original individual and present actual supplies and terms." };
+    if (["demonstrate", "check", "offer"].includes(action)) {
+      const p = creationPlan(actorId, options.stackId, options.destination);
+      if (action === "offer") {
+        const channel = firstContactContext(a, scientistMapCell());
+        result = channel.local && channel.vision && channel.gesture && channel.safe
+          ? CreationCooperation.propose(s, a, p, contact, state.clock, reserveCreationStocks)
+          : { ok: false, reason: "Present the exact terms through an actual nearby visual-gesture channel." };
+      }
+      else {
+        result = CreationCooperation.lesson(s, a, action, p, contact, state.clock, reserveCreationStocks);
+        if (result.ok) { const l = result.lesson; l.taskId = `task-${state.nextTaskNumber++}`;
+          state.tasks.push({ id: l.taskId, type: "creationLesson", label: `Carrying lesson: ${action}`, createdAt: state.clock, dueAt: state.clock + CreationCooperation.LESSON, data: { lessonId: l.id, toCell: clonePlainObject(a.mapCell) } }); }
+      }
+    } else if (action === "report") result.ok = CreationCooperation.eligible(a) && creationWitness({ actorId });
+    else if (action === "cancel") result.ok = CreationCooperation.cancel(s, o, a, state.clock, releaseCreationWork);
+    else if (action === "resume") result = CreationCooperation.resume(s, o, a, contact, state.clock, r => {
+      const cargo = creationStack(r.stocks.cargo), carried = creationStack(r.carriedStackId);
+      const held = carried?.carriedBy === a.id && carried.key === "drinkingWater" ? carried.quantity : 0;
+      const unpicked = cargo && cargo.carriedBy !== a.id && creationOrdinaryStack(cargo, "drinkingWater", r.id) && cargo.reservedTaskId === r.id
+        && sameMapCell(cargo.cell, r.plan.source) ? cargo.quantity : 0;
+      return creationRewardIntact(r) && r.delivered + held + unpicked === 2 && r.plan.knownCells.some(c => sameMapCell(c, a.mapCell));
+    });
+    else if (action === "collectReward" && o && !o.paid && o.worked) {
+      const items = [creationStack(o.stocks.meal), creationStack(o.stocks.water)], pack = actorInventorySnapshot("scientist");
+      const local = items.every(item => item && item.quantity === 1 && (!item.reservedTaskId || item.reservedTaskId === o.id)
+        && !item.fixtureId && !item.containerId && (!item.carriedBy || item.carriedBy === "scientist") && sameMapLayer(item.cell, scientistMapCell())
+        && mapCellDistance(item.cell, scientistMapCell()) <= 1 && sensoryLineOfSight(item.cell, scientistMapCell()));
+      if (local && items.filter(i => !i.carriedBy).reduce((n, i) => n + i.unitMassKg, 0) <= pack.remaining.massKg
+        && items.filter(i => !i.carriedBy).reduce((n, i) => n + i.unitVolumeL, 0) <= pack.remaining.volumeL) {
+        for (const item of items) { const carried = carryPhysicalStack("scientist", item.id, 1, { allowReserved: true }); if (carried) carried.reservedTaskId = o.id; }
+        result.ok = true;
+      }
+    } else if (action === "pay") result.ok = CreationCooperation.pay(s, o, a, state.clock, r => {
+      if (!creationRewardIntact(r) || !creationWitness({ actorId }) || mapCellDistance(a.mapCell, scientistMapCell()) > 1) return false;
+      const items = [creationStack(r.stocks.meal), creationStack(r.stocks.water)];
+      if (!items.every(item => sameMapLayer(item.cell, a.mapCell) && mapCellDistance(item.cell, a.mapCell) <= 1 && sensoryLineOfSight(item.cell, a.mapCell))) return false;
+      state.physicalItemStacks = ensurePhysicalItemStacks().filter(item => !items.some(i => i.id === item.id)); syncPhysicalReadModels(); return true;
+    });
+    if (result.ok && ["offer", "report", "cancel", "resume", "pay"].includes(action)) CreationCooperation.observe(s, a, state.clock);
+    addEvent(result.ok ? `Creation cooperation: ${action}. This covers one demonstrated delivery only, not ownership, loyalty or a standing job.` : result.reason);
+    persist(); render(); return Boolean(result.ok);
+  }
+  function renderCreationCooperation(parent) {
+    const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.creationCooperation = "true"; parent.append(panel);
+    panel.append(textEl("h3", "Voluntary Carrying Agreements"), textEl("p", "One delivery: two ordinary Drinking Water portions, in a short demonstrated room-local route, for one additional meal and water portion. Basic care is not conditional payment. Physically demonstrate, then observe two spaced unguided checks before proposing these exact terms. No standing employment or slime cooperation."));
+    const s = ensureCreationCooperation();
+    for (const known of Object.values(s.knowledge)) {
+      panel.append(textEl("p", `${known.name}, last received ${formatClock(known.at)}: ${known.understanding}.`));
+      for (const o of known.orders) panel.append(textEl("p", `${o.id}: ${o.status}; ${o.delivered}/${o.amount} portions observed delivered; reward ${o.paid ? "received" : "not recorded received"}. ${o.reason}`));
+    }
+    for (const a of state.homunculi?.individuals || []) if (CreationCooperation.eligible(a) && homunculusLocal(a.mapCell)) {
+      panel.append(textEl("h4", a.name));
+      const source = document.createElement("select"); source.setAttribute("aria-label", `Carrying source for ${a.name}`);
+      for (const item of ensurePhysicalItemStacks().filter(i => creationOrdinaryStack(i, "drinkingWater") && i.quantity >= 2 && homunculusLocal(i.cell))) {
+        const option = document.createElement("option"); option.value = item.id; option.textContent = `${item.id}: water at ${item.cell.x},${item.cell.y} (${item.quantity})`; source.append(option);
+      }
+      const x = document.createElement("input"), y = document.createElement("input"); x.type = y.type = "number";
+      x.value = String(a.mapCell.x + 1); y.value = String(a.mapCell.y); x.setAttribute("aria-label", "Delivery destination X"); y.setAttribute("aria-label", "Delivery destination Y"); panel.append(source, x, y);
+      const button = (label, action, options) => { const b = storesActionButton(label, label, () => creationAction(action, a.id, typeof options === "function" ? options() : options));
+        b.dataset.creationAction = action; setActionButtonState(b, Boolean(scientistQueueTasks().length || confidentialServiceChannelReason()), "Finish current scientist work and meet the individual."); panel.append(b); };
+      for (const [action, label] of [["demonstrate", "Physically demonstrate delivery"], ["check", "Observe unguided carrying check"], ["offer", "Present exact one-delivery terms"]])
+        button(label, action, () => ({ stackId: source.value, destination: { x: Number(x.value), y: Number(y.value), z: a.mapCell.z } }));
+      button("Receive local delivery report", "report", {});
+      for (const o of s.knowledge[a.id]?.orders || []) if (!o.paid) {
+        button(`Resume ${o.id} by renewed agreement`, "resume", { orderId: o.id }); button(`End ${o.id} locally`, "cancel", { orderId: o.id });
+        button(`Collect original reward for ${o.id}`, "collectReward", { orderId: o.id }); button(`Hand over promised reward for ${o.id}`, "pay", { orderId: o.id });
+      }
+    }
+  }
+
   function renderResearch() {
     if (!dom.researchProjectList || !dom.researchEvidenceList || !dom.researchActiveProject) return;
     const research = ensureResearchState();
@@ -60975,6 +61226,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.researchProjectList.textContent = "";
     renderHomunculi(dom.researchProjectList);
     renderFirstContact(dom.researchProjectList);
+    renderCreationCooperation(dom.researchProjectList);
     dom.researchActiveProject.textContent = "";
     dom.researchEvidenceList.textContent = "";
     renderDiagnosticResults();
@@ -66585,6 +66837,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return;
     }
     if (task.type === "homunculusWork") releaseHomunculusWork(task);
+    if (task.type === "creationLesson") {
+      const l = state.creationCooperation?.lessons.find(l => l.id === task.data.lessonId);
+      if (l?.status === "active") { l.status = "cancelled"; l.reason = "The physical teaching session ended; no learning credited."; releaseCreationWork(l); }
+    }
     if (task.type === "commodityFreight") {
       const economy = ensureEconomy(), consignment = economy.commodityConsignments.find(c => c.id === task.data?.consignmentId);
       if (consignment?.exportShipmentId && IntercityTrade.failExport(economy.commodityMarket.intercityTrade, consignment.exportShipmentId, state.clock)) {
@@ -90633,6 +90889,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.leasedAnnex = LeasedAnnex.normalize(candidate?.leasedAnnex);
     next.homunculi = Homunculi.normalize(candidate?.homunculi, next.clock);
     next.firstContact = FirstContact.normalize(candidate?.firstContact);
+    next.creationCooperation = CreationCooperation.normalize(candidate?.creationCooperation, next.clock);
     if (next.runEnded || latestDeath?.resurrection.status === "pending") {
       next.paused = true;
     }

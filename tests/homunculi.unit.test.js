@@ -76,3 +76,10 @@ test('utility reserve cannot excuse neglected care, destroyed equipment or vanis
   const broken = fixture(); broken.support.ok = false; broken.support.destroyed = true; broken.advance(1 / 6); assert.ok(broken.result.run.damage > 0);
   const missing = fixture(); missing.hooks.consume = () => false; missing.advance(1); assert.equal(missing.result.run.progress, 0); assert.ok(missing.result.run.damage > 0);
 });
+test('active physical work is not bodily rest; genuine idle recovery still reduces fatigue', () => {
+  const f = fixture(); f.advance(72); const a = f.s.individuals[0]; a.fatigue = 10;
+  f.hooks.environment = () => ({ floor: true, temperature: 20, hazard: false, working: true });
+  f.advance(1); assert.equal(a.fatigue, 10);
+  f.hooks.environment = () => ({ floor: true, temperature: 20, hazard: false, working: false });
+  f.advance(1); assert.ok(a.fatigue < .01);
+});

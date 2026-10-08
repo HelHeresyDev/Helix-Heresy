@@ -18,19 +18,18 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Intelligent Creations: Voluntary Cooperation and Bounded Work
-2. Non-Slime Language and Broader Conversation
-3. City Power: Enforceable Influence and Control
-4. Late-Game Soul Beacons: Research, Infrastructure, and Physical Recovery
-5. Perfected Memory Transfer and Embodied Retraining
-6. Hidden-Base Contingencies and Multiple Beacon Destinations
-7. Strategic Expansion and World Domination
-8. Divine Supremacy: Rule over the Gods
-9. New-Run Onboarding and Contextual Tutorial
-10. Sound, Notifications, and Accessibility Audit
-11. Production Art Pass Using the Sprite Pipeline
+1. Non-Slime Language and Broader Conversation
+2. City Power: Enforceable Influence and Control
+3. Late-Game Soul Beacons: Research, Infrastructure, and Physical Recovery
+4. Perfected Memory Transfer and Embodied Retraining
+5. Hidden-Base Contingencies and Multiple Beacon Destinations
+6. Strategic Expansion and World Domination
+7. Divine Supremacy: Rule over the Gods
+8. New-Run Onboarding and Contextual Tutorial
+9. Sound, Notifications, and Accessibility Audit
+10. Production Art Pass Using the Sprite Pipeline
 
-Human staffing now supports bounded independent annex operation without intelligent creations. Homunculus growth and learned local continue/stop gestures exist; broader language and voluntary cooperation do not. Homunculi remain advanced stage-two/three work, not early-laboratory unlocks; priority order does not impose compulsory campaign chapters.
+Human staffing now supports bounded independent annex operation without intelligent creations. Homunculus growth, learned local continue/stop gestures and specifically demonstrated voluntary carrying agreements exist; broader language and standing creature employment do not. Homunculi remain advanced stage-two/three work, not early-laboratory unlocks; priority order does not impose compulsory campaign chapters.
 
 ## World and Run Guardrails
 
@@ -89,36 +88,26 @@ Apply these rules throughout the world-generation and campaign prompts:
 - Helix Heresy is a roguelike. Ordinary play must be compelling when a run ends in the laboratory or local-power phase; the overwhelming majority of runs should end long before world domination.
 - World domination is a rare terrestrial accomplishment, not the expected length or balance target of an average run; ruling over the gods is the ultimate ambition beyond it.
 - Campaign ambitions overlap rather than forming compulsory chapters: establish the laboratory, become locally indispensable, build an independent power base, challenge city powers, pursue world domination, and rule over the gods. Optional guidance grants no free resources or artificial feature gates. Separate dated accomplishments from current operational conditions.
-- Slimes cannot communicate or cooperate under any modification. The scientist may apply first-contact tests to them, but they always fail to establish understanding or communication. Their roles, proximity reactions, kinship and chemical distress traces are biological responses, never language, negotiated agreements or obedience. Intelligent cooperation requires a genuinely different creature family. Homunculi are the first implemented non-slime body-growth family and can learn local continue/stop gestures through spaced practice and observed retention; broader language and cooperation remain separate work. Normal creation belongs roughly to stages two or three and must be very difficult and risky, with actual research, skill, material, growth and infrastructure prerequisites. Explicit prepared late-game test fixtures are allowed; they must not provide free homunculi, early unlocks or unearned campaign outcomes in ordinary runs.
+- Slimes cannot communicate or cooperate under any modification. The scientist may apply first-contact tests to them, but they always fail to establish understanding or communication. Their roles, proximity reactions, kinship and chemical distress traces are biological responses, never language, negotiated agreements or obedience. Intelligent cooperation requires a genuinely different creature family. Homunculi are the first implemented non-slime body-growth family and can learn local continue/stop gestures through spaced practice and observed retention, then separately learn and voluntarily accept specifically demonstrated one-delivery carrying agreements; broader language and wider cooperation remain separate work. Normal creation belongs roughly to stages two or three and must be very difficult and risky, with actual research, skill, material, growth and infrastructure prerequisites. Explicit prepared late-game test fixtures are allowed; they must not provide free homunculi, early unlocks or unearned campaign outcomes in ordinary runs.
 - Player-built resurrection belongs to the very late-game independent-power-base or city-power phases (roughly stages three or four), with demanding scientific, animantic, biological, material, and infrastructure prerequisites rather than a chapter-completion gate. Soul beacons guide departed souls; they do not permanently store souls or hold backup copies. The player chooses among eligible beacons after death. Recorded soul damage can impair or prevent recovery; soul destruction prevents it even with perfected apparatus. Physical death still leaves remains and worldly consequences intact.
 - Divine supremacy goes beyond terrestrial domination: impose real enforceable submission on gods, kill those who refuse, and reign over the rest. Losing followers or forcing descent does not kill a god. Surviving descended individuals and new ascendants matter; do not expose undiscovered gods or an omniscient pantheon checklist. Personal ascension is not mandatory. World domination and divine supremacy are separate accomplishments, neither requires the other in a fixed order, and neither ends the run.
 - Do not build individual population, dynasty, migration, tactical-war, or global pathfinding simulations until an approved mechanic needs them. Strategic simulation may remain aggregated while still producing causal history.
 
 ---
 
-## 1. Intelligent Creations: Voluntary Cooperation and Bounded Work
-
-After actual non-slime cognition and communication support exists, discuss one voluntary cooperation route with concrete terms, motivations, needs, promises, refusal and consequences. Slimes cannot participate. Recommend a bounded ordinary-supply carrying task with an exact source, amount and destination, using the organism's actual manipulation, movement, carrying capacity and independently practiced skills; agree the concrete task and physically deliverable benefit before coding. Genes, creator status, role labels and employment of human staff confer no consent, obedience or loyalty.
-
-Existing continue/stop gestures express a preference for a brief interaction, not understanding of a task or contract. This pass must demonstrate the bounded task-specific vocabulary and received terms before accepting agreement; it must not silently grant full language.
-
-Use physical tools, goods, routes, permissions and received reports rather than the scientist's abilities or remote omniscience. Hunger, injury, danger and broken terms can interrupt work; preserve real partial deliveries, resources, independent observations and causal relationship changes without rerollable obedience checks. Previously authorized finite work may continue during absence or custody, but new terms and findings require actual communication. Preserve local law without treating cognition, species or an agreement as proof of legality or guilt. Wider social systems, coercion, religion, additional families and broader delegation remain separately discussed work. Late-game test fixtures must not introduce an early-game creature workforce or unearned campaign accomplishments.
-
-Do not modify gameplay files until this cooperation design has been discussed and the developer explicitly approves implementation.
-
-## 2. Non-Slime Language and Broader Conversation
+## 1. Non-Slime Language and Broader Conversation
 
 Build beyond demonstrated local continue/stop gestures and any separately learned task vocabulary. Discuss one physically supportable route to broader expressive language through actual instruction, practice, retained concepts and comprehension checks. Human-derived capacity grants no inherited donor language or memories. Speech requires actual hearing and vocal ability; visual or other channels require their own bodily capabilities and physical access. Neither word-count thresholds nor familiar reactions alone prove understanding. Preserve refusal, misunderstanding, stress, bodily needs, identity and dated received knowledge. Slimes may be tested but can never learn language or establish communication. Do not introduce telepathy, remote monitoring, automatic loyalty or retroactive understanding of earlier agreements. Split wider education or social systems into further discussions if needed.
 
 Do not modify gameplay files until this broader-language design has been discussed and the developer explicitly approves implementation.
 
-## 3. City Power: Enforceable Influence and Control
+## 2. City Power: Enforceable Influence and Control
 
 Design ways to bargain with, influence, replace, or defeat independent city authorities and implement one supported route. Control requires actual people, defenses, resources, and enforceable arrangements; reputation and internet recognition alone are insufficient. Preserve local charters, civic responsibilities, religious interests, legal consequences, opposition, revolt, and the narrow two-sponsor status of route strongholds. No durable nation-state or instant omniscient takeover may replace the city-polity model.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Late-Game Soul Beacons: Research, Infrastructure, and Physical Recovery
+## 3. Late-Game Soul Beacons: Research, Infrastructure, and Physical Recovery
 
 Design and implement a first player-built soul-beacon contingency in the main laboratory beyond the existing placeholder death handoff. This is very late-game technology, targeted at the independent-power-base or city-power phases, not a basic early-lab research unlock. Agree the concrete demanding skill, recovered-evidence, research, materials, and infrastructure prerequisites before coding; campaign checklist completion must not substitute for them. The exhausted starting beacon is evidence of the original scientist's work, not a reusable free extra life, and the original's notes must not conveniently explain a failure they did not anticipate.
 
@@ -130,43 +119,43 @@ The first reconstruction reproduces the original memory-transfer flaw with predi
 
 Do not modify files until the revised design has been discussed and the developer explicitly approves implementation.
 
-## 5. Perfected Memory Transfer and Embodied Retraining
+## 4. Perfected Memory Transfer and Embodied Retraining
 
 Build on physically functioning soul-beacon resurrection with advanced research that identifies and repairs the original separation between soul continuity, neural memory, and embodied practice. Perfected transfer retains personal memory and cognitive or animantic competence when the soul survives sufficiently intact; perfection does not immunize the soul against damage or recreate a destroyed soul. Classify skill components explicitly rather than treating every skill as wholly mental or physical. Body-bound strength, conditioning, reflex calibration, manual adaptations, and combat execution must be reacquired in the new body, with retained knowledge making genuine physical retraining substantially easier. Discuss the first coherent research and retraining slice, transparent imperfect-transfer losses, and actual body preparation before coding. Preserve durable external records and distinguish historical expertise from current bodily capability. No free physical mastery, clone duplication, or early-game resurrection unlock.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Hidden-Base Contingencies and Multiple Beacon Destinations
+## 5. Hidden-Base Contingencies and Multiple Beacon Destinations
 
 After additional facilities have physically supportable infrastructure and transport, implement soul beacons at separately prepared hidden sites and player choice among multiple eligible destinations after death. Every beacon needs its own compatible body, charge, utilities, materials, access, and uncompromised receiving site; internet contact is not material delivery. Preserve only actionable beacon-linked destination information, without leaking unknown inventory, enemies, or canonical geography. Revalidate the selected destination, consume only its actual components, and retain unselected contingencies without duplicating the scientist. Soul damage can affect different receiving arrangements; a destroyed soul has no eligible destination. Recovery in the original laboratory gives access only to its surviving actual assets, while a remote hidden-base return may require rebuilding with only what was prepared there. Preserve lost and seized property, old remains, legal consequences, continued bodily identities, and the same run/world branch. Discuss finite physical handoff resolution and fallback choice if a selected destination cannot complete recovery.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Strategic Expansion and World Domination
+## 6. Strategic Expansion and World Domination
 
 Design physically supportable expansion between existing support components, significant beast powers, and divine interests, then implement only the next mechanically supported slice. Specify finite, testable durable-supremacy criteria before adding victory evaluation; occupation of every empty globe cell is not required. Bind campaigns to actual routes, transport, manpower, resources, defense, agreements, and resistance. Keep unknown powers and hidden totals out of ordinary campaign records. World domination is an exceptionally rare dated accomplishment, not a game-over transition, and remains separate from divine supremacy.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Divine Supremacy: Rule over the Gods
+## 7. Divine Supremacy: Rule over the Gods
 
 Design and implement the ultimate ambition of imposing enforceable submission on the gods, killing those who refuse, and reigning over the rest. Submission must impose actual terms and consequences rather than a reputation threshold or cosmetic declaration. Cover discovery, human and beast gods, living descended individuals, avatars versus the actual divine individual, rebellion, and new ascendants. Destroying worship or forcing descent is not a kill. Scientific, animantic, engineered-creature, and personal-power approaches should remain possible without requiring the scientist to ascend. Theme-compatible presentations do not remove the refusal-and-death requirement. Define finite, testable accomplishment criteria without exposing hidden identities or counts; allow continued play after success and keep world domination a separate accomplishment. Split prerequisite combat, submission, or enforcement systems into further prompts if needed.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 9. New-Run Onboarding and Contextual Tutorial
+## 8. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 10. Sound, Notifications, and Accessibility Audit
+## 9. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 11. Production Art Pass Using the Sprite Pipeline
+## 10. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 

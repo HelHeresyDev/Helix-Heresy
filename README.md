@@ -379,6 +379,16 @@ After understanding is demonstrated, **Ask: continue or rest?** obtains a prefer
 
 The scientist may run all these tests on slimes. Their lack of a visual channel prevents this gesture exchange, and no amount of testing, modification or biological reaction can grant understanding or cooperation.
 
+## Voluntary Carrying Agreements
+
+Research's carrying panel offers one finite task for a stabilized homunculus outside its chamber: deliver **two Drinking Water portions** to a different floor position in the same room for **one additional meal and water portion**. Establish first-contact understanding first. Basic care must not be withheld as a bargaining condition; an injured, hungry, stressed or tired individual can decline.
+
+Stage the actual ordinary water and additional reward near the source. Select the source lot and destination X/Y. Use a visible, lit, safe route of at most four steps, without doors or unfamiliar detours, with real floor space. **Physically demonstrate delivery**, then **Observe unguided carrying check** twice. Each ten-minute session carries the real portions out and back; allow an hour of recovery afterward. Changing the route or destination requires new teaching. The individual practices its own handling, not the scientist's skills.
+
+**Present exact one-delivery terms** through a nearby gesture channel. Acceptance reserves only the original cargo and reward. The individual makes two real single-portion trips using its own capacity and bodily condition, then returns to await payment. Actual obstruction, poor lighting, danger, injury, exhaustion or missing original stock can pause the delivery; partial deliveries and held goods remain physical. Resume requires a new local encounter and valid unchanged terms.
+
+Use **Receive local delivery report** to obtain dated findings. Authorized work can continue while the scientist is absent or in custody, but no live remote report or new instruction channel is provided. **Hand over promised reward** requires the actual original meal and water within reach. If needed, collect those reserved portions beside the scientist and physically carry them to the individual. Payment is consumed exactly once, nourishing the individual. Ending work after it begins retains the promised reward obligation; an unpaid or broken promise prevents further arrangements until honored. No standing job, automatic refill, fluent language, ownership or legal status is granted. Slimes cannot participate in negotiated work.
+
 ## Development Notes
 
 - Keep the game runtime dependency-free unless a feature clearly needs a library.
