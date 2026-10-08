@@ -44,6 +44,8 @@
   if (!LeasedAnnex) throw new Error("HelixLeasedAnnex must load before app.js");
   const Homunculi = window.HelixHomunculi;
   if (!Homunculi) throw new Error("HelixHomunculi must load before app.js");
+  const FirstContact = window.HelixFirstContact;
+  if (!FirstContact) throw new Error("HelixFirstContact must load before app.js");
   const CargoRecovery = window.HelixCargoRecovery;
   const IntercitySmuggling = window.HelixIntercitySmuggling;
   const CorridorBeasts = window.HelixCorridorBeasts;
@@ -5084,6 +5086,7 @@
   const SELECTION_INSPECTOR_TAB_BY_ID = Object.fromEntries(SELECTION_INSPECTOR_TABS.map((tab) => [tab.id, tab]));
   const DEFAULT_SELECTION_INSPECTOR_TAB = "summary";
   const SCIENTIST_QUEUE_TASK_TYPES = new Set([
+    "firstContact",
     "homunculusWork",
     "synthesize",
     "test",
@@ -15755,6 +15758,36 @@
       setProductionBillComponentQuality: (billId, value) => setProductionBillComponentQuality(billId, value),
       researchSnapshot: () => JSON.parse(JSON.stringify(ensureResearchState())),
       homunculusAction: (action, id) => queueHomunculusWork(action, id),
+      firstContactAction: (action, id) => queueFirstContact(action, id),
+      firstContactSnapshot: () => clonePlainObject({ contact: ensureFirstContact(), individuals: state.homunculi?.individuals || [],
+        tasks: state.tasks.filter(t => t.type === "firstContact"), clock: state.clock, campaign: state.campaign, cell: scientistMapCell() }),
+      prepareFirstContactTestIndividual: () => {
+        // Explicit stabilized-body endowment, never ordinary creation or earned progress.
+        const s = Homunculi.create(), origin = scientistMapCell(), chamber = `explicit-contact-test-${ensureHomunculi().nextRun++}`;
+        const start = Homunculi.begin(s, "body", chamber, { research: true, morphogenesis: true, medicine: 101, alchemy: 101,
+          chamber: true, condition: 100, inspected: true, services: true, quality: 90, template: { family: "human", donorId: "explicit-test", examined: true } }, 0, () => []);
+        const hooks = { support: () => ({ ok: true, roomId: labMapCellRoomId(origin), cell: origin }), consume: () => true, release: () => {}, environment: () => ({ floor: true, temperature: 20 }) };
+        for (let at = 0; at < 72 * 3600; at += 6 * 3600) { Homunculi.care(s, start.run, at); Homunculi.advance(s, at + 6 * 3600, hooks); }
+        const a = s.individuals[0]; a.id = `${chamber}:individual`; a.soulId = `${chamber}:soul`; a.name = "Explicit first-contact test individual";
+        a.runId = chamber; a.chamberId = ""; a.createdAt = state.clock; a.testEndowment = true;
+        const cell = cardinalMapCells(origin).find(c => labMapCellRoomId(c) === labMapCellRoomId(origin) && labMapCellHasFloor(c) && canActorOccupyTile(a, c));
+        if (!cell) return null;
+        a.mapCell = clonePlainObject(cell); a.roomId = labMapCellRoomId(cell);
+        ensureHomunculi().individuals.push(a);
+        ensureHomunculi().runs.push({ ...start.run, id: chamber, personId: a.id, chamberId: "", cleared: true, testEndowment: true,
+          location: { cell, roomId: a.roomId }, startedAt: state.clock, finishedAt: state.clock });
+        for (const c of [origin, cell]) { const env = tileEnvironmentAtCell(c); if (env) { env.temperatureC = 20; env.airborne = {}; } }
+        state.scientist.carriedLight.enabled = true; state.scientist.carriedLight.condition = 100;
+        persist(); render(); return a.id;
+      },
+      setFirstContactTestCondition: (id, changes) => {
+        const a = firstContactActor(id); if (!a) return false;
+        for (const k of ["foodHours", "waterHours", "fatigue", "stress", "health"]) if (changes[k] != null) a[k] = changes[k];
+        if (changes.vision != null) { a.sensory ||= defaultSensoryState(a.genome ? "slime" : "homunculus"); a.sensory.capabilities.vision = changes.vision; }
+        if (changes.remote) a.mapCell = { x: 55, y: 44, z: scientistMapCell().z };
+        if (changes.killScientist) damageScientistCombat(1000, "Explicit first-contact test death");
+        persist(); render(); return true;
+      },
       homunculusWorkPreview: (action, id) => { const t = homunculusTarget(action, id); return clonePlainObject({ cell: t.cell, fixture: t.f?.id, localReason: confidentialServiceChannelReason(), medicine: skillLevel("medicine"), alchemy: skillLevel("alchemy"),
         scientist: scientistMapCell(), footprint: navigationFootprintForActor(state.scientist), startOccupancy: tileOccupiedAreaM2(scientistMapCell(), { excludeActor: state.scientist }), startAccess: actorAccessCellBlockReason(state.scientist, scientistMapCell()),
         ports: t.f && fixtureAccessCells(t.f).map(p => ({ cell: p.cell, occupancy: tileOccupiedAreaM2(p.cell, { excludeActor: state.scientist }), access: actorAccessCellBlockReason(state.scientist, p.cell),
@@ -22085,6 +22118,7 @@
   }
 
   function completeTask(task) {
+    if (task.type === "firstContact") { finishFirstContact(task); return; }
     if (task.type === "homunculusWork") { finishHomunculusWork(task); return; }
     if (task.type === "surveyExpeditionWork") { completeSurveyWork(task); return; }
     if (task.type === "capitalAppealTransfer") { finishCapitalAppealTransfer(task); return; }
@@ -53638,8 +53672,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!task) return null;
     const suspension = state.combat?.routineSuspension;
     if (suspension && (!suspension.taskId || task.id !== suspension.taskId)) return null;
-    if (!["homunculusWork", "surveyExpeditionWork", "scientistMove", "equipmentChange", "doorOperation", "visitFixtureAccess", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) return null;
-    if (["homunculusWork", "surveyExpeditionWork", "equipmentChange", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) {
+    if (!["firstContact", "homunculusWork", "surveyExpeditionWork", "scientistMove", "equipmentChange", "doorOperation", "visitFixtureAccess", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) return null;
+    if (["firstContact", "homunculusWork", "surveyExpeditionWork", "equipmentChange", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) {
       const blockedReason = taskBlockReason(task);
       if (blockedReason) {
         task.data ||= {};
@@ -60851,7 +60885,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function renderHomunculi(parent) {
     const s = ensureHomunculi(), panel = document.createElement("section"); panel.dataset.homunculi = "true"; panel.className = "subpanel"; parent.append(panel);
-    panel.append(textEl("h3", "Advanced Non-Slime Growth"), textEl("p", "Adept Medicine and Alchemy (101), evidence-backed research and a dedicated chamber are required. No copied memories, communication, consent or workforce. Slimes cannot communicate or cooperate. Stage exact supplies within one tile of the work position."));
+    panel.append(textEl("h3", "Advanced Non-Slime Growth"), textEl("p", "Adept Medicine and Alchemy (101), evidence-backed research and a dedicated chamber are required. Growth copies no memories and grants no understanding, consent or workforce. Slimes cannot communicate or cooperate. Stage exact supplies within one tile of the work position."));
     const button = (label, action, id = "") => { const b = storesActionButton(label, label, () => queueHomunculusWork(action, id)); setActionButtonState(b, Boolean(confidentialServiceChannelReason() || skillLevel("medicine") < 101 || skillLevel("alchemy") < 101), confidentialServiceChannelReason() || "Adept Medicine and Alchemy required."); panel.append(b); };
     button("Collect self-donated tissue template", "sample"); button("Examine staged human template", "examineTemplate"); button("Prepare growth medium (20 biomass, 4 reagent, 8 water)", "medium");
     for (const f of state.fixtures.filter(f => f.typeId === "homunculusChamber")) {
@@ -60868,6 +60902,71 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(textEl("p", "Full growth loads 60 biomass, 18 prepared medium, 6 genetic material and one examined human template. Culture trials load 4 biomass, 3 medium, 1 genetic material and one template. Examinations and care are due every 12 hours. Interruptions have a finite 20-minute buffer; long failures injure or kill. No automatic supply or remote report."));
   }
 
+  function ensureFirstContact() { return state.firstContact ||= FirstContact.create(); }
+  function firstContactActor(id) { return state.homunculi?.individuals.find(a => a.id === id) || findSlime(id); }
+  function firstContactCell(actor) {
+    if (actor?.chamberId) return fixtureAccessCells(fixtureById(actor.chamberId))[0]?.cell;
+    return sensoryActorCell(actor);
+  }
+  function firstContactContext(actor, cell) {
+    const target = firstContactCell(actor), slime = Boolean(actor?.genome);
+    const subjectSenses = normalizeSensoryState(actor?.sensory, slime ? "slime" : "homunculus"), scientistSenses = normalizeSensoryState(state.scientist.sensory, "scientist");
+    const local = !confidentialServiceChannelReason() && sameMapLayer(target, cell) && mapCellDistance(target, cell) <= 1 && sensoryLineOfSight(cell, target);
+    const visible = local && scientistSenses.capabilities.vision && subjectSenses.capabilities.vision && actor?.senses?.vision !== false
+      && MapKnowledge.visualRangeForLight(perceptionLightLevelAtCell(target)) >= Math.max(1, mapCellDistance(target, cell));
+    const severeArmInjury = (state.injuries || []).some(i => [actor?.id, "scientist"].includes(i.actorId) && /arm|hand/i.test(i.location) && i.severityId === "critical" && i.status !== "healed");
+    const env = target && tileEnvironmentAtCell(target);
+    return { dead: scientistIsDead(), local, vision: visible, gesture: !severeArmInjury && !actorIsIncapacitated("scientist") && !actorIsIncapacitated(actor),
+      safe: local && env && env.temperatureC >= 15 && env.temperatureC <= 32 && !surfaceWorkerHazard(target) && !surfaceWorkerHazard(cell)
+        && !(state.combat?.active || []).some(r => r.roomId === actor?.roomId) };
+  }
+  function firstContactTaskReason(task) {
+    const actor = firstContactActor(task.data.actorId), cell = task.data.toCell, target = firstContactCell(actor);
+    if (!actor || !FirstContact.ACTIONS.includes(task.data.action)) return "The original first-contact subject or procedure is unavailable.";
+    if (!target || !cell || !labMapCellHasFloor(cell) || !sameMapLayer(target, cell) || mapCellDistance(target, cell) > 1 || !sensoryLineOfSight(cell, target))
+      return "The original subject moved or the physical interaction position is obstructed.";
+    return "";
+  }
+  function queueFirstContact(action, actorId) {
+    if (scientistIsDead() || confidentialServiceChannelReason() || !FirstContact.ACTIONS.includes(action) || scientistQueueTasks().length) return false;
+    const actor = firstContactActor(actorId), target = firstContactCell(actor);
+    if (!actor || actor.status === "dead" || !homunculusLocal(target)) return false;
+    const position = [scientistMapCell(), ...cardinalMapCells(target)].find(c => sameMapLayer(c, target) && mapCellDistance(c, target) <= 1
+      && labMapCellHasFloor(c) && !actorAccessCellBlockReason(state.scientist, c) && sensoryLineOfSight(c, target)
+      && labNavigationPlanBetweenCells(scientistMapCell(), c, { actor: state.scientist, ignoreDoors: true }).found);
+    if (!position) return false;
+    const path = labNavigationPlanBetweenCells(scientistMapCell(), position, { actor: state.scientist, ignoreDoors: true });
+    const travel = mapPathTravelDistanceMeters(path.path, ensureLabMap()) / scientistMoveSpeedMps();
+    const task = { id: `task-${state.nextTaskNumber++}`, type: "firstContact", label: `First contact: ${action} — ${actor.name}`, createdAt: state.clock,
+      dueAt: state.clock + travel + FirstContact.SESSION, data: { actorId, action, toCell: position, mapPath: path.path,
+        movement: createScientistMovementRecord(path.path, travel, state.clock, { intent: "local first contact" }), workStartsAt: state.clock + travel } };
+    state.tasks.push(task); persist(); render(); return true;
+  }
+  function finishFirstContact(task) {
+    if (firstContactTaskReason(task) || !sameMapCell(scientistMapCell(), task.data.toCell)) return false;
+    const actor = firstContactActor(task.data.actorId), context = firstContactContext(actor, scientistMapCell());
+    // A genome-bearing specimen always takes the slime path, even if metadata was mislabeled.
+    const subject = actor.genome ? { ...actor, actorKind: "slime", family: "slime" } : actor;
+    const result = FirstContact.session(ensureFirstContact(), subject, task.data.action, state.clock, context);
+    if (!result) return false;
+    addEvent(`${actor.name}: ${result.summary}`); return true;
+  }
+  function renderFirstContact(parent) {
+    const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.firstContact = "true"; parent.append(panel);
+    panel.append(textEl("h3", "Cognition and First Contact"), textEl("p", "Ten-minute local gesture sessions: demonstrate continue/stop, check retained responses in two changed contexts, then ask whether to continue. Allow at least one hour between sessions. Bodily needs and expressed refusals matter. Slimes may be tested, but never learn communication."));
+    const actors = [...(state.homunculi?.individuals || []), ...state.slimes].filter(a => a.status !== "dead" && homunculusLocal(firstContactCell(a)));
+    for (const a of actors) {
+      panel.append(textEl("h4", a.name));
+      for (const [action, label] of [["demonstrate", "Demonstrate continue/stop gestures"], ["probe", "Check understanding in a changed context"], ["ask", "Ask: continue or rest?"]]) {
+        const b = storesActionButton(label, "Local ten-minute interaction; no language, obedience or work agreement is granted.", () => queueFirstContact(action, a.id));
+        b.dataset.firstContactAction = action; b.dataset.firstContactActor = a.id;
+        setActionButtonState(b, Boolean(scientistQueueTasks().length || confidentialServiceChannelReason()), "Finish or cancel current scientist work before starting a contact session."); panel.append(b);
+      }
+    }
+    if (!actors.length) panel.append(textEl("p", "Approach a living individual or specimen to attempt first contact. No remote interaction channel is installed."));
+    for (const entry of ensureFirstContact().journal.slice(-12).reverse()) panel.append(textEl("p", `${formatClock(entry.at)} — ${entry.name}: ${entry.summary}`, "journal-meta"));
+  }
+
   function renderResearch() {
     if (!dom.researchProjectList || !dom.researchEvidenceList || !dom.researchActiveProject) return;
     const research = ensureResearchState();
@@ -60875,6 +60974,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.researchSummary.textContent = `${completed}/${Research.PROJECTS.length} projects complete · ${research.evidence.length} distinct evidence record${research.evidence.length === 1 ? "" : "s"}`;
     dom.researchProjectList.textContent = "";
     renderHomunculi(dom.researchProjectList);
+    renderFirstContact(dom.researchProjectList);
     dom.researchActiveProject.textContent = "";
     dom.researchEvidenceList.textContent = "";
     renderDiagnosticResults();
@@ -66173,6 +66273,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (surveyScientistAway() && !surveyTaskAllowed(task)) return "The scientist is off site; laboratory work awaits physical return.";
     if (task.type === "surveyExpeditionWork") { const reason = surveyWorkBlockReason(task); if (reason) return reason; }
     if (task.type === "homunculusWork") { const reason = homunculusTaskReason(task); if (reason) return reason; }
+    if (task.type === "firstContact") { const reason = firstContactTaskReason(task); if (reason) return reason; }
     if (scientistIsDead()) {
       return "The scientist is dead.";
     }
@@ -90531,6 +90632,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.laboratoryAssistantKnowledge = candidate?.laboratoryAssistantKnowledge ? clonePlainObject(candidate.laboratoryAssistantKnowledge) : null;
     next.leasedAnnex = LeasedAnnex.normalize(candidate?.leasedAnnex);
     next.homunculi = Homunculi.normalize(candidate?.homunculi, next.clock);
+    next.firstContact = FirstContact.normalize(candidate?.firstContact);
     if (next.runEnded || latestDeath?.resurrection.status === "pending") {
       next.paused = true;
     }

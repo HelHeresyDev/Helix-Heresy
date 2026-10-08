@@ -1,0 +1,58 @@
+const { test, expect } = require('@playwright/test');
+const { startLifecycleRun } = require('./helpers/start-lifecycle-run');
+test.setTimeout(180000);
+const snapshot = page => page.evaluate(() => window.helixHeresyDebug.firstContactSnapshot());
+const advance = (page, seconds) => page.evaluate(n => window.helixHeresyDebug.advanceHomunculiForTest(n), seconds);
+async function session(page, action, id) {
+  expect(await page.evaluate(({ action, id }) => window.helixHeresyDebug.firstContactAction(action, id), { action, id })).toBe(true);
+  const s = await snapshot(page); await advance(page, s.tasks[0].dueAt - s.clock + 1);
+  return (await snapshot(page)).contact.journal.at(-1);
+}
+test('local gesture learning, task reload, changed-context evidence, persistent refusal and no work agreement', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await startLifecycleRun(page, 'first-contact-learning');
+  const before = await snapshot(page), id = await page.evaluate(() => window.helixHeresyDebug.prepareFirstContactTestIndividual());
+  expect(id).toBeTruthy(); expect((await snapshot(page)).campaign).toEqual(before.campaign);
+  await page.locator('[data-workspace-tab="research"]').click();
+  await page.locator(`[data-first-contact-action="demonstrate"][data-first-contact-actor="${id}"]`).click();
+  const pending = (await snapshot(page)).tasks[0]; expect(pending.type).toBe('firstContact');
+  await page.reload(); await page.locator('#loadLastSaveBtn').click();
+  let s = await snapshot(page); expect(s.tasks[0].id).toBe(pending.id);
+  await advance(page, pending.dueAt - s.clock + 1); s = await snapshot(page);
+  expect(s.contact.journal.at(-1).outcome).toBe('practiced');
+  expect((await session(page, 'demonstrate', id)).outcome).toBe('recovering');
+  expect((await snapshot(page)).contact.subjects[id].demonstrations).toBe(1);
+  await advance(page, 3600); expect((await session(page, 'demonstrate', id)).outcome).toBe('practiced');
+  await advance(page, 3600); expect((await session(page, 'probe', id)).outcome).toBe('retained');
+  await advance(page, 3600); expect((await session(page, 'probe', id)).outcome).toBe('understood');
+  await advance(page, 3600); expect((await session(page, 'ask', id)).response).toBe('continue');
+  await advance(page, 3600);
+  await page.evaluate(id => window.helixHeresyDebug.setFirstContactTestCondition(id, { foodHours: 5 }), id);
+  expect((await session(page, 'ask', id)).outcome).toBe('refused');
+  const saved = (await snapshot(page)).contact;
+  await page.reload(); await page.locator('#loadLastSaveBtn').click(); expect((await snapshot(page)).contact).toEqual(saved);
+  expect((await session(page, 'ask', id)).outcome).toBe('recovering');
+  s = await snapshot(page); expect(s.individuals[0].language).toBeNull(); expect(s.individuals[0].agreement).toBeNull(); expect(s.individuals[0].skills).toEqual({});
+  await page.locator('[data-workspace-tab="research"]').click(); await expect(page.locator('[data-first-contact]')).toContainText('declines this session');
+  await page.evaluate(id => window.helixHeresyDebug.setFirstContactTestCondition(id, { killScientist: true }), id);
+  const frozen = (await snapshot(page)).contact; await advance(page, 3600); expect((await snapshot(page)).contact).toEqual(frozen);
+  expect(await page.evaluate(id => window.helixHeresyDebug.firstContactAction('ask', id), id)).toBe(false); expect(errors).toEqual([]);
+});
+test('slime tests remain available and always fail; sensory loss and moved subjects never grant learning', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await startLifecycleRun(page, 'first-contact-slime');
+  const id = await page.evaluate(() => window.helixHeresyDebug.prepareFirstContactTestIndividual());
+  await page.evaluate(id => window.helixHeresyDebug.setFirstContactTestCondition(id, { vision: false }), id);
+  expect((await session(page, 'demonstrate', id)).outcome).toBe('unavailable');
+  const s = await snapshot(page), slime = await page.evaluate(cell => window.helixHeresyDebug.createSpatialTestSlime({ cell, size: 'Tiny' }), s.cell);
+  for (const action of ['demonstrate', 'probe', 'ask']) expect((await session(page, action, slime.id)).outcome).toBe('unavailable');
+  let result = await snapshot(page); expect(result.contact.subjects[slime.id].demonstrations).toBe(0); expect(result.contact.subjects[slime.id].understood).toBe(false);
+  const saved = result.contact; await page.reload(); await page.locator('#loadLastSaveBtn').click(); expect((await snapshot(page)).contact).toEqual(saved);
+  await page.evaluate(id => window.helixHeresyDebug.setFirstContactTestCondition(id, { vision: true }), id);
+  expect(await page.evaluate(id => window.helixHeresyDebug.firstContactAction('demonstrate', id), id)).toBe(true);
+  const pending = (await snapshot(page)).tasks[0];
+  await page.evaluate(id => window.helixHeresyDebug.setFirstContactTestCondition(id, { remote: true }), id);
+  await advance(page, pending.dueAt - (await snapshot(page)).clock + 1); result = await snapshot(page); expect(result.contact.subjects[id].demonstrations).toBe(0);
+  expect(result.contact.journal).toEqual(saved.journal);
+  await page.evaluate(id => window.helixHeresyDebug.cancelTask(id), pending.id); expect((await snapshot(page)).tasks).toEqual([]); expect(errors).toEqual([]);
+});

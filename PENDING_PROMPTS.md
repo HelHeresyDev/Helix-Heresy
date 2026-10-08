@@ -18,8 +18,8 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Non-Slime Cognition and First Contact
-2. Intelligent Creations: Voluntary Cooperation and Bounded Work
+1. Intelligent Creations: Voluntary Cooperation and Bounded Work
+2. Non-Slime Language and Broader Conversation
 3. City Power: Enforceable Influence and Control
 4. Late-Game Soul Beacons: Research, Infrastructure, and Physical Recovery
 5. Perfected Memory Transfer and Embodied Retraining
@@ -30,7 +30,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 10. Sound, Notifications, and Accessibility Audit
 11. Production Art Pass Using the Sprite Pipeline
 
-Human staffing now supports bounded independent annex operation without intelligent creations. Homunculi and their later communication/cooperation passes are advanced stage-two/three work, not early-laboratory unlocks; priority order does not impose compulsory campaign chapters.
+Human staffing now supports bounded independent annex operation without intelligent creations. Homunculus growth and learned local continue/stop gestures exist; broader language and voluntary cooperation do not. Homunculi remain advanced stage-two/three work, not early-laboratory unlocks; priority order does not impose compulsory campaign chapters.
 
 ## World and Run Guardrails
 
@@ -89,28 +89,28 @@ Apply these rules throughout the world-generation and campaign prompts:
 - Helix Heresy is a roguelike. Ordinary play must be compelling when a run ends in the laboratory or local-power phase; the overwhelming majority of runs should end long before world domination.
 - World domination is a rare terrestrial accomplishment, not the expected length or balance target of an average run; ruling over the gods is the ultimate ambition beyond it.
 - Campaign ambitions overlap rather than forming compulsory chapters: establish the laboratory, become locally indispensable, build an independent power base, challenge city powers, pursue world domination, and rule over the gods. Optional guidance grants no free resources or artificial feature gates. Separate dated accomplishments from current operational conditions.
-- Slimes cannot communicate or cooperate under any modification. Their roles, proximity reactions, kinship and chemical distress traces are biological responses, never language, negotiated agreements or obedience. Intelligent cooperation requires a genuinely different creature family. Homunculi are the first implemented non-slime body-growth family; cognition, communication and cooperation remain separate work. Normal creation belongs roughly to stages two or three and must be very difficult and risky, with actual research, skill, material, growth and infrastructure prerequisites. Explicit prepared late-game test fixtures are allowed; they must not provide free homunculi, early unlocks or unearned campaign outcomes in ordinary runs.
+- Slimes cannot communicate or cooperate under any modification. The scientist may apply first-contact tests to them, but they always fail to establish understanding or communication. Their roles, proximity reactions, kinship and chemical distress traces are biological responses, never language, negotiated agreements or obedience. Intelligent cooperation requires a genuinely different creature family. Homunculi are the first implemented non-slime body-growth family and can learn local continue/stop gestures through spaced practice and observed retention; broader language and cooperation remain separate work. Normal creation belongs roughly to stages two or three and must be very difficult and risky, with actual research, skill, material, growth and infrastructure prerequisites. Explicit prepared late-game test fixtures are allowed; they must not provide free homunculi, early unlocks or unearned campaign outcomes in ordinary runs.
 - Player-built resurrection belongs to the very late-game independent-power-base or city-power phases (roughly stages three or four), with demanding scientific, animantic, biological, material, and infrastructure prerequisites rather than a chapter-completion gate. Soul beacons guide departed souls; they do not permanently store souls or hold backup copies. The player chooses among eligible beacons after death. Recorded soul damage can impair or prevent recovery; soul destruction prevents it even with perfected apparatus. Physical death still leaves remains and worldly consequences intact.
 - Divine supremacy goes beyond terrestrial domination: impose real enforceable submission on gods, kill those who refuse, and reign over the rest. Losing followers or forcing descent does not kill a god. Surviving descended individuals and new ascendants matter; do not expose undiscovered gods or an omniscient pantheon checklist. Personal ascension is not mandatory. World domination and divine supremacy are separate accomplishments, neither requires the other in a fixed order, and neither ends the run.
 - Do not build individual population, dynasty, migration, tactical-war, or global pathfinding simulations until an approved mechanic needs them. Strategic simulation may remain aggregated while still producing causal history.
 
 ---
 
-## 1. Non-Slime Cognition and First Contact
-
-Build on an actual viable non-slime organism, initially the homunculus. Discuss biological cognitive capacity, maturity, practiced learning, perception and a physically supportable communication channel appropriate to that organism before coding. Do not apply this system to slimes, grant senses merely because a being is intelligent, or confuse heritable capacity with inherited language, knowledge, memories or skills. A humanlike body or a cognitive label is not itself evidence that the scientist and organism understand one another.
-
-Implement one repeatable local first-contact interaction that can demonstrate understanding, retained learning and expressed preferences through actual observed responses. Distinguish unavailable communication, lack of demonstrated understanding and an understood refusal; repeated requests and reloads must not manufacture agreement. Preserve needs, stress, injury, independent identity and knowledge boundaries. Establishing contact grants neither delegated work nor legal personhood, ownership, legality, guilt or loyalty. Explicit prepared late-game test fixtures may exercise this pass without lowering normal homunculus-creation prerequisites.
-
-Do not modify gameplay files until this cognition and communication design has been discussed and the developer explicitly approves implementation.
-
-## 2. Intelligent Creations: Voluntary Cooperation and Bounded Work
+## 1. Intelligent Creations: Voluntary Cooperation and Bounded Work
 
 After actual non-slime cognition and communication support exists, discuss one voluntary cooperation route with concrete terms, motivations, needs, promises, refusal and consequences. Slimes cannot participate. Recommend a bounded ordinary-supply carrying task with an exact source, amount and destination, using the organism's actual manipulation, movement, carrying capacity and independently practiced skills; agree the concrete task and physically deliverable benefit before coding. Genes, creator status, role labels and employment of human staff confer no consent, obedience or loyalty.
+
+Existing continue/stop gestures express a preference for a brief interaction, not understanding of a task or contract. This pass must demonstrate the bounded task-specific vocabulary and received terms before accepting agreement; it must not silently grant full language.
 
 Use physical tools, goods, routes, permissions and received reports rather than the scientist's abilities or remote omniscience. Hunger, injury, danger and broken terms can interrupt work; preserve real partial deliveries, resources, independent observations and causal relationship changes without rerollable obedience checks. Previously authorized finite work may continue during absence or custody, but new terms and findings require actual communication. Preserve local law without treating cognition, species or an agreement as proof of legality or guilt. Wider social systems, coercion, religion, additional families and broader delegation remain separately discussed work. Late-game test fixtures must not introduce an early-game creature workforce or unearned campaign accomplishments.
 
 Do not modify gameplay files until this cooperation design has been discussed and the developer explicitly approves implementation.
+
+## 2. Non-Slime Language and Broader Conversation
+
+Build beyond demonstrated local continue/stop gestures and any separately learned task vocabulary. Discuss one physically supportable route to broader expressive language through actual instruction, practice, retained concepts and comprehension checks. Human-derived capacity grants no inherited donor language or memories. Speech requires actual hearing and vocal ability; visual or other channels require their own bodily capabilities and physical access. Neither word-count thresholds nor familiar reactions alone prove understanding. Preserve refusal, misunderstanding, stress, bodily needs, identity and dated received knowledge. Slimes may be tested but can never learn language or establish communication. Do not introduce telepathy, remote monitoring, automatic loyalty or retroactive understanding of earlier agreements. Split wider education or social systems into further discussions if needed.
+
+Do not modify gameplay files until this broader-language design has been discussed and the developer explicitly approves implementation.
 
 ## 3. City Power: Enforceable Influence and Control
 

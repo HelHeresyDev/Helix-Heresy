@@ -367,7 +367,17 @@ Research contains the advanced homunculus growth controls. This is demanding sta
 
 Life support draws 4 electricity, 2 mana and 1 clean-water unit per hour, with actual wastewater storage or discharge. Short outages consume a nonrenewable twenty-minute buffer. Neglect, poor medium, damaged equipment, missing loaded supplies and unsafe habitat stop progress and cause lasting injury or death. Cancellation releases only unused inputs; incorporated tissue remains. Reload preserves exact custody, consumption, progress, injuries and identity. A developing individual cannot be deleted by cancelling its growth order.
 
-After stabilization, personally nourish the individual with one meal and Drinking Water for a day of nutrition/hydration, and move it or its remains into an adjacent care bay with real floor space. Hunger, thirst and unsafe surroundings remain consequential. Findings stay dated until another local examination; no remote live monitor is provided. Cognition, first contact and voluntary cooperation are subsequent work. Explicit advanced test-laboratory endowments confer no ordinary starting unlocks or earned campaign accomplishments.
+After stabilization, personally nourish the individual with one meal and Drinking Water for a day of nutrition/hydration, and move it or its remains into an adjacent care bay with real floor space. Hunger, thirst and unsafe surroundings remain consequential. Findings stay dated until another local examination; no remote live monitor is provided. Growth grants no understanding or voluntary cooperation. Explicit advanced test-laboratory endowments confer no ordinary starting unlocks or earned campaign accomplishments.
+
+## Cognition and First Contact
+
+Research's First Contact panel offers ten-minute local sessions with nearby living homunculi or slimes. Finish or cancel the scientist's existing work, approach the subject, and provide light, a clear visual channel and safe surroundings. A homunculus must finish physiological stabilization first. Creation provides learning potential, not inherited language or experience.
+
+Demonstrate **continue/stop gestures** twice, allowing at least one hour between completed sessions; recorded developmental injury requires a third demonstration. Then **check understanding in a changed context** twice to observe retained responses during hand movement and changed posture. Familiar reactions alone are not proof of understanding. Learning and each distinct context persist through saves; rapid repetition yields no additional practice.
+
+After understanding is demonstrated, **Ask: continue or rest?** obtains a preference for a brief interaction. Pain, hunger, thirst, fatigue or stress can produce an understood stop/rest refusal. Respect the recovery interval and address actual needs; repeated requests and reload do not turn refusal into agreement. The notebook distinguishes unavailable communication, understanding not demonstrated and understood refusal, using dated observations rather than live remote readings. No fluent language, work order, loyalty or legal status is granted.
+
+The scientist may run all these tests on slimes. Their lack of a visual channel prevents this gesture exchange, and no amount of testing, modification or biological reaction can grant understanding or cooperation.
 
 ## Development Notes
 
