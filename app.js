@@ -121,6 +121,8 @@
   const CityPrisonRescue = window.HelixCityPrisonRescue;
   const BanishmentRelief = window.HelixBanishmentRelief;
   const WildernessSurvival = window.HelixWildernessSurvival;
+  const HiddenWorkshop = window.HelixHiddenWorkshop;
+  if (!HiddenWorkshop) throw new Error('Hidden workshop must load before app.js');
   const WildernessDiscovery = window.HelixWildernessDiscovery;
   const WildernessBeasts = window.HelixWildernessBeasts;
   const ExpeditionEscorts = window.HelixExpeditionEscorts;
@@ -372,6 +374,18 @@
       workMinutes: 180,
       materialOptions: { steel: { composition: { primary: "steel", lining: "reinforcedGlass", seal: "rubber" }, costs: { steelPanels: 12, metalParts: 8, glass: 8, rubber: 6 }, score: 90 } },
       description: "Advanced organic growth equipment. Requires tissue-culture research, Adept fabrication, finite services, personally prepared medium and scheduled physical care. Not slime synthesis or resurrection equipment."
+    },
+    {
+      id: 'workshopServiceStand',
+      label: 'Receiving Utility Test Stand', glyph: 'UT', assemblyClass: 'siteBuilt',
+      footprint: { width: 1, height: 1 }, collision: 'blocking', layer: 'floor',
+      ports: [{ id: 'operator', label: 'Service Test Position', x: 0, y: 1 }], capabilities: ['utilityTest'],
+      infrastructure: { role: 'workshopServiceStand', networks: ['electricity', 'mana', 'water', 'drain'],
+        powerModes: ['electric'], defaultPowerMode: 'electric', electricDemandPerHour: 4, manaPerHour: 2,
+        waterDemandPerHour: 1, drainDemandPerHour: 1 },
+      workMinutes: 20,
+      materialOptions: { steel: { composition: { primary: 'steel', lining: 'glass', seal: 'rubber' }, costs: { metalParts: 2, glass: 2, rubber: 1 }, score: 88 } },
+      description: 'A supplied, attended test of actual receiving utilities. No living body, soul, charge or readiness guarantee is created.'
     },
     {
       id: "basicWorkbench",
@@ -1185,6 +1199,14 @@
     return state?.surfaceExposure
       ? SurfaceExposure.applyWeatherAmbient(ambient, SurfaceExposure.weatherAt(state.surfaceExposure, clock))
       : ambient;
+  }
+  function outsideAmbientAtCell(cell) {
+    // Remote physical tiles use the charter destination's climate, not weather
+    // inherited from the original laboratory parcel on a different site.
+    const destination = state?.unsupportedExcursions?.destination;
+    if (cell?.z === UnsupportedExcursions.Z && Number.isFinite(destination?.temperatureC))
+      return { temperatureC: destination.temperatureC, humidity: SURFACE_OUTSIDE_HUMIDITY, manaDensity: SURFACE_OUTSIDE_MANA_DENSITY };
+    return surfaceOutsideAmbient();
   }
   const SURFACE_DAY_START_HOUR = 8;
   const SURFACE_AMBIENT_RELAXATION_PER_HOUR = 0.65;
@@ -4819,6 +4841,7 @@
   let mapWheelZoomLastAppliedAt = 0;
   let objectPlacementInProgress = false;
   let physicalPlacementEnvelope = null;
+  let utilityEnvelope = null;
   let activeWorkspaceTab = "map";
   const heldMapPanKeys = new Set();
   let mapPanAnimationFrame = 0;
@@ -5128,6 +5151,7 @@
     "firstContact",
     "homunculusWork",
     "soulBeaconWork",
+    "hiddenWorkshopWork",
     "synthesize",
     "test",
     "breed",
@@ -5428,6 +5452,7 @@
       laboratoryAssistant: null,
       laboratoryAssistantKnowledge: null,
       leasedAnnex: null,
+      hiddenWorkshop: null,
       lastSuspicionGainAt: null,
       lastSuspicionDecayAt: null,
       rooms: defaultRooms(),
@@ -7761,9 +7786,12 @@
 
   function propertyOpaqueFixtureAtCell(cell) {
     const key = mapCellKey(cell);
-    return propertyPresentationFixtures().some((fixture) =>
+    // A remote sight ray cannot intersect an original-parcel hedge. Check the
+    // actual occupied tile before calculating that fixture's exterior envelope.
+    return (state.fixtures || []).some((fixture) =>
       PropertyPresentation.PROPERTY_FIXTURE_DEFS[fixture.typeId]?.opaque
       && fixtureOccupiedVolumeCells(fixture).some((occupied) => mapCellKey(occupied) === key)
+      && ["outdoor", "coveredExterior"].includes(surfaceEnvelopeAtCell(fixture.origin).kind)
     );
   }
 
@@ -13613,6 +13641,56 @@
         evidence: ensureInvestigativeEvidence().records.filter(e => e.origin.kind === "diagnosticResult") }),
       laboratoryAssistantAction: (action, options = {}) => laboratoryAssistantAction(action, options),
       leasedAnnexAction: (action, options = {}) => leasedAnnexAction(action, options),
+      hiddenWorkshopAction: (action, options = {}) => hiddenWorkshopAction(action, options),
+      hiddenWorkshopSnapshot: () => clonePlainObject({ saved: state.hiddenWorkshop, view: HiddenWorkshop.publicView(state.hiddenWorkshop),
+        local: hiddenWorkshopLocal(), sheltered: wildernessSheltered(), shellIntact: hiddenWorkshopShellIntact(), clock: state.clock,
+        scientist: { roomId: scientistRoomId(), cell: scientistMapCell(), fabrication: skillLevel('fabrication'), fabricationXp: scientistSkill('fabrication').xp },
+        stacks: ensurePhysicalItemStacks(), fixtures: (state.fixtures || []).filter(f => f.id.startsWith('hidden-workshop:')),
+        tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })),
+        utilities: Object.fromEntries(['electricity', 'mana', 'water', 'drain'].map(m => [m, utilityNetworkComponents(m).map(c => c.fixtures.map(f => f.id))])) }),
+      configureHiddenWorkshopTest: (options = {}) => {
+        // Explicit physical late-game inputs/terrain fixture. Normal actions grant none of these.
+        if (options.fabrication != null) scientistSkill('fabrication', { create: true }).xp = totalXpForLevel(options.fabrication);
+        const cell = cleanMapCell(options.cell || scientistMapCell()), roomId = labMapCellRoomId(cell);
+        if (options.clearPatch) {
+          const layout = HiddenWorkshop.plan({ x: 27, y: 10, z: UnsupportedExcursions.Z }), map = ensureLabMap();
+          map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...layout.ground]); bumpNavigationRevision('topology');
+        }
+        const ids = [];
+        for (const [key, amount] of Object.entries(options.supplies || {})) {
+          const section = ['lumber', 'steelPanels', 'metalParts', 'rubber', 'glass', 'arcaneFeedstock', 'fuelReagent'].includes(key) ? 'resources' : 'inventory';
+          ids.push(createPhysicalItemStack(section, key, amount, { roomId, cell })?.id);
+        }
+        for (const key of options.carryTools || []) {
+          const tool = toolInstancesForItem(key).find(t => t.current > 0 && !t.reservedTaskId), stack = ensurePhysicalItemStacks().find(s => s.key === key && !s.carriedBy && !s.reservedTaskId);
+          if (tool && stack) carryPhysicalStack('scientist', stack.id, 1, { toolInstanceId: tool.id });
+        }
+        if (options.fixtureRole) {
+          const f = hiddenWorkshopEquipment(options.fixtureRole)[0];
+          if (f && options.condition != null) f.condition = options.condition;
+          if (f?.utility && options.enabled != null) f.utility.enabled = options.enabled;
+          if (f?.utility && options.fault) { f.utility.fault = normalizeUtilityFault(options.fault); f.utility.knownFaultId = ''; }
+        }
+        if (options.removeInputId) state.physicalItemStacks = ensurePhysicalItemStacks().filter(s => s.id !== options.removeInputId);
+        if (options.needsReset) for (const k of ['hunger', 'thirst', 'exertion', 'exposure']) ensureWildernessSurvival()[k] = 0;
+        syncActorInventories(); persist(); render(); return ids;
+      },
+      advanceHiddenWorkshopForTest: (seconds) => {
+        let remaining = Math.max(0, seconds), infrastructureSeconds = 0;
+        while (remaining > 0 && !scientistIsDead()) {
+          const movement = firstScientistQueueTask()?.data?.movement;
+          const step = Math.min(remaining, movement && movement.steps.length > 1 && !movement.completed ? 1 : 60);
+          state.clock += step; remaining -= step; updateScientistMovementTask(); updateWildernessNeeds();
+          // Minute utility accounting is required for the active service test.
+          // Ordinary construction/travel has no workshop utility consumer, so
+          // batch its unrelated infrastructure at the existing hourly maximum.
+          infrastructureSeconds += step;
+          const cadence = firstScientistQueueTask()?.data?.action === 'test' ? 60 : UTILITY_MAX_STEP_SECONDS;
+          if (infrastructureSeconds >= cadence || !remaining) { updateInfrastructure(infrastructureSeconds); infrastructureSeconds = 0; }
+          updateHiddenWorkshop(); completeDueTasks(); updateUnsupportedExcursion();
+        }
+        syncActorInventories(); persist(); render(); return true;
+      },
       leasedAnnexSnapshot: () => clonePlainObject({ saved: state.leasedAnnex, view: LeasedAnnex.publicView(state.leasedAnnex, state.clock),
         clock: state.clock, money: ensureEconomy().money, scientist: { roomId: scientistRoomId(), cell: scientistMapCell() },
         stacks: ensurePhysicalItemStacks(), tasks: state.tasks, diagnostics: ensureDiagnosticState(),
@@ -22256,6 +22334,7 @@
     changes.scientistMovementChanged += livingUpdate(() => updateLaboratoryAssistant());
     changes.scientistMovementChanged += livingUpdate(() => updateHomunculi());
     changes.scientistMovementChanged += livingUpdate(() => updateSoulBeacons());
+    changes.scientistMovementChanged += livingUpdate(() => updateHiddenWorkshop());
     changes.scientistMovementChanged += livingUpdate(() => updateSignedLanguageWork());
     changes.scientistMovementChanged += livingUpdate(() => updateSpokenLanguageWork());
     changes.scientistMovementChanged += livingUpdate(() => updateCreationCooperation());
@@ -22408,6 +22487,15 @@
       }
       return changed;
     }
+    if (!options.workshopStep && elapsed > 60 && state.tasks.some(t => t.type === 'hiddenWorkshopWork')) {
+      let remaining = elapsed, changed = 0;
+      while (remaining > 0 && !scientistIsDead()) {
+        const step = Math.min(60, remaining), room = scientistRoomId(), notice = state.wildernessBeasts?.noticeSerial;
+        changed += advanceTime(step, { ...options, workshopStep: true }); remaining -= step;
+        if (scientistRoomId() !== room || state.wildernessBeasts?.noticeSerial !== notice) break;
+      }
+      return changed;
+    }
     // Bound annex time skips so walking fatigue, lease expiry and physical work resolve in causal order.
     if (annexAway() && !options.annexStep && elapsed > 0) {
       let changed = 0, remaining = elapsed;
@@ -22466,6 +22554,10 @@
         .sort((a, b) => a.dueAt - b.dueAt);
       for (const task of due) {
         if (scientistIsDead()) return changeCount;
+        if (task.type === 'hiddenWorkshopWork' && task.data?.work.progress < task.data.work.required) {
+          task.dueAt = state.clock + Math.max(1, task.data.work.required - task.data.work.progress);
+          continue;
+        }
         if (task.type === 'soulBeaconWork' && task.data?.workRequiredSeconds > task.data.workProgressSeconds) {
           // A due clock is not proof of attended, supplied work. Minute service
           // accounting may also leave a final partial interval after travel.
@@ -22527,6 +22619,7 @@
     if (task.type === "firstContact") { finishFirstContact(task); return; }
     if (task.type === "homunculusWork") { finishHomunculusWork(task); return; }
     if (task.type === "soulBeaconWork") { finishSoulBeaconWork(task); return; }
+    if (task.type === 'hiddenWorkshopWork') { finishHiddenWorkshopWork(task); return; }
     if (task.type === "surveyExpeditionWork") { completeSurveyWork(task); return; }
     if (task.type === "capitalAppealTransfer") { finishCapitalAppealTransfer(task); return; }
     if (task.type === "executiveCommutationTransfer") { finishExecutiveCommutationTransfer(task); return; }
@@ -27586,7 +27679,7 @@
     const contamination = Math.max(0, Number(attributes.contamination.current) || 0);
     const envelope = surfaceEnvelopeAtCell(cell, map, envelopeContext);
     const exterior = ["outdoor", "coveredExterior", "roof", "openAir"].includes(envelope.kind);
-    const outside = surfaceOutsideAmbient();
+    const outside = outsideAmbientAtCell(cell);
     return {
       cell: cleanMapCell(cell),
       temperatureC: exterior ? outside.temperatureC : Number(attributes.temperature.current),
@@ -27807,7 +27900,7 @@
       const exterior = ["outdoor", "coveredExterior", "roof", "openAir"].includes(envelope.kind);
       if (exterior) {
         const ambientFraction = 1 - Math.exp(-SURFACE_AMBIENT_RELAXATION_PER_HOUR * elapsedHours);
-        const outside = surfaceOutsideAmbient();
+        const outside = outsideAmbientAtCell(record.cell);
         delta.temperatureC += (outside.temperatureC - record.temperatureC) * ambientFraction;
         delta.humidity += (outside.humidity - record.humidity) * ambientFraction;
         delta.manaDensity += (outside.manaDensity - record.manaDensity) * ambientFraction;
@@ -27903,7 +27996,7 @@
       return Math.max(0, Number(infrastructure.electricDemandPerHour) || 0);
     }
     if (medium === "mana") {
-      if (["homunculusChamber", "soulReceiver", "soulBeacon"].includes(infrastructure.role)) return Math.max(0, Number(infrastructure.manaPerHour) || 0);
+      if (["homunculusChamber", "soulReceiver", "soulBeacon", "workshopServiceStand"].includes(infrastructure.role)) return Math.max(0, Number(infrastructure.manaPerHour) || 0);
       if (fixture.utility.powerMode === "mana") return Math.max(0, Number(infrastructure.manaPerHour) || 0);
       if (infrastructure.role === "manaEmitter") return Math.max(0, Number(infrastructure.outputPerHour) || 0);
     }
@@ -28438,7 +28531,7 @@
             changes += utilitySetStatus(terminal, "blocked", "No exterior air terminal is connected.");
             continue;
           }
-          const outside = surfaceOutsideAmbient();
+          const outside = outsideAmbientAtCell(terminal.origin);
           tile.temperatureC += (outside.temperatureC - tile.temperatureC) * fraction;
           tile.humidity += (outside.humidity - tile.humidity) * fraction;
           changes += utilitySetStatus(terminal, "operating", "Supplying exterior air to this tile.") + 1;
@@ -28456,7 +28549,7 @@
         }
         tile.airborne = normalizeAirborneLoads(tile.airborne);
         if (exterior) {
-          const outside = surfaceOutsideAmbient();
+          const outside = outsideAmbientAtCell(terminal.origin);
           tile.temperatureC += (outside.temperatureC - tile.temperatureC) * fraction;
           tile.humidity += (outside.humidity - tile.humidity) * fraction;
           changes += registerExteriorDischarge(exterior, dischargedLoads, "air");
@@ -28688,12 +28781,23 @@
   }
 
   function updateInfrastructureStep(seconds) {
+    if (!secondsToHours(seconds)) return 0;
+    const previous = utilityEnvelope, map = ensureLabMap();
+    // Utilities do not change the physical envelope during this synchronous
+    // step. Share its flood-fill rather than rebuilding it for each tile.
+    utilityEnvelope = { map, context: buildSurfaceEnvelopeContext(map) };
+    try { return updateInfrastructureStepWithEnvelope(seconds); }
+    finally { utilityEnvelope = previous; }
+  }
+
+  function updateInfrastructureStepWithEnvelope(seconds) {
     const elapsedHours = secondsToHours(seconds);
     if (!elapsedHours) return 0;
     state.fixtures = normalizeFixtures(state.fixtures);
     const water = state.localSiteContext?.water;
     if (water && Number(water.replenishmentPerHour) > 0) {
-      const cistern = state.fixtures.find((fixture) => fixture.typeId === "waterCisternPump");
+      // The original parcel's water access never replenishes a separate wilderness facility.
+      const cistern = state.fixtures.find((fixture) => fixture.typeId === 'waterCisternPump' && fixture.origin.z === LAB_MAP_DEFAULT_SURFACE_Z);
       const capacity = Math.max(0, Number(fixtureInfrastructureDef(cistern)?.capacity) || 0);
       if (cistern?.utility?.contents && capacity > 0) {
         cistern.utility.contents.cleanWater = Math.min(capacity, (Number(cistern.utility.contents.cleanWater) || 0) + Number(water.replenishmentPerHour) * elapsedHours);
@@ -31274,6 +31378,12 @@
   function surfaceEnvelopeAtCell(cell, map = ensureLabMap(), context = null) {
     const clean = cleanMapCell(cell);
     if (!clean) return { kind: "subterranean", roofed: true, openSky: false };
+    const workshop = state.hiddenWorkshop?.site;
+    if (workshop?.shellBuiltAt != null && clean.z === workshop.layout.origin.z
+      && workshop.layout.floors.some(c => sameMapCell(c, clean))) {
+      const roof = constructedFloorAtCell(mapCellAtOffset(clean, 0, 0, 1), map);
+      if (roof?.purpose === 'roof' && roof.condition > 0) return { kind: 'coveredExterior', roofed: true, openSky: false };
+    }
     if (map.rooms?.[LeasedAnnex.ROOM]?.z === clean.z && map.rooms[LeasedAnnex.ROOM].cells.some(c => sameMapCell(c, clean))) return { kind: "interior", roofed: true, openSky: true }; // Passive daylight through the leased workshop's windows, not a powered lamp.
     if (map.rooms?.[LeasedAnnex.ROAD]?.z === clean.z && map.rooms[LeasedAnnex.ROAD].cells.some(c => sameMapCell(c, clean))) return { kind: "outdoor", roofed: false, openSky: true };
     if ([SurveyExpeditions.FIELD_Z, UnsupportedExcursions.Z].includes(clean.z) && surfaceGroundAtCell(clean, map)) return { kind: "outdoor", roofed: false, openSky: true };
@@ -31290,7 +31400,8 @@
     if (clean.z !== surfaceZ) {
       return { kind: clean.z < surfaceZ ? "subterranean" : "openAir", roofed: false, openSky: clean.z >= surfaceZ };
     }
-    const envelope = context || (physicalPlacementEnvelope?.map === map ? physicalPlacementEnvelope.context : buildSurfaceEnvelopeContext(map));
+    const envelope = context || (physicalPlacementEnvelope?.map === map ? physicalPlacementEnvelope.context
+      : utilityEnvelope?.map === map ? utilityEnvelope.context : buildSurfaceEnvelopeContext(map));
     const key = mapCellKey(clean);
     if (!envelope.cellsByKey.has(key)) {
       return { kind: "openAir", roofed: false, openSky: true };
@@ -54091,8 +54202,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!task) return null;
     const suspension = state.combat?.routineSuspension;
     if (suspension && (!suspension.taskId || task.id !== suspension.taskId)) return null;
-    if (!["firstContact", "homunculusWork", "soulBeaconWork", "surveyExpeditionWork", "scientistMove", "equipmentChange", "doorOperation", "visitFixtureAccess", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) return null;
-    if (["firstContact", "homunculusWork", "soulBeaconWork", "surveyExpeditionWork", "equipmentChange", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) {
+    if (!["hiddenWorkshopWork", "firstContact", "homunculusWork", "soulBeaconWork", "surveyExpeditionWork", "scientistMove", "equipmentChange", "doorOperation", "visitFixtureAccess", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) return null;
+    if (["hiddenWorkshopWork", "firstContact", "homunculusWork", "soulBeaconWork", "surveyExpeditionWork", "equipmentChange", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) {
       const blockedReason = taskBlockReason(task);
       if (blockedReason) {
         task.data ||= {};
@@ -67558,6 +67669,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "surveyExpeditionWork") { const reason = surveyWorkBlockReason(task); if (reason) return reason; }
     if (task.type === "homunculusWork") { const reason = homunculusTaskReason(task); if (reason) return reason; }
     if (task.type === "soulBeaconWork") { const reason = soulBeaconTaskReason(task); if (reason) return reason; }
+    if (task.type === 'hiddenWorkshopWork') { const reason = hiddenWorkshopTaskReason(task); if (reason) return reason; }
     if (task.type === "firstContact") { const reason = firstContactTaskReason(task); if (reason) return reason; }
     if (scientistIsDead()) {
       return "The scientist is dead.";
@@ -67871,6 +67983,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (task.type === "homunculusWork") releaseHomunculusWork(task);
     if (task.type === "soulBeaconWork") releaseHomunculusWork(task);
+    if (task.type === 'hiddenWorkshopWork') releaseHiddenWorkshopWork(task);
     if (task.type === "creationLesson") {
       const l = state.creationCooperation?.lessons.find(l => l.id === task.data.lessonId);
       if (l?.status === "active") { l.status = "cancelled"; l.reason = "The physical teaching session ended; no learning credited."; releaseCreationWork(l); }
@@ -83397,6 +83510,319 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     saved.materialized = true; saved.approachOnly = true;
   }
+  function ensureHiddenWorkshop() {
+    return state.hiddenWorkshop ||= HiddenWorkshop.create({ seed: state.seed, theme: activeWorldRecord?.worldTheme || 'madcap' });
+  }
+  function hiddenWorkshopLocal() {
+    const remote = state.unsupportedExcursions;
+    return Boolean(!scientistIsDead() && remote?.active && remote.trip?.status === 'field'
+      && scientistRoomId() === UnsupportedExcursions.ROOM && remote.destination?.id === state.wildernessSurvival?.destination?.id
+      && (!state.hiddenWorkshop?.site || state.hiddenWorkshop.site.destinationId === remote.destination.id));
+  }
+  function hiddenWorkshopShellIntact() {
+    const site = state.hiddenWorkshop?.site;
+    return Boolean(site?.shellBuiltAt != null && site.layout.floors.every(c => constructedFloorAtCell(c)?.condition >= 50)
+      && site.layout.roofs.every(c => { const roof = constructedFloorAtCell(c); return roof?.purpose === 'roof' && roof.condition >= 50; })
+      && site.layout.walls.every(c => constructedWallAtCell(c)?.condition >= 50));
+  }
+  function hiddenWorkshopObserved(cell) {
+    return sameMapLayer(cell, scientistMapCell()) && (mapCellDistance(cell, scientistMapCell()) <= 8 && sensoryLineOfSight(scientistMapCell(), cell)
+      || Boolean(state.mapCellObservations?.[mapCellKey(cell)]));
+  }
+  function hiddenWorkshopGroundReason(layout, allowRock = false, inspected = false) {
+    const remote = ensureUnsupportedExcursions(), bounds = WildernessDiscovery.REMOTE_BOUNDS;
+    for (const c of layout.ground) {
+      if (c.z !== UnsupportedExcursions.Z || c.x < bounds.x || c.x >= bounds.x + bounds.width || c.y < bounds.y || c.y >= bounds.y + bounds.height
+        || Math.abs(c.x - UnsupportedExcursions.LANDING.x) <= 1 && Math.abs(c.y - UnsupportedExcursions.LANDING.y) <= 1)
+        return 'The footprint must fit the visited remote ground without occupying the reserved landing area.';
+      if (!inspected && !hiddenWorkshopObserved(c)) return 'Walk around and inspect the full footprint before planning construction.';
+      if ((!labMapCellHasFloor(c) && !(allowRock && wildernessObstacleAtCell(c))) || fixturesAtCell(c).length || constructedWallAtCell(c)
+        || labMapDoorAtCell(c) || (state.containers || []).some(v => containerFootprintCells(v).some(p => sameMapCell(p, c))))
+        return 'The inspected footprint has an obstacle or existing structure; clear rock or choose another patch.';
+    }
+    if (!remote.destination || !labMapCellIsWalkable(layout.workCell)) return 'A real reachable operating tile is required.';
+    return '';
+  }
+  function hiddenWorkshopCandidate(allowRock = false, origin = null) {
+    if (origin) { const cell = cleanMapCell(origin); return cell ? HiddenWorkshop.plan(cell) : null; }
+    const cell = scientistMapCell(), candidates = [];
+    for (let y = 8; y <= 10; y++) for (let x = 25; x <= 30; x++) {
+      const layout = HiddenWorkshop.plan({ x, y, z: UnsupportedExcursions.Z });
+      if (!hiddenWorkshopGroundReason(layout, allowRock)) candidates.push(layout);
+    }
+    return candidates.sort((a, b) => mapCellDistance(cell, a.workCell) - mapCellDistance(cell, b.workCell))[0] || null;
+  }
+  function hiddenWorkshopTool(key) {
+    return surveyCarriedStacks().map(s => ({ stack: s, tool: toolInstanceById(s.toolInstanceId)?.instance
+      || toolInstancesForItem(key).find(t => t.carriedBy === 'scientist' && t.current > 0) }))
+      .find(p => p.stack.key === key && !p.stack.reservedTaskId && p.tool?.current > 0 && !p.tool.reservedTaskId)?.tool || null;
+  }
+  function hiddenWorkshopEquipment(role) {
+    return (state.hiddenWorkshop?.site?.fixtureIds[role] || []).map(fixtureById).filter(Boolean);
+  }
+  function hiddenWorkshopSpec(action, role, layout, fixtureId = '') {
+    const fixtures = hiddenWorkshopEquipment(role), fixture = fixtureId ? fixtures.find(f => f.id === fixtureId) : fixtures[0];
+    if (action === 'shell') return { costs: HiddenWorkshop.SHELL_COSTS, seconds: 7200, tools: ['masonryHammer', 'handSaw'], cell: layout.workCell };
+    if (action === 'clearGround') return { costs: {}, seconds: Math.max(60, layout.ground.filter(wildernessObstacleAtCell).length * 300), tools: ['miningPick'], cell: layout.workCell };
+    if (action === 'install' && HiddenWorkshop.EQUIPMENT[role]) {
+      const def = FIXTURE_BY_ID[HiddenWorkshop.EQUIPMENT[role]], material = def.materialOptions[role === 'bench' ? 'wood' : 'steel'];
+      return { costs: Object.fromEntries(Object.entries(material.costs).map(([k, n]) => [k, n * layout.equipment[role].length])),
+        seconds: def.workMinutes * 60 * layout.equipment[role].length, tools: ['masonryHammer'], cell: layout.workCell };
+    }
+    const port = fixture && fixtureAccessCells(fixture).find(p => labMapPathBetweenCells(scientistMapCell(), p.cell, { actor: state.scientist, ignoreDoors: true }).length);
+    if (!fixture || !port) return null;
+    const services = { fuel: { role: 'generator', key: 'fuelReagent', field: 'fuel', capacity: 48 },
+      feedstock: { role: 'mana', key: 'arcaneFeedstock', field: 'feedstock', capacity: 24 },
+      water: { role: 'water', key: 'drinkingWater', field: 'water', capacity: 120 } };
+    let spec = null;
+    if (services[action]?.role === role) spec = { ...services[action], costs: { [services[action].key]: 1 }, seconds: 60, tools: [] };
+    if (action === 'toggle' && fixtureInfrastructureDef(fixture)) spec = { costs: {}, seconds: 10, tools: [] };
+    if (action === 'inspect') spec = { costs: {}, seconds: 30, tools: [] };
+    if (action === 'maintain') spec = { costs: { metalParts: 1 }, seconds: 900, tools: ['masonryHammer'] };
+    if (action === 'repair' && fixture.utility) spec = { costs: { metalParts: 1, rubber: 1 }, seconds: 900, tools: ['masonryHammer'] };
+    if (action === 'empty' && role === 'sump') spec = { costs: { sealedReagentBottle: 1 }, seconds: 120, tools: [] };
+    if (action === 'test' && role === 'testStand') spec = { costs: { assayReagent: 1 }, seconds: 900, tools: [] };
+    return spec ? { ...spec, cell: port.cell, fixture } : null;
+  }
+  function hiddenWorkshopTaskReason(task) {
+    const d = task.data, site = state.hiddenWorkshop?.site, layout = d.layout;
+    if (!hiddenWorkshopLocal() || state.unsupportedExcursions.destination.id !== d.destinationId) return 'Attend the original wilderness workshop; there is no remote construction or servicing.';
+    if (actorIsIncapacitated('scientist')) return 'Incapacity prevents physical workshop work.';
+    if (['shell', 'install', 'maintain', 'repair'].includes(d.action) && skillLevel('fabrication') < 101)
+      return 'Adept Fabrication (101) execution is required for this construction or equipment work.';
+    if (d.tools.some(id => !hiddenWorkshopTool(id))) return 'Carry the actual usable tools listed for this work.';
+    if (!labMapCellIsWalkable(d.toCell)) return 'The actual operating position is obstructed.';
+    const hazard = surfaceWorkerHazard(d.toCell); if (hazard) return hazard;
+    if (d.action === 'clearGround') return hiddenWorkshopGroundReason(layout, true);
+    if (!site || site.id !== d.siteId) return 'The original workshop site is unavailable.';
+    if (d.action === 'shell') {
+      if (site.shellBuiltAt != null) return 'This workshop shell is already built; do not duplicate it.';
+      // Registration already proved knowledge of this exact footprint. Keep
+      // checking its real obstacles, without re-surveying every tile each tick.
+      const ground = hiddenWorkshopGroundReason(layout, false, true); if (ground) return ground;
+      if (layout.walls.some(c => ensurePhysicalItemStacks().some(i => i.quantity > 0 && !i.carriedBy && sameMapCell(i.cell, c))
+        || !canActorOccupyTile(state.scientist, c))) return 'Clear people, creatures and belongings from the future wall tiles first.';
+    } else if (!hiddenWorkshopShellIntact()) return 'The actual workshop floor, walls and roof must survive; a historical completion record supplies no shelter.';
+    for (const id of d.reservedStackIds) {
+      const i = ensurePhysicalItemStacks().find(s => s.id === id);
+      if (!i || i.reservedTaskId !== task.id || i.quantity < d.inputQuantities[id] || i.carriedBy || i.fixtureId || i.containerId
+        || !sameMapLayer(i.cell, d.toCell) || mapCellDistance(i.cell, d.toCell) > 1 || !sensoryLineOfSight(i.cell, d.toCell))
+        return 'An original staged input moved, disappeared or changed custody.';
+    }
+    if (d.action === 'install') {
+      if (site.fixtureIds[d.role]?.length) return 'That physical equipment was already installed; no free replacement is supplied.';
+      const def = FIXTURE_BY_ID[HiddenWorkshop.EQUIPMENT[d.role]];
+      return layout.equipment[d.role].map(c => fixturePlacementBlockReason(def, c, layout.rotations?.[d.role] || 0)).find(Boolean) || '';
+    }
+    if (['shell', 'clearGround'].includes(d.action)) return '';
+    const f = fixtureById(d.fixtureId);
+    if (!f || f.condition <= 0 || !(site.fixtureIds[d.role] || []).includes(f.id) || !fixtureAccessCells(f).some(p => sameMapCell(p.cell, d.toCell))) return 'The original equipment and its actual service port are required.';
+    if (f.productionTaskId && f.productionTaskId !== task.id) return 'The actual equipment is occupied by other work.';
+    if (d.load) {
+      const held = d.load.field === 'water' ? f.utility.contents.cleanWater || 0 : f.utility[d.load.field];
+      if (held + 1 > d.load.capacity + 1e-8) return 'The actual reservoir cannot accept another whole supplied unit.';
+    }
+    if (d.action === 'empty' && ensurePhysicalItemStacks().some(s => d.reservedStackIds.includes(s.id) && s.contents?.length)) return 'Stage an actually empty bottle, not another filled receptacle.';
+    if (d.action === 'empty' && !utilityContentsTotal(f.utility.contents)) return 'The actual sump is empty.';
+    if (d.action === 'maintain' && f.utility?.fault) return 'Inspect and repair the active utility fault before preventive maintenance.';
+    if (d.action === 'repair' && (!f.utility?.fault || f.utility.knownFaultId !== f.utility.fault.id)) return 'Personally inspect this actual utility fault before repairing it.';
+    return '';
+  }
+  function hiddenWorkshopAction(action, options = {}) {
+    if (scientistIsDead() || actorIsIncapacitated('scientist') || scientistQueueTasks().length) return false;
+    if (action === 'pack') {
+      const stack = ensurePhysicalItemStacks().find(s => s.id === options.stackId), amount = Number(options.amount ?? 1);
+      if (!stack || !Number.isInteger(amount) || amount <= 0 || amount > stack.quantity || stack.carriedBy || stack.reservedTaskId
+        || stack.containerId || stack.fixtureId || !hiddenWorkshopObserved(stack.cell) || !actorInventoryCanCarry('scientist', stack, amount)) return false;
+      const tool = durableToolDef(stack.key) && (toolInstanceById(stack.toolInstanceId)?.instance
+        || toolInstancesForItem(stack.key).find(t => !t.carriedBy && !t.reservedTaskId && t.roomId === stack.roomId && t.current > 0));
+      if (durableToolDef(stack.key) && (!tool || amount !== 1)) return false;
+      return queueSurveyWork('pack', stockpileHaulAccessCell(stack), { stackId: stack.id, itemKey: stack.key, amount, toolInstanceId: tool?.id || '' });
+    }
+    if (action === 'drop') {
+      const ok = dropActorInventoryStack('scientist', options.stackId); observeHiddenWorkshop(); persist(); render(); return Boolean(ok);
+    }
+    if (!hiddenWorkshopLocal()) return false;
+    const saved = ensureHiddenWorkshop(), layout = saved.site?.layout || hiddenWorkshopCandidate(action === 'clearGround', options.origin);
+    if (!layout) { surveyEvent('Walk around to inspect a clear seven-by-seven workshop footprint plus its external generator apron, outside the landing area. Visible rock can be cleared with a carried mining pick.'); return false; }
+    if (action === 'establish') {
+      const reason = hiddenWorkshopGroundReason(layout);
+      const result = HiddenWorkshop.establish(saved, state.unsupportedExcursions.destination, layout, state.clock, {
+        alive: true, local: true, visited: Boolean(state.wildernessSurvival.discovery?.baseline), wilderness: true,
+        observed: layout.ground.every(hiddenWorkshopObserved), clear: !reason, roomId: UnsupportedExcursions.ROOM });
+      if (!result.ok) { surveyEvent(result.reason); return false; }
+      for (const trip of state.unsupportedExcursions.history.concat(state.unsupportedExcursions.trip || []))
+        saved.site.disclosures.push({ at: trip.departedAt, source: 'Survey charter provider', purpose: 'Knows the landing rendezvous, not the workshop purpose or underground research' });
+      surveyEvent('Registered the personally inspected hidden workshop footprint. No ownership, safety, legal immunity, building or supplies were granted.');
+      persist(); render(); return true;
+    }
+    if (!saved.site && action !== 'clearGround') return false;
+    const role = options.role || '', spec = hiddenWorkshopSpec(action, role, layout, options.fixtureId); if (!spec) return false;
+    const slices = homunculusInputs(spec.costs, spec.cell); if (!slices) { surveyEvent('Stage the listed real inputs within one tile of the actual work position.'); return false; }
+    const path = labMapPathBetweenCells(scientistMapCell(), spec.cell, { actor: state.scientist, ignoreDoors: true }); if (!path.length) return false;
+    const id = `task-${state.nextTaskNumber++}`, reserved = reserveProductionMaterialSlices(slices, id); if (!reserved) return false;
+    // Navigation may replace normalized fixture records. Claim the current
+    // physical object, not the pre-path reference used to choose its port.
+    const travel = mapPathTravelDistanceMeters(path) / scientistMoveSpeedMps(), f = spec.fixture && fixtureById(spec.fixture.id);
+    const task = { id, type: 'hiddenWorkshopWork', label: `Hidden workshop: ${action}${role ? ` ${role}` : ''}`, createdAt: state.clock,
+      dueAt: state.clock + travel + spec.seconds, data: { action, role, fixtureId: f?.id || '', siteId: saved.site?.id || '',
+        destinationId: state.unsupportedExcursions.destination.id, layout: clonePlainObject(layout), tools: spec.tools, toCell: spec.cell,
+        roomId: UnsupportedExcursions.ROOM, mapPath: path, movement: createScientistMovementRecord(path, travel, state.clock, { intent: 'workshop' }),
+        work: { required: spec.seconds, progress: 0, lastAt: state.clock, attendedAt: null }, reservedStackIds: reserved,
+        inputQuantities: Object.fromEntries(slices.map(p => [p.stackId, p.quantity])), load: spec.field ? { field: spec.field, capacity: spec.capacity } : null } };
+    const reason = hiddenWorkshopTaskReason(task);
+    if (reason) { releaseProductionMaterialReservations(task); surveyEvent(reason); return false; }
+    const claimed = fixtureById(task.data.fixtureId);
+    if (claimed) { claimed.productionTaskId = id; if (action === 'test') claimed.utility.enabled = true; }
+    state.tasks.push(task); persist(); render(); return true;
+  }
+  function releaseHiddenWorkshopWork(task) {
+    releaseProductionMaterialReservations(task);
+    const f = fixtureById(task.data.fixtureId);
+    if (f?.productionTaskId === task.id) f.productionTaskId = '';
+    if (f && task.data.action === 'test') f.utility.enabled = false;
+  }
+  function finishHiddenWorkshopWork(task) {
+    const d = task.data, site = state.hiddenWorkshop?.site;
+    try {
+      if (hiddenWorkshopTaskReason(task) || !sameMapCell(scientistMapCell(), d.toCell) || d.work.progress < d.work.required) return false;
+      const f = fixtureById(d.fixtureId);
+      if (d.action === 'shell') {
+        const map = ensureLabMap();
+        map.terrain.constructedFloors = normalizeConstructedSurfaces([...(map.terrain.constructedFloors || []),
+          ...d.layout.floors.map(cell => ({ cell, materialId: 'wood', purpose: 'floor', supportSpanM: 8, condition: 100, builtAt: state.clock })),
+          ...d.layout.roofs.map(cell => ({ cell, materialId: 'wood', purpose: 'roof', supportSpanM: 8, condition: 100, builtAt: state.clock }))]);
+        map.terrain.constructedWalls = normalizeConstructedSurfaces([...(map.terrain.constructedWalls || []),
+          ...d.layout.walls.map(cell => ({ cell, materialId: 'wood', condition: 100, builtAt: state.clock }))]);
+        site.shellBuiltAt = state.clock; bumpNavigationRevision('topology');
+      } else if (d.action === 'clearGround') {
+        const map = ensureLabMap(), rocks = d.layout.ground.filter(wildernessObstacleAtCell);
+        map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...rocks]); bumpNavigationRevision('topology'); updateRemoteDiscovery();
+      } else if (d.action === 'install') {
+        const type = HiddenWorkshop.EQUIPMENT[d.role]; site.fixtureIds[d.role] = [];
+        d.layout.equipment[d.role].forEach((cell, i) => {
+          const id = `hidden-workshop:${d.role}:${i}`, fixture = defaultFixtureInstance(id, type, cell, d.layout.rotations?.[d.role] || 0, {
+            name: `Workshop ${FIXTURE_BY_ID[type].label}`, condition: 100, materialPolicy: d.role === 'bench' ? 'wood' : 'steel', installedAt: state.clock,
+            utility: { enabled: !['generator', 'testStand', 'heater', 'lamp'].includes(d.role), mode: d.role === 'mana' ? 'feedstock' : undefined,
+              powerMode: ['heater', 'lamp'].includes(d.role) ? 'electric' : undefined, fuel: 0, feedstock: 0, storedMana: 0, contents: {}, waterQuality: 100 } });
+          state.fixtures.push(fixture); site.fixtureIds[d.role].push(id);
+        });
+        state.fixtures = normalizeFixtures(state.fixtures); bumpNavigationRevision('topology');
+      } else if (d.load) {
+        if (d.load.field === 'water') {
+          const old = f.utility.contents.cleanWater || 0;
+          f.utility.waterQuality = (f.utility.waterQuality * old + 100) / (old + 1); f.utility.contents.cleanWater = old + 1;
+        } else f.utility[d.load.field] += 1;
+      } else if (d.action === 'toggle') f.utility.enabled = !f.utility.enabled;
+      else if (d.action === 'inspect' && f.utility) { f.utility.lastInspectedAt = state.clock; f.utility.knownFaultId = f.utility.fault?.id || 'none'; }
+      else if (d.action === 'maintain' || d.action === 'repair') {
+        f.condition = Math.min(100, f.condition + (d.action === 'repair' ? 20 : 10));
+        if (f.utility) { f.utility.serviceHours = 0; f.utility.wear = Math.max(0, f.utility.wear - 80); f.utility.lastMaintainedAt = state.clock;
+          f.utility.failureChecks = Math.max(0, Math.floor((f.utility.wear - 75) / 25) + 1); }
+        if (d.action === 'repair') { f.utility.fault = null; f.utility.knownFaultId = 'none'; f.utility.failureChecks = 0; f.operationalState = 'operational'; }
+      } else if (d.action === 'empty') {
+        // A bottle holds one unit, never an arbitrarily large tank. Preserve exact remaining contents.
+        const contents = []; let capacity = 1;
+        for (const [key, held] of Object.entries(f.utility.contents)) {
+          const amount = Math.min(capacity, held); if (amount > 0) contents.push({ kind: 'waste', key, amount, phase: 'sludge', tags: ['workshop-service-waste'] });
+          f.utility.contents[key] -= amount; capacity -= amount; if (capacity <= 0) break;
+        }
+        createPhysicalItemStack('inventory', 'sealedReagentBottle', 1, { roomId: site.roomId, cell: d.toCell }, {
+          contents, form: 'receptacle', tags: ['sealed', 'waste'], sourceLabels: [f.id], dimensionsM: { width: .2, length: .2, height: .3 } });
+      } else if (d.action === 'test') {
+        state.hiddenWorkshop.receipts.push({ id: task.id, at: state.clock, siteId: site.id, standId: f.id,
+          suppliedSeconds: d.work.progress, summary: 'Fifteen attended minutes of actual electricity, mana, clean water and finite drainage. Historical test, not current receiver readiness.' });
+      }
+      consumeProductionMaterialReservations(task);
+      for (const key of d.tools) { const tool = hiddenWorkshopTool(key); if (tool) tool.current = Math.max(0, tool.current - 1); }
+      awardXp(d.action === 'test' ? 'materialsScience' : 'fabrication', d.action === 'shell' ? 30 : 4, task.label, { physical: true });
+      surveyEvent(`${task.label} completed using this site's real materials and equipment.`); observeHiddenWorkshop(); return true;
+    } finally { releaseHiddenWorkshopWork(task); }
+  }
+  function updateHiddenWorkshop() {
+    if (scientistIsDead()) return 0;
+    const task = firstScientistQueueTask();
+    if (task?.type !== 'hiddenWorkshopWork') { observeHiddenWorkshop(); return 0; }
+    const d = task.data, work = d.work, elapsed = Math.max(0, state.clock - work.lastAt); work.lastAt = state.clock;
+    const attended = sameMapCell(scientistMapCell(), d.toCell) && (d.movement.completed || d.movement.steps.length <= 1) && !taskBlockReason(task)
+      && (!state.combat?.routineSuspension || state.combat.routineSuspension.taskId === task.id);
+    if (!attended) { work.attendedAt = null; return 0; }
+    // Arrival is observed before any construction credit; blocked time never catches up.
+    if (work.attendedAt === null) { work.attendedAt = state.clock; return 0; }
+    let changed = 0, remaining = Math.min(elapsed, work.required - work.progress);
+    const support = d.action === 'test' ? homunculusHooks() : null;
+    while (remaining > 0) {
+      const step = Math.min(60, remaining), supplied = !support || support.support({ chamberId: d.fixtureId, location: { cell: d.toCell }, stocks: [] }, step).ok;
+      changed += HiddenWorkshop.progress(work, step, true, supplied); remaining -= step;
+      if (!supplied) break;
+    }
+    task.dueAt = state.clock + Math.max(0, work.required - work.progress);
+    observeHiddenWorkshop(); return changed ? 1 : 0;
+  }
+  function observeHiddenWorkshop() {
+    const saved = state.hiddenWorkshop, site = saved?.site; if (!site || !hiddenWorkshopLocal()) return;
+    const cells = [...site.layout.ground, ...labMapRoomCells(site.roomId)].filter(c => mapCellDistance(c, scientistMapCell()) <= 8 && sensoryLineOfSight(scientistMapCell(), c));
+    HiddenWorkshop.observe(saved, state.clock, cells, ensurePhysicalItemStacks().filter(s => s.roomId === site.roomId && !s.carriedBy && !s.fixtureId && !s.containerId),
+      Object.values(site.fixtureIds).flat().map(fixtureById).filter(Boolean), site.layout.ground.every(c => cells.some(p => sameMapCell(c, p))) ? hiddenWorkshopShellIntact() : null);
+  }
+  function renderHiddenWorkshop() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.hiddenWorkshop = 'true';
+    panel.append(textEl('strong', 'Hidden Receiving Workshop'), textEl('p', 'One visited wilderness site; no ownership, immunity, guaranteed secrecy, employees or resurrection. Actual charter capacity and pickup windows still apply. No shared inventory or internet delivery.'));
+    const saved = state.hiddenWorkshop, site = saved?.site, local = hiddenWorkshopLocal(), busy = scientistQueueTasks().length > 0;
+    const button = (label, action, options = {}, reason = '') => {
+      const b = storesActionButton(label, reason || label, () => hiddenWorkshopAction(action, options));
+      setActionButtonState(b, Boolean(reason) || busy || scientistIsDead(), reason || 'Finish or cancel current work first.'); panel.append(b);
+    };
+    const loose = ensurePhysicalItemStacks().filter(s => s.quantity > 0 && !s.carriedBy && !s.reservedTaskId && !s.fixtureId && !s.containerId
+      && sameMapLayer(s.cell, scientistMapCell()) && mapCellDistance(s.cell, scientistMapCell()) <= 8 && sensoryLineOfSight(scientistMapCell(), s.cell));
+    if (loose.length) {
+      const select = document.createElement('select'); select.setAttribute('aria-label', 'Workshop supply to pack');
+      for (const s of loose) { const o = document.createElement('option'); o.value = s.id; o.textContent = `${inventoryItemLabel(s.key)} ×${s.quantity} (${s.id})`; select.append(o); }
+      const amount = document.createElement('input'); amount.type = 'number'; amount.min = '1'; amount.step = '1'; amount.value = '1'; amount.setAttribute('aria-label', 'Workshop supply quantity');
+      panel.append(select, amount); const pack = storesActionButton('Pack actual workshop supply', 'Walk to the observed lot; carrying and cargo limits remain binding.', () => hiddenWorkshopAction('pack', { stackId: select.value, amount: Number(amount.value) }));
+      pack.disabled = busy || scientistIsDead(); panel.append(pack);
+    }
+    for (const s of surveyCarriedStacks().filter(s => !s.reservedTaskId)) button(`Stage carried ${inventoryItemLabel(s.key)} (${s.id})`, 'drop', { stackId: s.id });
+    if (!site) {
+      panel.append(textEl('p', 'Physically explore the remote charter ground, inspect a clear 7 × 7 m footprint and external generator apron, then register it. Shell: 49 lumber, 12 steel panels, 6 metal parts, 4 rubber; two attended hours, Adept Fabrication and carried usable hammer/saw. Equipment is built separately from its ordinary listed recipe.'));
+      button('Register inspected workshop footprint', 'establish', {}, local ? '' : 'Visit the remote wilderness landing site first.');
+      button('Clear inspected workshop rock', 'clearGround', {}, local ? '' : 'Visit the remote site; a carried usable mining pick is required.');
+      return panel;
+    }
+    observeHiddenWorkshop(); const view = HiddenWorkshop.publicView(saved);
+    panel.append(textEl('p', `Known site: ${view.label}. Staging ${view.stagingCell.x},${view.stagingCell.y}; construction position ${view.workCell.x},${view.workCell.y}. Open south entrance, not a warded refuge. Reports below are dated personal observations, never remote telemetry.`));
+    if (local) {
+      const walk = storesActionButton('Walk to workshop staging position', 'Physically reach the construction position.', () => startScientistMove(site.roomId, { toCell: site.layout.workCell, urgent: true })); walk.disabled = busy; panel.append(walk);
+      if (site.shellBuiltAt === null) button('Build workshop shell', 'shell');
+      for (const [role, type] of Object.entries(HiddenWorkshop.EQUIPMENT)) {
+        if (site.fixtureIds[role]?.length) continue;
+        const def = FIXTURE_BY_ID[type], recipe = def.materialOptions[role === 'bench' ? 'wood' : 'steel'];
+        panel.append(textEl('p', `${def.label} ×${site.layout.equipment[role].length}: ${Object.entries(recipe.costs).map(([k, n]) => `${n * site.layout.equipment[role].length} ${inventoryItemLabel(k)}`).join(', ')}. Stage beside construction position; carried usable hammer required.`));
+        button(`Install workshop ${role}`, 'install', { role }, hiddenWorkshopShellIntact() ? '' : 'Build and retain the actual workshop shell first.');
+      }
+      for (const role of Object.keys(site.fixtureIds)) for (const [index, f] of hiddenWorkshopEquipment(role).entries()) {
+        const label = role === 'services' ? `${role} (${index + 1})` : role, options = { role, fixtureId: f.id };
+        const port = fixtureAccessCells(f)[0]?.cell;
+        panel.append(textEl('p', `${f.name}: operating position ${port ? `${port.x},${port.y}` : 'blocked'}. Stage servicing inputs within one tile; loading consumes one actual unit.`));
+        button(`Inspect workshop ${label}`, 'inspect', options);
+        if (fixtureInfrastructureDef(f)) button(`Toggle workshop ${label}`, 'toggle', options);
+        if (role === 'generator') button('Load workshop fuel', 'fuel', options);
+        if (role === 'mana') button('Load workshop arcane feedstock', 'feedstock', options);
+        if (role === 'water') button('Load workshop clean water', 'water', options);
+        if (role === 'sump') button('Bottle actual workshop sump waste', 'empty', options);
+        if (role === 'testStand') button('Run supplied workshop service test', 'test', options);
+        button(`Maintain workshop ${label}`, 'maintain', options);
+        if (f.utility?.knownFaultId && f.utility.knownFaultId !== 'none') button(`Repair workshop ${label}`, 'repair', options);
+      }
+      panel.append(textEl('p', 'Service test: one staged reagent and 15 actually attended supplied minutes, consuming electricity, mana, water and sump capacity. Maintenance: one staged metal part; repair additionally one rubber and prior fault inspection. Sump removal needs an empty sealed bottle. Supplies, shelter, lighting and heating are finite; no living receiver or soul beacon is enabled by this test.'));
+    }
+    for (const f of view.observations.fixtures) panel.append(textEl('p', `${formatClock(f.at)} · ${f.label}: condition ${f.condition}%; ${f.enabled ? 'enabled' : 'disabled'}${f.fuel != null ? `; fuel ${formatDecimal(f.fuel, 2)}, mana ${formatDecimal(f.mana, 2)}, feedstock ${formatDecimal(f.feedstock, 2)}, water ${formatDecimal(f.water || 0, 2)}` : ''}.`));
+    for (const g of view.observations.goods) panel.append(textEl('p', `${formatClock(g.at)} · Observed ${inventoryItemLabel(g.key)} ×${g.quantity} at ${g.cell.x},${g.cell.y}.`));
+    for (const r of view.receipts.slice(-5)) panel.append(textEl('p', `${formatClock(r.at)} · ${r.summary}`));
+    panel.append(textEl('p', `${view.disclosures.length} recorded landing/site disclosures. These are who learned what, not a secrecy score or a hidden enemy list.`));
+    return panel;
+  }
+
   function wildernessSiteState() {
     const survival = ensureWildernessSurvival();
     return { destination: survival.destination ? clonePlainObject(survival.destination) : null, context: survival.context ? clonePlainObject(survival.context) : null, materialized: survival.materialized, shelter: survival.shelter ? clonePlainObject(survival.shelter) : null, discovery: survival.discovery ? clonePlainObject(survival.discovery) : null, beasts: clonePlainObject(ensureWildernessBeasts()) };
@@ -83416,6 +83842,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (reason) { surveyEvent(reason); return true; }
       materializeUnsupportedSpaces();
       saved.trip = UnsupportedExcursions.start(saved.nextTrip++, state.clock, saved.destination);
+      const workshop = state.hiddenWorkshop?.site;
+      if (workshop?.destinationId === saved.destination.id) workshop.disclosures.push({ at: state.clock, source: 'Survey charter provider',
+        purpose: 'Repeat physical landing rendezvous; workshop purpose and underground research not automatically disclosed' });
       const coverage = state.medicalExtraction?.coverage;
       if (coverage?.status === "ready") { coverage.tripId = saved.trip.id; coverage.status = "active"; }
       ensureEconomy().money -= saved.trip.terms.fee;
@@ -83939,6 +84368,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function scientistInWilderness() { return scientistRoomId() === activeWildernessRoom(); }
   function wildernessSheltered() {
+    const site = state.hiddenWorkshop?.site;
+    if (hiddenWorkshopLocal() && hiddenWorkshopShellIntact() && site.layout.floors.some(c => sameMapCell(c, scientistMapCell()))
+      && !site.layout.walls.some(c => sameMapCell(c, scientistMapCell()))) return true;
     const shelter = state.wildernessSurvival?.shelter;
     const stack = shelter && ensurePhysicalItemStacks().find((entry) => entry.id === shelter.stackId && !entry.carriedBy && entry.quantity > 0);
     return Boolean(stack && mapCellKey(stack.cell) === mapCellKey(shelter.cell) && mapCellKey(scientistMapCell()) === mapCellKey(shelter.cell));
@@ -84467,7 +84899,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "injuryTreatment") return task.data.targetActorId === "scientist";
     if (task.type === "surveyExpeditionWork" && ["consume", "radioBattery"].includes(task.data.action)) return true;
     if (state.surveyExpeditions.phase !== "field") return false;
-    return ["scientistMove", "surveyExpeditionWork", "physicalDiagnostic"].includes(task.type);
+    return ["scientistMove", "surveyExpeditionWork", "physicalDiagnostic", "hiddenWorkshopWork"].includes(task.type);
   }
   function surveyBusy() { return scientistQueueTasks().some((task) => !taskBlockReason(task)); }
   function surveyEvent(message) { addEvent(message, { sourceKind: "surveyExpedition" }); }
@@ -84898,6 +85330,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     panel.append(renderWildernessPanel());
     panel.append(renderUnsupportedExcursions());
+    panel.append(renderHiddenWorkshop());
     panel.append(renderMedicalExtraction());
     panel.append(renderMunicipalClinic());
     panel.append(renderScientistIdentity());
@@ -91936,6 +92369,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.laboratoryAssistant = LaboratoryAssistant.normalize(candidate?.laboratoryAssistant);
     next.laboratoryAssistantKnowledge = candidate?.laboratoryAssistantKnowledge ? clonePlainObject(candidate.laboratoryAssistantKnowledge) : null;
     next.leasedAnnex = LeasedAnnex.normalize(candidate?.leasedAnnex);
+    next.hiddenWorkshop = candidate?.hiddenWorkshop ? HiddenWorkshop.normalize(candidate.hiddenWorkshop) : null;
     next.homunculi = Homunculi.normalize(candidate?.homunculi, next.clock);
     next.firstContact = FirstContact.normalize(candidate?.firstContact);
     next.signedLanguage = SignedLanguage.normalize(candidate?.signedLanguage);
@@ -92096,7 +92530,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     );
     const constructionTaskIds = new Set(next.tasks.filter((task) => task?.type === "constructionWork").map((task) => String(task.id || "")));
     const productionTaskIds = new Set(next.tasks.filter((task) => task?.type === "productionWork").map((task) => String(task.id || "")));
-    const homunculusFixtureClaims = new Map(next.tasks.filter(task => task?.type === "homunculusWork" && task.data?.fixtureId).map(task => [task.data.fixtureId, task.id]));
+    const physicalFixtureClaims = new Map(next.tasks.filter(task => ['homunculusWork', 'soulBeaconWork', 'hiddenWorkshopWork'].includes(task?.type)
+      && task.data?.fixtureId).map(task => [task.data.fixtureId, task.id]));
     const diagnosticTaskIds = new Set(next.tasks.filter((task) => task?.type === "physicalDiagnostic").map((task) => String(task.id || "")));
     const assistantOrderIds = new Set((next.laboratoryAssistant?.orders || []).filter(o => o.status === "active").flatMap(o => [o.id, o.batchId].filter(Boolean)));
     const toolTaskIds = new Set([...constructionTaskIds, ...productionTaskIds, ...diagnosticTaskIds, ...assistantOrderIds]);
@@ -92117,7 +92552,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (bill.activeTaskId && !productionTaskIds.has(bill.activeTaskId)) bill.activeTaskId = "";
     }
     for (const fixture of next.fixtures || []) {
-      if (fixture.productionTaskId && !productionTaskIds.has(fixture.productionTaskId) && !assistantOrderIds.has(fixture.productionTaskId) && homunculusFixtureClaims.get(fixture.id) !== fixture.productionTaskId) fixture.productionTaskId = "";
+      if (fixture.productionTaskId && !productionTaskIds.has(fixture.productionTaskId) && !assistantOrderIds.has(fixture.productionTaskId) && physicalFixtureClaims.get(fixture.id) !== fixture.productionTaskId) fixture.productionTaskId = "";
     }
     for (const workpiece of next.productionWorkpieces || []) {
       if (workpiece.reservedTaskId && !productionTaskIds.has(workpiece.reservedTaskId)) {

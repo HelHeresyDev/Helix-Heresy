@@ -1,20 +1,10 @@
 // @ts-check
 const { test, expect } = require('@playwright/test');
-const path = require('path');
-const { pathToFileURL } = require('url');
-
-const projectRoot = path.resolve(__dirname, '..');
-const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
+const { startLifecycleRun } = require('./helpers/start-lifecycle-run');
+test.setTimeout(120000);
 
 async function startRun(page) {
-  await page.goto(appUrl);
-  await page.evaluate(() => {
-    window.localStorage.clear();
-    window.localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: 'dom' }));
-  });
-  await page.reload();
-  await page.locator('#titleNewRunBtn').click();
-  await page.locator('#setupForm button[type="submit"]').click();
+  await startLifecycleRun(page, 'focused-surface-layer');
 }
 
 test('the saved site contains bounded surface ground, a roofed shell, and a physical basement stair', async ({ page }) => {

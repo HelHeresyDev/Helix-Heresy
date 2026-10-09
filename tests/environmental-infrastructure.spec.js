@@ -1,20 +1,10 @@
 // @ts-check
 const { test, expect } = require('@playwright/test');
-const path = require('path');
-const { pathToFileURL } = require('url');
-
-const projectRoot = path.resolve(__dirname, '..');
-const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
+const { startLifecycleRun } = require('./helpers/start-lifecycle-run');
+test.setTimeout(120000);
 
 async function startRun(page) {
-  await page.goto(appUrl);
-  await page.evaluate(() => {
-    window.localStorage.clear();
-    window.localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: 'dom' }));
-  });
-  await page.reload();
-  await page.locator('#titleNewRunBtn').click();
-  await page.locator('#setupForm button[type="submit"]').click();
+  await startLifecycleRun(page, 'focused-infrastructure');
 }
 
 async function infrastructureFixture(page, typeId) {
@@ -70,6 +60,14 @@ test('starter utilities are physical fixtures and the oil lamp lights nearby til
 
 test('heaters use broad controls until an operational thermostat enables an exact target', async ({ page }) => {
   await startRun(page);
+  // This is a controlled heater test, not a generated arctic-site test. Keep
+  // surrounding tiles temperate so ambient diffusion cannot dominate heating.
+  await page.evaluate(() => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState();
+    s.localSiteContext = null; s.surfaceExposure = null;
+    for (const e of Object.values(s.tileEnvironments)) { e.temperatureC = 20; e.rockTemperatureC = 20; }
+    d.importSurveyExpeditionTestState(s);
+  });
   const heater = await infrastructureFixture(page, 'spaceHeater');
   const thermostat = await infrastructureFixture(page, 'thermostat');
 

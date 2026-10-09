@@ -11,6 +11,21 @@ async function openDefaultState(page) {
   await page.reload();
 }
 
+test('opaque parcel fixtures block only rays intersecting their actual occupied tiles', async ({ page }) => {
+  await openDefaultState(page);
+  const result = await page.evaluate(() => {
+    const d = window.helixHeresyDebug;
+    const left = { x: 41, y: 55, z: 1 }, right = { x: 43, y: 55, z: 1 };
+    const before = d.sensoryLineOfSight(left, right);
+    const s = d.exportSurveyExpeditionTestState();
+    s.fixtures.find(f => f.typeId === 'privacyScreen').origin = { x: 42, y: 55, z: 1 };
+    d.importSurveyExpeditionTestState(s);
+    return { before, blocked: d.sensoryLineOfSight(left, right),
+      adjacent: d.sensoryLineOfSight({ ...left, y: 56 }, { ...right, y: 56 }) };
+  });
+  expect(result).toEqual({ before: true, blocked: false, adjacent: true });
+});
+
 test('Chemistry Front materializes a physical, weatherable parcel presentation', async ({ page }) => {
   await openDefaultState(page);
 
