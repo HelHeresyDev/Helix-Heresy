@@ -103,6 +103,7 @@
   const MunicipalMaps = window.HelixMunicipalMaps;
   const SovereignBargains = window.HelixSovereignBargains;
   const DefenderChallenges = window.HelixDefenderChallenges;
+  const CitySuccession = window.HelixCitySuccession;
   const UnsupportedExcursions = window.HelixUnsupportedExcursions;
   const MedicalExtraction = window.HelixMedicalExtraction;
   const MunicipalClinic = window.HelixMunicipalClinic;
@@ -5451,6 +5452,8 @@
       sovereignBargainKnowledge: null,
       defenderChallenge: null,
       defenderChallengeKnowledge: null,
+      citySuccession: null,
+      citySuccessionKnowledge: null,
       confidentialServices: null,
       confidentialServiceKnowledge: null,
       surfaceWorkers: null,
@@ -14424,6 +14427,59 @@
       municipalMapAction: (action, extractId) => municipalMapAction(action, extractId),
       sovereignBargainAction: (action, expected) => sovereignBargainAction(action, expected),
       defenderChallengeAction: (action, expected) => defenderChallengeAction(action, expected),
+      citySuccessionAction: (action, expected) => citySuccessionAction(action, expected),
+      citySuccessionNavigationSnapshot: () => citySuccessionPeople().map((a, i) => {
+        const map = ensureLabMap(), target = CitySuccession.MEETING[i];
+        const blockedCellKeys = labMapBlockingCellKeys(map, { actor: a });
+        for (const cell of map.rooms[SurveyExpeditions.FIELD_ROOM]?.cells || []) if (!canActorOccupyTile(a, cell)) blockedCellKeys.add(mapCellKey(cell));
+        const plan = labNavigationPlanBetweenCells(a.mapCell, target, { map, actor: a, ignoreDoors: true, blockedCellKeys });
+        const next = plan.path.find(p => !sameMapCell(p, a.mapCell));
+        return { id: a.id, cell: a.mapCell, target, load: actorFloorLoadM2(a), targetLoad: tileOccupiedAreaM2(target, { excludeActor: a }),
+          found: plan.found, reason: plan.reason, next, nextBlocked: next && labMapCellIsPathBlocked(next, { map, actor: a }), path: plan.path };
+      }),
+      citySuccessionSnapshot: () => clonePlainObject({ succession: state.citySuccession, known: state.citySuccessionKnowledge,
+        bargain: state.sovereignBargains, office: scientistCivicOffice(), context: citySuccessionContext(), clock: state.clock,
+        stacks: ensurePhysicalItemStacks().filter(i => i.key === 'metalParts'), campaign: state.campaign }),
+      configureCitySuccessionTest: (options = {}) => {
+        const b = state.sovereignBargains, office = scientistCivicOffice();
+        if (!b?.testFixture || !office) return false;
+        // Explicit prepared civic records and scheduled existing officeholders
+        // for legacy test worlds only. No ordinary run receives these outcomes.
+        b.source.succession = options.succession || 'named experimental successor';
+        b.testSuccessionSource = { ...clonePlainObject(b.source), populationSourceId: 'test-city-population',
+          institutions: [...CitySuccession.ROLES, 'militaryDefenseCommand'].map(role => ({ role,
+            id: role === 'centralAdministration' ? b.source.administrationId : role === 'militaryDefenseCommand' ? b.source.defenseId : `test-${role}`,
+            name: role, responsibilities: [role] })) };
+        if (!state.citySuccession) {
+          state.defenderChallenge = DefenderChallenges.create(b);
+          state.defenderChallenge.terms = { id: 'test-prepared-challenge-terms', bodyEpoch: ensureScientistIdentity().bodyEpoch,
+            authorityId: b.source.authority.id, charterId: b.source.charterId, defenderId: b.defender.id, representativeId: b.representative.id,
+            offeredAt: state.clock, expiresAt: state.clock, preparationSeconds: 300, durationSeconds: 120,
+            permittedActions: ['strike', 'soulLash', 'guard', 'withdraw'], authorization: 'Explicit prepared historical test encounter',
+            stop: 'Historical witnessed concession', repertoire: 'No energy or health replenishment', stakes: 'No command or automatic surrender' };
+          state.defenderChallenge.receipt = { id: 'test-witnessed-concession', outcome: 'defenderConceded', charterId: b.source.charterId,
+            at: state.clock, witnessed: true, defenderId: b.defender.id, witnessId: b.representative.id, authorityId: b.source.authority.id,
+            bodyEpoch: ensureScientistIdentity().bodyEpoch, restrictions: 'Explicit prepared test history, not ordinary rewards' };
+          state.defenderChallenge.petition = { id: 'test-filed-political-request', status: 'filedNotAccepted', authorityId: b.source.authority.id, receiptId: 'test-witnessed-concession' };
+          state.defenderChallenge.phase = 'closed';
+          b.testCivicEvidence = ['test-received-reviewed-batch-a', 'test-received-reviewed-batch-b', 'test-received-reviewed-batch-c'];
+          ensureCompany().homeInstitutionContext = HomeInstitutionContext.create({ cityId: office.cityId, cityName: 'Test City' },
+            b.testSuccessionSource.institutions.map(i => ({ role: i.role, id: i.id, capacityBand: 'exceptional', status: 'operational' })), state.clock);
+          office.workSeconds = 1500; office.power = 10;
+          ensureCitySuccession();
+        }
+        const s = state.citySuccession;
+        if (!s) return false;
+        if (options.retirement != null) s.ruler.retirementPolicy = options.retirement ? 'considerAdministrativeRetirement' : 'retainOffice';
+        if (options.evidence != null) b.testCivicEvidence = options.evidence;
+        if (options.officeWork != null) office.workSeconds = options.officeWork;
+        if (options.powered != null) office.channelPowered = options.powered;
+        if (options.leaderHealth != null) s.leaders[0].health = options.leaderHealth;
+        refreshCitySuccessionKnowledge(); persist(); render(); return true;
+      },
+      advanceCitySuccessionForTest: seconds => {
+        state.clock += Math.max(0, Number(seconds) || 0); updateCitySuccession(); persist(); render(); return state.clock;
+      },
       defenderChallengeSnapshot: () => clonePlainObject({ challenge: state.defenderChallenge, known: state.defenderChallengeKnowledge,
         bargain: state.sovereignBargains, office: scientistCivicOffice(), context: defenderChallengeContext(),
         scientist: { cell: scientistMapCell(), health: scientistVital('health').current, mana: scientistVital('mana').current, stamina: scientistVital('stamina').current },
@@ -21888,6 +21944,10 @@
   }
 
   function nextMeaningfulEvent(options = {}) {
+    if (CitySuccession.working(state.citySuccession) && citySuccessionObserved()) {
+      const s = state.citySuccession;
+      return { time: state.clock + (s.job ? Math.max(1, s.job.seconds - s.job.progress) : 1), label: 'City succession checkpoint', type: 'travel' };
+    }
     if (DefenderChallenges.reserved(state.defenderChallenge) && defenderChallengeObserved()) {
       const s = state.defenderChallenge;
       const at = s.phase === 'active' ? Math.min(s.bout.endsAt, s.pendingPulse?.releaseAt ?? s.bout.nextPulseAt)
@@ -22446,6 +22506,7 @@
     changes.scientistMovementChanged += livingUpdate(() => updateScientistIdentity());
     changes.scientistMovementChanged += livingUpdate(() => updateMunicipalMapService());
     changes.scientistMovementChanged += livingUpdate(() => updateSovereignBargains());
+    changes.scientistMovementChanged += livingUpdate(() => updateCitySuccession());
     changes.combatChanged += livingUpdate(() => updateDefenderChallenge());
     changes.scientistMovementChanged += livingUpdate(() => updateCarrierBriefing());
     changes.scientistMovementChanged += livingUpdate(() => updatePenalFlights(elapsed));
@@ -22515,6 +22576,16 @@
     if (scientistIsDead()) return 0;
     const advanceStartedAt = performance.now();
     const elapsed = Math.max(0, Number(seconds) || 0);
+    if (!options.successionStep && elapsed > 1 && CitySuccession.working(state.citySuccession)) {
+      let remaining = elapsed, changed = 0;
+      while (remaining > 0 && !scientistIsDead()) {
+        const s = state.citySuccession, phase = s.phase, job = s.job, directive = s.directive?.status;
+        const step = Math.min(remaining, job ? Math.min(60, Math.max(1, job.seconds - job.progress)) : 1), before = state.clock;
+        changed += advanceTime(step, { ...options, successionStep: true }); remaining -= state.clock - before;
+        if (state.clock <= before || phase !== s.phase || job && !s.job || directive !== s.directive?.status) break;
+      }
+      return changed;
+    }
     // Supervised combat and walking resolve chronologically, including during
     // skips. A new visible telegraph gives the player time to respond.
     if (!options.challengeStep && elapsed > 1 && DefenderChallenges.reserved(state.defenderChallenge)) {
@@ -32447,6 +32518,8 @@
       stockpileId: String(candidate.stockpileId || ""),
       observedAt: finiteTime(candidate.observedAt, 0),
       reservedTaskId: String(candidate.reservedTaskId || ""),
+      cityOwnerId: String(candidate.cityOwnerId || ''),
+      civicCustody: candidate.civicCustody ? clonePlainObject(candidate.civicCustody) : null,
       carriedBy: normalizeActorInventoryOwnerId(candidate.carriedBy),
       carryTaskId: String(candidate.carryTaskId || ""),
       carryLegIndex: Number.isFinite(Number(candidate.carryLegIndex)) ? Math.floor(Number(candidate.carryLegIndex)) : -1,
@@ -35948,6 +36021,7 @@
 
   function actorFloorLoadM2(actor) {
     if (!actor) return 0;
+    if (actor.actorKind === 'civicOfficeholder') return .6;
     if (["surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor.actorKind)) return .6;
     if (["expeditionEscort", "rescueMedic", "municipalClinician", "penalPrisoner"].includes(actor.actorKind)) return .6;
     if (actor.actorKind === "wildernessBeast") return 1;
@@ -35974,7 +36048,7 @@
     const clinician = state.medicalExtraction?.clinic?.clinician;
     if (clinician && clinician.id !== excludeActor?.id && mapCellKey(clinician.mapCell) === key) occupied += .6;
     for (const office of state.economy?.intercitySmuggling?.identityOffices || []) if (office.civicCounter && office.clerk.id !== excludeActor?.id && mapCellKey(office.clerk.mapCell) === key) occupied += .6;
-    if (state.surveyExpeditions?.phase === 'field' && !unsupportedActive()) for (const actor of [state.sovereignBargains?.representative, state.sovereignBargains?.defender])
+    if (state.surveyExpeditions?.phase === 'field' && !unsupportedActive()) for (const actor of [state.sovereignBargains?.representative, state.sovereignBargains?.defender, ...citySuccessionPeople()])
       if (actor?.status === 'alive' && actor.id !== excludeActor?.id && mapCellKey(actor.mapCell) === key) occupied += .6;
     for (const actor of state.penalFlights?.actors || []) if (actor.id !== excludeActor?.id && mapCellKey(actor.mapCell) === key) occupied += .6;
     for (const beast of state.wildernessBeasts?.actors || []) {
@@ -36067,6 +36141,7 @@
   }
 
   function navigationFootprintForActor(actor) {
+    if (actor?.actorKind === 'civicOfficeholder') return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (["surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (["expeditionEscort", "rescueMedic", "penalPrisoner"].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (actor?.actorKind === "wildernessBeast") return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: 1, exclusive: true });
@@ -39529,6 +39604,7 @@
   }
 
   function combatActorVitalPercent(actor, key) {
+    if (actor?.actorKind === 'civicOfficeholder') return actor.health / actor.maxHealth * 100;
     if (actor?.actorKind === 'cityDefender') return actor.health / actor.maxHealth * 100;
     if (["surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
     if (["expeditionEscort", "rescueMedic", "penalPrisoner"].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
@@ -66581,7 +66657,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           setLabMapOverlayEntry(assignments, office.civicCounter.cell, { overlayId, classNames: ["map-overlay-resources"], label: "Public civic registration counter", title: "Walk here for a voluntary paid registration or document check; no automatic historical identity or immunity", value: "R", source: "Municipal registry notice", target: { kind: "tile", tile: office.civicCounter.cell } }, map);
           if (office.clerk.mapCell && sensoryLineOfSight(scientistMapCell(), office.clerk.mapCell)) setLabMapOverlayEntry(assignments, office.clerk.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: "Civic records clerk", title: office.contact.label, value: "C", source: "Direct observation", target: { kind: "tile", tile: office.clerk.mapCell } }, map);
         }
-        if (state.surveyExpeditions.phase === 'field') for (const actor of [state.sovereignBargains?.representative, state.sovereignBargains?.defender])
+        if (state.surveyExpeditions.phase === 'field') for (const actor of [state.sovereignBargains?.representative, state.sovereignBargains?.defender, ...citySuccessionPeople()])
           if (actor?.status === 'alive' && actor.mapCell && sensoryLineOfSight(scientistMapCell(), actor.mapCell))
             setLabMapOverlayEntry(assignments, actor.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: actor.name,
               title: `${actor.role}; ${state.defenderChallenge ? 'optional supervised challenge participant' : 'physical civic-counter participant'}, not a controllable soldier`, value: actor === state.sovereignBargains.defender ? 'D' : 'A',
@@ -78221,7 +78297,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       content.append(textEl('h4', 'City power — bounded civic delegation'));
       const mandateReceipt = campaign.cityPower.mandate;
       content.append(textEl('p', mandateReceipt ? `${formatClock(mandateReceipt.at)} — ${mandateReceipt.summary}` : 'No received civic assay mandate recorded. Economy → Services offers charter-backed terms where a supported home-city office and producer exist.'));
-      content.append(textEl('p', 'A historical appointment is not proof of current authority or city sovereignty. Current terms and decisions require received mandate records; broader city control remains future work.'));
+      content.append(textEl('p', 'A historical appointment is not proof of current authority or city sovereignty. Current terms and decisions require received mandate records.'));
+      const successionReceipt = campaign.cityPower.succession;
+      content.append(textEl('p', successionReceipt ? `${formatClock(successionReceipt.at)} — ${successionReceipt.summary}` : 'No charter-backed succession handover received. Visits → City succession offers the first supported individual-ruler route.'));
+      content.append(textEl('p', 'A city handover is dated recognition, not proof of perpetual enforceability or world domination.'));
       const roadmap = document.createElement("details");
       roadmap.append(textEl("summary", "Six ambitions — long-term roadmap"));
       for (const ambition of Campaign.roadmap(activeWorldRecord?.worldTheme || state.worldTheme || "madcap")) {
@@ -83047,7 +83126,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const observers = s ? [s.representative, s.defender] : [];
     return { ...ctx, bodyEpoch: ensureScientistIdentity().bodyEpoch,
       visitPermission: state.surveyExpeditions?.discovery?.access.active === true,
-      authorityId: source?.authority.id,
+      authorityId: source && state.citySuccession?.control?.cityId === source.cityId ? state.citySuccession.control.recognizedAuthorityId : source?.authority.id,
       administrationAvailable: Boolean(source && home?.cityId === source.cityId && home.offices[source.administrationId]?.available),
       defenseAvailable: Boolean(source && s?.defenseAvailable !== false),
       participantsPresent: observers.length === 2 && observers.every(a => a.roomId === scientistRoomId() && a.mapCell
@@ -83139,6 +83218,131 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(textEl('p', view.message), textEl('p', view.limitations));
     return panel;
   }
+  function citySuccessionPeople() { return state.citySuccession ? [state.citySuccession.ruler, ...state.citySuccession.leaders] : []; }
+  function citySuccessionSource() {
+    const b = state.sovereignBargains;
+    return b?.testFixture ? b.testSuccessionSource || null : CitySuccession.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, b);
+  }
+  function ensureCitySuccession() {
+    if (state.citySuccession) return state.citySuccession;
+    const b = state.sovereignBargains, office = scientistCivicOffice(), c = sovereignBargainContext(office);
+    if (!b || !c.atCounter || !c.capable || !c.alive || !c.visitPermission || state.defenderChallenge?.petition?.status !== 'filedNotAccepted') return null;
+    state.citySuccession = CitySuccession.create(citySuccessionSource(), b, office, { theme: activeWorldRecord?.worldTheme || 'madcap' });
+    return state.citySuccession;
+  }
+  function citySuccessionContext() {
+    const s = state.citySuccession, b = state.sovereignBargains, c = defenderChallengeContext(), source = citySuccessionSource();
+    const home = ensureHomeInstitutionContext();
+    return { ...c, charterCurrent: Boolean(source && source.authority.id === s?.source.authority.id && source.charterId === s.source.charterId),
+      administrationBacklogged: Boolean(source && Object.values(home?.offices[b.source.administrationId]?.jobs || {}).some(j => j.readyAt > state.clock)),
+      institutionsAvailable: Boolean(source && source.institutions.filter(i => CitySuccession.ROLES.includes(i.role)).every(i => home?.offices[i.id]?.available)),
+      leadersPresent: Boolean(s && citySuccessionPeople().every(a => a.status === 'alive' && a.roomId === scientistRoomId()
+        && a.locationId === s.officeId && WildernessBeasts.distance(scientistMapCell(), a.mapCell) <= 6 && sensoryLineOfSight(scientistMapCell(), a.mapCell))),
+      oppositionReports: clonePlainObject(state.defenderChallenge?.conduct || []),
+      serviceIds: s ? b?.testFixture && b.testCivicEvidence ? clonePlainObject(b.testCivicEvidence)
+        : CitySuccession.serviceEvidence(s, state.civicAssayMandate, state.localServices) : [] };
+  }
+  function citySuccessionObserved() {
+    const c = citySuccessionContext(); return c.alive && c.cityId === state.citySuccession?.source.cityId && c.visitPermission
+      && c.witnessPresent && c.defenderPresent && c.leadersPresent;
+  }
+  function refreshCitySuccessionKnowledge() {
+    if (citySuccessionObserved()) state.citySuccessionKnowledge = { ...CitySuccession.publicView(state.citySuccession),
+      reportedAt: state.clock, operative: CitySuccession.operative(state.citySuccession, state.sovereignBargains, citySuccessionContext()) };
+  }
+  function updateCitySuccession() {
+    const s = state.citySuccession, b = state.sovereignBargains;
+    if (!s || !b || scientistIsDead()) return 0;
+    const before = s.handover;
+    const changed = CitySuccession.advance(s, b, scientistCivicOffice(), citySuccessionContext(), state.clock, {
+      move: moveSuccessionParticipant,
+      stage: (cargo, cell) => {
+        const item = createPhysicalItemStack('resources', cargo.key, cargo.quantity, { roomId: SurveyExpeditions.FIELD_ROOM, cell });
+        if (!item) return null;
+        item.cityOwnerId = cargo.cityId; item.civicCustody = clonePlainObject(cargo);
+        item.reservedTaskId = `${s.id}:city-maintenance-reserve`; // Not free scientist property or tradable loot.
+        syncPhysicalReadModels(); return item.id;
+      }
+    });
+    if (!before && s.handover) {
+      // This is personally witnessed municipal knowledge, not a remote lab
+      // ledger reconciliation. Do not broaden the lab-only evidence gate.
+      setCampaignState(Campaign.record(state.campaign, { kind: 'citySuccession', known: true, alive: true, handedOver: true,
+        sourceId: s.handover.id, cityId: s.source.cityId,
+        summary: `Received ${s.source.cityName}'s individual-ruler charter designation through physical institutional handover. Continuing control remains contingent.` }, s.handover.at));
+      addEvent(s.message, { sourceKind: 'citySuccession', sourceId: s.handover.id }); state.paused = true;
+    }
+    if (s.job && !state.combat?.routineSuspension) suspendScientistRoutineWork('city succession');
+    if (!s.job && state.combat?.routineSuspension?.reason === 'city succession') resumeScientistRoutineWork();
+    refreshCitySuccessionKnowledge(); return changed ? 1 : 0;
+  }
+  function citySuccessionAction(action, expected = null) {
+    if (action === 'walk') return scientistIdentityAction('walk');
+    if (action === 'pack') return packSurveyItem('metalParts');
+    if (scientistIsDead()) return false;
+    updateCitySuccession();
+    const s = ensureCitySuccession(), b = state.sovereignBargains, office = scientistCivicOffice(), c = citySuccessionContext();
+    if (!s) return false;
+    let ok = false;
+    if (action === 'request') ok = CitySuccession.request(s, b, office, state.defenderChallenge, c, state.clock);
+    if (action === 'hear') ok = CitySuccession.hear(s, b, office, c, state.clock);
+    if (action === 'sign') ok = CitySuccession.sign(s, b, office, expected, c, state.clock);
+    if (action === 'deliver') {
+      ok = CitySuccession.deliver(s, b, office, ensurePhysicalItemStacks(), c, state.clock);
+      if (ok) { state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0); syncActorInventories(); syncPhysicalReadModels(); }
+    }
+    if (action === 'agree') ok = CitySuccession.agree(s, b, office, expected, c, state.clock);
+    if (action === 'handover') ok = CitySuccession.handover(s, b, office, c, state.clock);
+    if (action === 'directive') ok = CitySuccession.directive(s, b, office, c, state.clock);
+    if (action === 'withdraw') ok = CitySuccession.cancel(s, b, office, state.clock);
+    if (!ok) addEvent(CitySuccession.localReason(s, b, office, c) || 'No supported original petition, exact current terms, received civic evidence, delivered reserve or separate institutional acceptance. No power was awarded.');
+    updateCitySuccession(); refreshCitySuccessionKnowledge(); persist(); render(); return ok;
+  }
+  function renderCitySuccession() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.citySuccession = 'true';
+    panel.append(textEl('strong', 'City succession and physical handover'), textEl('p', 'A filed defender-concession request permits asking, not abdication. Only named-successor and reigning-protector designation charters are supported; collectives, inheritance and compulsory trials need their own procedures.'));
+    const s = ensureCitySuccession(); refreshCitySuccessionKnowledge();
+    const v = state.citySuccessionKnowledge, c = citySuccessionContext(), observed = citySuccessionObserved();
+    const button = (label, action, disabled, expected = null) => {
+      const el = storesActionButton(label, label, () => citySuccessionAction(action, expected)); el.dataset.successionAction = action;
+      el.disabled = Boolean(disabled); panel.append(el);
+    };
+    button('Walk to succession hearing counter', 'walk', !c.cityId || CitySuccession.working(s));
+    if (!s) { panel.append(textEl('p', 'No supported individual-ruler designation and filed political request. No charter, ruler, city or army is invented.')); return panel; }
+    button('Ask incumbent to hear filed political request', 'request', !c.atCounter || c.busy || !['idle', 'refused', 'withdrawn'].includes(s.phase));
+    if (s.phase === 'approaching' && c.atCounter) panel.append(textEl('p', 'Invited existing officeholders are walking to the hearing. This is not acceptance or a transfer.'));
+    if (!v) { panel.append(textEl('p', 'No personally observed succession hearing; records remain unknown until the actual people can be seen.')); return panel; }
+    panel.append(textEl('p', `Personally observed ${formatClock(v.reportedAt)} — ${v.phase}; charter ${v.source.charterId}, succession: ${v.source.succession}. Dated knowledge, not remote surveillance.`));
+    for (const a of v.contacts) panel.append(textEl('p', `${a.name}: ${a.role}.`));
+    panel.append(textEl('p', 'This nomination requires three completed paid, evidence-backed civic dispositions and an upheld review of those exact batches. The administration must have an actual outstanding duty queue or depleted counter allocation, and the incumbent must choose retirement. Money or a bout alone is insufficient.'));
+    if (v.phase === 'ready') button('Attend incumbent succession hearing', 'hear', !observed || !c.atCounter || c.busy);
+    if (v.decision) panel.append(textEl('p', `${v.decision.outcome}: ${v.decision.reason}`));
+    if (v.terms) {
+      const t = v.terms;
+      panel.append(textEl('p', `${t.procedure} Supply ${t.quantity} metal parts to the existing branch reserve; received ${v.received}. Complete by ${formatClock(t.expiresAt)}. Civic records disclosed: ${t.serviceIds.join(', ')}. ${t.duties} ${t.retainedRights}`));
+      if (v.phase === 'offered') button('Sign exact conditional designation', 'sign', !observed || !c.atCounter || Boolean(s.job), clonePlainObject(t));
+      if (v.phase === 'signed') {
+        button('Pack succession reserve parts', 'pack', Boolean(s.job));
+        button('Deliver carried succession reserve parts', 'deliver', !observed || !c.atCounter || Boolean(s.job) || v.received >= t.quantity);
+        for (const a of [...v.contacts.filter(a => a.id !== s.ruler.id), { id: state.sovereignBargains.defender.id, name: state.sovereignBargains.defender.name }]) {
+          if (!v.agreements.some(r => r.personId === a.id)) button(`Seek ${a.name}'s explicit continuation (${a.role || 'city defender'})`, 'agree', !observed || !c.atCounter || Boolean(s.job) || v.received !== t.quantity, a.id);
+        }
+        button('Attend charter handover', 'handover', !observed || !c.atCounter || Boolean(s.job) || v.agreements.length !== s.leaders.length + 1);
+      }
+    }
+    for (const a of v.agreements) panel.append(textEl('p', `${formatClock(a.at)} — ${a.name}: ${a.basis}. ${a.scope}`));
+    if (v.working) panel.append(textEl('p', `${v.working.kind}: ${formatDuration(v.working.progress)} / ${formatDuration(v.working.seconds)} attended work. Remain here; shared finite work and power are spent.`));
+    if (v.handover) {
+      panel.append(textEl('p', `Recognized city authority: scientist, recorded ${formatClock(v.handover.at)}. Outgoing ruler: ${v.handover.outgoingStatus}. ${v.control.opposition}`),
+        textEl('p', `At last observation: ${v.operative ? 'original continuation relationships operational' : 'current execution unavailable; historical recognition retained'}. No lifelong loyalty, refilled supplies or new army.`));
+      button('Order physical staging of three reserve parts', 'directive', !observed || !c.atCounter || !v.operative || Boolean(s.directive));
+      if (s.job?.kind === 'directive') button('Cancel unfinished administrative order', 'withdraw', !observed);
+    } else button('Withdraw succession proposal', 'withdraw', !observed || s.phase === 'withdrawn');
+    if (v.directive) panel.append(textEl('p', `First administrative directive: ${v.directive.status}; named worker ${v.directive.workerId}. ${v.directive.receipt ? `Physical stack ${v.directive.receipt.stackId}, three city-owned parts at 16,12, level 6.` : 'An order is not a delivery; original parts must be carried and staged.'}`));
+    const faiths = ensureHomeInstitutionContext()?.publicContext.faiths || [];
+    if (faiths.length) panel.append(textEl('p', `Existing published religious obligations: ${faiths.map(f => `${f.name}: ${f.prohibitions.join(', ')}`).join('; ')}. No god or religious institution has endorsed this transfer merely through civic consent.`));
+    panel.append(textEl('p', v.message), textEl('p', v.limitations)); return panel;
+  }
   function ensureDefenderChallenge() {
     if (state.defenderChallenge) return state.defenderChallenge;
     const b = ensureSovereignBargains(), office = scientistCivicOffice();
@@ -83167,9 +83371,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const c = defenderChallengeContext();
     return c.alive && c.witnessPresent && c.defenderPresent;
   }
-  function moveDefenderParticipant(actor, destination) {
+  function moveSuccessionParticipant(actor, destination) {
+    const map = ensureLabMap(), blockedCellKeys = labMapBlockingCellKeys(map, { actor });
+    for (const cell of map.rooms[SurveyExpeditions.FIELD_ROOM]?.cells || []) if (!canActorOccupyTile(actor, cell)) blockedCellKeys.add(mapCellKey(cell));
+    return moveDefenderParticipant(actor, destination, { blockedCellKeys });
+  }
+  function moveDefenderParticipant(actor, destination, options = {}) {
     if (actorIsIncapacitated(actor)) return false;
-    const path = labMapPathBetweenCells(actor.mapCell, destination, { map: ensureLabMap(), actor, ignoreDoors: true });
+    const path = labMapPathBetweenCells(actor.mapCell, destination, { ...options, map: ensureLabMap(), actor, ignoreDoors: true });
     const next = path.find(p => !sameMapCell(p, actor.mapCell));
     if (!next || labMapCellIsPathBlocked(next, { map: ensureLabMap(), actor })) return false;
     actor.mapCell = cleanMapCell(next); actor.roomId = labMapCellRoomId(next); return true;
@@ -85355,6 +85564,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function surveyScientistAway() { return Boolean(state?.surveyExpeditions && state.surveyExpeditions.phase !== "home"); }
   function surveyScientistReserved() { return surveyScientistAway() || Boolean(state?.surveyExpeditions?.preparing); }
   function surveyTaskAllowed(task) {
+    if (state.citySuccession?.job) return false;
     if (['preparing', 'petitioning'].includes(state.defenderChallenge?.phase)) return false;
     if (state.defenderChallenge?.phase === 'active' && task.type !== 'scientistMove') return false;
     if (state.scientistIdentity?.job || state.sovereignBargains?.job || state.surveyExpeditions?.mapService?.job || state.surveyExpeditions?.carrier?.briefingState?.job) return false;
@@ -85575,6 +85785,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function boardSurveyVehicle() {
+    if (CitySuccession.working(state.citySuccession)) return false;
     if (currentPenalFlight()) return false;
     if (DefenderChallenges.reserved(state.defenderChallenge) && state.defenderChallenge.phase !== 'returning') return false;
     if (clinicActive() || state.scientistIdentity?.job || state.sovereignBargains?.job || state.surveyExpeditions?.mapService?.job) return false;
@@ -85812,6 +86023,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(renderMunicipalMaps());
     panel.append(renderSovereignBargains());
     panel.append(renderDefenderChallenge());
+    panel.append(renderCitySuccession());
     panel.append(renderCarrierBriefings());
     const button = (label, action, disabled = false, reason = "") => {
       const element = document.createElement("button"); element.type = "button"; element.textContent = label; element.disabled = disabled; element.title = reason; element.addEventListener("click", action); panel.append(element);
@@ -92843,6 +93055,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.sovereignBargainKnowledge = candidate?.sovereignBargainKnowledge ? clonePlainObject(candidate.sovereignBargainKnowledge) : null;
     next.defenderChallenge = DefenderChallenges.normalize(candidate?.defenderChallenge);
     next.defenderChallengeKnowledge = candidate?.defenderChallengeKnowledge ? clonePlainObject(candidate.defenderChallengeKnowledge) : null;
+    next.citySuccession = CitySuccession.normalize(candidate?.citySuccession);
+    next.citySuccessionKnowledge = candidate?.citySuccessionKnowledge ? clonePlainObject(candidate.citySuccessionKnowledge) : null;
     next.confidentialServices = ConfidentialServices.normalize(candidate?.confidentialServices);
     next.confidentialServiceKnowledge = candidate?.confidentialServiceKnowledge ? clonePlainObject(candidate.confidentialServiceKnowledge) : null;
     next.surfaceWorkers = SurfaceWorkers.normalize(candidate?.surfaceWorkers);

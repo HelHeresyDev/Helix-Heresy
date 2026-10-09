@@ -40,7 +40,7 @@
         ...normalizeReceipt(value.localLeverage[id]), clientId: text(value.localLeverage[id].clientId)
       } : null])),
       independentOperations: Object.fromEntries(["recruitment", "delegation"].map(id => [id, normalizeReceipt(value?.independentOperations?.[id])])),
-      cityPower: { mandate: normalizeReceipt(value?.cityPower?.mandate) },
+      cityPower: { mandate: normalizeReceipt(value?.cityPower?.mandate), succession: normalizeReceipt(value?.cityPower?.succession) },
       readiness: value?.readiness && Number.isFinite(value.readiness.at) ? {
         at: time(value.readiness.at), checks: Object.fromEntries(CHECKS.map(id => [id, value.readiness.checks?.[id] === true]))
       } : null,
@@ -57,6 +57,11 @@
   function record(value, outcome = {}, clock = 0) {
     const state = normalize(value);
     if (outcome.known !== true || outcome.alive === false) return state;
+    if (outcome.kind === 'citySuccession') {
+      if (outcome.handedOver === true && outcome.sourceId && outcome.cityId)
+        state.cityPower.succession ||= { at: time(clock), sourceId: text(outcome.sourceId), summary: text(outcome.summary) };
+      return state;
+    }
     if (outcome.kind === 'civicMandate') {
       if (outcome.granted === true && outcome.sourceId && outcome.cityId)
         state.cityPower.mandate ||= { at: time(clock), sourceId: text(outcome.sourceId), summary: text(outcome.summary) };
@@ -95,6 +100,7 @@
     const state = normalize(value);
     const result = OBJECTIVES.filter(({ id }) => state.objectives[id]).map(({ id, label }) => ({ label, at: state.objectives[id].at }));
     if (state.cityPower.mandate) result.push({ label: 'Receive a bounded civic assay delegation (not city sovereignty)', at: state.cityPower.mandate.at });
+    if (state.cityPower.succession) result.push({ label: 'Receive a charter-backed city handover (historical, not perpetual rule)', at: state.cityPower.succession.at });
     if (state.accomplishedAt !== null) result.push({ label: "Establish the laboratory", at: state.accomplishedAt });
     for (const [id, label] of [["service", "Complete useful work for a local customer"], ["reservation", "Negotiate a real materials reservation"]]) {
       if (state.localLeverage[id]) result.push({ label, at: state.localLeverage[id].at });
