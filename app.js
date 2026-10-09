@@ -102,6 +102,7 @@
   const LocalDiscovery = window.HelixLocalDiscovery;
   const MunicipalMaps = window.HelixMunicipalMaps;
   const SovereignBargains = window.HelixSovereignBargains;
+  const DefenderChallenges = window.HelixDefenderChallenges;
   const UnsupportedExcursions = window.HelixUnsupportedExcursions;
   const MedicalExtraction = window.HelixMedicalExtraction;
   const MunicipalClinic = window.HelixMunicipalClinic;
@@ -5448,6 +5449,8 @@
       civicAssayKnowledge: null,
       sovereignBargains: null,
       sovereignBargainKnowledge: null,
+      defenderChallenge: null,
+      defenderChallengeKnowledge: null,
       confidentialServices: null,
       confidentialServiceKnowledge: null,
       surfaceWorkers: null,
@@ -14420,6 +14423,19 @@
       municipalMapSnapshot: () => clonePlainObject({ service: ensureMunicipalMapService(), public: MunicipalMaps.publicView(ensureMunicipalMapService()), office: scientistCivicOffice(), clock: state.clock, money: ensureEconomy().money }),
       municipalMapAction: (action, extractId) => municipalMapAction(action, extractId),
       sovereignBargainAction: (action, expected) => sovereignBargainAction(action, expected),
+      defenderChallengeAction: (action, expected) => defenderChallengeAction(action, expected),
+      defenderChallengeSnapshot: () => clonePlainObject({ challenge: state.defenderChallenge, known: state.defenderChallengeKnowledge,
+        bargain: state.sovereignBargains, office: scientistCivicOffice(), context: defenderChallengeContext(),
+        scientist: { cell: scientistMapCell(), health: scientistVital('health').current, mana: scientistVital('mana').current, stamina: scientistVital('stamina').current },
+        injuries: state.injuries, clock: state.clock, campaign: state.campaign }),
+      configureDefenderChallengeTest: (options = {}) => {
+        const s = ensureDefenderChallenge(); if (!s) return false;
+        if (options.wardMana != null) state.sovereignBargains.defender.wardMana = options.wardMana;
+        if (options.defenderHealth != null) state.sovereignBargains.defender.health = options.defenderHealth;
+        if (options.health != null) scientistVital('health').current = options.health;
+        if (options.mastery) for (const id of ['striking', 'animancy', 'perception', 'evasion']) scientistSkill(id, { create: true }).xp = 100000;
+        refreshDefenderChallengeKnowledge(); persist(); render(); return true;
+      },
       advanceSovereignBargainForTest: (seconds) => {
         // Isolate deadline/counter accounting from unrelated unattended hunger.
         state.clock += Math.max(0, Number(seconds) || 0); updateSovereignBargains(); persist(); render(); return state.clock;
@@ -21872,6 +21888,12 @@
   }
 
   function nextMeaningfulEvent(options = {}) {
+    if (DefenderChallenges.reserved(state.defenderChallenge) && defenderChallengeObserved()) {
+      const s = state.defenderChallenge;
+      const at = s.phase === 'active' ? Math.min(s.bout.endsAt, s.pendingPulse?.releaseAt ?? s.bout.nextPulseAt)
+        : s.job ? state.clock + Math.max(1, s.job.seconds - s.job.progress) : ['outward', 'returning'].includes(s.phase) ? state.clock + 1 : s.readyUntil;
+      return { time: Math.max(state.clock + 1, at), label: 'Defender challenge checkpoint', type: 'combat' };
+    }
     const gateEvent = nextGateEnforcementEvent();
     if (gateEvent) {
       const task = scientistQueueTasks().find(t => !taskBlockReason(t) && t.dueAt >= state.clock);
@@ -22424,6 +22446,7 @@
     changes.scientistMovementChanged += livingUpdate(() => updateScientistIdentity());
     changes.scientistMovementChanged += livingUpdate(() => updateMunicipalMapService());
     changes.scientistMovementChanged += livingUpdate(() => updateSovereignBargains());
+    changes.combatChanged += livingUpdate(() => updateDefenderChallenge());
     changes.scientistMovementChanged += livingUpdate(() => updateCarrierBriefing());
     changes.scientistMovementChanged += livingUpdate(() => updatePenalFlights(elapsed));
     changes.scientistMovementChanged += livingUpdate(() => updatePenalLegion(elapsed));
@@ -22492,6 +22515,21 @@
     if (scientistIsDead()) return 0;
     const advanceStartedAt = performance.now();
     const elapsed = Math.max(0, Number(seconds) || 0);
+    // Supervised combat and walking resolve chronologically, including during
+    // skips. A new visible telegraph gives the player time to respond.
+    if (!options.challengeStep && elapsed > 1 && DefenderChallenges.reserved(state.defenderChallenge)) {
+      let remaining = elapsed, changed = 0;
+      while (remaining > 0 && !scientistIsDead()) {
+        const s = state.defenderChallenge, phase = s.phase, pulse = s.pendingPulse?.releaseAt, health = scientistVital('health').current;
+        const step = Math.min(remaining, ['outward', 'active', 'returning'].includes(phase) ? 1 : 60,
+          s.job ? Math.max(1, s.job.seconds - s.job.progress) : Infinity);
+        const before = state.clock;
+        changed += advanceTime(step, { ...options, challengeStep: true }); remaining -= state.clock - before;
+        if (state.clock <= before || phase !== s.phase || s.pendingPulse?.releaseAt && s.pendingPulse.releaseAt !== pulse
+          || scientistVital('health').current < health) break;
+      }
+      return changed;
+    }
     // Remote contingencies spend finite services in chronological minutes even
     // while unvisited. Never collect a whole future interval before consuming it.
     if (!options.soulStep && elapsed > 60 && (state.soulBeacons?.receivers.some(r => ['growing', 'ready'].includes(r.status))
@@ -23095,6 +23133,8 @@
   function injuryTreatmentTarget(injury) {
     if (!injury) return null;
     if (injury.actorId === "scientist") return { actor: state.scientist, label: "Scientist", cell: scientistMapCell(), roomId: scientistRoomId() };
+    const defender = state.sovereignBargains?.defender;
+    if (defender?.id === injury.actorId) return { actor: defender, label: defender.name, cell: cleanMapCell(defender.mapCell), roomId: defender.roomId };
     const escort = state.expeditionEscorts?.actor;
     if (escort?.id === injury.actorId) return { actor: escort, label: escort.name, cell: cleanMapCell(escort.mapCell), roomId: escort.roomId };
     const worker = state.surfaceWorkers?.actor;
@@ -23181,7 +23221,7 @@
     const target = injuryTreatmentTarget(injury);
     if (mode === "treat" && target?.actor === state.scientist) scientistVital("health").current = clamp(scientistVital("health").current + 4, 0, scientistVital("health").max);
     if (mode === "treat" && target?.actor && target.actor !== state.scientist) {
-      if (["surfaceWorker", "laboratoryAssistant", "homunculus"].includes(target.actor.actorKind)) target.actor.health = Math.min(target.actor.maxHealth, target.actor.health + 4);
+      if (["surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender"].includes(target.actor.actorKind)) target.actor.health = Math.min(target.actor.maxHealth, target.actor.health + 4);
       else adjustSlimeStat(target.actor, "bodyIntegrity", 4);
     }
     addEvent(`${task.label} complete. ${mode === "examine" ? "The injury is now diagnosed." : mode === "stabilize" ? "Progressive harm has been stopped." : "Recovery has begun."}`);
@@ -39462,6 +39502,7 @@
   }
 
   function combatActor(actorId) {
+    if (state.sovereignBargains?.defender?.id === actorId && state.sovereignBargains.defender.actorKind === 'cityDefender') return state.sovereignBargains.defender;
     const homunculus = state.homunculi?.individuals.find(a => a.id === actorId);
     if (homunculus) return homunculus;
     if (state.surfaceWorkers?.actor?.id === actorId) return state.surfaceWorkers.actor;
@@ -39477,6 +39518,7 @@
   }
 
   function combatActorSkillLevel(actor, skillId) {
+    if (actor?.actorKind === 'cityDefender') return actor.skills[skillId] || 1;
     if (actor?.actorKind === "homunculus") return actor.skills[skillId] || 0;
     if (["surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor?.actorKind)) return actor.skills[skillId] || 1;
     if (["expeditionEscort", "rescueMedic", "penalPrisoner"].includes(actor?.actorKind)) return actor.skills[skillId] || 1;
@@ -39487,6 +39529,7 @@
   }
 
   function combatActorVitalPercent(actor, key) {
+    if (actor?.actorKind === 'cityDefender') return actor.health / actor.maxHealth * 100;
     if (["surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
     if (["expeditionEscort", "rescueMedic", "penalPrisoner"].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
     if (actor?.actorKind === "wildernessBeast") return actor.health / actor.maxHealth * 100;
@@ -39539,6 +39582,7 @@
 
   function scientistCombatTargetForSlime(slime) {
     if (!slime) return null;
+    if (slime.actorKind === 'cityDefender') return normalizeCombatTarget({ kind: 'creature', id: slime.id, lastKnownCell: slime.mapCell, observedAt: state.clock });
     if (slime.actorKind === "wildernessBeast") return normalizeCombatTarget({ kind: "creature", id: slime.id, lastKnownCell: state.wildernessBeasts.sightings[slime.id]?.cell, observedAt: state.wildernessBeasts.sightings[slime.id]?.observedAt });
     const record = creatureRecordForSlime(slime);
     return normalizeCombatTarget({
@@ -39551,6 +39595,7 @@
 
   function scientistHasExactCombatTarget(slime) {
     if (!slime || slime.status === "dead") return false;
+    if (slime.actorKind === 'cityDefender') return defenderChallengeObserved() && sensoryLineOfSight(scientistMapCell(), slime.mapCell);
     if (slime.actorKind === "wildernessBeast") return wildernessBeastVisible(slime);
     if (slime.containerId) return scientistObservesRoom(slimeEffectiveRoomId(slime));
     const source = scientistMapCell();
@@ -39620,7 +39665,7 @@
 
   function normalizeInjury(candidate, index = 0) {
     if (!candidate || typeof candidate !== "object") return null;
-    const actorKind = ["scientist", "wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus"].includes(candidate.actorKind) ? candidate.actorKind : "slime";
+    const actorKind = ["scientist", "wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender"].includes(candidate.actorKind) ? candidate.actorKind : "slime";
     const actorId = actorKind === "scientist" ? "scientist" : String(candidate.actorId || "");
     const typeId = INJURY_TYPE_DEFS[candidate.typeId] ? candidate.typeId : "bruising";
     const severityId = INJURY_SEVERITY_DEFS[candidate.severityId] ? candidate.severityId : "minor";
@@ -39677,6 +39722,7 @@
     if (tags.has("heat") || tags.has("cold") || tags.has("radiant")) return "burn";
     if (tags.has("electrical")) return "electricalTrauma";
     if (tags.has("arcane") || tags.has("shadow")) return "arcaneTrauma";
+    if (actor?.actorKind === 'cityDefender') return amount >= 8 ? 'bleeding' : 'bruising';
     if (["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor?.actorKind)) return amount >= 8 ? "bleeding" : "bruising";
     if (actor !== state.scientist && location === "core") return "coreTrauma";
     if (actor !== state.scientist && (location === "membrane" || amount >= 10)) return "membraneTear";
@@ -39690,7 +39736,7 @@
     state.injuries = normalizeInjuries(state.injuries);
     const scientist = actor === state.scientist || actor?.physicalPresence;
     const actorId = scientist ? "scientist" : actor.id;
-    const locations = scientist || ["expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor.actorKind) ? SCIENTIST_INJURY_LOCATIONS : actor.actorKind === "wildernessBeast" ? ["head", "torso", "left leg", "right leg"] : slimeInjuryLocations(actor);
+    const locations = scientist || ["expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender"].includes(actor.actorKind) ? SCIENTIST_INJURY_LOCATIONS : actor.actorKind === "wildernessBeast" ? ["head", "torso", "left leg", "right leg"] : slimeInjuryLocations(actor);
     const rng = seedRng(`${state.seed}:injury:${actorId}:${state.combat?.nextActionNumber || 0}:${Math.round(state.clock)}:${damageTypes.join(":")}`);
     const location = options.location || locations[Math.floor(rng() * locations.length)] || (scientist ? "torso" : "body mass");
     const typeId = injuryTypeForDamage(actor, damageTypes, amount, location);
@@ -39708,7 +39754,7 @@
     const visible = INJURY_TYPE_DEFS[typeId].visible;
     const observed = scientist || visible || options.observed;
     const injury = normalizeInjury({
-      id: `injury-${state.nextInjuryNumber++}`, actorKind: scientist ? "scientist" : ["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor.actorKind) ? actor.actorKind : "slime", actorId,
+      id: `injury-${state.nextInjuryNumber++}`, actorKind: scientist ? "scientist" : ["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender"].includes(actor.actorKind) ? actor.actorKind : "slime", actorId,
       typeId, severityId, location, status: "active", cause, damageTypes,
       createdAt: state.clock, updatedAt: state.clock, observedAt: observed ? state.clock : null
     }, state.nextInjuryNumber);
@@ -39779,6 +39825,7 @@
       else if (actor.actorKind === "surfaceWorker") damageSurfaceWorker(damage, { injuryProgress: true });
       else if (actor.actorKind === "laboratoryAssistant") damageSurfaceWorker(damage, { injuryProgress: true }, actor);
       else if (actor.actorKind === "homunculus") damageHomunculus(actor, damage, { injuryProgress: true });
+      else if (actor.actorKind === 'cityDefender') damageCityDefender(damage, { injuryProgress: true });
       else {
         applySlimeCombatDamage(actor, damage, "injury", `${INJURY_TYPE_DEFS[injury.typeId].label} progression`, { injuryProgress: true });
         if (injury.typeId === "membraneTear") adjustRoomAttribute(slimeEffectiveRoomId(actor), "contamination", damage * 0.25);
@@ -39789,6 +39836,7 @@
   }
 
   function awardCombatActionXp(actor, skillId, amount, reason, outcome) {
+    if (actor?.actorKind === 'cityDefender') return;
     if (["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor?.actorKind)) return;
     if (actor === state.scientist || actor?.physicalPresence) {
       awardXp(skillId, amount * skillXpOutcomeMultiplier(outcome), reason, { physical: true });
@@ -39826,6 +39874,11 @@
     }
     const targetActor = combatActor(target.id);
     if (!targetActor) return { ok: false, reason: "The target is no longer present." };
+    if (actorId === 'scientist' && targetActor.actorKind === 'cityDefender') {
+      const s = state.defenderChallenge, b = state.sovereignBargains, c = defenderChallengeContext();
+      if (DefenderChallenges.authorized(s, b, c, actionId, state.clock)) s.bout.actions++;
+      else recordUnsanctionedDefenderAttack(actionId);
+    }
     if (actorId === 'scientist' && targetActor.legionId === state.penalLegion?.id) recordLegionConduct('attack', targetActor.id);
     const sequence = Math.max(1, Number(options.sequence) || state.combat.nextActionNumber++);
     const accuracy = combatActionAccuracy(actor, targetActor, action, sequence);
@@ -39836,11 +39889,12 @@
         coalesceKey: "miss:" + actorId + ":" + target.id
       });
       awardCombatActionXp(actor, action.skillId, options.xp || 4, action.label, "failure");
-      if (targetActor !== state.scientist && !["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus"].includes(targetActor.actorKind)) awardCreatureSkillXp(targetActor, "evasion", 3, `evading ${action.label.toLowerCase()}`);
+      if (targetActor !== state.scientist && !["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender"].includes(targetActor.actorKind)) awardCreatureSkillXp(targetActor, "evasion", 3, `evading ${action.label.toLowerCase()}`);
       return { ok: true, hit: false, damage: 0, accuracy };
     }
     const targetId = targetActor === state.scientist ? "scientist" : targetActor.id;
     const guardedDamage = Math.max(1, Math.round(action.baseDamage * combatGuardDamageMultiplier(targetId)));
+    const targetHealthBefore = targetActor.health;
     const changed = targetActor === state.scientist
       ? damageScientistCombat(guardedDamage, `${action.label} (${damageTypeListText(action.damageTypes.map(damageTypeDef).filter(Boolean))})`, { damageTypes: action.damageTypes, observed: actor === state.scientist })
       : targetActor.actorKind === "wildernessBeast" ? damageWildernessBeast(targetActor, guardedDamage, actorId, { damageTypes: action.damageTypes })
@@ -39850,10 +39904,12 @@
       : targetActor.actorKind === "surfaceWorker" ? damageSurfaceWorker(guardedDamage, { damageTypes: action.damageTypes })
       : targetActor.actorKind === "laboratoryAssistant" ? damageSurfaceWorker(guardedDamage, { damageTypes: action.damageTypes }, targetActor)
       : targetActor.actorKind === "homunculus" ? damageHomunculus(targetActor, guardedDamage, { damageTypes: action.damageTypes, observed: actor === state.scientist })
+      : targetActor.actorKind === 'cityDefender' ? damageCityDefender(guardedDamage, { damageTypes: action.damageTypes })
       : applySlimeCombatDamage(targetActor, guardedDamage, actorId, action.label, { damageTypes: action.damageTypes, observed: actor === state.scientist });
+    const actualDamage = targetActor.actorKind === 'cityDefender' ? targetHealthBefore - targetActor.health : changed ? guardedDamage : 0;
     if (changed && !options.hideFeedback) {
       emitMapFeedback("feedbackImpact", combatActorCell(targetActor), {
-        label: action.label + " hit for " + guardedDamage,
+        label: action.label + " hit for " + actualDamage,
         intensityBand: guardedDamage >= 8 ? "high" : "medium",
         damageTags: action.damageTypes,
         fromCell: combatActorCell(actor),
@@ -39865,7 +39921,7 @@
       awardCombatActionXp(targetActor, "guarding", 4, `guarding against ${action.label.toLowerCase()}`, "success");
     }
     if (changed && action.pushesTarget) shoveCombatTarget(actor, targetActor);
-    return { ok: true, hit: true, damage: changed ? guardedDamage : 0, accuracy };
+    return { ok: true, hit: true, damage: actualDamage, accuracy };
   }
 
   function shoveCombatTarget(attacker, targetActor) {
@@ -40082,7 +40138,7 @@
   }
 
   function scientistInKnownCombat() {
-    return activeCombatRecords().some((record) => scientistAwareOfCombat(record));
+    return state.defenderChallenge?.phase === 'active' || activeCombatRecords().some((record) => scientistAwareOfCombat(record));
   }
 
   function stopScientistGuard(options = {}) {
@@ -40215,6 +40271,7 @@
       : `Scientist used ${action.label} on ${slime.name} for ${result.damage} ${damageTypeListText(action.damageTypes.map(damageTypeDef).filter(Boolean))} damage.`);
     expireSlimes();
     syncAllSlimeAi({ force: true });
+    if (slime.actorKind === 'cityDefender') updateDefenderChallenge();
     updateCombat(0);
     refreshIncidentAlerts();
     persist();
@@ -54179,6 +54236,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       return null;
     }
+    if (state.defenderChallenge?.phase === 'active' && state.combat?.routineSuspension?.reason === 'defender challenge') resumeScientistRoutineWork();
     if (state.expeditionEscorts?.drag?.helperId === "scientist") stopEscortDrag();
     const fromRoomId = scientistRoomId();
     const fromCell = scientistMapCell();
@@ -66526,8 +66584,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         if (state.surveyExpeditions.phase === 'field') for (const actor of [state.sovereignBargains?.representative, state.sovereignBargains?.defender])
           if (actor?.status === 'alive' && actor.mapCell && sensoryLineOfSight(scientistMapCell(), actor.mapCell))
             setLabMapOverlayEntry(assignments, actor.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: actor.name,
-              title: `${actor.role}; physical civic-counter participant, not a controllable soldier`, value: actor === state.sovereignBargains.defender ? 'D' : 'A',
+              title: `${actor.role}; ${state.defenderChallenge ? 'optional supervised challenge participant' : 'physical civic-counter participant'}, not a controllable soldier`, value: actor === state.sovereignBargains.defender ? 'D' : 'A',
               source: 'Direct observation', target: { kind: 'tile', tile: actor.mapCell } }, map);
+        if (state.defenderChallengeKnowledge?.terms && sensoryLineOfSight(scientistMapCell(), DefenderChallenges.START))
+          setLabMapOverlayEntry(assignments, DefenderChallenges.START, { overlayId, classNames: ['map-overlay-resources'],
+            label: 'Designated defender training ground', title: 'Existing open ground, limited sanctioned bout only; not city ownership', value: 'T',
+            source: 'Personally received training terms', target: { kind: 'tile', tile: DefenderChallenges.START } }, map);
+        const pulse = state.defenderChallenge?.pendingPulse;
+        if (pulse && defenderChallengeObserved()) setLabMapOverlayEntry(assignments, pulse.targetCell, { overlayId, classNames: ['map-overlay-resources', 'map-overlay-resources-high'],
+          label: 'Marked defender force pulse', title: `Move away or guard; releases ${formatClock(pulse.releaseAt)}`, value: '!',
+          source: 'Directly observed force-pulse telegraph', target: { kind: 'tile', tile: pulse.targetCell } }, map);
         const observations = new Map((LocalDiscovery.publicView(state.surveyExpeditions.discovery)?.records || []).filter(row => row.cell).map(row => [row.subject, row]));
         for (const record of observations.values()) {
           const cell = record.cell, label = `${record.text} — observed ${formatClock(record.at)}; last known, not live telemetry`;
@@ -83073,6 +83139,145 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(textEl('p', view.message), textEl('p', view.limitations));
     return panel;
   }
+  function ensureDefenderChallenge() {
+    if (state.defenderChallenge) return state.defenderChallenge;
+    const b = ensureSovereignBargains(), office = scientistCivicOffice();
+    if (!b || SovereignBargains.localReason(b, office, sovereignBargainContext(office))) return null;
+    state.defenderChallenge = DefenderChallenges.create(b, activeWorldRecord?.worldTheme || 'madcap', state.seed);
+    return state.defenderChallenge;
+  }
+  function defenderChallengeContext() {
+    const b = state.sovereignBargains, office = scientistCivicOffice(), c = sovereignBargainContext(office), cell = scientistMapCell();
+    const local = c.cityId === b?.source.cityId && c.visitPermission && c.alive;
+    const otherBusy = clinicActive() || rescueMissionActive() || Boolean(state.scientistIdentity?.job || b?.job
+      || state.surveyExpeditions?.mapService?.job || state.surveyExpeditions?.carrier?.briefingState?.job)
+      || scientistQueueTasks().some(t => t.type !== 'scientistMove' && !taskBlockReason(t));
+    const present = a => Boolean(local && a?.status === 'alive' && a.roomId === scientistRoomId() && a.mapCell
+      && WildernessBeasts.distance(cell, a.mapCell) <= 8 && sensoryLineOfSight(cell, a.mapCell) && !actorIsIncapacitated(a));
+    const ground = DefenderChallenges.GROUND, map = ensureLabMap();
+    const groundAvailable = rectangularRoomCells({ ...ground }).every(p => labMapCellRoomId(p) === SurveyExpeditions.FIELD_ROOM && labMapCellIsWalkable(p, map));
+    return { ...c, busy: otherBusy, otherBusy, cell, health: scientistVital('health').current, incapacitated: actorIsIncapacitated('scientist'),
+      groundAvailable, witnessPresent: present(b?.representative), defenderPresent: present(b?.defender),
+      distanceM: b?.defender ? combatFootprintDistanceMeters(state.scientist, b.defender) : Infinity,
+      lineOfEffect: Boolean(b?.defender?.mapCell && local && directedLineOfEffect(b.defender.mapCell, cell)) };
+  }
+  function defenderChallengeObserved() {
+    const b = state.sovereignBargains;
+    if (!b || !state.defenderChallenge) return false;
+    const c = defenderChallengeContext();
+    return c.alive && c.witnessPresent && c.defenderPresent;
+  }
+  function moveDefenderParticipant(actor, destination) {
+    if (actorIsIncapacitated(actor)) return false;
+    const path = labMapPathBetweenCells(actor.mapCell, destination, { map: ensureLabMap(), actor, ignoreDoors: true });
+    const next = path.find(p => !sameMapCell(p, actor.mapCell));
+    if (!next || labMapCellIsPathBlocked(next, { map: ensureLabMap(), actor })) return false;
+    actor.mapCell = cleanMapCell(next); actor.roomId = labMapCellRoomId(next); return true;
+  }
+  function refreshDefenderChallengeKnowledge() {
+    if (defenderChallengeObserved()) state.defenderChallengeKnowledge = { ...DefenderChallenges.publicView(state.defenderChallenge), reportedAt: state.clock };
+  }
+  function updateDefenderChallenge() {
+    const s = state.defenderChallenge, b = state.sovereignBargains;
+    if (!s || !b || scientistIsDead()) return 0;
+    const changed = DefenderChallenges.advance(s, b, scientistCivicOffice(), defenderChallengeContext(), state.clock, {
+      move: moveDefenderParticipant,
+      pulse: damage => {
+        damageScientistCombat(Math.max(1, Math.round(damage * combatGuardDamageMultiplier('scientist'))), 'Limited city-defender force pulse', { damageTypes: ['physical', 'force'] });
+        emitMapFeedback('feedbackImpact', scientistMapCell(), { label: 'City defender force pulse', intensityBand: 'medium', damageTags: ['force'] });
+      },
+      telegraph: pulse => {
+        emitMapFeedback('feedbackImpact', pulse.targetCell, { label: 'Force pulse marked — move or guard', intensityBand: 'high' });
+        addEvent(s.message, { sourceKind: 'defenderChallenge', sourceId: s.id });
+        state.paused = true;
+      }
+    });
+    if (['preparing', 'petitioning', 'active'].includes(s.phase) && !state.combat?.routineSuspension) suspendScientistRoutineWork('defender challenge');
+    if (!['preparing', 'petitioning', 'active'].includes(s.phase) && state.combat?.routineSuspension?.reason === 'defender challenge') resumeScientistRoutineWork();
+    if (s.phase !== 'active' && s.receipt && state.combat?.guarding?.scientist) stopScientistGuard({ quiet: true });
+    refreshDefenderChallengeKnowledge(); return changed ? 1 : 0;
+  }
+  function damageCityDefender(amount, options = {}) {
+    const b = state.sovereignBargains, actor = b?.defender;
+    if (!actor || actor.status === 'dead' || amount <= 0) return false;
+    const result = options.injuryProgress ? { damage: amount, absorbed: 0 } : DefenderChallenges.absorb(state.defenderChallenge, b, amount);
+    actor.health = Math.max(0, actor.health - result.damage);
+    if (result.absorbed && defenderChallengeObserved()) addEvent(`${actor.name}'s projection ward absorbed ${result.absorbed}; personal energy was spent.`, { sourceKind: 'defenderChallenge', sourceId: state.defenderChallenge?.id });
+    if (result.damage && !options.injuryProgress) recordCombatInjury(actor, result.damage, options.damageTypes || ['physical'], 'City defender combat trauma', { observed: defenderChallengeObserved() });
+    if (!actor.health) { actor.status = 'dead'; actor.diedAt = state.clock; }
+    return true;
+  }
+  function recordUnsanctionedDefenderAttack(actionId) {
+    const s = state.defenderChallenge, b = state.sovereignBargains, c = defenderChallengeContext(); if (!s || !b || !c.witnessPresent) return;
+    const report = { id: `${s.id}:conduct:${s.conduct.length + 1}`, at: state.clock, kind: 'attackOutsideAgreement', actionId,
+      actorId: 'scientist', targetId: b.defender.id, witnessId: b.representative.id, cityId: b.source.cityId,
+      termsId: s.terms?.id || null, finding: 'Observed attack outside the specific training permission; not a conviction.' };
+    s.conduct.push(report);
+    recordInvestigativeEvidence('cityDefenderAttack', { category: 'documentary', label: report.finding, significance: 'serious',
+      origin: { kind: 'witness', id: b.representative.id, label: b.representative.name }, subject: { kind: 'scientist', id: 'scientist' },
+      locus: { kind: 'mapCell', roomId: scientistRoomId(), cell: scientistMapCell(), label: 'Municipal ground' },
+      traits: [actionId, 'observed force outside training permission', 'unlawfulness and defenses require separate review'], persistence: { kind: 'permanent' },
+      knowledge: { state: 'known', learnedAt: state.clock, source: 'defenderChallenge', sourceIdentityKnown: true } });
+    if (s.phase === 'active') DefenderChallenges.withdraw(s, b, scientistCivicOffice(), c, state.clock);
+    addEvent(report.finding, { sourceKind: 'defenderChallenge', sourceId: report.id });
+  }
+  function defenderChallengeAction(action, expected = null) {
+    if (scientistIsDead()) return false;
+    updateDefenderChallenge();
+    const s = ensureDefenderChallenge(), b = state.sovereignBargains, office = scientistCivicOffice(), c = defenderChallengeContext();
+    if (!s) return false;
+    let ok = false;
+    if (action === 'walkCounter') return scientistIdentityAction('walk');
+    if (action === 'request') ok = DefenderChallenges.request(s, b, office, c, state.clock);
+    if (action === 'accept') ok = DefenderChallenges.accept(s, b, office, expected, c, state.clock);
+    if (action === 'withdraw') ok = DefenderChallenges.withdraw(s, b, office, c, state.clock);
+    if (action === 'walkGround' && ['outward', 'ready'].includes(s.phase) && c.cityId === b.source.cityId && !surveyBusy())
+      ok = Boolean(startScientistMove(SurveyExpeditions.FIELD_ROOM, { toCell: DefenderChallenges.START, allowMultiRoom: true }));
+    if (action === 'start') ok = DefenderChallenges.start(s, b, c, state.clock);
+    if (action === 'petition') ok = DefenderChallenges.filePetition(s, b, office, c, state.clock);
+    if (['strike', 'soulLash'].includes(action) && DefenderChallenges.authorized(s, b, c, action, state.clock)) return beginScientistCombatAction(action, b.defender.id);
+    if (action === 'guard' && s.phase === 'active') return startScientistGuard();
+    if (['preparing', 'petitioning', 'active'].includes(s.phase) && !state.combat?.routineSuspension) suspendScientistRoutineWork('defender challenge');
+    if (!ok && action !== 'request') addEvent('No supported attendance, unchanged agreement, original participants, physical range or available work. No challenge result or power was awarded.');
+    updateDefenderChallenge(); refreshDefenderChallengeKnowledge(); persist(); render(); return ok;
+  }
+  function renderDefenderChallenge() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.defenderChallenge = 'true';
+    panel.append(textEl('strong', 'Challenge a city defender'), textEl('p', 'Optional supervised demonstration on existing municipal open ground. Ordinary civic services do not require fighting. Real injuries remain; bring your own equipment and medical supplies.'));
+    const s = ensureDefenderChallenge(), b = state.sovereignBargains; refreshDefenderChallengeKnowledge();
+    const v = state.defenderChallengeKnowledge, c = defenderChallengeContext(), observed = defenderChallengeObserved();
+    const button = (label, action, disabled, expected = null) => {
+      const el = storesActionButton(label, label, () => defenderChallengeAction(action, expected)); el.dataset.defenderAction = action; el.disabled = Boolean(disabled); panel.append(el);
+    };
+    button('Walk to defender challenge counter', 'walkCounter', !c.cityId || DefenderChallenges.reserved(s));
+    if (!v) { panel.append(textEl('p', 'No personally observed defender challenge. Meet the actual sovereign office first; no ruler or defender is invented.')); return panel; }
+    panel.append(textEl('p', `Personally observed ${formatClock(v.reportedAt)}; ${v.phase}. Dated record, not live surveillance.`));
+    if (['idle', 'offered', 'expired', 'declined'].includes(v.phase)) button('Request sanctioned defender challenge', 'request', !observed || !c.atCounter || c.busy);
+    if (v.terms) {
+      const t = v.terms; panel.append(textEl('p', `${t.authorization} Offer expires ${formatClock(t.expiresAt)}. Preparation ${formatDuration(t.preparationSeconds)}; bout ${formatDuration(t.durationSeconds)}. Permitted: ${t.permittedActions.join(', ')}. ${t.stop}`), textEl('p', t.repertoire), textEl('p', t.stakes));
+      if (v.phase === 'offered') button('Accept exact defender challenge terms', 'accept', !observed || !c.atCounter || state.clock >= t.expiresAt, clonePlainObject(t));
+    }
+    if (v.preparing) panel.append(textEl('p', `${v.preparing.kind}: ${formatDuration(v.preparing.progress)} / ${formatDuration(v.preparing.seconds)}; remain at the counter.`));
+    if (['outward', 'ready'].includes(v.phase)) {
+      button('Walk to defender training ground', 'walkGround', !observed || surveyBusy());
+      button('Begin supervised defender bout', 'start', !observed || v.phase !== 'ready' || !DefenderChallenges.inside(c.cell) || c.busy);
+    }
+    if (v.phase === 'active') {
+      panel.append(textEl('p', `Bout ends ${formatClock(v.bout.endsAt)}. Walk using the map to approach, dodge a marked pulse or withdraw beyond the ground (10–14,12–15, level 6).`));
+      if (v.pendingPulse) panel.append(textEl('p', `Marked force pulse: ${v.pendingPulse.targetCell.x},${v.pendingPulse.targetCell.y}; release ${formatClock(v.pendingPulse.releaseAt)}.`));
+      for (const action of ['strike', 'soulLash']) button(action === 'strike' ? 'Strike defender' : 'Soul Lash defender', action,
+        !observed || !DefenderChallenges.authorized(s, b, c, action, state.clock) || Boolean(scientistCombatActionBlockReason(action, b.defender)));
+      button('Guard against defender', 'guard', !observed || !c.capable);
+    }
+    if (['offered', 'preparing', 'outward', 'ready', 'active', 'petitioning'].includes(v.phase)) button('Withdraw defender challenge', 'withdraw', !observed);
+    if (v.receipt) {
+      panel.append(textEl('p', `Dated outcome ${formatClock(v.receipt.at)}: ${v.receipt.outcome}. ${v.receipt.detail} ${v.receipt.witnessed ? `Witness: ${v.receipt.witnessId}.` : 'No witnessed performance claim.'}`));
+      if (v.receipt.outcome === 'defenderConceded' && v.receipt.witnessed && !v.petition)
+        button('File witnessed political negotiation request', 'petition', !observed || !c.atCounter || v.phase !== 'closed');
+    }
+    if (v.petition) panel.append(textEl('p', `${v.petition.status}: ${v.petition.scope}`));
+    panel.append(textEl('p', v.message), textEl('p', v.limitations)); return panel;
+  }
   function municipalMapContext(office) {
     const expedition = ensureSurveyExpeditions(), service = expedition.mapService;
     const ctx = scientistCivicContext(office);
@@ -85150,6 +85355,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function surveyScientistAway() { return Boolean(state?.surveyExpeditions && state.surveyExpeditions.phase !== "home"); }
   function surveyScientistReserved() { return surveyScientistAway() || Boolean(state?.surveyExpeditions?.preparing); }
   function surveyTaskAllowed(task) {
+    if (['preparing', 'petitioning'].includes(state.defenderChallenge?.phase)) return false;
+    if (state.defenderChallenge?.phase === 'active' && task.type !== 'scientistMove') return false;
     if (state.scientistIdentity?.job || state.sovereignBargains?.job || state.surveyExpeditions?.mapService?.job || state.surveyExpeditions?.carrier?.briefingState?.job) return false;
     if (state.penalLegion?.serviceEndedAt != null && task.type === 'scientistMove' && task.data?.toCell?.z === scientistMapCell().z) return true;
     if (currentPenalFlight() && currentPenalFlight().stage !== "released") return false;
@@ -85369,6 +85576,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function boardSurveyVehicle() {
     if (currentPenalFlight()) return false;
+    if (DefenderChallenges.reserved(state.defenderChallenge) && state.defenderChallenge.phase !== 'returning') return false;
     if (clinicActive() || state.scientistIdentity?.job || state.sovereignBargains?.job || state.surveyExpeditions?.mapService?.job) return false;
     if (rescueMissionPhysical() || state.medicalExtraction?.mission?.status === "inbound") return false;
     if (unsupportedActive()) return false;
@@ -85603,6 +85811,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(renderScientistIdentity());
     panel.append(renderMunicipalMaps());
     panel.append(renderSovereignBargains());
+    panel.append(renderDefenderChallenge());
     panel.append(renderCarrierBriefings());
     const button = (label, action, disabled = false, reason = "") => {
       const element = document.createElement("button"); element.type = "button"; element.textContent = label; element.disabled = disabled; element.title = reason; element.addEventListener("click", action); panel.append(element);
@@ -92632,6 +92841,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.civicAssayKnowledge = candidate?.civicAssayKnowledge ? clonePlainObject(candidate.civicAssayKnowledge) : null;
     next.sovereignBargains = SovereignBargains.normalize(candidate?.sovereignBargains);
     next.sovereignBargainKnowledge = candidate?.sovereignBargainKnowledge ? clonePlainObject(candidate.sovereignBargainKnowledge) : null;
+    next.defenderChallenge = DefenderChallenges.normalize(candidate?.defenderChallenge);
+    next.defenderChallengeKnowledge = candidate?.defenderChallengeKnowledge ? clonePlainObject(candidate.defenderChallengeKnowledge) : null;
     next.confidentialServices = ConfidentialServices.normalize(candidate?.confidentialServices);
     next.confidentialServiceKnowledge = candidate?.confidentialServiceKnowledge ? clonePlainObject(candidate.confidentialServiceKnowledge) : null;
     next.surfaceWorkers = SurfaceWorkers.normalize(candidate?.surfaceWorkers);

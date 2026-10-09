@@ -71,6 +71,7 @@
     if (!c.alive || !c.capable || !c.atCounter || !c.clerkPresent || !c.lineOfSight || c.cityId !== s.source.cityId || !c.visitPermission || c.busy) return 'Attend the authorized civic counter in person, fit and free of other work.';
     if (!readyOffice(office) || !c.administrationAvailable || !c.defenseAvailable || c.authorityId !== s.source.authority.id) return 'The original administration or defense authority is unavailable; no replacement authority is invented.';
     if (![s.representative, s.defender].every(a => capable(a) && a.locationId === office.id) || !c.participantsPresent) return 'The named representative and defender must both be present and capable.';
+    if (s.representative.assignment || s.defender.assignment) return 'The original representative or defender is allocated to other civic duties.';
     if (office.assignment && office.assignment !== s.job?.id) return 'The shared civic counter is assigned to other work.';
     return '';
   }
