@@ -5,6 +5,39 @@ const layout = () => Workshop.plan({ x: 27, y: 10, z: 8 });
 const destination = { id: 'known-remote', strategicCellId: 'cell:3', privateDeposit: 'do not disclose' };
 const context = { alive: true, local: true, visited: true, wilderness: true, observed: true, clear: true, roomId: 'remoteSurveyLanding' };
 
+test('receiving alcoves are separate enclosed plans with real ports and a nonduplicated connection to the old trunk', () => {
+  const base = layout(), original = JSON.stringify(base), key = c => `${c.x},${c.y},${c.z}`;
+  const plans = Workshop.alcovePlans(base); assert.equal(plans.length, 10);
+  for (const p of plans) {
+    assert.equal(p.floors.length, 25); assert.equal(p.roofs.length, 25); assert.equal(p.walls.length, 15);
+    assert(!p.walls.some(c => key(c) === key(p.entrance)));
+    assert(base.walls.some(c => key(c) === key(p.opening)));
+    assert.deepEqual(p.workCell, base.workCell);
+    const r = p.equipment.receiver[0], b = p.equipment.beacon[0];
+    const ports = [{ ...r, x: r.x + 1, y: r.y - 1 }, { ...b, y: b.y - 1 }];
+    assert.deepEqual(p.rotations, { receiver: 180, beacon: 180 });
+    for (const port of ports) {
+      assert(p.floors.some(c => key(c) === key(port))); assert(!p.walls.some(c => key(c) === key(port)));
+    }
+    const blocked = new Set([...p.walls, r, { ...r, x: r.x + 1 }, { ...r, y: r.y + 1 }, { ...r, x: r.x + 1, y: r.y + 1 }, b].map(key));
+    const walkable = p.floors.filter(c => !blocked.has(key(c))), accessible = new Set([key(p.entrance)]);
+    for (let n = 0; n < walkable.length; n++) for (const c of walkable)
+      if (walkable.some(a => accessible.has(key(a)) && Math.abs(a.x - c.x) + Math.abs(a.y - c.y) === 1)) accessible.add(key(c));
+    assert(ports.every(c => accessible.has(key(c))), 'Both actual operator ports must be reachable through the entrance without clipping blocking equipment.');
+    const added = p.equipment.receiverServices, all = [...added, ...base.equipment.services];
+    assert.equal(new Set(all.map(key)).size, all.length);
+    const reached = new Set([key(added[0])]);
+    for (let n = 0; n < all.length; n++) for (const c of all)
+      if (all.some(a => reached.has(key(a)) && Math.abs(a.x - c.x) + Math.abs(a.y - c.y) === 1)) reached.add(key(c));
+    assert(all.every(c => reached.has(key(c))));
+  }
+  assert.deepEqual(plans[0].origin, { x: 22, y: 14, z: 8 });
+  assert(!plans[0].ground.some(c => Math.abs(c.x - RemoteLanding.x) <= 1 && Math.abs(c.y - RemoteLanding.y) <= 1));
+  assert.equal(JSON.stringify(base), original); assert.equal(base.equipment.receiver, undefined);
+  assert.deepEqual(Workshop.ALCOVE_COSTS, { lumber: 25, steelPanels: 8, metalParts: 4, rubber: 2 });
+});
+const RemoteLanding = { x: 23, y: 12 };
+
 test('workshop is shared theme-selected content with no automatically provided site or assets', () => {
   for (const theme of ['madcap', 'grim', 'unbound']) {
     const s = Workshop.create({ theme, seed: 'fixed' });

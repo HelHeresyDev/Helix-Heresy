@@ -35,11 +35,24 @@
   function requestReason(trip, at, cargo) {
     if (trip?.rescueReservation) return "The aircraft is reserved for an accepted medical extraction.";
     if (trip?.status !== "field") return "Replacement pickup is only available to a party still at the remote site.";
-    if (!["missed", "aborted"].includes(trip.pickup.status)) return "The existing pickup has not finished; duplicate bookings are not allowed.";
+    if (!["unbooked", "missed", "aborted"].includes(trip.pickup.status)) return "The existing pickup has not finished; duplicate bookings are not allowed.";
     if (trip.request?.status === "acknowledged") return "The provider is already reviewing a request.";
     if (cargo > CARGO) return "The declared cargo exceeds the aircraft capacity; leave excess cargo at the site.";
     if (trip.request && at < trip.request.reviewAt + 60) return "Wait for the provider's next request interval.";
     return "";
+  }
+  function providerAvailableAt(trip, at = 0) {
+    if (!trip) return at;
+    const pickup = ['scheduled', 'enRoute', 'waiting'].includes(trip.pickup?.status)
+      ? trip.pickup.closesAt + trip.terms.flightSeconds + TURNAROUND : 0;
+    return Math.max(at, trip.providerReadyAt || 0, pickup,
+      ['inbound', 'complete'].includes(trip.status) && trip.returnAt != null ? trip.returnAt + TURNAROUND : 0);
+  }
+  function residence(number, at, destination, availableAt = at) {
+    const terms = quote(destination); if (!terms.ok) return null;
+    return { id: `unsupported-residence-${number}`, residence: true, status: 'field', fieldAt: at, departedAt: null, returnAt: null,
+      terms, pickup: { status: 'unbooked', departAt: null, opensAt: null, closesAt: null, boardedAt: null, reason: 'No aircraft booking belongs to this body.' },
+      request: null, nextRequest: 1, providerReadyAt: Math.max(at, availableAt), fuelRemainingKm: 0, lastAt: at };
   }
   function request(trip, at, cargo, cell) {
     if (requestReason(trip, at, cargo)) return null;
@@ -97,8 +110,8 @@
     if (!trip) return Infinity;
     if (trip.status === "outbound") return trip.fieldAt;
     if (trip.status === "inbound") return trip.returnAt;
-    const pickup = report?.pickup || { opensAt: trip.fieldAt + trip.terms.fieldSeconds, closesAt: trip.fieldAt + trip.terms.fieldSeconds + WAIT };
+    const pickup = report?.pickup || (trip.residence ? {} : { opensAt: trip.fieldAt + trip.terms.fieldSeconds, closesAt: trip.fieldAt + trip.terms.fieldSeconds + WAIT });
     return Math.min(...[pickup.opensAt, pickup.closesAt, report?.request?.status === "acknowledged" ? report.request.reviewAt : null].filter((at) => at != null && at > now));
   }
-  return { ROOM, Z, CABIN_ROOM, CABIN_Z, LANDING, RANGE_KM, CARGO, WAIT, TURNAROUND, defaultState, normalizeState, chooseDestination, quote, weatherReason, start, requestReason, request, advance, boardingReason, board, nextEventAt, nextPublicEventAt };
+  return { ROOM, Z, CABIN_ROOM, CABIN_Z, LANDING, RANGE_KM, CARGO, WAIT, TURNAROUND, defaultState, normalizeState, chooseDestination, quote, weatherReason, start, residence, providerAvailableAt, requestReason, request, advance, boardingReason, board, nextEventAt, nextPublicEventAt };
 });

@@ -128,6 +128,22 @@ test('death records preserve remains, soul, legal consequences and allow a new b
   assert.equal(again.created, true); assert.equal(again.terminal, true); assert.equal(again.state.records.length, 2);
   assert.equal(D.resolveHandoff(returned.state, first.record.id, {}).changed, false);
 });
+
+test('failed handoff cannot add a newly prepared destination and successful context is read exactly once', () => {
+  const f = fixture(), first = f.ready(), g = fixture(), later = g.ready();
+  S.prepareHandoff(f.s, 'death', f.s.lastAt, context);
+  g.r.id = 'late-receiver'; g.r.chamberId = 'late-chamber'; later.id = 'late-beacon';
+  later.chamberId = g.r.chamberId; later.receiverId = g.r.id;
+  f.s.receivers.push(g.r); f.s.beacons.push(later); S.select(f.s, 'death', first.id);
+  assert.equal(S.recover(f.s, 'death', f.s.lastAt, b => ({ ...context(), services: b.id !== first.id })).ok, false);
+  assert.deepEqual(f.s.handoff.choices, []); assert.equal(first.charge, 24); assert.equal(later.charge, 24);
+  const h = fixture(), b = h.ready(); S.prepareHandoff(h.s, 'next-death', h.s.lastAt, context); S.select(h.s, 'next-death', b.id);
+  let calls = 0;
+  const receipt = S.recover(h.s, 'next-death', h.s.lastAt, () => {
+    calls++; return { ...context(), destination: { roomId: 'remoteSurveyLanding', cell: { x: 23, y: 17, z: 8 }, remote: true } };
+  }).receipt;
+  assert.equal(calls, 1); assert.equal(receipt.location.remote, true); assert.equal(receipt.location.cell.z, 8);
+});
 test('verified empty physical destinations override unsupported legacy readiness flags', () => {
   const fake = D.addContingency(D.defaultState(), { preparedBodyId: 'not-real', siteId: 'not-real' }, 0);
   assert.equal(D.recordDeath(fake.state, { verifiedContingencies: [] }, 5).terminal, true);

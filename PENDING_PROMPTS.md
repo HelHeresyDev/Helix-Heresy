@@ -18,22 +18,21 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Hidden-Base Contingencies and Multiple Beacon Destinations
-2. City Power: Coercion, Replacement, and Occupation
-3. City Power: Maintaining Rule, Obligations, and Resistance
-4. Strategic Expansion and World Domination
-5. Divine Supremacy: Rule over the Gods
-6. New-Run Onboarding and Contextual Tutorial
-7. Sound, Notifications, and Accessibility Audit
-8. Production Art Pass Using the Sprite Pipeline
+1. City Power: Coercion, Replacement, and Occupation
+2. City Power: Maintaining Rule, Obligations, and Resistance
+3. Strategic Expansion and World Domination
+4. Divine Supremacy: Rule over the Gods
+5. New-Run Onboarding and Contextual Tutorial
+6. Sound, Notifications, and Accessibility Audit
+7. Production Art Pass Using the Sprite Pipeline
 
 Human staffing now supports bounded independent annex operation without intelligent creations. Homunculus growth, learned local continue/stop gestures, small separately learned signed and spoken languages, care-grounded spoken help requests and specifically demonstrated voluntary carrying agreements exist; literacy, wider education and standing creature employment do not. Homunculi remain advanced stage-two/three work, not early-laboratory unlocks; priority order does not impose compulsory campaign chapters.
 
 City influence now has a first bounded charter-backed civic assay mandate: exact queued terms, three identified producer batches over three days, physical sample dispatch priority, binding evidence-backed dispositions and capacity-bound charter review. This is a historical political foothold, not sovereign city control or city-power ambition completion. Coercive control and continuing rule remain separate discussions below.
 
-Main-laboratory soul-beacon recovery now requires late-game skills, recovered evidence, three reconstruction projects, a separately grown soul-free receiving body, finite maintained utilities and a charged armed apparatus. Death preserves bodily remains and worldly consequences before saved destination selection and exactly-once return. Imperfect transfer loses personal memory and practiced expertise to the original flaw. A controlled self-derived neural-continuity assay, two further advanced projects and actual supplied preparation/validation can perfect a specific body–beacon pairing. Perfected return retains current memory, knowledge and conceptual specializations while bodily execution must genuinely retrain; relevant physical practice gains four times XP only below retained mastery. Earlier memory losses, soul wounds, external records and worldly consequences remain. Remote receiving bodies, beacon pairing and multiple destinations are the next discussion, not already implemented capabilities.
+Main-laboratory and hidden-workshop soul-beacon recovery require late-game skills, recovered evidence, three reconstruction projects, a separately grown soul-free receiving body, finite maintained utilities and a charged armed apparatus at each destination. Death preserves bodily remains and worldly consequences before saved destination selection and exactly-once return. Invalid selections consume nothing and fall back only to other viable original choices, with no post-death preparation or time advancement. Imperfect transfer loses personal memory and practiced expertise to the original flaw. A controlled self-derived neural-continuity assay, two further advanced projects and actual supplied preparation/validation can perfect a specific body–beacon pairing. Perfected return retains current memory, knowledge and conceptual specializations while bodily execution must genuinely retrain; relevant physical practice gains four times XP only below retained mastery. Earlier memory losses, soul wounds, external records and worldly consequences remain. All destinations retain the 75-integrity threshold; a destroyed soul cannot return.
 
-One physically visited hidden wilderness workshop is now implemented: actual cargo-limited charters, inspected local ground, attended shell/equipment construction, independently supplied finite utilities, a local service test, individual fixture care and bottled wastewater. Buildings and supplies persist across visits and reloads; away views retain dated personal observations. Original-lab damage does not delete the workshop, but it grants no ownership, secrecy guarantee, staff, receiver or resurrection. The manual assay annex's lease is unchanged.
+One physically visited hidden wilderness workshop is implemented: actual cargo-limited charters, inspected local ground, attended shell/equipment construction, independently supplied finite utilities, a local service test, individual fixture care and bottled wastewater. Its separately paid receiving alcove, chamber, beacon and conduits support independent local growth, upkeep and pairing. Buildings and supplies persist across visits and reloads; away views retain dated personal observations while actual receiver utilities and maintenance remain finite. Original-lab damage does not delete the workshop or grant ownership, secrecy or staff. Remote return creates physical field presence without an inherited aircraft booking: retrieval of actual supplies and a new paid pickup need a working carried communicator, real funds, provider availability, weather, capacity and physical boarding. Device charge, old possessions and old-body medical commitments are not reset or transferred for free. The manual assay annex's lease is unchanged.
 
 ## World and Run Guardrails
 
@@ -99,15 +98,7 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Hidden-Base Contingencies and Multiple Beacon Destinations
-
-After additional facilities have physically supportable infrastructure and transport, implement soul beacons at separately prepared hidden sites and player choice among multiple eligible destinations after death. Every beacon needs its own compatible body, charge, utilities, materials, access, and uncompromised receiving site; internet contact is not material delivery. Preserve only actionable beacon-linked destination information, without leaking unknown inventory, enemies, or canonical geography. Revalidate the selected destination, consume only its actual components, and retain unselected contingencies without duplicating the scientist. Soul damage can affect different receiving arrangements; a destroyed soul has no eligible destination. Recovery in the original laboratory gives access only to its surviving actual assets, while a remote hidden-base return may require rebuilding with only what was prepared there. Preserve lost and seized property, old remains, legal consequences, continued bodily identities, and the same run/world branch. Discuss finite physical handoff resolution and fallback choice if a selected destination cannot complete recovery.
-
-Build on the actual wilderness workshop, not a broadened assay-annex lease or a free new settlement. Grow and maintain each receiving body and beacon separately, retaining existing late-game prerequisites and imperfect/perfected pairing rules. Initially keep the existing 75-integrity threshold rather than inventing arbitrary site-specific soul healing. Death pauses preparation and world advancement: no post-death construction, charging, repairs or supplied catch-up. Before irreversible handoff, an invalid selected arrangement must return to any other still-viable choice; no viable arrangement means irreversible death. Consume only the selected original components exactly once. A remote return must not silently restore laboratory access or teleport the scientist home through the old expedition phase.
-
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. City Power: Coercion, Replacement, and Occupation
+## 1. City Power: Coercion, Replacement, and Occupation
 
 Build beyond the limited civic assay delegation by discussing one physically supported way to replace, coerce or defeat a sovereign city's authority. Choose a small playable route before coding; split missing combat, negotiation, succession or enforcement prerequisites into additional prompts when necessary. An assay appointment, paid services, reputation or internet recognition cannot supply command over a ruler, institutions or defenses.
 
@@ -115,7 +106,7 @@ Require actual people, rare powerful defenders, material resources, reachable in
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. City Power: Maintaining Rule, Obligations, and Resistance
+## 2. City Power: Maintaining Rule, Obligations, and Resistance
 
 After an implemented route can establish actual city control, discuss and implement one coherent continuing-rule loop. Authority must depend on staffed administration, defensible infrastructure, finite provisioning and upkeep, real agreements and physically enforceable obligations rather than an indefinite loyalty flag. Tribute or imposed duties require actual goods, labor or supported services and feasible delivery; internet orders create no resources or extraterritorial police power.
 
@@ -123,31 +114,31 @@ Preserve local charters, civic responsibilities, religious interests, independen
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Strategic Expansion and World Domination
+## 3. Strategic Expansion and World Domination
 
 Design physically supportable expansion between existing support components, significant beast powers, and divine interests, then implement only the next mechanically supported slice. Specify finite, testable durable-supremacy criteria before adding victory evaluation; occupation of every empty globe cell is not required. Bind campaigns to actual routes, transport, manpower, resources, defense, agreements, and resistance. Keep unknown powers and hidden totals out of ordinary campaign records. World domination is an exceptionally rare dated accomplishment, not a game-over transition, and remains separate from divine supremacy.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. Divine Supremacy: Rule over the Gods
+## 4. Divine Supremacy: Rule over the Gods
 
 Design and implement the ultimate ambition of imposing enforceable submission on the gods, killing those who refuse, and reigning over the rest. Submission must impose actual terms and consequences rather than a reputation threshold or cosmetic declaration. Cover discovery, human and beast gods, living descended individuals, avatars versus the actual divine individual, rebellion, and new ascendants. Destroying worship or forcing descent is not a kill. Scientific, animantic, engineered-creature, and personal-power approaches should remain possible without requiring the scientist to ascend. Theme-compatible presentations do not remove the refusal-and-death requirement. Define finite, testable accomplishment criteria without exposing hidden identities or counts; allow continued play after success and keep world domination a separate accomplishment. Split prerequisite combat, submission, or enforcement systems into further prompts if needed.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. New-Run Onboarding and Contextual Tutorial
+## 5. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Sound, Notifications, and Accessibility Audit
+## 6. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Production Art Pass Using the Sprite Pipeline
+## 7. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 

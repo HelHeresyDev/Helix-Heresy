@@ -13691,6 +13691,19 @@
         }
         syncActorInventories(); persist(); render(); return true;
       },
+      advanceReceivingWorkshopForTest: (seconds) => {
+        // Focused chronological heartbeat for actual receiver work, finite
+        // infrastructure, local construction and paid field travel together.
+        let remaining = Math.max(0, seconds);
+        while (remaining > 0 && !scientistIsDead()) {
+          const movement = firstScientistQueueTask()?.data?.movement;
+          const step = Math.min(remaining, movement?.steps?.length > 1 && !movement.completed ? 1 : 60), from = state.clock;
+          state.clock += step; remaining -= step; updateScientistMovementTask(); updateInfrastructure(step);
+          updateWildernessNeeds(); updateSoulBeacons(); updateHiddenWorkshop(); updateResearchWorkProgress(from, state.clock);
+          completeDueTasks(); updateUnsupportedExcursion();
+        }
+        syncActorInventories(); persist(); render(); return state.clock;
+      },
       leasedAnnexSnapshot: () => clonePlainObject({ saved: state.leasedAnnex, view: LeasedAnnex.publicView(state.leasedAnnex, state.clock),
         clock: state.clock, money: ensureEconomy().money, scientist: { roomId: scientistRoomId(), cell: scientistMapCell() },
         stacks: ensurePhysicalItemStacks(), tasks: state.tasks, diagnostics: ensureDiagnosticState(),
@@ -16923,6 +16936,8 @@
     const oldCell = clonePlainObject(scientistMapCell()), oldRoom = scientistRoomId(), oldBody = state.scientist.vocalBodyId,
       oldSkills = clonePlainObject(state.scientist.skills), oldSensory = clonePlainObject(state.scientist.sensory),
       memory = clonePlainObject(state.scientist.memoryContinuity || defaultScientist().memoryContinuity);
+    const oldWilderness = wildernessSiteState(), oldRadios = clonePlainObject(ensureWildernessSurvival().radios),
+      oldRemote = state.unsupportedExcursions?.active;
     // Release unfinished scientist work without refunding already incorporated supplies or altering other actors' tasks.
     for (const task of scientistQueueTasks()) cleanupCancelledTask(task);
     state.tasks = state.tasks.filter(t => !isScientistQueueTask(t));
@@ -16948,6 +16963,8 @@
     state.scientist.memoryContinuity = memory;
     state.scientist.vitals.health.current = result.receipt.health;
     state.wildernessSurvival = WildernessSurvival.defaultState(state.clock);
+    state.wildernessSurvival.radios = oldRadios;
+    for (const radio of Object.values(oldRadios || {})) radio.powered = false;
     state.scientistDeath = ScientistDeath.resolveHandoff(ensureScientistDeath(), deathId, result.receipt).state;
     // Detention attaches to the deceased body; the sentence and its records do not disappear or count as served.
     for (const custody of [state.jailCustody, state.prisonCustody, state.deathRowCustody]) for (const stay of custody?.stays || [])
@@ -16958,7 +16975,36 @@
     }
     if (state.scientistIdentity) ScientistIdentity.replaceBody(state.scientistIdentity, state.economy?.intercitySmuggling?.identityOffices || [], state.scientistIdentity.description, state.clock);
     if (state.surveyExpeditions) { state.surveyExpeditions.phase = 'home'; state.surveyExpeditions.activeSiteId = ''; }
-    if (state.unsupportedExcursions) state.unsupportedExcursions.active = false;
+    const medical = state.medicalExtraction, mission = medical?.mission;
+    if (medical?.coverage?.status === 'active') medical.coverage.status = 'expired';
+    if (medical?.beacon) medical.beacon.armed = false;
+    if (MedicalExtraction.active(mission)) {
+      cancelRescueTreatment(); mission.patientBodyEndedAt = state.clock; mission.patientBodyId = oldBody; mission.patientLoaded = false;
+      if (mission.status === 'inbound') mission.status = 'returningEmpty';
+      else if (mission.status === 'handoff') { mission.status = 'failed'; mission.endedAt = state.clock; }
+      else if (rescueMissionPhysical()) mission.status = 'withdrawing';
+      mission.reason = 'The original patient body died; this mission cannot claim or move a replacement body.';
+    }
+    const remote = state.unsupportedExcursions;
+    if (remote) {
+      if (oldRemote && oldRoom === UnsupportedExcursions.ROOM) remote.remote = oldWilderness;
+      const providerAt = Math.max(UnsupportedExcursions.providerAvailableAt(remote.trip, state.clock),
+        MedicalExtraction.active(mission) && mission.status !== 'assessing'
+          ? (mission.returnAt || mission.fieldDeadline || mission.arriveAt || state.clock) + (mission.flightSeconds || 0) + UnsupportedExcursions.TURNAROUND : 0);
+      if (remote.trip) remote.trip.providerReadyAt = providerAt;
+      remote.active = false;
+      if (result.receipt.location.remote) {
+        if (remote.trip) remote.history.push({ ...clonePlainObject(remote.trip), bodyEndedAt: state.clock, bodyId: oldBody });
+        remote.boundary = oldRemote ? remote.boundary : remote.municipal;
+        remote.active = true; remote.lastReport = null;
+        remote.trip = UnsupportedExcursions.residence(remote.nextTrip++, state.clock, remote.destination, providerAt);
+        restoreWildernessSite(remote.remote || { destination: remote.destination, context: remote.context,
+          materialized: true, shelter: null, beasts: WildernessBeasts.defaultState(), discovery: null });
+        state.wildernessSurvival.mode = 'wilderness';
+        state.surveyExpeditions.phase = 'field'; state.surveyExpeditions.activeSiteId = state.hiddenWorkshop.site.id;
+        useSurveyContext(remote.context);
+      }
+    }
     if (state.penalLegion?.startedAt != null && state.penalLegion.serviceEndedAt == null) {
       state.penalLegion.phase = 'deceased';
       if (state.penalLegion.ledger) state.penalLegion.ledger.suspendedAt ??= state.clock;
@@ -22410,6 +22456,23 @@
     if (scientistIsDead()) return 0;
     const advanceStartedAt = performance.now();
     const elapsed = Math.max(0, Number(seconds) || 0);
+    // Remote contingencies spend finite services in chronological minutes even
+    // while unvisited. Never collect a whole future interval before consuming it.
+    if (!options.soulStep && elapsed > 60 && (state.soulBeacons?.receivers.some(r => ['growing', 'ready'].includes(r.status))
+      || state.soulBeacons?.beacons.some(b => b.status === 'charging'))) {
+      let remaining = elapsed, changed = 0;
+      while (remaining > 0 && !scientistIsDead()) {
+        const room = scientistRoomId(), notice = state.wildernessBeasts?.noticeSerial, before = state.clock,
+          pickup = state.unsupportedExcursions?.trip?.pickup?.status, medical = state.medicalExtraction?.mission?.status,
+          phase = state.surveyExpeditions?.phase, requested = Math.min(60, remaining);
+        changed += advanceTime(requested, { ...options, soulStep: true });
+        remaining -= Math.max(0, state.clock - before);
+        if (state.clock - before < requested || room !== scientistRoomId() || notice !== state.wildernessBeasts?.noticeSerial
+          || pickup !== state.unsupportedExcursions?.trip?.pickup?.status || medical !== state.medicalExtraction?.mission?.status
+          || phase !== state.surveyExpeditions?.phase) break;
+      }
+      return changed;
+    }
     if (state.penalLegion && !['extracted', 'deceased'].includes(state.penalLegion.phase) && !options.legionStep && elapsed > 1) {
       let remaining = elapsed, changed = 0;
       while (remaining > 0 && !scientistIsDead()) {
@@ -61173,25 +61236,31 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function ensureSoulBeacons() { return state.soulBeacons ||= SoulBeacons.create(state.clock, { seed: state.seed, theme: activeWorldRecord?.worldTheme || state.worldTheme || 'madcap' }); }
+  function soulBeaconLocalAt(cell) {
+    return Boolean(cell && cell.z === scientistMapCell().z && (campaignLocalKnowledgeAvailable()
+      || hiddenWorkshopLocal() && labMapCellRoomId(cell) === state.hiddenWorkshop?.site?.roomId));
+  }
   function soulBeaconServices(f, context = utilityNetworkContext()) {
     return Boolean(f && f.condition >= 80 && utilityFixtureEnabled(f) && fixtureUtilityNetworks(f).every(m => chemistryUtilityService(f, m, context).ratio >= .99));
   }
   function soulBeaconTarget(action, id) {
     const s = ensureSoulBeacons(), r = s.receivers.find(r => r.id === id), b = s.beacons.find(b => b.id === id);
-    const f = ['medium', 'retrain'].includes(action) ? researchWorkstations()[0] : fixtureById(r?.chamberId || b?.fixtureId || id);
-    const port = f && fixtureAccessCells(f).find(p => labNavigationPlanBetweenCells(scientistMapCell(), p.cell, { actor: state.scientist, ignoreDoors: true }).found);
+    const f = ['medium', 'retrain'].includes(action) ? researchWorkstations().find(f => f.origin.z === scientistMapCell().z)
+      : fixtureById(r?.chamberId || b?.fixtureId || id);
+    const port = f && f.origin.z === scientistMapCell().z && fixtureAccessCells(f).find(p => labNavigationPlanBetweenCells(scientistMapCell(), p.cell, { actor: state.scientist, ignoreDoors: true }).found);
     return { s, r, b, f, cell: port?.cell };
   }
   function soulBeaconContext(f, cell) {
     const s = ensureSoulBeacons(), research = ensureResearchState();
-    return { dead: scientistIsDead(), local: Boolean(campaignLocalKnowledgeAvailable() && cell && cell.z === scientistMapCell().z),
+    return { dead: scientistIsDead(), local: soulBeaconLocalAt(cell),
       suppressed: Boolean(scientistMagicSuppressionReason()), animancy: skillLevel('animancy'), medicine: skillLevel('medicine'), alchemy: skillLevel('alchemy'), fabrication: skillLevel('fabrication'),
       medicineKnowledge: skillLevel('medicine', 'knowledge'), alchemyKnowledge: skillLevel('alchemy', 'knowledge'), fabricationKnowledge: skillLevel('fabrication', 'knowledge'),
       condition: f?.condition || 0, services: soulBeaconServices(f), research: research.projects.receivingBodyDevelopment?.status === 'completed',
       beaconResearch: research.projects.soulBeaconReconstruction?.status === 'completed', integration: research.projects.soulTransferIntegration?.status === 'completed',
       perfectedResearch: research.projects.receivingNeuralIntegration?.status === 'completed' && research.projects.memoryContinuityPreservation?.status === 'completed',
       inspected: Boolean(f && s.inspections[f.id]?.condition === f.condition && state.clock - s.inspections[f.id].at <= SoulBeacons.CARE),
-      location: { roomId: cell && labMapCellRoomId(cell), cell: clonePlainObject(cell) }, siteId: activeRunRecord?.site?.candidateId || 'main-laboratory' };
+      location: { roomId: cell && labMapCellRoomId(cell), cell: clonePlainObject(cell) },
+      siteId: cell?.z === UnsupportedExcursions.Z ? state.hiddenWorkshop?.site?.id : activeRunRecord?.site?.candidateId || 'main-laboratory' };
   }
   function soulBeaconReceiverContext(b) {
     if (!b) return {};
@@ -61203,19 +61272,32 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       && raid.actors.some(a => a.present !== false && a.health > 0 && a.mapCell && labMapCellRoomId(a.mapCell) === roomId));
     const seized = (state.investigativeEvidence?.records || []).some(e => [b.fixtureId, b.chamberId].includes(e.subject?.id)
       && ['visitorCargo', 'evidenceStore', 'authorityCustody'].includes(e.locus?.kind));
+    const remote = roomId === UnsupportedExcursions.ROOM;
+    const workshop = state.hiddenWorkshop?.site;
+    const remoteBinding = !remote || b.siteId === workshop?.id && workshop.receivingAlcove?.builtAt != null
+      && workshop.fixtureIds.receiver?.includes(chamber?.id) && workshop.fixtureIds.beacon?.includes(beacon?.id);
+    const beasts = remote ? (state.unsupportedExcursions?.active && scientistRoomId() === UnsupportedExcursions.ROOM
+      ? state.wildernessBeasts : state.unsupportedExcursions?.remote?.beasts)?.actors || [] : [];
+    const compromised = beasts.some(a => a.status !== 'dead' && a.health > 0 && a.mapCell
+      && workshop?.receivingAlcove?.layout.floors.some(c => sameMapCell(c, a.mapCell)));
     const upkeep = Boolean(r && (r.supportSeconds >= 60 || r.supportStocks.some(p => { const item = ensurePhysicalItemStacks().find(i => i.id === p.stackId);
       return item?.quantity >= 1 && item.reservedTaskId === `upkeep:${r.id}` && item.fixtureId === r.chamberId; })));
     return { condition: Math.min(beacon?.condition || 0, chamber?.condition || 0),
       paired: Boolean(beacon && chamber && beacon.origin.z === chamber.origin.z && labMapCellRoomId(beacon.origin) === roomId && mapCellDistance(beacon.origin, chamber.origin) <= 4),
-      siteIntact: Boolean(roomById(roomId) && chamber && beacon && labMapCellHasFloor(chamber.origin) && labMapCellHasFloor(beacon.origin)),
-      siteControlled: !hostile && !seized, space: Boolean(destination), services: soulBeaconServices(beacon) && soulBeaconServices(chamber), upkeep,
-      destination: destination ? { roomId, cell: clonePlainObject(destination.cell) } : null };
+      siteIntact: Boolean(remoteBinding && (!remote || hiddenWorkshopShellIntact() && state.unsupportedExcursions?.destination?.id === workshop.destinationId
+        && (state.unsupportedExcursions.boundary || state.unsupportedExcursions.municipal))
+        && roomById(roomId) && chamber && beacon && labMapCellHasFloor(chamber.origin) && labMapCellHasFloor(beacon.origin)),
+      siteControlled: !hostile && !seized && !compromised, space: Boolean(destination), services: soulBeaconServices(beacon) && soulBeaconServices(chamber), upkeep,
+      destination: destination ? { roomId, cell: clonePlainObject(destination.cell), siteId: b.siteId, remote } : null };
   }
   function soulBeaconHooks() {
     const organic = homunculusHooks(), context = utilityNetworkContext();
     return { dead: scientistIsDead(), support: (r, seconds) => {
       const result = organic.support(r, seconds);
-      return { ...result, ok: result.ok && fixtureById(r.chamberId)?.condition >= 80 };
+      const remote = r.location.roomId === UnsupportedExcursions.ROOM;
+      const shelter = !remote || hiddenWorkshopShellIntact();
+      return { ...result, ok: result.ok && shelter && fixtureById(r.chamberId)?.condition >= 80,
+        reason: !shelter ? 'The actual receiving enclosure is damaged or missing.' : result.reason };
     }, consume: organic.consume,
       upkeep: (r, amount) => {
         const item = r.supportStocks.map(p => ensurePhysicalItemStacks().find(i => i.id === p.stackId)).find(i => i?.quantity >= amount - 1e-8
@@ -61307,7 +61389,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function embodiedRetrainingReason(skillId, cell) {
     const entry = scientistSkill(skillId), body = entry.embodiment;
-    if (scientistIsDead() || actorIsIncapacitated('scientist') || !campaignLocalKnowledgeAvailable()) return 'Attend a local training position in a functioning body.';
+    if (scientistIsDead() || actorIsIncapacitated('scientist') || !soulBeaconLocalAt(cell)) return 'Attend a local training position in a functioning body.';
     if (!EmbodiedSkills.COMPONENTS[skillId]?.body || !body || body.bodyId !== state.scientist.vocalBodyId || body.xp >= body.retainedXp)
       return 'This skill has no remaining remembered bodily mastery to retrain. Further improvement requires ordinary practice.';
     if (['arcaneSenses'].includes(skillId) && scientistMagicSuppressionReason()) return 'Magic suppression prevents sensory recalibration.';
@@ -61330,7 +61412,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       : action === 'upkeep' ? { growthMedium: 7 } : ['care', 'clear', 'original', 'examine'].includes(action) ? { assayReagent: 1 } : {};
   }
   function queueSoulBeaconWork(action, targetId) {
-    if (scientistIsDead() || actorIsIncapacitated('scientist') || !campaignLocalKnowledgeAvailable() || scientistQueueTasks().length) return false;
+    if (scientistIsDead() || actorIsIncapacitated('scientist') || !soulBeaconLocalAt(scientistMapCell()) || scientistQueueTasks().length) return false;
     updateSoulBeacons(); const t = soulBeaconTarget(action, targetId); if (!t.f || !t.cell) return false;
     if (action === 'examine' && t.b?.status === 'charged' && t.f.condition < 80 && !window.confirm('Direct resonance calibration of this damaged charged apparatus will cause 30 soul-integrity damage. Repair the equipment first to avoid it. Proceed?')) return false;
     const costs = soulBeaconWorkInputs(action, targetId);
@@ -61357,7 +61439,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     try {
       const reason = soulBeaconTaskReason(task); if (reason || !sameMapCell(scientistMapCell(), task.data.toCell)
         || task.data.workRequiredSeconds && task.data.workProgressSeconds < task.data.workRequiredSeconds) { addEvent(reason || 'Complete the actually attended supported work at the operating position.'); return false; }
-      const d = task.data, t = soulBeaconTarget(d.action, d.targetId), f = fixtureById(d.fixtureId), c = soulBeaconContext(f, d.toCell);
+      const d = task.data, t = soulBeaconTarget(d.action, d.targetId), c = soulBeaconContext(fixtureById(d.fixtureId), d.toCell), f = fixtureById(d.fixtureId);
       const inputs = ensurePhysicalItemStacks().filter(i => d.reservedStackIds.includes(i.id)); let result = { ok: true };
       if (d.action === 'medium') {
         createPhysicalItemStack('inventory', 'growthMedium', 32, c.location, { tags: ['sealed', 'biological'],
@@ -61433,11 +61515,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(textEl('h3', 'Late-Game Soul Beacons'), textEl('p', 'Master Animancy, Medicine and Alchemy (151), Adept Fabrication (101), physical original-apparatus evidence and three research projects are required. A beacon guides your departed soul; it never stores it. Homunculi have their own souls and cannot be overwritten.'));
     for (const injury of s.soul.injuries) panel.append(textEl('p', `Recorded soul injury ${formatClock(injury.at)}: ${injury.cause}; ${injury.damage} integrity lost. Recovery does not heal this damage.`));
     const button = (label, action, id) => { const b = storesActionButton(label, label, () => queueSoulBeaconWork(action, id)); b.dataset.beaconAction = action; b.dataset.beaconTarget = id;
-      const context = soulBeaconContext(fixtureById(id), scientistMapCell());
+      const target = soulBeaconTarget(action, id), context = soulBeaconContext(target.f, target.cell);
       const reason = ['continuityTrial', 'prepare', 'validate'].includes(action) ? SoulBeacons.perfectedQualifications(context) || SoulBeacons.qualifications(context) : SoulBeacons.qualifications(context);
       setActionButtonState(b, Boolean(reason || scientistQueueTasks().length), reason || 'Finish current scientist work.'); panel.append(b); };
     button('Prepare receiver medium (32 biomass, six reagent, twelve water)', 'medium', '');
-    for (const f of state.fixtures.filter(f => ['exhaustedSoulApparatus', 'soulReceiver', 'soulBeacon'].includes(f.typeId))) {
+    for (const f of state.fixtures.filter(f => f.origin.z === scientistMapCell().z && ['exhaustedSoulApparatus', 'soulReceiver', 'soulBeacon'].includes(f.typeId))) {
       panel.append(textEl('h4', f.name));
       if (f.typeId === 'exhaustedSoulApparatus') button('Examine exhausted original apparatus (one reagent)', 'original', f.id);
       if (f.typeId === 'soulReceiver') { button('Inspect receiving chamber', 'inspect', f.id); button('Begin seven-day receiving-body growth', 'grow', f.id); }
@@ -61459,7 +61541,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const trial of s.continuityTrials || []) panel.append(textEl('p', `${formatClock(trial.at)} continuity assay: ${trial.deliveredPatterns}/${trial.referencePatterns} neural patterns transmitted. Self-derived tissue only; no living subject, soul or personality copy.`));
     panel.append(textEl('p', 'Growth loads 80 biomass, 24 prepared medium, 10 genetic material and one examined self-donated template. Care is required every twelve hours. Ready bodies consume one extra medium per day and finite utilities; a nonrenewable twenty-minute interruption buffer protects neither prolonged failures nor neglected care.'));
     panel.append(textEl('p', 'Imperfect recovery loses personal memories and practiced expertise, returning skills to their starting baseline. Perfected transfer requires Heroic Animancy, Medicine and Alchemy knowledge (201), Master Fabrication knowledge (151), two advanced projects, and actual attended preparation and validation. Practical apparatus work still requires Master Medicine and Alchemy and Adept Fabrication execution.'));
-    panel.append(textEl('p', 'Prepare one ready body and charged disarmed beacon using eight metal parts, four glass, eight arcane feedstock and four compatible growth medium. Validation uses two reagent and two feedstock. Both fixtures and the body must remain at least 90% fit. Research alone upgrades nothing; each new body needs its own preparation. Both transfer methods require soul integrity of at least 75 and never heal it. Perfected transfer retains current memory and knowledge, not old lost memories or trained bodily execution. Hidden-base destinations remain separate work.'));
+    panel.append(textEl('p', 'Prepare one ready body and charged disarmed beacon using eight metal parts, four glass, eight arcane feedstock and four compatible growth medium. Validation uses two reagent and two feedstock. Both fixtures and the body must remain at least 90% fit. Research alone upgrades nothing; each new body needs its own preparation. Both transfer methods require soul integrity of at least 75 and never heal it. Perfected transfer retains current memory and knowledge, not old lost memories or trained bodily execution. The main laboratory and separately supplied wilderness receiving alcove are independent destinations; away examinations stay dated.'));
   }
 
   function ensureHomunculi() { return state.homunculi ||= Homunculi.create(state.clock, { seed: state.seed, theme: activeWorldRecord?.worldTheme || state.worldTheme || "madcap" }); }
@@ -83323,7 +83405,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (mission.status === "assessing" && state.clock >= mission.reviewAt) {
       const actor = ensureRescueMedic(); resupplyRescueMedic();
       const readyAt = MedicalExtraction.aircraftReadyAt(remote.trip, state.clock, UnsupportedExcursions.TURNAROUND);
-      const reason = !actor || actor.status === "dead" || actor.health < 35 || actor.roomId !== SurveyExpeditions.FIELD_ROOM ? "No fit local medic is physically available." : !medicSupply("medicalBandage") || !medicSupply("drinkingWater") || !medicSupply("satelliteCommunicator") || actor.radioCharge <= 0 ? "The local medic lacks essential finite equipment or supplies." : mission.message.threats.length >= 3 ? "Reported opposition exceeds this one-medic service's capability." : UnsupportedExcursions.weatherReason(remote.destination, readyAt + 300 + remote.trip.terms.flightSeconds);
+      const reason = mission.patientBodyEndedAt != null ? 'The original patient body died before dispatch.' : !actor || actor.status === "dead" || actor.health < 35 || actor.roomId !== SurveyExpeditions.FIELD_ROOM ? "No fit local medic is physically available." : !medicSupply("medicalBandage") || !medicSupply("drinkingWater") || !medicSupply("satelliteCommunicator") || actor.radioCharge <= 0 ? "The local medic lacks essential finite equipment or supplies." : mission.message.threats.length >= 3 ? "Reported opposition exceeds this one-medic service's capability." : UnsupportedExcursions.weatherReason(remote.destination, readyAt + 300 + remote.trip.terms.flightSeconds);
       if (reason) { ensureEconomy().money += MedicalExtraction.refuse(mission, reason); mission.endedAt = state.clock; saved.history.push(clonePlainObject(mission)); }
       else {
         MedicalExtraction.accept(mission, state.clock, readyAt, remote.trip.terms.flightSeconds);
@@ -83341,7 +83423,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       medic.roomId = UnsupportedExcursions.CABIN_ROOM; medic.mapCell = { x: 11, y: 10, z: UnsupportedExcursions.CABIN_Z }; syncActorInventories(); recordRescueReport(); return 1;
     }
     if (mission.status === "enRoute" && state.clock >= mission.arriveAt) {
-      mission.status = "searching"; mission.reason = "Medic landed and is searching from the last transmitted location."; mission.pilot.location = "aircraft at remote landing point";
+      mission.status = mission.patientBodyEndedAt != null ? 'withdrawing' : "searching"; mission.reason = mission.patientBodyEndedAt != null
+        ? 'The original patient body died; the medic must physically withdraw without claiming a new body.' : "Medic landed and is searching from the last transmitted location."; mission.pilot.location = "aircraft at remote landing point";
       medic.roomId = UnsupportedExcursions.ROOM; medic.mapCell = { ...UnsupportedExcursions.LANDING }; medic.needs.lastAt = state.clock; mission.nextMoveAt = state.clock + 2;
       syncActorInventories(); recordRescueReport(); if (rescueMedicObserved()) pauseForWildernessThreat(`${medic.name} has landed to search for the patient.`); return 1;
     }
@@ -83371,8 +83454,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       resolveSharedCombatAction(medic.id, "strike", { kind: "creature", id: attacker.id }, { baseDamage: armed ? 8 : 3, damageTypes: ["physical"], hideFeedback: !rescueMedicObserved() });
       if (armed) saved.gearCondition[baton.id] = Math.max(0, saved.gearCondition[baton.id] - 1); mission.nextAttackAt = state.clock + 6;
     }
-    const seesPatient = WildernessBeasts.distance(medic.mapCell, scientistMapCell()) <= 6 && sensoryLineOfSight(medic.mapCell, scientistMapCell());
-    const nearby = WildernessBeasts.distance(medic.mapCell, scientistMapCell()) <= 1;
+    const seesPatient = mission.patientBodyEndedAt == null && WildernessBeasts.distance(medic.mapCell, scientistMapCell()) <= 6 && sensoryLineOfSight(medic.mapCell, scientistMapCell());
+    const nearby = mission.patientBodyEndedAt == null && WildernessBeasts.distance(medic.mapCell, scientistMapCell()) <= 1;
     if (mission.status === "searching" && seesPatient) { mission.target = cleanMapCell(scientistMapCell()); if (nearby) { mission.status = "assisting"; suspendScientistRoutineWork("medical extraction assistance"); mission.reason = "Medic reached the patient; assessing injuries and physical extraction."; recordRescueReport(); } }
     if (mission.status === "assisting" && !nearby) { cancelRescueTreatment(); mission.status = "searching"; if (state.combat?.routineSuspension?.reason === "medical extraction assistance") resumeScientistRoutineWork(); mission.target = seesPatient ? cleanMapCell(scientistMapCell()) : mission.target; }
     if (mission.status === "assisting" && nearby && !attacker) {
@@ -83480,7 +83563,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (scientistIsDead() || actorIsIncapacitated("scientist")) return "The scientist must be capable of self-boarding.";
     if (escortContractActive()) return "Complete the local escort contract; remote travel and an extra passenger seat are not included.";
     return !quote.ok ? saved.unavailableReason || quote.reason : UnsupportedExcursions.weatherReason(saved.destination, state.clock + quote.flightSeconds)
-      || (saved.trip && state.clock < saved.trip.returnAt + UnsupportedExcursions.TURNAROUND ? "The aircraft needs refuelling and maintenance before another charter." : "")
+      || (state.clock < UnsupportedExcursions.providerAvailableAt(saved.trip, state.clock) ? "The aircraft is committed or needs refuelling and maintenance before another charter." : "")
       || (SurveyExpeditions.cargoUnits(surveyCarriedStacks()) > quote.cargoCapacity ? "The actual carried load exceeds the charter cargo capacity." : "")
       || (ensureEconomy().money < quote.fee ? "Insufficient funds for the charter." : "");
   }
@@ -83563,8 +83646,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function hiddenWorkshopSpec(action, role, layout, fixtureId = '') {
     const fixtures = hiddenWorkshopEquipment(role), fixture = fixtureId ? fixtures.find(f => f.id === fixtureId) : fixtures[0];
     if (action === 'shell') return { costs: HiddenWorkshop.SHELL_COSTS, seconds: 7200, tools: ['masonryHammer', 'handSaw'], cell: layout.workCell };
-    if (action === 'clearGround') return { costs: {}, seconds: Math.max(60, layout.ground.filter(wildernessObstacleAtCell).length * 300), tools: ['miningPick'], cell: layout.workCell };
-    if (action === 'install' && HiddenWorkshop.EQUIPMENT[role]) {
+    if (action === 'alcove') return { costs: HiddenWorkshop.ALCOVE_COSTS, seconds: 7200, tools: ['masonryHammer', 'handSaw'], cell: layout.workCell };
+    if (['clearGround', 'clearAlcove'].includes(action)) return { costs: {}, seconds: Math.max(60, layout.ground.filter(wildernessObstacleAtCell).length * 300), tools: ['miningPick'], cell: layout.workCell };
+    if (action === 'install' && HiddenWorkshop.EQUIPMENT[role] && layout.equipment[role]?.length) {
       const def = FIXTURE_BY_ID[HiddenWorkshop.EQUIPMENT[role]], material = def.materialOptions[role === 'bench' ? 'wood' : 'steel'];
       return { costs: Object.fromEntries(Object.entries(material.costs).map(([k, n]) => [k, n * layout.equipment[role].length])),
         seconds: def.workMinutes * 60 * layout.equipment[role].length, tools: ['masonryHammer'], cell: layout.workCell };
@@ -83588,15 +83672,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const d = task.data, site = state.hiddenWorkshop?.site, layout = d.layout;
     if (!hiddenWorkshopLocal() || state.unsupportedExcursions.destination.id !== d.destinationId) return 'Attend the original wilderness workshop; there is no remote construction or servicing.';
     if (actorIsIncapacitated('scientist')) return 'Incapacity prevents physical workshop work.';
-    if (['shell', 'install', 'maintain', 'repair'].includes(d.action) && skillLevel('fabrication') < 101)
+    if (['shell', 'alcove', 'install', 'maintain', 'repair'].includes(d.action) && skillLevel('fabrication') < 101)
       return 'Adept Fabrication (101) execution is required for this construction or equipment work.';
     if (d.tools.some(id => !hiddenWorkshopTool(id))) return 'Carry the actual usable tools listed for this work.';
     if (!labMapCellIsWalkable(d.toCell)) return 'The actual operating position is obstructed.';
     const hazard = surfaceWorkerHazard(d.toCell); if (hazard) return hazard;
-    if (d.action === 'clearGround') return hiddenWorkshopGroundReason(layout, true);
+    if (['clearGround', 'clearAlcove'].includes(d.action)) return hiddenWorkshopGroundReason(layout, true);
     if (!site || site.id !== d.siteId) return 'The original workshop site is unavailable.';
-    if (d.action === 'shell') {
-      if (site.shellBuiltAt != null) return 'This workshop shell is already built; do not duplicate it.';
+    if (['shell', 'alcove'].includes(d.action)) {
+      if (d.action === 'shell' && site.shellBuiltAt != null) return 'This workshop shell is already built; do not duplicate it.';
+      if (d.action === 'alcove' && (site.receivingAlcove?.builtAt != null || !sameMapCell(site.receivingAlcove?.layout.origin, layout.origin)
+        || !hiddenWorkshopShellIntact() || !constructedWallAtCell(layout.opening)
+        || fixturesAtCell(layout.opening).length || ensurePhysicalItemStacks().some(i => i.quantity > 0 && !i.carriedBy && sameMapCell(i.cell, layout.opening))))
+        return 'Retain the original workshop shell and clear its inspected connecting wall; this alcove cannot be duplicated.';
       // Registration already proved knowledge of this exact footprint. Keep
       // checking its real obstacles, without re-surveying every tile each tick.
       const ground = hiddenWorkshopGroundReason(layout, false, true); if (ground) return ground;
@@ -83614,7 +83702,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const def = FIXTURE_BY_ID[HiddenWorkshop.EQUIPMENT[d.role]];
       return layout.equipment[d.role].map(c => fixturePlacementBlockReason(def, c, layout.rotations?.[d.role] || 0)).find(Boolean) || '';
     }
-    if (['shell', 'clearGround'].includes(d.action)) return '';
+    if (['shell', 'alcove', 'clearGround', 'clearAlcove'].includes(d.action)) return '';
     const f = fixtureById(d.fixtureId);
     if (!f || f.condition <= 0 || !(site.fixtureIds[d.role] || []).includes(f.id) || !fixtureAccessCells(f).some(p => sameMapCell(p.cell, d.toCell))) return 'The original equipment and its actual service port are required.';
     if (f.productionTaskId && f.productionTaskId !== task.id) return 'The actual equipment is occupied by other work.';
@@ -83643,7 +83731,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const ok = dropActorInventoryStack('scientist', options.stackId); observeHiddenWorkshop(); persist(); render(); return Boolean(ok);
     }
     if (!hiddenWorkshopLocal()) return false;
-    const saved = ensureHiddenWorkshop(), layout = saved.site?.layout || hiddenWorkshopCandidate(action === 'clearGround', options.origin);
+    const saved = ensureHiddenWorkshop();
+    if (action === 'planAlcove') {
+      if (!saved.site || saved.site.receivingAlcove || !hiddenWorkshopShellIntact()) return false;
+      const candidate = HiddenWorkshop.alcovePlans(saved.site.layout).find(p => !hiddenWorkshopGroundReason(p, true)
+        && constructedWallAtCell(p.opening)?.condition >= 50);
+      if (!candidate) { surveyEvent('Personally inspect a clear five-by-five patch beside the workshop, outside the landing reservation; existing structures cannot be erased.'); return false; }
+      saved.site.receivingAlcove = { layout: candidate, plannedAt: state.clock, builtAt: null };
+      persist(); render(); return true;
+    }
+    const layout = ['alcove', 'clearAlcove'].includes(action) ? saved.site?.receivingAlcove?.layout
+      : saved.site?.layout || hiddenWorkshopCandidate(action === 'clearGround', options.origin);
     if (!layout) { surveyEvent('Walk around to inspect a clear seven-by-seven workshop footprint plus its external generator apron, outside the landing area. Visible rock can be cleared with a carried mining pick.'); return false; }
     if (action === 'establish') {
       const reason = hiddenWorkshopGroundReason(layout);
@@ -83687,15 +83785,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     try {
       if (hiddenWorkshopTaskReason(task) || !sameMapCell(scientistMapCell(), d.toCell) || d.work.progress < d.work.required) return false;
       const f = fixtureById(d.fixtureId);
-      if (d.action === 'shell') {
+      if (['shell', 'alcove'].includes(d.action)) {
         const map = ensureLabMap();
         map.terrain.constructedFloors = normalizeConstructedSurfaces([...(map.terrain.constructedFloors || []),
           ...d.layout.floors.map(cell => ({ cell, materialId: 'wood', purpose: 'floor', supportSpanM: 8, condition: 100, builtAt: state.clock })),
           ...d.layout.roofs.map(cell => ({ cell, materialId: 'wood', purpose: 'roof', supportSpanM: 8, condition: 100, builtAt: state.clock }))]);
         map.terrain.constructedWalls = normalizeConstructedSurfaces([...(map.terrain.constructedWalls || []),
           ...d.layout.walls.map(cell => ({ cell, materialId: 'wood', condition: 100, builtAt: state.clock }))]);
-        site.shellBuiltAt = state.clock; bumpNavigationRevision('topology');
-      } else if (d.action === 'clearGround') {
+        if (d.action === 'shell') site.shellBuiltAt = state.clock;
+        else {
+          map.terrain.constructedWalls = map.terrain.constructedWalls.filter(w => !sameMapCell(w.cell, d.layout.opening));
+          site.layout.floors.push(...d.layout.floors); site.layout.roofs.push(...d.layout.roofs);
+          site.layout.walls = site.layout.walls.filter(c => !sameMapCell(c, d.layout.opening)).concat(d.layout.walls);
+          site.layout.ground.push(...d.layout.ground); Object.assign(site.layout.equipment, d.layout.equipment);
+          site.layout.rotations = { ...site.layout.rotations, ...d.layout.rotations };
+          site.receivingAlcove.builtAt = state.clock;
+        }
+        bumpNavigationRevision('topology');
+      } else if (['clearGround', 'clearAlcove'].includes(d.action)) {
         const map = ensureLabMap(), rocks = d.layout.ground.filter(wildernessObstacleAtCell);
         map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...rocks]); bumpNavigationRevision('topology'); updateRemoteDiscovery();
       } else if (d.action === 'install') {
@@ -83703,8 +83810,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         d.layout.equipment[d.role].forEach((cell, i) => {
           const id = `hidden-workshop:${d.role}:${i}`, fixture = defaultFixtureInstance(id, type, cell, d.layout.rotations?.[d.role] || 0, {
             name: `Workshop ${FIXTURE_BY_ID[type].label}`, condition: 100, materialPolicy: d.role === 'bench' ? 'wood' : 'steel', installedAt: state.clock,
-            utility: { enabled: !['generator', 'testStand', 'heater', 'lamp'].includes(d.role), mode: d.role === 'mana' ? 'feedstock' : undefined,
-              powerMode: ['heater', 'lamp'].includes(d.role) ? 'electric' : undefined, fuel: 0, feedstock: 0, storedMana: 0, contents: {}, waterQuality: 100 } });
+            utility: { enabled: !['generator', 'testStand', 'heater', 'lamp', 'receiver', 'beacon'].includes(d.role), mode: d.role === 'mana' ? 'feedstock' : undefined,
+              powerMode: ['heater', 'lamp', 'receiver', 'beacon'].includes(d.role) ? 'electric' : undefined, fuel: 0, feedstock: 0, storedMana: 0, contents: {}, waterQuality: 100 } });
           state.fixtures.push(fixture); site.fixtureIds[d.role].push(id);
         });
         state.fixtures = normalizeFixtures(state.fixtures); bumpNavigationRevision('topology');
@@ -83767,7 +83874,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function renderHiddenWorkshop() {
     const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.hiddenWorkshop = 'true';
-    panel.append(textEl('strong', 'Hidden Receiving Workshop'), textEl('p', 'One visited wilderness site; no ownership, immunity, guaranteed secrecy, employees or resurrection. Actual charter capacity and pickup windows still apply. No shared inventory or internet delivery.'));
+    panel.append(textEl('strong', 'Hidden Receiving Workshop'), textEl('p', 'One visited wilderness site; no ownership, immunity, guaranteed secrecy or employees. A separately built, grown and maintained late-game receiver can support a soul beacon. Actual charter capacity and pickup windows still apply. No shared inventory or internet delivery.'));
     const saved = state.hiddenWorkshop, site = saved?.site, local = hiddenWorkshopLocal(), busy = scientistQueueTasks().length > 0;
     const button = (label, action, options = {}, reason = '') => {
       const b = storesActionButton(label, reason || label, () => hiddenWorkshopAction(action, options));
@@ -83794,8 +83901,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (local) {
       const walk = storesActionButton('Walk to workshop staging position', 'Physically reach the construction position.', () => startScientistMove(site.roomId, { toCell: site.layout.workCell, urgent: true })); walk.disabled = busy; panel.append(walk);
       if (site.shellBuiltAt === null) button('Build workshop shell', 'shell');
+      if (hiddenWorkshopShellIntact() && !site.receivingAlcove) button('Plan inspected receiving alcove', 'planAlcove');
+      if (site.receivingAlcove && site.receivingAlcove.builtAt == null) {
+        panel.append(textEl('p', `Receiving alcove: 5 × 5 m at ${site.receivingAlcove.layout.origin.x},${site.receivingAlcove.layout.origin.y}. Two attended hours; 25 lumber, eight steel panels, four metal parts, two rubber and carried hammer/saw. Equipment and body are separate.`));
+        button('Clear inspected receiving alcove rock', 'clearAlcove'); button('Build receiving alcove', 'alcove');
+      }
       for (const [role, type] of Object.entries(HiddenWorkshop.EQUIPMENT)) {
-        if (site.fixtureIds[role]?.length) continue;
+        if (site.fixtureIds[role]?.length || !site.layout.equipment[role]?.length) continue;
         const def = FIXTURE_BY_ID[type], recipe = def.materialOptions[role === 'bench' ? 'wood' : 'steel'];
         panel.append(textEl('p', `${def.label} ×${site.layout.equipment[role].length}: ${Object.entries(recipe.costs).map(([k, n]) => `${n * site.layout.equipment[role].length} ${inventoryItemLabel(k)}`).join(', ')}. Stage beside construction position; carried usable hammer required.`));
         button(`Install workshop ${role}`, 'install', { role }, hiddenWorkshopShellIntact() ? '' : 'Build and retain the actual workshop shell first.');
@@ -83815,6 +83927,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         if (f.utility?.knownFaultId && f.utility.knownFaultId !== 'none') button(`Repair workshop ${label}`, 'repair', options);
       }
       panel.append(textEl('p', 'Service test: one staged reagent and 15 actually attended supplied minutes, consuming electricity, mana, water and sump capacity. Maintenance: one staged metal part; repair additionally one rubber and prior fault inspection. Sump removal needs an empty sealed bottle. Supplies, shelter, lighting and heating are finite; no living receiver or soul beacon is enabled by this test.'));
+      if (site.receivingAlcove?.builtAt != null) renderSoulBeacons(panel);
     }
     for (const f of view.observations.fixtures) panel.append(textEl('p', `${formatClock(f.at)} · ${f.label}: condition ${f.condition}%; ${f.enabled ? 'enabled' : 'disabled'}${f.fuel != null ? `; fuel ${formatDecimal(f.fuel, 2)}, mana ${formatDecimal(f.mana, 2)}, feedstock ${formatDecimal(f.feedstock, 2)}, water ${formatDecimal(f.water || 0, 2)}` : ''}.`));
     for (const g of view.observations.goods) panel.append(textEl('p', `${formatClock(g.at)} · Observed ${inventoryItemLabel(g.key)} ×${g.quantity} at ${g.cell.x},${g.cell.y}.`));
@@ -83848,7 +83961,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const coverage = state.medicalExtraction?.coverage;
       if (coverage?.status === "ready") { coverage.tripId = saved.trip.id; coverage.status = "active"; }
       ensureEconomy().money -= saved.trip.terms.fee;
-      saved.boundary = wildernessSiteState(); saved.active = true; saved.lastReport = null;
+      saved.boundary = wildernessSiteState(); saved.municipal = clonePlainObject(saved.boundary); saved.active = true; saved.lastReport = null;
       state.surveyExpeditions.phase = "outbound";
       surveyEvent(`Unsupported charter departed. Pickup ${formatClock(saved.trip.pickup.opensAt)}–${formatClock(saved.trip.pickup.closesAt)} at remote tile 23,12. Missing it does not trigger automatic recovery.`);
     } else {
@@ -83870,9 +83983,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function requestUnsupportedPickup() {
     const saved = ensureUnsupportedExcursions(), radio = wildernessRadio(), cargo = SurveyExpeditions.cargoUnits(surveyCarriedStacks());
     if (!saved.active || scientistIsDead() || actorIsIncapacitated("scientist") || !radio?.powered || radio.charge <= 0 || UnsupportedExcursions.requestReason(saved.trip, state.clock, cargo) || ensureEconomy().money < saved.trip.terms.replacementFee) return false;
-    if (!window.confirm(`Authorize ${formatMoney(saved.trip.terms.replacementFee)} in escrow for ONE replacement pickup at tile 23,12? A request is not dispatch. Refusal refunds escrow; an accepted flight is paid even if you miss it. One self-boarding passenger, ${cargo}/${UnsupportedExcursions.CARGO} cargo units. No casualty rescue.`)) return false;
+    if (!window.confirm(`Authorize ${formatMoney(saved.trip.terms.replacementFee)} in escrow for ONE ${saved.trip.residence ? 'new' : 'replacement'} pickup at tile 23,12? A request is not dispatch. Refusal refunds escrow; an accepted flight is paid even if you miss it. One self-boarding passenger, ${cargo}/${UnsupportedExcursions.CARGO} cargo units. No casualty rescue.`)) return false;
     if (!UnsupportedExcursions.request(saved.trip, state.clock, cargo, scientistMapCell())) return false;
     ensureEconomy().money -= saved.trip.terms.replacementFee;
+    if (saved.trip.residence && state.hiddenWorkshop?.site) state.hiddenWorkshop.site.disclosures.push({ at: state.clock,
+      source: 'Aircraft provider', purpose: 'New pickup: landing rendezvous and declared carried load; receiving research not automatically disclosed' });
     surveyEvent("Replacement pickup request transmitted with dated location and declared load. The provider acknowledged assessment only.");
     refreshUnsupportedReport(); return true;
   }
@@ -83928,13 +84043,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const reason = unsupportedDepartureReason(); panel.append(textEl("p", reason || "Review supplies and accept the unsupported charter terms before boarding."));
       button("Charter Remote Field Excursion", bookUnsupportedExcursion, Boolean(reason) || surveyBusy()); return panel;
     }
-    panel.append(textEl("p", `Party: ${saved.trip.status}. Pickup point 23,12. Original agreed window ${formatClock(saved.trip.fieldAt + quote.fieldSeconds)}–${formatClock(saved.trip.fieldAt + quote.fieldSeconds + quote.waitSeconds)}. A neighbouring globe cell is not a local walking exit.`));
+    panel.append(textEl("p", saved.trip.residence
+      ? 'Present at the remote workshop without an inherited aircraft booking. A new paid pickup requires a working carried communicator, provider availability and acceptable weather. A neighbouring globe cell is not a local walking exit.'
+      : `Party: ${saved.trip.status}. Pickup point 23,12. Original agreed window ${formatClock(saved.trip.fieldAt + quote.fieldSeconds)}–${formatClock(saved.trip.fieldAt + quote.fieldSeconds + quote.waitSeconds)}. A neighbouring globe cell is not a local walking exit.`));
     if (remotePickupVisible()) panel.append(textEl("p", saved.trip.pickup.status === "waiting" ? "Aircraft currently visible at the landing point." : "No aircraft currently visible at the landing point."));
     const report = saved.lastReport;
-    if (report) panel.append(textEl("p", `Last provider report ${formatClock(report.at)}: ${report.request?.status || "original charter"}; ${report.request?.reason || ""} Pickup ${report.pickup.status}, window ${formatClock(report.pickup.opensAt)}–${formatClock(report.pickup.closesAt)}. ${report.pickup.reason} Aircraft next available no earlier than ${formatClock(report.providerReadyAt)}. Dated dispatch information, not live tracking.`));
+    if (report) panel.append(textEl("p", `Last provider report ${formatClock(report.at)}: ${report.request?.status || (saved.trip.residence ? 'no booking' : 'original charter')}; ${report.request?.reason || ""} Pickup ${report.pickup.status}, ${report.pickup.opensAt == null ? 'no confirmed window' : `window ${formatClock(report.pickup.opensAt)}–${formatClock(report.pickup.closesAt)}`}. ${report.pickup.reason} Aircraft next available no earlier than ${formatClock(report.providerReadyAt)}. Dated dispatch information, not live tracking.`));
     const radio = wildernessRadio();
     button("Request Dated Pickup Status", refreshUnsupportedReport, !radio?.powered || radio.charge <= 0);
-    button("Request Replacement Pickup", requestUnsupportedPickup, saved.trip.status !== "field" || !radio?.powered || radio.charge <= 0 || Boolean(UnsupportedExcursions.requestReason(saved.trip, state.clock, SurveyExpeditions.cargoUnits(surveyCarriedStacks()))));
+    button(saved.trip.residence ? "Request New Paid Pickup" : "Request Replacement Pickup", requestUnsupportedPickup, saved.trip.status !== "field" || !radio?.powered || radio.charge <= 0 || Boolean(UnsupportedExcursions.requestReason(saved.trip, state.clock, SurveyExpeditions.cargoUnits(surveyCarriedStacks()))));
     if (saved.trip.status === "field") {
       button("Walk to Landing Point", () => startScientistMove(UnsupportedExcursions.ROOM, { toCell: UnsupportedExcursions.LANDING, urgent: true }), actorIsIncapacitated("scientist"));
       button("Walk to and Board Pickup", boardUnsupportedPickup, surveyBusy());
@@ -84899,7 +85016,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "injuryTreatment") return task.data.targetActorId === "scientist";
     if (task.type === "surveyExpeditionWork" && ["consume", "radioBattery"].includes(task.data.action)) return true;
     if (state.surveyExpeditions.phase !== "field") return false;
-    return ["scientistMove", "surveyExpeditionWork", "physicalDiagnostic", "hiddenWorkshopWork"].includes(task.type);
+    return ["scientistMove", "surveyExpeditionWork", "physicalDiagnostic", "hiddenWorkshopWork"].includes(task.type)
+      || task.type === 'soulBeaconWork' && hiddenWorkshopLocal() && labMapCellRoomId(target) === state.hiddenWorkshop?.site?.roomId;
   }
   function surveyBusy() { return scientistQueueTasks().some((task) => !taskBlockReason(task)); }
   function surveyEvent(message) { addEvent(message, { sourceKind: "surveyExpedition" }); }

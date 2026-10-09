@@ -9,8 +9,9 @@
     contentTags: ['science', 'survival'], template: 'Physically supplied wilderness workshop', fallback: true }]);
   const EQUIPMENT = Object.freeze({ bench: 'basicWorkbench', generator: 'fuelGenerator', mana: 'manaCollector',
     water: 'waterCisternPump', sump: 'sumpTank', services: 'surfaceServiceTrunk', testStand: 'workshopServiceStand',
-    lamp: 'wallLamp', heater: 'spaceHeater' });
+    lamp: 'wallLamp', heater: 'spaceHeater', receiver: 'soulReceiver', beacon: 'soulBeacon', receiverServices: 'surfaceServiceTrunk' });
   const SHELL_COSTS = Object.freeze({ lumber: 49, steelPanels: 12, metalParts: 6, rubber: 4 });
+  const ALCOVE_COSTS = Object.freeze({ lumber: 25, steelPanels: 8, metalParts: 4, rubber: 2 });
   const key = c => `${c.x},${c.y},${c.z}`;
   function create(options = {}) {
     const selected = Theme.selectContent(registry, { kind: 'facility', worldTheme: options.theme || 'madcap', seed: options.seed || 'workshop', required: true });
@@ -43,6 +44,32 @@
           ? 'Walk close enough to inspect the entire footprint; unobserved ground is not confirmed usable.' : !c.clear
             ? 'Choose clear reachable ground outside the landing footprint; this does not grant ownership or safety.' : '';
   }
+  function alcovePlans(layout) {
+    const plans = [], base = layout.origin;
+    for (const side of ['west', 'east']) for (const offset of [4, 3, 2, 1, 0]) {
+      const origin = { x: base.x + (side === 'west' ? -5 : 7), y: base.y + offset, z: base.z };
+      const at = (x, y) => ({ x: origin.x + x, y: origin.y + y, z: origin.z });
+      const entrance = at(side === 'west' ? 4 : 0, 1);
+      const opening = { x: base.x + (side === 'west' ? 0 : 6), y: entrance.y, z: base.z };
+      const floors = [], walls = [], services = [];
+      for (let y = 0; y < 5; y++) for (let x = 0; x < 5; x++) {
+        const c = at(x, y); floors.push(c);
+        if ((x === 0 || y === 0 || x === 4 || y === 4) && key(c) !== key(entrance)) walls.push(c);
+      }
+      for (let x = 1; x <= 3; x++) services.push(at(x, 1));
+      const column = side === 'west' ? 3 : 1;
+      for (let y = 2; y <= 3; y++) services.push(at(column, y));
+      services.push(entrance, opening);
+      const inside = { ...opening, x: opening.x + (side === 'west' ? 1 : -1) };
+      for (let y = Math.min(inside.y, base.y + 3); y <= Math.max(inside.y, base.y + 3); y++) services.push({ ...inside, y });
+      // The last tile is the workshop's already installed transverse trunk.
+      const unique = [...new Map(services.filter(c => !layout.equipment.services.some(p => key(c) === key(p))).map(c => [key(c), c])).values()];
+      plans.push({ side, origin, entrance, opening, floors, walls, roofs: floors.map(c => ({ ...c, z: c.z + 1 })),
+        ground: floors, workCell: copy(layout.workCell), rotations: { receiver: 180, beacon: 180 }, equipment: {
+          receiver: [at(side === 'west' ? 1 : 2, 2)], beacon: [at(side === 'west' ? 3 : 1, 3)], receiverServices: unique } });
+    }
+    return plans;
+  }
   function establish(state, destination, layout, now, c) {
     const reason = establishmentReason(state, c); if (reason) return { ok: false, reason };
     state.site = { id: `hidden-workshop:${destination.id}`, destinationId: destination.id, strategicCellId: destination.strategicCellId,
@@ -72,7 +99,9 @@
     const s = state.site;
     return copy({ id: s.id, label: s.label, destinationId: s.destinationId, establishedAt: s.establishedAt,
       entrance: s.layout.entrance, workCell: s.layout.workCell, stagingCell: s.layout.stagingCell,
+      receivingAlcove: s.receivingAlcove ? { plannedAt: s.receivingAlcove.plannedAt, builtAt: s.receivingAlcove.builtAt,
+        origin: s.receivingAlcove.layout.origin } : null,
       disclosures: s.disclosures, observations: state.observations, receipts: state.receipts });
   }
-  return { EQUIPMENT, SHELL_COSTS, create, normalize, plan, establishmentReason, establish, progress, observe, publicView };
+  return { EQUIPMENT, SHELL_COSTS, ALCOVE_COSTS, create, normalize, plan, alcovePlans, establishmentReason, establish, progress, observe, publicView };
 });

@@ -185,7 +185,8 @@
   }
   function prepareHandoff(s, deathId, now, contexts) {
     const available = choices(s, contexts);
-    s.handoff = { deathId, status: available.length ? 'pending' : 'unavailable', at: now, choices: available, selectedId: '' };
+    s.handoff = { deathId, status: available.length ? 'pending' : 'unavailable', at: now, choices: available,
+      eligibleIds: available.map(c => c.id), selectedId: '' };
     return available;
   }
   function select(s, deathId, id) {
@@ -195,11 +196,15 @@
   function recover(s, deathId, now, contexts) {
     const h = s.handoff;
     if (h?.status !== 'pending' || h.deathId !== deathId || !h.selectedId || !h.choices.some(c => c.id === h.selectedId)) return fail('Select a saved destination for this death before confirming.');
-    const b = s.beacons.find(b => b.id === h.selectedId), reason = eligibility(s, b, contexts(b));
-    if (reason) { h.choices = choices(s, contexts); h.selectedId = ''; if (!h.choices.length) h.status = 'unavailable'; return fail(reason); }
+    const b = s.beacons.find(b => b.id === h.selectedId), c = b && contexts(b), reason = eligibility(s, b, c);
+    if (reason) {
+      const allowed = h.eligibleIds || h.choices.map(c => c.id);
+      h.choices = choices(s, contexts).filter(c => allowed.includes(c.id)); h.selectedId = '';
+      if (!h.choices.length) h.status = 'unavailable'; return fail(reason);
+    }
     const r = s.receivers.find(r => r.id === b.receiverId);
     const receipt = { deathId, beaconId: b.id, bodyId: r.id, soulId: s.soul.id, soulIntegrity: s.soul.integrity,
-      at: now, location: copy(contexts(b).destination), health: r.health, memoryTier: b.memoryTier || 'imperfect' };
+      at: now, location: copy(c.destination), health: r.health, memoryTier: b.memoryTier || 'imperfect' };
     r.status = 'embodied'; r.embodiedAt = now; r.soulId = s.soul.id;
     b.status = 'spent'; b.charge = 0; b.armed = false;
     h.status = 'recovered'; h.recoveredAt = now; s.transfers.push(receipt);

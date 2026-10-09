@@ -1,0 +1,44 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const R = require('../unsupported-excursions');
+const destination = { distanceKm: 42, temperatureC: 18 };
+test('remote bodily presence has no inherited departure, fuel, pickup or public flight deadline', () => {
+  const t = R.residence(2, 100, destination);
+  assert.equal(t.status, 'field'); assert.equal(t.pickup.status, 'unbooked');
+  assert.equal(t.departedAt, null); assert.equal(t.pickup.opensAt, null); assert.equal(t.fuelRemainingKm, 0);
+  assert.equal(R.nextEventAt(t, 100), Infinity); assert.equal(R.nextPublicEventAt(t, null, 100), Infinity);
+  assert.equal(R.board(t, 100, R.LANDING, 0, true, destination), false);
+  assert.deepEqual(R.advance(t, 100000, destination), []); assert.equal(t.status, 'field');
+  assert.deepEqual(R.normalizeState({ trip: t }).trip, t);
+});
+test('new paid pickup honors the old aircraft commitment, refuses once, then requires a real waiting plane and boarding', () => {
+  const old = R.start(1, 0, destination), readyAt = R.providerAvailableAt(old, 100);
+  assert.equal(readyAt, old.pickup.closesAt + old.terms.flightSeconds + R.TURNAROUND);
+  const t = R.residence(2, 100, destination, readyAt);
+  assert(R.requestReason(t, 100, 5)); assert.equal(R.request(t, 100, 5, R.LANDING), null);
+  assert(R.request(t, 100, 1, R.LANDING)); assert.equal(R.request(t, 100, 1, R.LANDING), null);
+  const events = R.advance(t, 160, destination);
+  assert.equal(events.find(e => e.kind === 'refund').amount, t.terms.replacementFee);
+  assert.equal(t.request.status, 'refused'); assert.equal(t.pickup.status, 'unbooked');
+  assert(!R.advance(t, 200, destination).some(e => e.kind === 'refund'));
+  assert(R.request(t, readyAt, 1, R.LANDING)); R.advance(t, readyAt + 60, destination);
+  assert.equal(t.request.status, 'accepted'); assert.equal(t.pickup.status, 'scheduled');
+  assert.equal(R.nextPublicEventAt(t, null, readyAt + 60), Infinity);
+  assert.equal(R.board(t, readyAt + 60, R.LANDING, 1, true, destination), false);
+  R.advance(t, t.pickup.opensAt, destination);
+  assert.equal(R.board(t, t.pickup.opensAt, { ...R.LANDING, x: 25 }, 1, true, destination), false);
+  assert.equal(R.board(t, t.pickup.opensAt, R.LANDING, 5, true, destination), false);
+  assert.equal(R.board(t, t.pickup.opensAt, R.LANDING, 1, false, destination), false);
+  assert.equal(R.board(t, t.pickup.opensAt, R.LANDING, 1, true, destination), true);
+  assert(t.returnAt > t.pickup.opensAt); R.advance(t, t.returnAt, destination); assert.equal(t.status, 'complete');
+  assert.equal(R.providerAvailableAt(t, t.returnAt), t.returnAt + R.TURNAROUND);
+});
+test('new pickup weather refusal and missed paid flight leave a living remote residence, not a teleport', () => {
+  const t = R.residence(3, 0, destination);
+  R.request(t, 0, 0, R.LANDING); R.advance(t, 60, { ...destination, temperatureC: 60 });
+  assert.equal(t.request.status, 'refused'); assert.equal(t.status, 'field'); assert.equal(t.returnAt, null);
+  R.request(t, 121, 0, R.LANDING); R.advance(t, 181, destination);
+  R.advance(t, t.pickup.closesAt, destination);
+  assert.equal(t.pickup.status, 'missed'); assert.equal(t.status, 'field'); assert.equal(t.returnAt, null);
+  assert.equal(t.request.status, 'accepted'); assert.equal(t.request.refund, 0);
+});
