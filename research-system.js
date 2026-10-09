@@ -84,6 +84,25 @@
       unlocks: [{ id: "procedure:soulTransfer", label: "Arm an imperfect soul-beacon contingency" }]
     }),
     Object.freeze({
+      id: "memoryContinuityPreservation", label: "Memory Continuity Preservation",
+      description: "Identify the original neural-pattern loss without sacrificing a person. Preserve the departing soul's current personal continuity, not a stored personality or an older backup.",
+      skillId: "animancy", minimumSkills: { animancy: 201, medicine: 201, alchemy: 201, fabrication: 151 }, workSeconds: 36 * 3600,
+      prerequisites: ["soulTransferIntegration"],
+      evidence: [{ label: "Controlled self-derived neural-pattern continuity experiment", methods: ["neuralContinuityTrial"], count: 1, uniqueSpecimens: 1 }],
+      inputs: { resources: { metalParts: 12, glass: 8, arcaneFeedstock: 16 }, specimenAmount: 0 },
+      unlocks: [{ id: "procedure:memoryContinuity", label: "Continuity-preserving guiding circuitry" }]
+    }),
+    Object.freeze({
+      id: "receivingNeuralIntegration", label: "Receiving-Body Neural Integration",
+      description: "Prepare and validate one actual soul-free receiver and charged apparatus for perfected memory transmission. Remembered methods do not train the new body's hands, senses or combat reflexes.",
+      skillId: "medicine", minimumSkills: { animancy: 201, medicine: 201, alchemy: 201, fabrication: 151 }, workSeconds: 36 * 3600,
+      prerequisites: ["memoryContinuityPreservation", "receivingBodyDevelopment"],
+      evidence: [{ label: "Examined compatible grown receiver", methods: ["receivingBodyExam"], count: 1, uniqueSpecimens: 1 },
+        { label: "Calibrated charged guiding apparatus", methods: ["beaconCalibration"], count: 1, uniqueSpecimens: 1 }],
+      inputs: { resources: { biomass: 16, geneticMaterial: 8, arcaneFeedstock: 12 }, specimenAmount: 0 },
+      unlocks: [{ id: "procedure:perfectedSoulTransfer", label: "Physical neural preparation and perfected-pair validation" }]
+    }),
+    Object.freeze({
       id: "reinforcedObservationVessels", label: "Reinforced Observation Vessels",
       description: "Translate observed containment loads into a visible, sealed vessel with a reinforced frame.",
       skillId: "materialsScience", workSeconds: 150, prerequisites: [],

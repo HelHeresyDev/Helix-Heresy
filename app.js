@@ -45,6 +45,8 @@
   const Homunculi = window.HelixHomunculi;
   if (!Homunculi) throw new Error("HelixHomunculi must load before app.js");
   const SoulBeacons = window.HelixSoulBeacons;
+  const EmbodiedSkills = window.HelixEmbodiedSkills;
+  if (!EmbodiedSkills) throw new Error("HelixEmbodiedSkills must load before app.js");
   if (!SoulBeacons) throw new Error("HelixSoulBeacons must load before app.js");
   const FirstContact = window.HelixFirstContact;
   if (!FirstContact) throw new Error("HelixFirstContact must load before app.js");
@@ -5848,6 +5850,7 @@
       carriedLight: { ...SCIENTIST_DEFAULT_CARRIED_LIGHT },
       physicalPresence: { ...SCIENTIST_DEFAULT_PHYSICAL_PRESENCE },
       vocalAnatomy: { ...Homunculi.VOCAL_ANATOMY }, vocalBodyId: 'starting-scientist-body',
+      memoryContinuity: { lostBeforeRun: true, losses: [], returns: [] },
       physicalState: defaultScientistPhysicalState(),
       vitals: {
         health: { current: DEFAULT_VITAL_MAX, max: DEFAULT_VITAL_MAX },
@@ -16048,6 +16051,8 @@
       },
       soulBeaconSnapshot: () => clonePlainObject({ saved: ensureSoulBeacons(), research: ensureResearchState(), clock: state.clock,
         scientist: state.scientist, tasks: state.tasks, stacks: ensurePhysicalItemStacks(), fixtures: state.fixtures,
+        proficiency: Object.fromEntries(SKILL_DEFS.map(def => [def.id, { knowledge: skillLevel(def.id, 'knowledge'), execution: skillLevel(def.id),
+          combat: combatActorSkillLevel(state.scientist, def.id) }])),
         remains: state.scientistBodyRemains, deaths: ensureScientistDeath(), identity: state.scientistIdentity,
         campaign: state.campaign, legal: state.trialSentencing, events: state.events, ended: state.runEnded,
         readiness: ensureSoulBeacons().beacons.map(b => ({ id: b.id, reason: SoulBeacons.eligibility(state.soulBeacons, b, soulBeaconReceiverContext(b)) })) }),
@@ -16080,7 +16085,7 @@
       },
       stageSoulBeaconTestSupplies: (action, id = '') => {
         const t = ['sample', 'examineTemplate'].includes(action) ? homunculusTarget(action, id) : soulBeaconTarget(action, id); if (!t.cell) return false;
-        const costs = action === 'sample' ? { medicalBandage: 1, neutralizingWash: 1 } : action === 'examineTemplate' ? { assayReagent: 1, humanTissueTemplate: 1 } : soulBeaconWorkInputs(action);
+        const costs = action === 'sample' ? { medicalBandage: 1, neutralizingWash: 1 } : action === 'examineTemplate' ? { assayReagent: 1, humanTissueTemplate: 1 } : soulBeaconWorkInputs(action, id);
         const slices = [];
         for (const [key, amount] of Object.entries(costs)) {
           const item = ensurePhysicalItemStacks().find(s => s.key === key && s.quantity >= amount && !s.reservedTaskId && !s.carriedBy && !s.containerId && !s.fixtureId);
@@ -16101,7 +16106,7 @@
       advanceSoulBeaconsForTest: seconds => {
         let left = Math.max(0, seconds);
         while (left > 0 && !scientistIsDead()) {
-          const task = firstScientistQueueTask(), moving = task?.data?.movement && !task.data.movement.completed;
+          const task = firstScientistQueueTask(), moving = task?.data?.movement?.steps?.length > 1 && !task.data.movement.completed;
           if (task?.data?.movement?.waitCount > 120) throw new Error(`Test movement blocked: ${JSON.stringify({ task: task.id, movement: task.data.movement, reason: taskBlockReason(task) })}`);
           const step = Math.min(left, moving ? 10 : task ? Math.max(1, task.dueAt - state.clock) : left), from = state.clock;
           left -= step; state.clock += step; updateScientistMovementTask(); updateSoulBeacons(); updateResearchWorkProgress(from, state.clock); completeDueTasks();
@@ -16837,7 +16842,9 @@
       else persist();
       showRunOutcome(currentRunRecord()); return false;
     }
-    const oldCell = clonePlainObject(scientistMapCell()), oldRoom = scientistRoomId(), oldBody = state.scientist.vocalBodyId;
+    const oldCell = clonePlainObject(scientistMapCell()), oldRoom = scientistRoomId(), oldBody = state.scientist.vocalBodyId,
+      oldSkills = clonePlainObject(state.scientist.skills), oldSensory = clonePlainObject(state.scientist.sensory),
+      memory = clonePlainObject(state.scientist.memoryContinuity || defaultScientist().memoryContinuity);
     // Release unfinished scientist work without refunding already incorporated supplies or altering other actors' tasks.
     for (const task of scientistQueueTasks()) cleanupCancelledTask(task);
     state.tasks = state.tasks.filter(t => !isScientistQueueTask(t));
@@ -16850,6 +16857,17 @@
     for (const injury of state.injuries || []) if (injury.actorId === 'scientist') injury.actorId = `remains:${oldBody}`;
     state.scientist = defaultScientist(); state.scientist.roomId = result.receipt.location.roomId; state.scientist.mapCell = clonePlainObject(result.receipt.location.cell);
     state.scientist.vocalBodyId = result.receipt.bodyId; state.scientist.carriedLight.enabled = false; state.scientist.carriedLight.condition = 0;
+    if (result.receipt.memoryTier === 'perfected') {
+      state.scientist.skills = EmbodiedSkills.restore(oldSkills, state.scientist.skills, result.receipt.bodyId, state.clock,
+        xp => totalXpForLevel(skillProgressForXp(xp).level));
+      // Remember observations as dated knowledge, not old sensory organs or live
+      // targets at the receiving site. Existing memory expiry still applies.
+      state.scientist.sensory = normalizeSensoryState({ ...state.scientist.sensory, memories: oldSensory.memories,
+        log: oldSensory.log, routeMemory: oldSensory.routeMemory }, 'scientist');
+    }
+    else memory.losses.push({ deathId, at: state.clock, bodyId: oldBody });
+    memory.returns.push({ deathId, at: state.clock, bodyId: result.receipt.bodyId, memoryTier: result.receipt.memoryTier });
+    state.scientist.memoryContinuity = memory;
     state.scientist.vitals.health.current = result.receipt.health;
     state.wildernessSurvival = WildernessSurvival.defaultState(state.clock);
     state.scientistDeath = ScientistDeath.resolveHandoff(ensureScientistDeath(), deathId, result.receipt).state;
@@ -16898,7 +16916,9 @@
     state.combat.active = state.combat.active.filter(c => !c.involvesScientist);
     ensureUiState().mapCamera = normalizeMapCamera({ ...state.scientist.mapCell }, ensureLabMap(), ensureUiState().mapZoomIndex);
     syncActorInventories(); syncPhysicalReadModels(); markStateDirty();
-    addEvent('The same soul entered its prepared receiving body. Personal memory and practiced skills were lost; old remains, possessions, physical research records and legal consequences persist.', { sourceKind: 'soulBeacon', sourceId: deathId });
+    addEvent(result.receipt.memoryTier === 'perfected'
+      ? 'The same soul entered its validated neural receiver. Current personal memory and learned knowledge remain; the new body must retrain its senses, hands and combat execution. Earlier lost memories were not reconstructed. Old remains, possessions and legal consequences persist.'
+      : 'The same soul entered its prepared receiving body. Personal memory and practiced skills were lost; old remains, possessions, physical research records and legal consequences persist.', { sourceKind: 'soulBeacon', sourceId: deathId });
     persist(); render(); enterGameplay(); return true;
   }
   function showRunOutcome(run) {
@@ -16920,7 +16940,7 @@
     };
     if (pending) {
       paragraph("The scientist's body is dead, but a completed contingency accepted the soul handoff. This run has not ended.");
-      paragraph('Select a receiving destination, then confirm. This imperfect transfer loses personal memory and practiced expertise, returning skills to their starting baseline. Basic language remains. Physical records and all worldly consequences persist. No post-death construction, charging, repair or remote surveillance is possible.');
+      paragraph('Select a receiving destination, then confirm its disclosed transfer conditions. Imperfect transfer loses personal memory and practiced expertise. Perfected transfer preserves current memory and knowledge, but not trained bodily execution or earlier lost memories. Physical records and worldly consequences persist. No post-death construction, charging, repair or remote surveillance is possible.');
       paragraph(ScientistDeath.latestRecord(run.state.scientistDeath)?.summary || "Physical death recorded.");
       const handoff = run.state.soulBeacons?.handoff;
       for (const choice of handoff?.choices || []) {
@@ -16932,9 +16952,12 @@
         });
         label.append(radio, document.createTextNode(`${choice.label} — ${choice.roomId}. ${choice.receivingConditions}`)); content.append(label);
       }
-      const confirm = document.createElement('button'); confirm.type = 'button'; confirm.textContent = 'Confirm imperfect soul-beacon recovery'; confirm.dataset.soulBeaconConfirm = 'true';
+      const selected = handoff?.choices.find(c => c.id === handoff.selectedId);
+      const confirm = document.createElement('button'); confirm.type = 'button'; confirm.textContent = `Confirm ${selected?.memoryTier || 'imperfect'} soul-beacon recovery`; confirm.dataset.soulBeaconConfirm = 'true';
       confirm.disabled = !handoff?.selectedId || activeRunRecord?.id !== run.id;
-      confirm.addEventListener('click', () => { if (window.confirm('Consume the selected receiving body and beacon charge? Personal memories and practiced expertise will be lost. The corpse, possessions and legal consequences remain.')) confirmSoulBeaconRecovery(handoff.deathId); }); content.append(confirm);
+      confirm.addEventListener('click', () => { if (window.confirm(selected?.memoryTier === 'perfected'
+        ? 'Consume this validated body and beacon charge? Current personal memories and knowledge will remain, but the body must physically retrain. Earlier lost memories cannot return. The corpse, possessions and legal consequences remain.'
+        : 'Consume the selected receiving body and beacon charge? Personal memories and practiced expertise will be lost. The corpse, possessions and legal consequences remain.')) confirmSoulBeaconRecovery(handoff.deathId); }); content.append(confirm);
     } else {
       paragraph(report.summary);
       paragraph(`Cause: ${report.cause} · Location: ${report.location}`);
@@ -22443,6 +22466,12 @@
         .sort((a, b) => a.dueAt - b.dueAt);
       for (const task of due) {
         if (scientistIsDead()) return changeCount;
+        if (task.type === 'soulBeaconWork' && task.data?.workRequiredSeconds > task.data.workProgressSeconds) {
+          // A due clock is not proof of attended, supplied work. Minute service
+          // accounting may also leave a final partial interval after travel.
+          task.dueAt = state.clock + Math.max(60, task.data.workRequiredSeconds - task.data.workProgressSeconds);
+          continue;
+        }
         if (task.type === "surveyExpeditionWork" && mapCellKey(scientistMapCell()) !== mapCellKey(task.data.toCell)) {
           task.dueAt = state.clock + 1;
           continue;
@@ -22956,7 +22985,7 @@
     injury.updatedAt = state.clock;
     if (mode === "stabilize") { injury.status = "stabilized"; injury.stabilizedAt = state.clock; }
     if (mode === "treat") { injury.status = "recovering"; injury.treatedAt = state.clock; injury.nextRecoveryAt = state.clock + minutesToSeconds(90); }
-    awardXp("medicine", task.data?.baseXp || 5, task.label);
+    awardXp("medicine", task.data?.baseXp || 5, task.label, { physical: true });
     const target = injuryTreatmentTarget(injury);
     if (mode === "treat" && target?.actor === state.scientist) scientistVital("health").current = clamp(scientistVital("health").current + 4, 0, scientistVital("health").max);
     if (mode === "treat" && target?.actor && target.actor !== state.scientist) {
@@ -23630,7 +23659,7 @@
       return false;
     }
     applyDoorTransitPolicy(task.data?.doorTransit, order.label);
-    awardXp(["repair", "maintenance"].includes(order.category) ? "materialsScience" : "creatureHandling", 4, order.label);
+    awardXp(["repair", "maintenance"].includes(order.category) ? "materialsScience" : "creatureHandling", 4, order.label, { physical: true });
     return true;
   }
 
@@ -25501,7 +25530,7 @@
       tool.current = Math.min(tool.max, Math.max(1, tool.current + Math.ceil(tool.max * 0.45)));
     }
     tool.reservedTaskId = "";
-    awardXp(task.data?.skillId, task.data?.baseXp, task.label);
+    awardXp(task.data?.skillId, task.data?.baseXp, task.label, { physical: true });
     addEvent(`${inventoryItemLabel(found.itemKey)} restored from ${formatNumber(before)}/${formatNumber(tool.max)} to ${formatNumber(tool.current)}/${formatNumber(tool.max)}.`);
     refreshConstructionOrderBlocks();
     claimNextConstructionWork();
@@ -26212,10 +26241,10 @@
     const averageMultiplier = multipliers.reduce((sum, value) => sum + value, 0) / multipliers.length;
     const actionXp = baseXp * averageMultiplier * skillXpOutcomeMultiplier(options.outcome || "success");
     const bonusXp = revealSummary.newDiscoveries * NEW_DISCOVERY_XP;
-    awardXp(resolvedSkillId, actionXp + bonusXp, label);
+    awardXp(resolvedSkillId, actionXp + bonusXp, label, { physical: options.physical !== false });
   }
 
-  function awardXp(skillId, amount, reason) {
+  function awardXp(skillId, amount, reason, options = {}) {
     const resolvedSkillId = normalizeSkillId(skillId);
     if (!resolvedSkillId || !SKILL_BY_ID[resolvedSkillId]) {
       return;
@@ -26225,17 +26254,19 @@
       return;
     }
     const skill = scientistSkill(resolvedSkillId, { create: true });
-    const before = skillLevel(resolvedSkillId);
+    const before = skillLevel(resolvedSkillId, 'knowledge');
     const award = applySkillXp(skill.xp, delta);
     skill.xp = award.xp;
     skill.lastPracticedAt = state.clock;
     skill.lastBreakthroughDecayAt = state.clock;
     recordSkillPractice(skill, reason, award.applied);
-    const after = skillLevel(resolvedSkillId);
+    const bodyAward = EmbodiedSkills.practice(skill, delta, state.clock, applySkillXp, options.physical === true);
+    const after = skillLevel(resolvedSkillId, 'knowledge');
     evolveSkillAfterXp(resolvedSkillId, skill, SKILL_BY_ID, before, after, { announce: true });
     const label = skillDisplayName(resolvedSkillId, after);
     const discardedText = award.discarded > 0 ? `; ${formatXp(award.discarded)} overflow lost at breakthrough` : "";
     addEvent(`${label} gained ${formatXp(award.applied)} XP${reason ? ` from ${reason}` : ""}${discardedText}.`);
+    if (bodyAward) addEvent(`${label}: ${formatXp(bodyAward.applied)} bodily practice XP${bodyAward.assisted ? ' with retained-knowledge assistance (4× below prior mastery)' : ''}.`);
     if (after > before) {
       const tier = skillTierForLevel(after);
       const learned = before <= 0 && after >= 1 ? " learned" : " reached";
@@ -26243,8 +26274,9 @@
     }
   }
 
-  function skillLevel(skillId) {
-    return skillProgress(skillId).level;
+  function skillLevel(skillId, component = 'execution') {
+    const id = normalizeSkillId(skillId), entry = scientistSkill(id);
+    return skillProgressForXp(component === 'knowledge' ? entry.xp : EmbodiedSkills.executionXp(entry, id)).level;
   }
 
   function skillProgress(skillId) {
@@ -26357,6 +26389,8 @@
       return 0;
     }
     let changes = updateSkillMapBreakthroughDecay(state?.scientist?.skills, SKILL_BY_ID, elapsed);
+    const bodies = Object.fromEntries(Object.entries(state?.scientist?.skills || {}).filter(([, s]) => s.embodiment).map(([id, s]) => [id, s.embodiment]));
+    changes += updateSkillMapBreakthroughDecay(bodies, SKILL_BY_ID, elapsed);
     for (const slime of state?.slimes || []) {
       if (slime?.status === "dead") {
         continue;
@@ -34525,7 +34559,7 @@
       damageSpecificTool(selection.instanceId, 1, recipe.label.toLowerCase());
     }
     releaseConstructionTaskTools(task, { retain: false });
-    awardXp(recipe.skillId || "fabrication", Math.max(4, recipe.workSeconds / 60), recipe.output.fixtureTypeId ? "fixture fabrication" : "receptacle fabrication");
+    awardXp(recipe.skillId || "fabrication", Math.max(4, recipe.workSeconds / 60), recipe.output.fixtureTypeId ? "fixture fabrication" : "receptacle fabrication", { physical: true });
     const byproductText = (recipe.byproducts || []).length
       ? `; byproducts: ${(recipe.byproducts || []).map((item) => `${item.quantity || 1} ${productionOutputLabel(item)}`).join(", ")}`
       : "";
@@ -34870,7 +34904,7 @@
   function researchProjectBlockReason(projectOrId, options = {}) {
     const project = researchProject(projectOrId);
     if (!project) return "The research project no longer exists.";
-    for (const [id, level] of Object.entries(project.minimumSkills || {})) if (skillLevel(id) < level) return `${skillDisplayName(id)} level ${level} is required.`;
+    for (const [id, level] of Object.entries(project.minimumSkills || {})) if (skillLevel(id, 'knowledge') < level) return `${skillDisplayName(id)} knowledge level ${level} is required.`;
     const research = ensureResearchState();
     const evaluation = researchProjectEvaluation(project);
     if (evaluation.completed) return "Project already completed.";
@@ -34920,7 +34954,7 @@
     const queueTail = scientistQueueTasks().reduce((latest, task) => Math.max(latest, task.dueAt), state.clock);
     const travelSeconds = mapPathTravelDistanceMeters(plan.path, ensureLabMap()) / scientistMoveSpeedMps();
     const remainingBase = Math.max(0, project.workSeconds - record.progressSeconds);
-    const workSeconds = adjustedActionDuration(remainingBase, project.skillId);
+    const workSeconds = adjustedActionDuration(remainingBase, project.skillId, 'knowledge');
     const task = {
       id: taskId, type: "researchWork",
       label: `${record.progressSeconds > 0 ? "Resume" : "Research"} ${project.label} at ${plan.workstation.name}`,
@@ -39545,7 +39579,7 @@
   function awardCombatActionXp(actor, skillId, amount, reason, outcome) {
     if (["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor?.actorKind)) return;
     if (actor === state.scientist || actor?.physicalPresence) {
-      awardXp(skillId, amount * skillXpOutcomeMultiplier(outcome), reason);
+      awardXp(skillId, amount * skillXpOutcomeMultiplier(outcome), reason, { physical: true });
       return;
     }
     awardCreatureSkillXp(actor, skillId, amount, reason, { outcome });
@@ -39866,7 +39900,7 @@
     cancelPendingScientistCombatAction({ quiet: true });
     state.combat.guarding.scientist = { startedAt: state.clock };
     suspendScientistRoutineWork("guarding");
-    awardXp("guarding", 2, "Guard");
+    awardXp("guarding", 2, "Guard", { physical: true });
     addEvent("Scientist began guarding. Routine work is suspended until Guard is canceled or another direct action is issued.");
     persist();
     render();
@@ -40805,7 +40839,7 @@
     }
     const result = resolveSharedCombatAction("scientist", "strike", { kind: "structure", cell: clean });
     if (!result.ok) addEvent(result.reason || "The strike did not damage the structure.");
-    else awardXp("striking", 2, "Strike structure");
+    else awardXp("striking", 2, "Strike structure", { physical: true });
     refreshIncidentAlerts();
     persist();
     render();
@@ -41705,7 +41739,7 @@
       }
       addEvent(`${slime.name} moved out of containment from ${previousLocation} into ${roomName(slime.roomId)}.`);
     }
-    awardXp("creatureHandling", 5, "Creature handling");
+    awardXp("creatureHandling", 5, "Creature handling", { physical: true });
     persist();
     render();
     return true;
@@ -53054,7 +53088,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       slimes: [slime],
       reason: `moving ${slime.name} from the synthesis tube`
     });
-    awardXp("creatureHandling", 5, "Creature handling");
+    awardXp("creatureHandling", 5, "Creature handling", { physical: true });
     addEvent(`${slime.name} assigned to ${container.name}.`);
     persist();
     render();
@@ -61033,7 +61067,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function soulBeaconTarget(action, id) {
     const s = ensureSoulBeacons(), r = s.receivers.find(r => r.id === id), b = s.beacons.find(b => b.id === id);
-    const f = action === 'medium' ? researchWorkstations()[0] : fixtureById(r?.chamberId || b?.fixtureId || id);
+    const f = ['medium', 'retrain'].includes(action) ? researchWorkstations()[0] : fixtureById(r?.chamberId || b?.fixtureId || id);
     const port = f && fixtureAccessCells(f).find(p => labNavigationPlanBetweenCells(scientistMapCell(), p.cell, { actor: state.scientist, ignoreDoors: true }).found);
     return { s, r, b, f, cell: port?.cell };
   }
@@ -61041,8 +61075,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const s = ensureSoulBeacons(), research = ensureResearchState();
     return { dead: scientistIsDead(), local: Boolean(campaignLocalKnowledgeAvailable() && cell && cell.z === scientistMapCell().z),
       suppressed: Boolean(scientistMagicSuppressionReason()), animancy: skillLevel('animancy'), medicine: skillLevel('medicine'), alchemy: skillLevel('alchemy'), fabrication: skillLevel('fabrication'),
+      medicineKnowledge: skillLevel('medicine', 'knowledge'), alchemyKnowledge: skillLevel('alchemy', 'knowledge'), fabricationKnowledge: skillLevel('fabrication', 'knowledge'),
       condition: f?.condition || 0, services: soulBeaconServices(f), research: research.projects.receivingBodyDevelopment?.status === 'completed',
       beaconResearch: research.projects.soulBeaconReconstruction?.status === 'completed', integration: research.projects.soulTransferIntegration?.status === 'completed',
+      perfectedResearch: research.projects.receivingNeuralIntegration?.status === 'completed' && research.projects.memoryContinuityPreservation?.status === 'completed',
       inspected: Boolean(f && s.inspections[f.id]?.condition === f.condition && state.clock - s.inspections[f.id].at <= SoulBeacons.CARE),
       location: { roomId: cell && labMapCellRoomId(cell), cell: clonePlainObject(cell) }, siteId: activeRunRecord?.site?.candidateId || 'main-laboratory' };
   }
@@ -61081,6 +61117,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         if (['failed', 'cancelled'].includes(r.status) && !r.remainsStackId && r.consumed.biomass > 0) r.remainsStackId = createPhysicalItemStack('inventory', 'grownTissue', r.consumed.biomass, r.location,
           { tags: ['biological', 'receiving-body-remains'], sourceLabels: [r.id], biology: { receiverId: r.id, soulId: null } })?.id || '';
       },
+      work: (at, seconds) => {
+        const task = firstScientistQueueTask(), d = task?.data;
+        if (task?.type !== 'soulBeaconWork' || !d.workRequiredSeconds || at <= d.workStartsAt) return 0;
+        const remaining = Math.max(0, d.workRequiredSeconds - d.workProgressSeconds);
+        if (!remaining) return 0;
+        const attended = sameMapCell(scientistMapCell(), d.toCell) && (d.movement?.completed || d.movement?.steps?.length <= 1) && !taskBlockReason(task);
+        const used = Math.min(remaining, seconds, at - Math.max(d.workStartsAt, at - seconds));
+        const b = ensureSoulBeacons().beacons.find(b => b.id === d.targetId);
+        const supplied = attended && (d.action === 'retrain' || soulBeaconHooksCharge(b, used, context));
+        if (supplied) d.workProgressSeconds += used;
+        task.dueAt = state.clock + Math.max(0, d.workRequiredSeconds - d.workProgressSeconds);
+        return supplied ? 1 : 0;
+      },
       chargeSupport: (b, seconds) => {
         context.electricityBudget = {};
         for (const entries of Object.values(context.components)) for (const c of entries) { c.metrics = utilityComponentMetrics(c); c.allocations = utilityPriorityAllocations(c.metrics); }
@@ -61090,14 +61139,26 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
     };
   }
+  function soulBeaconHooksCharge(b, seconds, context) {
+    const f = b && fixtureById(b.fixtureId);
+    context.electricityBudget = {};
+    for (const entries of Object.values(context.components)) for (const component of entries) { component.metrics = utilityComponentMetrics(component); component.allocations = utilityPriorityAllocations(component.metrics); }
+    if (!soulBeaconServices(f, context)) return false;
+    const hours = seconds / 3600;
+    return consumeUtilityPower(f, hours, 2, context) >= .99 && drawManaFromComponent(utilityComponentForFixture(f, 'mana', context), 4 * hours) >= 4 * hours - 1e-8;
+  }
   function updateSoulBeacons() {
     if (!state.soulBeacons || scientistIsDead()) return 0;
     const changes = SoulBeacons.advance(state.soulBeacons, state.clock, soulBeaconHooks());
     if (changes) { syncPhysicalReadModels(); markStateDirty(); } return changes;
   }
   function soulBeaconTaskReason(task) {
-    const d = task.data, t = soulBeaconTarget(d.action, d.targetId), f = fixtureById(d.fixtureId), c = soulBeaconContext(f, d.toCell);
-    const reason = SoulBeacons.qualifications(c); if (reason) return reason;
+    const d = task.data, s = ensureSoulBeacons(), t = { s, r: s.receivers.find(r => r.id === d.targetId), b: s.beacons.find(b => b.id === d.targetId) },
+      f = fixtureById(d.fixtureId), c = soulBeaconContext(f, d.toCell);
+    const advanced = ['continuityTrial', 'prepare', 'validate'].includes(d.action);
+    const reason = d.action === 'retrain' ? embodiedRetrainingReason(d.targetId, d.toCell)
+      : advanced ? SoulBeacons.perfectedQualifications(c) || SoulBeacons.qualifications(c) : SoulBeacons.qualifications(c);
+    if (reason) return reason;
     if (!f || f.condition <= 0 || f.productionTaskId && f.productionTaskId !== task.id || !fixtureAccessCells(f).some(p => sameMapCell(p.cell, d.toCell))) return 'The original equipment or operating position is unavailable.';
     for (const id of d.reservedStackIds || []) {
       const i = ensurePhysicalItemStacks().find(i => i.id === id);
@@ -61111,10 +61172,49 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (d.action === 'charge' && f.typeId !== 'soulBeacon') return 'A constructed beacon is required.';
     if (d.action === 'clear' && !t.r?.cleared && !['failed', 'embodied', 'cancelled'].includes(t.r?.status)) return 'End growth or physically consume the receiver before clearing its chamber.';
     if (d.action === 'cancel' && !['growing', 'ready'].includes(t.r?.status)) return 'No supported receiver remains to stop.';
-    if (!['original', 'inspect', 'grow', 'care', 'upkeep', 'examine', 'charge', 'arm', 'cancel', 'clear', 'medium'].includes(d.action)) return 'Unknown soul-beacon procedure.';
+    if (d.action === 'disarm' && !t.b?.armed) return 'No armed contingency needs disarming.';
+    if (advanced) {
+      const r = t.s.receivers.find(r => r.chamberId === t.b?.chamberId && r.status === 'ready');
+      const physical = soulBeaconReceiverContext(t.b), unavailable = SoulBeacons.preparationReason(t.s, t.b, r, physical);
+      if (unavailable) return unavailable;
+      if (!c.integration) return 'Complete the original transfer-integration project first.';
+      if (t.b.armed) return 'Disarm before direct continuity experiments or apparatus modification.';
+      if (d.action !== 'continuityTrial' && !c.perfectedResearch) return 'Complete both advanced continuity projects first.';
+      if (d.action === 'prepare' && t.b.preparation?.receiverId === r.id) return 'This pairing is already prepared; validate it.';
+      if (d.action === 'prepare' && ensurePhysicalItemStacks().some(i => d.reservedStackIds.includes(i.id) && i.key === 'growthMedium'
+        && (i.biology?.quality < 75 || !i.biology || i.tags.includes('contaminated')))) return 'Neural preparation needs uncontaminated growth medium of at least 75 quality.';
+      if (d.action === 'validate' && t.b.preparation?.receiverId !== r.id) return 'Physically prepare this actual receiver and apparatus pairing first.';
+      if (d.action === 'validate' && t.b.preparation?.validatedAt != null) return 'This exact pairing is already validated.';
+      if (d.action === 'continuityTrial') {
+        const sample = ensurePhysicalItemStacks().find(i => d.reservedStackIds.includes(i.id) && i.key === 'humanTissueTemplate');
+        if (sample?.biology?.family !== 'human' || sample.biology.donorId !== 'scientist' || !sample.biology.examined || sample.biology.quality < 75
+          || sample.tags.includes('contaminated')) return 'Use an examined uncontaminated self-donated human sample of at least 75 quality; no living person is a test subject.';
+      }
+    }
+    if (!['original', 'inspect', 'grow', 'care', 'upkeep', 'examine', 'charge', 'arm', 'disarm', 'cancel', 'clear', 'medium', 'continuityTrial', 'prepare', 'validate', 'retrain'].includes(d.action)) return 'Unknown soul-beacon procedure.';
     return '';
   }
-  function soulBeaconWorkInputs(action) {
+  function embodiedRetrainingReason(skillId, cell) {
+    const entry = scientistSkill(skillId), body = entry.embodiment;
+    if (scientistIsDead() || actorIsIncapacitated('scientist') || !campaignLocalKnowledgeAvailable()) return 'Attend a local training position in a functioning body.';
+    if (!EmbodiedSkills.COMPONENTS[skillId]?.body || !body || body.bodyId !== state.scientist.vocalBodyId || body.xp >= body.retainedXp)
+      return 'This skill has no remaining remembered bodily mastery to retrain. Further improvement requires ordinary practice.';
+    if (['arcaneSenses'].includes(skillId) && scientistMagicSuppressionReason()) return 'Magic suppression prevents sensory recalibration.';
+    if (surfaceWorkerHazard(cell) || injuryEffectTotals('scientist').work > .5 || injuryEffectTotals('scientist').movement > .5) return 'Unsafe surfaces or disabling injuries prevent controlled practice.';
+    if (['striking', 'guarding', 'evasion', 'grappling'].includes(skillId)) {
+      const space = cardinalMapCells(cell).filter(p => labMapCellRoomId(p) === labMapCellRoomId(cell) && labMapCellHasFloor(p)
+        && labMapCellIsWalkable(p) && !labMapCellIsPathBlocked(p) && !surfaceWorkerHazard(p) && canActorOccupyTile(state.scientist, p));
+      if (space.length < 2) return 'Physical drills need the operating tile and at least two clear adjacent floor tiles in the same room.';
+    }
+    return '';
+  }
+  function soulBeaconWorkInputs(action, skillId = '') {
+    if (action === 'continuityTrial') return { humanTissueTemplate: 1, assayReagent: 4, geneticMaterial: 2, arcaneFeedstock: 4 };
+    if (action === 'prepare') return { metalParts: 8, glass: 4, arcaneFeedstock: 8, growthMedium: 4 };
+    if (action === 'validate') return { assayReagent: 2, arcaneFeedstock: 2 };
+    if (action === 'retrain') return ({ medicine: { biomass: 1, assayReagent: 1 }, alchemy: { assayReagent: 2, drinkingWater: 2 },
+      fabrication: { metalParts: 1 }, materialsScience: { glass: 1, assayReagent: 1 }, husbandry: { biomass: 2, growthMedium: 1 },
+      creatureHandling: { biomass: 2 }, perception: { assayReagent: 1 }, arcaneSenses: { arcaneFeedstock: 1 } })[skillId] || {};
     return action === 'medium' ? { biomass: 32, assayReagent: 6, drinkingWater: 12 } : action === 'grow' ? SoulBeacons.INPUTS : action === 'charge' ? { arcaneFeedstock: 8 }
       : action === 'upkeep' ? { growthMedium: 7 } : ['care', 'clear', 'original', 'examine'].includes(action) ? { assayReagent: 1 } : {};
   }
@@ -61122,25 +61222,30 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (scientistIsDead() || actorIsIncapacitated('scientist') || !campaignLocalKnowledgeAvailable() || scientistQueueTasks().length) return false;
     updateSoulBeacons(); const t = soulBeaconTarget(action, targetId); if (!t.f || !t.cell) return false;
     if (action === 'examine' && t.b?.status === 'charged' && t.f.condition < 80 && !window.confirm('Direct resonance calibration of this damaged charged apparatus will cause 30 soul-integrity damage. Repair the equipment first to avoid it. Proceed?')) return false;
-    const costs = soulBeaconWorkInputs(action);
+    const costs = soulBeaconWorkInputs(action, targetId);
     const slices = homunculusInputs(costs, t.cell, '', action === 'grow');
     if (!slices || action === 'grow' && Object.keys(costs).some(key => slices.filter(p => p.key === key).length !== 1)) {
       addEvent('Stage the exact original receiver supplies within one tile of its accessible operating position.'); persist(); render(); return false;
     }
     const path = labNavigationPlanBetweenCells(scientistMapCell(), t.cell, { actor: state.scientist, ignoreDoors: true }); if (!path.found) return false;
-    const id = `task-${state.nextTaskNumber++}`, base = action === 'grow' ? 1800 : 600, travel = mapPathTravelDistanceMeters(path.path, ensureLabMap()) / scientistMoveSpeedMps();
-    const task = { id, type: 'soulBeaconWork', label: `Soul beacon: ${action}`, createdAt: state.clock, dueAt: state.clock + travel + base,
+    const id = `task-${state.nextTaskNumber++}`, base = action === 'prepare' ? 4 * 3600 : action === 'continuityTrial' ? 3600 : action === 'validate' || action === 'retrain' || action === 'grow' ? 1800 : 600,
+      travel = mapPathTravelDistanceMeters(path.path, ensureLabMap()) / scientistMoveSpeedMps();
+    const tracked = ['continuityTrial', 'prepare', 'validate', 'retrain'].includes(action);
+    const task = { id, type: 'soulBeaconWork', label: action === 'retrain' ? `Bodily retraining: ${SKILL_BY_ID[targetId]?.label || targetId}` : `Soul beacon: ${action}`, createdAt: state.clock, dueAt: state.clock + travel + base,
       data: { action, targetId, fixtureId: t.f.id, roomId: labMapCellRoomId(t.cell), toCell: t.cell, mapPath: path.path, skillId: 'animancy',
+        workRequiredSeconds: tracked ? base : 0, workProgressSeconds: 0,
         workStartsAt: state.clock + travel, movementStartedAt: state.clock, movement: createScientistMovementRecord(path.path, travel, state.clock, { intent: 'soul-beacon preparation' }),
         reservedStackIds: slices.map(p => p.stackId), inputQuantities: Object.fromEntries(slices.map(p => [p.stackId, p.quantity])) } };
     const reserved = reserveProductionMaterialSlices(slices, id); if (!reserved) return false;
     task.data.reservedStackIds = reserved; task.data.inputQuantities = Object.fromEntries(slices.map(p => [p.stackId, p.quantity]));
     const reason = soulBeaconTaskReason(task); if (reason) { releaseProductionMaterialReservations(task); addEvent(reason); persist(); render(); return false; }
+    if (action === 'retrain' && !spendStamina(4)) { releaseProductionMaterialReservations(task); addEvent('Four stamina is required for an attended thirty-minute retraining session.'); persist(); render(); return false; }
     fixtureById(t.f.id).productionTaskId = id; state.tasks.push(task); persist(); render(); return true;
   }
   function finishSoulBeaconWork(task) {
     try {
-      const reason = soulBeaconTaskReason(task); if (reason || !sameMapCell(scientistMapCell(), task.data.toCell)) { addEvent(reason || 'Attend the operating position.'); return false; }
+      const reason = soulBeaconTaskReason(task); if (reason || !sameMapCell(scientistMapCell(), task.data.toCell)
+        || task.data.workRequiredSeconds && task.data.workProgressSeconds < task.data.workRequiredSeconds) { addEvent(reason || 'Complete the actually attended supported work at the operating position.'); return false; }
       const d = task.data, t = soulBeaconTarget(d.action, d.targetId), f = fixtureById(d.fixtureId), c = soulBeaconContext(f, d.toCell);
       const inputs = ensurePhysicalItemStacks().filter(i => d.reservedStackIds.includes(i.id)); let result = { ok: true };
       if (d.action === 'medium') {
@@ -61151,6 +61256,26 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         recordResearchEvidence({ methodId: 'exhaustedBeaconExam', specimenId: f.id, specimenName: f.name, sourceKey: `original-beacon:${f.id}`,
           summary: 'Examined exhausted guiding apparatus: no stored soul, spare charge or receiving body. The original expected full continuity.', confidence: .9 });
       } else if (d.action === 'inspect') { t.s.inspections[f.id] = { at: state.clock, condition: f.condition }; f.utility.enabled = true; }
+      else if (d.action === 'continuityTrial') {
+        const trialId = `neural-trial:${task.id}`;
+        t.s.continuityTrials ||= [];
+        const delivered = t.b.memoryTier === 'perfected' ? 64 : 16;
+        t.s.continuityTrials.push({ id: trialId, at: state.clock, beaconId: t.b.id, sampleId: inputs.find(i => i.key === 'humanTissueTemplate').id,
+          referencePatterns: 64, deliveredPatterns: delivered, livingSubject: false });
+        recordResearchEvidence({ methodId: 'neuralContinuityTrial', specimenId: trialId, specimenName: 'Self-derived neural-pattern tissue assay', sourceKey: trialId,
+          summary: `A controlled 64-pattern self-derived tissue assay transmitted ${delivered} patterns through the actual guiding circuitry. ${delivered < 64 ? 'The original channel loses neural information despite preserved animantic identity.' : 'The prepared channel preserves the assay patterns.'} No person died and no soul or personality was stored.`, confidence: .95 });
+      } else if (['prepare', 'validate'].includes(d.action)) {
+        const r = t.s.receivers.find(r => r.chamberId === t.b.chamberId && r.status === 'ready');
+        const context = { ...c, ...soulBeaconReceiverContext(t.b) };
+        result = d.action === 'prepare' ? SoulBeacons.preparePerfected(t.s, t.b.id, r.id, context, state.clock) : SoulBeacons.validatePerfected(t.s, t.b.id, context, state.clock);
+        if (result.ok && d.action === 'validate') {
+          SoulBeacons.examine(t.s, t.b.id, state.clock);
+          recordResearchEvidence({ methodId: 'perfectedPairValidation', specimenId: r.id, specimenName: 'Validated neural receiver pairing', sourceKey: `perfected:${t.b.id}:${r.id}`,
+            summary: 'All 64 bounded neural test patterns survived the modified guiding circuitry and prepared receiver interface. This validates this exact pairing, not a stored brain, a soul copy or body-bound mastery.', confidence: .95 });
+        }
+      } else if (d.action === 'retrain') {
+        awardXp(d.targetId, 60, `Attended ${SKILL_BY_ID[d.targetId].label} bodily retraining`, { physical: true });
+      }
       else if (d.action === 'grow') {
         const template = inputs.find(i => i.key === 'humanTissueTemplate'), medium = inputs.find(i => i.key === 'growthMedium');
         c.template = template?.biology; c.quality = Math.min(template?.biology?.quality || 0, medium?.biology?.quality || 0, inputs.some(i => i.tags.includes('contaminated')) ? 40 : 100);
@@ -61184,7 +61309,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       } else if (d.action === 'arm') {
         const r = t.s.receivers.find(r => r.chamberId === t.b?.chamberId && r.status === 'ready');
         result = SoulBeacons.arm(t.s, t.b?.id, r?.id, { ...c, ...soulBeaconReceiverContext(t.b) }, state.clock);
-      } else if (d.action === 'cancel') { t.r.status = 'cancelled'; soulBeaconHooks().release(t.r); }
+      } else if (d.action === 'disarm') { t.b.armed = false; t.b.receiverId = ''; }
+      else if (d.action === 'cancel') { t.r.status = 'cancelled'; soulBeaconHooks().release(t.r); }
       else if (d.action === 'clear') { t.r.cleared = true; soulBeaconHooks().release(t.r); }
       if (result.ok) { consumeProductionMaterialReservations(task); addEvent(`Soul beacon ${d.action}: actual physical procedure completed.`); }
       else addEvent(result.reason || 'No original receiver or beacon can be examined.');
@@ -61196,7 +61322,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(textEl('h3', 'Late-Game Soul Beacons'), textEl('p', 'Master Animancy, Medicine and Alchemy (151), Adept Fabrication (101), physical original-apparatus evidence and three research projects are required. A beacon guides your departed soul; it never stores it. Homunculi have their own souls and cannot be overwritten.'));
     for (const injury of s.soul.injuries) panel.append(textEl('p', `Recorded soul injury ${formatClock(injury.at)}: ${injury.cause}; ${injury.damage} integrity lost. Recovery does not heal this damage.`));
     const button = (label, action, id) => { const b = storesActionButton(label, label, () => queueSoulBeaconWork(action, id)); b.dataset.beaconAction = action; b.dataset.beaconTarget = id;
-      const reason = SoulBeacons.qualifications(soulBeaconContext(fixtureById(id), scientistMapCell())); setActionButtonState(b, Boolean(reason || scientistQueueTasks().length), reason || 'Finish current scientist work.'); panel.append(b); };
+      const context = soulBeaconContext(fixtureById(id), scientistMapCell());
+      const reason = ['continuityTrial', 'prepare', 'validate'].includes(action) ? SoulBeacons.perfectedQualifications(context) || SoulBeacons.qualifications(context) : SoulBeacons.qualifications(context);
+      setActionButtonState(b, Boolean(reason || scientistQueueTasks().length), reason || 'Finish current scientist work.'); panel.append(b); };
     button('Prepare receiver medium (32 biomass, six reagent, twelve water)', 'medium', '');
     for (const f of state.fixtures.filter(f => ['exhaustedSoulApparatus', 'soulReceiver', 'soulBeacon'].includes(f.typeId))) {
       panel.append(textEl('h4', f.name));
@@ -61210,11 +61338,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       button('Load seven days of maintenance medium', 'upkeep', r.id); button('End receiver support', 'cancel', r.id); button('Clear consumed or failed receiving chamber', 'clear', r.id);
     }
     for (const b of s.beacons) {
-      const v = s.observations[b.id]; panel.append(textEl('p', v ? `${b.label}: examined ${formatClock(v.at)} — ${v.status}, ${Math.round(v.progress * 100)}%. ${v.reason}` : `${b.label}: charge not locally examined.`));
-      button('Examine and calibrate beacon (one reagent)', 'examine', b.id); button('Arm imperfect soul-beacon contingency', 'arm', b.id);
+      const v = s.observations[b.id]; panel.append(textEl('p', v ? `${b.label}: examined ${formatClock(v.at)} — ${v.status}, ${Math.round(v.progress * 100)}%, ${v.memoryTier || 'imperfect'} transfer. ${v.reason}` : `${b.label}: charge not locally examined.`));
+      button('Examine and calibrate beacon (one reagent)', 'examine', b.id); button('Arm prepared soul-beacon contingency', 'arm', b.id);
+      button('Disarm before physical modification', 'disarm', b.id);
+      button('Run one-hour self-derived neural-continuity assay', 'continuityTrial', b.id);
+      button('Prepare neural receiver and circuitry (four supported hours)', 'prepare', b.id);
+      button('Validate this perfected pairing (thirty supported minutes)', 'validate', b.id);
     }
+    for (const trial of s.continuityTrials || []) panel.append(textEl('p', `${formatClock(trial.at)} continuity assay: ${trial.deliveredPatterns}/${trial.referencePatterns} neural patterns transmitted. Self-derived tissue only; no living subject, soul or personality copy.`));
     panel.append(textEl('p', 'Growth loads 80 biomass, 24 prepared medium, 10 genetic material and one examined self-donated template. Care is required every twelve hours. Ready bodies consume one extra medium per day and finite utilities; a nonrenewable twenty-minute interruption buffer protects neither prolonged failures nor neglected care.'));
-    panel.append(textEl('p', 'This first apparatus requires soul integrity of at least 75. Recovery loses personal memories and practiced expertise, returning skills to their starting baseline. Physical records, old remains, carried possessions, legal consequences and the same run persist. Perfected transfer and hidden-base destinations remain separate research.'));
+    panel.append(textEl('p', 'Imperfect recovery loses personal memories and practiced expertise, returning skills to their starting baseline. Perfected transfer requires Heroic Animancy, Medicine and Alchemy knowledge (201), Master Fabrication knowledge (151), two advanced projects, and actual attended preparation and validation. Practical apparatus work still requires Master Medicine and Alchemy and Adept Fabrication execution.'));
+    panel.append(textEl('p', 'Prepare one ready body and charged disarmed beacon using eight metal parts, four glass, eight arcane feedstock and four compatible growth medium. Validation uses two reagent and two feedstock. Both fixtures and the body must remain at least 90% fit. Research alone upgrades nothing; each new body needs its own preparation. Both transfer methods require soul integrity of at least 75 and never heal it. Perfected transfer retains current memory and knowledge, not old lost memories or trained bodily execution. Hidden-base destinations remain separate work.'));
   }
 
   function ensureHomunculi() { return state.homunculi ||= Homunculi.create(state.clock, { seed: state.seed, theme: activeWorldRecord?.worldTheme || state.worldTheme || "madcap" }); }
@@ -65139,6 +65273,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       dom.scientistConditionList.append(physicalStatePanelEl(), restQualityPanelEl());
     }
     dom.skillList.textContent = "";
+    const memory = state.scientist.memoryContinuity;
+    if (memory?.returns?.length) dom.skillList.append(textEl('p', `Memory continuity: last return ${memory.returns.at(-1).memoryTier}. ${memory.losses.length} imperfect return(s) lost their then-current personal memories; the original pre-run loss also remains. Perfected returns never reconstruct those earlier losses. External records are not personal memory.`, 'journal-meta'));
     const learnedSkills = learnedScientistSkills();
     if (!learnedSkills.length) {
       const note = document.createElement("p");
@@ -65179,6 +65315,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       bar.append(fill);
 
       row.append(header, meta, bar);
+      if (entry.embodiment) {
+        const bodyProgress = skillProgressForXp(EmbodiedSkills.executionXp(entry, skill.id)), components = EmbodiedSkills.COMPONENTS[skill.id];
+        header.lastChild.textContent = `Remembered knowledge: [${tier.label}], level ${progress.level}`;
+        row.append(textEl('p', `Current bodily proficiency: level ${bodyProgress.level} · ${components.body}. Remembered knowledge: ${components.knowledge}.`, 'journal-meta'));
+        row.append(textEl('p', `${formatXp(bodyProgress.current)} / ${formatXp(bodyProgress.next)} bodily XP to next level. Relevant real practice gains 4× below prior level ${skillProgressForXp(entry.embodiment.retainedXp).level}; above it gains are ordinary. Remembered specializations do not unlock untrained bodily benefits.`, 'journal-meta'));
+        if (entry.embodiment.xp < entry.embodiment.retainedXp) {
+          const drill = storesActionButton('Queue thirty-minute bodily retraining', 'Four stamina; suitable local space and staged exercise materials required. Cancellation grants no practice.', () => queueSoulBeaconWork('retrain', skill.id));
+          drill.dataset.embodiedRetrain = skill.id;
+          const t = soulBeaconTarget('retrain', skill.id), reason = !t.cell ? 'A reachable operational laboratory workbench is required.' : embodiedRetrainingReason(skill.id, t.cell);
+          setActionButtonState(drill, Boolean(reason || scientistQueueTasks().length), reason || 'Finish current work first.'); row.append(drill);
+          const costs = soulBeaconWorkInputs('retrain', skill.id);
+          row.append(textEl('p', `Exercise supplies staged within one tile of the bench: ${Object.entries(costs).map(([key, n]) => `${n} ${RESOURCE_BY_KEY[key] ? resourceLabel(key) : inventoryItemLabel(key)}`).join(', ') || 'none; combat drills require two clear adjacent tiles'}.`, 'journal-meta'));
+        }
+      }
       dom.skillList.append(row);
     }
 
@@ -79667,6 +79817,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (!state.scientist.skills[resolvedSkillId] && options.create) {
       state.scientist.skills[resolvedSkillId] = defaultSkillEntry();
+      if (EmbodiedSkills.COMPONENTS[resolvedSkillId].body && state.scientist.memoryContinuity?.returns?.at(-1)?.memoryTier === 'perfected')
+        state.scientist.skills[resolvedSkillId].embodiment = { bodyId: state.scientist.vocalBodyId, xp: 0, retainedXp: 0,
+          lastPracticedAt: state.clock, lastBreakthroughDecayAt: state.clock };
     }
     return state.scientist.skills[resolvedSkillId] || defaultSkillEntry();
   }
@@ -80516,7 +80669,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (completed.kind === 'medical') {
       const injury = actorInjuries('scientist').find(i => i.id === completed.injuryId);
       if (injury) completeInjuryTreatment({ id: `${s.id}-depot-care`, label: 'Depot clinician treatment', data: { injuryId: injury.id, mode: injury.status === 'active' ? 'stabilize' : 'treat', supplyStackId: completed.supplyStackId, baseXp: 1 } });
-    } else if (completed.kind === 'training') awardXp('evasion', 12, 'Depot physical training');
+    } else if (completed.kind === 'training') awardXp('evasion', 12, 'Depot physical training', { physical: true });
     else if (completed.kind === 'maintenance') { d.condition = Math.min(100, d.condition + 5); awardXp('analysis', 12, 'Depot maintenance inspection'); }
     else if (['company', 'counsel'].includes(completed.kind)) d.communications.push({ channel: completed.kind, at: state.clock, confidential: completed.kind === 'counsel', report: completed.kind === 'company' ? jailCompanyReport() : { summary: 'Confidential counsel reviewed the fixed term, documented custody credit, and discharge rights. Unrelated judgments remain separate.', releaseAt: s.ledger.releaseAt } });
     else state.wildernessSurvival.exertion = Math.max(0, state.wildernessSurvival.exertion - 20);
@@ -82406,7 +82559,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const present = sameMapCell(scientistMapCell(), p.points[room]), staffAble = p.staff[0].status === 'alive' && p.staff[0].health >= 50;
       if (present && staffAble) {
         if (room === 'housing') ensureWildernessSurvival().exertion = Math.max(0, ensureWildernessSurvival().exertion - elapsed / 120);
-        if (room === 'workshop') { const previous = Math.floor(p.workSeconds / 3600); p.workSeconds += elapsed; const gained = Math.floor(p.workSeconds / 3600) - previous, assignment = PrisonCustody.ASSIGNMENTS.find(a => a.id === p.assignment); if (gained && assignment) awardXp(assignment.skillId, gained, 'Supervised local prison practice'); }
+        if (room === 'workshop') { const previous = Math.floor(p.workSeconds / 3600); p.workSeconds += elapsed; const gained = Math.floor(p.workSeconds / 3600) - previous, assignment = PrisonCustody.ASSIGNMENTS.find(a => a.id === p.assignment); if (gained && assignment) awardXp(assignment.skillId, gained, 'Supervised local prison practice', { physical: true }); }
         if (room === 'clinic' && p.assignment === 'recovery') { p.medicalSeconds += elapsed; ensureWildernessSurvival().exertion = Math.max(0, ensureWildernessSurvival().exertion - elapsed / 120); }
         if (room === 'dayroom') for (const [kind, field, item] of [['water', 'thirst', 'fieldWater'], ['meals', 'hunger', 'fieldRation']]) { const stack = state.physicalItemStacks.find(s => s.id === p.supplyIds[kind]); if (ensureWildernessSurvival()[field] >= 30 && stack?.quantity > 0) { consumeMedicSupply(stack); state.wildernessSurvival = WildernessSurvival.consume(ensureWildernessSurvival(), item); p.supplies[kind] = stack.quantity; } }
       }
@@ -90524,8 +90677,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
 
-  function adjustedActionDuration(baseSeconds, skillId) {
-    return Math.max(1, Math.ceil((Number(baseSeconds) || 0) * skillReductionMultiplier(skillLevel(skillId)) * (1 + clamp(injuryEffectTotals("scientist").work, 0, 1)) * WildernessSurvival.fatigueMultiplier(state?.wildernessSurvival)));
+  function adjustedActionDuration(baseSeconds, skillId, component = 'execution') {
+    return Math.max(1, Math.ceil((Number(baseSeconds) || 0) * skillReductionMultiplier(skillLevel(skillId, component)) * (1 + clamp(injuryEffectTotals("scientist").work, 0, 1)) * WildernessSurvival.fatigueMultiplier(state?.wildernessSurvival)));
   }
 
   function adjustedSecondsDuration(baseSeconds, skillId) {
@@ -92372,6 +92525,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       physicalPresence: normalizeScientistPhysicalPresence(candidate?.physicalPresence),
       vocalAnatomy: Object.fromEntries(Object.keys(Homunculi.VOCAL_ANATOMY).map(k => [k, Boolean(candidate?.vocalAnatomy?.[k] ?? Homunculi.VOCAL_ANATOMY[k])])),
       vocalBodyId: String(candidate?.vocalBodyId || fallback.vocalBodyId),
+      memoryContinuity: clonePlainObject(candidate?.memoryContinuity || fallback.memoryContinuity),
       physicalState: normalizeScientistPhysicalState(candidate?.physicalState),
       vitals: { ...fallback.vitals, ...(candidate?.vitals || {}) },
       skills: { ...fallback.skills, ...(candidate?.skills || {}) },
@@ -92397,13 +92551,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         continue;
       }
       const xp = Math.max(0, Number(rawSkill?.xp) || 0);
-      if (!xp) {
+      if (!xp && !rawSkill?.embodiment) {
         continue;
       }
       const existing = normalizedSkills[skillId] || defaultSkillEntry();
       existing.xp = Math.max(0, Number(existing.xp) || 0) + xp;
       existing.evolvedLabel = String(rawSkill?.evolvedLabel || existing.evolvedLabel || "");
       existing.evolvedTierId = String(rawSkill?.evolvedTierId || existing.evolvedTierId || "");
+      const embodiment = EmbodiedSkills.normalize(rawSkill, skillId, scientist.vocalBodyId);
+      if (embodiment) existing.embodiment = embodiment;
       const fallbackTime = Number.isFinite(Number(state?.clock)) ? Number(state.clock) : 0;
       const lastPracticedAt = finiteTime(rawSkill?.lastPracticedAt, fallbackTime);
       const lastDecayAt = finiteTime(rawSkill?.lastBreakthroughDecayAt, lastPracticedAt);

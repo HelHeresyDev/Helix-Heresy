@@ -1,11 +1,7 @@
 // @ts-check
 const { test, expect } = require('@playwright/test');
-const path = require('path');
-const { pathToFileURL } = require('url');
 const { genomeForTraits } = require('./gene-fixtures');
 
-const projectRoot = path.resolve(__dirname, '..');
-const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
 const { activeRunStorageKey } = require('./helpers/active-run-storage');
 const { startLifecycleRun } = require('./helpers/start-lifecycle-run');
 
@@ -28,14 +24,7 @@ function totalXpForLevel(level) {
 }
 
 async function startRun(page) {
-  await page.goto(appUrl);
-  await page.evaluate(() => {
-    window.localStorage.clear();
-    window.localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: 'dom' }));
-  });
-  await page.reload();
-  await page.locator('#titleNewRunBtn').click();
-  await page.locator('#setupForm button[type="submit"]').click();
+  await startLifecycleRun(page, 'focused-adaptive-skills');
 }
 
 async function skipSeconds(page, seconds) {
@@ -652,15 +641,11 @@ test('Analysis evolves into Combat Analysis and unlocks Combat Analyze', async (
 
 test('Analysis evolves into Forensic Analysis and reads corpse evidence', async ({ page }) => {
   await startRun(page);
-  const seed = await page.evaluate(({ key }) => {
-    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
-    return (payload.state || payload).seed;
-  }, { key: await activeRunStorageKey(page) });
+  const seed = await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState().seed);
   const genome = genomeForTraits({ seed, traits: { element: 'frost', behavior: 'idle pooling', stability: 'placid' } });
 
-  await page.evaluate(({ key, genome, analysisXp }) => {
-    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
-    const state = payload.state || payload;
+  await page.evaluate(({ genome, analysisXp }) => {
+    const state = window.helixHeresyDebug.exportSurveyExpeditionTestState();
     state.scientist.vitals.mana = { current: 100, max: 100 };
     state.scientist.skills.analysis = {
       xp: analysisXp,
@@ -692,18 +677,16 @@ test('Analysis evolves into Forensic Analysis and reads corpse evidence', async 
       harvestedProcedures: {},
       nextOverflowEventAt: null,
     }];
-    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: await activeRunStorageKey(page), genome, analysisXp: totalXpForLevel(51) });
-  await loadSavedRun(page);
+    window.helixHeresyDebug.importSurveyExpeditionTestState(state);
+  }, { genome, analysisXp: totalXpForLevel(51) });
 
   await openWorkspace(page, 'specimens');
   await expect(page.locator('#skillList')).toContainText('Forensic Analysis');
   await page.locator('[data-forensic-analyze-corpse-id="corpse-forensic"]').click();
   await expect(page.locator('[data-forensic-report="corpse-forensic"]')).toContainText('Cause: combat trauma');
 
-  const result = await page.evaluate(({ key }) => {
-    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
-    const state = payload.state || payload;
+  const result = await page.evaluate(() => {
+    const state = window.helixHeresyDebug.exportSurveyExpeditionTestState();
     const corpse = state.corpses.find((entry) => entry.id === 'corpse-forensic');
     return {
       mana: state.scientist.vitals.mana.current,
@@ -711,7 +694,7 @@ test('Analysis evolves into Forensic Analysis and reads corpse evidence', async 
       evolvedLabel: state.scientist.skills.analysis.evolvedLabel,
       forensicSummary: corpse?.forensicReport?.summary || '',
     };
-  }, { key: await activeRunStorageKey(page) });
+  });
 
   expect(result.mana).toBe(88);
   expect(result.analysisXp).toBe(totalXpForLevel(51) + 7);

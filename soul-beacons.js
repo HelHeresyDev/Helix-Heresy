@@ -23,6 +23,34 @@
         ? 'Master Animancy, Medicine and Alchemy (151) and Adept Fabrication (101) are required.'
         : c.suppressed ? 'Magic suppression prevents animantic work.' : '';
   }
+  function perfectedQualifications(c) {
+    const reason = qualifications({ ...c, medicine: c.medicineKnowledge ?? c.medicine, alchemy: c.alchemyKnowledge ?? c.alchemy, fabrication: c.fabricationKnowledge ?? c.fabrication });
+    return reason || (c.animancy < 201 || (c.medicineKnowledge ?? c.medicine) < 201 || (c.alchemyKnowledge ?? c.alchemy) < 201 || (c.fabricationKnowledge ?? c.fabrication) < 151
+      ? 'Heroic Animancy, Medicine and Alchemy (201) and Master Fabrication (151) knowledge are required.' : '');
+  }
+  function preparationReason(s, b, r, c) {
+    return !b || b.status !== 'charged' || b.charge < 24 || b.chamberId !== r?.chamberId ? 'Use the actual fully charged beacon and its paired receiver.'
+      : !r || r.status !== 'ready' || r.health < 90 || r.soulId || r.soulFormationPrevented !== true || r.donorSoulId !== s.soul.id
+        ? 'A compatible ready soul-free receiver in at least 90 health is required.'
+        : !c.siteIntact || !c.siteControlled || !c.space || !c.paired || !c.services || c.condition < 90 || !c.upkeep
+          ? 'Perfected preparation needs the actual controlled paired site, upkeep, exit and full utilities, with both fixtures in at least 90% condition.' : '';
+  }
+  function preparePerfected(s, beaconId, receiverId, c, now) {
+    const b = s.beacons.find(b => b.id === beaconId), r = s.receivers.find(r => r.id === receiverId);
+    const reason = perfectedQualifications(c) || (!c.perfectedResearch ? 'Complete both advanced continuity projects first.' : '')
+      || (b?.armed ? 'Disarm this contingency before modifying it.' : '') || preparationReason(s, b, r, c);
+    if (reason) return fail(reason);
+    b.preparation = { receiverId, chamberId: r.chamberId, fixtureId: b.fixtureId, preparedAt: now, validatedAt: null };
+    b.memoryTier = 'imperfect'; return { ok: true };
+  }
+  function validatePerfected(s, beaconId, c, now) {
+    const b = s.beacons.find(b => b.id === beaconId), p = b?.preparation, r = s.receivers.find(r => r.id === p?.receiverId);
+    const reason = perfectedQualifications(c) || (!c.perfectedResearch ? 'Complete both advanced continuity projects first.' : '')
+      || (!p || p.fixtureId !== b.fixtureId || p.chamberId !== b.chamberId ? 'Physically prepare this actual pairing first.' : '')
+      || (b?.armed ? 'Disarm before direct validation.' : '') || preparationReason(s, b, r, c);
+    if (reason) return fail(reason);
+    p.validatedAt = now; b.memoryTier = 'perfected'; return { ok: true, receiver: r };
+  }
   function damageSoul(s, amount, cause, now, sourceId) {
     if (!sourceId || !cause || !(amount > 0) || s.soul.injuries.some(i => i.sourceId === sourceId)) return false;
     const damage = Math.min(s.soul.integrity, amount);
@@ -93,6 +121,7 @@
         if (b.progressSeconds === CHARGE) { b.status = 'charged'; b.chargedAt = at; }
         changed++;
       }
+      if (hooks.work) changed += hooks.work(at, STEP) || 0;
     }
     return changed;
   }
@@ -113,7 +142,8 @@
     if (b && b.status !== 'spent') return fail('This apparatus already holds a charging cycle or charge.');
     if (!b) { b = { id: `soul-beacon:${fixtureId}`, fixtureId }; s.beacons.push(b); }
     Object.assign(b, { chamberId, status: 'charging', armed: false, receiverId: '', charge: 0,
-      progressSeconds: 0, startedAt: now, reason: '', siteId: c.siteId, location: copy(c.location), label: c.label });
+      progressSeconds: 0, startedAt: now, reason: '', siteId: c.siteId, location: copy(c.location), label: c.label,
+      memoryTier: 'imperfect', preparation: null });
     return { ok: true, beacon: b };
   }
   function eligibility(s, b, c) {
@@ -124,7 +154,10 @@
           ? 'No healthy compatible soul-free receiver.'
           : !c?.siteIntact || !c.siteControlled || !c.space || !c.paired || !c.services || c.condition < 80
             ? 'The actual receiving site, equipment, utilities or exit position is unavailable.'
-            : !c.upkeep ? 'The prepared receiver lacks actual remaining maintenance medium.' : '';
+            : !c.upkeep ? 'The prepared receiver lacks actual remaining maintenance medium.'
+              : b.memoryTier === 'perfected' && (!b.preparation || b.preparation.validatedAt == null || b.preparation.receiverId !== r.id
+                || b.preparation.fixtureId !== b.fixtureId || b.preparation.chamberId !== b.chamberId || c.condition < 90 || r.health < 90)
+                ? 'The exact validated perfected pairing or its 90% receiving conditions are unavailable; no silent imperfect fallback.' : '';
   }
   function arm(s, beaconId, receiverId, c, now) {
     const reason = qualifications(c); if (reason) return fail(reason);
@@ -139,13 +172,16 @@
     const view = r ? { id, at: now, kind: 'receiver', status: r.status, progress: r.progressSeconds / GROWTH,
       health: r.health >= 75 ? 'compatible condition' : 'severe developmental injury', reason: r.reason, soulId: r.soulId,
       soulFormationPrevented: r.soulFormationPrevented } : b ? { id, at: now, kind: 'beacon', status: b.status, armed: b.armed,
-        progress: b.progressSeconds / CHARGE, reason: b.reason } : null;
+        progress: b.progressSeconds / CHARGE, reason: b.reason, memoryTier: b.memoryTier || 'imperfect',
+        preparedAt: b.preparation?.preparedAt ?? null, validatedAt: b.preparation?.validatedAt ?? null } : null;
     if (view) s.observations[id] = view; return view;
   }
   function choices(s, contexts) {
     return s.beacons.filter(b => !eligibility(s, b, contexts(b))).map(b => ({ id: b.id, label: b.label,
       siteId: b.siteId, roomId: b.location.roomId, receiverId: b.receiverId,
-      receivingConditions: 'Compatible maintained receiver; intact charged apparatus and working local utilities. Imperfect memory transfer.' }));
+      memoryTier: b.memoryTier || 'imperfect', receivingConditions: b.memoryTier === 'perfected'
+        ? 'Validated maintained neural receiver; charged apparatus and working local utilities. Personal memory and knowledge retained; bodily competence requires retraining.'
+        : 'Compatible maintained receiver; intact charged apparatus and working local utilities. Imperfect memory transfer: personal memory and practiced expertise lost.' }));
   }
   function prepareHandoff(s, deathId, now, contexts) {
     const available = choices(s, contexts);
@@ -163,12 +199,12 @@
     if (reason) { h.choices = choices(s, contexts); h.selectedId = ''; if (!h.choices.length) h.status = 'unavailable'; return fail(reason); }
     const r = s.receivers.find(r => r.id === b.receiverId);
     const receipt = { deathId, beaconId: b.id, bodyId: r.id, soulId: s.soul.id, soulIntegrity: s.soul.integrity,
-      at: now, location: copy(contexts(b).destination), health: r.health, memoryTier: 'imperfect' };
+      at: now, location: copy(contexts(b).destination), health: r.health, memoryTier: b.memoryTier || 'imperfect' };
     r.status = 'embodied'; r.embodiedAt = now; r.soulId = s.soul.id;
     b.status = 'spent'; b.charge = 0; b.armed = false;
     h.status = 'recovered'; h.recoveredAt = now; s.transfers.push(receipt);
     return { ok: true, receipt };
   }
-  return { GROWTH, CARE, CHARGE, INPUTS, create, normalize, qualifications, damageSoul, occupied,
+  return { GROWTH, CARE, CHARGE, INPUTS, create, normalize, qualifications, perfectedQualifications, preparationReason, preparePerfected, validatePerfected, damageSoul, occupied,
     begin, advance, care, loadSupport, charge, eligibility, arm, examine, choices, prepareHandoff, select, recover };
 });
