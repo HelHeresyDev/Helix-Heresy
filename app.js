@@ -101,6 +101,7 @@
   const CarrierBriefings = window.HelixCarrierBriefings;
   const LocalDiscovery = window.HelixLocalDiscovery;
   const MunicipalMaps = window.HelixMunicipalMaps;
+  const SovereignBargains = window.HelixSovereignBargains;
   const UnsupportedExcursions = window.HelixUnsupportedExcursions;
   const MedicalExtraction = window.HelixMedicalExtraction;
   const MunicipalClinic = window.HelixMunicipalClinic;
@@ -5445,6 +5446,8 @@
       localServiceKnowledge: null,
       civicAssayMandate: null,
       civicAssayKnowledge: null,
+      sovereignBargains: null,
+      sovereignBargainKnowledge: null,
       confidentialServices: null,
       confidentialServiceKnowledge: null,
       surfaceWorkers: null,
@@ -14416,6 +14419,38 @@
       companySnapshot: () => clonePlainObject({ company: ensureCompany(), assessment: companyCredibilityAssessment(), identity: state.siteIdentity }),
       municipalMapSnapshot: () => clonePlainObject({ service: ensureMunicipalMapService(), public: MunicipalMaps.publicView(ensureMunicipalMapService()), office: scientistCivicOffice(), clock: state.clock, money: ensureEconomy().money }),
       municipalMapAction: (action, extractId) => municipalMapAction(action, extractId),
+      sovereignBargainAction: (action, expected) => sovereignBargainAction(action, expected),
+      advanceSovereignBargainForTest: (seconds) => {
+        // Isolate deadline/counter accounting from unrelated unattended hunger.
+        state.clock += Math.max(0, Number(seconds) || 0); updateSovereignBargains(); persist(); render(); return state.clock;
+      },
+      sovereignBargainSnapshot: () => clonePlainObject({ bargain: state.sovereignBargains, known: state.sovereignBargainKnowledge,
+        office: scientistCivicOffice(), context: sovereignBargainContext(scientistCivicOffice()), clock: state.clock,
+        stacks: ensurePhysicalItemStacks().filter(i => i.key === 'metalParts'), campaign: state.campaign, money: ensureEconomy().money }),
+      configureSovereignBargainTest: (options = {}) => {
+        const office = scientistCivicOffice(); if (!office) return false;
+        if (!state.sovereignBargains) {
+          // Explicit endowment for legacy browser fixtures; ordinary play binds
+          // only actual generated charters, defense institutions and route geometry.
+          const source = { cityId: office.cityId, cityName: 'Test City', charterId: 'test-city-charter',
+            authority: { id: 'test-city-ruler', kind: options.collective ? 'collective' : 'individual', name: 'Test Authority', title: 'Sovereign' },
+            administrationId: office.institutionId, defenseId: 'test-defense-command', defenseName: 'Test Defense Command', succession: 'Test charter succession',
+            archive: { routeId: 'test-restricted-approach', source: 'Test Defense retained approach chart', sourceDate: null,
+              coverage: [{ cellId: 'planet-cell:00001', latitude: 12, longitude: 20 }, { cellId: 'planet-cell:00003', latitude: 14, longitude: 21 }], notes: ['Limited city-end segment only.'] } };
+          state.sovereignBargains = SovereignBargains.create(source, office, { seed: 'focused-audience' });
+          state.sovereignBargains.testFixture = true;
+          ensureCompany().homeInstitutionContext = HomeInstitutionContext.create({ cityId: office.cityId, cityName: 'Test City' },
+            [{ role: 'centralAdministration', id: office.institutionId, capacityBand: 'exceptional', status: 'operational' }], state.clock);
+        }
+        const s = state.sovereignBargains;
+        if (options.defenderHealth != null) s.defender.health = options.defenderHealth;
+        if (options.defenseAvailable != null) s.defenseAvailable = options.defenseAvailable;
+        if (options.supply != null) {
+          const item = createPhysicalItemStack('resources', 'metalParts', options.supply, { roomId: scientistRoomId(), cell: scientistMapCell() });
+          if (item && options.carried) carryPhysicalStack('scientist', item.id, options.supply);
+        }
+        syncActorInventories(); persist(); render(); return true;
+      },
       propertyPresentationSnapshot: () => clonePlainObject({
         state: ensurePropertyPresentation(),
         assessment: propertyPresentationAssessment(),
@@ -22388,6 +22423,7 @@
     changes.scientistMovementChanged += livingUpdate(() => updateMunicipalClinic());
     changes.scientistMovementChanged += livingUpdate(() => updateScientistIdentity());
     changes.scientistMovementChanged += livingUpdate(() => updateMunicipalMapService());
+    changes.scientistMovementChanged += livingUpdate(() => updateSovereignBargains());
     changes.scientistMovementChanged += livingUpdate(() => updateCarrierBriefing());
     changes.scientistMovementChanged += livingUpdate(() => updatePenalFlights(elapsed));
     changes.scientistMovementChanged += livingUpdate(() => updatePenalLegion(elapsed));
@@ -35898,6 +35934,8 @@
     const clinician = state.medicalExtraction?.clinic?.clinician;
     if (clinician && clinician.id !== excludeActor?.id && mapCellKey(clinician.mapCell) === key) occupied += .6;
     for (const office of state.economy?.intercitySmuggling?.identityOffices || []) if (office.civicCounter && office.clerk.id !== excludeActor?.id && mapCellKey(office.clerk.mapCell) === key) occupied += .6;
+    if (state.surveyExpeditions?.phase === 'field' && !unsupportedActive()) for (const actor of [state.sovereignBargains?.representative, state.sovereignBargains?.defender])
+      if (actor?.status === 'alive' && actor.id !== excludeActor?.id && mapCellKey(actor.mapCell) === key) occupied += .6;
     for (const actor of state.penalFlights?.actors || []) if (actor.id !== excludeActor?.id && mapCellKey(actor.mapCell) === key) occupied += .6;
     for (const beast of state.wildernessBeasts?.actors || []) {
       if (beast.id !== excludeActor?.id && mapCellKey(beast.mapCell) === key) occupied += MAP_TILE_AREA_M2;
@@ -66485,6 +66523,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           setLabMapOverlayEntry(assignments, office.civicCounter.cell, { overlayId, classNames: ["map-overlay-resources"], label: "Public civic registration counter", title: "Walk here for a voluntary paid registration or document check; no automatic historical identity or immunity", value: "R", source: "Municipal registry notice", target: { kind: "tile", tile: office.civicCounter.cell } }, map);
           if (office.clerk.mapCell && sensoryLineOfSight(scientistMapCell(), office.clerk.mapCell)) setLabMapOverlayEntry(assignments, office.clerk.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: "Civic records clerk", title: office.contact.label, value: "C", source: "Direct observation", target: { kind: "tile", tile: office.clerk.mapCell } }, map);
         }
+        if (state.surveyExpeditions.phase === 'field') for (const actor of [state.sovereignBargains?.representative, state.sovereignBargains?.defender])
+          if (actor?.status === 'alive' && actor.mapCell && sensoryLineOfSight(scientistMapCell(), actor.mapCell))
+            setLabMapOverlayEntry(assignments, actor.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: actor.name,
+              title: `${actor.role}; physical civic-counter participant, not a controllable soldier`, value: actor === state.sovereignBargains.defender ? 'D' : 'A',
+              source: 'Direct observation', target: { kind: 'tile', tile: actor.mapCell } }, map);
         const observations = new Map((LocalDiscovery.publicView(state.surveyExpeditions.discovery)?.records || []).filter(row => row.cell).map(row => [row.subject, row]));
         for (const record of observations.values()) {
           const cell = record.cell, label = `${record.text} — observed ${formatClock(record.at)}; last known, not live telemetry`;
@@ -82924,6 +82967,112 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
   function ensureScientistIdentity() { return state.scientistIdentity ||= ScientistIdentity.create(); }
+  function ensureSovereignBargains() {
+    if (state.sovereignBargains) return state.sovereignBargains;
+    const office = scientistCivicOffice(), c = scientistCivicContext(office);
+    if (!office || !c.atCounter || !c.clerkPresent || !c.lineOfSight || !c.alive || !c.capable) return null;
+    const source = SovereignBargains.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, office.cityId, office);
+    state.sovereignBargains = SovereignBargains.create(source, office, { theme: activeWorldRecord?.worldTheme || 'madcap', seed: state.seed });
+    return state.sovereignBargains;
+  }
+  function sovereignBargainContext(office) {
+    const s = state.sovereignBargains, ctx = scientistCivicContext(office), home = ensureHomeInstitutionContext();
+    const source = s?.testFixture ? s.source : SovereignBargains.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, s?.source.cityId, office);
+    const observers = s ? [s.representative, s.defender] : [];
+    return { ...ctx, bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      visitPermission: state.surveyExpeditions?.discovery?.access.active === true,
+      authorityId: source?.authority.id,
+      administrationAvailable: Boolean(source && home?.cityId === source.cityId && home.offices[source.administrationId]?.available),
+      defenseAvailable: Boolean(source && s?.defenseAvailable !== false),
+      participantsPresent: observers.length === 2 && observers.every(a => a.roomId === scientistRoomId() && a.mapCell
+        && WildernessBeasts.distance(a.mapCell, SovereignBargains.COUNTER) <= 3 && sensoryLineOfSight(scientistMapCell(), a.mapCell)),
+      busy: clinicActive() || rescueMissionActive() || Boolean(state.scientistIdentity?.job || state.surveyExpeditions?.mapService?.job
+        || state.surveyExpeditions?.carrier?.briefingState?.job) || Boolean(state.combat?.routineSuspension && state.combat.routineSuspension.reason !== 'sovereign audience')
+        || (!s?.job && surveyBusy()) };
+  }
+  function refreshSovereignBargainKnowledge() {
+    const s = state.sovereignBargains, office = scientistCivicOffice();
+    if (s && !SovereignBargains.localReason(s, office, sovereignBargainContext(office)))
+      state.sovereignBargainKnowledge = { ...SovereignBargains.publicView(s), reportedAt: state.clock };
+  }
+  function updateSovereignBargains() {
+    const s = state.sovereignBargains; if (!s || scientistIsDead()) return 0;
+    const office = ensureIntercitySmuggling().identityOffices?.find(o => o.id === s.officeId);
+    const changed = SovereignBargains.advance(s, office, sovereignBargainContext(office), state.clock);
+    if (!s.job && state.combat?.routineSuspension?.reason === 'sovereign audience') resumeScientistRoutineWork();
+    refreshSovereignBargainKnowledge(); return changed ? 1 : 0;
+  }
+  function sovereignBargainAction(action, expected = null) {
+    if (action === 'walk') return scientistIdentityAction('walk');
+    if (action === 'pack') return packSurveyItem('metalParts');
+    if (scientistIsDead()) return false;
+    updateSovereignBargains();
+    const s = ensureSovereignBargains(), office = scientistCivicOffice(), c = sovereignBargainContext(office);
+    if (!s) return false;
+    let ok = false;
+    if (action === 'request' && !SovereignBargains.localReason(s, office, c) && SovereignBargains.canRequest(s)) {
+      const home = ensureHomeInstitutionContext();
+      const readyAt = HomeInstitutionContext.reserve(home, 'commercial-registry', `${s.officeId}:supply-audience:${s.nextNumber}`, state.clock);
+      ok = SovereignBargains.request(s, office, c, state.clock, readyAt);
+    }
+    if (action === 'attend') ok = SovereignBargains.attend(s, office, c, state.clock);
+    if (action === 'sign') ok = SovereignBargains.sign(s, office, expected, c, state.clock);
+    if (action === 'decline') ok = SovereignBargains.decline(s, office, c, state.clock);
+    if (action === 'deliver') {
+      ok = SovereignBargains.deliver(s, office, ensurePhysicalItemStacks(), c, state.clock);
+      if (ok) { state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0); syncActorInventories(); syncPhysicalReadModels(); }
+    }
+    if (action === 'claim') ok = SovereignBargains.claim(s, office, c, state.clock);
+    if (action === 'cancel') ok = SovereignBargains.cancel(s, office, state.clock);
+    if (ok && s.job && !state.combat?.routineSuspension) suspendScientistRoutineWork('sovereign audience');
+    if (!s.job && state.combat?.routineSuspension?.reason === 'sovereign audience') resumeScientistRoutineWork();
+    if (ok) addEvent(s.message, { sourceKind: 'sovereignBargain', sourceId: s.terms?.id || s.audience?.id });
+    else s.message = SovereignBargains.localReason(s, office, c) || 'No unchanged unexpired terms, original participants, carried unreserved supplies or available staff work. No resources or information were awarded.';
+    refreshSovereignBargainKnowledge(); persist(); render(); return ok;
+  }
+  function renderSovereignBargains() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.sovereignBargains = 'true';
+    panel.append(textEl('strong', 'Sovereign audiences and material bargains'), textEl('p', 'An introduction is not command. Meet the home-city administration and its exceptional defender in person. No assay appointment is required; no ruler, divine patron or neighboring polity submits.'));
+    const s = ensureSovereignBargains(), office = scientistCivicOffice(); refreshSovereignBargainKnowledge();
+    const view = state.sovereignBargainKnowledge, c = sovereignBargainContext(office);
+    const blocked = !s || SovereignBargains.localReason(s, office, c);
+    const button = (label, action, disabled = false, expected = null) => {
+      const b = storesActionButton(label, typeof blocked === 'string' ? blocked : label, () => sovereignBargainAction(action, expected));
+      b.dataset.sovereignAction = action; b.disabled = disabled; panel.append(b);
+    };
+    button('Pack defense supply parts', 'pack', surveyScientistAway());
+    button('Walk to sovereign audience counter', 'walk', !office?.civicCounter || !c.cityId || Boolean(s?.job));
+    if (!view) { panel.append(textEl('p', 'No supported sovereign supply office has been personally discovered. Unsupported cities and joint route strongholds receive no invented authority or archive.')); if (s) button('Request sovereign supply audience', 'request', Boolean(blocked)); return panel; }
+    panel.append(textEl('p', `Received ${formatClock(view.reportedAt)}. ${view.authority.title || 'Ruling authority'} ${view.authority.name}; charter ${view.charterId}. Succession: ${view.succession}. Dated contacts and records are not current surveillance.`));
+    const faiths = ensureHomeInstitutionContext()?.publicContext.faiths || [];
+    if (faiths.length) panel.append(textEl('p', `Published local religious interests: ${faiths.map(f => `${f.name}: ${f.prohibitions.join(', ')}`).join('; ')}. This is not an authenticated divine endorsement of the bargain.`));
+    for (const contact of view.contacts) panel.append(textEl('p', `${contact.name} — ${contact.role}; ${contact.location}; confirmed ${formatClock(contact.lastConfirmedAt)}. ${contact.source}.`));
+    if (!view.audience || (view.audience.status === 'expired' || ['declined', 'expired'].includes(view.terms?.status)) && view.received < 6)
+      button('Request sovereign supply audience', 'request', Boolean(blocked));
+    else panel.append(textEl('p', `Audience ${view.audience.status}; allocated from ${formatClock(view.audience.readyAt)}, expires ${formatClock(view.audience.expiresAt)}. Shared civic duties cannot be preempted.`));
+    if (['queued', 'interrupted'].includes(view.audience?.status)) button('Attend sovereign supply audience', 'attend', Boolean(blocked) || state.clock < view.audience.readyAt || state.clock >= view.audience.expiresAt);
+    if (view.working) { panel.append(textEl('p', `Attended ${view.working.kind}: ${formatDuration(view.working.progress)} / ${formatDuration(view.working.seconds)}.`)); button('Cancel sovereign conversation', 'cancel', false); }
+    if (view.terms) {
+      const t = view.terms, row = textEl('p', `${t.status}: ${t.quantity} metal parts to ${t.destinationLabel}. ${t.compensation}. Offer expires ${formatClock(t.expiresAt)}${t.deliverBy != null ? `; receive by ${formatClock(t.deliverBy)}` : ''}. ${t.partialDelivery} ${t.disclosure}`); row.dataset.sovereignTerms = 'true'; panel.append(row);
+      if (t.status === 'offered') button('Sign exact sovereign supply bargain', 'sign', Boolean(blocked) || state.clock >= t.expiresAt, clonePlainObject(t));
+      if (['offered', 'signed'].includes(t.status) && !view.working) button('Decline sovereign supply bargain', 'decline', Boolean(blocked));
+      if (t.status === 'signed') {
+        panel.append(textEl('p', `Acknowledged physical receipt: ${view.received}/${t.quantity}. Only clean carried unreserved metal parts are accepted; laboratory stocks cannot be delivered remotely.`));
+        button('Hand over carried defense supplies', 'deliver', Boolean(blocked) || Boolean(view.working) || view.received >= t.quantity);
+        button('Prepare fulfilled restricted route extract', 'claim', Boolean(blocked) || Boolean(view.working) || view.received !== t.quantity);
+      }
+    }
+    for (const receipt of view.receipts) panel.append(textEl('p', `${formatClock(receipt.at)}: received ${receipt.quantity}, custodian ${receipt.custodianId}; original stacks ${receipt.manifest.map(i => `${i.stackId} ×${i.quantity}`).join(', ')}.`));
+    for (const record of view.copies) {
+      const section = document.createElement('section'); section.dataset.sovereignRouteCopy = record.id;
+      section.append(textEl('strong', 'Restricted city-end approach extract'), textEl('p', `${record.contents.source}; issued ${formatClock(record.issuedAt)}; source survey date ${record.sourceDate == null ? 'not supplied' : record.sourceDate}.`));
+      const list = document.createElement('ol'); list.setAttribute('aria-label', 'Dated approach alignment, city outward');
+      for (const cell of record.contents.coverage) list.append(textEl('li', `${cell.cellId}: latitude ${formatDecimal(cell.latitude, 2)}, longitude ${formatDecimal(cell.longitude, 2)}`));
+      section.append(list, textEl('p', record.contents.notes.join(' ')), textEl('p', record.limitations)); panel.append(section);
+    }
+    panel.append(textEl('p', view.message), textEl('p', view.limitations));
+    return panel;
+  }
   function municipalMapContext(office) {
     const expedition = ensureSurveyExpeditions(), service = expedition.mapService;
     const ctx = scientistCivicContext(office);
@@ -85001,7 +85150,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function surveyScientistAway() { return Boolean(state?.surveyExpeditions && state.surveyExpeditions.phase !== "home"); }
   function surveyScientistReserved() { return surveyScientistAway() || Boolean(state?.surveyExpeditions?.preparing); }
   function surveyTaskAllowed(task) {
-    if (state.scientistIdentity?.job || state.surveyExpeditions?.mapService?.job || state.surveyExpeditions?.carrier?.briefingState?.job) return false;
+    if (state.scientistIdentity?.job || state.sovereignBargains?.job || state.surveyExpeditions?.mapService?.job || state.surveyExpeditions?.carrier?.briefingState?.job) return false;
     if (state.penalLegion?.serviceEndedAt != null && task.type === 'scientistMove' && task.data?.toCell?.z === scientistMapCell().z) return true;
     if (currentPenalFlight() && currentPenalFlight().stage !== "released") return false;
     if (!surveyScientistAway()) return true;
@@ -85199,7 +85348,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function packSurveyItem(itemKey) {
     const expedition = ensureSurveyExpeditions();
-    const def = [...SurveyExpeditions.PACK_LIST, ...WildernessSurvival.ITEMS].find((entry) => entry.key === itemKey);
+    const def = [...SurveyExpeditions.PACK_LIST, ...WildernessSurvival.ITEMS, { key: 'metalParts', amount: 6 }].find((entry) => entry.key === itemKey);
     if (!def || expedition.phase !== "home" || restrictedOffsiteStay() || currentDetentionRaid()) return false;
     const carried = surveyCarriedStacks().filter((entry) => entry.key === itemKey).reduce((n, entry) => n + entry.quantity, 0);
     if (carried >= def.amount) return false;
@@ -85220,7 +85369,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function boardSurveyVehicle() {
     if (currentPenalFlight()) return false;
-    if (clinicActive() || state.scientistIdentity?.job || state.surveyExpeditions?.mapService?.job) return false;
+    if (clinicActive() || state.scientistIdentity?.job || state.sovereignBargains?.job || state.surveyExpeditions?.mapService?.job) return false;
     if (rescueMissionPhysical() || state.medicalExtraction?.mission?.status === "inbound") return false;
     if (unsupportedActive()) return false;
     if (escortContractActive()) { surveyEvent("Complete the escort's local contract at the defended meeting point before boarding. The hired vehicle waits; no extra escort seat has been booked."); persist(); render(); return false; }
@@ -85453,6 +85602,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(renderMunicipalClinic());
     panel.append(renderScientistIdentity());
     panel.append(renderMunicipalMaps());
+    panel.append(renderSovereignBargains());
     panel.append(renderCarrierBriefings());
     const button = (label, action, disabled = false, reason = "") => {
       const element = document.createElement("button"); element.type = "button"; element.textContent = label; element.disabled = disabled; element.title = reason; element.addEventListener("click", action); panel.append(element);
@@ -92480,6 +92630,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.localServiceKnowledge = candidate?.localServiceKnowledge ? clonePlainObject(candidate.localServiceKnowledge) : null;
     next.civicAssayMandate = CivicAssayMandate.normalize(candidate?.civicAssayMandate);
     next.civicAssayKnowledge = candidate?.civicAssayKnowledge ? clonePlainObject(candidate.civicAssayKnowledge) : null;
+    next.sovereignBargains = SovereignBargains.normalize(candidate?.sovereignBargains);
+    next.sovereignBargainKnowledge = candidate?.sovereignBargainKnowledge ? clonePlainObject(candidate.sovereignBargainKnowledge) : null;
     next.confidentialServices = ConfidentialServices.normalize(candidate?.confidentialServices);
     next.confidentialServiceKnowledge = candidate?.confidentialServiceKnowledge ? clonePlainObject(candidate.confidentialServiceKnowledge) : null;
     next.surfaceWorkers = SurfaceWorkers.normalize(candidate?.surfaceWorkers);
