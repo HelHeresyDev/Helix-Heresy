@@ -143,21 +143,23 @@ test('death saves immediately, review/export/import stay read-only, and same-wor
   expect(errors).toEqual([]);
 });
 
-test('handling death with a contingency stays pending through reload without free revival', async ({ page }) => {
+test('unsupported legacy contingency cannot suspend handling death or grant free revival', async ({ page }) => {
   test.setTimeout(240000);
   await start(page);
   await page.evaluate(() => window.helixHeresyDebug.addTestResurrectionContingency());
   await page.evaluate(() => window.helixHeresyDebug.inflictTestScientistDamage('handling'));
-  await expect(page.locator('#runOutcomeHeading')).toHaveText('Resurrection handoff pending');
+  await expect(page.locator('#runOutcomeHeading')).toHaveText('Run ended');
   const saved = await snapshot(page);
-  expect(saved).toMatchObject({ ended: false, health: 0, postmortem: null,
-    deaths: [{ causeKind: 'handlingInjury', terminal: false, resurrection: { status: 'pending' } }] });
+  expect(saved).toMatchObject({ ended: true, health: 0,
+    deaths: [{ causeKind: 'handlingInjury', terminal: true, resurrection: { status: 'unavailable' } }] });
   await page.reload();
-  await page.locator('#loadLastSaveBtn').click();
-  await expect(page.locator('#runOutcomeHeading')).toHaveText('Resurrection handoff pending');
-  expect(await snapshot(page)).toEqual(saved);
-  expect(await page.evaluate(() => window.helixHeresyDebug.advanceTestRunTime(86400))).toBe(0);
-  expect(await page.evaluate(() => window.helixHeresyDebug.worldLibrarySnapshot().runs[0].status)).toBe('active');
+  await expect(page.locator('#loadLastSaveBtn')).toBeDisabled();
+  await page.locator('#titleWorldLibraryBtn').click();
+  await page.locator('[data-library-action="review-run"]').click();
+  await expect(page.locator('#runOutcomeHeading')).toHaveText('Run ended');
+  expect(await page.evaluate(() => window.helixHeresyDebug.worldLibrarySnapshot().runs[0].state.scientistDeath.records)).toEqual(saved.deaths);
+  await expect(page.locator('[data-library-action="resume-run"]')).toHaveCount(0);
+  expect(await page.evaluate(() => window.helixHeresyDebug.worldLibrarySnapshot().runs[0].status)).toBe('ended');
 });
 
 test('scoped placement envelope keeps roofs and other layers correct and refreshes after a breach', async ({ page }) => {

@@ -7,7 +7,7 @@
 
   const VERSION = 1;
   const HOUR = 3600;
-  const STATUSES = Object.freeze(["active", "escaped", "released", "transferred"]);
+  const STATUSES = Object.freeze(["active", "escaped", "released", "transferred", "deceased"]);
   const OBSERVATIONS = Object.freeze([
     { id: "cellDoorProcedure", label: "Cell-door procedure", alert: 2 },
     { id: "suppressionCollar", label: "Suppressor collar", alert: 3 },

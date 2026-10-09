@@ -9,7 +9,7 @@
   const HOUR = 3600;
   const STATUSES = Object.freeze(["scheduled", "entering", "searching", "contact", "arresting", "extracting", "booked", "escaped", "withdrawing", "completed"]);
   const ACTOR_STATUSES = Object.freeze(["scheduled", "active", "restraining", "escorting", "injured", "incapacitated", "withdrawn"]);
-  const CUSTODY_STATUSES = Object.freeze(["free", "surrendered", "restraining", "restrained", "extracting", "booked", "released", "escaped"]);
+  const CUSTODY_STATUSES = Object.freeze(["free", "surrendered", "restraining", "restrained", "extracting", "booked", "released", "escaped", "deceased"]);
   const TEAM_ROLES = Object.freeze([
     { role: "commander", label: "Raid Commander", equipment: ["radio", "protectiveVest", "restraints"] },
     { role: "breach", label: "Breach Officer", equipment: ["radio", "protectiveVest", "pryBar"] },
@@ -152,7 +152,7 @@
         facilityLabel: String(source.detention.facilityLabel || "Municipal Holding Facility").trim(),
         cellRoomId: cleanId(source.detention.cellRoomId) || "municipalHoldingCell",
         bookingAt: Math.max(authorizedAt, finite(source.detention.bookingAt)),
-        status: ["pretrial", "sentencingHold", "released", "escaped", "transferred"].includes(source.detention.status) ? source.detention.status : "pretrial",
+        status: ["pretrial", "sentencingHold", "released", "escaped", "transferred", "deceased"].includes(source.detention.status) ? source.detention.status : "pretrial",
         securityStudyProgress: Math.max(0, Math.min(100, finite(source.detention.securityStudyProgress))),
         alert: Math.max(0, Math.min(100, finite(source.detention.alert)))
       } : null,

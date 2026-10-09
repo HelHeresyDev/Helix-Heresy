@@ -44,6 +44,8 @@
   if (!LeasedAnnex) throw new Error("HelixLeasedAnnex must load before app.js");
   const Homunculi = window.HelixHomunculi;
   if (!Homunculi) throw new Error("HelixHomunculi must load before app.js");
+  const SoulBeacons = window.HelixSoulBeacons;
+  if (!SoulBeacons) throw new Error("HelixSoulBeacons must load before app.js");
   const FirstContact = window.HelixFirstContact;
   if (!FirstContact) throw new Error("HelixFirstContact must load before app.js");
   const SignedLanguage = window.HelixSignedLanguage;
@@ -335,6 +337,30 @@
     seizedMechanism: { label: "Seized mechanism", severity: "critical", performance: 0 }
   };
   const FIXTURE_DEFS = [
+    {
+      id: "exhaustedSoulApparatus", label: "Exhausted Original Soul Apparatus", glyph: "SB", assemblyClass: "recovered",
+      footprint: { width: 1, height: 1 }, collision: "blocking", layer: "floor",
+      ports: [{ id: "examiner", label: "Apparatus Examiner", x: 0, y: 1 }], capabilities: ["beaconEvidence"],
+      workMinutes: 0, materialOptions: {}, description: "The original's spent guiding apparatus. No soul is stored and no charge or spare body remains. Its creator expected full memory continuity."
+    },
+    {
+      id: "soulReceiver", label: "Dedicated Soul Receiving Chamber", glyph: "RC", assemblyClass: "siteBuilt",
+      footprint: { width: 2, height: 2 }, collision: "blocking", layer: "floor",
+      ports: [{ id: "operator", label: "Receiver Operator", x: 0, y: 2 }], capabilities: ["soulReceiver"],
+      infrastructure: { role: "soulReceiver", networks: ["electricity", "mana", "water", "drain"], powerModes: ["electric"], defaultPowerMode: "electric",
+        electricDemandPerHour: 4, manaPerHour: 2, waterDemandPerHour: 1, drainDemandPerHour: 1 }, workMinutes: 240,
+      materialOptions: { steel: { composition: { primary: "steel", lining: "reinforcedGlass", seal: "rubber" }, costs: { steelPanels: 16, metalParts: 12, glass: 12, rubber: 8, arcaneFeedstock: 8 }, score: 90 } },
+      description: "Seven-day purpose-grown soul-free receiver; not a homunculus, employee or stored soul. Requires late-game research, finite services and maintenance medium."
+    },
+    {
+      id: "soulBeacon", label: "Soul Beacon and Transfer Apparatus", glyph: "SB", assemblyClass: "siteBuilt",
+      footprint: { width: 1, height: 1 }, collision: "blocking", layer: "floor",
+      ports: [{ id: "operator", label: "Beacon Operator", x: 0, y: 1 }], capabilities: ["soulBeacon"],
+      infrastructure: { role: "soulBeacon", networks: ["electricity", "mana"], powerModes: ["electric"], defaultPowerMode: "electric",
+        electricDemandPerHour: 2, manaPerHour: 4 }, workMinutes: 240,
+      materialOptions: { steel: { composition: { primary: "steel", lining: "glass", seal: "rubber" }, costs: { metalParts: 20, glass: 12, rubber: 4, arcaneFeedstock: 12 }, score: 90 } },
+      description: "Six supported hours and finite arcane feedstock charge one imperfect transfer. Guides the departed soul; no permanent storage, duplicates or automatic recovery."
+    },
     {
       id: "homunculusChamber", label: "Dedicated Homunculus Growth Chamber", glyph: "HG", assemblyClass: "siteBuilt",
       footprint: { width: 2, height: 2 }, collision: "blocking", layer: "floor",
@@ -5099,6 +5125,7 @@
     "creationLesson",
     "firstContact",
     "homunculusWork",
+    "soulBeaconWork",
     "synthesize",
     "test",
     "breed",
@@ -5385,6 +5412,8 @@
       suspicionPeakBand: "quiet",
       runEnded: false,
       postmortem: null,
+      soulBeacons: null,
+      scientistBodyRemains: [],
       campaign: Campaign.normalize(),
       localServices: null,
       localServiceKnowledge: null,
@@ -5923,6 +5952,7 @@
 
   function defaultFixtures() {
     const fixtures = [
+      defaultFixtureInstance("starter-exhausted-beacon", "exhaustedSoulApparatus", { x: 57, y: 46 }, 0, { condition: 100, name: "Exhausted Original Soul Apparatus" }),
       defaultFixtureInstance("starter-workbench", "basicWorkbench", { x: 55, y: 46 }, 0, { materialPolicy: "wood" }),
       defaultFixtureInstance("starter-bed", "bed", { x: 49, y: 57 }, 0, { materialPolicy: "wood" }),
       defaultFixtureInstance("starter-slime-enrichment", "slimeEnrichmentStation", { x: 33, y: 47 }, 0, { materialPolicy: "wood" }),
@@ -9250,6 +9280,7 @@
   }
 
   function scientistRaidCustodyStatus() {
+    if (state.penalLegion?.phase === 'deceased') return 'free';
     if (state.penalLegion?.desertion?.restrained) return 'restrained';
     if (state.penalLegion?.phase === 'deserted') return 'free';
     if (state.penalLegion?.startedAt != null && state.penalLegion.serviceEndedAt == null && state.penalLegion.phase !== 'extracted') return 'militaryService';
@@ -10273,13 +10304,26 @@
     addEvent(`${stage.label} began. It remains a saved physical stage; controlling legal relief can interrupt it before the axe physically lands.`, { sourceKind: "publicExecution", sourceId: record.id }); persist(); render(); return true;
   }
   function recordScientistPhysicalDeath(options = {}) {
-    const result = ScientistDeath.recordDeath(ensureScientistDeath(), { causeKind: options.causeKind, causeLabel: options.causeLabel, location: { roomId: options.roomId || scientistRoomId(), mapCell: options.mapCell || scientistMapCell() }, physiology: options.physiology || { healthAtDeath: 0, consciousness: "absent", circulation: "stopped", lethal: true }, injuryIds: options.injuryIds, body: options.body, legal: options.legal, summary: options.summary }, state.clock); state.scientistDeath = result.state; if (!result.created) return result;
+    const beacons = ensureSoulBeacons();
+    // Bring autonomous receiving infrastructure to this actual lethal boundary; no post-death work is granted.
+    SoulBeacons.advance(beacons, state.clock, { ...soulBeaconHooks(), dead: false });
+    const choices = SoulBeacons.choices(beacons, soulBeaconReceiverContext);
+    const result = ScientistDeath.recordDeath(ensureScientistDeath(), { causeKind: options.causeKind, causeLabel: options.causeLabel,
+      location: { roomId: options.roomId || scientistRoomId(), mapCell: options.mapCell || scientistMapCell() },
+      physiology: options.physiology || { healthAtDeath: 0, consciousness: 'absent', circulation: 'stopped', lethal: true },
+      injuryIds: options.injuryIds, body: { ...options.body, bodyId: state.scientist.vocalBodyId }, legal: options.legal,
+      verifiedContingencies: choices, soul: clonePlainObject(beacons.soul), summary: options.summary }, state.clock);
+    state.scientistDeath = result.state; if (!result.created) return result;
+    SoulBeacons.prepareHandoff(beacons, result.record.id, state.clock, soulBeaconReceiverContext);
+    state.scientistBodyRemains ||= [];
+    state.scientistBodyRemains.push({ deathId: result.record.id, bodyId: state.scientist.vocalBodyId, at: state.clock,
+      location: clonePlainObject(result.record.location), body: clonePlainObject(state.scientist), injuryIds: (state.injuries || []).filter(i => i.actorId === 'scientist').map(i => i.id) });
     if (state.scientistIdentity) {
       ScientistIdentity.endBody(state.scientistIdentity, state.economy?.intercitySmuggling?.identityOffices || [], state.clock);
       if (state.combat?.routineSuspension?.reason === "civic registration visit") resumeScientistRoutineWork();
     }
     state.paused = true; state.runEnded = result.terminal;
-    addEvent(result.resurrectionPending ? `${result.record.summary} A completed remote resurrection contingency accepted the death handoff; physical resurrection remains pending.` : `${result.record.summary} No valid completed resurrection contingency survived, so the run ended.`, { sourceKind: "scientistDeath", sourceId: result.record.id });
+    addEvent(result.resurrectionPending ? `${result.record.summary} A physically ready soul beacon can guide recovery; select and confirm a destination while the simulation remains paused.` : `${result.record.summary} No physically eligible soul-beacon recovery remains, so the run ended.`, { sourceKind: "scientistDeath", sourceId: result.record.id });
     if (result.terminal) state.postmortem = RunLifecycle.captureReport(state, {
       ...postmortemContext(state, activeWorldRecord),
       location: roomName(result.record.location.roomId),
@@ -15995,6 +16039,85 @@
         }
         persist(); render();
       },
+      soulBeaconAction: (action, id = '') => queueSoulBeaconWork(action, id),
+      soulBeaconWorkPreview: (action, id = '') => {
+        const t = soulBeaconTarget(action, id);
+        return clonePlainObject({ cell: t.cell, fixture: t.f, scientist: scientistMapCell(), context: soulBeaconContext(t.f, t.cell),
+          ports: t.f && fixtureAccessCells(t.f).map(p => ({ cell: p.cell, room: labMapCellRoomId(p.cell), blocked: labMapCellIsPathBlocked(p.cell), walkable: labMapCellIsWalkable(p.cell),
+            occupancy: tileOccupiedAreaM2(p.cell, { excludeActor: state.scientist }), route: labNavigationPlanBetweenCells(scientistMapCell(), p.cell, { actor: state.scientist, ignoreDoors: true }) })) });
+      },
+      soulBeaconSnapshot: () => clonePlainObject({ saved: ensureSoulBeacons(), research: ensureResearchState(), clock: state.clock,
+        scientist: state.scientist, tasks: state.tasks, stacks: ensurePhysicalItemStacks(), fixtures: state.fixtures,
+        remains: state.scientistBodyRemains, deaths: ensureScientistDeath(), identity: state.scientistIdentity,
+        campaign: state.campaign, legal: state.trialSentencing, events: state.events, ended: state.runEnded,
+        readiness: ensureSoulBeacons().beacons.map(b => ({ id: b.id, reason: SoulBeacons.eligibility(state.soulBeacons, b, soulBeaconReceiverContext(b)) })) }),
+      configureSoulBeaconTestLaboratory: () => {
+        // Explicit late-game endowment; the three beacon projects, original
+        // examination, receiver, charge and transfer must still be earned.
+        window.helixHeresyDebug.configureHomunculusTestLaboratory();
+        for (const id of ['animancy', 'medicine', 'alchemy']) {
+          let xp = 0; for (let n = 0; n < 151; n++) xp += xpToNextLevel(n); scientistSkill(id, { create: true }).xp = xp;
+        }
+        const research = ensureResearchState();
+        for (const id of ['tissueCultureMethods', 'homunculusMorphogenesis']) research.projects[id].status = 'completed';
+        recordResearchEvidence({ methodId: 'tissueCultureTrial', sourceKey: 'explicit-prior-culture', specimenId: 'explicit-prior-culture', summary: 'Explicit successful prior culture test endowment.', confidence: .9 });
+        const chamber = fixtureById('test-growth-chamber'); chamber.typeId = 'soulReceiver'; chamber.utility.enabled = false;
+        const entries = [['beacon', 'soulBeacon', 50, 46], ['mana-2', 'manaCollector', 47, 54], ['mana-3', 'manaCollector', 48, 54],
+          ['water-2', 'waterCisternPump', 49, 53], ['water-3', 'waterCisternPump', 51, 53], ['waste-2', 'sumpTank', 54, 51], ['waste-3', 'sumpTank', 56, 54]];
+        for (const [id, type, x, y] of entries) state.fixtures.push(defaultFixtureInstance(`test-growth-${id}`, type, { x, y, z: scientistMapCell().z }, 0,
+          { name: `Explicit soul-beacon test ${id}`, condition: 100, utility: { enabled: true, powerMode: 'electric', linkId: 'explicit-test-growth-services', storedMana: 160, contents: type === 'waterCisternPump' ? { cleanWater: 120 } : {}, maintenanceIntervalHours: 0 } }));
+        const cell = fixtureAccessCells(fixtureById('starter-workbench'))[0].cell;
+        for (const [key, quantity] of Object.entries({ biomass: 50, metalParts: 80, glass: 60, arcaneFeedstock: 80 }))
+          createPhysicalItemStack('resources', key, quantity, { roomId: MAIN_ROOM_ID, cell }, { tags: ['sealed'], sourceLabels: ['Explicit advanced homunculus test endowment'] });
+        const ports = new Set(state.fixtures.flatMap(f => fixturePortCells(f).map(p => mapCellKey(p.cell))));
+        for (const item of ensurePhysicalItemStacks().filter(i => i.sourceLabels.includes('Explicit advanced homunculus test endowment'))) {
+          const destination = ensureLabMap().rooms[MAIN_ROOM_ID].cells.find(c => !ports.has(mapCellKey(c)) && !sameMapCell(c, scientistMapCell())
+            && labMapCellIsWalkable(c) && !labMapCellIsPathBlocked(c) && tileOccupiedAreaM2(c) + physicalStackFloorLoadM2(item) + actorFloorLoadM2(state.scientist) <= MAP_TILE_AREA_M2);
+          if (!destination) throw new Error('No physical floor capacity for the explicit test endowment.');
+          item.cell = clonePlainObject(destination);
+        }
+        state.soulBeacons = SoulBeacons.create(state.clock); syncPhysicalReadModels(); persist(); render(); return { chamber: chamber.id, beacon: 'test-growth-beacon', original: 'starter-exhausted-beacon' };
+      },
+      stageSoulBeaconTestSupplies: (action, id = '') => {
+        const t = ['sample', 'examineTemplate'].includes(action) ? homunculusTarget(action, id) : soulBeaconTarget(action, id); if (!t.cell) return false;
+        const costs = action === 'sample' ? { medicalBandage: 1, neutralizingWash: 1 } : action === 'examineTemplate' ? { assayReagent: 1, humanTissueTemplate: 1 } : soulBeaconWorkInputs(action);
+        const slices = [];
+        for (const [key, amount] of Object.entries(costs)) {
+          const item = ensurePhysicalItemStacks().find(s => s.key === key && s.quantity >= amount && !s.reservedTaskId && !s.carriedBy && !s.containerId && !s.fixtureId);
+          if (!item) return false; slices.push({ stackId: item.id, key, quantity: amount });
+        }
+        const reserved = reserveProductionMaterialSlices(slices, 'explicit-staging'); if (!reserved) return false;
+        const movable = ensurePhysicalItemStacks().filter(s => reserved.includes(s.id));
+        for (const item of movable) item.reservedTaskId = '';
+        const cells = cardinalMapCells(t.cell).filter(c => labMapCellRoomId(c) === labMapCellRoomId(t.cell) && labMapCellIsWalkable(c) && !labMapCellIsPathBlocked(c));
+        for (const item of movable) {
+          const cell = cells.find(c => tileOccupiedAreaM2(c, { excludeActor: state.scientist }) - (sameMapCell(item.cell, c) ? physicalStackFloorLoadM2(item) : 0)
+            + physicalStackFloorLoadM2(item) + actorFloorLoadM2(state.scientist) <= MAP_TILE_AREA_M2 + TILE_OCCUPANCY_EPSILON);
+          if (!cell) return false;
+          item.stockpileId = ''; item.cell = clonePlainObject(cell); item.roomId = labMapCellRoomId(cell);
+        }
+        syncPhysicalReadModels(); return true;
+      },
+      advanceSoulBeaconsForTest: seconds => {
+        let left = Math.max(0, seconds);
+        while (left > 0 && !scientistIsDead()) {
+          const task = firstScientistQueueTask(), moving = task?.data?.movement && !task.data.movement.completed;
+          if (task?.data?.movement?.waitCount > 120) throw new Error(`Test movement blocked: ${JSON.stringify({ task: task.id, movement: task.data.movement, reason: taskBlockReason(task) })}`);
+          const step = Math.min(left, moving ? 10 : task ? Math.max(1, task.dueAt - state.clock) : left), from = state.clock;
+          left -= step; state.clock += step; updateScientistMovementTask(); updateSoulBeacons(); updateResearchWorkProgress(from, state.clock); completeDueTasks();
+        }
+        persist(); render();
+      },
+      setSoulBeaconTestSupport: (options = {}) => {
+        if (options.power != null) fixtureById('test-growth-generator').utility.enabled = options.power;
+        if (options.condition != null) fixtureById('test-growth-beacon').condition = options.condition;
+        if (options.soulDamage) SoulBeacons.damageSoul(ensureSoulBeacons(), options.soulDamage, 'Explicit test soul-affecting injury', state.clock, options.sourceId);
+        if (options.carriedItem) {
+          const item = ensurePhysicalItemStacks().find(i => i.key === 'trailMeal' && !i.reservedTaskId); item.carriedBy = 'scientist'; syncActorInventories();
+        }
+        persist(); render();
+      },
+      confirmSoulBeaconRecoveryForTest: deathId => confirmSoulBeaconRecovery(deathId),
       diagnosticsSnapshot: () => JSON.parse(JSON.stringify(ensureDiagnosticState())),
       experimentSnapshot: () => JSON.parse(JSON.stringify(ensureExperimentState())),
       hereditySnapshot: () => JSON.parse(JSON.stringify(ensureHeredityState())),
@@ -16698,8 +16821,92 @@
     };
   }
 
+  function finalizeInvalidSoulHandoff() {
+    const death = latestScientistDeath(); if (death?.resurrection.status !== 'pending') return false;
+    state.scientistDeath = ScientistDeath.resolveHandoff(ensureScientistDeath(), death.id).state;
+    ensureSoulBeacons().handoff && (state.soulBeacons.handoff.status = 'unavailable');
+    state.runEnded = true; state.paused = true;
+    state.postmortem = RunLifecycle.captureReport(state, { ...postmortemContext(state, activeWorldRecord), location: roomName(death.location.roomId), events: jailVisibleMessages(state.events), accomplishments: Campaign.accomplishments(state.campaign) });
+    markStateDirty(); persist(); return true;
+  }
+  function confirmSoulBeaconRecovery(deathId) {
+    if (!scientistIsDead() || state.runEnded || latestScientistDeath()?.id !== deathId || latestScientistDeath()?.resurrection.status !== 'pending') return false;
+    const result = SoulBeacons.recover(ensureSoulBeacons(), deathId, state.clock, soulBeaconReceiverContext);
+    if (!result.ok) {
+      if (state.soulBeacons.handoff?.status === 'unavailable') finalizeInvalidSoulHandoff();
+      else persist();
+      showRunOutcome(currentRunRecord()); return false;
+    }
+    const oldCell = clonePlainObject(scientistMapCell()), oldRoom = scientistRoomId(), oldBody = state.scientist.vocalBodyId;
+    // Release unfinished scientist work without refunding already incorporated supplies or altering other actors' tasks.
+    for (const task of scientistQueueTasks()) cleanupCancelledTask(task);
+    state.tasks = state.tasks.filter(t => !isScientistQueueTask(t));
+    for (const item of ensurePhysicalItemStacks().filter(i => i.carriedBy === 'scientist')) {
+      item.carriedBy = ''; item.carryTaskId = ''; item.roomId = oldRoom; item.cell = clonePlainObject(oldCell); item.reservedTaskId = '';
+    }
+    for (const tools of Object.values(ensureToolDurability())) for (const tool of tools) if (tool.carriedBy === 'scientist') {
+      tool.carriedBy = ''; tool.roomId = oldRoom; tool.reservedTaskId = '';
+    }
+    for (const injury of state.injuries || []) if (injury.actorId === 'scientist') injury.actorId = `remains:${oldBody}`;
+    state.scientist = defaultScientist(); state.scientist.roomId = result.receipt.location.roomId; state.scientist.mapCell = clonePlainObject(result.receipt.location.cell);
+    state.scientist.vocalBodyId = result.receipt.bodyId; state.scientist.carriedLight.enabled = false; state.scientist.carriedLight.condition = 0;
+    state.scientist.vitals.health.current = result.receipt.health;
+    state.wildernessSurvival = WildernessSurvival.defaultState(state.clock);
+    state.scientistDeath = ScientistDeath.resolveHandoff(ensureScientistDeath(), deathId, result.receipt).state;
+    // Detention attaches to the deceased body; the sentence and its records do not disappear or count as served.
+    for (const custody of [state.jailCustody, state.prisonCustody, state.deathRowCustody]) for (const stay of custody?.stays || [])
+      if (stay.detaineeId === 'scientist' && !['released', 'transferred', 'deceased', 'executed'].includes(stay.status)) { stay.status = 'deceased'; stay.history.push({ at: state.clock, action: 'physicalDeath', summary: `Custody of ${oldBody} ended in bodily death; the case and unserved sentence remain historical and are not absolved by body replacement.` }); }
+    for (const raid of state.lawEnforcementRaids?.raids || []) {
+      if (raid.detention && ['pretrial', 'sentencingHold'].includes(raid.detention.status)) raid.detention.status = 'deceased';
+      if (raid.custody && ['restrained', 'extracting', 'booked'].includes(raid.custody.status)) raid.custody.status = 'deceased';
+    }
+    if (state.scientistIdentity) ScientistIdentity.replaceBody(state.scientistIdentity, state.economy?.intercitySmuggling?.identityOffices || [], state.scientistIdentity.description, state.clock);
+    if (state.surveyExpeditions) { state.surveyExpeditions.phase = 'home'; state.surveyExpeditions.activeSiteId = ''; }
+    if (state.unsupportedExcursions) state.unsupportedExcursions.active = false;
+    if (state.penalLegion?.startedAt != null && state.penalLegion.serviceEndedAt == null) {
+      state.penalLegion.phase = 'deceased';
+      if (state.penalLegion.ledger) state.penalLegion.ledger.suspendedAt ??= state.clock;
+      if (state.penalLegion.desertion) state.penalLegion.desertion.restrained = false;
+    }
+    if (state.penalFlights) {
+      const flight = currentPenalFlight();
+      if (flight) { flight.history.push({ at: state.clock, stage: 'scientistBodilyDeath', bodyId: oldBody }); flight.scientistBodyEndedAt = state.clock; }
+      state.penalFlights.fieldActive = false; state.penalFlights.activeId = null;
+      const approach = CityApproach.active(state.penalFlights.assistance?.cityApproach);
+      if (approach) {
+        approach.status = 'cancelled'; approach.bodyEndedAt = state.clock;
+        state.penalFlights.assistance.cityApproach.activeId = null;
+      }
+      for (const gate of state.penalFlights.assistance?.cityApproach?.gates || []) {
+        const enforcement = gate.enforcement;
+        for (const stay of enforcement?.jail?.stays || []) if (stay.detaineeId === 'scientist' && ['active', 'escaped'].includes(stay.status)) {
+          stay.status = 'deceased'; stay.history.push({ at: state.clock, action: 'physicalDeath', summary: 'The detained body died; the local case and unserved sentence remain.' });
+        }
+        for (const c of enforcement?.cases || []) if (c.personId === 'scientist' && c.execution?.prison && c.execution.prison.completedAt == null)
+          c.execution.prison.bodyEndedAt = state.clock;
+        if (enforcement?.response && GateEnforcement.custodyActive(enforcement)) {
+          enforcement.response.stage = 'deceased'; enforcement.response.bodyEndedAt = state.clock;
+        }
+      }
+    }
+    const r = state.soulBeacons.receivers.find(r => r.id === result.receipt.bodyId);
+    for (const item of ensurePhysicalItemStacks().filter(i => [r.id, `upkeep:${r.id}`].includes(i.reservedTaskId))) {
+      item.reservedTaskId = ''; item.fixtureId = ''; item.roomId = r.location.roomId; item.cell = clonePlainObject(r.location.cell);
+    }
+    state.runEnded = false; state.postmortem = null; state.paused = true;
+    state.combat.pendingActions.scientist = null; state.combat.routineSuspension = null;
+    state.combat.active = state.combat.active.filter(c => !c.involvesScientist);
+    ensureUiState().mapCamera = normalizeMapCamera({ ...state.scientist.mapCell }, ensureLabMap(), ensureUiState().mapZoomIndex);
+    syncActorInventories(); syncPhysicalReadModels(); markStateDirty();
+    addEvent('The same soul entered its prepared receiving body. Personal memory and practiced skills were lost; old remains, possessions, physical research records and legal consequences persist.', { sourceKind: 'soulBeacon', sourceId: deathId });
+    persist(); render(); enterGameplay(); return true;
+  }
   function showRunOutcome(run) {
     if (!run || RunLifecycle.phase(run.state) === "active") return false;
+    if (activeRunRecord?.id === run.id && latestScientistDeath()?.resurrection.status === 'pending'
+      && !SoulBeacons.choices(ensureSoulBeacons(), soulBeaconReceiverContext).some(c => state.soulBeacons.handoff?.choices.some(saved => saved.id === c.id))) {
+      finalizeInvalidSoulHandoff(); run = currentRunRecord();
+    }
     const world = worldRepository.getWorld(run.worldId);
     reviewedRun = run;
     const pending = RunLifecycle.phase(run.state) === "resurrectionPending";
@@ -16713,8 +16920,21 @@
     };
     if (pending) {
       paragraph("The scientist's body is dead, but a completed contingency accepted the soul handoff. This run has not ended.");
-      paragraph("Physical resurrection is not implemented yet. No replacement body, restored skills, or reset consequences are granted. The saved handoff remains pending and simulation is paused.");
+      paragraph('Select a receiving destination, then confirm. This imperfect transfer loses personal memory and practiced expertise, returning skills to their starting baseline. Basic language remains. Physical records and all worldly consequences persist. No post-death construction, charging, repair or remote surveillance is possible.');
       paragraph(ScientistDeath.latestRecord(run.state.scientistDeath)?.summary || "Physical death recorded.");
+      const handoff = run.state.soulBeacons?.handoff;
+      for (const choice of handoff?.choices || []) {
+        const label = document.createElement('label'), radio = document.createElement('input'); radio.type = 'radio'; radio.name = 'soul-beacon-destination';
+        radio.dataset.soulBeaconDestination = choice.id; radio.checked = handoff.selectedId === choice.id;
+        radio.addEventListener('change', () => {
+          if (activeRunRecord?.id !== run.id || !SoulBeacons.select(ensureSoulBeacons(), handoff.deathId, choice.id).ok) return;
+          persist(); showRunOutcome(currentRunRecord());
+        });
+        label.append(radio, document.createTextNode(`${choice.label} — ${choice.roomId}. ${choice.receivingConditions}`)); content.append(label);
+      }
+      const confirm = document.createElement('button'); confirm.type = 'button'; confirm.textContent = 'Confirm imperfect soul-beacon recovery'; confirm.dataset.soulBeaconConfirm = 'true';
+      confirm.disabled = !handoff?.selectedId || activeRunRecord?.id !== run.id;
+      confirm.addEventListener('click', () => { if (window.confirm('Consume the selected receiving body and beacon charge? Personal memories and practiced expertise will be lost. The corpse, possessions and legal consequences remain.')) confirmSoulBeaconRecovery(handoff.deathId); }); content.append(confirm);
     } else {
       paragraph(report.summary);
       paragraph(`Cause: ${report.cause} · Location: ${report.location}`);
@@ -22012,6 +22232,7 @@
     changes.scientistMovementChanged += livingUpdate(() => updateSurfaceWorkers());
     changes.scientistMovementChanged += livingUpdate(() => updateLaboratoryAssistant());
     changes.scientistMovementChanged += livingUpdate(() => updateHomunculi());
+    changes.scientistMovementChanged += livingUpdate(() => updateSoulBeacons());
     changes.scientistMovementChanged += livingUpdate(() => updateSignedLanguageWork());
     changes.scientistMovementChanged += livingUpdate(() => updateSpokenLanguageWork());
     changes.scientistMovementChanged += livingUpdate(() => updateCreationCooperation());
@@ -22087,7 +22308,7 @@
     if (scientistIsDead()) return 0;
     const advanceStartedAt = performance.now();
     const elapsed = Math.max(0, Number(seconds) || 0);
-    if (state.penalLegion && state.penalLegion.phase !== 'extracted' && !options.legionStep && elapsed > 1) {
+    if (state.penalLegion && !['extracted', 'deceased'].includes(state.penalLegion.phase) && !options.legionStep && elapsed > 1) {
       let remaining = elapsed, changed = 0;
       while (remaining > 0 && !scientistIsDead()) {
         const previous = state.penalLegion.phase;
@@ -22276,6 +22497,7 @@
     if (task.type === "creationLesson") { finishCreationLesson(task); return; }
     if (task.type === "firstContact") { finishFirstContact(task); return; }
     if (task.type === "homunculusWork") { finishHomunculusWork(task); return; }
+    if (task.type === "soulBeaconWork") { finishSoulBeaconWork(task); return; }
     if (task.type === "surveyExpeditionWork") { completeSurveyWork(task); return; }
     if (task.type === "capitalAppealTransfer") { finishCapitalAppealTransfer(task); return; }
     if (task.type === "executiveCommutationTransfer") { finishExecutiveCommutationTransfer(task); return; }
@@ -23489,6 +23711,9 @@
   }
 
   function fixturePlacementBlockReason(def, origin, rotation = 0, options = {}) {
+    if (def.id === 'exhaustedSoulApparatus') return 'The exhausted original apparatus is recovered evidence, not a buildable extra life.';
+    if (['soulReceiver', 'soulBeacon'].includes(def.id) && (!Research.isUnlocked(ensureResearchState(), `fixtureBlueprint:${def.id}`) || skillLevel('fabrication') < 101))
+      return 'Evidence-backed soul-beacon research and Adept Fabrication (101) are required.';
     if (def.id === "homunculusChamber" && (!Research.isUnlocked(ensureResearchState(), "fixtureBlueprint:homunculusChamber") || skillLevel("fabrication") < 101))
       return "Tissue-Culture Methods and Adept Fabrication (101) are required to build a growth chamber.";
     const map = options.map || state.labMap || ensureLabMap();
@@ -27644,7 +27869,7 @@
       return Math.max(0, Number(infrastructure.electricDemandPerHour) || 0);
     }
     if (medium === "mana") {
-      if (infrastructure.role === "homunculusChamber") return Math.max(0, Number(infrastructure.manaPerHour) || 0);
+      if (["homunculusChamber", "soulReceiver", "soulBeacon"].includes(infrastructure.role)) return Math.max(0, Number(infrastructure.manaPerHour) || 0);
       if (fixture.utility.powerMode === "mana") return Math.max(0, Number(infrastructure.manaPerHour) || 0);
       if (infrastructure.role === "manaEmitter") return Math.max(0, Number(infrastructure.outputPerHour) || 0);
     }
@@ -35477,6 +35702,10 @@
       const footprint = navigationFootprintForActor(slime);
       const cells = Navigation.footprintCells(objectMapCell(slime), footprint, slime.navigationOrientation || footprint.orientation);
       if (cells.some((part) => mapCellKey(part) === key)) occupied += footprint.exclusive ? MAP_TILE_AREA_M2 : slimeFloorLoadM2(slime);
+    }
+    for (const remains of state.scientistBodyRemains || []) {
+      if (remains.bodyId === state.scientist?.vocalBodyId) continue; // Current dead body is already counted above.
+      if (mapCellKey(remains.location.mapCell) === key) occupied += .6;
     }
     for (const corpse of state.corpses || []) {
       if (corpse === excludeCorpse || (excludeCorpse?.id && corpse.id === excludeCorpse.id)) continue;
@@ -53598,7 +53827,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (localPrisonRescueOccupied()) return 'Remain in the occupied rescue vehicle until the physical journey finishes.';
     if (localPrisonRecord()?.p.escape?.restrained) return 'Physical local prison restraints require an escorted return.';
     if (state.penalLegion?.desertion?.restrained) return 'Physical military restraints require an escorted movement.';
-    if (state.penalLegion && state.penalLegion.serviceEndedAt == null && !['field', 'withdrawal', 'desertionAttempt', 'deserted', 'extracted'].includes(state.penalLegion.phase)) return 'Military intake or depot custody requires an authorized physical movement.';
+    if (state.penalLegion && state.penalLegion.serviceEndedAt == null && !['field', 'withdrawal', 'desertionAttempt', 'deserted', 'extracted', 'deceased'].includes(state.penalLegion.phase)) return 'Military intake or depot custody requires an authorized physical movement.';
     if (localPrisonRestricted()) return "Use the local prison's routed routine or discharge actions.";
     if (GateEnforcement.custodyActive(currentGateEnforcement())) return "The scientist is physically in receiving-city custody; use the local jail's actions.";
     const reception = state.penalFlights?.assistance?.cityApproach?.gates.find(g => g.annexRoomId === toRoomId);
@@ -53828,8 +54057,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!task) return null;
     const suspension = state.combat?.routineSuspension;
     if (suspension && (!suspension.taskId || task.id !== suspension.taskId)) return null;
-    if (!["firstContact", "homunculusWork", "surveyExpeditionWork", "scientistMove", "equipmentChange", "doorOperation", "visitFixtureAccess", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) return null;
-    if (["firstContact", "homunculusWork", "surveyExpeditionWork", "equipmentChange", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) {
+    if (!["firstContact", "homunculusWork", "soulBeaconWork", "surveyExpeditionWork", "scientistMove", "equipmentChange", "doorOperation", "visitFixtureAccess", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) return null;
+    if (["firstContact", "homunculusWork", "soulBeaconWork", "surveyExpeditionWork", "equipmentChange", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) {
       const blockedReason = taskBlockReason(task);
       if (blockedReason) {
         task.data ||= {};
@@ -60798,6 +61027,196 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
   }
 
+  function ensureSoulBeacons() { return state.soulBeacons ||= SoulBeacons.create(state.clock, { seed: state.seed, theme: activeWorldRecord?.worldTheme || state.worldTheme || 'madcap' }); }
+  function soulBeaconServices(f, context = utilityNetworkContext()) {
+    return Boolean(f && f.condition >= 80 && utilityFixtureEnabled(f) && fixtureUtilityNetworks(f).every(m => chemistryUtilityService(f, m, context).ratio >= .99));
+  }
+  function soulBeaconTarget(action, id) {
+    const s = ensureSoulBeacons(), r = s.receivers.find(r => r.id === id), b = s.beacons.find(b => b.id === id);
+    const f = action === 'medium' ? researchWorkstations()[0] : fixtureById(r?.chamberId || b?.fixtureId || id);
+    const port = f && fixtureAccessCells(f).find(p => labNavigationPlanBetweenCells(scientistMapCell(), p.cell, { actor: state.scientist, ignoreDoors: true }).found);
+    return { s, r, b, f, cell: port?.cell };
+  }
+  function soulBeaconContext(f, cell) {
+    const s = ensureSoulBeacons(), research = ensureResearchState();
+    return { dead: scientistIsDead(), local: Boolean(campaignLocalKnowledgeAvailable() && cell && cell.z === scientistMapCell().z),
+      suppressed: Boolean(scientistMagicSuppressionReason()), animancy: skillLevel('animancy'), medicine: skillLevel('medicine'), alchemy: skillLevel('alchemy'), fabrication: skillLevel('fabrication'),
+      condition: f?.condition || 0, services: soulBeaconServices(f), research: research.projects.receivingBodyDevelopment?.status === 'completed',
+      beaconResearch: research.projects.soulBeaconReconstruction?.status === 'completed', integration: research.projects.soulTransferIntegration?.status === 'completed',
+      inspected: Boolean(f && s.inspections[f.id]?.condition === f.condition && state.clock - s.inspections[f.id].at <= SoulBeacons.CARE),
+      location: { roomId: cell && labMapCellRoomId(cell), cell: clonePlainObject(cell) }, siteId: activeRunRecord?.site?.candidateId || 'main-laboratory' };
+  }
+  function soulBeaconReceiverContext(b) {
+    if (!b) return {};
+    const s = ensureSoulBeacons(), r = s.receivers.find(r => r.id === b.receiverId) || s.receivers.find(r => r.chamberId === b.chamberId && r.status === 'ready');
+    const beacon = fixtureById(b.fixtureId), chamber = fixtureById(b.chamberId), roomId = chamber && labMapCellRoomId(chamber.origin);
+    const destination = chamber && fixtureAccessCells(chamber).find(p => labMapCellIsWalkable(p.cell) && !labMapCellIsPathBlocked(p.cell)
+      && canActorOccupyTile(state.scientist, p.cell));
+    const hostile = (state.lawEnforcementRaids?.raids || []).some(raid => ['entering', 'searching', 'contact', 'arresting', 'extracting'].includes(raid.status)
+      && raid.actors.some(a => a.present !== false && a.health > 0 && a.mapCell && labMapCellRoomId(a.mapCell) === roomId));
+    const seized = (state.investigativeEvidence?.records || []).some(e => [b.fixtureId, b.chamberId].includes(e.subject?.id)
+      && ['visitorCargo', 'evidenceStore', 'authorityCustody'].includes(e.locus?.kind));
+    const upkeep = Boolean(r && (r.supportSeconds >= 60 || r.supportStocks.some(p => { const item = ensurePhysicalItemStacks().find(i => i.id === p.stackId);
+      return item?.quantity >= 1 && item.reservedTaskId === `upkeep:${r.id}` && item.fixtureId === r.chamberId; })));
+    return { condition: Math.min(beacon?.condition || 0, chamber?.condition || 0),
+      paired: Boolean(beacon && chamber && beacon.origin.z === chamber.origin.z && labMapCellRoomId(beacon.origin) === roomId && mapCellDistance(beacon.origin, chamber.origin) <= 4),
+      siteIntact: Boolean(roomById(roomId) && chamber && beacon && labMapCellHasFloor(chamber.origin) && labMapCellHasFloor(beacon.origin)),
+      siteControlled: !hostile && !seized, space: Boolean(destination), services: soulBeaconServices(beacon) && soulBeaconServices(chamber), upkeep,
+      destination: destination ? { roomId, cell: clonePlainObject(destination.cell) } : null };
+  }
+  function soulBeaconHooks() {
+    const organic = homunculusHooks(), context = utilityNetworkContext();
+    return { dead: scientistIsDead(), support: (r, seconds) => {
+      const result = organic.support(r, seconds);
+      return { ...result, ok: result.ok && fixtureById(r.chamberId)?.condition >= 80 };
+    }, consume: organic.consume,
+      upkeep: (r, amount) => {
+        const item = r.supportStocks.map(p => ensurePhysicalItemStacks().find(i => i.id === p.stackId)).find(i => i?.quantity >= amount - 1e-8
+          && i.reservedTaskId === `upkeep:${r.id}` && i.fixtureId === r.chamberId);
+        if (!item) return false; item.quantity = Math.max(0, item.quantity - amount); item.knownQuantity = Math.min(item.quantity, item.knownQuantity); return true;
+      },
+      release: r => {
+        const stocks = ensurePhysicalItemStacks().filter(i => [r.id, `upkeep:${r.id}`].includes(i.reservedTaskId));
+        for (const item of stocks) { item.reservedTaskId = ''; item.fixtureId = ''; item.roomId = r.location.roomId; item.cell = clonePlainObject(r.location.cell); }
+        if (['failed', 'cancelled'].includes(r.status) && !r.remainsStackId && r.consumed.biomass > 0) r.remainsStackId = createPhysicalItemStack('inventory', 'grownTissue', r.consumed.biomass, r.location,
+          { tags: ['biological', 'receiving-body-remains'], sourceLabels: [r.id], biology: { receiverId: r.id, soulId: null } })?.id || '';
+      },
+      chargeSupport: (b, seconds) => {
+        context.electricityBudget = {};
+        for (const entries of Object.values(context.components)) for (const c of entries) { c.metrics = utilityComponentMetrics(c); c.allocations = utilityPriorityAllocations(c.metrics); }
+        const f = fixtureById(b.fixtureId); if (!soulBeaconServices(f, context)) return { ok: false, reason: 'Beacon condition or finite utilities are unavailable.' };
+        const hours = seconds / 3600, power = consumeUtilityPower(f, hours, 2, context), mana = drawManaFromComponent(utilityComponentForFixture(f, 'mana', context), 4 * hours);
+        return { ok: power >= .99 && mana >= 4 * hours - 1e-8 };
+      }
+    };
+  }
+  function updateSoulBeacons() {
+    if (!state.soulBeacons || scientistIsDead()) return 0;
+    const changes = SoulBeacons.advance(state.soulBeacons, state.clock, soulBeaconHooks());
+    if (changes) { syncPhysicalReadModels(); markStateDirty(); } return changes;
+  }
+  function soulBeaconTaskReason(task) {
+    const d = task.data, t = soulBeaconTarget(d.action, d.targetId), f = fixtureById(d.fixtureId), c = soulBeaconContext(f, d.toCell);
+    const reason = SoulBeacons.qualifications(c); if (reason) return reason;
+    if (!f || f.condition <= 0 || f.productionTaskId && f.productionTaskId !== task.id || !fixtureAccessCells(f).some(p => sameMapCell(p.cell, d.toCell))) return 'The original equipment or operating position is unavailable.';
+    for (const id of d.reservedStackIds || []) {
+      const i = ensurePhysicalItemStacks().find(i => i.id === id);
+      if (!i || i.quantity < d.inputQuantities[id] || i.reservedTaskId !== task.id || i.carriedBy || i.containerId || i.fixtureId
+        || !sameMapLayer(i.cell, d.toCell) || mapCellDistance(i.cell, d.toCell) > 1 || !sensoryLineOfSight(i.cell, d.toCell)) return 'An original staged supply changed custody, moved or disappeared.';
+    }
+    if (d.action === 'original' && f.typeId !== 'exhaustedSoulApparatus') return 'Examine the exhausted original apparatus, not a fabricated substitute.';
+    if (['grow', 'inspect'].includes(d.action) && f.typeId !== 'soulReceiver') return 'A separately built receiving chamber is required.';
+    if (d.action === 'grow' && (!c.research || !c.inspected || !c.services || SoulBeacons.occupied(t.s, f.id))) return 'Researched, inspected, empty and fully serviced receiving equipment is required.';
+    if (d.action === 'care' && t.r?.status !== 'growing' || d.action === 'upkeep' && !['growing', 'ready'].includes(t.r?.status)) return 'No viable original receiver needs this procedure.';
+    if (d.action === 'charge' && f.typeId !== 'soulBeacon') return 'A constructed beacon is required.';
+    if (d.action === 'clear' && !t.r?.cleared && !['failed', 'embodied', 'cancelled'].includes(t.r?.status)) return 'End growth or physically consume the receiver before clearing its chamber.';
+    if (d.action === 'cancel' && !['growing', 'ready'].includes(t.r?.status)) return 'No supported receiver remains to stop.';
+    if (!['original', 'inspect', 'grow', 'care', 'upkeep', 'examine', 'charge', 'arm', 'cancel', 'clear', 'medium'].includes(d.action)) return 'Unknown soul-beacon procedure.';
+    return '';
+  }
+  function soulBeaconWorkInputs(action) {
+    return action === 'medium' ? { biomass: 32, assayReagent: 6, drinkingWater: 12 } : action === 'grow' ? SoulBeacons.INPUTS : action === 'charge' ? { arcaneFeedstock: 8 }
+      : action === 'upkeep' ? { growthMedium: 7 } : ['care', 'clear', 'original', 'examine'].includes(action) ? { assayReagent: 1 } : {};
+  }
+  function queueSoulBeaconWork(action, targetId) {
+    if (scientistIsDead() || actorIsIncapacitated('scientist') || !campaignLocalKnowledgeAvailable() || scientistQueueTasks().length) return false;
+    updateSoulBeacons(); const t = soulBeaconTarget(action, targetId); if (!t.f || !t.cell) return false;
+    if (action === 'examine' && t.b?.status === 'charged' && t.f.condition < 80 && !window.confirm('Direct resonance calibration of this damaged charged apparatus will cause 30 soul-integrity damage. Repair the equipment first to avoid it. Proceed?')) return false;
+    const costs = soulBeaconWorkInputs(action);
+    const slices = homunculusInputs(costs, t.cell, '', action === 'grow');
+    if (!slices || action === 'grow' && Object.keys(costs).some(key => slices.filter(p => p.key === key).length !== 1)) {
+      addEvent('Stage the exact original receiver supplies within one tile of its accessible operating position.'); persist(); render(); return false;
+    }
+    const path = labNavigationPlanBetweenCells(scientistMapCell(), t.cell, { actor: state.scientist, ignoreDoors: true }); if (!path.found) return false;
+    const id = `task-${state.nextTaskNumber++}`, base = action === 'grow' ? 1800 : 600, travel = mapPathTravelDistanceMeters(path.path, ensureLabMap()) / scientistMoveSpeedMps();
+    const task = { id, type: 'soulBeaconWork', label: `Soul beacon: ${action}`, createdAt: state.clock, dueAt: state.clock + travel + base,
+      data: { action, targetId, fixtureId: t.f.id, roomId: labMapCellRoomId(t.cell), toCell: t.cell, mapPath: path.path, skillId: 'animancy',
+        workStartsAt: state.clock + travel, movementStartedAt: state.clock, movement: createScientistMovementRecord(path.path, travel, state.clock, { intent: 'soul-beacon preparation' }),
+        reservedStackIds: slices.map(p => p.stackId), inputQuantities: Object.fromEntries(slices.map(p => [p.stackId, p.quantity])) } };
+    const reserved = reserveProductionMaterialSlices(slices, id); if (!reserved) return false;
+    task.data.reservedStackIds = reserved; task.data.inputQuantities = Object.fromEntries(slices.map(p => [p.stackId, p.quantity]));
+    const reason = soulBeaconTaskReason(task); if (reason) { releaseProductionMaterialReservations(task); addEvent(reason); persist(); render(); return false; }
+    fixtureById(t.f.id).productionTaskId = id; state.tasks.push(task); persist(); render(); return true;
+  }
+  function finishSoulBeaconWork(task) {
+    try {
+      const reason = soulBeaconTaskReason(task); if (reason || !sameMapCell(scientistMapCell(), task.data.toCell)) { addEvent(reason || 'Attend the operating position.'); return false; }
+      const d = task.data, t = soulBeaconTarget(d.action, d.targetId), f = fixtureById(d.fixtureId), c = soulBeaconContext(f, d.toCell);
+      const inputs = ensurePhysicalItemStacks().filter(i => d.reservedStackIds.includes(i.id)); let result = { ok: true };
+      if (d.action === 'medium') {
+        createPhysicalItemStack('inventory', 'growthMedium', 32, c.location, { tags: ['sealed', 'biological'],
+          biology: { quality: inputs.some(i => i.tags.includes('contaminated')) || surfaceWorkerHazard(d.toCell) ? 40 : Math.min(95, f.condition), producedAt: state.clock }, sourceLabels: ['Personally prepared receiver medium'] });
+      } else if (d.action === 'original') {
+        t.s.apparatusExamined = true;
+        recordResearchEvidence({ methodId: 'exhaustedBeaconExam', specimenId: f.id, specimenName: f.name, sourceKey: `original-beacon:${f.id}`,
+          summary: 'Examined exhausted guiding apparatus: no stored soul, spare charge or receiving body. The original expected full continuity.', confidence: .9 });
+      } else if (d.action === 'inspect') { t.s.inspections[f.id] = { at: state.clock, condition: f.condition }; f.utility.enabled = true; }
+      else if (d.action === 'grow') {
+        const template = inputs.find(i => i.key === 'humanTissueTemplate'), medium = inputs.find(i => i.key === 'growthMedium');
+        c.template = template?.biology; c.quality = Math.min(template?.biology?.quality || 0, medium?.biology?.quality || 0, inputs.some(i => i.tags.includes('contaminated')) ? 40 : 100);
+        result = SoulBeacons.begin(t.s, f.id, c, state.clock, (id, costs) => inputs.map(i => {
+          i.reservedTaskId = id; i.fixtureId = f.id; i.cell = clonePlainObject(f.origin);
+          return { stackId: i.id, key: i.key, quantity: costs[i.key] };
+        }));
+        if (result.ok) { f.utility.enabled = true; return true; }
+      } else if (d.action === 'care') result = SoulBeacons.care(t.s, t.r.id, state.clock);
+      else if (d.action === 'upkeep') {
+        if (inputs.some(i => i.biology?.quality < 75 || i.tags.includes('contaminated'))) result = { ok: false, reason: 'Contaminated or poor-quality maintenance medium cannot sustain the receiver.' };
+        else {
+          result = SoulBeacons.loadSupport(t.s, t.r.id, inputs.map(i => ({ stackId: i.id, quantity: d.inputQuantities[i.id] })));
+          if (result.ok) { for (const i of inputs) { i.reservedTaskId = `upkeep:${t.r.id}`; i.fixtureId = f.id; i.cell = clonePlainObject(f.origin); } return true; }
+        }
+      } else if (d.action === 'examine') {
+        if (t.b?.status === 'charged' && f.condition < 80) {
+          SoulBeacons.damageSoul(t.s, 30, 'Direct soul resonance feedback during calibration of a damaged charged apparatus', state.clock, `calibration:${task.id}`);
+          consumeProductionMaterialReservations(task); addEvent('Damaged charged apparatus feedback injured the scientist’s soul by 30. Body health did not substitute for soul integrity.'); return false;
+        }
+        const view = SoulBeacons.examine(t.s, t.r?.id || t.b?.id, state.clock);
+        if (view?.kind === 'receiver' && t.r.status === 'ready' && t.r.health >= 75 && t.r.soulId === null) recordResearchEvidence({ methodId: 'receivingBodyExam', specimenId: t.r.id, specimenName: 'Dormant receiving body', sourceKey: `receiver-exam:${t.r.id}`,
+          summary: 'Personally examined a seven-day compatible grown receiver with independent soul formation prevented.', confidence: .9 });
+        if (view?.kind === 'beacon' && t.b.status === 'charged') recordResearchEvidence({ methodId: 'beaconCalibration', specimenId: t.b.id, specimenName: 'Charged soul beacon', sourceKey: `beacon-calibration:${t.b.id}:${t.b.startedAt}`,
+          summary: 'Physically calibrated one fully charged guiding apparatus; no soul is stored.', confidence: .9 });
+        result.ok = Boolean(view);
+      } else if (d.action === 'charge') {
+        const chamber = state.fixtures.find(i => i.typeId === 'soulReceiver' && i.origin.z === f.origin.z && labMapCellRoomId(i.origin) === labMapCellRoomId(f.origin) && mapCellDistance(i.origin, f.origin) <= 4);
+        result = SoulBeacons.charge(t.s, f.id, chamber?.id, { ...c, paired: Boolean(chamber), label: f.name }, state.clock);
+        if (result.ok) f.utility.enabled = true;
+      } else if (d.action === 'arm') {
+        const r = t.s.receivers.find(r => r.chamberId === t.b?.chamberId && r.status === 'ready');
+        result = SoulBeacons.arm(t.s, t.b?.id, r?.id, { ...c, ...soulBeaconReceiverContext(t.b) }, state.clock);
+      } else if (d.action === 'cancel') { t.r.status = 'cancelled'; soulBeaconHooks().release(t.r); }
+      else if (d.action === 'clear') { t.r.cleared = true; soulBeaconHooks().release(t.r); }
+      if (result.ok) { consumeProductionMaterialReservations(task); addEvent(`Soul beacon ${d.action}: actual physical procedure completed.`); }
+      else addEvent(result.reason || 'No original receiver or beacon can be examined.');
+      return result.ok;
+    } finally { releaseHomunculusWork(task); syncPhysicalReadModels(); }
+  }
+  function renderSoulBeacons(parent) {
+    const s = ensureSoulBeacons(), panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.soulBeacons = 'true'; parent.append(panel);
+    panel.append(textEl('h3', 'Late-Game Soul Beacons'), textEl('p', 'Master Animancy, Medicine and Alchemy (151), Adept Fabrication (101), physical original-apparatus evidence and three research projects are required. A beacon guides your departed soul; it never stores it. Homunculi have their own souls and cannot be overwritten.'));
+    for (const injury of s.soul.injuries) panel.append(textEl('p', `Recorded soul injury ${formatClock(injury.at)}: ${injury.cause}; ${injury.damage} integrity lost. Recovery does not heal this damage.`));
+    const button = (label, action, id) => { const b = storesActionButton(label, label, () => queueSoulBeaconWork(action, id)); b.dataset.beaconAction = action; b.dataset.beaconTarget = id;
+      const reason = SoulBeacons.qualifications(soulBeaconContext(fixtureById(id), scientistMapCell())); setActionButtonState(b, Boolean(reason || scientistQueueTasks().length), reason || 'Finish current scientist work.'); panel.append(b); };
+    button('Prepare receiver medium (32 biomass, six reagent, twelve water)', 'medium', '');
+    for (const f of state.fixtures.filter(f => ['exhaustedSoulApparatus', 'soulReceiver', 'soulBeacon'].includes(f.typeId))) {
+      panel.append(textEl('h4', f.name));
+      if (f.typeId === 'exhaustedSoulApparatus') button('Examine exhausted original apparatus (one reagent)', 'original', f.id);
+      if (f.typeId === 'soulReceiver') { button('Inspect receiving chamber', 'inspect', f.id); button('Begin seven-day receiving-body growth', 'grow', f.id); }
+      if (f.typeId === 'soulBeacon') button('Start six-hour beacon charge (eight arcane feedstock)', 'charge', f.id);
+    }
+    for (const r of s.receivers) {
+      const v = s.observations[r.id]; panel.append(textEl('p', v ? `${r.id}: examined ${formatClock(v.at)} — ${v.status}, ${Math.round(v.progress * 100)}%, ${v.health}. ${v.reason}` : `${r.id}: no local examination received.`));
+      button('Examine original receiver (one reagent)', 'examine', r.id); button('Perform twelve-hour receiver care (one reagent)', 'care', r.id);
+      button('Load seven days of maintenance medium', 'upkeep', r.id); button('End receiver support', 'cancel', r.id); button('Clear consumed or failed receiving chamber', 'clear', r.id);
+    }
+    for (const b of s.beacons) {
+      const v = s.observations[b.id]; panel.append(textEl('p', v ? `${b.label}: examined ${formatClock(v.at)} — ${v.status}, ${Math.round(v.progress * 100)}%. ${v.reason}` : `${b.label}: charge not locally examined.`));
+      button('Examine and calibrate beacon (one reagent)', 'examine', b.id); button('Arm imperfect soul-beacon contingency', 'arm', b.id);
+    }
+    panel.append(textEl('p', 'Growth loads 80 biomass, 24 prepared medium, 10 genetic material and one examined self-donated template. Care is required every twelve hours. Ready bodies consume one extra medium per day and finite utilities; a nonrenewable twenty-minute interruption buffer protects neither prolonged failures nor neglected care.'));
+    panel.append(textEl('p', 'This first apparatus requires soul integrity of at least 75. Recovery loses personal memories and practiced expertise, returning skills to their starting baseline. Physical records, old remains, carried possessions, legal consequences and the same run persist. Perfected transfer and hidden-base destinations remain separate research.'));
+  }
+
   function ensureHomunculi() { return state.homunculi ||= Homunculi.create(state.clock, { seed: state.seed, theme: activeWorldRecord?.worldTheme || state.worldTheme || "madcap" }); }
   function damageHomunculus(actor, amount, options = {}) {
     if (actor.status === "dead") return false;
@@ -60854,9 +61273,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         if (f && services && utilityFixtureEnabled(f)) {
           const hours = seconds / 3600, power = consumeUtilityPower(f, hours, 4, ctx), mana = drawManaFromComponent(utilityComponentForFixture(f, "mana", ctx), 2 * hours);
           const water = consumeChemistryWater(f, hours, ctx);
-          const drain = utilityComponentForFixture(f, "drain", ctx)?.fixtures.find(s => ["drainSump", "drainExterior"].includes(fixtureInfrastructureDef(s)?.role));
-          if (drain && fixtureInfrastructureDef(drain).role === "drainSump") drain.utility.contents.homunculusWaste = (drain.utility.contents.homunculusWaste || 0) + water;
-          delivered = power >= .99 && mana >= 2 * hours - 1e-8 && water >= hours - 1e-8;
+          let waste = water;
+          for (const drain of utilityComponentForFixture(f, "drain", ctx)?.fixtures || []) {
+            const def = fixtureInfrastructureDef(drain); if (!utilityFixtureEnabled(drain)) continue;
+            if (def?.role === "drainSump") {
+              const taken = Math.min(waste, Math.max(0, def.capacity - utilityContentsTotal(drain.utility.contents)));
+              drain.utility.contents.homunculusWaste = (drain.utility.contents.homunculusWaste || 0) + taken; waste -= taken;
+            } else if (def?.role === "drainExterior") {
+              const taken = Math.min(waste, def.outputPerHour * hours);
+              drain.utility.dischargedLoad += taken; waste -= taken;
+            }
+            if (waste <= 1e-8) break;
+          }
+          delivered = power >= .99 && mana >= 2 * hours - 1e-8 && water >= hours - 1e-8 && waste <= 1e-8;
           utilitySetStatus(f, delivered ? "operating" : "impaired", "Finite organic growth life support; readings require physical examination.");
         }
         const ok = Boolean(f && f.condition >= 50 && utilityFixtureEnabled(f) && delivered && !missing
@@ -61527,6 +61956,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.researchSummary.textContent = `${completed}/${Research.PROJECTS.length} projects complete · ${research.evidence.length} distinct evidence record${research.evidence.length === 1 ? "" : "s"}`;
     dom.researchProjectList.textContent = "";
     renderHomunculi(dom.researchProjectList);
+    renderSoulBeacons(dom.researchProjectList);
     renderFirstContact(dom.researchProjectList);
     renderSignedLanguage(dom.researchProjectList);
     renderSpokenLanguage(dom.researchProjectList);
@@ -65847,6 +66277,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         addCell(port.cell, "", `${fixture.name}: ${port.label}`, ["fixture-access-cell"]);
       }
     }
+    for (const remains of state.scientistBodyRemains || []) {
+      const cell = remains.location.mapCell;
+      if (!mapShowsRoomOccupants(remains.location.roomId, { ...options, map, cell, perceivedCellKeys })) continue;
+      addCell(cell, "†", `Scientist bodily remains (${remains.bodyId}); physical death ${formatClock(remains.at)}. Recovery does not remove this body.`, ["corpse-object-cell"]);
+    }
     for (const stack of ensurePhysicalItemStacks().filter((entry) => !entry.fixtureId && !entry.carriedBy && entry.knownQuantity > 0)) {
       if (!mapShowsRoomOccupants(stack.roomId, { ...options, map, cell: stack.cell, perceivedCellKeys })) continue;
       addCell(
@@ -66963,7 +67398,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function taskBlockReason(task) {
     if (localPrisonRescueOccupied() && task && isScientistQueueTask(task) && task.type !== 'rest') return 'The scientist is aboard the moving or stranded local rescue vehicle.';
     if (localPrisonRecord()?.p.escape?.restrained && isScientistQueueTask(task)) return 'Physical local prison restraints prevent ordinary work.';
-    if (state.penalLegion && state.penalLegion.serviceEndedAt == null && !['field', 'withdrawal', 'desertionAttempt', 'deserted', 'extracted'].includes(state.penalLegion.phase) && task.type !== 'rest' && !(task.type === 'surveyExpeditionWork' && task.data?.action === 'consume')) return 'Military intake or depot custody prevents ordinary work.';
+    if (state.penalLegion && state.penalLegion.serviceEndedAt == null && !['field', 'withdrawal', 'desertionAttempt', 'deserted', 'extracted', 'deceased'].includes(state.penalLegion.phase) && task.type !== 'rest' && !(task.type === 'surveyExpeditionWork' && task.data?.action === 'consume')) return 'Military intake or depot custody prevents ordinary work.';
     if (!task || !isScientistQueueTask(task)) {
       return "";
     }
@@ -66972,6 +67407,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (surveyScientistAway() && !surveyTaskAllowed(task)) return "The scientist is off site; laboratory work awaits physical return.";
     if (task.type === "surveyExpeditionWork") { const reason = surveyWorkBlockReason(task); if (reason) return reason; }
     if (task.type === "homunculusWork") { const reason = homunculusTaskReason(task); if (reason) return reason; }
+    if (task.type === "soulBeaconWork") { const reason = soulBeaconTaskReason(task); if (reason) return reason; }
     if (task.type === "firstContact") { const reason = firstContactTaskReason(task); if (reason) return reason; }
     if (scientistIsDead()) {
       return "The scientist is dead.";
@@ -67284,6 +67720,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return;
     }
     if (task.type === "homunculusWork") releaseHomunculusWork(task);
+    if (task.type === "soulBeaconWork") releaseHomunculusWork(task);
     if (task.type === "creationLesson") {
       const l = state.creationCooperation?.lessons.find(l => l.id === task.data.lessonId);
       if (l?.status === "active") { l.status = "cancelled"; l.reason = "The physical teaching session ended; no learning credited."; releaseCreationWork(l); }
@@ -76812,7 +77249,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       dom.visitsSummary.textContent = 'Receiving-city corrections — local sentence and physical escape';
       dom.visitsList.replaceChildren(renderLocalPrison(localStay.g, localStay.c)); return;
     }
-    if (state.penalLegion && state.penalLegion.phase !== 'extracted' && dom.visitsList && dom.visitsSummary) {
+    if (state.penalLegion && !['extracted', 'deceased'].includes(state.penalLegion.phase) && dom.visitsList && dom.visitsSummary) {
       dom.visitsSummary.textContent = state.penalLegion.phase === 'deserted' ? 'Escaped military prisoner — unsupported wilderness' : state.penalLegion.serviceEndedAt == null ? "Penal-legion service — city-local military custody" : "Penal service completed — discharge and civilian receiving";
       dom.visitsList.replaceChildren(renderPenalLegion()); return;
     }
@@ -79712,6 +80149,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return 1;
   }
   function updatePenalLegion(elapsed = 0) {
+    if (state.penalLegion?.phase === 'deceased') return 0;
     const s = state.penalLegion; if (!s || scientistIsDead()) return 0;
     const c = state.trialSentencing.cases.find(c => c.id === s.caseId), jail = state.jailCustody.stays.find(j => j.id === s.jailStayId);
     PenalService.ledger(s, jail);
@@ -81620,7 +82058,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
   function localPrisonRecord() {
-    for (const g of state.penalFlights?.assistance?.cityApproach?.gates || []) for (const c of g.enforcement?.cases || []) if (c.execution?.prison && c.execution.prison.completedAt == null) return { g, c, s: c.execution, p: c.execution.prison, r: g.enforcement.executionResources };
+    for (const g of state.penalFlights?.assistance?.cityApproach?.gates || []) for (const c of g.enforcement?.cases || []) if (c.execution?.prison && c.execution.prison.completedAt == null && c.execution.prison.bodyEndedAt == null) return { g, c, s: c.execution, p: c.execution.prison, r: g.enforcement.executionResources };
     return null;
   }
   function localPrisonRestricted() { const p = localPrisonRecord()?.p; return Boolean(p && (!['escapeAttempt', 'escaped'].includes(p.phase) || p.escape?.restrained)); }
@@ -91311,6 +91749,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.prisonBreak = PrisonBreak.normalizeState(candidate?.prisonBreak);
     next.deathRowEscape = DeathRowEscape.normalizeState(candidate?.deathRowEscape);
     next.scientistDeath = ScientistDeath.normalizeState(candidate?.scientistDeath);
+    next.soulBeacons = SoulBeacons.normalize(candidate?.soulBeacons, next.clock);
+    next.scientistBodyRemains = Array.isArray(candidate?.scientistBodyRemains) ? clonePlainObject(candidate.scientistBodyRemains) : [];
+    const pendingDeath = next.scientistDeath.records.at(-1);
+    if (pendingDeath?.resurrection.status === 'pending' && (next.soulBeacons.handoff?.status !== 'pending' || next.soulBeacons.handoff.deathId !== pendingDeath.id || !next.soulBeacons.handoff.choices.length))
+      next.scientistDeath = ScientistDeath.resolveHandoff(next.scientistDeath, pendingDeath.id).state;
     next.publicExecution = PublicExecution.normalizeState(candidate?.publicExecution);
     next.jailEscapeRescue = JailEscapeRescue.normalizeState(candidate?.jailEscapeRescue);
     if (!candidate?.externalDetection && Number(candidate?.suspicion) > 0) {

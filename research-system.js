@@ -56,6 +56,34 @@
       unlocks: [{ id: "procedure:homunculusGrowth", label: "Bounded homunculus growth procedure" }]
     }),
     Object.freeze({
+      id: "soulBeaconReconstruction", label: "Soul Beacon Reconstruction",
+      description: "Reconstruct the exhausted original's guiding apparatus from physical examination. It holds no stored soul and its creator did not anticipate memory loss.",
+      skillId: "animancy", minimumSkills: { animancy: 151, medicine: 151, alchemy: 151, fabrication: 101 }, workSeconds: 12 * 3600,
+      prerequisites: ["tissueCultureMethods", "homunculusMorphogenesis"],
+      evidence: [{ label: "Physically examined exhausted original apparatus", methods: ["exhaustedBeaconExam"], count: 1, uniqueSpecimens: 1 }],
+      inputs: { resources: { metalParts: 8, glass: 8, arcaneFeedstock: 8 }, specimenAmount: 0 },
+      unlocks: [{ id: "fixtureBlueprint:soulBeacon", label: "Soul beacon and transfer apparatus" }]
+    }),
+    Object.freeze({
+      id: "receivingBodyDevelopment", label: "Receiving-Body Development",
+      description: "Prevent independent soul formation during specialized dormant receiver growth. An existing souled homunculus cannot be overwritten.",
+      skillId: "medicine", minimumSkills: { animancy: 151, medicine: 151, alchemy: 151, fabrication: 101 }, workSeconds: 24 * 3600,
+      prerequisites: ["soulBeaconReconstruction", "homunculusMorphogenesis"],
+      evidence: [{ label: "Examined successful human-derived culture", methods: ["tissueCultureTrial"], count: 1, uniqueSpecimens: 1 }],
+      inputs: { resources: { biomass: 20, geneticMaterial: 10, arcaneFeedstock: 8 }, specimenAmount: 0 },
+      unlocks: [{ id: "fixtureBlueprint:soulReceiver", label: "Dedicated soul-free receiving chamber" }]
+    }),
+    Object.freeze({
+      id: "soulTransferIntegration", label: "Soul-Transfer Integration",
+      description: "Integrate an examined grown receiver and calibrated charged beacon. This first reconstruction loses personal memory and practiced expertise; perfected transfer remains separate research.",
+      skillId: "animancy", minimumSkills: { animancy: 151, medicine: 151, alchemy: 151, fabrication: 101 }, workSeconds: 24 * 3600,
+      prerequisites: ["receivingBodyDevelopment", "soulBeaconReconstruction"],
+      evidence: [{ label: "Locally examined compatible grown receiver", methods: ["receivingBodyExam"], count: 1, uniqueSpecimens: 1 },
+        { label: "Locally calibrated fully charged beacon", methods: ["beaconCalibration"], count: 1, uniqueSpecimens: 1 }],
+      inputs: { resources: { metalParts: 6, arcaneFeedstock: 8 }, specimenAmount: 0 },
+      unlocks: [{ id: "procedure:soulTransfer", label: "Arm an imperfect soul-beacon contingency" }]
+    }),
+    Object.freeze({
       id: "reinforcedObservationVessels", label: "Reinforced Observation Vessels",
       description: "Translate observed containment loads into a visible, sealed vessel with a reinforced frame.",
       skillId: "materialsScience", workSeconds: 150, prerequisites: [],
