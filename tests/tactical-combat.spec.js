@@ -7,6 +7,7 @@ const { genomeForTraits } = require('./gene-fixtures');
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
 const { activeRunStorageKey } = require('./helpers/active-run-storage');
+const { startLifecycleRun } = require('./helpers/start-lifecycle-run');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -33,7 +34,7 @@ async function skipSeconds(page, seconds) {
 
 async function seedCombatSlime(page, id, options = {}) {
   const seed = await page.evaluate((key) => {
-    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const payload = JSON.parse(window.HelixWorldRunLibrary.decompressStorageText(window.localStorage.getItem(key) || '{}'));
     return (payload.state || payload).seed;
   }, await activeRunStorageKey(page));
   const behavior = options.behavior || 'idle pooling';
@@ -49,7 +50,7 @@ async function seedCombatSlime(page, id, options = {}) {
     },
   });
   await page.evaluate(({ key, id, genome, options }) => {
-    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const payload = JSON.parse(window.HelixWorldRunLibrary.decompressStorageText(window.localStorage.getItem(key) || '{}'));
     const state = payload.state || payload;
     const scientistCell = state.scientist.mapCell;
     const cell = options.diagonal
@@ -92,7 +93,7 @@ async function seedCombatSlime(page, id, options = {}) {
     state.injuries = [];
     state.nextInjuryNumber = 1;
     state.selectedSlimeId = id;
-    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+    window.localStorage.setItem(key, window.HelixWorldRunLibrary.compressStorageText(JSON.stringify({ ...payload, savedAt: new Date().toISOString(), state })));
   }, { key: await activeRunStorageKey(page), id, genome, options });
   await loadSavedRun(page);
 }
@@ -129,7 +130,10 @@ test('Soul Lash is a map command that spends Mana and deals Arcane damage', asyn
 });
 
 test('diagonal footprints count as adjacent for Shove and create persistent trauma', async ({ page }) => {
-  await startRun(page);
+  test.setTimeout(120000);
+  // This focused shared-combat regression must select a real saved world/site;
+  // the older direct New Run helper predates mandatory site selection.
+  await startLifecycleRun(page, 'focused-tactical-shove');
   await seedCombatSlime(page, 'diagonal-target', { name: 'DIAGONAL-TARGET', diagonal: true, integrity: 100, contained: true });
 
   await page.evaluate(() => window.helixHeresyDebug.selectMapTarget({ kind: 'slime', id: 'diagonal-target' }));
@@ -140,7 +144,7 @@ test('diagonal footprints count as adjacent for Shove and create persistent trau
   await skipSeconds(page, 1);
 
   const result = await page.evaluate((key) => {
-    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const payload = JSON.parse(window.HelixWorldRunLibrary.decompressStorageText(window.localStorage.getItem(key) || '{}'));
     const state = payload.state || payload;
     return {
       living: state.slimes.some((slime) => slime.id === 'diagonal-target'),

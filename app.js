@@ -107,6 +107,7 @@
   const IncumbentResistance = window.HelixIncumbentResistance;
   const CharterRecognition = window.HelixCharterRecognition;
   const PublicWorksRecognition = window.HelixPublicWorksRecognition;
+  const WatchRecognition = window.HelixWatchRecognition;
   const CitySuccession = window.HelixCitySuccession;
   const CityAdministration = window.HelixCityAdministration;
   const CityResistance = window.HelixCityResistance;
@@ -5466,6 +5467,8 @@
       charterRecognitionKnowledge: null,
       publicWorksRecognition: null,
       publicWorksRecognitionKnowledge: null,
+      watchRecognition: null,
+      watchRecognitionKnowledge: null,
       citySuccession: null,
       citySuccessionKnowledge: null,
       cityAdministration: null,
@@ -14476,6 +14479,28 @@
         state.clock += Math.max(0, Number(seconds) || 0); updateCharterRecognition(); persist(); render(); return state.clock;
       },
       publicWorksRecognitionAction: (action, terms) => publicWorksRecognitionAction(action, terms),
+      watchRecognitionAction: (action, terms) => watchRecognitionAction(action, terms),
+      watchRecognitionSnapshot: () => clonePlainObject({ recognition: state.watchRecognition, known: state.watchRecognitionKnowledge,
+        charter: state.charterRecognition, works: state.publicWorksRecognition, succession: state.citySuccession,
+        office: scientistCivicOffice(), context: watchRecognitionContext(true), clock: state.clock }),
+      configureWatchRecognitionTest: (options = {}) => {
+        if (!state.sovereignBargains?.testFixture) return false;
+        const s = ensureWatchRecognition(), a = WatchRecognition.actor(s, state.citySuccession);
+        if (!s || !a) return false;
+        if (options.policy) a.watchPolicy = options.policy;
+        if (options.powered != null) scientistCivicOffice().channelPowered = options.powered;
+        refreshWatchRecognitionKnowledge(); persist(); render(); return true;
+      },
+      advanceWatchRecognitionForTest: seconds => {
+        let remaining = Math.max(0, Number(seconds) || 0);
+        while (remaining > 0 && !scientistIsDead()) {
+          const d = state.watchRecognition?.duty;
+          const step = d && d.status !== 'observing' ? 1 : Math.min(60, remaining, d ? Math.max(1, WatchRecognition.SECONDS - d.progress) : 60);
+          state.clock += Math.min(step, remaining); remaining -= Math.min(step, remaining);
+          updateWatchRecognition();
+        }
+        persist(); render(); return state.clock;
+      },
       publicWorksRecognitionSnapshot: () => clonePlainObject({ recognition: state.publicWorksRecognition,
         known: state.publicWorksRecognitionKnowledge, charter: state.charterRecognition, succession: state.citySuccession,
         office: scientistCivicOffice(), context: publicWorksRecognitionContext(), clock: state.clock }),
@@ -22104,6 +22129,8 @@
     }
     if (state.publicWorksRecognition?.job && publicWorksRecognitionObserved())
       return { time: state.clock + Math.max(1, 60 - state.publicWorksRecognition.job.progress), label: 'Attended public-works continuation', type: 'company' };
+    if (state.watchRecognition?.job && watchRecognitionObserved())
+      return { time: state.clock + Math.max(1, state.watchRecognition.job.seconds - state.watchRecognition.job.progress), label: 'Attended watch continuation', type: 'company' };
     if (CityConfrontations.active(state.cityConfrontation) && cityConfrontationObserved())
       return { time: state.clock + 1, label: 'Dangerous political confrontation', type: 'combat' };
     const gateEvent = nextGateEnforcementEvent();
@@ -22665,6 +22692,7 @@
     changes.combatChanged += livingUpdate(() => updateIncumbentResistance());
     changes.scientistMovementChanged += livingUpdate(() => updateCharterRecognition());
     changes.scientistMovementChanged += livingUpdate(() => updatePublicWorksRecognition());
+    changes.scientistMovementChanged += livingUpdate(() => updateWatchRecognition());
     changes.scientistMovementChanged += livingUpdate(() => updateCarrierBriefing());
     changes.scientistMovementChanged += livingUpdate(() => updatePenalFlights(elapsed));
     changes.scientistMovementChanged += livingUpdate(() => updatePenalLegion(elapsed));
@@ -22733,13 +22761,25 @@
     if (scientistIsDead()) return 0;
     const advanceStartedAt = performance.now();
     const elapsed = Math.max(0, Number(seconds) || 0);
-    if (!options.recognitionStep && elapsed > 1 && (state.charterRecognition?.job || state.publicWorksRecognition?.job)) {
+    if (!options.recognitionStep && elapsed > 1 && (state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job)) {
       let remaining = elapsed, changed = 0;
-      while (remaining > 0 && !scientistIsDead() && (state.charterRecognition?.job || state.publicWorksRecognition?.job)) {
-        const s = state.charterRecognition?.job ? state.charterRecognition : state.publicWorksRecognition, before = state.clock;
+      while (remaining > 0 && !scientistIsDead() && (state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job)) {
+        const s = state.charterRecognition?.job ? state.charterRecognition : state.publicWorksRecognition?.job ? state.publicWorksRecognition : state.watchRecognition, before = state.clock;
         const step = Math.min(remaining, 60, Math.max(1, s.job.seconds - s.job.progress));
         changed += advanceTime(step, { ...options, recognitionStep: true }); remaining -= state.clock - before;
         if (state.clock <= before || !s.job) break;
+      }
+      return changed;
+    }
+    if (!options.watchStep && elapsed > 1 && state.watchRecognition?.duty) {
+      let remaining = elapsed, changed = 0;
+      while (remaining > 0 && !scientistIsDead() && state.watchRecognition?.duty) {
+        const d = state.watchRecognition.duty, before = state.clock;
+        const combat = IncumbentResistance.dangerous(state.incumbentResistance) || state.cityConfrontation?.phase === 'fighting';
+        const step = Math.min(remaining, !combat && (d.status === 'observing' || d.blocked || !d.wasReady)
+          ? d.status === 'observing' ? Math.max(1, Math.min(60, WatchRecognition.SECONDS - d.progress)) : 60 : 1);
+        changed += advanceTime(step, { ...options, watchStep: true }); remaining -= state.clock - before;
+        if (state.clock <= before) break;
       }
       return changed;
     }
@@ -40156,6 +40196,7 @@
     }
     if (actorId === 'scientist' && targetActor.legionId === state.penalLegion?.id) recordLegionConduct('attack', targetActor.id);
     const sequence = Math.max(1, Number(options.sequence) || state.combat.nextActionNumber++);
+    observeCounterWatchAttack(actorId, target.id, actionId, sequence);
     const accuracy = combatActionAccuracy(actor, targetActor, action, sequence);
     if (!accuracy.hit) {
       if (!options.hideFeedback) emitMapFeedback("feedbackMiss", combatActorCell(targetActor), {
@@ -40211,7 +40252,7 @@
     if (targetActor.actorKind === "wildernessBeast" && labMapCellRoomId(destination) !== activeWildernessRoom()) return false;
     if (!labMapCellIsWalkable(destination, ensureLabMap()) || labMapCellIsPathBlocked(destination, { map: ensureLabMap(), actor: targetActor })) return false;
     targetActor.mapCell = destination;
-    targetActor.roomId = roomIdForMapCell(destination) || targetActor.roomId;
+    targetActor.roomId = labMapCellRoomId(destination) || targetActor.roomId;
     targetActor.autonomousMovement = null;
     emitMapFeedback("feedbackMove", destination, { label: `${targetActor.name} shoved`, fromCell: current, coalesceKey: `shove:${targetActor.id}` });
     return true;
@@ -83575,7 +83616,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       && labNavigationPlanBetweenCells(actor.mapCell, target, { map: ensureLabMap(), actor, ignoreDoors: true }).found);
     const reviewId = source?.institutions.find(i => i.role === 'civicReview')?.id;
     return { ...c, ...administrationRecognitionSources(), busy: c.busy || Boolean(state.scientistIdentity?.job || state.sovereignBargains?.job
-      || state.citySuccession?.job || state.charterRecognition?.job || state.publicWorksRecognition?.job || DefenderChallenges.reserved(state.defenderChallenge)
+      || state.citySuccession?.job || state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || DefenderChallenges.reserved(state.defenderChallenge)
       // An independently returning defender is not a clerk/public-works
       // assignment. Actual violence still blocks new civic attendance.
       || state.cityConfrontation?.phase === 'fighting' || IncumbentResistance.active(state.incumbentResistance)
@@ -84013,7 +84054,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     state.charterRecognition = CharterRecognition.create(state.citySuccession, state.incumbentResistance, scientistCivicOffice(), activeWorldRecord?.worldTheme || 'madcap');
     return state.charterRecognition;
   }
-  function charterRecognitionContext(ignorePublicWorks = false) {
+  function charterRecognitionContext(ignorePublicWorks = false, ignoreWatch = false) {
     const office = scientistCivicOffice(), c = scientistCivicContext(office), source = citySuccessionSource(), s = state.charterRecognition,
       home = ensureHomeInstitutionContext(), cell = scientistMapCell();
     const near = a => Boolean(a?.status === 'alive' && a.roomId === scientistRoomId() && a.locationId === office?.id
@@ -84021,7 +84062,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { ...c, local: state.surveyExpeditions?.phase === 'field' && scientistRoomId() === SurveyExpeditions.FIELD_ROOM,
       visitPermission: state.surveyExpeditions?.discovery?.access.active === true,
       busy: c.busy || Boolean(state.scientistIdentity?.job || state.sovereignBargains?.job || state.citySuccession?.job
-        || state.incumbentResistance?.job || !ignorePublicWorks && state.publicWorksRecognition?.job || IncumbentResistance.dangerous(state.incumbentResistance)
+        || state.incumbentResistance?.job || !ignorePublicWorks && state.publicWorksRecognition?.job || !ignoreWatch && state.watchRecognition?.job || IncumbentResistance.dangerous(state.incumbentResistance)
         || DefenderChallenges.reserved(state.defenderChallenge) || state.cityAdministration?.job || state.cityAdministration?.resistance?.job
         || state.surveyExpeditions?.mapService?.job || state.surveyExpeditions?.carrier?.briefingState?.job),
       bodyEpoch: ensureScientistIdentity().bodyEpoch, authorityId: source?.authority.id,
@@ -84033,7 +84074,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       reviewAvailable: Boolean(s && home?.offices[s.reviewInstitutionId]?.available),
       rule: source?.designationReview || null, authorizationIds: [], // No playable authenticated patron-approval procedure exists yet.
       presentIds: citySuccessionPeople().filter(near).map(a => a.id),
-      conduct: [...(state.incumbentResistance?.reports || []), ...(state.cityConfrontation?.reports || []), ...(state.defenderChallenge?.conduct || [])] };
+      conduct: [...(state.incumbentResistance?.reports || []), ...(state.cityConfrontation?.reports || []), ...(state.defenderChallenge?.conduct || []),
+        ...(state.watchRecognition?.reports || []).filter(r => r.communicatedAt != null && r.actorId === 'scientist')] };
   }
   function charterRecognitionObserved() {
     const c = charterRecognitionContext(); return c.alive && c.capable && c.local && c.atCounter && c.clerkPresent && c.lineOfSight;
@@ -84107,10 +84149,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     state.publicWorksRecognition ||= PublicWorksRecognition.create(state.charterRecognition, state.citySuccession, scientistCivicOffice());
     return state.publicWorksRecognition;
   }
-  function publicWorksRecognitionContext() {
+  function publicWorksRecognitionContext(ignoreWatch = false) {
     const source = citySuccessionSource(), home = ensureHomeInstitutionContext();
     const id = source?.institutions.find(i => i.role === 'publicWorksAndProvisioning')?.id;
-    return { ...charterRecognitionContext(true), publicWorksInstitutionId: id,
+    return { ...charterRecognitionContext(true, ignoreWatch), publicWorksInstitutionId: id,
       publicWorksAvailable: Boolean(id && home?.offices[id]?.available), publicWorksConditions: [] };
   }
   function administrationRecognitionSources() {
@@ -84177,6 +84219,109 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       button('Cancel unfinished public-works meeting', 'cancel', !observed);
     }
     if (v.receipt) panel.append(textEl('p', `${formatClock(v.receipt.at)}: original public works accepted this counter upkeep only. Deliver three clean carried parts into its documented custody below. No defense reserve or other role consent was transferred.`));
+    panel.append(textEl('p', v.message)); return panel;
+  }
+  function ensureWatchRecognition() {
+    state.watchRecognition ||= WatchRecognition.create(state.charterRecognition, state.publicWorksRecognition, state.citySuccession, scientistCivicOffice());
+    return state.watchRecognition;
+  }
+  function watchRecognitionContext(inspectPaths = false) {
+    const s = state.watchRecognition, office = scientistCivicOffice(), home = ensureHomeInstitutionContext(), source = citySuccessionSource();
+    const id = source?.institutions.find(i => i.role === 'civilWatch')?.id, a = WatchRecognition.actor(s, state.citySuccession);
+    const geometry = Boolean(office && (!s || state.surveyExpeditions?.destination?.cityId === s.cityId)
+      && labMapCellRoomId(WatchRecognition.POST) === SurveyExpeditions.FIELD_ROOM
+      && labMapCellRoomId(office.civicCounter.cell) === SurveyExpeditions.FIELD_ROOM);
+    return { ...publicWorksRecognitionContext(true), watchInstitutionId: id,
+      watchAvailable: Boolean(id && home?.offices[id]?.available), watchConditions: [], geometryAvailable: geometry,
+      postReachable: Boolean(inspectPaths && geometry && a?.mapCell && labNavigationPlanBetweenCells(a.mapCell, WatchRecognition.POST,
+        { map: ensureLabMap(), actor: a, ignoreDoors: true }).found),
+      counterVisible: Boolean(geometry && a?.mapCell && a.roomId === SurveyExpeditions.FIELD_ROOM
+        && WildernessBeasts.distance(a.mapCell, office.civicCounter.cell) <= 6 && sensoryLineOfSight(a.mapCell, office.civicCounter.cell)) };
+  }
+  function watchRecognitionObserved() {
+    const s = state.watchRecognition, c = watchRecognitionContext();
+    return Boolean(s && c.alive && c.capable && c.local && c.cityId === s.cityId && c.atCounter
+      && c.clerkPresent && c.lineOfSight && c.presentIds.includes(s.personId));
+  }
+  function refreshWatchRecognitionKnowledge() {
+    if (watchRecognitionObserved()) state.watchRecognitionKnowledge = { ...WatchRecognition.publicView(state.watchRecognition), reportedAt: state.clock };
+  }
+  function updateWatchRecognition() {
+    const s = state.watchRecognition; if (!s || scientistIsDead()) return 0;
+    const before = s.receipt?.id;
+    const changed = WatchRecognition.advance(s, state.charterRecognition, state.publicWorksRecognition, state.citySuccession,
+      state.incumbentResistance, scientistCivicOffice(), watchRecognitionContext(s.job?.kind === 'instruction'), state.clock,
+      { move: moveSuccessionParticipant });
+    if (s.job && !state.combat?.routineSuspension) suspendScientistRoutineWork('watch recognition');
+    if (!s.job && state.combat?.routineSuspension?.reason === 'watch recognition') resumeScientistRoutineWork();
+    if (s.receipt?.id !== before && watchRecognitionObserved()) {
+      addEvent(s.message, { sourceKind: 'watchRecognition', sourceId: s.receipt.id }); state.paused = true;
+    }
+    refreshWatchRecognitionKnowledge(); return changed ? 1 : 0;
+  }
+  function observeCounterWatchAttack(attackerId, targetId, actionId, sequence) {
+    const s = state.watchRecognition, a = WatchRecognition.actor(s, state.citySuccession),
+      attacker = combatActor(attackerId), target = combatActor(targetId);
+    if (!s?.duty || !a?.mapCell || !attacker || !target || attacker.roomId !== a.roomId || target.roomId !== a.roomId) return;
+    const from = combatActorCell(attacker), to = combatActorCell(target), c = watchRecognitionContext();
+    if (!from || !to || !c.geometryAvailable || state.surveyExpeditions?.destination?.cityId !== s.cityId) return;
+    WatchRecognition.observe(s, state.citySuccession, { id: `${s.id}:combat:${attackerId}:${sequence}:${state.clock}`,
+      at: state.clock, cityId: s.cityId, actorId: attackerId, targetId,
+      kind: 'attackAtMunicipalCounter', cell: cleanMapCell(from), detail: `Observed ${actionId} attempted against ${targetId === 'scientist' ? 'the scientist' : target.name || targetId} on municipal ground.` },
+    { counterVisible: c.counterVisible, identified: attackerId !== 'scientist' && targetId !== 'scientist'
+        || c.bodyEpoch === s.duty.bodyEpoch && c.visibility === 'clear',
+      observed: WildernessBeasts.distance(a.mapCell, from) <= 6 && WildernessBeasts.distance(a.mapCell, to) <= 6
+        && sensoryLineOfSight(a.mapCell, from) && sensoryLineOfSight(a.mapCell, to) }, state.clock);
+  }
+  function watchRecognitionAction(action, expected = null) {
+    if (scientistIsDead()) return false;
+    if (action === 'walk') return scientistIdentityAction('walk');
+    const s = ensureWatchRecognition(), office = scientistCivicOffice(), c = watchRecognitionContext(action === 'order');
+    if (!s) return false;
+    const args = [s, state.charterRecognition, state.publicWorksRecognition, state.citySuccession, state.incumbentResistance, office], previousMessage = s.message; let ok = false;
+    if (action === 'meet') ok = WatchRecognition.meet(...args, c, state.clock);
+    if (action === 'sign') ok = WatchRecognition.sign(...args, expected, c, state.clock);
+    if (action === 'order') ok = WatchRecognition.order(...args, expected, c, state.clock);
+    if (action === 'cancel') ok = WatchRecognition.cancel(s, state.citySuccession, office, state.clock);
+    if (action === 'receive') ok = WatchRecognition.receive(s, state.citySuccession, office, c, state.clock, { communicate: r => {
+      recordInvestigativeEvidence('politicalConfrontationConduct', { category: 'documentary', label: r.detail, significance: 'serious',
+        origin: { kind: 'witness', id: r.witnessId, label: 'Original watch officeholder' }, subject: { kind: 'person', id: r.actorId },
+        locus: { kind: 'mapCell', roomId: SurveyExpeditions.FIELD_ROOM, cell: r.cell, label: 'Municipal counter' },
+        traits: [r.kind, r.finding], persistence: { kind: 'permanent' },
+        knowledge: { state: 'known', learnedAt: state.clock, source: 'watchRecognition', sourceIdentityKnown: true } });
+    } });
+    if (!ok && s.message === previousMessage) s.message = 'The original person, actual attendance, exact lawful scope, finite work, power and reachable counter must support this action. No new guard, signature or authority was granted.';
+    updateWatchRecognition(); persist(); render(); return ok;
+  }
+  function renderWatchRecognition() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.watchRecognition = 'true';
+    panel.append(textEl('h3', 'Original civil-watch recognition'), textEl('p', WatchRecognition.LIMITS));
+    const s = ensureWatchRecognition(); refreshWatchRecognitionKnowledge();
+    const v = state.watchRecognitionKnowledge, c = watchRecognitionContext(), observed = watchRecognitionObserved();
+    const button = (label, action, disabled, terms = null) => {
+      const el = storesActionButton(label, label, () => watchRecognitionAction(action, terms));
+      el.dataset.watchRecognitionAction = action; el.disabled = Boolean(disabled); panel.append(el);
+    };
+    if (!s) { panel.append(textEl('p', 'Authentic charter review, central-administration and separate public-works receipts must precede this independent decision.')); return panel; }
+    button('Walk to original watch counter', 'walk', surveyBusy());
+    if (!v) { panel.append(textEl('p', 'No personally received watch response. Away decisions and incident reports are unknown.')); return panel; }
+    panel.append(textEl('p', `Personally received ${formatClock(v.reportedAt)}: ${v.phase}. Dated knowledge, not remote surveillance.`));
+    const blocked = !observed || c.busy || !c.capable || c.activeViolence;
+    if (!v.receipt && !v.working) button(v.response ? 'Discuss genuinely changed watch circumstances' : 'Meet original watch official', 'meet', blocked);
+    if (v.response) panel.append(textEl('p', v.response.reason));
+    if (v.terms && !v.receipt) {
+      panel.append(textEl('p', v.terms.duties), textEl('p', v.terms.retainedRights), textEl('p', `Exact terms expire ${formatClock(v.terms.expiresAt)}; origin remains coerced.`));
+      if (!v.working) button('Accept exact watch continuation', 'sign', blocked || state.clock >= v.terms.expiresAt, clonePlainObject(v.terms));
+    }
+    if (v.working) {
+      panel.append(textEl('p', `${v.working.kind}: attended ${formatDuration(v.working.progress)} / ${formatDuration(v.working.seconds)}.`));
+      button('Cancel unfinished watch meeting', 'cancel', !observed);
+    }
+    if (v.receipt && !v.working && !v.duty) button('Order ten-minute physical counter watch', 'order', blocked, clonePlainObject(v.instructionTerms));
+    if (v.duty) panel.append(textEl('p', `Original officeholder: ${v.duty.status}; observed duty ${formatDuration(v.duty.progress)} / ten minutes. No additional guards or automatic arrests.`));
+    for (const completion of v.completions.slice(-3)) panel.append(textEl('p', `${formatClock(completion.at)}: ${completion.status}; ${formatDuration(completion.seconds)} observed duty, physical return recorded.`));
+    if (v.receipt && !v.working && !v.duty) button('Receive actual watch incident reports (30 seconds duty)', 'receive', blocked);
+    for (const report of v.reports.slice(-4)) panel.append(textEl('p', `${formatClock(report.at)}: ${report.detail} ${report.finding}`));
     panel.append(textEl('p', v.message)); return panel;
   }
   function defenderChallengeContext() {
@@ -86396,7 +86541,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function surveyTaskAllowed(task) {
     if ((CityConfrontations.active(state.cityConfrontation) || IncumbentResistance.active(state.incumbentResistance)) && task.type !== 'scientistMove'
       && !(task.type === 'surveyExpeditionWork' && task.data?.action === 'board')) return false;
-    if (state.citySuccession?.job || state.charterRecognition?.job || state.publicWorksRecognition?.job || state.cityAdministration?.resistance?.job) return false;
+    if (state.citySuccession?.job || state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.cityAdministration?.resistance?.job) return false;
     if (['preparing', 'petitioning'].includes(state.defenderChallenge?.phase)) return false;
     if (state.defenderChallenge?.phase === 'active' && task.type !== 'scientistMove') return false;
     if (state.scientistIdentity?.job || state.sovereignBargains?.job || state.surveyExpeditions?.mapService?.job || state.surveyExpeditions?.carrier?.briefingState?.job) return false;
@@ -86617,7 +86762,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function boardSurveyVehicle() {
-    if (CitySuccession.working(state.citySuccession) || state.charterRecognition?.job || state.publicWorksRecognition?.job || state.cityAdministration?.resistance?.job) return false;
+    if (CitySuccession.working(state.citySuccession) || state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.cityAdministration?.resistance?.job) return false;
     if (currentPenalFlight()) return false;
     if (DefenderChallenges.reserved(state.defenderChallenge) && state.defenderChallenge.phase !== 'returning') return false;
     if (clinicActive() || state.scientistIdentity?.job || state.sovereignBargains?.job || state.surveyExpeditions?.mapService?.job) return false;
@@ -86859,6 +87004,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(renderIncumbentResistance());
     panel.append(renderCharterRecognition());
     panel.append(renderPublicWorksRecognition());
+    panel.append(renderWatchRecognition());
     panel.append(renderCitySuccession());
     panel.append(renderCityAdministration());
     panel.append(renderCarrierBriefings());
@@ -93900,6 +94046,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.charterRecognitionKnowledge = candidate?.charterRecognitionKnowledge ? clonePlainObject(candidate.charterRecognitionKnowledge) : null;
     next.publicWorksRecognition = PublicWorksRecognition.normalize(candidate?.publicWorksRecognition);
     next.publicWorksRecognitionKnowledge = candidate?.publicWorksRecognitionKnowledge ? clonePlainObject(candidate.publicWorksRecognitionKnowledge) : null;
+    next.watchRecognition = WatchRecognition.normalize(candidate?.watchRecognition);
+    next.watchRecognitionKnowledge = candidate?.watchRecognitionKnowledge ? clonePlainObject(candidate.watchRecognitionKnowledge) : null;
     next.citySuccession = CitySuccession.normalize(candidate?.citySuccession);
     next.citySuccessionKnowledge = candidate?.citySuccessionKnowledge ? clonePlainObject(candidate.citySuccessionKnowledge) : null;
     next.cityAdministration = CityAdministration.normalize(candidate?.cityAdministration);
