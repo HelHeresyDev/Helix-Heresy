@@ -12,7 +12,7 @@
   const AUDIENCE_SECONDS = 900, COPY_SECONDS = 300, OFFER_SECONDS = 86400, DELIVERY_SECONDS = 259200;
   const LIMITS = 'Dated restricted approach extract only. No resource surveys, live threats, force totals, ownership, immunity, onward travel permission, command, neighboring sovereignty or joint-stronghold control. Divine patrons have not consented merely because a civic representative signed.';
   const capable = a => a?.status === 'alive' && a.health >= 50 && (a.fatigue || 0) < 80;
-  const readyOffice = o => o?.active && o.channelPowered && capable(o.clerk) && o.clerk.locationId === o.id;
+  const readyOffice = o => o?.active && o.channelPowered && o.maintenanceReady !== false && capable(o.clerk) && o.clerk.locationId === o.id;
 
   // Resolve existing charter/institution/route facts, never manufacture a sovereign
   // for a stronghold, an unsupported legacy city, or a displaced administration.

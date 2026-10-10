@@ -10,7 +10,7 @@
   const CLERK = Object.freeze({ x: 18, y: 8, z: 6 });
   const scope = 'Prospective civic registration of the physically observed attendee only. A chosen registration name is not verified birth history, a clean criminal record, account control, inherited ownership or continuity with the original scientist. No DNA test, soul identification, global wanted-person search, cargo attribution or enforcement authority.';
   const able = p => p?.status === 'alive' && p.health >= 50 && (p.fatigue || 0) < 80;
-  const ready = o => o?.active && o.channelPowered && able(o.clerk) && o.clerk.locationId === o.id;
+  const ready = o => o?.active && o.channelPowered && o.maintenanceReady !== false && able(o.clerk) && o.clerk.locationId === o.id;
   const contact = o => ({ ...copy(o.contact), accountId: o.id });
   const cleanName = name => String(name || '').replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 80);
   function create() {

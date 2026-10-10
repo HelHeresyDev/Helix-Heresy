@@ -8,7 +8,7 @@
   const copy = v => JSON.parse(JSON.stringify(v));
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const able = p => p?.status === 'alive' && p.health >= 50 && (p.fatigue || 0) < 80;
-  const ready = o => o?.active && o.channelPowered && able(o.clerk) && o.clerk.locationId === o.id;
+  const ready = o => o?.active && o.channelPowered && o.maintenanceReady !== false && able(o.clerk) && o.clerk.locationId === o.id;
   const limit = 'This observed representative only, not the buyer principal, employer, account controller, negotiator, payer or knowing offender. Description consistency is bounded support, not certain identity. No historical linkage, guilt or enforcement authority.';
   function provisionPerson(person) {
     Identity.provisionDriver(person);

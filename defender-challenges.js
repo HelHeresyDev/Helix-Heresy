@@ -126,7 +126,7 @@
       // Own reservations are not outside jobs; shared office/people still must be available.
       const local = { ...c, busy: c.otherBusy };
       const actors = [b.defender, b.representative];
-      const available = office?.active && office.channelPowered && office.clerk?.status === 'alive' && office.clerk.health >= 50
+      const available = office?.active && office.channelPowered && office.maintenanceReady !== false && office.clerk?.status === 'alive' && office.clerk.health >= 50
         && c.clerkPresent && c.lineOfSight && c.participantsPresent && !local.busy && actors.every(able) && actors.every(a => a.assignment === s.id && a.locationId === office.id)
         && (!office.assignment || office.assignment === j.id) && office.workSeconds > 0 && actors.every(a => a.workSeconds > 0);
       const work = available && j.wasReady ? Math.min(Math.max(0, at - Math.max(j.lastAt, office.availableAt || 0)), j.seconds - j.progress,

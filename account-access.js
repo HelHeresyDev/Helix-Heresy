@@ -7,7 +7,7 @@
   const copy = v => JSON.parse(JSON.stringify(v));
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const able = p => p?.status === 'alive' && p.health >= 50 && (p.fatigue || 0) < 80;
-  const ready = o => o?.active && o.channelPowered && able(o.clerk) && o.clerk.locationId === o.id;
+  const ready = o => o?.active && o.channelPowered && o.maintenanceReady !== false && able(o.clerk) && o.clerk.locationId === o.id;
   const scope = 'Witnessed access at this appointment only. Not ownership, exclusive control, employer authorization, principal identity, earlier messages, payment, delivery, knowing participation or enforcement authority. Claimed representative authority is unverified.';
   const contact = o => ({ ...copy(o.contact), accountId: o.id });
   function provisionBuyer(buyer, at) {

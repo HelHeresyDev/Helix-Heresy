@@ -182,3 +182,9 @@ test('campaign records only received handover, keeps six ambitions separate and 
   assert.equal(Campaign.roadmap('unbound').length, 6); assert.deepEqual(Campaign.normalize(copy(campaign)), campaign);
   assert.equal(Campaign.accomplishments(campaign).length, 1);
 });
+test('later upkeep replacement receipts preserve custody without rewriting the original conditional designation fulfilment', () => {
+  const f = fixture(); transferred(f); const historical = copy(f.s.handover);
+  f.s.provision.receipts.push({ id: 'later-parts', at: f.at + 100, purpose: 'upkeepReplacement', quantity: 3, manifest: [{ stackId: 'replacement', quantity: 3 }] });
+  assert.equal(Succession.publicView(f.s).received, 18); assert.deepEqual(f.s.handover, historical);
+  assert.equal(Succession.normalize(f.s).provision.receipts.length, 2);
+});

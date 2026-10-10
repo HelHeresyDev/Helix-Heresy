@@ -10,7 +10,7 @@
     { id: 'returnBrief', label: 'Booked return-travel brief', fee: 15, seconds: 300, purpose: 'Return on the existing municipal booking' }
   ]);
   const limits = 'Dated archive copy, not live telemetry. No surrounding terrain, mineral surveys, beast positions, ownership, extraction, construction or onward travel rights.';
-  const ready = office => Boolean(office?.active && office.channelPowered && office.clerk?.status === 'alive'
+  const ready = office => Boolean(office?.active && office.channelPowered && office.maintenanceReady !== false && office.clerk?.status === 'alive'
     && office.clerk.health >= 50 && (office.clerk.fatigue || 0) < 80 && office.clerk.locationId === office.id);
   const present = (office, ctx) => Boolean(ctx?.alive && ctx.capable && ctx.atCounter && ctx.clerkPresent && ctx.lineOfSight && ctx.cityId === office?.cityId);
 

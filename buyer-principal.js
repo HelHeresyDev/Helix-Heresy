@@ -8,7 +8,7 @@
   const copy = v => JSON.parse(JSON.stringify(v));
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const able = p => p?.status === 'alive' && p.health >= 50 && (p.fatigue || 0) < 80;
-  const ready = o => o?.active && o.channelPowered && able(o.clerk) && o.clerk.locationId === o.id;
+  const ready = o => o?.active && o.channelPowered && o.maintenanceReady !== false && able(o.clerk) && o.clerk.locationId === o.id;
   const contact = o => ({ ...copy(o.contact), accountId: o.id });
   const scope = 'Identified giver and recipient of this prospective instruction only. Not company ownership, an unseen employer or ultimate beneficiary, account control, earlier negotiation, payment, delivery, knowledge of illegal contents, guilt or enforcement authority. No onward delegation.';
   function provision(buyer, at, individual = false) {

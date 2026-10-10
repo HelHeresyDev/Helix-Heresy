@@ -25,7 +25,7 @@
       clerk: { id: `${id}:clerk`, locationId: id, status: 'alive', health: 100 },
       channelPowered: true, power: 12, workSeconds: 14400, money: 0, fee: 20, assignment: null, records: [], availableAt: at });
   }
-  const ready = o => o?.active && o.channelPowered && able(o.clerk) && o.clerk.locationId === o.id;
+  const ready = o => o?.active && o.channelPowered && o.maintenanceReady !== false && able(o.clerk) && o.clerk.locationId === o.id;
   function preview(state, op) {
     const office = state.identityOffices?.find(o => o.cityId === op?.sourceId && ready(o) && o.route.open);
     const driver = op?.crew.find(able);

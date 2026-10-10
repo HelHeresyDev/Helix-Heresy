@@ -73,7 +73,7 @@
       || b.source.authority.id !== s.source.authority.id || c.charterCurrent !== true) return 'The original designation charter and physically supported institutions are required.';
     if (!c.alive || !c.capable || !c.atCounter || !c.visitPermission || !c.clerkPresent || !c.lineOfSight || c.busy
       || c.cityId !== s.source.cityId) return 'Attend the permitted civic counter, capable and free of other work.';
-    if (!office.active || !office.channelPowered || !capable(office.clerk) || !c.administrationAvailable || !c.defenseAvailable
+    if (!office.active || !office.channelPowered || office.maintenanceReady === false || !capable(office.clerk) || !c.administrationAvailable || !c.defenseAvailable
       || !c.institutionsAvailable || !c.participantsPresent || !c.leadersPresent) return 'Original ruler, defender and institutional leaders must be physically present and capable in their original offices.';
     if (!people(s, b).every(capable) || people(s, b).some(a => a.assignment && (!own || a.assignment !== s.id))
       || office.assignment && (!own || office.assignment !== s.job?.id)) return 'Existing civic people or the shared counter are assigned elsewhere.';
@@ -182,7 +182,7 @@
       && agreementActors(s, b).every(a => capable(a) && s.agreements.some(r => r.personId === a.id)));
   }
   function directive(s, b, office, c, at) {
-    if (!operative(s, b, c) || localReason(s, b, office, c) || s.directive || s.provision.stock < 3) return false;
+    if (!operative(s, b, c) || localReason(s, b, office, c) || s.directive || s.provision.stock < 3 || s.provision.reservedBy) return false;
     const worker = s.leaders.find(a => a.roles.includes('publicWorksAndProvisioning'));
     if (!worker || worker.workSeconds < 120 || !begin(s, b, office, c, at, 'directive', 60, worker.id)) return false;
     s.directive = { id: `${s.id}:directive:stage-maintenance`, issuedAt: at, status: 'ordered', workerId: worker.id,
@@ -283,7 +283,7 @@
     if (!s) return null;
     return { phase: s.phase, source: { cityId: s.source.cityId, cityName: s.source.cityName, charterId: s.source.charterId, succession: s.source.succession },
       contacts: [s.ruler, ...s.leaders].map(a => ({ id: a.id, name: a.name, role: a.role })),
-      decision: copy(s.decision), terms: copy(s.terms), received: s.provision.receipts.reduce((n, r) => n + r.quantity, 0),
+      decision: copy(s.decision), terms: copy(s.terms), received: s.provision.receipts.filter(r => r.purpose !== 'upkeepReplacement').reduce((n, r) => n + r.quantity, 0),
       agreements: copy(s.agreements), handover: copy(s.handover), control: copy(s.control), opposition: copy(s.opposition),
       directive: s.directive && { id: s.directive.id, status: s.directive.status, workerId: s.directive.workerId,
         quantity: s.directive.quantity, destination: copy(s.directive.destination), receipt: copy(s.directive.receipt) },
