@@ -176,10 +176,11 @@
     release(s, b, office, at); s.phase = 'withdrawn';
     note(s, at, 'withdrawal', 'Withdrew without invented guilt. Spent work and city-held supplies remain; no transfer occurred.'); return true;
   }
-  function operative(s, b, c) {
+  function operative(s, b, c, alreadyAuthorized = false) {
     return Boolean(s?.handover && c.alive && c.bodyEpoch === s.control.bodyEpoch && c.authorityId === 'scientist'
       && c.charterCurrent && c.institutionsAvailable && c.administrationAvailable && c.defenseAvailable
-      && agreementActors(s, b).every(a => capable(a) && s.agreements.some(r => r.personId === a.id)));
+      && agreementActors(s, b).every(a => capable(a) && s.agreements.some(r => r.personId === a.id
+        && (alreadyAuthorized || !r.suspendedRoles?.includes('publicWorksAndProvisioning')))));
   }
   function directive(s, b, office, c, at) {
     if (!operative(s, b, c) || localReason(s, b, office, c) || s.directive || s.provision.stock < 3 || s.provision.reservedBy) return false;
@@ -211,7 +212,7 @@
     if (d?.status === 'carrying') {
       const actor = s.leaders.find(a => a.id === d.workerId);
       const steps = Math.min(60, Math.max(0, Math.floor(at - d.lastAt))); d.lastAt = at;
-      if (!operative(s, b, c) || !capable(actor) || actor.assignment !== s.id) return false;
+      if (!operative(s, b, c, true) || !capable(actor) || actor.assignment !== s.id) return false;
       for (let n = 0; n < steps && actor.workSeconds > 0 && !same(actor.mapCell, d.destination); n++) if (effects.move?.(actor, d.destination)) actor.workSeconds--;
       if (same(actor.mapCell, d.destination)) {
         const stackId = effects.stage?.(copy(d.cargo), copy(d.destination));
@@ -270,7 +271,7 @@
           roles: copy(a.roles), authorityId: 'scientist', agreementAt: a.at })), opposition: 'No undiscovered opposition has been surveyed; institutional consent is not citywide unanimity.' };
       s.phase = 'transferred'; note(s, completedAt, 'handover', 'The incumbent designated the scientist under the existing charter. The original institutional leaders witnessed physical handover; actual command is bounded by their separate agreements.');
     } else if (j.kind === 'directive') {
-      if (operative(s, b, c) && s.provision.stock >= d.quantity) {
+      if (operative(s, b, c, true) && s.provision.stock >= d.quantity) {
         s.provision.stock -= d.quantity; d.cargo = { key: d.key, quantity: d.quantity, cityId: s.source.cityId,
           sourceReceiptIds: copy(d.sourceReceiptIds), custodianId: d.workerId }; d.status = 'carrying'; d.lastAt = completedAt;
       } else s.directive = null;

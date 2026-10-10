@@ -40,6 +40,23 @@ function transferred(f) {
   assert.equal(Succession.handover(f.s, f.b, f.office, f.c, f.at), true); step(f, 180);
   assert.equal(f.s.phase, 'transferred'); f.c.authorityId = 'scientist';
 }
+test('role-specific refusal blocks new discretionary staging, not historical recognition or previously accepted physical cargo', () => {
+  const fresh = fixture(); transferred(fresh);
+  const worker = fresh.s.leaders.find(a => a.roles.includes('publicWorksAndProvisioning'));
+  fresh.s.agreements.find(a => a.personId === worker.id).suspendedRoles = ['publicWorksAndProvisioning'];
+  const receipt = copy(fresh.s.handover);
+  assert.equal(Succession.operative(fresh.s, fresh.b, fresh.c), false);
+  assert.equal(Succession.directive(fresh.s, fresh.b, fresh.office, fresh.c, fresh.at), false);
+  assert.deepEqual(fresh.s.handover, receipt);
+  const accepted = fixture(); transferred(accepted);
+  assert.equal(Succession.directive(accepted.s, accepted.b, accepted.office, accepted.c, accepted.at), true);
+  const person = accepted.s.leaders.find(a => a.roles.includes('publicWorksAndProvisioning'));
+  accepted.s.agreements.find(a => a.personId === person.id).suspendedRoles = ['publicWorksAndProvisioning'];
+  step(accepted, 60); assert.equal(accepted.s.directive.status, 'carrying');
+  step(accepted, 60, { stage: () => 'actual-original-stack' });
+  assert.equal(accepted.s.directive.status, 'completed'); assert.equal(accepted.s.provision.stock, 15);
+  assert.equal(Succession.operative(accepted.s, accepted.b, accepted.c), false);
+});
 test('designation binds existing individual ruler, charter, actual institutions and population without mutating world facts', () => {
   const f = fixture();
   const government = { cityId: 'a', sovereigntyScope: 'cityOnly', charter: { id: f.source.charterId, successionPrinciple: f.source.succession },

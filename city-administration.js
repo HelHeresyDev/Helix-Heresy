@@ -10,7 +10,7 @@
   const PERIOD = 86400, GRACE = 28800, REST = 28800, WORK = 120, PARTS = 3, POWER_CAP = 12;
   const WORK_CELL = Object.freeze({ x: 16, y: 8, z: 6 });
   const RECEIVING = Object.freeze({ x: 16, y: 12, z: 6 });
-  const LIMITS = 'This existing municipal counter only, not citywide defense, a repaired wall, personal ward recharge, a new army, immunity, divine approval or joint-stronghold command. Historical recognition survives service interruption. Institutional resistance remains separate.';
+  const LIMITS = 'This existing municipal counter only, not citywide defense, a repaired wall, personal ward recharge, a new army, immunity, divine approval or joint-stronghold command. Historical recognition survives service interruption. Essential remediation remains available during a role-specific refusal; repairs do not renew political consent.';
   const living = a => a?.status === 'alive' && a.health >= 50;
   const able = a => living(a) && (a.fatigue || 0) < 80;
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
