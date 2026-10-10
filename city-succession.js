@@ -33,6 +33,7 @@
     if (control && (control.recognizedAuthorityId !== p.authority.id || control.controlStatus !== 'sovereign')) return null;
     return { cityId: b.cityId, cityName: b.cityName, charterId: b.charterId, authority: copy(p.authority),
       succession: g.charter.successionPrinciple, populationSourceId: row.assetId,
+      designationReview: copy(g.charter.designationReview || null),
       institutions: roles.map((role, n) => ({ role, id: institutions[n].id, name: institutions[n].publicName || institutions[n].name || role,
         responsibilities: copy(institutions[n].responsibilities || []) })) };
   }

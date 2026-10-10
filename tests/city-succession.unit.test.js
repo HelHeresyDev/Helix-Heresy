@@ -66,6 +66,13 @@ test('designation binds existing individual ruler, charter, actual institutions 
     strategicPlayableSettlementState: { cityRows: [{ cityId: 'a', assetId: 'population:a', currentPopulation: 8, physicalCondition: 'intact', services: { fortifications: 'operational' } }] },
     strategicPoliticalHistory: { currentControlRows: [{ cityId: 'a', recognizedAuthorityId: 'ruler:a', controlStatus: 'sovereign' }] } };
   const original = copy(map); assert.equal(Succession.sourceFromWorld(map, f.b).authority.id, 'ruler:a'); assert.deepEqual(map, original);
+  assert.equal(Succession.sourceFromWorld(map, f.b).designationReview, null);
+  government.charter.designationReview = { id: 'original-law', principle: f.source.succession,
+    reviewInstitutionId: government.roleAssignments.civicReview, coercionRule: 'independentConfirmationPermitted', requiredAuthorizationIds: [] };
+  const published = Succession.sourceFromWorld(map, f.b).designationReview;
+  assert.deepEqual(published, government.charter.designationReview);
+  published.coercionRule = 'uncoercedDesignationRequired';
+  assert.equal(government.charter.designationReview.coercionRule, 'independentConfirmationPermitted');
   for (const change of [m => m.cityPolities.polities[0].authority.kind = 'collective', m => m.cityGovernments.governments[0].sovereigntyScope = 'jointStronghold',
     m => m.cityGovernments.governments[0].charter.successionPrinciple = 'inheritance under emergency law', m => m.strategicPlayableSettlementState.cityRows[0].currentPopulation = 7,
     m => m.cityGovernments.governments[0].institutions[0].commandAuthorityId = 'usurper', m => m.strategicPoliticalHistory.currentControlRows[0].controlStatus = 'occupied']) {

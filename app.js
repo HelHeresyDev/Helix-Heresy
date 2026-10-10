@@ -105,6 +105,7 @@
   const DefenderChallenges = window.HelixDefenderChallenges;
   const CityConfrontations = window.HelixCityConfrontations;
   const IncumbentResistance = window.HelixIncumbentResistance;
+  const CharterRecognition = window.HelixCharterRecognition;
   const CitySuccession = window.HelixCitySuccession;
   const CityAdministration = window.HelixCityAdministration;
   const CityResistance = window.HelixCityResistance;
@@ -5460,6 +5461,8 @@
       cityConfrontationKnowledge: null,
       incumbentResistance: null,
       incumbentResistanceKnowledge: null,
+      charterRecognition: null,
+      charterRecognitionKnowledge: null,
       citySuccession: null,
       citySuccessionKnowledge: null,
       cityAdministration: null,
@@ -14439,6 +14442,36 @@
       defenderChallengeAction: (action, expected) => defenderChallengeAction(action, expected),
       cityConfrontationAction: action => cityConfrontationAction(action),
       incumbentResistanceAction: (action, terms) => incumbentResistanceAction(action, terms),
+      charterRecognitionAction: (action, terms) => charterRecognitionAction(action, terms),
+      charterRecognitionSnapshot: () => clonePlainObject({ recognition: state.charterRecognition, known: state.charterRecognitionKnowledge,
+        succession: state.citySuccession, abdication: state.incumbentResistance, office: scientistCivicOffice(), institutions: ensureHomeInstitutionContext(),
+        context: charterRecognitionContext(), clock: state.clock, campaign: state.campaign }),
+      configureCharterRecognitionTest: (options = {}) => {
+        const b = state.sovereignBargains, succession = state.citySuccession;
+        if (!b?.testFixture || !succession) return false;
+        // Prepared explicit local law and existing institutions only, never an
+        // abdication, reviewer finding, continuation or execution receipt.
+        if (!b.testSuccessionSource.designationReview && !options.missingRule) {
+          b.testSuccessionSource.designationReview = { id: 'test:designation-review-law', principle: succession.source.succession,
+            reviewInstitutionId: succession.leaders.find(a => a.roles.includes('civicReview')).institutionId,
+            coercionRule: 'independentConfirmationPermitted', requiredAuthorizationIds: [], text: 'Explicit prepared local confirmation law.' };
+        }
+        if (options.missingRule) b.testSuccessionSource.designationReview = null;
+        if (options.rule) b.testSuccessionSource.designationReview = clonePlainObject(options.rule);
+        succession.source.designationReview = clonePlainObject(b.testSuccessionSource.designationReview);
+        const a = succession.leaders.find(a => a.roles.includes('centralAdministration'));
+        if (options.policy) a.recognitionPolicy = options.policy;
+        if (options.administratorHealth != null) a.health = options.administratorHealth;
+        if (options.powered != null) scientistCivicOffice().channelPowered = options.powered;
+        if (options.bindInstitutions) ensureCompany().homeInstitutionContext = HomeInstitutionContext.create({ cityId: b.source.cityId, cityName: 'Test City' },
+          b.testSuccessionSource.institutions.map(i => ({ ...i, capacityBand: 'exceptional', status: 'operational' })), state.clock);
+        const home = ensureHomeInstitutionContext();
+        if (options.reviewAvailable != null && home) home.offices[home.roles['civic-review']].available = options.reviewAvailable;
+        ensureCharterRecognition(); refreshCharterRecognitionKnowledge(); persist(); render(); return true;
+      },
+      advanceCharterRecognitionForTest: seconds => {
+        state.clock += Math.max(0, Number(seconds) || 0); updateCharterRecognition(); persist(); render(); return state.clock;
+      },
       incumbentResistanceSnapshot: () => clonePlainObject({ resistance: state.incumbentResistance, known: state.incumbentResistanceKnowledge,
         succession: state.citySuccession, bargain: state.sovereignBargains, office: scientistCivicOffice(), context: incumbentResistanceContext(), clock: state.clock,
         scientist: { cell: scientistMapCell(), health: scientistVital('health').current, mana: scientistVital('mana').current },
@@ -22045,6 +22078,12 @@
       const s = state.incumbentResistance;
       return { time: state.clock + (s.job ? Math.max(1, s.job.seconds - s.job.progress) : 1), label: 'Incumbent resistance or declaration', type: 'combat' };
     }
+    if (state.charterRecognition && charterRecognitionObserved()) {
+      const s = state.charterRecognition;
+      if (s.job) return { time: state.clock + Math.max(1, s.job.seconds - s.job.progress), label: 'Attended charter recognition', type: 'company' };
+      if (s.review?.status === 'queued' && s.review.readyAt > state.clock)
+        return { time: s.review.readyAt, label: 'Existing charter-review allocation ready', type: 'company' };
+    }
     if (CityConfrontations.active(state.cityConfrontation) && cityConfrontationObserved())
       return { time: state.clock + 1, label: 'Dangerous political confrontation', type: 'combat' };
     const gateEvent = nextGateEnforcementEvent();
@@ -22604,6 +22643,7 @@
     changes.combatChanged += livingUpdate(() => updateDefenderChallenge());
     changes.combatChanged += livingUpdate(() => updateCityConfrontation());
     changes.combatChanged += livingUpdate(() => updateIncumbentResistance());
+    changes.scientistMovementChanged += livingUpdate(() => updateCharterRecognition());
     changes.scientistMovementChanged += livingUpdate(() => updateCarrierBriefing());
     changes.scientistMovementChanged += livingUpdate(() => updatePenalFlights(elapsed));
     changes.scientistMovementChanged += livingUpdate(() => updatePenalLegion(elapsed));
@@ -22672,6 +22712,16 @@
     if (scientistIsDead()) return 0;
     const advanceStartedAt = performance.now();
     const elapsed = Math.max(0, Number(seconds) || 0);
+    if (!options.recognitionStep && elapsed > 1 && state.charterRecognition?.job) {
+      let remaining = elapsed, changed = 0;
+      while (remaining > 0 && !scientistIsDead() && state.charterRecognition.job) {
+        const s = state.charterRecognition, before = state.clock;
+        const step = Math.min(remaining, 60, Math.max(1, s.job.seconds - s.job.progress));
+        changed += advanceTime(step, { ...options, recognitionStep: true }); remaining -= state.clock - before;
+        if (state.clock <= before || !s.job) break;
+      }
+      return changed;
+    }
     if (!options.incumbentStep && elapsed > 1 && (IncumbentResistance.dangerous(state.incumbentResistance) || state.incumbentResistance?.job)) {
       let remaining = elapsed, changed = 0;
       while (remaining > 0 && !scientistIsDead()) {
@@ -83503,7 +83553,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       && labNavigationPlanBetweenCells(actor.mapCell, target, { map: ensureLabMap(), actor, ignoreDoors: true }).found);
     const reviewId = source?.institutions.find(i => i.role === 'civicReview')?.id;
     return { ...c, busy: c.busy || Boolean(state.scientistIdentity?.job || state.sovereignBargains?.job
-      || state.citySuccession?.job || DefenderChallenges.reserved(state.defenderChallenge) || CityConfrontations.active(state.cityConfrontation) || IncumbentResistance.active(state.incumbentResistance)
+      || state.citySuccession?.job || state.charterRecognition?.job || DefenderChallenges.reserved(state.defenderChallenge) || CityConfrontations.active(state.cityConfrontation) || IncumbentResistance.active(state.incumbentResistance)
       || state.surveyExpeditions?.mapService?.job || state.surveyExpeditions?.carrier?.briefingState?.job),
       bodyEpoch: ensureScientistIdentity().bodyEpoch,
       visitPermission: state.surveyExpeditions?.discovery?.access.active === true,
@@ -83920,6 +83970,101 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (v.recording) panel.append(textEl('p', `Actual attended declaration: ${formatDuration(v.recording.progress)} / one minute. Outages and lost attendance pause work without backfill.`));
     if (v.receipt) panel.append(textEl('p', `${formatClock(v.receipt.at)}: ${v.receipt.authentication}; ${v.receipt.recognition}. Recorder ${v.receipt.recorderId}. ${v.receipt.terms.origin}`));
     for (const r of v.reports.slice(-4)) panel.append(textEl('p', `${formatClock(r.at)}: ${r.detail} Witness ${r.witnessId}. ${r.finding}`));
+    panel.append(textEl('p', v.message)); return panel;
+  }
+  function ensureCharterRecognition() {
+    if (state.charterRecognition) return state.charterRecognition;
+    state.charterRecognition = CharterRecognition.create(state.citySuccession, state.incumbentResistance, scientistCivicOffice(), activeWorldRecord?.worldTheme || 'madcap');
+    return state.charterRecognition;
+  }
+  function charterRecognitionContext() {
+    const office = scientistCivicOffice(), c = scientistCivicContext(office), source = citySuccessionSource(), s = state.charterRecognition,
+      home = ensureHomeInstitutionContext(), cell = scientistMapCell();
+    const near = a => Boolean(a?.status === 'alive' && a.roomId === scientistRoomId() && a.locationId === office?.id
+      && a.mapCell && WildernessBeasts.distance(cell, a.mapCell) <= 4 && sensoryLineOfSight(cell, a.mapCell) && !actorIsIncapacitated(a));
+    return { ...c, local: state.surveyExpeditions?.phase === 'field' && scientistRoomId() === SurveyExpeditions.FIELD_ROOM,
+      visitPermission: state.surveyExpeditions?.discovery?.access.active === true,
+      busy: c.busy || Boolean(state.scientistIdentity?.job || state.sovereignBargains?.job || state.citySuccession?.job
+        || state.incumbentResistance?.job || IncumbentResistance.dangerous(state.incumbentResistance)
+        || DefenderChallenges.reserved(state.defenderChallenge) || state.cityAdministration?.job || state.cityAdministration?.resistance?.job
+        || state.surveyExpeditions?.mapService?.job || state.surveyExpeditions?.carrier?.briefingState?.job),
+      bodyEpoch: ensureScientistIdentity().bodyEpoch, authorityId: source?.authority.id,
+      charterCurrent: Boolean(source && source.charterId === state.citySuccession?.source.charterId
+        && (!s || source.institutions.find(i => i.role === 'centralAdministration')?.id === s.administrationId
+          && source.institutions.find(i => i.role === 'civicReview')?.id === s.reviewInstitutionId)),
+      activeViolence: state.cityConfrontation?.phase === 'fighting' || IncumbentResistance.dangerous(state.incumbentResistance),
+      administrationAvailable: Boolean(s && home?.offices[s.administrationId]?.available),
+      reviewAvailable: Boolean(s && home?.offices[s.reviewInstitutionId]?.available),
+      rule: source?.designationReview || null, authorizationIds: [], // No playable authenticated patron-approval procedure exists yet.
+      presentIds: citySuccessionPeople().filter(near).map(a => a.id),
+      conduct: [...(state.incumbentResistance?.reports || []), ...(state.cityConfrontation?.reports || []), ...(state.defenderChallenge?.conduct || [])] };
+  }
+  function charterRecognitionObserved() {
+    const c = charterRecognitionContext(); return c.alive && c.capable && c.local && c.atCounter && c.clerkPresent && c.lineOfSight;
+  }
+  function refreshCharterRecognitionKnowledge() {
+    if (state.charterRecognition && charterRecognitionObserved()) state.charterRecognitionKnowledge = {
+      ...CharterRecognition.publicView(state.charterRecognition), publishedRule: clonePlainObject(charterRecognitionContext().rule), reportedAt: state.clock };
+  }
+  function updateCharterRecognition() {
+    const s = state.charterRecognition; if (!s || scientistIsDead()) return 0;
+    const before = s.recognition?.id, instruction = s.instruction?.id;
+    const changed = CharterRecognition.advance(s, state.citySuccession, state.incumbentResistance, scientistCivicOffice(), ensureHomeInstitutionContext(), charterRecognitionContext(), state.clock);
+    if (s.job && !state.combat?.routineSuspension) suspendScientistRoutineWork('charter recognition');
+    if (!s.job && state.combat?.routineSuspension?.reason === 'charter recognition') resumeScientistRoutineWork();
+    if (s.recognition?.id !== before || s.instruction?.id !== instruction) {
+      addEvent(s.message, { sourceKind: 'charterRecognition', sourceId: s.instruction?.id || s.recognition.id }); state.paused = true;
+    }
+    refreshCharterRecognitionKnowledge(); return changed ? 1 : 0;
+  }
+  function charterRecognitionAction(action, expected = null) {
+    if (action === 'walk') return scientistIdentityAction('walk');
+    if (scientistIsDead()) return false;
+    const s = ensureCharterRecognition(), office = scientistCivicOffice(), home = ensureHomeInstitutionContext(), c = charterRecognitionContext();
+    if (!s) return false;
+    const args = [s, state.citySuccession, state.incumbentResistance, office, home]; let ok = false;
+    if (action === 'file') ok = CharterRecognition.file(...args, c, state.clock);
+    if (action === 'hear') ok = CharterRecognition.hear(...args, c, state.clock);
+    if (action === 'meeting') ok = CharterRecognition.meeting(...args, c, state.clock);
+    if (action === 'sign') ok = CharterRecognition.sign(...args, expected, c, state.clock);
+    if (action === 'instruct') ok = CharterRecognition.instruct(...args, expected, c, state.clock);
+    if (action === 'cancel') ok = CharterRecognition.cancel(s, state.citySuccession, office, state.clock);
+    if (!ok) s.message = 'The original claim, explicit rule, independent official, exact terms, attendance, queue or finite resources do not support this action. No recognition or execution was awarded.';
+    updateCharterRecognition(); persist(); render(); return ok;
+  }
+  function renderCharterRecognition() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.charterRecognition = 'true';
+    panel.append(textEl('h3', 'Charter review and administrative recognition'), textEl('p', CharterRecognition.LIMITS));
+    const s = ensureCharterRecognition(); refreshCharterRecognitionKnowledge();
+    const v = state.charterRecognitionKnowledge, c = charterRecognitionContext(), observed = charterRecognitionObserved();
+    const button = (label, action, disabled = false, terms = null) => {
+      const el = storesActionButton(label, label, () => charterRecognitionAction(action, terms));
+      el.dataset.charterRecognitionAction = action; el.disabled = Boolean(disabled); panel.append(el);
+    };
+    if (!v) { panel.append(textEl('p', 'Present a witnessed coerced declaration at the original municipal counter. No signed claim, reviewer or replacement official is invented.'));
+      button('Walk to original charter-review counter', 'walk', !scientistCivicOffice()?.civicCounter); return panel; }
+    panel.append(textEl('p', `Personally received ${formatClock(v.reportedAt)}: ${v.phase}. Dated knowledge, not unseen institutional surveillance.`),
+      textEl('p', v.publishedRule?.text || 'No explicit local confirmation rule is available. A charter label alone cannot establish legality.'));
+    const blocked = !observed || c.busy || !c.capable || c.activeViolence;
+    if (!v.recognition && !v.working) button('File original coerced claim for charter review', 'file', blocked || !CharterRecognition.independent(s, state.citySuccession));
+    if (v.review) {
+      panel.append(textEl('p', `Original review queue: ${v.review.status}; allocation ready ${formatClock(v.review.readyAt)}.`));
+      if (v.review.status === 'queued' && !v.working) button('Attend independent charter hearing', 'hear', blocked || state.clock < v.review.readyAt);
+      if (v.review.finding) panel.append(textEl('p', `${v.review.finding.outcome}: ${v.review.finding.reason}`));
+    }
+    if (v.review?.finding?.outcome === 'eligible' && !v.recognition && !v.working)
+      button('Meet original administrative officeholder', 'meeting', blocked);
+    if (v.response) panel.append(textEl('p', `${formatClock(v.response.at)}: ${v.response.reason}`));
+    if (v.terms && !v.recognition) {
+      panel.append(textEl('p', v.terms.duties), textEl('p', v.terms.retainedRights), textEl('p', `Exact continuation expires ${formatClock(v.terms.expiresAt)}. Origin remains coerced.`));
+      if (!v.working) button('Accept exact administrative continuation', 'sign', blocked || state.clock >= v.terms.expiresAt, clonePlainObject(v.terms));
+    }
+    if (v.working) { panel.append(textEl('p', `${v.working.kind}: attended ${formatDuration(v.working.progress)} / ${formatDuration(v.working.seconds)}.`)); button('Cancel unfinished meeting', 'cancel', !observed); }
+    if (v.recognition) {
+      panel.append(textEl('p', `${formatClock(v.recognition.at)}: central administration recognized the claim. Coercion remains recorded. Public works, watch, defense and religious institutions have not agreed through this signature.`));
+      if (!v.instruction && !v.working) button('Order scoped succession register memorandum', 'instruct', blocked, clonePlainObject(v.instructionTerms));
+    }
+    if (v.instruction) panel.append(textEl('p', `${formatClock(v.instruction.at)}: ${v.instruction.status}; actual register record ${v.instruction.recordId}. No stock, maps or other commands awarded.`));
     panel.append(textEl('p', v.message)); return panel;
   }
   function defenderChallengeContext() {
@@ -86139,7 +86284,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function surveyTaskAllowed(task) {
     if ((CityConfrontations.active(state.cityConfrontation) || IncumbentResistance.active(state.incumbentResistance)) && task.type !== 'scientistMove'
       && !(task.type === 'surveyExpeditionWork' && task.data?.action === 'board')) return false;
-    if (state.citySuccession?.job || state.cityAdministration?.resistance?.job) return false;
+    if (state.citySuccession?.job || state.charterRecognition?.job || state.cityAdministration?.resistance?.job) return false;
     if (['preparing', 'petitioning'].includes(state.defenderChallenge?.phase)) return false;
     if (state.defenderChallenge?.phase === 'active' && task.type !== 'scientistMove') return false;
     if (state.scientistIdentity?.job || state.sovereignBargains?.job || state.surveyExpeditions?.mapService?.job || state.surveyExpeditions?.carrier?.briefingState?.job) return false;
@@ -86360,7 +86505,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function boardSurveyVehicle() {
-    if (CitySuccession.working(state.citySuccession) || state.cityAdministration?.resistance?.job) return false;
+    if (CitySuccession.working(state.citySuccession) || state.charterRecognition?.job || state.cityAdministration?.resistance?.job) return false;
     if (currentPenalFlight()) return false;
     if (DefenderChallenges.reserved(state.defenderChallenge) && state.defenderChallenge.phase !== 'returning') return false;
     if (clinicActive() || state.scientistIdentity?.job || state.sovereignBargains?.job || state.surveyExpeditions?.mapService?.job) return false;
@@ -86600,6 +86745,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(renderDefenderChallenge());
     panel.append(renderCityConfrontation());
     panel.append(renderIncumbentResistance());
+    panel.append(renderCharterRecognition());
     panel.append(renderCitySuccession());
     panel.append(renderCityAdministration());
     panel.append(renderCarrierBriefings());
@@ -93637,6 +93783,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.cityConfrontationKnowledge = candidate?.cityConfrontationKnowledge ? clonePlainObject(candidate.cityConfrontationKnowledge) : null;
     next.incumbentResistance = IncumbentResistance.normalize(candidate?.incumbentResistance);
     next.incumbentResistanceKnowledge = candidate?.incumbentResistanceKnowledge ? clonePlainObject(candidate.incumbentResistanceKnowledge) : null;
+    next.charterRecognition = CharterRecognition.normalize(candidate?.charterRecognition);
+    next.charterRecognitionKnowledge = candidate?.charterRecognitionKnowledge ? clonePlainObject(candidate.charterRecognitionKnowledge) : null;
     next.citySuccession = CitySuccession.normalize(candidate?.citySuccession);
     next.citySuccessionKnowledge = candidate?.citySuccessionKnowledge ? clonePlainObject(candidate.citySuccessionKnowledge) : null;
     next.cityAdministration = CityAdministration.normalize(candidate?.cityAdministration);

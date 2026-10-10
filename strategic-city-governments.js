@@ -115,6 +115,17 @@
     return "The sovereign authority may issue recorded directives; delegated offices act within published mandates and review limits.";
   }
 
+  function designationReviewRule(seed, cityId, principle, authorityKind, reviewId) {
+    if (authorityKind !== 'individual' || !['named experimental successor', 'designation by the reigning protector'].includes(principle)) return null;
+    const permits = seededNumber(seed, `${cityId}:coerced-designation-law`) >= .25;
+    return { id: `${cityId}:designation-review-law`, principle, reviewInstitutionId: reviewId,
+      coercionRule: permits ? 'independentConfirmationPermitted' : 'uncoercedDesignationRequired',
+      requiredAuthorizationIds: [],
+      text: permits ? 'A personally recorded coerced designation may be confirmed for institutional consideration by independent charter review. Coercion remains recorded; each institution separately decides recognition and continuation.'
+        : 'This charter requires an uncoerced designation. A coerced declaration is authentic history but cannot qualify through this confirmation procedure.',
+      safeguards: 'Retain personal freedom, property and faith, existing appointments and legal cases. No criminal verdict, divine endorsement or command outside a separately accepted institutional role.' };
+  }
+
   function groupingFor(seed, polity) {
     const form = polity.governingForm.toLowerCase();
     const priorities = polity.civicPriorities.join(" ").toLowerCase();
@@ -204,6 +215,7 @@
         legitimacyBasis: legitimacyBasis(polity),
         decisionRule: decisionRule(polity),
         successionPrinciple: polity.successionPrinciple,
+        designationReview: designationReviewRule(worldSeed, city.id, polity.successionPrinciple, polity.authority.kind, reviewId),
         continuityProcedure: "The charter preserves institutions and delegates temporary authority until the succession rule resolves sovereign continuity.",
         emergencyPowers: {
           declarationAuthorityId: polity.authority.id,
@@ -387,6 +399,7 @@
     INDEPENDENCE_BANDS,
     RISK_BANDS,
     JURISDICTION_SCOPE,
+    designationReviewRule,
     createCityGovernments,
     validateCityGovernments,
     attachCityGovernments,

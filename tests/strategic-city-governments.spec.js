@@ -8,6 +8,22 @@ function generatedMap(seed, theme = 'madcap') {
   return Library.createWorld({ id: `government-${seed}-${theme}`, worldSeed: seed, worldTheme: theme, createdAt: 'test' }).generatedData.strategicMap;
 }
 
+function governmentFoundation(seed) {
+  // Generate real charter dependencies without unrelated decades of later
+  // political, legal, religious and demographic history.
+  let map = StrategicWorld.createStrategicMap(seed);
+  map = require('../planetary-relief').attachRelief(seed, map);
+  map = require('../climate-hydrology-biomes').attachEnvironment(seed, map);
+  map = require('../strategic-geology').attachGeology(seed, map);
+  map = require('../strategic-arcane-geography').attachArcaneGeography(seed, map);
+  map = require('../strategic-resource-potential').attachResourcePotential(seed, map);
+  map = require('../strategic-beast-ecology').attachPristineBeastEcology(seed, map);
+  map = require('../strategic-human-geography').attachHumanGeography(seed, map);
+  map = require('../strategic-city-polities').attachCityPolities(seed, 'madcap', map);
+  map = require('../strategic-beast-ecology').attachBeastEcology(seed, map);
+  return CityGovernments.attachCityGovernments(seed, map);
+}
+
 test('every independent city receives a deterministic bounded charter and complete civic institutions', () => {
   const map = generatedMap('charter-foundation');
   const same = generatedMap('charter-foundation');
@@ -51,6 +67,29 @@ test('institutional capacity is causal but not assigned by World Theme', () => {
   }
   expect(worlds.flatMap((map) => map.cityGovernments.governments).every((government) =>
     government.institutions.every((institution) => institution.causalFactors.every((factor) => !factor.startsWith('worldTheme:'))))).toBe(true);
+});
+
+test('generated designation review rules are explicit deterministic published local law', () => {
+  const map = governmentFoundation('charter-foundation');
+  const directory = CityGovernments.publicCityGovernmentDirectory(map);
+  let applicable = 0;
+  for (const g of map.cityGovernments.governments) {
+    // The generator's actual law is copied intact to its public charter, never
+    // inferred from a succession label by an attending reviewer.
+    expect(directory.find(entry => entry.city.id === g.cityId).charter.designationReview).toEqual(g.charter.designationReview);
+    if (g.charter.designationReview) {
+      applicable++;
+      expect(g.charter.designationReview).toMatchObject({ reviewInstitutionId: g.roleAssignments.civicReview,
+        requiredAuthorizationIds: [], principle: g.charter.successionPrinciple });
+      expect(g.charter.designationReview.text.length).toBeGreaterThan(30);
+      expect(['independentConfirmationPermitted', 'uncoercedDesignationRequired']).toContain(g.charter.designationReview.coercionRule);
+    }
+    if (!['named experimental successor', 'designation by the reigning protector'].includes(g.charter.successionPrinciple))
+      expect(g.charter.designationReview).toBeNull();
+  }
+  expect(applicable).toBeGreaterThan(0);
+  expect(governmentFoundation('charter-foundation').cityGovernments).toEqual(map.cityGovernments);
+  expect(CityGovernments.auditCityGovernments(map).valid).toBe(true);
 });
 
 test('the public directory omits operational weaknesses and named officeholders', () => {
