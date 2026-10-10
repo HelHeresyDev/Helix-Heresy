@@ -113,6 +113,38 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: separate watch asse
     expect(s.context.conduct.some(r => r.id === s.recognition.reports[0].id)).toBe(true);
     expect(s.charter.recognition).toEqual(original.charter.recognition); expect(s.works.receipt).toEqual(original.works.receipt);
     expect(await act(page, 'receive')).toBe(false); expect(await act(page, 'order', terms)).toBe(false);
+    // The real received incident, not a manufactured report or finding,
+    // supports an independently queued post-signature reconsideration.
+    const charter = page.locator('[data-charter-recognition]'), signed = s.charter.recognition, reviewed = s.charter.review,
+      watchReceipt = s.recognition.receipt, report = s.recognition.reports[0];
+    await expect(charter).toContainText('original finding stale');
+    await charter.locator('[data-charter-recognition-action="reconsider"]').click();
+    let r = await page.evaluate(() => window.helixHeresyDebug.charterRecognitionSnapshot());
+    expect(r.recognition.reconsideration).toMatchObject({ status: 'queued', originalReviewId: reviewed.id, recognitionId: signed.id });
+    expect(r.recognition.reconsideration.evidence.conduct.some(e => e.id === report.id)).toBe(true);
+    expect(await page.evaluate(() => window.helixHeresyDebug.charterRecognitionAction('reconsider'))).toBe(false);
+    expect(await page.evaluate(() => window.helixHeresyDebug.charterRecognitionAction('hearReconsideration'))).toBe(false);
+    await page.evaluate(seconds => window.helixHeresyDebug.advanceCharterRecognitionForTest(seconds), r.recognition.reconsideration.readyAt - r.clock);
+    await visits(page); await charter.locator('[data-charter-recognition-action="hearReconsideration"]').click();
+    await page.evaluate(() => window.helixHeresyDebug.advanceCharterRecognitionForTest(60));
+    r = await page.evaluate(() => window.helixHeresyDebug.charterRecognitionSnapshot()); expect(r.recognition.job.progress).toBe(60);
+    await reload(page); await page.evaluate(() => window.helixHeresyDebug.configureCharterRecognitionTest({ powered: false }));
+    await page.evaluate(() => window.helixHeresyDebug.advanceCharterRecognitionForTest(500));
+    expect((await page.evaluate(() => window.helixHeresyDebug.charterRecognitionSnapshot())).recognition.job.progress).toBe(60);
+    await page.evaluate(() => window.helixHeresyDebug.configureCharterRecognitionTest({ powered: true }));
+    await page.evaluate(() => { const d = window.helixHeresyDebug; d.advanceCharterRecognitionForTest(1); d.advanceCharterRecognitionForTest(120); });
+    r = await page.evaluate(() => window.helixHeresyDebug.charterRecognitionSnapshot());
+    expect(r.recognition.reconsideration.finding.outcome).toBe('eligible'); expect(r.recognition.review).toEqual(reviewed);
+    expect(r.recognition.recognition).toEqual(signed); expect(r.known.personalReaffirmationRequired).toBe(true);
+    expect(await page.evaluate(() => { const d = window.helixHeresyDebug, r = d.charterRecognitionSnapshot();
+      return window.HelixCharterRecognition.authorityCurrent(r.recognition, r.succession, r.abdication, r.office, r.context); })).toBe(false);
+    s = await snap(page); expect(s.works.receipt).toEqual(original.works.receipt); expect(s.recognition.receipt).toEqual(watchReceipt);
+    expect(s.recognition.reports[0]).toEqual(report); expect(s.succession.handover).toBeNull(); expect(s.succession.control).toBeNull();
+    await visits(page); await expect(charter).toContainText('Reconsidered eligibility: eligible');
+    await expect(charter).toContainText('New commands remain unsupported');
+    expect(JSON.stringify(r.known)).not.toMatch(/"evidence"|recognitionPolicy|wardMana|workSeconds/);
+    await reload(page); expect((await page.evaluate(() => window.helixHeresyDebug.charterRecognitionSnapshot())).recognition.reconsideration)
+      .toEqual(r.recognition.reconsideration);
   }
   await expect(page.locator('[data-watch-recognition]')).toContainText('physical return recorded');
   await reload(page); expect((await snap(page)).recognition.deliveries).toHaveLength(1); expect(errors).toEqual([]);

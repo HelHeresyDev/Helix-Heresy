@@ -11,6 +11,8 @@
   const registry = Theme.createRegistry([{ id: 'recognition.shared.charter-review', kind: 'charterRecognition', compatibility: 'shared',
     template: 'Independent charter review and scoped administrative continuation', contentTags: ['science', 'survival'], fallback: true }]);
   const LIMITS = 'Central administration only, not citywide sovereignty. Other institutions have not agreed through this signature. No voluntary handover, army, pardon, immunity, confiscation, divine endorsement or ambition completion. Existing appointments, cases, property and religious duties remain.';
+  const RECONSIDERATION_LIMITS = 'Independent charter eligibility only. Original findings, signatures, coercion and received reports remain historical records. No renewed personal assent, restored commands, criminal judgment, pardon or divine authorization follows.';
+  const reviewKind = kind => kind === 'review' || kind === 'reconsideration';
   const admin = (s, succession) => succession?.leaders.find(a => a.id === s?.administratorId && a.roles.includes('centralAdministration'));
   const reviewer = (s, succession) => succession?.leaders.find(a => a.id === s?.reviewerId && a.roles.includes('civicReview'));
   function create(succession, abdication, office, theme = 'madcap') {
@@ -35,9 +37,12 @@
       cityId: source.cityId, charterId: source.charterId, officeId: office.id, clerkId: office.clerk.id,
       administratorId: a.id, administrationId: a.institutionId, reviewerId: r.id, reviewInstitutionId: r.institutionId,
       claim: copy(claim), phase: 'unfiled', review: null, previousReviews: [], response: null, terms: null,
-      recognition: null, instruction: null, job: null, history: [], message: '', nextNumber: 1 };
+      recognition: null, instruction: null, reconsideration: null, previousReconsiderations: [], job: null, history: [], message: '', nextNumber: 1 };
   }
-  const normalize = s => s?.claim?.id && s.clerkId && Array.isArray(s.history) && Array.isArray(s.previousReviews) ? copy(s) : null;
+  function normalize(s) {
+    if (!s?.claim?.id || !s.clerkId || !Array.isArray(s.history) || !Array.isArray(s.previousReviews)) return null;
+    return { ...copy(s), reconsideration: copy(s.reconsideration || null), previousReconsiderations: copy(s.previousReconsiderations || []) };
+  }
   function note(s, at, kind, text) { s.message = text; s.history.push({ at, kind, text }); s.history = s.history.slice(-50); }
   function bound(s, succession, abdication, office, c) {
     return Boolean(s && same(s.claim, abdication?.receipt) && succession?.ruler.officeStatus?.sourceReceiptId === s.claim.id
@@ -75,10 +80,10 @@
     s.response = null; s.terms = null; s.phase = 'queued';
     note(s, at, 'filed', 'Filed the original coerced claim and scoped evidence in the existing independent review queue. Filing grants no recognition.'); return true;
   }
-  function reviewAllocation(s, institutions, c, at) {
-    return Boolean(s.review && c.reviewAvailable && institutions?.roles['civic-review'] === s.reviewInstitutionId
+  function reviewAllocation(s, institutions, c, at, review = s.review) {
+    return Boolean(review && c.reviewAvailable && institutions?.roles['civic-review'] === s.reviewInstitutionId
       && institutions.offices[s.reviewInstitutionId]?.available
-      && institutions.offices[s.reviewInstitutionId]?.jobs[s.review.id]?.readyAt === s.review.readyAt && at >= s.review.readyAt);
+      && institutions.offices[s.reviewInstitutionId]?.jobs[review.id]?.readyAt === review.readyAt && at >= review.readyAt);
   }
   function release(s, succession, office) {
     if (!s.job) return;
@@ -88,21 +93,25 @@
   }
   function jobReady(s, succession, abdication, office, institutions, c, at, kind, own = false) {
     if (!local(s, succession, abdication, office, c, own) || at < (office.availableAt || 0)) return false;
-    const a = kind === 'review' ? reviewer(s, succession) : admin(s, succession);
+    const a = reviewKind(kind) ? reviewer(s, succession) : admin(s, succession);
     if (!able(a) || !c.presentIds?.includes(a.id) || a.locationId !== office.id
       || a.assignment && (!own || a.assignment !== s.job?.id)) return false;
     if (kind === 'review') return independent(s, succession) && reviewAllocation(s, institutions, c, at)
       && s.review.status === 'queued' && same(s.review.evidence, evidence(s, c));
+    if (kind === 'reconsideration') return independent(s, succession) && authenticRecognition(s, succession, abdication, office, c)
+      && reconsiderationBound(s) && reviewAllocation(s, institutions, c, at, s.reconsideration)
+      && s.reconsideration.status === 'queued' && same(s.reconsideration.evidence, evidence(s, c));
     return Boolean(s.review?.finding?.outcome === 'eligible' && same(s.review.evidence, evidence(s, c))
       && (kind !== 'continuation' || s.terms && at < s.terms.expiresAt)
       && (kind !== 'instruction' || operative(s, succession, abdication, office, c)));
   }
   function begin(s, succession, abdication, office, institutions, c, at, kind, seconds, terms = null) {
     if (s.job || !jobReady(s, succession, abdication, office, institutions, c, at, kind) || office.power < 1 || office.workSeconds < seconds) return false;
-    const a = kind === 'review' ? reviewer(s, succession) : admin(s, succession);
+    const a = reviewKind(kind) ? reviewer(s, succession) : admin(s, succession);
     if (a.workSeconds < seconds) return false;
     const id = `${s.id}:work:${s.nextNumber++}`;
-    s.job = { id, kind, seconds, progress: 0, lastAt: at, wasReady: true, bodyEpoch: c.bodyEpoch, terms: copy(terms), personId: a.id };
+    s.job = { id, kind, seconds, progress: 0, lastAt: at, wasReady: true, bodyEpoch: c.bodyEpoch, terms: copy(terms), personId: a.id,
+      reviewId: kind === 'reconsideration' ? s.reconsideration.id : null };
     office.power--; office.assignment = office.clerk.assignment = a.assignment = id; s.phase = kind;
     note(s, at, kind, `Attend ${seconds} actual seconds for ${kind} with the original civic people. Missed attendance cannot be backfilled.`); return true;
   }
@@ -117,15 +126,57 @@
     return Boolean(s?.terms && !s.recognition && same(s.terms, expected)
       && begin(s, succession, abdication, office, institutions, c, at, 'continuation', 60, expected));
   }
-  function authorityCurrent(s, succession, abdication, office, c) {
+  function authenticRecognition(s, succession, abdication, office, c) {
     const r = s?.recognition;
     return Boolean(r && bound(s, succession, abdication, office, c) && c.alive && c.bodyEpoch === r.bodyEpoch
-      && admin(s, succession)?.status === 'alive' && s.review?.status === 'completed' && s.review.finding?.outcome === 'eligible'
+      && s.review?.status === 'completed' && s.review.finding?.outcome === 'eligible'
       && r.id === `${s.id}:recognition` && r.role === 'centralAdministration' && r.origin === 'coerced'
       && r.personId === s.administratorId && r.institutionId === s.administrationId && r.recorderId === s.clerkId
       && r.claimId === s.claim.id && r.reviewId === s.review.id && same(r.terms, s.terms)
-      && office.active
-      && same(s.review.evidence, evidence(s, c)));
+      && office.active);
+  }
+  function authorityCurrent(s, succession, abdication, office, c) {
+    return authenticRecognition(s, succession, abdication, office, c) && admin(s, succession)?.status === 'alive'
+      && !s.reconsideration && same(s.review.evidence, evidence(s, c));
+  }
+  function reconsiderationBound(s) {
+    const r = s.reconsideration;
+    return Boolean(r && r.originalReviewId === s.review?.id && r.recognitionId === s.recognition?.id
+      && r.claimId === s.claim.id && r.reviewerId === s.reviewerId && r.bodyEpoch === s.recognition.bodyEpoch);
+  }
+  function reconsiderationGrounds(previous, current) {
+    const grounds = [];
+    if (!same(previous.rule, current.rule)) grounds.push('Changed applicable published charter requirement');
+    if (!same(previous.authorizationIds, current.authorizationIds)) grounds.push('Changed received authenticated authorization evidence');
+    if (!same(previous.conduct, current.conduct)) grounds.push('Changed actually received witnessed conduct evidence');
+    return grounds;
+  }
+  function canReconsider(s, succession, abdication, office, institutions, c) {
+    if (!s?.recognition || s.job || !local(s, succession, abdication, office, c) || !independent(s, succession)
+      || !authenticRecognition(s, succession, abdication, office, c) || !able(reviewer(s, succession))
+      || !c.reviewAvailable || institutions?.cityId !== s.cityId || institutions.roles['civic-review'] !== s.reviewInstitutionId
+      || !institutions.offices[s.reviewInstitutionId]?.available || office.workSeconds < 30) return false;
+    const facts = evidence(s, c), previous = s.reconsideration?.evidence || s.review.evidence;
+    // This procedure receives new evidence; it is not a way to discard a
+    // witnessed report. Corrections/admissibility require their own process.
+    return !same(previous, facts) && previous.conduct.every(r => facts.conduct.some(current => same(r, current)));
+  }
+  function reconsider(s, succession, abdication, office, institutions, c, at) {
+    if (!canReconsider(s, succession, abdication, office, institutions, c)) return false;
+    const facts = evidence(s, c), previous = s.reconsideration?.evidence || s.review.evidence;
+    const id = `${s.id}:reconsideration:${s.nextNumber}`, readyAt = Institutions.reserve(institutions, 'civic-review', id, at);
+    if (readyAt == null) return false;
+    if (s.reconsideration) s.previousReconsiderations.push(copy(s.reconsideration));
+    s.nextNumber++; office.workSeconds -= 30;
+    s.reconsideration = { id, filedAt: at, readyAt, status: 'queued', finding: null, evidence: facts,
+      grounds: reconsiderationGrounds(previous, facts), originalReviewId: s.review.id, recognitionId: s.recognition.id,
+      claimId: s.claim.id, bodyEpoch: c.bodyEpoch, reviewerId: s.reviewerId };
+    s.phase = 'reconsiderationQueued';
+    note(s, at, 'reconsiderationFiled', `New received grounds filed in the original independent queue. ${RECONSIDERATION_LIMITS}`); return true;
+  }
+  function hearReconsideration(s, succession, abdication, office, institutions, c, at) {
+    return Boolean(s?.reconsideration?.status === 'queued'
+      && begin(s, succession, abdication, office, institutions, c, at, 'reconsideration', 180));
   }
   function operative(s, succession, abdication, office, c) {
     return authorityCurrent(s, succession, abdication, office, c) && c.administrationAvailable && able(admin(s, succession));
@@ -142,11 +193,12 @@
   }
   function cancel(s, succession, office, at, reason = 'Attendance interrupted without a new decision. Spent work and the original queue allocation remain.') {
     if (!s?.job) return false;
-    release(s, succession, office); s.phase = s.recognition ? 'recognized' : s.terms ? 'offered' : s.review?.status === 'queued' ? 'queued' : 'reviewed';
+    release(s, succession, office); s.phase = s.reconsideration ? s.reconsideration.status === 'queued' ? 'reconsiderationQueued' : 'reconsidered'
+      : s.recognition ? 'recognized' : s.terms ? 'offered' : s.review?.status === 'queued' ? 'queued' : 'reviewed';
     note(s, at, 'interrupted', reason); return true;
   }
-  function finding(s) {
-    const f = s.review.evidence, rule = f.rule;
+  function finding(s, f = s.review.evidence) {
+    const rule = f.rule;
     if (!rule || rule.principle !== s.claim.terms.successionPrinciple || rule.reviewInstitutionId !== s.reviewInstitutionId)
       return { outcome: 'unresolved', reason: 'No applicable explicit charter rule authorizes this reviewer to confirm a coerced designation.' };
     if (rule.coercionRule === 'uncoercedDesignationRequired') return { outcome: 'ineligible', reason: 'The published local rule requires an uncoerced designation. An authentic coerced declaration does not meet it.' };
@@ -165,15 +217,23 @@
       cancel(s, succession, office, at, 'Unsigned continuation terms expired without renewal.'); s.phase = 'expired'; return true;
     }
     const ready = jobReady(s, succession, abdication, office, institutions, c, at, j.kind, true)
+      && (j.kind !== 'reconsideration' || j.reviewId === s.reconsideration.id)
       && (j.kind !== 'continuation' || same(j.terms, s.terms))
       && (j.kind !== 'instruction' || same(j.terms, instructionTerms(s)));
     if (!ready) { j.wasReady = false; j.lastAt = at; return false; }
-    const a = j.kind === 'review' ? reviewer(s, succession) : admin(s, succession), start = j.lastAt;
+    const a = reviewKind(j.kind) ? reviewer(s, succession) : admin(s, succession), start = j.lastAt;
     const work = j.wasReady ? Math.max(0, Math.min(Math.max(0, at - start), j.seconds - j.progress, office.workSeconds, a.workSeconds)) : 0;
     j.lastAt = at; j.wasReady = true; j.progress += work; office.workSeconds -= work; a.workSeconds -= work;
     if (j.progress < j.seconds) return Boolean(work);
     const completedAt = start + work;
-    if (j.kind === 'review') {
+    if (j.kind === 'reconsideration') {
+      const r = s.reconsideration;
+      r.status = 'completed'; r.completedAt = completedAt;
+      r.finding = { ...finding(s, r.evidence), at: completedAt, reviewerId: a.id, claimId: s.claim.id,
+        originalReviewId: r.originalReviewId, recognitionId: r.recognitionId, origin: 'coerced', limitations: RECONSIDERATION_LIMITS };
+      s.phase = 'reconsidered';
+      note(s, completedAt, 'reconsiderationFinding', `${r.finding.outcome}: ${r.finding.reason} ${RECONSIDERATION_LIMITS}`);
+    } else if (j.kind === 'review') {
       s.review.status = 'completed'; s.review.completedAt = completedAt;
       s.review.finding = { ...finding(s), at: completedAt, reviewerId: a.id, claimId: s.claim.id, origin: 'coerced', limitations: LIMITS };
       s.phase = 'reviewed'; note(s, completedAt, 'finding', s.review.finding.reason);
@@ -207,13 +267,22 @@
     }
     release(s, succession, office); return true;
   }
-  function publicView(s) {
+  function publicView(s, c = null) {
     if (!s) return null;
     return copy({ phase: s.phase, claimId: s.claim.id, rule: s.review?.evidence.rule || null,
       review: s.review ? { id: s.review.id, readyAt: s.review.readyAt, status: s.review.status, finding: s.review.finding } : null,
+      reconsideration: s.reconsideration ? { id: s.reconsideration.id, filedAt: s.reconsideration.filedAt,
+        readyAt: s.reconsideration.readyAt, status: s.reconsideration.status, grounds: s.reconsideration.grounds,
+        originalReviewId: s.reconsideration.originalReviewId, recognitionId: s.reconsideration.recognitionId,
+        finding: s.reconsideration.finding, current: c ? same(s.reconsideration.evidence, evidence(s, c)) : null } : null,
+      previousReconsiderations: (s.previousReconsiderations || []).map(r => ({ id: r.id, filedAt: r.filedAt,
+        grounds: r.grounds, status: r.status, finding: r.finding })),
+      originalFindingCurrent: c && s.review ? same(s.review.evidence, evidence(s, c)) : null,
+      personalReaffirmationRequired: Boolean(s.reconsideration), reconsiderationLimitations: RECONSIDERATION_LIMITS,
       response: s.response ? { at: s.response.at, personId: s.response.personId, decision: s.response.decision, reason: s.response.reason } : null,
       terms: s.terms, recognition: s.recognition, instruction: s.instruction, instructionTerms: instructionTerms(s),
       working: s.job ? { kind: s.job.kind, progress: s.job.progress, seconds: s.job.seconds } : null, message: s.message, limitations: LIMITS });
   }
-  return { LIMITS, create, normalize, admin, reviewer, independent, file, hear, meeting, sign, authorityCurrent, operative, instructionTerms, instruct, cancel, advance, publicView };
+  return { LIMITS, RECONSIDERATION_LIMITS, create, normalize, admin, reviewer, independent, file, hear, meeting, sign,
+    canReconsider, reconsider, hearReconsideration, authorityCurrent, operative, instructionTerms, instruct, cancel, advance, publicView };
 });

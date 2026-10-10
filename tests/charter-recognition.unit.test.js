@@ -161,3 +161,131 @@ test('body change cancels original reservations, lost attendance pauses, cancell
   const dead = fixture(); invoke(dead, 'file'); dead.at = dead.s.review.readyAt; invoke(dead, 'hear'); dead.c.alive = false;
   const saved = copy(dead.s); step(dead, 500); assert.deepEqual(dead.s, saved);
 });
+
+function newReceivedReport(f, id = 'received-watch-report') {
+  f.c.conduct.push({ id, at: f.at, kind: 'attackAtCounter', targetId: f.succession.ruler.id, witnessId: 'original-watch' });
+}
+function reconsidered(f) {
+  assert.equal(invoke(f, 'reconsider'), true); f.at = f.s.reconsideration.readyAt;
+  assert.equal(invoke(f, 'hearReconsideration'), true); step(f, 180);
+}
+test('post-recognition reconsideration preserves original records in every theme and never renews assent or commands', () => {
+  for (const theme of ['madcap', 'grim', 'unbound']) {
+    const f = fixture(theme); recognized(f);
+    const review = copy(f.s.review), receipt = copy(f.s.recognition), response = copy(f.s.response), terms = copy(f.s.terms),
+      claim = copy(f.abdication.receipt), source = copy(f.source), people = Succession.people(f.succession, f.b).map(a => a.id);
+    assert.equal(Recognition.authorityCurrent(f.s, f.succession, f.abdication, f.office, f.c), true);
+    newReceivedReport(f); assert.equal(Recognition.authorityCurrent(f.s, f.succession, f.abdication, f.office, f.c), false);
+    reconsidered(f);
+    assert.equal(f.s.reconsideration.finding.outcome, 'eligible');
+    assert.equal(f.s.reconsideration.finding.recognitionId, receipt.id);
+    assert.equal(f.s.reconsideration.originalReviewId, review.id);
+    assert.deepEqual(f.s.review, review); assert.deepEqual(f.s.recognition, receipt); assert.deepEqual(f.s.response, response);
+    assert.deepEqual(f.s.terms, terms); assert.deepEqual(f.abdication.receipt, claim); assert.deepEqual(f.source, source);
+    assert.deepEqual(Succession.people(f.succession, f.b).map(a => a.id), people);
+    assert.equal(invoke(f, 'file'), false); assert.equal(invoke(f, 'meeting'), false); assert.equal(invoke(f, 'sign', terms), false);
+    assert.equal(invoke(f, 'instruct', Recognition.instructionTerms(f.s)), false);
+    assert.equal(Recognition.authorityCurrent(f.s, f.succession, f.abdication, f.office, f.c), false);
+    assert.equal(f.succession.handover, null); assert.equal(f.succession.control, null); assert.deepEqual(f.succession.agreements, []);
+    assert.equal(f.succession.provision.stock, 0); assert.equal(f.office.successionMemoranda, undefined);
+    assert.equal(Recognition.publicView(f.s, f.c).personalReaffirmationRequired, true);
+  }
+});
+test('reconsideration requires genuinely changed received grounds and cannot reroll, invent consent or erase reports', () => {
+  const f = fixture(); assert.equal(invoke(f, 'reconsider'), false); recognized(f);
+  assert.equal(invoke(f, 'reconsider'), false); newReceivedReport(f); assert.equal(invoke(f, 'reconsider'), true);
+  const queue = copy(f.institutions), work = f.office.workSeconds, queued = copy(f.s.reconsideration);
+  f.s = Recognition.normalize(f.s); assert.equal(invoke(f, 'reconsider'), false);
+  assert.deepEqual(f.institutions, queue); assert.equal(f.office.workSeconds, work);
+  f.c.conduct = []; assert.equal(invoke(f, 'reconsider'), false); assert.deepEqual(f.s.reconsideration, queued);
+  // Even if a source reverts, the filed review cannot restore old assent.
+  assert.equal(Recognition.authorityCurrent(f.s, f.succession, f.abdication, f.office, f.c), false);
+  f.c.conduct = copy(queued.evidence.conduct); f.at = f.s.reconsideration.readyAt;
+  assert.equal(invoke(f, 'hearReconsideration'), true); step(f, 180); f.s = Recognition.normalize(f.s);
+  assert.equal(invoke(f, 'reconsider'), false); assert.equal(invoke(f, 'hearReconsideration'), false);
+  assert.deepEqual(f.institutions, queue);
+});
+test('reconsideration binds the actual signed claim, original institutions, reviewer, clerk, body and finite filing work', () => {
+  for (const change of [f => f.s.recognition.role = 'militaryDefenseCommand', f => f.s.recognition.personId = 'replacement',
+    f => f.s.recognition.terms.duties = 'unlimited obedience', f => f.s.recognition.reviewId = 'fake-review',
+    f => f.c.charterCurrent = false, f => f.c.bodyEpoch++, f => f.c.cityId = 'other', f => f.c.local = false,
+    f => f.c.atCounter = false, f => f.c.clerkPresent = false, f => f.c.capable = false, f => f.c.lineOfSight = false,
+    f => f.c.busy = true, f => f.c.activeViolence = true, f => f.c.reviewAvailable = false,
+    f => f.office.workSeconds = 29, f => f.office.channelPowered = false, f => f.office.clerk.id = 'replacement',
+    f => Recognition.reviewer(f.s, f.succession).status = 'dead', f => f.succession.handover = { id: 'different-route' },
+    f => f.institutions.roles['civic-review'] = 'substitute-review']) {
+    const f = fixture(); recognized(f); newReceivedReport(f); change(f);
+    const queue = copy(f.institutions), work = f.office.workSeconds;
+    assert.equal(invoke(f, 'reconsider'), false); assert.equal(f.s.reconsideration, null);
+    assert.deepEqual(f.institutions, queue); assert.equal(f.office.workSeconds, work);
+  }
+});
+test('reconsideration consumes actual independent queue, original reviewer duty and shared clerk power only once', () => {
+  const f = fixture(); recognized(f); newReceivedReport(f);
+  const originalAllocation = copy(f.institutions.offices['review:a'].jobs[f.s.review.id]), work = f.office.workSeconds,
+    reviewerWork = Recognition.reviewer(f.s, f.succession).workSeconds, adminWork = Recognition.admin(f.s, f.succession).workSeconds, power = f.office.power;
+  assert.equal(invoke(f, 'reconsider'), true); assert.equal(f.office.workSeconds, work - 30);
+  assert.ok(f.s.reconsideration.readyAt > f.s.review.readyAt); assert.equal(invoke(f, 'hearReconsideration'), false);
+  f.at = f.s.reconsideration.readyAt; f.c.presentIds = [f.s.administratorId];
+  assert.equal(invoke(f, 'hearReconsideration'), false); f.c.presentIds = f.succession.leaders.map(a => a.id);
+  f.office.power = 0; assert.equal(invoke(f, 'hearReconsideration'), false); f.office.power = power;
+  assert.equal(invoke(f, 'hearReconsideration'), true); step(f, 60);
+  f.s = Recognition.normalize(f.s); f.succession = Succession.normalize(f.succession);
+  f.office.channelPowered = false; step(f, 1000); assert.equal(f.s.job.progress, 60);
+  f.office.channelPowered = true; step(f, 500); assert.equal(f.s.job.progress, 60); step(f, 120);
+  assert.equal(f.s.reconsideration.status, 'completed'); assert.equal(f.office.workSeconds, work - 210);
+  assert.equal(Recognition.reviewer(f.s, f.succession).workSeconds, reviewerWork - 180);
+  assert.equal(Recognition.admin(f.s, f.succession).workSeconds, adminWork); assert.equal(f.office.power, power - 1);
+  assert.deepEqual(f.institutions.offices['review:a'].jobs[f.s.review.id], originalAllocation);
+  assert.equal(f.office.assignment, null); assert.equal(f.office.clerk.assignment, null);
+  assert.equal(Recognition.reviewer(f.s, f.succession).assignment, null);
+});
+test('changed received facts interrupt a reconsideration snapshot; refiling retains prior evidence, allocation and spent work', () => {
+  const f = fixture(); recognized(f); newReceivedReport(f); invoke(f, 'reconsider'); f.at = f.s.reconsideration.readyAt;
+  invoke(f, 'hearReconsideration'); step(f, 20); newReceivedReport(f, 'second-witness-report');
+  step(f, 500); assert.equal(f.s.job.progress, 20); assert.equal(f.s.reconsideration.finding, null);
+  assert.equal(invoke(f, 'reconsider'), false); const queue = copy(f.institutions), work = f.office.workSeconds;
+  assert.equal(Recognition.cancel(f.s, f.succession, f.office, f.at), true);
+  const previous = copy(f.s.reconsideration); assert.equal(invoke(f, 'reconsider'), true);
+  assert.deepEqual(f.s.previousReconsiderations, [previous]); assert.equal(f.office.workSeconds, work - 30);
+  assert.deepEqual(f.institutions.offices['review:a'].jobs[previous.id], queue.offices['review:a'].jobs[previous.id]);
+  f.at = f.s.reconsideration.readyAt; invoke(f, 'hearReconsideration'); step(f, 180);
+  assert.equal(f.s.reconsideration.evidence.conduct.length, 2); assert.equal(f.s.reconsideration.finding.outcome, 'eligible');
+  assert.equal(Recognition.publicView(f.s, f.c).previousReconsiderations[0].status, 'queued');
+});
+test('reconsidered ineligible and unresolved requirements remain distinct, with no fabricated patron authorization', () => {
+  for (const [change, outcome] of [[f => f.c.rule.coercionRule = 'uncoercedDesignationRequired', 'ineligible'],
+    [f => f.c.rule.requiredAuthorizationIds = ['actual-patron'], 'unresolved'], [f => f.c.rule = null, 'unresolved']]) {
+    const f = fixture(); recognized(f); const receipt = copy(f.s.recognition); change(f); reconsidered(f);
+    assert.equal(f.s.reconsideration.finding.outcome, outcome); assert.deepEqual(f.s.recognition, receipt);
+    assert.equal(invoke(f, 'reconsider'), false); assert.equal(Recognition.operative(f.s, f.succession, f.abdication, f.office, f.c), false);
+    if (outcome === 'unresolved' && f.c.rule) {
+      f.c.authorizationIds = ['actual-patron']; reconsidered(f); assert.equal(f.s.reconsideration.finding.outcome, 'eligible');
+      assert.equal(f.s.previousReconsiderations[0].finding.outcome, 'unresolved');
+      assert.equal(Recognition.authorityCurrent(f.s, f.succession, f.abdication, f.office, f.c), false);
+    }
+  }
+});
+test('reconsideration attendance loss pauses, body change cancels original reservations and death freezes history', () => {
+  for (const change of [f => f.c.clerkPresent = false, f => f.c.presentIds = [],
+    f => Recognition.reviewer(f.s, f.succession).health = 49, f => f.office.workSeconds = 0]) {
+    const f = fixture(); recognized(f); newReceivedReport(f); invoke(f, 'reconsider'); f.at = f.s.reconsideration.readyAt;
+    invoke(f, 'hearReconsideration'); step(f, 20); change(f); step(f, 500);
+    assert.equal(f.s.job.progress, 20); assert.equal(f.s.reconsideration.finding, null);
+  }
+  const body = fixture(); recognized(body); newReceivedReport(body); invoke(body, 'reconsider'); body.at = body.s.reconsideration.readyAt;
+  invoke(body, 'hearReconsideration'); step(body, 20); body.c.bodyEpoch++; step(body, 60);
+  assert.equal(body.s.job, null); assert.equal(body.office.assignment, null); assert.equal(body.s.reconsideration.finding, null);
+  assert.equal(invoke(body, 'hearReconsideration'), false);
+  const dead = fixture(); recognized(dead); newReceivedReport(dead); invoke(dead, 'reconsider'); dead.at = dead.s.reconsideration.readyAt;
+  invoke(dead, 'hearReconsideration'); dead.c.alive = false; const saved = copy(dead.s); step(dead, 500); assert.deepEqual(dead.s, saved);
+});
+test('public reconsideration records expose dated grounds and outcome, not private snapshots, policies or reserve totals', () => {
+  const f = fixture(); recognized(f); newReceivedReport(f); reconsidered(f);
+  const view = Recognition.publicView(f.s, f.c);
+  assert.equal(view.originalFindingCurrent, false); assert.equal(view.reconsideration.current, true);
+  assert.deepEqual(view.reconsideration.grounds, ['Changed actually received witnessed conduct evidence']);
+  assert.match(view.reconsiderationLimitations, /No renewed personal assent/);
+  assert.doesNotMatch(JSON.stringify(view), /"evidence"|"conduct"|recognitionPolicy|workSeconds|wardMana|mapCell/);
+  newReceivedReport(f, 'later-report'); assert.equal(Recognition.publicView(f.s, f.c).reconsideration.current, false);
+});

@@ -112,6 +112,22 @@ for (const mode of ['dom', 'canvas']) test(`${mode}: charter review and original
   expect(JSON.stringify(s.known)).not.toMatch(/recognitionPolicy|workSeconds|personalDefense|"evidence"/);
   await openVisits(page);
   await expect(panel).toContainText('Other institutions have not agreed'); expect(errors).toEqual([]);
+  if (mode === 'dom') {
+    const originalReview = s.recognition.review;
+    await expect(panel.locator('[data-charter-recognition-action="reconsider"]')).toBeDisabled();
+    await configure(page, { rule: { ...s.context.rule, coercionRule: 'uncoercedDesignationRequired', text: 'Changed explicit uncoerced-only local requirement.' } });
+    await uiAction(page, 'reconsider'); s = await snap(page);
+    expect(s.recognition.reconsideration.grounds).toEqual(['Changed applicable published charter requirement']);
+    await page.evaluate(n => window.helixHeresyDebug.advanceCharterRecognitionForTest(n), s.recognition.reconsideration.readyAt - s.clock);
+    await uiAction(page, 'hearReconsideration'); await advance(page, 180); s = await snap(page);
+    expect(s.recognition.reconsideration.finding.outcome).toBe('ineligible');
+    expect(s.recognition.review).toEqual(originalReview); expect(s.recognition.recognition).toEqual(receipt);
+    expect(s.office.successionMemoranda).toHaveLength(1); expect(s.office.records).toEqual(original.office.records);
+    expect(await act(page, 'reconsider')).toBe(false); expect(await act(page, 'meeting')).toBe(false);
+    await reload(page); expect((await snap(page)).recognition.reconsideration).toEqual(s.recognition.reconsideration);
+    await expect(panel).toContainText('Reconsidered eligibility: ineligible');
+    await expect(panel).toContainText('New commands remain unsupported');
+  }
   expect(await page.evaluate(() => window.helixHeresyDebug.startScientistMove('supportedSurveyGround', { toCell: { x: 10, y: 14, z: 6 }, allowMultiRoom: true }))).toBeTruthy();
   await page.evaluate(() => {
     const d = window.helixHeresyDebug;
