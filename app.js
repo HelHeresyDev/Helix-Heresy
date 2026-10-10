@@ -84081,17 +84081,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const c = charterRecognitionContext(); return c.alive && c.capable && c.local && c.atCounter && c.clerkPresent && c.lineOfSight;
   }
   function refreshCharterRecognitionKnowledge() {
-    if (state.charterRecognition && charterRecognitionObserved()) state.charterRecognitionKnowledge = {
-      ...CharterRecognition.publicView(state.charterRecognition, charterRecognitionContext()), publishedRule: clonePlainObject(charterRecognitionContext().rule), reportedAt: state.clock };
+    const s = state.charterRecognition;
+    if (!s || !charterRecognitionObserved()) return;
+    const c = charterRecognitionContext(), reaffirmationCurrent = Boolean(s.reaffirmation?.receipt
+      && CharterRecognition.recordsAuthorityCurrent(s, state.citySuccession, state.incumbentResistance, scientistCivicOffice(), c));
+    state.charterRecognitionKnowledge = { ...CharterRecognition.publicView(s, c), reaffirmationCurrent,
+      personalReaffirmationRequired: Boolean(s.reconsideration && !reaffirmationCurrent), publishedRule: clonePlainObject(c.rule), reportedAt: state.clock };
   }
   function updateCharterRecognition() {
     const s = state.charterRecognition; if (!s || scientistIsDead()) return 0;
-    const before = s.recognition?.id, instruction = s.instruction?.id, reconsiderationFinding = s.reconsideration?.finding?.at;
+    const before = s.recognition?.id, instruction = s.instruction?.id, reconsiderationFinding = s.reconsideration?.finding?.at,
+      reaffirmed = s.reaffirmation?.receipt?.id, addendum = s.reaffirmation?.addendum?.id;
     const changed = CharterRecognition.advance(s, state.citySuccession, state.incumbentResistance, scientistCivicOffice(), ensureHomeInstitutionContext(), charterRecognitionContext(), state.clock);
     if (s.job && !state.combat?.routineSuspension) suspendScientistRoutineWork('charter recognition');
     if (!s.job && state.combat?.routineSuspension?.reason === 'charter recognition') resumeScientistRoutineWork();
-    if (s.recognition?.id !== before || s.instruction?.id !== instruction || s.reconsideration?.finding?.at !== reconsiderationFinding) {
-      addEvent(s.message, { sourceKind: 'charterRecognition', sourceId: s.reconsideration?.id || s.instruction?.id || s.recognition.id }); state.paused = true;
+    if (s.recognition?.id !== before || s.instruction?.id !== instruction || s.reconsideration?.finding?.at !== reconsiderationFinding
+      || s.reaffirmation?.receipt?.id !== reaffirmed || s.reaffirmation?.addendum?.id !== addendum) {
+      addEvent(s.message, { sourceKind: 'charterRecognition', sourceId: s.reaffirmation?.addendum?.id || s.reaffirmation?.receipt?.id
+        || s.reconsideration?.id || s.instruction?.id || s.recognition.id }); state.paused = true;
     }
     refreshCharterRecognitionKnowledge(); return changed ? 1 : 0;
   }
@@ -84105,6 +84112,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (action === 'hear') ok = CharterRecognition.hear(...args, c, state.clock);
     if (action === 'reconsider') ok = CharterRecognition.reconsider(...args, c, state.clock);
     if (action === 'hearReconsideration') ok = CharterRecognition.hearReconsideration(...args, c, state.clock);
+    if (action === 'reaffirmMeeting') ok = CharterRecognition.reaffirmMeeting(...args, c, state.clock);
+    if (action === 'reaffirmSign') ok = CharterRecognition.reaffirmSign(...args, expected, c, state.clock);
+    if (action === 'enterAddendum') ok = CharterRecognition.enterAddendum(...args, expected, c, state.clock);
     if (action === 'meeting') ok = CharterRecognition.meeting(...args, c, state.clock);
     if (action === 'sign') ok = CharterRecognition.sign(...args, expected, c, state.clock);
     if (action === 'instruct') ok = CharterRecognition.instruct(...args, expected, c, state.clock);
@@ -84142,11 +84152,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (v.working) { panel.append(textEl('p', `${v.working.kind}: attended ${formatDuration(v.working.progress)} / ${formatDuration(v.working.seconds)}.`)); button('Cancel unfinished meeting', 'cancel', !observed); }
     if (v.recognition) {
       panel.append(textEl('p', `${formatClock(v.recognition.at)}: central administration recognized the claim. Coercion remains recorded. Public works, watch, defense and religious institutions have not agreed through this signature.`));
-      if (v.originalFindingCurrent === false) panel.append(textEl('p', 'New received evidence or an applicable requirement has made the original finding stale. Historical signatures remain; new commands are unsupported.'));
+      if (v.originalFindingCurrent === false) panel.append(textEl('p', 'New received evidence or an applicable requirement has made the original finding stale. Historical signatures remain; old commands are unsupported.'));
       if (!v.working) button('File independent reconsideration on new received grounds', 'reconsider', blocked
         || !CharterRecognition.canReconsider(s, state.citySuccession, state.incumbentResistance, scientistCivicOffice(), ensureHomeInstitutionContext(), c));
       if (!v.instruction && !v.working) button('Order scoped succession register memorandum', 'instruct', blocked
-        || v.originalFindingCurrent === false || v.personalReaffirmationRequired, clonePlainObject(v.instructionTerms));
+        || v.originalFindingCurrent === false || Boolean(v.reconsideration), clonePlainObject(v.instructionTerms));
     }
     if (v.reconsideration) {
       const r = v.reconsideration;
@@ -84156,8 +84166,27 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (r.current === false) panel.append(textEl('p', 'Further received grounds have made this evidence snapshot stale. Cancel unfinished attendance and file the changed grounds; no finding can be backfilled.'));
       if (r.status === 'queued' && !v.working) button('Attend independent reconsideration hearing', 'hearReconsideration', blocked || r.current === false || state.clock < r.readyAt);
       if (r.finding) panel.append(textEl('p', `Reconsidered eligibility: ${r.finding.outcome}. ${r.finding.reason}`));
-      panel.append(textEl('p', 'Personal reaffirmation remains required and is not implemented by this hearing. New commands remain unsupported.'));
+      panel.append(textEl('p', v.reaffirmationCurrent ? 'The original administrator separately reaffirmed one records duty. Other institutions have not renewed assent.'
+        : 'Personal reaffirmation remains required. The hearing alone renews no assent. New commands remain unsupported.'));
+      if (!v.working && r.current && r.finding?.outcome === 'eligible') button('Meet original administrator for separate reaffirmation', 'reaffirmMeeting', blocked
+        || !CharterRecognition.canReaffirm(s, state.citySuccession, state.incumbentResistance, scientistCivicOffice(), c));
       for (const old of v.previousReconsiderations || []) panel.append(textEl('p', `Earlier reconsideration ${old.id}: ${old.finding?.outcome || old.status}. Original evidence and queue allocation retained.`));
+    }
+    if (v.reaffirmation) {
+      const r = v.reaffirmation;
+      panel.append(textEl('h4', 'Original administrator reaffirmation'), textEl('p', v.reaffirmationLimitations));
+      if (r.response) panel.append(textEl('p', `${formatClock(r.response.at)}: ${r.response.reason}`));
+      if (r.terms && !r.receipt) {
+        panel.append(textEl('p', r.terms.duties), textEl('p', r.terms.retainedRights), textEl('p', `Exact reaffirmation offer expires ${formatClock(r.terms.expiresAt)}. Origin remains coerced.`));
+        if (!v.working) button('Accept exact records-only reaffirmation', 'reaffirmSign', blocked || state.clock >= r.terms.expiresAt
+          || r.reviewId !== v.reconsideration?.id || v.reconsideration?.current === false, clonePlainObject(r.terms));
+      }
+      if (r.receipt) {
+        panel.append(textEl('p', `${formatClock(r.receipt.at)}: separate historical reaffirmation ${r.receipt.id}. Current records permission: ${v.reaffirmationCurrent ? 'supported' : 'unsupported'}.`));
+        if (!r.addendum && !v.working) button('Order linked reaffirmation register addendum', 'enterAddendum', blocked || !v.reaffirmationCurrent, clonePlainObject(v.addendumTerms));
+      }
+      if (r.addendum) panel.append(textEl('p', `${formatClock(r.addendum.at)}: ${r.addendum.status}; actual register addendum ${r.addendum.recordId}. Original records remain unchanged.`));
+      for (const old of v.previousReaffirmations || []) panel.append(textEl('p', `Earlier administrative response for ${old.reviewId}: ${old.response?.decision || 'unfinished'}; ${old.receipt ? 'historical signature retained' : 'no signature'}.`));
     }
     if (v.instruction) panel.append(textEl('p', `${formatClock(v.instruction.at)}: ${v.instruction.status}; actual register record ${v.instruction.recordId}. No stock, maps or other commands awarded.`));
     panel.append(textEl('p', v.message)); return panel;

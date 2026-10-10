@@ -145,6 +145,17 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: separate watch asse
     expect(JSON.stringify(r.known)).not.toMatch(/"evidence"|recognitionPolicy|wardMana|workSeconds/);
     await reload(page); expect((await page.evaluate(() => window.helixHeresyDebug.charterRecognitionSnapshot())).recognition.reconsideration)
       .toEqual(r.recognition.reconsideration);
+    await visits(page); await charter.locator('[data-charter-recognition-action="reaffirmMeeting"]').click();
+    await page.evaluate(() => window.helixHeresyDebug.advanceCharterRecognitionForTest(60));
+    r = await page.evaluate(() => window.helixHeresyDebug.charterRecognitionSnapshot());
+    const refusal = r.recognition.reaffirmation.response;
+    expect(refusal.decision).toBe('refused'); expect(refusal.reason).toContain('renewed violence');
+    expect(r.recognition.reaffirmation.receipt).toBeNull(); expect(r.recognition.reaffirmation.terms).toBeNull();
+    expect(r.recognition.recognition).toEqual(signed); expect(r.recognition.review).toEqual(reviewed);
+    s = await snap(page); expect(s.recognition.reports[0]).toEqual(report); expect(s.works.receipt).toEqual(original.works.receipt);
+    await reload(page); expect(await page.evaluate(() => window.helixHeresyDebug.charterRecognitionAction('reaffirmMeeting'))).toBe(false);
+    expect((await page.evaluate(() => window.helixHeresyDebug.charterRecognitionSnapshot())).recognition.reaffirmation.response).toEqual(refusal);
+    await expect(charter).toContainText('Eligible designation is not forgiveness or conviction');
   }
   await expect(page.locator('[data-watch-recognition]')).toContainText('physical return recorded');
   await reload(page); expect((await snap(page)).recognition.deliveries).toHaveLength(1); expect(errors).toEqual([]);

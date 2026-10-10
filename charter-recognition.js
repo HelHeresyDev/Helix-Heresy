@@ -12,7 +12,9 @@
     template: 'Independent charter review and scoped administrative continuation', contentTags: ['science', 'survival'], fallback: true }]);
   const LIMITS = 'Central administration only, not citywide sovereignty. Other institutions have not agreed through this signature. No voluntary handover, army, pardon, immunity, confiscation, divine endorsement or ambition completion. Existing appointments, cases, property and religious duties remain.';
   const RECONSIDERATION_LIMITS = 'Independent charter eligibility only. Original findings, signatures, coercion and received reports remain historical records. No renewed personal assent, restored commands, criminal judgment, pardon or divine authorization follows.';
+  const REAFFIRMATION_LIMITS = 'Original central-administration records only. Public works, watch, defense and religious institutions have not renewed their assent. Original signatures, coercion, reports, cases, rights and independent duties remain. No pardon, army, handover, property transfer or ambition completion.';
   const reviewKind = kind => kind === 'review' || kind === 'reconsideration';
+  const reaffirmationKind = kind => ['reaffirmationMeeting', 'reaffirmationSigning', 'reaffirmationAddendum'].includes(kind);
   const admin = (s, succession) => succession?.leaders.find(a => a.id === s?.administratorId && a.roles.includes('centralAdministration'));
   const reviewer = (s, succession) => succession?.leaders.find(a => a.id === s?.reviewerId && a.roles.includes('civicReview'));
   function create(succession, abdication, office, theme = 'madcap') {
@@ -37,11 +39,13 @@
       cityId: source.cityId, charterId: source.charterId, officeId: office.id, clerkId: office.clerk.id,
       administratorId: a.id, administrationId: a.institutionId, reviewerId: r.id, reviewInstitutionId: r.institutionId,
       claim: copy(claim), phase: 'unfiled', review: null, previousReviews: [], response: null, terms: null,
-      recognition: null, instruction: null, reconsideration: null, previousReconsiderations: [], job: null, history: [], message: '', nextNumber: 1 };
+      recognition: null, instruction: null, reconsideration: null, previousReconsiderations: [], reaffirmation: null,
+      previousReaffirmations: [], job: null, history: [], message: '', nextNumber: 1 };
   }
   function normalize(s) {
     if (!s?.claim?.id || !s.clerkId || !Array.isArray(s.history) || !Array.isArray(s.previousReviews)) return null;
-    return { ...copy(s), reconsideration: copy(s.reconsideration || null), previousReconsiderations: copy(s.previousReconsiderations || []) };
+    return { ...copy(s), reconsideration: copy(s.reconsideration || null), previousReconsiderations: copy(s.previousReconsiderations || []),
+      reaffirmation: copy(s.reaffirmation || null), previousReaffirmations: copy(s.previousReaffirmations || []) };
   }
   function note(s, at, kind, text) { s.message = text; s.history.push({ at, kind, text }); s.history = s.history.slice(-50); }
   function bound(s, succession, abdication, office, c) {
@@ -101,6 +105,12 @@
     if (kind === 'reconsideration') return independent(s, succession) && authenticRecognition(s, succession, abdication, office, c)
       && reconsiderationBound(s) && reviewAllocation(s, institutions, c, at, s.reconsideration)
       && s.reconsideration.status === 'queued' && same(s.reconsideration.evidence, evidence(s, c));
+    if (reaffirmationKind(kind)) return currentReconsideration(s, succession, abdication, office, c) && office.maintenanceReady !== false
+      && (kind === 'reaffirmationMeeting' || s.reaffirmation?.reviewId === s.reconsideration.id
+        && same(s.reaffirmation.response?.evidence, evidence(s, c)))
+      && (kind !== 'reaffirmationSigning' || s.reaffirmation.response.decision === 'offered'
+        && s.reaffirmation.terms && at < s.reaffirmation.terms.expiresAt)
+      && (kind !== 'reaffirmationAddendum' || recordsAuthorityCurrent(s, succession, abdication, office, c));
     return Boolean(s.review?.finding?.outcome === 'eligible' && same(s.review.evidence, evidence(s, c))
       && (kind !== 'continuation' || s.terms && at < s.terms.expiresAt)
       && (kind !== 'instruction' || operative(s, succession, abdication, office, c)));
@@ -111,7 +121,8 @@
     if (a.workSeconds < seconds) return false;
     const id = `${s.id}:work:${s.nextNumber++}`;
     s.job = { id, kind, seconds, progress: 0, lastAt: at, wasReady: true, bodyEpoch: c.bodyEpoch, terms: copy(terms), personId: a.id,
-      reviewId: kind === 'reconsideration' ? s.reconsideration.id : null };
+      reviewId: kind === 'reconsideration' || reaffirmationKind(kind) ? s.reconsideration.id : null,
+      evidence: reaffirmationKind(kind) ? copy(evidence(s, c)) : null };
     office.power--; office.assignment = office.clerk.assignment = a.assignment = id; s.phase = kind;
     note(s, at, kind, `Attend ${seconds} actual seconds for ${kind} with the original civic people. Missed attendance cannot be backfilled.`); return true;
   }
@@ -178,8 +189,66 @@
     return Boolean(s?.reconsideration?.status === 'queued'
       && begin(s, succession, abdication, office, institutions, c, at, 'reconsideration', 180));
   }
+  function currentReconsideration(s, succession, abdication, office, c) {
+    return authenticRecognition(s, succession, abdication, office, c) && independent(s, succession) && reconsiderationBound(s)
+      && s.reconsideration.status === 'completed' && s.reconsideration.finding?.outcome === 'eligible'
+      && s.reconsideration.finding.reviewerId === s.reviewerId && s.reconsideration.finding.claimId === s.claim.id
+      && s.reconsideration.finding.originalReviewId === s.review.id && s.reconsideration.finding.recognitionId === s.recognition.id
+      && same(s.reconsideration.evidence, evidence(s, c));
+  }
+  function canReaffirm(s, succession, abdication, office, c) {
+    if (s?.job || !currentReconsideration(s, succession, abdication, office, c)) return false;
+    const facts = evidence(s, c);
+    return ![s.reaffirmation, ...(s.previousReaffirmations || [])].some(r => r?.response && same(r.response.evidence, facts));
+  }
+  function reaffirmMeeting(s, succession, abdication, office, institutions, c, at) {
+    if (!canReaffirm(s, succession, abdication, office, c)
+      || !begin(s, succession, abdication, office, institutions, c, at, 'reaffirmationMeeting', 60)) return false;
+    if (s.reaffirmation) s.previousReaffirmations.push(copy(s.reaffirmation));
+    s.reaffirmation = { id: `${s.reconsideration.id}:administrative-reaffirmation`, reviewId: s.reconsideration.id,
+      response: null, terms: null, receipt: null, addendum: null }; return true;
+  }
+  function reaffirmSign(s, succession, abdication, office, institutions, expected, c, at) {
+    return Boolean(s?.reaffirmation?.terms && !s.reaffirmation.receipt && same(expected, s.reaffirmation.terms)
+      && begin(s, succession, abdication, office, institutions, c, at, 'reaffirmationSigning', 60, expected));
+  }
+  function reaffirmationReceiptBound(s, c) {
+    const a = s?.reaffirmation, r = a?.receipt, t = a?.terms;
+    return Boolean(r && t && r.id === `${a.id}:receipt` && r.type === 'administrativeReaffirmation'
+      && r.origin === 'coerced' && r.role === 'centralAdministration' && r.recognizedAuthorityId === 'scientist'
+      && r.cityId === s.cityId && r.charterId === s.charterId && r.officeId === s.officeId
+      && r.personId === s.administratorId && r.institutionId === s.administrationId && r.recorderId === s.clerkId
+      && r.claimId === s.claim.id && r.originalRecognitionId === s.recognition?.id && r.originalReviewId === s.review?.id
+      && r.reviewId === s.reconsideration?.id && a.reviewId === r.reviewId && r.bodyEpoch === c.bodyEpoch
+      && same(r.terms, t) && a.response?.decision === 'offered' && same(a.response.evidence, s.reconsideration.evidence)
+      && t.claimId === s.claim.id && t.originalRecognitionId === s.recognition.id && t.originalReviewId === s.review.id
+      && t.reviewId === r.reviewId && t.personId === s.administratorId && t.institutionId === s.administrationId
+      && t.cityId === s.cityId && t.charterId === s.charterId && t.officeId === s.officeId
+      && t.bodyEpoch === c.bodyEpoch && t.role === 'centralAdministration' && t.origin === 'coerced'
+      && r.commandRelationship?.personId === s.administratorId && r.commandRelationship.institutionId === s.administrationId
+      && r.commandRelationship.role === 'centralAdministration' && r.commandRelationship.scope === 'One original-register reaffirmation addendum');
+  }
+  function recordsAuthorityCurrent(s, succession, abdication, office, c) {
+    // Deliberately separate from authorityCurrent, which existing downstream
+    // institutions use for their original continuation basis. This fresh
+    // records-only assent must not reactivate public works or watch receipts.
+    return authorityCurrent(s, succession, abdication, office, c) || currentReconsideration(s, succession, abdication, office, c)
+      && admin(s, succession)?.status === 'alive' && reaffirmationReceiptBound(s, c);
+  }
+  function addendumTerms(s) {
+    const r = s?.reaffirmation?.receipt;
+    return r ? { reaffirmationId: r.id, institutionId: s.administrationId, role: 'centralAdministration',
+      action: 'Enter one reconsideration and administrative reaffirmation addendum in the original local register',
+      contents: { claimId: s.claim.id, originalReviewId: s.review.id, originalRecognitionId: s.recognition.id,
+        reconsiderationId: r.reviewId, reaffirmationId: r.id, originalMemorandumId: s.instruction?.recordId || null,
+        origin: 'coerced', recognizedRole: 'centralAdministration', limitations: REAFFIRMATION_LIMITS } } : null;
+  }
+  function enterAddendum(s, succession, abdication, office, institutions, expected, c, at) {
+    return Boolean(s?.reaffirmation?.receipt && !s.reaffirmation.addendum && same(expected, addendumTerms(s))
+      && begin(s, succession, abdication, office, institutions, c, at, 'reaffirmationAddendum', 60, expected));
+  }
   function operative(s, succession, abdication, office, c) {
-    return authorityCurrent(s, succession, abdication, office, c) && c.administrationAvailable && able(admin(s, succession));
+    return recordsAuthorityCurrent(s, succession, abdication, office, c) && c.administrationAvailable && able(admin(s, succession));
   }
   function instructionTerms(s) {
     return s?.recognition ? { recognitionId: s.recognition.id, institutionId: s.administrationId, role: 'centralAdministration',
@@ -188,12 +257,13 @@
         recognizedRole: 'centralAdministration', limitations: LIMITS } } : null;
   }
   function instruct(s, succession, abdication, office, institutions, expected, c, at) {
-    if (!s || s.instruction || !same(expected, instructionTerms(s))) return false;
+    if (!s || s.reconsideration || s.instruction || !same(expected, instructionTerms(s))) return false;
     return begin(s, succession, abdication, office, institutions, c, at, 'instruction', 60, expected);
   }
   function cancel(s, succession, office, at, reason = 'Attendance interrupted without a new decision. Spent work and the original queue allocation remain.') {
     if (!s?.job) return false;
-    release(s, succession, office); s.phase = s.reconsideration ? s.reconsideration.status === 'queued' ? 'reconsiderationQueued' : 'reconsidered'
+    release(s, succession, office); s.phase = s.reaffirmation?.receipt && s.reaffirmation.reviewId === s.reconsideration?.id ? 'administrationReaffirmed'
+      : s.reconsideration ? s.reconsideration.status === 'queued' ? 'reconsiderationQueued' : 'reconsidered'
       : s.recognition ? 'recognized' : s.terms ? 'offered' : s.review?.status === 'queued' ? 'queued' : 'reviewed';
     note(s, at, 'interrupted', reason); return true;
   }
@@ -216,17 +286,54 @@
     if (j.kind === 'continuation' && at >= s.terms.expiresAt) {
       cancel(s, succession, office, at, 'Unsigned continuation terms expired without renewal.'); s.phase = 'expired'; return true;
     }
+    if (reaffirmationKind(j.kind) && (j.reviewId !== s.reconsideration?.id || !same(j.evidence, evidence(s, c))))
+      return cancel(s, succession, office, at, 'Further received evidence or a changed review interrupted this attendance. Historical records and spent costs remain; no reaffirmation was manufactured.');
+    if (j.kind === 'reaffirmationSigning' && (at >= s.reaffirmation.terms.expiresAt || !same(j.terms, s.reaffirmation.terms))) {
+      cancel(s, succession, office, at, 'Unsigned exact reaffirmation terms expired or changed. No renewed assent.');
+      s.phase = 'reaffirmationExpired'; return true;
+    }
     const ready = jobReady(s, succession, abdication, office, institutions, c, at, j.kind, true)
       && (j.kind !== 'reconsideration' || j.reviewId === s.reconsideration.id)
       && (j.kind !== 'continuation' || same(j.terms, s.terms))
-      && (j.kind !== 'instruction' || same(j.terms, instructionTerms(s)));
+      && (j.kind !== 'instruction' || same(j.terms, instructionTerms(s)))
+      && (j.kind !== 'reaffirmationAddendum' || same(j.terms, addendumTerms(s)));
     if (!ready) { j.wasReady = false; j.lastAt = at; return false; }
     const a = reviewKind(j.kind) ? reviewer(s, succession) : admin(s, succession), start = j.lastAt;
     const work = j.wasReady ? Math.max(0, Math.min(Math.max(0, at - start), j.seconds - j.progress, office.workSeconds, a.workSeconds)) : 0;
     j.lastAt = at; j.wasReady = true; j.progress += work; office.workSeconds -= work; a.workSeconds -= work;
     if (j.progress < j.seconds) return Boolean(work);
     const completedAt = start + work;
-    if (j.kind === 'reconsideration') {
+    if (j.kind === 'reaffirmationMeeting') {
+      const r = s.reaffirmation, opposition = j.evidence.conduct.some(report => report.at > s.claim.at && /attack/i.test(report.kind)),
+        refuses = a.recognitionPolicy === 'declineCoercedAppointment' || opposition;
+      r.response = { at: completedAt, personId: a.id, evidence: copy(j.evidence), decision: refuses ? 'refused' : 'offered',
+        reason: opposition ? 'The original administrator refuses renewed cooperation after received evidence of renewed violence. Eligible designation is not forgiveness or conviction.'
+          : refuses ? 'The original administrator declines reaffirmation on stable personal independence; an eligible hearing cannot compel assent.'
+            : 'The original administrator offers one original-register addendum under separately accepted records-only terms.' };
+      r.terms = refuses ? null : { id: `${r.id}:terms`, offeredAt: completedAt, expiresAt: completedAt + 3600,
+        claimId: s.claim.id, originalRecognitionId: s.recognition.id, originalReviewId: s.review.id, reviewId: r.reviewId,
+        cityId: s.cityId, charterId: s.charterId, officeId: s.officeId, personId: a.id, institutionId: a.institutionId,
+        bodyEpoch: c.bodyEpoch, role: 'centralAdministration', origin: 'coerced', retainedRights: s.claim.terms.retainedRights,
+        duties: 'Enter one addendum linking the original signature, current reconsideration and this explicit administrative agreement. Existing records, cases, property, appointments and religious duties remain; no other institution renews cooperation.',
+        limitations: REAFFIRMATION_LIMITS };
+      s.phase = refuses ? 'reaffirmationRefused' : 'reaffirmationOffered'; note(s, completedAt, 'reaffirmationResponse', r.response.reason);
+    } else if (j.kind === 'reaffirmationSigning') {
+      const r = s.reaffirmation;
+      r.receipt = { id: `${r.id}:receipt`, type: 'administrativeReaffirmation', at: completedAt, cityId: s.cityId,
+        charterId: s.charterId, officeId: s.officeId, bodyEpoch: c.bodyEpoch, claimId: s.claim.id, originalReviewId: s.review.id,
+        originalRecognitionId: s.recognition.id, reviewId: r.reviewId, personId: a.id, institutionId: a.institutionId,
+        recorderId: office.clerk.id, recognizedAuthorityId: 'scientist', role: 'centralAdministration', origin: 'coerced',
+        terms: copy(j.terms), commandRelationship: { personId: a.id, institutionId: a.institutionId,
+          role: 'centralAdministration', scope: 'One original-register reaffirmation addendum' }, limitations: REAFFIRMATION_LIMITS };
+      s.phase = 'administrationReaffirmed'; note(s, completedAt, 'reaffirmed', 'The original administrator separately accepted records-only reaffirmation. Old signatures remain historical; other institutions have not renewed assent.');
+    } else if (j.kind === 'reaffirmationAddendum') {
+      const r = s.reaffirmation, record = { id: `${r.id}:register-addendum`, at: completedAt, type: 'scopedSuccessionReaffirmationAddendum',
+        contents: copy(j.terms.contents), authorId: a.id, recorderId: office.clerk.id, institutionId: office.institutionId };
+      office.successionMemoranda ||= []; office.successionMemoranda.push(record);
+      r.addendum = { id: `${r.id}:addendum-instruction`, at: completedAt, recordId: record.id, contents: copy(record.contents),
+        personId: a.id, recorderId: office.clerk.id, reaffirmationId: r.receipt.id, status: 'completed', limitations: REAFFIRMATION_LIMITS };
+      s.phase = 'administrationReaffirmed'; note(s, completedAt, 'addendum', 'The original administrator and clerk entered one linked reaffirmation addendum. No original memorandum, identity document, case, stock or other institution changed.');
+    } else if (j.kind === 'reconsideration') {
       const r = s.reconsideration;
       r.status = 'completed'; r.completedAt = completedAt;
       r.finding = { ...finding(s, r.evidence), at: completedAt, reviewerId: a.id, claimId: s.claim.id,
@@ -269,6 +376,11 @@
   }
   function publicView(s, c = null) {
     if (!s) return null;
+    const reaffirmationView = r => r ? { id: r.id, reviewId: r.reviewId,
+      response: r.response && { at: r.response.at, personId: r.response.personId, decision: r.response.decision, reason: r.response.reason },
+      terms: r.terms, receipt: r.receipt, addendum: r.addendum } : null;
+    const reaffirmed = c && s.reconsideration?.status === 'completed' && s.reconsideration.finding?.outcome === 'eligible'
+      && same(s.reconsideration.evidence, evidence(s, c)) && reaffirmationReceiptBound(s, c);
     return copy({ phase: s.phase, claimId: s.claim.id, rule: s.review?.evidence.rule || null,
       review: s.review ? { id: s.review.id, readyAt: s.review.readyAt, status: s.review.status, finding: s.review.finding } : null,
       reconsideration: s.reconsideration ? { id: s.reconsideration.id, filedAt: s.reconsideration.filedAt,
@@ -278,11 +390,14 @@
       previousReconsiderations: (s.previousReconsiderations || []).map(r => ({ id: r.id, filedAt: r.filedAt,
         grounds: r.grounds, status: r.status, finding: r.finding })),
       originalFindingCurrent: c && s.review ? same(s.review.evidence, evidence(s, c)) : null,
-      personalReaffirmationRequired: Boolean(s.reconsideration), reconsiderationLimitations: RECONSIDERATION_LIMITS,
+      personalReaffirmationRequired: Boolean(s.reconsideration && !reaffirmed), reconsiderationLimitations: RECONSIDERATION_LIMITS,
+      reaffirmation: reaffirmationView(s.reaffirmation), previousReaffirmations: (s.previousReaffirmations || []).map(reaffirmationView),
+      reaffirmationCurrent: Boolean(reaffirmed), addendumTerms: addendumTerms(s), reaffirmationLimitations: REAFFIRMATION_LIMITS,
       response: s.response ? { at: s.response.at, personId: s.response.personId, decision: s.response.decision, reason: s.response.reason } : null,
       terms: s.terms, recognition: s.recognition, instruction: s.instruction, instructionTerms: instructionTerms(s),
       working: s.job ? { kind: s.job.kind, progress: s.job.progress, seconds: s.job.seconds } : null, message: s.message, limitations: LIMITS });
   }
-  return { LIMITS, RECONSIDERATION_LIMITS, create, normalize, admin, reviewer, independent, file, hear, meeting, sign,
-    canReconsider, reconsider, hearReconsideration, authorityCurrent, operative, instructionTerms, instruct, cancel, advance, publicView };
+  return { LIMITS, RECONSIDERATION_LIMITS, REAFFIRMATION_LIMITS, create, normalize, admin, reviewer, independent, file, hear, meeting, sign,
+    canReconsider, reconsider, hearReconsideration, canReaffirm, reaffirmMeeting, reaffirmSign, recordsAuthorityCurrent,
+    addendumTerms, enterAddendum, authorityCurrent, operative, instructionTerms, instruct, cancel, advance, publicView };
 });

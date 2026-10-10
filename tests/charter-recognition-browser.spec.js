@@ -162,3 +162,73 @@ test('missing charter procedure stays unresolved and a genuinely new rule cannot
   expect(s.recognition.recognition).toBeNull(); expect(await act(page, 'meeting')).toBe(false);
   await reload(page); expect((await snap(page)).recognition.response).toEqual(s.recognition.response);
 });
+
+for (const mode of ['dom', 'canvas']) test(`${mode}: administrator reaffirmation separately signs and physically enters one linked register addendum`, async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message)); await setup(page, mode);
+  await review(page);
+  await uiAction(page, 'meeting'); await page.evaluate(() => window.helixHeresyDebug.advanceCharterRecognitionForTest(60));
+  await uiAction(page, 'sign'); await page.evaluate(() => window.helixHeresyDebug.advanceCharterRecognitionForTest(60));
+  await uiAction(page, 'instruct'); await page.evaluate(() => window.helixHeresyDebug.advanceCharterRecognitionForTest(60));
+  const original = await snap(page), receipt = original.recognition.recognition, reviewRecord = original.recognition.review,
+    memorandum = original.office.successionMemoranda[0];
+  expect(await act(page, 'reaffirmMeeting')).toBe(false);
+  // Prepared change to the actual fixture's published requirement, not a
+  // fabricated received incident, finding, signature or register entry.
+  await configure(page, { rule: { ...original.context.rule, text: 'Authenticated clarified local confirmation requirement.' } });
+  await uiAction(page, 'reconsider'); let s = await snap(page);
+  await page.evaluate(n => window.helixHeresyDebug.advanceCharterRecognitionForTest(n), s.recognition.reconsideration.readyAt - s.clock);
+  await uiAction(page, 'hearReconsideration'); await page.evaluate(() => window.helixHeresyDebug.advanceCharterRecognitionForTest(180));
+  s = await snap(page); expect(s.recognition.reconsideration.finding.outcome).toBe('eligible');
+  const work = s.office.workSeconds, power = s.office.power,
+    officialWork = s.succession.leaders.find(a => a.id === s.recognition.administratorId).workSeconds;
+  await uiAction(page, 'reaffirmMeeting'); await page.evaluate(() => window.helixHeresyDebug.advanceCharterRecognitionForTest(20));
+  await reload(page); expect((await snap(page)).recognition.job.progress).toBe(20);
+  await configure(page, { powered: false }); await page.evaluate(() => window.helixHeresyDebug.advanceCharterRecognitionForTest(500));
+  expect((await snap(page)).recognition.job.progress).toBe(20);
+  await configure(page, { powered: true }); await page.evaluate(() => {
+    const d = window.helixHeresyDebug; d.advanceCharterRecognitionForTest(1); d.advanceCharterRecognitionForTest(40);
+  });
+  s = await snap(page); expect(s.recognition.reaffirmation.response.decision).toBe('offered');
+  expect(s.recognition.reaffirmation.receipt).toBeNull();
+  expect(await act(page, 'reaffirmSign', { ...s.recognition.reaffirmation.terms, role: 'militaryDefenseCommand' })).toBe(false);
+  await uiAction(page, 'reaffirmSign'); await page.evaluate(() => window.helixHeresyDebug.advanceCharterRecognitionForTest(20));
+  await reload(page); expect((await snap(page)).recognition.reaffirmation.receipt).toBeNull();
+  await page.evaluate(() => window.helixHeresyDebug.advanceCharterRecognitionForTest(40));
+  s = await snap(page); const renewed = s.recognition.reaffirmation.receipt;
+  expect(renewed).toMatchObject({ type: 'administrativeReaffirmation', origin: 'coerced', role: 'centralAdministration',
+    originalRecognitionId: receipt.id, originalReviewId: reviewRecord.id, reviewId: s.recognition.reconsideration.id,
+    personId: original.recognition.administratorId, recorderId: original.office.clerk.id });
+  expect(s.known.reaffirmationCurrent).toBe(true);
+  expect(await act(page, 'instruct', s.known.instructionTerms)).toBe(false);
+  expect(await act(page, 'enterAddendum', { ...s.known.addendumTerms, action: 'Erase the original record' })).toBe(false);
+  await uiAction(page, 'enterAddendum'); await page.evaluate(() => window.helixHeresyDebug.advanceCharterRecognitionForTest(20));
+  await reload(page); expect((await snap(page)).office.successionMemoranda).toEqual([memorandum]);
+  await page.evaluate(() => window.helixHeresyDebug.advanceCharterRecognitionForTest(40)); s = await snap(page);
+  expect(s.office.successionMemoranda).toHaveLength(2); expect(s.office.successionMemoranda[0]).toEqual(memorandum);
+  expect(s.office.successionMemoranda[1]).toMatchObject({ type: 'scopedSuccessionReaffirmationAddendum',
+    authorId: s.recognition.administratorId, recorderId: original.office.clerk.id,
+    contents: { originalMemorandumId: memorandum.id, originalRecognitionId: receipt.id, reaffirmationId: renewed.id } });
+  expect(s.recognition.review).toEqual(reviewRecord); expect(s.recognition.recognition).toEqual(receipt);
+  expect(s.recognition.instruction).toEqual(original.recognition.instruction); expect(s.office.records).toEqual(original.office.records);
+  expect(s.office.power).toBe(power - 3); expect(s.office.workSeconds).toBe(work - 180);
+  expect(s.succession.leaders.find(a => a.id === s.recognition.administratorId).workSeconds).toBe(officialWork - 180);
+  expect(s.succession.handover).toBeNull(); expect(s.succession.control).toBeNull(); expect(s.succession.agreements).toEqual([]);
+  expect(s.campaign.cityPower.succession).toBeNull(); expect(s.succession.provision.stock).toBe(0);
+  expect(await act(page, 'reaffirmMeeting')).toBe(false); expect(await act(page, 'reaffirmSign', renewed.terms)).toBe(false);
+  expect(await act(page, 'enterAddendum', s.known.addendumTerms)).toBe(false);
+  expect(JSON.stringify(s.known)).not.toMatch(/"evidence"|recognitionPolicy|workSeconds|wardMana/);
+  await reload(page); expect((await snap(page)).recognition.reaffirmation).toEqual(s.recognition.reaffirmation);
+  await expect(page.locator('[data-charter-recognition]')).toContainText('Current records permission: supported');
+  expect(await page.evaluate(() => Boolean(window.helixHeresyDebug.startScientistMove('supportedSurveyGround', { toCell: { x: 10, y: 14, z: 6 }, allowMultiRoom: true })))).toBe(true);
+  await page.evaluate(() => {
+    const d = window.helixHeresyDebug;
+    for (let n = 0; n < 35; n++) {
+      const s = d.surveyExpeditionSnapshot(), task = s.tasks.find(t => !t.reason); if (!task) return;
+      d.advanceSimulation(Math.max(1, task.dueAt - s.clock + 1));
+    }
+  });
+  const dated = (await snap(page)).known;
+  await configure(page, { administratorHealth: 0 }); await page.evaluate(() => window.helixHeresyDebug.advanceCharterRecognitionForTest(60));
+  s = await snap(page); expect(s.context.atCounter).toBe(false); expect(s.known).toEqual(dated);
+  expect(s.recognition.reaffirmation.receipt).toEqual(renewed); expect(errors).toEqual([]);
+});

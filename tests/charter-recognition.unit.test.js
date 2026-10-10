@@ -289,3 +289,158 @@ test('public reconsideration records expose dated grounds and outcome, not priva
   assert.doesNotMatch(JSON.stringify(view), /"evidence"|"conduct"|recognitionPolicy|workSeconds|wardMana|mapCell/);
   newReceivedReport(f, 'later-report'); assert.equal(Recognition.publicView(f.s, f.c).reconsideration.current, false);
 });
+
+function freshEligible(f) {
+  // A real received non-attack record changes the snapshot without forgiving
+  // violence or rewriting the published confirmation rule.
+  f.c.conduct.push({ id: `received-nonviolent-record:${f.at}`, at: f.at, kind: 'receivedAdministrativeNotice',
+    targetId: f.s.administratorId, witnessId: f.office.clerk.id }); reconsidered(f);
+}
+function reaffirmOffered(f) {
+  assert.equal(invoke(f, 'reaffirmMeeting'), true); step(f, 60); assert.equal(f.s.reaffirmation.response.decision, 'offered');
+}
+function reaffirmed(f) {
+  reaffirmOffered(f); assert.equal(invoke(f, 'reaffirmSign', copy(f.s.reaffirmation.terms)), true); step(f, 60);
+  assert.ok(f.s.reaffirmation.receipt);
+}
+test('every theme separates new records-only assent from original signatures, institutional authority and once-only memorandum', () => {
+  for (const theme of ['madcap', 'grim', 'unbound']) {
+    const f = fixture(theme); recognized(f); invoke(f, 'instruct', Recognition.instructionTerms(f.s)); step(f, 60);
+    const old = copy({ review: f.s.review, recognition: f.s.recognition, terms: f.s.terms, response: f.s.response,
+      instruction: f.s.instruction, records: f.office.records, memorandum: f.office.successionMemoranda[0], claim: f.abdication.receipt,
+      people: Succession.people(f.succession, f.b).map(a => a.id), source: f.source });
+    freshEligible(f); const work = f.office.workSeconds, power = f.office.power, adminWork = Recognition.admin(f.s, f.succession).workSeconds;
+    assert.equal(Recognition.recordsAuthorityCurrent(f.s, f.succession, f.abdication, f.office, f.c), false);
+    reaffirmed(f); const receipt = copy(f.s.reaffirmation.receipt);
+    assert.equal(receipt.originalRecognitionId, old.recognition.id); assert.equal(receipt.reviewId, f.s.reconsideration.id);
+    assert.equal(receipt.commandRelationship.scope, 'One original-register reaffirmation addendum');
+    assert.equal(Recognition.recordsAuthorityCurrent(f.s, f.succession, f.abdication, f.office, f.c), true);
+    assert.equal(Recognition.authorityCurrent(f.s, f.succession, f.abdication, f.office, f.c), false);
+    assert.equal(Recognition.operative(f.s, f.succession, f.abdication, f.office, f.c), true);
+    assert.equal(invoke(f, 'instruct', Recognition.instructionTerms(f.s)), false);
+    const expected = Recognition.addendumTerms(f.s);
+    assert.equal(invoke(f, 'enterAddendum', { ...expected, role: 'militaryDefenseCommand' }), false);
+    assert.equal(invoke(f, 'enterAddendum', expected), true); step(f, 30); f.s = Recognition.normalize(f.s); step(f, 30);
+    assert.equal(f.office.successionMemoranda.length, 2); assert.deepEqual(f.office.successionMemoranda[0], old.memorandum);
+    assert.equal(f.office.successionMemoranda[1].type, 'scopedSuccessionReaffirmationAddendum');
+    assert.equal(f.office.successionMemoranda[1].contents.originalMemorandumId, old.instruction.recordId);
+    assert.equal(f.office.workSeconds, work - 180); assert.equal(f.office.power, power - 3);
+    assert.equal(Recognition.admin(f.s, f.succession).workSeconds, adminWork - 180);
+    assert.equal(invoke(f, 'enterAddendum', expected), false); assert.equal(invoke(f, 'reaffirmMeeting'), false);
+    assert.equal(invoke(f, 'reaffirmSign', f.s.reaffirmation.terms), false); assert.deepEqual(f.s.reaffirmation.receipt, receipt);
+    assert.deepEqual({ review: f.s.review, recognition: f.s.recognition, terms: f.s.terms, response: f.s.response,
+      instruction: f.s.instruction, records: f.office.records, memorandum: f.office.successionMemoranda[0], claim: f.abdication.receipt,
+      people: Succession.people(f.succession, f.b).map(a => a.id), source: f.source }, old);
+    assert.equal(f.succession.control, null); assert.equal(f.succession.handover, null); assert.deepEqual(f.succession.agreements, []);
+    assert.equal(f.succession.provision.stock, 0); assert.equal(f.b.copies.length, 0);
+  }
+});
+test('eligible reconsideration cannot forgive renewed violence or compel a stable personal refusal', () => {
+  for (const change of [f => newReceivedReport(f), f => Recognition.admin(f.s, f.succession).recognitionPolicy = 'declineCoercedAppointment']) {
+    const f = fixture(); recognized(f); change(f); freshEligible(f); const reports = copy(f.c.conduct);
+    assert.equal(invoke(f, 'reaffirmMeeting'), true); step(f, 60);
+    const response = copy(f.s.reaffirmation.response); assert.equal(response.decision, 'refused');
+    assert.equal(f.s.reaffirmation.terms, null); assert.equal(f.s.reaffirmation.receipt, null); assert.deepEqual(f.c.conduct, reports);
+    f.s = Recognition.normalize(f.s); step(f, 86400); assert.equal(invoke(f, 'reaffirmMeeting'), false);
+    assert.deepEqual(f.s.reaffirmation.response, response); assert.equal(invoke(f, 'reaffirmSign', {}), false);
+    assert.equal(invoke(f, 'enterAddendum', {}), false);
+    assert.equal(Recognition.recordsAuthorityCurrent(f.s, f.succession, f.abdication, f.office, f.c), false);
+  }
+});
+test('a current eligible completed independent finding and actual capable originals are required before reaffirmation attendance', () => {
+  for (const change of [f => f.s.reconsideration.status = 'queued', f => f.s.reconsideration.finding.outcome = 'ineligible',
+    f => f.s.reconsideration.finding.outcome = 'unresolved', f => f.c.conduct.push({ id: 'later-report', at: f.at, kind: 'attack' }),
+    f => f.s.reconsideration.finding.reviewerId = 'substitute', f => f.s.recognition.personId = 'substitute',
+    f => f.c.bodyEpoch++, f => f.c.charterCurrent = false, f => f.c.cityId = 'another', f => f.c.alive = false,
+    f => f.c.capable = false, f => f.c.atCounter = false, f => f.c.clerkPresent = false, f => f.c.lineOfSight = false,
+    f => f.c.busy = true, f => f.c.activeViolence = true, f => f.c.administrationAvailable = false, f => f.c.presentIds = [],
+    f => f.office.power = 0, f => f.office.workSeconds = 59, f => f.office.channelPowered = false,
+    f => f.office.maintenanceReady = false, f => f.office.clerk.assignment = 'another-duty',
+    f => Recognition.admin(f.s, f.succession).status = 'dead', f => Recognition.admin(f.s, f.succession).health = 49,
+    f => Recognition.admin(f.s, f.succession).fatigue = 80, f => Recognition.admin(f.s, f.succession).workSeconds = 59,
+    f => Recognition.admin(f.s, f.succession).assignment = 'other-duty']) {
+    const f = fixture(); recognized(f); freshEligible(f); change(f);
+    const work = f.office.workSeconds, power = f.office.power;
+    assert.equal(invoke(f, 'reaffirmMeeting'), false); assert.equal(f.s.reaffirmation, null);
+    assert.equal(f.office.workSeconds, work); assert.equal(f.office.power, power);
+  }
+  const f = fixture(); recognized(f); assert.equal(invoke(f, 'reaffirmMeeting'), false);
+});
+test('exact one-hour reaffirmation offers cannot be widened, signed twice or refreshed on unchanged facts', () => {
+  const f = fixture(); recognized(f); freshEligible(f); reaffirmOffered(f); const terms = copy(f.s.reaffirmation.terms);
+  assert.equal(terms.expiresAt - terms.offeredAt, 3600); assert.equal(terms.origin, 'coerced');
+  assert.match(terms.retainedRights, /property and faith/);
+  assert.equal(invoke(f, 'reaffirmSign', { ...terms, personId: 'replacement' }), false);
+  assert.equal(invoke(f, 'reaffirmSign', { ...terms, role: 'civilWatch' }), false);
+  step(f, 3600); assert.equal(invoke(f, 'reaffirmSign', terms), false); assert.equal(invoke(f, 'reaffirmMeeting'), false);
+  const expiring = fixture(); recognized(expiring); freshEligible(expiring); reaffirmOffered(expiring);
+  expiring.at = expiring.s.reaffirmation.terms.expiresAt - 10;
+  assert.equal(invoke(expiring, 'reaffirmSign', copy(expiring.s.reaffirmation.terms)), true); step(expiring, 10);
+  assert.equal(expiring.s.job, null); assert.equal(expiring.s.reaffirmation.receipt, null);
+  assert.equal(expiring.s.phase, 'reaffirmationExpired'); assert.equal(expiring.office.assignment, null);
+});
+test('partial reaffirmation work reloads and pauses without backfill, refunds, signatures or new staff', () => {
+  const f = fixture(); recognized(f); freshEligible(f); const work = f.office.workSeconds, power = f.office.power;
+  invoke(f, 'reaffirmMeeting'); step(f, 20); f.s = Recognition.normalize(f.s); f.succession = Succession.normalize(f.succession);
+  f.c.clerkPresent = false; step(f, 500); assert.equal(f.s.job.progress, 20); assert.equal(f.s.reaffirmation.response, null);
+  f.c.clerkPresent = true; step(f, 1); assert.equal(f.s.job.progress, 20); step(f, 40);
+  assert.equal(f.s.reaffirmation.response.decision, 'offered');
+  invoke(f, 'reaffirmSign', copy(f.s.reaffirmation.terms)); step(f, 20); f.office.channelPowered = false; step(f, 500);
+  assert.equal(f.s.job.progress, 20); assert.equal(f.s.reaffirmation.receipt, null);
+  f.office.channelPowered = true; step(f, 1); step(f, 40);
+  invoke(f, 'enterAddendum', Recognition.addendumTerms(f.s)); step(f, 20); f.office.workSeconds = 0; step(f, 100);
+  assert.equal(f.s.job.progress, 20); assert.equal(f.s.reaffirmation.addendum, null);
+  f.office.workSeconds = work - 140; step(f, 1); step(f, 40);
+  assert.equal(f.s.reaffirmation.addendum.status, 'completed'); assert.equal(f.office.workSeconds, work - 180);
+  assert.equal(f.office.power, power - 3);
+  const cancelled = fixture(); recognized(cancelled); freshEligible(cancelled); invoke(cancelled, 'reaffirmMeeting'); step(cancelled, 20);
+  const spent = cancelled.office.workSeconds, paid = cancelled.office.power;
+  assert.equal(Recognition.cancel(cancelled.s, cancelled.succession, cancelled.office, cancelled.at), true);
+  assert.equal(cancelled.office.workSeconds, spent); assert.equal(cancelled.office.power, paid); assert.equal(cancelled.s.reaffirmation.receipt, null);
+});
+test('further evidence cancels unsupported reaffirmation completion and supersedes old records permission without erasing it', () => {
+  for (const kind of ['meeting', 'signing', 'addendum']) {
+    const f = fixture(); recognized(f); freshEligible(f);
+    if (kind === 'meeting') invoke(f, 'reaffirmMeeting');
+    if (kind === 'signing') { reaffirmOffered(f); invoke(f, 'reaffirmSign', copy(f.s.reaffirmation.terms)); }
+    if (kind === 'addendum') { reaffirmed(f); invoke(f, 'enterAddendum', Recognition.addendumTerms(f.s)); }
+    step(f, 20); const historicalReceipt = copy(f.s.reaffirmation.receipt); newReceivedReport(f); step(f, 60);
+    assert.equal(f.s.job, null); assert.equal(f.office.assignment, null); assert.deepEqual(f.s.reaffirmation.receipt, historicalReceipt);
+    assert.equal(f.s.reaffirmation.addendum, null);
+    assert.equal(Recognition.recordsAuthorityCurrent(f.s, f.succession, f.abdication, f.office, f.c), false);
+    assert.equal(invoke(f, 'reaffirmSign', f.s.reaffirmation.terms), false);
+  }
+  const f = fixture(); recognized(f); freshEligible(f); reaffirmed(f); const old = copy(f.s.reaffirmation);
+  newReceivedReport(f); reconsidered(f); assert.equal(invoke(f, 'reaffirmMeeting'), true); step(f, 60);
+  assert.equal(f.s.reaffirmation.response.decision, 'refused'); assert.deepEqual(f.s.previousReaffirmations, [old]);
+  assert.equal(f.s.reaffirmation.receipt, null); assert.equal(Recognition.recordsAuthorityCurrent(f.s, f.succession, f.abdication, f.office, f.c), false);
+});
+test('forged reaffirmation bindings do not authorize the addendum, while fatigue and outages never erase historical consent', () => {
+  for (const change of [f => f.s.reaffirmation.receipt.role = 'militaryDefenseCommand', f => f.s.reaffirmation.receipt.type = 'recognition',
+    f => f.s.reaffirmation.receipt.recorderId = 'substitute', f => f.s.reaffirmation.receipt.originalRecognitionId = 'fake',
+    f => f.s.reaffirmation.receipt.reviewId = f.s.review.id, f => f.s.reaffirmation.receipt.bodyEpoch++,
+    f => f.s.reaffirmation.receipt.commandRelationship.scope = 'citywide army',
+    f => f.s.reaffirmation.terms.duties = 'unlimited obedience', f => f.c.bodyEpoch++, f => f.office.clerk.id = 'substitute']) {
+    const f = fixture(); recognized(f); freshEligible(f); reaffirmed(f); change(f);
+    assert.equal(Recognition.recordsAuthorityCurrent(f.s, f.succession, f.abdication, f.office, f.c), false);
+    assert.equal(invoke(f, 'enterAddendum', Recognition.addendumTerms(f.s)), false);
+  }
+  const f = fixture(); recognized(f); freshEligible(f); reaffirmed(f); const receipt = copy(f.s.reaffirmation.receipt);
+  Recognition.admin(f.s, f.succession).fatigue = 80; f.office.channelPowered = false;
+  assert.equal(Recognition.recordsAuthorityCurrent(f.s, f.succession, f.abdication, f.office, f.c), true);
+  assert.equal(Recognition.operative(f.s, f.succession, f.abdication, f.office, f.c), false);
+  assert.equal(invoke(f, 'enterAddendum', Recognition.addendumTerms(f.s)), false); assert.deepEqual(f.s.reaffirmation.receipt, receipt);
+});
+test('new register addendum does not invent an original memorandum, and public/normalized records hide private received facts', () => {
+  const f = fixture(); recognized(f); freshEligible(f); reaffirmed(f);
+  assert.equal(Recognition.addendumTerms(f.s).contents.originalMemorandumId, null);
+  invoke(f, 'enterAddendum', Recognition.addendumTerms(f.s)); step(f, 60); f.s = Recognition.normalize(f.s);
+  assert.equal(f.office.successionMemoranda.length, 1); assert.equal(f.office.successionMemoranda[0].type, 'scopedSuccessionReaffirmationAddendum');
+  assert.equal(f.s.instruction, null); assert.deepEqual(f.office.records, []);
+  const view = Recognition.publicView(f.s, f.c); assert.equal(view.reaffirmationCurrent, true); assert.equal(view.personalReaffirmationRequired, false);
+  assert.doesNotMatch(JSON.stringify(view), /"evidence"|recognitionPolicy|workSeconds|wardMana|mapCell/);
+  const dead = fixture(); recognized(dead); freshEligible(dead); invoke(dead, 'reaffirmMeeting'); dead.c.alive = false;
+  const saved = copy(dead.s); step(dead, 500); assert.deepEqual(dead.s, saved);
+  const body = fixture(); recognized(body); freshEligible(body); invoke(body, 'reaffirmMeeting'); step(body, 20); body.c.bodyEpoch++; step(body, 60);
+  assert.equal(body.s.job, null); assert.equal(body.office.assignment, null); assert.equal(body.s.reaffirmation.receipt, null);
+});

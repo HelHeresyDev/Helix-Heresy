@@ -44,7 +44,7 @@ function fixture(theme = 'madcap') {
   assert.ok(Works.sign(...wa, copy(works.terms), c, at)); at += 60; Works.advance(...wa, c, at);
   const s = Watch.create(charter, works, succession, office), actor = Watch.actor(s, succession);
   actor.watchPolicy = 'considerCounterObservation';
-  return { s, charter, works, succession, abdication, office, c, at, actor, b };
+  return { s, charter, works, succession, abdication, office, c, at, actor, b, institutions };
 }
 const args = f => [f.s, f.charter, f.works, f.succession, f.abdication, f.office];
 const move = (a, target) => { for (const key of ['x', 'y', 'z']) if (a.mapCell[key] !== target[key]) { a.mapCell[key] += Math.sign(target[key] - a.mapCell[key]); return true; } return false; };
@@ -58,6 +58,25 @@ function reach(f) { for (let n = 0; n < 30 && f.s.duty.status !== 'observing'; n
 const event = f => ({ id: `actual-attack:${f.at}`, at: f.at, cityId: 'a', actorId: 'scientist', targetId: 'ruler:a',
   kind: 'attackAtMunicipalCounter', cell: { x: 17, y: 8, z: 6 }, detail: 'Observed attack attempt on municipal ground.' });
 const perception = { observed: true, identified: true, counterVisible: true };
+test('records-only administrator reaffirmation cannot reactivate old public-works or watch assent, but accepted safe return survives', () => {
+  const f = fixture(); watch(f); reach(f); tick(f, 100);
+  const works = copy(f.works.receipt), watchReceipt = copy(f.s.receipt), originalCentral = copy(f.charter.recognition);
+  assert.ok(Works.authorization(f.works, f.charter, f.succession, f.abdication, f.office, f.c));
+  const ca = [f.charter, f.succession, f.abdication, f.office, f.institutions];
+  f.c.rule.text = 'Received clarified local confirmation requirement.';
+  assert.ok(Charter.reconsider(...ca, f.c, f.at)); f.at = f.charter.reconsideration.readyAt;
+  assert.ok(Charter.hearReconsideration(...ca, f.c, f.at)); f.at += 180; Charter.advance(...ca, f.c, f.at);
+  assert.ok(Charter.reaffirmMeeting(...ca, f.c, f.at)); f.at += 60; Charter.advance(...ca, f.c, f.at);
+  assert.ok(Charter.reaffirmSign(...ca, copy(f.charter.reaffirmation.terms), f.c, f.at)); f.at += 60; Charter.advance(...ca, f.c, f.at);
+  assert.equal(Charter.recordsAuthorityCurrent(f.charter, f.succession, f.abdication, f.office, f.c), true);
+  assert.equal(Charter.authorityCurrent(f.charter, f.succession, f.abdication, f.office, f.c), false);
+  assert.equal(Works.authorization(f.works, f.charter, f.succession, f.abdication, f.office, f.c), null);
+  assert.equal(Watch.authorization(...args(f), f.c), null); assert.equal(Watch.order(...args(f), Watch.instructionTerms(f.s), f.c, f.at), false);
+  assert.deepEqual(f.works.receipt, works); assert.deepEqual(f.s.receipt, watchReceipt); assert.deepEqual(f.charter.recognition, originalCentral);
+  tick(f, 500); for (let n = 0; n < 30 && f.s.duty; n++) tick(f);
+  assert.equal(f.s.duty, null); assert.equal(f.s.deliveries.length, 1); assert.equal(f.s.deliveries[0].seconds, 600);
+  assert.equal(f.office.power, 0); assert.equal(f.succession.control, null); assert.equal(f.succession.handover, null);
+});
 test('all themes use separate authentic original receipts without wider roles, free stock or altered cases', () => {
   for (const theme of ['madcap', 'grim', 'unbound']) {
     const f = fixture(theme), before = copy({ charter: f.charter.recognition, works: f.works.receipt, b: f.b, ruler: f.succession.ruler });
