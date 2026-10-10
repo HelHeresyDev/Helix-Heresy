@@ -117,10 +117,18 @@
     return Boolean(s?.terms && !s.recognition && same(s.terms, expected)
       && begin(s, succession, abdication, office, institutions, c, at, 'continuation', 60, expected));
   }
-  function operative(s, succession, abdication, office, c) {
-    return Boolean(s?.recognition && bound(s, succession, abdication, office, c) && c.alive && c.bodyEpoch === s.recognition.bodyEpoch
-      && c.administrationAvailable && able(admin(s, succession)) && office.active
+  function authorityCurrent(s, succession, abdication, office, c) {
+    const r = s?.recognition;
+    return Boolean(r && bound(s, succession, abdication, office, c) && c.alive && c.bodyEpoch === r.bodyEpoch
+      && admin(s, succession)?.status === 'alive' && s.review?.status === 'completed' && s.review.finding?.outcome === 'eligible'
+      && r.id === `${s.id}:recognition` && r.role === 'centralAdministration' && r.origin === 'coerced'
+      && r.personId === s.administratorId && r.institutionId === s.administrationId && r.recorderId === s.clerkId
+      && r.claimId === s.claim.id && r.reviewId === s.review.id && same(r.terms, s.terms)
+      && office.active
       && same(s.review.evidence, evidence(s, c)));
+  }
+  function operative(s, succession, abdication, office, c) {
+    return authorityCurrent(s, succession, abdication, office, c) && c.administrationAvailable && able(admin(s, succession));
   }
   function instructionTerms(s) {
     return s?.recognition ? { recognitionId: s.recognition.id, institutionId: s.administrationId, role: 'centralAdministration',
@@ -207,5 +215,5 @@
       terms: s.terms, recognition: s.recognition, instruction: s.instruction, instructionTerms: instructionTerms(s),
       working: s.job ? { kind: s.job.kind, progress: s.job.progress, seconds: s.job.seconds } : null, message: s.message, limitations: LIMITS });
   }
-  return { LIMITS, create, normalize, admin, reviewer, independent, file, hear, meeting, sign, operative, instructionTerms, instruct, cancel, advance, publicView };
+  return { LIMITS, create, normalize, admin, reviewer, independent, file, hear, meeting, sign, authorityCurrent, operative, instructionTerms, instruct, cancel, advance, publicView };
 });

@@ -1,8 +1,9 @@
 (function (root, factory) {
-  const api = factory(typeof module === 'object' && module.exports ? require('./home-institution-context') : root.HelixHomeInstitutionContext);
+  const api = factory(typeof module === 'object' && module.exports ? require('./home-institution-context') : root.HelixHomeInstitutionContext,
+    typeof module === 'object' && module.exports ? require('./city-administration') : root.HelixCityAdministration);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixCityResistance = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Institutions) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Institutions, Administration) {
   'use strict';
   const copy = value => JSON.parse(JSON.stringify(value));
   const WINDOW = 28800, MEETING = 60, HEARING = 180;
@@ -12,13 +13,14 @@
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const worker = (s, succession) => succession?.leaders.find(a => a.id === s?.workerId);
   const reviewer = (s, succession) => succession?.leaders.find(a => a.id === s?.reviewerId);
-  function create(upkeep, succession) {
+  function create(upkeep, succession, office = null, c = null) {
     const a = succession?.leaders.find(a => a.id === upkeep?.workerId);
-    if (!a || !succession.handover || succession.handover.id !== upkeep.handoverId) return null;
+    if (!a || !(upkeep.authorizationId ? Administration.authorization(upkeep, succession, office, c)
+      : succession.handover && succession.handover.id === upkeep.handoverId)) return null;
     const r = succession.leaders.find(a => a.roles.includes('civicReview'));
     return { id: `${upkeep.id}:resistance`, sourceTheme: upkeep.sourceTheme, workerId: a.id, reviewerId: r?.id || null,
       institutionId: a.institutionId, reviewerInstitutionId: r?.institutionId || null,
-      handoverId: upkeep.handoverId, charterId: upkeep.charterId, installationId: upkeep.installation.id,
+      handoverId: upkeep.handoverId, authorizationId: upkeep.authorizationId || null, charterId: upkeep.charterId, installationId: upkeep.installation.id,
       offer: null, commitment: null, notice: null, incidents: [], job: null, reviews: [], renewals: [],
       commandStatus: 'active', history: [], message: '', nextNumber: 1, lastAt: upkeep.lastAt };
   }
@@ -26,19 +28,20 @@
     s.history.push({ at, kind, text }); s.history = s.history.slice(-40); s.message = text;
   }
   function bound(s, upkeep, succession, office, c) {
-    return Boolean(s && upkeep && s.handoverId === succession?.handover?.id && s.handoverId === upkeep.handoverId
-      && succession.control?.recognizedAuthorityId === 'scientist' && succession.source.charterId === s.charterId
+    return Boolean(s && upkeep && s.authorizationId === (upkeep.authorizationId || null)
+      && Administration.authorization(upkeep, succession, office, c) && s.handoverId === upkeep.handoverId
+      && succession.source.charterId === s.charterId
       && s.installationId === upkeep.installation.id && worker(s, succession)?.institutionId === s.institutionId
       && worker(s, succession)?.roles.includes(ROLE)
       && office?.id === upkeep.officeId && office.cityId === upkeep.cityId && office.active
       && office.clerk?.id === upkeep.clerkId && same(office.civicCounter?.cell, upkeep.installation.cell)
       && c.charterCurrent && c.administrationAvailable && c.publicWorksAvailable && c.geometryAvailable
-      && succession.agreements.some(a => a.personId === s.workerId));
+      && Administration.agreement(upkeep, succession, office, c));
   }
   function localReason(s, upkeep, succession, office, c) {
     if (!bound(s, upkeep, succession, office, c)) return 'Original charter, installation, clerk and public-works appointment required.';
     if (!c.alive || !c.capable || !c.atCounter || !c.visitPermission || !c.clerkPresent || !c.lineOfSight
-      || !c.workerPresent || c.busy || c.cityId !== upkeep.cityId || c.bodyEpoch !== succession.control.bodyEpoch)
+      || !c.workerPresent || c.busy || c.cityId !== upkeep.cityId || c.bodyEpoch !== Administration.bodyEpoch(upkeep, succession, office, c))
       return 'Attend the original counter and official, in the authenticated body and free of other work.';
     if (!able(worker(s, succession)) || !able(office.clerk)) return 'The named official and clerk must be capable; supplied recovery is still available.';
     return '';
@@ -46,25 +49,25 @@
   function free(s, succession, office) {
     return !s.job && !office.assignment && !office.clerk.assignment && !worker(s, succession)?.assignment && !succession.job;
   }
-  function setCommand(s, succession, value, at) {
+  function setCommand(s, upkeep, succession, office, c, value, at) {
     s.commandStatus = value;
     // Preserve the original agreement and all other roles held by a combined officeholder.
-    const agreement = succession.agreements.find(a => a.personId === s.workerId);
+    const agreement = Administration.agreement(upkeep, succession, office, c);
     agreement.suspendedRoles = (agreement.suspendedRoles || []).filter(role => role !== ROLE);
     if (value !== 'active') agreement.suspendedRoles.push(ROLE);
-    const link = succession.control.commandRelationships?.find(a => a.personId === s.workerId);
+    const link = Administration.commandLink(upkeep, succession, office, c);
     if (link) { link.roleStates ||= {}; link.roleStates[ROLE] = { status: value, at, sourceId: s.notice?.id || s.id }; }
   }
   function propose(s, upkeep, succession, office, c, at) {
     if (localReason(s, upkeep, succession, office, c) || s.commitment || !free(s, succession, office)) return false;
-    s.offer ||= { id: `${s.id}:terms:${s.nextNumber++}`, charterId: s.charterId, handoverId: s.handoverId,
+    s.offer ||= { id: `${s.id}:terms:${s.nextNumber++}`, charterId: s.charterId, handoverId: s.handoverId, authorizationId: s.authorizationId,
       workerId: s.workerId, installationId: s.installationId,
       duties: 'Keep this counter supplied with three city-owned maintenance parts per service period, finite battery operations and supported staff recovery; authorize reachable upkeep before its published grace expires.',
       exceptions: 'Actual outages, injury, blocked access and unavailable staff or custody are capacity evidence, not proof of personal neglect. No new duty applies before attended acceptance.',
       scope: 'Existing public-works duties only; no orders to command the city defender, seize private property or override courts or faith obligations.',
       remedySeconds: WINDOW, remedy: 'Eight hours after personal receipt of a factual notice. Repairs and existing safe work remain possible during refusal. Renewed command requires an explicit attended agreement.',
       review: 'Independent existing civic-review officeholder, actual institutional queue and an attended three-minute hearing; an administrative decision is not a criminal verdict.' };
-    note(s, at, 'terms', 'Exact prospective upkeep responsibilities disclosed. Historical handover has not been rewritten.'); return true;
+    note(s, at, 'terms', 'Exact prospective upkeep responsibilities disclosed. Historical authorization has not been rewritten.'); return true;
   }
   function release(s, succession, office) {
     if (!s.job) return;
@@ -104,17 +107,20 @@
     if (!c.upkeepReachable) blockers.push('Inspected physical maintenance route blocked');
     const staged = stacks.filter(i => i.key === 'metalParts' && i.quantity >= 3 && !i.carriedBy && !i.tags?.includes('contaminated')
       && i.cityOwnerId === upkeep.cityId && i.civicCustody?.cityId === upkeep.cityId
-      && i.reservedTaskId === `${succession.id}:city-maintenance-reserve`
+      && Administration.suppliedCustody(upkeep, i)
+      && i.reservedTaskId === Administration.reserveKey(upkeep, succession)
       && same(i.cell, { x: 16, y: 12, z: 6 }));
     const reserveKnown = c.reserveInspectable === true;
-    const reserveReady = reserveKnown && succession.provision.stock >= 3 && !succession.provision.reservedBy
+    const reserveReady = !upkeep.authorizationId && reserveKnown && succession.provision.stock >= 3 && !succession.provision.reservedBy
       && able(bargain?.defender) && !bargain.defender.assignment && bargain.defender.workSeconds >= 1;
-    if (!staged.length && !reserveReady) blockers.push(reserveKnown
+    if (!staged.length && !reserveReady) blockers.push(upkeep.authorizationId
+      ? 'No three clean unreserved parts in this public-works receiving custody' : reserveKnown
       ? 'No three clean unreserved parts with an available original custodian' : 'Original reserve custody not inspected; supply capacity unverified');
     return { at, observerId: a.id, installationId: s.installationId, charterId: s.charterId,
       dueAt: upkeep.dueAt, graceUntil: upkeep.graceUntil, servicedAt: upkeep.servicedAt,
       overdue: at >= upkeep.graceUntil, blockers,
-      sourceReceiptIds: succession.provision.receipts.map(r => r.id), stagedStackIds: staged.map(i => i.id),
+      sourceReceiptIds: upkeep.authorizationId ? upkeep.receipts.filter(r => r.stagedStackId).map(r => r.id)
+        : succession.provision.receipts.map(r => r.id), stagedStackIds: staged.map(i => i.id),
       maintenanceReceiptIds: upkeep.receipts.filter(r => r.installationId === s.installationId).map(r => r.id) };
   }
   function receive(s, upkeep, succession, office, c, at) {
@@ -135,7 +141,7 @@
       request: 'Transfer command of the city defender to the public-works official',
       finding: 'Declined: defense command is outside this public-works agreement; no defender has consented.',
       evidence: { at, requestIssuerId: 'scientist', recipientId: s.workerId, termsId: s.commitment.id }, review: null };
-    setCommand(s, succession, 'suspended', at);
+    setCommand(s, upkeep, succession, office, c, 'suspended', at);
     note(s, at, 'refusal', s.notice.finding); return true;
   }
   function independent(s, succession, c) {
@@ -211,7 +217,7 @@
       } else if (n.remedyUntil != null && at >= n.remedyUntil && s.commandStatus === 'active'
         && (facts.overdue || upkeep.servicedAt > n.remedyUntil)) {
         n.deadlineEvidence = facts;
-        setCommand(s, succession, 'suspended', at);
+        setCommand(s, upkeep, succession, office, c, 'suspended', at);
         note(s, at, 'limitedRefusal', 'The received corrective window elapsed without timely supported repair. New discretionary public-works commands are declined; essential repair and accepted work remain authorized. Capacity evidence is retained, not converted to guilt.'); changed = true;
       }
     }
@@ -256,7 +262,7 @@
           const receipt = { id: `${j.id}:receipt`, at: completedAt, personId: s.workerId, reviewId: n.review.id,
             termsId: s.commitment.id, scope: 'Renewed original public-works duties only; defense, courts, property and faith remain independent.' };
           s.renewals.push(receipt); n.resolvedAt = completedAt; n.resolution = receipt.scope;
-          setCommand(s, succession, 'active', completedAt); note(s, completedAt, 'renewal', 'The named official explicitly renewed the bounded relationship after supported remedy and review. No other institution pledged obedience.');
+          setCommand(s, upkeep, succession, office, c, 'active', completedAt); note(s, completedAt, 'renewal', 'The named official explicitly renewed the bounded relationship after supported remedy and review. No other institution pledged obedience.');
         } else {
           note(s, completedAt, 'meetingUnfulfilled', 'The attended work ended, but the original terms, remedy or capacity no longer supported a signature. No consent or decision was awarded; spent work remains spent.');
         }
