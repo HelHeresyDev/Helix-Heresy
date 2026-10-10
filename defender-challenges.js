@@ -18,14 +18,19 @@
   const inside = c => c?.z === GROUND.z && c.x >= GROUND.x && c.x < GROUND.x + GROUND.width && c.y >= GROUND.y && c.y < GROUND.y + GROUND.height;
   const able = a => a?.status === 'alive' && a.health > 35 && (a.fatigue || 0) < 80;
   const reserved = s => ['preparing', 'outward', 'ready', 'active', 'returning', 'petitioning'].includes(s?.phase);
+  function prepareDefender(b) {
+    if (!b?.defender) return false;
+    if (!b.defender.actorKind) Object.assign(b.defender, { actorKind: 'cityDefender', maxHealth: 100,
+      skills: { striking: 35, guarding: 50, evasion: 20, perception: 40, animancy: 60 },
+      wardMana: 120, wardManaCapacity: 120, stamina: 100, staminaCapacity: 100 });
+    return true;
+  }
   function create(b, theme = 'madcap', seed = '') {
     if (!b?.source?.charterId || !b.defender || !b.representative) return null;
     const content = Theme.selectContent(registry, { kind: 'defenderChallenge', worldTheme: theme, seed: seed || b.source.cityId, required: true });
     if (!content.ok) return null;
     // Elaborate the already allocated rare defender, not a new recruit or founder.
-    if (!b.defender.actorKind) Object.assign(b.defender, { actorKind: 'cityDefender', maxHealth: 100,
-      skills: { striking: 35, guarding: 50, evasion: 20, perception: 40, animancy: 60 },
-      wardMana: 120, wardManaCapacity: 120 });
+    prepareDefender(b);
     return { id: `${b.defender.id}:sanctioned-challenge`, definitionId: content.definitionId, sourceTheme: content.sourceTheme,
       phase: 'idle', terms: null, job: null, bout: null, receipt: null, petition: null, conduct: [], message: '', log: [], nextNumber: 1 };
   }
@@ -193,5 +198,5 @@
       pendingPulse: s.pendingPulse || null, receipt: s.receipt, petition: s.petition, message: s.message, log: s.log, limitations: LIMITS });
   }
   return { GROUND, START, DEFENDER, WITNESS, PREP_SECONDS, BOUT_SECONDS, LIMITS, inside, reserved, create, normalize, request,
-    accept, withdraw, start, authorized, absorb, filePetition, advance, publicView };
+    accept, withdraw, start, authorized, absorb, filePetition, advance, publicView, prepareDefender };
 });

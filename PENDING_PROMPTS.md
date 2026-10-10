@@ -18,12 +18,13 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. City Power: Coercion, Replacement, and Occupation
-2. Strategic Expansion and World Domination
-3. Divine Supremacy: Rule over the Gods
-4. New-Run Onboarding and Contextual Tutorial
-5. Sound, Notifications, and Accessibility Audit
-6. Production Art Pass Using the Sprite Pipeline
+1. Coerced Abdication and Contested Recognition
+2. Occupation and Replacement Appointments
+3. Strategic Expansion and World Domination
+4. Divine Supremacy: Rule over the Gods
+5. New-Run Onboarding and Contextual Tutorial
+6. Sound, Notifications, and Accessibility Audit
+7. Production Art Pass Using the Sprite Pipeline
 
 Human staffing now supports bounded independent annex operation without intelligent creations. Homunculus growth, learned local continue/stop gestures, small separately learned signed and spoken languages, care-grounded spoken help requests and specifically demonstrated voluntary carrying agreements exist; literacy, wider education and standing creature employment do not. Homunculi remain advanced stage-two/three work, not early-laboratory unlocks; priority order does not impose compulsory campaign chapters.
 
@@ -32,6 +33,8 @@ City influence now has a first bounded charter-backed civic assay mandate: exact
 The approved sovereign-audience prerequisite is implemented separately from takeover: a physically reached municipal counter, actual charter-bound representative and rare city defender, shared administrative queue, attended exact supply terms, paid existing transport of carried metal parts, finite installation custody and partial receipts, and one narrow dated approach extract only after full receipt and attended copying. No assay appointment is required, no private archive is released before fulfilment, and a signed civic bargain supplies no command, patron approval, neighboring sovereignty or city-power completion. Restricted information remains deliberately scarce. Sovereign coercion/replacement and wider resistance remain unfinished; do not repeat the completed audience/supply exchange as a new implementation pass.
 
 The sanctioned defender-challenge prerequisite is also implemented: exact optional terms, five attended preparation minutes, the same existing people's finite duty work and physical walking, personal projection ward energy, telegraphed force pulses, ordinary combat costs and persistent human injuries, supervised stopping and one dated witnessed outcome. A limited defender concession supports one attended political negotiation request, explicitly filed but not accepted. No city command, army, unrestricted combat superiority, divine consent, sovereignty or ambition completion follows. Ordinary civic services do not require fighting. Do not repeat the completed challenge as a new prerequisite; actual coercion/replacement and wider resistance remain unfinished.
+
+Political confrontation and defender intervention are implemented separately from voluntary succession: a physically heard abdication demand, actual incumbent refusal, the same existing defender's hostile local repertoire and finite personal reserves, physical pursuit and withdrawal, persistent ordinary injuries, and bounded personal ceasefire with renewed intervention on breach. No training victory, supply fulfilment or assay mandate is required. Actual witnesses retain dated conduct evidence, not automatic guilt or custody. Defeating or killing the defender transfers no sovereignty and does not end the run. Saved windups, original people, injuries, energy, reports and once-only outcomes survive reload; private away state is not live intelligence. This first encounter supports intact individual designation-charter cities, not invented collective or displaced rulers. Do not repeat this completed confrontation as a prerequisite; coerced abdication/contested recognition and occupation/replacement appointments are distinct pending discussions below.
 
 Main-laboratory and hidden-workshop soul-beacon recovery require late-game skills, recovered evidence, three reconstruction projects, a separately grown soul-free receiving body, finite maintained utilities and a charged armed apparatus at each destination. Death preserves bodily remains and worldly consequences before saved destination selection and exactly-once return. Invalid selections consume nothing and fall back only to other viable original choices, with no post-death preparation or time advancement. Imperfect transfer loses personal memory and practiced expertise to the original flaw. A controlled self-derived neural-continuity assay, two further advanced projects and actual supplied preparation/validation can perfect a specific body–beacon pairing. Perfected return retains current memory, knowledge and conceptual specializations while bodily execution must genuinely retrain; relevant physical practice gains four times XP only below retained mastery. Earlier memory losses, soul wounds, external records and worldly consequences remain. All destinations retain the 75-integrity threshold; a destroyed soul cannot return.
 
@@ -107,39 +110,45 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. City Power: Coercion, Replacement, and Occupation
+## 1. Coerced Abdication and Contested Recognition
 
-Build beyond the implemented individual-ruler voluntary designation, limited civic assay delegation, sovereign-audience supply bargain and sanctioned defender demonstration by discussing a different physically supported way to replace, coerce or defeat a sovereign city's authority. The existing representative, rare walls-and-wards defender, dated contacts, restricted information and witnessed limited performance are a starting point, not a freely controllable army or complete intelligence. A filed performance-backed request alone still compels nothing; the supported designation route requires its own actual incumbent decision and institutional handover. Collective succession, unwilling rulers and unsupported charters need distinct procedures. Choose a small playable route before coding; split missing broader combat, negotiation or enforcement prerequisites into additional prompts when necessary. An assay appointment, fulfilled supply bargain, limited bout concession, paid services, reputation or internet recognition cannot supply command over a ruler, institutions or defenses.
+Discuss the next small route beyond physical confrontation. A refused demand or defeated defender cannot itself depose the incumbent. Require the actual living incumbent's physically supported decision under force, exact terms, authentic record and distinct institutional recognition or refusal. Existing voluntary designation, civic assay authority and a personal ceasefire are not coerced succession. Preserve actual charter restrictions, judicial independence, legal consequences, original divine obligations and dated personal knowledge. Unsupported collective rulers and charters need their own procedures. No hidden intimidation meter, automatic city surrender, free replacements or ambition completion.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 2. Occupation and Replacement Appointments
+
+Discuss the first bounded occupation or contested replacement appointment beyond whichever actual succession or coerced-recognition route has been implemented. Choose one office or enforceable local obligation with real opposing actors before widening to citywide occupation. Existing recognition is not physical control; replacing an official requires a real eligible person, supported appointment procedure, actual access, duties, supplies and an opposing incumbent's response. The existing rare defender and civic people are not a freely controllable army, and a conquered installation supplies neither complete intelligence nor automatic institutional obedience. Collective rulers and unsupported charters retain distinct procedures. Split broader enforcement, organized resistance and provisioning prerequisites when needed. No assay appointment, bargain, witnessed bout, personal ceasefire, payment, reputation or internet recognition grants sovereign command by itself.
 
 Require actual people, rare powerful defenders, material resources, reachable infrastructure and enforceable terms. Account for the existing charter, appointments and succession, authenticated divine patrons and religious interests, legal consequences and actual opposing actors. Preserve separate local sovereignties, knowledge limits and the politically dependent two-sponsor status of route strongholds. No free army, automatic surrender, omniscient takeover or durable nation-state may replace the city-polity model. Record a supported change of control separately from whether that control remains enforceable; reuse supported continuing administration and role-specific objections/review without assuming perpetual loyalty. Wider provisioning, contested replacement appointments, religious conflicts, organized opposition and armed revolt need separate prompts when an approved route actually requires them; do not repeat completed public-works upkeep or its objection loop.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 2. Strategic Expansion and World Domination
+## 3. Strategic Expansion and World Domination
 
 Design physically supportable expansion between existing support components, significant beast powers, and divine interests, then implement only the next mechanically supported slice. Specify finite, testable durable-supremacy criteria before adding victory evaluation; occupation of every empty globe cell is not required. Bind campaigns to actual routes, transport, manpower, resources, defense, agreements, and resistance. Keep unknown powers and hidden totals out of ordinary campaign records. World domination is an exceptionally rare dated accomplishment, not a game-over transition, and remains separate from divine supremacy.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Divine Supremacy: Rule over the Gods
+## 4. Divine Supremacy: Rule over the Gods
 
 Design and implement the ultimate ambition of imposing enforceable submission on the gods, killing those who refuse, and reigning over the rest. Submission must impose actual terms and consequences rather than a reputation threshold or cosmetic declaration. Cover discovery, human and beast gods, living descended individuals, avatars versus the actual divine individual, rebellion, and new ascendants. Destroying worship or forcing descent is not a kill. Scientific, animantic, engineered-creature, and personal-power approaches should remain possible without requiring the scientist to ascend. Theme-compatible presentations do not remove the refusal-and-death requirement. Define finite, testable accomplishment criteria without exposing hidden identities or counts; allow continued play after success and keep world domination a separate accomplishment. Split prerequisite combat, submission, or enforcement systems into further prompts if needed.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. New-Run Onboarding and Contextual Tutorial
+## 5. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. Sound, Notifications, and Accessibility Audit
+## 6. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Production Art Pass Using the Sprite Pipeline
+## 7. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 
