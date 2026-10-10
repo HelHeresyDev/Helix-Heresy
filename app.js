@@ -109,6 +109,7 @@
   const PublicWorksRecognition = window.HelixPublicWorksRecognition;
   const WatchRecognition = window.HelixWatchRecognition;
   const DefenseRecognition = window.HelixDefenseRecognition;
+  const ReligiousRecognition = window.HelixReligiousRecognition;
   const CitySuccession = window.HelixCitySuccession;
   const CityAdministration = window.HelixCityAdministration;
   const CityResistance = window.HelixCityResistance;
@@ -5472,6 +5473,8 @@
       watchRecognitionKnowledge: null,
       defenseRecognition: null,
       defenseRecognitionKnowledge: null,
+      religiousRecognition: null,
+      religiousRecognitionKnowledge: null,
       citySuccession: null,
       citySuccessionKnowledge: null,
       cityAdministration: null,
@@ -14484,6 +14487,22 @@
       publicWorksRecognitionAction: (action, terms) => publicWorksRecognitionAction(action, terms),
       watchRecognitionAction: (action, terms) => watchRecognitionAction(action, terms),
       defenseRecognitionAction: (action, terms) => defenseRecognitionAction(action, terms),
+      religiousRecognitionAction: (action, terms) => religiousRecognitionAction(action, terms),
+      religiousRecognitionSnapshot: () => clonePlainObject({ petition: state.religiousRecognition, known: state.religiousRecognitionKnowledge,
+        context: religiousRecognitionContext(), office: scientistCivicOffice(), charter: state.charterRecognition, clock: state.clock }),
+      configureReligiousRecognitionTest: (options = {}) => {
+        const b = state.sovereignBargains; if (!b?.testFixture) return false;
+        if (options.source) b.testReligiousSource = clonePlainObject(options.source);
+        const s = ensureReligiousRecognition(); if (!s) return false;
+        if (options.policy) s.actor.facilitationPolicy = options.policy;
+        if (options.powered != null) scientistCivicOffice().channelPowered = options.powered;
+        if (options.channelAvailable != null) s.testChannelAvailable = options.channelAvailable;
+        refreshReligiousRecognitionKnowledge(); persist(); render(); return true;
+      },
+      advanceReligiousRecognitionForTest: seconds => {
+        if (scientistIsDead()) return false;
+        state.clock += Math.max(0, Number(seconds) || 0); updateReligiousRecognition(); persist(); render(); return true;
+      },
       defenseRecognitionSnapshot: () => clonePlainObject({ recognition: state.defenseRecognition, known: state.defenseRecognitionKnowledge,
         charter: state.charterRecognition, succession: state.citySuccession, bargain: state.sovereignBargains,
         office: scientistCivicOffice(), context: defenseRecognitionContext(true), health: scientistVital('health').current,
@@ -22166,6 +22185,8 @@
       return { time: state.clock + Math.max(1, state.watchRecognition.job.seconds - state.watchRecognition.job.progress), label: 'Attended watch continuation', type: 'company' };
     if (state.defenseRecognition?.job && defenseRecognitionObserved())
       return { time: state.clock + Math.max(1, state.defenseRecognition.job.seconds - state.defenseRecognition.job.progress), label: 'Attended defense continuation', type: 'company' };
+    if (state.religiousRecognition?.job && religiousRecognitionObserved())
+      return { time: state.clock + Math.max(1, state.religiousRecognition.job.seconds - state.religiousRecognition.job.progress), label: 'Attended patron petition', type: 'company' };
     if (CityConfrontations.active(state.cityConfrontation) && cityConfrontationObserved())
       return { time: state.clock + 1, label: 'Dangerous political confrontation', type: 'combat' };
     const gateEvent = nextGateEnforcementEvent();
@@ -22729,6 +22750,7 @@
     changes.scientistMovementChanged += livingUpdate(() => updatePublicWorksRecognition());
     changes.scientistMovementChanged += livingUpdate(() => updateWatchRecognition());
     changes.scientistMovementChanged += livingUpdate(() => updateDefenseRecognition());
+    changes.scientistMovementChanged += livingUpdate(() => updateReligiousRecognition());
     changes.scientistMovementChanged += livingUpdate(() => updateCarrierBriefing());
     changes.scientistMovementChanged += livingUpdate(() => updatePenalFlights(elapsed));
     changes.scientistMovementChanged += livingUpdate(() => updatePenalLegion(elapsed));
@@ -22797,11 +22819,11 @@
     if (scientistIsDead()) return 0;
     const advanceStartedAt = performance.now();
     const elapsed = Math.max(0, Number(seconds) || 0);
-    if (!options.recognitionStep && elapsed > 1 && (state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job)) {
+    if (!options.recognitionStep && elapsed > 1 && (state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job || state.religiousRecognition?.job)) {
       let remaining = elapsed, changed = 0;
-      while (remaining > 0 && !scientistIsDead() && (state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job)) {
+      while (remaining > 0 && !scientistIsDead() && (state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job || state.religiousRecognition?.job)) {
         const s = state.charterRecognition?.job ? state.charterRecognition : state.publicWorksRecognition?.job ? state.publicWorksRecognition
-          : state.watchRecognition?.job ? state.watchRecognition : state.defenseRecognition, before = state.clock;
+          : state.watchRecognition?.job ? state.watchRecognition : state.defenseRecognition?.job ? state.defenseRecognition : state.religiousRecognition, before = state.clock;
         const step = Math.min(remaining, 60, Math.max(1, s.job.seconds - s.job.progress));
         changed += advanceTime(step, { ...options, recognitionStep: true }); remaining -= state.clock - before;
         if (state.clock <= before || !s.job) break;
@@ -36324,7 +36346,7 @@
     const clinician = state.medicalExtraction?.clinic?.clinician;
     if (clinician && clinician.id !== excludeActor?.id && mapCellKey(clinician.mapCell) === key) occupied += .6;
     for (const office of state.economy?.intercitySmuggling?.identityOffices || []) if (office.civicCounter && office.clerk.id !== excludeActor?.id && mapCellKey(office.clerk.mapCell) === key) occupied += .6;
-    for (const actor of [state.sovereignBargains?.representative, state.sovereignBargains?.defender, ...citySuccessionPeople()])
+    for (const actor of [state.sovereignBargains?.representative, state.sovereignBargains?.defender, state.religiousRecognition?.actor, ...citySuccessionPeople()])
       if (actor?.status === 'alive' && actor.id !== excludeActor?.id && mapCellKey(actor.mapCell) === key) occupied += .6;
     for (const actor of state.penalFlights?.actors || []) if (actor.id !== excludeActor?.id && mapCellKey(actor.mapCell) === key) occupied += .6;
     for (const beast of state.wildernessBeasts?.actors || []) {
@@ -66957,10 +66979,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           setLabMapOverlayEntry(assignments, office.civicCounter.cell, { overlayId, classNames: ["map-overlay-resources"], label: "Public civic registration counter", title: "Walk here for a voluntary paid registration or document check; no automatic historical identity or immunity", value: "R", source: "Municipal registry notice", target: { kind: "tile", tile: office.civicCounter.cell } }, map);
           if (office.clerk.mapCell && sensoryLineOfSight(scientistMapCell(), office.clerk.mapCell)) setLabMapOverlayEntry(assignments, office.clerk.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: "Civic records clerk", title: office.contact.label, value: "C", source: "Direct observation", target: { kind: "tile", tile: office.clerk.mapCell } }, map);
         }
-        if (state.surveyExpeditions.phase === 'field') for (const actor of [state.sovereignBargains?.representative, state.sovereignBargains?.defender, ...citySuccessionPeople()])
+        if (state.surveyExpeditions.phase === 'field') for (const actor of [state.sovereignBargains?.representative, state.sovereignBargains?.defender, state.religiousRecognition?.actor, ...citySuccessionPeople()])
           if (actor?.status === 'alive' && actor.mapCell && sensoryLineOfSight(scientistMapCell(), actor.mapCell))
             setLabMapOverlayEntry(assignments, actor.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: actor.name,
-              title: `${actor.role}; ${state.defenderChallenge ? 'optional supervised challenge participant' : 'physical civic-counter participant'}, not a controllable soldier`, value: actor === state.sovereignBargains.defender ? 'D' : 'A',
+              title: `${actor.role}; ${actor === state.religiousRecognition?.actor ? 'faithful petition representative, not divine or civic command' : state.defenderChallenge ? 'optional supervised challenge participant' : 'physical civic-counter participant'}, not a controllable soldier`, value: actor === state.religiousRecognition?.actor ? 'P' : actor === state.sovereignBargains.defender ? 'D' : 'A',
               source: 'Direct observation', target: { kind: 'tile', tile: actor.mapCell } }, map);
         if (state.defenderChallengeKnowledge?.terms && sensoryLineOfSight(scientistMapCell(), DefenderChallenges.START))
           setLabMapOverlayEntry(assignments, DefenderChallenges.START, { overlayId, classNames: ['map-overlay-resources'],
@@ -83674,7 +83696,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       && labNavigationPlanBetweenCells(actor.mapCell, target, { map: ensureLabMap(), actor, ignoreDoors: true }).found);
     const reviewId = source?.institutions.find(i => i.role === 'civicReview')?.id;
     return { ...c, ...administrationRecognitionSources(), busy: c.busy || Boolean(state.scientistIdentity?.job || state.sovereignBargains?.job
-      || state.citySuccession?.job || state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job || DefenderChallenges.reserved(state.defenderChallenge)
+      || state.citySuccession?.job || state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job || state.religiousRecognition?.job || DefenderChallenges.reserved(state.defenderChallenge)
       // An independently returning defender is not a clerk/public-works
       // assignment. Actual violence still blocks new civic attendance.
       || state.cityConfrontation?.phase === 'fighting' || IncumbentResistance.active(state.incumbentResistance)
@@ -84121,7 +84143,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       visitPermission: state.surveyExpeditions?.discovery?.access.active === true,
       busy: c.busy || Boolean(state.scientistIdentity?.job || state.sovereignBargains?.job || state.citySuccession?.job
         || state.incumbentResistance?.job || !ignorePublicWorks && state.publicWorksRecognition?.job || !ignoreWatch && state.watchRecognition?.job
-        || !ignoreDefense && state.defenseRecognition?.job || IncumbentResistance.dangerous(state.incumbentResistance)
+        || !ignoreDefense && state.defenseRecognition?.job || state.religiousRecognition?.job || IncumbentResistance.dangerous(state.incumbentResistance)
         || DefenderChallenges.reserved(state.defenderChallenge) || state.cityAdministration?.job || state.cityAdministration?.resistance?.job
         || state.surveyExpeditions?.mapService?.job || state.surveyExpeditions?.carrier?.briefingState?.job),
       bodyEpoch: ensureScientistIdentity().bodyEpoch, authorityId: source?.authority.id,
@@ -84131,10 +84153,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       activeViolence: state.cityConfrontation?.phase === 'fighting' || IncumbentResistance.dangerous(state.incumbentResistance),
       administrationAvailable: Boolean(s && home?.offices[s.administrationId]?.available),
       reviewAvailable: Boolean(s && home?.offices[s.reviewInstitutionId]?.available),
-      rule: source?.designationReview || null, authorizationIds: [], // No playable authenticated patron-approval procedure exists yet.
+      rule: source?.designationReview || null, authorizationIds: ReligiousRecognition.authorizationIds(state.religiousRecognition, office, religiousRecognitionContext()),
       presentIds: citySuccessionPeople().filter(near).map(a => a.id),
-      conduct: [...(state.incumbentResistance?.reports || []), ...(state.cityConfrontation?.reports || []), ...(state.defenderChallenge?.conduct || []),
-        ...(state.watchRecognition?.reports || []).filter(r => r.communicatedAt != null && r.actorId === 'scientist')] };
+      conduct: receivedSuccessionConduct() };
   }
   function charterRecognitionObserved() {
     const c = charterRecognitionContext(); return c.alive && c.capable && c.local && c.atCounter && c.clerkPresent && c.lineOfSight;
@@ -84422,6 +84443,122 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(textEl('p', 'Cover requires two-meter proximity and clear line of effect. At most twelve physical/force damage per hit is absorbed for two personal mana per point. No soul protection, retaliation, healing or immunity.'));
     if (v.duty) panel.append(textEl('p', `Original defender ${v.duty.status}; ${formatDuration(v.duty.progress)} / two minutes; ${v.duty.absorbed} damage absorbed.`));
     for (const r of v.completions) panel.append(textEl('p', `${formatClock(r.at)}: ${r.status}; ${r.absorbed} damage absorbed, physical return recorded. ${r.reason || ''}`));
+    panel.append(textEl('p', v.message)); return panel;
+  }
+  function receivedSuccessionConduct() {
+    return [...(state.incumbentResistance?.reports || []), ...(state.cityConfrontation?.reports || []), ...(state.defenderChallenge?.conduct || []),
+      ...(state.watchRecognition?.reports || []).filter(r => r.communicatedAt != null && r.actorId === 'scientist')];
+  }
+  function ensureReligiousRecognition() {
+    if (state.religiousRecognition) return state.religiousRecognition;
+    if (scientistIsDead()) return null;
+    const office = scientistCivicOffice(), source = citySuccessionSource(), b = state.sovereignBargains;
+    if (!office || !source || !state.incumbentResistance?.receipt || !state.surveyExpeditions?.materialized) return null;
+    const origin = b?.testFixture ? b.testReligiousSource : ReligiousRecognition.sourceFromWorld(
+      activeWorldRecord?.generatedData?.strategicMap, source.cityId, source.charterId);
+    const petition = ReligiousRecognition.create(origin, office, activeWorldRecord?.worldTheme || 'madcap');
+    if (petition && labMapCellRoomId(petition.actor.mapCell) === SurveyExpeditions.FIELD_ROOM && canActorOccupyTile(petition.actor, petition.actor.mapCell))
+      state.religiousRecognition = petition;
+    return state.religiousRecognition;
+  }
+  function religiousRecognitionContext() {
+    const s = state.religiousRecognition, office = scientistCivicOffice(), base = scientistCivicContext(office),
+      source = citySuccessionSource(), map = activeWorldRecord?.generatedData?.strategicMap, cell = scientistMapCell();
+    let branch = null, sourceCurrent = false;
+    if (s && state.sovereignBargains?.testFixture) {
+      const origin = state.sovereignBargains.testReligiousSource;
+      branch = origin?.branch;
+      sourceCurrent = Boolean(origin && JSON.stringify(origin) === JSON.stringify(s.source));
+    } else if (s && map) {
+      branch = map.publicReligiousInstitutionHistoryDirectory?.currentBranchRows.find(b => b.id === s.source.branch.id);
+      const faith = map.publicPreCivicFaithDirectory?.faithRows.find(f => f[0] === s.source.faith.id && f[1] === s.god.id);
+      const god = map.strategicDivineHistory?.currentGodRows.find(g => g.id === s.god.id);
+      const confirmed = map.strategicDivineHistory?.currentFaithRows.find(f => f.faithId === s.source.faith.id);
+      sourceCurrent = Boolean(branch?.currentCityId === s.source.cityId && branch.originalCityId === s.source.cityId && branch.publicPhysicalPresence
+        && faith?.[8] === s.source.faith.confirmation.doctrineRevision && confirmed?.confirmationState === 'activelyConfirmed'
+        && god?.lifecycle.lifeState === 'living' && god.lifecycle.divinityState === 'divine'
+        && god.divineCore.repeatableSignature === s.god.divineCore.repeatableSignature);
+    }
+    const representativePresent = Boolean(s?.actor.status === 'alive' && !actorIsIncapacitated(s.actor)
+      && s.actor.roomId === scientistRoomId() && s.actor.locationId === office?.id && s.actor.mapCell
+      && WildernessBeasts.distance(cell, s.actor.mapCell) <= 4 && sensoryLineOfSight(cell, s.actor.mapCell));
+    return { ...base, local: state.surveyExpeditions?.phase === 'field' && scientistRoomId() === SurveyExpeditions.FIELD_ROOM,
+      bodyEpoch: ensureScientistIdentity().bodyEpoch, claim: state.incumbentResistance?.receipt || null,
+      charterCurrent: Boolean(source && source.charterId === s?.source.charterId && source.cityId === s.source.cityId), sourceCurrent,
+      rule: source?.designationReview || null, conduct: receivedSuccessionConduct(), representativePresent,
+      visitPermission: state.surveyExpeditions?.discovery?.access.active === true,
+      branchAvailable: Boolean(branch?.publicPhysicalPresence && ['active', 'strained', 'reestablished', 'reconciled'].includes(branch.operationalStatus)
+        && ['authenticated', 'reconciled'].includes(branch.divineRelationship) && branch.currentStanding !== 'proscribed'),
+      channelAvailable: Boolean(office?.channelPowered && (state.sovereignBargains?.testFixture ? s?.testChannelAvailable !== false : sourceCurrent)),
+      activeViolence: state.cityConfrontation?.phase === 'fighting' || IncumbentResistance.dangerous(state.incumbentResistance),
+      busy: base.busy || Boolean(state.scientistIdentity?.job || state.sovereignBargains?.job || state.citySuccession?.job
+        || state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job
+        || state.cityAdministration?.job || state.cityAdministration?.resistance?.job || DefenderChallenges.reserved(state.defenderChallenge)
+        || state.surveyExpeditions?.mapService?.job || state.surveyExpeditions?.carrier?.briefingState?.job) };
+  }
+  function religiousRecognitionObserved() {
+    if (!state.religiousRecognition) return false;
+    const c = religiousRecognitionContext();
+    return c.alive && c.capable && c.local && c.atCounter && c.clerkPresent && c.representativePresent && c.lineOfSight;
+  }
+  function refreshReligiousRecognitionKnowledge() {
+    if (religiousRecognitionObserved()) state.religiousRecognitionKnowledge = {
+      ...ReligiousRecognition.publicView(state.religiousRecognition), reportedAt: state.clock };
+  }
+  function updateReligiousRecognition() {
+    const s = state.religiousRecognition; if (!s || scientistIsDead()) return 0;
+    const changed = ReligiousRecognition.advance(s, scientistCivicOffice(), religiousRecognitionContext(), state.clock);
+    if (s.job && !state.combat?.routineSuspension) suspendScientistRoutineWork('patron petition');
+    if (!s.job && state.combat?.routineSuspension?.reason === 'patron petition') resumeScientistRoutineWork();
+    refreshReligiousRecognitionKnowledge(); return changed ? 1 : 0;
+  }
+  function religiousRecognitionAction(action, expected = null) {
+    if (scientistIsDead()) return false;
+    if (action === 'walk') return scientistIdentityAction('walk');
+    const s = ensureReligiousRecognition(); if (!s) return false;
+    const office = scientistCivicOffice(), c = religiousRecognitionContext(), publicRecord = ReligiousRecognition.publicView(s);
+    let ok = false;
+    if (action === 'meet') ok = ReligiousRecognition.meet(s, office, c, state.clock);
+    if (action === 'petition' && JSON.stringify(expected) === JSON.stringify(publicRecord.terms))
+      ok = ReligiousRecognition.petition(s, office, s.terms, c, state.clock);
+    if (action === 'submit' && JSON.stringify(expected) === JSON.stringify(publicRecord.reply))
+      ok = ReligiousRecognition.submit(s, office, s.reply, c, state.clock);
+    if (action === 'cancel') ok = ReligiousRecognition.cancel(s, office, state.clock);
+    if (!ok) s.message = 'Exact disclosed claim, original people, available religious channel, usable counter and finite capacity must support this action. No approval or changed law was invented.';
+    updateReligiousRecognition(); persist(); render(); return ok;
+  }
+  function renderReligiousRecognition() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.religiousRecognition = 'true';
+    panel.append(textEl('h3', 'Local religious petition and authenticated patron response'), textEl('p', ReligiousRecognition.LIMITS));
+    const s = ensureReligiousRecognition(); refreshReligiousRecognitionKnowledge();
+    const v = state.religiousRecognitionKnowledge, c = religiousRecognitionContext();
+    const button = (label, action, disabled, terms = null) => {
+      const el = storesActionButton(label, label, () => religiousRecognitionAction(action, terms));
+      el.dataset.religiousRecognitionAction = action; el.disabled = Boolean(disabled); panel.append(el);
+    };
+    if (!s) { panel.append(textEl('p', 'This first procedure needs an authentic personally recorded designation claim, known founding patron, present confirmed local branch and reachable original civic counter. Missing or unconfirmed sources are not replaced.')); return panel; }
+    button('Walk to the local petition counter', 'walk', surveyBusy());
+    if (!v) { panel.append(textEl('p', 'No personally received petition record. Remote faith and divine capacity are not live intelligence.')); return panel; }
+    panel.append(textEl('p', `${v.branchName} — ${v.godName}. Personally received ${formatClock(v.reportedAt)}; ${v.phase}.`),
+      textEl('p', v.faith.civicTeaching?.summary || v.faith.civicTeaching?.position || 'No supported civic teaching.'),
+      textEl('p', `Published prohibitions: ${v.faith.prohibitions.map(p => p.summary).join('; ')}.`),
+      textEl('p', 'The faithful representative can petition for a non-worshipper. No conversion, avatar or holy-site journey is required.'));
+    const blocked = !religiousRecognitionObserved() || c.busy || c.activeViolence || !c.branchAvailable;
+    if (!v.working) button(v.facilitation ? 'Discuss genuinely changed petition facts' : 'Meet local religious representative', 'meet', blocked);
+    if (v.facilitation?.decision === 'refused') panel.append(textEl('p', 'The representative declined facilitation. This is not a divine reply.'));
+    if (v.terms && !v.reply && (!s.request || s.request.interrupted) && !v.working) {
+      panel.append(textEl('p', `${v.terms.scope}. Channel: ${v.terms.method}; unsigned petition expires ${formatClock(v.terms.expiresAt)}. Disclosure includes the authentic claim, coercion and received witness records.`));
+      button('Request exact authenticated patron response', 'petition', blocked || !c.channelAvailable || state.clock >= v.terms.expiresAt, clonePlainObject(v.terms));
+    }
+    if (v.working) {
+      panel.append(textEl('p', `${v.working.kind}: attended ${formatDuration(v.working.progress)} / ${formatDuration(v.working.seconds)}.`));
+      button('Cancel unfinished petition attendance', 'cancel', !religiousRecognitionObserved());
+    }
+    if (v.reply) {
+      panel.append(textEl('p', `${formatClock(v.reply.at)} authenticated ${v.reply.decision.outcome}: ${v.reply.decision.reason}`));
+      if (!v.working && !v.submissions.some(r => r.replyId === v.reply.id)) button('Submit exact patron response to original register', 'submit', blocked, clonePlainObject(v.reply));
+    }
+    for (const r of v.submissions) panel.append(textEl('p', `${formatClock(r.at)}: original clerk recorded ${r.outcome}. Request independent review separately; no automatic recognition or renewed assent.`));
     panel.append(textEl('p', v.message)); return panel;
   }
   function watchRecognitionContext(inspectPaths = false) {
@@ -86754,7 +86891,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function surveyTaskAllowed(task) {
     if ((CityConfrontations.active(state.cityConfrontation) || IncumbentResistance.active(state.incumbentResistance)) && task.type !== 'scientistMove'
       && !(task.type === 'surveyExpeditionWork' && task.data?.action === 'board')) return false;
-    if (state.citySuccession?.job || state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job || state.cityAdministration?.resistance?.job) return false;
+    if (state.citySuccession?.job || state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job || state.religiousRecognition?.job || state.cityAdministration?.resistance?.job) return false;
     if (['preparing', 'petitioning'].includes(state.defenderChallenge?.phase)) return false;
     if (state.defenderChallenge?.phase === 'active' && task.type !== 'scientistMove') return false;
     if (state.scientistIdentity?.job || state.sovereignBargains?.job || state.surveyExpeditions?.mapService?.job || state.surveyExpeditions?.carrier?.briefingState?.job) return false;
@@ -86975,7 +87112,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function boardSurveyVehicle() {
-    if (CitySuccession.working(state.citySuccession) || state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job || state.cityAdministration?.resistance?.job) return false;
+    if (CitySuccession.working(state.citySuccession) || state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job || state.religiousRecognition?.job || state.cityAdministration?.resistance?.job) return false;
     if (currentPenalFlight()) return false;
     if (DefenderChallenges.reserved(state.defenderChallenge) && state.defenderChallenge.phase !== 'returning') return false;
     if (clinicActive() || state.scientistIdentity?.job || state.sovereignBargains?.job || state.surveyExpeditions?.mapService?.job) return false;
@@ -87219,6 +87356,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(renderPublicWorksRecognition());
     panel.append(renderWatchRecognition());
     panel.append(renderDefenseRecognition());
+    panel.append(renderReligiousRecognition());
     panel.append(renderCitySuccession());
     panel.append(renderCityAdministration());
     panel.append(renderCarrierBriefings());
@@ -94264,6 +94402,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.watchRecognitionKnowledge = candidate?.watchRecognitionKnowledge ? clonePlainObject(candidate.watchRecognitionKnowledge) : null;
     next.defenseRecognition = DefenseRecognition.normalize(candidate?.defenseRecognition);
     next.defenseRecognitionKnowledge = candidate?.defenseRecognitionKnowledge ? clonePlainObject(candidate.defenseRecognitionKnowledge) : null;
+    next.religiousRecognition = ReligiousRecognition.normalize(candidate?.religiousRecognition);
+    next.religiousRecognitionKnowledge = candidate?.religiousRecognitionKnowledge ? clonePlainObject(candidate.religiousRecognitionKnowledge) : null;
     next.citySuccession = CitySuccession.normalize(candidate?.citySuccession);
     next.citySuccessionKnowledge = candidate?.citySuccessionKnowledge ? clonePlainObject(candidate.citySuccessionKnowledge) : null;
     next.cityAdministration = CityAdministration.normalize(candidate?.cityAdministration);

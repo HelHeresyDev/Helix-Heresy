@@ -18,9 +18,9 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Religious Recognition and Authenticated Patron Interests
-2. Public-Works Reaffirmation after Revised Authority
-3. Civil-Watch Reaffirmation after Revised Authority
+1. Public-Works Reaffirmation after Revised Authority
+2. Civil-Watch Reaffirmation after Revised Authority
+3. Religious Covenants and Local Branch Cooperation
 4. Occupation and Replacement Appointments
 5. Strategic Expansion and World Domination
 6. Divine Supremacy: Rule over the Gods
@@ -61,6 +61,8 @@ Independent post-recognition reconsideration is implemented separately: genuinel
 Original-administrator reaffirmation is implemented separately after a current eligible reconsideration: the same original official can stably refuse on received renewed violence or personal independence, or offer exact records-only terms valid for one hour. Meeting, signing and one original-register addendum each consume an actual attended minute of administrator/shared-clerk duty and one finite counter power allocation. The new coerced-origin receipt never overwrites old signatures; the once-only addendum references a genuinely entered original memorandum rather than fabricating or duplicating it. New records permission is separate from the basis of old public-works/watch receipts, which remain inactive after reconsideration. Accepted safe watch work/return, cases, original rights, religious duties, bodies and dated knowledge remain distinct. Partial work, costs, expiry, changed-evidence interruptions and prior decisions survive reload; death freezes them. Do not repeat this completed slice. Remaining role reaffirmation prompts below are optional supported branches, not compulsory prerequisites for every defense, religious or campaign action.
 
 Original-defender recognition and one protective ward duty are implemented separately after genuine voluntary succession or a current authentic charter/administrator basis. The same rare original person can stably refuse or sign exact one-hour terms using finite attended defender/clerk work and counter power; public-works/watch reaffirmation is not a compulsory checklist. One separately attended instruction sends that person physically to a reachable municipal post for at most two minutes and then home, spending actual duty, stamina and remaining personal mana. Clear two-meter cover intercepts limited physical/force combat damage before ordinary equipment and injury, not soul/arcane damage, environmental harm or tissue sampling. Personally observed identified scientist aggression, suppression, depleted reserves or changed authority end protection without retaliation, guilt or erased historical consent; accepted safe return remains separate. Original bodies, partial work, wounds, finite reserves, once-only completion and dated received knowledge survive reload and absence; death freezes them. No army, replenishment, handover, immunity, divine assent, other institution's consent or ambition completion follows. Do not repeat this completed slice; religious interests, optional role reaffirmation and wider enforcement remain separate work.
+
+Local religious petitions and authenticated patron interests are implemented separately: an actual personally recorded designation claim, known founding god, present confirmed original local branch and one population-backed faithful representative support attended exact terms at the existing civic counter. Representative facilitation and the god's reply are separate stable decisions; a non-worshipping scientist may petition without conversion. Sixty seconds of meeting, three minutes of original authored-channel communication and one minute of original-clerk filing each consume actual duty and counter power; communication also spends finite original divine reserve and attention without refunds or free recharge. Replies bind the original god, faith, explicit doctrine, disclosed coercion/conduct, claim, body, charter and narrow scope. Refused, conditional and unresolved replies cannot be relabeled as approval; unsupported oaths and remedies remain unmet. Some newly generated supported charters explicitly require this authorization, while existing saved laws remain unchanged. Only an authentic approved reply actually entered by the original clerk can support a separately requested independent review. Historical findings, other signatures, rights, cases and spent costs remain intact; no church command, automatic recognition, army, immunity, divine submission or ambition completion follows. Partial work, outages without backfill, original people, saved responses and dated away knowledge survive reload; death freezes them. Do not repeat this completed petition as a new prerequisite. Continuing covenants and local branch cooperation remain a separate discussion below.
 
 ## World and Run Guardrails
 
@@ -126,21 +128,21 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Religious Recognition and Authenticated Patron Interests
-
-Discuss one bounded religious or patron-authorization procedure with an actual identified god, original locally supported institution and explicit charter requirement or concrete duty. Gods are real and communicate through authenticated finite channels; civic signatures cannot fabricate a divine reply or endorse religious interests. Distinguish a god's own consent from a local religious officeholder's obligations and from sovereign city authority. Use real receiving capacity, costs, availability, exact tenets and actually received knowledge. No same-god doctrinal heresy, omniscient pantheon, free avatar, automatic army or global allegiance. Choose one playable consumer and split broader divine submission, religious conflict or continuing obligations into later prompts rather than implementing them together.
-
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. Public-Works Reaffirmation after Revised Authority
+## 1. Public-Works Reaffirmation after Revised Authority
 
 Discuss one separate original-public-works response after a current eligible reconsideration and whichever authentic administrative agreement actually supports its proposed duties. The administrator's records-only reaffirmation is not a public-works order or renewed signature. Preserve the original public-works receipt, supplied custody, obligations, stable received-evidence refusal and independent objection history. Choose one existing supplied counter-upkeep consumer under exact explicitly accepted terms, without repeating initial recognition, material delivery, recovery or the completed objection/review loop. Use actual original people, available work, power, staged stock and maintenance conditions. If an unusable counter would prevent necessary negotiation, discuss physically supported essential provisioning/remediation first; do not bypass authority or create free restoration. No report deletion, automatic forgiveness, fabricated reserve, replacement official, watch/defense renewal or army. Split additional consumers when required.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Civil-Watch Reaffirmation after Revised Authority
+## 2. Civil-Watch Reaffirmation after Revised Authority
 
 Discuss one separate original-watch response after a current eligible reconsideration and actual role-specific administrative/public-works support for the proposed counter duty. New civic or public-works signatures cannot renew the watch automatically. Preserve its original receipt, received reports, independent rights and stable grounds for refusal; accepted safe observation and return remain separate from permission for a new assignment. Choose the existing physical counter-watch consumer under explicit original-person terms and finite clerk/officer duty, actual geometry, power and usable infrastructure. Do not repeat initial recognition or invent new guards, arrests, cleared cases, forgiven violence, defense commands or immunity. Unchanged facts cannot reroll; new received evidence requires the supported independent procedure rather than silent erasure.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 3. Religious Covenants and Local Branch Cooperation
+
+Discuss one concrete continuing religious obligation or local cooperation consumer supported by the original faithful representative, actual branch and authenticated god. The completed patron petition supplies only a scoped response for independent civic consideration, not church obedience or continuing permission. Choose either one verifiable published oath/condition from that procedure or one physically supported branch duty; split additional consumers before implementation. Ground exact clauses, refusal and prospective consequences in explicit tenets and actually received evidence, with original people, finite attention, divine reserves, work, supplies and reachable infrastructure. A god's response, a representative's agreement and city legal authority remain separate. Preserve prior replies, spent resources, coercion, cases, rights, current published laws and dated knowledge; unchanged facts cannot reroll and an unsupported condition stays unmet. No same-god doctrinal heresy, alignment shortcut, fabricated remedy, automatic forgiveness, army, immunity, global religious command or divine submission. Broader religious conflict and divine supremacy require separate discussions.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 

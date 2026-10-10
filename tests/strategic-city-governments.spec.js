@@ -92,6 +92,48 @@ test('generated designation review rules are explicit deterministic published lo
   expect(CityGovernments.auditCityGovernments(map).valid).toBe(true);
 });
 
+test('published patron covenants use real known founding patrons and local petitions never mutate reusable worlds', () => {
+  test.setTimeout(600000);
+  const Religion = require('../religious-recognition');
+  const Faiths = require('../strategic-faiths');
+  // Use a genuinely generated supported world; tiny worlds can violate the
+  // existing diplomacy/recognition minimum-population guards before this layer.
+  const map = generatedMap('patron-petition-foundations', 'unbound'), before = JSON.stringify(map);
+  const faiths = Faiths.publicFaithDirectory(map).faiths;
+  const publicGovernments = CityGovernments.publicCityGovernmentDirectory(map);
+  let requirements = 0, usableSources = 0, eligibleLaws = 0;
+  for (const government of map.cityGovernments.governments) {
+    const law = government.charter.designationReview, requirement = law?.patronRequirement;
+    if (law) eligibleLaws++;
+    expect(publicGovernments.find(g => g.city.id === government.cityId).charter.designationReview).toEqual(law);
+    if (requirement) {
+      requirements++;
+      const foundation = map.cityExpansionHistory.foundationRows.find(f => f.cityId === government.cityId)
+        || map.civilizationOrigins.attemptRows.find(f => f.cityId === government.cityId);
+      expect(foundation).toMatchObject({ patronGodId: requirement.godId, foundingAffiliation: 'chosenRepresentative' });
+      expect(faiths.find(f => f.id === requirement.faithId)?.godId).toBe(requirement.godId);
+      expect(law.requiredAuthorizationIds).toEqual([requirement.authorizationId]); expect(requirement.scope).toBe(Religion.SCOPE);
+    } else if (law) expect(law.requiredAuthorizationIds).toEqual([]);
+    const source = Religion.sourceFromWorld(map, government.cityId, government.charter.id);
+    if (!source) continue;
+    const office = { id: 'real-local-counter', cityId: source.cityId, clerk: { id: 'real-local-clerk' } };
+    const petition = Religion.create(source, office, 'unbound');
+    if (!petition) continue;
+    usableSources++;
+    expect(source.branch).toMatchObject({ currentCityId: government.cityId, publicPhysicalPresence: true });
+    expect(source.god.lifecycle).toMatchObject({ lifeState: 'living', divinityState: 'divine' });
+    expect(source.faith.godId).toBe(source.god.id); expect(petition.allocation.people).toBe(1);
+    const reserve = source.god.power.reserve; petition.god.power.reserve = reserve + 1; petition.actor.workSeconds = 0;
+    expect(source.god.power.reserve).toBe(reserve);
+  }
+  // A randomly generated world need not adopt any optional patron covenant.
+  // The dedicated rule unit check verifies that both covenant and secular laws exist.
+  console.log(`Patron-source check: ${eligibleLaws} supported laws, ${requirements} optional covenants, ${usableSources} usable original religious sources`);
+  expect(requirements).toBeLessThanOrEqual(eligibleLaws); expect(usableSources).toBeGreaterThan(0);
+  expect(JSON.stringify(map)).toBe(before);
+  expect(Religion.sourceFromWorld(map, 'unsupported-city', 'unsupported-charter')).toBeNull();
+});
+
 test('the public directory omits operational weaknesses and named officeholders', () => {
   const map = generatedMap('government-public-boundary', 'grim');
   const directory = CityGovernments.publicCityGovernmentDirectory(map);

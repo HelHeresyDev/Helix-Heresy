@@ -1,0 +1,207 @@
+(function (root, factory) {
+  const api = factory(typeof module === 'object' && module.exports ? require('./strategic-world') : root.HelixStrategicWorld,
+    typeof module === 'object' && module.exports ? require('./strategic-faiths') : root.HelixStrategicFaiths,
+    typeof module === 'object' && module.exports ? require('./theme-content') : root.HelixThemeContent);
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  if (root) root.HelixReligiousRecognition = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (World, Faiths, Theme) {
+  'use strict';
+  const copy = v => v == null ? null : JSON.parse(JSON.stringify(v));
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const SCOPE = 'Patron position on this identified designation claim for independent civic consideration only';
+  const LIMITS = 'No church command, divine submission, army, pardon, immunity, property transfer, automatic civic recognition or renewed institutional consent. Coercion, cases and original rights remain.';
+  const registry = Theme.createRegistry([{ id: 'religion.shared.patron-petition', kind: 'religiousRecognition', compatibility: 'shared',
+    contentTags: ['science', 'magic'], template: 'One authenticated local patron petition', fallback: true }]);
+  const usableBranch = b => b?.publicPhysicalPresence && ['active', 'strained', 'reestablished', 'reconciled'].includes(b.operationalStatus)
+    && ['authenticated', 'reconciled'].includes(b.divineRelationship) && b.currentStanding !== 'proscribed';
+  function sourceFromWorld(map, cityId, charterId) {
+    const government = map?.cityGovernments?.governments.find(g => g.cityId === cityId && g.charter.id === charterId);
+    const foundation = map?.cityExpansionHistory?.foundationRows.find(f => f.cityId === cityId)
+      || map?.civilizationOrigins?.attemptRows.find(f => f.cityId === cityId && f.outcome === 'enduringCity');
+    const godId = government?.charter.designationReview?.patronRequirement?.godId || foundation?.patronGodId;
+    const god = map?.strategicDivineHistory?.currentGodRows.find(g => g.id === godId);
+    if (!government || !god) return null;
+    const faith = Faiths.publicFaithDirectory(map)?.faiths.find(f => f.godId === godId);
+    const confirmation = map?.strategicDivineHistory?.currentFaithRows.find(f => f.faithId === faith?.id);
+    const tradition = map?.publicReligiousInstitutionHistoryDirectory?.traditionRows.find(t => t.id === faith?.id && t.kind === 'confirmedDivineFaith');
+    const branch = map?.publicReligiousInstitutionHistoryDirectory?.currentBranchRows.find(b => b.traditionId === tradition?.id
+      && b.currentCityId === cityId && b.originalCityId === cityId && usableBranch(b));
+    const population = map?.strategicPlayableSettlementState?.cityRows.find(r => r.cityId === cityId);
+    const identity = map?.publicReligionDirectory?.gods.find(g => g.id === godId);
+    if (!government || !identity || !god || !faith || !branch || !population || population.currentPopulation < 12
+      || !population.physicalJurisdictionExists || confirmation?.confirmationState !== 'activelyConfirmed') return null;
+    return { cityId, charterId, branch: copy(branch), faith: copy(faith), god: copy(god), godName: identity.name,
+      communicationMethods: copy(identity.communication.methods), populationSourceId: population.assetId };
+  }
+  const divine = g => g?.lifecycle?.lifeState === 'living' && g.lifecycle.divinityState === 'divine'
+    && g.divineCore?.identityBound && g.divineCore.receivingCapacity > 0 && g.divineCore.repeatableSignature;
+  const able = a => a?.status === 'alive' && a.health >= 50 && (a.fatigue || 0) < 80;
+  function create(source, office, theme = 'madcap') {
+    if (!source?.populationSourceId || !usableBranch(source.branch) || !divine(source.god) || source.faith.godId !== source.god.id
+      || source.faith.confirmation?.state !== 'activelyConfirmed' || source.branch.originalCityId !== source.cityId
+      || source.branch.traditionId !== source.faith.id || source.branch.currentCityId !== source.cityId
+      || source.cityId !== office?.cityId || !office.clerk?.id || !source.communicationMethods?.length) return null;
+    const selected = Theme.selectContent(registry, { kind: 'religiousRecognition', worldTheme: theme, seed: source.branch.id, required: true });
+    if (!selected.ok) return null;
+    const work = ({ fragile: 600, strained: 900, functional: 1200, strong: 1500, exceptional: 1800 })[source.branch.capacityBand];
+    if (!work) return null;
+    const actor = { id: `${source.branch.id}:representative`, name: `${source.branch.publicName} representative`,
+      role: 'Existing faithful religious petition representative', actorKind: 'civicOfficeholder', institutionId: source.branch.id,
+      locationId: office.id, roomId: 'supportedSurveyGround', mapCell: { x: 19, y: 11, z: 6 },
+      status: 'alive', health: 100, maxHealth: 100, fatigue: 0, workSeconds: work, assignment: null,
+      facilitationPolicy: World.stableHash(source.branch.id).endsWith('0') ? 'declinePoliticalPetitions' : 'considerScopedPetition' };
+    return { id: `${source.branch.id}:patron-petition`, definitionId: selected.definitionId, sourceTheme: selected.sourceTheme,
+      source: copy(source), officeId: office.id, clerkId: office.clerk.id, actor,
+      allocation: { populationSourceId: source.populationSourceId, branchId: source.branch.id, people: 1 },
+      god: copy(source.god), attentionSeconds: Math.min(900, source.god.divineCore.receivingCapacity),
+      channelAvailableAt: 0, phase: 'unheard', facilitation: null, terms: null, request: null, reply: null,
+      submissions: [], previous: [], job: null, history: [], nextNumber: 1, message: '' };
+  }
+  const normalize = s => s?.source?.branch?.id && s.actor?.id && Array.isArray(s.previous) && Array.isArray(s.submissions)
+    && Array.isArray(s.history) ? copy(s) : null;
+  function note(s, at, kind, message) { s.message = message; s.history.push({ at, kind, message }); s.history = s.history.slice(-40); }
+  function bound(s, office, c) {
+    return Boolean(s && office?.active && office.id === s.officeId && office.cityId === s.source.cityId && office.clerk.id === s.clerkId
+      && s.actor.id === `${s.source.branch.id}:representative` && s.actor.institutionId === s.source.branch.id
+      && s.actor.locationId === office.id && c.sourceCurrent && c.charterCurrent && c.alive && c.claim?.id
+      && c.claim.origin === 'coerced' && c.claim.recognition === 'disputedSuccessorClaim'
+      && c.claim.cityId === s.source.cityId && c.claim.charterId === s.source.charterId
+      && c.claim.bodyEpoch === c.bodyEpoch && c.claim.recorderId === s.clerkId && c.claim.recorderInstitutionId === office.institutionId
+      && c.claim.witnesses?.includes(s.clerkId));
+  }
+  function facts(s, c) {
+    return { claim: copy(c.claim), rule: copy(c.rule), conduct: copy(c.conduct || []), godId: s.god.id,
+      faithId: s.source.faith.id, doctrine: copy(s.source.faith), scope: SCOPE, bodyEpoch: c.bodyEpoch };
+  }
+  function local(s, office, c, own = false) {
+    const id = own ? s.job?.id : null;
+    return bound(s, office, c) && c.local && c.cityId === s.source.cityId && c.atCounter && c.visitPermission
+      && c.capable && c.clerkPresent && c.representativePresent && c.lineOfSight && !c.busy && !c.activeViolence
+      && c.branchAvailable && office.channelPowered && office.maintenanceReady !== false && able(s.actor) && able(office.clerk)
+      && (!office.assignment || office.assignment === id) && (!office.clerk.assignment || office.clerk.assignment === id)
+      && (!s.actor.assignment || s.actor.assignment === id);
+  }
+  function begin(s, office, c, at, kind, seconds, terms = null) {
+    if (!s || s.job || !local(s, office, c) || office.power < 1 || office.workSeconds < seconds
+      || s.actor.workSeconds < seconds || at < (office.availableAt || 0)) return false;
+    const id = `${s.id}:job:${s.nextNumber++}`;
+    s.job = { id, kind, seconds, progress: 0, lastAt: at, wasReady: true, facts: facts(s, c), terms: copy(terms) };
+    office.power--; office.assignment = office.clerk.assignment = s.actor.assignment = id;
+    note(s, at, kind, 'Attend the existing faithful representative and original clerk; spent resources remain spent.'); return true;
+  }
+  function meet(s, office, c, at) {
+    if (!s || [s.facilitation, ...s.previous.map(p => p.facilitation)].some(r => r && same(r.facts, facts(s, c)))) return false;
+    if (!begin(s, office, c, at, 'meeting', 60)) return false;
+    if (s.facilitation) s.previous.push(copy({ facilitation: s.facilitation, terms: s.terms, request: s.request, reply: s.reply }));
+    s.facilitation = s.terms = s.request = s.reply = null; return true;
+  }
+  function petition(s, office, expected, c, at) {
+    const cost = Math.max(1, s?.god.expenditures.communication || 1);
+    if (!s?.terms || s.reply || s.request && !s.request.interrupted || !same(expected, s.terms) || at >= s.terms.expiresAt
+      || !same(s.facilitation.facts, facts(s, c)) || !divine(s.god) || !c.channelAvailable
+      || s.attentionSeconds < 180 || s.god.power.reserve < cost || at < s.channelAvailableAt) return false;
+    if (!begin(s, office, c, at, 'communication', 180, expected)) return false;
+    // A single finite communication allocation is spent even if attendance is later interrupted.
+    s.god.power.reserve -= cost; s.attentionSeconds -= 180; s.channelAvailableAt = at + 180;
+    s.request = { id: `${s.id}:request:${s.nextNumber++}`, at, facts: facts(s, c), method: s.terms.method };
+    return true;
+  }
+  function decision(f) {
+    const civic = f.doctrine.civicTeaching?.position;
+    if (!['cooperationWithoutDivineSovereignty', 'conditionalMoralSupport', 'strictSeparationFromChurch', 'authorityBoundByPublishedOath'].includes(civic))
+      return { outcome: 'unresolved', reason: 'No supported explicit civic teaching decides this petition.' };
+    if (civic === 'strictSeparationFromChurch') return { outcome: 'refused', reason: 'The confirmed doctrine separates religious authority from civic appointment; the god declines this authorization.' };
+    if (f.conduct.some(r => /attack/i.test(r.kind) && r.at >= f.claim.at))
+      return { outcome: 'refused', reason: 'The supplied witnessed renewed violence conflicts with the doctrine’s required proportional methods. This is not a criminal judgment.' };
+    if (civic === 'authorityBoundByPublishedOath') return { outcome: 'conditional', reason: 'The god requires a published civic oath. This slice cannot verify or enforce that oath; the condition remains unmet.' };
+    if (civic === 'conditionalMoralSupport' && f.claim.origin === 'coerced')
+      return { outcome: 'conditional', reason: 'Conditional moral support requires a supported remedy for coercion. No remedy or blanket forgiveness is invented; authorization remains unfulfilled.' };
+    return { outcome: 'approved', reason: 'The god supports independent consideration of this disclosed claim under cooperation without church sovereignty. Other officials and the civic reviewer remain independent.' };
+  }
+  const seal = (s, payload) => World.stableHash(`${s.god.divineCore.repeatableSignature}:${World.stableHash(payload)}`);
+  function authentic(s, reply, c) {
+    const request = [s?.request, ...(s?.previous || []).map(p => p.request)].find(r => r?.id === reply?.payload?.requestId);
+    return Boolean(s && reply && request && divine(s.god) && c.sourceCurrent && c.charterCurrent && c.alive
+      && s.god.id === s.source.god.id && s.god.divineCore.repeatableSignature === s.source.god.divineCore.repeatableSignature
+      && same(request.facts.doctrine, s.source.faith)
+      && reply.id === `${request.id}:reply` && !request.interrupted && reply.seal === seal(s, reply.payload) && same(reply.payload.facts, request.facts)
+      && reply.payload.godId === s.god.id && reply.payload.faithId === s.source.faith.id
+      && reply.payload.scope === SCOPE && reply.payload.method === request.method
+      && request.facts.bodyEpoch === c.bodyEpoch && same(request.facts.claim, c.claim)
+      && same(request.facts.rule, c.rule) && same(request.facts.conduct, c.conduct || [])
+      && same(reply.payload.decision, decision(request.facts)));
+  }
+  function submit(s, office, expected, c, at) {
+    return Boolean(authentic(s, s?.reply, c) && same(expected, s.reply)
+      && !s.submissions.some(r => r.replyId === s.reply.id) && begin(s, office, c, at, 'submission', 60, expected));
+  }
+  function release(s, office) {
+    for (const a of [office, office?.clerk, s.actor]) if (a?.assignment === s.job?.id) a.assignment = null;
+    s.job = null;
+  }
+  function cancel(s, office, at) {
+    if (!s?.job) return false;
+    if (s.job.kind === 'communication' && s.request) s.request.interrupted = true;
+    release(s, office); note(s, at, 'interrupted', 'Unfinished petition attendance cancelled; no refund, fabricated response or changed historical record.'); return true;
+  }
+  function advance(s, office, c, at) {
+    if (!s?.job || !c.alive) return false;
+    const j = s.job;
+    if (!bound(s, office, c) || !same(j.facts, facts(s, c))
+      || j.kind === 'communication' && (at >= s.terms.expiresAt || !divine(s.god))
+      || j.kind === 'submission' && (!authentic(s, s.reply, c) || !same(j.terms, s.reply))) return cancel(s, office, at);
+    if (!local(s, office, c, true) || j.kind === 'communication' && !c.channelAvailable) {
+      j.lastAt = at; j.wasReady = false; return false;
+    }
+    const work = j.wasReady ? Math.max(0, Math.min(at - j.lastAt, j.seconds - j.progress, office.workSeconds, s.actor.workSeconds)) : 0;
+    j.lastAt = at; j.wasReady = true; j.progress += work; office.workSeconds -= work; s.actor.workSeconds -= work;
+    if (j.progress < j.seconds) return work > 0;
+    if (j.kind === 'meeting') {
+      const refused = s.actor.facilitationPolicy === 'declinePoliticalPetitions';
+      s.facilitation = { at, facts: copy(j.facts), decision: refused ? 'refused' : 'offered' };
+      s.terms = refused ? null : { id: `${s.id}:terms:${s.nextNumber++}`, offeredAt: at, expiresAt: at + 3600,
+        branchId: s.source.branch.id, representativeId: s.actor.id, godId: s.god.id, faithId: s.source.faith.id,
+        claimId: c.claim.id, cityId: s.source.cityId, charterId: s.source.charterId, bodyEpoch: c.bodyEpoch,
+        scope: SCOPE, method: s.source.communicationMethods[0], evidence: copy(j.facts), limitations: LIMITS };
+      s.phase = refused ? 'facilitatorRefused' : 'offered';
+      note(s, at, 'facilitation', refused ? 'The original representative declines political facilitation. No divine reply occurred.' : 'Exact scoped petition offered; worship or conversion by the scientist is not required.');
+    } else if (j.kind === 'communication') {
+      const payload = { requestId: s.request.id, godId: s.god.id, faithId: s.source.faith.id, at,
+        scope: SCOPE, method: s.request.method, facts: copy(j.facts), decision: decision(j.facts) };
+      s.reply = { id: `${s.request.id}:reply`, payload, seal: seal(s, payload) }; s.phase = 'answered';
+      note(s, at, 'answered', payload.decision.reason);
+    } else {
+      const row = { id: `${s.reply.id}:submission`, at, replyId: s.reply.id, recorderId: s.clerkId,
+        officeId: s.officeId, claimId: c.claim.id, godId: s.god.id, scope: SCOPE, outcome: s.reply.payload.decision.outcome,
+        receivedReply: copy(s.reply), limitations: LIMITS };
+      s.submissions.push(row); office.records ||= []; office.records.push(copy(row)); s.phase = 'submitted';
+      note(s, at, 'submitted', 'Original clerk entered the authenticated scoped response. The independent review must still be requested; no recognition or other assent changed.');
+    }
+    release(s, office); return true;
+  }
+  function authorizationIds(s, office, c) {
+    const requirement = c.rule?.patronRequirement;
+    if (!requirement || !bound(s, office, c) || requirement.godId !== s.god.id || requirement.faithId !== s.source.faith.id || requirement.scope !== SCOPE) return [];
+    return s.submissions.some(row => row.outcome === 'approved' && row.receivedReply?.payload.decision.outcome === 'approved'
+      && row.id === `${row.replyId}:submission` && row.replyId === row.receivedReply.id && row.claimId === c.claim.id
+      && row.godId === s.god.id && row.scope === SCOPE && row.officeId === office.id && row.recorderId === office.clerk.id
+      && office.records?.some(r => same(r, row)) && authentic(s, row.receivedReply, c)) ? [requirement.authorizationId] : [];
+  }
+  function publicReply(reply) {
+    if (!reply) return null;
+    const p = reply.payload;
+    return { id: reply.id, at: p.at, godId: p.godId, faithId: p.faithId, claimId: p.facts.claim.id,
+      cityId: p.facts.claim.cityId, charterId: p.facts.claim.charterId, bodyEpoch: p.facts.bodyEpoch,
+      scope: p.scope, method: p.method, decision: copy(p.decision), authenticated: true };
+  }
+  function publicView(s) {
+    return s ? copy({ phase: s.phase, godName: s.source.godName, branchName: s.source.branch.publicName,
+      faith: { name: s.source.faith.name, civicTeaching: s.source.faith.civicTeaching, commandments: s.source.faith.commandments,
+        prohibitions: s.source.faith.prohibitions }, representativeId: s.actor.id,
+      facilitation: s.facilitation && { at: s.facilitation.at, decision: s.facilitation.decision },
+      terms: s.terms && Object.fromEntries(Object.entries(s.terms).filter(([key]) => key !== 'evidence')),
+      reply: publicReply(s.reply), submissions: s.submissions.map(r => ({ id: r.id, at: r.at, replyId: r.replyId, outcome: r.outcome })),
+      working: s.job && { kind: s.job.kind, seconds: s.job.seconds, progress: s.job.progress }, message: s.message, limitations: LIMITS }) : null;
+  }
+  return { SCOPE, LIMITS, sourceFromWorld, create, normalize, meet, petition, submit, cancel, advance, authentic, authorizationIds, publicView };
+});

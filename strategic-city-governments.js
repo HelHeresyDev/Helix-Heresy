@@ -115,14 +115,19 @@
     return "The sovereign authority may issue recorded directives; delegated offices act within published mandates and review limits.";
   }
 
-  function designationReviewRule(seed, cityId, principle, authorityKind, reviewId) {
+  function designationReviewRule(seed, cityId, principle, authorityKind, reviewId, patron = null) {
     if (authorityKind !== 'individual' || !['named experimental successor', 'designation by the reigning protector'].includes(principle)) return null;
     const permits = seededNumber(seed, `${cityId}:coerced-designation-law`) >= .25;
+    const requirement = patron && seededNumber(seed, `${cityId}:published-patron-covenant`) < .35
+      ? { godId: patron.godId, faithId: patron.faithId, authorizationId: `${cityId}:designation-patron:${patron.godId}`,
+        scope: 'Patron position on this identified designation claim for independent civic consideration only' } : null;
     return { id: `${cityId}:designation-review-law`, principle, reviewInstitutionId: reviewId,
       coercionRule: permits ? 'independentConfirmationPermitted' : 'uncoercedDesignationRequired',
-      requiredAuthorizationIds: [],
-      text: permits ? 'A personally recorded coerced designation may be confirmed for institutional consideration by independent charter review. Coercion remains recorded; each institution separately decides recognition and continuation.'
-        : 'This charter requires an uncoerced designation. A coerced declaration is authentic history but cannot qualify through this confirmation procedure.',
+      requiredAuthorizationIds: requirement ? [requirement.authorizationId] : [],
+      ...(requirement ? { patronRequirement: requirement } : {}),
+      text: (permits ? 'A personally recorded coerced designation may be confirmed for institutional consideration by independent charter review. Coercion remains recorded; each institution separately decides recognition and continuation.'
+        : 'This charter requires an uncoerced designation. A coerced declaration is authentic history but cannot qualify through this confirmation procedure.')
+        + (requirement ? ` This published covenant separately requires authenticated approval from ${requirement.godId} for this specific claim; a founding affiliation or civic signature is not approval.` : ''),
       safeguards: 'Retain personal freedom, property and faith, existing appointments and legal cases. No criminal verdict, divine endorsement or command outside a separately accepted institutional role.' };
   }
 
@@ -186,6 +191,12 @@
     const roleAssignments = Object.fromEntries(CIVIC_ROLES.map((role) => [role, institutions.find((institution) => institution.roles.includes(role)).id]));
     const adminId = roleAssignments.centralAdministration;
     const reviewId = roleAssignments.civicReview;
+    const foundation = map.cityExpansionHistory?.foundationRows.find(f => f.cityId === city.id)
+      || map.civilizationOrigins?.attemptRows.find(f => f.cityId === city.id && f.outcome === 'enduringCity');
+    const faith = map.publicPreCivicFaithDirectory?.faithRows.find(f => f[1] === foundation?.patronGodId);
+    // A minority's explicit founding covenant, not an automatic consequence of affiliation.
+    const patron = faith && foundation.foundingAffiliation === 'chosenRepresentative'
+      ? { godId: foundation.patronGodId, faithId: faith[0] } : null;
     const edges = [];
     let edgeIndex = 1;
     function edge(fromId, toId, relation) {
@@ -215,7 +226,7 @@
         legitimacyBasis: legitimacyBasis(polity),
         decisionRule: decisionRule(polity),
         successionPrinciple: polity.successionPrinciple,
-        designationReview: designationReviewRule(worldSeed, city.id, polity.successionPrinciple, polity.authority.kind, reviewId),
+        designationReview: designationReviewRule(worldSeed, city.id, polity.successionPrinciple, polity.authority.kind, reviewId, patron),
         continuityProcedure: "The charter preserves institutions and delegates temporary authority until the succession rule resolves sovereign continuity.",
         emergencyPowers: {
           declarationAuthorityId: polity.authority.id,
