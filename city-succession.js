@@ -69,6 +69,7 @@
   const working = s => Boolean(s?.job || s?.phase === 'approaching' || s?.directive?.status === 'carrying');
   function note(s, at, kind, text) { s.history.push({ at, kind, text }); s.history = s.history.slice(-40); s.message = text; }
   function localReason(s, b, office, c, own = false) {
+    if (s?.ruler.officeStatus?.status === 'abdicatedUnderCoercion') return 'The former incumbent has relinquished office under coercion; a disputed claim requires separate institutional recognition.';
     if (!s || s.officeId !== office?.id || office.cityId !== s.source.cityId || b?.source.charterId !== s.source.charterId
       || b.source.authority.id !== s.source.authority.id || c.charterCurrent !== true) return 'The original designation charter and physically supported institutions are required.';
     if (!c.alive || !c.capable || !c.atCounter || !c.visitPermission || !c.clerkPresent || !c.lineOfSight || c.busy
@@ -109,7 +110,7 @@
     return [...ids].sort();
   }
   function request(s, b, office, challenge, c, at) {
-    if (!s || working(s) || s.handover || !['idle', 'refused', 'withdrawn'].includes(s.phase) || !c.alive || !c.capable
+    if (!s || s.ruler.officeStatus?.status === 'abdicatedUnderCoercion' || working(s) || s.handover || !['idle', 'refused', 'withdrawn'].includes(s.phase) || !c.alive || !c.capable
       || !c.atCounter || !c.visitPermission || c.busy || !c.participantsPresent || !c.charterCurrent || !c.institutionsAvailable
       || c.authorityId !== s.source.authority.id || office.assignment || b.representative.assignment || b.defender.assignment
       || !people(s, b).every(a => capable(a) && !a.assignment && a.workSeconds >= 240)

@@ -21,6 +21,24 @@ function fixture(theme = 'madcap') {
 }
 function begin(f) { assert.equal(Confrontation.demand(f.s, f.succession, f.b, f.c, f.at), true); }
 function step(f, seconds = 1, effects = {}) { f.at += seconds; return Confrontation.advance(f.s, f.succession, f.b, f.c, f.at, effects); }
+test('a personally heard renewed threat resumes the original defender with retained reserves, not a new person or attack allegation', () => {
+  const f = fixture(); begin(f); step(f, 2);
+  assert.equal(Confrontation.ceasefire(f.s, f.b, f.c, f.at, 'incumbent'), true);
+  const original = copy(f.b.defender);
+  assert.equal(Confrontation.renewedThreat(f.s, f.b, { ...f.c, defenderCanHear: false }, f.at), false);
+  assert.equal(Confrontation.renewedThreat(f.s, f.b, f.c, f.at), true);
+  assert.equal(f.s.phase, 'fighting'); assert.equal(f.b.defender.wardMana, original.wardMana);
+  assert.equal(f.b.defender.stamina, original.stamina); assert.equal(f.b.defender.id, original.id);
+  assert.equal(f.s.reports.at(-1).kind, 'renewedThreatToIncumbent'); assert.equal(f.s.encounter.ceasefire, null);
+});
+test('coerced personal relinquishment cannot be recycled into another incumbent-protection demand or sovereignty', () => {
+  const f = fixture(); f.succession.ruler.assignment = 'original-resistance';
+  assert.equal(Confrontation.demand(f.s, f.succession, f.b, { ...f.c, rulerResistanceId: 'original-resistance' }, 0), true);
+  f.succession.ruler.officeStatus = { status: 'abdicatedUnderCoercion', sourceReceiptId: 'original:declaration' };
+  step(f); assert.equal(f.s.outcomes[0].outcome, 'interventionDutyUnavailable');
+  assert.equal(f.succession.control, null);
+  assert.equal(Confrontation.demand(f.s, f.succession, f.b, f.c, f.at), false);
+});
 test('every theme binds the existing incumbent and defender; refusal supplies no authority or prerequisite bout', () => {
   for (const theme of ['madcap', 'grim', 'unbound']) {
     const f = fixture(theme), original = copy(f.succession); begin(f);
