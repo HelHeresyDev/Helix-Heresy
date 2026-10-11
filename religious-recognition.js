@@ -10,6 +10,7 @@
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const SCOPE = 'Patron position on this identified designation claim for independent civic consideration only';
   const LIMITS = 'No church command, divine submission, army, pardon, immunity, property transfer, automatic civic recognition or renewed institutional consent. Coercion, cases and original rights remain.';
+  const OATH = 'I will not attack the named original participants in this designation proceeding. I will pursue disputes about this claim through independent civic review. No conversion, worship, allegiance, research concession or killing promise is made.';
   const SCIENTIST_POSITION = Object.freeze({ stance: 'opposedToDivineAuthority',
     summary: 'The scientist acknowledges that gods exist but fundamentally opposes the gods and their claimed authority.',
     promises: 'No conversion, allegiance, assassination, research concession or undisclosed campaign ambition is promised.' });
@@ -59,10 +60,11 @@
       allocation: { populationSourceId: source.populationSourceId, branchId: source.branch.id, people: 1 },
       god: copy(source.god), attentionSeconds: Math.min(900, source.god.divineCore.receivingCapacity),
       channelAvailableAt: 0, phase: 'unheard', facilitation: null, terms: null, request: null, reply: null,
-      submissions: [], previous: [], job: null, history: [], nextNumber: 1, message: '' };
+      submissions: [], previous: [], covenants: [], job: null, history: [], nextNumber: 1, message: '' };
   }
   const normalize = s => s?.source?.branch?.id && s.actor?.id && Array.isArray(s.previous) && Array.isArray(s.submissions)
-    && Array.isArray(s.history) ? copy(s) : null;
+    && Array.isArray(s.history) && (s.covenants == null || Array.isArray(s.covenants))
+    ? { ...copy(s), covenants: copy(s.covenants || []) } : null;
   function note(s, at, kind, message) { s.message = message; s.history.push({ at, kind, message }); s.history = s.history.slice(-40); }
   function bound(s, office, c) {
     return Boolean(s && office?.active && office.id === s.officeId && office.cityId === s.source.cityId && office.clerk.id === s.clerkId
@@ -76,7 +78,8 @@
   function facts(s, c) {
     return { claim: copy(c.claim), rule: copy(c.rule), conduct: copy(c.conduct || []), godId: s.god.id,
       faithId: s.source.faith.id, doctrine: copy(s.source.faith), scope: SCOPE, bodyEpoch: c.bodyEpoch,
-      scientistPosition: copy(SCIENTIST_POSITION), patronInterest: copy(s.source.patronInterest) };
+      scientistPosition: copy(SCIENTIST_POSITION), patronInterest: copy(s.source.patronInterest),
+      covenantPeople: copy(c.covenantPeople || []) };
   }
   function local(s, office, c, own = false) {
     const id = own ? s.job?.id : null;
@@ -140,6 +143,9 @@
       || position === 'liberation' && (interest.basis !== 'publishedSeizedHolySite' || !interest.siteId)))
       return refused('The exceptional teaching needs a supported injury by a living rival or an actual continuing seizure. A personality label, hidden grievance or presumed oppression is insufficient.');
     const civicDecision = legacyDecision(f);
+    if (civicDecision.outcome === 'conditional' && f.doctrine.civicTeaching?.position === 'authorityBoundByPublishedOath'
+      && f.covenantPeople?.length) return { ...civicDecision, supportKind: 'none', motive: position,
+        reason: 'This exceptional patron requires a published civic oath protecting the named original participants. Accepting, divine confirmation and filing are separate; the condition is not yet fulfilled.' };
     if (civicDecision.outcome !== 'approved') return { ...civicDecision, supportKind: 'none', motive: position };
     const reasons = {
       mortalAutonomy: 'This god explicitly permits accountable mortal government to challenge divine authority without religious allegiance.',
@@ -152,6 +158,18 @@
       reason: `${reasons[position]} Support authorizes only independent consideration of this exact disclosed civic claim. It is not approval of research or future acts, a bargain, a killing promise, or an inference about the player’s hidden ambition.` };
   }
   const seal = (s, payload) => World.stableHash(`${s.god.divineCore.repeatableSignature}:${World.stableHash(payload)}`);
+  function oathOffer(s, request, at) {
+    const f = request.facts, d = decision(f), people = f.covenantPeople;
+    if (d.outcome !== 'conditional' || !d.motive || f.doctrine.civicTeaching?.position !== 'authorityBoundByPublishedOath'
+      || !Array.isArray(people) || people.some(p => !p.id || !p.name || !p.role)
+      || new Set(people.map(p => p.id)).size !== people.length
+      || ![f.claim.declarantId, s.clerkId, s.actor.id].every(id => people.some(p => p.id === id))) return null;
+    return { id: `${request.id}:civic-oath`, replyId: `${request.id}:reply`, offeredAt: at, expiresAt: at + 3600,
+      godId: s.god.id, faithId: s.source.faith.id, branchId: s.source.branch.id, representativeId: s.actor.id,
+      officeId: s.officeId, clerkId: s.clerkId, claimId: f.claim.id, cityId: s.source.cityId,
+      charterId: s.source.charterId, bodyEpoch: f.bodyEpoch, scope: SCOPE, method: request.method,
+      protectedPeople: copy(people), obligation: OATH, limitations: LIMITS };
+  }
   function authentic(s, reply, c) {
     const request = [s?.request, ...(s?.previous || []).map(p => p.request)].find(r => r?.id === reply?.payload?.requestId);
     return Boolean(s && reply && request && divine(s.god) && c.sourceCurrent && c.charterCurrent && c.alive
@@ -164,7 +182,82 @@
       && same(request.facts.rule, c.rule) && same(request.facts.conduct, c.conduct || [])
       && (!Object.prototype.hasOwnProperty.call(request.facts, 'scientistPosition')
         || same(request.facts.scientistPosition, SCIENTIST_POSITION) && same(request.facts.patronInterest, copy(s.source.patronInterest)))
-      && same(reply.payload.decision, decision(request.facts)));
+      && (!Object.prototype.hasOwnProperty.call(request.facts, 'covenantPeople') || same(request.facts.covenantPeople, c.covenantPeople || []))
+      && same(reply.payload.decision, decision(request.facts))
+      && (!Object.prototype.hasOwnProperty.call(reply.payload, 'covenantOffer')
+        || same(reply.payload.covenantOffer, oathOffer(s, request, reply.payload.at))));
+  }
+  const replyFor = (s, id) => [s?.reply, ...(s?.previous || []).map(p => p.reply)].find(r => r?.id === id);
+  const covenantFor = (s, terms) => s?.covenants?.find(v => same(v.terms, terms));
+  function offerCurrent(s, office, terms, c) {
+    const r = replyFor(s, terms?.replyId);
+    return bound(s, office, c) && Boolean(r?.payload.covenantOffer) && same(r.payload.covenantOffer, terms) && authentic(s, r, c);
+  }
+  function breach(v, c) {
+    return v.acceptance && (c.conduct || []).find(r => r.actorId === 'scientist' && r.witnessId && r.id
+      && r.cityId === v.terms.cityId && r.at >= v.acceptance.at && /attack/i.test(r.kind)
+      && v.terms.protectedPeople.some(p => p.id === r.targetId));
+  }
+  function covenantBound(s, office, v, c) {
+    const r = replyFor(s, v?.terms.replyId);
+    // Later unrelated received reports do not rewrite a historical signed packet.
+    return Boolean(v?.acceptance && bound(s, office, c) && r?.payload.covenantOffer
+      && same(v.terms, r.payload.covenantOffer) && authentic(s, r, { ...c, conduct: r.payload.facts.conduct })
+      && v.acceptance.at >= v.terms.offeredAt && v.acceptance.at < v.terms.expiresAt
+      && same(v.acceptance, { id: `${v.terms.id}:acceptance`, at: v.acceptance.at, scientistId: 'scientist',
+        bodyEpoch: v.terms.bodyEpoch, terms: v.terms }) && office.records?.some(row => same(row, v.acceptance)));
+  }
+  function confirmPayload(s, v, at) {
+    const r = replyFor(s, v.terms.replyId);
+    return { covenantId: v.terms.id, at, godId: s.god.id, faithId: s.source.faith.id, scope: SCOPE,
+      method: v.terms.method, acceptance: copy(v.acceptance), decision: { outcome: 'approved',
+        supportKind: 'covenantClaimAuthorization', motive: r.payload.decision.motive,
+        reason: 'The published scoped oath is confirmed. Future use requires its continuing terms and original register filing. Independent civic review remains separate; original coercion and all cases remain.' } };
+  }
+  function confirmationAuthentic(s, office, v, c) {
+    const r = v?.confirmation;
+    return Boolean(covenantBound(s, office, v, c) && r && r.id === `${v.terms.id}:confirmation`
+      && r.payload.at >= v.acceptance.at && r.payload.at < v.terms.expiresAt
+      && r.seal === seal(s, r.payload) && same(r.payload, confirmPayload(s, v, r.payload.at)));
+  }
+  function acceptCovenant(s, office, terms, c, at) {
+    return Boolean(offerCurrent(s, office, terms, c) && at < terms.expiresAt && !covenantFor(s, terms)
+      && begin(s, office, c, at, 'covenantSigning', 60, terms));
+  }
+  function declineCovenant(s, office, terms, c, at) {
+    if (!offerCurrent(s, office, terms, c) || covenantFor(s, terms) || s.job || !local(s, office, c)) return false;
+    s.covenants ||= []; s.covenants.push({ terms: copy(terms), status: 'declined', declinedAt: at, acceptance: null });
+    note(s, at, 'covenantDeclined', 'Declined this exact oath offer. No support, conversion or new offer was invented.'); return true;
+  }
+  function confirmCovenant(s, office, terms, c, at) {
+    const v = covenantFor(s, terms), cost = Math.max(1, s?.god.expenditures.communication || 1);
+    if (v?.status !== 'accepted' || !covenantBound(s, office, v, c) || breach(v, c) || at >= terms.expiresAt
+      || !c.channelAvailable || s.attentionSeconds < 180 || s.god.power.reserve < cost || at < s.channelAvailableAt
+      || !begin(s, office, c, at, 'covenantConfirmation', 180, terms)) return false;
+    s.god.power.reserve -= cost; s.attentionSeconds -= 180; s.channelAvailableAt = at + 180; return true;
+  }
+  function fileCovenant(s, office, terms, c, at) {
+    const v = covenantFor(s, terms);
+    return Boolean(v?.status === 'confirmed' && confirmationAuthentic(s, office, v, c) && !breach(v, c)
+      && begin(s, office, c, at, 'covenantFiling', 60, terms));
+  }
+  function withdrawCovenant(s, office, terms, c, at) {
+    const v = covenantFor(s, terms);
+    if (!v?.acceptance || !['accepted', 'confirmed', 'filed'].includes(v.status) || s.job || !local(s, office, c)) return false;
+    v.status = 'withdrawn'; v.withdrawnAt = at;
+    office.records ||= []; office.records.push({ id: `${terms.id}:withdrawal`, at, covenantId: terms.id, recorderId: s.clerkId });
+    note(s, at, 'covenantWithdrawn', 'Personally withdrew continuing support. Earlier replies, filings and civic findings remain history.'); return true;
+  }
+  function suspendCovenants(s, c, at) {
+    if (!s || !c.alive) return false;
+    let changed = false;
+    for (const v of s.covenants || []) {
+      const report = breach(v, c);
+      if (!report || !['accepted', 'confirmed', 'filed'].includes(v.status)) continue;
+      v.status = 'suspended'; v.breach = { receivedAt: at, report: copy(report) };
+      note(s, at, 'covenantSuspended', 'A received witnessed attack against a named participant suspends future covenant support. No guilt, divine punishment or historical civic finding is decided.'); changed = true;
+    }
+    return changed;
   }
   function submit(s, office, expected, c, at) {
     return Boolean(authentic(s, s?.reply, c) && same(expected, s.reply)
@@ -180,12 +273,18 @@
     release(s, office); note(s, at, 'interrupted', 'Unfinished petition attendance cancelled; no refund, fabricated response or changed historical record.'); return true;
   }
   function advance(s, office, c, at) {
-    if (!s?.job || !c.alive) return false;
+    const changed = suspendCovenants(s, c, at);
+    if (!s?.job || !c.alive) return changed;
     const j = s.job;
     if (!bound(s, office, c) || !same(j.facts, facts(s, c))
       || j.kind === 'communication' && (at >= s.terms.expiresAt || !divine(s.god))
-      || j.kind === 'submission' && (!authentic(s, s.reply, c) || !same(j.terms, s.reply))) return cancel(s, office, at);
-    if (!local(s, office, c, true) || j.kind === 'communication' && !c.channelAvailable) {
+      || j.kind === 'submission' && (!authentic(s, s.reply, c) || !same(j.terms, s.reply))
+      || j.kind === 'covenantSigning' && (!offerCurrent(s, office, j.terms, c) || at >= j.terms.expiresAt)
+      || j.kind === 'covenantConfirmation' && (covenantFor(s, j.terms)?.status !== 'accepted'
+        || !covenantBound(s, office, covenantFor(s, j.terms), c) || at >= j.terms.expiresAt)
+      || j.kind === 'covenantFiling' && (covenantFor(s, j.terms)?.status !== 'confirmed'
+        || !confirmationAuthentic(s, office, covenantFor(s, j.terms), c))) return cancel(s, office, at);
+    if (!local(s, office, c, true) || ['communication', 'covenantConfirmation'].includes(j.kind) && !c.channelAvailable) {
       j.lastAt = at; j.wasReady = false; return false;
     }
     const work = j.wasReady ? Math.max(0, Math.min(at - j.lastAt, j.seconds - j.progress, office.workSeconds, s.actor.workSeconds)) : 0;
@@ -202,9 +301,25 @@
       note(s, at, 'facilitation', refused ? 'The original representative declines political facilitation. No divine reply occurred.' : 'Exact scoped petition offered; worship or conversion by the scientist is not required.');
     } else if (j.kind === 'communication') {
       const payload = { requestId: s.request.id, godId: s.god.id, faithId: s.source.faith.id, at,
-        scope: SCOPE, method: s.request.method, facts: copy(j.facts), decision: decision(j.facts) };
+        scope: SCOPE, method: s.request.method, facts: copy(j.facts), decision: decision(j.facts),
+        covenantOffer: oathOffer(s, s.request, at) };
       s.reply = { id: `${s.request.id}:reply`, payload, seal: seal(s, payload) }; s.phase = 'answered';
       note(s, at, 'answered', payload.decision.reason);
+    } else if (j.kind === 'covenantSigning') {
+      const acceptance = { id: `${j.terms.id}:acceptance`, at, scientistId: 'scientist', bodyEpoch: c.bodyEpoch, terms: copy(j.terms) };
+      s.covenants ||= []; s.covenants.push({ terms: copy(j.terms), status: 'accepted', acceptance, confirmation: null, filing: null });
+      office.records ||= []; office.records.push(copy(acceptance));
+      note(s, at, 'covenantAccepted', 'Published the exact civic oath. It binds from acceptance; divine confirmation and filing still grant no automatic recognition.');
+    } else if (j.kind === 'covenantConfirmation') {
+      const v = covenantFor(s, j.terms), payload = confirmPayload(s, v, at);
+      v.confirmation = { id: `${v.terms.id}:confirmation`, payload, seal: seal(s, payload) }; v.status = 'confirmed';
+      note(s, at, 'covenantConfirmed', payload.decision.reason);
+    } else if (j.kind === 'covenantFiling') {
+      const v = covenantFor(s, j.terms);
+      v.filing = { id: `${v.terms.id}:filing`, at, covenantId: v.terms.id, officeId: s.officeId, recorderId: s.clerkId,
+        receivedConfirmation: copy(v.confirmation) };
+      v.status = 'filed'; office.records ||= []; office.records.push(copy(v.filing));
+      note(s, at, 'covenantFiled', 'Original clerk filed continuing scoped patron authorization. Request independent review separately; earlier replies and findings remain unchanged.');
     } else {
       const row = { id: `${s.reply.id}:submission`, at, replyId: s.reply.id, recorderId: s.clerkId,
         officeId: s.officeId, claimId: c.claim.id, godId: s.god.id, scope: SCOPE, outcome: s.reply.payload.decision.outcome,
@@ -217,7 +332,11 @@
   function authorizationIds(s, office, c) {
     const requirement = c.rule?.patronRequirement;
     if (!requirement || !bound(s, office, c) || requirement.godId !== s.god.id || requirement.faithId !== s.source.faith.id || requirement.scope !== SCOPE) return [];
-    return s.submissions.some(row => row.outcome === 'approved' && row.receivedReply?.payload.decision.outcome === 'approved'
+    const covenant = (s.covenants || []).some(v => v.status === 'filed' && !breach(v, c) && confirmationAuthentic(s, office, v, c)
+      && v.filing?.id === `${v.terms.id}:filing` && v.filing.covenantId === v.terms.id && v.filing.officeId === s.officeId
+      && v.filing.recorderId === s.clerkId && same(v.filing.receivedConfirmation, v.confirmation)
+      && office.records?.some(row => same(row, v.filing)));
+    return covenant || s.submissions.some(row => row.outcome === 'approved' && row.receivedReply?.payload.decision.outcome === 'approved'
       && row.id === `${row.replyId}:submission` && row.replyId === row.receivedReply.id && row.claimId === c.claim.id
       && row.godId === s.god.id && row.scope === SCOPE && row.officeId === office.id && row.recorderId === office.clerk.id
       && office.records?.some(r => same(r, row)) && authentic(s, row.receivedReply, c)) ? [requirement.authorizationId] : [];
@@ -227,7 +346,7 @@
     const p = reply.payload;
     return { id: reply.id, at: p.at, godId: p.godId, faithId: p.faithId, claimId: p.facts.claim.id,
       cityId: p.facts.claim.cityId, charterId: p.facts.claim.charterId, bodyEpoch: p.facts.bodyEpoch,
-      scope: p.scope, method: p.method, decision: copy(p.decision), authenticated: true };
+      scope: p.scope, method: p.method, decision: copy(p.decision), covenantOffer: copy(p.covenantOffer), authenticated: true };
   }
   function publicView(s) {
     return s ? copy({ phase: s.phase, godName: s.source.godName, branchName: s.source.branch.publicName,
@@ -237,7 +356,11 @@
       facilitation: s.facilitation && { at: s.facilitation.at, decision: s.facilitation.decision },
       terms: s.terms && Object.fromEntries(Object.entries(s.terms).filter(([key]) => key !== 'evidence')),
       reply: publicReply(s.reply), submissions: s.submissions.map(r => ({ id: r.id, at: r.at, replyId: r.replyId, outcome: r.outcome })),
+      covenants: (s.covenants || []).map(v => ({ terms: copy(v.terms), status: v.status, acceptedAt: v.acceptance?.at ?? null,
+        confirmedAt: v.confirmation?.payload.at ?? null, filedAt: v.filing?.at ?? null, declinedAt: v.declinedAt ?? null,
+        withdrawnAt: v.withdrawnAt ?? null, breach: copy(v.breach) })),
       working: s.job && { kind: s.job.kind, seconds: s.job.seconds, progress: s.job.progress }, message: s.message, limitations: LIMITS }) : null;
   }
-  return { SCOPE, LIMITS, SCIENTIST_POSITION, sourceFromWorld, create, normalize, meet, petition, submit, cancel, advance, authentic, authorizationIds, publicView };
+  return { SCOPE, LIMITS, SCIENTIST_POSITION, OATH, sourceFromWorld, create, normalize, meet, petition, submit, cancel, advance,
+    authentic, authorizationIds, acceptCovenant, declineCovenant, confirmCovenant, fileCovenant, withdrawCovenant, publicView };
 });

@@ -46,6 +46,9 @@ function civicFixture(theme = 'madcap', required = true) {
     source.institutions.map(i => ({ ...i, capacityBand: 'exceptional', status: 'operational' })), 60);
   Charter.admin(charter, succession).recognitionPolicy = 'considerAdministrativeContinuity';
   const origin = patronSource(), s = Religion.create(origin, office, theme); s.actor.facilitationPolicy = 'considerScopedPetition';
+  c.covenantPeople = [succession.ruler, { ...office.clerk, name: 'Original clerk' }, s.actor, ...succession.leaders]
+    .filter((a, i, all) => all.findIndex(b => b.id === a.id) === i)
+    .map(a => ({ id: a.id, name: a.name, role: a.role || 'Original civic participant' }));
   return { s, origin, charter, succession, abdication, office, institutions, c, at: 60 };
 }
 module.exports = { patronSource, civicFixture };

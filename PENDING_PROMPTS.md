@@ -18,13 +18,12 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Religious Covenants and Local Branch Cooperation
-2. Occupation and Replacement Appointments
-3. Strategic Expansion and World Domination
-4. Divine Supremacy: Rule over the Gods
-5. New-Run Onboarding and Contextual Tutorial
-6. Sound, Notifications, and Accessibility Audit
-7. Production Art Pass Using the Sprite Pipeline
+1. Occupation and Replacement Appointments
+2. Strategic Expansion and World Domination
+3. Divine Supremacy: Rule over the Gods
+4. New-Run Onboarding and Contextual Tutorial
+5. Sound, Notifications, and Accessibility Audit
+6. Production Art Pass Using the Sprite Pipeline
 
 Human staffing now supports bounded independent annex operation without intelligent creations. Homunculus growth, learned local continue/stop gestures, small separately learned signed and spoken languages, care-grounded spoken help requests and specifically demonstrated voluntary carrying agreements exist; literacy, wider education and standing creature employment do not. Homunculi remain advanced stage-two/three work, not early-laboratory unlocks; priority order does not impose compulsory campaign chapters.
 
@@ -133,13 +132,9 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Religious Covenants and Local Branch Cooperation
+One optional published civic covenant is implemented separately from religious allegiance. Only an explicitly exceptional patron's authenticated conditional oath response offers exact protection for the original named ruler and counter participants. Actual attended publication, finite divine confirmation and once-only original register filing can satisfy only the matching patron requirement; independent review and personal consent remain separate. Declining makes no promise, withdrawal ends future support and actually received witnessed post-acceptance attacks on named participants suspend prospective use. Original conditional replies, confirmations, spent resources, coercion, cases, rights and completed civic findings remain history; partial work, original custody and ongoing status survive reload. No omniscient monitoring, automatic punishment, forgiveness, command or divine submission follows. This completes the approved bounded covenant consumer, not broad religious governance; wider branch duties, remedies, aid and assassination bargains need separately discussed consumers when relevant.
 
-After the opposition and exceptional-cooperation rules are established, discuss one concrete continuing religious obligation or local cooperation consumer genuinely offered by the original faithful representative, actual branch or authenticated god. Most gods still reject endorsement of the scientist; a covenant cannot turn ordinary civic compliance into ideological acceptance. The completed patron petition supplies only its exact scoped response, not church obedience or continuing permission. Choose either one verifiable explicitly offered oath/condition or one physically supported branch duty; split additional consumers before implementation. Ground exact clauses, refusal and prospective consequences in explicit tenets and actually received evidence, with original people, finite attention, divine reserves, work, supplies and reachable infrastructure. A god's endorsement, temporary bargain, representative's agreement and city legal authority remain separate. Preserve prior replies, spent resources, coercion, cases, rights, current published laws and dated knowledge; unchanged facts cannot reroll and an unsupported condition stays unmet. No same-god doctrinal heresy, alignment shortcut, fabricated remedy, automatic forgiveness, army, immunity, global religious command or divine submission. Broader religious conflict and divine supremacy require separate discussions.
-
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. Occupation and Replacement Appointments
+## 1. Occupation and Replacement Appointments
 
 Discuss the first bounded occupation or contested replacement appointment beyond whichever actual succession or coerced-recognition route has been implemented. Choose one office or enforceable local obligation with real opposing actors before widening to citywide occupation. Existing recognition is not physical control; replacing an official requires a real eligible person, supported appointment procedure, actual access, duties, supplies and an opposing incumbent's response. The existing rare defender and civic people are not a freely controllable army, and a conquered installation supplies neither complete intelligence nor automatic institutional obedience. Collective rulers and unsupported charters retain distinct procedures. Split broader enforcement, organized resistance and provisioning prerequisites when needed. No assay appointment, bargain, witnessed bout, personal ceasefire, payment, reputation or internet recognition grants sovereign command by itself.
 
@@ -147,31 +142,31 @@ Require actual people, rare powerful defenders, material resources, reachable in
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Strategic Expansion and World Domination
+## 2. Strategic Expansion and World Domination
 
 Design physically supportable expansion between existing support components, significant beast powers, and divine interests, then implement only the next mechanically supported slice. Specify finite, testable durable-supremacy criteria before adding victory evaluation; occupation of every empty globe cell is not required. Bind campaigns to actual routes, transport, manpower, resources, defense, agreements, and resistance. Keep unknown powers and hidden totals out of ordinary campaign records. World domination is an exceptionally rare dated accomplishment, not a game-over transition, and remains separate from divine supremacy.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Divine Supremacy: Rule over the Gods
+## 3. Divine Supremacy: Rule over the Gods
 
 Design and implement the ultimate ambition of imposing enforceable submission on the gods, killing those who refuse, and reigning over the rest. Submission must impose actual terms and consequences rather than a reputation threshold or cosmetic declaration. Cover discovery, human and beast gods, living descended individuals, avatars versus the actual divine individual, rebellion, and new ascendants. Destroying worship or forcing descent is not a kill. Scientific, animantic, engineered-creature, and personal-power approaches should remain possible without requiring the scientist to ascend. Theme-compatible presentations do not remove the refusal-and-death requirement. Define finite, testable accomplishment criteria without exposing hidden identities or counts; allow continued play after success and keep world domination a separate accomplishment. Split prerequisite combat, submission, or enforcement systems into further prompts if needed.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. New-Run Onboarding and Contextual Tutorial
+## 4. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Sound, Notifications, and Accessibility Audit
+## 5. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Production Art Pass Using the Sprite Pipeline
+## 6. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 

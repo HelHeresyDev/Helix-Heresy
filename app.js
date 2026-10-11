@@ -14539,6 +14539,14 @@
         if (!state.sovereignBargains?.testFixture) return false;
         const s = ensureWatchRecognition(), a = WatchRecognition.actor(s, state.citySuccession);
         if (!s || !a) return false;
+        // Explicit initial geometry only, before any watch consent or work.
+        // Never teleport an assigned person, insert a report or grant permission.
+        if (options.cell) {
+          const cell = cleanMapCell(options.cell);
+          if (s.job || s.receipt || s.duty || a.assignment || labMapCellRoomId(cell) !== SurveyExpeditions.FIELD_ROOM
+            || !labMapCellIsWalkable(cell, ensureLabMap()) || labMapCellIsPathBlocked(cell, { map: ensureLabMap(), actor: a })) return false;
+          a.mapCell = cell;
+        }
         if (options.policy) a.watchPolicy = options.policy;
         if (options.powered != null) scientistCivicOffice().channelPowered = options.powered;
         refreshWatchRecognitionKnowledge(); persist(); render(); return true;
@@ -14635,8 +14643,8 @@
       advanceCityAdministrationForTest: seconds => {
         state.clock += Math.max(0, Number(seconds) || 0); updateCityAdministration(); persist(); render(); return state.clock;
       },
-      citySuccessionNavigationSnapshot: () => citySuccessionPeople().map((a, i) => {
-        const map = ensureLabMap(), target = CitySuccession.MEETING[i];
+      citySuccessionNavigationSnapshot: (destination = null) => citySuccessionPeople().map((a, i) => {
+        const map = ensureLabMap(), target = destination || CitySuccession.MEETING[i];
         const blockedCellKeys = labMapBlockingCellKeys(map, { actor: a });
         for (const cell of map.rooms[SurveyExpeditions.FIELD_ROOM]?.cells || []) if (!canActorOccupyTile(a, cell)) blockedCellKeys.add(mapCellKey(cell));
         const plan = labNavigationPlanBetweenCells(a.mapCell, target, { map, actor: a, ignoreDoors: true, blockedCellKeys });
@@ -84515,6 +84523,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       bodyEpoch: ensureScientistIdentity().bodyEpoch, claim: state.incumbentResistance?.receipt || null,
       charterCurrent: Boolean(source && source.charterId === s?.source.charterId && source.cityId === s.source.cityId), sourceCurrent,
       rule: source?.designationReview || null, conduct: receivedSuccessionConduct(), representativePresent,
+      covenantPeople: [state.citySuccession?.ruler, office?.clerk, s?.actor, ...(state.citySuccession?.leaders || [])]
+        .filter((a, i, all) => a?.id && all.findIndex(b => b?.id === a.id) === i)
+        .map(a => ({ id: a.id, name: a.name || `Original civic clerk (${a.id})`, role: a.id === state.citySuccession?.ruler?.id ? 'Original ruler'
+          : a.id === office?.clerk?.id ? 'Original civic clerk' : a.id === s?.actor?.id ? 'Original faithful representative'
+          : `Original ${a.roles.join(', ')} official` })),
       visitPermission: state.surveyExpeditions?.discovery?.access.active === true,
       branchAvailable: Boolean(branch?.publicPhysicalPresence && ['active', 'strained', 'reestablished', 'reconciled'].includes(branch.operationalStatus)
         && ['authenticated', 'reconciled'].includes(branch.divineRelationship) && branch.currentStanding !== 'proscribed'),
@@ -84552,6 +84565,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ok = ReligiousRecognition.petition(s, office, s.terms, c, state.clock);
     if (action === 'submit' && JSON.stringify(expected) === JSON.stringify(publicRecord.reply))
       ok = ReligiousRecognition.submit(s, office, s.reply, c, state.clock);
+    const offer = publicRecord.reply?.covenantOffer;
+    const covenantTerms = offer && JSON.stringify(expected) === JSON.stringify(offer) ? offer
+      : publicRecord.covenants.find(v => JSON.stringify(expected) === JSON.stringify(v.terms))?.terms;
+    if (covenantTerms) {
+      if (action === 'acceptCovenant') ok = ReligiousRecognition.acceptCovenant(s, office, covenantTerms, c, state.clock);
+      if (action === 'declineCovenant') ok = ReligiousRecognition.declineCovenant(s, office, covenantTerms, c, state.clock);
+      if (action === 'confirmCovenant') ok = ReligiousRecognition.confirmCovenant(s, office, covenantTerms, c, state.clock);
+      if (action === 'fileCovenant') ok = ReligiousRecognition.fileCovenant(s, office, covenantTerms, c, state.clock);
+      if (action === 'withdrawCovenant') ok = ReligiousRecognition.withdrawCovenant(s, office, covenantTerms, c, state.clock);
+    }
     if (action === 'cancel') ok = ReligiousRecognition.cancel(s, office, state.clock);
     if (!ok) s.message = 'Exact disclosed claim, original people, available religious channel, usable counter and finite capacity must support this action. No approval or changed law was invented.';
     updateReligiousRecognition(); persist(); render(); return ok;
@@ -84589,6 +84612,26 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (v.reply) {
       panel.append(textEl('p', `${formatClock(v.reply.at)} authenticated ${v.reply.decision.outcome}: ${v.reply.decision.reason}`));
       if (!v.working && !v.submissions.some(r => r.replyId === v.reply.id)) button('Submit exact patron response to original register', 'submit', blocked, clonePlainObject(v.reply));
+      const offer = v.reply.covenantOffer;
+      if (offer && !v.covenants?.some(r => r.terms.id === offer.id)) {
+        panel.append(textEl('p', `Optional published civic covenant: ${offer.obligation}`),
+          textEl('p', `Named participants: ${offer.protectedPeople.map(p => `${p.name} (${p.role})`).join('; ')}. Unsigned acceptance and divine confirmation must finish before ${formatClock(offer.expiresAt)}.`));
+        if (!v.working) {
+          button('Accept and publish exact civic oath', 'acceptCovenant', blocked || state.clock >= offer.expiresAt, clonePlainObject(offer));
+          button('Decline exact civic oath', 'declineCovenant', blocked, clonePlainObject(offer));
+        }
+      }
+    }
+    for (const oath of v.covenants || []) {
+      panel.append(textEl('p', `Civic covenant ${oath.status}: ${oath.terms.obligation}`),
+        textEl('p', `Named participants: ${oath.terms.protectedPeople.map(p => `${p.name} (${p.role})`).join('; ')}.`));
+      if (oath.acceptedAt != null) panel.append(textEl('p', `Published ${formatClock(oath.acceptedAt)}; divine confirmation ${oath.confirmedAt == null ? 'not received' : formatClock(oath.confirmedAt)}; filing ${oath.filedAt == null ? 'not completed' : formatClock(oath.filedAt)}.`));
+      if (oath.breach) panel.append(textEl('p', `Received ${formatClock(oath.breach.receivedAt)}: witness ${oath.breach.report.witnessId} reported an attack against a named participant. Future covenant support is suspended; earlier civic findings and criminal cases are unchanged.`));
+      if (!v.working) {
+        if (oath.status === 'accepted') button('Request authenticated civic oath confirmation', 'confirmCovenant', blocked || !c.channelAvailable || state.clock >= oath.terms.expiresAt, clonePlainObject(oath.terms));
+        if (oath.status === 'confirmed') button('File confirmed civic oath in original register', 'fileCovenant', blocked, clonePlainObject(oath.terms));
+        if (['accepted', 'confirmed', 'filed'].includes(oath.status)) button('Withdraw continuing civic covenant', 'withdrawCovenant', blocked, clonePlainObject(oath.terms));
+      }
     }
     for (const r of v.submissions) panel.append(textEl('p', `${formatClock(r.at)}: original clerk recorded ${r.outcome}. Request independent review separately; no automatic recognition or renewed assent.`));
     panel.append(textEl('p', v.message)); return panel;
