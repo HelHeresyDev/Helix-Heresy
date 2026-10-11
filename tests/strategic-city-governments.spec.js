@@ -114,6 +114,23 @@ test('public-works replacement rules are explicit published law only for separat
   expect(governmentFoundation('charter-foundation').cityGovernments).toEqual(map.cityGovernments);
   expect(CityGovernments.auditCityGovernments(map).valid).toBe(true);
 });
+test('combined public-works reassignment publishes an exact role division without separate-office eviction power', () => {
+  const map = governmentFoundation('charter-foundation'), A = require('../public-works-appointments');
+  const directory = CityGovernments.publicCityGovernmentDirectory(map); let count = 0;
+  for (const g of map.cityGovernments.governments) {
+    const polity = map.cityPolities.polities.find(p => p.cityId === g.cityId);
+    const works = g.institutions.find(i => i.id === g.roleAssignments.publicWorksAndProvisioning);
+    const supported = polity.authority.kind === 'individual'
+      && ['named experimental successor', 'designation by the reigning protector'].includes(g.charter.successionPrinciple)
+      && JSON.stringify(works.roles) === JSON.stringify(['emergencyManagement', 'publicWorksAndProvisioning']);
+    expect(g.charter.publicWorksRoleReassignment).toEqual(supported ? A.roleRuleFor(g.cityId, works.id, g.roleAssignments.civicReview) : null);
+    expect(directory.find(d => d.city.id === g.cityId).charter.publicWorksRoleReassignment).toEqual(g.charter.publicWorksRoleReassignment);
+    if (supported) { count++; expect(g.charter.publicWorksAppointment).toBeNull(); expect(g.charter.civilInstallationAccess).toBeNull(); }
+  }
+  expect(count).toBeGreaterThan(0);
+  expect(governmentFoundation('charter-foundation').cityGovernments).toEqual(map.cityGovernments);
+  expect(CityGovernments.auditCityGovernments(map).valid).toBe(true);
+});
 
 test('published patron covenants use real known founding patrons and local petitions never mutate reusable worlds', () => {
   test.setTimeout(600000);

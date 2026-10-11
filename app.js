@@ -14706,10 +14706,16 @@
           institutions: [...CitySuccession.ROLES, 'militaryDefenseCommand'].map(role => ({ role,
             id: role === 'centralAdministration' ? b.source.administrationId : role === 'militaryDefenseCommand' ? b.source.defenseId : `test-${role}`,
             name: role, responsibilities: [role], officeRoles: [role], appointmentMethod: 'appointmentBySovereignAuthority' })) };
+        if (options.combinedWorks && !state.citySuccession) {
+          const works = b.testSuccessionSource.institutions.find(i => i.role === 'publicWorksAndProvisioning');
+          works.officeRoles = ['emergencyManagement', 'publicWorksAndProvisioning'];
+          works.responsibilities = [...works.officeRoles];
+        }
         if (options.appointmentLaw) {
           b.testSuccessionSource.population = 100;
-          b.testSuccessionSource.publicWorksAppointment = PublicWorksAppointments.ruleFor(b.source.cityId, 'test-publicWorksAndProvisioning', 'test-civicReview');
-          if (options.civilAccessLaw) b.testSuccessionSource.civilInstallationAccess = CivilInstallationAccess.ruleFor(b.source.cityId, 'test-publicWorksAndProvisioning', 'test-civicReview', b.source.defenseId);
+          if (options.combinedWorks && !state.citySuccession) b.testSuccessionSource.publicWorksRoleReassignment = PublicWorksAppointments.roleRuleFor(b.source.cityId, 'test-publicWorksAndProvisioning', 'test-civicReview');
+          else b.testSuccessionSource.publicWorksAppointment = PublicWorksAppointments.ruleFor(b.source.cityId, 'test-publicWorksAndProvisioning', 'test-civicReview');
+          if (options.civilAccessLaw && !options.combinedWorks) b.testSuccessionSource.civilInstallationAccess = CivilInstallationAccess.ruleFor(b.source.cityId, 'test-publicWorksAndProvisioning', 'test-civicReview', b.source.defenseId);
         }
         if (!state.citySuccession) {
           state.defenderChallenge = DefenderChallenges.create(b);
@@ -83851,9 +83857,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     section.append(textEl('strong', 'Contested public-works appointment'));
     const s = ensureCityAppointments(); refreshCityAppointmentsKnowledge();
     const v = state.cityAppointmentsKnowledge, observed = cityAppointmentsObserved();
-    if (!s) { section.append(textEl('p', 'This route requires an actual voluntary sovereign handover and an explicit published replacement rule for a separate public-works office. Disputed recognition, combined offices and unsupported charters grant no removal power.')); return; }
+    if (!s) { section.append(textEl('p', 'This route requires actual voluntary sovereign handover and an explicit published separate-office replacement or combined-directorate public-works role reassignment rule. Disputed recognition and unsupported charters grant no removal power.')); return; }
     if (!v) { section.append(textEl('p', 'Attend the original counter to learn the actual local procedure. Away appointments are not live intelligence.')); return; }
     section.append(textEl('p', `Personally received ${formatClock(v.reportedAt)} — ${v.phase}. ${v.rule.text}`));
+    if (v.rule.method === 'reviewedCombinedPublicWorksReassignment') section.append(textEl('p', 'Combined directorate: only public works can be reassigned. The original official retains emergency management; no evacuation or defense powers transfer. Physical handover requires voluntary release and visible original custody.'));
     const button = (label, action, expected = null, disabled = false) => {
       const el = storesActionButton(label, label, () => cityAppointmentsAction(action, expected)); el.dataset.appointmentAction = action;
       el.disabled = !observed || disabled; section.append(el);
@@ -83912,6 +83919,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return id ? ensureIntercitySmuggling().identityOffices?.find(o => o.id === id) || null : null;
   }
   function renderCivilInstallationAccess(panel, v, observed) {
+    if (v.rule.method === 'reviewedCombinedPublicWorksReassignment') return;
     if (!v.obstruction && !v.enforcement) return;
     const section = document.createElement('section'); section.dataset.civilAccess = 'true'; panel.append(section);
     section.append(textEl('strong', 'Lawful compulsory installation access'));
@@ -83978,7 +83986,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       || state.cityConfrontation?.phase === 'fighting' || IncumbentResistance.active(state.incumbentResistance)
       || state.surveyExpeditions?.mapService?.job || state.surveyExpeditions?.carrier?.briefingState?.job),
       bodyEpoch: ensureScientistIdentity().bodyEpoch,
-      appointmentRule: clonePlainObject(source?.publicWorksAppointment || null),
+      appointmentRule: clonePlainObject(source?.publicWorksAppointment || source?.publicWorksRoleReassignment || null),
       civilAccessRule: clonePlainObject(source?.civilInstallationAccess || null),
       civilDefenderId: state.sovereignBargains?.defender?.id,
       defenseInstitutionId: source?.institutions.find(i => i.role === 'militaryDefenseCommand')?.id,

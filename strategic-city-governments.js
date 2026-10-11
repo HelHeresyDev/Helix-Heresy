@@ -237,6 +237,10 @@
           && ['named experimental successor', 'designation by the reigning protector'].includes(polity.successionPrinciple)
           && institutions.find(i => i.id === roleAssignments.publicWorksAndProvisioning).roles.length === 1
           ? CivilAccess.ruleFor(city.id, roleAssignments.publicWorksAndProvisioning, reviewId, roleAssignments.militaryDefenseCommand) : null,
+        publicWorksRoleReassignment: polity.authority.kind === 'individual'
+          && ['named experimental successor', 'designation by the reigning protector'].includes(polity.successionPrinciple)
+          && JSON.stringify(institutions.find(i => i.id === roleAssignments.publicWorksAndProvisioning).roles) === JSON.stringify(['emergencyManagement', 'publicWorksAndProvisioning'])
+          ? Appointments.roleRuleFor(city.id, roleAssignments.publicWorksAndProvisioning, reviewId) : null,
         continuityProcedure: "The charter preserves institutions and delegates temporary authority until the succession rule resolves sovereign continuity.",
         emergencyPowers: {
           declarationAuthorityId: polity.authority.id,

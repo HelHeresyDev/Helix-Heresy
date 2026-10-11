@@ -68,6 +68,7 @@ test('designation binds existing individual ruler, charter, actual institutions 
   const original = copy(map); assert.equal(Succession.sourceFromWorld(map, f.b).authority.id, 'ruler:a'); assert.deepEqual(map, original);
   assert.equal(Succession.sourceFromWorld(map, f.b).designationReview, null);
   assert.equal(Succession.sourceFromWorld(map, f.b).civilInstallationAccess, null);
+  assert.equal(Succession.sourceFromWorld(map, f.b).publicWorksRoleReassignment, null);
   government.charter.designationReview = { id: 'original-law', principle: f.source.succession,
     reviewInstitutionId: government.roleAssignments.civicReview, coercionRule: 'independentConfirmationPermitted', requiredAuthorizationIds: [] };
   const published = Succession.sourceFromWorld(map, f.b).designationReview;
@@ -89,6 +90,11 @@ test('designation binds existing individual ruler, charter, actual institutions 
   assert.deepEqual(replacementSource.institutions.find(i => i.role === 'publicWorksAndProvisioning').officeRoles, ['publicWorksAndProvisioning']);
   replacementSource.publicWorksAppointment.minimumMaintenance = 0;
   assert.equal(government.charter.publicWorksAppointment.minimumMaintenance, 40);
+  government.charter.publicWorksRoleReassignment = Appointments.roleRuleFor('a', worksId, reviewId);
+  const combinedSource = Succession.sourceFromWorld(map, f.b);
+  assert.deepEqual(combinedSource.publicWorksRoleReassignment, government.charter.publicWorksRoleReassignment);
+  combinedSource.publicWorksRoleReassignment.retainedRoles = [];
+  assert.deepEqual(government.charter.publicWorksRoleReassignment.retainedRoles, ['emergencyManagement']);
   for (const change of [m => m.cityPolities.polities[0].authority.kind = 'collective', m => m.cityGovernments.governments[0].sovereigntyScope = 'jointStronghold',
     m => m.cityGovernments.governments[0].charter.successionPrinciple = 'inheritance under emergency law', m => m.strategicPlayableSettlementState.cityRows[0].currentPopulation = 7,
     m => m.cityGovernments.governments[0].institutions[0].commandAuthorityId = 'usurper', m => m.strategicPoliticalHistory.currentControlRows[0].controlStatus = 'occupied']) {
@@ -105,6 +111,17 @@ test('designation binds existing individual ruler, charter, actual institutions 
     assert.equal(Succession.create({ ...f.source, succession: 'publicly demonstrated competence' }, f.b, f.office), null);
     assert.equal(Succession.create({ ...f.source, authority: { ...f.source.authority, kind: 'collective' } }, f.b, f.office), null);
   }
+});
+test('a combined directorate uses one original person and finite duty for both actual roles without extra population', () => {
+  const f = fixture(), source = copy(f.source);
+  source.institutions.find(i => i.role === 'publicWorksAndProvisioning').officeRoles = ['emergencyManagement', 'publicWorksAndProvisioning'];
+  source.publicWorksRoleReassignment = require('../public-works-appointments').roleRuleFor('a',
+    source.institutions.find(i => i.role === 'publicWorksAndProvisioning').id, source.institutions.find(i => i.role === 'civicReview').id);
+  const s = Succession.create(source, f.b, f.office), old = s.leaders.find(a => a.roles.includes('publicWorksAndProvisioning'));
+  assert.equal(s.allocation.people, f.s.allocation.people); assert.equal(s.leaders.length, f.s.leaders.length);
+  assert.deepEqual(old.roles, ['emergencyManagement', 'publicWorksAndProvisioning']); assert.equal(old.workSeconds, 1800);
+  old.workSeconds = 23; old.health = 67;
+  const saved = Succession.normalize(s).leaders.find(a => a.id === old.id); assert.equal(saved.workSeconds, 23); assert.equal(saved.health, 67);
 });
 test('appointment flags are not proof: only actual paid civic decisions reviewed against the original producer and charter count', () => {
   const f = fixture(), result = { finding: 'acceptable', confidence: 66 };

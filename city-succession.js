@@ -35,6 +35,7 @@
       succession: g.charter.successionPrinciple, populationSourceId: row.assetId,
       designationReview: copy(g.charter.designationReview || null),
       publicWorksAppointment: copy(g.charter.publicWorksAppointment || null), population: row.currentPopulation,
+      publicWorksRoleReassignment: copy(g.charter.publicWorksRoleReassignment || null),
       civilInstallationAccess: copy(g.charter.civilInstallationAccess || null),
       institutions: roles.map((role, n) => ({ role, id: institutions[n].id, name: institutions[n].publicName || institutions[n].name || role,
         responsibilities: copy(institutions[n].responsibilities || []), officeRoles: copy(institutions[n].roles || []),
@@ -61,7 +62,9 @@
           `Existing ${institution.name} officeholder`, { x: 15 + n % 2, y: 10 + Math.floor(n / 2), z: 6 }), institutionId: institution.id, roles: [] };
         leaders.push(actor);
       }
-      actor.roles.push(institution.role);
+      if (!actor.roles.includes(institution.role)) actor.roles.push(institution.role);
+      if (institution.role === 'publicWorksAndProvisioning' && same(institution.officeRoles, ['emergencyManagement', 'publicWorksAndProvisioning']))
+        actor.roles = ['emergencyManagement', 'publicWorksAndProvisioning'];
     }
     for (const actor of leaders.filter(a => a.roles.includes('publicWorksAndProvisioning'))) {
       actor.physicalControl = { strength: 20 + hash(`${actor.id}:physical-strength`) % 31, stamina: 80, staminaCapacity: 80 };

@@ -21,7 +21,7 @@
   const reviewer = b => b.succession?.leaders.find(a => a.id === b.appointment?.reviewerId);
   function create(b) {
     const a = b.appointment, law = b.c.civilAccessRule, d = b.bargain?.defender;
-    if (!a?.appointment || a.receipt || !a.obstruction || !b.c.appointmentCurrent || !d?.physicalStrength
+    if (a?.rule?.method !== 'reviewedPublicWorksReplacement' || !a?.appointment || a.receipt || !a.obstruction || !b.c.appointmentCurrent || !d?.physicalStrength
       || !outgoing(b)?.physicalControl || !law || !same(law, ruleFor(a.cityId, a.institutionId, a.reviewerInstitutionId, d.institutionId))
       || b.bargain.source.cityId !== a.cityId || b.bargain.source.charterId !== a.charterId
       || b.c.civilDefenderId !== d.id || b.c.defenseInstitutionId !== d.institutionId) return null;
@@ -34,7 +34,7 @@
   }
   function current(e, b) {
     const a = b.appointment, d = b.bargain?.defender;
-    return Boolean(e && a?.appointment?.id === e.appointmentId && !a.receipt && b.c.appointmentCurrent
+    return Boolean(e && a?.rule?.method === 'reviewedPublicWorksReplacement' && a?.appointment?.id === e.appointmentId && !a.receipt && b.c.appointmentCurrent
       && a.cityId === e.cityId && a.charterId === e.charterId && a.incumbentId === e.outgoingId
       && a.candidate?.id === e.incomingId && a.clerkId === e.clerkId && a.reviewerId === e.reviewerId
       && a.installationId === e.installationId && d?.id === e.defenderId && d.institutionId === e.rule.defenseInstitutionId

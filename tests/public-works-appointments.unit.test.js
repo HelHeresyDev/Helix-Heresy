@@ -231,6 +231,131 @@ function hear(f) { propose(f); step(f, f.s.review.readyAt - f.at); assert.equal(
 function appoint(f) { hear(f); assert.equal(A.appoint(f.s, f.succession, f.upkeep, f.office, copy(f.s.terms), f.c, f.at), true); step(f, 60); }
 function approach(f) { appoint(f); assert.equal(A.approach(f.s, f.succession, f.upkeep, f.office, f.c, f.at), true); step(f, 10); }
 function transfer(f) { approach(f); assert.equal(A.transfer(f.s, f.succession, f.upkeep, f.office, copy(f.s.appointment), f.c, f.at), true); step(f, 3); step(f, 120); }
+function combinedFixture() {
+  const f = fixture(), roles = ['emergencyManagement', A.ROLE];
+  f.old.roles = [...roles]; f.source.institutions[0].officeRoles = [...roles];
+  f.source.publicWorksAppointment = null; f.source.publicWorksRoleReassignment = A.roleRuleFor('a', f.old.institutionId, f.reviewer.institutionId);
+  f.succession.source = copy(f.source); f.succession.agreements[0].roles = [...roles];
+  f.succession.control.commandRelationships[0].roles = [...roles];
+  f.c.appointmentRule = copy(f.source.publicWorksRoleReassignment); f.c.appointmentOffice.roles = [...roles];
+  f.c.accessInventoryVisible = true;
+  f.s = A.create(f.succession, f.upkeep, f.office, f.source, 0); assert.ok(f.s); f.succession.appointments = f.s;
+  f.s.candidate.credential.maintenance = 50; f.s.candidate.appointmentPolicy = 'considerExactDuties'; f.s.incumbentPolicy = 'contestThenRelease';
+  f.c.presentIds = [f.old.id, f.reviewer.id, f.office.clerk.id, f.s.candidate.id];
+  f.succession.directive = { status: 'completed', cargo: null, receipt: { id: 'original-stage', stackId: 'city-parts', quantity: 3,
+    workerId: f.old.id, destination: { x: 16, y: 12, z: 6 } } };
+  f.stacks.push({ id: 'city-parts', key: 'metalParts', quantity: 3, cityOwnerId: 'a', cell: { x: 16, y: 12, z: 6 },
+    reservedTaskId: `${f.succession.id}:city-maintenance-reserve`, civicCustody: { cityId: 'a', custodianId: f.old.id, sourceReceiptIds: ['old-reserve'] } });
+  return f;
+}
+function combinedTransfer(f) {
+  approach(f); assert.ok(A.transfer(f.s, f.succession, f.upkeep, f.office, f.s.appointment, f.c, f.at, f.stacks)); step(f, 3); step(f, 120);
+}
+test('combined role reassignment requires its own exact published law and original distinct reviewer', () => {
+  const f = combinedFixture(); assert.equal(f.s.rule.method, 'reviewedCombinedPublicWorksReassignment');
+  assert.deepEqual(f.old.roles, ['emergencyManagement', A.ROLE]); assert.equal(f.s.receipt, null);
+  for (const change of [g => g.source.publicWorksRoleReassignment = null,
+    g => g.source.publicWorksRoleReassignment.retainedRoles = [], g => g.old.roles.push('civilWatch'),
+    g => g.source.publicWorksAppointment = A.ruleFor('a', g.old.institutionId, g.reviewer.institutionId),
+    g => g.source.institutions[0].officeRoles = [A.ROLE], g => g.reviewer.institutionId = g.old.institutionId,
+    g => g.succession.handover = null, g => g.upkeep.authorizationId = 'disputed']) {
+    const g = combinedFixture(); change(g); assert.equal(A.create(g.succession, g.upkeep, g.office, g.source, 0), null);
+  }
+});
+test('combined review preserves the exact emergency role and actual original commitments without awarding control', () => {
+  const f = combinedFixture(), prior = copy(f.succession.agreements); hear(f);
+  assert.deepEqual(f.s.proposal.continuity.originalRoles, ['emergencyManagement', A.ROLE]);
+  assert.deepEqual(f.s.terms.retainedRoles, ['emergencyManagement']); assert.deepEqual(f.s.terms.incomingRoles, [A.ROLE]);
+  assert.deepEqual(f.s.proposal.continuity.directive, f.succession.directive);
+  assert.equal(f.s.appointment, null); assert.equal(f.upkeep.workerId, f.old.id); assert.deepEqual(f.succession.agreements, prior);
+  f.s.terms.incomingRoles.push('emergencyManagement');
+  assert.equal(A.appoint(f.s, f.succession, f.upkeep, f.office, f.s.terms, f.c, f.at), false);
+});
+test('combined handover inspects real custody across reload and changes only the actual public-works role', () => {
+  const f = combinedFixture(), before = copy({ source: f.source, agreements: f.succession.agreements, old: f.old,
+    reserve: f.succession.provision, stacks: f.stacks, dueAt: f.upkeep.dueAt, receipts: f.upkeep.receipts });
+  approach(f); assert.ok(A.transfer(f.s, f.succession, f.upkeep, f.office, f.s.appointment, f.c, f.at, f.stacks));
+  step(f, 3); step(f, 60); assert.equal(f.s.receipt, null); assert.equal(f.upkeep.workerId, f.old.id);
+  f.s = A.normalize(f.s); f.succession.appointments = f.s; step(f, 60);
+  assert.deepEqual(f.old.roles, ['emergencyManagement']); assert.equal(f.old.officeStatus.status, 'publicWorksRoleReassigned');
+  assert.deepEqual(f.s.candidate.roles, [A.ROLE]); assert.equal(f.upkeep.workerId, f.s.candidate.id);
+  assert.equal(f.s.receipt.roleDivision.outgoingSignerId, f.old.id);
+  assert.deepEqual(f.s.receipt.roleDivision.inventory.goods.map(g => [g.id, g.quantity]), [['city-parts', 3]]);
+  assert.deepEqual(f.source, before.source); assert.deepEqual(f.succession.agreements, before.agreements);
+  assert.deepEqual(f.succession.provision, before.reserve); assert.deepEqual(f.stacks, before.stacks);
+  assert.equal(f.old.health, before.old.health); assert.equal(f.old.fatigue, before.old.fatigue); assert.ok(f.old.workSeconds < before.old.workSeconds);
+  assert.equal(f.upkeep.dueAt, before.dueAt); assert.deepEqual(f.upkeep.receipts, before.receipts);
+  assert.equal(f.succession.control.commandRelationships[0].roleStates[A.ROLE].status, 'replaced');
+  assert.equal(f.succession.control.commandRelationships[0].roleStates.emergencyManagement, undefined);
+  assert.ok(Administration.staff(f.succession, f.bargain, f.office).some(a => a.id === f.old.id));
+  assert.ok(A.authorization(f.s, f.succession, f.upkeep, f.office, f.c));
+  assert.equal(A.transfer(f.s, f.succession, f.upkeep, f.office, f.s.appointment, f.c, f.at, f.stacks), false);
+});
+test('combined refusal stays non-operational and cannot inherit separate-office civil enforcement', () => {
+  const f = combinedFixture(); f.s.incumbentPolicy = 'retainInstallation'; f.s.accessPolicy = 'rejectReplacement'; approach(f);
+  assert.equal(A.transfer(f.s, f.succession, f.upkeep, f.office, f.s.appointment, f.c, f.at, f.stacks), false);
+  assert.ok(f.s.obstruction); assert.equal(f.s.receipt, null); assert.deepEqual(f.old.roles, ['emergencyManagement', A.ROLE]);
+  assert.equal(Civil.create({ appointment: f.s, c: f.c }), null);
+  f.s.enforcement = {}; assert.equal(A.compulsoryTransfer(f.s, f.succession, f.upkeep, f.office, f.c, f.at), false);
+  accessReason(f); assert.equal(f.s.access.reason.kind, 'rejectReplacement');
+  assert.equal(A.settleAccess(f.s, f.succession, f.upkeep, f.office, f.stacks, {}, f.c, f.at), false);
+});
+test('combined unfinished commitments or changed custody cannot disappear during review or physical handover', () => {
+  for (const change of [f => f.upkeep.job = { cargo: { quantity: 3 } }, f => f.upkeep.rests.push({ personId: f.old.id }),
+    f => f.succession.directive.cargo = { quantity: 3 }, f => f.succession.agreements[0].roles.pop(), f => f.upkeep.dueAt++]) {
+    const f = combinedFixture(); propose(f); step(f, f.s.review.readyAt - f.at);
+    assert.ok(A.hear(f.s, f.succession, f.upkeep, f.office, f.institutions, f.c, f.at)); change(f); step(f, 180);
+    assert.equal(f.s.review.status, 'queued'); assert.equal(f.s.terms, null); assert.equal(f.s.job, null);
+  }
+  for (const change of [f => f.stacks[0].quantity--, f => f.c.accessInventoryVisible = false,
+    f => f.succession.directive.cargo = { quantity: 3 }, f => f.succession.control.commandRelationships[0].roles.pop()]) {
+    const f = combinedFixture(); approach(f); assert.ok(A.transfer(f.s, f.succession, f.upkeep, f.office, f.s.appointment, f.c, f.at, f.stacks));
+    step(f, 3); step(f, 30); change(f); step(f, 120);
+    assert.equal(f.s.receipt, null); assert.equal(f.upkeep.workerId, f.old.id); assert.deepEqual(f.old.roles, ['emergencyManagement', A.ROLE]);
+  }
+});
+test('combined assigned technician performs supplied upkeep and independent prospective cooperation without emergency powers', () => {
+  const f = combinedFixture(); combinedTransfer(f); const reserve = f.succession.provision.stock;
+  assert.ok(Administration.inspect(f.upkeep, f.succession, f.office, f.c, f.at));
+  assert.ok(Administration.order(f.upkeep, f.succession, f.bargain, f.office, f.stacks, f.upkeep.inspection, f.c, f.at));
+  f.at += 300; Administration.advance(f.upkeep, f.succession, f.bargain, f.office, f.stacks, f.c, f.at, { move });
+  assert.equal(f.stacks[0].quantity, 0); assert.equal(f.succession.provision.stock, reserve);
+  assert.equal(f.upkeep.receipts.at(-1).personId, f.s.candidate.id);
+  f.upkeep.resistance = Resistance.create(f.upkeep, f.succession, f.office, f.c);
+  assert.equal(f.upkeep.resistance.workerId, f.s.candidate.id); assert.ok(Resistance.propose(f.upkeep.resistance, f.upkeep, f.succession, f.office, f.c, f.at));
+  assert.ok(Resistance.accept(f.upkeep.resistance, f.upkeep, f.succession, f.office, f.upkeep.resistance.offer, f.c, f.at));
+  f.at += 60; Resistance.advance(f.upkeep.resistance, f.upkeep, f.succession, f.bargain, f.office, f.stacks, f.institutions, f.c, f.at);
+  assert.equal(f.upkeep.resistance.commitment.workerId, f.s.candidate.id);
+  assert.deepEqual(f.old.roles, ['emergencyManagement']); assert.deepEqual(f.s.commandRelationship.roles, [A.ROLE]);
+});
+test('completed genuine upkeep while waiting is reviewed with current records, not an impossible frozen deadline', () => {
+  const f = combinedFixture(); propose(f); const filed = copy(f.s.proposal.continuity);
+  assert.ok(Administration.inspect(f.upkeep, f.succession, f.office, f.c, f.at));
+  assert.ok(Administration.order(f.upkeep, f.succession, f.bargain, f.office, f.stacks, f.upkeep.inspection, f.c, f.at));
+  f.at += 300; Administration.advance(f.upkeep, f.succession, f.bargain, f.office, f.stacks, f.c, f.at, { move });
+  assert.equal(f.upkeep.job, null); assert.notEqual(f.upkeep.dueAt, filed.dueAt);
+  step(f, f.s.review.readyAt - f.at); assert.ok(A.hear(f.s, f.succession, f.upkeep, f.office, f.institutions, f.c, f.at)); step(f, 180);
+  assert.equal(f.s.review.outcome, 'eligible'); assert.deepEqual(f.s.proposal.continuity, filed);
+  assert.equal(f.s.review.continuity.dueAt, f.upkeep.dueAt); assert.equal(f.s.review.continuity.receipts.length, 1);
+  assert.deepEqual(f.s.terms.continuity, f.s.review.continuity);
+});
+test('combined authorization rejects rewritten retained roles, missing custody or forced-origin records', () => {
+  for (const change of [f => f.old.roles.push(A.ROLE), f => f.old.officeStatus.status = 'replacedByReviewedAppointment',
+    f => { f.s.receipt.roleDivision.incomingRoles.push('emergencyManagement'); f.office.publicWorksTransfers[0] = copy(f.s.receipt); },
+    f => { f.s.receipt.roleDivision.inventory = null; f.office.publicWorksTransfers[0] = copy(f.s.receipt); },
+    f => f.office.publicWorksTransfers = [], f => f.s.receipt.origin = 'compulsoryCivilAccess']) {
+    const f = combinedFixture(); combinedTransfer(f); change(f); assert.equal(A.authorization(f.s, f.succession, f.upkeep, f.office, f.c), null);
+  }
+});
+test('combined outages, blocked walking and death retain positions and unfinished finite handover without backfill', () => {
+  const f = combinedFixture(); approach(f); assert.ok(A.transfer(f.s, f.succession, f.upkeep, f.office, f.s.appointment, f.c, f.at, f.stacks));
+  const cell = copy(f.old.mapCell); step(f, 30, { move: () => false }); assert.deepEqual(f.old.mapCell, cell); assert.equal(f.s.job.progress, 0);
+  step(f, 3); step(f, 30); f.s = A.normalize(f.s); f.succession.appointments = f.s;
+  f.c.externalPowered = false; step(f, 100); assert.equal(f.s.job.progress, 30);
+  f.c.externalPowered = true; step(f, 100); assert.equal(f.s.job.progress, 30);
+  f.c.alive = false; const before = copy({ s: f.s, old: f.old, office: f.office, upkeep: f.upkeep }); step(f, 1000);
+  assert.deepEqual({ s: f.s, old: f.old, office: f.office, upkeep: f.upkeep }, before);
+});
 test('replacement source requires actual handover, published law, a separate office and a real independent reviewer', () => {
   const f = fixture();
   for (const change of [g => g.succession.handover = null, g => g.succession.control.recognizedAuthorityId = 'claimant',

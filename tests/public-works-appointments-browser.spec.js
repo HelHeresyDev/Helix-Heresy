@@ -19,7 +19,7 @@ async function finishWalk(page) {
     throw new Error('Physical walk did not finish');
   });
 }
-async function setup(page, renderer = 'dom', obstruct = false, accessPolicy = 'rejectReplacement', civilPolicy = null) {
+async function setup(page, renderer = 'dom', obstruct = false, accessPolicy = 'rejectReplacement', civilPolicy = null, combinedWorks = false) {
   await page.goto(pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href);
   await page.evaluate(renderer => { localStorage.clear(); localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: renderer })); }, renderer);
   await page.reload();
@@ -34,8 +34,8 @@ async function setup(page, renderer = 'dom', obstruct = false, accessPolicy = 'r
   });
   expect(await act(page, 'discuss')).toBe(false);
   expect(await succession(page, 'walk')).toBe(true); await finishWalk(page);
-  expect(await page.evaluate(civilPolicy => window.helixHeresyDebug.configureCitySuccessionTest({ retirement: true, appointmentLaw: true,
-    ...(civilPolicy ? { civilAccessLaw: true, officeWork: 1800 } : {}) }), civilPolicy)).toBe(true);
+  expect(await page.evaluate(({ civilPolicy, combinedWorks }) => window.helixHeresyDebug.configureCitySuccessionTest({ retirement: true, appointmentLaw: true, combinedWorks,
+    ...(civilPolicy ? { civilAccessLaw: true, officeWork: 1800 } : {}) }), { civilPolicy, combinedWorks })).toBe(true);
   expect(await succession(page, 'request')).toBe(true);
   await page.evaluate(() => window.helixHeresyDebug.advanceCitySuccessionForTest(30));
   expect(await succession(page, 'hear')).toBe(true);
@@ -107,6 +107,50 @@ async function civilOrder(page) {
   await panel.locator('[data-civil-access-action="discuss"]').click(); await advance(page, 60);
   return panel;
 }
+test('DOM: combined directorate physically reassigns only public works across reload and retains emergency authority and supplied upkeep', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await setup(page, 'dom', false, 'rejectReplacement', null, true);
+  let s = await reviewed(page); const before = s, panel = page.locator('[data-city-appointments]');
+  expect(s.appointments.rule.method).toBe('reviewedCombinedPublicWorksReassignment');
+  expect(s.succession.leaders.find(a => a.id === s.appointments.incumbentId).roles).toEqual(['emergencyManagement', 'publicWorksAndProvisioning']);
+  expect(s.appointments.receipt).toBeNull(); await expect(panel).toContainText('original official retains emergency management');
+  await panel.locator('[data-appointment-action="transfer"]').click(); await advance(page, 60);
+  expect((await snap(page)).appointments.receipt).toBeNull();
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState()); await advance(page, 70);
+  s = await snap(page); const old = s.succession.leaders.find(a => a.id === s.appointments.incumbentId);
+  expect(s.appointments.receipt.roleDivision.retainedRoles).toEqual(['emergencyManagement']);
+  expect(s.appointments.receipt.roleDivision.outgoingSignerId).toBe(old.id); expect(s.appointments.receipt.roleDivision.inventory.goods[0].quantity).toBe(3);
+  expect(old.roles).toEqual(['emergencyManagement']); expect(old.officeStatus.status).toBe('publicWorksRoleReassigned');
+  expect(s.appointments.candidate.roles).toEqual(['publicWorksAndProvisioning']); expect(s.administration.workerId).toBe(s.appointments.candidate.id);
+  expect(s.source).toEqual(before.source); expect(s.succession.agreements).toEqual(before.succession.agreements);
+  expect(s.succession.provision).toEqual(before.succession.provision); expect(s.administration.dueAt).toBe(before.administration.dueAt);
+  expect(s.office.publicWorksTransfers).toHaveLength(1); await expect(panel).toContainText('Physical transfer recorded');
+  expect(await admin(page, 'inspect')).toBe(true);
+  const u = await page.evaluate(() => window.helixHeresyDebug.cityAdministrationSnapshot());
+  expect(await admin(page, 'order', u.administration.inspection)).toBe(true); await advance(page, 180);
+  s = await snap(page); expect(s.administration.receipts.at(-1).personId).toBe(s.appointments.candidate.id);
+  expect(s.succession.provision.stock).toBe(before.succession.provision.stock);
+  const received = await page.evaluate(() => window.helixHeresyDebug.cityResistanceAction('terms'));
+  expect(received, JSON.stringify((await snap(page)).administration.resistance)).toBe(true);
+  expect((await snap(page)).administration.resistance.workerId).toBe(s.appointments.candidate.id);
+  expect(errors).toEqual([]);
+});
+test('Canvas: combined directorate refusal persists without role loss, forced release or away intelligence', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await setup(page, 'canvas', true, 'rejectReplacement', null, true); let s = await reviewed(page);
+  expect(await act(page, 'transfer', s.appointments.appointment)).toBe(false);
+  const before = await snap(page); expect(before.appointments.phase).toBe('obstructed');
+  expect(await civil(page, 'file')).toBe(false); expect((await snap(page)).appointments.enforcement).toBeNull();
+  await expect(page.locator('[data-civil-access]')).toHaveCount(0);
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  expect((await snap(page)).appointments.obstruction).toEqual(before.appointments.obstruction);
+  expect(await page.evaluate(() => Boolean(window.helixHeresyDebug.startScientistMove('supportedSurveyGround', { toCell: { x: 10, y: 10, z: 6 }, allowMultiRoom: true })))).toBe(true);
+  await finishWalk(page); const dated = (await snap(page)).known; await advance(page, 180); s = await snap(page);
+  expect(s.known).toEqual(dated); expect(s.appointments.receipt).toBeNull(); expect(s.administration.workerId).toBe(before.administration.workerId);
+  expect(s.succession.leaders.find(a => a.id === s.appointments.incumbentId).roles).toEqual(['emergencyManagement', 'publicWorksAndProvisioning']);
+  expect(s.succession.agreements).toEqual(before.succession.agreements); expect(s.succession.provision).toEqual(before.succession.provision);
+  expect(errors).toEqual([]);
+});
 test('DOM: civil access requires separate consent and physical escort before an unsigned outgoing transfer across reload', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await setup(page, 'dom', true, 'rejectReplacement', 'considerCivilEscort');
