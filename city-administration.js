@@ -1,9 +1,10 @@
 (function (root, factory) {
   const api = factory(typeof module === 'object' && module.exports ? require('./theme-content') : root.HelixThemeContent,
-    typeof module === 'object' && module.exports ? require('./public-works-recognition') : root.HelixPublicWorksRecognition);
+    typeof module === 'object' && module.exports ? require('./public-works-recognition') : root.HelixPublicWorksRecognition,
+    typeof module === 'object' && module.exports ? require('./public-works-appointments') : root.HelixPublicWorksAppointments);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixCityAdministration = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Theme, PublicWorks) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Theme, PublicWorks, Appointments) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v));
   const registry = Theme.createRegistry([{ id: 'administration.shared.counter-upkeep', kind: 'cityAdministration', compatibility: 'shared',
@@ -21,10 +22,13 @@
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const cellSame = (a, b) => a && b && a.x === b.x && a.y === b.y && a.z === b.z;
   const clean = i => i.quantity >= 1 && !i.fixtureId && !i.containerId && !i.toolInstanceId && !i.tags?.includes('contaminated');
-  function worker(s, succession) { return succession?.leaders.find(a => a.id === s?.workerId); }
+  function worker(s, succession) {
+    return succession?.leaders.find(a => a.id === s?.workerId)
+      || (succession?.appointments?.candidate?.id === s?.workerId ? succession.appointments.candidate : null);
+  }
   function staff(succession, bargain, office, upkeep = null) {
-    return [...(succession?.leaders || []), bargain?.representative, bargain?.defender, office?.clerk]
-      .filter(a => a && (!upkeep?.authorizationId || upkeep.staffIds.includes(a.id)));
+    return [...(succession?.leaders || []), ...(succession?.appointments?.receipt ? [succession.appointments.candidate] : []), bargain?.representative, bargain?.defender, office?.clerk]
+      .filter(a => a && a.officeStatus?.status !== 'replacedByReviewedAppointment' && (!upkeep?.authorizationId || upkeep.staffIds.includes(a.id)));
   }
   function scopedAuthorization(succession, office, c) {
     const r = c?.recognitions;
@@ -32,6 +36,7 @@
   }
   function authorization(s, succession, office, c) {
     if (!s) return null;
+    if (s.appointmentId) return Appointments.authorization(succession?.appointments, succession, s, office, c);
     if (!s.authorizationId) return succession?.handover?.id === s.handoverId && succession.control?.recognizedAuthorityId === 'scientist'
       && succession.agreements.some(a => a.personId === s.workerId) ? succession.handover : null;
     const r = scopedAuthorization(succession, office, c);
@@ -48,9 +53,9 @@
   }
   const bodyEpoch = (s, succession, office, c) => s.authorizationId ? maintenanceAuthorization(s, succession, office, c)?.bodyEpoch : succession.control?.bodyEpoch;
   const reserveKey = (s, succession) => s.authorizationId ? `${s.id}:public-works-supplies` : `${succession.id}:city-maintenance-reserve`;
-  const agreement = (s, succession, office, c) => s.authorizationId ? authorization(s, succession, office, c)
+  const agreement = (s, succession, office, c) => s.appointmentId ? authorization(s, succession, office, c) : s.authorizationId ? authorization(s, succession, office, c)
     : succession.agreements.find(a => a.personId === s.workerId);
-  const commandLink = (s, succession, office, c) => s.authorizationId ? authorization(s, succession, office, c)?.commandRelationship
+  const commandLink = (s, succession, office, c) => s.appointmentId ? succession?.appointments?.commandRelationship : s.authorizationId ? authorization(s, succession, office, c)?.commandRelationship
     : succession.control?.commandRelationships?.find(a => a.personId === s.workerId);
   function suppliedCustody(s, item) {
     return !s.authorizationId || Boolean(item?.civicCustody?.custodianId === s.workerId

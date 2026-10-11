@@ -11,10 +11,10 @@
   const LIMITS = 'One public-works command relationship only. No criminal verdict, deposition, confiscation, divine consent, neighboring sovereignty or citywide revolt. Repairs and previously accepted safe work remain permitted; restored machinery does not restore consent.';
   const able = a => a?.status === 'alive' && a.health >= 50 && (a.fatigue || 0) < 80;
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-  const worker = (s, succession) => succession?.leaders.find(a => a.id === s?.workerId);
+  const worker = (s, succession) => Administration.worker(s, succession);
   const reviewer = (s, succession) => succession?.leaders.find(a => a.id === s?.reviewerId);
   function create(upkeep, succession, office = null, c = null) {
-    const a = succession?.leaders.find(a => a.id === upkeep?.workerId);
+    const a = Administration.worker(upkeep, succession);
     if (!a || !(upkeep.authorizationId ? Administration.authorization(upkeep, succession, office, c)
       : succession.handover && succession.handover.id === upkeep.handoverId)) return null;
     const r = succession.leaders.find(a => a.roles.includes('civicReview'));

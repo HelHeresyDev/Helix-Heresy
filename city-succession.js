@@ -34,8 +34,10 @@
     return { cityId: b.cityId, cityName: b.cityName, charterId: b.charterId, authority: copy(p.authority),
       succession: g.charter.successionPrinciple, populationSourceId: row.assetId,
       designationReview: copy(g.charter.designationReview || null),
+      publicWorksAppointment: copy(g.charter.publicWorksAppointment || null), population: row.currentPopulation,
       institutions: roles.map((role, n) => ({ role, id: institutions[n].id, name: institutions[n].publicName || institutions[n].name || role,
-        responsibilities: copy(institutions[n].responsibilities || []) })) };
+        responsibilities: copy(institutions[n].responsibilities || []), officeRoles: copy(institutions[n].roles || []),
+        appointmentMethod: institutions[n].appointmentMethod })) };
   }
   function create(source, bargain, office, options = {}) {
     if (!source || !CHARTERS.includes(source.succession) || source.authority.kind !== 'individual'
@@ -181,11 +183,11 @@
   function operative(s, b, c, alreadyAuthorized = false) {
     return Boolean(s?.handover && c.alive && c.bodyEpoch === s.control.bodyEpoch && c.authorityId === 'scientist'
       && c.charterCurrent && c.institutionsAvailable && c.administrationAvailable && c.defenseAvailable
-      && agreementActors(s, b).every(a => capable(a) && s.agreements.some(r => r.personId === a.id
+      && agreementActors(s, b).every(a => capable(a) && a.officeStatus?.status !== 'replacedByReviewedAppointment' && s.agreements.some(r => r.personId === a.id
         && (alreadyAuthorized || !r.suspendedRoles?.includes('publicWorksAndProvisioning')))));
   }
   function directive(s, b, office, c, at) {
-    if (!operative(s, b, c) || localReason(s, b, office, c) || s.directive || s.provision.stock < 3 || s.provision.reservedBy) return false;
+    if (s?.appointments?.receipt || !operative(s, b, c) || localReason(s, b, office, c) || s.directive || s.provision.stock < 3 || s.provision.reservedBy) return false;
     const worker = s.leaders.find(a => a.roles.includes('publicWorksAndProvisioning'));
     if (!worker || worker.workSeconds < 120 || !begin(s, b, office, c, at, 'directive', 60, worker.id)) return false;
     s.directive = { id: `${s.id}:directive:stage-maintenance`, issuedAt: at, status: 'ordered', workerId: worker.id,

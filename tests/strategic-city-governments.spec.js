@@ -92,6 +92,26 @@ test('generated designation review rules are explicit deterministic published lo
   expect(CityGovernments.auditCityGovernments(map).valid).toBe(true);
 });
 
+test('public-works replacement rules are explicit published law only for separate supported individual offices', () => {
+  const map = governmentFoundation('charter-foundation');
+  const A = require('../public-works-appointments');
+  const directory = CityGovernments.publicCityGovernmentDirectory(map);
+  let applicable = 0;
+  for (const g of map.cityGovernments.governments) {
+    const polity = map.cityPolities.polities.find(p => p.cityId === g.cityId);
+    const office = g.institutions.find(i => i.id === g.roleAssignments.publicWorksAndProvisioning);
+    const supported = polity.authority.kind === 'individual'
+      && ['named experimental successor', 'designation by the reigning protector'].includes(g.charter.successionPrinciple)
+      && office.roles.length === 1;
+    expect(g.charter.publicWorksAppointment).toEqual(supported ? A.ruleFor(g.cityId, office.id, g.roleAssignments.civicReview) : null);
+    expect(directory.find(d => d.city.id === g.cityId).charter.publicWorksAppointment).toEqual(g.charter.publicWorksAppointment);
+    if (supported) applicable++;
+  }
+  expect(applicable).toBeGreaterThan(0);
+  expect(governmentFoundation('charter-foundation').cityGovernments).toEqual(map.cityGovernments);
+  expect(CityGovernments.auditCityGovernments(map).valid).toBe(true);
+});
+
 test('published patron covenants use real known founding patrons and local petitions never mutate reusable worlds', () => {
   test.setTimeout(600000);
   const Religion = require('../religious-recognition');

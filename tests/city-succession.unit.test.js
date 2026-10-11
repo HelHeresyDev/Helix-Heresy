@@ -73,6 +73,17 @@ test('designation binds existing individual ruler, charter, actual institutions 
   assert.deepEqual(published, government.charter.designationReview);
   published.coercionRule = 'uncoercedDesignationRequired';
   assert.equal(government.charter.designationReview.coercionRule, 'independentConfirmationPermitted');
+  const Appointments = require('../public-works-appointments');
+  const worksId = government.roleAssignments.publicWorksAndProvisioning;
+  const reviewId = government.roleAssignments.civicReview;
+  government.charter.publicWorksAppointment = Appointments.ruleFor('a', worksId, reviewId);
+  for (const i of government.institutions) { i.roles = [i.role]; i.appointmentMethod = 'appointmentBySovereignAuthority'; }
+  const replacementSource = Succession.sourceFromWorld(map, f.b);
+  assert.deepEqual(replacementSource.publicWorksAppointment, government.charter.publicWorksAppointment);
+  assert.equal(replacementSource.population, 8);
+  assert.deepEqual(replacementSource.institutions.find(i => i.role === 'publicWorksAndProvisioning').officeRoles, ['publicWorksAndProvisioning']);
+  replacementSource.publicWorksAppointment.minimumMaintenance = 0;
+  assert.equal(government.charter.publicWorksAppointment.minimumMaintenance, 40);
   for (const change of [m => m.cityPolities.polities[0].authority.kind = 'collective', m => m.cityGovernments.governments[0].sovereigntyScope = 'jointStronghold',
     m => m.cityGovernments.governments[0].charter.successionPrinciple = 'inheritance under emergency law', m => m.strategicPlayableSettlementState.cityRows[0].currentPopulation = 7,
     m => m.cityGovernments.governments[0].institutions[0].commandAuthorityId = 'usurper', m => m.strategicPoliticalHistory.currentControlRows[0].controlStatus = 'occupied']) {
