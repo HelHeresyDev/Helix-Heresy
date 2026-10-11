@@ -37,7 +37,16 @@
     const r = scopedAuthorization(succession, office, c);
     return r?.id === s.authorizationId && r.personId === s.workerId ? r : null;
   }
-  const bodyEpoch = (s, succession, office, c) => s.authorizationId ? authorization(s, succession, office, c)?.bodyEpoch : succession.control?.bodyEpoch;
+  // Maintenance is a preserved accepted duty, not renewed political assent.
+  // Do not use this fallback for resistance decisions or discretionary command.
+  function maintenanceAuthorization(s, succession, office, c) {
+    const current = authorization(s, succession, office, c);
+    if (current || !s?.authorizationId) return current;
+    const r = c?.recognitions;
+    const original = r && PublicWorks.essentialAuthorization(r.publicWorks, r.charter, succession, r.abdication, office, c.recognitionContext);
+    return original?.id === s.authorizationId && original.personId === s.workerId ? original : null;
+  }
+  const bodyEpoch = (s, succession, office, c) => s.authorizationId ? maintenanceAuthorization(s, succession, office, c)?.bodyEpoch : succession.control?.bodyEpoch;
   const reserveKey = (s, succession) => s.authorizationId ? `${s.id}:public-works-supplies` : `${succession.id}:city-maintenance-reserve`;
   const agreement = (s, succession, office, c) => s.authorizationId ? authorization(s, succession, office, c)
     : succession.agreements.find(a => a.personId === s.workerId);
@@ -77,13 +86,13 @@
   function supported(s, succession, office, c) {
     return Boolean(s && office?.id === s.officeId && office.cityId === s.cityId && office.active
       && office.clerk?.id === s.clerkId && cellSame(office.civicCounter?.cell, s.installation.cell)
-      && authorization(s, succession, office, c) && succession.source.charterId === s.charterId
+      && maintenanceAuthorization(s, succession, office, c) && succession.source.charterId === s.charterId
       && c.charterCurrent && c.administrationAvailable && c.publicWorksAvailable && c.geometryAvailable);
   }
   function localReason(s, succession, office, c) {
     if (!supported(s, succession, office, c)) return 'The original charter, recognized authority and physically supported administration and public-works branch are required.';
     if (!c.alive || !c.capable || !c.atCounter || !c.visitPermission || !c.clerkPresent || !c.lineOfSight || !c.workerPresent || c.busy
-      || c.cityId !== s.cityId || c.bodyEpoch !== bodyEpoch(s, succession, office, c)) return 'Attend the original civic counter and named public-works official in the authenticated body, capable and free of other work.';
+      || c.activeViolence || c.cityId !== s.cityId || c.bodyEpoch !== bodyEpoch(s, succession, office, c)) return 'Attend the original civic counter and named public-works official in the authenticated body, capable and free of other work.';
     if (!living(office.clerk)) return 'The original civic clerk is unavailable; no replacement or free staff is invented.';
     return '';
   }
@@ -91,6 +100,7 @@
     if (localReason(s, succession, office, c) || !able(worker(s, succession)) || !able(office.clerk)
       || office.assignment || worker(s, succession)?.assignment) return false;
     s.inspection = { at, workerId: s.workerId, installationId: s.installation.id, handoverId: s.handoverId, authorizationId: s.authorizationId, charterId: s.charterId,
+      essentialOnly: !authorization(s, succession, office, c),
       dueAt: s.dueAt, graceUntil: s.graceUntil, parts: PARTS, workSeconds: WORK, periodSeconds: PERIOD, graceSeconds: GRACE,
       power: 'One physically delivered relay battery supplies up to twelve counter operations, capped at twelve; it does not override an external outage.',
       shifts: 'One sealed food-and-water provision pack per existing person funds eight uninterrupted off-duty hours. Recovery restores only bounded duty work and fatigue, never injuries, health or ward energy.' };
@@ -112,11 +122,14 @@
         ? { kind: 'reserve', custodianId: bargain.defender.id, cell: { ...bargain.defender.mapCell, y: bargain.defender.mapCell.y - 1 } } : null;
     if (!source) return false;
     const id = `${s.id}:service:${s.nextNumber++}`;
-    s.job = { id, status: 'collecting', authorizedAt: at, terms: copy(expected), workerId: a.id, source, cargo: null, progress: 0, lastAt: at, walkCredit: 0, wasReady: true };
+    s.job = { id, status: 'collecting', authorizedAt: at, essentialOnly: !authorization(s, succession, office, c),
+      terms: copy(expected), workerId: a.id, source, cargo: null, progress: 0, lastAt: at, walkCredit: 0, wasReady: true };
     if (staged) staged.reservedTaskId = id; else succession.provision.reservedBy = id;
     a.assignment = id;
     office.power--; office.workSeconds -= 30; a.workSeconds -= 30;
-    note(s, at, 'order', 'Authorized exact inspected local upkeep. Existing parts remain at their source until the named worker physically collects them; supplied staff can continue while you are away.'); return true;
+    note(s, at, 'order', s.job.essentialOnly
+      ? 'The original official accepted an essential repair request under preserved counter duties, not a political command. Supplies remain in custody until physically collected; no renewed assent follows.'
+      : 'Authorized exact inspected local upkeep. Existing parts remain at their source until the named worker physically collects them; supplied staff can continue while you are away.'); return true;
   }
   function cancel(s, succession, office, stacks, c, at) {
     if (localReason(s, succession, office, c) || !s.job || s.job.cargo) return false;
@@ -167,6 +180,8 @@
   function rest(s, succession, bargain, office, stacks, personId, c, at) {
     if (localReason(s, succession, office, c)) return false;
     const a = staff(succession, bargain, office, s).find(a => a.id === personId), duty = a === office.clerk ? office : a;
+    if ((!authorization(s, succession, office, c) || c.recognitions?.charter?.reconsideration)
+      && ![s.workerId, office.clerk.id].includes(personId)) return false;
     const pausedJob = a?.id === s.workerId && s.job && a.assignment === s.job.id;
     if (!living(a) || !Number.isFinite(s.workCaps[a.id]) || a.assignment && !pausedJob || duty.assignment && !pausedJob || !c.staffPresentIds?.includes(a.id) || s.rests.some(r => r.personId === a.id)
       || !(duty.workSeconds < s.workCaps[a.id] || (a.fatigue || 0) > 0)) return false;
@@ -240,7 +255,7 @@
           j.progress += worked; a.workSeconds -= worked; remaining -= worked; cursor += worked;
           if (j.progress + 1e-8 < WORK) break;
           s.servicedAt = cursor; s.dueAt = cursor + PERIOD; s.graceUntil = s.dueAt + GRACE;
-          s.receipts.push({ id: `${j.id}:receipt`, at: cursor, installationId: s.installation.id, personId: a.id,
+          s.receipts.push({ id: `${j.id}:receipt`, at: cursor, installationId: s.installation.id, personId: a.id, essentialOnly: j.essentialOnly === true,
             quantity: PARTS, source: copy(j.source), manifest: copy(j.cargo), workSeconds: WORK, dueAt: s.dueAt, graceUntil: s.graceUntil });
           j.cargo = null; a.assignment = null; s.job = null; s.inspection = null;
           note(s, cursor, 'serviced', 'Three original city-owned parts were installed through actual local work. The counter service period renewed; no wall, health, ward energy or political allegiance was restored.');

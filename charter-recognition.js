@@ -398,6 +398,7 @@
       working: s.job ? { kind: s.job.kind, progress: s.job.progress, seconds: s.job.seconds } : null, message: s.message, limitations: LIMITS });
   }
   return { LIMITS, RECONSIDERATION_LIMITS, REAFFIRMATION_LIMITS, create, normalize, admin, reviewer, independent, file, hear, meeting, sign,
+    authenticRecognition, reconsiderationBound, currentReconsideration,
     canReconsider, reconsider, hearReconsideration, canReaffirm, reaffirmMeeting, reaffirmSign, recordsAuthorityCurrent,
     addendumTerms, enterAddendum, authorityCurrent, operative, instructionTerms, instruct, cancel, advance, publicView };
 });

@@ -163,6 +163,13 @@ test('supplied off-duty time restores only bounded work and fatigue; no simultan
   f.b.defender.workSeconds = 50; step(f, 172800); assert.equal(f.b.defender.workSeconds, 50);
   assert.equal(f.stacks.at(-1).quantity, 1);
 });
+test('voluntary handover retains supplied recovery when the shared app context has no coerced recognition', () => {
+  const f = fixture(); f.c.recognitions = { publicWorks: null, charter: null, abdication: null };
+  f.stacks.push(item('fieldRation', 1));
+  assert.ok(Administration.rest(f.s, f.succession, f.b, f.office, f.stacks, f.b.defender.id, f.c, f.at));
+  step(f, Administration.REST); assert.equal(f.b.defender.workSeconds, 3600); assert.equal(f.stacks.at(-1).quantity, 0);
+  assert.equal(Administration.authorization(f.s, f.succession, f.office, f.c), f.succession.handover);
+});
 test('clerk recovery reserves the actual counter, pauses on displacement and exposes no retroactive work', () => {
   const f = fixture(); f.office.workSeconds = 0; f.stacks.push(item('fieldRation', 1));
   assert.equal(Administration.rest(f.s, f.succession, f.b, f.office, f.stacks, f.office.clerk.id, f.c, 0), true);

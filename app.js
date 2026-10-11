@@ -14565,6 +14565,7 @@
         refreshPublicWorksRecognitionKnowledge(); persist(); render(); return true;
       },
       advancePublicWorksRecognitionForTest: seconds => {
+        if (scientistIsDead()) return state.clock;
         state.clock += Math.max(0, Number(seconds) || 0); updatePublicWorksRecognition(); persist(); render(); return state.clock;
       },
       incumbentResistanceSnapshot: () => clonePlainObject({ resistance: state.incumbentResistance, known: state.incumbentResistanceKnowledge,
@@ -83702,6 +83703,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       || state.cityConfrontation?.phase === 'fighting' || IncumbentResistance.active(state.incumbentResistance)
       || state.surveyExpeditions?.mapService?.job || state.surveyExpeditions?.carrier?.briefingState?.job),
       bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      activeViolence: state.cityConfrontation?.phase === 'fighting' || IncumbentResistance.dangerous(state.incumbentResistance),
       visitPermission: state.surveyExpeditions?.discovery?.access.active === true,
       charterCurrent: Boolean(source && source.charterId === s?.charterId && source.cityId === s.cityId),
       administrationAvailable: Boolean(source && home?.offices[source.institutions.find(i => i.role === 'centralAdministration')?.id]?.available),
@@ -83850,7 +83852,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(textEl('p', `Counter work at last observation: ${v.availability}.`));
     if (v.inspection) {
       panel.append(textEl('p', `Exact inspected job: three city-owned metal parts, two minutes of work by ${v.inspection.workerId}. One-day service period, eight-hour grace. ${v.inspection.power} ${v.inspection.shifts}`));
-      button('Authorize exact inspected upkeep', 'order', !observed || Boolean(v.job) || s.servicedAt != null && state.clock < v.dueAt, clonePlainObject(v.inspection));
+      button(v.inspection.essentialOnly ? 'Request exact essential counter repair' : 'Authorize exact inspected upkeep', 'order', !observed || Boolean(v.job) || s.servicedAt != null && state.clock < v.dueAt, clonePlainObject(v.inspection));
     }
     if (v.job) {
       panel.append(textEl('p', `${v.job.status}: ${formatDuration(v.job.progress)} / two minutes; carrying ${v.job.carrying} city-owned parts. Blocked access, outages and exhausted work stop execution without refund or duplication.`));
@@ -83860,7 +83862,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       button(`Pack ${label}`, `pack:${key}`, surveyScientistAway());
     button(s.authorizationId ? 'Hand over carried public-works maintenance parts' : 'Hand over carried replacement reserve parts', 'parts');
     button('Supply carried counter battery', 'battery');
-    if (observed) for (const a of CityAdministration.staff(state.citySuccession, state.sovereignBargains, cityAdministrationOffice(), s))
+    if (observed) for (const a of CityAdministration.staff(state.citySuccession, state.sovereignBargains, cityAdministrationOffice(), s)
+      .filter(a => !s.authorizationId || !state.charterRecognition?.reconsideration || [s.workerId, s.clerkId].includes(a.id)))
       button(`Fund ${a.name || 'civic clerk'}'s off-duty recovery (${a.role || 'counter clerk'})`, 'rest', Boolean(a.assignment && a.assignment !== s.job?.id), a.id);
     for (const r of v.rests) panel.append(textEl('p', `${r.personId}: off-duty recovery ${formatDuration(r.progress)} / eight hours; no simultaneous work.`));
     for (const r of v.receipts.slice(-8)) panel.append(textEl('p', `${formatClock(r.at)} — ${r.id}: ${r.quantity} original supplies${r.installationId ? '; local installation serviced' : ''}.`));
@@ -84279,7 +84282,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const source = citySuccessionSource(), home = ensureHomeInstitutionContext();
     const id = source?.institutions.find(i => i.role === 'publicWorksAndProvisioning')?.id;
     return { ...charterRecognitionContext(true, ignoreWatch), publicWorksInstitutionId: id,
-      publicWorksAvailable: Boolean(id && home?.offices[id]?.available), publicWorksConditions: [] };
+      publicWorksAvailable: Boolean(id && home?.offices[id]?.available), publicWorksConditions: [], upkeep: state.cityAdministration };
   }
   function administrationRecognitionSources() {
     return { recognitions: { publicWorks: state.publicWorksRecognition, charter: state.charterRecognition, abdication: state.incumbentResistance },
@@ -84291,18 +84294,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       && c.clerkPresent && c.lineOfSight && c.presentIds.includes(s.workerId));
   }
   function refreshPublicWorksRecognitionKnowledge() {
-    if (publicWorksRecognitionObserved()) state.publicWorksRecognitionKnowledge = {
-      ...PublicWorksRecognition.publicView(state.publicWorksRecognition), reportedAt: state.clock };
+    if (publicWorksRecognitionObserved()) {
+      const c = publicWorksRecognitionContext();
+      state.publicWorksRecognitionKnowledge = { ...PublicWorksRecognition.publicView(state.publicWorksRecognition),
+        permissionCurrent: Boolean(PublicWorksRecognition.authorization(state.publicWorksRecognition, state.charterRecognition,
+          state.citySuccession, state.incumbentResistance, scientistCivicOffice(), c)),
+        reaffirmationCurrent: PublicWorksRecognition.reaffirmationCurrent(state.publicWorksRecognition, state.charterRecognition,
+          state.citySuccession, state.incumbentResistance, scientistCivicOffice(), c), reportedAt: state.clock };
+    }
   }
   function updatePublicWorksRecognition() {
     const s = state.publicWorksRecognition; if (!s || scientistIsDead()) return 0;
-    const before = s.receipt?.id;
+    const before = s.receipt?.id, renewedBefore = s.reaffirmation?.receipt?.id;
     const changed = PublicWorksRecognition.advance(s, state.charterRecognition, state.citySuccession, state.incumbentResistance,
       scientistCivicOffice(), publicWorksRecognitionContext(), state.clock);
     if (s.job && !state.combat?.routineSuspension) suspendScientistRoutineWork('public-works recognition');
     if (!s.job && state.combat?.routineSuspension?.reason === 'public-works recognition') resumeScientistRoutineWork();
-    if (s.receipt?.id !== before) {
-      addEvent(s.message, { sourceKind: 'publicWorksRecognition', sourceId: s.receipt.id }); state.paused = true;
+    if (s.receipt?.id !== before || s.reaffirmation?.receipt?.id !== renewedBefore) {
+      addEvent(s.message, { sourceKind: 'publicWorksRecognition', sourceId: s.reaffirmation?.receipt?.id || s.receipt.id }); state.paused = true;
       ensureCityAdministration();
     }
     refreshPublicWorksRecognitionKnowledge(); return changed ? 1 : 0;
@@ -84315,6 +84324,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const args = [s, state.charterRecognition, state.citySuccession, state.incumbentResistance, office]; let ok = false;
     if (action === 'meet') ok = PublicWorksRecognition.meet(...args, c, state.clock);
     if (action === 'sign') ok = PublicWorksRecognition.sign(...args, expected, c, state.clock);
+    if (action === 'reaffirmMeeting') ok = PublicWorksRecognition.reaffirmMeeting(...args, c, state.clock);
+    if (action === 'reaffirmSign' && JSON.stringify(expected) === JSON.stringify(PublicWorksRecognition.publicView(s).reaffirmation?.terms))
+      ok = PublicWorksRecognition.reaffirmSign(...args, s.reaffirmation.terms, c, state.clock);
     if (action === 'cancel') ok = PublicWorksRecognition.cancel(s, state.citySuccession, office, state.clock);
     if (!ok) s.message = 'Original recognition, unchanged exact evidence and terms, actual attendance and finite duty must support this action. No other institution agreed.';
     updatePublicWorksRecognition(); persist(); render(); return ok;
@@ -84345,6 +84357,23 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       button('Cancel unfinished public-works meeting', 'cancel', !observed);
     }
     if (v.receipt) panel.append(textEl('p', `${formatClock(v.receipt.at)}: original public works accepted this counter upkeep only. Deliver three clean carried parts into its documented custody below. No defense reserve or other role consent was transferred.`));
+    if (v.receipt && !v.permissionCurrent) panel.append(textEl('p', 'The original signature remains historical. Revised authority has not renewed public-works permission. Supported essential repair may proceed under preserved duties, not political command.'));
+    if (v.receipt && !v.working && state.charterRecognition?.reconsideration) {
+      button('Meet original public works for separate reaffirmation', 'reaffirmMeeting', blocked || scientistCivicOffice()?.maintenanceReady === false || !PublicWorksRecognition.canReaffirm(
+        s, state.charterRecognition, state.citySuccession, state.incumbentResistance, scientistCivicOffice(), c));
+      if (observed && scientistCivicOffice()?.maintenanceReady === false) panel.append(textEl('p', 'Restore this counter through actual supported essential repair before reaffirmation attendance. No signature or service is restored for free.'));
+    }
+    if (v.reaffirmation) {
+      const r = v.reaffirmation; panel.append(textEl('h4', 'Separate public-works reaffirmation'));
+      if (r.response) panel.append(textEl('p', r.response.reason));
+      if (r.terms && !r.receipt) {
+        panel.append(textEl('p', r.terms.duties), textEl('p', r.terms.safeguards), textEl('p', r.terms.retainedRights),
+          textEl('p', `Exact reaffirmation expires ${formatClock(r.terms.expiresAt)}. Original supplies, deadlines, objections and coercion remain.`));
+        if (!v.working) button('Accept exact public-works reaffirmation', 'reaffirmSign', blocked || state.clock >= r.terms.expiresAt, clonePlainObject(r.terms));
+      }
+      if (r.receipt) panel.append(textEl('p', `${formatClock(r.receipt.at)}: linked original-counter reaffirmation recorded. Current authority basis: ${v.reaffirmationCurrent ? 'supported' : 'unsupported'}. Existing objection remedy, review and cooperation renewal remain separate; no watch or defense renewed assent.`));
+      for (const old of v.previousReaffirmations || []) panel.append(textEl('p', `Earlier original-public-works response: ${old.response?.decision || 'unfinished'}; ${old.receipt ? 'historical signature retained' : 'no signature'}.`));
+    }
     panel.append(textEl('p', v.message)); return panel;
   }
   function ensureWatchRecognition() {
