@@ -113,6 +113,7 @@ test('designation binds existing individual ruler, charter, actual institutions 
   assert.equal(Succession.sourceFromWorld(map, f.b).designationReview, null);
   assert.equal(Succession.sourceFromWorld(map, f.b).civilInstallationAccess, null);
   assert.equal(Succession.sourceFromWorld(map, f.b).publicWorksRoleReassignment, null);
+  assert.equal(Succession.sourceFromWorld(map, f.b).disputedPublicWorksAppointment, null);
   government.charter.designationReview = { id: 'original-law', principle: f.source.succession,
     reviewInstitutionId: government.roleAssignments.civicReview, coercionRule: 'independentConfirmationPermitted', requiredAuthorizationIds: [] };
   const published = Succession.sourceFromWorld(map, f.b).designationReview;
@@ -134,6 +135,11 @@ test('designation binds existing individual ruler, charter, actual institutions 
   assert.deepEqual(replacementSource.institutions.find(i => i.role === 'publicWorksAndProvisioning').officeRoles, ['publicWorksAndProvisioning']);
   replacementSource.publicWorksAppointment.minimumMaintenance = 0;
   assert.equal(government.charter.publicWorksAppointment.minimumMaintenance, 40);
+  government.charter.disputedPublicWorksAppointment = Appointments.disputedRuleFor('a', worksId, reviewId);
+  const disputedSource = Succession.sourceFromWorld(map, f.b);
+  assert.deepEqual(disputedSource.disputedPublicWorksAppointment, government.charter.disputedPublicWorksAppointment);
+  disputedSource.disputedPublicWorksAppointment.minimumMaintenance = 0;
+  assert.equal(government.charter.disputedPublicWorksAppointment.minimumMaintenance, 40);
   government.charter.publicWorksRoleReassignment = Appointments.roleRuleFor('a', worksId, reviewId);
   const combinedSource = Succession.sourceFromWorld(map, f.b);
   assert.deepEqual(combinedSource.publicWorksRoleReassignment, government.charter.publicWorksRoleReassignment);

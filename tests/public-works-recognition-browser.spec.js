@@ -31,7 +31,7 @@ async function finishWalk(page) {
     throw new Error('Physical walk failed');
   });
 }
-async function setup(page, renderer = 'dom', policy = 'considerSuppliedCounter') {
+async function setup(page, renderer = 'dom', policy = 'considerSuppliedCounter', disputedAppointments = false) {
   page.setDefaultTimeout(30000);
   await page.goto(pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href);
   await page.evaluate(renderer => { localStorage.clear(); localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: renderer })); }, renderer);
@@ -48,9 +48,9 @@ async function setup(page, renderer = 'dom', policy = 'considerSuppliedCounter')
   });
   await finishWalk(page);
   expect(await act(page, 'meet')).toBe(false);
-  await page.evaluate(() => {
+  await page.evaluate(disputedAppointments => {
     const d = window.helixHeresyDebug;
-    d.configureCityConfrontationTest(); d.configureCharterRecognitionTest({ bindInstitutions: true, policy: 'considerAdministrativeContinuity' });
+    d.configureCityConfrontationTest(); d.configureCharterRecognitionTest({ bindInstitutions: true, policy: 'considerAdministrativeContinuity', disputedAppointmentLaw: disputedAppointments });
     d.configureIncumbentResistanceTest({ health: 48, mana: 0, policy: 'preserveLife', rulerCell: { x: 16, y: 8, z: 6 }, mastery: true });
     if (!d.incumbentResistanceAction('demand') || !d.incumbentResistanceAction('soulLash')) throw new Error('Actual coercion refused');
     if (!d.incumbentResistanceAction('accept', d.incumbentResistanceSnapshot().resistance.terms)) throw new Error('Declaration refused');
@@ -60,10 +60,65 @@ async function setup(page, renderer = 'dom', policy = 'considerSuppliedCounter')
     if (!d.charterRecognitionAction('hear')) throw new Error('Actual hearing refused'); d.advanceCharterRecognitionForTest(180);
     if (!d.charterRecognitionAction('meeting')) throw new Error('Actual administrator meeting refused'); d.advanceCharterRecognitionForTest(60);
     if (!d.charterRecognitionAction('sign', d.charterRecognitionSnapshot().recognition.terms)) throw new Error('Actual continuation refused'); d.advanceCharterRecognitionForTest(60);
-  });
+  }, disputedAppointments);
   expect(await page.evaluate(policy => window.helixHeresyDebug.configurePublicWorksRecognitionTest({ policy }), policy)).toBe(true);
   await visits(page);
 }
+for (const renderer of ['dom', 'canvas']) test(`${renderer}: disputed succession permits only separately reviewed peaceful public-works replacement and supplied upkeep`, async ({ page }) => {
+  test.setTimeout(300000);
+  const errors = []; page.on('pageerror', e => errors.push(e.message)); await setup(page, renderer, 'considerSuppliedCounter', true);
+  await ui(page, 'meet'); await advance(page, 60); await ui(page, 'sign'); await advance(page, 60);
+  const original = await snap(page);
+  const appointment = () => page.evaluate(() => window.helixHeresyDebug.cityAppointmentsSnapshot());
+  const appt = (action, expected) => page.evaluate(({ action, expected }) => window.helixHeresyDebug.cityAppointmentsAction(action, expected), { action, expected });
+  const tick = seconds => page.evaluate(n => window.helixHeresyDebug.advanceCityAdministrationForTest(n), seconds);
+  expect(await page.evaluate(() => window.helixHeresyDebug.configureCityAdministrationTest({ supplies: { metalParts: 6, relayBattery: 1 } }))).toBe(true);
+  expect(await upkeep(page, 'parts')).toBe(true); expect(await upkeep(page, 'battery')).toBe(true);
+  expect(await page.evaluate(obstruct => window.helixHeresyDebug.configureCityAppointmentsTest({ maintenance: 50, willing: true,
+    obstruct, accessPolicy: 'custodyAccountability' }), renderer === 'dom')).toBe(true);
+  let s = await appointment();
+  expect(s.appointments.rule.method).toBe('reviewedDisputedPublicWorksReplacement');
+  expect(s.succession.handover).toBeNull(); expect(s.succession.control).toBeNull();
+  const panel = page.locator('[data-city-appointments]'); await expect(panel).toContainText('peaceful, visibly inspected');
+  await panel.locator('[data-appointment-action="discuss"]').click(); await tick(30); await reload(page); await tick(30);
+  await panel.locator('[data-appointment-action="propose"]').click(); s = await appointment();
+  expect(s.appointments.review.status).toBe('queued'); expect(await appt('hear')).toBe(false);
+  await tick(s.appointments.review.readyAt - s.clock);
+  await panel.locator('[data-appointment-action="hear"]').click(); await tick(90); await reload(page); await tick(90);
+  s = await appointment(); expect(s.appointments.review.outcome).toBe('eligible');
+  expect(await appt('appoint', { ...s.appointments.terms, scope: 'all offices' })).toBe(false);
+  await panel.locator('[data-appointment-action="appoint"]').click(); await tick(60);
+  s = await appointment(); expect(s.administration.workerId).toBe(s.appointments.incumbentId);
+  await panel.locator('[data-appointment-action="approach"]').click(); await tick(30);
+  s = await appointment(); expect(s.appointments.candidate.mapCell).toEqual(s.administration.installation.workCell);
+  if (renderer === 'dom') {
+    expect(await appt('transfer', s.appointments.appointment)).toBe(false);
+    expect(await page.evaluate(() => window.helixHeresyDebug.civilInstallationAction('file'))).toBe(false);
+    await panel.locator('[data-appointment-action="accessReason"]').click(); await tick(60);
+    await panel.locator('[data-appointment-action="accessInventory"]').click(); await tick(120);
+    await panel.locator('[data-appointment-action="accessSettle"]').click(); await tick(60);
+  }
+  await panel.locator('[data-appointment-action="transfer"]').click(); await tick(30);
+  s = await appointment(); expect(s.appointments.receipt).toBeNull();
+  expect(s.succession.leaders.find(a => a.id === s.appointments.incumbentId).mapCell).toEqual({ x: 14, y: 12, z: 6 });
+  await tick(60); await reload(page); await tick(60);
+  s = await appointment(); expect(s.appointments.receipt.origin).toBe('peacefulDisputedAppointment');
+  expect(s.administration.workerId).toBe(s.appointments.candidate.id);
+  expect(s.appointments.receipt.inventory.goods).toHaveLength(1);
+  expect(s.succession.handover).toBeNull(); expect(s.succession.control).toBeNull(); expect(s.succession.agreements).toEqual([]);
+  expect(s.succession.provision.stock).toBe(0);
+  const after = await snap(page); expect(after.charter).toEqual(original.charter); expect(after.recognition).toEqual(original.recognition);
+  expect(await upkeep(page, 'inspect')).toBe(true); let u = await admin(page);
+  expect(await upkeep(page, 'order', u.administration.inspection)).toBe(true); await tick(200);
+  u = await admin(page); expect(u.administration.job).toBeNull();
+  expect(u.administration.receipts.at(-1).personId).toBe(s.appointments.candidate.id);
+  expect(u.stacks.find(i => i.civicCustody?.custodianId === s.appointments.incumbentId)?.quantity || 0).toBe(0);
+  expect(await upkeep(page, 'parts')).toBe(true); u = await admin(page);
+  expect(u.administration.receipts.at(-1).custodianId).toBe(s.appointments.candidate.id);
+  expect(u.administration.resistance.workerId).toBe(s.appointments.candidate.id);
+  expect(errors).toEqual([]);
+});
+
 for (const renderer of ['dom', 'canvas']) test(`${renderer}: separate original public works accepts, supplies and repairs the actual counter across outages, reload and absence`, async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message)); await setup(page, renderer);
   const original = await snap(page), official = original.succession.leaders.find(a => a.id === original.recognition.workerId);

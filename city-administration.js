@@ -57,9 +57,14 @@
     : succession.agreements.find(a => a.personId === s.workerId);
   const commandLink = (s, succession, office, c) => s.appointmentId ? succession?.appointments?.commandRelationship : s.authorizationId ? authorization(s, succession, office, c)?.commandRelationship
     : succession.control?.commandRelationships?.find(a => a.personId === s.workerId);
-  function suppliedCustody(s, item) {
-    return !s.authorizationId || Boolean(item?.civicCustody?.custodianId === s.workerId
-      && s.receipts.some(r => r.key === 'metalParts' && r.stagedStackId === item.id && r.custodianId === s.workerId
+  function suppliedCustody(s, item, succession) {
+    const appointment = succession?.appointments, transfer = appointment?.receipt;
+    const original = transfer?.origin === 'peacefulDisputedAppointment' && transfer.id === s.appointmentId
+      && transfer.inventory?.goods?.find(g => g.id === item.id && g.key === item.key && g.quantity >= item.quantity
+        && same(g.custody, item.civicCustody));
+    const custodianId = original && item.civicCustody.custodianId === appointment.incumbentId ? appointment.incumbentId : s.workerId;
+    return !s.authorizationId || Boolean(item?.civicCustody?.custodianId === custodianId
+      && s.receipts.some(r => r.key === 'metalParts' && r.stagedStackId === item.id && r.custodianId === custodianId
         && r.stackId === item.civicCustody.sourceStackId && r.quantity >= PARTS));
   }
   function create(succession, bargain, office, options = {}) {
@@ -119,7 +124,7 @@
       || s.servicedAt != null && at < s.dueAt) return false;
     const staged = stacks.find(i => i.key === 'metalParts' && clean(i) && i.quantity >= PARTS && i.cityOwnerId === s.cityId
       && i.civicCustody?.cityId === s.cityId && i.reservedTaskId === reserveKey(s, succession)
-      && suppliedCustody(s, i)
+      && suppliedCustody(s, i, succession)
       && !i.carriedBy && cellSame(i.cell, RECEIVING));
     const source = staged ? { kind: 'stack', id: staged.id, cell: copy(staged.cell), reservation: staged.reservedTaskId }
       : !s.authorizationId && succession.provision.stock >= PARTS && !succession.provision.reservedBy && able(bargain.defender) && bargain.defender.workSeconds >= 1
@@ -243,7 +248,7 @@
             const item = stacks.find(i => i.id === j.source.id);
             const original = j.source.kind === 'stack' ? item && clean(item) && item.quantity >= PARTS && !item.carriedBy
               && item.cityOwnerId === s.cityId && item.civicCustody?.cityId === s.cityId && item.reservedTaskId === j.id && cellSame(item.cell, j.source.cell)
-              && suppliedCustody(s, item)
+              && suppliedCustody(s, item, succession)
               : succession.provision.stock >= PARTS && succession.provision.reservedBy === j.id && able(bargain.defender)
                 && bargain.defender.workSeconds >= 1 && bargain.defender.locationId === s.officeId
                 && bargain.defender.mapCell.z === a.mapCell.z && !bargain.defender.assignment && bargain.defender.id === j.source.custodianId

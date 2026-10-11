@@ -92,6 +92,21 @@ test('generated designation review rules are explicit deterministic published lo
   expect(CityGovernments.auditCityGovernments(map).valid).toBe(true);
 });
 
+test('disputed public-works appointment law is separately published only where independent designation confirmation is permitted', () => {
+  const map = governmentFoundation('charter-foundation'), A = require('../public-works-appointments');
+  const original = JSON.stringify(map), directory = CityGovernments.publicCityGovernmentDirectory(map);
+  let applicable = 0;
+  for (const g of map.cityGovernments.governments) {
+    const works = g.institutions.find(i => i.id === g.roleAssignments.publicWorksAndProvisioning);
+    const supported = g.charter.publicWorksAppointment && g.charter.designationReview?.coercionRule === 'independentConfirmationPermitted';
+    expect(g.charter.disputedPublicWorksAppointment).toEqual(supported ? A.disputedRuleFor(g.cityId, works.id, g.roleAssignments.civicReview) : null);
+    expect(directory.find(d => d.city.id === g.cityId).charter.disputedPublicWorksAppointment).toEqual(g.charter.disputedPublicWorksAppointment);
+    if (supported) applicable++;
+  }
+  expect(applicable).toBeGreaterThan(0); expect(JSON.stringify(map)).toBe(original);
+  expect(governmentFoundation('charter-foundation').cityGovernments).toEqual(map.cityGovernments);
+});
+
 test('public-works replacement rules are explicit published law only for separate supported individual offices', () => {
   const map = governmentFoundation('charter-foundation');
   const A = require('../public-works-appointments');

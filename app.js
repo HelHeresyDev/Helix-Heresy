@@ -14476,6 +14476,19 @@
         if (options.missingRule) b.testSuccessionSource.designationReview = null;
         if (options.rule) b.testSuccessionSource.designationReview = clonePlainObject(options.rule);
         succession.source.designationReview = clonePlainObject(b.testSuccessionSource.designationReview);
+        if (options.disputedAppointmentLaw) {
+          if (state.incumbentResistance?.receipt || succession.appointments) return false;
+          const works = succession.source.institutions.find(i => i.role === 'publicWorksAndProvisioning');
+          const review = succession.source.institutions.find(i => i.role === 'civicReview');
+          const law = PublicWorksAppointments.disputedRuleFor(b.source.cityId, works.id, review.id);
+          b.testSuccessionSource.disputedPublicWorksAppointment = clonePlainObject(law);
+          succession.source.disputedPublicWorksAppointment = clonePlainObject(law);
+          b.testSuccessionSource.population = succession.source.population = 100;
+          for (const source of [b.testSuccessionSource, succession.source]) {
+            const installation = source.institutions.find(i => i.role === 'publicWorksAndProvisioning');
+            installation.officeRoles = ['publicWorksAndProvisioning']; installation.appointmentMethod = 'appointmentBySovereignAuthority';
+          }
+        }
         const a = succession.leaders.find(a => a.roles.includes('centralAdministration'));
         if (options.policy) a.recognitionPolicy = options.policy;
         if (options.administratorHealth != null) a.health = options.administratorHealth;
@@ -14641,7 +14654,7 @@
         administration: state.cityAdministration, succession: state.citySuccession, office: cityAdministrationOffice(),
         institutions: ensureHomeInstitutionContext() }),
       cityAppointmentGroundSnapshot: () => {
-        const a = PublicWorksAppointments.create(state.citySuccession, state.cityAdministration, cityAdministrationOffice(), citySuccessionSource(), state.clock)?.candidate;
+        const a = PublicWorksAppointments.create(state.citySuccession, state.cityAdministration, cityAdministrationOffice(), citySuccessionSource(), state.clock, cityAppointmentsContext())?.candidate;
         return a ? { cell: a.mapCell, roomId: labMapCellRoomId(a.mapCell), walkable: labMapCellIsWalkable(a.mapCell, ensureLabMap()),
           load: actorFloorLoadM2(a), blocked: labMapCellIsPathBlocked(a.mapCell, { map: ensureLabMap(), actor: a }) } : null;
       },
@@ -83789,7 +83802,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (succession.appointments) return succession.appointments;
     const c = cityAdministrationContext(false, true);
     if (!c.alive || !c.capable || !c.atCounter || !c.visitPermission || !c.clerkPresent || !c.lineOfSight || c.busy) return null;
-    const s = PublicWorksAppointments.create(succession, upkeep, office, citySuccessionSource(), state.clock);
+    const s = PublicWorksAppointments.create(succession, upkeep, office, citySuccessionSource(), state.clock, c);
     // Materialize the existing technician only on actual available municipal
     // ground. No teleport of an existing person or overlap bypass is allowed.
     if (s?.candidate && (labMapCellRoomId(s.candidate.mapCell) !== SurveyExpeditions.FIELD_ROOM
@@ -83950,7 +83963,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (action === 'walk') return scientistIdentityAction('walk');
     updateCityAdministration();
     const s = ensureCityAppointments(), succession = state.citySuccession, u = state.cityAdministration, office = cityAdministrationOffice();
-    if (!s) { addEvent('No supported published replacement law, voluntary sovereign handover, separate office or available local candidate ground. No appointment or staff was invented.'); return false; }
+    if (!s) { addEvent('No supported published replacement law, authentic handover or independently confirmed disputed appointment basis, separate office or available local candidate ground. No appointment or staff was invented.'); return false; }
     const c = cityAppointmentsContext(), at = state.clock; let ok = false;
     if (action === 'discuss') ok = PublicWorksAppointments.discuss(s, succession, u, office, c, at);
     if (action === 'propose') ok = PublicWorksAppointments.propose(s, succession, u, office, ensureHomeInstitutionContext(), expected, c, at);
@@ -83974,10 +83987,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     section.append(textEl('strong', 'Contested public-works appointment'));
     const s = ensureCityAppointments(); refreshCityAppointmentsKnowledge();
     const v = state.cityAppointmentsKnowledge, observed = cityAppointmentsObserved();
-    if (!s) { section.append(textEl('p', 'This route requires actual voluntary sovereign handover and an explicit published separate-office replacement or combined-directorate public-works role reassignment rule. Disputed recognition and unsupported charters grant no removal power.')); return; }
+    if (!s) { section.append(textEl('p', 'This route requires an authentic voluntary handover or a separate explicit disputed-succession appointment law with current independent confirmation and original institutional consent. Records-only recognition and unsupported charters grant no appointment power.')); return; }
     if (!v) { section.append(textEl('p', 'Attend the original counter to learn the actual local procedure. Away appointments are not live intelligence.')); return; }
     section.append(textEl('p', `Personally received ${formatClock(v.reportedAt)} — ${v.phase}. ${v.rule.text}`));
     if (v.rule.method === 'reviewedCombinedPublicWorksReassignment') section.append(textEl('p', 'Combined directorate: only public works can be reassigned. The original official retains emergency management; no evacuation or defense powers transfer. Physical handover requires voluntary release and visible original custody.'));
+    if (v.rule.method === 'reviewedDisputedPublicWorksReplacement') section.append(textEl('p', 'Disputed succession remains recorded as coerced. This separate appointment law permits only peaceful, visibly inspected public-works handover, not civil escort, sovereign control or another institution’s assent.'));
     const button = (label, action, expected = null, disabled = false) => {
       const el = storesActionButton(label, label, () => cityAppointmentsAction(action, expected)); el.dataset.appointmentAction = action;
       el.disabled = !observed || disabled; section.append(el);
@@ -84175,7 +84189,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       || state.cityConfrontation?.phase === 'fighting' || IncumbentResistance.active(state.incumbentResistance)
       || state.surveyExpeditions?.mapService?.job || state.surveyExpeditions?.carrier?.briefingState?.job),
       bodyEpoch: ensureScientistIdentity().bodyEpoch,
-      appointmentRule: clonePlainObject(source?.publicWorksAppointment || source?.publicWorksRoleReassignment || null),
+      appointmentRule: clonePlainObject(state.citySuccession?.handover ? source?.publicWorksAppointment || source?.publicWorksRoleReassignment || null : source?.disputedPublicWorksAppointment || null),
       civilAccessRule: clonePlainObject(source?.civilInstallationAccess || null),
       civilDefenderId: state.sovereignBargains?.defender?.id,
       defenseInstitutionId: source?.institutions.find(i => i.role === 'militaryDefenseCommand')?.id,

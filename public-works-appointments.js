@@ -1,9 +1,11 @@
 (function (root, factory) {
   const api = factory(typeof module === 'object' && module.exports ? require('./home-institution-context') : root.HelixHomeInstitutionContext,
-    typeof module === 'object' && module.exports ? require('./civil-installation-access') : root.HelixCivilInstallationAccess);
+    typeof module === 'object' && module.exports ? require('./civil-installation-access') : root.HelixCivilInstallationAccess,
+    typeof module === 'object' && module.exports ? require('./charter-recognition') : root.HelixCharterRecognition,
+    typeof module === 'object' && module.exports ? require('./public-works-recognition') : root.HelixPublicWorksRecognition);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixPublicWorksAppointments = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Institutions, CivilAccess) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Institutions, CivilAccess, Charter, Works) {
   'use strict';
   const ROLE = 'publicWorksAndProvisioning', REASON = 'changeMaintenanceSteward';
   const HOME = Object.freeze({ x: 19, y: 12, z: 6 });
@@ -31,10 +33,37 @@
       method: 'reviewedCombinedPublicWorksReassignment', officeRoles: [EMERGENCY, ROLE], retainedRoles: [EMERGENCY],
       text: 'After actual voluntary sovereign handover, the sovereign may reassign only the public-works role within this combined emergency/public-works directorate. The original official retains emergency management, with the same institution and existing obligations. An actual qualified consenting municipal technician, independent review of the exact role division and unfinished responsibilities, and voluntarily released physically inspected installation custody are required. No emergency, evacuation or defense powers, forced release or new institution follow.' };
   }
+  function disputedRuleFor(cityId, institutionId, reviewInstitutionId) {
+    return { ...ruleFor(cityId, institutionId, reviewInstitutionId), id: `${cityId}:disputed-public-works-appointment-law`,
+      method: 'reviewedDisputedPublicWorksReplacement',
+      text: 'After current independent confirmation of the original disputed designation and separately signed original administrative and public-works continuation, this charter permits one reviewed replacement of the separate public-works office. Records-only recognition alone confers no appointment power. The same qualified consenting local technician, distinct original reviewer and incumbent hearing are required. Installation custody must be visibly inspected and voluntarily released through actual walking and attended handover. Coercion, dissent, faith, property and cases remain; no sovereign handover, compulsory access or other office powers follow.' };
+  }
+  const disputed = s => s?.rule?.method === 'reviewedDisputedPublicWorksReplacement';
   const combined = s => s?.rule?.method === 'reviewedCombinedPublicWorksReassignment';
+  const custodyRequired = s => combined(s) || disputed(s);
   const officeRoles = s => combined(s) ? [EMERGENCY, ROLE] : [ROLE];
   const scopeFor = s => combined(s) ? COMBINED_LIMITS : LIMITS;
-  const expectedRule = (s, cityId, institutionId, reviewId) => combined(s) ? roleRuleFor(cityId, institutionId, reviewId) : ruleFor(cityId, institutionId, reviewId);
+  const expectedRule = (s, cityId, institutionId, reviewId) => disputed(s) ? disputedRuleFor(cityId, institutionId, reviewId)
+    : combined(s) ? roleRuleFor(cityId, institutionId, reviewId) : ruleFor(cityId, institutionId, reviewId);
+  function disputedAuthority(succession, upkeep, office, source, c, transferredAuthority = null) {
+    const r = c?.recognitions, law = source?.disputedPublicWorksAppointment;
+    if (!r?.charter || !r.publicWorks || !r.abdication || !c.recognitionContext || succession?.handover || succession?.control
+      || !law || law.method !== 'reviewedDisputedPublicWorksReplacement' || !upkeep?.authorizationId
+      || !same(source.designationReview, c.recognitionContext.rule)) return null;
+    const canonical = { ...c.recognitionContext, cityId: source.cityId };
+    // After an authentic completed replacement, the former worker's signature
+    // is history, not ongoing staffing consent. Their later death cannot make
+    // the incoming person's separate agreement belong to them again.
+    const worksBasis = transferredAuthority ? same(r.publicWorks.receipt, transferredAuthority.publicWorks)
+      : Works.authorization(r.publicWorks, r.charter, succession, r.abdication, office, canonical);
+    if (!Charter.authorityCurrent(r.charter, succession, r.abdication, office, canonical)
+      || !worksBasis
+      || r.publicWorks.receipt.id !== upkeep.authorizationId || r.publicWorks.institutionId !== law.institutionId
+      || r.charter.reviewerId !== succession.leaders.find(a => a.roles.includes('civicReview'))?.id
+      || r.charter.reviewInstitutionId !== law.reviewInstitutionId || r.charter.charterId !== source.charterId) return null;
+    return copy({ origin: 'independentlyReviewedDisputedSuccession', claim: r.abdication.receipt,
+      finding: r.charter.review, administration: r.charter.recognition, publicWorks: r.publicWorks.receipt });
+  }
   function continuity(s, succession, upkeep) {
     return { outgoingId: s.incumbentId, institutionId: s.institutionId, originalRoles: officeRoles(s),
       retainedRoles: [EMERGENCY], incomingRoles: [ROLE], agreement: copy(succession.agreements.find(a => a.personId === s.incumbentId) || null),
@@ -46,15 +75,17 @@
     const original = s.review?.continuity || s.proposal?.continuity, current = continuity(s, succession, upkeep);
     return Boolean(original && same(original.agreement, current.agreement) && same(original.commandRelationship, current.commandRelationship));
   }
-  function create(succession, upkeep, office, source, at) {
-    const law = source?.publicWorksAppointment || source?.publicWorksRoleReassignment, a = succession?.leaders.find(p => p.id === upkeep?.workerId);
+  function create(succession, upkeep, office, source, at, c = null) {
+    const law = succession?.handover ? source?.publicWorksAppointment || source?.publicWorksRoleReassignment : source?.disputedPublicWorksAppointment;
+    const a = succession?.leaders.find(p => p.id === upkeep?.workerId);
     const r = succession?.leaders.find(p => p.roles.includes('civicReview'));
     const shape = { rule: law };
+    const authority = disputed(shape) ? disputedAuthority(succession, upkeep, office, source, c) : null;
     if (!law || !same(law, expectedRule(shape, source.cityId, a?.institutionId, r?.institutionId))
       || !a || !same(a.roles, officeRoles(shape)) || !r || r.id === a.id || r.institutionId === a.institutionId
       || !same(source.institutions.find(i => i.role === ROLE)?.officeRoles, officeRoles(shape))
       || source.institutions.find(i => i.role === ROLE)?.appointmentMethod !== law.appointmentMethod
-      || !succession.handover || succession.control?.recognizedAuthorityId !== 'scientist' || upkeep.authorizationId
+      || (disputed(shape) ? !authority : !succession.handover || succession.control?.recognizedAuthorityId !== 'scientist' || upkeep.authorizationId)
       || upkeep.officeId !== office?.id || !office?.clerk?.id || upkeep.charterId !== source.charterId
       || source.cityId !== succession.source.cityId || source.charterId !== succession.source.charterId
       || upkeep.cityId !== source.cityId || office.cityId !== source.cityId
@@ -74,7 +105,8 @@
       status: 'alive', health: 100, maxHealth: 100, fatigue: 0, workSeconds: 1200,
       roomId: 'supportedSurveyGround', locationId: office.id, mapCell: copy(HOME), assignment: null } : null;
     return { id, cityId: source.cityId, charterId: source.charterId, officeId: office.id, clerkId: office.clerk.id,
-      handoverId: succession.handover.id, bodyEpoch: succession.control.bodyEpoch, rule: copy(law),
+      handoverId: succession.handover?.id || null, bodyEpoch: authority?.claim.bodyEpoch ?? succession.control.bodyEpoch, rule: copy(law),
+      ...(authority ? { authority, authorizationId: upkeep.authorizationId } : {}),
       incumbentId: a.id, institutionId: a.institutionId, reviewerId: r.id, reviewerInstitutionId: r.institutionId,
       installationId: upkeep.installation.id, populationSourceId: source.populationSourceId,
       allocation: { populationSourceId: source.populationSourceId, people: candidate ? 1 : 0 }, candidate,
@@ -89,13 +121,15 @@
       nextNumber: 1, lastAt: at };
   }
   function normalize(s) {
-    return s?.id && ['reviewedPublicWorksReplacement', 'reviewedCombinedPublicWorksReassignment'].includes(s.rule?.method) && Array.isArray(s.history)
+    return s?.id && ['reviewedPublicWorksReplacement', 'reviewedCombinedPublicWorksReassignment', 'reviewedDisputedPublicWorksReplacement'].includes(s.rule?.method) && Array.isArray(s.history)
       && (!s.candidate || s.candidate.id && Number.isFinite(s.candidate.workSeconds)) ? copy(s) : null;
   }
   function note(s, at, kind, text) { s.history.push({ at, kind, text }); s.message = text; }
   function bound(s, succession, upkeep, office, c) {
-    return Boolean(s && succession?.handover?.id === s.handoverId && succession.control?.recognizedAuthorityId === 'scientist'
-      && succession.control.bodyEpoch === s.bodyEpoch && succession.source.cityId === s.cityId && succession.source.charterId === s.charterId
+    const authority = disputed(s) ? disputedAuthority(succession, upkeep, office, succession?.source, c, s.receipt ? s.authority : null) : null;
+    return Boolean(s && (disputed(s) ? authority && same(authority, s.authority) && upkeep.authorizationId === s.authorizationId
+      : succession?.handover?.id === s.handoverId && succession.control?.recognizedAuthorityId === 'scientist' && succession.control.bodyEpoch === s.bodyEpoch)
+      && succession.source.cityId === s.cityId && succession.source.charterId === s.charterId
       && same(c.appointmentRule, s.rule) && same(s.rule, expectedRule(s, s.cityId, s.institutionId, s.reviewerInstitutionId))
       && same(c.appointmentOffice, { id: s.institutionId, roles: officeRoles(s), appointmentMethod: s.rule.appointmentMethod })
       && upkeep?.installation.id === s.installationId && upkeep.officeId === s.officeId && upkeep.handoverId === s.handoverId
@@ -109,7 +143,7 @@
       && upkeep.workerId === (s.receipt ? s.candidate?.id : s.incumbentId));
   }
   function localReason(s, succession, upkeep, office, c) {
-    if (!bound(s, succession, upkeep, office, c)) return 'An actual voluntary sovereign handover, unchanged published appointment law, exact authorized office roles and original independent reviewer are required.';
+    if (!bound(s, succession, upkeep, office, c)) return 'An authentic voluntary handover or explicitly published disputed-succession appointment basis, unchanged law, exact office roles and original independent reviewer are required.';
     if (!c.alive || !c.capable || !c.atCounter || !c.visitPermission || !c.clerkPresent || !c.lineOfSight
       || c.busy || c.activeViolence || c.cityId !== s.cityId || c.bodyEpoch !== s.bodyEpoch)
       return 'Attend the original municipal counter in the authenticated body, capable and free of other work or violence.';
@@ -132,7 +166,7 @@
       || !attended(s, succession, office, c, kind) || !c.externalPowered || office.maintenanceReady === false
       || at < (office.availableAt || 0) || office.power < 1 || office.workSeconds < seconds
       || actors(s, succession, office, kind).some(a => a !== office.clerk && a.workSeconds < seconds)) return false;
-    if (combined(s) && ['review', 'appoint', 'transfer'].includes(kind) && !freeResponsibilities(succession, upkeep)) return false;
+    if (custodyRequired(s) && ['review', 'appoint', 'transfer'].includes(kind) && !freeResponsibilities(succession, upkeep)) return false;
     const id = `${s.id}:work:${s.nextNumber++}`;
     s.job = { id, kind, seconds, progress: 0, lastAt: at, wasReady: true, bodyEpoch: c.bodyEpoch, terms: copy(terms),
       clearingPost: kind === 'transfer' && !cellSame(incumbent(s, succession).mapCell, RETIRED_POST), walkCredit: 0 };
@@ -155,6 +189,7 @@
     office.workSeconds -= 30; s.candidate.workSeconds -= 30;
     s.proposal = { id, at, authorId: 'scientist', reason: REASON, candidateId: s.candidate.id,
       incumbentId: s.incumbentId, ruleId: s.rule.id, dossier: copy(s.dossier),
+      ...(disputed(s) ? { authority: copy(s.authority) } : {}),
       ...(combined(s) ? { continuity: continuity(s, succession, upkeep) } : {}),
       objection: { authorId: s.incumbentId, at, text: 'I oppose this policy replacement and ask the independent reviewer to preserve my rights and the installation records. This disagreement is not an admission of misconduct.' } };
     s.review = { id: `${id}:review`, readyAt, status: 'queued', reviewerId: s.reviewerId, proposalId: id };
@@ -193,9 +228,9 @@
     }
     if (s.incumbentPolicy === 'retainInstallation' && (!c.accessInventoryVisible || !Array.isArray(stacks)
       || !same(s.access.inspection.inventory, custodyInventory(succession, upkeep, stacks)))) return false;
-    if (combined(s) && (!c.accessInventoryVisible || !Array.isArray(stacks))) return false;
+    if (custodyRequired(s) && (!c.accessInventoryVisible || !Array.isArray(stacks))) return false;
     const ok = begin(s, succession, upkeep, office, c, at, 'transfer', 120, expected);
-    if (ok && combined(s)) s.job.inventory = custodyInventory(succession, upkeep, stacks);
+    if (ok && custodyRequired(s)) s.job.inventory = custodyInventory(succession, upkeep, stacks);
     return ok;
   }
   function accessReady(s, succession, upkeep, office, c) {
@@ -309,6 +344,7 @@
     if (localReason(s, succession, upkeep, office, c) || c.bodyEpoch !== j.bodyEpoch
       || !attended(s, succession, office, c, j.kind, j.id)
       || j.kind === 'appoint' && (at >= s.terms.expiresAt || !same(j.terms, s.terms) || !eligibility(s) || !roleTermsValid(s))
+      || custodyRequired(s) && ['review', 'appoint', 'transfer'].includes(j.kind) && !freeResponsibilities(succession, upkeep)
       || combined(s) && ['review', 'appoint', 'transfer'].includes(j.kind)
         && (!relationshipsCurrent(s, succession, upkeep) || !freeResponsibilities(succession, upkeep)
           || j.kind === 'review' && !same(j.continuity, continuity(s, succession, upkeep)))
@@ -319,7 +355,7 @@
         || !same(s.access.offer, accessOffer(s.access.inspection))
         || s.access.declined || at >= s.access.offer.expiresAt)
       || j.kind === 'transfer' && (!cellSame(s.candidate.mapCell, upkeep.installation.workCell) || !releaseAllowed(s, office)
-        || combined(s) && (!c.accessInventoryVisible || !Array.isArray(effects.stacks) || !same(j.inventory, custodyInventory(succession, upkeep, effects.stacks)))
+        || custodyRequired(s) && (!c.accessInventoryVisible || !Array.isArray(effects.stacks) || !same(j.inventory, custodyInventory(succession, upkeep, effects.stacks)))
         || s.incumbentPolicy === 'retainInstallation' && (!c.accessInventoryVisible || !Array.isArray(effects.stacks)
           || !same(s.access.inspection.inventory, custodyInventory(succession, upkeep, effects.stacks)))))
       return cancel(s, succession, office, at);
@@ -375,6 +411,7 @@
       s.appointment = { id: `${s.id}:appointment`, at: completedAt, authorId: 'scientist', recorderId: s.clerkId,
         reviewId: s.review.id, candidateId: s.candidate.id, incumbentId: s.incumbentId,
         charterId: s.charterId, handoverId: s.handoverId, institutionId: s.institutionId, terms: copy(j.terms),
+        ...(disputed(s) ? { authority: copy(s.authority), origin: 'independentlyReviewedDisputedSuccession' } : {}),
         control: 'pendingPhysicalHandover', scope: scopeFor(s) };
       office.publicWorksAppointments ||= []; office.publicWorksAppointments.push(copy(s.appointment));
       s.phase = 'appointed'; note(s, completedAt, 'appointment', 'Recorded the reviewed appointment once with the candidate consent. The outgoing official still holds the installation pending physical handover.');
@@ -416,6 +453,7 @@
         incomingId: s.candidate.id, outgoingId: s.incumbentId, recorderId: s.clerkId, installationId: s.installationId,
         dueAt: upkeep.dueAt, graceUntil: upkeep.graceUntil, servicedAt: upkeep.servicedAt,
         sourceReceiptIds: upkeep.receipts.map(r => r.id), reserveReceiptIds: succession.provision.receipts.map(r => r.id),
+        ...(disputed(s) ? { origin: 'peacefulDisputedAppointment', authority: copy(s.authority), inventory: copy(inventory) } : {}),
         ...(compulsory ? { origin: 'compulsoryCivilAccess', compulsoryAccessId: compulsory.id }
           : s.incumbentPolicy === 'retainInstallation' ? { accessSettlementId: s.access.settlement.id } : {}),
         scope: scopeFor(s), ...(combined(s) ? { roleDivision: { institutionId: s.institutionId, originalRoles: officeRoles(s),
@@ -423,6 +461,7 @@
           inventory: copy(inventory), continuity: copy(s.review.continuity) } } : {}) };
       office.publicWorksTransfers ||= []; office.publicWorksTransfers.push(copy(s.receipt));
       s.agreement = { id: `${s.receipt.id}:agreement`, personId: s.candidate.id, institutionId: s.institutionId,
+        ...(disputed(s) ? { bodyEpoch: s.bodyEpoch } : {}),
         roles: [ROLE], at: completedAt, terms: copy(s.appointment.terms), suspendedRoles: [] };
       s.commandRelationship = { personId: s.candidate.id, institutionId: s.institutionId, roles: [ROLE], authorityId: 'scientist', agreementAt: completedAt };
       s.archivedResistance = copy(upkeep.resistance || null); upkeep.resistance = null;
@@ -430,11 +469,12 @@
       old.officeStatus = { status: combined(s) ? 'publicWorksRoleReassigned' : 'replacedByReviewedAppointment', at: completedAt, receiptId: s.receipt.id,
         rights: combined(s) ? 'Original emergency-management official; authority, property, faith and cases retained.' : 'Living private individual; property, faith and cases retained.' };
       if (combined(s)) { old.roles = [EMERGENCY]; old.role = 'Original emergency-management official — public works reassigned within the existing directorate'; }
-      const oldLink = succession.control.commandRelationships?.find(a => a.personId === s.incumbentId);
+      const oldLink = succession.control?.commandRelationships?.find(a => a.personId === s.incumbentId);
       if (oldLink) { oldLink.roleStates ||= {}; oldLink.roleStates[ROLE] = { status: 'replaced', at: completedAt, sourceId: s.receipt.id }; }
       s.candidate.roles = [ROLE]; s.candidate.role = 'Appointed public-works official — existing counter maintenance';
       upkeep.appointmentId = s.receipt.id; upkeep.workerId = s.candidate.id; upkeep.inspection = null;
       upkeep.workCaps[s.candidate.id] = s.appointment.terms.workCap;
+      if (disputed(s)) upkeep.staffIds = [...new Set(upkeep.staffIds.filter(id => id !== s.incumbentId).concat(s.candidate.id))];
       s.phase = 'transferred'; note(s, completedAt, 'transfer', combined(s)
         ? 'Voluntary inspected public-works handover completed within the same combined directorate. The original official retains emergency management; no emergency powers, institution, stock or personnel reserves were transferred or created.' : compulsory
         ? 'Actual compulsory civil access and incoming-official/clerk transfer completed. The outgoing person signed no consent; dissent, injuries, property, cases, custody records and finite supplies remain.'
@@ -442,7 +482,7 @@
   }
   function compulsoryTransfer(s, succession, upkeep, office, c, at) {
     const e = s?.enforcement;
-    if (!e || combined(s) || s.receipt || !bound(s, succession, upkeep, office, c) || !authenticAppointment(s, office) || !eligibility(s)
+    if (!e || combined(s) || disputed(s) || s.receipt || !bound(s, succession, upkeep, office, c) || !authenticAppointment(s, office) || !eligibility(s)
       || !CivilAccess.receiptAuthentic(e, s, office, c) || localReason(s, succession, upkeep, office, c)
       || !cellSame(incumbent(s, succession).mapCell, RETIRED_POST) || !cellSame(s.candidate.mapCell, upkeep.installation.workCell)
       || !able(s.candidate) || !able(office.clerk) || !c.presentIds?.includes(s.candidate.id)
@@ -458,6 +498,8 @@
       && s.appointment.reviewId === s.review.id && s.appointment.candidateId === s.candidate?.id
       && s.appointment.incumbentId === s.incumbentId && s.appointment.recorderId === s.clerkId
       && s.appointment.charterId === s.charterId && s.appointment.handoverId === s.handoverId
+      && (!disputed(s) || same(s.appointment.authority, s.authority) && same(s.proposal.authority, s.authority)
+        && s.appointment.origin === 'independentlyReviewedDisputedSuccession')
       && s.appointment.institutionId === s.institutionId && same(s.appointment.terms, s.terms) && roleTermsValid(s)
       && office?.publicWorksAppointments?.some(r => same(r, s.appointment)));
   }
@@ -474,6 +516,9 @@
       && upkeep.workCaps[s.candidate.id] === s.appointment?.terms.workCap
       && same(s.candidate.roles, [ROLE]) && authenticAppointment(s, office) && eligibility(s)
       && (!combined(s) || roleTransferAuthentic(s, succession))
+      && (!disputed(s) || s.receipt.origin === 'peacefulDisputedAppointment' && same(s.receipt.authority, s.authority)
+        && s.receipt.inventory?.installation?.id === s.installationId && s.receipt.inventory.scope === ACCESS_RIGHTS
+        && s.agreement?.bodyEpoch === s.bodyEpoch)
       && (s.receipt.origin === 'compulsoryCivilAccess' ? CivilAccess.receiptAuthentic(s.enforcement, s, office, c)
         && s.receipt.compulsoryAccessId === s.enforcement.transferEvidence.id
         : s.receipt.accessSettlementId ? authenticSettlement(s, office) && s.receipt.accessSettlementId === s.access.settlement.id
@@ -503,7 +548,7 @@
       working: s.job && { kind: s.job.kind, progress: s.job.progress, seconds: s.job.seconds, clearingPost: s.job.clearingPost },
       approaching: Boolean(s.travel), message: s.message, history: copy(s.history), limitations: scopeFor(s) };
   }
-  return { ROLE, REASON, HOME, RETIRED_POST, LIMITS, COMBINED_LIMITS, ruleFor, roleRuleFor, create, normalize, incumbent, reviewer, bound, localReason,
+  return { ROLE, REASON, HOME, RETIRED_POST, LIMITS, COMBINED_LIMITS, ruleFor, roleRuleFor, disputedRuleFor, create, normalize, incumbent, reviewer, bound, localReason,
     discuss, propose, hear, appoint, approach, transfer, discussAccess, inspectAccess, settleAccess, declineAccess,
     custodyInventory, compulsoryTransfer, authenticAppointment, cancel, advance, authorization, publicView };
 });
