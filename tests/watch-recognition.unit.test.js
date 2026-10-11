@@ -56,6 +56,15 @@ function recognize(f) {
 }
 function watch(f) { recognize(f); assert.ok(Watch.order(...args(f), Watch.instructionTerms(f.s), f.c, f.at)); tick(f, 30); }
 function reach(f) { for (let n = 0; n < 30 && f.s.duty.status !== 'observing'; n++) tick(f); assert.equal(f.s.duty.status, 'observing'); }
+test('safeguard withdrawal blocks new recognized-watch instructions without erasing the old signature or accepted safe duty', () => {
+  const f = fixture(); watch(f); reach(f); const receipt = copy(f.s.receipt);
+  f.c.safeguardWatchWithdrawn = true;
+  assert.equal(Watch.authorization(...args(f), f.c), null);
+  tick(f, 600); for (let i = 0; i < 30 && f.s.duty; i++) tick(f);
+  assert.equal(f.s.duty, null); assert.equal(f.s.deliveries[0].seconds, 600);
+  assert.equal(Watch.order(...args(f), Watch.instructionTerms(f.s), f.c, f.at), false);
+  assert.deepEqual(f.s.receipt, receipt);
+});
 const event = f => ({ id: `actual-attack:${f.at}`, at: f.at, cityId: 'a', actorId: 'scientist', targetId: 'ruler:a',
   kind: 'attackAtMunicipalCounter', cell: { x: 17, y: 8, z: 6 }, detail: 'Observed attack attempt on municipal ground.' });
 const perception = { observed: true, identified: true, counterVisible: true };

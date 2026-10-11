@@ -55,8 +55,14 @@ async function setup(page, renderer = 'dom', obstruct = false, accessPolicy = 'r
   await page.evaluate(() => { window.helixHeresyDebug.advanceCitySuccessionForTest(60); window.helixHeresyDebug.advanceCitySuccessionForTest(30); });
   // Extra attended operations require a genuinely delivered finite battery,
   // not a work/power refill or an invented appointment outcome.
-  await page.evaluate(() => window.helixHeresyDebug.configureCityAdministrationTest({ supplies: { relayBattery: 1 } }));
+  const needsSafeguardCapacity = opposition?.renewSafeguards != null;
+  await page.evaluate(needsRest => window.helixHeresyDebug.configureCityAdministrationTest({ supplies: { relayBattery: 1,
+    ...(needsRest ? { fieldRation: 1 } : {}) } }), needsSafeguardCapacity);
   expect(await admin(page, 'battery')).toBe(true);
+  if (needsSafeguardCapacity) {
+    expect(await admin(page, 'rest', s.office.clerk.id)).toBe(true);
+    await page.evaluate(() => window.helixHeresyDebug.advanceCityAdministrationForTest(28800));
+  }
   const configured = await page.evaluate(({ obstruct, accessPolicy, civilPolicy, opposition }) => window.helixHeresyDebug.configureCityAppointmentsTest({ maintenance: 50, willing: true, obstruct, accessPolicy,
     organize: Boolean(opposition), ...(opposition || {}),
     ...(civilPolicy ? { civilPolicy, resistanceStrength: 20 } : {}) }), { obstruct, accessPolicy, civilPolicy, opposition });
@@ -109,6 +115,85 @@ async function civilOrder(page) {
   await panel.locator('[data-civil-access-action="discuss"]').click(); await advance(page, 60);
   return panel;
 }
+for (const renderer of ['dom', 'canvas']) test(`${renderer}: safeguard breach requires actual removal, received evidence, independent review and explicit watch consent`, async ({ page }) => {
+  test.setTimeout(600000);
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const before = await oppositionReady(page, renderer, true, { oldDefense: 'flee', watchDefense: 'flee', renewSafeguards: renderer === 'dom' });
+  const panel = page.locator('[data-local-opposition]');
+  await panel.locator('[data-opposition-action="discuss"]').click(); await advance(page, 60);
+  await panel.locator('[data-opposition-action="accept"]').click(); await advance(page, 80);
+  let s = await snap(page); expect(s.appointments.opposition.phase).toBe('ended');
+  const account = s.appointments.opposition.settlement, watchId = account.memberIds[1];
+  await page.evaluate(() => window.helixHeresyDebug.configureCityAdministrationTest({ supplies: { relayBattery: 1 } }));
+  expect(await admin(page, 'battery')).toBe(true);
+  let w = await page.evaluate(() => window.helixHeresyDebug.watchRecognitionSnapshot());
+  expect(w.recognition.receipt.origin).toBe('voluntaryHandover'); expect(w.known.permissionCurrent).toBe(true);
+  const ordered = await page.evaluate(t => window.helixHeresyDebug.watchRecognitionAction('order', t), w.known.instructionTerms);
+  w = await page.evaluate(() => window.helixHeresyDebug.watchRecognitionSnapshot());
+  expect(ordered, JSON.stringify({ context: { ...w.context, upkeep: undefined, rule: undefined, conduct: undefined },
+    actor: w.succession.leaders.find(a => a.id === watchId), office: { power: w.office.power, work: w.office.workSeconds,
+      assignment: w.office.assignment, clerk: w.office.clerk, availableAt: w.office.availableAt }, recognition: w.recognition })).toBe(true);
+  await page.evaluate(() => { const d = window.helixHeresyDebug; d.advanceSimulation(30); d.advanceWatchRecognitionForTest(25); });
+  w = await page.evaluate(() => window.helixHeresyDebug.watchRecognitionSnapshot()); expect(w.recognition.duty.status).toBe('observing');
+  // Ordinary personal skill preparation only; no incident or displacement is inserted.
+  await page.evaluate(() => window.helixHeresyDebug.configureDefenderChallengeTest({ mastery: true }));
+  expect(await page.evaluate(() => Boolean(window.helixHeresyDebug.startScientistMove('supportedSurveyGround',
+    { toCell: { x: 18, y: 10, z: 6 }, allowMultiRoom: true })))).toBe(true); await finishWalk(page);
+  expect(await page.evaluate(id => window.helixHeresyDebug.startScientistCombatAction('shove', id), watchId)).toBe(true);
+  await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(1));
+  s = await snap(page); expect(s.appointments.opposition.safeguards.reports).toEqual([]);
+  // The eastward shove hits the actual map boundary. No displacement means
+  // no fabricated promise breach. Recover and physically choose mapped ground.
+  await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(3));
+  expect(await page.evaluate(() => Boolean(window.helixHeresyDebug.startScientistMove('supportedSurveyGround',
+    { toCell: { x: 19, y: 9, z: 6 }, allowMultiRoom: true, urgent: true })))).toBe(true); await finishWalk(page);
+  expect(await page.evaluate(id => window.helixHeresyDebug.startScientistCombatAction('shove', id), watchId)).toBe(true);
+  await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(1));
+  s = await snap(page); expect(s.appointments.opposition.safeguards.reports.length).toBeGreaterThan(0);
+  expect(s.appointments.opposition.safeguards.received).toEqual([]);
+  expect(s.appointments.opposition.safeguards.reports.every(r => JSON.stringify(r.from) !== JSON.stringify(r.to))).toBe(true);
+  expect(await succession(page, 'walk')).toBe(true); await finishWalk(page);
+  await page.evaluate(() => window.helixHeresyDebug.advanceWatchRecognitionForTest(25));
+  w = await page.evaluate(() => window.helixHeresyDebug.watchRecognitionSnapshot());
+  expect(w.recognition.duty).toBeNull(); expect(w.recognition.deliveries[0].status).toBe('interruptedReturn');
+  expect(w.known.permissionCurrent).toBe(false);
+  expect(await page.evaluate(t => window.helixHeresyDebug.watchRecognitionAction('order', t), w.known.instructionTerms)).toBe(false);
+  await expect(panel).toContainText('cooperation: withdrawn');
+  // Receive each actual witness separately; no omniscient report import.
+  for (let i = 0; i < 2; i++) {
+    s = await snap(page);
+    if (s.appointments.opposition.safeguards.received.length === s.appointments.opposition.safeguards.reports.length) break;
+    await panel.locator('[data-opposition-action="receiveSafeguards"]').click(); await advance(page, 15);
+    await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState()); await advance(page, 15);
+  }
+  s = await snap(page); expect(s.appointments.opposition.safeguards.received.length).toBe(s.appointments.opposition.safeguards.reports.length);
+  await panel.locator('[data-opposition-action="fileSafeguards"]').click(); await advance(page, 30);
+  s = await snap(page); const complaint = s.appointments.opposition.safeguards.reviews[0]; expect(complaint.status).toBe('queued');
+  // No movement, attendance or encounter remains during this idle queue wait.
+  // Advance the same actual deadline through the existing upkeep clock helper.
+  await page.evaluate(seconds => window.helixHeresyDebug.advanceCityAdministrationForTest(seconds), complaint.readyAt - s.clock);
+  await panel.locator('[data-opposition-action="hearSafeguards"]').click(); await advance(page, 180);
+  s = await snap(page); expect(s.appointments.opposition.safeguards.reviews[0].finding.outcome).toBe('breachUpheld');
+  expect((await page.evaluate(() => window.helixHeresyDebug.watchRecognitionSnapshot())).known.permissionCurrent).toBe(false);
+  await panel.locator('[data-opposition-action="meetSafeguards"]').click(); await advance(page, 60);
+  s = await snap(page); const response = s.appointments.opposition.safeguards.renewalResponses[0];
+  if (renderer === 'dom') {
+    expect(response.decision).toBe('offered');
+    expect(await page.evaluate(t => window.helixHeresyDebug.localOppositionAction('signSafeguards', { ...t, scope: 'army' }), response.terms)).toBe(false);
+    await panel.locator('[data-opposition-action="signSafeguards"]').click(); await advance(page, 30);
+    await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState()); await advance(page, 30);
+    w = await page.evaluate(() => window.helixHeresyDebug.watchRecognitionSnapshot()); expect(w.known.permissionCurrent).toBe(true);
+  } else {
+    expect(response.decision).toBe('refused');
+    expect(await page.evaluate(() => window.helixHeresyDebug.localOppositionAction('meetSafeguards'))).toBe(false);
+  }
+  s = await snap(page); expect(s.appointments.opposition.settlement).toEqual(account);
+  expect(s.appointments.receipt).toEqual(before.appointments.receipt); expect(s.succession.agreements).toEqual(before.succession.agreements);
+  expect(s.succession.provision).toEqual(before.succession.provision);
+  expect(s.appointments.opposition.safeguards.reviews).toHaveLength(1); expect(s.office.localOppositionAccounts).toHaveLength(1);
+  expect(errors).toEqual([]);
+});
+
 async function oppositionReady(page, renderer = 'dom', settle = true, defense = {}) {
   await setup(page, renderer, true, 'rejectReplacement', 'considerCivilEscort', false,
     { joinOpposition: true, settleOpposition: settle, ...defense });

@@ -1,12 +1,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const Succession = require('../city-succession');
+const Watch = require('../watch-recognition');
 const Bargains = require('../sovereign-bargains');
 const Campaign = require('../campaign');
 const copy = v => JSON.parse(JSON.stringify(v));
 function fixture(theme = 'madcap') {
   const office = { id: 'counter:a', cityId: 'a', institutionId: 'institution:centralAdministration', active: true, channelPowered: true,
-    clerk: { status: 'alive', health: 100, fatigue: 0 }, power: 12, workSeconds: 1500, availableAt: 0, assignment: null };
+    clerk: { id: 'clerk:a', status: 'alive', health: 100, fatigue: 0 }, power: 12, workSeconds: 1500, availableAt: 0, assignment: null };
   const source = { cityId: 'a', cityName: 'Aster', charterId: 'charter:a', authority: { id: 'ruler:a', name: 'Existing Ruler', kind: 'individual' },
     succession: Succession.CHARTERS[0], administrationId: office.institutionId, defenseId: 'institution:militaryDefenseCommand', defenseName: 'Existing defense',
     populationSourceId: 'population:a', archive: { coverage: [{ cellId: 'a', latitude: 0, longitude: 0 }] },
@@ -40,6 +41,49 @@ function transferred(f) {
   assert.equal(Succession.handover(f.s, f.b, f.office, f.c, f.at), true); step(f, 180);
   assert.equal(f.s.phase, 'transferred'); f.c.authorityId = 'scientist';
 }
+function voluntaryWatch(f) {
+  transferred(f);
+  f.c = { ...f.c, local: true, geometryAvailable: true, postReachable: true, counterVisible: true,
+    watchAvailable: true, watchConditions: [], presentIds: f.s.leaders.map(a => a.id),
+    watchInstitutionId: f.s.source.institutions.find(i => i.role === 'civilWatch').id };
+  f.watch = Watch.create(null, null, f.s, f.office); assert.ok(f.watch);
+  f.watchActor = Watch.actor(f.watch, f.s);
+  return [f.watch, null, null, f.s, null, f.office];
+}
+test('voluntary watch: actual handover and original scoped continuation reuse the same finite observation duty', () => {
+  const f = fixture(), args = voluntaryWatch(f), original = copy({ handover: f.s.handover, agreements: f.s.agreements, stock: f.s.provision });
+  assert.equal(f.watch.receipt.origin, 'voluntaryHandover'); assert.ok(Watch.authorization(...args, f.c));
+  assert.ok(Watch.order(...args, Watch.instructionTerms(f.watch), f.c, f.at));
+  f.at += 30; Watch.advance(...args, f.c, f.at, { move });
+  assert.equal(f.watch.duty.status, 'walking');
+  f.c.safeguardWatchWithdrawn = true;
+  const duty = copy(f.watch.duty); assert.equal(Watch.authorization(...args, f.c), null);
+  for (let i = 0; i < 650 && f.watch.duty; i++) { f.at++; Watch.advance(...args, f.c, f.at, { move }); }
+  assert.equal(f.watch.duty, null); assert.equal(f.watch.deliveries[0].seconds, 600);
+  assert.deepEqual(f.watchActor.mapCell, duty.homeCell);
+  assert.equal(Watch.order(...args, Watch.instructionTerms(f.watch), f.c, f.at), false);
+  assert.deepEqual({ handover: f.s.handover, agreements: f.s.agreements, stock: f.s.provision }, original);
+});
+test('voluntary watch: no forged handover, lost original role, changed body or unrelated withdrawal can grant new commands', () => {
+  for (const change of [f => f.s.handover.recognizedAuthorityId = 'other', f => f.c.bodyEpoch++,
+    f => f.s.agreements.find(a => a.personId === f.watch.personId).suspendedRoles = ['civilWatch'],
+    f => f.s.control.commandRelationships.find(a => a.personId === f.watch.personId).agreementAt++,
+    f => f.watchActor.roles = [], f => f.c.watchConditions = ['Incompatible independent duty']]) {
+    const f = fixture(), args = voluntaryWatch(f); change(f); assert.equal(Watch.authorization(...args, f.c), null);
+  }
+});
+test('voluntary watch: actual displacement interrupts observation and permits only ordinary physical safe return', () => {
+  const f = fixture(), args = voluntaryWatch(f);
+  assert.ok(Watch.order(...args, Watch.instructionTerms(f.watch), f.c, f.at));
+  f.at += 30; Watch.advance(...args, f.c, f.at, { move });
+  for (let i = 0; i < 20 && f.watch.duty.status !== 'observing'; i++) { f.at++; Watch.advance(...args, f.c, f.at, { move }); }
+  assert.equal(f.watch.duty.status, 'observing');
+  f.watchActor.mapCell.x++; f.c.safeguardWatchWithdrawn = true;
+  f.at++; Watch.advance(...args, f.c, f.at, { move }); assert.equal(f.watch.duty.status, 'returning');
+  for (let i = 0; i < 20 && f.watch.duty; i++) { f.at++; Watch.advance(...args, f.c, f.at, { move }); }
+  assert.equal(f.watch.duty, null); assert.equal(f.watch.deliveries[0].status, 'interruptedReturn');
+  assert.ok(f.watch.deliveries[0].seconds < 600); assert.equal(Watch.authorization(...args, f.c), null);
+});
 test('role-specific refusal blocks new discretionary staging, not historical recognition or previously accepted physical cargo', () => {
   const fresh = fixture(); transferred(fresh);
   const worker = fresh.s.leaders.find(a => a.roles.includes('publicWorksAndProvisioning'));
@@ -121,16 +165,17 @@ test('original civic opposition dispositions and ordinary watch body remain dete
   assert.ok(['considerSafeguards', 'rejectSafeguards'].includes(works.oppositionSettlementPolicy));
   assert.ok(['defendSelf', 'coverRetreat', 'flee'].includes(works.oppositionDefensePolicy));
   assert.ok(['defendSelf', 'coverRetreat', 'flee'].includes(watch.oppositionDefensePolicy));
+  assert.ok(['retainWithdrawal', 'considerAcknowledgedSafeguards'].includes(watch.oppositionRenewalPolicy));
   assert.equal(watch.maxHealth, 100); assert.equal(watch.physicalControl.stamina, 80);
   assert.deepEqual(f.source, originalSource); assert.equal(f.s.allocation.people, 5);
   for (const theme of ['madcap', 'grim', 'unbound']) {
     const g = fixture(theme);
-    assert.deepEqual(g.s.leaders.map(a => [a.id, a.oppositionPolicy, a.oppositionSettlementPolicy, a.oppositionDefensePolicy]),
-      f.s.leaders.map(a => [a.id, a.oppositionPolicy, a.oppositionSettlementPolicy, a.oppositionDefensePolicy]));
+    assert.deepEqual(g.s.leaders.map(a => [a.id, a.oppositionPolicy, a.oppositionSettlementPolicy, a.oppositionDefensePolicy, a.oppositionRenewalPolicy]),
+      f.s.leaders.map(a => [a.id, a.oppositionPolicy, a.oppositionSettlementPolicy, a.oppositionDefensePolicy, a.oppositionRenewalPolicy]));
   }
   watch.workSeconds = 3; watch.health = 53;
   assert.deepEqual(Succession.normalize(f.s).leaders.find(a => a.id === watch.id), watch);
-  assert.doesNotMatch(JSON.stringify(Succession.publicView(f.s, f.b, f.c)), /oppositionPolicy|oppositionSettlementPolicy|oppositionDefensePolicy|physicalControl/);
+  assert.doesNotMatch(JSON.stringify(Succession.publicView(f.s, f.b, f.c)), /oppositionPolicy|oppositionSettlementPolicy|oppositionDefensePolicy|oppositionRenewalPolicy|physicalControl/);
 });
 test('a combined directorate uses one original person and finite duty for both actual roles without extra population', () => {
   const f = fixture(), source = copy(f.source);

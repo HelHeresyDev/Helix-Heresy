@@ -18,6 +18,7 @@
   const able = a => a?.status === 'alive' && a.health >= 50 && (a.fatigue || 0) < 80;
   const actor = (s, succession) => succession?.leaders.find(a => a.id === s?.personId && a.roles.includes(ROLE));
   function create(charter, works, succession, office) {
+    if (succession?.handover) return createVoluntary(succession, office);
     const a = succession?.leaders.find(a => a.roles.includes(ROLE));
     if (!a || !office?.clerk?.id || !charter?.recognition || !works?.receipt || works.receipt.role !== Works.ROLE
       || works.administrationReceiptId !== charter.recognition.id || succession.handover || succession.officeId !== office?.id) return null;
@@ -31,11 +32,37 @@
       phase: 'unheard', response: null, terms: null, receipt: null, reaffirmation: null, previousReaffirmations: [], job: null, duty: null,
       reports: [], deliveries: [], history: [], nextNumber: 1, message: '' };
   }
+  function voluntaryReceipt(succession, office, personId) {
+    const h = succession?.handover, a = succession?.agreements?.find(a => a.personId === personId && a.roles.includes(ROLE));
+    const link = succession?.control?.commandRelationships?.find(a => a.personId === personId && a.roles.includes(ROLE));
+    if (!h || !a || !link || succession.officeId !== office?.id || h.cityId !== office?.cityId
+      || h.cityId !== succession.source.cityId || a.termsId !== h.termsId || link.agreementAt !== a.at
+      || link.institutionId !== a.institutionId || succession.control.sourceReceiptId !== h.id
+      || h.charterId !== succession.source.charterId || h.recognizedAuthorityId !== 'scientist'
+      || succession.control.bodyEpoch !== h.bodyEpoch || succession.control.recognizedAuthorityId !== 'scientist') return null;
+    return { id: `${h.id}:watch-scope`, at: h.at, origin: 'voluntaryHandover', role: ROLE, sourceReceiptId: h.id,
+      personId, institutionId: a.institutionId, officeId: office.id, bodyEpoch: h.bodyEpoch,
+      commandRelationship: { personId, role: ROLE, scope: SCOPE }, limitations: LIMITS };
+  }
+  function createVoluntary(succession, office) {
+    const a = succession?.leaders.find(a => a.roles.includes(ROLE)), r = voluntaryReceipt(succession, office, a?.id);
+    if (!r || !office.clerk) return null;
+    return { id: r.id, cityId: office.cityId, charterId: succession.source.charterId, sourceTheme: succession.sourceTheme,
+      officeId: office.id, clerkId: office.clerk.id, personId: a.id, institutionId: a.institutionId,
+      administrationReceiptId: succession.handover.id, worksReceiptId: succession.handover.id,
+      phase: 'recognized', response: null, terms: null, receipt: r, reaffirmation: null, previousReaffirmations: [],
+      job: null, duty: null, reports: [], deliveries: [], history: [], nextNumber: 1,
+      message: 'The actual voluntary handover and this person’s original continuation authorize only the existing bounded counter-watch duty. No new signature, staff or enforcement power.' };
+  }
   const normalize = s => s?.worksReceiptId && s.personId && Array.isArray(s.history) && Array.isArray(s.reports) && Array.isArray(s.deliveries)
     ? { ...copy(s), reaffirmation: s.reaffirmation ? copy(s.reaffirmation) : null, previousReaffirmations: copy(s.previousReaffirmations || []) } : null;
   function note(s, at, kind, text) { s.message = text; s.history.push({ at, kind, text }); s.history = s.history.slice(-40); }
   function identities(s, charter, works, succession, office, c) {
     const a = actor(s, succession);
+    if (s?.receipt?.origin === 'voluntaryHandover') return Boolean(a && a.institutionId === s.institutionId && a.locationId === s.officeId
+      && office?.id === s.officeId && office.cityId === s.cityId && office.clerk?.id === s.clerkId && office.active
+      && succession.source.charterId === s.charterId && c.charterCurrent && c.watchAvailable
+      && c.watchInstitutionId === s.institutionId && c.alive && voluntaryReceipt(succession, office, s.personId));
     return Boolean(s && a && a.institutionId === s.institutionId && a.locationId === s.officeId
       && office?.id === s.officeId && office.cityId === s.cityId && office.clerk?.id === s.clerkId
       && charter?.cityId === s.cityId && charter.charterId === s.charterId && succession.source.charterId === s.charterId
@@ -43,12 +70,15 @@
       && c.watchInstitutionId === s.institutionId && c.watchAvailable && office.active && c.alive);
   }
   function bound(s, charter, works, succession, abdication, office, c) {
+    if (s?.receipt?.origin === 'voluntaryHandover') return Boolean(identities(s, charter, works, succession, office, c)
+      && same(s.receipt, voluntaryReceipt(succession, office, s.personId)) && s.receipt.bodyEpoch === c.bodyEpoch);
     const canonical = { ...c, cityId: s?.cityId };
     return identities(s, charter, works, succession, office, c)
       && Charter.authorityCurrent(charter, succession, abdication, office, canonical)
       && Boolean(Works.authorization(works, charter, succession, abdication, office, canonical));
   }
   function facts(s, charter, c) {
+    if (s.receipt?.origin === 'voluntaryHandover') return { receipt: copy(s.receipt), conditions: copy(c.watchConditions || []) };
     return { administrationReceiptId: s.administrationReceiptId, worksReceiptId: s.worksReceiptId,
       evidence: copy(charter.review.evidence), conditions: copy(c.watchConditions || []) };
   }
@@ -59,10 +89,11 @@
       : kind === 'instruction' ? authorization(s, charter, works, succession, abdication, office, c)
         : bound(s, charter, works, succession, abdication, office, c);
     return Boolean(supported
-      && Charter.operative(charter, succession, abdication, office, c) && c.local && c.atCounter && c.visitPermission
+      && (s.receipt?.origin === 'voluntaryHandover' ? bound(s, charter, works, succession, abdication, office, c)
+        : Charter.operative(charter, succession, abdication, office, c)) && c.local && c.atCounter && c.visitPermission
       && c.cityId === s.cityId && (!renewedKind(kind) || c.geometryAvailable && office.maintenanceReady !== false)
       && c.capable && c.clerkPresent && c.lineOfSight && !c.busy && !c.activeViolence && able(a) && able(office.clerk)
-      && c.presentIds?.includes(a.id) && office.channelPowered && !s.duty && !charter.job && !works.job && !succession.job
+      && c.presentIds?.includes(a.id) && office.channelPowered && !s.duty && !charter?.job && !works?.job && !succession.job
       && (!a.assignment || a.assignment === id) && (!office.assignment || office.assignment === id)
       && (!office.clerk.assignment || office.clerk.assignment === id));
   }
@@ -70,7 +101,7 @@
     const a = actor(s, succession);
     if (!s || s.job || !local(s, charter, works, succession, abdication, office, { ...c, attendanceKind: kind }) || office.power < 1
       || office.workSeconds < seconds || a.workSeconds < seconds || at < (office.availableAt || 0)) return false;
-    const id = `${s.id}:meeting:${s.nextNumber++}`, renewedBasis = renewedKind(kind) || kind === 'instruction' && Boolean(charter.reconsideration);
+    const id = `${s.id}:meeting:${s.nextNumber++}`, renewedBasis = renewedKind(kind) || kind === 'instruction' && Boolean(charter?.reconsideration) && s.receipt?.origin !== 'voluntaryHandover';
     s.job = { id, kind, seconds, progress: 0, lastAt: at, wasReady: true, bodyEpoch: c.bodyEpoch,
       renewedBasis, facts: renewedBasis ? reaffirmationFacts(s, charter, works, c) : facts(s, charter, c), terms: copy(terms) };
     office.power--; a.assignment = office.assignment = office.clerk.assignment = id;
@@ -157,6 +188,10 @@
       && office.records?.some(record => same(record, r)));
   }
   function authorization(s, charter, works, succession, abdication, office, c) {
+    if (c.safeguardWatchWithdrawn) return null;
+    if (s?.receipt?.origin === 'voluntaryHandover') return bound(s, charter, works, succession, abdication, office, c)
+      && !succession.agreements.find(a => a.personId === s.personId)?.suspendedRoles?.includes(ROLE)
+      && !c.watchConditions?.length ? s.receipt : null;
     return originalReceipt(s, charter, works, succession, abdication, office, c)
       && (bound(s, charter, works, succession, abdication, office, c)
         || reaffirmationCurrent(s, charter, works, succession, abdication, office, c)) ? s.receipt : null;
@@ -196,6 +231,7 @@
       if (!identities(s, charter, works, succession, office, c) || !able(a) || a.assignment !== d.id
         || !c.geometryAvailable || !office.channelPowered || office.maintenanceReady === false || a.workSeconds <= 0) { d.wasReady = false; d.travelCredit = 0; return false; }
       if (d.bodyEpoch !== c.bodyEpoch && d.status !== 'returning') { d.status = 'returning'; d.interrupted = true; }
+      if (d.status === 'observing' && !cellSame(a.mapCell, POST)) { d.status = 'returning'; d.interrupted = true; }
       if (!d.wasReady) { d.wasReady = true; return false; }
       if (delta <= 0) return false;
       if (d.status === 'walking' || d.status === 'returning') {

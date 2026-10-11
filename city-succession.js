@@ -74,6 +74,7 @@
         : hash(`${actor.id}:opposition`) % 3 === 0 ? 'retainIndependentDuty' : 'joinCustodySafeguards';
       actor.oppositionSettlementPolicy = hash(`${actor.id}:safeguards`) % 4 === 0 ? 'rejectSafeguards' : 'considerSafeguards';
       actor.oppositionDefensePolicy = ['defendSelf', 'coverRetreat', 'flee'][hash(`${actor.id}:personal-defense`) % 3];
+      actor.oppositionRenewalPolicy = hash(`${actor.id}:safeguard-renewal`) % 3 === 0 ? 'retainWithdrawal' : 'considerAcknowledgedSafeguards';
     }
     return { definitionId: selected.definitionId, sourceTheme: selected.sourceTheme, source: copy(source), officeId: office.id,
       ruler, leaders, allocation: { populationSourceId: source.populationSourceId, people: leaders.length + 1 },

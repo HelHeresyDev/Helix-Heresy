@@ -115,6 +115,7 @@
   const PublicWorksAppointments = window.HelixPublicWorksAppointments;
   const CivilInstallationAccess = window.HelixCivilInstallationAccess;
   const LocalOpposition = window.HelixLocalOpposition;
+  const MunicipalSafeguards = window.HelixMunicipalSafeguards;
   const CityResistance = window.HelixCityResistance;
   const UnsupportedExcursions = window.HelixUnsupportedExcursions;
   const MedicalExtraction = window.HelixMedicalExtraction;
@@ -14663,6 +14664,7 @@
         if (options.settleOpposition != null) old.oppositionSettlementPolicy = options.settleOpposition ? 'considerSafeguards' : 'rejectSafeguards';
         for (const [actor, policy] of [[old, options.oldDefense], [watch, options.watchDefense]])
           if (actor && ['defendSelf', 'coverRetreat', 'flee'].includes(policy)) actor.oppositionDefensePolicy = policy;
+        if (watch && options.renewSafeguards != null) watch.oppositionRenewalPolicy = options.renewSafeguards ? 'considerAcknowledgedSafeguards' : 'retainWithdrawal';
         refreshCityAppointmentsKnowledge(); persist(); render(); return true;
       },
       advanceCityAppointmentsForTest: seconds => {
@@ -40401,7 +40403,16 @@
     if (combatGuardRecord(targetId)) {
       awardCombatActionXp(targetActor, "guarding", 4, `guarding against ${action.label.toLowerCase()}`, "success");
     }
-    if (changed && action.pushesTarget) shoveCombatTarget(actor, targetActor);
+    if (changed && action.pushesTarget) {
+      const from = clonePlainObject(combatActorCell(targetActor));
+      const moved = shoveCombatTarget(actor, targetActor);
+      if (moved && actorId === 'scientist' && state.citySuccession?.appointments?.opposition) {
+        const b = localOppositionBundle();
+        MunicipalSafeguards.removal(b.appointment.opposition, b, { id: `${actorId}:${sequence}`, at: state.clock,
+          actorId, targetId: target.id, actionId, from, to: clonePlainObject(combatActorCell(targetActor)), bodyEpoch: b.c.bodyEpoch });
+        MunicipalSafeguards.observe(b.appointment.opposition, b); refreshWatchRecognitionKnowledge(); refreshCityAppointmentsKnowledge();
+      }
+    }
     return { ok: true, hit: true, damage: actualDamage, accuracy };
   }
 
@@ -83805,9 +83816,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function refreshCityAppointmentsKnowledge() {
     const s = state.citySuccession?.appointments;
     if (cityAppointmentsObserved()) state.cityAppointmentsKnowledge = { ...PublicWorksAppointments.publicView(s),
-      opposition: LocalOpposition.publicView(state.citySuccession.appointments.opposition), reportedAt: state.clock };
-    else if (state.cityAppointmentsKnowledge && s?.opposition?.known?.reportedAt === state.clock)
-      state.cityAppointmentsKnowledge.opposition = LocalOpposition.publicView(s.opposition);
+      opposition: localOppositionView(s.opposition), reportedAt: state.clock };
+    else if (state.cityAppointmentsKnowledge && (s?.opposition?.known?.reportedAt === state.clock || s?.opposition?.safeguards?.known?.reportedAt === state.clock))
+      state.cityAppointmentsKnowledge.opposition = localOppositionView(s.opposition);
+  }
+  function localOppositionView(o) {
+    const v = LocalOpposition.publicView(o);
+    return v ? { ...v, safeguards: MunicipalSafeguards.publicView(o) } : null;
   }
   function updateCityAppointments() {
     const s = state.citySuccession?.appointments; if (!s || scientistIsDead()) return false;
@@ -83815,7 +83830,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ensureHomeInstitutionContext(), cityAppointmentsContext(), state.clock, { move: moveSuccessionParticipant, stacks: ensurePhysicalItemStacks() });
     const civilChanged = updateCivilInstallationAccess();
     const oppositionChanged = updateLocalOpposition();
-    const busy = s.job || s.enforcement?.job || s.enforcement?.escort?.status === 'active' || s.opposition?.job;
+    const busy = s.job || s.enforcement?.job || s.enforcement?.escort?.status === 'active' || s.opposition?.job || s.opposition?.safeguards?.job;
     if (busy && !state.combat?.routineSuspension) suspendScientistRoutineWork('public-works appointment');
     if (!busy && state.combat?.routineSuspension?.reason === 'public-works appointment') resumeScientistRoutineWork();
     refreshCityAppointmentsKnowledge(); return changed || civilChanged || oppositionChanged;
@@ -83823,6 +83838,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function localOppositionBundle() {
     const b = civilAccessBundle();
     b.authenticTransfer = Boolean(b.appointment?.receipt && PublicWorksAppointments.authorization(b.appointment, b.succession, b.upkeep, b.office, b.c));
+    b.current = Boolean(b.appointment?.opposition && LocalOpposition.current(b.appointment.opposition, b));
     const watchId = b.succession?.source.institutions.find(i => i.role === 'civilWatch')?.id;
     b.c.watchAvailable = Boolean(watchId && b.institutions?.offices[watchId]?.available);
     b.c.localGround = b.c.geometryAvailable && b.office?.active === true;
@@ -83867,18 +83883,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const b = localOppositionBundle();
     a.opposition ||= LocalOpposition.create(b);
     const changed = a.opposition ? LocalOpposition.advance(a.opposition, b) : false;
+    b.current = Boolean(a.opposition && LocalOpposition.current(a.opposition, b));
+    const safeguardsChanged = a.opposition ? MunicipalSafeguards.advance(a.opposition, b) : false;
     const fighting = a.opposition?.defense?.phase === 'active';
     if (fighting && !state.combat?.routineSuspension) suspendScientistRoutineWork('receiving-approach resistance');
     if (!fighting && state.combat?.routineSuspension?.reason === 'receiving-approach resistance') resumeScientistRoutineWork();
-    return changed;
+    return changed || safeguardsChanged;
   }
   function localOppositionAction(action, expected = null) {
     if (scientistIsDead()) return false;
     updateCityAdministration(); const b = localOppositionBundle(), s = b.appointment?.opposition;
     const methods = { discuss: 'discuss', accept: 'accept', decline: 'decline', cancel: 'cancel' };
-    const ok = Boolean(s && methods[action] && LocalOpposition[methods[action]](s, b, expected));
+    const safeguards = { receiveSafeguards: 'receive', fileSafeguards: 'file', hearSafeguards: 'hear', meetSafeguards: 'meet', signSafeguards: 'sign', cancelSafeguards: 'release' };
+    const ok = Boolean(s && (methods[action] && LocalOpposition[methods[action]](s, b, expected)
+      || safeguards[action] && MunicipalSafeguards[safeguards[action]](s, b, expected)));
     if (s) LocalOpposition.observe(s, b);
-    addEvent(ok ? s.message : 'Actual two-person opposition, original clerk, exact unexpired terms, finite capacity and safe local attendance are required. No new force authority follows.');
+    if (s) MunicipalSafeguards.observe(s, b);
+    addEvent(ok ? safeguards[action] ? 'Safeguard proceeding updated at the original counter. Actual testimony, finite attended work and independent review remain required; no force authority or wider assent follows.' : s.message
+      : 'Actual participants, original clerk, exact terms, available independent queue, finite capacity and safe local attendance are required. No new force authority follows.');
     updateCityAdministration(); refreshCityAppointmentsKnowledge(); persist(); render(); return ok;
   }
   function civilAccessBundle() {
@@ -84042,6 +84064,32 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
     }
     if (v.settlement) section.append(textEl('p', `Original clerk recorded the accepted account ${formatClock(v.settlement.at)}. A signature is not physical withdrawal.`));
+    if (v.settlement) {
+      const g = v.safeguards;
+      section.append(textEl('p', 'A successful witnessed shove can breach the signed removal promise; a strike or missed shove alone does not establish removal. Only actual communication supplies review evidence.'));
+      if (!g?.working) button('Receive actual safeguard testimony (30 seconds)', 'receiveSafeguards');
+      if (g) {
+        section.append(textEl('p', `Dated voluntary counter-watch cooperation: ${g.cooperation}. ${g.limits}`));
+        for (const r of g.received) section.append(textEl('p', `${formatClock(r.communicatedAt)} received: ${r.detail}`));
+        for (const r of g.reviews) section.append(textEl('p', `Independent safeguard complaint: ${r.status}; ${r.finding?.reason || `queue ready ${formatClock(r.readyAt)}`}`));
+        if (!g.working) {
+          button('File received safeguard complaint (30 seconds)', 'fileSafeguards');
+          button('Attend existing independent review (three minutes)', 'hearSafeguards');
+          button('Ask original watch official about renewed cooperation (one minute)', 'meetSafeguards');
+          const response = g.renewalResponses.at(-1);
+          if (response) section.append(textEl('p', response.reason));
+          if (response?.terms && !g.renewals.some(r => r.terms.id === response.terms.id)) {
+            section.append(textEl('p', `${response.terms.acknowledgment} ${response.terms.scope} Offer expires ${formatClock(response.terms.expiresAt)}.`));
+            button('Accept exact limited watch renewal (one minute)', 'signSafeguards', clonePlainObject(response.terms));
+          }
+        } else {
+          section.append(textEl('p', `${g.working.kind}: ${formatDuration(g.working.progress)} / ${formatDuration(g.working.seconds)} actual attended work.`));
+          const el = storesActionButton('Cancel unfinished safeguard attendance', 'Spent costs and evidence remain.', () => localOppositionAction('cancelSafeguards'));
+          el.dataset.oppositionAction = 'cancelSafeguards'; el.disabled = !observed; section.append(el);
+        }
+        for (const r of g.renewals) section.append(textEl('p', `${formatClock(r.at)}: explicit limited watch renewal recorded; no injury healed or other assent renewed.`));
+      }
+    }
     if (v.working) {
       section.append(textEl('p', `${v.working.kind}: ${formatDuration(v.working.progress)} / ${formatDuration(v.working.seconds)} actual attended work.`));
       const el = storesActionButton('End unfinished protest discussion', 'Spent work remains.', () => localOppositionAction('cancel'));
@@ -84050,7 +84098,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const r of v.reports) section.append(textEl('p', `${formatClock(r.at)} — ${r.detail}`));
     if (observed) for (const member of v.members) {
       const actor = combatActor(member.id); if (!actor || !scientistHasExactCombatTarget(actor)) continue;
-      for (const action of ['strike', 'soulLash']) {
+      for (const action of ['strike', 'soulLash', 'shove']) {
         const reason = scientistCombatActionBlockReason(action, actor);
         const el = storesActionButton(`${combatActionDef(action).label} ${member.name} — outside protest-clearance authority`, reason || 'Ordinary injury and witnessed consequences; no lawful clearance or immunity.', () => beginScientistCombatAction(action, actor.id));
         el.dataset.oppositionCombat = action; el.disabled = Boolean(reason); section.append(el);
@@ -84120,7 +84168,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { ...c, ...administrationRecognitionSources(), busy: c.busy || Boolean(state.scientistIdentity?.job || state.sovereignBargains?.job
       || state.citySuccession?.job || state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job || state.religiousRecognition?.job || DefenderChallenges.reserved(state.defenderChallenge)
       || !ownAppointment && (state.citySuccession?.appointments?.job || state.citySuccession?.appointments?.enforcement?.job
-        || state.citySuccession?.appointments?.enforcement?.escort?.status === 'active' || state.citySuccession?.appointments?.opposition?.job)
+        || state.citySuccession?.appointments?.enforcement?.escort?.status === 'active' || state.citySuccession?.appointments?.opposition?.job
+        || state.citySuccession?.appointments?.opposition?.safeguards?.job)
       // An independently returning defender is not a clerk/public-works
       // assignment. Actual violence still blocks new civic attendance.
       || state.cityConfrontation?.phase === 'fighting' || IncumbentResistance.active(state.incumbentResistance)
@@ -84910,7 +84959,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function receivedSuccessionConduct() {
     return [...(state.incumbentResistance?.reports || []), ...(state.cityConfrontation?.reports || []), ...(state.defenderChallenge?.conduct || []),
-      ...(state.watchRecognition?.reports || []).filter(r => r.communicatedAt != null && r.actorId === 'scientist')];
+      ...(state.watchRecognition?.reports || []).filter(r => r.communicatedAt != null && r.actorId === 'scientist'),
+      ...(state.citySuccession?.appointments?.opposition?.safeguards?.received || [])];
   }
   function ensureReligiousRecognition() {
     if (state.religiousRecognition) return state.religiousRecognition;
@@ -85069,6 +85119,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       && labMapCellRoomId(WatchRecognition.POST) === SurveyExpeditions.FIELD_ROOM
       && labMapCellRoomId(office.civicCounter.cell) === SurveyExpeditions.FIELD_ROOM);
     return { ...publicWorksRecognitionContext(true), watchInstitutionId: id,
+      safeguardWatchWithdrawn: MunicipalSafeguards.withdrawn(state.citySuccession?.appointments?.opposition, s?.personId),
+      activeViolence: state.cityConfrontation?.phase === 'fighting' || IncumbentResistance.dangerous(state.incumbentResistance)
+        || state.citySuccession?.appointments?.opposition?.defense?.phase === 'active',
       watchAvailable: Boolean(id && home?.offices[id]?.available), watchConditions: [], geometryAvailable: geometry,
       postReachable: Boolean(inspectPaths && geometry && a?.mapCell && labNavigationPlanBetweenCells(a.mapCell, WatchRecognition.POST,
         { map: ensureLabMap(), actor: a, ignoreDoors: true }).found),

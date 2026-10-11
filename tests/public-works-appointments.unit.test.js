@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const A = require('../public-works-appointments');
 const Civil = require('../civil-installation-access');
 const Opposition = require('../local-opposition');
+const Safeguards = require('../municipal-safeguards');
 const Administration = require('../city-administration');
 const Resistance = require('../city-resistance');
 const Succession = require('../city-succession');
@@ -1036,4 +1037,144 @@ test('defensive resistance: physical strike obstruction cancels prepared force e
   f.effects.canStrike = () => false; oppositionStep(f, 2);
   assert.equal(f.strikes.length, 0); assert.ok(f.o.defense.participants.every(p => p.lastOutcome.result === 'cancelled'));
   assert.ok(f.watch.physicalControl.stamina < spent); assert.ok(f.telegraphs.length === 2);
+});
+
+function safeguardFixture() {
+  const f = oppositionFixture(); oppositionOffer(f);
+  assert.ok(Opposition.accept(f.o, oppositionBundle(f), f.o.offer)); oppositionStep(f, 80);
+  assert.equal(f.o.phase, 'ended');
+  f.watch.oppositionRenewalPolicy = 'considerAcknowledgedSafeguards';
+  f.c.scientistCell = { x: 17, y: 10, z: 6 }; f.c.threatLocal = true;
+  const battery = { id: 'carried-extra-battery', key: 'relayBattery', quantity: 1, carriedBy: 'scientist' };
+  f.stacks.push(battery);
+  assert.ok(Administration.handSupply(f.upkeep, f.succession, f.bargain, f.office, f.stacks, 'relayBattery', f.c, f.at));
+  return f;
+}
+function safeguardBundle(f) { const b = oppositionBundle(f); b.current = Opposition.current(f.o, b); return b; }
+function safeguardStep(f, seconds) { f.at += seconds; return Safeguards.advance(f.o, safeguardBundle(f)); }
+function removed(f, options = {}) {
+  const from = copy(f.watch.mapCell), to = { ...from, x: from.x + 1 };
+  f.watch.mapCell = copy(to); f.at++;
+  return Safeguards.removal(f.o, safeguardBundle(f), { id: `actual-shove:${f.at}`, at: f.at, actorId: 'scientist',
+    targetId: f.watch.id, actionId: 'shove', from, to, bodyEpoch: 0, ...options });
+}
+function receivedSafeguards(f) {
+  while (Safeguards.receive(f.o, safeguardBundle(f))) safeguardStep(f, 30);
+  assert.ok(f.o.safeguards.received.length);
+}
+function reviewedSafeguards(f) {
+  receivedSafeguards(f); assert.ok(Safeguards.file(f.o, safeguardBundle(f))); safeguardStep(f, 30);
+  f.at = f.o.safeguards.reviews[0].readyAt;
+  assert.ok(Safeguards.hear(f.o, safeguardBundle(f))); safeguardStep(f, 180);
+  assert.equal(f.o.safeguards.reviews[0].finding.outcome, 'breachUpheld');
+}
+test('safeguards: only authentic signed post-acceptance witnessed displacement qualifies, never an attack report alone', () => {
+  for (const event of [{ actionId: 'strike' }, { at: 0 }, { actorId: 'other' }, { bodyEpoch: 1 }, { targetId: 'other' }]) {
+    const f = safeguardFixture(); assert.equal(removed(f, event), false); assert.equal(Safeguards.withdrawn(f.o, f.watch.id), false);
+  }
+  const f = safeguardFixture(); attacked(f); assert.equal(Safeguards.withdrawn(f.o, f.watch.id), false);
+  const g = safeguardFixture(); g.office.localOppositionAccounts = []; assert.equal(removed(g), false);
+  const h = safeguardFixture(); h.effects.lineOfSight = () => false; assert.equal(removed(h), false);
+  const i = safeguardFixture(); i.c.threatLocal = false; assert.equal(removed(i), false);
+});
+test('safeguards: firsthand withdrawal is prospective and private testimony requires finite attended communication', () => {
+  const f = safeguardFixture(), history = copy({ account: f.o.settlement, appointment: f.s.receipt, stock: f.stacks });
+  assert.ok(removed(f)); assert.equal(Safeguards.withdrawn(f.o, f.watch.id), true);
+  assert.equal(Safeguards.withdrawn(f.o, f.old.id), false); assert.equal(Safeguards.publicView(f.o), null);
+  const power = f.office.power;
+  assert.ok(Safeguards.receive(f.o, safeguardBundle(f))); safeguardStep(f, 15);
+  assert.equal(f.o.safeguards.received.length, 0); f.o = copy(f.o); f.s.opposition = f.o;
+  safeguardStep(f, 15); assert.equal(f.o.safeguards.received.length, 1); assert.equal(f.office.power, power - 1);
+  receivedSafeguards(f); assert.equal(Safeguards.receive(f.o, safeguardBundle(f)), false);
+  assert.deepEqual({ account: f.o.settlement, appointment: f.s.receipt, stock: f.stacks }, history);
+  assert.doesNotMatch(JSON.stringify(Safeguards.publicView(f.o)), /oppositionRenewalPolicy|workSeconds|stamina/);
+});
+test('safeguards: shared original queue and independent reviewer produce one bounded finding, not restored consent', () => {
+  const f = safeguardFixture(); removed(f); receivedSafeguards(f);
+  assert.ok(Safeguards.file(f.o, safeguardBundle(f))); safeguardStep(f, 30);
+  const r = f.o.safeguards.reviews[0], jobs = copy(f.institutions.offices[f.reviewer.institutionId].jobs);
+  assert.equal(Safeguards.hear(f.o, safeguardBundle(f)), false); assert.equal(Safeguards.file(f.o, safeguardBundle(f)), false);
+  f.at = r.readyAt; assert.ok(Safeguards.hear(f.o, safeguardBundle(f))); safeguardStep(f, 90);
+  assert.equal(r.finding, null); f.o = copy(f.o); f.s.opposition = f.o; safeguardStep(f, 90);
+  assert.equal(f.o.safeguards.reviews[0].finding.outcome, 'breachUpheld');
+  assert.equal(Safeguards.withdrawn(f.o, f.watch.id), true); assert.deepEqual(f.institutions.offices[f.reviewer.institutionId].jobs, jobs);
+  assert.equal(Safeguards.hear(f.o, safeguardBundle(f)), false);
+});
+test('safeguards: outages pause without backfill, and changed body or evidence cancels without refund', () => {
+  const f = safeguardFixture(); removed(f); assert.ok(Safeguards.receive(f.o, safeguardBundle(f))); safeguardStep(f, 10);
+  f.c.externalPowered = false; safeguardStep(f, 100); assert.equal(f.o.safeguards.job.progress, 10);
+  f.c.externalPowered = true; safeguardStep(f, 100); assert.equal(f.o.safeguards.job.progress, 10);
+  f.c.presentIds = []; safeguardStep(f, 100); assert.equal(f.o.safeguards.job.progress, 10);
+  f.c.bodyEpoch++; const power = f.office.power; safeguardStep(f, 100);
+  assert.equal(f.o.safeguards.job, null); assert.equal(f.office.power, power); assert.equal(f.o.safeguards.received.length, 0);
+  const g = safeguardFixture(); removed(g); receivedSafeguards(g); assert.ok(Safeguards.file(g.o, safeguardBundle(g)));
+  removed(g); safeguardStep(g, 30); assert.equal(g.o.safeguards.job, null); assert.equal(g.o.safeguards.reviews.length, 0);
+});
+test('safeguards: missing or interested reviewer cannot create an independent finding or replacement people', () => {
+  for (const change of [f => f.reviewer.roles = [], f => f.institutions.offices[f.reviewer.institutionId].available = false,
+    f => f.institutions.roles['civic-review'] = f.watch.institutionId]) {
+    const f = safeguardFixture(); removed(f); receivedSafeguards(f); change(f);
+    assert.equal(Safeguards.file(f.o, safeguardBundle(f)), false); assert.equal(f.o.safeguards.reviews.length, 0);
+  }
+});
+test('safeguards: exact explicit renewal restores only personal willingness, never wounds or erased history', () => {
+  const f = safeguardFixture(); removed(f); reviewedSafeguards(f);
+  const history = copy({ account: f.o.settlement, health: f.watch.health, reports: f.o.safeguards.received, appointment: f.s.receipt });
+  assert.ok(Safeguards.meet(f.o, safeguardBundle(f))); safeguardStep(f, 60);
+  const terms = f.o.safeguards.renewalResponses[0].terms;
+  assert.equal(Safeguards.withdrawn(f.o, f.watch.id), true);
+  assert.equal(Safeguards.sign(f.o, safeguardBundle(f), { ...terms, scope: 'army' }), false);
+  assert.ok(Safeguards.sign(f.o, safeguardBundle(f), terms)); safeguardStep(f, 30);
+  f.o = copy(f.o); f.s.opposition = f.o; safeguardStep(f, 30);
+  assert.equal(Safeguards.withdrawn(f.o, f.watch.id), false); assert.equal(f.o.safeguards.renewals.length, 1);
+  assert.equal(Safeguards.sign(f.o, safeguardBundle(f), terms), false);
+  assert.deepEqual({ account: f.o.settlement, health: f.watch.health, reports: f.o.safeguards.received, appointment: f.s.receipt }, history);
+  removed(f); assert.equal(Safeguards.withdrawn(f.o, f.watch.id), true); assert.equal(f.o.safeguards.renewals.length, 1);
+});
+test('safeguards: stable refusal and unsigned expiry cannot be rerolled or restore willingness', () => {
+  for (const refusal of [true, false]) {
+    const f = safeguardFixture(); removed(f); reviewedSafeguards(f);
+    if (refusal) f.watch.oppositionRenewalPolicy = 'retainWithdrawal';
+    assert.ok(Safeguards.meet(f.o, safeguardBundle(f))); safeguardStep(f, 60);
+    const r = f.o.safeguards.renewalResponses[0];
+    if (refusal) assert.equal(r.decision, 'refused');
+    else { f.at = r.terms.expiresAt; assert.equal(Safeguards.sign(f.o, safeguardBundle(f), r.terms), false); }
+    f.o = copy(f.o); f.s.opposition = f.o; assert.equal(Safeguards.meet(f.o, safeguardBundle(f)), false);
+    assert.equal(Safeguards.withdrawn(f.o, f.watch.id), true);
+  }
+});
+test('safeguards: scientist death freezes testimony, queue, bodies, costs and dated projections', () => {
+  const f = safeguardFixture(); removed(f); assert.ok(Safeguards.receive(f.o, safeguardBundle(f))); safeguardStep(f, 10);
+  f.c.alive = false; const before = copy({ o: f.o, people: f.succession.leaders, office: f.office, institutions: f.institutions });
+  safeguardStep(f, 100); assert.equal(Safeguards.receive(f.o, safeguardBundle(f)), false);
+  assert.deepEqual({ o: f.o, people: f.succession.leaders, office: f.office, institutions: f.institutions }, before);
+});
+test('safeguards: unchanged displacement, outside-approach force and duplicate ordinary events supply no additional evidence', () => {
+  const f = safeguardFixture(), from = copy(f.watch.mapCell);
+  assert.equal(removed(f, { from: { ...from, x: from.x + 1 } }), false);
+  const g = safeguardFixture(); g.watch.mapCell = { x: 30, y: 12, z: 6 }; assert.equal(removed(g), false);
+  const h = safeguardFixture(); removed(h);
+  const reports = copy(h.o.safeguards.reports), r = reports[0];
+  Safeguards.removal(h.o, safeguardBundle(h), { id: r.eventId, at: r.at, actorId: r.actorId, targetId: r.targetId,
+    actionId: r.actionId, from: r.from, to: r.to, bodyEpoch: r.bodyEpoch });
+  assert.deepEqual(h.o.safeguards.reports, reports);
+});
+test('safeguards: away observations stay dated and cancellation or missing original office retains spent costs', () => {
+  const f = safeguardFixture(); removed(f); receivedSafeguards(f); const known = Safeguards.publicView(f.o);
+  f.c.atCounter = false; f.c.presentIds = []; safeguardStep(f, 100); assert.deepEqual(Safeguards.publicView(f.o), known);
+  const g = safeguardFixture(); removed(g); assert.ok(Safeguards.receive(g.o, safeguardBundle(g))); safeguardStep(g, 10);
+  const power = g.office.power, work = g.old.workSeconds;
+  assert.ok(Safeguards.release(g.o, safeguardBundle(g))); assert.equal(g.office.power, power); assert.equal(g.old.workSeconds, work);
+  assert.equal(g.office.assignment, null); assert.equal(g.o.safeguards.received.length, 0);
+  assert.ok(Safeguards.receive(g.o, safeguardBundle(g)));
+  const b = safeguardBundle(g); b.office = null; b.current = false; b.at++;
+  assert.doesNotThrow(() => Safeguards.advance(g.o, b)); assert.equal(g.o.safeguards.job, null);
+});
+test('safeguards: altered received testimony and missing original finding records cannot grant review or renewal', () => {
+  const f = safeguardFixture(); removed(f); receivedSafeguards(f);
+  f.o.safeguards.received[0].authorization = 'Invented immunity';
+  assert.equal(Safeguards.file(f.o, safeguardBundle(f)), false);
+  const g = safeguardFixture(); removed(g); reviewedSafeguards(g);
+  g.office.records = g.office.records.filter(r => !r.id.endsWith(':finding'));
+  assert.equal(Safeguards.meet(g.o, safeguardBundle(g)), false); assert.equal(Safeguards.withdrawn(g.o, g.watch.id), true);
 });
