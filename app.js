@@ -84609,18 +84609,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       && c.clerkPresent && c.lineOfSight && c.presentIds.includes(s.personId));
   }
   function refreshWatchRecognitionKnowledge() {
-    if (watchRecognitionObserved()) state.watchRecognitionKnowledge = { ...WatchRecognition.publicView(state.watchRecognition), reportedAt: state.clock };
+    if (watchRecognitionObserved()) {
+      const args = [state.watchRecognition, state.charterRecognition, state.publicWorksRecognition, state.citySuccession,
+        state.incumbentResistance, scientistCivicOffice(), watchRecognitionContext()];
+      state.watchRecognitionKnowledge = { ...WatchRecognition.publicView(state.watchRecognition),
+        permissionCurrent: Boolean(WatchRecognition.authorization(...args)),
+        reaffirmationCurrent: WatchRecognition.reaffirmationCurrent(...args), reportedAt: state.clock };
+    }
   }
   function updateWatchRecognition() {
     const s = state.watchRecognition; if (!s || scientistIsDead()) return 0;
-    const before = s.receipt?.id;
+    const before = s.receipt?.id, renewedBefore = s.reaffirmation?.receipt?.id;
     const changed = WatchRecognition.advance(s, state.charterRecognition, state.publicWorksRecognition, state.citySuccession,
       state.incumbentResistance, scientistCivicOffice(), watchRecognitionContext(s.job?.kind === 'instruction'), state.clock,
       { move: moveSuccessionParticipant });
     if (s.job && !state.combat?.routineSuspension) suspendScientistRoutineWork('watch recognition');
     if (!s.job && state.combat?.routineSuspension?.reason === 'watch recognition') resumeScientistRoutineWork();
-    if (s.receipt?.id !== before && watchRecognitionObserved()) {
-      addEvent(s.message, { sourceKind: 'watchRecognition', sourceId: s.receipt.id }); state.paused = true;
+    if ((s.receipt?.id !== before || s.reaffirmation?.receipt?.id !== renewedBefore) && watchRecognitionObserved()) {
+      addEvent(s.message, { sourceKind: 'watchRecognition', sourceId: s.reaffirmation?.receipt?.id || s.receipt.id }); state.paused = true;
     }
     refreshWatchRecognitionKnowledge(); return changed ? 1 : 0;
   }
@@ -84660,6 +84666,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const args = [s, state.charterRecognition, state.publicWorksRecognition, state.citySuccession, state.incumbentResistance, office], previousMessage = s.message; let ok = false;
     if (action === 'meet') ok = WatchRecognition.meet(...args, c, state.clock);
     if (action === 'sign') ok = WatchRecognition.sign(...args, expected, c, state.clock);
+    if (action === 'reaffirmMeeting') ok = WatchRecognition.reaffirmMeeting(...args, c, state.clock);
+    if (action === 'reaffirmSign' && JSON.stringify(expected) === JSON.stringify(WatchRecognition.publicView(s).reaffirmation?.terms))
+      ok = WatchRecognition.reaffirmSign(...args, s.reaffirmation.terms, c, state.clock);
     if (action === 'order') ok = WatchRecognition.order(...args, expected, c, state.clock);
     if (action === 'cancel') ok = WatchRecognition.cancel(s, state.citySuccession, office, state.clock);
     if (action === 'receive') ok = WatchRecognition.receive(s, state.citySuccession, office, c, state.clock, { communicate: r => {
@@ -84696,7 +84705,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       panel.append(textEl('p', `${v.working.kind}: attended ${formatDuration(v.working.progress)} / ${formatDuration(v.working.seconds)}.`));
       button('Cancel unfinished watch meeting', 'cancel', !observed);
     }
-    if (v.receipt && !v.working && !v.duty) button('Order ten-minute physical counter watch', 'order', blocked, clonePlainObject(v.instructionTerms));
+    if (v.receipt) panel.append(textEl('p', `Original signature retained. Current permission for a new watch assignment: ${v.permissionCurrent ? 'supported' : 'unsupported'}. Existing reports and accepted safe return remain separate.`));
+    if (observed && v.receipt && !v.working && !v.duty && state.charterRecognition?.reconsideration) {
+      button('Meet original watch official for separate reaffirmation', 'reaffirmMeeting', blocked || c.geometryAvailable === false
+        || scientistCivicOffice()?.maintenanceReady === false || !WatchRecognition.canReaffirm(s, state.charterRecognition,
+          state.publicWorksRecognition, state.citySuccession, state.incumbentResistance, scientistCivicOffice(), c));
+    }
+    if (v.reaffirmation) {
+      const r = v.reaffirmation; panel.append(textEl('h4', 'Separate civil-watch reaffirmation'));
+      if (r.response) panel.append(textEl('p', r.response.reason));
+      if (r.terms && !r.receipt) {
+        panel.append(textEl('p', r.terms.duties), textEl('p', r.terms.retainedRights),
+          textEl('p', `Exact reaffirmation expires ${formatClock(r.terms.expiresAt)}. Officer duty is not replenished; prior reports and coercion remain.`));
+        if (!v.working && !v.duty) button('Accept exact watch reaffirmation', 'reaffirmSign', blocked || state.clock >= r.terms.expiresAt, clonePlainObject(r.terms));
+      }
+      if (r.receipt) panel.append(textEl('p', `${formatClock(r.receipt.at)}: linked original-watch reaffirmation recorded. Current agreement: ${v.reaffirmationCurrent ? 'supported' : 'unsupported'}. Actual duty, power, usable counter and reachable post are still required.`));
+      for (const old of v.previousReaffirmations || []) panel.append(textEl('p', `Earlier original-watch response: ${old.response?.decision || 'unfinished'}; ${old.receipt ? 'historical signature retained' : 'no signature'}.`));
+    }
+    if (v.receipt && !v.working && !v.duty) button('Order ten-minute physical counter watch', 'order', blocked || !v.permissionCurrent, clonePlainObject(v.instructionTerms));
     if (v.duty) panel.append(textEl('p', `Original officeholder: ${v.duty.status}; observed duty ${formatDuration(v.duty.progress)} / ten minutes. No additional guards or automatic arrests.`));
     for (const completion of v.completions.slice(-3)) panel.append(textEl('p', `${formatClock(completion.at)}: ${completion.status}; ${formatDuration(completion.seconds)} observed duty, physical return recorded.`));
     if (v.receipt && !v.working && !v.duty) button('Receive actual watch incident reports (30 seconds duty)', 'receive', blocked);

@@ -62,6 +62,105 @@ async function setup(page, renderer, policy = 'considerCounterObservation') {
   expect(await page.evaluate(policy => window.helixHeresyDebug.configureWatchRecognitionTest({ policy }), policy)).toBe(true);
   await visits(page);
 }
+for (const renderer of ['dom', 'canvas']) test(`${renderer}: watch reaffirmation separately restores physical observation after revised authority without replacing history`, async ({ page }) => {
+  test.setTimeout(600000);
+  const errors = []; page.on('pageerror', e => errors.push(e.message)); await setup(page, renderer);
+  const civic = (action, terms) => page.evaluate(({ action, terms }) => window.helixHeresyDebug.charterRecognitionAction(action, terms), { action, terms });
+  const civicTick = n => page.evaluate(n => window.helixHeresyDebug.advanceCharterRecognitionForTest(n), n);
+  const works = (action, terms) => page.evaluate(({ action, terms }) => window.helixHeresyDebug.publicWorksRecognitionAction(action, terms), { action, terms });
+  const worksTick = n => page.evaluate(n => window.helixHeresyDebug.advancePublicWorksRecognitionForTest(n), n);
+  await ui(page, 'meet'); await advance(page, 60); await ui(page, 'sign');
+  await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(60));
+  const original = await snap(page), officer = original.succession.leaders.find(a => a.id === original.recognition.personId);
+  expect(await page.evaluate(() => {
+    const d = window.helixHeresyDebug; d.configureCityAdministrationTest({ supplies: { relayBattery: 1 } });
+    return d.cityAdministrationAction('battery');
+  })).toBe(true);
+  await page.evaluate(rule => window.helixHeresyDebug.configureCharterRecognitionTest({ rule }),
+    { ...original.context.rule, text: 'Authentic clarified local confirmation requirement for renewed counter duty.' });
+  expect(await act(page, 'reaffirmMeeting')).toBe(false); expect(await act(page, 'order', original.known.instructionTerms)).toBe(false);
+  expect(await civic('reconsider')).toBe(true); let s = await snap(page);
+  await civicTick(s.charter.reconsideration.readyAt - s.clock);
+  expect(await civic('hearReconsideration')).toBe(true); await civicTick(180);
+  expect((await snap(page)).charter.reconsideration.finding.outcome).toBe('eligible');
+  expect(await act(page, 'reaffirmMeeting')).toBe(false);
+  expect(await civic('reaffirmMeeting')).toBe(true); await civicTick(60); s = await snap(page);
+  expect(await civic('reaffirmSign', s.charter.reaffirmation.terms)).toBe(true); await civicTick(60);
+  expect(await act(page, 'reaffirmMeeting')).toBe(false);
+  expect(await works('reaffirmMeeting')).toBe(true); await worksTick(60);
+  expect(await works('reaffirmSign', (await page.evaluate(() => window.helixHeresyDebug.publicWorksRecognitionSnapshot())).known.reaffirmation.terms)).toBe(true);
+  await worksTick(60); s = await snap(page);
+  expect(s.known.permissionCurrent).toBe(false);
+  expect(await act(page, 'order', original.known.instructionTerms)).toBe(false);
+  const power = s.office.power, duty = s.office.workSeconds, work = s.succession.leaders.find(a => a.id === officer.id).workSeconds;
+  const upkeep = await page.evaluate(() => window.helixHeresyDebug.cityAdministrationSnapshot().administration);
+  await ui(page, 'reaffirmMeeting'); await advance(page, 20); await reload(page);
+  expect((await snap(page)).recognition.job.progress).toBe(20);
+  await page.evaluate(() => window.helixHeresyDebug.configureWatchRecognitionTest({ powered: false })); await advance(page, 500);
+  expect((await snap(page)).recognition.job.progress).toBe(20);
+  await page.evaluate(() => window.helixHeresyDebug.configureWatchRecognitionTest({ powered: true }));
+  await advance(page, 1); await advance(page, 40); s = await snap(page);
+  expect(s.recognition.reaffirmation.response.decision).toBe('offered');
+  expect(await act(page, 'reaffirmSign', { ...s.known.reaffirmation.terms, role: 'militaryDefenseCommand' })).toBe(false);
+  await ui(page, 'reaffirmSign'); await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(20)); await reload(page);
+  expect((await snap(page)).recognition.reaffirmation.receipt).toBeNull();
+  await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(40)); s = await snap(page);
+  expect(s.recognition.reaffirmation.receipt).toMatchObject({ type: 'watchReaffirmation', originalReceiptId: original.recognition.receipt.id,
+    personId: officer.id, recorderId: original.office.clerk.id, role: 'civilWatch', origin: 'coerced',
+    worksReaffirmationId: s.works.reaffirmation.receipt.id, administrationReaffirmationId: s.charter.reaffirmation.receipt.id });
+  expect(s.known.permissionCurrent).toBe(true); expect(s.known.reaffirmationCurrent).toBe(true);
+  expect(s.office.workSeconds).toBe(duty - 120); expect(s.office.power).toBe(power - 2);
+  expect(s.succession.leaders.find(a => a.id === officer.id).workSeconds).toBe(work - 120);
+  expect(s.office.records.filter(r => r.type === 'watchReaffirmation')).toHaveLength(1);
+  expect(s.recognition.receipt).toEqual(original.recognition.receipt); expect(s.recognition.response).toEqual(original.recognition.response);
+  expect(s.charter.recognition).toEqual(original.charter.recognition); expect(s.works.receipt).toEqual(original.works.receipt);
+  const afterUpkeep = await page.evaluate(() => window.helixHeresyDebug.cityAdministrationSnapshot().administration);
+  // Native time advances the existing upkeep clock; its installation, custody,
+  // deadlines and independent objection are the facts this agreement must retain.
+  for (const key of ['installation', 'receipts', 'dueAt', 'graceUntil', 'staffIds', 'workCaps'])
+    expect(afterUpkeep[key]).toEqual(upkeep[key]);
+  const { lastAt: beforeResistanceClock, ...beforeResistance } = upkeep.resistance;
+  const { lastAt: afterResistanceClock, ...afterResistance } = afterUpkeep.resistance;
+  expect(afterResistanceClock).toBeGreaterThanOrEqual(beforeResistanceClock);
+  expect(afterResistance).toEqual(beforeResistance);
+  expect(s.succession.handover).toBeNull(); expect(s.succession.control).toBeNull(); expect(s.succession.agreements).toEqual([]);
+  expect(s.succession.leaders.map(a => a.id)).toEqual(original.succession.leaders.map(a => a.id));
+  expect(JSON.stringify(s.known)).not.toMatch(/"evidence"|"conditions"|watchPolicy|workSeconds/);
+  expect(await act(page, 'reaffirmMeeting')).toBe(false); expect(await act(page, 'reaffirmSign', s.known.reaffirmation.terms)).toBe(false);
+  expect(await act(page, 'order', original.known.instructionTerms)).toBe(false);
+  await ui(page, 'order'); await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(30));
+  expect((await snap(page)).recognition.duty.status).toBe('walking'); await advance(page, 25);
+  expect((await snap(page)).recognition.duty.status).toBe('observing');
+  if (renderer === 'dom') {
+    expect(await page.evaluate(() => { const d = window.helixHeresyDebug;
+      return d.startScientistCombatAction('shove', d.watchRecognitionSnapshot().succession.ruler.id); })).toBe(true);
+    await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(1)); s = await snap(page);
+    expect(s.recognition.reports).toHaveLength(1); expect(s.recognition.reports[0].communicatedAt).toBeNull();
+    expect(s.known.reports).toEqual([]); expect(await act(page, 'receive')).toBe(false);
+  }
+  await advance(page, 100); const partial = (await snap(page)).recognition.duty.progress;
+  await reload(page); expect((await snap(page)).recognition.duty.progress).toBe(partial);
+  await page.evaluate(() => window.helixHeresyDebug.configureWatchRecognitionTest({ powered: false }));
+  await advance(page, 500); expect((await snap(page)).recognition.duty.progress).toBe(partial);
+  await page.evaluate(() => window.helixHeresyDebug.configureWatchRecognitionTest({ powered: true })); await advance(page, 1);
+  expect(await page.evaluate(() => Boolean(window.helixHeresyDebug.startScientistMove('supportedSurveyGround',
+    { toCell: { x: 10, y: 14, z: 6 }, allowMultiRoom: true })))).toBe(true);
+  await finishWalk(page); const dated = (await snap(page)).known;
+  await advance(page, 650); s = await snap(page);
+  expect(s.known).toEqual(dated); expect(s.recognition.duty).toBeNull(); expect(s.recognition.deliveries).toHaveLength(1);
+  expect(s.recognition.deliveries[0].seconds).toBe(600); expect(s.succession.leaders.find(a => a.id === officer.id).mapCell).toEqual(officer.mapCell);
+  expect(await act(page, 'walk')).toBe(true); await finishWalk(page); await visits(page);
+  if (renderer === 'dom') {
+    expect(await act(page, 'receive')).toBe(true); s = await snap(page);
+    expect(s.known.reports).toHaveLength(1); expect(s.context.conduct.some(r => r.id === s.recognition.reports[0].id)).toBe(true);
+    expect(s.known.permissionCurrent).toBe(false); expect(s.known.reaffirmationCurrent).toBe(false);
+    expect(s.recognition.receipt).toEqual(original.recognition.receipt);
+    expect(s.office.records.filter(r => r.type === 'watchReaffirmation')).toHaveLength(1);
+    expect(await act(page, 'receive')).toBe(false); expect(await act(page, 'order', s.known.instructionTerms)).toBe(false);
+    await expect(page.locator('[data-watch-recognition]')).toContainText('Current permission for a new watch assignment: unsupported');
+  }
+  expect(errors).toEqual([]);
+});
 for (const renderer of ['dom', 'canvas']) test(`${renderer}: separate watch assent and actual finite counter duty survive reload, outages and absence`, async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message)); await setup(page, renderer);
   const original = await snap(page), person = original.succession.leaders.find(a => a.id === original.recognition.personId);

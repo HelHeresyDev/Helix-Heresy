@@ -18,14 +18,13 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Civil-Watch Reaffirmation after Revised Authority
-2. Religious Covenants and Local Branch Cooperation
-3. Occupation and Replacement Appointments
-4. Strategic Expansion and World Domination
-5. Divine Supremacy: Rule over the Gods
-6. New-Run Onboarding and Contextual Tutorial
-7. Sound, Notifications, and Accessibility Audit
-8. Production Art Pass Using the Sprite Pipeline
+1. Religious Covenants and Local Branch Cooperation
+2. Occupation and Replacement Appointments
+3. Strategic Expansion and World Domination
+4. Divine Supremacy: Rule over the Gods
+5. New-Run Onboarding and Contextual Tutorial
+6. Sound, Notifications, and Accessibility Audit
+7. Production Art Pass Using the Sprite Pipeline
 
 Human staffing now supports bounded independent annex operation without intelligent creations. Homunculus growth, learned local continue/stop gestures, small separately learned signed and spoken languages, care-grounded spoken help requests and specifically demonstrated voluntary carrying agreements exist; literacy, wider education and standing creature employment do not. Homunculi remain advanced stage-two/three work, not early-laboratory unlocks; priority order does not impose compulsory campaign chapters.
 
@@ -63,7 +62,9 @@ Original-defender recognition and one protective ward duty are implemented separ
 
 Local religious petitions and authenticated patron interests are implemented separately: an actual personally recorded designation claim, known founding god, present confirmed original local branch and one population-backed faithful representative support attended exact terms at the existing civic counter. Representative facilitation and the god's reply are separate stable decisions; a non-worshipping scientist may petition without conversion. Sixty seconds of meeting, three minutes of original authored-channel communication and one minute of original-clerk filing each consume actual duty and counter power; communication also spends finite original divine reserve and attention without refunds or free recharge. Replies bind the original god, faith, explicit doctrine, disclosed coercion/conduct, claim, body, charter and narrow scope. Refused, conditional and unresolved replies cannot be relabeled as approval; unsupported oaths and remedies remain unmet. Some newly generated supported charters explicitly require this authorization, while existing saved laws remain unchanged. Only an authentic approved reply actually entered by the original clerk can support a separately requested independent review. Historical findings, other signatures, rights, cases and spent costs remain intact; no church command, automatic recognition, army, immunity, divine submission or ambition completion follows. Partial work, outages without backfill, original people, saved responses and dated away knowledge survive reload; death freezes them. Do not repeat this completed petition as a new prerequisite. Continuing covenants and local branch cooperation remain a separate discussion below.
 
-Original-public-works reaffirmation is implemented separately after a current authentic eligible reconsideration and original administrative records-only agreement. The same original official can stably refuse or offer exact one-hour terms; meeting and signing each consume one attended minute of official/shared-clerk duty and one counter power allocation. A once-only linked register receipt makes only the existing supplied counter-upkeep basis current, without replacing original signatures, custody manifests, deadlines, rights, cases or obligations. Prior public-works objections remain independent: supported repair, actual independent review and explicit cooperation renewal cannot be replaced by this new authority agreement. Original accepted maintenance duties support narrowly essential carried provisioning, supplied clerk/maintenance-official recovery and physically executed repair while revised authority would otherwise deadlock an offline counter; no free restoration or renewed political obedience follows. Records-only administrative consent does not restore that person's staffing duties. Partial work, outages without backfill, spent costs, earlier responses, authentic bodies, original people and dated away knowledge survive reload; death freezes them. Watch, defense, clergy and other roles do not renew assent, and no army, pardon, handover or ambition completion follows. Do not repeat this completed slice. Original-watch reaffirmation is the next optional supported branch.
+Original-public-works reaffirmation is implemented separately after a current authentic eligible reconsideration and original administrative records-only agreement. The same original official can stably refuse or offer exact one-hour terms; meeting and signing each consume one attended minute of official/shared-clerk duty and one counter power allocation. A once-only linked register receipt makes only the existing supplied counter-upkeep basis current, without replacing original signatures, custody manifests, deadlines, rights, cases or obligations. Prior public-works objections remain independent: supported repair, actual independent review and explicit cooperation renewal cannot be replaced by this new authority agreement. Original accepted maintenance duties support narrowly essential carried provisioning, supplied clerk/maintenance-official recovery and physically executed repair while revised authority would otherwise deadlock an offline counter; no free restoration or renewed political obedience follows. Records-only administrative consent does not restore that person's staffing duties. Partial work, outages without backfill, spent costs, earlier responses, authentic bodies, original people and dated away knowledge survive reload; death freezes them. Watch, defense, clergy and other roles do not renew assent, and no army, pardon, handover or ambition completion follows. Do not repeat this completed slice. Original-watch reaffirmation is implemented separately below.
+
+Original-civil-watch reaffirmation is implemented separately after a current authentic eligible reconsideration, original administrative records-only agreement and separately renewed original public-works support for the existing counter. The same original watch official independently refuses or offers exact one-hour terms; discussion and signing each consume one actual attended minute of officer/shared-clerk duty and one finite counter power allocation. One linked register receipt restores only the existing exact ten-minute physical counter-observation instruction, not new guards, arrests, enforcement, defense command, immunity or officer recovery. Original signatures, prior decisions, private and received reports, public-works objections, cases, rights, supplies and coercion remain intact. Real path geometry, usable service, sight and finite duty still govern execution. Already accepted safe observation/return finish separately and cannot be overlapped or reset by a fresh agreement; physically communicated new scientist conduct can invalidate permission again without erasing reports or forgiving violence. Partial work, spent costs, earlier receipts, actual original people and dated away knowledge survive reload; death freezes them. Unchanged answered facts cannot reroll or refresh unsigned expiry. No handover, other institutional obedience, army or ambition completion follows. Do not repeat this completed slice; wider watch staffing/recovery and continuing religious cooperation remain separate discussions.
 
 ## World and Run Guardrails
 
@@ -129,19 +130,13 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Civil-Watch Reaffirmation after Revised Authority
-
-Discuss one separate original-watch response after a current eligible reconsideration and actual role-specific administrative/public-works support for the proposed counter duty. New civic or public-works signatures cannot renew the watch automatically. Preserve its original receipt, received reports, independent rights and stable grounds for refusal; accepted safe observation and return remain separate from permission for a new assignment. Choose the existing physical counter-watch consumer under explicit original-person terms and finite clerk/officer duty, actual geometry, power and usable infrastructure. Do not repeat initial recognition or invent new guards, arrests, cleared cases, forgiven violence, defense commands or immunity. Unchanged facts cannot reroll; new received evidence requires the supported independent procedure rather than silent erasure.
-
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. Religious Covenants and Local Branch Cooperation
+## 1. Religious Covenants and Local Branch Cooperation
 
 Discuss one concrete continuing religious obligation or local cooperation consumer supported by the original faithful representative, actual branch and authenticated god. The completed patron petition supplies only a scoped response for independent civic consideration, not church obedience or continuing permission. Choose either one verifiable published oath/condition from that procedure or one physically supported branch duty; split additional consumers before implementation. Ground exact clauses, refusal and prospective consequences in explicit tenets and actually received evidence, with original people, finite attention, divine reserves, work, supplies and reachable infrastructure. A god's response, a representative's agreement and city legal authority remain separate. Preserve prior replies, spent resources, coercion, cases, rights, current published laws and dated knowledge; unchanged facts cannot reroll and an unsupported condition stays unmet. No same-god doctrinal heresy, alignment shortcut, fabricated remedy, automatic forgiveness, army, immunity, global religious command or divine submission. Broader religious conflict and divine supremacy require separate discussions.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Occupation and Replacement Appointments
+## 2. Occupation and Replacement Appointments
 
 Discuss the first bounded occupation or contested replacement appointment beyond whichever actual succession or coerced-recognition route has been implemented. Choose one office or enforceable local obligation with real opposing actors before widening to citywide occupation. Existing recognition is not physical control; replacing an official requires a real eligible person, supported appointment procedure, actual access, duties, supplies and an opposing incumbent's response. The existing rare defender and civic people are not a freely controllable army, and a conquered installation supplies neither complete intelligence nor automatic institutional obedience. Collective rulers and unsupported charters retain distinct procedures. Split broader enforcement, organized resistance and provisioning prerequisites when needed. No assay appointment, bargain, witnessed bout, personal ceasefire, payment, reputation or internet recognition grants sovereign command by itself.
 
@@ -149,31 +144,31 @@ Require actual people, rare powerful defenders, material resources, reachable in
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Strategic Expansion and World Domination
+## 3. Strategic Expansion and World Domination
 
 Design physically supportable expansion between existing support components, significant beast powers, and divine interests, then implement only the next mechanically supported slice. Specify finite, testable durable-supremacy criteria before adding victory evaluation; occupation of every empty globe cell is not required. Bind campaigns to actual routes, transport, manpower, resources, defense, agreements, and resistance. Keep unknown powers and hidden totals out of ordinary campaign records. World domination is an exceptionally rare dated accomplishment, not a game-over transition, and remains separate from divine supremacy.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. Divine Supremacy: Rule over the Gods
+## 4. Divine Supremacy: Rule over the Gods
 
 Design and implement the ultimate ambition of imposing enforceable submission on the gods, killing those who refuse, and reigning over the rest. Submission must impose actual terms and consequences rather than a reputation threshold or cosmetic declaration. Cover discovery, human and beast gods, living descended individuals, avatars versus the actual divine individual, rebellion, and new ascendants. Destroying worship or forcing descent is not a kill. Scientific, animantic, engineered-creature, and personal-power approaches should remain possible without requiring the scientist to ascend. Theme-compatible presentations do not remove the refusal-and-death requirement. Define finite, testable accomplishment criteria without exposing hidden identities or counts; allow continued play after success and keep world domination a separate accomplishment. Split prerequisite combat, submission, or enforcement systems into further prompts if needed.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. New-Run Onboarding and Contextual Tutorial
+## 5. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Sound, Notifications, and Accessibility Audit
+## 6. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Production Art Pass Using the Sprite Pipeline
+## 7. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 

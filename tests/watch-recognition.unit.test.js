@@ -7,6 +7,7 @@ const Abdication = require('../incumbent-resistance');
 const Succession = require('../city-succession');
 const Bargains = require('../sovereign-bargains');
 const Institutions = require('../home-institution-context');
+const Administration = require('../city-administration');
 const copy = v => JSON.parse(JSON.stringify(v));
 function fixture(theme = 'madcap') {
   const office = { id: 'office:a', cityId: 'a', institutionId: 'admin:a', active: true, channelPowered: true,
@@ -217,4 +218,236 @@ test('another actor can be reported without attributing that conduct to the scie
   } }));
   assert.equal(received[0].actorId, 'original-defender'); assert.equal(f.c.conduct.length, 0);
   assert.ok(Charter.authorityCurrent(f.charter, f.succession, f.abdication, f.office, f.c));
+});
+
+// Use the real original installation and a real carried battery; no rewritten
+// signature, manufactured eligible finding, replacement officer or free refill.
+function supportedCounter(f) {
+  f.u = Administration.create(f.succession, f.b, f.office, { context: { ...f.c,
+    recognitions: { publicWorks: f.works, charter: f.charter, abdication: f.abdication }, recognitionContext: f.c } });
+  assert.ok(f.u); f.c.upkeep = f.u; return supplyBattery(f);
+}
+function supplyBattery(f) {
+  const c = { ...f.c, workerPresent: true,
+    recognitions: { publicWorks: f.works, charter: f.charter, abdication: f.abdication }, recognitionContext: f.c };
+  const battery = { id: 'watch:carried-battery', key: 'relayBattery', quantity: 1, carriedBy: 'scientist' };
+  assert.ok(Administration.handSupply(f.u, f.succession, f.b, f.office, [battery], 'relayBattery', c, f.at));
+  assert.equal(battery.quantity, 0); return f;
+}
+function revised(f, suffix = 'clarified') {
+  f.c.rule.text = `Authentic clarified local confirmation requirement: ${suffix}`;
+  const a = [f.charter, f.succession, f.abdication, f.office, f.institutions];
+  assert.ok(Charter.reconsider(...a, f.c, f.at)); f.at = f.charter.reconsideration.readyAt;
+  assert.ok(Charter.hearReconsideration(...a, f.c, f.at)); f.at += 180; Charter.advance(...a, f.c, f.at);
+  assert.equal(f.charter.reconsideration.finding.outcome, 'eligible'); return f;
+}
+function adminRenewed(f) {
+  const a = [f.charter, f.succession, f.abdication, f.office, f.institutions];
+  assert.ok(Charter.reaffirmMeeting(...a, f.c, f.at)); f.at += 60; Charter.advance(...a, f.c, f.at);
+  assert.ok(Charter.reaffirmSign(...a, copy(f.charter.reaffirmation.terms), f.c, f.at)); f.at += 60; Charter.advance(...a, f.c, f.at); return f;
+}
+function worksRenewed(f) {
+  const a = [f.works, f.charter, f.succession, f.abdication, f.office];
+  assert.ok(Works.reaffirmMeeting(...a, f.c, f.at)); f.at += 60; Works.advance(...a, f.c, f.at);
+  assert.ok(Works.reaffirmSign(...a, copy(f.works.reaffirmation.terms), f.c, f.at)); f.at += 60; Works.advance(...a, f.c, f.at);
+  assert.ok(Works.reaffirmationCurrent(...a, f.c)); return f;
+}
+function ready(theme = 'madcap') {
+  const f = fixture(theme); recognize(f); supportedCounter(f); return worksRenewed(adminRenewed(revised(f)));
+}
+function reaffirmed(f) {
+  assert.ok(Watch.reaffirmMeeting(...args(f), f.c, f.at)); tick(f, 60);
+  assert.equal(f.s.reaffirmation.response.decision, 'offered');
+  assert.ok(Watch.reaffirmSign(...args(f), copy(f.s.reaffirmation.terms), f.c, f.at)); tick(f, 60);
+  assert.ok(Watch.reaffirmationCurrent(...args(f), f.c)); return f;
+}
+test('each theme separately reaffirms only the original watch with once-only linked register receipt and finite costs', () => {
+  for (const theme of ['madcap', 'grim', 'unbound']) {
+    const f = ready(theme), historical = copy({ receipt: f.s.receipt, response: f.s.response, terms: f.s.terms,
+      charter: f.charter, works: f.works, reports: f.s.reports, deliveries: f.s.deliveries, upkeep: f.u,
+      ruler: f.succession.ruler, defender: f.b.defender, agreements: f.succession.agreements });
+    const duty = f.office.workSeconds, work = f.actor.workSeconds, power = f.office.power;
+    assert.equal(Watch.authorization(...args(f), f.c), null); reaffirmed(f);
+    assert.equal(f.office.workSeconds, duty - 120); assert.equal(f.actor.workSeconds, work - 120); assert.equal(f.office.power, power - 2);
+    assert.deepEqual({ receipt: f.s.receipt, response: f.s.response, terms: f.s.terms,
+      charter: f.charter, works: f.works, reports: f.s.reports, deliveries: f.s.deliveries, upkeep: f.u,
+      ruler: f.succession.ruler, defender: f.b.defender, agreements: f.succession.agreements }, historical);
+    assert.equal(Watch.authorization(...args(f), f.c), f.s.receipt);
+    assert.equal(f.s.reaffirmation.receipt.type, 'watchReaffirmation');
+    assert.equal(f.s.reaffirmation.receipt.worksReaffirmationId, f.works.reaffirmation.receipt.id);
+    assert.equal(f.s.reaffirmation.receipt.originalReceiptId, historical.receipt.id);
+    assert.equal(f.office.records.filter(r => r.type === 'watchReaffirmation').length, 1);
+    assert.equal(Watch.reaffirmMeeting(...args(f), f.c, f.at), false);
+    assert.equal(Watch.reaffirmSign(...args(f), copy(f.s.reaffirmation.terms), f.c, f.at), false);
+    assert.equal(f.succession.handover, null); assert.equal(f.succession.control, null); assert.equal(f.succession.provision.stock, 0);
+  }
+});
+test('watch renewal requires separately authentic administrative and public-works support, not just eligible reconsideration', () => {
+  const f = fixture(); recognize(f); supportedCounter(f); revised(f);
+  assert.equal(Watch.reaffirmMeeting(...args(f), f.c, f.at), false);
+  adminRenewed(f); assert.equal(Watch.reaffirmMeeting(...args(f), f.c, f.at), false);
+  worksRenewed(f); assert.equal(Watch.authorization(...args(f), f.c), null);
+  assert.ok(Watch.canReaffirm(...args(f), f.c));
+  for (const change of [f => f.charter.reconsideration.finding.outcome = 'unresolved',
+    f => f.charter.reaffirmation.receipt.recorderId = 'replacement', f => f.works.reaffirmation.receipt.role = 'civilWatch',
+    f => f.office.records = [], f => f.s.receipt.personId = 'replacement', f => f.s.terms.duties = 'army',
+    f => f.s.response.facts = null, f => f.charter.review = null, f => f.charter.claim = null,
+    f => f.actor.institutionId = 'other', f => f.actor.status = 'dead', f => f.actor.locationId = 'other',
+    f => f.office.clerk.id = 'replacement', f => f.office.clerk = null, f => f.c.watchAvailable = false, f => f.c.watchInstitutionId = 'other',
+    f => f.c.publicWorksAvailable = false, f => f.c.upkeep = null, f => f.u.installation.workCell.x++,
+    f => f.c.bodyEpoch++, f => f.c.cityId = 'foreign', f => f.c.atCounter = false, f => f.c.local = false,
+    f => f.c.presentIds = [], f => f.c.busy = true, f => f.c.activeViolence = true, f => f.c.geometryAvailable = false,
+    f => f.office.maintenanceReady = false, f => f.office.workSeconds = 59, f => f.actor.workSeconds = 59,
+    f => f.actor.assignment = 'other-duty', f => f.office.power = 0]) {
+    const g = ready(); change(g); const old = copy({ s: g.s, actor: g.actor, office: g.office });
+    assert.equal(Watch.reaffirmMeeting(...args(g), g.c, g.at), false);
+    assert.deepEqual({ s: g.s, actor: g.actor, office: g.office }, old);
+  }
+});
+test('original watch independence and incompatible obligations refuse stably without refreshing offers or clearing evidence', () => {
+  for (const why of ['policy', 'conditions']) {
+    const f = ready(); if (why === 'policy') f.actor.watchPolicy = 'declineCoercedContinuation';
+    else f.c.watchConditions = ['Existing watch duty conflicts with proposed observation'];
+    assert.ok(Watch.reaffirmMeeting(...args(f), f.c, f.at)); tick(f, 60);
+    const old = copy(f.s.reaffirmation), power = f.office.power;
+    assert.equal(old.response.decision, 'refused'); assert.equal(old.terms, null);
+    f.s = Watch.normalize(f.s); f.actor.watchPolicy = 'considerCounterObservation';
+    assert.equal(Watch.reaffirmMeeting(...args(f), f.c, f.at + 1000), false);
+    assert.deepEqual(f.s.reaffirmation, old); assert.equal(f.office.power, power);
+    assert.equal(Watch.authorization(...args(f), f.c), null);
+  }
+  const f = fixture(); recognize(f); supportedCounter(f);
+  const incident = { id: 'actual-renewed-attack', at: f.at, kind: 'attack', witnessId: f.office.clerk.id };
+  f.c.conduct.push(incident); revised(f);
+  const ca = [f.charter, f.succession, f.abdication, f.office, f.institutions];
+  assert.ok(Charter.reaffirmMeeting(...ca, f.c, f.at)); f.at += 60; Charter.advance(...ca, f.c, f.at);
+  assert.equal(f.charter.reaffirmation.response.decision, 'refused');
+  assert.equal(Watch.reaffirmMeeting(...args(f), f.c, f.at), false); assert.deepEqual(f.c.conduct, [incident]);
+});
+test('partial watch reaffirmation saves and pauses through lost attendance and power without backfill', () => {
+  const f = ready(), work = f.actor.workSeconds, duty = f.office.workSeconds, power = f.office.power;
+  assert.ok(Watch.reaffirmMeeting(...args(f), f.c, f.at)); tick(f, 20); f.s = Watch.normalize(f.s);
+  f.c.clerkPresent = false; tick(f, 500); assert.equal(f.s.job.progress, 20);
+  f.c.clerkPresent = true; tick(f, 100); assert.equal(f.s.job.progress, 20); tick(f, 40);
+  assert.ok(Watch.reaffirmSign(...args(f), copy(f.s.reaffirmation.terms), f.c, f.at)); tick(f, 20); f.s = Watch.normalize(f.s);
+  f.office.channelPowered = false; tick(f, 500); assert.equal(f.s.job.progress, 20);
+  f.office.channelPowered = true; tick(f, 100); assert.equal(f.s.job.progress, 20); tick(f, 40);
+  assert.ok(Watch.reaffirmationCurrent(...args(f), f.c)); assert.equal(f.actor.workSeconds, work - 120);
+  assert.equal(f.office.workSeconds, duty - 120); assert.equal(f.office.power, power - 2);
+});
+test('expired unsigned watch terms cannot be refreshed on identical answered circumstances', () => {
+  const f = ready(); assert.ok(Watch.reaffirmMeeting(...args(f), f.c, f.at)); tick(f, 60);
+  const terms = copy(f.s.reaffirmation.terms); f.at = terms.expiresAt - 10;
+  assert.ok(Watch.reaffirmSign(...args(f), terms, f.c, f.at)); tick(f, 10);
+  assert.equal(f.s.job, null); assert.equal(f.s.reaffirmation.receipt, null);
+  assert.equal(Watch.reaffirmMeeting(...args(f), f.c, f.at), false);
+  assert.equal(Watch.reaffirmSign(...args(f), terms, f.c, f.at), false);
+  assert.equal(f.s.reaffirmation.terms.expiresAt, terms.expiresAt);
+});
+test('forged watch reaffirmations, scope, originals and register copies never grant an assignment', () => {
+  for (const change of [f => f.s.reaffirmation.receipt.role = 'militaryDefenseCommand', f => f.s.reaffirmation.receipt.type = 'recognition',
+    f => f.s.reaffirmation.receipt.recorderId = 'replacement', f => f.s.reaffirmation.receipt.originalReceiptId = 'fake',
+    f => f.s.reaffirmation.receipt.findingId = f.charter.review.id, f => f.s.reaffirmation.receipt.worksReaffirmationId = 'fake',
+    f => f.s.reaffirmation.receipt.bodyEpoch++, f => f.s.reaffirmation.receipt.commandRelationship.scope = 'army',
+    f => f.s.reaffirmation.terms.duties = 'unlimited obedience', f => f.s.reaffirmation.response.personId = 'replacement',
+    f => f.s.reaffirmation.receipt.at = f.s.reaffirmation.terms.expiresAt,
+    f => f.office.records = f.office.records.filter(r => r.type !== 'watchReaffirmation')]) {
+    const f = reaffirmed(ready()); change(f);
+    assert.equal(Watch.authorization(...args(f), f.c), null); assert.equal(Watch.reaffirmationCurrent(...args(f), f.c), false);
+    assert.equal(Watch.order(...args(f), Watch.instructionTerms(f.s), f.c, f.at), false);
+  }
+});
+test('cancellation, changed bodies and changed evidence preserve costs and historical watch decisions', () => {
+  for (const change of [f => f.c.bodyEpoch++, f => f.c.rule.text = 'Further authentic changed local rule',
+    f => f.works.reaffirmation.receipt.role = 'army']) {
+    const f = ready(); assert.ok(Watch.reaffirmMeeting(...args(f), f.c, f.at)); tick(f, 20);
+    const duty = f.office.workSeconds, work = f.actor.workSeconds, power = f.office.power, original = copy(f.s.receipt);
+    change(f); tick(f, 40); assert.equal(f.s.job, null); assert.equal(f.s.reaffirmation.receipt, null);
+    assert.deepEqual(f.s.receipt, original); assert.equal(f.actor.workSeconds, work); assert.equal(f.office.workSeconds, duty);
+    assert.equal(f.office.power, power); assert.equal(f.actor.assignment, null); assert.equal(f.office.assignment, null);
+  }
+  const f = ready(); assert.ok(Watch.reaffirmMeeting(...args(f), f.c, f.at)); tick(f, 20);
+  const work = f.actor.workSeconds, power = f.office.power;
+  assert.ok(Watch.cancel(f.s, f.succession, f.office, f.at)); assert.equal(f.actor.workSeconds, work); assert.equal(f.office.power, power);
+  assert.ok(Watch.reaffirmMeeting(...args(f), f.c, f.at)); tick(f, 60); const old = copy(f.s.reaffirmation);
+  f.c.watchConditions = ['Actually changed independent obligation'];
+  assert.ok(Watch.reaffirmMeeting(...args(f), f.c, f.at)); tick(f, 60);
+  assert.deepEqual(f.s.previousReaffirmations.at(-1), old); assert.equal(f.s.reaffirmation.response.decision, 'refused');
+});
+test('renewed watch still requires finite duty, actual geometry and exact instructions; no recovery is added', () => {
+  const f = reaffirmed(ready()), terms = Watch.instructionTerms(f.s), work = f.actor.workSeconds;
+  assert.equal(terms.reaffirmationId, f.s.reaffirmation.receipt.id);
+  assert.equal(Watch.order(...args(f), { ...terms, duty: 'Arrest rival' }, f.c, f.at), false);
+  for (const change of [f => f.c.postReachable = false, f => f.c.geometryAvailable = false,
+    f => f.office.maintenanceReady = false, f => f.actor.workSeconds = Watch.SECONDS + 89, f => f.office.power = 0]) {
+    const g = reaffirmed(ready()); change(g); assert.equal(Watch.order(...args(g), Watch.instructionTerms(g.s), g.c, g.at), false);
+  }
+  assert.ok(!f.u.staffIds.includes(f.actor.id)); assert.equal(f.u.workCaps[f.actor.id], undefined);
+  assert.equal(f.actor.workSeconds, work);
+  assert.ok(Watch.order(...args(f), terms, f.c, f.at)); tick(f, 30); reach(f); tick(f, 100);
+  const partial = f.s.duty.progress; f.s = Watch.normalize(f.s); f.office.channelPowered = false; tick(f, 500);
+  assert.equal(f.s.duty.progress, partial); f.office.channelPowered = true; tick(f); tick(f, 500);
+  for (let n = 0; n < 30 && f.s.duty; n++) tick(f);
+  assert.equal(f.s.duty, null); assert.equal(f.s.deliveries.length, 1); assert.equal(f.s.deliveries[0].seconds, 600);
+});
+test('received real renewed-watch incidents invalidate new permission without erasing reports or duplicating delivery', () => {
+  const f = reaffirmed(ready()), historical = copy({ receipt: f.s.receipt, reaffirmation: f.s.reaffirmation.receipt });
+  assert.ok(Watch.order(...args(f), Watch.instructionTerms(f.s), f.c, f.at)); tick(f, 30); reach(f);
+  const e = event(f); assert.ok(Watch.observe(f.s, f.succession, e, perception, f.at));
+  assert.equal(Watch.observe(f.s, f.succession, e, perception, f.at), null);
+  assert.deepEqual(Watch.publicView(f.s).reports, []); assert.equal(Watch.receive(f.s, f.succession, f.office, f.c, f.at), false);
+  assert.equal(Watch.reaffirmMeeting(...args(f), f.c, f.at), false); tick(f, 600);
+  for (let n = 0; n < 30 && f.s.duty; n++) tick(f);
+  assert.ok(Watch.receive(f.s, f.succession, f.office, f.c, f.at, { communicate: r => f.c.conduct.push(r) }));
+  assert.equal(Watch.authorization(...args(f), f.c), null); assert.equal(Watch.reaffirmationCurrent(...args(f), f.c), false);
+  assert.deepEqual({ receipt: f.s.receipt, reaffirmation: f.s.reaffirmation.receipt }, historical);
+  assert.equal(f.s.reports.length, 1); assert.equal(Watch.publicView(f.s).reports.length, 1);
+  assert.equal(Watch.receive(f.s, f.succession, f.office, f.c, f.at), false);
+  assert.equal(Watch.order(...args(f), Watch.instructionTerms(f.s), f.c, f.at), false);
+  assert.equal(Watch.reaffirmMeeting(...args(f), f.c, f.at), false);
+});
+test('old accepted safe duties and reports cannot be reset or erased by requesting new watch consent', () => {
+  const f = fixture(); watch(f); reach(f); tick(f, 100); supportedCounter(f);
+  const e = { ...event(f), actorId: 'other' }; assert.ok(Watch.observe(f.s, f.succession, e, perception, f.at));
+  worksRenewed(adminRenewed(revised(f))); const old = copy({ duty: f.s.duty, reports: f.s.reports });
+  assert.equal(Watch.reaffirmMeeting(...args(f), f.c, f.at), false); assert.deepEqual({ duty: f.s.duty, reports: f.s.reports }, old);
+  tick(f, 500); for (let n = 0; n < 30 && f.s.duty; n++) tick(f);
+  assert.equal(f.s.deliveries.length, 1); assert.equal(f.s.deliveries[0].seconds, 600);
+  reaffirmed(f); assert.equal(f.s.deliveries.length, 1); assert.equal(f.s.reports[0].communicatedAt, null);
+  assert.ok(Watch.receive(f.s, f.succession, f.office, f.c, f.at)); assert.equal(f.s.reports.length, 1);
+});
+test('death freezes watch reaffirmation and public projections never disclose private snapshots', () => {
+  const f = ready(); assert.ok(Watch.reaffirmMeeting(...args(f), f.c, f.at)); tick(f, 20);
+  f.c.alive = false; const frozen = copy({ s: f.s, actor: f.actor, office: f.office }); tick(f, 2000);
+  assert.deepEqual({ s: f.s, actor: f.actor, office: f.office }, frozen);
+  const g = reaffirmed(ready()), view = Watch.publicView(g.s);
+  assert.equal(view.reaffirmation.receipt.originalReceiptId, g.s.receipt.id);
+  assert.equal(view.reaffirmation.terms.evidence, undefined); assert.equal(view.reaffirmation.terms.conditions, undefined);
+  assert.doesNotMatch(JSON.stringify(view), /watchPolicy|workSeconds|"evidence"|"conditions"/);
+});
+test('further genuine reconsideration requires all separate new consents and retains earlier watch receipt and original installation', () => {
+  const f = reaffirmed(ready()), original = copy(f.s.receipt), earlier = copy(f.s.reaffirmation), upkeep = copy(f.u);
+  supplyBattery(f); f.c.rule.text = 'Second genuinely received clarification';
+  assert.equal(Watch.authorization(...args(f), f.c), null); assert.equal(Watch.reaffirmMeeting(...args(f), f.c, f.at), false);
+  revised(f, 'second'); assert.equal(Watch.reaffirmMeeting(...args(f), f.c, f.at), false);
+  adminRenewed(f); assert.equal(Watch.reaffirmMeeting(...args(f), f.c, f.at), false);
+  worksRenewed(f); reaffirmed(f);
+  assert.deepEqual(f.s.receipt, original); assert.deepEqual(f.s.previousReaffirmations, [earlier]);
+  assert.deepEqual(f.u.installation, upkeep.installation); assert.equal(f.u.dueAt, upkeep.dueAt); assert.equal(f.u.graceUntil, upkeep.graceUntil);
+  assert.equal(f.office.records.filter(r => r.type === 'watchReaffirmation').length, 2);
+  assert.ok(Watch.authorization(...args(f), f.c)); assert.equal(Watch.reaffirmMeeting(...args(f), f.c, f.at), false);
+});
+test('further facts interrupt renewed signing or instruction without creating a receipt, assignment or refund', () => {
+  for (const kind of ['signing', 'instruction']) {
+    const f = ready();
+    if (kind === 'signing') {
+      assert.ok(Watch.reaffirmMeeting(...args(f), f.c, f.at)); tick(f, 60);
+      assert.ok(Watch.reaffirmSign(...args(f), copy(f.s.reaffirmation.terms), f.c, f.at));
+    } else { reaffirmed(f); assert.ok(Watch.order(...args(f), Watch.instructionTerms(f.s), f.c, f.at)); }
+    tick(f, 20); const duty = f.office.workSeconds, work = f.actor.workSeconds, power = f.office.power;
+    const old = copy(f.s.reaffirmation.receipt); f.c.rule.text = 'Authentic further received rule'; tick(f, 40);
+    assert.equal(f.s.job, null); assert.equal(f.s.duty, null); assert.equal(f.actor.assignment, null);
+    assert.equal(f.actor.workSeconds, work); assert.equal(f.office.workSeconds, duty); assert.equal(f.office.power, power);
+    assert.deepEqual(f.s.reaffirmation.receipt, old); assert.equal(Watch.authorization(...args(f), f.c), null);
+  }
 });
