@@ -16,7 +16,8 @@ async function finishWalk(page) {
       if (!task) return;
       d.advanceSimulation(Math.max(1, task.dueAt - s.clock + 1));
     }
-    throw new Error('Physical walk did not finish');
+    throw new Error(`Physical walk did not finish: ${JSON.stringify({ tasks: d.surveyExpeditionSnapshot().tasks,
+      cell: d.surveyExpeditionSnapshot().scientistCell, combat: d.combatSnapshot().routineSuspension })}`);
   });
 }
 async function setup(page, renderer = 'dom', obstruct = false, accessPolicy = 'rejectReplacement', civilPolicy = null, combinedWorks = false, opposition = null) {
@@ -108,9 +109,9 @@ async function civilOrder(page) {
   await panel.locator('[data-civil-access-action="discuss"]').click(); await advance(page, 60);
   return panel;
 }
-async function oppositionReady(page, renderer = 'dom', settle = true) {
+async function oppositionReady(page, renderer = 'dom', settle = true, defense = {}) {
   await setup(page, renderer, true, 'rejectReplacement', 'considerCivilEscort', false,
-    { joinOpposition: true, settleOpposition: settle });
+    { joinOpposition: true, settleOpposition: settle, ...defense });
   const panel = await civilOrder(page); let s = await snap(page);
   expect(await civil(page, 'sign', s.appointments.enforcement.terms)).toBe(true); await advance(page, 60);
   expect(await civil(page, 'serve')).toBe(true); await advance(page, 120);
@@ -176,9 +177,83 @@ test('Canvas: organized opposition keeps categorical refusal, dated away knowled
   expect(s.appointments.receipt).toEqual(before.appointments.receipt); expect(s.office.localOppositionAccounts).toBeUndefined();
   expect(await civil(page, 'escort')).toBe(false);
   expect(await page.evaluate(() => Boolean(window.helixHeresyDebug.startScientistMove('supportedSurveyGround',
-    { toCell: { x: 10, y: 10, z: 6 }, allowMultiRoom: true })))).toBe(true); await finishWalk(page);
+    { toCell: { x: 8, y: 8, z: 6 }, allowMultiRoom: true })))).toBe(true); await finishWalk(page);
   const dated = (await page.evaluate(() => window.helixHeresyDebug.localOppositionSnapshot())).known;
   await advance(page, 120); expect((await page.evaluate(() => window.helixHeresyDebug.localOppositionSnapshot())).known).toEqual(dated);
+  expect(errors).toEqual([]);
+});
+for (const renderer of ['dom', 'canvas']) test(`${renderer}: defensive resistance uses witnessed aggression, saved visible windups, ordinary injury and actual departure`, async ({ page }) => {
+  test.setTimeout(480000);
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const before = await oppositionReady(page, renderer, true, { oldDefense: 'coverRetreat', watchDefense: 'defendSelf' });
+  const panel = page.locator('[data-local-opposition]');
+  expect(before.appointments.opposition.defense).toBeUndefined();
+  await expect(panel).toContainText('Peaceful opposition does not initiate combat');
+  const watchId = before.appointments.opposition.memberIds[1];
+  expect(await page.evaluate(() => Boolean(window.helixHeresyDebug.startScientistMove('supportedSurveyGround',
+    { toCell: { x: 17, y: 11, z: 6 }, allowMultiRoom: true })))).toBe(true); await finishWalk(page);
+  expect(await page.evaluate(id => window.helixHeresyDebug.startScientistCombatAction('strike', id), watchId)).toBe(true);
+  let s = await snap(page);
+  expect(s.appointments.opposition.defense.phase).toBe('active');
+  const watch = s.succession.leaders.find(a => a.id === watchId), stamina = watch.physicalControl.stamina;
+  expect(s.appointments.opposition.defense.participants.find(p => p.actorId === watchId).pending).toBeNull();
+  await advance(page, 1); s = await snap(page);
+  const pending = s.appointments.opposition.defense.participants.find(p => p.actorId === watchId).pending;
+  expect(pending).not.toBeNull(); expect(pending.releaseAt - pending.startedAt).toBe(2);
+  await expect(panel).toContainText('unarmed strike preparing; move or guard');
+  const healthBefore = await page.evaluate(() => window.helixHeresyDebug.defenderChallengeSnapshot().scientist.health);
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  s = await snap(page); expect(s.appointments.opposition.defense.participants.find(p => p.actorId === watchId).pending).toEqual(pending);
+  if (renderer === 'canvas') expect(await page.evaluate(() => window.helixHeresyDebug.setScientistGuarding(true))).toBe(true);
+  await advance(page, 2); s = await snap(page);
+  const outcome = s.appointments.opposition.defense.participants.find(p => p.actorId === watchId).lastOutcome;
+  expect(outcome.result).toBe('hit'); expect(outcome.damage).toBeGreaterThan(0);
+  if (renderer === 'canvas') {
+    const baseDamage = await page.evaluate(() => window.helixHeresyDebug.combatSnapshot().actions.strike.baseDamage);
+    expect(outcome.damage).toBeLessThanOrEqual(Math.max(1, Math.round(baseDamage * .65)));
+    expect(await page.evaluate(() => window.helixHeresyDebug.setScientistGuarding(false))).toBe(true);
+  }
+  expect(await page.evaluate(() => window.helixHeresyDebug.defenderChallengeSnapshot().scientist.health)).toBeLessThan(healthBefore);
+  expect(s.succession.leaders.find(a => a.id === watchId).physicalControl.stamina).toBeLessThan(stamina);
+  const injuries = (await page.evaluate(() => window.helixHeresyDebug.civilInstallationSnapshot())).injuries;
+  expect(injuries.some(i => i.actorId === 'scientist' && i.status === 'active')).toBe(true);
+  expect(injuries.some(i => i.actorId === watchId && i.actorKind === 'civicOfficeholder')).toBe(true);
+  expect(s.appointments.receipt).toEqual(before.appointments.receipt);
+  expect(s.succession.agreements).toEqual(before.succession.agreements);
+  expect(await civil(page, 'escort')).toBe(false);
+  // Ordinary movement, not a debug relocation or an abstract retreat button.
+  expect(await page.evaluate(() => Boolean(window.helixHeresyDebug.startScientistMove('supportedSurveyGround',
+    { toCell: { x: 8, y: 8, z: 6 }, allowMultiRoom: true })))).toBe(true); await finishWalk(page);
+  s = await snap(page); expect(s.appointments.opposition.defense.phase).not.toBe('active');
+  expect(s.appointments.opposition.defense.participants.every(p => !p.pending && !p.guardUntil)).toBe(true);
+  const dated = (await page.evaluate(() => window.helixHeresyDebug.localOppositionSnapshot())).known;
+  await advance(page, 30); expect((await page.evaluate(() => window.helixHeresyDebug.localOppositionSnapshot())).known).toEqual(dated);
+  if (renderer === 'dom') {
+    // Prepared personal mastery only, followed by ordinary attacks. There is
+    // no health mutation, spawned corpse, fabricated victory or forced outcome.
+    expect(await page.evaluate(() => window.helixHeresyDebug.configureDefenderChallengeTest({ mastery: true }))).toBe(true);
+    expect(await page.evaluate(() => Boolean(window.helixHeresyDebug.startScientistMove('supportedSurveyGround',
+      { toCell: { x: 14, y: 11, z: 6 }, allowMultiRoom: true })))).toBe(true); await finishWalk(page);
+    const oldId = before.appointments.incumbentId;
+    const remains = await page.evaluate(id => {
+      const d = window.helixHeresyDebug;
+      for (let i = 0; i < 12; i++) {
+        const actor = d.cityAppointmentsSnapshot().succession.leaders.find(a => a.id === id);
+        if (actor.status === 'dead') return actor;
+        if (!d.startScientistCombatAction('strike', id)) throw new Error('Actual lethal strike unavailable');
+        d.advanceCityAppointmentsForTest(2);
+      }
+      throw new Error('Normal combat unexpectedly preserved a health floor');
+    }, oldId);
+    expect(remains.health).toBe(0); expect(remains.mapCell).toEqual(before.appointments.opposition.homes[0]);
+    await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+    const saved = (await snap(page)).succession.leaders.find(a => a.id === oldId);
+    expect(saved.status).toBe('dead'); expect(saved.mapCell).toEqual(remains.mapCell);
+    const ground = await page.evaluate(cell => window.helixHeresyDebug.citySuccessionNavigationSnapshot(cell), remains.mapCell);
+    expect(ground.find(a => a.id === watchId).targetLoad).toBeGreaterThanOrEqual(.6);
+    expect((await snap(page)).appointments.receipt).toEqual(before.appointments.receipt);
+    expect((await page.evaluate(() => window.helixHeresyDebug.runLifecycleSnapshot())).phase).not.toBe('ended');
+  }
   expect(errors).toEqual([]);
 });
 test('DOM: combined directorate physically reassigns only public works across reload and retains emergency authority and supplied upkeep', async ({ page }) => {

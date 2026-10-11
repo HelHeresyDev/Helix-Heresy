@@ -119,16 +119,18 @@ test('original civic opposition dispositions and ordinary watch body remain dete
   assert.ok(['joinCustodySafeguards', 'retainIndependentDuty'].includes(watch.oppositionPolicy));
   assert.ok(['seekSafeguards', 'retainPrivateDissent'].includes(works.oppositionPolicy));
   assert.ok(['considerSafeguards', 'rejectSafeguards'].includes(works.oppositionSettlementPolicy));
+  assert.ok(['defendSelf', 'coverRetreat', 'flee'].includes(works.oppositionDefensePolicy));
+  assert.ok(['defendSelf', 'coverRetreat', 'flee'].includes(watch.oppositionDefensePolicy));
   assert.equal(watch.maxHealth, 100); assert.equal(watch.physicalControl.stamina, 80);
   assert.deepEqual(f.source, originalSource); assert.equal(f.s.allocation.people, 5);
   for (const theme of ['madcap', 'grim', 'unbound']) {
     const g = fixture(theme);
-    assert.deepEqual(g.s.leaders.map(a => [a.id, a.oppositionPolicy, a.oppositionSettlementPolicy]),
-      f.s.leaders.map(a => [a.id, a.oppositionPolicy, a.oppositionSettlementPolicy]));
+    assert.deepEqual(g.s.leaders.map(a => [a.id, a.oppositionPolicy, a.oppositionSettlementPolicy, a.oppositionDefensePolicy]),
+      f.s.leaders.map(a => [a.id, a.oppositionPolicy, a.oppositionSettlementPolicy, a.oppositionDefensePolicy]));
   }
   watch.workSeconds = 3; watch.health = 53;
   assert.deepEqual(Succession.normalize(f.s).leaders.find(a => a.id === watch.id), watch);
-  assert.doesNotMatch(JSON.stringify(Succession.publicView(f.s, f.b, f.c)), /oppositionPolicy|oppositionSettlementPolicy|physicalControl/);
+  assert.doesNotMatch(JSON.stringify(Succession.publicView(f.s, f.b, f.c)), /oppositionPolicy|oppositionSettlementPolicy|oppositionDefensePolicy|physicalControl/);
 });
 test('a combined directorate uses one original person and finite duty for both actual roles without extra population', () => {
   const f = fixture(), source = copy(f.source);

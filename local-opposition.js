@@ -9,6 +9,7 @@
   const distance = (a, b) => a && b && a.z === b.z ? Math.hypot(a.x - b.x, a.y - b.y) : Infinity;
   const able = a => a?.status === 'alive' && a.health >= 50 && (a.fatigue || 0) < 80;
   const POSTS = [{ x: 16, y: 12, z: 6 }, { x: 17, y: 12, z: 6 }];
+  const DEFENSE = { radius: 5, threatSeconds: 12, windupSeconds: 2, recoverySeconds: 4, strikeStamina: 6 };
   const LIMITS = 'Two original people at this receiving approach only. No deposition, seizure, criminal verdict, immunity, religious endorsement, arrest, new civil escort authority or army. Recognition, original dissent, injuries, custody, deadlines and emergency duties remain.';
   const members = (s, b) => s.memberIds.map(id => b.succession.leaders.find(a => a.id === id));
   function create(b) {
@@ -52,14 +53,18 @@
     note(s, b.at, 'withdrawal', `${reason} Actual walking is still required; no occupant or supply was removed.`);
   }
   function visible(s, b) {
-    return Boolean(b.c.alive && b.c.capable && b.c.atCounter && b.c.visitPermission && b.c.lineOfSight
+    return Boolean(b.c.alive && b.c.capable && (b.c.atCounter || s.defense && b.c.threatLocal) && b.c.visitPermission && b.c.lineOfSight
       && b.c.cityId === s.cityId && s.memberIds.every(id => b.c.presentIds?.includes(id)));
   }
   function observe(s, b) {
     if (!s?.formed || !visible(s, b) || !members(s, b).every(Boolean)) return;
-    s.known = { reportedAt: b.at, phase: s.phase, members: members(s, b).map(a => ({ id: a.id, name: a.name, cell: copy(a.mapCell) })),
+    s.known = { reportedAt: b.at, phase: s.phase, members: members(s, b).map(a => ({ id: a.id, name: a.name, status: a.status, cell: copy(a.mapCell) })),
       formed: copy(s.formed), response: copy(s.response), offer: copy(s.offer), settlement: copy(s.settlement), declined: copy(s.declined),
       working: s.job && { kind: s.job.kind, progress: s.job.progress, seconds: s.job.seconds },
+      defense: s.defense ? { phase: s.defense.phase, startedAt: s.defense.startedAt, endedAt: s.defense.endedAt ?? null,
+        participants: s.defense.participants.filter(p => b.c.presentIds.includes(p.actorId)).map(p => ({
+          actorId: p.actorId, status: p.status, pending: copy(p.pending), guarding: p.guardUntil > b.at,
+          lastOutcome: copy(p.lastOutcome) })), message: s.defense.message } : null,
       reports: copy(s.reports.filter(r => b.c.presentIds.includes(r.witnessId))), message: s.message, limitations: LIMITS };
   }
   function local(s, b) {
@@ -112,11 +117,126 @@
       if (s.formed) withdraw(s, b, 'Violence ended peaceful negotiations; the participants attempt to retreat');
       else { release(s, b); s.phase = 'stopped'; }
     }
+    defend(s, b, actorId, targetId, actionId);
     observe(s, b); return true;
+  }
+  const withinApproach = cell => distance(cell, POSTS[0]) <= DEFENSE.radius;
+  const combatAble = (a, b) => able(a) && a.workSeconds >= 1 && a.physicalControl?.stamina >= 1
+    && !b.effects?.incapacitated?.(a);
+  const defenseActive = s => Boolean(s?.defense && ['active', 'retreating'].includes(s.defense.phase));
+  function defend(s, b, actorId, targetId, actionId) {
+    // Only an actual attack processed by ordinary range/line-of-effect checks
+    // reaches here. No grievance, offer expiry or signature activates combat.
+    if (actorId !== 'scientist' || !s.formed || !current(s, b) || !b.c.localGround
+      || !b.c.threatLocal || !withinApproach(b.c.scientistCell)) return false;
+    const target = members(s, b).find(a => a.id === targetId);
+    const witnesses = members(s, b).filter(a => combatAble(a, b) && a.locationId === s.officeId
+      && withinApproach(a.mapCell) && distance(a.mapCell, target.mapCell) <= 6
+      && b.effects.lineOfSight(a.mapCell, target.mapCell) && b.effects.lineOfSight(a.mapCell, b.c.scientistCell)
+      && (!a.assignment || a.assignment === s.id));
+    if (!witnesses.length) return false;
+    if (!defenseActive(s)) {
+      if (s.defense) { s.defenseHistory ||= []; s.defenseHistory.push(copy(s.defense)); }
+      s.defense = { phase: 'active', startedAt: b.at, bodyEpoch: b.c.bodyEpoch,
+        lastAt: b.at, lastAggressionAt: b.at, participants: [], message: '', incidents: [] };
+    }
+    const d = s.defense; if (d.bodyEpoch !== b.c.bodyEpoch) return false;
+    d.phase = 'active'; d.lastAggressionAt = b.at;
+    d.incidents.push({ at: b.at, actorId, targetId, actionId, witnessIds: witnesses.map(a => a.id) });
+    for (const a of witnesses) {
+      a.assignment = s.id;
+      let p = d.participants.find(p => p.actorId === a.id);
+      if (!p) {
+        const response = ['defendSelf', 'coverRetreat', 'flee'].includes(a.oppositionDefensePolicy) ? a.oppositionDefensePolicy : 'flee';
+        p = { actorId: a.id, response, status: 'retreating', pending: null, nextMoveAt: b.at + 1,
+          nextAttackAt: b.at + 1, guardUntil: 0, lastOutcome: null }; d.participants.push(p);
+      }
+      if ((p.response === 'defendSelf' && a.id === targetId) || p.response === 'coverRetreat') p.status = 'defending';
+    }
+    for (const a of members(s, b)) if (!d.participants.some(p => p.actorId === a.id) && a.assignment === s.id) a.assignment = null;
+    clearJob(s, b); s.phase = 'resisting'; s.credit = 0;
+    d.message = 'Personally witnessed aggression prompted independent guarding, defense or physical retreat. No enforcement authority follows.';
+    note(s, b.at, 'defensiveResistance', d.message); return true;
+  }
+  function guard(s, actorId, at) {
+    return defenseActive(s) && s.defense.participants.some(p => p.actorId === actorId && p.guardUntil > at);
+  }
+  function advanceDefense(s, b) {
+    const d = s.defense, elapsed = b.at - d.lastAt; d.lastAt = b.at;
+    if (!current(s, b) || !b.c.localGround || d.bodyEpoch !== b.c.bodyEpoch) {
+      for (const p of d.participants) { p.pending = null; p.guardUntil = 0; p.status = 'stopped'; }
+      release(s, b); d.phase = 'ended'; d.endedAt = b.at; s.phase = 'unsupported';
+      d.message = 'Original people, ground or body binding changed; no unsupported pursuit, movement or clearance.';
+      observe(s, b); return true;
+    }
+    const threat = d.phase === 'active' && b.c.threatLocal && b.c.capable && withinApproach(b.c.scientistCell)
+      && b.at - d.lastAggressionAt < DEFENSE.threatSeconds;
+    if (!threat) {
+      d.phase = 'retreating'; s.phase = 'withdrawing';
+      for (const p of d.participants) { p.pending = null; p.guardUntil = 0; if (p.status !== 'stopped') p.status = 'retreating'; }
+      d.message = 'The immediate local threat ended. Pending attacks stopped; remaining capable people attempt actual withdrawal.';
+    }
+    let changed = false;
+    for (const [i, a] of members(s, b).entries()) {
+      if (!a) continue;
+      const p = d.participants.find(p => p.actorId === a.id);
+      if (!p) continue;
+      if (!combatAble(a, b) || a.locationId !== s.officeId || a.assignment !== s.id || !withinApproach(a.mapCell)) {
+        p.pending = null; p.guardUntil = 0; p.status = 'stopped';
+        if (a.assignment === s.id) a.assignment = null;
+        continue;
+      }
+      if (p.status === 'stopped') continue;
+      const seesThreat = threat && b.effects.lineOfSight(a.mapCell, b.c.scientistCell);
+      if (!seesThreat) { p.pending = null; p.guardUntil = 0; p.status = 'retreating'; }
+      // Guarding spends real personal stamina and duty. Coarse updates charge
+      // elapsed work but never replay unseen strikes or movement in a burst.
+      if (seesThreat && p.response !== 'flee' && elapsed > 0) {
+        const cost = Math.min(elapsed, a.workSeconds, a.physicalControl.stamina);
+        a.workSeconds -= cost; a.physicalControl.stamina -= cost;
+        p.guardUntil = combatAble(a, b) ? b.at + 1.1 : 0; changed ||= cost > 0;
+      }
+      if (!combatAble(a, b)) { p.pending = null; p.guardUntil = 0; p.status = 'stopped'; continue; }
+      if (p.pending && b.at >= p.pending.releaseAt) {
+        const pending = p.pending; p.pending = null; p.nextAttackAt = b.at + DEFENSE.recoverySeconds;
+        const valid = seesThreat && same(pending.targetCell, b.c.scientistCell) && b.effects.canStrike?.(a);
+        const result = valid ? b.effects.strike?.(a) : null;
+        p.lastOutcome = { at: b.at, action: 'strike', result: result?.ok ? result.hit ? 'hit' : 'missed' : 'cancelled', damage: result?.damage || 0 };
+        changed = true;
+        if (b.effects.alive && !b.effects.alive()) break;
+      } else if (!p.pending && seesThreat && p.status === 'defending' && b.at >= p.nextAttackAt
+        && a.physicalControl.stamina >= DEFENSE.strikeStamina && b.effects.canStrike?.(a)) {
+        a.physicalControl.stamina -= DEFENSE.strikeStamina;
+        p.pending = { action: 'strike', startedAt: b.at, releaseAt: b.at + DEFENSE.windupSeconds, targetCell: copy(b.c.scientistCell) };
+        d.message = `${a.name} prepares an unarmed strike — two seconds to move or guard. Ordinary combat can kill; no lawful clearance follows.`;
+        b.effects.telegraph?.(a, p.pending); changed = true;
+      }
+      if (b.at >= p.nextMoveAt && !p.pending) {
+        let moved = false;
+        if (p.status === 'defending' && seesThreat && p.response === 'defendSelf' && distance(a.mapCell, b.c.scientistCell) <= DEFENSE.radius
+          && !b.effects.canStrike?.(a)) moved = b.effects.approach?.(a, b.c.scientistCell, withinApproach);
+        else if (p.status === 'retreating' || p.response === 'coverRetreat') moved = !same(a.mapCell, s.homes[i])
+          && (b.effects.defenseMove || b.effects.move)?.(a, s.homes[i]);
+        if (moved) { a.workSeconds--; a.physicalControl.stamina--; changed = true; }
+        p.nextMoveAt = b.at + 1;
+      }
+    }
+    if (d.phase === 'retreating' || d.participants.every(p => p.status === 'stopped')) {
+      const settled = members(s, b).every((a, i) => !combatAble(a, b) || a.assignment !== s.id || same(a.mapCell, s.homes[i]));
+      if (settled) {
+        d.phase = 'ended'; d.endedAt = b.at;
+        for (const p of d.participants) { p.pending = null; p.guardUntil = 0; }
+        release(s, b); s.phase = members(s, b).every((a, i) => same(a?.mapCell, s.homes[i])) ? 'ended' : 'stopped';
+        d.message = 'The bounded defensive encounter ended. Actual bodies, injuries, supplies, appointment and accepted accounts remain.';
+        note(s, b.at, 'defenseEnded', d.message); changed = true;
+      }
+    }
+    observe(s, b); return changed;
   }
   function advance(s, b) {
     if (!s || !b.c.alive || b.at < s.lastAt) return false;
     const elapsed = b.at - s.lastAt; s.lastAt = b.at;
+    if (defenseActive(s)) return advanceDefense(s, b);
     if (['ended', 'stopped', 'unsupported', 'declinedSupport'].includes(s.phase)) { observe(s, b); return false; }
     const actors = members(s, b);
     if (!current(s, b)) { release(s, b); s.phase = 'unsupported'; note(s, b.at, 'unsupported', 'Original transfer or people unavailable. Historical opposition and actual positions remain.'); observe(s, b); return true; }
@@ -195,5 +315,5 @@
     observe(s, b); return changed;
   }
   const publicView = s => s?.known ? copy(s.known) : null;
-  return { POSTS, LIMITS, create, current, members, advance, discuss, accept, decline, cancel, attack, observe, publicView };
+  return { POSTS, DEFENSE, LIMITS, create, current, members, advance, discuss, accept, decline, cancel, attack, guard, defenseActive, observe, publicView };
 });

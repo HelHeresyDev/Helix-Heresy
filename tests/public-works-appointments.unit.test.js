@@ -751,6 +751,21 @@ function oppositionFixture(options = {}) {
   return f;
 }
 const sameCell = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+function defenseFixture(oldDefense = 'defendSelf', watchDefense = 'coverRetreat') {
+  const f = oppositionFixture({ prepare: f => {
+    f.old.oppositionDefensePolicy = oldDefense; f.watch.oppositionDefensePolicy = watchDefense;
+  } });
+  protest(f); f.c.scientistCell = { x: 16, y: 13, z: 6 }; f.c.threatLocal = true;
+  f.scientistHealth = 100; f.strikes = []; f.telegraphs = [];
+  f.effects.canStrike = a => Math.hypot(a.mapCell.x - f.c.scientistCell.x, a.mapCell.y - f.c.scientistCell.y) <= 1.5
+    && f.effects.lineOfSight(a.mapCell, f.c.scientistCell);
+  f.effects.strike = a => { f.strikes.push(a.id); f.scientistHealth -= 6; return { ok: true, hit: true, damage: 6 }; };
+  f.effects.telegraph = (a, pending) => f.telegraphs.push({ actorId: a.id, ...copy(pending) });
+  f.effects.incapacitated = a => Boolean(a.incapacitated);
+  f.effects.alive = () => f.c.alive;
+  return f;
+}
+const attacked = (f, target = f.old) => Opposition.attack(f.o, oppositionBundle(f), 'scientist', target.id, 'strike');
 function oppositionBundle(f) {
   return { ...civilBundle(f), authenticTransfer: Boolean(A.authorization(f.s, f.succession, f.upkeep, f.office, f.c)) };
 }
@@ -890,4 +905,135 @@ test('organized opposition: expired terms, an incapacitated clerk and altered or
     assert.equal(f.o.settlement, null); assert.equal(f.office.localOppositionAccounts, undefined); assert.equal(f.office.power, power);
     assert.deepEqual([f.old.mapCell, f.watch.mapCell], Opposition.POSTS);
   }
+});
+
+test('defensive resistance: peaceful protest, declined safeguards and expiry cannot activate combat or replenish original people', () => {
+  const f = defenseFixture(); oppositionStep(f, 20);
+  assert.equal(f.o.defense, undefined); assert.equal(f.strikes.length, 0);
+  assert.ok(Opposition.discuss(f.o, oppositionBundle(f))); oppositionStep(f, 60);
+  assert.ok(Opposition.decline(f.o, oppositionBundle(f), f.o.offer));
+  f.at = f.o.offer.expiresAt; Opposition.advance(f.o, oppositionBundle(f));
+  assert.equal(f.o.defense, undefined); assert.equal(f.strikes.length, 0);
+});
+test('defensive resistance: witnessed aggression independently activates actual guard, finite telegraphed ordinary strikes and recovery', () => {
+  const f = defenseFixture(), original = copy({ receipt: f.s.receipt, supplies: f.stacks, agreements: f.succession.agreements });
+  const stamina = f.old.physicalControl.stamina, duty = f.old.workSeconds;
+  assert.ok(attacked(f)); assert.equal(f.o.defense.participants[0].status, 'defending');
+  assert.equal(f.o.defense.participants[1].status, 'defending'); assert.equal(f.strikes.length, 0);
+  oppositionStep(f, 1); assert.equal(f.telegraphs.length, 2); assert.equal(f.strikes.length, 0);
+  assert.ok(Opposition.guard(f.o, f.old.id, f.at));
+  assert.ok(f.old.physicalControl.stamina < stamina); assert.ok(f.old.workSeconds < duty);
+  oppositionStep(f, 1); assert.equal(f.strikes.length, 0);
+  oppositionStep(f, 1); assert.equal(f.strikes.length, 2); assert.equal(f.scientistHealth, 88);
+  oppositionStep(f, 3); assert.equal(f.strikes.length, 2);
+  assert.deepEqual({ receipt: f.s.receipt, supplies: f.stacks, agreements: f.succession.agreements }, original);
+  assert.equal(Civil.startEscort(f.e, civilBundle(f)), false);
+});
+test('defensive resistance: independent flight and self-only defense do not manufacture shared obedience', () => {
+  const f = defenseFixture('flee', 'defendSelf'); const oldCell = copy(f.old.mapCell);
+  assert.ok(attacked(f)); assert.deepEqual(f.o.defense.participants.map(p => p.status), ['retreating', 'retreating']);
+  oppositionStep(f, 4); assert.equal(f.strikes.length, 0); assert.notDeepEqual(f.old.mapCell, oldCell);
+  assert.equal(f.old.oppositionDefensePolicy, 'flee'); assert.equal(f.watch.oppositionDefensePolicy, 'defendSelf');
+});
+test('defensive resistance: no private remote trigger, invisible recruitment or commandeering another accepted assignment', () => {
+  const f = defenseFixture(); f.c.scientistCell = { x: 10, y: 10, z: 6 }; attacked(f);
+  assert.equal(f.o.defense, undefined);
+  const g = defenseFixture(); g.watch.assignment = 'accepted-watch-duty'; attacked(g);
+  assert.equal(g.watch.assignment, 'accepted-watch-duty'); assert.deepEqual(g.o.defense.participants.map(p => p.actorId), [g.old.id]);
+  const h = defenseFixture(); h.effects.lineOfSight = () => false; attacked(h); assert.equal(h.o.defense, undefined);
+  const j = defenseFixture(); j.c.threatLocal = false; attacked(j); assert.equal(j.o.defense, undefined);
+});
+test('defensive resistance: saved windups and stable decisions survive reload without duplicate strikes, duty or refund', () => {
+  const f = defenseFixture(); attacked(f); oppositionStep(f, 1);
+  const saved = copy(f.o), people = copy([f.old, f.watch]), stamina = f.old.physicalControl.stamina;
+  f.o = copy(saved); f.s.opposition = f.o;
+  assert.deepEqual([f.old, f.watch], people); assert.deepEqual(f.o, saved);
+  Opposition.advance(f.o, oppositionBundle(f)); assert.equal(f.strikes.length, 0);
+  assert.equal(f.old.physicalControl.stamina, stamina);
+  oppositionStep(f, 2); assert.equal(f.strikes.length, 2);
+  Opposition.advance(f.o, oppositionBundle(f)); assert.equal(f.strikes.length, 2);
+});
+test('defensive resistance: moving, lost sight, leaving approach and body changes cancel pending attacks without refund or remote pursuit', () => {
+  for (const change of [f => f.c.scientistCell = { x: 17, y: 13, z: 6 }, f => f.effects.lineOfSight = () => false,
+    f => f.c.scientistCell = { x: 10, y: 10, z: 6 }, f => f.c.threatLocal = false, f => f.c.bodyEpoch++]) {
+    const f = defenseFixture(); attacked(f); oppositionStep(f, 1); const spent = f.old.physicalControl.stamina;
+    change(f); oppositionStep(f, 2); assert.equal(f.strikes.length, 0); assert.ok(f.old.physicalControl.stamina <= spent);
+    assert.ok(f.o.defense.participants.every(p => !p.pending));
+  }
+});
+test('defensive resistance: finite threat expires and retreat remains collision-bound without deleting occupants or stock', () => {
+  const f = defenseFixture(); attacked(f); f.effects.move = () => false; const bodies = copy([f.old.mapCell, f.watch.mapCell]), stock = copy(f.stacks);
+  oppositionStep(f, 12); assert.equal(f.o.defense.phase, 'retreating'); const strikes = f.strikes.length;
+  oppositionStep(f, 20); assert.equal(f.strikes.length, strikes); assert.deepEqual([f.old.mapCell, f.watch.mapCell], bodies);
+  assert.deepEqual(f.stacks, stock); assert.equal(Opposition.defenseActive(f.o), true);
+  assert.equal(Opposition.guard(f.o, f.old.id, f.at), false);
+});
+test('defensive resistance: incapacity, exhausted reserves and death stop one person without immobilizing capable companion or healing wounds', () => {
+  for (const change of [f => { f.old.health = 0; f.old.status = 'dead'; }, f => f.old.incapacitated = true,
+    f => f.old.physicalControl.stamina = 0, f => f.old.workSeconds = 0]) {
+    const f = defenseFixture(); attacked(f); oppositionStep(f, 1); change(f); oppositionStep(f, 2);
+    assert.equal(f.o.defense.participants[0].status, 'stopped'); assert.equal(Opposition.guard(f.o, f.old.id, f.at), false);
+    assert.ok(!f.strikes.includes(f.old.id)); assert.ok(f.strikes.includes(f.watch.id));
+    const cell = copy(f.old.mapCell), health = f.old.health; oppositionStep(f, 20);
+    assert.deepEqual(f.old.mapCell, cell); assert.equal(f.old.health, health); assert.equal(f.o.defense.phase, 'ended');
+  }
+});
+test('defensive resistance: unsigned account interruption and post-settlement aggression preserve original once-only promises', () => {
+  const f = defenseFixture(); assert.ok(Opposition.discuss(f.o, oppositionBundle(f))); oppositionStep(f, 60);
+  assert.ok(Opposition.accept(f.o, oppositionBundle(f), f.o.offer)); oppositionStep(f, 10); attacked(f);
+  assert.equal(f.o.job, null); assert.equal(f.o.settlement, null); assert.equal(f.office.localOppositionAccounts, undefined);
+  const g = defenseFixture(); assert.ok(Opposition.discuss(g.o, oppositionBundle(g))); oppositionStep(g, 60);
+  assert.ok(Opposition.accept(g.o, oppositionBundle(g), g.o.offer)); oppositionStep(g, 60);
+  const account = copy(g.o.settlement), register = copy(g.office.localOppositionAccounts);
+  attacked(g); oppositionStep(g, 3); assert.deepEqual(g.o.settlement, account); assert.deepEqual(g.office.localOppositionAccounts, register);
+});
+test('defensive resistance: received knowledge exposes only dated visible actions, never policies, stamina or remote positions', () => {
+  const f = defenseFixture(); attacked(f); oppositionStep(f, 1); const known = Opposition.publicView(f.o);
+  assert.ok(known.defense.participants.some(p => p.pending));
+  assert.doesNotMatch(JSON.stringify(known), /oppositionDefensePolicy|defendSelf|coverRetreat|workSeconds|stamina|physicalControl/);
+  f.c.atCounter = false; f.c.threatLocal = false; f.c.presentIds = []; oppositionStep(f, 20);
+  assert.deepEqual(Opposition.publicView(f.o), known); assert.equal(f.o.defense.phase, 'ended');
+});
+test('defensive resistance: scientist death freezes saved windups, original bodies and remaining supplies', () => {
+  const f = defenseFixture(); attacked(f); oppositionStep(f, 1); f.c.alive = false;
+  const before = copy({ o: f.o, old: f.old, watch: f.watch, stacks: f.stacks }); oppositionStep(f, 100);
+  assert.deepEqual({ o: f.o, old: f.old, watch: f.watch, stacks: f.stacks }, before); assert.equal(f.strikes.length, 0);
+});
+test('defensive resistance: renewed witnessed attacks retain earlier encounters and spend remaining reserves rather than resetting capacity', () => {
+  const f = defenseFixture(); attacked(f); oppositionStep(f, 25);
+  assert.equal(f.o.defense.phase, 'ended'); const first = copy(f.o.defense), stamina = f.old.physicalControl.stamina;
+  f.c.scientistCell = { x: f.old.mapCell.x, y: f.old.mapCell.y + 1, z: 6 };
+  attacked(f); assert.deepEqual(f.o.defenseHistory, [first]); assert.equal(f.old.physicalControl.stamina, stamina);
+  oppositionStep(f, 3); assert.ok(f.old.physicalControl.stamina < stamina);
+  assert.deepEqual(f.o.defenseHistory[0], first); assert.ok(f.o.reports.length > 0);
+});
+test('defensive resistance: missing original mandate stops unsupported pending force without moving anyone or inventing new law', () => {
+  const f = defenseFixture(); attacked(f); oppositionStep(f, 1);
+  const positions = copy([f.old.mapCell, f.watch.mapCell]); f.office.publicWorksTransfers = [];
+  oppositionStep(f, 5); assert.equal(f.o.defense.phase, 'ended'); assert.equal(f.strikes.length, 0);
+  assert.deepEqual([f.old.mapCell, f.watch.mapCell], positions);
+  assert.equal(f.old.assignment, null); assert.equal(f.watch.assignment, null);
+});
+test('defensive resistance: an ordinary lethal effect stops the second pending attack and freezes further work', () => {
+  const f = defenseFixture(); attacked(f); oppositionStep(f, 1);
+  f.effects.strike = actor => { f.strikes.push(actor.id); f.c.alive = false; return { ok: true, hit: true, damage: 100 }; };
+  oppositionStep(f, 2); assert.deepEqual(f.strikes, [f.old.id]);
+  const before = copy({ defense: f.o, old: f.old, watch: f.watch }); oppositionStep(f, 20);
+  assert.deepEqual({ defense: f.o, old: f.old, watch: f.watch }, before);
+});
+test('defensive resistance: fractional live ticks preserve actual preparation and finite cost through a partial reload', () => {
+  const f = defenseFixture(); attacked(f); const stamina = f.watch.physicalControl.stamina;
+  for (let i = 0; i < 8; i++) { f.at += .25; Opposition.advance(f.o, oppositionBundle(f)); }
+  assert.equal(f.strikes.length, 0); assert.equal(f.o.defense.participants[1].pending.releaseAt, f.at + 1);
+  assert.equal(f.watch.physicalControl.stamina, stamina - 8);
+  f.o = copy(f.o); f.s.opposition = f.o;
+  for (let i = 0; i < 4; i++) { f.at += .25; Opposition.advance(f.o, oppositionBundle(f)); }
+  assert.equal(f.strikes.length, 2); assert.deepEqual(f.watch.mapCell, f.o.homes[1]);
+  assert.equal(f.watch.physicalControl.stamina, stamina - 10); // Three guard seconds, preparation and one real step.
+});
+test('defensive resistance: physical strike obstruction cancels prepared force even while the target remains visible', () => {
+  const f = defenseFixture(); attacked(f); oppositionStep(f, 1); const spent = f.watch.physicalControl.stamina;
+  f.effects.canStrike = () => false; oppositionStep(f, 2);
+  assert.equal(f.strikes.length, 0); assert.ok(f.o.defense.participants.every(p => p.lastOutcome.result === 'cancelled'));
+  assert.ok(f.watch.physicalControl.stamina < spent); assert.ok(f.telegraphs.length === 2);
 });
