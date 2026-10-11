@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const A = require('../public-works-appointments');
+const Civil = require('../civil-installation-access');
 const Administration = require('../city-administration');
 const Resistance = require('../city-resistance');
 const Succession = require('../city-succession');
@@ -66,6 +67,163 @@ function accessSettlement(f) {
   accessInventory(f);
   assert.ok(A.settleAccess(f.s, f.succession, f.upkeep, f.office, f.stacks, f.s.access.offer, f.c, f.at)); step(f, 60);
 }
+function civilFixture() {
+  const f = obstructed('rejectReplacement');
+  f.old.maxHealth = 100;
+  f.old.physicalControl = { strength: 20, stamina: 80, staminaCapacity: 80 };
+  Object.assign(f.bargain.defender, { institutionId: 'defense:a', physicalStrength: 80, maxHealth: 100, stamina: 100, staminaCapacity: 100,
+    civilAccessPolicy: 'considerCivilEscort', skills: { striking: 35, guarding: 50 } });
+  f.bargain.source = { cityId: 'a', charterId: f.s.charterId };
+  f.c.presentIds.push(f.bargain.defender.id);
+  f.c.civilAccessRule = Civil.ruleFor('a', f.s.institutionId, f.s.reviewerInstitutionId, 'defense:a');
+  f.c.civilDefenderId = f.bargain.defender.id; f.c.defenseInstitutionId = 'defense:a'; f.c.defenseAvailable = true;
+  f.injuries = [];
+  f.effects = { move, lineOfSight: () => true,
+    approach: (a, target) => move(a, { ...target, x: target.x + 1 }),
+    damage: (a, amount) => { a.health -= amount; f.injuries.push({ actorId: a.id, typeId: 'bruising', amount }); return true; } };
+  f.e = Civil.create(civilBundle(f)); assert.ok(f.e); f.s.enforcement = f.e; return f;
+}
+function civilBundle(f) {
+  f.c.appointmentCurrent = A.bound(f.s, f.succession, f.upkeep, f.office, f.c) && A.authenticAppointment(f.s, f.office);
+  f.c.inventory = f.c.accessInventoryVisible ? A.custodyInventory(f.succession, f.upkeep, f.stacks) : null;
+  return { appointment: f.s, succession: f.succession, upkeep: f.upkeep, bargain: f.bargain,
+    office: f.office, institutions: f.institutions, c: f.c, at: f.at, effects: f.effects };
+}
+function civilStep(f, seconds) { f.at += seconds; return Civil.advance(f.e, civilBundle(f)); }
+function civilOrder(f) {
+  assert.ok(Civil.file(f.e, civilBundle(f))); civilStep(f, f.e.review.readyAt - f.at);
+  assert.ok(Civil.hear(f.e, civilBundle(f))); civilStep(f, 180);
+}
+function civilCommission(f) {
+  civilOrder(f); assert.ok(Civil.discussCommission(f.e, civilBundle(f))); civilStep(f, 60);
+  assert.ok(Civil.signCommission(f.e, civilBundle(f), copy(f.e.terms))); civilStep(f, 60);
+  assert.ok(Civil.serve(f.e, civilBundle(f))); civilStep(f, 60); civilStep(f, 60);
+}
+function civilRelease(f) {
+  civilCommission(f); assert.ok(Civil.startEscort(f.e, civilBundle(f)));
+  for (let i = 0; i < 100 && f.e.escort.status === 'active'; i++) civilStep(f, 1);
+  assert.equal(f.e.escort.status, 'released');
+}
+test('civil access needs its own published law, actual original bodies and institution instead of inherited watch/ward powers', () => {
+  const f = civilFixture();
+  for (const change of [g => g.c.civilAccessRule = null, g => g.c.civilAccessRule.institutionId = 'another',
+    g => g.office.publicWorksAppointments = [], g => g.bargain.defender = { ...g.bargain.defender, id: 'new-guard' },
+    g => g.old.physicalControl = null, g => g.s.obstruction = null, g => g.bargain.source.charterId = 'changed']) {
+    const g = civilFixture(); change(g); const b = civilBundle(g);
+    if (!g.c.appointmentCurrent) b.c.appointmentCurrent = false;
+    assert.equal(Civil.create(b), null);
+  }
+  assert.equal(f.e.order, null); assert.equal(f.e.commission, null); assert.equal(f.s.receipt, null);
+});
+test('independent civil access review reserves the original queue once and keeps appointment and dissent unchanged', () => {
+  const f = civilFixture(), original = copy({ appointment: f.s.appointment, objection: f.s.obstruction });
+  civilOrder(f);
+  assert.equal(Object.keys(f.institutions.offices[f.s.reviewerInstitutionId].jobs).length, 2);
+  assert.equal(f.office.civilInstallationOrders.length, 1); assert.equal(f.e.review.status, 'completed');
+  assert.match(f.e.review.finding, /no criminal guilt/); assert.equal(f.s.receipt, null);
+  assert.deepEqual(f.s.appointment, original.appointment); assert.deepEqual(f.s.obstruction, original.objection);
+  assert.equal(Civil.file(f.e, civilBundle(f)), false); assert.equal(Civil.hear(f.e, civilBundle(f)), false);
+});
+test('the original defender can refuse the distinct commission without a persuasion reroll or replacement', () => {
+  const f = civilFixture(); f.bargain.defender.civilAccessPolicy = 'declineCivilEscort'; civilOrder(f);
+  assert.ok(Civil.discussCommission(f.e, civilBundle(f))); civilStep(f, 60);
+  assert.equal(f.e.response.decision, 'refused'); assert.equal(f.e.terms, null);
+  assert.equal(Civil.discussCommission(f.e, civilBundle(f)), false);
+  assert.equal(Civil.serve(f.e, civilBundle(f)), false); assert.equal(f.s.receipt, null);
+});
+test('exact commission, order service and actual response time precede any force without manufacturing consent', () => {
+  const f = civilFixture(); civilOrder(f);
+  assert.equal(Civil.startEscort(f.e, civilBundle(f)), false);
+  assert.ok(Civil.discussCommission(f.e, civilBundle(f))); civilStep(f, 60);
+  assert.equal(Civil.signCommission(f.e, civilBundle(f), { ...f.e.terms, missionSeconds: 9999 }), false);
+  assert.ok(Civil.signCommission(f.e, civilBundle(f), f.e.terms)); civilStep(f, 60);
+  assert.equal(f.office.civilAccessCommissions.length, 1);
+  assert.ok(Civil.serve(f.e, civilBundle(f))); civilStep(f, 60);
+  assert.equal(Civil.startEscort(f.e, civilBundle(f)), false); civilStep(f, 59);
+  assert.equal(Civil.startEscort(f.e, civilBundle(f)), false); civilStep(f, 1);
+  assert.ok(Civil.startEscort(f.e, civilBundle(f))); assert.equal(f.s.receipt, null);
+  assert.equal(f.e.service.outgoingId, f.old.id); assert.match(f.e.service.objection, /not agreement/);
+});
+test('actual approach and passive control spend finite stamina, inflict real persistent human trauma and require physical release', () => {
+  const f = civilFixture(), before = copy({ old: f.old, defender: f.bargain.defender, supplies: f.stacks, reserve: f.succession.provision });
+  civilRelease(f);
+  assert.deepEqual(f.old.mapCell, Civil.RELEASE); assert.equal(f.e.release.steps, 2);
+  assert.equal(f.e.release.gripSeconds, 20); assert.equal(f.old.health, before.old.health - 1);
+  assert.equal(f.injuries.length, 1); assert.equal(f.injuries[0].typeId, 'bruising');
+  assert.ok(f.bargain.defender.stamina < before.defender.stamina); assert.ok(f.old.physicalControl.stamina < 80);
+  assert.equal(f.bargain.defender.wardMana, before.defender.wardMana);
+  assert.deepEqual(f.stacks, before.supplies); assert.deepEqual(f.succession.provision, before.reserve);
+  assert.equal(f.upkeep.workerId, f.old.id); assert.equal(f.s.receipt, null);
+  assert.ok(f.e.reports.every(r => r.kind === 'boundedGrip')); assert.equal(f.office.civilAccessReleases.length, 1);
+});
+test('blocked paths, fractional ticks and saved contact never teleport, duplicate injury or backfill an outage', () => {
+  const f = civilFixture(); civilCommission(f); assert.ok(Civil.startEscort(f.e, civilBundle(f)));
+  const start = copy(f.bargain.defender.mapCell); f.effects.approach = () => false; civilStep(f, 100);
+  assert.deepEqual(f.bargain.defender.mapCell, start); assert.equal(f.e.escort.contact, 0); assert.equal(f.injuries.length, 0);
+  f.effects.approach = (a, target) => move(a, { ...target, x: target.x + 1 });
+  civilStep(f, 8); civilStep(f, 5); const contact = f.e.escort.contact;
+  f.s = A.normalize(f.s); f.succession.appointments = f.s; f.e = f.s.enforcement;
+  f.c.externalPowered = false; civilStep(f, 10000); assert.equal(f.e.escort.contact, contact);
+  f.c.externalPowered = true; civilStep(f, .5); assert.equal(f.e.escort.contact, contact);
+  civilStep(f, .5); assert.equal(f.e.escort.contact, contact + 1);
+  for (let i = 0; i < 50 && f.e.escort.status === 'active'; i++) civilStep(f, 1);
+  assert.equal(f.e.escort.status, 'released'); assert.equal(f.injuries.length, 1);
+});
+test('strength, depleted stamina, incapacity and actual fighting end limited enforcement without fake victory or arrest', () => {
+  for (const change of [f => f.old.physicalControl.strength = 1000, f => f.bargain.defender.stamina = 1,
+    f => f.old.health = 49, f => f.c.activeViolence = true, f => f.bargain.defender.assignment = null,
+    f => f.office.assignment = null, f => f.office.civilAccessServices = [], f => f.old.physicalControl.strength = NaN]) {
+    const f = civilFixture(); civilCommission(f); assert.ok(Civil.startEscort(f.e, civilBundle(f))); change(f); civilStep(f, 10);
+    assert.equal(f.e.escort.status, 'stopped', JSON.stringify({ escort: f.e.escort, old: f.old, defender: f.bargain.defender, c: f.c })); assert.equal(f.e.release, null); assert.equal(f.s.receipt, null);
+  }
+  const f = civilFixture(); civilCommission(f); assert.ok(Civil.startEscort(f.e, civilBundle(f)));
+  assert.ok(Civil.attack(f.e, civilBundle(f), 'scientist', f.old.id, 'strike'));
+  assert.equal(f.e.escort.status, 'stopped'); assert.equal(f.e.release, null);
+  assert.ok(f.e.reports.length > 0); assert.ok(f.e.reports.every(r => /no criminal verdict/.test(r.finding)));
+});
+test('compulsory inspection uses actual incoming official and clerk, not an outgoing signature, and supports unchanged supplied upkeep', () => {
+  const f = civilFixture(), before = copy({ oldSignatures: f.succession.agreements, appointment: f.s.appointment,
+    obstruction: f.s.obstruction, supply: f.succession.provision, dates: [f.upkeep.dueAt, f.upkeep.graceUntil] });
+  civilRelease(f); assert.ok(Civil.transfer(f.e, civilBundle(f))); civilStep(f, 60);
+  assert.equal(f.e.transferEvidence, null); f.s = A.normalize(f.s); f.succession.appointments = f.s; f.e = f.s.enforcement;
+  civilStep(f, 60); assert.ok(f.e.transferEvidence);
+  assert.ok(A.compulsoryTransfer(f.s, f.succession, f.upkeep, f.office, civilBundle(f).c, f.at));
+  assert.equal(f.s.receipt.origin, 'compulsoryCivilAccess'); assert.equal(f.s.receipt.accessSettlementId, undefined);
+  assert.equal(f.s.access.settlement, null); assert.equal(f.e.transferEvidence.outgoingSignature, undefined);
+  assert.deepEqual(f.succession.agreements, before.oldSignatures); assert.deepEqual(f.s.appointment, before.appointment);
+  assert.deepEqual(f.s.obstruction, before.obstruction); assert.deepEqual(f.succession.provision, before.supply);
+  assert.deepEqual([f.upkeep.dueAt, f.upkeep.graceUntil], before.dates);
+  assert.ok(A.authorization(f.s, f.succession, f.upkeep, f.office, f.c));
+  assert.ok(Administration.inspect(f.upkeep, f.succession, f.office, f.c, f.at));
+  assert.ok(Administration.order(f.upkeep, f.succession, f.bargain, f.office, f.stacks, f.upkeep.inspection, f.c, f.at));
+  f.at += 1000; Administration.advance(f.upkeep, f.succession, f.bargain, f.office, f.stacks, f.c, f.at, { move });
+  assert.equal(f.stacks[0].quantity, 0); assert.ok(A.authorization(f.s, f.succession, f.upkeep, f.office, f.c));
+  assert.equal(A.compulsoryTransfer(f.s, f.succession, f.upkeep, f.office, f.c, f.at), false);
+});
+test('missing records, changed people, altered law and stale inventory cannot grant compulsory control', () => {
+  for (const change of [f => f.office.civilAccessCommissions = [], f => f.office.civilInstallationOrders = [],
+    f => f.office.civilAccessServices = [], f => f.office.civilAccessReleases = [], f => f.office.civilAccessTransfers = [],
+    f => f.e.commission.defenderId = 'substitute', f => f.c.civilAccessRule.missionSeconds++, f => f.stacks[0].quantity--,
+    f => { f.e.service.departBy--; f.office.civilAccessServices[0] = copy(f.e.service); },
+    f => { f.e.release.defenderCell.x = 100; f.office.civilAccessReleases[0] = copy(f.e.release); },
+    f => { f.e.transferEvidence.at = f.e.release.at - 1; f.office.civilAccessTransfers[0] = copy(f.e.transferEvidence); }]) {
+    const f = civilFixture(); civilRelease(f); assert.ok(Civil.transfer(f.e, civilBundle(f))); civilStep(f, 120); change(f);
+    assert.equal(A.compulsoryTransfer(f.s, f.succession, f.upkeep, f.office, civilBundle(f).c, f.at), false);
+    assert.equal(f.upkeep.workerId, f.old.id);
+  }
+});
+test('expiry, absence, original queue identity and death protect unfinished civil records and finite work', () => {
+  const f = civilFixture(); civilOrder(f); assert.ok(Civil.discussCommission(f.e, civilBundle(f))); civilStep(f, 60);
+  civilStep(f, 3600); assert.equal(Civil.signCommission(f.e, civilBundle(f), f.e.terms), false);
+  const g = civilFixture(); assert.ok(Civil.file(g.e, civilBundle(g))); civilStep(g, g.e.review.readyAt - g.at);
+  assert.ok(Civil.hear(g.e, civilBundle(g))); civilStep(g, 60); g.c.atCounter = false; civilStep(g, 120);
+  assert.equal(g.e.order, null); assert.equal(g.e.review.status, 'queued'); assert.equal(g.office.assignment, null);
+  const h = civilFixture(); civilCommission(h); assert.ok(Civil.startEscort(h.e, civilBundle(h))); civilStep(h, 5);
+  const before = copy({ s: h.s, old: h.old, defender: h.bargain.defender, office: h.office, injuries: h.injuries });
+  h.c.alive = false; civilStep(h, 100000);
+  assert.deepEqual({ s: h.s, old: h.old, defender: h.bargain.defender, office: h.office, injuries: h.injuries }, before);
+  assert.equal('physicalStrength' in Civil.publicView(h.e), false); assert.equal('stamina' in Civil.publicView(h.e).escort, false);
+});
 function step(f, seconds, effects = {}) { f.at += seconds; return A.advance(f.s, f.succession, f.upkeep, f.office, f.institutions, f.c, f.at, { move, stacks: f.stacks, ...effects }); }
 function discuss(f) { assert.equal(A.discuss(f.s, f.succession, f.upkeep, f.office, f.c, f.at), true); step(f, 60); }
 function propose(f) { discuss(f); assert.equal(A.propose(f.s, f.succession, f.upkeep, f.office, f.institutions, copy(f.s.dossier), f.c, f.at), true); }

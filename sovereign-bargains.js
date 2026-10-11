@@ -56,7 +56,8 @@
       representative: person(`${source.authority.id}:supply-representative`, ['Aderyn Vale', 'Cerys Reed', 'Iven Holt', 'Rysa Ash'][n % 4],
         source.authority.kind === 'collective' ? 'Authorized representative of the ruling collective' : 'Authorized sovereign representative', { x: 18, y: 9, z: 6 }),
       defender: { ...person(`${source.defenseId}:ward-defender`, ['Kael Farwatch', 'Hessa Ironveil', 'Orin Brightwire', 'Tavia Ashward'][n % 4],
-        'Exceptional city defender — walls-and-wards duty', { x: 19, y: 9, z: 6 }), exceptionalCapabilities: ['city-scale ward defense'], institutionId: source.defenseId },
+        'Exceptional city defender — walls-and-wards duty', { x: 19, y: 9, z: 6 }), exceptionalCapabilities: ['city-scale ward defense'], institutionId: source.defenseId,
+        physicalStrength: 80, civilAccessPolicy: n % 5 === 0 ? 'declineCivilEscort' : 'considerCivilEscort' },
       // A bounded run-local maintenance requisition at an existing defense branch,
       // not an army, a new wall, or supplies awarded to either party.
       depot: { id: `${source.defenseId}:maintenance-receiving`, label: `${source.defenseName} wall-maintenance receiving desk`,

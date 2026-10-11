@@ -18,14 +18,13 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Lawful Compulsory Installation Access
-2. Combined Offices and Further Appointment Procedures
-3. Organized Local Opposition and Continuing Occupation
-4. Strategic Expansion and World Domination
-5. Divine Supremacy: Rule over the Gods
-6. New-Run Onboarding and Contextual Tutorial
-7. Sound, Notifications, and Accessibility Audit
-8. Production Art Pass Using the Sprite Pipeline
+1. Combined Offices and Further Appointment Procedures
+2. Organized Local Opposition and Continuing Occupation
+3. Strategic Expansion and World Domination
+4. Divine Supremacy: Rule over the Gods
+5. New-Run Onboarding and Contextual Tutorial
+6. Sound, Notifications, and Accessibility Audit
+7. Production Art Pass Using the Sprite Pipeline
 
 Human staffing now supports bounded independent annex operation without intelligent creations. Homunculus growth, learned local continue/stop gestures, small separately learned signed and spoken languages, care-grounded spoken help requests and specifically demonstrated voluntary carrying agreements exist; literacy, wider education and standing creature employment do not. Homunculi remain advanced stage-two/three work, not early-laboratory unlocks; priority order does not impose compulsory campaign chapters.
 
@@ -140,51 +139,49 @@ One contested public-works replacement is implemented after actual voluntary sov
 
 One witnessed peaceful installation-access negotiation is implemented after real appointment and obstruction. The same outgoing person has a persistent privately held custody concern or categorical replacement objection. Actual attended discussion reveals the reason without rerolling it. For a custody concern, original incoming/outgoing/clerk duty and power fund a physical receiving-tile inspection of existing city-owned staged goods and original manifests. Discrepancies remain evidence, not guilt or repaired stock. Exact optional one-hour settlement preserves dissent, rights, faith, property, injuries and cases; neither immunity nor loyalty is promised. Acceptance is recorded separately from actual collision-aware walking aside and the existing attended handover. Changed real custody requires new inspection and consent without deleting earlier accounts; unchanged facts cannot refresh an offer. Original appointment, obstruction, supplies, service dates and custody remain. Partial attendance, source records, real positions and dated knowledge survive reload, and death freezes work. Do not repeat this completed negotiation as another prerequisite; categorical refusal, declined or expired settlement does not authorize force.
 
-## 1. Lawful Compulsory Installation Access
+One bounded lawful compulsory-access route is implemented under a separately published civil installation-access law in newly generated supported charters, never retrofitted to old saves. The existing independent reviewer hears the actual outgoing person and original appointment/obstruction without repeating candidate eligibility. One installation-specific order requires a separately consenting original defender, actual service and a sixty-second opportunity to depart. Passive resistance is resolved through real approach, health-adjusted strength, stamina, controlled contact, bodily trauma, witnessed reports and ordinary occupancy-aware escort steps to the existing nearby private position. Missing supervision, exhaustion, incapacity or active fighting stop the limited commission without automatic victory, arrest, army or transfer. After actual release, the incoming technician and original clerk inspect and transfer using real finite duty, power and unchanged visible custody; no outgoing consent or signature is fabricated. Original rights, opposition, injuries, cases, faith, supplies, deadlines, registers and dated knowledge remain. Partial work and actual positions survive reload; death freezes work. Do not repeat this completed slice. Active armed enforcement, detention and wider occupation require separately discussed authority and capabilities.
 
-Discuss one bounded lawful compulsory-access route when the outgoing public-works official continues to obstruct the installation after the completed appointment and optional peaceful negotiation. Do not make negotiation a compulsory checklist or repeat its custody account, appointment hearing or ordinary upkeep. Specify an actual published legal basis, competent independent decision where required, real willing capable actors, reachable geometry, finite duty and supplies, and one physically executed result. Existing appointment law, watch observation and protective-ward agreements do not authorize eviction, arrest or an army. Do not silently retrofit a charter, treat disagreement as crime, infer authority from divine designation support, or turn a removal order into automatic physical control. Preserve actual opposition, living people's rights, original records and custody; force, damage, injuries and received witness evidence must be real. If the supported route needs additional legal authority, consenting enforcement actors or combat capabilities, identify and separately discuss that prerequisite instead of fabricating compliance. Enforceable control remains distinct from a recorded order and wider occupation.
-
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. Combined Offices and Further Appointment Procedures
+## 1. Combined Offices and Further Appointment Procedures
 
 Discuss one additional supported local appointment procedure only when a playable consumer requires it. Combined public-works/emergency offices, collective authorities, appointments under disputed recognition, unavailable incumbents and further replacements are not covered by the completed separate-office voluntary-handover route. Specify actual published selection/removal powers, all affected roles, independent review, real qualified consenting candidates, finite duties and physical handover. A laboratory employment credential is not civic eligibility. Do not silently amend an old charter, reuse designation-only patron authorization as removal approval, invent a vacancy or a freely replenished candidate market, or replace multiple institutions through one narrow receipt. This is an optional branch, not a compulsory checklist before every campaign action.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Organized Local Opposition and Continuing Occupation
+## 2. Organized Local Opposition and Continuing Occupation
 
 Discuss the first bounded organized opposition or occupation obligation beyond whichever real local transfer has been implemented. Choose one installation, enforceable obligation or identified opposing group before widening to citywide occupation. The existing rare defender and civic people are not a freely controllable army, and a conquered installation supplies neither complete intelligence nor automatic institutional obedience. Collective rulers and unsupported charters retain distinct procedures. Split wider provisioning and organized resistance prerequisites when required. No assay appointment, bargain, witnessed bout, personal ceasefire, payment, reputation or internet recognition grants sovereign command by itself. Do not repeat the completed individual public-works policy objection, appointment hearing or supplied upkeep loop as organized revolt.
 
 Require actual people, rare powerful defenders, material resources, reachable infrastructure and enforceable terms. Account for the existing charter, appointments and succession, authenticated divine patrons and religious interests, legal consequences and actual opposing actors. Preserve separate local sovereignties, knowledge limits and the politically dependent two-sponsor status of route strongholds. No free army, automatic surrender, omniscient takeover or durable nation-state may replace the city-polity model. Record a supported change of control separately from whether that control remains enforceable; reuse supported continuing administration and role-specific objections/review without assuming perpetual loyalty. Wider provisioning, contested replacement appointments, religious conflicts, organized opposition and armed revolt need separate prompts when an approved route actually requires them; do not repeat completed public-works upkeep or its objection loop.
 
+The completed civil installation-access commission covers passive resistance only and stops when fighting begins. Any proposed active armed enforcement needs its own explicit lawful scope, actual capable consenting actors, ordinary combat and persistent injuries; it cannot inherit arrest or occupation powers from the narrow civil order.
+
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Strategic Expansion and World Domination
+## 3. Strategic Expansion and World Domination
 
 Design physically supportable expansion between existing support components, significant beast powers, and divine interests, then implement only the next mechanically supported slice. Specify finite, testable durable-supremacy criteria before adding victory evaluation; occupation of every empty globe cell is not required. Bind campaigns to actual routes, transport, manpower, resources, defense, agreements, and resistance. Keep unknown powers and hidden totals out of ordinary campaign records. World domination is an exceptionally rare dated accomplishment, not a game-over transition, and remains separate from divine supremacy.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. Divine Supremacy: Rule over the Gods
+## 4. Divine Supremacy: Rule over the Gods
 
 Design and implement the ultimate ambition of imposing enforceable submission on the gods, killing those who refuse, and reigning over the rest. Submission must impose actual terms and consequences rather than a reputation threshold or cosmetic declaration. Cover discovery, human and beast gods, living descended individuals, avatars versus the actual divine individual, rebellion, and new ascendants. Destroying worship or forcing descent is not a kill. Scientific, animantic, engineered-creature, and personal-power approaches should remain possible without requiring the scientist to ascend. Theme-compatible presentations do not remove the refusal-and-death requirement. Define finite, testable accomplishment criteria without exposing hidden identities or counts; allow continued play after success and keep world domination a separate accomplishment. Split prerequisite combat, submission, or enforcement systems into further prompts if needed.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. New-Run Onboarding and Contextual Tutorial
+## 5. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Sound, Notifications, and Accessibility Audit
+## 6. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Production Art Pass Using the Sprite Pipeline
+## 7. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 

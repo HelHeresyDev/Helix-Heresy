@@ -35,6 +35,7 @@
       succession: g.charter.successionPrinciple, populationSourceId: row.assetId,
       designationReview: copy(g.charter.designationReview || null),
       publicWorksAppointment: copy(g.charter.publicWorksAppointment || null), population: row.currentPopulation,
+      civilInstallationAccess: copy(g.charter.civilInstallationAccess || null),
       institutions: roles.map((role, n) => ({ role, id: institutions[n].id, name: institutions[n].publicName || institutions[n].name || role,
         responsibilities: copy(institutions[n].responsibilities || []), officeRoles: copy(institutions[n].roles || []),
         appointmentMethod: institutions[n].appointmentMethod })) };
@@ -61,6 +62,10 @@
         leaders.push(actor);
       }
       actor.roles.push(institution.role);
+    }
+    for (const actor of leaders.filter(a => a.roles.includes('publicWorksAndProvisioning'))) {
+      actor.physicalControl = { strength: 20 + hash(`${actor.id}:physical-strength`) % 31, stamina: 80, staminaCapacity: 80 };
+      actor.skills = { striking: 10, guarding: 15, evasion: 10, perception: 20 };
     }
     return { definitionId: selected.definitionId, sourceTheme: selected.sourceTheme, source: copy(source), officeId: office.id,
       ruler, leaders, allocation: { populationSourceId: source.populationSourceId, people: leaders.length + 1 },

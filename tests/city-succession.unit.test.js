@@ -67,6 +67,7 @@ test('designation binds existing individual ruler, charter, actual institutions 
     strategicPoliticalHistory: { currentControlRows: [{ cityId: 'a', recognizedAuthorityId: 'ruler:a', controlStatus: 'sovereign' }] } };
   const original = copy(map); assert.equal(Succession.sourceFromWorld(map, f.b).authority.id, 'ruler:a'); assert.deepEqual(map, original);
   assert.equal(Succession.sourceFromWorld(map, f.b).designationReview, null);
+  assert.equal(Succession.sourceFromWorld(map, f.b).civilInstallationAccess, null);
   government.charter.designationReview = { id: 'original-law', principle: f.source.succession,
     reviewInstitutionId: government.roleAssignments.civicReview, coercionRule: 'independentConfirmationPermitted', requiredAuthorizationIds: [] };
   const published = Succession.sourceFromWorld(map, f.b).designationReview;
@@ -77,9 +78,13 @@ test('designation binds existing individual ruler, charter, actual institutions 
   const worksId = government.roleAssignments.publicWorksAndProvisioning;
   const reviewId = government.roleAssignments.civicReview;
   government.charter.publicWorksAppointment = Appointments.ruleFor('a', worksId, reviewId);
+  government.charter.civilInstallationAccess = require('../civil-installation-access').ruleFor('a', worksId, reviewId, government.roleAssignments.militaryDefenseCommand);
   for (const i of government.institutions) { i.roles = [i.role]; i.appointmentMethod = 'appointmentBySovereignAuthority'; }
   const replacementSource = Succession.sourceFromWorld(map, f.b);
   assert.deepEqual(replacementSource.publicWorksAppointment, government.charter.publicWorksAppointment);
+  assert.deepEqual(replacementSource.civilInstallationAccess, government.charter.civilInstallationAccess);
+  replacementSource.civilInstallationAccess.contactSeconds = 0;
+  assert.equal(government.charter.civilInstallationAccess.contactSeconds, 20);
   assert.equal(replacementSource.population, 8);
   assert.deepEqual(replacementSource.institutions.find(i => i.role === 'publicWorksAndProvisioning').officeRoles, ['publicWorksAndProvisioning']);
   replacementSource.publicWorksAppointment.minimumMaintenance = 0;
@@ -92,6 +97,11 @@ test('designation binds existing individual ruler, charter, actual institutions 
   for (const theme of ['madcap', 'grim', 'unbound']) {
     const f = fixture(theme); assert.equal(f.s.sourceTheme, 'shared'); assert.equal(f.s.ruler.id, f.source.authority.id);
     assert.equal(f.s.allocation.people, 5); assert.equal(f.s.control, null); assert.equal(f.s.provision.stock, 0);
+    const worker = f.s.leaders.find(a => a.roles.includes('publicWorksAndProvisioning'));
+    assert.ok(worker.physicalControl.strength >= 20 && worker.physicalControl.strength <= 50);
+    assert.equal(worker.physicalControl.stamina, 80); assert.equal(worker.skills.guarding, 15);
+    worker.physicalControl.stamina = 7;
+    assert.equal(Succession.normalize(f.s).leaders.find(a => a.id === worker.id).physicalControl.stamina, 7);
     assert.equal(Succession.create({ ...f.source, succession: 'publicly demonstrated competence' }, f.b, f.office), null);
     assert.equal(Succession.create({ ...f.source, authority: { ...f.source.authority, kind: 'collective' } }, f.b, f.office), null);
   }

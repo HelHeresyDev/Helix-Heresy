@@ -9,10 +9,11 @@
     ? require("./strategic-beast-ecology")
     : root?.HelixStrategicBeastEcology;
   const appointments = typeof module === "object" && module.exports ? require('./public-works-appointments') : root?.HelixPublicWorksAppointments;
-  const api = factory(strategicWorld, cityPolities, beastEcology, appointments);
+  const civilAccess = typeof module === "object" && module.exports ? require('./civil-installation-access') : root?.HelixCivilInstallationAccess;
+  const api = factory(strategicWorld, cityPolities, beastEcology, appointments, civilAccess);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixStrategicCityGovernments = api;
-})(typeof window !== "undefined" ? window : globalThis, function createStrategicCityGovernmentsApi(StrategicWorld, StrategicCityPolities, StrategicBeastEcology, Appointments) {
+})(typeof window !== "undefined" ? window : globalThis, function createStrategicCityGovernmentsApi(StrategicWorld, StrategicCityPolities, StrategicBeastEcology, Appointments, CivilAccess) {
   "use strict";
 
   if (!StrategicWorld) throw new Error("HelixStrategicWorld must load before strategic-city-governments.js");
@@ -232,6 +233,10 @@
           && ['named experimental successor', 'designation by the reigning protector'].includes(polity.successionPrinciple)
           && institutions.find(i => i.id === roleAssignments.publicWorksAndProvisioning).roles.length === 1
           ? Appointments.ruleFor(city.id, roleAssignments.publicWorksAndProvisioning, reviewId) : null,
+        civilInstallationAccess: polity.authority.kind === 'individual'
+          && ['named experimental successor', 'designation by the reigning protector'].includes(polity.successionPrinciple)
+          && institutions.find(i => i.id === roleAssignments.publicWorksAndProvisioning).roles.length === 1
+          ? CivilAccess.ruleFor(city.id, roleAssignments.publicWorksAndProvisioning, reviewId, roleAssignments.militaryDefenseCommand) : null,
         continuityProcedure: "The charter preserves institutions and delegates temporary authority until the succession rule resolves sovereign continuity.",
         emergencyPowers: {
           declarationAuthorityId: polity.authority.id,

@@ -1,8 +1,9 @@
 (function (root, factory) {
-  const api = factory(typeof module === 'object' && module.exports ? require('./home-institution-context') : root.HelixHomeInstitutionContext);
+  const api = factory(typeof module === 'object' && module.exports ? require('./home-institution-context') : root.HelixHomeInstitutionContext,
+    typeof module === 'object' && module.exports ? require('./civil-installation-access') : root.HelixCivilInstallationAccess);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixPublicWorksAppointments = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Institutions) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Institutions, CivilAccess) {
   'use strict';
   const ROLE = 'publicWorksAndProvisioning', REASON = 'changeMaintenanceSteward';
   const HOME = Object.freeze({ x: 19, y: 12, z: 6 });
@@ -363,11 +364,17 @@
       // No cargo or staffing duty may be abandoned by replacing its owner.
       if (upkeep.job || upkeep.rests.length || upkeep.resistance?.job || succession.job || succession.directive?.status === 'carrying'
         || !authenticAppointment(s, office) || !eligibility(s)) { release(s, succession, office); return false; }
+      recordTransfer(s, succession, upkeep, office, completedAt);
+    }
+    release(s, succession, office); return true;
+  }
+  function recordTransfer(s, succession, upkeep, office, completedAt, compulsory = null) {
       s.receipt = { id: `${s.id}:physical-transfer`, at: completedAt, appointmentId: s.appointment.id,
         incomingId: s.candidate.id, outgoingId: s.incumbentId, recorderId: s.clerkId, installationId: s.installationId,
         dueAt: upkeep.dueAt, graceUntil: upkeep.graceUntil, servicedAt: upkeep.servicedAt,
         sourceReceiptIds: upkeep.receipts.map(r => r.id), reserveReceiptIds: succession.provision.receipts.map(r => r.id),
-        ...(s.incumbentPolicy === 'retainInstallation' ? { accessSettlementId: s.access.settlement.id } : {}),
+        ...(compulsory ? { origin: 'compulsoryCivilAccess', compulsoryAccessId: compulsory.id }
+          : s.incumbentPolicy === 'retainInstallation' ? { accessSettlementId: s.access.settlement.id } : {}),
         scope: LIMITS };
       office.publicWorksTransfers ||= []; office.publicWorksTransfers.push(copy(s.receipt));
       s.agreement = { id: `${s.receipt.id}:agreement`, personId: s.candidate.id, institutionId: s.institutionId,
@@ -381,9 +388,18 @@
       s.candidate.roles = [ROLE]; s.candidate.role = 'Appointed public-works official — existing counter maintenance';
       upkeep.appointmentId = s.receipt.id; upkeep.workerId = s.candidate.id; upkeep.inspection = null;
       upkeep.workCaps[s.candidate.id] = s.appointment.terms.workCap;
-      s.phase = 'transferred'; note(s, completedAt, 'transfer', 'Actual local handover completed. The new official may maintain the same supplied counter; deadlines, stocks, original records and spent personal work are unchanged.');
-    }
-    release(s, succession, office); return true;
+      s.phase = 'transferred'; note(s, completedAt, 'transfer', compulsory
+        ? 'Actual compulsory civil access and incoming-official/clerk transfer completed. The outgoing person signed no consent; dissent, injuries, property, cases, custody records and finite supplies remain.'
+        : 'Actual local handover completed. The new official may maintain the same supplied counter; deadlines, stocks, original records and spent personal work are unchanged.');
+  }
+  function compulsoryTransfer(s, succession, upkeep, office, c, at) {
+    const e = s?.enforcement;
+    if (!e || s.receipt || !bound(s, succession, upkeep, office, c) || !authenticAppointment(s, office) || !eligibility(s)
+      || !CivilAccess.receiptAuthentic(e, s, office, c) || localReason(s, succession, upkeep, office, c)
+      || !cellSame(incumbent(s, succession).mapCell, RETIRED_POST) || !cellSame(s.candidate.mapCell, upkeep.installation.workCell)
+      || !able(s.candidate) || !able(office.clerk) || !c.presentIds?.includes(s.candidate.id)
+      || !c.accessInventoryVisible || !same(c.inventory, e.transferEvidence.inventory) || !free(s, succession, upkeep, office)) return false;
+    recordTransfer(s, succession, upkeep, office, at, e.transferEvidence); e.phase = 'transferred'; return true;
   }
   function authenticAppointment(s, office) {
     return Boolean(s.appointment && s.review?.status === 'completed' && s.review.outcome === 'eligible'
@@ -405,8 +421,10 @@
       && s.candidate.id === upkeep.workerId && s.candidate.institutionId === s.institutionId
       && upkeep.workCaps[s.candidate.id] === s.appointment?.terms.workCap
       && same(s.candidate.roles, [ROLE]) && authenticAppointment(s, office) && eligibility(s)
-      && (s.receipt.accessSettlementId ? authenticSettlement(s, office) && s.receipt.accessSettlementId === s.access.settlement.id
-        : s.incumbentPolicy === 'contestThenRelease')
+      && (s.receipt.origin === 'compulsoryCivilAccess' ? CivilAccess.receiptAuthentic(s.enforcement, s, office, c)
+        && s.receipt.compulsoryAccessId === s.enforcement.transferEvidence.id
+        : s.receipt.accessSettlementId ? authenticSettlement(s, office) && s.receipt.accessSettlementId === s.access.settlement.id
+          : s.incumbentPolicy === 'contestThenRelease')
       && s.agreement?.personId === s.candidate.id && s.agreement.institutionId === s.institutionId
       && same(s.agreement.terms, s.appointment.terms)
       && office.publicWorksTransfers?.some(r => same(r, s.receipt)) ? s.agreement : null;
@@ -417,6 +435,7 @@
       dossier: copy(s.dossier), proposal: copy(s.proposal), review: copy(s.review), terms: copy(s.terms),
       appointment: copy(s.appointment), receipt: copy(s.receipt), obstruction: copy(s.obstruction || null),
       access: copy(s.access || null),
+      enforcement: CivilAccess.publicView(s.enforcement),
       previousObjections: [s.archivedResistance?.notice, ...(s.archivedResistance?.incidents || [])]
         .filter(n => n?.receivedAt != null).map(n => ({ at: n.receivedAt, finding: n.finding, review: n.review?.status === 'completed' ? n.review.finding : null })),
       working: s.job && { kind: s.job.kind, progress: s.job.progress, seconds: s.job.seconds, clearingPost: s.job.clearingPost },
@@ -424,5 +443,5 @@
   }
   return { ROLE, REASON, HOME, RETIRED_POST, LIMITS, ruleFor, create, normalize, incumbent, reviewer, bound, localReason,
     discuss, propose, hear, appoint, approach, transfer, discussAccess, inspectAccess, settleAccess, declineAccess,
-    custodyInventory, cancel, advance, authorization, publicView };
+    custodyInventory, compulsoryTransfer, authenticAppointment, cancel, advance, authorization, publicView };
 });

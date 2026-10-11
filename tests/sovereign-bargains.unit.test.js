@@ -28,6 +28,12 @@ test('all themes use the shared bounded exchange; a collective is represented, n
     const f = fixture(theme, true);
     assert.match(f.s.representative.role, /collective/); assert.equal(f.s.source.authority.kind, 'collective');
     assert.equal(f.s.sourceTheme, 'shared'); assert.equal(f.s.depot.stock, 0);
+    assert.equal(f.s.defender.physicalStrength, 80);
+    assert.ok(['considerCivilEscort', 'declineCivilEscort'].includes(f.s.defender.civilAccessPolicy));
+    const policy = f.s.defender.civilAccessPolicy;
+    f.s.defender.physicalStrength = 60;
+    assert.equal(Bargains.normalize(f.s).defender.physicalStrength, 60);
+    assert.equal(Bargains.normalize(f.s).defender.civilAccessPolicy, policy);
     assert.equal(Bargains.create(f.source, { ...f.office, institutionId: 'other' }), null);
     assert.equal(Bargains.normalize(null), null);
   }

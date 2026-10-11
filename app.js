@@ -113,6 +113,7 @@
   const CitySuccession = window.HelixCitySuccession;
   const CityAdministration = window.HelixCityAdministration;
   const PublicWorksAppointments = window.HelixPublicWorksAppointments;
+  const CivilInstallationAccess = window.HelixCivilInstallationAccess;
   const CityResistance = window.HelixCityResistance;
   const UnsupportedExcursions = window.HelixUnsupportedExcursions;
   const MedicalExtraction = window.HelixMedicalExtraction;
@@ -14627,6 +14628,8 @@
       cityAdministrationAction: (action, expected) => cityAdministrationAction(action, expected),
       cityResistanceAction: (action, expected) => cityResistanceAction(action, expected),
       cityAppointmentsAction: (action, expected) => cityAppointmentsAction(action, expected),
+      civilInstallationAction: (action, expected) => civilInstallationAction(action, expected),
+      civilInstallationSnapshot: () => clonePlainObject({ ...civilAccessBundle(), injuries: state.injuries }),
       cityAppointmentsSnapshot: () => clonePlainObject({ appointments: state.citySuccession?.appointments,
         source: citySuccessionSource(),
         known: state.cityAppointmentsKnowledge, context: cityAppointmentsContext(), clock: state.clock,
@@ -14647,13 +14650,17 @@
         if (options.willing != null) s.candidate.appointmentPolicy = options.willing ? 'considerExactDuties' : 'declineOffice';
         if (options.obstruct != null) s.incumbentPolicy = options.obstruct ? 'retainInstallation' : 'contestThenRelease';
         if (options.accessPolicy != null && ['custodyAccountability', 'rejectReplacement'].includes(options.accessPolicy)) s.accessPolicy = options.accessPolicy;
+        if (options.civilPolicy != null && ['considerCivilEscort', 'declineCivilEscort'].includes(options.civilPolicy)) state.sovereignBargains.defender.civilAccessPolicy = options.civilPolicy;
+        if (options.resistanceStrength != null) PublicWorksAppointments.incumbent(s, state.citySuccession).physicalControl.strength = options.resistanceStrength;
         refreshCityAppointmentsKnowledge(); persist(); render(); return true;
       },
       advanceCityAppointmentsForTest: seconds => {
         let remaining = Math.max(0, Number(seconds) || 0);
         while (remaining > 0 && !scientistIsDead()) {
           const s = state.citySuccession?.appointments;
-          const step = Math.min(remaining, s?.travel || s?.job?.clearingPost ? 1 : s?.job ? Math.max(1, s.job.seconds - s.job.progress) : 60);
+          const e = s?.enforcement;
+          const step = Math.min(remaining, s?.travel || s?.job?.clearingPost || e?.escort?.status === 'active' ? 1
+            : s?.job ? Math.max(1, s.job.seconds - s.job.progress) : e?.job ? Math.max(1, e.job.seconds - e.job.progress) : 60);
           state.clock += step; remaining -= step; updateCityAdministration();
         }
         persist(); render(); return state.clock;
@@ -14702,6 +14709,7 @@
         if (options.appointmentLaw) {
           b.testSuccessionSource.population = 100;
           b.testSuccessionSource.publicWorksAppointment = PublicWorksAppointments.ruleFor(b.source.cityId, 'test-publicWorksAndProvisioning', 'test-civicReview');
+          if (options.civilAccessLaw) b.testSuccessionSource.civilInstallationAccess = CivilInstallationAccess.ruleFor(b.source.cityId, 'test-publicWorksAndProvisioning', 'test-civicReview', b.source.defenseId);
         }
         if (!state.citySuccession) {
           state.defenderChallenge = DefenderChallenges.create(b);
@@ -39922,6 +39930,8 @@
   }
 
   function combatActor(actorId) {
+    const civil = PublicWorksAppointments.incumbent(state.citySuccession?.appointments, state.citySuccession);
+    if (civil?.id === actorId && civil.physicalControl) return civil;
     if (state.citySuccession?.ruler?.id === actorId && state.citySuccession.ruler.actorKind === 'cityIncumbent') return state.citySuccession.ruler;
     if (state.sovereignBargains?.defender?.id === actorId && state.sovereignBargains.defender.actorKind === 'cityDefender') return state.sovereignBargains.defender;
     const homunculus = state.homunculi?.individuals.find(a => a.id === actorId);
@@ -39940,7 +39950,7 @@
 
   function combatActorSkillLevel(actor, skillId) {
     if (actor?.actorKind === 'cityIncumbent') return actor.personalDefense.skills[skillId] || 1;
-    if (actor?.actorKind === 'cityDefender') return actor.skills[skillId] || 1;
+    if (['cityDefender', 'civicOfficeholder'].includes(actor?.actorKind)) return actor.skills?.[skillId] || 1;
     if (actor?.actorKind === "homunculus") return actor.skills[skillId] || 0;
     if (["surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor?.actorKind)) return actor.skills[skillId] || 1;
     if (["expeditionEscort", "rescueMedic", "penalPrisoner"].includes(actor?.actorKind)) return actor.skills[skillId] || 1;
@@ -40005,7 +40015,7 @@
 
   function scientistCombatTargetForSlime(slime) {
     if (!slime) return null;
-    if (['cityDefender', 'cityIncumbent'].includes(slime.actorKind)) return normalizeCombatTarget({ kind: 'creature', id: slime.id, lastKnownCell: slime.mapCell, observedAt: state.clock });
+    if (['cityDefender', 'cityIncumbent', 'civicOfficeholder'].includes(slime.actorKind)) return normalizeCombatTarget({ kind: 'creature', id: slime.id, lastKnownCell: slime.mapCell, observedAt: state.clock });
     if (slime.actorKind === "wildernessBeast") return normalizeCombatTarget({ kind: "creature", id: slime.id, lastKnownCell: state.wildernessBeasts.sightings[slime.id]?.cell, observedAt: state.wildernessBeasts.sightings[slime.id]?.observedAt });
     const record = creatureRecordForSlime(slime);
     return normalizeCombatTarget({
@@ -40020,6 +40030,7 @@
     if (!slime || slime.status === "dead") return false;
     if (slime.actorKind === 'cityDefender') return cityDefenderObserved();
     if (slime.actorKind === 'cityIncumbent') return incumbentObserved();
+    if (slime.actorKind === 'civicOfficeholder') return Boolean(slime.mapCell && slime.mapCell.z === scientistMapCell()?.z && sensoryLineOfSight(scientistMapCell(), slime.mapCell));
     if (slime.actorKind === "wildernessBeast") return wildernessBeastVisible(slime);
     if (slime.containerId) return scientistObservesRoom(slimeEffectiveRoomId(slime));
     const source = scientistMapCell();
@@ -40089,7 +40100,7 @@
 
   function normalizeInjury(candidate, index = 0) {
     if (!candidate || typeof candidate !== "object") return null;
-    const actorKind = ["scientist", "wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent"].includes(candidate.actorKind) ? candidate.actorKind : "slime";
+    const actorKind = ["scientist", "wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent", "civicOfficeholder"].includes(candidate.actorKind) ? candidate.actorKind : "slime";
     const actorId = actorKind === "scientist" ? "scientist" : String(candidate.actorId || "");
     const typeId = INJURY_TYPE_DEFS[candidate.typeId] ? candidate.typeId : "bruising";
     const severityId = INJURY_SEVERITY_DEFS[candidate.severityId] ? candidate.severityId : "minor";
@@ -40146,7 +40157,7 @@
     if (tags.has("heat") || tags.has("cold") || tags.has("radiant")) return "burn";
     if (tags.has("electrical")) return "electricalTrauma";
     if (tags.has("arcane") || tags.has("shadow")) return "arcaneTrauma";
-    if (['cityDefender', 'cityIncumbent'].includes(actor?.actorKind)) return amount >= 8 ? 'bleeding' : 'bruising';
+    if (['cityDefender', 'cityIncumbent', 'civicOfficeholder'].includes(actor?.actorKind)) return amount >= 8 ? 'bleeding' : 'bruising';
     if (["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor?.actorKind)) return amount >= 8 ? "bleeding" : "bruising";
     if (actor !== state.scientist && location === "core") return "coreTrauma";
     if (actor !== state.scientist && (location === "membrane" || amount >= 10)) return "membraneTear";
@@ -40160,7 +40171,7 @@
     state.injuries = normalizeInjuries(state.injuries);
     const scientist = actor === state.scientist || actor?.physicalPresence;
     const actorId = scientist ? "scientist" : actor.id;
-    const locations = scientist || ["expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent"].includes(actor.actorKind) ? SCIENTIST_INJURY_LOCATIONS : actor.actorKind === "wildernessBeast" ? ["head", "torso", "left leg", "right leg"] : slimeInjuryLocations(actor);
+    const locations = scientist || ["expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent", "civicOfficeholder"].includes(actor.actorKind) ? SCIENTIST_INJURY_LOCATIONS : actor.actorKind === "wildernessBeast" ? ["head", "torso", "left leg", "right leg"] : slimeInjuryLocations(actor);
     const rng = seedRng(`${state.seed}:injury:${actorId}:${state.combat?.nextActionNumber || 0}:${Math.round(state.clock)}:${damageTypes.join(":")}`);
     const location = options.location || locations[Math.floor(rng() * locations.length)] || (scientist ? "torso" : "body mass");
     const typeId = injuryTypeForDamage(actor, damageTypes, amount, location);
@@ -40178,7 +40189,7 @@
     const visible = INJURY_TYPE_DEFS[typeId].visible;
     const observed = scientist || visible || options.observed;
     const injury = normalizeInjury({
-      id: `injury-${state.nextInjuryNumber++}`, actorKind: scientist ? "scientist" : ["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent"].includes(actor.actorKind) ? actor.actorKind : "slime", actorId,
+      id: `injury-${state.nextInjuryNumber++}`, actorKind: scientist ? "scientist" : ["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent", "civicOfficeholder"].includes(actor.actorKind) ? actor.actorKind : "slime", actorId,
       typeId, severityId, location, status: "active", cause, damageTypes,
       createdAt: state.clock, updatedAt: state.clock, observedAt: observed ? state.clock : null
     }, state.nextInjuryNumber);
@@ -40251,6 +40262,7 @@
       else if (actor.actorKind === "homunculus") damageHomunculus(actor, damage, { injuryProgress: true });
       else if (actor.actorKind === 'cityDefender') damageCityDefender(damage, { injuryProgress: true });
       else if (actor.actorKind === 'cityIncumbent') damageIncumbent(damage, { injuryProgress: true });
+      else if (actor.actorKind === 'civicOfficeholder') damageCivilOfficeholder(actor, damage, { injuryProgress: true });
       else {
         applySlimeCombatDamage(actor, damage, "injury", `${INJURY_TYPE_DEFS[injury.typeId].label} progression`, { injuryProgress: true });
         if (injury.typeId === "membraneTear") adjustRoomAttribute(slimeEffectiveRoomId(actor), "contamination", damage * 0.25);
@@ -40261,7 +40273,7 @@
   }
 
   function awardCombatActionXp(actor, skillId, amount, reason, outcome) {
-    if (['cityDefender', 'cityIncumbent'].includes(actor?.actorKind)) return;
+    if (['cityDefender', 'cityIncumbent', 'civicOfficeholder'].includes(actor?.actorKind)) return;
     if (["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor?.actorKind)) return;
     if (actor === state.scientist || actor?.physicalPresence) {
       awardXp(skillId, amount * skillXpOutcomeMultiplier(outcome), reason, { physical: true });
@@ -40301,6 +40313,11 @@
     const targetActor = combatActor(target.id);
     if (!targetActor) return { ok: false, reason: "The target is no longer present." };
     const targetIsScientist = target.id === 'scientist';
+    if (actorId === 'scientist' && state.citySuccession?.appointments?.enforcement) {
+      const bundle = civilAccessBundle();
+      CivilInstallationAccess.attack(bundle.appointment.enforcement, bundle, actorId, target.id, actionId);
+      refreshCityAppointmentsKnowledge();
+    }
     if (actorId === 'scientist' && targetActor.actorKind === 'cityIncumbent') {
       IncumbentResistance.attack(state.incumbentResistance, state.citySuccession, scientistCivicOffice(), incumbentResistanceContext(), state.clock, actionId);
       renewIncumbentProtection(); flushIncumbentEvidence();
@@ -40322,7 +40339,7 @@
         coalesceKey: "miss:" + actorId + ":" + target.id
       });
       awardCombatActionXp(actor, action.skillId, options.xp || 4, action.label, "failure");
-      if (!targetIsScientist && !["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent"].includes(targetActor.actorKind)) awardCreatureSkillXp(targetActor, "evasion", 3, `evading ${action.label.toLowerCase()}`);
+      if (!targetIsScientist && !["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent", "civicOfficeholder"].includes(targetActor.actorKind)) awardCreatureSkillXp(targetActor, "evasion", 3, `evading ${action.label.toLowerCase()}`);
       return { ok: true, hit: false, damage: 0, accuracy };
     }
     const targetId = targetIsScientist ? "scientist" : targetActor.id;
@@ -40339,9 +40356,10 @@
       : targetActor.actorKind === "homunculus" ? damageHomunculus(targetActor, guardedDamage, { damageTypes: action.damageTypes, observed: actor === state.scientist })
       : targetActor.actorKind === 'cityDefender' ? damageCityDefender(guardedDamage, { damageTypes: action.damageTypes })
       : targetActor.actorKind === 'cityIncumbent' ? damageIncumbent(guardedDamage, { damageTypes: action.damageTypes })
+      : targetActor.actorKind === 'civicOfficeholder' ? damageCivilOfficeholder(targetActor, guardedDamage, { damageTypes: action.damageTypes })
       : applySlimeCombatDamage(targetActor, guardedDamage, actorId, action.label, { damageTypes: action.damageTypes, observed: actor === state.scientist });
     const actualDamage = targetIsScientist ? targetHealthBefore - scientistVital('health').current
-      : ['cityDefender', 'cityIncumbent'].includes(targetActor.actorKind) ? targetHealthBefore - targetActor.health : changed ? guardedDamage : 0;
+      : ['cityDefender', 'cityIncumbent', 'civicOfficeholder'].includes(targetActor.actorKind) ? targetHealthBefore - targetActor.health : changed ? guardedDamage : 0;
     if (changed && !options.hideFeedback) {
       emitMapFeedback("feedbackImpact", combatActorCell(targetActor), {
         label: action.label + " hit for " + actualDamage,
@@ -83741,7 +83759,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const participants = [office?.clerk, s?.candidate, PublicWorksAppointments.incumbent(s, state.citySuccession)];
     const seesReceiving = cell => Boolean(cell && cell.z === CityAdministration.RECEIVING.z
       && WildernessBeasts.distance(cell, CityAdministration.RECEIVING) <= 6 && sensoryLineOfSight(cell, CityAdministration.RECEIVING));
-    return { ...c, presentIds: [...citySuccessionPeople(), office?.clerk, s?.candidate].filter(near).map(a => a.id),
+    return { ...c, presentIds: [...citySuccessionPeople(), office?.clerk, s?.candidate, state.sovereignBargains?.defender].filter(near).map(a => a.id),
       accessInventoryVisible: Boolean(c.geometryAvailable && seesReceiving(scientistMapCell())
         && participants.every(a => near(a) && seesReceiving(a.mapCell))) };
   }
@@ -83756,9 +83774,53 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const s = state.citySuccession?.appointments; if (!s || scientistIsDead()) return false;
     const changed = PublicWorksAppointments.advance(s, state.citySuccession, state.cityAdministration, cityAdministrationOffice(),
       ensureHomeInstitutionContext(), cityAppointmentsContext(), state.clock, { move: moveSuccessionParticipant, stacks: ensurePhysicalItemStacks() });
-    if (s.job && !state.combat?.routineSuspension) suspendScientistRoutineWork('public-works appointment');
-    if (!s.job && state.combat?.routineSuspension?.reason === 'public-works appointment') resumeScientistRoutineWork();
-    refreshCityAppointmentsKnowledge(); return changed;
+    const civilChanged = updateCivilInstallationAccess();
+    const busy = s.job || s.enforcement?.job || s.enforcement?.escort?.status === 'active';
+    if (busy && !state.combat?.routineSuspension) suspendScientistRoutineWork('public-works appointment');
+    if (!busy && state.combat?.routineSuspension?.reason === 'public-works appointment') resumeScientistRoutineWork();
+    refreshCityAppointmentsKnowledge(); return changed || civilChanged;
+  }
+  function civilAccessBundle() {
+    const appointment = state.citySuccession?.appointments, c = cityAppointmentsContext(), office = cityAdministrationOffice();
+    c.appointmentCurrent = Boolean(appointment && PublicWorksAppointments.bound(appointment, state.citySuccession, state.cityAdministration, office, c)
+      && PublicWorksAppointments.authenticAppointment(appointment, office));
+    c.inventory = c.accessInventoryVisible && state.cityAdministration ? PublicWorksAppointments.custodyInventory(state.citySuccession, state.cityAdministration, ensurePhysicalItemStacks()) : null;
+    return { appointment, succession: state.citySuccession, upkeep: state.cityAdministration, bargain: state.sovereignBargains,
+      office, institutions: ensureHomeInstitutionContext(), c, at: state.clock, effects: {
+        move: moveSuccessionParticipant, lineOfSight: sensoryLineOfSight,
+        approach: (actor, target) => {
+          const adjacent = [{ x: target.x + 1, y: target.y, z: target.z }, { x: target.x - 1, y: target.y, z: target.z },
+            { x: target.x, y: target.y + 1, z: target.z }, { x: target.x, y: target.y - 1, z: target.z }]
+            .sort((a, b) => WildernessBeasts.distance(actor.mapCell, a) - WildernessBeasts.distance(actor.mapCell, b));
+          return adjacent.some(cell => moveSuccessionParticipant(actor, cell));
+        },
+        damage: (actor, amount) => damageCivilOfficeholder(actor, amount, { cause: 'Bounded civil-access grip during passive resistance', damageTypes: ['physical'] })
+      } };
+  }
+  function damageCivilOfficeholder(actor, amount, options = {}) {
+    if (!actor?.physicalControl || actor.status === 'dead' || amount <= 0) return false;
+    actor.health = Math.max(0, actor.health - amount);
+    if (!options.injuryProgress) recordCombatInjury(actor, amount, options.damageTypes || ['physical'], options.cause || 'Civic officeholder combat trauma', { observed: scientistHasExactCombatTarget(actor) });
+    if (actor.health <= 0) { actor.status = 'dead'; actor.diedAt = state.clock; }
+    return true;
+  }
+  function updateCivilInstallationAccess() {
+    const s = state.citySuccession?.appointments, e = s?.enforcement;
+    if (!e || s.receipt || scientistIsDead()) return false;
+    const b = civilAccessBundle(); let changed = CivilInstallationAccess.advance(e, b);
+    if (e.transferEvidence && !s.receipt) changed = PublicWorksAppointments.compulsoryTransfer(s, b.succession, b.upkeep, b.office, b.c, state.clock) || changed;
+    return changed;
+  }
+  function civilInstallationAction(action, expected = null) {
+    if (scientistIsDead()) return false;
+    updateCityAdministration(); const b = civilAccessBundle(), s = b.appointment;
+    if (!s) return false;
+    s.enforcement ||= CivilInstallationAccess.create(b); const e = s.enforcement;
+    if (!e) { addEvent('No explicit published civil-access law, authentic appointment, actual obstruction or capable original enforcement actor. No authority or personnel were invented.'); return false; }
+    const methods = { file: 'file', hear: 'hear', discuss: 'discussCommission', sign: 'signCommission', serve: 'serve', escort: 'startEscort', transfer: 'transfer', cancel: 'cancel' };
+    const ok = methods[action] ? CivilInstallationAccess[methods[action]](e, b, expected) : false;
+    addEvent(ok ? e.message : 'Exact original civil-access records, actual local attendance, safe geometry and finite staff capacity are required. Prior protective duties confer no enforcement authority.');
+    updateCityAdministration(); refreshCityAppointmentsKnowledge(); persist(); render(); return ok;
   }
   function cityAppointmentsAction(action, expected = null) {
     if (scientistIsDead()) return false;
@@ -83839,6 +83901,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     for (const old of v.previousObjections || []) section.append(textEl('p', `Earlier received objection ${formatClock(old.at)}: ${old.finding}${old.review ? ` Independent finding: ${old.review}` : ''}`));
     if (v.receipt) section.append(textEl('p', `Physical transfer recorded ${formatClock(v.receipt.at)}. The same installation, deadlines and supplies remain; use the maintenance controls above. Earlier objections remain in the dated appointment archive.`));
+    renderCivilInstallationAccess(section, v, observed);
     if (v.working) section.append(textEl('p', v.working.clearingPost ? 'The outgoing official is physically stepping aside; blocked paths pause release. No handover is complete.'
       : `${v.working.kind}: ${formatDuration(v.working.progress)} / ${formatDuration(v.working.seconds)} actual attended work.`));
     if (v.working || v.approaching) button('Cancel unfinished appointment work or approach', 'cancel');
@@ -83847,6 +83910,45 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function cityAdministrationOffice() {
     const id = state.cityAdministration?.officeId || state.citySuccession?.officeId;
     return id ? ensureIntercitySmuggling().identityOffices?.find(o => o.id === id) || null : null;
+  }
+  function renderCivilInstallationAccess(panel, v, observed) {
+    if (!v.obstruction && !v.enforcement) return;
+    const section = document.createElement('section'); section.dataset.civilAccess = 'true'; panel.append(section);
+    section.append(textEl('strong', 'Lawful compulsory installation access'));
+    const button = (label, action, expected = null, disabled = false) => {
+      const el = storesActionButton(label, label, () => civilInstallationAction(action, expected)); el.dataset.civilAccessAction = action;
+      el.disabled = !observed || disabled; section.append(el);
+    };
+    const e = v.enforcement, busy = Boolean(v.working || e?.working || e?.escort?.status === 'active');
+    const outgoing = PublicWorksAppointments.incumbent(state.citySuccession?.appointments, state.citySuccession);
+    if (observed && outgoing?.status === 'alive') for (const action of ['strike', 'soulLash']) {
+      const reason = scientistCombatActionBlockReason(action, outgoing);
+      const el = storesActionButton(`${combatActionDef(action).label} outgoing official — outside civil authority`, reason || 'An attack is not an escort action; actual witnesses and injuries remain.', () => beginScientistCombatAction(action, outgoing.id));
+      el.disabled = Boolean(reason); section.append(el);
+    }
+    if (!e) { section.append(textEl('p', 'This optional route requires a separately published civil-access rule. Existing appointments, watch observation and protective wards grant no eviction power.'));
+      if (!v.receipt) button('File installation-specific civil access request', 'file', null, busy); return; }
+    section.append(textEl('p', `${e.rule.text} Personally received ${formatClock(v.reportedAt)} — ${e.phase}.`));
+    if (!e.petition) button('File installation-specific civil access request', 'file', null, busy);
+    if (e.review?.status === 'queued') button('Attend independent civil access hearing (three minutes)', 'hear', null, busy || state.clock < e.review.readyAt);
+    if (e.review?.finding) section.append(textEl('p', e.review.finding));
+    if (e.order && !v.receipt) {
+      section.append(textEl('p', `Original civil access order expires ${formatClock(e.order.expiresAt)}. No criminal finding or physical control follows.`));
+      if (!e.response) button('Ask original defender about this civil escort (one minute)', 'discuss', null, busy);
+      if (e.response?.decision === 'refused') section.append(textEl('p', 'The original defender refused. No replacement guard, persuasion reroll or inherited commission exists.'));
+      if (e.terms && !e.commission) { section.append(textEl('p', `${e.terms.duties} Exact offer expires ${formatClock(e.terms.expiresAt)}.`));
+        button('Accept exact defender civil-access commission (one minute)', 'sign', clonePlainObject(e.terms), busy || state.clock >= e.terms.expiresAt); }
+      if (e.commission && !e.service) button('Physically serve civil access order (one minute)', 'serve', null, busy);
+      if (e.service) section.append(textEl('p', `Actually served ${formatClock(e.service.at)}. Opportunity to depart runs until ${formatClock(e.service.departBy)}. Receipt is not consent or guilt.`));
+      if (e.service && !e.escort) button('Begin bounded physical escort', 'escort', null, busy || state.clock < e.service.departBy);
+      if (e.escort) section.append(textEl('p', `Escort ${e.escort.status}: ${e.escort.phase}; ${e.escort.contact}/${e.rule.contactSeconds} seconds of actual controlled contact; ${e.escort.steps} physical steps. No teleport or detention.`));
+      if (e.release && !e.transferEvidence) button('Inspect and record compulsory installation transfer (two minutes)', 'transfer', null, busy);
+      if (busy) button('Stop unfinished civil access work', 'cancel');
+    }
+    if (e.transferEvidence) section.append(textEl('p', `Compulsory access inspection recorded ${formatClock(e.transferEvidence.at)}. The outgoing official signed no voluntary consent. Actual dissent, injuries and original custody records remain.`));
+    if (e.working) section.append(textEl('p', `${e.working.kind}: ${formatDuration(e.working.progress)} / ${formatDuration(e.working.seconds)} actual attended work.`));
+    for (const r of e.reports) section.append(textEl('p', `Received witness ${r.witnessId} ${formatClock(r.at)}: ${r.detail} ${r.finding}`));
+    section.append(textEl('p', e.message), textEl('p', e.limitations));
   }
   function ensureCityAdministration() {
     state.cityAdministration ||= CityAdministration.create(state.citySuccession, state.sovereignBargains, cityAdministrationOffice(),
@@ -83869,13 +83971,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const reviewId = source?.institutions.find(i => i.role === 'civicReview')?.id;
     return { ...c, ...administrationRecognitionSources(), busy: c.busy || Boolean(state.scientistIdentity?.job || state.sovereignBargains?.job
       || state.citySuccession?.job || state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job || state.religiousRecognition?.job || DefenderChallenges.reserved(state.defenderChallenge)
-      || !ownAppointment && state.citySuccession?.appointments?.job
+      || !ownAppointment && (state.citySuccession?.appointments?.job || state.citySuccession?.appointments?.enforcement?.job
+        || state.citySuccession?.appointments?.enforcement?.escort?.status === 'active')
       // An independently returning defender is not a clerk/public-works
       // assignment. Actual violence still blocks new civic attendance.
       || state.cityConfrontation?.phase === 'fighting' || IncumbentResistance.active(state.incumbentResistance)
       || state.surveyExpeditions?.mapService?.job || state.surveyExpeditions?.carrier?.briefingState?.job),
       bodyEpoch: ensureScientistIdentity().bodyEpoch,
       appointmentRule: clonePlainObject(source?.publicWorksAppointment || null),
+      civilAccessRule: clonePlainObject(source?.civilInstallationAccess || null),
+      civilDefenderId: state.sovereignBargains?.defender?.id,
+      defenseInstitutionId: source?.institutions.find(i => i.role === 'militaryDefenseCommand')?.id,
+      defenseAvailable: defenderChallengeContext().defenseAvailable === true,
       appointmentOffice: source?.institutions.find(i => i.role === 'publicWorksAndProvisioning')
         ? { id: source.institutions.find(i => i.role === 'publicWorksAndProvisioning').id,
           roles: clonePlainObject(source.institutions.find(i => i.role === 'publicWorksAndProvisioning').officeRoles || []),

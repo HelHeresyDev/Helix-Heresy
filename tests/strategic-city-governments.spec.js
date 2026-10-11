@@ -95,6 +95,7 @@ test('generated designation review rules are explicit deterministic published lo
 test('public-works replacement rules are explicit published law only for separate supported individual offices', () => {
   const map = governmentFoundation('charter-foundation');
   const A = require('../public-works-appointments');
+  const Civil = require('../civil-installation-access');
   const directory = CityGovernments.publicCityGovernmentDirectory(map);
   let applicable = 0;
   for (const g of map.cityGovernments.governments) {
@@ -105,6 +106,8 @@ test('public-works replacement rules are explicit published law only for separat
       && office.roles.length === 1;
     expect(g.charter.publicWorksAppointment).toEqual(supported ? A.ruleFor(g.cityId, office.id, g.roleAssignments.civicReview) : null);
     expect(directory.find(d => d.city.id === g.cityId).charter.publicWorksAppointment).toEqual(g.charter.publicWorksAppointment);
+    expect(g.charter.civilInstallationAccess).toEqual(supported ? Civil.ruleFor(g.cityId, office.id, g.roleAssignments.civicReview, g.roleAssignments.militaryDefenseCommand) : null);
+    expect(directory.find(d => d.city.id === g.cityId).charter.civilInstallationAccess).toEqual(g.charter.civilInstallationAccess);
     if (supported) applicable++;
   }
   expect(applicable).toBeGreaterThan(0);
