@@ -3,6 +3,7 @@ const { pathToFileURL } = require('url');
 const path = require('path');
 const { patronSource } = require('./helpers/patron-fixture');
 const Religion = require('../religious-recognition');
+const Faiths = require('../strategic-faiths');
 test.setTimeout(420000);
 const snap = page => page.evaluate(() => window.helixHeresyDebug.religiousRecognitionSnapshot());
 const act = (page, action, terms) => page.evaluate(({ action, terms }) => window.helixHeresyDebug.religiousRecognitionAction(action, terms), { action, terms });
@@ -24,7 +25,7 @@ async function finishWalk(page) {
     throw new Error('Actual walk did not complete');
   });
 }
-async function setup(page, renderer) {
+async function setup(page, renderer, position = 'mortalAutonomy') {
   await page.goto(pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href);
   await page.evaluate(renderer => { localStorage.clear(); localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: renderer })); }, renderer);
   await page.reload();
@@ -53,8 +54,10 @@ async function setup(page, renderer) {
     d.advanceSimulation(60);
   }, Religion.SCOPE);
   const source = await page.evaluate(() => window.helixHeresyDebug.charterRecognitionSnapshot().succession.source);
+  const origin = patronSource(source.cityId, source.charterId);
+  origin.faith.hereticTeaching = Faiths.hereticTeachingFor(position);
   expect(await page.evaluate(origin => window.helixHeresyDebug.configureReligiousRecognitionTest({ source: origin, policy: 'considerScopedPetition' }),
-    patronSource(source.cityId, source.charterId))).toBe(true);
+    origin)).toBe(true);
   await visits(page);
 }
 for (const renderer of ['dom', 'canvas']) test(`${renderer}: actual local patron response is finite authenticated evidence, not automatic recognition`, async ({ page }) => {
@@ -86,6 +89,8 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: actual local patron
   // Native simulation completes this real shared-clerk job; preparation hooks did not insert a response.
   await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(155)); s = await snap(page);
   expect(s.known.reply).toMatchObject({ authenticated: true, decision: { outcome: 'approved' } });
+  expect(s.known.scientistPosition.stance).toBe('opposedToDivineAuthority');
+  expect(s.known.reply.decision).toMatchObject({ supportKind: 'exceptionalClaimAuthorization', motive: 'mortalAutonomy' });
   console.log(`${renderer}: ordinary simulation delivered the authenticated response`);
   expect(s.charter.review).toEqual(originalFinding); expect(s.charter.recognition).toBeNull();
   expect(await page.evaluate(() => window.helixHeresyDebug.charterRecognitionSnapshot().context.authorizationIds)).toEqual([]);
@@ -110,3 +115,26 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: actual local patron
   await finishWalk(page); const dated = (await snap(page)).known; await tick(page, 500);
   expect((await snap(page)).known).toEqual(dated); expect(errors).toEqual([]);
 });
+
+for (const [renderer, position, outcome] of [['dom', 'reject', 'refused'], ['canvas', 'nihilism', 'approved']])
+  test(`${renderer}: ${position} patron distinguishes anti-divine support from facilitation and future killing promises`, async ({ page }) => {
+    const errors = []; page.on('pageerror', e => errors.push(e.message)); await setup(page, renderer, position);
+    const original = await snap(page);
+    await expect(page.locator('[data-religious-recognition]')).toContainText('fundamentally opposes the gods');
+    await ui(page, 'meet'); await tick(page, 60);
+    expect((await snap(page)).petition.reply).toBeNull();
+    await ui(page, 'petition'); await tick(page, 180); await reload(page);
+    let s = await snap(page);
+    expect(s.known.reply.decision.outcome).toBe(outcome); expect(s.petition.request.facts.scientistPosition.promises).toContain('No conversion');
+    expect(s.petition.request.facts.scientistPosition.promises).toContain('assassination');
+    expect(s.petition.god.power.reserve).toBe(original.petition.god.power.reserve - 7);
+    if (position === 'nihilism') {
+      await expect(page.locator('[data-religious-recognition]')).toContainText('potentially including itself');
+      expect(s.known.reply.decision.supportKind).toBe('exceptionalClaimAuthorization');
+    } else await expect(page.locator('[data-religious-recognition]')).toContainText('no explicit exceptional teaching');
+    await ui(page, 'submit'); await tick(page, 60); await reload(page); s = await snap(page);
+    expect(s.petition.submissions).toHaveLength(1); expect(s.charter.recognition).toBeNull();
+    expect(await page.evaluate(() => window.helixHeresyDebug.charterRecognitionSnapshot().context.authorizationIds))
+      .toEqual(outcome === 'approved' ? ['a:designation-patron:god:a'] : []);
+    expect(await act(page, 'meet')).toBe(false); expect(errors).toEqual([]);
+  });

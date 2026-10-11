@@ -189,6 +189,9 @@
       outcome: event.publicOutcome,
       evidence: clone(event.publicEvidence),
       account: event.publicAccount,
+      ...(['forcedDescent', 'holySiteContest'].includes(event.kind) && event.stateDelta.winnerId && event.stateDelta.loserId
+        && event.publicEvidence.some(e => ['witnessedAvatarCombat', 'siteCustodyRecord'].includes(e))
+        ? { conflict: { winnerId: event.stateDelta.winnerId, loserId: event.stateDelta.loserId } } : {}),
       exactPowerPublic: false,
       hiddenCausalityAcknowledged: true
     };
@@ -733,6 +736,13 @@
     for (const event of record.eventRows.filter((entry) => entry.kind === "forcedDescent" || entry.kind === "worshipCollapse")) if (event.stateDelta.lifeState === "dead" || event.stateDelta.loserLifeState === "dead" || !event.stateDelta.identityPreserved || !event.stateDelta.retainedMortalPower) throw new Error("Descent must preserve the same living extraordinary individual.");
     for (const event of record.eventRows.filter((entry) => entry.kind === "mortalAscension")) if (event.prerequisites.length < 7 || !record.ascendedFaithRows.some((faith) => faith.godId === event.stateDelta.newGodId && faith.distinctFromPredecessorFaith)) throw new Error("Ascension requires causal mortal, physical, worship, identity, and survival prerequisites and a distinct faith.");
     const publicJson = JSON.stringify(directory);
+    if (directory.eventRows.some(event => {
+      if (!event.conflict) return false; // Earlier archives retain their original public projection.
+      const original = record.eventRows.find(row => row.id === event.id);
+      return !original?.publiclyKnown || !['forcedDescent', 'holySiteContest'].includes(original.kind)
+        || event.conflict.winnerId !== original.stateDelta.winnerId || event.conflict.loserId !== original.stateDelta.loserId
+        || !original.publicEvidence.some(e => ['witnessedAvatarCombat', 'siteCustodyRecord'].includes(e));
+    })) throw new Error('A disclosed divine injury requires the original supported public conflict.');
     if (/exactContributions|actualCause|followerDispositionRows|worshipIncome|reserveAfterward|attackerScore|defenderScore|transferredFollowerUnits|exactResidualPower/.test(publicJson)) throw new Error("Public divine history leaks exact power, worship, combat, or hidden causal facts.");
     if (directory.knowledgePolicy !== "supportedEventsAndAuthenticatedIdentitiesOnly" || !Array.isArray(directory.currentGodRows) || directory.currentGodRows.some((row) => !directory.identityRows.some((identity) => identity.id === row[0])) || directory.successorRows.some((successor) => successor.confirmationState !== "unconfirmedSuccessor" || successor.sameGodHeresyClaimsValid) || directory.remainsRows.some((entry) => !entry.identityPreserved || entry.religionTransferred)) throw new Error("The public divine directory violates knowledge, succession, or remains rules.");
     const diagnostics = record.diagnostics;

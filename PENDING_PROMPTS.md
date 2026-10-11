@@ -18,14 +18,13 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Divine Opposition and Exceptional Patron Cooperation
-2. Religious Covenants and Local Branch Cooperation
-3. Occupation and Replacement Appointments
-4. Strategic Expansion and World Domination
-5. Divine Supremacy: Rule over the Gods
-6. New-Run Onboarding and Contextual Tutorial
-7. Sound, Notifications, and Accessibility Audit
-8. Production Art Pass Using the Sprite Pipeline
+1. Religious Covenants and Local Branch Cooperation
+2. Occupation and Replacement Appointments
+3. Strategic Expansion and World Domination
+4. Divine Supremacy: Rule over the Gods
+5. New-Run Onboarding and Contextual Tutorial
+6. Sound, Notifications, and Accessibility Audit
+7. Production Art Pass Using the Sprite Pipeline
 
 Human staffing now supports bounded independent annex operation without intelligent creations. Homunculus growth, learned local continue/stop gestures, small separately learned signed and spoken languages, care-grounded spoken help requests and specifically demonstrated voluntary carrying agreements exist; literacy, wider education and standing creature employment do not. Homunculi remain advanced stage-two/three work, not early-laboratory unlocks; priority order does not impose compulsory campaign chapters.
 
@@ -67,6 +66,8 @@ Original-public-works reaffirmation is implemented separately after a current au
 
 Original-civil-watch reaffirmation is implemented separately after a current authentic eligible reconsideration, original administrative records-only agreement and separately renewed original public-works support for the existing counter. The same original watch official independently refuses or offers exact one-hour terms; discussion and signing each consume one actual attended minute of officer/shared-clerk duty and one finite counter power allocation. One linked register receipt restores only the existing exact ten-minute physical counter-observation instruction, not new guards, arrests, enforcement, defense command, immunity or officer recovery. Original signatures, prior decisions, private and received reports, public-works objections, cases, rights, supplies and coercion remain intact. Real path geometry, usable service, sight and finite duty still govern execution. Already accepted safe observation/return finish separately and cannot be overlapped or reset by a fresh agreement; physically communicated new scientist conduct can invalidate permission again without erasing reports or forgiving violence. Partial work, spent costs, earlier receipts, actual original people and dated away knowledge survive reload; death freezes them. Unchanged answered facts cannot reroll or refresh unsigned expiry. No handover, other institutional obedience, army or ambition completion follows. Do not repeat this completed slice; wider watch staffing/recovery and continuing religious cooperation remain separate discussions.
 
+Divine opposition and exceptional patron cooperation are implemented as a correction to the existing petition, not a new prerequisite. New exact requests disclose opposition to divine authority without conversion, allegiance, assassination or hidden campaign promises. Most gods refuse; new worlds save a stable rare individual teaching for mortal autonomy, vengeance, liberation or nihilism. Vengeance requires a supported public injury identifying a living rival; liberation additionally requires that rival's actual continuing custody of the original god's seized holy site. Personality labels, major/minor status, ordinary civic cooperation and aid to outsiders provide no exception. Civic separation, unmet oaths/coercion remedies and supplied renewed violence still block approval. Authenticated exceptional claim authorization supports only independent consideration of the exact claim, not research approval, a killing promise, a bargain, aid, church obedience or automatic recognition. Original people, attendance, power, divine reserves, finite attention, exact received records and spent costs retain their existing rules. Old signed replies and filings remain authentic history; new audiences use the corrected disclosure, and earlier worlds without such teaching default to refusal without rewriting doctrine or laws. Away records remain dated; reload preserves resources and history; death freezes work. Do not repeat this correction. Ongoing covenants, branch duties, assassination agreements, actual divine aid and wider religious conflict require separate supported consumers.
+
 ## World and Run Guardrails
 
 Apply these rules throughout the world-generation and campaign prompts:
@@ -99,7 +100,7 @@ Apply these rules throughout the world-generation and campaign prompts:
 - Life imprisonment does not exist. Finite prison maxima range from three to ten years. Public execution requires a separate reviewed Public Enemy finding; Penal Flight is a distinct non-Public-Enemy condemnation and never means automatic death.
 - Foreign warrants never execute themselves. Cross-city custody requires the receiving city's local judicial order, double criminality, supported evidence or a recognized conviction, acceptable punishment, and a feasible physical transfer. Deportation is not extradition; internet notice creates no physical authority; wilderness has no ordinary sovereign jurisdiction.
 - Gods objectively exist, routinely communicate through repeatable signatures, and may manifest costly finite avatars. Each actively divine god confirms exactly one stable faith identity, so same-god doctrinal heresy and schism are not valid while direct correction continues. Descent or death leaves that faith historically confirmed; reascension reactivates it; surviving institutions may develop distinct unconfirmed successor traditions while divine replies are absent.
-- The scientist is a heretic fundamentally opposed to the gods and their authority, not merely a non-worshipper. This rejects divine authority rather than asserting a second valid doctrine within one god's faith. Very few gods endorse the scientist; civic compliance or oaths alone cannot resolve that opposition. Rare endorsement, a narrow temporary divine bargain and practical local faithful cooperation are separate decisions grounded in explicit teachings, concrete interests and actually received disclosures. Do not infer hidden player ambitions, use repeatable persuasion rolls or make divine approval mandatory for every route to power. The existing petition prototype still needs the explicit opposition and exceptional-endorsement correction queued first below.
+- The scientist is a heretic fundamentally opposed to the gods and their authority, not merely a non-worshipper. This rejects divine authority rather than asserting a second valid doctrine within one god's faith. Very few gods endorse the scientist; civic compliance or oaths alone cannot resolve that opposition. Explicit mortal-autonomy teaching, vengeance against actual injuring rivals, liberation from real divine oppression or nihilistic opposition to the pantheon may motivate rare support; weaker status or personality alone never suffices. Rare endorsement, a narrow temporary divine bargain and practical local faithful cooperation are separate decisions grounded in explicit teachings, concrete interests and actually received disclosures. Do not infer hidden player ambitions, use repeatable persuasion rolls or make divine approval mandatory for every route to power. The corrected petition supplies only exact exceptional claim authorization; wider agreements and actual aid remain separate work.
 - Gods extract power from deliberate-worship cohorts belonging to real saved human or beast populations. Human followers use demographic people; beast followers use soul-bearing devotional units appropriate to individual, paired, hive, choral, colonial, or superorganism biology. No population's combined cohorts may exceed its capacity. Model an innate divine core, finite reserves and sustainable capacity, follower-derived income, and expenditures for communication, miracles, avatars, protection, city investment, and combat. Devotion, organization, ritual infrastructure, offerings, holy sites, and the god's receiving capacity matter in addition to follower count; exact cohorts, reserves, and attention remain hidden.
 - Mere factual belief in an objectively proven god yields no meaningful power. Coerced ritual yields reduced but nonzero power. Losing every follower causes reversible descent rather than death: the former god loses active divinity but remains the same living, extraordinarily powerful individual. Life state, divinity state, and uncertain public status are separate facts.
 - Gods vary independently by historically mutable major or minor status, follower capacity and organization, domains and objectives, investment willingness, and urban interest. Only a qualified minority responds to the first city's success by attempting first-era divine origin cities; a powerful chaotic god may reject city-building, while an exceptionally organized minor god may rarely succeed.
@@ -132,19 +133,13 @@ Apply these rules throughout the world-generation and campaign prompts:
 
 ---
 
-## 1. Divine Opposition and Exceptional Patron Cooperation
-
-Discuss a bounded correction to the existing patron-petition procedure before extending it into covenants. The scientist is openly heretical and fundamentally opposed to the gods: most gods refuse political endorsement despite correct civic procedure. Define stable, credible rare exceptions from the particular god's explicit doctrine and concrete interests, rather than treating a general willingness to cooperate or a fulfilled oath as endorsement. Distinguish endorsement of the scientist from a narrowly scoped temporary bargain and from practical local faithful cooperation; none implies conversion, church obedience or acceptance of opposition to divine authority. Select any actually supported transactional consumer and split new bargain or branch-duty infrastructure into later prompts if needed. Decisions must use disclosed intentions and evidence actually received, not private ambitions or hidden laboratory conduct; unchanged facts cannot reroll through waiting, persuasion, payment or reload. Retain original people, finite duty, divine reserves, attention, power, exact scopes and authentication. Preserve earlier authentic replies and filings, spent resources, coercion, cases, rights, published charters and dated knowledge without retroactive relabeling. Religious backing may obstruct a local route, but divine approval cannot gate every path to power; alternatives require real actors and supported procedures. No alignment shortcut, fabricated exception, automatic forgiveness, army, immunity or divine submission. This correction is pending; the completed petition plumbing must not be repeated as a new prerequisite.
-
-Do not modify files until the design has been discussed and the developer explicitly approves implementation.
-
-## 2. Religious Covenants and Local Branch Cooperation
+## 1. Religious Covenants and Local Branch Cooperation
 
 After the opposition and exceptional-cooperation rules are established, discuss one concrete continuing religious obligation or local cooperation consumer genuinely offered by the original faithful representative, actual branch or authenticated god. Most gods still reject endorsement of the scientist; a covenant cannot turn ordinary civic compliance into ideological acceptance. The completed patron petition supplies only its exact scoped response, not church obedience or continuing permission. Choose either one verifiable explicitly offered oath/condition or one physically supported branch duty; split additional consumers before implementation. Ground exact clauses, refusal and prospective consequences in explicit tenets and actually received evidence, with original people, finite attention, divine reserves, work, supplies and reachable infrastructure. A god's endorsement, temporary bargain, representative's agreement and city legal authority remain separate. Preserve prior replies, spent resources, coercion, cases, rights, current published laws and dated knowledge; unchanged facts cannot reroll and an unsupported condition stays unmet. No same-god doctrinal heresy, alignment shortcut, fabricated remedy, automatic forgiveness, army, immunity, global religious command or divine submission. Broader religious conflict and divine supremacy require separate discussions.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Occupation and Replacement Appointments
+## 2. Occupation and Replacement Appointments
 
 Discuss the first bounded occupation or contested replacement appointment beyond whichever actual succession or coerced-recognition route has been implemented. Choose one office or enforceable local obligation with real opposing actors before widening to citywide occupation. Existing recognition is not physical control; replacing an official requires a real eligible person, supported appointment procedure, actual access, duties, supplies and an opposing incumbent's response. The existing rare defender and civic people are not a freely controllable army, and a conquered installation supplies neither complete intelligence nor automatic institutional obedience. Collective rulers and unsupported charters retain distinct procedures. Split broader enforcement, organized resistance and provisioning prerequisites when needed. No assay appointment, bargain, witnessed bout, personal ceasefire, payment, reputation or internet recognition grants sovereign command by itself.
 
@@ -152,31 +147,31 @@ Require actual people, rare powerful defenders, material resources, reachable in
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Strategic Expansion and World Domination
+## 3. Strategic Expansion and World Domination
 
 Design physically supportable expansion between existing support components, significant beast powers, and divine interests, then implement only the next mechanically supported slice. Specify finite, testable durable-supremacy criteria before adding victory evaluation; occupation of every empty globe cell is not required. Bind campaigns to actual routes, transport, manpower, resources, defense, agreements, and resistance. Keep unknown powers and hidden totals out of ordinary campaign records. World domination is an exceptionally rare dated accomplishment, not a game-over transition, and remains separate from divine supremacy.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. Divine Supremacy: Rule over the Gods
+## 4. Divine Supremacy: Rule over the Gods
 
 Design and implement the ultimate ambition of imposing enforceable submission on the gods, killing those who refuse, and reigning over the rest. Submission must impose actual terms and consequences rather than a reputation threshold or cosmetic declaration. Cover discovery, human and beast gods, living descended individuals, avatars versus the actual divine individual, rebellion, and new ascendants. Destroying worship or forcing descent is not a kill. Scientific, animantic, engineered-creature, and personal-power approaches should remain possible without requiring the scientist to ascend. Theme-compatible presentations do not remove the refusal-and-death requirement. Define finite, testable accomplishment criteria without exposing hidden identities or counts; allow continued play after success and keep world domination a separate accomplishment. Split prerequisite combat, submission, or enforcement systems into further prompts if needed.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. New-Run Onboarding and Contextual Tutorial
+## 5. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Sound, Notifications, and Accessibility Audit
+## 6. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 8. Production Art Pass Using the Sprite Pipeline
+## 7. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 

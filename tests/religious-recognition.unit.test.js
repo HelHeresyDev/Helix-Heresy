@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 const Religion = require('../religious-recognition');
 const Charter = require('../charter-recognition');
 const Governments = require('../strategic-city-governments');
+const Faiths = require('../strategic-faiths');
+const World = require('../strategic-world');
 const { civicFixture, patronSource } = require('./helpers/patron-fixture');
 const copy = v => JSON.parse(JSON.stringify(v));
 const tick = (f, n) => { f.at += n; return Religion.advance(f.s, f.office, f.c, f.at); };
@@ -178,4 +180,114 @@ test('new-world published patron covenants are a deterministic minority; legacy 
   }
   assert.deepEqual(make(0, null).requiredAuthorizationIds, []);
   assert.equal(Governments.designationReviewRule('patron-laws', 'a', 'inheritance', 'individual', 'review', patron), null);
+});
+
+test('ordinary civic cooperation, aid, oath compliance and personality never endorse the openly heretical scientist', () => {
+  for (const position of [null, 'reject']) for (const civic of ['cooperationWithoutDivineSovereignty', 'authorityBoundByPublishedOath', 'conditionalMoralSupport']) {
+    const f = civicFixture();
+    if (position) f.s.source.faith.hereticTeaching = Faiths.hereticTeachingFor(position);
+    else delete f.s.source.faith.hereticTeaching;
+    f.s.source.faith.civicTeaching.position = civic;
+    f.s.source.faith.outsiderTreatment = { stance: 'aidWithoutCompulsoryConversion' };
+    f.s.god.personality = ['vengeful', 'oppressed', 'nihilistic']; f.c.fulfilledOath = true;
+    submit(f);
+    assert.equal(f.s.reply.payload.decision.outcome, 'refused');
+    assert.equal(f.s.reply.payload.decision.supportKind, 'none');
+    assert.deepEqual(f.s.request.facts.scientistPosition, Religion.SCIENTIST_POSITION);
+    assert.deepEqual(Religion.authorizationIds(f.s, f.office, f.c), []);
+    assert.ok(Religion.authentic(f.s, f.s.reply, f.c));
+    f.s = Religion.normalize(f.s); tick(f, 5000);
+    assert.equal(Religion.meet(f.s, f.office, f.c, f.at), false);
+  }
+});
+
+test('four explicit exceptional motives authorize only the disclosed claim, not a bargain or hidden killing ambition', () => {
+  for (const motive of ['mortalAutonomy', 'vengeance', 'liberation', 'nihilism']) {
+    const f = civicFixture(); f.s.source.faith.hereticTeaching = Faiths.hereticTeachingFor(motive);
+    if (['vengeance', 'liberation'].includes(motive)) f.s.source.patronInterest = {
+      kind: motive, godId: 'god:a', targetGodId: 'god:rival',
+      ...(motive === 'vengeance' ? { basis: 'publishedDivineInjury', eventId: 'injury', year: 100 }
+        : { basis: 'publishedSeizedHolySite', siteId: 'seized-site' })
+    };
+    f.c.hiddenAmbition = 'peacefulResearch'; f.c.privateLab = 'unknown'; submit(f);
+    const d = f.s.reply.payload.decision;
+    assert.equal(d.outcome, 'approved'); assert.equal(d.motive, motive);
+    assert.equal(d.supportKind, 'exceptionalClaimAuthorization'); assert.match(d.reason, /not approval of research/);
+    assert.match(d.reason, /not.*a bargain, a killing promise/);
+    assert.equal(f.s.request.facts.hiddenAmbition, undefined); assert.equal(f.s.request.facts.privateLab, undefined);
+    assert.deepEqual(Religion.authorizationIds(f.s, f.office, f.c), f.c.rule.requiredAuthorizationIds);
+    assert.equal(f.charter.recognition, null); assert.equal(f.succession.control, null);
+    f.c.hiddenAmbition = 'ruleOverGods'; assert.ok(Religion.authentic(f.s, f.s.reply, f.c));
+    assert.equal(Religion.meet(f.s, f.office, f.c, f.at), false);
+  }
+});
+
+test('vengeance and liberation cannot substitute a presumed grievance, another god, or invented target for received interests', () => {
+  for (const motive of ['vengeance', 'liberation']) for (const interest of [null,
+    { kind: motive, godId: 'other', targetGodId: 'rival', basis: 'personality' },
+    { kind: motive, godId: 'god:a', targetGodId: 'god:a', basis: 'publishedDivineInjury', eventId: 'injury' },
+    { kind: motive, godId: 'god:a', targetGodId: 'rival', basis: 'secretCanonicalHistory', siteId: 'site', eventId: 'injury' }]) {
+    const f = civicFixture(); f.s.source.faith.hereticTeaching = Faiths.hereticTeachingFor(motive);
+    f.s.source.patronInterest = interest; answer(f);
+    assert.equal(f.s.reply.payload.decision.outcome, 'refused');
+  }
+});
+
+test('exceptional willingness does not waive civic separation, coercion remedies, oath conditions or received violence', () => {
+  for (const motive of ['mortalAutonomy', 'nihilism']) {
+    for (const [civic, outcome] of [['strictSeparationFromChurch', 'refused'], ['authorityBoundByPublishedOath', 'conditional'], ['conditionalMoralSupport', 'conditional']]) {
+      const f = civicFixture(); f.s.source.faith.hereticTeaching = Faiths.hereticTeachingFor(motive);
+      f.s.source.faith.civicTeaching.position = civic; submit(f);
+      assert.equal(f.s.reply.payload.decision.outcome, outcome); assert.deepEqual(Religion.authorizationIds(f.s, f.office, f.c), []);
+    }
+    const f = civicFixture(); f.s.source.faith.hereticTeaching = Faiths.hereticTeachingFor(motive);
+    f.c.conduct.push({ id: 'received-attack', kind: 'attack', at: f.c.claim.at + 1 }); answer(f);
+    assert.equal(f.s.reply.payload.decision.outcome, 'refused');
+  }
+});
+
+test('the original disclosure and motive are sealed, and changing received interest cancels unfinished paid work', () => {
+  const f = civicFixture(); answer(f);
+  const forged = copy(f.s.reply); forged.payload.facts.scientistPosition.stance = 'obedientWorshipper';
+  assert.equal(Religion.authentic(f.s, forged, f.c), false);
+  const g = civicFixture(); meet(g); assert.ok(Religion.petition(g.s, g.office, g.s.terms, g.c, g.at)); tick(g, 20);
+  g.s.source.patronInterest = { kind: 'vengeance', targetGodId: 'invented' }; tick(g, 20);
+  assert.equal(g.s.job, null); assert.equal(g.s.reply, null); assert.equal(g.s.god.power.reserve, 93);
+});
+
+test('pre-disclosure signed approvals and filed authority remain authentic history without changing facts or spent costs', () => {
+  const f = civicFixture(); submit(f);
+  // Reconstruct a genuine pre-correction archive, including its original signature and filed copies.
+  delete f.s.source.faith.hereticTeaching;
+  for (const facts of [f.s.facilitation.facts, f.s.terms.evidence, f.s.request.facts, f.s.reply.payload.facts]) {
+    delete facts.scientistPosition; delete facts.patronInterest; delete facts.doctrine.hereticTeaching;
+  }
+  f.s.reply.payload.decision = { outcome: 'approved', reason: 'The god supports independent consideration of this disclosed claim under cooperation without church sovereignty. Other officials and the civic reviewer remain independent.' };
+  f.s.reply.seal = World.stableHash(`${f.s.god.divineCore.repeatableSignature}:${World.stableHash(f.s.reply.payload)}`);
+  f.s.submissions[0].receivedReply = copy(f.s.reply); f.office.records[f.office.records.length - 1] = copy(f.s.submissions[0]);
+  const old = copy(f.s.reply), reserve = f.s.god.power.reserve, record = copy(f.office.records);
+  f.s = Religion.normalize(f.s); assert.ok(Religion.authentic(f.s, f.s.reply, f.c));
+  assert.deepEqual(Religion.authorizationIds(f.s, f.office, f.c), f.c.rule.requiredAuthorizationIds);
+  meet(f); assert.deepEqual(f.s.previous[0].reply, old); assert.equal(f.s.god.power.reserve, reserve);
+  assert.ok(Religion.petition(f.s, f.office, f.s.terms, f.c, f.at)); tick(f, 180);
+  assert.equal(f.s.reply.payload.decision.outcome, 'refused'); assert.deepEqual(f.office.records, record);
+  assert.deepEqual(Religion.authorizationIds(f.s, f.office, f.c), f.c.rule.requiredAuthorizationIds);
+});
+
+test('received views explain opposition and exceptional motives without revealing secret plans or divine reserves', () => {
+  const f = civicFixture(); f.s.source.faith.hereticTeaching = Faiths.hereticTeachingFor('nihilism'); answer(f);
+  const view = Religion.publicView(f.s);
+  assert.equal(view.scientistPosition.stance, 'opposedToDivineAuthority'); assert.match(view.faith.hereticTeaching.summary, /including this god/);
+  assert.equal(view.reply.decision.motive, 'nihilism'); assert.equal(view.reply.decision.supportKind, 'exceptionalClaimAuthorization');
+  assert.equal(JSON.stringify(view).includes('repeatableSignature'), false); assert.equal(view.reply.payload, undefined);
+});
+
+test('unfinished pre-disclosure work cannot produce a new legacy approval after reload', () => {
+  const f = civicFixture(); meet(f); assert.ok(Religion.petition(f.s, f.office, f.s.terms, f.c, f.at)); tick(f, 20);
+  for (const facts of [f.s.job.facts, f.s.facilitation.facts, f.s.terms.evidence, f.s.request.facts]) {
+    delete facts.scientistPosition; delete facts.patronInterest;
+  }
+  f.s = Religion.normalize(f.s); const reserve = f.s.god.power.reserve; tick(f, 180);
+  assert.equal(f.s.reply, null); assert.equal(f.s.job, null); assert.equal(f.s.god.power.reserve, reserve);
+  assert.equal(f.office.assignment, null); assert.equal(f.s.actor.assignment, null);
 });

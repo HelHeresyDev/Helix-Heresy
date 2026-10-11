@@ -1,4 +1,5 @@
 const Religion = require('../../religious-recognition');
+const Faiths = require('../../strategic-faiths');
 const Charter = require('../../charter-recognition');
 const Resistance = require('../../incumbent-resistance');
 const Succession = require('../../city-succession');
@@ -12,6 +13,8 @@ function patronSource(cityId = 'a', charterId = 'charter:a', teaching = 'coopera
       currentStanding: 'recognized', capacityBand: 'exceptional' },
     faith: { id: 'faith:a', godId: 'god:a', name: 'The Faith of Auriel', confirmation: { state: 'activelyConfirmed', doctrineRevision: 1 },
       civicTeaching: { position: teaching, summary: teaching, churchHasAutomaticSovereignty: false },
+      // This prepared patron is an explicit rare exception, not the ordinary generated policy.
+      hereticTeaching: Faiths.hereticTeachingFor('mortalAutonomy'),
       commandments: [{ id: 'aid', summary: 'Protect communities' }], prohibitions: [{ id: 'sanctuary', summary: 'Do not betray sanctuary' }],
       acceptableMethods: [{ id: 'proportional', tags: ['proportionality'] }] },
     communicationMethods: ['answered hearth-prayer'], god: { id: 'god:a', lifecycle: { lifeState: 'living', divinityState: 'divine' },

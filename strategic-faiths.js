@@ -3,16 +3,18 @@
   const strategicReligions = typeof module === "object" && module.exports ? require("./strategic-religions") : root?.HelixStrategicReligions;
   const strategicDivinity = typeof module === "object" && module.exports ? require("./strategic-divinity") : root?.HelixStrategicDivinity;
   const preUrbanHumanity = typeof module === "object" && module.exports ? require("./strategic-pre-urban-humanity") : root?.HelixStrategicPreUrbanHumanity;
-  const api = factory(strategicWorld, strategicReligions, strategicDivinity, preUrbanHumanity);
+  const themeContent = typeof module === "object" && module.exports ? require("./theme-content") : root?.HelixThemeContent;
+  const api = factory(strategicWorld, strategicReligions, strategicDivinity, preUrbanHumanity, themeContent);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixStrategicFaiths = api;
-})(typeof window !== "undefined" ? window : globalThis, function createStrategicFaithsApi(StrategicWorld, StrategicReligions, StrategicDivinity, StrategicPreUrbanHumanity) {
+})(typeof window !== "undefined" ? window : globalThis, function createStrategicFaithsApi(StrategicWorld, StrategicReligions, StrategicDivinity, StrategicPreUrbanHumanity, Theme) {
   "use strict";
 
   if (!StrategicWorld) throw new Error("HelixStrategicWorld must load before strategic-faiths.js");
   if (!StrategicReligions) throw new Error("HelixStrategicReligions must load before strategic-faiths.js");
   if (!StrategicDivinity) throw new Error("HelixStrategicDivinity must load before strategic-faiths.js");
   if (!StrategicPreUrbanHumanity) throw new Error("HelixStrategicPreUrbanHumanity must load before strategic-faiths.js");
+  if (!Theme) throw new Error("HelixThemeContent must load before strategic-faiths.js");
 
   const CONFIRMATION_STATES = Object.freeze(["activelyConfirmed", "historicallyConfirmed", "unconfirmedSuccessor"]);
   const OUTSIDER_STANCES = Object.freeze(["aidWithoutCompulsoryConversion", "cooperativePluralism", "conversionByDemonstration", "cautiousCoexistence", "conditionalSubmission"]);
@@ -41,6 +43,54 @@
     conditionalMoralSupport: "City authorities deserve support only while their conduct remains compatible with the faith's duties.",
     strictSeparationFromChurch: "Religious authority and city government should remain institutionally separate."
   });
+
+  // These are explicit individual teachings, not inferences from domain, personality or alignment.
+  // Shared presentations describe motives without introducing theme-specific acts or rewards.
+  const HERETIC_TEACHINGS = Theme.createRegistry([
+    { id: 'patron.shared.reject', kind: 'hereticPatronDefault', compatibility: 'shared', contentTags: ['magic'], position: 'reject',
+      summary: 'Aid to non-worshippers does not authorize political endorsement of someone opposed to the gods.' },
+    { id: 'patron.shared.autonomy', kind: 'hereticPatronException', compatibility: 'shared', contentTags: ['magic', 'science'], position: 'mortalAutonomy',
+      summary: 'Accountable mortal government may challenge divine authority without accepting religious allegiance.' },
+    { id: 'patron.shared.vengeance', kind: 'hereticPatronException', compatibility: 'shared', contentTags: ['magic'], position: 'vengeance',
+      summary: 'Support an anti-divine challenger against a living rival responsible for a supported divine injury; seek that rival’s destruction, not reconciliation with the pantheon.' },
+    { id: 'patron.shared.liberation', kind: 'hereticPatronException', compatibility: 'shared', contentTags: ['magic'], position: 'liberation',
+      summary: 'Support an anti-divine challenger while a living rival holds this god’s seized holy site; seek the oppressor’s overthrow, not a new compulsory allegiance.' },
+    { id: 'patron.shared.nihilism', kind: 'hereticPatronException', compatibility: 'shared', contentTags: ['magic'], position: 'nihilism',
+      summary: 'Support challenges to divine authority in pursuit of the pantheon’s destruction, potentially including this god; survival of the divine order is not a goal.' }
+  ].map(d => ({ ...d, template: d.summary })));
+
+  function hereticTeachingFor(position = 'reject') {
+    const definition = HERETIC_TEACHINGS.find(d => d.position === position);
+    if (!definition) throw new Error('Unknown explicit heretic-patron teaching.');
+    return { position, summary: definition.summary, definitionId: definition.id, sourceTheme: definition.compatibility,
+      supportsAntiDivineClaim: position !== 'reject', grantsResearchApproval: false };
+  }
+
+  function createHereticTeaching(seed, godId, worldTheme) {
+    const kind = seededNumber(seed, `heretic-patron-willingness:${godId}`) < 0.04 ? 'hereticPatronException' : 'hereticPatronDefault';
+    const selected = Theme.selectContent(HERETIC_TEACHINGS, { kind, worldTheme, seed: `${seed}:heretic-patron:${godId}`, required: true });
+    if (!selected.ok) throw new Error('No theme-compatible heretic-patron teaching.');
+    return hereticTeachingFor(selected.definition.position);
+  }
+
+  function patronInterestFor(faith, directory) {
+    const position = faith?.hereticTeaching?.position;
+    if (!['vengeance', 'liberation'].includes(position)) return null;
+    // Only identified, publicly supported history is disclosed, never canonical combat facts.
+    const living = new Set((directory?.currentGodRows || []).filter(r => StrategicDivinity.LIFE_STATES[r[2]] === 'living').map(r => r[0]));
+    const sites = (directory?.siteRows || []).filter(s => s.originPatronGodId === faith.godId
+      && s.currentControllerGodId !== faith.godId && living.has(s.currentControllerGodId));
+    if (position === 'liberation') {
+      const site = sites.find(s => (directory.eventRows || []).some(e => ['forcedDescent', 'holySiteContest'].includes(e.kind) && e.siteId === s.siteId
+        && e.conflict?.loserId === faith.godId && e.conflict.winnerId === s.currentControllerGodId));
+      return site ? { kind: position, godId: faith.godId, targetGodId: site.currentControllerGodId,
+        siteId: site.siteId, basis: 'publishedSeizedHolySite', summary: 'A living rival still controls this god’s publicly recorded seized holy site.' } : null;
+    }
+    const event = (directory?.eventRows || []).find(e => ['forcedDescent', 'holySiteContest'].includes(e.kind)
+      && e.conflict?.loserId === faith.godId && living.has(e.conflict.winnerId));
+    return event ? { kind: position, godId: faith.godId, targetGodId: event.conflict.winnerId,
+      eventId: event.id, year: event.year, basis: 'publishedDivineInjury', summary: event.account } : null;
+  }
 
   function clone(value) {
     return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
@@ -154,6 +204,7 @@
       civicTeaching: { position: doctrine.civicAuthority, summary: CIVIC_SUMMARIES[doctrine.civicAuthority], churchHasAutomaticSovereignty: false },
       urbanTeaching: { position: URBAN_TEACHINGS[row[7]], summary: title(URBAN_TEACHINGS[row[7]]) },
       topicPositions: doctrine,
+      ...(row.length === 11 ? { hereticTeaching: hereticTeachingFor(row[10]) } : {}),
       verifiedConduct: [
         { id: `conduct:${suffix}:signature`, kind: "repeatableSignatureResponse", verification: "independentlyRepeatable" },
         { id: `conduct:${suffix}:correction`, kind: "directDoctrineCorrection", verification: "authenticatedByDivineSignature" },
@@ -167,7 +218,7 @@
     };
   }
 
-  function createFaithRow(god, privateGod, worldSeed) {
+  function createFaithRow(god, privateGod, worldSeed, worldTheme) {
     const row = [
       `tradition:divine:${god.id.slice(4)}`,
       god.id,
@@ -178,14 +229,15 @@
       OUTSIDER_STANCES.indexOf(outsiderStanceFor(god, worldSeed)),
       URBAN_TEACHINGS.indexOf(urbanTeachingFor(privateGod.urbanInterest)),
       1,
-      ""
+      "",
+      createHereticTeaching(worldSeed, god.id, worldTheme).position
     ];
     row[9] = StrategicWorld.stableHash(faithSemanticCore(row));
     return row;
   }
 
   function expandFaithRow(row) {
-    if (!Array.isArray(row) || row.length !== 10 || row[9] !== StrategicWorld.stableHash(faithSemanticCore(row))) throw new Error("A pre-civic faith row is invalid or no longer matches its semantic content.");
+    if (!Array.isArray(row) || ![10, 11].includes(row.length) || row[9] !== StrategicWorld.stableHash(faithSemanticCore(row))) throw new Error("A pre-civic faith row is invalid or no longer matches its semantic content.");
     const faith = faithSemanticCore(row);
     delete faith.alignmentLabel;
     return faith;
@@ -343,7 +395,7 @@
     const gods = StrategicReligions.createGods(seed, startingMap.strategicDivinity.worldTheme);
     const privateGods = gods.map((god) => StrategicDivinity.privateDivineStateFor(startingMap, god.id));
     const godStates = privateGods.map((god) => ({ godId: god.id, rank: god.rank, publicStatus: god.lifecycle.publicStatus }));
-    const faithRows = gods.map((god, index) => createFaithRow(god, privateGods[index], seed));
+    const faithRows = gods.map((god, index) => createFaithRow(god, privateGods[index], seed, startingMap.strategicDivinity.worldTheme));
     const sitePlan = createSitePlan(seed, startingMap, gods, godStates);
     const next = StrategicDivinity.applyHolySiteSupport(startingMap, sitePlan.supportByGod);
     const knownGodIds = new Set(next.humanReligiousKnowledge.knownGodRows.map((row) => row[0]));
@@ -503,6 +555,9 @@
     SITE_DISCOVERY,
     DOCTRINE_TOPICS,
     TOPIC_OPTIONS,
+    hereticTeachingFor,
+    createHereticTeaching,
+    patronInterestFor,
     attachPreCivicFaiths,
     validatePreCivicFaiths,
     publicFaithDirectory,

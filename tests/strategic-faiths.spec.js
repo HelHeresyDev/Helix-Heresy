@@ -3,6 +3,7 @@ const { test, expect } = require('@playwright/test');
 const Library = require('../world-run-library');
 const Divinity = require('../strategic-divinity');
 const Faiths = require('../strategic-faiths');
+const World = require('../strategic-world');
 
 let cachedMap;
 
@@ -45,6 +46,7 @@ test('pre-civic faith identities are deterministic, semantic, and filtered by hu
       unacceptableMethods: expect.any(Array),
       outsiderTreatment: expect.any(Object),
       civicTeaching: { churchHasAutomaticSovereignty: false },
+      hereticTeaching: { position: expect.any(String), grantsResearchApproval: false, sourceTheme: 'shared' },
       urbanTeaching: expect.any(Object),
       topicPositions: expect.any(Object),
       verifiedConduct: expect.any(Array),
@@ -98,6 +100,16 @@ test('pre-civic faith and holy-site records survive the existing compact world r
   const world = Library.createWorld({ id: 'faith-roundtrip', worldSeed: 'faith-check', worldTheme: 'unbound', generationVersion: 7, createdAt: 'test' });
   expect(Library.normalizeWorld(JSON.parse(JSON.stringify(world)))).toEqual(world);
   expect(JSON.stringify(world).length).toBeLessThan(4_800_000);
+  const map = world.generatedData.strategicMap, directory = map.publicPreCivicFaithDirectory;
+  const oldRow = [...directory.faithRows[0]];
+  const oldFaith = Faiths.publicFaithDirectory(map).faiths[0];
+  oldRow.pop(); delete oldFaith.hereticTeaching; oldRow[9] = World.stableHash(oldFaith);
+  const legacy = { publicPreCivicFaithDirectory: { ...directory, faithRows: [oldRow], holySiteRows: [] } };
+  const original = JSON.stringify(legacy);
+  expect(Faiths.publicFaithDirectory(legacy).faiths[0].hereticTeaching).toBeUndefined();
+  expect(JSON.stringify(legacy)).toBe(original);
+  const forged = JSON.parse(original); forged.publicPreCivicFaithDirectory.faithRows[0].push('nihilism');
+  expect(() => Faiths.publicFaithDirectory(forged)).toThrow(/semantic content/);
 });
 
 test('descent and death preserve historical faith identity while reascension restores active confirmation', () => {

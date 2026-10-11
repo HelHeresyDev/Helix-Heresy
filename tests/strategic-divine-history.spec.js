@@ -2,6 +2,8 @@
 const { test, expect } = require('@playwright/test');
 const Library = require('../world-run-library');
 const DivineHistory = require('../strategic-divine-history');
+const Faiths = require('../strategic-faiths');
+const Religion = require('../religious-recognition');
 
 const cache = new Map();
 
@@ -95,6 +97,19 @@ test('public chronology and save-load projection hide canonical power, cohorts, 
 
   expect(publicHistory.currentGods.length).toBeGreaterThan(0);
   expect(publicHistory.chronology.every((event) => event.exactPowerPublic === false && event.hiddenCausalityAcknowledged)).toBe(true);
+  const sources = map.cityGovernments.governments.map(g => Religion.sourceFromWorld(map, g.cityId, g.charter.id)).filter(Boolean);
+  expect(sources.length).toBeGreaterThan(0);
+  for (const source of sources) {
+    expect(source.faith.hereticTeaching).toEqual(Faiths.publicFaithDirectory(map).faiths.find(f => f.id === source.faith.id).hereticTeaching);
+    expect(source.patronInterest).toEqual(Faiths.patronInterestFor(source.faith, map.publicDivineHistoryDirectory));
+  }
+  for (const event of publicHistory.chronology.filter(event => event.conflict)) {
+    const original = map.strategicDivineHistory.eventRows.find(row => row.id === event.id);
+    expect(event.conflict).toEqual({ winnerId: original.stateDelta.winnerId, loserId: original.stateDelta.loserId });
+    expect(event.participantIds).toContain(event.conflict.winnerId);
+    expect(event.participantIds).toContain(event.conflict.loserId);
+    expect(event.evidence.some(e => ['witnessedAvatarCombat', 'siteCustodyRecord'].includes(e))).toBe(true);
+  }
   expect(publicHistory.principles).toMatchObject({ descentIsNotDeath: true, deathPermanentByDefault: true, reascensionRestoresSameIdentity: true, victorsNeverInheritCompleteReligion: true, ascendantsCreateDistinctFaiths: true, sameGodHeresyClaimsValid: false });
   expect(publicJson).not.toMatch(/exactContributions|actualCause|followerDispositionRows|worshipIncome|reserveAfterward|attackerScore|defenderScore|transferredFollowerUnits|exactResidualPower/);
   expect(DivineHistory.auditStrategicDivineHistory(map).publicHistoryHidesExactPowerAndCausality).toBe(true);

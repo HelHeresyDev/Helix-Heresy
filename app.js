@@ -84571,12 +84571,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(textEl('p', `${v.branchName} — ${v.godName}. Personally received ${formatClock(v.reportedAt)}; ${v.phase}.`),
       textEl('p', v.faith.civicTeaching?.summary || v.faith.civicTeaching?.position || 'No supported civic teaching.'),
       textEl('p', `Published prohibitions: ${v.faith.prohibitions.map(p => p.summary).join('; ')}.`),
-      textEl('p', 'The faithful representative can petition for a non-worshipper. No conversion, avatar or holy-site journey is required.'));
+      textEl('p', v.scientistPosition?.summary || 'The scientist fundamentally opposes the gods and their claimed authority.'),
+      textEl('p', v.faith.hereticTeaching?.summary || 'Ordinary cooperation does not imply endorsement of an anti-divine scientist.'),
+      textEl('p', v.patronInterest?.summary || 'No received rival-injury or continuing-seizure basis is supplied.'),
+      textEl('p', 'The representative’s facilitation is not divine endorsement. No conversion, avatar or holy-site journey is required; no future killing or campaign ambition is promised.'));
     const blocked = !religiousRecognitionObserved() || c.busy || c.activeViolence || !c.branchAvailable;
     if (!v.working) button(v.facilitation ? 'Discuss genuinely changed petition facts' : 'Meet local religious representative', 'meet', blocked);
     if (v.facilitation?.decision === 'refused') panel.append(textEl('p', 'The representative declined facilitation. This is not a divine reply.'));
     if (v.terms && !v.reply && (!s.request || s.request.interrupted) && !v.working) {
-      panel.append(textEl('p', `${v.terms.scope}. Channel: ${v.terms.method}; unsigned petition expires ${formatClock(v.terms.expiresAt)}. Disclosure includes the authentic claim, coercion and received witness records.`));
+      panel.append(textEl('p', `${v.terms.scope}. Channel: ${v.terms.method}; unsigned petition expires ${formatClock(v.terms.expiresAt)}. Disclosure includes opposition to divine authority, the authentic claim, coercion and received witness records.`));
       button('Request exact authenticated patron response', 'petition', blocked || !c.channelAvailable || state.clock >= v.terms.expiresAt, clonePlainObject(v.terms));
     }
     if (v.working) {

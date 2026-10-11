@@ -10,6 +10,9 @@
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const SCOPE = 'Patron position on this identified designation claim for independent civic consideration only';
   const LIMITS = 'No church command, divine submission, army, pardon, immunity, property transfer, automatic civic recognition or renewed institutional consent. Coercion, cases and original rights remain.';
+  const SCIENTIST_POSITION = Object.freeze({ stance: 'opposedToDivineAuthority',
+    summary: 'The scientist acknowledges that gods exist but fundamentally opposes the gods and their claimed authority.',
+    promises: 'No conversion, allegiance, assassination, research concession or undisclosed campaign ambition is promised.' });
   const registry = Theme.createRegistry([{ id: 'religion.shared.patron-petition', kind: 'religiousRecognition', compatibility: 'shared',
     contentTags: ['science', 'magic'], template: 'One authenticated local patron petition', fallback: true }]);
   const usableBranch = b => b?.publicPhysicalPresence && ['active', 'strained', 'reestablished', 'reconciled'].includes(b.operationalStatus)
@@ -31,6 +34,7 @@
     if (!government || !identity || !god || !faith || !branch || !population || population.currentPopulation < 12
       || !population.physicalJurisdictionExists || confirmation?.confirmationState !== 'activelyConfirmed') return null;
     return { cityId, charterId, branch: copy(branch), faith: copy(faith), god: copy(god), godName: identity.name,
+      patronInterest: Faiths.patronInterestFor(faith, map.publicDivineHistoryDirectory),
       communicationMethods: copy(identity.communication.methods), populationSourceId: population.assetId };
   }
   const divine = g => g?.lifecycle?.lifeState === 'living' && g.lifecycle.divinityState === 'divine'
@@ -71,7 +75,8 @@
   }
   function facts(s, c) {
     return { claim: copy(c.claim), rule: copy(c.rule), conduct: copy(c.conduct || []), godId: s.god.id,
-      faithId: s.source.faith.id, doctrine: copy(s.source.faith), scope: SCOPE, bodyEpoch: c.bodyEpoch };
+      faithId: s.source.faith.id, doctrine: copy(s.source.faith), scope: SCOPE, bodyEpoch: c.bodyEpoch,
+      scientistPosition: copy(SCIENTIST_POSITION), patronInterest: copy(s.source.patronInterest) };
   }
   function local(s, office, c, own = false) {
     const id = own ? s.job?.id : null;
@@ -106,7 +111,9 @@
     s.request = { id: `${s.id}:request:${s.nextNumber++}`, at, facts: facts(s, c), method: s.terms.method };
     return true;
   }
-  function decision(f) {
+  // Retain the actual historical interpretation of pre-disclosure signed replies.
+  // Newly started work always uses facts() above and cannot enter this branch.
+  function legacyDecision(f) {
     const civic = f.doctrine.civicTeaching?.position;
     if (!['cooperationWithoutDivineSovereignty', 'conditionalMoralSupport', 'strictSeparationFromChurch', 'authorityBoundByPublishedOath'].includes(civic))
       return { outcome: 'unresolved', reason: 'No supported explicit civic teaching decides this petition.' };
@@ -117,6 +124,32 @@
     if (civic === 'conditionalMoralSupport' && f.claim.origin === 'coerced')
       return { outcome: 'conditional', reason: 'Conditional moral support requires a supported remedy for coercion. No remedy or blanket forgiveness is invented; authorization remains unfulfilled.' };
     return { outcome: 'approved', reason: 'The god supports independent consideration of this disclosed claim under cooperation without church sovereignty. Other officials and the civic reviewer remain independent.' };
+  }
+  function decision(f) {
+    if (!Object.prototype.hasOwnProperty.call(f, 'scientistPosition')) return legacyDecision(f);
+    const teaching = f.doctrine.hereticTeaching, position = teaching?.position;
+    const refused = reason => ({ outcome: 'refused', supportKind: 'none', reason });
+    if (!same(f.scientistPosition, SCIENTIST_POSITION)) return refused('No authentic disclosure of the scientist’s opposition to divine authority supports this request.');
+    if (!['mortalAutonomy', 'vengeance', 'liberation', 'nihilism'].includes(position)
+      || !same(teaching, Faiths.hereticTeachingFor(position)))
+      return refused('The scientist openly opposes the gods. Ordinary aid to non-worshippers, civic compliance and an oath do not imply political endorsement; no explicit exceptional teaching supports this claim.');
+    const interest = f.patronInterest;
+    if (['vengeance', 'liberation'].includes(position) && (!interest || interest.kind !== position || interest.godId !== f.godId
+      || !interest.targetGodId || interest.targetGodId === f.godId
+      || position === 'vengeance' && (interest.basis !== 'publishedDivineInjury' || !interest.eventId)
+      || position === 'liberation' && (interest.basis !== 'publishedSeizedHolySite' || !interest.siteId)))
+      return refused('The exceptional teaching needs a supported injury by a living rival or an actual continuing seizure. A personality label, hidden grievance or presumed oppression is insufficient.');
+    const civicDecision = legacyDecision(f);
+    if (civicDecision.outcome !== 'approved') return { ...civicDecision, supportKind: 'none', motive: position };
+    const reasons = {
+      mortalAutonomy: 'This god explicitly permits accountable mortal government to challenge divine authority without religious allegiance.',
+      vengeance: 'This god seeks the destruction of the identified living rival responsible for its published injury.',
+      liberation: 'This god seeks the overthrow of the identified living rival still holding its seized holy site.',
+      nihilism: 'This god seeks the pantheon’s destruction, potentially including itself, and supports this challenge to divine authority.'
+    };
+    return { outcome: 'approved', supportKind: 'exceptionalClaimAuthorization', motive: position,
+      ...(interest ? { targetGodId: interest.targetGodId } : {}),
+      reason: `${reasons[position]} Support authorizes only independent consideration of this exact disclosed civic claim. It is not approval of research or future acts, a bargain, a killing promise, or an inference about the player’s hidden ambition.` };
   }
   const seal = (s, payload) => World.stableHash(`${s.god.divineCore.repeatableSignature}:${World.stableHash(payload)}`);
   function authentic(s, reply, c) {
@@ -129,6 +162,8 @@
       && reply.payload.scope === SCOPE && reply.payload.method === request.method
       && request.facts.bodyEpoch === c.bodyEpoch && same(request.facts.claim, c.claim)
       && same(request.facts.rule, c.rule) && same(request.facts.conduct, c.conduct || [])
+      && (!Object.prototype.hasOwnProperty.call(request.facts, 'scientistPosition')
+        || same(request.facts.scientistPosition, SCIENTIST_POSITION) && same(request.facts.patronInterest, copy(s.source.patronInterest)))
       && same(reply.payload.decision, decision(request.facts)));
   }
   function submit(s, office, expected, c, at) {
@@ -197,11 +232,12 @@
   function publicView(s) {
     return s ? copy({ phase: s.phase, godName: s.source.godName, branchName: s.source.branch.publicName,
       faith: { name: s.source.faith.name, civicTeaching: s.source.faith.civicTeaching, commandments: s.source.faith.commandments,
-        prohibitions: s.source.faith.prohibitions }, representativeId: s.actor.id,
+        prohibitions: s.source.faith.prohibitions, hereticTeaching: s.source.faith.hereticTeaching || Faiths.hereticTeachingFor() },
+      scientistPosition: copy(SCIENTIST_POSITION), patronInterest: copy(s.source.patronInterest), representativeId: s.actor.id,
       facilitation: s.facilitation && { at: s.facilitation.at, decision: s.facilitation.decision },
       terms: s.terms && Object.fromEntries(Object.entries(s.terms).filter(([key]) => key !== 'evidence')),
       reply: publicReply(s.reply), submissions: s.submissions.map(r => ({ id: r.id, at: r.at, replyId: r.replyId, outcome: r.outcome })),
       working: s.job && { kind: s.job.kind, seconds: s.job.seconds, progress: s.job.progress }, message: s.message, limitations: LIMITS }) : null;
   }
-  return { SCOPE, LIMITS, sourceFromWorld, create, normalize, meet, petition, submit, cancel, advance, authentic, authorizationIds, publicView };
+  return { SCOPE, LIMITS, SCIENTIST_POSITION, sourceFromWorld, create, normalize, meet, petition, submit, cancel, advance, authentic, authorizationIds, publicView };
 });
