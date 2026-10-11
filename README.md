@@ -503,6 +503,18 @@ The once-only receipt explicitly records coercion, actual witnesses, original id
 
 Focused checks: `node --test --test-isolation=none tests/incumbent-resistance.unit.test.js tests/city-confrontations.unit.test.js tests/city-succession.unit.test.js` and `npx playwright test tests/incumbent-resistance-browser.spec.js --project=chromium`.
 
+### Organized receiving-approach opposition
+
+After an authentic compulsory separate-office transfer, Visits can show **Organized receiving-approach opposition**. The actual former public-works official may seek support from the distinct existing single-role civil-watch official. Stable personal dispositions and the former official's actually witnessed injury ground the grievance; neither a lawful appointment nor lawful force automatically establishes criminal guilt. A physical approach and one-minute shared account precede any group. Existing commitments, missing participants or refusal cannot spawn a crowd or overwrite someone's assignment.
+
+If both agree, they physically walk to the existing parts-receiving tile and its neighboring approach. Their real footprints can obstruct staged-parts collection; original maintenance stays authorized, and a reachable alternative source can still be used. Supplies, appointment, prior agreements and service deadlines do not change. The protest spends finite personal work, lasts at most ten active minutes and retains work for attempted withdrawal. Neither exhaustion nor a blocked route deletes an occupant.
+
+**Hear both participants’ exact safeguards** requires an attended minute with the original clerk, finite personal/clerk duty and one counter power allocation. A stable refusal supplies no refreshed offer. Otherwise **Accept exact witnessed safeguards** records an honest account of the earlier compulsory escort/injury and a narrow promise against further unauthorized removal. It takes another actual minute and power allocation; the exact offer expires after one hour. No guilt, immunity, reinstatement, amended law or new force authority follows. Declining makes no promise. Signing is not clearance: both participants must actually walk away before their positions stop obstructing access.
+
+Ordinary attacks retain human injuries and witnessed reports, interrupt unsigned settlement and prompt attempted retreat. The earlier civil escort order cannot clear this new protest or authorize arrest. Partial organization, attendance and walking survive reload without duplicated records, free recovery or unattended signatures. Away observations remain dated; scientist death freezes work. Wider recruitment, armed suppression, religious conflict and occupation remain separate work.
+
+Focused checks: `node --test --test-isolation=none tests/public-works-appointments.unit.test.js tests/city-administration.unit.test.js tests/city-resistance.unit.test.js`; `npx playwright test tests/public-works-appointments-browser.spec.js --project=chromium --workers=2 --grep 'organized opposition'`. Full suite not run under repository policy.
+
 ### Charter review and first institutional recognition
 
 Visits → **Charter review and administrative recognition** uses the authentic original coerced declaration, not a training concession or a voluntary handover. Newly generated supported individual designation charters publish an explicit local confirmation rule. Some permit independent confirmation; others require an uncoerced designation. These are fixed world facts, not surrender rolls. Saved worlds without a rule do not silently acquire one. Missing or unsupported law, an unavailable independent reviewer, or unauthenticated required patron authorization cannot manufacture eligibility.

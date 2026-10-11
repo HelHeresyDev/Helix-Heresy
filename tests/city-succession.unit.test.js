@@ -112,6 +112,24 @@ test('designation binds existing individual ruler, charter, actual institutions 
     assert.equal(Succession.create({ ...f.source, authority: { ...f.source.authority, kind: 'collective' } }, f.b, f.office), null);
   }
 });
+test('original civic opposition dispositions and ordinary watch body remain deterministic and private across themes and reload', () => {
+  const f = fixture(), originalSource = copy(f.source);
+  const watch = f.s.leaders.find(a => a.roles.includes('civilWatch'));
+  const works = f.s.leaders.find(a => a.roles.includes('publicWorksAndProvisioning'));
+  assert.ok(['joinCustodySafeguards', 'retainIndependentDuty'].includes(watch.oppositionPolicy));
+  assert.ok(['seekSafeguards', 'retainPrivateDissent'].includes(works.oppositionPolicy));
+  assert.ok(['considerSafeguards', 'rejectSafeguards'].includes(works.oppositionSettlementPolicy));
+  assert.equal(watch.maxHealth, 100); assert.equal(watch.physicalControl.stamina, 80);
+  assert.deepEqual(f.source, originalSource); assert.equal(f.s.allocation.people, 5);
+  for (const theme of ['madcap', 'grim', 'unbound']) {
+    const g = fixture(theme);
+    assert.deepEqual(g.s.leaders.map(a => [a.id, a.oppositionPolicy, a.oppositionSettlementPolicy]),
+      f.s.leaders.map(a => [a.id, a.oppositionPolicy, a.oppositionSettlementPolicy]));
+  }
+  watch.workSeconds = 3; watch.health = 53;
+  assert.deepEqual(Succession.normalize(f.s).leaders.find(a => a.id === watch.id), watch);
+  assert.doesNotMatch(JSON.stringify(Succession.publicView(f.s, f.b, f.c)), /oppositionPolicy|oppositionSettlementPolicy|physicalControl/);
+});
 test('a combined directorate uses one original person and finite duty for both actual roles without extra population', () => {
   const f = fixture(), source = copy(f.source);
   source.institutions.find(i => i.role === 'publicWorksAndProvisioning').officeRoles = ['emergencyManagement', 'publicWorksAndProvisioning'];

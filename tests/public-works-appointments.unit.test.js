@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const A = require('../public-works-appointments');
 const Civil = require('../civil-installation-access');
+const Opposition = require('../local-opposition');
 const Administration = require('../city-administration');
 const Resistance = require('../city-resistance');
 const Succession = require('../city-succession');
@@ -710,4 +711,183 @@ test('death freezes appointment jobs and history; public knowledge omits private
   const view = A.publicView(f.s);
   assert.deepEqual(A.publicView(A.normalize(f.s)), view);
   assert.doesNotMatch(JSON.stringify(view), /appointmentPolicy|incumbentPolicy|workSeconds|"health"|wardMana|"stock"/);
+});
+
+// These fixtures execute the authentic appointment, civil order, consenting
+// commission, physical grip/release and original-register transfer first.
+function oppositionFixture(options = {}) {
+  const f = civilFixture();
+  f.old.oppositionPolicy = 'seekSafeguards'; f.old.oppositionSettlementPolicy = 'considerSafeguards';
+  f.watch = { id: 'watch:a', name: 'Original watch official', institutionId: 'watch:a', roles: ['civilWatch'],
+    status: 'alive', health: 100, maxHealth: 100, fatigue: 0, workSeconds: 1200, assignment: null,
+    actorKind: 'civicOfficeholder', locationId: f.office.id, roomId: 'supportedSurveyGround', mapCell: { x: 17, y: 11, z: 6 },
+    oppositionPolicy: 'joinCustodySafeguards', physicalControl: { strength: 25, stamina: 80, staminaCapacity: 80 } };
+  f.succession.leaders.push(f.watch); f.succession.allocation.people++;
+  f.succession.source.institutions.push({ role: 'civilWatch', id: f.watch.institutionId, officeRoles: ['civilWatch'] });
+  f.c.presentIds.push(f.watch.id);
+  civilRelease(f); assert.ok(Civil.transfer(f.e, civilBundle(f))); civilStep(f, 120);
+  assert.ok(A.compulsoryTransfer(f.s, f.succession, f.upkeep, f.office, civilBundle(f).c, f.at));
+  f.c.localGround = true; f.c.watchAvailable = true;
+  const occupancyMove = (actor, target) => {
+    const occupied = [f.old, f.watch, f.s.candidate, f.reviewer, f.bargain.defender, f.office.clerk];
+    const key = p => `${p.x},${p.y}`, start = actor.mapCell;
+    const queue = [{ cell: start, first: null }], seen = new Set([key(start)]);
+    for (let i = 0; i < queue.length; i++) {
+      const p = queue[i];
+      if (sameCell(p.cell, target)) { if (!p.first) return false; actor.mapCell = copy(p.first); return true; }
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const cell = { ...p.cell, x: p.cell.x + dx, y: p.cell.y + dy };
+        if (cell.x < 12 || cell.x > 20 || cell.y < 8 || cell.y > 14 || seen.has(key(cell))
+          || occupied.some(a => a.id !== actor.id && sameCell(a.mapCell, cell))) continue;
+        seen.add(key(cell)); queue.push({ cell, first: p.first || cell });
+      }
+    }
+    return false;
+  };
+  f.effects.move = occupancyMove;
+  f.effects.approach = (a, target) => [{ ...target, x: target.x + 1 }, { ...target, y: target.y - 1 }].some(p => occupancyMove(a, p));
+  options.prepare?.(f);
+  f.o = Opposition.create(oppositionBundle(f)); f.s.opposition = f.o;
+  return f;
+}
+const sameCell = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+function oppositionBundle(f) {
+  return { ...civilBundle(f), authenticTransfer: Boolean(A.authorization(f.s, f.succession, f.upkeep, f.office, f.c)) };
+}
+function oppositionStep(f, seconds) {
+  let changed = false;
+  for (let i = 0; i < seconds; i++) { f.at++; changed = Opposition.advance(f.o, oppositionBundle(f)) || changed; }
+  return changed;
+}
+function protest(f) { assert.ok(f.o); oppositionStep(f, 85); assert.equal(f.o.phase, 'protesting'); }
+function oppositionOffer(f) { protest(f); assert.ok(Opposition.discuss(f.o, oppositionBundle(f))); oppositionStep(f, 60); }
+
+test('organized opposition: only authentic compulsory transfer, actual witnessed injury and distinct original single-role watch can seed a group', () => {
+  for (const prepare of [f => f.old.oppositionPolicy = 'retainPrivateDissent', f => f.s.receipt.origin = 'voluntary',
+    f => f.e.reports = [], f => f.office.publicWorksTransfers = [], f => f.watch.roles.push('civicReview'),
+    f => f.succession.source.institutions.at(-1).officeRoles.push('emergencyManagement'), f => f.watch.id = f.s.reviewerId]) {
+    const f = oppositionFixture({ prepare }); assert.equal(f.o, null);
+  }
+  const f = oppositionFixture(); assert.ok(f.o); assert.equal(f.o.formed, null);
+  assert.equal(Opposition.publicView(f.o), null); assert.equal(f.watch.assignment, null);
+});
+test('organized opposition: real meeting and stable independent assent precede actual occupation without new people or inventory', () => {
+  const f = oppositionFixture(), before = copy({ members: f.succession.allocation, supplies: f.stacks, receipt: f.s.receipt,
+    agreements: f.succession.agreements, dates: [f.upkeep.dueAt, f.upkeep.graceUntil], power: f.office.power });
+  oppositionStep(f, 30); assert.equal(f.o.formed, null); assert.ok(f.o.meetingProgress < 60);
+  oppositionStep(f, 55); assert.equal(f.o.phase, 'protesting');
+  assert.deepEqual([f.old.mapCell, f.watch.mapCell], Opposition.POSTS); assert.equal(f.o.joinDecision.decision, 'joined');
+  assert.ok(f.old.workSeconds < 600); assert.ok(f.watch.workSeconds < 1200);
+  assert.deepEqual({ members: f.succession.allocation, supplies: f.stacks, receipt: f.s.receipt,
+    agreements: f.succession.agreements, dates: [f.upkeep.dueAt, f.upkeep.graceUntil], power: f.office.power }, before);
+});
+test('organized opposition: existing commitments and blocked approach do not conjure contact or overwrite assignments', () => {
+  const f = oppositionFixture(); f.watch.assignment = 'accepted-watch-duty'; oppositionStep(f, 100);
+  assert.equal(f.o.phase, 'waiting'); assert.equal(f.o.meetingProgress, 0); assert.equal(f.watch.assignment, 'accepted-watch-duty');
+  f.watch.assignment = null; f.effects.approach = () => false;
+  const position = copy(f.watch.mapCell), work = f.watch.workSeconds; oppositionStep(f, 100);
+  assert.deepEqual(f.watch.mapCell, position); assert.equal(f.watch.workSeconds, work); assert.equal(f.o.formed, null);
+  const g = oppositionFixture(); protest(g); g.office.clerk.assignment = 'other-accepted-duty';
+  assert.equal(Opposition.discuss(g.o, oppositionBundle(g)), false); assert.equal(g.office.clerk.assignment, 'other-accepted-duty');
+  g.office.clerk.assignment = null; g.office.availableAt = g.at + 60;
+  assert.equal(Opposition.discuss(g.o, oppositionBundle(g)), false); assert.equal(g.o.job, null);
+});
+test('organized opposition: refusal after the actual shared account is stable across save and has no replacement or persuasion reroll', () => {
+  const f = oppositionFixture({ prepare: f => f.watch.oppositionPolicy = 'retainIndependentDuty' });
+  oppositionStep(f, 100); assert.equal(f.o.phase, 'declinedSupport'); assert.equal(f.o.formed, null);
+  assert.equal(f.watch.assignment, null); assert.equal(f.old.assignment, null);
+  const before = copy(f.o); f.s = A.normalize(f.s); f.o = f.s.opposition; f.succession.appointments = f.s;
+  oppositionStep(f, 100); assert.equal(f.o.joinDecision.decision, 'refused'); assert.equal(f.o.formed, null);
+  assert.deepEqual(f.o.joinDecision, before.joinDecision); assert.equal(f.o.history.length, before.history.length);
+});
+test('organized opposition: actual receiving occupancy blocks staged collection but not recognition, supplies or an alternative reserve path', () => {
+  const f = oppositionFixture(); protest(f); const before = copy(f.stacks);
+  assert.ok(Administration.inspect(f.upkeep, f.succession, f.office, f.c, f.at));
+  assert.ok(Administration.order(f.upkeep, f.succession, f.bargain, f.office, f.stacks, f.upkeep.inspection, f.c, f.at));
+  f.at += 30; Administration.advance(f.upkeep, f.succession, f.bargain, f.office, f.stacks, f.c, f.at, { move: f.effects.move });
+  assert.equal(f.upkeep.job.status, 'collecting'); assert.equal(f.upkeep.job.cargo, null); assert.deepEqual(f.stacks[0].quantity, before[0].quantity);
+  assert.ok(A.authorization(f.s, f.succession, f.upkeep, f.office, f.c));
+  assert.ok(Administration.cancel(f.upkeep, f.succession, f.office, f.stacks, f.c, f.at));
+  // The protest is not a global supply-disable flag. An original accessible
+  // reserve can support accepted maintenance without deleting either occupant.
+  f.stacks[0].carriedBy = 'another-real-custodian';
+  assert.ok(Administration.order(f.upkeep, f.succession, f.bargain, f.office, f.stacks, f.upkeep.inspection, f.c, f.at));
+  f.at += 200; Administration.advance(f.upkeep, f.succession, f.bargain, f.office, f.stacks, f.c, f.at, { move: f.effects.move });
+  assert.equal(f.upkeep.job, null); assert.equal(f.succession.provision.stock, 12);
+  assert.deepEqual([f.old.mapCell, f.watch.mapCell], Opposition.POSTS);
+});
+test('organized opposition: exact witnessed safeguards spend original capacity, save partial signing and require real withdrawal', () => {
+  const f = oppositionFixture(); oppositionOffer(f); const original = copy({ receipt: f.s.receipt, supplies: f.stacks,
+    health: f.old.health, dates: [f.upkeep.dueAt, f.upkeep.graceUntil] });
+  assert.ok(f.o.offer); assert.equal(Opposition.accept(f.o, oppositionBundle(f), { ...f.o.offer, promise: 'immunity' }), false);
+  const power = f.office.power, work = f.watch.workSeconds;
+  assert.ok(Opposition.accept(f.o, oppositionBundle(f), copy(f.o.offer))); oppositionStep(f, 30);
+  assert.equal(f.o.settlement, null); f.s = A.normalize(f.s); f.o = f.s.opposition; f.succession.appointments = f.s;
+  oppositionStep(f, 30); assert.equal(f.o.phase, 'withdrawing'); assert.equal(f.office.localOppositionAccounts.length, 1);
+  assert.deepEqual([f.old.mapCell, f.watch.mapCell], Opposition.POSTS);
+  f.effects.move = () => false; oppositionStep(f, 30); assert.equal(f.o.phase, 'withdrawing');
+  assert.deepEqual(f.old.mapCell, Opposition.POSTS[0]); assert.equal(f.watch.workSeconds, work - 60);
+  assert.equal(f.office.power, power - 1); assert.equal(Opposition.accept(f.o, oppositionBundle(f), f.o.offer), false);
+  assert.deepEqual({ receipt: f.s.receipt, supplies: f.stacks, health: f.old.health, dates: [f.upkeep.dueAt, f.upkeep.graceUntil] }, original);
+});
+test('organized opposition: accepted account ends only after both actual withdrawals and never duplicates the original register', () => {
+  const f = oppositionFixture(); oppositionOffer(f);
+  assert.ok(Opposition.accept(f.o, oppositionBundle(f), f.o.offer)); oppositionStep(f, 60); oppositionStep(f, 20);
+  assert.equal(f.o.phase, 'ended'); assert.deepEqual([f.old.mapCell, f.watch.mapCell], f.o.homes);
+  assert.equal(f.old.assignment, null); assert.equal(f.watch.assignment, null); assert.equal(f.office.localOppositionAccounts.length, 1);
+  oppositionStep(f, 100); assert.equal(f.office.localOppositionAccounts.length, 1); assert.equal(Opposition.discuss(f.o, oppositionBundle(f)), false);
+});
+test('organized opposition: categorical settlement refusal and player decline do not grant force or reroll an offer', () => {
+  const f = oppositionFixture({ prepare: f => f.old.oppositionSettlementPolicy = 'rejectSafeguards' }); oppositionOffer(f);
+  assert.equal(f.o.response.decision, 'refused'); assert.equal(f.o.offer, null); assert.equal(Opposition.discuss(f.o, oppositionBundle(f)), false);
+  const g = oppositionFixture(); oppositionOffer(g);
+  assert.ok(Opposition.decline(g.o, oppositionBundle(g), g.o.offer)); assert.equal(g.o.phase, 'protesting');
+  assert.equal(Opposition.accept(g.o, oppositionBundle(g), g.o.offer), false); assert.equal(g.e.phase, 'transferred');
+  assert.equal(Civil.startEscort(g.e, civilBundle(g)), false); assert.equal(g.o.settlement, null);
+});
+test('organized opposition: missing attendance, changed body, outage and cancelled work never produce an unattended account or refunds', () => {
+  for (const change of [f => f.c.presentIds = [f.old.id], f => f.c.bodyEpoch++, f => f.c.activeViolence = true,
+    f => f.office.assignment = 'another', f => f.watch.assignment = 'another-duty']) {
+    const f = oppositionFixture(); oppositionOffer(f); assert.ok(Opposition.accept(f.o, oppositionBundle(f), f.o.offer));
+    oppositionStep(f, 30); change(f); oppositionStep(f, 30);
+    assert.equal(f.o.settlement, null); assert.equal(f.office.localOppositionAccounts, undefined);
+  }
+  const g = oppositionFixture(); oppositionOffer(g); assert.ok(Opposition.accept(g.o, oppositionBundle(g), g.o.offer)); oppositionStep(g, 20);
+  g.c.externalPowered = false; oppositionStep(g, 100); assert.equal(g.o.job.progress, 20);
+  g.c.externalPowered = true; oppositionStep(g, 1); assert.equal(g.o.job.progress, 20);
+  const power = g.office.power; assert.ok(Opposition.cancel(g.o, oppositionBundle(g))); assert.equal(g.office.power, power); assert.equal(g.o.settlement, null);
+});
+test('organized opposition: away observations remain dated without disclosing private choices or replenishing finite participants', () => {
+  const f = oppositionFixture(); protest(f); const known = Opposition.publicView(f.o);
+  f.c.atCounter = false; f.c.presentIds = []; oppositionStep(f, 100);
+  assert.deepEqual(Opposition.publicView(f.o), known); assert.ok(f.o.protestSeconds > 100);
+  assert.doesNotMatch(JSON.stringify(known), /oppositionPolicy|SettlementPolicy|workSeconds|"health"|stamina|"stock"/);
+  f.c.atCounter = true; f.c.presentIds = [f.old.id, f.watch.id]; oppositionStep(f, 1);
+  assert.ok(Opposition.publicView(f.o).reportedAt > known.reportedAt);
+});
+test('organized opposition: actual violence retains witnessed reports and attempts retreat, never lawful clearance or new civil authority', () => {
+  const f = oppositionFixture(); oppositionOffer(f); assert.ok(Opposition.accept(f.o, oppositionBundle(f), f.o.offer)); oppositionStep(f, 10);
+  const receipt = copy(f.s.receipt); assert.ok(Opposition.attack(f.o, oppositionBundle(f), 'scientist', f.watch.id, 'strike'));
+  assert.equal(f.o.phase, 'withdrawing'); assert.equal(f.o.settlement, null); assert.ok(f.o.reports.length > 0);
+  assert.deepEqual(f.watch.mapCell, Opposition.POSTS[1]); assert.deepEqual(f.s.receipt, receipt);
+  assert.equal(Civil.startEscort(f.e, civilBundle(f)), false);
+  f.watch.health = 49; oppositionStep(f, 1); assert.equal(f.o.phase, 'stopped'); assert.deepEqual(f.watch.mapCell, Opposition.POSTS[1]);
+});
+test('organized opposition: finite capacity and death retain original people, positions, records and deadlines', () => {
+  const f = oppositionFixture(); protest(f); f.old.workSeconds = 12; oppositionStep(f, 1);
+  assert.equal(f.o.phase, 'withdrawing'); assert.deepEqual(f.old.mapCell, Opposition.POSTS[0]);
+  oppositionStep(f, 20); assert.equal(f.o.phase, 'ended'); assert.ok(f.old.workSeconds < 12);
+  const g = oppositionFixture(); protest(g); const before = copy({ opposition: g.o, old: g.old, watch: g.watch, office: g.office });
+  g.c.alive = false; oppositionStep(g, 100);
+  assert.deepEqual({ opposition: g.o, old: g.old, watch: g.watch, office: g.office }, before);
+});
+test('organized opposition: expired terms, an incapacitated clerk and altered original watch jurisdiction cannot finish a saved account', () => {
+  for (const change of [f => f.at = f.o.offer.expiresAt, f => f.office.clerk.health = 49,
+    f => f.succession.source.institutions.at(-1).officeRoles.push('civicReview')]) {
+    const f = oppositionFixture(); oppositionOffer(f); assert.ok(Opposition.accept(f.o, oppositionBundle(f), f.o.offer));
+    oppositionStep(f, 20); const power = f.office.power; change(f); f.at += 60;
+    Opposition.advance(f.o, oppositionBundle(f));
+    assert.equal(f.o.settlement, null); assert.equal(f.office.localOppositionAccounts, undefined); assert.equal(f.office.power, power);
+    assert.deepEqual([f.old.mapCell, f.watch.mapCell], Opposition.POSTS);
+  }
 });

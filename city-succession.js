@@ -66,9 +66,13 @@
       if (institution.role === 'publicWorksAndProvisioning' && same(institution.officeRoles, ['emergencyManagement', 'publicWorksAndProvisioning']))
         actor.roles = ['emergencyManagement', 'publicWorksAndProvisioning'];
     }
-    for (const actor of leaders.filter(a => a.roles.includes('publicWorksAndProvisioning'))) {
+    for (const actor of leaders.filter(a => a.roles.includes('publicWorksAndProvisioning') || a.roles.includes('civilWatch'))) {
       actor.physicalControl = { strength: 20 + hash(`${actor.id}:physical-strength`) % 31, stamina: 80, staminaCapacity: 80 };
       actor.skills = { striking: 10, guarding: 15, evasion: 10, perception: 20 };
+      actor.oppositionPolicy = actor.roles.includes('publicWorksAndProvisioning')
+        ? hash(`${actor.id}:opposition`) % 4 === 0 ? 'retainPrivateDissent' : 'seekSafeguards'
+        : hash(`${actor.id}:opposition`) % 3 === 0 ? 'retainIndependentDuty' : 'joinCustodySafeguards';
+      actor.oppositionSettlementPolicy = hash(`${actor.id}:safeguards`) % 4 === 0 ? 'rejectSafeguards' : 'considerSafeguards';
     }
     return { definitionId: selected.definitionId, sourceTheme: selected.sourceTheme, source: copy(source), officeId: office.id,
       ruler, leaders, allocation: { populationSourceId: source.populationSourceId, people: leaders.length + 1 },

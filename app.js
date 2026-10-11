@@ -114,6 +114,7 @@
   const CityAdministration = window.HelixCityAdministration;
   const PublicWorksAppointments = window.HelixPublicWorksAppointments;
   const CivilInstallationAccess = window.HelixCivilInstallationAccess;
+  const LocalOpposition = window.HelixLocalOpposition;
   const CityResistance = window.HelixCityResistance;
   const UnsupportedExcursions = window.HelixUnsupportedExcursions;
   const MedicalExtraction = window.HelixMedicalExtraction;
@@ -14629,6 +14630,9 @@
       cityResistanceAction: (action, expected) => cityResistanceAction(action, expected),
       cityAppointmentsAction: (action, expected) => cityAppointmentsAction(action, expected),
       civilInstallationAction: (action, expected) => civilInstallationAction(action, expected),
+      localOppositionAction: (action, expected) => localOppositionAction(action, expected),
+      localOppositionSnapshot: () => clonePlainObject({ opposition: state.citySuccession?.appointments?.opposition,
+        known: LocalOpposition.publicView(state.citySuccession?.appointments?.opposition), context: localOppositionBundle().c }),
       civilInstallationSnapshot: () => clonePlainObject({ ...civilAccessBundle(), injuries: state.injuries }),
       cityAppointmentsSnapshot: () => clonePlainObject({ appointments: state.citySuccession?.appointments,
         source: citySuccessionSource(),
@@ -14652,6 +14656,11 @@
         if (options.accessPolicy != null && ['custodyAccountability', 'rejectReplacement'].includes(options.accessPolicy)) s.accessPolicy = options.accessPolicy;
         if (options.civilPolicy != null && ['considerCivilEscort', 'declineCivilEscort'].includes(options.civilPolicy)) state.sovereignBargains.defender.civilAccessPolicy = options.civilPolicy;
         if (options.resistanceStrength != null) PublicWorksAppointments.incumbent(s, state.citySuccession).physicalControl.strength = options.resistanceStrength;
+        const old = PublicWorksAppointments.incumbent(s, state.citySuccession);
+        const watch = state.citySuccession.leaders.find(a => a.roles.length === 1 && a.roles[0] === 'civilWatch');
+        if (options.organize != null) old.oppositionPolicy = options.organize ? 'seekSafeguards' : 'retainPrivateDissent';
+        if (watch && options.joinOpposition != null) watch.oppositionPolicy = options.joinOpposition ? 'joinCustodySafeguards' : 'retainIndependentDuty';
+        if (options.settleOpposition != null) old.oppositionSettlementPolicy = options.settleOpposition ? 'considerSafeguards' : 'rejectSafeguards';
         refreshCityAppointmentsKnowledge(); persist(); render(); return true;
       },
       advanceCityAppointmentsForTest: seconds => {
@@ -14659,7 +14668,7 @@
         while (remaining > 0 && !scientistIsDead()) {
           const s = state.citySuccession?.appointments;
           const e = s?.enforcement;
-          const step = Math.min(remaining, s?.travel || s?.job?.clearingPost || e?.escort?.status === 'active' ? 1
+          const step = Math.min(remaining, s?.travel || s?.job?.clearingPost || e?.escort?.status === 'active' || s?.opposition ? 1
             : s?.job ? Math.max(1, s.job.seconds - s.job.progress) : e?.job ? Math.max(1, e.job.seconds - e.job.progress) : 60);
           state.clock += step; remaining -= step; updateCityAdministration();
         }
@@ -39938,6 +39947,8 @@
   function combatActor(actorId) {
     const civil = PublicWorksAppointments.incumbent(state.citySuccession?.appointments, state.citySuccession);
     if (civil?.id === actorId && civil.physicalControl) return civil;
+    const opposing = state.citySuccession?.appointments?.opposition;
+    if (opposing?.memberIds.includes(actorId)) return state.citySuccession.leaders.find(a => a.id === actorId) || null;
     if (state.citySuccession?.ruler?.id === actorId && state.citySuccession.ruler.actorKind === 'cityIncumbent') return state.citySuccession.ruler;
     if (state.sovereignBargains?.defender?.id === actorId && state.sovereignBargains.defender.actorKind === 'cityDefender') return state.sovereignBargains.defender;
     const homunculus = state.homunculi?.individuals.find(a => a.id === actorId);
@@ -40319,6 +40330,10 @@
     const targetActor = combatActor(target.id);
     if (!targetActor) return { ok: false, reason: "The target is no longer present." };
     const targetIsScientist = target.id === 'scientist';
+    if (actorId === 'scientist' && state.citySuccession?.appointments?.opposition) {
+      const bundle = localOppositionBundle();
+      LocalOpposition.attack(bundle.appointment.opposition, bundle, actorId, target.id, actionId);
+    }
     if (actorId === 'scientist' && state.citySuccession?.appointments?.enforcement) {
       const bundle = civilAccessBundle();
       CivilInstallationAccess.attack(bundle.appointment.enforcement, bundle, actorId, target.id, actionId);
@@ -83774,17 +83789,43 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return Boolean(s && c.alive && c.atCounter && c.visitPermission && c.clerkPresent && c.lineOfSight && c.cityId === s.cityId);
   }
   function refreshCityAppointmentsKnowledge() {
-    if (cityAppointmentsObserved()) state.cityAppointmentsKnowledge = { ...PublicWorksAppointments.publicView(state.citySuccession.appointments), reportedAt: state.clock };
+    if (cityAppointmentsObserved()) state.cityAppointmentsKnowledge = { ...PublicWorksAppointments.publicView(state.citySuccession.appointments),
+      opposition: LocalOpposition.publicView(state.citySuccession.appointments.opposition), reportedAt: state.clock };
   }
   function updateCityAppointments() {
     const s = state.citySuccession?.appointments; if (!s || scientistIsDead()) return false;
     const changed = PublicWorksAppointments.advance(s, state.citySuccession, state.cityAdministration, cityAdministrationOffice(),
       ensureHomeInstitutionContext(), cityAppointmentsContext(), state.clock, { move: moveSuccessionParticipant, stacks: ensurePhysicalItemStacks() });
     const civilChanged = updateCivilInstallationAccess();
-    const busy = s.job || s.enforcement?.job || s.enforcement?.escort?.status === 'active';
+    const oppositionChanged = updateLocalOpposition();
+    const busy = s.job || s.enforcement?.job || s.enforcement?.escort?.status === 'active' || s.opposition?.job;
     if (busy && !state.combat?.routineSuspension) suspendScientistRoutineWork('public-works appointment');
     if (!busy && state.combat?.routineSuspension?.reason === 'public-works appointment') resumeScientistRoutineWork();
-    refreshCityAppointmentsKnowledge(); return changed || civilChanged;
+    refreshCityAppointmentsKnowledge(); return changed || civilChanged || oppositionChanged;
+  }
+  function localOppositionBundle() {
+    const b = civilAccessBundle();
+    b.authenticTransfer = Boolean(b.appointment?.receipt && PublicWorksAppointments.authorization(b.appointment, b.succession, b.upkeep, b.office, b.c));
+    const watchId = b.succession?.source.institutions.find(i => i.role === 'civilWatch')?.id;
+    b.c.watchAvailable = Boolean(watchId && b.institutions?.offices[watchId]?.available);
+    b.c.localGround = b.c.geometryAvailable && b.office?.active === true;
+    return b;
+  }
+  function updateLocalOpposition() {
+    const a = state.citySuccession?.appointments;
+    if (a?.receipt?.origin !== 'compulsoryCivilAccess' || scientistIsDead()) return false;
+    const b = localOppositionBundle();
+    a.opposition ||= LocalOpposition.create(b);
+    return a.opposition ? LocalOpposition.advance(a.opposition, b) : false;
+  }
+  function localOppositionAction(action, expected = null) {
+    if (scientistIsDead()) return false;
+    updateCityAdministration(); const b = localOppositionBundle(), s = b.appointment?.opposition;
+    const methods = { discuss: 'discuss', accept: 'accept', decline: 'decline', cancel: 'cancel' };
+    const ok = Boolean(s && methods[action] && LocalOpposition[methods[action]](s, b, expected));
+    if (s) LocalOpposition.observe(s, b);
+    addEvent(ok ? s.message : 'Actual two-person opposition, original clerk, exact unexpired terms, finite capacity and safe local attendance are required. No new force authority follows.');
+    updateCityAdministration(); refreshCityAppointmentsKnowledge(); persist(); render(); return ok;
   }
   function civilAccessBundle() {
     const appointment = state.citySuccession?.appointments, c = cityAppointmentsContext(), office = cityAdministrationOffice();
@@ -83909,6 +83950,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const old of v.previousObjections || []) section.append(textEl('p', `Earlier received objection ${formatClock(old.at)}: ${old.finding}${old.review ? ` Independent finding: ${old.review}` : ''}`));
     if (v.receipt) section.append(textEl('p', `Physical transfer recorded ${formatClock(v.receipt.at)}. The same installation, deadlines and supplies remain; use the maintenance controls above. Earlier objections remain in the dated appointment archive.`));
     renderCivilInstallationAccess(section, v, observed);
+    renderLocalOpposition(section, v.opposition, observed);
     if (v.working) section.append(textEl('p', v.working.clearingPost ? 'The outgoing official is physically stepping aside; blocked paths pause release. No handover is complete.'
       : `${v.working.kind}: ${formatDuration(v.working.progress)} / ${formatDuration(v.working.seconds)} actual attended work.`));
     if (v.working || v.approaching) button('Cancel unfinished appointment work or approach', 'cancel');
@@ -83917,6 +83959,42 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function cityAdministrationOffice() {
     const id = state.cityAdministration?.officeId || state.citySuccession?.officeId;
     return id ? ensureIntercitySmuggling().identityOffices?.find(o => o.id === id) || null : null;
+  }
+  function renderLocalOpposition(panel, v, observed) {
+    if (!v) return;
+    const section = document.createElement('section'); section.dataset.localOpposition = 'true'; panel.append(section);
+    section.append(textEl('strong', 'Organized receiving-approach opposition'),
+      textEl('p', `Personally observed ${formatClock(v.reportedAt)} — ${v.phase}. ${v.members.map(a => a.name).join(' and ')}. ${v.formed.objective}`),
+      textEl('p', 'Only actual occupants obstruct physical routes. Alternative reachable supplies and essential work retain their authorization; no stock, service deadline or appointment is erased. The earlier civil order does not authorize clearing this new protest.'));
+    const button = (label, action, expected = null) => {
+      const el = storesActionButton(label, label, () => localOppositionAction(action, expected)); el.dataset.oppositionAction = action;
+      el.disabled = !observed || Boolean(v.working); section.append(el);
+    };
+    if (['approaching', 'protesting'].includes(v.phase)) {
+      if (!v.response) button('Hear both participants’ exact safeguards (one minute)', 'discuss');
+      if (v.response) section.append(textEl('p', `${v.response.grievance} Settlement ${v.response.decision}; unchanged facts cannot reroll it.`));
+      if (v.offer && !v.settlement && !v.declined) {
+        section.append(textEl('p', `${v.offer.account} ${v.offer.promise} ${v.offer.response} Offer expires ${formatClock(v.offer.expiresAt)}.`));
+        button('Accept exact witnessed safeguards (one minute)', 'accept', clonePlainObject(v.offer));
+        button('Decline optional safeguards', 'decline', clonePlainObject(v.offer));
+      }
+    }
+    if (v.settlement) section.append(textEl('p', `Original clerk recorded the accepted account ${formatClock(v.settlement.at)}. A signature is not physical withdrawal.`));
+    if (v.working) {
+      section.append(textEl('p', `${v.working.kind}: ${formatDuration(v.working.progress)} / ${formatDuration(v.working.seconds)} actual attended work.`));
+      const el = storesActionButton('End unfinished protest discussion', 'Spent work remains.', () => localOppositionAction('cancel'));
+      el.dataset.oppositionAction = 'cancel'; el.disabled = !observed; section.append(el);
+    }
+    for (const r of v.reports) section.append(textEl('p', `${formatClock(r.at)} — ${r.detail}`));
+    if (observed) for (const member of v.members) {
+      const actor = combatActor(member.id); if (!actor || !scientistHasExactCombatTarget(actor)) continue;
+      for (const action of ['strike', 'soulLash']) {
+        const reason = scientistCombatActionBlockReason(action, actor);
+        const el = storesActionButton(`${combatActionDef(action).label} ${member.name} — outside protest-clearance authority`, reason || 'Ordinary injury and witnessed consequences; no lawful clearance or immunity.', () => beginScientistCombatAction(action, actor.id));
+        el.dataset.oppositionCombat = action; el.disabled = Boolean(reason); section.append(el);
+      }
+    }
+    section.append(textEl('p', v.message), textEl('p', v.limitations));
   }
   function renderCivilInstallationAccess(panel, v, observed) {
     if (v.rule.method === 'reviewedCombinedPublicWorksReassignment') return;
@@ -83980,7 +84058,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { ...c, ...administrationRecognitionSources(), busy: c.busy || Boolean(state.scientistIdentity?.job || state.sovereignBargains?.job
       || state.citySuccession?.job || state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job || state.religiousRecognition?.job || DefenderChallenges.reserved(state.defenderChallenge)
       || !ownAppointment && (state.citySuccession?.appointments?.job || state.citySuccession?.appointments?.enforcement?.job
-        || state.citySuccession?.appointments?.enforcement?.escort?.status === 'active')
+        || state.citySuccession?.appointments?.enforcement?.escort?.status === 'active' || state.citySuccession?.appointments?.opposition?.job)
       // An independently returning defender is not a clerk/public-works
       // assignment. Actual violence still blocks new civic attendance.
       || state.cityConfrontation?.phase === 'fighting' || IncumbentResistance.active(state.incumbentResistance)

@@ -19,7 +19,7 @@ async function finishWalk(page) {
     throw new Error('Physical walk did not finish');
   });
 }
-async function setup(page, renderer = 'dom', obstruct = false, accessPolicy = 'rejectReplacement', civilPolicy = null, combinedWorks = false) {
+async function setup(page, renderer = 'dom', obstruct = false, accessPolicy = 'rejectReplacement', civilPolicy = null, combinedWorks = false, opposition = null) {
   await page.goto(pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href);
   await page.evaluate(renderer => { localStorage.clear(); localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: renderer })); }, renderer);
   await page.reload();
@@ -56,8 +56,9 @@ async function setup(page, renderer = 'dom', obstruct = false, accessPolicy = 'r
   // not a work/power refill or an invented appointment outcome.
   await page.evaluate(() => window.helixHeresyDebug.configureCityAdministrationTest({ supplies: { relayBattery: 1 } }));
   expect(await admin(page, 'battery')).toBe(true);
-  const configured = await page.evaluate(({ obstruct, accessPolicy, civilPolicy }) => window.helixHeresyDebug.configureCityAppointmentsTest({ maintenance: 50, willing: true, obstruct, accessPolicy,
-    ...(civilPolicy ? { civilPolicy, resistanceStrength: 20 } : {}) }), { obstruct, accessPolicy, civilPolicy });
+  const configured = await page.evaluate(({ obstruct, accessPolicy, civilPolicy, opposition }) => window.helixHeresyDebug.configureCityAppointmentsTest({ maintenance: 50, willing: true, obstruct, accessPolicy,
+    organize: Boolean(opposition), ...(opposition || {}),
+    ...(civilPolicy ? { civilPolicy, resistanceStrength: 20 } : {}) }), { obstruct, accessPolicy, civilPolicy, opposition });
   const diagnostic = configured ? null : await snap(page);
   expect(configured, JSON.stringify({ appointments: diagnostic?.appointments, context: diagnostic && {
     atCounter: diagnostic.context.atCounter, busy: diagnostic.context.busy, rule: diagnostic.context.appointmentRule,
@@ -107,6 +108,79 @@ async function civilOrder(page) {
   await panel.locator('[data-civil-access-action="discuss"]').click(); await advance(page, 60);
   return panel;
 }
+async function oppositionReady(page, renderer = 'dom', settle = true) {
+  await setup(page, renderer, true, 'rejectReplacement', 'considerCivilEscort', false,
+    { joinOpposition: true, settleOpposition: settle });
+  const panel = await civilOrder(page); let s = await snap(page);
+  expect(await civil(page, 'sign', s.appointments.enforcement.terms)).toBe(true); await advance(page, 60);
+  expect(await civil(page, 'serve')).toBe(true); await advance(page, 120);
+  expect(await civil(page, 'escort')).toBe(true); await advance(page, 45);
+  s = await snap(page); expect(s.appointments.enforcement.release).not.toBeNull();
+  await panel.locator('[data-civil-access-action="transfer"]').click(); await advance(page, 120);
+  s = await snap(page); expect(s.appointments.receipt.origin).toBe('compulsoryCivilAccess');
+  await advance(page, 85); s = await snap(page);
+  expect(s.appointments.opposition.phase, JSON.stringify(s.appointments.opposition)).toBe('protesting');
+  expect(s.succession.leaders.find(a => a.id === s.appointments.incumbentId).mapCell).toEqual({ x: 16, y: 12, z: 6 });
+  await expect(page.locator('[data-local-opposition]')).toContainText('earlier civil order does not authorize clearing this new protest');
+  return s;
+}
+test('DOM: organized opposition physically blocks original supplies then accepts a saved witnessed account and actually withdraws', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const before = await oppositionReady(page), panel = page.locator('[data-local-opposition]');
+  expect(await admin(page, 'inspect')).toBe(true);
+  let s = await snap(page); expect(await admin(page, 'order', s.administration.inspection)).toBe(true);
+  await advance(page, 15); s = await snap(page);
+  expect(s.administration.job.status).toBe('collecting'); expect(s.administration.job.cargo).toBeNull();
+  expect(s.administration.workerId).toBe(s.appointments.candidate.id);
+  expect(s.succession.provision).toEqual(before.succession.provision);
+  await panel.locator('[data-opposition-action="discuss"]').click(); await advance(page, 30);
+  expect((await snap(page)).appointments.opposition.response).toBeNull();
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState()); await advance(page, 30);
+  s = await snap(page); expect(s.appointments.opposition.offer).not.toBeNull();
+  expect(await page.evaluate(offer => window.helixHeresyDebug.localOppositionAction('accept', { ...offer, promise: 'immunity' }), s.appointments.opposition.offer)).toBe(false);
+  await panel.locator('[data-opposition-action="accept"]').click(); await advance(page, 30);
+  expect((await snap(page)).office.localOppositionAccounts).toBeUndefined();
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState()); await advance(page, 30);
+  s = await snap(page); expect(s.office.localOppositionAccounts).toHaveLength(1);
+  expect(s.appointments.opposition.phase).toBe('withdrawing');
+  expect(s.succession.leaders.find(a => a.id === s.appointments.incumbentId).mapCell).toEqual({ x: 16, y: 12, z: 6 });
+  await advance(page, 180); s = await snap(page);
+  expect(s.appointments.opposition.phase).toBe('ended'); expect(s.administration.job).toBeNull();
+  expect(s.office.localOppositionAccounts).toHaveLength(1);
+  expect(s.appointments.receipt).toEqual(before.appointments.receipt); expect(s.succession.agreements).toEqual(before.succession.agreements);
+  expect(s.succession.provision).toEqual(before.succession.provision);
+  expect(s.succession.leaders.find(a => a.id === s.appointments.incumbentId).health).toBe(before.succession.leaders.find(a => a.id === s.appointments.incumbentId).health);
+  await expect(panel).toContainText('Both original people physically withdrew'); expect(errors).toEqual([]);
+});
+test('Canvas: organized opposition keeps categorical refusal, dated away knowledge and ordinary human combat consequences', async ({ page }) => {
+  // This scenario physically executes the full succession, appointment and
+  // enforcement route before exercising ordinary combat and walking away.
+  test.setTimeout(420000);
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const before = await oppositionReady(page, 'canvas', false), panel = page.locator('[data-local-opposition]');
+  await panel.locator('[data-opposition-action="discuss"]').click(); await advance(page, 60);
+  let s = await snap(page); expect(s.appointments.opposition.response.decision).toBe('refused'); expect(s.appointments.opposition.offer).toBeNull();
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  expect(await page.evaluate(() => window.helixHeresyDebug.localOppositionAction('discuss'))).toBe(false);
+  const watchId = s.appointments.opposition.memberIds[1], watch = s.succession.leaders.find(a => a.id === watchId);
+  // A prepared range/accuracy context permits testing ordinary injury without
+  // bypassing the original protest, source evidence or opposition decision.
+  await page.evaluate(() => window.helixHeresyDebug.configureDefenderChallengeTest({ mastery: true }));
+  const attacked = await page.evaluate(id => window.helixHeresyDebug.startScientistCombatAction('soulLash', id), watchId);
+  expect(attacked).toBe(true);
+  await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(8));
+  s = await snap(page); const afterWatch = s.succession.leaders.find(a => a.id === watchId);
+  expect(afterWatch.health).toBeLessThan(watch.health); expect(s.appointments.opposition.reports.length).toBeGreaterThan(0);
+  const physical = await page.evaluate(() => window.helixHeresyDebug.civilInstallationSnapshot());
+  expect(physical.injuries.some(i => i.actorId === watchId && i.actorKind === 'civicOfficeholder')).toBe(true);
+  expect(s.appointments.receipt).toEqual(before.appointments.receipt); expect(s.office.localOppositionAccounts).toBeUndefined();
+  expect(await civil(page, 'escort')).toBe(false);
+  expect(await page.evaluate(() => Boolean(window.helixHeresyDebug.startScientistMove('supportedSurveyGround',
+    { toCell: { x: 10, y: 10, z: 6 }, allowMultiRoom: true })))).toBe(true); await finishWalk(page);
+  const dated = (await page.evaluate(() => window.helixHeresyDebug.localOppositionSnapshot())).known;
+  await advance(page, 120); expect((await page.evaluate(() => window.helixHeresyDebug.localOppositionSnapshot())).known).toEqual(dated);
+  expect(errors).toEqual([]);
+});
 test('DOM: combined directorate physically reassigns only public works across reload and retains emergency authority and supplied upkeep', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await setup(page, 'dom', false, 'rejectReplacement', null, true);
