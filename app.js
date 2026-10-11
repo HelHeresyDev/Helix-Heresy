@@ -14646,6 +14646,7 @@
         if (options.maintenance != null) s.candidate.credential.maintenance = options.maintenance;
         if (options.willing != null) s.candidate.appointmentPolicy = options.willing ? 'considerExactDuties' : 'declineOffice';
         if (options.obstruct != null) s.incumbentPolicy = options.obstruct ? 'retainInstallation' : 'contestThenRelease';
+        if (options.accessPolicy != null && ['custodyAccountability', 'rejectReplacement'].includes(options.accessPolicy)) s.accessPolicy = options.accessPolicy;
         refreshCityAppointmentsKnowledge(); persist(); render(); return true;
       },
       advanceCityAppointmentsForTest: seconds => {
@@ -83737,7 +83738,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const near = a => Boolean(a?.status === 'alive' && a.locationId === office?.id && a.mapCell
       && a.mapCell.z === scientistMapCell()?.z && WildernessBeasts.distance(scientistMapCell(), a.mapCell) <= 6
       && sensoryLineOfSight(scientistMapCell(), a.mapCell));
-    return { ...c, presentIds: [...citySuccessionPeople(), office?.clerk, s?.candidate].filter(near).map(a => a.id) };
+    const participants = [office?.clerk, s?.candidate, PublicWorksAppointments.incumbent(s, state.citySuccession)];
+    const seesReceiving = cell => Boolean(cell && cell.z === CityAdministration.RECEIVING.z
+      && WildernessBeasts.distance(cell, CityAdministration.RECEIVING) <= 6 && sensoryLineOfSight(cell, CityAdministration.RECEIVING));
+    return { ...c, presentIds: [...citySuccessionPeople(), office?.clerk, s?.candidate].filter(near).map(a => a.id),
+      accessInventoryVisible: Boolean(c.geometryAvailable && seesReceiving(scientistMapCell())
+        && participants.every(a => near(a) && seesReceiving(a.mapCell))) };
   }
   function cityAppointmentsObserved() {
     const s = state.citySuccession?.appointments, c = cityAppointmentsContext();
@@ -83749,7 +83755,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function updateCityAppointments() {
     const s = state.citySuccession?.appointments; if (!s || scientistIsDead()) return false;
     const changed = PublicWorksAppointments.advance(s, state.citySuccession, state.cityAdministration, cityAdministrationOffice(),
-      ensureHomeInstitutionContext(), cityAppointmentsContext(), state.clock, { move: moveSuccessionParticipant });
+      ensureHomeInstitutionContext(), cityAppointmentsContext(), state.clock, { move: moveSuccessionParticipant, stacks: ensurePhysicalItemStacks() });
     if (s.job && !state.combat?.routineSuspension) suspendScientistRoutineWork('public-works appointment');
     if (!s.job && state.combat?.routineSuspension?.reason === 'public-works appointment') resumeScientistRoutineWork();
     refreshCityAppointmentsKnowledge(); return changed;
@@ -83766,9 +83772,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (action === 'hear') ok = PublicWorksAppointments.hear(s, succession, u, office, ensureHomeInstitutionContext(), c, at);
     if (action === 'appoint') ok = PublicWorksAppointments.appoint(s, succession, u, office, expected, c, at);
     if (action === 'approach') ok = PublicWorksAppointments.approach(s, succession, u, office, c, at);
-    if (action === 'transfer') ok = PublicWorksAppointments.transfer(s, succession, u, office, expected, c, at);
+    if (action === 'transfer') ok = PublicWorksAppointments.transfer(s, succession, u, office, expected, c, at, ensurePhysicalItemStacks());
+    if (action === 'accessReason') ok = PublicWorksAppointments.discussAccess(s, succession, u, office, c, at);
+    if (action === 'accessInventory') ok = PublicWorksAppointments.inspectAccess(s, succession, u, office, ensurePhysicalItemStacks(), c, at);
+    if (action === 'accessSettle') ok = PublicWorksAppointments.settleAccess(s, succession, u, office, ensurePhysicalItemStacks(), expected, c, at);
+    if (action === 'accessDecline') ok = PublicWorksAppointments.declineAccess(s, succession, u, office, expected, c, at);
     if (action === 'cancel') ok = PublicWorksAppointments.cancel(s, succession, office, at);
-    addEvent(ok ? s.message : PublicWorksAppointments.localReason(s, succession, u, office, c) || s.obstruction?.text
+    const accessFailure = action.startsWith('access') ? s.access?.reason?.kind === 'rejectReplacement' ? s.access.reason.text
+      : 'The original appointment, actual participants at the post, visible staged inventory, finite duty and counter power are required. Accept only the exact unexpired account; changed custody needs a new inspection, while unchanged facts cannot refresh an offer. Earlier records and costs remain.' : null;
+    addEvent(ok ? s.message : PublicWorksAppointments.localReason(s, succession, u, office, c) || accessFailure || s.obstruction?.text
       || 'Exact current evidence, eligible consenting people, finite capacity, independent queue and actual physical attendance are required. No authority or supplies were awarded.');
     updateCityAdministration(); refreshCityAppointmentsKnowledge(); persist(); render(); return ok;
   }
@@ -83806,6 +83818,25 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       button('Attend actual installation handover (two minutes)', 'transfer', clonePlainObject(v.appointment), Boolean(v.working) || v.approaching);
     }
     if (v.obstruction) section.append(textEl('p', v.obstruction.text));
+    if (v.obstruction && !v.receipt && v.access) {
+      section.append(textEl('strong', 'Negotiate witnessed installation access'));
+      if (!v.access.reason) button('Hear the outgoing official’s access objection (one minute)', 'accessReason', null, Boolean(v.working) || v.approaching);
+      if (v.access.reason) section.append(textEl('p', v.access.reason.text));
+      if (v.access.reason?.kind === 'custodyAccountability' && !v.access.declined) {
+        button('Jointly inspect staged supplies and custody records (two minutes)', 'accessInventory', null, Boolean(v.working) || v.approaching);
+        if (v.access.inspection) {
+          const i = v.access.inspection.inventory, r = i.reconciliation;
+          section.append(textEl('p', `Witnessed inventory ${formatClock(v.access.inspection.at)}: ${i.goods.map(g => `${g.quantity} ${g.key} in ${g.id}`).join('; ') || 'no city-owned staged supplies observed'}. ${r.expected == null ? 'No original staging manifest was supplied.' : `Original staging account expects ${r.expected}; observed ${r.observed}. ${r.discrepancy ? 'Discrepancy retained; no guilt or clean-stock certificate.' : 'Recorded quantities match.'}`} Remote reserves and private property are excluded.`));
+        }
+        if (v.access.offer && !v.access.settlement) {
+          section.append(textEl('p', `${v.access.offer.duties} ${v.access.offer.rights} Offer expires ${formatClock(v.access.offer.expiresAt)}; unchanged facts cannot refresh it.`));
+          button('Accept exact witnessed access settlement (one minute)', 'accessSettle', clonePlainObject(v.access.offer), Boolean(v.working) || state.clock >= v.access.offer.expiresAt);
+          button('Decline optional access settlement', 'accessDecline', clonePlainObject(v.access.offer), Boolean(v.working) || state.clock >= v.access.offer.expiresAt);
+        }
+      }
+      if (v.access.settlement) section.append(textEl('p', `Witnessed access settlement recorded ${formatClock(v.access.settlement.at)}. Dissent and the original appointment remain. Attend the actual handover above; consent is not physical release.`));
+      if (v.access.declined) section.append(textEl('p', 'Settlement declined. The installation remains contested; no promise or punishment follows.'));
+    }
     for (const old of v.previousObjections || []) section.append(textEl('p', `Earlier received objection ${formatClock(old.at)}: ${old.finding}${old.review ? ` Independent finding: ${old.review}` : ''}`));
     if (v.receipt) section.append(textEl('p', `Physical transfer recorded ${formatClock(v.receipt.at)}. The same installation, deadlines and supplies remain; use the maintenance controls above. Earlier objections remain in the dated appointment archive.`));
     if (v.working) section.append(textEl('p', v.working.clearingPost ? 'The outgoing official is physically stepping aside; blocked paths pause release. No handover is complete.'

@@ -7,6 +7,8 @@
   const ROLE = 'publicWorksAndProvisioning', REASON = 'changeMaintenanceSteward';
   const HOME = Object.freeze({ x: 19, y: 12, z: 6 });
   const RETIRED_POST = Object.freeze({ x: 14, y: 12, z: 6 });
+  const RECEIVING = Object.freeze({ x: 16, y: 12, z: 6 });
+  const ACCESS_RIGHTS = 'Original policy dissent, private property, faith, injuries and legal cases remain. This witnessed custody account neither grants immunity nor certifies missing goods as present. No worship, loyalty, eviction or violence is authorized. The remote defender reserve is outside this inspection.';
   const LIMITS = 'One separate public-works office and its existing counter upkeep only. A recorded appointment is not physical control. No criminal finding, confiscation, forced eviction, army, divine approval or ambition completion. Former officials retain personal rights, faith and legal cases.';
   const copy = v => JSON.parse(JSON.stringify(v));
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -53,6 +55,10 @@
       installationId: upkeep.installation.id, populationSourceId: source.populationSourceId,
       allocation: { populationSourceId: source.populationSourceId, people: candidate ? 1 : 0 }, candidate,
       incumbentPolicy: hash(`${a.id}:replacement-response`) % 4 === 0 ? 'retainInstallation' : 'contestThenRelease',
+      // Use a different modulus from the obstruction branch: hash parity
+      // would otherwise give every obstructing incumbent the same concern.
+      accessPolicy: hash(`${a.id}:custody-concern`) % 7 < 3 ? 'custodyAccountability' : 'rejectReplacement',
+      access: { reason: null, inspection: null, offer: null, settlement: null, declined: null },
       phase: 'undiscussed', dossier: null, proposal: null, review: null, terms: null, appointment: null,
       receipt: null, agreement: null, commandRelationship: null, archivedResistance: null,
       job: null, travel: null, history: [], message: candidate ? 'Discuss the actual local technician and published replacement procedure.' : 'No additional local municipal technician can be allocated from this population.',
@@ -89,7 +95,7 @@
       && !upkeep.job && !upkeep.rests.length && !upkeep.resistance?.job && succession.directive?.status !== 'carrying';
   }
   function actors(s, succession, office, kind) {
-    return [office.clerk, s.candidate, ...(kind === 'discuss' || kind === 'review' || kind === 'transfer' ? [incumbent(s, succession)] : []),
+    return [office.clerk, s.candidate, ...(['discuss', 'review', 'transfer', 'accessReason', 'accessInventory', 'accessSettle'].includes(kind) ? [incumbent(s, succession)] : []),
       ...(kind === 'review' ? [reviewer(s, succession)] : [])];
   }
   function attended(s, succession, office, c, kind, own = null) {
@@ -147,9 +153,9 @@
     s.candidate.assignment = id; s.phase = 'approaching';
     note(s, at, 'approach', 'The appointed technician must physically reach the existing maintenance post. An order is not arrival or control.'); return true;
   }
-  function transfer(s, succession, upkeep, office, expected, c, at) {
+  function transfer(s, succession, upkeep, office, expected, c, at, stacks = null) {
     if (!s.appointment || s.receipt || !same(expected, s.appointment) || !cellSame(s.candidate?.mapCell, upkeep.installation.workCell)) return false;
-    if (s.incumbentPolicy === 'retainInstallation') {
+    if (!releaseAllowed(s, office)) {
       if (!localReason(s, succession, upkeep, office, c) && attended(s, succession, office, c, 'transfer') && !s.obstruction) {
         s.obstruction = { at, authorId: s.incumbentId, installationId: s.installationId,
           text: 'The outgoing official refuses to release physical access and the installation records. Lawful appointment remains recorded, but enforceable control has not transferred. No eviction or violence is authorized here.' };
@@ -157,8 +163,78 @@
       }
       return false;
     }
+    if (s.incumbentPolicy === 'retainInstallation' && (!c.accessInventoryVisible || !Array.isArray(stacks)
+      || !same(s.access.inspection.inventory, custodyInventory(succession, upkeep, stacks)))) return false;
     return begin(s, succession, upkeep, office, c, at, 'transfer', 120, expected);
   }
+  function accessReady(s, succession, upkeep, office, c) {
+    return Boolean(s?.access && s.obstruction && !s.receipt && authenticAppointment(s, office) && eligibility(s)
+      && !localReason(s, succession, upkeep, office, c)
+      && cellSame(s.candidate.mapCell, upkeep.installation.workCell));
+  }
+  function discussAccess(s, succession, upkeep, office, c, at) {
+    return Boolean(accessReady(s, succession, upkeep, office, c) && !s.access.reason
+      && begin(s, succession, upkeep, office, c, at, 'accessReason', 60));
+  }
+  // Only supplies on the physically inspected receiving tile and their existing
+  // counter records. Do not inspect a private inventory or the distant reserve.
+  function custodyInventory(succession, upkeep, stacks) {
+    const goods = stacks.filter(i => cellSame(i.cell, RECEIVING) && !i.carriedBy && !i.containerId && !i.fixtureId && !i.toolInstanceId && i.cityOwnerId === upkeep.cityId
+      && i.civicCustody?.cityId === upkeep.cityId).map(i => ({ id: i.id, key: i.key, quantity: i.quantity,
+        cell: copy(i.cell), custody: copy(i.civicCustody), reservation: i.reservedTaskId || null }))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const manifest = succession.directive?.receipt || null;
+    const consumed = manifest ? upkeep.receipts.filter(r => r.installationId && r.manifest?.sourceId === manifest.stackId)
+      .reduce((n, r) => n + r.quantity, 0) : 0;
+    const expected = manifest ? Math.max(0, manifest.quantity - consumed) : null;
+    const observed = manifest ? goods.find(i => i.id === manifest.stackId)?.quantity || 0 : null;
+    return { installation: copy(upkeep.installation), dueAt: upkeep.dueAt, graceUntil: upkeep.graceUntil,
+      servicedAt: upkeep.servicedAt, manifests: copy(upkeep.receipts), stagedManifest: copy(manifest), goods,
+      reconciliation: { expected, observed, discrepancy: expected != null && expected !== observed }, scope: ACCESS_RIGHTS };
+  }
+  function inspectAccess(s, succession, upkeep, office, stacks, c, at) {
+    return Boolean(accessReady(s, succession, upkeep, office, c) && s.access.reason?.kind === 'custodyAccountability'
+      && !s.access.declined && c.accessInventoryVisible && Array.isArray(stacks)
+      && (!s.access.inspection || !same(s.access.inspection.inventory, custodyInventory(succession, upkeep, stacks)))
+      && begin(s, succession, upkeep, office, c, at, 'accessInventory', 120, custodyInventory(succession, upkeep, stacks)));
+  }
+  function settleAccess(s, succession, upkeep, office, stacks, expected, c, at) {
+    return Boolean(accessReady(s, succession, upkeep, office, c) && authenticInspection(s, office)
+      && same(s.access.offer, accessOffer(s.access.inspection)) && !s.access.settlement && !s.access.declined && at < s.access.offer.expiresAt
+      && same(expected, s.access.offer) && c.accessInventoryVisible && Array.isArray(stacks)
+      && same(s.access.inspection.inventory, custodyInventory(succession, upkeep, stacks))
+      && begin(s, succession, upkeep, office, c, at, 'accessSettle', 60, expected));
+  }
+  function declineAccess(s, succession, upkeep, office, expected, c, at) {
+    if (!accessReady(s, succession, upkeep, office, c) || !free(s, succession, upkeep, office)
+      || !attended(s, succession, office, c, 'accessSettle') || !s.access.offer || !same(expected, s.access.offer)
+      || s.access.settlement || s.access.declined || at >= s.access.offer.expiresAt) return false;
+    s.access.declined = { at, authorId: 'scientist', offerId: s.access.offer.id };
+    note(s, at, 'accessDeclined', 'Declined the optional custody settlement. No promise, access, transfer, refund or punishment follows.'); return true;
+  }
+  function authenticInspection(s, office) {
+    const a = s.access, i = a?.inspection;
+    return Boolean(i && a.reason?.kind === 'custodyAccountability' && s.accessPolicy === 'custodyAccountability'
+      && i.appointmentId === s.appointment?.id && i.incomingId === s.candidate?.id && i.outgoingId === s.incumbentId
+      && i.recorderId === s.clerkId && i.installationId === s.installationId && i.inventory?.scope === ACCESS_RIGHTS
+      && office.publicWorksAccessInspections?.some(r => same(r, i)));
+  }
+  function accessOffer(i) {
+    return { id: `${i.id}:offer`, inspectionId: i.id, appointmentId: i.appointmentId,
+      incomingId: i.incomingId, outgoingId: i.outgoingId, recorderId: i.recorderId, installationId: i.installationId,
+      inventory: copy(i.inventory), rights: ACCESS_RIGHTS, expiresAt: i.at + 3600,
+      duties: 'Accept this exact witnessed custody account, retain the original objection and records, and voluntarily step aside before the existing attended physical handover. The account records discrepancies, not a clean-stock guarantee, immunity or loyalty.' };
+  }
+  function authenticSettlement(s, office) {
+    const a = s.access, r = a?.settlement;
+    return Boolean(r && authenticInspection(s, office) && same(a.offer, accessOffer(a.inspection)) && !a.declined
+      && r.appointmentId === s.appointment?.id && r.inspectionId === a.inspection.id
+      && r.incomingId === s.candidate?.id && r.outgoingId === s.incumbentId && r.recorderId === s.clerkId
+      && r.installationId === s.installationId && r.authorId === 'scientist' && r.at < a.offer.expiresAt
+      && same(r.terms, a.offer) && same(a.offer.inventory, a.inspection.inventory) && a.offer.rights === ACCESS_RIGHTS
+      && office.publicWorksAccessSettlements?.some(x => same(x, r)));
+  }
+  const releaseAllowed = (s, office) => s.incumbentPolicy === 'contestThenRelease' || authenticSettlement(s, office);
   function release(s, succession, office) {
     if (!s.job) return;
     for (const a of actors(s, succession, office, s.job.kind)) if (a?.assignment === s.job.id) a.assignment = null;
@@ -202,7 +278,15 @@
     if (localReason(s, succession, upkeep, office, c) || c.bodyEpoch !== j.bodyEpoch
       || !attended(s, succession, office, c, j.kind, j.id)
       || j.kind === 'appoint' && (at >= s.terms.expiresAt || !same(j.terms, s.terms) || !eligibility(s))
-      || j.kind === 'transfer' && (!cellSame(s.candidate.mapCell, upkeep.installation.workCell) || s.incumbentPolicy !== 'contestThenRelease'))
+      || ['accessReason', 'accessInventory', 'accessSettle'].includes(j.kind) && !accessReady(s, succession, upkeep, office, c)
+      || ['accessInventory', 'accessSettle'].includes(j.kind) && (!c.accessInventoryVisible || !Array.isArray(effects.stacks)
+        || !same(j.kind === 'accessInventory' ? j.terms : s.access.inspection?.inventory, custodyInventory(succession, upkeep, effects.stacks)))
+      || j.kind === 'accessSettle' && (!authenticInspection(s, office) || !same(j.terms, s.access.offer)
+        || !same(s.access.offer, accessOffer(s.access.inspection))
+        || s.access.declined || at >= s.access.offer.expiresAt)
+      || j.kind === 'transfer' && (!cellSame(s.candidate.mapCell, upkeep.installation.workCell) || !releaseAllowed(s, office)
+        || s.incumbentPolicy === 'retainInstallation' && (!c.accessInventoryVisible || !Array.isArray(effects.stacks)
+          || !same(s.access.inspection.inventory, custodyInventory(succession, upkeep, effects.stacks)))))
       return cancel(s, succession, office, at);
     const start = j.lastAt; j.lastAt = at;
     const valid = c.externalPowered && office.maintenanceReady !== false && office.assignment === j.id && office.workSeconds > 0
@@ -254,6 +338,27 @@
         control: 'pendingPhysicalHandover', scope: LIMITS };
       office.publicWorksAppointments ||= []; office.publicWorksAppointments.push(copy(s.appointment));
       s.phase = 'appointed'; note(s, completedAt, 'appointment', 'Recorded the reviewed appointment once with the candidate consent. The outgoing official still holds the installation pending physical handover.');
+    } else if (j.kind === 'accessReason') {
+      const kind = s.accessPolicy === 'custodyAccountability' ? 'custodyAccountability' : 'rejectReplacement';
+      s.access.reason = { at: completedAt, authorId: s.incumbentId, recorderId: s.clerkId, kind,
+        text: kind === 'custodyAccountability'
+          ? 'I still oppose replacement, but will consider voluntarily releasing access if we inspect the actual staged supplies and record custody and discrepancies without blaming me merely for this disagreement.'
+          : 'I reject this replacement itself. A custody account does not answer my objection, and I will not release access under this settlement.' };
+      note(s, completedAt, 'accessReasonReceived', s.access.reason.text);
+    } else if (j.kind === 'accessInventory') {
+      s.access.inspection = { id: `${j.id}:access-inspection`, at: completedAt, appointmentId: s.appointment.id,
+        incomingId: s.candidate.id, outgoingId: s.incumbentId, recorderId: s.clerkId,
+        installationId: s.installationId, inventory: copy(j.terms) };
+      office.publicWorksAccessInspections ||= []; office.publicWorksAccessInspections.push(copy(s.access.inspection));
+      s.access.settlement = null; // Earlier signed accounts remain in the original register.
+      s.access.offer = accessOffer(s.access.inspection);
+      note(s, completedAt, 'accessInventoryReceived', 'Recorded the jointly inspected staged supplies and original manifests. Discrepancies remain evidence, not a finding of guilt. An optional exact settlement is available for one hour; custody and control have not changed.');
+    } else if (j.kind === 'accessSettle') {
+      s.access.settlement = { id: `${j.id}:access-settlement`, at: completedAt, authorId: 'scientist',
+        appointmentId: s.appointment.id, inspectionId: s.access.inspection.id, incomingId: s.candidate.id,
+        outgoingId: s.incumbentId, recorderId: s.clerkId, installationId: s.installationId, terms: copy(j.terms) };
+      office.publicWorksAccessSettlements ||= []; office.publicWorksAccessSettlements.push(copy(s.access.settlement));
+      note(s, completedAt, 'accessSettlement', 'The actual outgoing and incoming people accepted the witnessed custody settlement. The original appointment and dissent remain; voluntary physical release and attended handover are still required.');
     } else if (j.kind === 'transfer') {
       // No cargo or staffing duty may be abandoned by replacing its owner.
       if (upkeep.job || upkeep.rests.length || upkeep.resistance?.job || succession.job || succession.directive?.status === 'carrying'
@@ -262,6 +367,7 @@
         incomingId: s.candidate.id, outgoingId: s.incumbentId, recorderId: s.clerkId, installationId: s.installationId,
         dueAt: upkeep.dueAt, graceUntil: upkeep.graceUntil, servicedAt: upkeep.servicedAt,
         sourceReceiptIds: upkeep.receipts.map(r => r.id), reserveReceiptIds: succession.provision.receipts.map(r => r.id),
+        ...(s.incumbentPolicy === 'retainInstallation' ? { accessSettlementId: s.access.settlement.id } : {}),
         scope: LIMITS };
       office.publicWorksTransfers ||= []; office.publicWorksTransfers.push(copy(s.receipt));
       s.agreement = { id: `${s.receipt.id}:agreement`, personId: s.candidate.id, institutionId: s.institutionId,
@@ -299,6 +405,8 @@
       && s.candidate.id === upkeep.workerId && s.candidate.institutionId === s.institutionId
       && upkeep.workCaps[s.candidate.id] === s.appointment?.terms.workCap
       && same(s.candidate.roles, [ROLE]) && authenticAppointment(s, office) && eligibility(s)
+      && (s.receipt.accessSettlementId ? authenticSettlement(s, office) && s.receipt.accessSettlementId === s.access.settlement.id
+        : s.incumbentPolicy === 'contestThenRelease')
       && s.agreement?.personId === s.candidate.id && s.agreement.institutionId === s.institutionId
       && same(s.agreement.terms, s.appointment.terms)
       && office.publicWorksTransfers?.some(r => same(r, s.receipt)) ? s.agreement : null;
@@ -308,11 +416,13 @@
     return { phase: s.phase, rule: copy(s.rule), candidate: s.candidate && { id: s.candidate.id, name: s.candidate.name },
       dossier: copy(s.dossier), proposal: copy(s.proposal), review: copy(s.review), terms: copy(s.terms),
       appointment: copy(s.appointment), receipt: copy(s.receipt), obstruction: copy(s.obstruction || null),
+      access: copy(s.access || null),
       previousObjections: [s.archivedResistance?.notice, ...(s.archivedResistance?.incidents || [])]
         .filter(n => n?.receivedAt != null).map(n => ({ at: n.receivedAt, finding: n.finding, review: n.review?.status === 'completed' ? n.review.finding : null })),
       working: s.job && { kind: s.job.kind, progress: s.job.progress, seconds: s.job.seconds, clearingPost: s.job.clearingPost },
       approaching: Boolean(s.travel), message: s.message, history: copy(s.history), limitations: LIMITS };
   }
   return { ROLE, REASON, HOME, RETIRED_POST, LIMITS, ruleFor, create, normalize, incumbent, reviewer, bound, localReason,
-    discuss, propose, hear, appoint, approach, transfer, cancel, advance, authorization, publicView };
+    discuss, propose, hear, appoint, approach, transfer, discussAccess, inspectAccess, settleAccess, declineAccess,
+    custodyInventory, cancel, advance, authorization, publicView };
 });

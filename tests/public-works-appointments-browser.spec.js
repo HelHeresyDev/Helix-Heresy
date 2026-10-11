@@ -18,7 +18,7 @@ async function finishWalk(page) {
     throw new Error('Physical walk did not finish');
   });
 }
-async function setup(page, renderer = 'dom', obstruct = false) {
+async function setup(page, renderer = 'dom', obstruct = false, accessPolicy = 'rejectReplacement') {
   await page.goto(pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href);
   await page.evaluate(renderer => { localStorage.clear(); localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: renderer })); }, renderer);
   await page.reload();
@@ -54,7 +54,7 @@ async function setup(page, renderer = 'dom', obstruct = false) {
   // not a work/power refill or an invented appointment outcome.
   await page.evaluate(() => window.helixHeresyDebug.configureCityAdministrationTest({ supplies: { relayBattery: 1 } }));
   expect(await admin(page, 'battery')).toBe(true);
-  const configured = await page.evaluate(obstruct => window.helixHeresyDebug.configureCityAppointmentsTest({ maintenance: 50, willing: true, obstruct }), obstruct);
+  const configured = await page.evaluate(({ obstruct, accessPolicy }) => window.helixHeresyDebug.configureCityAppointmentsTest({ maintenance: 50, willing: true, obstruct, accessPolicy }), { obstruct, accessPolicy });
   const diagnostic = configured ? null : await snap(page);
   expect(configured, JSON.stringify({ appointments: diagnostic?.appointments, context: diagnostic && {
     atCounter: diagnostic.context.atCounter, busy: diagnostic.context.busy, rule: diagnostic.context.appointmentRule,
@@ -122,6 +122,11 @@ test('Canvas: incumbent obstruction leaves the recorded appointment without phys
   expect(await act(page, 'transfer', s.appointments.appointment)).toBe(false);
   s = await snap(page); expect(s.appointments.phase).toBe('obstructed');
   expect(s.appointments.receipt).toBeNull(); expect(s.administration.workerId).toBe(oldWorkerId);
+  const panel = page.locator('[data-city-appointments]');
+  await panel.locator('[data-appointment-action="accessReason"]').click(); await advance(page, 60);
+  s = await snap(page); expect(s.appointments.access.reason.kind).toBe('rejectReplacement');
+  expect(await act(page, 'accessReason')).toBe(false); expect(await act(page, 'accessInventory')).toBe(false);
+  expect(s.appointments.access.offer).toBeNull(); await expect(panel).toContainText('I reject this replacement itself');
   await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
   expect((await snap(page)).appointments.obstruction).toEqual(s.appointments.obstruction);
   await expect(page.locator('[data-city-appointments]')).toContainText('enforceable control has not transferred');
@@ -131,5 +136,45 @@ test('Canvas: incumbent obstruction leaves the recorded appointment without phys
   await advance(page, 180); s = await snap(page);
   expect(s.known).toEqual(dated); expect(s.succession.handover).toEqual(handover);
   expect(s.administration.workerId).toBe(oldWorkerId); expect(s.appointments.receipt).toBeNull();
+  expect(s.appointments.access.reason).toEqual(dated.access.reason);
+  expect(errors).toEqual([]);
+});
+test('DOM: witnessed access negotiation preserves dissent and custody, then physically releases the installation across reload', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await setup(page, 'dom', true, 'custodyAccountability'); let s = await reviewed(page);
+  expect(await act(page, 'transfer', s.appointments.appointment)).toBe(false);
+  const before = await snap(page), panel = page.locator('[data-city-appointments]');
+  await panel.locator('[data-appointment-action="accessReason"]').click(); await advance(page, 60);
+  expect((await snap(page)).appointments.access.reason.kind).toBe('custodyAccountability');
+  await panel.locator('[data-appointment-action="accessInventory"]').click(); await advance(page, 30);
+  s = await snap(page); expect(s.appointments.job.progress).toBe(30); expect(s.appointments.access.inspection).toBeNull();
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState()); await advance(page, 90);
+  s = await snap(page); expect(s.office.publicWorksAccessInspections).toHaveLength(1);
+  expect(s.appointments.access.inspection.inventory.reconciliation).toEqual({ expected: 3, observed: 3, discrepancy: false });
+  expect(s.appointments.access.inspection.inventory.goods).toHaveLength(1);
+  await expect(panel).toContainText('Original staging account expects 3; observed 3');
+  expect(await act(page, 'accessSettle', { ...s.appointments.access.offer, rights: 'immunity' })).toBe(false);
+  await panel.locator('[data-appointment-action="accessSettle"]').click(); await advance(page, 60);
+  s = await snap(page); expect(s.appointments.access.settlement).not.toBeNull();
+  expect(s.office.publicWorksAccessSettlements).toHaveLength(1);
+  expect(s.appointments.receipt).toBeNull(); expect(s.administration.workerId).toBe(before.administration.workerId);
+  expect(s.appointments.incumbentPolicy).toBe('retainInstallation');
+  expect(s.appointments.appointment).toEqual(before.appointments.appointment);
+  expect(s.appointments.obstruction).toEqual(before.appointments.obstruction);
+  expect(s.succession.provision).toEqual(before.succession.provision);
+  await panel.locator('[data-appointment-action="transfer"]').click(); await advance(page, 60);
+  expect((await snap(page)).appointments.receipt).toBeNull();
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState()); await advance(page, 70);
+  s = await snap(page); expect(s.appointments.receipt.accessSettlementId).toBe(s.appointments.access.settlement.id);
+  expect(s.office.publicWorksTransfers).toHaveLength(1); expect(s.administration.workerId).toBe(s.appointments.candidate.id);
+  expect(s.succession.leaders.find(a => a.id === s.appointments.incumbentId).mapCell).toEqual({ x: 14, y: 12, z: 6 });
+  expect(s.succession.agreements).toEqual(before.succession.agreements); expect(s.administration.dueAt).toBe(before.administration.dueAt);
+  await expect(panel).toContainText('Physical transfer recorded');
+  expect(await act(page, 'accessSettle', s.appointments.access.offer)).toBe(false);
+  expect(await admin(page, 'inspect')).toBe(true);
+  const upkeep = await page.evaluate(() => window.helixHeresyDebug.cityAdministrationSnapshot());
+  expect(await admin(page, 'order', upkeep.administration.inspection)).toBe(true); await advance(page, 180);
+  s = await snap(page); expect(s.administration.job).toBeNull(); expect(s.administration.receipts.at(-1).personId).toBe(s.appointments.candidate.id);
+  expect(s.succession.provision.stock).toBe(before.succession.provision.stock);
   expect(errors).toEqual([]);
 });

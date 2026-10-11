@@ -43,7 +43,30 @@ function fixture() {
 const move = (a, target) => { for (const key of ['x', 'y', 'z']) if (a.mapCell[key] !== target[key]) {
   a.mapCell[key] += Math.sign(target[key] - a.mapCell[key]); return true;
 } return false; };
-function step(f, seconds, effects = {}) { f.at += seconds; return A.advance(f.s, f.succession, f.upkeep, f.office, f.institutions, f.c, f.at, { move, ...effects }); }
+function obstructed(policy = 'custodyAccountability') {
+  const f = fixture(); f.s.incumbentPolicy = 'retainInstallation'; f.s.accessPolicy = policy;
+  f.c.accessInventoryVisible = true;
+  f.succession.directive = { status: 'completed', receipt: { id: 'staging-receipt', stackId: 'staged-parts', quantity: 3,
+    workerId: f.old.id, destination: { x: 16, y: 12, z: 6 } } };
+  f.stacks.push({ id: 'staged-parts', key: 'metalParts', quantity: 3, cityOwnerId: 'a',
+    cell: { x: 16, y: 12, z: 6 }, civicCustody: { cityId: 'a', custodianId: f.old.id, sourceReceiptIds: ['old-reserve'] },
+    reservedTaskId: `${f.succession.id}:city-maintenance-reserve` });
+  approach(f);
+  assert.equal(A.transfer(f.s, f.succession, f.upkeep, f.office, f.s.appointment, f.c, f.at), false);
+  return f;
+}
+function accessReason(f) {
+  assert.ok(A.discussAccess(f.s, f.succession, f.upkeep, f.office, f.c, f.at)); step(f, 60);
+}
+function accessInventory(f) {
+  accessReason(f);
+  assert.ok(A.inspectAccess(f.s, f.succession, f.upkeep, f.office, f.stacks, f.c, f.at)); step(f, 120);
+}
+function accessSettlement(f) {
+  accessInventory(f);
+  assert.ok(A.settleAccess(f.s, f.succession, f.upkeep, f.office, f.stacks, f.s.access.offer, f.c, f.at)); step(f, 60);
+}
+function step(f, seconds, effects = {}) { f.at += seconds; return A.advance(f.s, f.succession, f.upkeep, f.office, f.institutions, f.c, f.at, { move, stacks: f.stacks, ...effects }); }
 function discuss(f) { assert.equal(A.discuss(f.s, f.succession, f.upkeep, f.office, f.c, f.at), true); step(f, 60); }
 function propose(f) { discuss(f); assert.equal(A.propose(f.s, f.succession, f.upkeep, f.office, f.institutions, copy(f.s.dossier), f.c, f.at), true); }
 function hear(f) { propose(f); step(f, f.s.review.readyAt - f.at); assert.equal(A.hear(f.s, f.succession, f.upkeep, f.office, f.institutions, f.c, f.at), true); step(f, 180); }
@@ -165,6 +188,160 @@ test('incumbent physical obstruction preserves lawful appointment but grants no 
   const record = copy(f.s.obstruction); step(f, 100000);
   assert.deepEqual(f.s.obstruction, record); assert.equal(f.upkeep.workerId, f.old.id); assert.equal(f.old.officeStatus, undefined);
   assert.equal(f.office.publicWorksAppointments.length, 1); assert.equal(f.office.publicWorksTransfers, undefined);
+});
+test('access motives exist before obstruction, are deterministic and remain private until actually heard', () => {
+  const f = fixture(), initial = A.create(f.succession, f.upkeep, f.office, f.source, 0);
+  assert.equal(initial.accessPolicy, A.create(f.succession, f.upkeep, f.office, f.source, 0).accessPolicy);
+  const policies = new Set(), obstructionPolicies = new Set();
+  for (let i = 0; i < 100; i++) {
+    const g = fixture(); g.old.id = `works-person:${i}`; g.upkeep.workerId = g.old.id;
+    const generated = A.create(g.succession, g.upkeep, g.office, g.source, 0);
+    policies.add(generated.accessPolicy);
+    if (generated.incumbentPolicy === 'retainInstallation') obstructionPolicies.add(generated.accessPolicy);
+  }
+  assert.deepEqual([...policies].sort(), ['custodyAccountability', 'rejectReplacement']);
+  assert.deepEqual([...obstructionPolicies].sort(), ['custodyAccountability', 'rejectReplacement']);
+  assert.equal('accessPolicy' in A.publicView(initial), false); assert.equal(A.publicView(initial).access.reason, null);
+  assert.equal(A.discussAccess(f.s, f.succession, f.upkeep, f.office, f.c, 0), false);
+});
+test('categorical obstruction cannot be bought, inspected into consent or rerolled through repeated discussion', () => {
+  const f = obstructed('rejectReplacement'); accessReason(f);
+  const reason = copy(f.s.access.reason), power = f.office.power;
+  assert.equal(reason.authorId, f.old.id); assert.equal(reason.kind, 'rejectReplacement');
+  assert.equal(A.discussAccess(f.s, f.succession, f.upkeep, f.office, f.c, f.at), false);
+  assert.equal(A.inspectAccess(f.s, f.succession, f.upkeep, f.office, f.stacks, f.c, f.at), false);
+  f.s = A.normalize(f.s); f.succession.appointments = f.s; step(f, 10000);
+  assert.deepEqual(f.s.access.reason, reason); assert.equal(f.office.power, power);
+  assert.equal(f.s.access.offer, null); assert.equal(f.upkeep.workerId, f.old.id);
+});
+test('joint custody inspection records only physical local city goods and retains discrepancies without guilt or stock repair', () => {
+  const f = obstructed(); f.stacks[0].quantity = 2;
+  f.stacks.push({ ...copy(f.stacks[0]), id: 'distant-secret', quantity: 999, cell: { x: 30, y: 30, z: 6 } },
+    { ...copy(f.stacks[0]), id: 'private-property', cityOwnerId: 'private' },
+    { ...copy(f.stacks[0]), id: 'sealed-container-interior', containerId: 'closed-box' },
+    { ...copy(f.stacks[0]), id: 'held-elsewhere', carriedBy: 'scientist' });
+  const before = copy({ stacks: f.stacks, reserve: f.succession.provision, appointment: f.s.appointment, objection: f.s.obstruction });
+  accessInventory(f);
+  assert.deepEqual(f.s.access.inspection.inventory.goods.map(i => i.id), ['staged-parts']);
+  assert.deepEqual(f.s.access.inspection.inventory.reconciliation, { expected: 3, observed: 2, discrepancy: true });
+  assert.deepEqual(f.stacks, before.stacks); assert.deepEqual(f.succession.provision, before.reserve);
+  assert.deepEqual(f.s.appointment, before.appointment); assert.deepEqual(f.s.obstruction, before.objection);
+  assert.equal(f.office.publicWorksAccessInspections.length, 1); assert.equal(f.s.access.settlement, null);
+  assert.equal(f.s.receipt, null); assert.match(f.s.access.offer.rights, /neither grants immunity/);
+  assert.equal(JSON.stringify(A.publicView(f.s)).includes('distant-secret'), false);
+  assert.equal(JSON.stringify(A.publicView(f.s)).includes('sealed-container-interior'), false);
+});
+test('custody reconciliation accounts for genuinely installed parts rather than alleging a consumed lot is missing', () => {
+  const f = obstructed(); f.stacks[0].quantity = 0;
+  f.upkeep.receipts.push({ id: 'actual-service', installationId: f.upkeep.installation.id, quantity: 3,
+    manifest: { sourceId: 'staged-parts' } });
+  accessInventory(f);
+  assert.deepEqual(f.s.access.inspection.inventory.reconciliation, { expected: 0, observed: 0, discrepancy: false });
+});
+test('negotiated settlement spends actual duty and power, preserves appointment and dissent, and still requires physical release', () => {
+  const f = obstructed(), before = copy({ old: f.old, incoming: f.s.candidate, power: f.office.power,
+    appointment: f.s.appointment, obstruction: f.s.obstruction, stacks: f.stacks, reserve: f.succession.provision });
+  accessSettlement(f);
+  assert.equal(f.office.power, before.power - 3); assert.equal(f.old.workSeconds, before.old.workSeconds - 240);
+  assert.equal(f.s.candidate.workSeconds, before.incoming.workSeconds - 240);
+  assert.equal(f.s.incumbentPolicy, 'retainInstallation'); assert.equal(f.s.receipt, null);
+  assert.equal(f.upkeep.workerId, f.old.id); assert.deepEqual(f.old.mapCell, before.old.mapCell);
+  assert.deepEqual(f.s.appointment, before.appointment); assert.deepEqual(f.s.obstruction, before.obstruction);
+  assert.equal(f.office.publicWorksAccessSettlements.length, 1);
+  assert.ok(A.transfer(f.s, f.succession, f.upkeep, f.office, f.s.appointment, f.c, f.at, f.stacks));
+  step(f, 1000, { move: () => false }); assert.equal(f.s.receipt, null); assert.equal(f.s.job.progress, 0);
+  f.s = A.normalize(f.s); f.succession.appointments = f.s;
+  step(f, 2); step(f, 120);
+  assert.equal(f.s.receipt.accessSettlementId, f.s.access.settlement.id);
+  assert.deepEqual(f.old.mapCell, A.RETIRED_POST); assert.equal(f.upkeep.workerId, f.s.candidate.id);
+  assert.deepEqual(f.stacks, before.stacks); assert.deepEqual(f.succession.provision, before.reserve);
+  assert.equal(f.old.health, before.old.health); assert.equal(f.office.publicWorksTransfers.length, 1);
+  assert.ok(A.authorization(f.s, f.succession, f.upkeep, f.office, f.c));
+  assert.ok(Administration.inspect(f.upkeep, f.succession, f.office, f.c, f.at));
+  assert.ok(Administration.order(f.upkeep, f.succession, f.bargain, f.office, f.stacks, f.upkeep.inspection, f.c, f.at));
+  f.at += 1000; Administration.advance(f.upkeep, f.succession, f.bargain, f.office, f.stacks, f.c, f.at, { move });
+  assert.equal(f.stacks[0].quantity, 0); assert.ok(A.authorization(f.s, f.succession, f.upkeep, f.office, f.c));
+});
+test('negotiation requires the original appointment, exact people, visible inventory, physical post and finite resources', () => {
+  for (const change of [f => f.c.atCounter = false, f => f.c.bodyEpoch++, f => f.c.activeViolence = true,
+    f => f.c.presentIds = [], f => f.office.power = 0, f => f.old.workSeconds = 59,
+    f => f.s.candidate.mapCell.x++, f => f.office.publicWorksAppointments = [], f => f.s.appointment.candidateId = 'substitute']) {
+    const f = obstructed(); change(f);
+    assert.equal(A.discussAccess(f.s, f.succession, f.upkeep, f.office, f.c, f.at), false);
+  }
+  const f = obstructed(); accessReason(f); f.c.accessInventoryVisible = false;
+  assert.equal(A.inspectAccess(f.s, f.succession, f.upkeep, f.office, f.stacks, f.c, f.at), false);
+});
+test('partial negotiation and outages retain work and costs across reload without unattended signatures or backfill', () => {
+  const f = obstructed(); accessReason(f);
+  assert.ok(A.inspectAccess(f.s, f.succession, f.upkeep, f.office, f.stacks, f.c, f.at)); step(f, 30);
+  f.s = A.normalize(f.s); f.succession.appointments = f.s;
+  f.c.externalPowered = false; step(f, 1000); assert.equal(f.s.job.progress, 30);
+  f.c.externalPowered = true; step(f, 1000); assert.equal(f.s.job.progress, 30);
+  step(f, 90); assert.equal(f.office.publicWorksAccessInspections.length, 1);
+  assert.ok(A.settleAccess(f.s, f.succession, f.upkeep, f.office, f.stacks, f.s.access.offer, f.c, f.at)); step(f, 20);
+  f.c.presentIds = f.c.presentIds.filter(id => id !== f.old.id); step(f, 40);
+  assert.equal(f.s.access.settlement, null); assert.equal(f.s.job, null); assert.equal(f.old.assignment, null);
+  assert.equal(f.s.receipt, null);
+});
+test('exact settlement and expiry cannot be altered or renewed on unchanged facts; declining makes no promise', () => {
+  const f = obstructed(); accessInventory(f);
+  assert.equal(A.settleAccess(f.s, f.succession, f.upkeep, f.office, f.stacks, { ...f.s.access.offer, rights: 'immunity' }, f.c, f.at), false);
+  assert.equal(A.inspectAccess(f.s, f.succession, f.upkeep, f.office, f.stacks, f.c, f.at), false);
+  step(f, 3570); assert.ok(A.settleAccess(f.s, f.succession, f.upkeep, f.office, f.stacks, f.s.access.offer, f.c, f.at)); step(f, 60);
+  assert.equal(f.s.access.settlement, null); assert.equal(f.s.job, null);
+  assert.equal(A.settleAccess(f.s, f.succession, f.upkeep, f.office, f.stacks, f.s.access.offer, f.c, f.at), false);
+  assert.equal(A.inspectAccess(f.s, f.succession, f.upkeep, f.office, f.stacks, f.c, f.at), false);
+  const g = obstructed(); accessInventory(g);
+  assert.ok(A.declineAccess(g.s, g.succession, g.upkeep, g.office, g.s.access.offer, g.c, g.at));
+  assert.equal(A.settleAccess(g.s, g.succession, g.upkeep, g.office, g.stacks, g.s.access.offer, g.c, g.at), false);
+  assert.equal(g.s.access.settlement, null); assert.equal(g.upkeep.workerId, g.old.id);
+});
+test('changed real custody cancels unfinished inspection and requires a new witnessed account without deleting earlier records', () => {
+  const f = obstructed(); accessReason(f);
+  assert.ok(A.inspectAccess(f.s, f.succession, f.upkeep, f.office, f.stacks, f.c, f.at)); step(f, 30);
+  f.stacks[0].quantity--; step(f, 90); assert.equal(f.s.access.inspection, null); assert.equal(f.s.job, null);
+  assert.ok(A.inspectAccess(f.s, f.succession, f.upkeep, f.office, f.stacks, f.c, f.at)); step(f, 120);
+  const original = copy(f.s.access.inspection);
+  assert.ok(A.settleAccess(f.s, f.succession, f.upkeep, f.office, f.stacks, f.s.access.offer, f.c, f.at)); step(f, 60);
+  const signed = copy(f.s.access.settlement); f.stacks[0].quantity--;
+  assert.equal(A.transfer(f.s, f.succession, f.upkeep, f.office, f.s.appointment, f.c, f.at, f.stacks), false);
+  assert.ok(A.inspectAccess(f.s, f.succession, f.upkeep, f.office, f.stacks, f.c, f.at)); step(f, 120);
+  assert.equal(f.s.access.settlement, null); assert.equal(f.office.publicWorksAccessInspections.length, 2);
+  assert.deepEqual(f.office.publicWorksAccessInspections[0], original);
+  assert.deepEqual(f.office.publicWorksAccessSettlements[0], signed);
+  assert.equal(f.s.access.reason.kind, 'custodyAccountability'); assert.equal(f.s.receipt, null);
+});
+test('negotiated access cannot survive swapped participants, missing original registers or tampered terms', () => {
+  for (const change of [f => f.office.publicWorksAccessInspections = [], f => f.office.publicWorksAccessSettlements = [],
+    f => f.s.access.offer.expiresAt++, f => f.s.access.settlement.outgoingId = 'another-person',
+    f => f.s.accessPolicy = 'rejectReplacement', f => f.s.access.inspection.inventory.goods[0].quantity++,
+    f => f.s.access.declined = { at: f.at }]) {
+    const f = obstructed(); accessSettlement(f); change(f);
+    assert.equal(A.transfer(f.s, f.succession, f.upkeep, f.office, f.s.appointment, f.c, f.at, f.stacks), false);
+    assert.equal(f.upkeep.workerId, f.old.id);
+  }
+});
+test('death freezes an unfinished access agreement and its original people, stock and records', () => {
+  const f = obstructed(); accessInventory(f);
+  assert.ok(A.settleAccess(f.s, f.succession, f.upkeep, f.office, f.stacks, f.s.access.offer, f.c, f.at)); step(f, 20);
+  const before = copy({ s: f.s, office: f.office, old: f.old, stacks: f.stacks });
+  f.c.alive = false; step(f, 100000);
+  assert.deepEqual({ s: f.s, office: f.office, old: f.old, stacks: f.stacks }, before);
+});
+test('missing inspection evidence interrupts an unfinished signature safely instead of fabricating consent', () => {
+  const f = obstructed(); accessInventory(f);
+  assert.ok(A.settleAccess(f.s, f.succession, f.upkeep, f.office, f.stacks, f.s.access.offer, f.c, f.at)); step(f, 20);
+  f.s.access.inspection = null; step(f, 40);
+  assert.equal(f.s.job, null); assert.equal(f.s.access.settlement, null); assert.equal(f.old.assignment, null);
+  assert.equal(f.s.receipt, null); assert.equal(f.office.publicWorksAccessSettlements, undefined);
+});
+test('an authentic signed settlement survives the unsigned offer deadline but cannot be detached from a later transfer', () => {
+  const f = obstructed(); accessSettlement(f); step(f, 4000);
+  assert.ok(A.transfer(f.s, f.succession, f.upkeep, f.office, f.s.appointment, f.c, f.at, f.stacks));
+  step(f, 2); step(f, 120); assert.ok(A.authorization(f.s, f.succession, f.upkeep, f.office, f.c));
+  f.s.incumbentPolicy = 'contestThenRelease'; f.office.publicWorksAccessSettlements = [];
+  assert.equal(A.authorization(f.s, f.succession, f.upkeep, f.office, f.c), null);
 });
 test('physical handover preserves old records, supplies, injury, deadlines and obligations without replenishment', () => {
   const f = fixture(); f.upkeep.resistance.commitment = { id: 'old-promise', duties: 'Actual supplied duty' };
