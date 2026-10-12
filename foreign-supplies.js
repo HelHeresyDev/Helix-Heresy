@@ -4,9 +4,10 @@
   if (root) root.HelixForeignSupplies = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (Market) {
   'use strict';
-  const GOODS = ['drinkingWater', 'fieldRation'], MAX = 6, HANDOFF = 30, COLLECTION = 60, FEE = 4;
+  const GOODS = ['drinkingWater', 'fieldRation', 'assayReagent'], MAX = 6, HANDOFF = 30, COLLECTION = 60, FEE = 4;
   const copy = v => JSON.parse(JSON.stringify(v));
   const SALE_TERMS = { good: 'metalParts', maxQuantity: MAX, handlingFee: FEE, receivingMassKg: 48, receivingVolumeL: 24 };
+  const LAB_TERMS = { good: 'assayReagent', section: 'resources', maxQuantity: MAX, handlingFee: FEE };
   const able = a => a?.status === 'alive' && a.health >= 50 && (a.fatigue || 0) < 80;
   const active = s => s?.orders.find(o => !['received', 'bodyLost'].includes(o.status));
   function create(city, standings, at, location) {
@@ -23,7 +24,7 @@
         actorKind: 'foreignSupplier', kind: 'visitor', health: 100, maxHealth: 100, status: 'alive', fatigue: 0,
         roomId: location.roomId, mapCell: copy(location.cell), present: true },
       workSeconds: 14400, powerSeconds: 1800, provisionsSeconds: 28800, lastAt: at, serial: 0, orders: [], knowledge: null, message: '',
-      salesTerms: copy(SALE_TERMS), bidHistory: [] };
+      salesTerms: copy(SALE_TERMS), labTerms: copy(LAB_TERMS), bidHistory: [], askHistory: [] };
   }
   function ownedMetalParts(item) {
     return Boolean(item?.id && item.section === 'resources' && item.key === 'metalParts'
@@ -67,17 +68,28 @@
   }
   function quote(s, market, def, quantity, c, at) {
     const listing = market?.listings?.[def?.id], n = Number(quantity);
+    const labInput = def?.id === LAB_TERMS.good;
     if (!s || market?.id !== s.cityId || !GOODS.includes(def?.id) || !listing || active(s)
       || !c.alive || !c.capable || !c.atCounter || !c.permit || !c.providerCurrent || c.busy
       || !able(s.actor) || s.workSeconds <= 0 || s.powerSeconds < 1 || s.provisionsSeconds <= 0
       || !Number.isInteger(n) || n < 1 || n > MAX || Math.floor(listing.supply) < n || !c.routeSeconds) return null;
+    if (labInput && (s.labTerms?.good !== def.id || s.labTerms.section !== def.section || s.labTerms.maxQuantity !== MAX
+      || s.labTerms.handlingFee !== FEE || !def.buyable || !c.contact
+      || !Number.isFinite(listing.supply) || !Number.isFinite(listing.demand) || listing.demand <= 0
+      || !Number.isFinite(c.routeSeconds) || c.routeSeconds <= 0
+      || !Number.isFinite(c.remaining.massKg) || !Number.isFinite(c.remaining.volumeL)
+      || !Number.isFinite(c.supplierRemaining.massKg) || !Number.isFinite(c.supplierRemaining.volumeL))) return null;
     const seconds = c.routeSeconds + COLLECTION + HANDOFF * n;
     const massKg = c.metrics.massKg * n, volumeL = c.metrics.volumeL * n;
+    if (labInput && (!Number.isFinite(massKg) || !Number.isFinite(volumeL) || massKg <= 0 || volumeL <= 0
+      || !Number.isFinite(c.passengerRemaining?.massKg) || !Number.isFinite(c.passengerRemaining?.volumeL)
+      || massKg > c.passengerRemaining.massKg || volumeL > c.passengerRemaining.volumeL)) return null;
     if (c.remaining.massKg < massKg || c.remaining.volumeL < volumeL || c.supplierRemaining.massKg < massKg
       || c.supplierRemaining.volumeL < volumeL || c.permit.expiresAt - at <= seconds || s.workSeconds < seconds || s.provisionsSeconds < seconds) return null;
     const ask = Math.ceil(Market.quote(def, listing).ask);
+    if (labInput && (!Number.isFinite(ask) || ask <= 0)) return null;
     return { cityId: s.cityId, providerId: s.actor.id, branchId: s.source.branchId, good: def.id, label: def.label,
-      quantity: n, unitPrice: ask, handlingFee: FEE, total: Math.round((ask * n + FEE) * 100) / 100,
+      ...(labInput ? { section: LAB_TERMS.section } : {}), quantity: n, unitPrice: ask, handlingFee: FEE, total: Math.round((ask * n + FEE) * 100) / 100,
       massKg, volumeL, seconds, stock: listing.supply, demand: listing.demand, bodyEpoch: c.bodyEpoch, visitId: c.visitId,
       permitId: c.permit.id, quotedAt: at, expiresAt: at + 60 };
   }
@@ -140,7 +152,9 @@
         const stackId = hooks.handoff(o);
         if (!stackId) { o.delay = 'Actual recipient contact or backpack capacity prevents handoff.'; o.ready = false; break; }
         o.delivered++; o.receipts.push({ at: t, stackId, good: o.quote.good, quantity: 1 }); o.progress = 0;
-        if (o.delivered === o.quote.quantity) { o.status = 'received'; o.completedAt = t; s.message = 'All paid provisions physically received. Use them through ordinary personal care; transport reserves are unchanged.'; break; }
+        if (o.delivered === o.quote.quantity) { o.status = 'received'; o.completedAt = t; s.message = o.quote.good === LAB_TERMS.good
+          ? 'All paid assay reagent physically received. Carry it home and explicitly unload into laboratory storage before production; return and transport reserves remain separate.'
+          : 'All paid provisions physically received. Use them through ordinary personal care; transport reserves are unchanged.'; break; }
       }
     }
     return changed;
@@ -189,8 +203,11 @@
   function observe(s, c, market, defs, at) {
     if (!s) return null;
     if (!c.alive || !c.capable || !c.local || !c.contact || !able(s.actor)) return s.knowledge;
+    const labContact = c.atCounter && c.permit && c.providerCurrent && market?.id === s.cityId
+      && s.labTerms?.good === LAB_TERMS.good && s.labTerms.section === LAB_TERMS.section
+      && s.workSeconds > 0 && s.powerSeconds >= 1 && s.provisionsSeconds > 0;
     s.knowledge = { at, provider: s.label, actorId: s.actor.id, message: s.message,
-      listings: GOODS.map(id => { const def = defs.find(d => d.id === id), l = market?.listings?.[id];
+      listings: GOODS.filter(id => id !== LAB_TERMS.good || labContact).map(id => { const def = defs.find(d => d.id === id), l = market?.listings?.[id];
         return def && l ? { good: id, label: def.label, supply: Math.floor(l.supply), ask: Math.ceil(Market.quote(def, l).ask) } : null; }).filter(Boolean),
       orders: s.orders.filter(o => o.bodyEpoch === c.bodyEpoch && o.visitId === c.visitId).map(o => ({ id: o.id, kind: o.kind || 'purchase', quote: copy(o.quote),
         status: o.status, target: o.target, handed: o.handed, delivered: o.delivered, delay: o.delay, receipts: copy(o.receipts) })) };
@@ -205,7 +222,35 @@
     } else if (s.salesTerms && s.bidHistory?.length) {
       s.knowledge.sale = { good: s.salesTerms.good, label: 'Metal Parts', bid: s.bidHistory.at(-1).bid, terms: copy(s.salesTerms), history: copy(s.bidHistory) };
     }
+    const reagent = defs.find(d => d.id === s.labTerms?.good), stock = market?.listings?.[reagent?.id];
+    if (reagent && stock && labContact) {
+      const ask = Math.ceil(Market.quote(reagent, stock).ask); s.askHistory ||= [];
+      const last = s.askHistory.at(-1);
+      if (last && at === last.at) last.ask = ask;
+      if (!last || at > last.at && (ask !== last.ask || at - last.at >= 60)) s.askHistory.push({ at, ask });
+      s.askHistory = s.askHistory.slice(-60);
+      s.knowledge.labInput = { good: reagent.id, label: reagent.label, ask, terms: copy(s.labTerms), history: copy(s.askHistory) };
+    } else if (s.askHistory?.length) s.knowledge.labInput = { good: LAB_TERMS.good, label: 'Assay Reagent',
+      ask: s.askHistory.at(-1).ask, terms: copy(s.labTerms), history: copy(s.askHistory) };
     return s.knowledge;
   }
-  return { GOODS, MAX, HANDOFF, COLLECTION, FEE, SALE_TERMS, create, quote, buy, ownedMetalParts, saleLot, saleQuote, sell, outer, advance, observe, active };
+  function labInputLot(item, reservationId = '') {
+    return Boolean(item?.id && item.section === LAB_TERMS.section && item.key === LAB_TERMS.good && item.carriedBy === 'scientist'
+      && Number.isInteger(item.quantity) && item.quantity > 0 && (!item.reservedTaskId || item.reservedTaskId === reservationId)
+      && !item.cityOwnerId && !item.civicCustody && !item.carryTaskId && !item.containerId && !item.toolInstanceId
+      && !item.chemicalBatch && !item.biology && !item.contents?.length);
+  }
+  function unloadPlan(item, c, reservationId = '') {
+    const no = reason => ({ ok: false, reason });
+    if (!c.atLab || !c.alive || !c.capable || !c.free || !c.sameBody) return no('The current living, free and capable body must physically unload at home.');
+    if (c.busy) return no('Finish or cancel current personal work before unloading.');
+    if (!labInputLot(item, reservationId) || !c.receipt) return no('An exact personally received, owned and unclaimed imported reagent lot is required.');
+    if (!c.accessible) return no('The selected home storage is locked, broken, incompatible or inaccessible.');
+    const massKg = item.quantity * item.unitMassKg, volumeL = item.quantity * item.unitVolumeL;
+    if (!Number.isFinite(massKg) || !Number.isFinite(volumeL) || massKg <= 0 || volumeL <= 0
+      || !Number.isFinite(c.remaining?.massKg) || !Number.isFinite(c.remaining?.volumeL)
+      || massKg > c.remaining.massKg || volumeL > c.remaining.volumeL) return no('The exact lot no longer fits the selected storage; no partial unloading or discard occurs.');
+    return { ok: true, quantity: item.quantity, massKg, volumeL, reason: '' };
+  }
+  return { GOODS, MAX, HANDOFF, COLLECTION, FEE, SALE_TERMS, LAB_TERMS, create, quote, buy, ownedMetalParts, saleLot, saleQuote, sell, outer, advance, observe, active, labInputLot, unloadPlan };
 });

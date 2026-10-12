@@ -16720,6 +16720,10 @@
       queueIntercityPassenger,
       foreignReceptionAction,
       foreignSupplyAction,
+      unloadForeignLabInput,
+      foreignLabUnloadingSnapshot: () => clonePlainObject({ context: tradePackingContext(), lots: surveyCarriedStacks().filter(i => ForeignSupplies.labInputLot(i)),
+        destinations: foreignLabStorageDestinations(), receipts: ensureSurveyExpeditions().foreignLabReceipts || [],
+        tasks: scientistQueueTasks().filter(t => t.data?.action === 'unloadLabInput').map(t => ({ ...t, reason: taskBlockReason(t) })) }),
       foreignSaleSnapshot: (stackId, quantity = 1) => {
         const g = passengerReceptionGate(), s = ensureForeignSupplier(g), item = ensurePhysicalItemStacks().find(i => i.id === stackId);
         const c = g && foreignSupplyContext(g, 'metalParts', true);
@@ -87930,6 +87934,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (g.visitorSupplies) {
       // Publish this branch's separate narrow buying terms; admission itself grants no selling authority.
       g.visitorSupplies.salesTerms ||= clonePlainObject(ForeignSupplies.SALE_TERMS);
+      g.visitorSupplies.labTerms ||= clonePlainObject(ForeignSupplies.LAB_TERMS);
       return g.visitorSupplies;
     }
     const market = foreignSupplierMarket(g); if (!market) return null;
@@ -87966,7 +87971,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const speed = a ? Math.max(.05, .65 * a.health / 100 * (1 - Math.min(.8, injuryEffectTotals(a).movement)) * actorEncumbranceInfo(a.id).speedMultiplier) : .05;
     return { ...c, at: state.clock, atCounter, atOuter, contact: Boolean(c.local && a && WildernessBeasts.distance(cell, a.mapCell) <= 2 && sensoryLineOfSight(cell, a.mapCell)),
       permit: foreignVisitorPermission(g), providerCurrent: Boolean(c.authorityCurrent && a && !actorIsIncapacitated(a)),
-      busy: surveyBusy() || Boolean(g?.visitorAdmission?.job), metrics: physicalItemUnitMetrics('inventory', key),
+      busy: surveyBusy() || Boolean(g?.visitorAdmission?.job), metrics: physicalItemUnitMetrics(COMMODITY_MARKET_LISTING_BY_ID[key]?.section || 'inventory', key),
+      passengerRemaining: TradeTripPreparation.manifest(surveyCarriedStacks()).passengerRemaining,
       remaining: pack.remaining, supplierRemaining: supplierPack?.remaining || { massKg: 0, volumeL: 0 },
       receivingRemaining: s?.salesTerms ? foreignReceivingRemaining(g) : null,
       saleRouteSeconds: saleFirst && saleSecond ? Math.ceil((saleFirst.path.length + saleSecond.path.length * 2) * ensureLabMap().tileSizeM / (speed * .7)) : null,
@@ -88021,11 +88027,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         syncActorInventories(); syncPhysicalReadModels(); return id;
       },
       allocate: (id, q) => {
-        const item = createPhysicalItemStack('inventory', q.good, q.quantity, { roomId: g.annexRoomId, cell: { x: 19, y: 9, z: g.z } },
-          { suppressEvidence: true, sourceLabels: [g.cityId, s.source.branchId, id, 'Paid personal provisions in original supplier custody'] });
+        const item = createPhysicalItemStack(q.section || 'inventory', q.good, q.quantity, { roomId: g.annexRoomId, cell: { x: 19, y: 9, z: g.z } },
+          { suppressEvidence: true, sourceLabels: [g.cityId, s.source.branchId, id, q.good === 'assayReagent'
+            ? 'Paid foreign laboratory input in original supplier custody' : 'Paid personal provisions in original supplier custody'] });
         item.reservedTaskId = id; return item.id;
       },
-      custody: o => { const item = stack(o); return item?.key === o.quote.good && item.quantity === o.quote.quantity - o.delivered
+      custody: o => { const item = stack(o); return item?.key === o.quote.good && item.section === (o.quote.section || 'inventory') && !item.cityOwnerId && !item.civicCustody
+        && !item.carryTaskId && !item.chemicalBatch && !item.biology && item.quantity === o.quote.quantity - o.delivered
+        && (o.quote.good !== 'assayReagent' || !item.containerId && !item.toolInstanceId && !item.contents?.length
+          && item.sourceLabels.includes(o.id) && item.sourceLabels.includes(o.quote.cityId)
+          && Math.abs(item.unitMassKg - o.quote.massKg / o.quote.quantity) < .000001
+          && Math.abs(item.unitVolumeL - o.quote.volumeL / o.quote.quantity) < .000001)
         && item.reservedTaskId === o.id && (o.collected ? item.carriedBy === a.id : !item.carriedBy && sameMapCell(item.cell, { x: 19, y: 9, z: g.z })); },
       move: (o, kind) => {
         const target = foreignSupplyPoint(g, kind); if (sameMapCell(a.mapCell, target)) return { done: true };
@@ -88049,6 +88061,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       handoff: o => {
         const c = foreignSupplyContext(g, o.quote.good), item = stack(o);
         if (!c.contact || !(o.target === 'outer' ? c.atOuter : c.atCounter && c.permit) || !item || !actorInventoryCanCarry('scientist', item, 1)) return null;
+        if (o.quote.good === 'assayReagent' && (c.passengerRemaining.massKg < item.unitMassKg || c.passengerRemaining.volumeL < item.unitVolumeL)) return null;
         item.carriedBy = '';
         const received = carryPhysicalStack('scientist', item.id, 1, { allowReserved: true });
         if (!received) { item.carriedBy = a.id; return null; }
@@ -88065,7 +88078,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (action === 'buy') {
       const def = COMMODITY_MARKET_LISTING_BY_ID[options.quote?.good];
       ok = ForeignSupplies.buy(s, market, def, options.quote, foreignSupplyContext(g, def?.id, true), ensureEconomy(), state.clock, foreignSupplyHooks(g));
-      if (ok) recordLegalLedger('foreignProvisions', `Purchased ${options.quote.quantity} ${def.label} from ${s.label}; paid title precedes actual handoff.`, { listingId: def.id, amount: -options.quote.total, quantity: options.quote.quantity, consignmentId: ForeignSupplies.active(s).id });
+      if (ok) recordLegalLedger(def.id === 'assayReagent' ? 'foreignLabInput' : 'foreignProvisions', `Purchased ${options.quote.quantity} ${def.label} from ${s.label}; paid title precedes actual handoff.`, { listingId: def.id, amount: -options.quote.total, quantity: options.quote.quantity, consignmentId: ForeignSupplies.active(s).id });
       else s.message = 'Purchase not accepted. Review current stock, price, permit time, funds and actual capacity; nothing was charged.';
     }
     if (action === 'sell') {
@@ -88095,7 +88108,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!s) { panel.append(textEl('p', 'No supported local commercial supplier and existing city stock are available. Reception is not a market allocation; return remains separate.')); return panel; }
     const c = foreignSupplyContext(g), market = foreignSupplierMarket(g), v = ForeignSupplies.observe(s, c, market, COMMODITY_MARKET_LISTING_DEFS, state.clock);
     const button = (label, action, options = {}, disabled = false) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = disabled; b.onclick = () => foreignSupplyAction(action, options); panel.append(b); };
-    panel.append(textEl('p', `${s.label}: personal provisions and separately published metal-parts buying terms only, not a general trading license. One outstanding transaction, at most six units; $4 handling per transaction. Payment and physical receipt remain distinct.`));
+    panel.append(textEl('p', `${s.label}: personal provisions, separately published assay-reagent purchase terms and metal-parts buying terms only, not a general trading license. One outstanding transaction, at most six units; $4 handling per transaction. Payment and physical receipt remain distinct.`));
+    panel.append(textEl('p', 'Published laboratory-input terms: standardized assay reagent only, one to six units from existing exchange stock, current asking price plus four marks handling. Real backpack and passenger cargo headroom apply. Carry received resources home and explicitly unload into storage before ordinary laboratory use. No wider chemical permission, automatic orders, carrier replenishment or guaranteed return.'));
     button('Walk to Visitor Provisions Counter', 'walk', {}, !c.permit || c.busy || !c.alive || !c.capable);
     if (v) {
       panel.append(textEl('p', `Supplier report received ${formatClock(v.at)}. ${v.message}`));
@@ -88103,18 +88117,39 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       for (const o of v.orders.slice(-3)) panel.append(textEl('p', `${o.id}: ${o.status}, ${o.kind === 'sale' ? `${o.handed}/${o.quote.quantity} handed to buyer; ` : ''}${o.delivered}/${o.quote.quantity} physically received${o.kind === 'sale' ? ' at store and settled' : ''}. ${o.delay}`));
     }
     panel.append(renderForeignSales(g, s, c, market, v));
+    panel.append(renderForeignLabAskHistory(v?.labInput));
     if (c.atCounter && c.permit) for (const key of ForeignSupplies.GOODS) {
-      const row = document.createElement('label'), select = document.createElement('select'); select.setAttribute('aria-label', `${inventoryItemLabel(key)} purchase quantity`);
+      const label = COMMODITY_MARKET_LISTING_BY_ID[key].label;
+      const row = document.createElement('label'), select = document.createElement('select'); select.setAttribute('aria-label', `${label} purchase quantity`);
       for (let n = 1; n <= ForeignSupplies.MAX; n++) select.append(new Option(String(n), String(n)));
       select.value = String(s.selectedQuantity || 1); select.onchange = () => { s.selectedQuantity = Number(select.value); persist(); render(); };
-      row.append(textEl('span', inventoryItemLabel(key)), select); panel.append(row);
+      row.append(textEl('span', label), select); panel.append(row);
       const q = ForeignSupplies.quote(s, market, COMMODITY_MARKET_LISTING_BY_ID[key], Number(select.value), foreignSupplyContext(g, key, true), state.clock);
       if (q) panel.append(textEl('p', `${q.quantity} × ${formatMoney(q.unitPrice)} + ${formatMoney(q.handlingFee)} handling = ${formatMoney(q.total)}. ${q.massKg} kg / ${q.volumeL} L; estimated ${formatDuration(q.seconds)} including actual walking, one-minute collection and thirty seconds per handed-over unit. Quote expires in one minute.`));
       else panel.append(textEl('p', 'No executable quote: stock, existing purchase, supplier duty, permit time, route or actual pack capacity prevents purchase.'));
-      button(`Buy ${inventoryItemLabel(key)} at Exact Quoted Total`, 'buy', { quote: q, good: key }, !q || ensureEconomy().money < q.total);
+      button(`Buy ${label} at Exact Quoted Total`, 'buy', { quote: q, good: key }, !q || ensureEconomy().money < q.total);
     }
     button(ForeignSupplies.active(s)?.kind === 'sale' ? 'Request Remaining Sale Handoffs at Outer Stand' : 'Request Paid Goods at Outer Stand', 'outer', {}, !ForeignSupplies.active(s) || !c.atOuter || c.busy || !c.alive || !c.capable);
     button('Use Carried Field Provision Pack', 'consume', {}, c.busy || !c.alive || !c.capable || !survivalSupply('fieldRation'));
+    return panel;
+  }
+  function renderForeignLabAskHistory(v) {
+    const panel = document.createElement('section'); panel.dataset.foreignLabInput = 'true';
+    panel.append(textEl('h4', 'Observed Assay-Reagent Asking Prices'));
+    const history = v?.history;
+    if (!history?.length) { panel.append(textEl('p', 'No personally received reagent asking price. Reach the actual counter with current permission.')); return panel; }
+    panel.append(textEl('p', `Last received asking price: ${formatMoney(v.ask)} at ${formatClock(history.at(-1).at)}. These are purchase asks, not sale bids.`));
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.classList.add('commodity-price-chart');
+    svg.dataset.foreignAskChart = 'assayReagent'; svg.setAttribute('viewBox', '0 0 360 96'); svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', `Observed foreign assay-reagent asking prices: ${history.map(p => `${formatClock(p.at)}: ${formatMoney(p.ask)}`).join('; ')}. No unseen price history.`);
+    const low = Math.min(...history.map(p => p.ask)), range = Math.max(1, Math.max(...history.map(p => p.ask)) - low);
+    const span = Math.max(1, history.at(-1).at - history[0].at);
+    const points = history.map(p => [8 + 344 * (p.at - history[0].at) / span, 88 - 80 * (p.ask - low) / range]);
+    const line = document.createElementNS(svg.namespaceURI, 'polyline'); line.classList.add('commodity-chart-line');
+    line.setAttribute('points', points.map(p => p.join(',')).join(' ')); svg.append(line);
+    for (const [x, y] of points) { const point = document.createElementNS(svg.namespaceURI, 'circle');
+      point.setAttribute('cx', String(x)); point.setAttribute('cy', String(y)); point.setAttribute('r', '3'); point.setAttribute('fill', 'currentColor'); svg.append(point); }
+    panel.append(svg, textEl('p', `${formatClock(history[0].at)} → ${formatClock(history.at(-1).at)}; ${history.length} received observations. Lines connect observations, not continuous knowledge.`));
     return panel;
   }
   function renderForeignSales(g, s, c, market, v) {
@@ -88602,6 +88637,93 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     return true;
   }
+  function foreignLabStorageDestinations() {
+    return physicalStockDestinationCandidates('resources', 'assayReagent').filter(d =>
+      state.rooms.find(r => r.id === d.roomId)?.facilityClass === 'laboratory' || SURFACE_ROOM_IDS.includes(d.roomId))
+      .map(d => ({ id: d.fixture ? `fixture:${d.fixture.id}` : `floor:${d.designation.id}`, label: d.fixture?.name || `${d.designation.name} floor`,
+        fixtureId: d.fixture?.id || '', stockpileId: d.designation.id, roomId: d.roomId, cell: cleanMapCell(d.cell), accessCell: cleanMapCell(d.accessCell) }));
+  }
+  function foreignLabStorageDestination(id, stockpileId = '') {
+    // Recheck only the selected store during movement; sorting every store runs unrelated A* paths each tick.
+    const fixture = id?.startsWith('fixture:') ? fixtureById(id.slice(8)) : null;
+    if (!fixture && !id?.startsWith('floor:')) return null;
+    const footprint = fixture && new Set(fixtureFootprintCells(fixture).map(mapCellKey));
+    const designation = ensureStockpileDesignations().find(d => (!stockpileId || d.id === stockpileId)
+      && stockpileAcceptsItem(d, 'resources', 'assayReagent')
+      && (fixture ? d.cells.some(c => footprint.has(mapCellKey(c))) : d.id === id.slice(6) && d.allowFloorStorage));
+    if (!designation) return null;
+    const roomId = stockpileDesignationRoomId(designation);
+    if (state.rooms.find(r => r.id === roomId)?.facilityClass !== 'laboratory' && !SURFACE_ROOM_IDS.includes(roomId)) return null;
+    if (fixture && (!storageFixtureScientistAccessible(fixture) || storageFixtureCapacityUnits(fixture, 'resources', 'assayReagent') <= 0)) return null;
+    const cell = fixture ? fixture.origin : designation.cells.find(c => labMapCellIsWalkable(c, ensureLabMap()) && !labMapCellIsPathBlocked(c, { map: ensureLabMap() }))
+      || designation.cells.find(c => labMapCellIsWalkable(c, ensureLabMap()));
+    const accessCell = fixture ? fixtureAccessCells(fixture)[0]?.cell : cell;
+    return cell && accessCell ? { id, fixtureId: fixture?.id || '', stockpileId: designation.id, roomId,
+      cell: cleanMapCell(cell), accessCell: cleanMapCell(accessCell) } : null;
+  }
+  function foreignLabInputReceipt(item) {
+    if (!item || (ensureSurveyExpeditions().foreignLabReceipts || []).some(r => r.stackId === item.id)) return null;
+    for (const g of state.penalFlights?.assistance?.cityApproach?.gates || []) for (const o of g.visitorSupplies?.orders || []) {
+      if (o.kind === 'sale' || o.quote.good !== 'assayReagent' || o.quote.section !== 'resources') continue;
+      const receipt = o.receipts.find(r => r.stackId === item.id && r.quantity === item.quantity);
+      if (receipt && item.sourceLabels.includes(o.id) && item.sourceLabels.includes(o.quote.cityId)
+        && Math.abs(item.unitMassKg - o.quote.massKg / o.quote.quantity) < .000001
+        && Math.abs(item.unitVolumeL - o.quote.volumeL / o.quote.quantity) < .000001)
+        return { orderId: o.id, cityId: o.quote.cityId, branchId: o.quote.branchId, receivedAt: receipt.at };
+    }
+    return null;
+  }
+  function foreignLabUnloadContext(item, destination, working = false, bodyEpoch = ensureScientistIdentity().bodyEpoch) {
+    const c = tradePackingContext(null, working), fixture = destination?.fixtureId && fixtureById(destination.fixtureId);
+    const def = fixture && storageFixtureDef(fixture), usage = fixture && storageFixtureUsage(fixture);
+    return { ...c, sameBody: bodyEpoch === ensureScientistIdentity().bodyEpoch, receipt: foreignLabInputReceipt(item),
+      accessible: Boolean(destination && (!fixture || fixture.accessState !== 'locked' && storageFixtureScientistAccessible(fixture))),
+      remaining: fixture ? { massKg: def.storage.massKg - usage.massKg, volumeL: def.storage.volumeL - usage.volumeL }
+        : { massKg: Number.MAX_SAFE_INTEGER, volumeL: Number.MAX_SAFE_INTEGER } };
+  }
+  function unloadForeignLabInput(stackId, destinationId) {
+    const item = surveyCarriedStacks().find(i => i.id === stackId), destination = foreignLabStorageDestinations().find(d => d.id === destinationId);
+    const c = foreignLabUnloadContext(item, destination), q = ForeignSupplies.unloadPlan(item, c);
+    if (!q.ok) { surveyEvent(q.reason); persist(); render(); return false; }
+    return queueSurveyWork('unloadLabInput', destination.accessCell, { stackId, amount: q.quantity,
+      destinationId, stockpileId: destination.stockpileId, storageCell: destination.cell, receiptOrderId: c.receipt.orderId, bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      unitMassKg: item.unitMassKg, unitVolumeL: item.unitVolumeL, label: `Unload Imported Assay Reagent (${stackId})` });
+  }
+  function foreignLabUnloadReason(task) {
+    const item = ensurePhysicalItemStacks().find(i => i.id === task.data.stackId);
+    const destination = foreignLabStorageDestination(task.data.destinationId, task.data.stockpileId);
+    const c = foreignLabUnloadContext(item, destination, true, task.data.bodyEpoch);
+    const q = ForeignSupplies.unloadPlan(item, c, task.id);
+    if (!q.ok) return q.reason;
+    if (item.reservedTaskId !== task.id || item.quantity !== task.data.amount || c.receipt.orderId !== task.data.receiptOrderId
+      || item.unitMassKg !== task.data.unitMassKg || item.unitVolumeL !== task.data.unitVolumeL)
+      return 'The original exact imported lot, receipt, dimensions or exclusive reservation changed.';
+    if (!sameMapCell(destination.accessCell, task.data.toCell) || !sameMapCell(destination.cell, task.data.storageCell))
+      return 'The selected storage moved; cancel and inspect the real destination again.';
+    return '';
+  }
+  function renderForeignLabUnloading() {
+    const panel = document.createElement('section'); panel.dataset.foreignLabUnloading = 'true';
+    panel.append(textEl('h4', 'Unload Imported Laboratory Inputs'));
+    const selection = ensureSurveyExpeditions(), destinations = foreignLabStorageDestinations();
+    const tasks = scientistQueueTasks().filter(t => t.data?.action === 'unloadLabInput');
+    for (const task of tasks) { panel.append(textEl('p', `${task.label}: storage receipt pending. ${taskBlockReason(task)}`));
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = `Cancel ${task.label}`; b.onclick = () => cancelTask(task.id); panel.append(b); }
+    const lots = surveyCarriedStacks().filter(i => ForeignSupplies.labInputLot(i) && foreignLabInputReceipt(i));
+    if (!lots.length) { panel.append(textEl('p', 'No unreserved personally received imported reagent is carried. Payment abroad is not home receipt; carried resources are unavailable to ordinary production.')); return panel; }
+    const select = document.createElement('select'); select.setAttribute('aria-label', 'Imported reagent home storage');
+    for (const d of destinations) select.append(new Option(`${d.label} (${roomName(d.roomId)})`, d.id));
+    select.value = destinations.some(d => d.id === selection.foreignLabStorageId) ? selection.foreignLabStorageId : destinations[0]?.id || '';
+    select.onchange = () => { selection.foreignLabStorageId = select.value; persist(); render(); };
+    const label = document.createElement('label'); label.append(textEl('span', 'Existing receiving storage'), select); panel.append(label);
+    for (const item of lots) {
+      const destination = destinations.find(d => d.id === select.value), q = ForeignSupplies.unloadPlan(item, foreignLabUnloadContext(item, destination));
+      panel.append(textEl('p', `${item.id}: ${item.quantity} imported assay reagent. ${q.ok ? 'Walk to storage and complete ten seconds of physical unloading; the exact lot remains separate.' : q.reason}`));
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = `Walk to Storage and Unload ${item.id}`;
+      b.disabled = !q.ok; b.onclick = () => unloadForeignLabInput(item.id, select.value); panel.append(b);
+    }
+    return panel;
+  }
   function renderTradeTripPreparation() {
     const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.tradeTripPreparation = 'true';
     panel.append(textEl('h3', 'Trade-Trip Preparation'));
@@ -88611,6 +88733,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!m.items.length) panel.append(textEl('p', 'No physical carried goods. Gear and provisions left at the laboratory cannot be used away.'));
     panel.append(textEl('p', TradeTripPreparation.WARNING));
     if (!c.atLab) { panel.append(textEl('p', 'Pack trade cargo at the home laboratory before municipal departure. This manifest grants no new supplies or remote packing.')); return panel; }
+    panel.append(renderForeignLabUnloading());
     const tasks = scientistQueueTasks().filter(t => t.data?.tradePacking);
     for (const t of tasks) {
       panel.append(textEl('p', `${t.label}: physical pickup pending. ${taskBlockReason(t)}`));
@@ -88682,6 +88805,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function surveyWorkBlockReason(task) {
+    if (task.data?.action === 'unloadLabInput') return foreignLabUnloadReason(task);
     if (['passengerBoard', 'passengerDisembark'].includes(task.data?.action)) return intercityPassengerWorkReason(task.data.action, task.data);
     if (task.data?.action === "gateEnforcement") return gateEnforcementWorkReason(task.data);
     if (task.data?.action === "cityApproach") return cityApproachWorkReason(task.data);
@@ -88781,6 +88905,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (completeUnsupportedWork(task)) return;
     if (completeWildernessWork(task)) return;
     const expedition = ensureSurveyExpeditions();
+    if (task.data.action === 'unloadLabInput') {
+      const reason = foreignLabUnloadReason(task);
+      const destination = foreignLabStorageDestination(task.data.destinationId, task.data.stockpileId);
+      const item = ensurePhysicalItemStacks().find(i => i.id === task.data.stackId), receipt = foreignLabInputReceipt(item);
+      if (reason || !sameMapCell(scientistMapCell(), task.data.toCell)) { surveyEvent(reason || 'Actual arrival at the selected storage is required.'); return; }
+      item.reservedTaskId = '';
+      if (!dropActorInventoryStack('scientist', item.id, { roomId: destination.roomId, cell: destination.cell })) return;
+      item.fixtureId = destination.fixtureId; item.stockpileId = destination.stockpileId;
+      (expedition.foreignLabReceipts ||= []).push({ ...receipt, stackId: item.id, quantity: item.quantity,
+        at: state.clock, fixtureId: item.fixtureId, stockpileId: item.stockpileId, cell: cleanMapCell(item.cell), bodyEpoch: task.data.bodyEpoch });
+      syncPhysicalReadModels(); surveyEvent(`${task.label} complete. The original physical lot is in home storage and available to ordinary laboratory work.`); return;
+    }
     if (task.data.action === "pack") {
       const stack = carryPhysicalStack("scientist", task.data.stackId, task.data.amount, { allowReserved: true, toolInstanceId: task.data.toolInstanceId });
       const tool = task.data.toolInstanceId && toolInstanceById(task.data.toolInstanceId)?.instance;
