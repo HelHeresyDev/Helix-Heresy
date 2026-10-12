@@ -2,10 +2,11 @@
   const api = factory(typeof module === 'object' && module.exports ? require('./theme-content') : root.HelixThemeContent,
     typeof module === 'object' && module.exports ? require('./public-works-recognition') : root.HelixPublicWorksRecognition,
     typeof module === 'object' && module.exports ? require('./public-works-appointments') : root.HelixPublicWorksAppointments,
-    typeof module === 'object' && module.exports ? require('./municipal-cargo-recovery') : root.HelixMunicipalCargoRecovery);
+    typeof module === 'object' && module.exports ? require('./municipal-cargo-recovery') : root.HelixMunicipalCargoRecovery,
+    typeof module === 'object' && module.exports ? require('./temporary-maintenance-commission') : root.HelixTemporaryMaintenanceCommission);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixCityAdministration = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Theme, PublicWorks, Appointments, CargoRecovery) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Theme, PublicWorks, Appointments, CargoRecovery, TemporaryMaintenance) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v));
   const registry = Theme.createRegistry([{ id: 'administration.shared.counter-upkeep', kind: 'cityAdministration', compatibility: 'shared',
@@ -28,7 +29,9 @@
       || (succession?.appointments?.candidate?.id === s?.workerId ? succession.appointments.candidate : null);
   }
   function staff(succession, bargain, office, upkeep = null) {
-    return [...(succession?.leaders || []), ...(succession?.appointments?.receipt || succession?.appointments?.vacancy?.receipt ? [succession.appointments.candidate] : []), bargain?.representative, bargain?.defender, office?.clerk]
+    const temporary = upkeep?.temporaryMaintenance;
+    const coveredTechnician = temporary?.commission && (!temporary.ended || temporary.job?.kind === 'repair');
+    return [...(succession?.leaders || []), ...(succession?.appointments?.receipt || succession?.appointments?.vacancy?.receipt || coveredTechnician ? [succession.appointments.candidate] : []), bargain?.representative, bargain?.defender, office?.clerk]
       .filter(a => a && a.officeStatus?.status !== 'replacedByReviewedAppointment' && (!upkeep?.authorizationId || upkeep.staffIds.includes(a.id)));
   }
   function scopedAuthorization(succession, office, c) {
@@ -108,7 +111,7 @@
     return '';
   }
   function inspect(s, succession, office, c, at) {
-    if (localReason(s, succession, office, c) || !able(worker(s, succession)) || !able(office.clerk)
+    if (s.temporaryMaintenance?.job || localReason(s, succession, office, c) || !able(worker(s, succession)) || !able(office.clerk)
       || office.assignment || worker(s, succession)?.assignment) return false;
     s.inspection = { at, workerId: s.workerId, installationId: s.installation.id, handoverId: s.handoverId, authorizationId: s.authorizationId, charterId: s.charterId,
       essentialOnly: !authorization(s, succession, office, c),
@@ -120,7 +123,7 @@
   function order(s, succession, bargain, office, stacks, expected, c, at) {
     const a = worker(s, succession);
     if (localReason(s, succession, office, c) || !s.inspection || !same(expected, s.inspection) || s.inspection.dueAt !== s.dueAt
-      || s.job || s.cargoRecovery?.job || !able(a) || a.assignment || office.assignment || succession.job || succession.directive?.status === 'carrying'
+      || s.job || s.cargoRecovery?.job || s.temporaryMaintenance?.job || !able(a) || a.assignment || office.assignment || succession.job || succession.directive?.status === 'carrying'
       || !c.externalPowered || office.power < 1 || office.workSeconds < 30 || a.workSeconds < WORK + 60
       || s.servicedAt != null && at < s.dueAt) return false;
     const staged = c.stagedSupplyReachable !== false && stacks.find(i => i.key === 'metalParts' && clean(i) && i.quantity >= PARTS && i.cityOwnerId === s.cityId
@@ -198,7 +201,9 @@
     const a = staff(succession, bargain, office, s).find(a => a.id === personId), duty = a === office.clerk ? office : a;
     if ((!authorization(s, succession, office, c) || c.recognitions?.charter?.reconsideration)
       && ![s.workerId, office.clerk.id].includes(personId)) return false;
-    const pausedJob = a?.id === s.workerId && (s.job && a.assignment === s.job.id ? s.job
+    const temporaryJob = a && s.temporaryMaintenance?.job?.kind === 'repair' && succession.appointments?.candidate?.id === a.id
+      && a.assignment === s.temporaryMaintenance.job.id ? s.temporaryMaintenance.job : null;
+    const pausedJob = temporaryJob || a?.id === s.workerId && (s.job && a.assignment === s.job.id ? s.job
       : s.cargoRecovery?.job && s.cargoRecovery.job.phase !== 'recording' && a.assignment === s.cargoRecovery.job.id ? s.cargoRecovery.job : null);
     if (!living(a) || !Number.isFinite(s.workCaps[a.id]) || a.assignment && !pausedJob || duty.assignment && !pausedJob || !c.staffPresentIds?.includes(a.id) || s.rests.some(r => r.personId === a.id)
       || !(duty.workSeconds < s.workCaps[a.id] || (a.fatigue || 0) > 0)) return false;
@@ -232,6 +237,9 @@
         if (r.resumeAssignment && s.job?.id === r.resumeAssignment) { a.assignment = s.job.id; s.job.lastAt = at; }
         if (r.resumeAssignment && s.cargoRecovery?.job?.id === r.resumeAssignment) {
           a.assignment = s.cargoRecovery.job.id; s.cargoRecovery.job.lastAt = at;
+        }
+        if (r.resumeAssignment && s.temporaryMaintenance?.job?.id === r.resumeAssignment) {
+          a.assignment = s.temporaryMaintenance.job.id; s.temporaryMaintenance.job.lastAt = at;
         }
         if (a === office.clerk) office.availableAt = Math.max(office.availableAt || 0, at - (delta - recovered));
         s.rests = s.rests.filter(x => x.id !== r.id);
@@ -305,7 +313,8 @@
       job: s.job && { id: s.job.id, status: s.job.status, workerId: s.job.workerId, progress: s.job.progress,
         carrying: s.job.cargo?.quantity || 0, workSeconds: WORK },
       rests: s.rests.map(r => ({ personId: r.personId, progress: r.progress, seconds: REST })),
-      receipts: copy(s.receipts), cargoRecovery: CargoRecovery.publicView(s.cargoRecovery), message: s.message, limitations: LIMITS };
+      receipts: copy(s.receipts), cargoRecovery: CargoRecovery.publicView(s.cargoRecovery),
+      temporaryMaintenance: TemporaryMaintenance.publicView(s.temporaryMaintenance), message: s.message, limitations: LIMITS };
   }
   return { PERIOD, GRACE, REST, WORK, PARTS, POWER_CAP, WORK_CELL, RECOGNIZED_WORK_CELL, RECEIVING, LIMITS, create, normalize, worker, staff,
     authorization, bodyEpoch, reserveKey, agreement, commandLink, suppliedCustody,

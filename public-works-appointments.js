@@ -4,10 +4,11 @@
     typeof module === 'object' && module.exports ? require('./charter-recognition') : root.HelixCharterRecognition,
     typeof module === 'object' && module.exports ? require('./public-works-recognition') : root.HelixPublicWorksRecognition,
     typeof module === 'object' && module.exports ? require('./public-works-vacancies') : root.HelixPublicWorksVacancies,
-    typeof module === 'object' && module.exports ? require('./municipal-cargo-recovery') : root.HelixMunicipalCargoRecovery);
+    typeof module === 'object' && module.exports ? require('./municipal-cargo-recovery') : root.HelixMunicipalCargoRecovery,
+    typeof module === 'object' && module.exports ? require('./temporary-maintenance-commission') : root.HelixTemporaryMaintenanceCommission);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixPublicWorksAppointments = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Institutions, CivilAccess, Charter, Works, Vacancies, CargoRecovery) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Institutions, CivilAccess, Charter, Works, Vacancies, CargoRecovery, TemporaryMaintenance) {
   'use strict';
   const ROLE = 'publicWorksAndProvisioning', REASON = 'changeMaintenanceSteward';
   const HOME = Object.freeze({ x: 19, y: 12, z: 6 });
@@ -552,7 +553,7 @@
       approaching: Boolean(s.travel), message: s.message, history: copy(s.history), limitations: scopeFor(s) };
   }
   return { ROLE, REASON, HOME, RETIRED_POST, LIMITS, COMBINED_LIMITS, ruleFor, roleRuleFor, disputedRuleFor, vacancyRuleFor: Vacancies.ruleFor,
-    cargoRecoveryRuleFor: CargoRecovery.ruleFor, create, normalize, incumbent, reviewer, bound, localReason,
+    cargoRecoveryRuleFor: CargoRecovery.ruleFor, temporaryMaintenanceRuleFor: TemporaryMaintenance.ruleFor, create, normalize, incumbent, reviewer, bound, localReason,
     discuss, propose, hear, appoint, approach, transfer, discussAccess, inspectAccess, settleAccess, declineAccess,
     custodyInventory, compulsoryTransfer, authenticAppointment, cancel, advance, authorization, publicView };
 });

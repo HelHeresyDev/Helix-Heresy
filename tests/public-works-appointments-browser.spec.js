@@ -20,7 +20,7 @@ async function finishWalk(page) {
       cell: d.surveyExpeditionSnapshot().scientistCell, combat: d.combatSnapshot().routineSuspension })}`);
   });
 }
-async function setup(page, renderer = 'dom', obstruct = false, accessPolicy = 'rejectReplacement', civilPolicy = null, combinedWorks = false, opposition = null, vacancy = false, retainedCargo = false) {
+async function setup(page, renderer = 'dom', obstruct = false, accessPolicy = 'rejectReplacement', civilPolicy = null, combinedWorks = false, opposition = null, vacancy = false, retainedCargo = false, temporaryMaintenance = false) {
   await page.goto(pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href);
   await page.evaluate(renderer => { localStorage.clear(); localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: renderer })); }, renderer);
   await page.reload();
@@ -35,10 +35,11 @@ async function setup(page, renderer = 'dom', obstruct = false, accessPolicy = 'r
   });
   expect(await act(page, 'discuss')).toBe(false);
   expect(await succession(page, 'walk')).toBe(true); await finishWalk(page);
-  expect(await page.evaluate(({ civilPolicy, combinedWorks, vacancy, retainedCargo }) => window.helixHeresyDebug.configureCitySuccessionTest({ retirement: true, appointmentLaw: true, combinedWorks,
+  expect(await page.evaluate(({ civilPolicy, combinedWorks, vacancy, retainedCargo, temporaryMaintenance }) => window.helixHeresyDebug.configureCitySuccessionTest({ retirement: true, appointmentLaw: true, combinedWorks,
+    ...(temporaryMaintenance ? { temporaryMaintenanceLaw: true, officeWork: 1800 } : {}),
     ...(retainedCargo ? { recoveryLaw: true } : {}),
     ...(vacancy ? { vacancyLaw: true, officeWork: 1800 } : {}),
-    ...(civilPolicy ? { civilAccessLaw: true, officeWork: 1800 } : {}) }), { civilPolicy, combinedWorks, vacancy, retainedCargo })).toBe(true);
+    ...(civilPolicy ? { civilAccessLaw: true, officeWork: 1800 } : {}) }), { civilPolicy, combinedWorks, vacancy, retainedCargo, temporaryMaintenance })).toBe(true);
   expect(await succession(page, 'request')).toBe(true);
   await page.evaluate(() => window.helixHeresyDebug.advanceCitySuccessionForTest(30));
   expect(await succession(page, 'hear')).toBe(true);
@@ -76,6 +77,60 @@ async function setup(page, renderer = 'dom', obstruct = false, accessPolicy = 'r
   expect((await page.evaluate(() => window.helixHeresyDebug.cityAppointmentGroundSnapshot())).load).toBe(.6);
   await page.locator('[data-workspace-tab="visits"]').click();
 }
+for (const renderer of ['dom', 'canvas']) test(`${renderer}: temporary injury maintenance commission preserves the living official and performs one physical supplied repair`, async ({ page }) => {
+  test.setTimeout(480000);
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await setup(page, renderer, false, 'rejectReplacement', null, false, null, false, false, true);
+  let s = await snap(page); const old = s.succession.leaders.find(a => a.id === s.administration.workerId);
+  const original = { handover: s.succession.handover, agreements: s.succession.agreements,
+    worker: old.id, roles: old.roles, stock: s.succession.provision.stock, staged: s.succession.directive.receipt.stackId };
+  expect(await admin(page, 'temporaryObserve')).toBe(false);
+  // Prepare only a living bodily baseline. Actual ordinary combat must create incapacity.
+  expect(await page.evaluate(() => window.helixHeresyDebug.configureCityAppointmentsTest({ incumbentHealth: 55 }))).toBe(true);
+  await page.evaluate(() => window.helixHeresyDebug.configureDefenderChallengeTest({ mastery: true }));
+  expect(await page.evaluate(cell => Boolean(window.helixHeresyDebug.startScientistMove('supportedSurveyGround',
+    { toCell: { ...cell, x: cell.x + 1 }, allowMultiRoom: true })), old.mapCell)).toBe(true); await finishWalk(page);
+  expect(await page.evaluate(id => window.helixHeresyDebug.startScientistCombatAction('strike', id), old.id)).toBe(true);
+  await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(3));
+  s = await snap(page); const injured = s.succession.leaders.find(a => a.id === old.id);
+  expect(injured.status).toBe('alive'); expect(injured.health).toBeGreaterThan(0); expect(injured.health).toBeLessThan(50);
+  expect(await succession(page, 'walk')).toBe(true); await finishWalk(page);
+  s = await snap(page); await page.evaluate(n => window.helixHeresyDebug.advanceCityAdministrationForTest(n), s.administration.graceUntil + 1 - s.clock);
+  expect(await admin(page, 'inspect')).toBe(false); expect((await snap(page)).office.maintenanceReady).toBe(false);
+  const panel = page.locator('[data-city-administration]');
+  await panel.locator('[data-administration-action="temporaryObserve"]').click(); await page.evaluate(() => window.helixHeresyDebug.advanceCityAdministrationForTest(15));
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState()); await page.evaluate(() => window.helixHeresyDebug.advanceCityAdministrationForTest(15));
+  s = await snap(page); let r = s.administration.temporaryMaintenance;
+  expect(r.observation.personId).toBe(old.id);
+  await panel.locator('[data-administration-action="temporaryPropose"]').click(); s = await snap(page); r = s.administration.temporaryMaintenance;
+  expect(await admin(page, 'temporaryHear')).toBe(false);
+  await page.evaluate(n => window.helixHeresyDebug.advanceCityAdministrationForTest(n), r.review.readyAt - s.clock);
+  await panel.locator('[data-administration-action="temporaryHear"]').click(); await page.evaluate(() => window.helixHeresyDebug.advanceCityAdministrationForTest(180));
+  s = await snap(page); r = s.administration.temporaryMaintenance; expect(r.review.outcome).toBe('eligible');
+  expect(await admin(page, 'temporarySign', { ...r.offer, repairs: 2 })).toBe(false);
+  await panel.locator('[data-administration-action="temporarySign"]').click(); await page.evaluate(() => window.helixHeresyDebug.advanceCityAdministrationForTest(60));
+  await panel.locator('[data-administration-action="temporaryInspect"]').click(); s = await snap(page); r = s.administration.temporaryMaintenance;
+  expect(r.inspection.source.kind).toBe('reserve'); // The injured person still occupies the staged receiving position.
+  await panel.locator('[data-administration-action="temporaryOrder"]').click();
+  await page.evaluate(() => window.helixHeresyDebug.advanceCityAdministrationForTest(50));
+  s = await snap(page); expect(s.administration.temporaryMaintenance.collection).toBeNull();
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  await page.evaluate(() => { window.helixHeresyDebug.advanceCityAdministrationForTest(40); window.helixHeresyDebug.advanceCityAdministrationForTest(200); });
+  s = await snap(page); r = s.administration.temporaryMaintenance;
+  expect(r.receipt, JSON.stringify({ phase: r.job?.phase, progress: r.job?.progress, cell: s.appointments.candidate.mapCell,
+    collection: Boolean(r.collection) })).toBeTruthy();
+  expect(r.receipt.workSeconds).toBe(120); expect(r.ended.reason).toBe('completed');
+  expect(s.administration.workerId).toBe(original.worker); expect(s.appointments.candidate.roles).toEqual([]); expect(s.appointments.receipt).toBeNull();
+  expect(s.succession.handover).toEqual(original.handover); expect(s.succession.agreements).toEqual(original.agreements);
+  expect(s.succession.leaders.find(a => a.id === old.id).health).toBe(injured.health);
+  expect(s.succession.leaders.find(a => a.id === old.id).roles).toEqual(original.roles);
+  expect(s.succession.provision.stock).toBe(original.stock - 3); expect(s.office.maintenanceReady).toBe(true);
+  const stacks = (await page.evaluate(() => window.helixHeresyDebug.cityAdministrationSnapshot())).stacks;
+  expect(stacks.find(i => i.id === original.staged).quantity).toBe(3);
+  expect(stacks.find(i => i.id === r.collection.stackId)).toBeUndefined();
+  expect(await admin(page, 'temporaryInspect')).toBe(false); expect(await admin(page, 'temporaryObserve')).toBe(false);
+  expect(errors).toEqual([]);
+});
 for (const renderer of ['dom', 'canvas']) for (const retainedCargo of [false, true]) test(`${renderer}: ${retainedCargo ? 'retained cargo recovery after ' : ''}death vacancy uses actual combat death, emergency hearing and physical supplied maintenance`, async ({ page }) => {
   if (retainedCargo) test.setTimeout(480000); // Includes real succession, vacancy, recovery and fresh repair, not injected outcomes.
   const errors = []; page.on('pageerror', e => errors.push(e.message));

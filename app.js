@@ -113,6 +113,7 @@
   const CitySuccession = window.HelixCitySuccession;
   const CityAdministration = window.HelixCityAdministration;
   const MunicipalCargoRecovery = window.HelixMunicipalCargoRecovery;
+  const TemporaryMaintenance = window.HelixTemporaryMaintenanceCommission;
   const PublicWorksAppointments = window.HelixPublicWorksAppointments;
   const PublicWorksVacancies = window.HelixPublicWorksVacancies;
   const CivilInstallationAccess = window.HelixCivilInstallationAccess;
@@ -14748,6 +14749,7 @@
           else b.testSuccessionSource.publicWorksAppointment = PublicWorksAppointments.ruleFor(b.source.cityId, 'test-publicWorksAndProvisioning', 'test-civicReview');
           if (options.vacancyLaw && !options.combinedWorks) b.testSuccessionSource.publicWorksVacancy = PublicWorksVacancies.ruleFor(b.source.cityId, 'test-publicWorksAndProvisioning', 'test-civicReview');
           if (options.recoveryLaw && options.vacancyLaw && !options.combinedWorks) b.testSuccessionSource.maintenanceCargoRecovery = MunicipalCargoRecovery.ruleFor(b.source.cityId, 'test-publicWorksAndProvisioning');
+          if (options.temporaryMaintenanceLaw && !options.combinedWorks) b.testSuccessionSource.temporaryMaintenance = TemporaryMaintenance.ruleFor(b.source.cityId, 'test-publicWorksAndProvisioning', 'test-civicReview');
           if (options.civilAccessLaw && !options.combinedWorks) b.testSuccessionSource.civilInstallationAccess = CivilInstallationAccess.ruleFor(b.source.cityId, 'test-publicWorksAndProvisioning', 'test-civicReview', b.source.defenseId);
         }
         if (!state.citySuccession) {
@@ -83862,6 +83864,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const civilChanged = updateCivilInstallationAccess();
     const oppositionChanged = updateLocalOpposition();
     const busy = s.job || s.vacancy?.job || state.cityAdministration?.cargoRecovery?.job?.phase === 'recording'
+      || state.cityAdministration?.temporaryMaintenance?.job && state.cityAdministration.temporaryMaintenance.job.kind !== 'repair'
       || s.enforcement?.job || s.enforcement?.escort?.status === 'active' || s.opposition?.job || s.opposition?.safeguards?.job;
     if (busy && !state.combat?.routineSuspension) suspendScientistRoutineWork('public-works appointment');
     if (!busy && state.combat?.routineSuspension?.reason === 'public-works appointment') resumeScientistRoutineWork();
@@ -84229,7 +84232,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       cityAdministrationOffice(), cityAdministrationContext());
     return state.cityAdministration;
   }
-  function cityAdministrationContext(inspectReceiving = false, ownAppointment = false, ownCargo = false) {
+  function cityAdministrationContext(inspectReceiving = false, ownAppointment = false, ownCargo = false, ownTemporary = false) {
     const s = state.cityAdministration, office = cityAdministrationOffice(), source = citySuccessionSource(), home = ensureHomeInstitutionContext();
     const near = a => Boolean(a?.mapCell && a.status === 'alive' && WildernessBeasts.distance(scientistMapCell(), a.mapCell) <= 6
       && sensoryLineOfSight(scientistMapCell(), a.mapCell));
@@ -84262,6 +84265,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         && canActorOccupyTile(actor, cell) && vacancyReachable(cell) && sensoryLineOfSight(cell, body.mapCell)) || null : null;
     const metrics = physicalItemUnitMetrics('resources', 'metalParts');
     const recoveryPayload = { section: 'resources', key: 'metalParts', quantity: 3, unitMassKg: metrics.massKg, unitVolumeL: metrics.volumeL };
+    const technician = state.citySuccession?.appointments?.candidate;
+    const temporarySupported = source?.temporaryMaintenance?.method === 'reviewedInjuryMaintenanceCommission' && technician;
+    const temporaryBlocked = temporarySupported ? labMapBlockingCellKeys(ensureLabMap(), { actor: technician }) : null;
+    if (temporaryBlocked) for (const cell of ensureLabMap().rooms[SurveyExpeditions.FIELD_ROOM]?.cells || [])
+      if (!canActorOccupyTile(technician, cell)) temporaryBlocked.add(mapCellKey(cell));
+    const temporaryReachable = cell => Boolean(temporarySupported && cell && labNavigationPlanBetweenCells(technician.mapCell, cell,
+      { map: ensureLabMap(), actor: technician, ignoreDoors: true, blockedCellKeys: temporaryBlocked }).found);
+    const temporarySource = s?.temporaryMaintenance?.job?.terms?.source;
+    const temporaryContact = temporarySource?.kind === 'reserve' ? reserveHolder?.mapCell : temporarySource?.cell;
+    const visibleInjury = actor?.status === 'alive' && actor.health > 0 && actor.health < 50 && actor.locationId === office?.id
+      && [scientistMapCell(), office?.clerk?.mapCell].every(cell => cell && cell.z === actor.mapCell.z
+        && WildernessBeasts.distance(cell, actor.mapCell) <= 6 && sensoryLineOfSight(cell, actor.mapCell));
     return { ...c, ...administrationRecognitionSources(), busy: c.busy || Boolean(state.scientistIdentity?.job || state.sovereignBargains?.job
       || state.citySuccession?.job || state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job || state.religiousRecognition?.job || DefenderChallenges.reserved(state.defenderChallenge)
       || !ownAppointment && (state.citySuccession?.appointments?.job || state.citySuccession?.appointments?.vacancy?.job || state.citySuccession?.appointments?.enforcement?.job
@@ -84271,11 +84286,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       // assignment. Actual violence still blocks new civic attendance.
       || state.cityConfrontation?.phase === 'fighting' || IncumbentResistance.active(state.incumbentResistance)
       || !ownCargo && s?.cargoRecovery?.job?.phase === 'recording'
+      || !ownTemporary && s?.temporaryMaintenance?.job && s.temporaryMaintenance.job.kind !== 'repair'
       || state.surveyExpeditions?.mapService?.job || state.surveyExpeditions?.carrier?.briefingState?.job),
       bodyEpoch: ensureScientistIdentity().bodyEpoch,
       appointmentRule: clonePlainObject(state.citySuccession?.handover ? source?.publicWorksAppointment || source?.publicWorksRoleReassignment || null : source?.disputedPublicWorksAppointment || null),
       vacancyRule: clonePlainObject(source?.publicWorksVacancy || null),
       cargoRecoveryRule: clonePlainObject(source?.maintenanceCargoRecovery || null),
+      temporaryMaintenanceRule: clonePlainObject(source?.temporaryMaintenance || null),
+      commissionInjuryVisible: Boolean(visibleInjury),
+      commissionPresentIds: [...citySuccessionPeople(), office?.clerk, technician].filter(near).map(a => a.id),
+      commissionStagedReachable: temporaryReachable(CityAdministration.RECEIVING),
+      commissionReserveCell: temporarySupported && reserveHolder?.mapCell ? cardinalMapCells(reserveHolder.mapCell)
+        .find(cell => labMapCellRoomId(cell) === SurveyExpeditions.FIELD_ROOM && canActorOccupyTile(technician, cell)
+          && temporaryReachable(cell) && sensoryLineOfSight(cell, reserveHolder.mapCell)) || null : null,
+      commissionCanCarry: Boolean(temporarySupported && actorInventoryCanCarry(technician.id, recoveryPayload, 3)),
+      commissionCanInspect: Boolean(temporarySupported && near(technician)
+        && [s?.installation.cell, CityAdministration.RECEIVING].every(cell => cell && WildernessBeasts.distance(technician.mapCell, cell) <= 6
+          && sensoryLineOfSight(technician.mapCell, cell))),
+      commissionSupplyContact: Boolean(technician?.mapCell && temporaryContact && sensoryLineOfSight(technician.mapCell, temporaryContact)),
       recoveryBodyVisible: Boolean(body?.status === 'dead' && body.locationId === office?.id && body.mapCell
         && [scientistMapCell(), office?.clerk?.mapCell].every(cell => cell && cell.z === body.mapCell.z
           && WildernessBeasts.distance(cell, body.mapCell) <= 6 && sensoryLineOfSight(cell, body.mapCell))),
@@ -84310,7 +84338,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       reviewAvailable: Boolean(reviewId && home?.offices[reviewId]?.available),
       // Presence is not employment or recovery consent: the independent reviewer
       // may attend a hearing without joining the scoped supplied staff.
-      staffPresentIds: c.cityId === s?.cityId ? CityAdministration.staff(state.citySuccession, state.sovereignBargains, office).filter(near).map(a => a.id) : [] };
+      staffPresentIds: c.cityId === s?.cityId ? CityAdministration.staff(state.citySuccession, state.sovereignBargains, office, s).filter(near).map(a => a.id) : [] };
   }
   function cityAdministrationObserved() {
     if (!state.cityAdministration) return false;
@@ -84334,6 +84362,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         if (!item) return null;
         item.cityOwnerId = s.cityId; item.civicCustody = custody; item.reservedTaskId = s.cargoRecovery.id; return item;
       } }) || changed;
+    changed = TemporaryMaintenance.advance(s, state.citySuccession, state.sovereignBargains, office, ensureHomeInstitutionContext(),
+      ensurePhysicalItemStacks(), cityAdministrationContext(false, false, false, true), state.clock,
+      { move: (actor, target, item) => {
+        const moved = moveSuccessionParticipant(actor, target, item);
+        if (moved && item) item.cell = clonePlainObject(actor.mapCell);
+        return moved;
+      }, collect: (actor, custody, reservation) => {
+        const item = createPhysicalItemStack('resources', 'metalParts', 3,
+          { roomId: actor.roomId, cell: actor.mapCell }, { carriedBy: actor.id, suppressEvidence: true });
+        if (!item) return null;
+        item.cityOwnerId = s.cityId; item.civicCustody = custody; item.reservedTaskId = reservation; return item;
+      }, drop: (item, reservation) => {
+        if (!item || !sameMapCell(item.cell, CityAdministration.RECEIVING)) return false;
+        item.carriedBy = null; item.reservedTaskId = reservation; return true;
+      } }) || changed;
     changed = updateCityAppointments() || changed;
     changed = CityResistance.advance(s.resistance, s, state.citySuccession, state.sovereignBargains, office, ensurePhysicalItemStacks(),
       ensureHomeInstitutionContext(), cityAdministrationContext(), state.clock) || changed;
@@ -84347,9 +84390,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (action === 'walk') return scientistIdentityAction('walk');
     if (action.startsWith('pack:')) return packSurveyItem(action.slice(5));
     updateCityAdministration();
-    const s = ensureCityAdministration(), office = cityAdministrationOffice(), c = cityAdministrationContext(action === 'parts', false, action.startsWith('recovery'));
+    if (action.startsWith('temporary')) ensureCityAppointments();
+    const s = ensureCityAdministration(), office = cityAdministrationOffice(), c = cityAdministrationContext(action === 'parts', false, action.startsWith('recovery'), action.startsWith('temporary'));
     if (!s) return false;
     const stacks = ensurePhysicalItemStacks(); let ok = false;
+    if (action === 'temporaryObserve') ok = TemporaryMaintenance.observe(s, state.citySuccession, office, c, state.clock);
+    if (action === 'temporaryPropose') ok = TemporaryMaintenance.propose(s, state.citySuccession, office, ensureHomeInstitutionContext(), expected, c, state.clock);
+    if (action === 'temporaryHear') ok = TemporaryMaintenance.hear(s, state.citySuccession, office, ensureHomeInstitutionContext(), c, state.clock);
+    if (action === 'temporarySign') ok = TemporaryMaintenance.sign(s, state.citySuccession, office, expected, c, state.clock);
+    if (action === 'temporaryInspect') ok = TemporaryMaintenance.inspect(s, state.citySuccession, state.sovereignBargains, office, stacks, c, state.clock);
+    if (action === 'temporaryOrder') ok = TemporaryMaintenance.order(s, state.citySuccession, state.sovereignBargains, office, stacks, expected, c, state.clock);
+    if (action === 'temporaryCancel') ok = TemporaryMaintenance.cancel(s, state.citySuccession, office, stacks, c, state.clock);
     if (action === 'recoveryInspect') ok = MunicipalCargoRecovery.inspect(s, state.citySuccession, office, c, state.clock);
     if (action === 'recoveryAuthorize') ok = MunicipalCargoRecovery.authorize(s, state.citySuccession, office, expected, c, state.clock);
     if (action === 'recoveryCancel') ok = MunicipalCargoRecovery.cancel(s, state.citySuccession, office, c, state.clock);
@@ -84368,7 +84419,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (action === 'rest') ok = CityAdministration.rest(s, state.citySuccession, state.sovereignBargains, office, stacks, expected, c, state.clock);
     if (ok) {
       state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0); syncActorInventories(); syncPhysicalReadModels();
-      addEvent(action.startsWith('recovery') ? s.cargoRecovery.message : s.message, { sourceKind: 'cityAdministration', sourceId: s.id });
+      addEvent(action.startsWith('temporary') ? s.temporaryMaintenance.message : action.startsWith('recovery') ? s.cargoRecovery.message : s.message, { sourceKind: 'cityAdministration', sourceId: s.id });
     } else addEvent(CityAdministration.localReason(s, state.citySuccession, office, c)
       || 'No exact current inspection, available staff, original reachable supplies or supplied recovery need. Nothing was replenished or repaired.');
     updateCityAdministration(); persist(); render(); return ok;
@@ -84465,6 +84516,30 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       panel.append(textEl('p', `${v.job.status}: ${formatDuration(v.job.progress)} / two minutes; carrying ${v.job.carrying} city-owned parts. Blocked access, outages and exhausted work stop execution without refund or duplication.`));
       if (!v.job.carrying) button('Cancel before physical collection', 'cancel');
     }
+    const temporary = v.temporaryMaintenance;
+    if (temporary || observed && citySuccessionSource()?.temporaryMaintenance && TemporaryMaintenance.injured(CityAdministration.worker(s, state.citySuccession))) {
+      panel.append(textEl('strong', 'Temporary maintenance cover — incumbent remains in office'));
+      if (!temporary) button('Record observed bodily maintenance incapacity (30 seconds)', 'temporaryObserve');
+      if (temporary?.observation && !temporary.proposal && !temporary.ended)
+        button('File exact one-repair commission for independent review', 'temporaryPropose', !observed || Boolean(temporary.working), clonePlainObject(temporary.observation));
+      if (temporary?.review?.status === 'queued') button('Attend independent injury-cover hearing (three minutes)', 'temporaryHear', !observed || Boolean(temporary.working) || state.clock < temporary.review.readyAt);
+      if (temporary?.review?.outcome) panel.append(textEl('p', `Independent finding: ${temporary.review.outcome}. No vacancy or dismissal.`));
+      if (temporary?.offer && !temporary.commission && !temporary.ended) {
+        panel.append(textEl('p', temporary.offer.scope));
+        button('Accept exact one-repair temporary commission (one minute)', 'temporarySign', !observed || Boolean(temporary.working) || state.clock >= temporary.offer.expiresAt, clonePlainObject(temporary.offer));
+      }
+      if (temporary?.commission && !temporary.ended && !temporary.collection) {
+        panel.append(textEl('p', `One repair only; expires ${formatClock(temporary.commission.expiresAt)}. No permanent appointment or automatic healing.`));
+        button('Inspect available supplies for temporary repair', 'temporaryInspect', !observed || Boolean(temporary.working));
+        if (temporary.inspection) button('Authorize exact temporary supplied repair', 'temporaryOrder', !observed || Boolean(temporary.working), clonePlainObject(temporary.inspection));
+      }
+      if (temporary?.working) {
+        panel.append(textEl('p', `${temporary.working.kind}: ${temporary.working.phase || 'attended recording'} — ${formatDuration(temporary.working.progress)} actual work. Collection takes one minute; fresh installation takes two minutes.`));
+        if (!temporary.collection) button('Cancel unfinished temporary work without refund', 'temporaryCancel');
+      }
+      if (temporary?.ended) panel.append(textEl('p', `Temporary permission ended: ${temporary.ended.reason}. ${temporary.returned ? 'Cargo physically returned.' : temporary.collection && !temporary.receipt ? 'Municipal cargo remains with the actual technician pending safe return.' : ''}`));
+      if (temporary?.message) panel.append(textEl('p', temporary.message));
+    }
     const recovery = v.cargoRecovery;
     if (recovery || observed && state.citySuccession?.appointments?.vacancy?.receipt && cityAdministrationContext().cargoRecoveryRule
       && MunicipalCargoRecovery.source(s, state.citySuccession)) {
@@ -84488,7 +84563,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (observed) for (const a of CityAdministration.staff(state.citySuccession, state.sovereignBargains, cityAdministrationOffice(), s)
       .filter(a => !s.authorizationId || !state.charterRecognition?.reconsideration || [s.workerId, s.clerkId].includes(a.id)))
       button(`Fund ${a.name || 'civic clerk'}'s off-duty recovery (${a.role || 'counter clerk'})`, 'rest', Boolean(a.assignment && a.assignment !== s.job?.id
-        && (a.assignment !== s.cargoRecovery?.job?.id || s.cargoRecovery.job.phase === 'recording')), a.id);
+        && (a.assignment !== s.cargoRecovery?.job?.id || s.cargoRecovery.job.phase === 'recording')
+        && (a.assignment !== s.temporaryMaintenance?.job?.id || s.temporaryMaintenance.job.kind !== 'repair')), a.id);
     for (const r of v.rests) panel.append(textEl('p', `${r.personId}: off-duty recovery ${formatDuration(r.progress)} / eight hours; no simultaneous work.`));
     for (const r of v.receipts.slice(-8)) panel.append(textEl('p', `${formatClock(r.at)} — ${r.id}: ${r.quantity} original supplies${r.installationId ? '; local installation serviced' : ''}.`));
     panel.append(textEl('p', v.message), textEl('p', v.limitations));
