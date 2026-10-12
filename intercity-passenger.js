@@ -9,6 +9,7 @@
   const away = s => moving(s) || s?.phase === 'arrival' || s?.phase === 'foreign';
   function create(city, standings, at) {
     const entry = standings?.find(e => e.network?.category === 'transport' && e.branch
+      && (!e.branch.cityId || e.branch.cityId === city?.cityId)
       && ['chartered', 'licensed', 'recognized'].includes(e.standing)
       && ['functional', 'strong', 'regionalHub'].includes(e.branch.capacityBand)
       && (!e.branch.operationalStatus || e.branch.operationalStatus === 'active'));
@@ -21,9 +22,10 @@
       provisionsSeconds: 96 * 3600, lastAt: at, rest: null, receipts: [], observation: null };
   }
   function neighbors(network, homeCityId) {
+    const home = network.destinations.find(d => d.kind === 'fortifiedCity' && d.cityId === homeCityId);
     return network.routes.filter(r => r.endpointCityIds.includes(homeCityId) && r.supportCapable && r.continuity !== 'closed')
       .map(r => ({ route: r, destination: network.destinations.find(d => d.kind === 'fortifiedCity' && d.known && d.cityId !== homeCityId && r.endpointCityIds.includes(d.cityId)) }))
-      .filter(e => e.destination);
+      .filter(e => e.destination && (!home?.supportComponentId || !e.destination.supportComponentId || home.supportComponentId === e.destination.supportComponentId));
   }
   function load(stacks) {
     return stacks.filter(s => s.carriedBy === 'scientist' && s.quantity > 0).reduce((v, s) => {
@@ -57,7 +59,7 @@
   function book(s, q, cargo, wallet, at, bodyEpoch) {
     const blocked = reason(s, q, cargo, wallet.money); if (blocked) return blocked;
     wallet.money -= q.fee;
-    s.booking = { ...clone(q), id: `passenger-${++s.serial}`, at, expiresAt: at + 3600, bodyEpoch, outbound: s.location === s.homeCityId };
+    s.booking = { ...clone(q), id: `${s.source.branchId}:passenger-${++s.serial}`, at, expiresAt: at + 3600, bodyEpoch, outbound: s.location === s.homeCityId };
     return '';
   }
   function cancel(s, wallet) {
@@ -126,5 +128,31 @@
         arrivedAt: s.trip.arrivedAt, delay: s.trip.delayRevealed ? 'Road inspection delayed the occupied vehicle.' : '',
         directions: s.trip.directions } : null };
   }
-  return { create, neighbors, load, quote, reason, book, cancel, boardingReason, board, advance, disembark, rest, publicView, away, moving };
+  // A bounded second service, not a through-ticket or a replacement for the first.
+  // The application keeps the selected carrier separately; the other remains here
+  // so JSON saves have no duplicated aliases or hidden reset on selection.
+  function connection(first, city, standings, at, bodyEpoch) {
+    if (first?.phase !== 'foreign' || first.location !== city?.cityId || first.homeCityId === city.cityId || first.trip?.bodyEpoch !== bodyEpoch) return null;
+    const other = create(city, standings, at);
+    if (other?.source.branchId === first.source.branchId) return null;
+    return { homeCityId: first.homeCityId, intermediateCityId: city.cityId, terminalCityId: null,
+      bodyEpoch, visitId: first.trip.id, otherCarrier: other, sourceCheckedAt: at };
+  }
+  function connectionDestinations(c, carrier, network) {
+    if (!c || carrier.homeCityId === c.homeCityId) return carrier.phase === 'foreign'
+      ? [carrier.trip.destinationId] : neighbors(network, carrier.homeCityId).map(e => e.destination.id);
+    if (carrier.phase === 'foreign') return [carrier.trip.destinationId];
+    return neighbors(network, c.intermediateCityId).filter(e => e.destination.cityId !== c.homeCityId
+      && (!c.terminalCityId || e.destination.cityId === c.terminalCityId)).map(e => e.destination.id);
+  }
+  function selectConnection(c, selected, bodyEpoch) {
+    const other = c?.otherCarrier;
+    if (!other || bodyEpoch !== c.bodyEpoch || !['home', 'foreign'].includes(selected.phase)
+      || !['home', 'foreign'].includes(other.phase) || selected.booking || other.booking || selected.rest || other.rest
+      || selected.location !== c.intermediateCityId || other.location !== c.intermediateCityId) return null;
+    c.otherCarrier = selected;
+    return other;
+  }
+  return { create, neighbors, load, quote, reason, book, cancel, boardingReason, board, advance, disembark, rest, publicView, away, moving,
+    connection, connectionDestinations, selectConnection };
 });
