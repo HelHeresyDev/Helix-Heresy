@@ -100,6 +100,7 @@
   const IntercityPassenger = window.HelixIntercityPassenger;
   const ForeignReception = window.HelixForeignReception;
   const ForeignSupplies = window.HelixForeignSupplies;
+  const TradeTripPreparation = window.HelixTradeTripPreparation;
   const passengerReceptionSourceCache = new WeakMap();
   const MunicipalCarrier = window.HelixMunicipalCarrier;
   const CarrierBriefings = window.HelixCarrierBriefings;
@@ -16711,6 +16712,10 @@
       startEnvironmentalSample: (methodId, recordId) => startEnvironmentalSample(methodId, recordId),
       startResourceSurvey: (methodId, cell) => startResourceSurvey(methodId, cell),
       packSurveyItem,
+      packTradeCargo,
+      tradePackingSnapshot: () => clonePlainObject({ context: tradePackingContext(), lots: ensurePhysicalItemStacks().filter(i => TradeTripPreparation.eligible(i)),
+        tasks: scientistQueueTasks().filter(t => t.data?.tradePacking).map(t => ({ ...t, reason: taskBlockReason(t) })),
+        clock: state.clock, cell: scientistMapCell(), bodyEpoch: ensureScientistIdentity().bodyEpoch }),
       bookIntercityPassenger,
       queueIntercityPassenger,
       foreignReceptionAction,
@@ -16788,12 +16793,13 @@
       controlSurveyJourney,
       refreshSurveyReport,
       surveyExpeditionSnapshot: () => clonePlainObject({ ...ensureSurveyExpeditions(), clock: state.clock, scientistCell: scientistMapCell(), scientistRoomId: scientistRoomId(), carried: surveyCarriedStacks(), injuries: actorInjuries("scientist"), tasks: scientistQueueTasks().map((task) => ({ ...task, reason: taskBlockReason(task) })), departureReason: surveyDepartureReason(), quote: surveyQuote(), money: ensureEconomy().money, visibleTabs: ["map", "visits", "log", "economy", "resources", "tasks"].filter(workspaceTabVisible), visibleEvents: jailVisibleMessages(state.events) }),
-      setSurveyExpeditionTestContext: ({ network, context, carrierSource }) => {
+      setSurveyExpeditionTestContext: ({ network, context, carrierSource, passengerSource }) => {
         state.started = true; state.seed = "supported-survey-test"; ensureEconomy().money = 5000;
         state.strategicJourneys = StrategicJourneys.defaultState({ network, clock: state.clock });
         state.surveyExpeditions = SurveyExpeditions.defaultState();
         state.surveyExpeditions.destination = SurveyExpeditions.destinationFor(network);
         if (carrierSource) state.surveyExpeditions.carrier = MunicipalCarrier.fromWorld(carrierSource, state.surveyExpeditions.destination.cityId, state.clock);
+        if (passengerSource) state.intercityPassenger = IntercityPassenger.create(passengerSource.city, passengerSource.standings, state.clock);
         state.surveyExpeditions.homeContext = clonePlainObject(context);
         state.surveyExpeditions.fieldContext = { ...clonePlainObject(context), siteId: state.surveyExpeditions.destination.id, strategicCellId: state.surveyExpeditions.destination.cellId };
         state.resourceSurveys = ResourceSurveys.defaultState(context);
@@ -88301,6 +88307,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function renderIntercityPassenger() {
     const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.intercityPassenger = 'true';
     panel.append(textEl('strong', 'Direct-Neighbor Passenger Travel'));
+    panel.append(renderTradeTripPreparation());
     const s = ensureIntercityPassenger(), local = intercityLocal();
     if (!local) { panel.append(textEl('p', 'Reach the existing home municipal survey-ground rendezvous first; city control is not required. Carrier records while away are dated, not live intelligence.')); return panel; }
     if (!s) { panel.append(textEl('p', 'No capable source-backed commercial passenger carrier is available at this city.')); return panel; }
@@ -88553,12 +88560,80 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const workMultiplier = action === "gateEnforcement" && ["speakCounsel", "courtConference"].includes(data.kind) ? 1 : WildernessSurvival.fatigueMultiplier(state.wildernessSurvival);
     const task = { id: `task-${state.nextTaskNumber++}`, type: "surveyExpeditionWork", label: data.label || (action === "pack" ? `Pack ${inventoryItemLabel(data.itemKey)}` : "Walk to and board survey vehicle"), createdAt: state.clock, dueAt: state.clock + travelSeconds + (data.workSeconds || 10) * workMultiplier,
       data: { ...data, action, ...(deliberateGateCrossing || localPrisonAction ? { accessOverrideAll: true } : {}), toCell: cleanMapCell(cell), toRoomId: labMapCellRoomId(cell), mapPath: path, movement: createScientistMovementRecord(path, travelSeconds, state.clock, { intent: "survey" }) } };
+    if (data.tradePacking && !reserveTradePackingSlice(task)) return false;
     state.tasks.push(task);
-    if (data.stackId) ensurePhysicalItemStacks().find((entry) => entry.id === data.stackId).reservedTaskId = task.id;
+    if (task.data.stackId) ensurePhysicalItemStacks().find((entry) => entry.id === task.data.stackId).reservedTaskId = task.id;
     if (data.toolInstanceId) toolInstanceById(data.toolInstanceId).instance.reservedTaskId = task.id;
     if (["pack", "board"].includes(action)) state.surveyExpeditions.preparing = !surveyScientistAway();
     surveyEvent(`${task.label} started; ${action === "castaway" ? "work requires physical arrival and available participants and supplies" : "packing and boarding require physical arrival"}.`);
     persist(); if (!options.deferRender) render(); return true;
+  }
+
+  function tradePackingContext(item = null, working = false) {
+    const roomId = scientistRoomId(), room = state.rooms.find(r => r.id === roomId);
+    const fixture = item?.fixtureId ? fixtureById(item.fixtureId) : null;
+    const atLab = !surveyScientistAway() && (room?.facilityClass === 'laboratory' || SURFACE_ROOM_IDS.includes(roomId));
+    return { atLab, alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist'),
+      free: !restrictedOffsiteStay() && !currentDetentionRaid(), busy: working ? false : surveyBusy(),
+      accessible: Boolean(!item || ((state.rooms.find(r => r.id === item.roomId)?.facilityClass === 'laboratory' || SURFACE_ROOM_IDS.includes(item.roomId))
+        && (!item.fixtureId || fixture?.accessState !== 'locked' && storageFixtureScientistAccessible(fixture)))),
+      remaining: actorInventorySnapshot('scientist').remaining, manifest: TradeTripPreparation.manifest(surveyCarriedStacks()) };
+  }
+  function reserveTradePackingSlice(task) {
+    const item = ensurePhysicalItemStacks().find(i => i.id === task.data.stackId);
+    const q = TradeTripPreparation.plan(item, task.data.amount, tradePackingContext(item));
+    if (!q.ok || task.data.tradeBodyEpoch !== ensureScientistIdentity().bodyEpoch) return false;
+    if (q.quantity < item.quantity) {
+      const slice = normalizePhysicalItemStack({ ...item, id: `stack-${state.nextPhysicalItemStackNumber++}`, quantity: q.quantity, knownQuantity: q.quantity }, state.nextPhysicalItemStackNumber);
+      item.quantity -= q.quantity; item.knownQuantity = Math.min(item.knownQuantity, item.quantity);
+      ensurePhysicalItemStacks().push(slice); task.data.stackId = slice.id;
+    }
+    return true;
+  }
+  function packTradeCargo(stackId, quantity) {
+    const item = ensurePhysicalItemStacks().find(i => i.id === stackId), c = tradePackingContext(item);
+    const q = TradeTripPreparation.plan(item, quantity, c);
+    if (!q.ok) { surveyEvent(q.reason); persist(); render(); return false; }
+    const cell = stockpileHaulAccessCell(item);
+    if (!cell || !queueSurveyWork('pack', cell, { stackId, itemKey: 'metalParts', amount: q.quantity, tradePacking: true,
+      tradeBodyEpoch: ensureScientistIdentity().bodyEpoch, tradeUnitMassKg: item.unitMassKg, tradeUnitVolumeL: item.unitVolumeL,
+      label: `Pack Trade Cargo: ${q.quantity} Metal Parts (${stackId})` })) {
+      surveyEvent('No lawful physical pickup route is available; the original lot remains untouched.'); persist(); render(); return false;
+    }
+    return true;
+  }
+  function renderTradeTripPreparation() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.tradeTripPreparation = 'true';
+    panel.append(textEl('h3', 'Trade-Trip Preparation'));
+    const c = tradePackingContext(), m = c.manifest, selection = ensureSurveyExpeditions();
+    panel.append(textEl('p', `Actual backpack headroom: ${formatNumber(c.remaining.massKg)} kg / ${formatNumber(c.remaining.volumeL)} L. Carried manifest: ${formatNumber(m.massKg)} kg / ${formatNumber(m.volumeL)} L against the published passenger allowance of 20 kg / 40 L. ${m.fitsPassenger ? 'Fits passenger mass/volume.' : 'Over passenger allowance; boarding will be refused.'}${m.reserved ? ' Reserved carried goods cannot board.' : ''}`));
+    for (const i of m.items) panel.append(textEl('p', `${i.id}: ${i.section === 'resources' ? resourceLabel(i.key) : inventoryItemLabel(i.key)} ×${i.quantity}; ${formatNumber(i.massKg)} kg / ${formatNumber(i.volumeL)} L${i.reserved ? '; reserved' : ''}${i.claimed ? '; claimed cargo, not personal sale stock' : ''}.`));
+    if (!m.items.length) panel.append(textEl('p', 'No physical carried goods. Gear and provisions left at the laboratory cannot be used away.'));
+    panel.append(textEl('p', TradeTripPreparation.WARNING));
+    if (!c.atLab) { panel.append(textEl('p', 'Pack trade cargo at the home laboratory before municipal departure. This manifest grants no new supplies or remote packing.')); return panel; }
+    const tasks = scientistQueueTasks().filter(t => t.data?.tradePacking);
+    for (const t of tasks) {
+      panel.append(textEl('p', `${t.label}: physical pickup pending. ${taskBlockReason(t)}`));
+      const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = `Cancel ${t.label}`;
+      cancel.onclick = () => cancelTask(t.id); panel.append(cancel);
+    }
+    const lots = ensurePhysicalItemStacks().filter(i => TradeTripPreparation.eligible(i))
+      .filter(i => state.rooms.find(r => r.id === i.roomId)?.facilityClass === 'laboratory' || SURFACE_ROOM_IDS.includes(i.roomId));
+    if (!lots.length) { panel.append(textEl('p', 'No player-owned unreserved metal-parts lot is available at the laboratory. No civic appointment is required.')); return panel; }
+    const choice = document.createElement('select'); choice.setAttribute('aria-label', 'Exact trade-cargo lot');
+    for (const i of lots) choice.append(new Option(`${i.id}: ${i.quantity} Metal Parts (${roomName(i.roomId)})`, i.id));
+    choice.value = lots.some(i => i.id === selection.tradePackingStackId) ? selection.tradePackingStackId : lots[0].id;
+    choice.onchange = () => { selection.tradePackingStackId = choice.value; persist(); render(); };
+    const quantity = document.createElement('select'); quantity.setAttribute('aria-label', 'Trade-cargo packing quantity');
+    for (let n = 1; n <= 6; n++) quantity.append(new Option(String(n), String(n)));
+    quantity.value = String(selection.tradePackingQuantity || 1); quantity.onchange = () => { selection.tradePackingQuantity = Number(quantity.value); persist(); render(); };
+    const lot = lots.find(i => i.id === choice.value), q = TradeTripPreparation.plan(lot, Number(quantity.value), tradePackingContext(lot));
+    const lotLabel = document.createElement('label'); lotLabel.append(textEl('span', 'Exact owned metal-parts lot'), choice);
+    const quantityLabel = document.createElement('label'); quantityLabel.append(textEl('span', 'Units to pack (maximum six carried metal parts)'), quantity);
+    panel.append(lotLabel, quantityLabel, textEl('p', q.ok ? `${q.quantity} units: ${formatNumber(q.massKg)} kg / ${formatNumber(q.volumeL)} L. Reserve only this slice; walk to it and complete physical pickup. Unsold remainder stays separate.` : q.reason));
+    const pack = document.createElement('button'); pack.type = 'button'; pack.textContent = 'Walk to and Pack Exact Trade Cargo'; pack.disabled = !q.ok;
+    pack.onclick = () => packTradeCargo(choice.value, Number(quantity.value)); panel.append(pack);
+    return panel;
   }
 
   function packSurveyItem(itemKey) {
@@ -88630,6 +88705,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (survivalReason) return survivalReason;
     if (task.data.action === "pack") {
       const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data.stackId);
+      if (task.data.tradePacking) {
+        if (task.data.tradeBodyEpoch !== ensureScientistIdentity().bodyEpoch) return 'The original body owns this packing task; a replacement cannot inherit pickup.';
+        const q = TradeTripPreparation.plan(stack, task.data.amount, tradePackingContext(stack, true), task.id);
+        if (!q.ok) return q.reason;
+        if (stack.unitMassKg !== task.data.tradeUnitMassKg || stack.unitVolumeL !== task.data.tradeUnitVolumeL) return 'The exact cargo dimensions changed; cancel and inspect the lot again.';
+      }
       if (!stack || stack.reservedTaskId !== task.id || stack.quantity < task.data.amount || stack.carriedBy) return "The reserved packing supply is no longer available.";
       if (stack.fixtureId && !storageFixtureScientistAccessible(fixtureById(stack.fixtureId))) return "The packing supply is no longer accessible in its storage fixture.";
       const accessCell = stockpileHaulAccessCell(stack);

@@ -25,11 +25,12 @@
       workSeconds: 14400, powerSeconds: 1800, provisionsSeconds: 28800, lastAt: at, serial: 0, orders: [], knowledge: null, message: '',
       salesTerms: copy(SALE_TERMS), bidHistory: [] };
   }
-  function saleLot(item) {
-    return Boolean(item?.id && item.section === 'resources' && item.key === 'metalParts' && item.carriedBy === 'scientist'
-      && Number.isInteger(item.quantity) && item.quantity > 0 && !item.reservedTaskId && !item.cityOwnerId && !item.civicCustody
+  function ownedMetalParts(item) {
+    return Boolean(item?.id && item.section === 'resources' && item.key === 'metalParts'
+      && Number.isInteger(item.quantity) && item.quantity > 0 && !item.cityOwnerId && !item.civicCustody
       && !item.carryTaskId && !item.toolInstanceId && !item.chemicalBatch && !item.contents?.length && !item.biology);
   }
+  function saleLot(item) { return ownedMetalParts(item) && item.carriedBy === 'scientist' && !item.reservedTaskId; }
   function saleQuote(s, market, def, item, quantity, c, at) {
     const n = Number(quantity), listing = market?.listings?.[def?.id];
     if (!s?.salesTerms || s.salesTerms.good !== def?.id || market?.id !== s.cityId || !listing || !def.sellable || !saleLot(item)
@@ -206,5 +207,5 @@
     }
     return s.knowledge;
   }
-  return { GOODS, MAX, HANDOFF, COLLECTION, FEE, SALE_TERMS, create, quote, buy, saleLot, saleQuote, sell, outer, advance, observe, active };
+  return { GOODS, MAX, HANDOFF, COLLECTION, FEE, SALE_TERMS, create, quote, buy, ownedMetalParts, saleLot, saleQuote, sell, outer, advance, observe, active };
 });
