@@ -241,6 +241,10 @@
           && ['named experimental successor', 'designation by the reigning protector'].includes(polity.successionPrinciple)
           && institutions.find(i => i.id === roleAssignments.publicWorksAndProvisioning).roles.length === 1
           ? Appointments.vacancyRuleFor(city.id, roleAssignments.publicWorksAndProvisioning, reviewId) : null,
+        maintenanceCargoRecovery: polity.authority.kind === 'individual'
+          && ['named experimental successor', 'designation by the reigning protector'].includes(polity.successionPrinciple)
+          && institutions.find(i => i.id === roleAssignments.publicWorksAndProvisioning).roles.length === 1
+          ? Appointments.cargoRecoveryRuleFor(city.id, roleAssignments.publicWorksAndProvisioning) : null,
         publicWorksRoleReassignment: polity.authority.kind === 'individual'
           && ['named experimental successor', 'designation by the reigning protector'].includes(polity.successionPrinciple)
           && JSON.stringify(institutions.find(i => i.id === roleAssignments.publicWorksAndProvisioning).roles) === JSON.stringify(['emergencyManagement', 'publicWorksAndProvisioning'])

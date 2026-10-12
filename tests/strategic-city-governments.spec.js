@@ -123,6 +123,8 @@ test('public-works replacement rules are explicit published law only for separat
     expect(directory.find(d => d.city.id === g.cityId).charter.publicWorksAppointment).toEqual(g.charter.publicWorksAppointment);
     expect(g.charter.publicWorksVacancy).toEqual(supported ? A.vacancyRuleFor(g.cityId, office.id, g.roleAssignments.civicReview) : null);
     expect(directory.find(d => d.city.id === g.cityId).charter.publicWorksVacancy).toEqual(g.charter.publicWorksVacancy);
+    expect(g.charter.maintenanceCargoRecovery).toEqual(supported ? A.cargoRecoveryRuleFor(g.cityId, office.id) : null);
+    expect(directory.find(d => d.city.id === g.cityId).charter.maintenanceCargoRecovery).toEqual(g.charter.maintenanceCargoRecovery);
     expect(g.charter.civilInstallationAccess).toEqual(supported ? Civil.ruleFor(g.cityId, office.id, g.roleAssignments.civicReview, g.roleAssignments.militaryDefenseCommand) : null);
     expect(directory.find(d => d.city.id === g.cityId).charter.civilInstallationAccess).toEqual(g.charter.civilInstallationAccess);
     if (supported) applicable++;

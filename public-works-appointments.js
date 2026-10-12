@@ -3,10 +3,11 @@
     typeof module === 'object' && module.exports ? require('./civil-installation-access') : root.HelixCivilInstallationAccess,
     typeof module === 'object' && module.exports ? require('./charter-recognition') : root.HelixCharterRecognition,
     typeof module === 'object' && module.exports ? require('./public-works-recognition') : root.HelixPublicWorksRecognition,
-    typeof module === 'object' && module.exports ? require('./public-works-vacancies') : root.HelixPublicWorksVacancies);
+    typeof module === 'object' && module.exports ? require('./public-works-vacancies') : root.HelixPublicWorksVacancies,
+    typeof module === 'object' && module.exports ? require('./municipal-cargo-recovery') : root.HelixMunicipalCargoRecovery);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixPublicWorksAppointments = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Institutions, CivilAccess, Charter, Works, Vacancies) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Institutions, CivilAccess, Charter, Works, Vacancies, CargoRecovery) {
   'use strict';
   const ROLE = 'publicWorksAndProvisioning', REASON = 'changeMaintenanceSteward';
   const HOME = Object.freeze({ x: 19, y: 12, z: 6 });
@@ -550,7 +551,8 @@
       working: s.job && { kind: s.job.kind, progress: s.job.progress, seconds: s.job.seconds, clearingPost: s.job.clearingPost },
       approaching: Boolean(s.travel), message: s.message, history: copy(s.history), limitations: scopeFor(s) };
   }
-  return { ROLE, REASON, HOME, RETIRED_POST, LIMITS, COMBINED_LIMITS, ruleFor, roleRuleFor, disputedRuleFor, vacancyRuleFor: Vacancies.ruleFor, create, normalize, incumbent, reviewer, bound, localReason,
+  return { ROLE, REASON, HOME, RETIRED_POST, LIMITS, COMBINED_LIMITS, ruleFor, roleRuleFor, disputedRuleFor, vacancyRuleFor: Vacancies.ruleFor,
+    cargoRecoveryRuleFor: CargoRecovery.ruleFor, create, normalize, incumbent, reviewer, bound, localReason,
     discuss, propose, hear, appoint, approach, transfer, discussAccess, inspectAccess, settleAccess, declineAccess,
     custodyInventory, compulsoryTransfer, authenticAppointment, cancel, advance, authorization, publicView };
 });

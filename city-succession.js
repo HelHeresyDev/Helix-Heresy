@@ -38,6 +38,7 @@
       publicWorksRoleReassignment: copy(g.charter.publicWorksRoleReassignment || null),
       disputedPublicWorksAppointment: copy(g.charter.disputedPublicWorksAppointment || null),
       publicWorksVacancy: copy(g.charter.publicWorksVacancy || null),
+      maintenanceCargoRecovery: copy(g.charter.maintenanceCargoRecovery || null),
       civilInstallationAccess: copy(g.charter.civilInstallationAccess || null),
       institutions: roles.map((role, n) => ({ role, id: institutions[n].id, name: institutions[n].publicName || institutions[n].name || role,
         responsibilities: copy(institutions[n].responsibilities || []), officeRoles: copy(institutions[n].roles || []),

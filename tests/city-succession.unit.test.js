@@ -115,6 +115,7 @@ test('designation binds existing individual ruler, charter, actual institutions 
   assert.equal(Succession.sourceFromWorld(map, f.b).publicWorksRoleReassignment, null);
   assert.equal(Succession.sourceFromWorld(map, f.b).disputedPublicWorksAppointment, null);
   assert.equal(Succession.sourceFromWorld(map, f.b).publicWorksVacancy, null);
+  assert.equal(Succession.sourceFromWorld(map, f.b).maintenanceCargoRecovery, null);
   government.charter.designationReview = { id: 'original-law', principle: f.source.succession,
     reviewInstitutionId: government.roleAssignments.civicReview, coercionRule: 'independentConfirmationPermitted', requiredAuthorizationIds: [] };
   const published = Succession.sourceFromWorld(map, f.b).designationReview;
@@ -126,6 +127,7 @@ test('designation binds existing individual ruler, charter, actual institutions 
   const reviewId = government.roleAssignments.civicReview;
   government.charter.publicWorksAppointment = Appointments.ruleFor('a', worksId, reviewId);
   government.charter.publicWorksVacancy = Appointments.vacancyRuleFor('a', worksId, reviewId);
+  government.charter.maintenanceCargoRecovery = Appointments.cargoRecoveryRuleFor('a', worksId);
   government.charter.civilInstallationAccess = require('../civil-installation-access').ruleFor('a', worksId, reviewId, government.roleAssignments.militaryDefenseCommand);
   for (const i of government.institutions) { i.roles = [i.role]; i.appointmentMethod = 'appointmentBySovereignAuthority'; }
   const replacementSource = Succession.sourceFromWorld(map, f.b);
@@ -133,6 +135,9 @@ test('designation binds existing individual ruler, charter, actual institutions 
   assert.deepEqual(replacementSource.publicWorksVacancy, government.charter.publicWorksVacancy);
   replacementSource.publicWorksVacancy.minimumMaintenance = 0;
   assert.equal(government.charter.publicWorksVacancy.minimumMaintenance, 40);
+  assert.deepEqual(replacementSource.maintenanceCargoRecovery, government.charter.maintenanceCargoRecovery);
+  replacementSource.maintenanceCargoRecovery.collectionSeconds = 0;
+  assert.equal(government.charter.maintenanceCargoRecovery.collectionSeconds, 60);
   assert.deepEqual(replacementSource.civilInstallationAccess, government.charter.civilInstallationAccess);
   replacementSource.civilInstallationAccess.contactSeconds = 0;
   assert.equal(government.charter.civilInstallationAccess.contactSeconds, 20);

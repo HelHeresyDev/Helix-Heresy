@@ -1,10 +1,11 @@
 (function (root, factory) {
   const api = factory(typeof module === 'object' && module.exports ? require('./theme-content') : root.HelixThemeContent,
     typeof module === 'object' && module.exports ? require('./public-works-recognition') : root.HelixPublicWorksRecognition,
-    typeof module === 'object' && module.exports ? require('./public-works-appointments') : root.HelixPublicWorksAppointments);
+    typeof module === 'object' && module.exports ? require('./public-works-appointments') : root.HelixPublicWorksAppointments,
+    typeof module === 'object' && module.exports ? require('./municipal-cargo-recovery') : root.HelixMunicipalCargoRecovery);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixCityAdministration = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Theme, PublicWorks, Appointments) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Theme, PublicWorks, Appointments, CargoRecovery) {
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v));
   const registry = Theme.createRegistry([{ id: 'administration.shared.counter-upkeep', kind: 'cityAdministration', compatibility: 'shared',
@@ -119,14 +120,17 @@
   function order(s, succession, bargain, office, stacks, expected, c, at) {
     const a = worker(s, succession);
     if (localReason(s, succession, office, c) || !s.inspection || !same(expected, s.inspection) || s.inspection.dueAt !== s.dueAt
-      || s.job || !able(a) || a.assignment || office.assignment || succession.job || succession.directive?.status === 'carrying'
+      || s.job || s.cargoRecovery?.job || !able(a) || a.assignment || office.assignment || succession.job || succession.directive?.status === 'carrying'
       || !c.externalPowered || office.power < 1 || office.workSeconds < 30 || a.workSeconds < WORK + 60
       || s.servicedAt != null && at < s.dueAt) return false;
     const staged = c.stagedSupplyReachable !== false && stacks.find(i => i.key === 'metalParts' && clean(i) && i.quantity >= PARTS && i.cityOwnerId === s.cityId
       && i.civicCustody?.cityId === s.cityId && i.reservedTaskId === reserveKey(s, succession)
       && suppliedCustody(s, i, succession)
       && !i.carriedBy && cellSame(i.cell, RECEIVING));
-    const source = staged ? { kind: 'stack', id: staged.id, cell: copy(staged.cell), reservation: staged.reservedTaskId }
+    const recovered = CargoRecovery.readyLot(s, succession, office, stacks, c);
+    const source = recovered ? { kind: 'recovered', id: recovered.id, cell: copy(a.mapCell), reservation: recovered.reservedTaskId,
+      recoveryReceiptId: s.cargoRecovery.receipt.id }
+      : staged ? { kind: 'stack', id: staged.id, cell: copy(staged.cell), reservation: staged.reservedTaskId }
       : !s.authorizationId && c.reserveCollectionCell !== null && succession.provision.stock >= PARTS && !succession.provision.reservedBy && able(bargain.defender) && bargain.defender.workSeconds >= 1
         && bargain.defender.mapCell && bargain.defender.locationId === s.officeId && !bargain.defender.assignment
         && (!c.reserveCollectionCell || c.reserveCollectionCell.z === bargain.defender.mapCell.z
@@ -136,7 +140,7 @@
     const id = `${s.id}:service:${s.nextNumber++}`;
     s.job = { id, status: 'collecting', authorizedAt: at, essentialOnly: !authorization(s, succession, office, c),
       terms: copy(expected), workerId: a.id, source, cargo: null, progress: 0, lastAt: at, walkCredit: 0, wasReady: true };
-    if (staged) staged.reservedTaskId = id; else succession.provision.reservedBy = id;
+    if (recovered) recovered.reservedTaskId = id; else if (staged) staged.reservedTaskId = id; else succession.provision.reservedBy = id;
     a.assignment = id;
     office.power--; office.workSeconds -= 30; a.workSeconds -= 30;
     note(s, at, 'order', s.job.essentialOnly
@@ -194,7 +198,8 @@
     const a = staff(succession, bargain, office, s).find(a => a.id === personId), duty = a === office.clerk ? office : a;
     if ((!authorization(s, succession, office, c) || c.recognitions?.charter?.reconsideration)
       && ![s.workerId, office.clerk.id].includes(personId)) return false;
-    const pausedJob = a?.id === s.workerId && s.job && a.assignment === s.job.id;
+    const pausedJob = a?.id === s.workerId && (s.job && a.assignment === s.job.id ? s.job
+      : s.cargoRecovery?.job && s.cargoRecovery.job.phase !== 'recording' && a.assignment === s.cargoRecovery.job.id ? s.cargoRecovery.job : null);
     if (!living(a) || !Number.isFinite(s.workCaps[a.id]) || a.assignment && !pausedJob || duty.assignment && !pausedJob || !c.staffPresentIds?.includes(a.id) || s.rests.some(r => r.personId === a.id)
       || !(duty.workSeconds < s.workCaps[a.id] || (a.fatigue || 0) > 0)) return false;
     const item = stacks.find(i => i.key === 'fieldRation' && clean(i) && i.carriedBy === 'scientist' && !i.reservedTaskId && !i.cityOwnerId);
@@ -202,8 +207,8 @@
     item.quantity--; item.knownQuantity = Math.min(item.knownQuantity ?? item.quantity, item.quantity);
     const id = `${s.id}:shift:${s.nextNumber++}`;
     s.rests.push({ id, personId: a.id, stackId: item.id, startedAt: at, lastAt: at, progress: 0, wasReady: true,
-      resumeAssignment: pausedJob ? s.job.id : null, cell: copy(a.mapCell), locationId: a.locationId });
-    if (pausedJob) { s.job.wasReady = false; s.job.walkCredit = 0; s.job.lastAt = at; }
+      resumeAssignment: pausedJob ? pausedJob.id : null, cell: copy(a.mapCell), locationId: a.locationId });
+    if (pausedJob) { pausedJob.wasReady = false; pausedJob.walkCredit = 0; pausedJob.lastAt = at; }
     a.assignment = id; duty.assignment = id;
     note(s, at, 'rest', 'An existing civic person accepted one supplied eight-hour off-duty recovery period. They cannot perform simultaneous work; provisions are spent, not a daily reset.'); return true;
   }
@@ -225,6 +230,9 @@
         if (a.assignment === r.id) a.assignment = null;
         if (duty.assignment === r.id) duty.assignment = null;
         if (r.resumeAssignment && s.job?.id === r.resumeAssignment) { a.assignment = s.job.id; s.job.lastAt = at; }
+        if (r.resumeAssignment && s.cargoRecovery?.job?.id === r.resumeAssignment) {
+          a.assignment = s.cargoRecovery.job.id; s.cargoRecovery.job.lastAt = at;
+        }
         if (a === office.clerk) office.availableAt = Math.max(office.availableAt || 0, at - (delta - recovered));
         s.rests = s.rests.filter(x => x.id !== r.id);
         s.receipts.push({ id: `${r.id}:receipt`, at: at - (delta - recovered),
@@ -248,7 +256,10 @@
           }
           if (j.status === 'collecting') {
             const item = stacks.find(i => i.id === j.source.id);
-            const original = j.source.kind === 'stack' ? item && clean(item) && item.quantity >= PARTS && !item.carriedBy
+            const original = j.source.kind === 'recovered'
+              ? item && CargoRecovery.readyLot(s, succession, office, stacks, c, j.id) === item
+                && j.source.recoveryReceiptId === s.cargoRecovery.receipt.id
+              : j.source.kind === 'stack' ? item && clean(item) && item.quantity >= PARTS && !item.carriedBy
               && item.cityOwnerId === s.cityId && item.civicCustody?.cityId === s.cityId && item.reservedTaskId === j.id && cellSame(item.cell, j.source.cell)
               && suppliedCustody(s, item, succession)
               : succession.provision.stock >= PARTS && succession.provision.reservedBy === j.id && able(bargain.defender)
@@ -259,7 +270,12 @@
             j.cargo = { key: 'metalParts', quantity: PARTS, cityId: s.cityId, custodianId: a.id,
               sourceId: j.source.id || j.source.custodianId, sourceReceiptIds: copy(s.authorizationId
                 ? s.receipts.filter(r => r.stagedStackId === j.source.id).map(r => r.id) : succession.provision.receipts.map(r => r.id)) };
-            if (j.source.kind === 'stack') { item.quantity -= PARTS; item.knownQuantity = Math.min(item.knownQuantity ?? item.quantity, item.quantity); }
+            if (j.source.kind === 'recovered') {
+              j.cargo.sourceReceiptIds = copy(item.civicCustody.sourceReceiptIds);
+              j.cargo.recoveryReceiptId = s.cargoRecovery.receipt.id;
+              item.quantity -= PARTS; item.knownQuantity = Math.min(item.knownQuantity ?? item.quantity, item.quantity);
+              s.cargoRecovery.consumed = { at: cursor, jobId: j.id, stackId: item.id, quantity: PARTS };
+            } else if (j.source.kind === 'stack') { item.quantity -= PARTS; item.knownQuantity = Math.min(item.knownQuantity ?? item.quantity, item.quantity); }
             else { succession.provision.stock -= PARTS; bargain.defender.workSeconds--; delete succession.provision.reservedBy; }
             j.status = 'installing'; changed = true; continue;
           }
@@ -289,7 +305,7 @@
       job: s.job && { id: s.job.id, status: s.job.status, workerId: s.job.workerId, progress: s.job.progress,
         carrying: s.job.cargo?.quantity || 0, workSeconds: WORK },
       rests: s.rests.map(r => ({ personId: r.personId, progress: r.progress, seconds: REST })),
-      receipts: copy(s.receipts), message: s.message, limitations: LIMITS };
+      receipts: copy(s.receipts), cargoRecovery: CargoRecovery.publicView(s.cargoRecovery), message: s.message, limitations: LIMITS };
   }
   return { PERIOD, GRACE, REST, WORK, PARTS, POWER_CAP, WORK_CELL, RECOGNIZED_WORK_CELL, RECEIVING, LIMITS, create, normalize, worker, staff,
     authorization, bodyEpoch, reserveKey, agreement, commandLink, suppliedCustody,

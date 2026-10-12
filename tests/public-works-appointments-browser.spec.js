@@ -20,7 +20,7 @@ async function finishWalk(page) {
       cell: d.surveyExpeditionSnapshot().scientistCell, combat: d.combatSnapshot().routineSuspension })}`);
   });
 }
-async function setup(page, renderer = 'dom', obstruct = false, accessPolicy = 'rejectReplacement', civilPolicy = null, combinedWorks = false, opposition = null, vacancy = false) {
+async function setup(page, renderer = 'dom', obstruct = false, accessPolicy = 'rejectReplacement', civilPolicy = null, combinedWorks = false, opposition = null, vacancy = false, retainedCargo = false) {
   await page.goto(pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href);
   await page.evaluate(renderer => { localStorage.clear(); localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: renderer })); }, renderer);
   await page.reload();
@@ -35,9 +35,10 @@ async function setup(page, renderer = 'dom', obstruct = false, accessPolicy = 'r
   });
   expect(await act(page, 'discuss')).toBe(false);
   expect(await succession(page, 'walk')).toBe(true); await finishWalk(page);
-  expect(await page.evaluate(({ civilPolicy, combinedWorks, vacancy }) => window.helixHeresyDebug.configureCitySuccessionTest({ retirement: true, appointmentLaw: true, combinedWorks,
+  expect(await page.evaluate(({ civilPolicy, combinedWorks, vacancy, retainedCargo }) => window.helixHeresyDebug.configureCitySuccessionTest({ retirement: true, appointmentLaw: true, combinedWorks,
+    ...(retainedCargo ? { recoveryLaw: true } : {}),
     ...(vacancy ? { vacancyLaw: true, officeWork: 1800 } : {}),
-    ...(civilPolicy ? { civilAccessLaw: true, officeWork: 1800 } : {}) }), { civilPolicy, combinedWorks, vacancy })).toBe(true);
+    ...(civilPolicy ? { civilAccessLaw: true, officeWork: 1800 } : {}) }), { civilPolicy, combinedWorks, vacancy, retainedCargo })).toBe(true);
   expect(await succession(page, 'request')).toBe(true);
   await page.evaluate(() => window.helixHeresyDebug.advanceCitySuccessionForTest(30));
   expect(await succession(page, 'hear')).toBe(true);
@@ -64,10 +65,10 @@ async function setup(page, renderer = 'dom', obstruct = false, accessPolicy = 'r
     expect(await admin(page, 'rest', s.office.clerk.id)).toBe(true);
     await page.evaluate(() => window.helixHeresyDebug.advanceCityAdministrationForTest(28800));
   }
-  const configured = await page.evaluate(({ obstruct, accessPolicy, civilPolicy, opposition, vacancy }) => window.helixHeresyDebug.configureCityAppointmentsTest({ maintenance: 50, willing: true, obstruct, accessPolicy,
-    ...(vacancy ? { incumbentHealth: 1 } : {}),
+  const configured = await page.evaluate(({ obstruct, accessPolicy, civilPolicy, opposition, vacancy, retainedCargo }) => window.helixHeresyDebug.configureCityAppointmentsTest({ maintenance: 50, willing: true, obstruct, accessPolicy,
+    ...(vacancy && !retainedCargo ? { incumbentHealth: 1 } : {}),
     organize: Boolean(opposition), ...(opposition || {}),
-    ...(civilPolicy ? { civilPolicy, resistanceStrength: 20 } : {}) }), { obstruct, accessPolicy, civilPolicy, opposition, vacancy });
+    ...(civilPolicy ? { civilPolicy, resistanceStrength: 20 } : {}) }), { obstruct, accessPolicy, civilPolicy, opposition, vacancy, retainedCargo });
   const diagnostic = configured ? null : await snap(page);
   expect(configured, JSON.stringify({ appointments: diagnostic?.appointments, context: diagnostic && {
     atCounter: diagnostic.context.atCounter, busy: diagnostic.context.busy, rule: diagnostic.context.appointmentRule,
@@ -75,15 +76,23 @@ async function setup(page, renderer = 'dom', obstruct = false, accessPolicy = 'r
   expect((await page.evaluate(() => window.helixHeresyDebug.cityAppointmentGroundSnapshot())).load).toBe(.6);
   await page.locator('[data-workspace-tab="visits"]').click();
 }
-for (const renderer of ['dom', 'canvas']) test(`${renderer}: death vacancy uses actual combat death, emergency hearing and physical supplied maintenance`, async ({ page }) => {
+for (const renderer of ['dom', 'canvas']) for (const retainedCargo of [false, true]) test(`${renderer}: ${retainedCargo ? 'retained cargo recovery after ' : ''}death vacancy uses actual combat death, emergency hearing and physical supplied maintenance`, async ({ page }) => {
+  if (retainedCargo) test.setTimeout(480000); // Includes real succession, vacancy, recovery and fresh repair, not injected outcomes.
   const errors = []; page.on('pageerror', e => errors.push(e.message));
-  await setup(page, renderer, false, 'rejectReplacement', null, false, null, true);
+  await setup(page, renderer, false, 'rejectReplacement', null, false, null, true, retainedCargo);
   let s = await snap(page);
   const original = { candidate: s.appointments.candidate.id, handover: s.succession.handover,
     agreements: s.succession.agreements, stock: s.succession.provision.stock, dueAt: s.administration.dueAt,
     graceUntil: s.administration.graceUntil };
   expect(await act(page, 'vacancyObserve')).toBe(false);
-  const old = s.succession.leaders.find(a => a.id === s.appointments.incumbentId);
+  if (retainedCargo) {
+    expect(await admin(page, 'inspect')).toBe(true); s = await snap(page);
+    expect(await admin(page, 'order', s.administration.inspection)).toBe(true);
+    await page.evaluate(() => window.helixHeresyDebug.advanceCityAdministrationForTest(1));
+    s = await snap(page); expect(s.administration.job.cargo.quantity).toBe(3); expect(s.administration.job.progress).toBe(0);
+    expect(await page.evaluate(() => window.helixHeresyDebug.configureCityAppointmentsTest({ incumbentHealth: 1 }))).toBe(true);
+  }
+  s = await snap(page); const old = s.succession.leaders.find(a => a.id === s.appointments.incumbentId);
   // Only initial bodily condition was prepared. Ordinary walking and combat
   // must produce death; no vacancy, testimony, signature or transfer is inserted.
   await page.evaluate(() => window.helixHeresyDebug.configureDefenderChallengeTest({ mastery: true }));
@@ -121,8 +130,35 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: death vacancy uses 
   expect(s.administration.workerId).toBe(original.candidate); expect(s.appointments.candidate.id).toBe(original.candidate);
   expect(s.succession.handover).toEqual(original.handover); expect(s.succession.agreements).toEqual(original.agreements);
   expect(s.succession.provision.stock).toBe(original.stock); expect(s.administration.dueAt).toBe(original.dueAt);
-  expect(s.office.maintenanceReady).toBe(false); expect(s.appointments.vacancy.receipt.inventory.goods.length).toBeGreaterThan(0);
-  expect(s.context.stagedSupplyReachable).toBe(false);
+  expect(s.office.maintenanceReady).toBe(false);
+  if (!retainedCargo) {
+    expect(s.appointments.vacancy.receipt.inventory.goods.length).toBeGreaterThan(0);
+    expect(s.context.stagedSupplyReachable).toBe(false);
+  } else {
+    expect(s.appointments.vacancy.receipt.inventory.deceasedCargo.quantity).toBe(3);
+    const adminPanel = page.locator('[data-city-administration]');
+    await adminPanel.locator('[data-administration-action="recoveryInspect"]').click();
+    let r = (await snap(page)).administration.cargoRecovery;
+    expect(r.inspection.proof.cargo.quantity).toBe(3);
+    expect(await admin(page, 'recoveryAuthorize', { ...r.inspection, scope: 'private confiscation' })).toBe(false);
+    await adminPanel.locator('[data-administration-action="recoveryAuthorize"]').click();
+    await page.evaluate(() => window.helixHeresyDebug.advanceCityAdministrationForTest(15));
+    await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+    await page.evaluate(() => window.helixHeresyDebug.advanceCityAdministrationForTest(15));
+    r = (await snap(page)).administration.cargoRecovery; expect(r.order).toBeTruthy(); expect(r.collection).toBeNull();
+    await page.evaluate(() => window.helixHeresyDebug.advanceCityAdministrationForTest(31));
+    r = (await snap(page)).administration.cargoRecovery; expect(r.collection).toBeNull();
+    await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+    await page.evaluate(() => window.helixHeresyDebug.advanceCityAdministrationForTest(90));
+    s = await snap(page); r = s.administration.cargoRecovery;
+    expect(r.receipt, JSON.stringify({ phase: r.job?.phase, progress: r.job?.progress,
+      cell: s.appointments.candidate.mapCell, collected: Boolean(r.collection), capacity: s.context.recoveryCanCarry })).toBeTruthy();
+    const lot = (await page.evaluate(() => window.helixHeresyDebug.cityAdministrationSnapshot())).stacks.find(i => i.id === r.collection.stackId);
+    expect(lot.carriedBy).toBe(original.candidate); expect(lot.cityOwnerId).toBe('a'); expect(lot.quantity).toBe(3);
+    expect(s.succession.leaders.find(a => a.id === old.id).civicMaintenanceCargo).toBeNull();
+    expect(s.succession.provision.stock).toBe(original.stock); expect(s.office.maintenanceReady).toBe(false);
+    expect(await admin(page, 'recoveryInspect')).toBe(false);
+  }
   expect(s.succession.leaders.find(a => a.id === old.id).mapCell).toEqual(remains.mapCell);
   expect(await admin(page, 'inspect')).toBe(true);
   let a = await page.evaluate(() => window.helixHeresyDebug.cityAdministrationSnapshot());
@@ -132,8 +168,12 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: death vacancy uses 
   a = await page.evaluate(() => window.helixHeresyDebug.cityAdministrationSnapshot());
   expect(a.administration.job).toBeNull(); expect(a.office.maintenanceReady).toBe(true);
   expect(a.administration.receipts.find(r => r.installationId).personId).toBe(original.candidate);
-  expect(a.administration.receipts.find(r => r.installationId).source.kind).toBe('reserve');
-  expect(a.succession.provision.stock).toBe(original.stock - 3);
+  expect(a.administration.receipts.find(r => r.installationId).source.kind).toBe(retainedCargo ? 'recovered' : 'reserve');
+  expect(a.succession.provision.stock).toBe(original.stock - (retainedCargo ? 0 : 3));
+  if (retainedCargo) {
+    expect(a.administration.cargoRecovery.consumed.quantity).toBe(3);
+    expect(a.succession.leaders.find(a => a.id === old.id).mapCell).toEqual(remains.mapCell);
+  }
   await expect(panel).toContainText('Physical vacancy transfer recorded');
   expect(errors).toEqual([]);
 });
