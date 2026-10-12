@@ -2,10 +2,11 @@
   const api = factory(typeof module === 'object' && module.exports ? require('./home-institution-context') : root.HelixHomeInstitutionContext,
     typeof module === 'object' && module.exports ? require('./civil-installation-access') : root.HelixCivilInstallationAccess,
     typeof module === 'object' && module.exports ? require('./charter-recognition') : root.HelixCharterRecognition,
-    typeof module === 'object' && module.exports ? require('./public-works-recognition') : root.HelixPublicWorksRecognition);
+    typeof module === 'object' && module.exports ? require('./public-works-recognition') : root.HelixPublicWorksRecognition,
+    typeof module === 'object' && module.exports ? require('./public-works-vacancies') : root.HelixPublicWorksVacancies);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixPublicWorksAppointments = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Institutions, CivilAccess, Charter, Works) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Institutions, CivilAccess, Charter, Works, Vacancies) {
   'use strict';
   const ROLE = 'publicWorksAndProvisioning', REASON = 'changeMaintenanceSteward';
   const HOME = Object.freeze({ x: 19, y: 12, z: 6 });
@@ -150,7 +151,7 @@
     return '';
   }
   function free(s, succession, upkeep, office) {
-    return !s.job && !s.travel && !office.assignment && !office.clerk.assignment && !succession.job
+    return !s.job && !s.travel && !s.vacancy && !office.assignment && !office.clerk.assignment && !succession.job
       && !upkeep.job && !upkeep.rests.length && !upkeep.resistance?.job && succession.directive?.status !== 'carrying';
   }
   function actors(s, succession, office, kind) {
@@ -508,6 +509,7 @@
       && same(s.terms.incomingRoles, [ROLE]) && s.terms.scope === COMBINED_LIMITS && s.review?.continuity && same(s.terms.continuity, s.review.continuity));
   }
   function authorization(s, succession, upkeep, office, c) {
+    if (s?.vacancy?.receipt) return Vacancies.authorization(s, succession, upkeep, office, c);
     return bound(s, succession, upkeep, office, c) && c.alive && c.bodyEpoch === s.bodyEpoch
       && s.receipt && s.receipt.id === upkeep.appointmentId && s.receipt.appointmentId === s.appointment?.id
       && s.receipt.incomingId === s.candidate?.id && s.receipt.outgoingId === s.incumbentId
@@ -541,14 +543,14 @@
     return { phase: s.phase, rule: copy(s.rule), candidate: s.candidate && { id: s.candidate.id, name: s.candidate.name },
       dossier: copy(s.dossier), proposal: copy(s.proposal), review: copy(s.review), terms: copy(s.terms),
       appointment: copy(s.appointment), receipt: copy(s.receipt), obstruction: copy(s.obstruction || null),
-      access: copy(s.access || null),
+      access: copy(s.access || null), vacancy: Vacancies.publicView(s.vacancy),
       enforcement: CivilAccess.publicView(s.enforcement),
       previousObjections: [s.archivedResistance?.notice, ...(s.archivedResistance?.incidents || [])]
         .filter(n => n?.receivedAt != null).map(n => ({ at: n.receivedAt, finding: n.finding, review: n.review?.status === 'completed' ? n.review.finding : null })),
       working: s.job && { kind: s.job.kind, progress: s.job.progress, seconds: s.job.seconds, clearingPost: s.job.clearingPost },
       approaching: Boolean(s.travel), message: s.message, history: copy(s.history), limitations: scopeFor(s) };
   }
-  return { ROLE, REASON, HOME, RETIRED_POST, LIMITS, COMBINED_LIMITS, ruleFor, roleRuleFor, disputedRuleFor, create, normalize, incumbent, reviewer, bound, localReason,
+  return { ROLE, REASON, HOME, RETIRED_POST, LIMITS, COMBINED_LIMITS, ruleFor, roleRuleFor, disputedRuleFor, vacancyRuleFor: Vacancies.ruleFor, create, normalize, incumbent, reviewer, bound, localReason,
     discuss, propose, hear, appoint, approach, transfer, discussAccess, inspectAccess, settleAccess, declineAccess,
     custodyInventory, compulsoryTransfer, authenticAppointment, cancel, advance, authorization, publicView };
 });

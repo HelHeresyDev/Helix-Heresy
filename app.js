@@ -113,6 +113,7 @@
   const CitySuccession = window.HelixCitySuccession;
   const CityAdministration = window.HelixCityAdministration;
   const PublicWorksAppointments = window.HelixPublicWorksAppointments;
+  const PublicWorksVacancies = window.HelixPublicWorksVacancies;
   const CivilInstallationAccess = window.HelixCivilInstallationAccess;
   const LocalOpposition = window.HelixLocalOpposition;
   const MunicipalSafeguards = window.HelixMunicipalSafeguards;
@@ -14671,6 +14672,8 @@
         if (options.civilPolicy != null && ['considerCivilEscort', 'declineCivilEscort'].includes(options.civilPolicy)) state.sovereignBargains.defender.civilAccessPolicy = options.civilPolicy;
         if (options.resistanceStrength != null) PublicWorksAppointments.incumbent(s, state.citySuccession).physicalControl.strength = options.resistanceStrength;
         const old = PublicWorksAppointments.incumbent(s, state.citySuccession);
+        if (options.incumbentHealth != null && Number.isFinite(options.incumbentHealth) && options.incumbentHealth > 0)
+          old.health = Math.min(old.maxHealth || 100, options.incumbentHealth);
         const watch = state.citySuccession.leaders.find(a => a.roles.length === 1 && a.roles[0] === 'civilWatch');
         if (options.organize != null) old.oppositionPolicy = options.organize ? 'seekSafeguards' : 'retainPrivateDissent';
         if (watch && options.joinOpposition != null) watch.oppositionPolicy = options.joinOpposition ? 'joinCustodySafeguards' : 'retainIndependentDuty';
@@ -14685,8 +14688,9 @@
         while (remaining > 0 && !scientistIsDead()) {
           const s = state.citySuccession?.appointments;
           const e = s?.enforcement;
-          const step = Math.min(remaining, s?.travel || s?.job?.clearingPost || e?.escort?.status === 'active' || s?.opposition ? 1
-            : s?.job ? Math.max(1, s.job.seconds - s.job.progress) : e?.job ? Math.max(1, e.job.seconds - e.job.progress) : 60);
+          const step = Math.min(remaining, s?.travel || s?.vacancy?.travel || s?.job?.clearingPost || e?.escort?.status === 'active' || s?.opposition ? 1
+            : s?.vacancy?.job ? Math.max(1, s.vacancy.job.seconds - s.vacancy.job.progress)
+              : s?.job ? Math.max(1, s.job.seconds - s.job.progress) : e?.job ? Math.max(1, e.job.seconds - e.job.progress) : 60);
           state.clock += step; remaining -= step; updateCityAdministration();
         }
         persist(); render(); return state.clock;
@@ -14741,6 +14745,7 @@
           b.testSuccessionSource.population = 100;
           if (options.combinedWorks && !state.citySuccession) b.testSuccessionSource.publicWorksRoleReassignment = PublicWorksAppointments.roleRuleFor(b.source.cityId, 'test-publicWorksAndProvisioning', 'test-civicReview');
           else b.testSuccessionSource.publicWorksAppointment = PublicWorksAppointments.ruleFor(b.source.cityId, 'test-publicWorksAndProvisioning', 'test-civicReview');
+          if (options.vacancyLaw && !options.combinedWorks) b.testSuccessionSource.publicWorksVacancy = PublicWorksVacancies.ruleFor(b.source.cityId, 'test-publicWorksAndProvisioning', 'test-civicReview');
           if (options.civilAccessLaw && !options.combinedWorks) b.testSuccessionSource.civilInstallationAccess = CivilInstallationAccess.ruleFor(b.source.cityId, 'test-publicWorksAndProvisioning', 'test-civicReview', b.source.defenseId);
         }
         if (!state.citySuccession) {
@@ -36434,7 +36439,8 @@
     if (clinician && clinician.id !== excludeActor?.id && mapCellKey(clinician.mapCell) === key) occupied += .6;
     for (const office of state.economy?.intercitySmuggling?.identityOffices || []) if (office.civicCounter && office.clerk.id !== excludeActor?.id && mapCellKey(office.clerk.mapCell) === key) occupied += .6;
     for (const actor of [state.sovereignBargains?.representative, state.sovereignBargains?.defender, state.religiousRecognition?.actor, ...citySuccessionPeople(), state.citySuccession?.appointments?.candidate])
-      if ((actor?.status === 'alive' || actor?.status === 'dead' && state.citySuccession?.appointments?.opposition?.memberIds.includes(actor.id))
+      if ((actor?.status === 'alive' || actor?.status === 'dead' && (actor.id === state.citySuccession?.appointments?.incumbentId
+        || state.citySuccession?.appointments?.opposition?.memberIds.includes(actor.id)))
         && actor.id !== excludeActor?.id && mapCellKey(actor.mapCell) === key) occupied += .6;
     for (const actor of state.penalFlights?.actors || []) if (actor.id !== excludeActor?.id && mapCellKey(actor.mapCell) === key) occupied += .6;
     for (const beast of state.wildernessBeasts?.actors || []) {
@@ -67103,7 +67109,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           if (office.clerk.mapCell && sensoryLineOfSight(scientistMapCell(), office.clerk.mapCell)) setLabMapOverlayEntry(assignments, office.clerk.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: "Civic records clerk", title: office.contact.label, value: "C", source: "Direct observation", target: { kind: "tile", tile: office.clerk.mapCell } }, map);
         }
         if (state.surveyExpeditions.phase === 'field') for (const actor of [state.sovereignBargains?.representative, state.sovereignBargains?.defender, state.religiousRecognition?.actor, ...citySuccessionPeople(), state.citySuccession?.appointments?.candidate])
-          if ((actor?.status === 'alive' || actor?.status === 'dead' && state.citySuccession?.appointments?.opposition?.memberIds.includes(actor.id))
+          if ((actor?.status === 'alive' || actor?.status === 'dead' && (actor.id === state.citySuccession?.appointments?.incumbentId
+            || state.citySuccession?.appointments?.opposition?.memberIds.includes(actor.id)))
             && actor.mapCell && sensoryLineOfSight(scientistMapCell(), actor.mapCell))
             setLabMapOverlayEntry(assignments, actor.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: actor.status === 'dead' ? `Remains of ${actor.name}` : actor.name,
               title: actor.status === 'dead' ? `Actual bodily remains of ${actor.name}; not cleared, moved or revived by the encounter.` : `${actor.role}; ${actor === state.religiousRecognition?.actor ? 'faithful petition representative, not divine or civic command' : state.defenderChallenge ? 'optional supervised challenge participant' : 'physical civic-counter participant'}, not a controllable soldier`, value: actor.status === 'dead' ? '†' : actor === state.religiousRecognition?.actor ? 'P' : actor === state.sovereignBargains.defender ? 'D' : 'A',
@@ -83815,10 +83822,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const near = a => Boolean(a?.status === 'alive' && a.locationId === office?.id && a.mapCell
       && a.mapCell.z === scientistMapCell()?.z && WildernessBeasts.distance(scientistMapCell(), a.mapCell) <= 6
       && sensoryLineOfSight(scientistMapCell(), a.mapCell));
-    const participants = [office?.clerk, s?.candidate, PublicWorksAppointments.incumbent(s, state.citySuccession)];
+    const outgoing = PublicWorksAppointments.incumbent(s, state.citySuccession);
+    const participants = [office?.clerk, s?.candidate, ...(s?.vacancy ? [] : [outgoing])];
     const seesReceiving = cell => Boolean(cell && cell.z === CityAdministration.RECEIVING.z
       && WildernessBeasts.distance(cell, CityAdministration.RECEIVING) <= 6 && sensoryLineOfSight(cell, CityAdministration.RECEIVING));
     return { ...c, presentIds: [...citySuccessionPeople(), office?.clerk, s?.candidate, state.sovereignBargains?.defender].filter(near).map(a => a.id),
+      deathVisible: Boolean(outgoing?.status === 'dead' && outgoing.health === 0 && outgoing.locationId === office?.id
+        && outgoing.mapCell && [scientistMapCell(), office?.clerk?.mapCell].every(cell => cell && cell.z === outgoing.mapCell.z
+          && WildernessBeasts.distance(cell, outgoing.mapCell) <= 6 && sensoryLineOfSight(cell, outgoing.mapCell))),
       accessInventoryVisible: Boolean(c.geometryAvailable && seesReceiving(scientistMapCell())
         && participants.every(a => near(a) && seesReceiving(a.mapCell))) };
   }
@@ -83839,11 +83850,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function updateCityAppointments() {
     const s = state.citySuccession?.appointments; if (!s || scientistIsDead()) return false;
-    const changed = PublicWorksAppointments.advance(s, state.citySuccession, state.cityAdministration, cityAdministrationOffice(),
+    let changed = PublicWorksAppointments.advance(s, state.citySuccession, state.cityAdministration, cityAdministrationOffice(),
       ensureHomeInstitutionContext(), cityAppointmentsContext(), state.clock, { move: moveSuccessionParticipant, stacks: ensurePhysicalItemStacks() });
+    changed = PublicWorksVacancies.advance(s, state.citySuccession, state.cityAdministration, cityAdministrationOffice(),
+      ensureHomeInstitutionContext(), ensurePhysicalItemStacks(), cityAppointmentsContext(), state.clock, { move: moveSuccessionParticipant }) || changed;
     const civilChanged = updateCivilInstallationAccess();
     const oppositionChanged = updateLocalOpposition();
-    const busy = s.job || s.enforcement?.job || s.enforcement?.escort?.status === 'active' || s.opposition?.job || s.opposition?.safeguards?.job;
+    const busy = s.job || s.vacancy?.job || s.enforcement?.job || s.enforcement?.escort?.status === 'active' || s.opposition?.job || s.opposition?.safeguards?.job;
     if (busy && !state.combat?.routineSuspension) suspendScientistRoutineWork('public-works appointment');
     if (!busy && state.combat?.routineSuspension?.reason === 'public-works appointment') resumeScientistRoutineWork();
     refreshCityAppointmentsKnowledge(); return changed || civilChanged || oppositionChanged;
@@ -83965,6 +83978,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const s = ensureCityAppointments(), succession = state.citySuccession, u = state.cityAdministration, office = cityAdministrationOffice();
     if (!s) { addEvent('No supported published replacement law, authentic handover or independently confirmed disputed appointment basis, separate office or available local candidate ground. No appointment or staff was invented.'); return false; }
     const c = cityAppointmentsContext(), at = state.clock; let ok = false;
+    if (action === 'vacancyObserve') ok = PublicWorksVacancies.observe(s, succession, u, office, ensurePhysicalItemStacks(), c, at);
+    if (action === 'vacancyDiscuss') ok = PublicWorksVacancies.discuss(s, succession, u, office, c, at);
+    if (action === 'vacancyPropose') ok = PublicWorksVacancies.propose(s, succession, u, office, ensureHomeInstitutionContext(), expected, c, at);
+    if (action === 'vacancyHear') ok = PublicWorksVacancies.hear(s, succession, u, office, ensureHomeInstitutionContext(), c, at);
+    if (action === 'vacancyAppoint') ok = PublicWorksVacancies.appoint(s, succession, u, office, expected, c, at);
+    if (action === 'vacancyApproach') ok = PublicWorksVacancies.approach(s, succession, u, office, c, at);
+    if (action === 'vacancyTransfer') ok = PublicWorksVacancies.transfer(s, succession, u, office, ensurePhysicalItemStacks(), expected, c, at);
+    if (action === 'vacancyBattery') ok = PublicWorksVacancies.battery(s, succession, u, office, ensurePhysicalItemStacks(), c, at);
+    if (action === 'vacancyCancel') ok = PublicWorksVacancies.cancel(s, succession, office, at);
     if (action === 'discuss') ok = PublicWorksAppointments.discuss(s, succession, u, office, c, at);
     if (action === 'propose') ok = PublicWorksAppointments.propose(s, succession, u, office, ensureHomeInstitutionContext(), expected, c, at);
     if (action === 'hear') ok = PublicWorksAppointments.hear(s, succession, u, office, ensureHomeInstitutionContext(), c, at);
@@ -83978,9 +84000,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (action === 'cancel') ok = PublicWorksAppointments.cancel(s, succession, office, at);
     const accessFailure = action.startsWith('access') ? s.access?.reason?.kind === 'rejectReplacement' ? s.access.reason.text
       : 'The original appointment, actual participants at the post, visible staged inventory, finite duty and counter power are required. Accept only the exact unexpired account; changed custody needs a new inspection, while unchanged facts cannot refresh an offer. Earlier records and costs remain.' : null;
-    addEvent(ok ? s.message : PublicWorksAppointments.localReason(s, succession, u, office, c) || accessFailure || s.obstruction?.text
+    addEvent(ok ? action.startsWith('vacancy') ? s.vacancy?.message || 'Exact vacancy work recorded without restoring overdue ordinary service.' : s.message : PublicWorksAppointments.localReason(s, succession, u, office, c) || accessFailure || s.obstruction?.text
       || 'Exact current evidence, eligible consenting people, finite capacity, independent queue and actual physical attendance are required. No authority or supplies were awarded.');
-    updateCityAdministration(); refreshCityAppointmentsKnowledge(); persist(); render(); return ok;
+    updateCityAdministration(); refreshCityAppointmentsKnowledge(); syncActorInventories(); syncPhysicalReadModels(); persist(); render(); return ok;
   }
   function renderCityAppointments(panel) {
     const section = document.createElement('section'); section.dataset.cityAppointments = 'true'; panel.append(section);
@@ -83996,6 +84018,40 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const el = storesActionButton(label, label, () => cityAppointmentsAction(action, expected)); el.dataset.appointmentAction = action;
       el.disabled = !observed || disabled; section.append(el);
     };
+    const vc = cityAppointmentsContext();
+    if (v.vacancy || observed && vc.deathVisible && vc.vacancyRule && !v.receipt) {
+      const vacancy = v.vacancy, busy = Boolean(vacancy?.working || vacancy?.approaching);
+      section.append(textEl('strong', 'Death-vacant public-works office'), textEl('p', vacancy?.rule.text || vc.vacancyRule.text));
+      if (v.candidate) section.append(textEl('p', `Same local technician: ${v.candidate.name}; no new applicant or restored reserves.`));
+      if (vacancy) section.append(textEl('p', `Personally received vacancy status: ${vacancy.phase}. Emergency attendance does not restore overdue ordinary service.`));
+      if (!vacancy?.death) button('Inspect and record the original officeholder’s death (30 seconds)', 'vacancyObserve', null, busy);
+      if (vacancy?.death) section.append(textEl('p', `Locally inspected death recorded ${formatClock(vacancy.death.at)}. No deceased signature, cleared case or immunity follows.`));
+      button('Deliver carried battery for finite emergency proceedings', 'vacancyBattery', null, busy);
+      if (vacancy?.death && !vacancy.dossier) button('Discuss the same technician’s vacancy candidature (one minute)', 'vacancyDiscuss', null, busy);
+      if (vacancy?.dossier) {
+        section.append(textEl('p', `Maintenance competence ${vacancy.dossier.credential.maintenance}; candidate ${vacancy.dossier.willing ? 'considers exact duties' : 'declines office'}. No new applicant or reset.`));
+        if (!vacancy.proposal) button('File exact death-vacancy proposal', 'vacancyPropose', clonePlainObject(vacancy.dossier), busy);
+      }
+      if (vacancy?.review?.status === 'queued') {
+        section.append(textEl('p', `Original independent queue allocated from ${formatClock(vacancy.review.readyAt)}.`));
+        button('Attend independent vacancy hearing (three minutes)', 'vacancyHear', null, busy || state.clock < vacancy.review.readyAt);
+      }
+      if (vacancy?.review?.finding) section.append(textEl('p', vacancy.review.finding));
+      if (vacancy?.terms && !vacancy.appointment) {
+        section.append(textEl('p', `${vacancy.terms.duties} Exact terms expire ${formatClock(vacancy.terms.expiresAt)}.`));
+        button('Accept exact vacancy appointment (one minute)', 'vacancyAppoint', clonePlainObject(vacancy.terms), busy || state.clock >= vacancy.terms.expiresAt);
+      }
+      if (vacancy?.appointment && !vacancy.receipt) {
+        button('Ask vacancy appointee to physically reach the post', 'vacancyApproach', null, busy);
+        button('Inspect custody and transfer the vacant installation (two minutes)', 'vacancyTransfer', clonePlainObject(vacancy.appointment), busy);
+      }
+      if (vacancy?.receipt) section.append(textEl('p', `Physical vacancy transfer recorded ${formatClock(vacancy.receipt.at)}. Use the actual maintenance controls above; overdue service is not repaired by appointment.`));
+      if (vacancy?.interruptedDuties.length) section.append(textEl('p', 'Deceased duties and spent progress are archived. Uninstalled carried parts remain at the body, unavailable to the replacement; no supplies were recreated.'));
+      if (vacancy?.working || vacancy?.approaching) button('Cancel unfinished vacancy attendance or approach', 'vacancyCancel');
+      if (vacancy?.message) section.append(textEl('p', vacancy.message));
+      for (const record of v.previousObjections || []) section.append(textEl('p', `Earlier received objection ${formatClock(record.at)}: ${record.finding}${record.review ? ` Independent finding: ${record.review}` : ''}`));
+      return;
+    }
     if (v.candidate) section.append(textEl('p', `Named local candidate: ${v.candidate.name}. A local service record, not laboratory employment, determines eligibility.`));
     if (!v.dossier && v.candidate) button('Discuss candidate and published procedure (one minute)', 'discuss', null, Boolean(v.working));
     if (v.dossier) {
@@ -84179,9 +84235,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const pathReachable = target => Boolean(inspectPaths && actor?.mapCell && target
       && labNavigationPlanBetweenCells(actor.mapCell, target, { map: ensureLabMap(), actor, ignoreDoors: true }).found);
     const reviewId = source?.institutions.find(i => i.role === 'civicReview')?.id;
+    const reserveHolder = state.sovereignBargains?.defender;
+    const vacancySupply = Boolean(state.citySuccession?.appointments?.vacancy?.receipt && !s.authorizationId);
+    // Use the same intermediate bodily-capacity exclusions as the actual
+    // municipal walker, not only the navigation planner's goal capacity check.
+    const vacancyBlockedCells = vacancySupply && actor?.mapCell ? labMapBlockingCellKeys(ensureLabMap(), { actor }) : null;
+    if (vacancyBlockedCells) for (const cell of ensureLabMap().rooms[SurveyExpeditions.FIELD_ROOM]?.cells || [])
+      if (!canActorOccupyTile(actor, cell)) vacancyBlockedCells.add(mapCellKey(cell));
+    const vacancyReachable = cell => Boolean(actor?.mapCell && cell
+      && labNavigationPlanBetweenCells(actor.mapCell, cell,
+        { map: ensureLabMap(), actor, ignoreDoors: true, blockedCellKeys: vacancyBlockedCells || undefined }).found);
+    const reserveCollectionCell = vacancySupply && actor?.mapCell && reserveHolder?.mapCell
+      ? [{ x: 0, y: -1 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }]
+        .map(offset => ({ x: reserveHolder.mapCell.x + offset.x, y: reserveHolder.mapCell.y + offset.y, z: reserveHolder.mapCell.z }))
+        .find(cell => labMapCellRoomId(cell) === SurveyExpeditions.FIELD_ROOM && canActorOccupyTile(actor, cell)
+          && vacancyReachable(cell)) || null : undefined;
     return { ...c, ...administrationRecognitionSources(), busy: c.busy || Boolean(state.scientistIdentity?.job || state.sovereignBargains?.job
       || state.citySuccession?.job || state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job || state.religiousRecognition?.job || DefenderChallenges.reserved(state.defenderChallenge)
-      || !ownAppointment && (state.citySuccession?.appointments?.job || state.citySuccession?.appointments?.enforcement?.job
+      || !ownAppointment && (state.citySuccession?.appointments?.job || state.citySuccession?.appointments?.vacancy?.job || state.citySuccession?.appointments?.enforcement?.job
         || state.citySuccession?.appointments?.enforcement?.escort?.status === 'active' || state.citySuccession?.appointments?.opposition?.job
         || state.citySuccession?.appointments?.opposition?.safeguards?.job)
       // An independently returning defender is not a clerk/public-works
@@ -84190,6 +84261,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       || state.surveyExpeditions?.mapService?.job || state.surveyExpeditions?.carrier?.briefingState?.job),
       bodyEpoch: ensureScientistIdentity().bodyEpoch,
       appointmentRule: clonePlainObject(state.citySuccession?.handover ? source?.publicWorksAppointment || source?.publicWorksRoleReassignment || null : source?.disputedPublicWorksAppointment || null),
+      vacancyRule: clonePlainObject(source?.publicWorksVacancy || null),
       civilAccessRule: clonePlainObject(source?.civilInstallationAccess || null),
       civilDefenderId: state.sovereignBargains?.defender?.id,
       defenseInstitutionId: source?.institutions.find(i => i.role === 'militaryDefenseCommand')?.id,
@@ -84206,6 +84278,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       publicWorksAvailable: Boolean(source && home?.offices[source.institutions.find(i => i.role === 'publicWorksAndProvisioning')?.id]?.available),
       geometryAvailable: Boolean(s && [s.installation.cell, s.installation.workCell, CityAdministration.RECEIVING].every(p => labMapCellRoomId(p) === SurveyExpeditions.FIELD_ROOM)),
       externalPowered: office?.channelPowered === true, workerPresent: near(actor), receiverPresent: near(s?.authorizationId ? actor : state.sovereignBargains?.defender),
+      stagedSupplyReachable: state.citySuccession?.appointments?.vacancy?.receipt && actor?.mapCell
+        ? vacancyReachable(CityAdministration.RECEIVING) : undefined,
+      reserveCollectionCell,
       receivingReachable: Boolean(inspectReceiving && s?.authorizationId && c.atCounter && actor?.mapCell && labNavigationPlanBetweenCells(actor.mapCell, CityAdministration.RECEIVING,
         { map: ensureLabMap(), actor, ignoreDoors: true }).found),
       workerCanInspect: Boolean(actor?.mapCell && s && actor.locationId === office?.id
@@ -84344,7 +84419,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!s) { panel.append(textEl('p', 'An actual handover or explicit original public-works recognition is required. No city, staff, installation or treasury is invented.')); return panel; }
     button('Walk to administration counter', 'walk', surveyBusy());
     button('Inspect local service requirements', 'inspect');
-    if (!v) { panel.append(textEl('p', 'No personal local service report. Away conditions and staff availability are unknown.')); return panel; }
+    if (!v) {
+      panel.append(textEl('p', 'No personal local service report. Away conditions and staff availability are unknown.'));
+      // A dead first worker cannot provide a service report. Vacancy attendance
+      // has its own local observation and must not depend on that report.
+      renderCityAppointments(panel); return panel;
+    }
     panel.append(textEl('p', `Observed ${formatClock(v.reportedAt)}: ${v.installation.label} — ${v.status}. Maintenance due ${formatClock(v.dueAt)}; grace ends ${formatClock(v.graceUntil)}. Away records are dated, not live surveillance.`));
     panel.append(textEl('p', `Counter work at last observation: ${v.availability}.`));
     if (v.inspection) {

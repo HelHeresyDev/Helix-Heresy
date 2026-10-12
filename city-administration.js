@@ -27,7 +27,7 @@
       || (succession?.appointments?.candidate?.id === s?.workerId ? succession.appointments.candidate : null);
   }
   function staff(succession, bargain, office, upkeep = null) {
-    return [...(succession?.leaders || []), ...(succession?.appointments?.receipt ? [succession.appointments.candidate] : []), bargain?.representative, bargain?.defender, office?.clerk]
+    return [...(succession?.leaders || []), ...(succession?.appointments?.receipt || succession?.appointments?.vacancy?.receipt ? [succession.appointments.candidate] : []), bargain?.representative, bargain?.defender, office?.clerk]
       .filter(a => a && a.officeStatus?.status !== 'replacedByReviewedAppointment' && (!upkeep?.authorizationId || upkeep.staffIds.includes(a.id)));
   }
   function scopedAuthorization(succession, office, c) {
@@ -122,14 +122,16 @@
       || s.job || !able(a) || a.assignment || office.assignment || succession.job || succession.directive?.status === 'carrying'
       || !c.externalPowered || office.power < 1 || office.workSeconds < 30 || a.workSeconds < WORK + 60
       || s.servicedAt != null && at < s.dueAt) return false;
-    const staged = stacks.find(i => i.key === 'metalParts' && clean(i) && i.quantity >= PARTS && i.cityOwnerId === s.cityId
+    const staged = c.stagedSupplyReachable !== false && stacks.find(i => i.key === 'metalParts' && clean(i) && i.quantity >= PARTS && i.cityOwnerId === s.cityId
       && i.civicCustody?.cityId === s.cityId && i.reservedTaskId === reserveKey(s, succession)
       && suppliedCustody(s, i, succession)
       && !i.carriedBy && cellSame(i.cell, RECEIVING));
     const source = staged ? { kind: 'stack', id: staged.id, cell: copy(staged.cell), reservation: staged.reservedTaskId }
-      : !s.authorizationId && succession.provision.stock >= PARTS && !succession.provision.reservedBy && able(bargain.defender) && bargain.defender.workSeconds >= 1
+      : !s.authorizationId && c.reserveCollectionCell !== null && succession.provision.stock >= PARTS && !succession.provision.reservedBy && able(bargain.defender) && bargain.defender.workSeconds >= 1
         && bargain.defender.mapCell && bargain.defender.locationId === s.officeId && !bargain.defender.assignment
-        ? { kind: 'reserve', custodianId: bargain.defender.id, cell: { ...bargain.defender.mapCell, y: bargain.defender.mapCell.y - 1 } } : null;
+        && (!c.reserveCollectionCell || c.reserveCollectionCell.z === bargain.defender.mapCell.z
+          && Math.hypot(c.reserveCollectionCell.x - bargain.defender.mapCell.x, c.reserveCollectionCell.y - bargain.defender.mapCell.y) <= 1)
+        ? { kind: 'reserve', custodianId: bargain.defender.id, cell: copy(c.reserveCollectionCell || { ...bargain.defender.mapCell, y: bargain.defender.mapCell.y - 1 }) } : null;
     if (!source) return false;
     const id = `${s.id}:service:${s.nextNumber++}`;
     s.job = { id, status: 'collecting', authorizedAt: at, essentialOnly: !authorization(s, succession, office, c),
