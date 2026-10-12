@@ -99,6 +99,7 @@
   const SurveyExpeditions = window.HelixSurveyExpeditions;
   const IntercityPassenger = window.HelixIntercityPassenger;
   const ForeignReception = window.HelixForeignReception;
+  const ForeignSupplies = window.HelixForeignSupplies;
   const passengerReceptionSourceCache = new WeakMap();
   const MunicipalCarrier = window.HelixMunicipalCarrier;
   const CarrierBriefings = window.HelixCarrierBriefings;
@@ -16713,11 +16714,33 @@
       bookIntercityPassenger,
       queueIntercityPassenger,
       foreignReceptionAction,
-      advanceForeignReceptionTestTime: (seconds) => {
+      foreignSupplyAction,
+      foreignSuppliesSnapshot: (good = 'drinkingWater', quantity = 1) => {
+        const g = passengerReceptionGate(), supplier = ensureForeignSupplier(g), c = g && foreignSupplyContext(g, good, true), market = g && foreignSupplierMarket(g);
+        return clonePlainObject({ supplier, context: c, market, quote: supplier && ForeignSupplies.quote(supplier, market, COMMODITY_MARKET_LISTING_BY_ID[good], quantity, c, state.clock),
+          clock: state.clock, money: ensureEconomy().money, carried: surveyCarriedStacks(), tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) });
+      },
+      setForeignSuppliesTestContext: ({ city, standings, market }) => {
+        const g = passengerReceptionGate(city.cityId); if (!g) return false;
+        g.preparedSupplierTestSource = clonePlainObject({ city, standings });
+        const economy = ensureEconomy(); economy.commodityMarket.intercityTrade ||= { neighbors: [], operators: [], shipments: [], ledger: [], lastAt: state.clock };
+        if (market && !economy.commodityMarket.intercityTrade.neighbors.some(n => n.id === city.cityId)) {
+          const profile = { cityId: city.cityId, cityName: 'Prepared neighbor', workshopCapacity: 1, productionSources: [], manufacturingFacilities: [],
+            commodityDefinitions: COMMODITY_MARKET_LISTING_DEFS.map(d => ({ id: d.id, label: d.label, basePrice: d.basePrice, supply: d.supply })),
+            listings: Object.fromEntries(COMMODITY_MARKET_LISTING_DEFS.map(d => [d.id, { targetSupply: market.listings[d.id]?.supply || 0, targetDemand: market.listings[d.id]?.demand || 1 }])) };
+          const n = { id: city.cityId, profile, treasury: 10000, reserveFraction: .6, reports: [], listings: Object.fromEntries(COMMODITY_MARKET_LISTING_DEFS.map(d => [d.id, { supply: market.listings[d.id]?.supply || 0, demand: market.listings[d.id]?.demand || 1 }])),
+            production: LocalMarketProduction.create(profile, state.clock), carrier: LocalExchangeCarrier.create(city.cityId) };
+          economy.commodityMarket.intercityTrade.neighbors.push(n);
+        }
+        persist(); render(); return true;
+      },
+      advanceForeignReceptionTestTime: (seconds, stopOnSupplyReceipt = false) => {
         let remaining = Math.max(0, seconds);
+        const order = ForeignSupplies.active(passengerReceptionGate()?.visitorSupplies), delivered = order?.delivered;
         while (remaining > 0 && !scientistIsDead()) {
-          const step = Math.min(60, remaining); state.clock += step; remaining -= step;
-          updateIntercityPassenger(); updateForeignReception(); updateScientistMovementTask(); completeDueTasks(); updateWildernessNeeds();
+          const step = Math.min(stopOnSupplyReceipt ? 1 : 60, remaining); state.clock += step; remaining -= step;
+          updateIntercityPassenger(); updateForeignReception(); updateForeignSupplies(); updateScientistMovementTask(); completeDueTasks(); updateWildernessNeeds();
+          if (stopOnSupplyReceipt && order?.delivered > delivered) break;
         }
         syncActorInventories(); persist(); render(); return state.clock;
       },
@@ -22346,11 +22369,13 @@
       const visitor = passengerReceptionGate()?.visitorAdmission, permit = foreignVisitorPermission();
       const receptionEvent = visitor?.job ? { time: state.clock + visitor.job.seconds - visitor.job.progress, label: 'Attended visitor reception', type: 'travel' }
         : permit ? { time: Math.max(state.clock + 1, permit.expiresAt - (permit.warned ? 0 : 900)), label: 'Visitor permission deadline', type: 'travel' } : null;
+      const supplyOrder = ForeignSupplies.active(passengerReceptionGate()?.visitorSupplies);
+      const supplyEvent = supplyOrder && !supplyOrder.delay ? { time: state.clock + 30, label: 'Physical personal-provisions delivery', type: 'travel' } : null;
       const travelEvent = receptionEvent || (IntercityPassenger.moving(passenger)
         ? { time: Math.max(state.clock + 60, passenger.trip.arrivalWindow.end), label: 'Passenger carrier arrival estimate', type: 'travel' }
         : passenger?.rest && intercityLocal() ? { time: state.clock + passenger.rest.remaining, label: 'Supplied passenger-driver rest checkpoint', type: 'travel' }
         : unsupportedActive() ? (Number.isFinite(remoteAt) ? { time: remoteAt, label: "Known charter schedule checkpoint", type: "travel" } : null) : StrategicJourneys.nextPublicEvent({ journeys: journey ? [journey] : [] }, state.clock));
-      return [clinicEvent, task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, nextLeasedAnnexEvent(), nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
+      return [clinicEvent, task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, supplyEvent, nextLeasedAnnexEvent(), nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
         .filter((event) => event && (!options.includeTypes || options.includeTypes.includes(event.type)) && event.time >= state.clock)
         .sort((a, b) => a.time - b.time)[0] || null;
     }
@@ -22818,6 +22843,7 @@
       changes.strategicJourneyChanged += updateStrategicJourneys();
       changes.strategicJourneyChanged += updateIntercityPassenger();
       changes.strategicJourneyChanged += updateForeignReception();
+      changes.strategicJourneyChanged += updateForeignSupplies();
       changes.strategicJourneyChanged += updateSurveyExpedition();
       changes.siteVisitChanged += updateSiteVisits(elapsed);
       changes.raidChanged += updateLawEnforcementRaids(elapsed);
@@ -33041,6 +33067,8 @@
     if (context?.citySuccession?.appointments?.candidate?.id === id) return context.citySuccession.appointments.candidate;
     if (context?.homunculi?.individuals.some(a => a.id === id)) return context.homunculi.individuals.find(a => a.id === id);
     if (context?.medicalExtraction?.medic?.id === id) return context.medicalExtraction.medic;
+    const supplier = context?.penalFlights?.assistance?.cityApproach?.gates.map(g => g.visitorSupplies?.actor).find(a => a?.id === id);
+    if (supplier) return supplier;
     if (context?.penalFlights?.actors?.some(a => a.id === id)) return context.penalFlights.actors.find(a => a.id === id);
     return (context?.slimes || []).find((slime) => slime.id === id && slime.status !== "dead")
       || (context?.siteVisits?.visits || []).flatMap((visit) => [visit.actor, ...(visit.supportActors || [])])
@@ -33078,6 +33106,7 @@
       ...(context.laboratoryAssistant?.actor ? [{ id: context.laboratoryAssistant.actor.id, actor: context.laboratoryAssistant.actor }] : []),
       ...(context.citySuccession?.appointments?.candidate ? [{ id: context.citySuccession.appointments.candidate.id, actor: context.citySuccession.appointments.candidate }] : []),
       ...(context.medicalExtraction?.medic ? [{ id: context.medicalExtraction.medic.id, actor: context.medicalExtraction.medic }] : []),
+      ...(context.penalFlights?.assistance?.cityApproach?.gates || []).filter(g => g.visitorSupplies).map(g => ({ id: g.visitorSupplies.actor.id, actor: g.visitorSupplies.actor })),
       ...(context.penalFlights?.actors || []).map(actor => ({ id: actor.id, actor })),
       ...(context.homunculi?.individuals || []).map(actor => ({ id: actor.id, actor })),
       ...(context.slimes || []).map((slime) => ({ id: slime.id, actor: slime })),
@@ -36489,7 +36518,7 @@
   function actorFloorLoadM2(actor) {
     if (!actor) return 0;
     if (['civicOfficeholder', 'cityIncumbent', 'municipalTechnician'].includes(actor.actorKind)) return .6;
-    if (["surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor.actorKind)) return .6;
+    if (["surfaceWorker", "laboratoryAssistant", "homunculus", "foreignSupplier"].includes(actor.actorKind)) return .6;
     if (["expeditionEscort", "rescueMedic", "municipalClinician", "penalPrisoner"].includes(actor.actorKind)) return .6;
     if (actor.actorKind === "wildernessBeast") return 1;
     if (actor === state.scientist || actor.physicalPresence) {
@@ -36520,6 +36549,10 @@
         || actor.id === state.citySuccession?.appointments?.candidate?.id || state.citySuccession?.appointments?.opposition?.memberIds.includes(actor.id)))
         && actor.id !== excludeActor?.id && mapCellKey(actor.mapCell) === key) occupied += .6;
     for (const actor of state.penalFlights?.actors || []) if (actor.id !== excludeActor?.id && mapCellKey(actor.mapCell) === key) occupied += .6;
+    for (const g of state.penalFlights?.assistance?.cityApproach?.gates || []) {
+      const a = g.visitorSupplies?.actor;
+      if (a && a.id !== excludeActor?.id && mapCellKey(a.mapCell) === key) occupied += .6;
+    }
     for (const beast of state.wildernessBeasts?.actors || []) {
       if (beast.id !== excludeActor?.id && mapCellKey(beast.mapCell) === key) occupied += MAP_TILE_AREA_M2;
     }
@@ -36611,7 +36644,7 @@
 
   function navigationFootprintForActor(actor) {
     if (['civicOfficeholder', 'cityIncumbent', 'municipalTechnician'].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
-    if (["surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
+    if (["surfaceWorker", "laboratoryAssistant", "homunculus", "foreignSupplier"].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (["expeditionEscort", "rescueMedic", "penalPrisoner"].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (actor?.actorKind === "wildernessBeast") return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: 1, exclusive: true });
     const loadM2 = clamp(actorFloorLoadM2(actor), 0.015, MAP_TILE_AREA_M2);
@@ -40056,7 +40089,8 @@
     if (homunculus) return homunculus;
     if (state.surfaceWorkers?.actor?.id === actorId) return state.surfaceWorkers.actor;
     if (state.laboratoryAssistant?.actor?.id === actorId) return state.laboratoryAssistant.actor;
-    return actorId === "scientist" ? state.scientist : findSlime(actorId) || wildernessBeast(actorId) || (state.expeditionEscorts?.actor?.id === actorId ? state.expeditionEscorts.actor : null) || (state.medicalExtraction?.medic?.id === actorId ? state.medicalExtraction.medic : null) || state.penalFlights?.actors.find(a => a.id === actorId);
+    return actorId === "scientist" ? state.scientist : findSlime(actorId) || wildernessBeast(actorId) || (state.expeditionEscorts?.actor?.id === actorId ? state.expeditionEscorts.actor : null) || (state.medicalExtraction?.medic?.id === actorId ? state.medicalExtraction.medic : null) || state.penalFlights?.actors.find(a => a.id === actorId)
+      || (state.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.visitorSupplies?.actor).find(a => a?.id === actorId);
   }
 
   function combatActorCell(actor) {
@@ -67145,6 +67179,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const reception = state.penalFlights?.assistance?.cityApproach?.gates.find(g => g.z === scientistMapCell().z && g.materialized);
     if (reception) for (const person of [reception.clerk, reception.guard]) if (cityApproachNear("scientist", person.mapCell, 8)) setLabMapOverlayEntry(assignments, person.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: person.name, title: person.id === reception.clerk.id ? "City identity clerk" : "City reception gate guard", value: person.status === "dead" ? "†" : person.id === reception.clerk.id ? "C" : "G", source: "Direct observation", target: { kind: "tile", tile: person.mapCell } }, map);
     const reviewer = reception?.enforcement?.materialized && reception.enforcement.reviewer;
+    const supplier = reception?.visitorSupplies?.actor;
+    if (supplier && cityApproachNear('scientist', supplier.mapCell, 8) && sensoryLineOfSight(scientistMapCell(), supplier.mapCell)) setLabMapOverlayEntry(assignments, supplier.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: supplier.name, title: 'Local personal-provisions supplier', value: supplier.status === 'dead' ? '†' : 'S', source: 'Direct observation', target: { kind: 'tile', tile: supplier.mapCell } }, map);
     if (reviewer && cityApproachNear("scientist", reviewer.mapCell, 8)) setLabMapOverlayEntry(assignments, reviewer.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: reviewer.name, title: "Receiving-city judicial reviewer", value: reviewer.status === "dead" ? "†" : "J", source: "Direct observation", target: { kind: "tile", tile: reviewer.mapCell } }, map);
     if (reception?.enforcement?.hearingMaterialized) for (const [role, person] of Object.entries(reception.enforcement.courtOfficials)) if (cityApproachNear("scientist", person.mapCell, 8)) setLabMapOverlayEntry(assignments, person.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: person.name, title: `Receiving-city ${role}`, value: person.status === "dead" ? "†" : role === "prosecutor" ? "P" : "L", source: "Direct observation", target: { kind: "tile", tile: person.mapCell } }, map);
     for (const actor of state.penalFlights?.actors || []) if (penalActorObserved(actor)) setLabMapOverlayEntry(assignments, actor.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: actor.name, title: actor.status === "dead" ? "Physical remains" : actor.legionId ? `Military squad: ${actor.role}` : "Fellow castaway; not an ally", value: actor.status === "dead" ? "†" : actor.legionId ? 'S' : "P", source: "Direct observation", target: { kind: "tile", tile: actor.mapCell } }, map);
@@ -87867,6 +87903,138 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!passengerReceptionGate()?.visitorAdmission?.job && state.combat?.routineSuspension?.reason === 'foreign visitor reception') resumeScientistRoutineWork();
     return Number(changed);
   }
+  function foreignSupplierMarket(g) {
+    const economy = ensureEconomy(); bindCityCommodityMarket(economy);
+    return economy.commodityMarket.intercityTrade?.neighbors.find(n => n.id === g?.cityId) || null;
+  }
+  function ensureForeignSupplier(g = passengerReceptionGate()) {
+    if (!g?.materialized || !g.visitorAdmission) return null;
+    if (g.visitorSupplies) return g.visitorSupplies;
+    const market = foreignSupplierMarket(g); if (!market) return null;
+    const map = activeWorldRecord?.generatedData?.strategicMap;
+    const row = g.preparedSupplierTestSource?.city || map?.strategicPlayableSettlementState?.cityRows.find(c => c.cityId === g.cityId);
+    const profile = g.preparedSupplierTestSource || (map?.publicNonStateNetworkHistoryDirectory
+      ? StrategicNonStateNetworkHistory.cityCurrentNetworkProfile(map, g.cityId)
+      : map?.publicNonStateNetworkDirectory ? StrategicNonStateNetworks.cityNetworkProfile(map, g.cityId) : null);
+    g.visitorSupplies = ForeignSupplies.create(row, profile?.standings, state.clock, { roomId: g.annexRoomId, cell: { x: 18, y: 7, z: g.z } });
+    return g.visitorSupplies;
+  }
+  function foreignSupplyPoint(g, kind) {
+    return { x: kind === 'store' ? 19 : kind === 'outer' ? 9 : 18, y: kind === 'store' ? 8 : 7, z: g.z };
+  }
+  function foreignSupplierRoute(g, actor, target) {
+    const plan = labNavigationPlanBetweenCells(actor.mapCell, target, { actor, ignoreDoors: true, ignoreAccessPolicy: true });
+    return plan.found && plan.path.every(cell => [g.annexRoomId, g.checkpointRoomId].includes(labMapCellRoomId(cell)) || sameMapCell(cell, ensureLabMap().doors[g.doorId]?.cell)) ? plan : null;
+  }
+  function foreignSupplyContext(g, key = 'drinkingWater', includeRoute = false) {
+    const c = foreignReceptionContext(g), s = g?.visitorSupplies, cell = scientistMapCell(), a = s?.actor;
+    const atCounter = c.local && scientistRoomId() === g.annexRoomId && sameMapCell(cell, { x: 17, y: 7, z: g.z });
+    const atOuter = c.local && scientistRoomId() === g.checkpointRoomId && sameMapCell(cell, { x: 10, y: 7, z: g.z });
+    const pack = actorInventorySnapshot('scientist'), supplierPack = a && actorInventorySnapshot(a.id);
+    const first = includeRoute && a && foreignSupplierRoute(g, a, foreignSupplyPoint(g, 'store'));
+    const second = includeRoute && a && foreignSupplierRoute(g, { ...a, mapCell: foreignSupplyPoint(g, 'store') }, foreignSupplyPoint(g, 'hall'));
+    const speed = a ? Math.max(.05, .65 * a.health / 100 * (1 - Math.min(.8, injuryEffectTotals(a).movement)) * actorEncumbranceInfo(a.id).speedMultiplier) : .05;
+    return { ...c, at: state.clock, atCounter, atOuter, contact: Boolean(c.local && a && WildernessBeasts.distance(cell, a.mapCell) <= 2 && sensoryLineOfSight(cell, a.mapCell)),
+      permit: foreignVisitorPermission(g), providerCurrent: Boolean(c.authorityCurrent && a && !actorIsIncapacitated(a)),
+      busy: surveyBusy() || Boolean(g?.visitorAdmission?.job), metrics: physicalItemUnitMetrics('inventory', key),
+      remaining: pack.remaining, supplierRemaining: supplierPack?.remaining || { massKg: 0, volumeL: 0 },
+      routeSeconds: first && second ? Math.ceil((first.path.length + second.path.length) * ensureLabMap().tileSizeM / speed) : null };
+  }
+  function foreignSupplyHooks(g) {
+    const s = g.visitorSupplies, a = s.actor;
+    const stack = o => ensurePhysicalItemStacks().find(i => i.id === o.stackId);
+    return {
+      allocate: (id, q) => {
+        const item = createPhysicalItemStack('inventory', q.good, q.quantity, { roomId: g.annexRoomId, cell: { x: 19, y: 9, z: g.z } },
+          { suppressEvidence: true, sourceLabels: [g.cityId, s.source.branchId, id, 'Paid personal provisions in original supplier custody'] });
+        item.reservedTaskId = id; return item.id;
+      },
+      custody: o => { const item = stack(o); return item?.key === o.quote.good && item.quantity === o.quote.quantity - o.delivered
+        && item.reservedTaskId === o.id && (o.collected ? item.carriedBy === a.id : !item.carriedBy && sameMapCell(item.cell, { x: 19, y: 9, z: g.z })); },
+      move: (o, kind) => {
+        const target = foreignSupplyPoint(g, kind); if (sameMapCell(a.mapCell, target)) return { done: true };
+        const plan = foreignSupplierRoute(g, a, target), next = plan?.path[1];
+        if (!next) return { blocked: 'The original supplier route is obstructed; goods and spent work remain in actual custody.' };
+        const door = labMapDoorAtCell(next), doorState = door && doorFixtureState(door);
+        if (door && door.id === g.doorId && doorState?.lockState !== DOOR_LOCK_UNLOCKED) return { blocked: 'The actual gate is locked; no supplier access bypass is invented.' };
+        if (door && door.id !== g.doorId || !canActorOccupyTile(a, next)) return { blocked: 'An actual door or occupied tile blocks the supplier.' };
+        const speed = Math.max(.05, .65 * a.health / 100 * (1 - Math.min(.8, injuryEffectTotals(a).movement)) * actorEncumbranceInfo(a.id).speedMultiplier);
+        o.walkSeconds = (o.walkSeconds || 0) + 1;
+        if (o.walkSeconds < ensureLabMap().tileSizeM / speed) return {};
+        o.walkSeconds = 0;
+        if (doorState) { doorState.state = DOOR_STATE_OPEN; bumpNavigationRevision('door'); }
+        a.mapCell = cleanMapCell(next); a.roomId = labMapCellRoomId(next) || a.roomId; syncActorInventories(); return {};
+      },
+      collect: o => {
+        const item = carryPhysicalStack(a.id, o.stackId, o.quote.quantity - o.delivered, { allowReserved: true });
+        if (item) item.reservedTaskId = o.id; // Ordinary pickup clears reservations; paid supplier custody must remain exclusive.
+        return Boolean(item);
+      },
+      handoff: o => {
+        const c = foreignSupplyContext(g, o.quote.good), item = stack(o);
+        if (!c.contact || !(o.target === 'outer' ? c.atOuter : c.atCounter && c.permit) || !item || !actorInventoryCanCarry('scientist', item, 1)) return null;
+        item.carriedBy = '';
+        const received = carryPhysicalStack('scientist', item.id, 1, { allowReserved: true });
+        if (!received) { item.carriedBy = a.id; return null; }
+        received.reservedTaskId = ''; if (item !== received) item.carriedBy = a.id;
+        syncActorInventories(); return received.id;
+      }
+    };
+  }
+  function foreignSupplyAction(action, options = {}) {
+    const g = passengerReceptionGate(), s = ensureForeignSupplier(g);
+    if (!s) return false;
+    const c = foreignSupplyContext(g, options.good), market = foreignSupplierMarket(g); let ok = false;
+    if (action === 'walk' && c.local && c.permit && c.alive && c.capable && !c.busy) ok = Boolean(startScientistMove(g.annexRoomId, { toCell: { x: 17, y: 7, z: g.z }, allowMultiRoom: true }));
+    if (action === 'buy') {
+      const def = COMMODITY_MARKET_LISTING_BY_ID[options.quote?.good];
+      ok = ForeignSupplies.buy(s, market, def, options.quote, foreignSupplyContext(g, def?.id, true), ensureEconomy(), state.clock, foreignSupplyHooks(g));
+      if (ok) recordLegalLedger('foreignProvisions', `Purchased ${options.quote.quantity} ${def.label} from ${s.label}; paid title precedes actual handoff.`, { listingId: def.id, amount: -options.quote.total, quantity: options.quote.quantity, consignmentId: ForeignSupplies.active(s).id });
+      else s.message = 'Purchase not accepted. Review current stock, price, permit time, funds and actual capacity; nothing was charged.';
+    }
+    if (action === 'outer') ok = ForeignSupplies.outer(s, c);
+    if (action === 'consume' && c.local && c.alive && c.capable && !c.busy) ok = queueSurvivalConsumption('fieldRation');
+    ForeignSupplies.observe(s, foreignSupplyContext(g), market, COMMODITY_MARKET_LISTING_DEFS, state.clock); persist(); render(); return ok;
+  }
+  function updateForeignSupplies() {
+    if (scientistIsDead()) return 0;
+    let changed = false;
+    for (const g of state.penalFlights?.assistance?.cityApproach?.gates || []) if (g.visitorSupplies) {
+      const s = g.visitorSupplies, o = ForeignSupplies.active(s), oldStatus = o?.status;
+      changed = ForeignSupplies.advance(s, foreignSupplyContext(g), state.clock, foreignSupplyHooks(g)) || changed;
+      if (o?.status === 'received' && oldStatus !== 'received' && foreignReceptionContext(g).local) { surveyEvent(s.message); state.paused = true; }
+      ForeignSupplies.observe(s, foreignSupplyContext(g), foreignSupplierMarket(g), COMMODITY_MARKET_LISTING_DEFS, state.clock);
+    }
+    return Number(changed);
+  }
+  function renderForeignSupplies(g) {
+    const panel = document.createElement('section'); panel.dataset.foreignSupplies = 'true'; panel.className = 'subpanel';
+    panel.append(textEl('h3', 'Foreign Personal Provisions'));
+    const s = ensureForeignSupplier(g);
+    if (!s) { panel.append(textEl('p', 'No supported local commercial supplier and existing city stock are available. Reception is not a market allocation; return remains separate.')); return panel; }
+    const c = foreignSupplyContext(g), market = foreignSupplierMarket(g), v = ForeignSupplies.observe(s, c, market, COMMODITY_MARKET_LISTING_DEFS, state.clock);
+    const button = (label, action, options = {}, disabled = false) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = disabled; b.onclick = () => foreignSupplyAction(action, options); panel.append(b); };
+    panel.append(textEl('p', `${s.label}: lawful personal purchases only, not a general trading license. One outstanding purchase, at most six units; $4 handling per purchase. Paid goods remain separate from physical receipt.`));
+    button('Walk to Visitor Provisions Counter', 'walk', {}, !c.permit || c.busy || !c.alive || !c.capable);
+    if (v) {
+      panel.append(textEl('p', `Supplier report received ${formatClock(v.at)}. ${v.message}`));
+      for (const l of v.listings) panel.append(textEl('p', `${l.label}: last reported ${l.supply} units, ${formatMoney(l.ask)} per unit. No automatic restock.`));
+      for (const o of v.orders.slice(-3)) panel.append(textEl('p', `${o.id}: ${o.status}, ${o.delivered}/${o.quote.quantity} physically received. ${o.delay}`));
+    }
+    if (c.atCounter && c.permit) for (const key of ForeignSupplies.GOODS) {
+      const row = document.createElement('label'), select = document.createElement('select'); select.setAttribute('aria-label', `${inventoryItemLabel(key)} purchase quantity`);
+      for (let n = 1; n <= ForeignSupplies.MAX; n++) select.append(new Option(String(n), String(n)));
+      select.value = String(s.selectedQuantity || 1); select.onchange = () => { s.selectedQuantity = Number(select.value); persist(); render(); };
+      row.append(textEl('span', inventoryItemLabel(key)), select); panel.append(row);
+      const q = ForeignSupplies.quote(s, market, COMMODITY_MARKET_LISTING_BY_ID[key], Number(select.value), foreignSupplyContext(g, key, true), state.clock);
+      if (q) panel.append(textEl('p', `${q.quantity} × ${formatMoney(q.unitPrice)} + ${formatMoney(q.handlingFee)} handling = ${formatMoney(q.total)}. ${q.massKg} kg / ${q.volumeL} L; estimated ${formatDuration(q.seconds)} including actual walking, one-minute collection and thirty seconds per handed-over unit. Quote expires in one minute.`));
+      else panel.append(textEl('p', 'No executable quote: stock, existing purchase, supplier duty, permit time, route or actual pack capacity prevents purchase.'));
+      button(`Buy ${inventoryItemLabel(key)} at Exact Quoted Total`, 'buy', { quote: q, good: key }, !q || ensureEconomy().money < q.total);
+    }
+    button('Request Paid Goods at Outer Stand', 'outer', {}, !ForeignSupplies.active(s) || !c.atOuter || c.busy || !c.alive || !c.capable);
+    button('Use Carried Field Provision Pack', 'consume', {}, c.busy || !c.alive || !c.capable || !survivalSupply('fieldRation'));
+    return panel;
+  }
   function renderForeignReception() {
     const panel = document.createElement('section'); panel.dataset.foreignReception = 'true'; panel.className = 'subpanel';
     panel.append(textEl('h3', 'Foreign Visitor Reception'));
@@ -87882,7 +88050,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       button('Walk Back to Outer Passenger Stand', 'exit', busy || Boolean(s.job));
       // Received published rules are not an atlas, private archive or a live remote report.
       for (const r of s.rule.localRules) panel.append(textEl('p', `${r.offenseId}: ${r.legalStatus}. ${r.summary}`));
-      panel.append(textEl('p', `Named local contact: ${s.rule.contact.name}. Appointment, markets and further access are separate services.`));
+      panel.append(textEl('p', `Named local contact: ${s.rule.contact.name}. Personal provisions are separately purchased; appointments and broader market access remain separate.`));
     }
     if (!v) { panel.append(textEl('p', 'No attended response received. Walk to the original desk for exact published terms.')); return panel; }
     panel.append(textEl('p', `Received at ${formatClock(v.at)} from ${v.clerkName}: ${v.message || 'Published visitor-hall procedure.'}`));
@@ -88048,7 +88216,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const key of ['drinkingWater', 'trailMeal']) button(`Use ${inventoryItemLabel(key)}`, () => queueSurvivalConsumption(key), busy || !survivalSupply(key));
     button('Rest Here (15 minutes)', () => createRestTask(15), busy);
     for (const injury of actorInjuries('scientist').filter(e => e.status !== 'healed')) button(`Treat ${INJURY_TYPE_DEFS[injury.typeId].label}`, () => startInjuryTreatment(injury.id), Boolean(injuryTreatmentBlockReason(injury)) || surveyBusy());
-    if (v.phase === 'foreign') panel.append(renderForeignReception());
+    if (v.phase === 'foreign') { panel.append(renderForeignReception()); panel.append(renderForeignSupplies(passengerReceptionGate())); }
     return panel;
   }
 
