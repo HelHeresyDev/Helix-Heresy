@@ -145,5 +145,5 @@
       || compare(office, credential.document, value.description, at).result !== 'supported') return null;
     return copy(credential);
   }
-  return { COUNTER, CLERK, create, preview, begin, cancel, endBody, replaceBody, advance, evidencePreview, next, prepare, complete, findings, courtAccess };
+  return { COUNTER, CLERK, create, preview, begin, cancel, endBody, replaceBody, advance, compare, evidencePreview, next, prepare, complete, findings, courtAccess };
 });

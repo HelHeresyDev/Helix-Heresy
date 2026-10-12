@@ -61,7 +61,7 @@
   }
   function decision(person, g, evidence, bans, now) {
     const base = { personId: person.id, at: now, cityId: g.cityId, clerkId: g.clerk.id, identityVerified: false, entered: false };
-    if (!evidence?.present || !evidence.sourceOrderId) return { ...base, status: "pending", reason: "No matching identity record was presented. Further documentation is required; there is no automatic arrest." };
+    if (!evidence?.present || !(evidence.sourceRecordId || evidence.sourceOrderId)) return { ...base, status: "pending", reason: "No matching identity record was presented. Further documentation is required; there is no automatic arrest." };
     if (!evidence.connection || evidence.recognition === "caseReview") return { ...base, status: "pending", reason: "Identity verification needs a working records channel or individual review. Repeating the same facts does not resolve it." };
     if (evidence.recognition === "refused") return { ...base, status: "refused", reason: "This city does not accept the presented foreign identity record. Refusal of entry is not a custody order." };
     if (!["automatic", "verified", "domestic"].includes(evidence.recognition)) return { ...base, status: "pending", reason: "No applicable identity-recognition rule is available." };
