@@ -16715,12 +16715,18 @@
       queueIntercityPassenger,
       foreignReceptionAction,
       foreignSupplyAction,
+      foreignSaleSnapshot: (stackId, quantity = 1) => {
+        const g = passengerReceptionGate(), s = ensureForeignSupplier(g), item = ensurePhysicalItemStacks().find(i => i.id === stackId);
+        const c = g && foreignSupplyContext(g, 'metalParts', true);
+        return clonePlainObject({ quote: s && ForeignSupplies.saleQuote(s, foreignSupplierMarket(g), COMMODITY_MARKET_LISTING_BY_ID.metalParts, item, quantity, c, state.clock),
+          supplier: s, context: c, market: g && foreignSupplierMarket(g), money: ensureEconomy().money, carried: surveyCarriedStacks(), clock: state.clock });
+      },
       foreignSuppliesSnapshot: (good = 'drinkingWater', quantity = 1) => {
         const g = passengerReceptionGate(), supplier = ensureForeignSupplier(g), c = g && foreignSupplyContext(g, good, true), market = g && foreignSupplierMarket(g);
         return clonePlainObject({ supplier, context: c, market, quote: supplier && ForeignSupplies.quote(supplier, market, COMMODITY_MARKET_LISTING_BY_ID[good], quantity, c, state.clock),
           clock: state.clock, money: ensureEconomy().money, carried: surveyCarriedStacks(), tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) });
       },
-      setForeignSuppliesTestContext: ({ city, standings, market }) => {
+      setForeignSuppliesTestContext: ({ city, standings, market, carriedMetalParts = 0 }) => {
         const g = passengerReceptionGate(city.cityId); if (!g) return false;
         g.preparedSupplierTestSource = clonePlainObject({ city, standings });
         const economy = ensureEconomy(); economy.commodityMarket.intercityTrade ||= { neighbors: [], operators: [], shipments: [], ledger: [], lastAt: state.clock };
@@ -16732,15 +16738,21 @@
             production: LocalMarketProduction.create(profile, state.clock), carrier: LocalExchangeCarrier.create(city.cityId) };
           economy.commodityMarket.intercityTrade.neighbors.push(n);
         }
+        // Original departure cargo only, never a sale receipt or a new lot after arrival.
+        if (state.intercityPassenger?.phase === 'home' && Number.isInteger(carriedMetalParts) && carriedMetalParts > 0 && carriedMetalParts <= 6) {
+          const item = createPhysicalItemStack('resources', 'metalParts', carriedMetalParts, { roomId: scientistRoomId(), cell: scientistMapCell() },
+            { sourceLabels: ['Explicit original passenger-departure test cargo'] });
+          carryPhysicalStack('scientist', item.id, carriedMetalParts);
+        }
         persist(); render(); return true;
       },
       advanceForeignReceptionTestTime: (seconds, stopOnSupplyReceipt = false) => {
         let remaining = Math.max(0, seconds);
-        const order = ForeignSupplies.active(passengerReceptionGate()?.visitorSupplies), delivered = order?.delivered;
+        const order = ForeignSupplies.active(passengerReceptionGate()?.visitorSupplies), delivered = order?.delivered, handed = order?.handed;
         while (remaining > 0 && !scientistIsDead()) {
           const step = Math.min(stopOnSupplyReceipt ? 1 : 60, remaining); state.clock += step; remaining -= step;
           updateIntercityPassenger(); updateForeignReception(); updateForeignSupplies(); updateScientistMovementTask(); completeDueTasks(); updateWildernessNeeds();
-          if (stopOnSupplyReceipt && order?.delivered > delivered) break;
+          if (stopOnSupplyReceipt === 'handoff' ? order?.handed > handed : stopOnSupplyReceipt && order?.delivered > delivered) break;
         }
         syncActorInventories(); persist(); render(); return state.clock;
       },
@@ -22370,7 +22382,7 @@
       const receptionEvent = visitor?.job ? { time: state.clock + visitor.job.seconds - visitor.job.progress, label: 'Attended visitor reception', type: 'travel' }
         : permit ? { time: Math.max(state.clock + 1, permit.expiresAt - (permit.warned ? 0 : 900)), label: 'Visitor permission deadline', type: 'travel' } : null;
       const supplyOrder = ForeignSupplies.active(passengerReceptionGate()?.visitorSupplies);
-      const supplyEvent = supplyOrder && !supplyOrder.delay ? { time: state.clock + 30, label: 'Physical personal-provisions delivery', type: 'travel' } : null;
+      const supplyEvent = supplyOrder && !supplyOrder.delay ? { time: state.clock + 30, label: supplyOrder.kind === 'sale' ? 'Physical foreign sale receipt' : 'Physical personal-provisions delivery', type: 'travel' } : null;
       const travelEvent = receptionEvent || (IntercityPassenger.moving(passenger)
         ? { time: Math.max(state.clock + 60, passenger.trip.arrivalWindow.end), label: 'Passenger carrier arrival estimate', type: 'travel' }
         : passenger?.rest && intercityLocal() ? { time: state.clock + passenger.rest.remaining, label: 'Supplied passenger-driver rest checkpoint', type: 'travel' }
@@ -87909,7 +87921,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function ensureForeignSupplier(g = passengerReceptionGate()) {
     if (!g?.materialized || !g.visitorAdmission) return null;
-    if (g.visitorSupplies) return g.visitorSupplies;
+    if (g.visitorSupplies) {
+      // Publish this branch's separate narrow buying terms; admission itself grants no selling authority.
+      g.visitorSupplies.salesTerms ||= clonePlainObject(ForeignSupplies.SALE_TERMS);
+      return g.visitorSupplies;
+    }
     const market = foreignSupplierMarket(g); if (!market) return null;
     const map = activeWorldRecord?.generatedData?.strategicMap;
     const row = g.preparedSupplierTestSource?.city || map?.strategicPlayableSettlementState?.cityRows.find(c => c.cityId === g.cityId);
@@ -87926,6 +87942,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const plan = labNavigationPlanBetweenCells(actor.mapCell, target, { actor, ignoreDoors: true, ignoreAccessPolicy: true });
     return plan.found && plan.path.every(cell => [g.annexRoomId, g.checkpointRoomId].includes(labMapCellRoomId(cell)) || sameMapCell(cell, ensureLabMap().doors[g.doorId]?.cell)) ? plan : null;
   }
+  function foreignReceivingRemaining(g) {
+    const terms = g.visitorSupplies.salesTerms, cell = { x: 19, y: 9, z: g.z };
+    const stored = ensurePhysicalItemStacks().filter(i => !i.carriedBy && sameMapCell(i.cell, cell));
+    return { massKg: Math.max(0, terms.receivingMassKg - stored.reduce((n, i) => n + i.unitMassKg * i.quantity, 0)),
+      volumeL: Math.max(0, terms.receivingVolumeL - stored.reduce((n, i) => n + i.unitVolumeL * i.quantity, 0)) };
+  }
   function foreignSupplyContext(g, key = 'drinkingWater', includeRoute = false) {
     const c = foreignReceptionContext(g), s = g?.visitorSupplies, cell = scientistMapCell(), a = s?.actor;
     const atCounter = c.local && scientistRoomId() === g.annexRoomId && sameMapCell(cell, { x: 17, y: 7, z: g.z });
@@ -87933,17 +87955,65 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const pack = actorInventorySnapshot('scientist'), supplierPack = a && actorInventorySnapshot(a.id);
     const first = includeRoute && a && foreignSupplierRoute(g, a, foreignSupplyPoint(g, 'store'));
     const second = includeRoute && a && foreignSupplierRoute(g, { ...a, mapCell: foreignSupplyPoint(g, 'store') }, foreignSupplyPoint(g, 'hall'));
+    const saleFirst = includeRoute && a && foreignSupplierRoute(g, a, foreignSupplyPoint(g, 'hall'));
+    const saleSecond = includeRoute && a && foreignSupplierRoute(g, { ...a, mapCell: foreignSupplyPoint(g, 'hall') }, foreignSupplyPoint(g, 'store'));
     const speed = a ? Math.max(.05, .65 * a.health / 100 * (1 - Math.min(.8, injuryEffectTotals(a).movement)) * actorEncumbranceInfo(a.id).speedMultiplier) : .05;
     return { ...c, at: state.clock, atCounter, atOuter, contact: Boolean(c.local && a && WildernessBeasts.distance(cell, a.mapCell) <= 2 && sensoryLineOfSight(cell, a.mapCell)),
       permit: foreignVisitorPermission(g), providerCurrent: Boolean(c.authorityCurrent && a && !actorIsIncapacitated(a)),
       busy: surveyBusy() || Boolean(g?.visitorAdmission?.job), metrics: physicalItemUnitMetrics('inventory', key),
       remaining: pack.remaining, supplierRemaining: supplierPack?.remaining || { massKg: 0, volumeL: 0 },
+      receivingRemaining: s?.salesTerms ? foreignReceivingRemaining(g) : null,
+      saleRouteSeconds: saleFirst && saleSecond ? Math.ceil((saleFirst.path.length + saleSecond.path.length * 2) * ensureLabMap().tileSizeM / (speed * .7)) : null,
       routeSeconds: first && second ? Math.ceil((first.path.length + second.path.length) * ensureLabMap().tileSizeM / speed) : null };
   }
   function foreignSupplyHooks(g) {
     const s = g.visitorSupplies, a = s.actor;
     const stack = o => ensurePhysicalItemStacks().find(i => i.id === o.stackId);
     return {
+      reserveSale: (id, q) => {
+        const item = ensurePhysicalItemStacks().find(i => i.id === q.stackId);
+        if (!ForeignSupplies.saleLot(item) || item.quantity !== q.stackQuantity || q.quantity > item.quantity) return null;
+        let lot = item;
+        if (q.quantity < item.quantity) {
+          lot = normalizePhysicalItemStack({ ...item, id: `stack-${state.nextPhysicalItemStackNumber++}`, quantity: q.quantity, knownQuantity: q.quantity }, state.nextPhysicalItemStackNumber);
+          item.quantity -= q.quantity; item.knownQuantity = Math.min(item.knownQuantity, item.quantity); ensurePhysicalItemStacks().push(lot);
+        }
+        lot.reservedTaskId = id; return lot.id;
+      },
+      saleCustody: o => {
+        const item = stack(o), remaining = o.quote.quantity - o.handed;
+        if (remaining && (!item || item.key !== 'metalParts' || item.section !== 'resources' || item.quantity !== remaining
+          || item.carriedBy !== 'scientist' || item.reservedTaskId !== o.id || item.cityOwnerId || item.civicCustody || item.carryTaskId)) return false;
+        const lots = o.lots.slice(o.delivered).map(id => ensurePhysicalItemStacks().find(i => i.id === id));
+        return lots.length === o.handed - o.delivered && lots.every(i => i?.quantity === 1 && i.key === 'metalParts' && i.section === 'resources'
+          && i.carriedBy === a.id && i.reservedTaskId === o.id && i.cityOwnerId === g.cityId && !i.civicCustody && !i.carryTaskId);
+      },
+      takeSale: o => {
+        const c = foreignSupplyContext(g, 'metalParts'), item = stack(o);
+        if (!c.contact || !(o.target === 'outer' ? c.atOuter : c.atCounter && c.permit) || !item || !actorInventoryCanCarry(a.id, item, 1)) return null;
+        item.carriedBy = '';
+        const received = carryPhysicalStack(a.id, item.id, 1, { allowReserved: true });
+        if (!received) { item.carriedBy = 'scientist'; return null; }
+        if (item !== received) item.carriedBy = 'scientist';
+        received.reservedTaskId = o.id; received.cityOwnerId = g.cityId;
+        received.sourceLabels = [...received.sourceLabels, g.cityId, s.source.branchId, o.id, 'Buyer-owned foreign sale cargo awaiting original store receipt'];
+        syncActorInventories(); return received.id;
+      },
+      storeSale: (o, at, net) => {
+        const market = foreignSupplierMarket(g), def = COMMODITY_MARKET_LISTING_BY_ID[o.quote.good], listing = market?.listings?.[o.quote.good];
+        const item = ensurePhysicalItemStacks().find(i => i.id === o.lots[o.delivered]), space = foreignReceivingRemaining(g);
+        if (!listing || market.id !== o.quote.cityId || o.escrow < o.quote.unitPrice || !item || item.carriedBy !== a.id
+          || item.cityOwnerId !== g.cityId || item.reservedTaskId !== o.id || !sameMapCell(a.mapCell, foreignSupplyPoint(g, 'store'))
+          || space.massKg < item.unitMassKg || space.volumeL < item.unitVolumeL) return null;
+        // Physical store receipt consumes the exact carrier lot into the existing public exchange inventory, never a second stock pool.
+        const id = item.id; item.quantity = 0; item.knownQuantity = 0; item.carriedBy = ''; item.reservedTaskId = '';
+        state.physicalItemStacks = ensurePhysicalItemStacks().filter(i => i.id !== id);
+        listing.supply += 1; listing.demand = Math.max(.55, listing.demand - 1 / Math.max(20, def.liquidity * 5));
+        ensureEconomy().money += net;
+        recordLegalLedger('foreignSale', `One ${def.label} physically received at ${s.label}; fixed bid less allocated handling settled.`,
+          { listingId: def.id, amount: net, quantity: 1, consignmentId: o.id, roomId: g.annexRoomId });
+        syncActorInventories(); syncPhysicalReadModels(); return id;
+      },
       allocate: (id, q) => {
         const item = createPhysicalItemStack('inventory', q.good, q.quantity, { roomId: g.annexRoomId, cell: { x: 19, y: 9, z: g.z } },
           { suppressEvidence: true, sourceLabels: [g.cityId, s.source.branchId, id, 'Paid personal provisions in original supplier custody'] });
@@ -87992,6 +88062,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (ok) recordLegalLedger('foreignProvisions', `Purchased ${options.quote.quantity} ${def.label} from ${s.label}; paid title precedes actual handoff.`, { listingId: def.id, amount: -options.quote.total, quantity: options.quote.quantity, consignmentId: ForeignSupplies.active(s).id });
       else s.message = 'Purchase not accepted. Review current stock, price, permit time, funds and actual capacity; nothing was charged.';
     }
+    if (action === 'sell') {
+      const def = COMMODITY_MARKET_LISTING_BY_ID.metalParts, item = ensurePhysicalItemStacks().find(i => i.id === options.quote?.stackId);
+      ok = ForeignSupplies.sell(s, market, def, item, options.quote, foreignSupplyContext(g, 'metalParts', true), state.clock, foreignSupplyHooks(g));
+      if (!ok) s.message = 'Sale not accepted. Review exact ownership, bid, buyer funds, receiving capacity, route and permit time; no goods or money moved.';
+    }
     if (action === 'outer') ok = ForeignSupplies.outer(s, c);
     if (action === 'consume' && c.local && c.alive && c.capable && !c.busy) ok = queueSurvivalConsumption('fieldRation');
     ForeignSupplies.observe(s, foreignSupplyContext(g), market, COMMODITY_MARKET_LISTING_DEFS, state.clock); persist(); render(); return ok;
@@ -88002,7 +88077,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const g of state.penalFlights?.assistance?.cityApproach?.gates || []) if (g.visitorSupplies) {
       const s = g.visitorSupplies, o = ForeignSupplies.active(s), oldStatus = o?.status;
       changed = ForeignSupplies.advance(s, foreignSupplyContext(g), state.clock, foreignSupplyHooks(g)) || changed;
-      if (o?.status === 'received' && oldStatus !== 'received' && foreignReceptionContext(g).local) { surveyEvent(s.message); state.paused = true; }
+      if (o?.status === 'received' && oldStatus !== 'received' && foreignSupplyContext(g).contact) { surveyEvent(s.message); state.paused = true; }
       ForeignSupplies.observe(s, foreignSupplyContext(g), foreignSupplierMarket(g), COMMODITY_MARKET_LISTING_DEFS, state.clock);
     }
     return Number(changed);
@@ -88014,13 +88089,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!s) { panel.append(textEl('p', 'No supported local commercial supplier and existing city stock are available. Reception is not a market allocation; return remains separate.')); return panel; }
     const c = foreignSupplyContext(g), market = foreignSupplierMarket(g), v = ForeignSupplies.observe(s, c, market, COMMODITY_MARKET_LISTING_DEFS, state.clock);
     const button = (label, action, options = {}, disabled = false) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = disabled; b.onclick = () => foreignSupplyAction(action, options); panel.append(b); };
-    panel.append(textEl('p', `${s.label}: lawful personal purchases only, not a general trading license. One outstanding purchase, at most six units; $4 handling per purchase. Paid goods remain separate from physical receipt.`));
+    panel.append(textEl('p', `${s.label}: personal provisions and separately published metal-parts buying terms only, not a general trading license. One outstanding transaction, at most six units; $4 handling per transaction. Payment and physical receipt remain distinct.`));
     button('Walk to Visitor Provisions Counter', 'walk', {}, !c.permit || c.busy || !c.alive || !c.capable);
     if (v) {
       panel.append(textEl('p', `Supplier report received ${formatClock(v.at)}. ${v.message}`));
       for (const l of v.listings) panel.append(textEl('p', `${l.label}: last reported ${l.supply} units, ${formatMoney(l.ask)} per unit. No automatic restock.`));
-      for (const o of v.orders.slice(-3)) panel.append(textEl('p', `${o.id}: ${o.status}, ${o.delivered}/${o.quote.quantity} physically received. ${o.delay}`));
+      for (const o of v.orders.slice(-3)) panel.append(textEl('p', `${o.id}: ${o.status}, ${o.kind === 'sale' ? `${o.handed}/${o.quote.quantity} handed to buyer; ` : ''}${o.delivered}/${o.quote.quantity} physically received${o.kind === 'sale' ? ' at store and settled' : ''}. ${o.delay}`));
     }
+    panel.append(renderForeignSales(g, s, c, market, v));
     if (c.atCounter && c.permit) for (const key of ForeignSupplies.GOODS) {
       const row = document.createElement('label'), select = document.createElement('select'); select.setAttribute('aria-label', `${inventoryItemLabel(key)} purchase quantity`);
       for (let n = 1; n <= ForeignSupplies.MAX; n++) select.append(new Option(String(n), String(n)));
@@ -88031,8 +88107,48 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       else panel.append(textEl('p', 'No executable quote: stock, existing purchase, supplier duty, permit time, route or actual pack capacity prevents purchase.'));
       button(`Buy ${inventoryItemLabel(key)} at Exact Quoted Total`, 'buy', { quote: q, good: key }, !q || ensureEconomy().money < q.total);
     }
-    button('Request Paid Goods at Outer Stand', 'outer', {}, !ForeignSupplies.active(s) || !c.atOuter || c.busy || !c.alive || !c.capable);
+    button(ForeignSupplies.active(s)?.kind === 'sale' ? 'Request Remaining Sale Handoffs at Outer Stand' : 'Request Paid Goods at Outer Stand', 'outer', {}, !ForeignSupplies.active(s) || !c.atOuter || c.busy || !c.alive || !c.capable);
     button('Use Carried Field Provision Pack', 'consume', {}, c.busy || !c.alive || !c.capable || !survivalSupply('fieldRation'));
+    return panel;
+  }
+  function renderForeignSales(g, s, c, market, v) {
+    const panel = document.createElement('section'); panel.dataset.foreignSales = 'true';
+    panel.append(textEl('h4', 'Sell Carried Metal Parts'));
+    panel.append(textEl('p', `Published buying terms: player-owned unreserved carried metal parts only; six units maximum and four marks handling. Receiving intake: ${s.salesTerms.receivingMassKg} kg / ${s.salesTerms.receivingVolumeL} L. No chemical, creature, borrowed or city-owned cargo; no automated orders or broader rights.`));
+    if (v?.sale) {
+      const history = v.sale.history;
+      panel.append(textEl('p', `Last received metal-parts bid: ${formatMoney(v.sale.bid)} at ${formatClock(history.at(-1).at)}. Observed bids only; gaps do not reveal unseen prices.`));
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.classList.add('commodity-price-chart');
+      svg.dataset.foreignBidChart = 'metalParts'; svg.setAttribute('viewBox', '0 0 360 96'); svg.setAttribute('role', 'img');
+      svg.setAttribute('aria-label', `Observed foreign metal-parts bid history: ${history.map(p => `${formatClock(p.at)}: ${formatMoney(p.bid)}`).join('; ')}. No unseen price history.`);
+      const low = Math.min(...history.map(p => p.bid)), range = Math.max(1, Math.max(...history.map(p => p.bid)) - low);
+      const span = Math.max(1, history.at(-1).at - history[0].at);
+      const points = history.map(p => [8 + 344 * (p.at - history[0].at) / span, 88 - 80 * (p.bid - low) / range]);
+      if (points.length > 1) {
+        const line = document.createElementNS(svg.namespaceURI, 'polyline'); line.classList.add('commodity-chart-line');
+        line.setAttribute('points', points.map(p => p.join(',')).join(' ')); svg.append(line);
+      }
+      for (const [x, y] of points) {
+        const point = document.createElementNS(svg.namespaceURI, 'circle'); point.setAttribute('cx', String(x)); point.setAttribute('cy', String(y));
+        point.setAttribute('r', '3'); point.setAttribute('fill', 'currentColor'); svg.append(point);
+      }
+      panel.append(svg, textEl('p', `${formatClock(history[0].at)} → ${formatClock(history.at(-1).at)}; ${history.length} received observations. Lines connect observations, not continuous knowledge.`));
+    } else panel.append(textEl('p', 'No personally received buying quote yet. Walk to the visitor counter with current permission.'));
+    if (!c.atCounter || !c.permit) return panel;
+    const lots = surveyCarriedStacks().filter(ForeignSupplies.saleLot);
+    if (!lots.length) panel.append(textEl('p', 'No eligible player-owned carried metal-parts lot. Reserved or claimed goods cannot be sold.'));
+    for (const item of lots) {
+      const select = document.createElement('select'); select.setAttribute('aria-label', `${item.id} metal-parts sale quantity`);
+      for (let n = 1; n <= Math.min(6, item.quantity); n++) select.append(new Option(String(n), String(n)));
+      select.value = String(Math.min(item.quantity, s.selectedSaleQuantity || 1));
+      select.onchange = () => { s.selectedSaleQuantity = Number(select.value); persist(); render(); };
+      panel.append(textEl('p', `${item.id}: ${item.quantity} carried metal parts.`), select);
+      const q = ForeignSupplies.saleQuote(s, market, COMMODITY_MARKET_LISTING_BY_ID.metalParts, item, Number(select.value), foreignSupplyContext(g, 'metalParts', true), state.clock);
+      if (q) panel.append(textEl('p', `${q.quantity} × ${formatMoney(q.unitPrice)} bid = ${formatMoney(q.gross)} gross − ${formatMoney(q.handlingFee)} handling = ${formatMoney(q.net)} net. ${q.massKg} kg / ${q.volumeL} L; estimated ${formatDuration(q.seconds)} including walking, thirty seconds per handoff, one-minute store preparation and thirty seconds per store receipt. Quote expires in one minute. Buyer funds and this exact slice reserve now; payment follows store receipt.`));
+      else panel.append(textEl('p', 'No executable sale quote: buyer funds, receiving capacity, existing transaction, supplier reserves, actual route or permit time are insufficient. The market does not reroll willingness.'));
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = `Sell ${item.id} at Exact Quoted Net`; b.disabled = !q;
+      b.onclick = () => foreignSupplyAction('sell', { quote: q }); panel.append(b);
+    }
     return panel;
   }
   function renderForeignReception() {

@@ -117,9 +117,9 @@ async function finish(page) {
     d.advanceSimulation(Math.max(1, t.dueAt - s.clock + 1));
   } throw new Error('Queued physical work did not finish'); });
 }
-async function enter(page, renderer) {
+async function enter(page, renderer, sales = false) {
   await page.addInitScript(() => localStorage.clear()); await page.goto(pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href);
-  await page.evaluate(({ f, city, standings, renderer }) => {
+  await page.evaluate(({ f, city, standings, renderer, sales }) => {
     const d = window.helixHeresyDebug;
     const network = { homeDestinationId: 'site:lab', nearestSettlementDestinationId: 'city:a', destinations: [
       { id: 'site:lab', kind: 'laboratorySite', cityId: 'a', known: true, supportComponentId: 'one', localDistanceKm: 2, routeContinuity: 'municipal', cellId: 'planet-cell:00009' },
@@ -129,9 +129,9 @@ async function enter(page, renderer) {
       standings: [{ network: { id: 'transport:a', category: 'transport' }, standing: 'licensed', branch: { id: 'branch:a', publicName: 'Aster Passenger Depot', capacityBand: 'functional', operationalStatus: 'active' } }] });
     d.setMapRenderer(renderer); d.setForeignReceptionTestContext({ source: { ...city, administrationId: 'admin:b', administrationName: 'Neighbor Administration',
       watchId: 'watch:b', lawId: 'law:b', currentAuthority: true, capacityBand: 'functional', recognition: 'verified', localRules: [] }, ...f });
-    d.setForeignSuppliesTestContext({ city, standings, market: { id: 'b', listings: { drinkingWater: { supply: 12, demand: 1 }, fieldRation: { supply: 10, demand: 1 } } } });
+    d.setForeignSuppliesTestContext({ city, standings, carriedMetalParts: sales ? 6 : 0, market: { id: 'b', listings: { drinkingWater: { supply: 12, demand: 1 }, fieldRation: { supply: 10, demand: 1 }, metalParts: { supply: 60, demand: 1 } } } });
     if (!d.bookIntercityPassenger('city:b') || !d.queueIntercityPassenger('passengerBoard')) throw new Error('Unable to board');
-  }, { f: identityFixture(), city: city(), standings: standings(), renderer });
+  }, { f: identityFixture(), city: city(), standings: standings(), renderer, sales });
   await finish(page); await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(1600));
   expect(await page.evaluate(() => window.helixHeresyDebug.queueIntercityPassenger('passengerDisembark'))).toBe(true); await finish(page);
   expect(await page.evaluate(() => window.helixHeresyDebug.foreignReceptionAction('walk'))).toBe(true); await finish(page);
@@ -177,5 +177,55 @@ for (const renderer of ['dom', 'canvas']) test(`foreign food/water purchase, act
   const packCount = (await snapshot()).carried.filter(i => i.key === 'fieldRation').reduce((n, i) => n + i.quantity, 0);
   expect(await page.evaluate(() => window.helixHeresyDebug.foreignSupplyAction('consume'))).toBe(true); await finish(page);
   expect((await snapshot()).carried.filter(i => i.key === 'fieldRation').reduce((n, i) => n + i.quantity, 0)).toBe(packCount - 1);
+  expect(errors).toEqual([]);
+});
+for (const renderer of ['dom', 'canvas']) test(`foreign exact carried sale, saved custody, market receipt and observed chart through ${renderer}`, async ({ page }) => {
+  test.setTimeout(300000); const errors = []; page.on('pageerror', e => errors.push(e.message)); await enter(page, renderer, true);
+  const snapshot = () => page.evaluate(() => window.helixHeresyDebug.foreignSaleSnapshot());
+  const before = await snapshot(), lot = before.carried.find(i => i.key === 'metalParts'); expect(lot?.quantity).toBe(6);
+  const q = await page.evaluate(id => window.helixHeresyDebug.foreignSaleSnapshot(id, 2).quote, lot.id); expect(q).not.toBeNull();
+  const carrier = await page.evaluate(() => window.helixHeresyDebug.intercityPassengerSnapshot().carrier);
+  await expect(page.locator('[data-foreign-bid-chart="metalParts"]')).toHaveAttribute('aria-label', /No unseen price history/);
+  await page.getByLabel(`${lot.id} metal-parts sale quantity`).selectOption('2');
+  await page.getByRole('button', { name: `Sell ${lot.id} at Exact Quoted Net`, exact: true }).click();
+  const booked = await snapshot(), order = booked.supplier.orders[0];
+  expect(order.kind).toBe('sale'); expect(booked.money).toBe(before.money); expect(booked.market.treasury).toBe(before.market.treasury - q.gross);
+  expect(booked.market.listings.metalParts.supply).toBe(before.market.listings.metalParts.supply);
+  expect(booked.carried.filter(i => i.key === 'metalParts').reduce((n, i) => n + i.quantity, 0)).toBe(6);
+  expect(booked.carried.find(i => i.id === order.stackId).reservedTaskId).toBe(order.id);
+  expect(booked.carried.find(i => i.id === lot.id).reservedTaskId).toBe('');
+  // The original selected quote cannot sell a second slice or replenish anything.
+  expect(await page.evaluate(q => window.helixHeresyDebug.foreignSupplyAction('sell', { quote: q }), q)).toBe(false);
+  await page.evaluate(() => window.helixHeresyDebug.advanceForeignReceptionTestTime(180, 'handoff'));
+  const handed = await snapshot(); expect(handed.supplier.orders[0].handed).toBe(1); expect(handed.money).toBe(before.money);
+  const custody = await page.evaluate(() => window.helixHeresyDebug.physicalStockSnapshot().stacks);
+  expect(custody.find(i => i.id === handed.supplier.orders[0].lots[0]).cityOwnerId).toBe('b');
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  await page.evaluate(() => window.helixHeresyDebug.advanceForeignReceptionTestTime(240, true));
+  const partial = await snapshot(); expect(partial.supplier.orders[0].receipts).toHaveLength(1);
+  expect(partial.money).toBe(before.money + q.unitPrice - 4); expect(partial.market.listings.metalParts.supply).toBe(before.market.listings.metalParts.supply + 1);
+  expect(partial.supplier.orders[0].escrow).toBe(q.unitPrice);
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  await page.evaluate(() => window.helixHeresyDebug.advanceForeignReceptionTestTime(60));
+  const received = await snapshot(); expect(received.supplier.orders[0].status).toBe('received'); expect(received.money).toBe(before.money + q.net);
+  expect(received.supplier.orders[0].escrow).toBe(0); expect(received.supplier.handlingRevenue).toBe(4);
+  expect(received.carried.filter(i => i.key === 'metalParts').reduce((n, i) => n + i.quantity, 0)).toBe(4);
+  expect(received.market.listings.metalParts.supply).toBe(before.market.listings.metalParts.supply + 2);
+  await page.evaluate(() => window.helixHeresyDebug.advanceForeignReceptionTestTime(60)); expect((await snapshot()).money).toBe(received.money);
+  const afterCarrier = await page.evaluate(() => window.helixHeresyDebug.intercityPassengerSnapshot().carrier);
+  expect(afterCarrier.vehicle).toEqual(carrier.vehicle); expect(afterCarrier.driver).toEqual(carrier.driver); expect(afterCarrier.provisionsSeconds).toBeLessThan(carrier.provisionsSeconds);
+  if (renderer === 'dom') {
+    const secondLot = received.carried.find(i => i.key === 'metalParts' && !i.reservedTaskId);
+    expect(await page.evaluate(id => { const d = window.helixHeresyDebug; return d.foreignSupplyAction('sell', { quote: d.foreignSaleSnapshot(id, 2).quote }); }, secondLot.id)).toBe(true);
+    await page.evaluate(() => window.helixHeresyDebug.advanceForeignReceptionTestTime(180, 'handoff'));
+    expect((await snapshot()).supplier.orders[1].handed).toBe(1);
+    expect(await page.evaluate(() => window.helixHeresyDebug.foreignReceptionAction('exit'))).toBe(true); await finish(page);
+    await page.evaluate(() => { const d = window.helixHeresyDebug, r = d.foreignReceptionSnapshot(); d.advanceForeignReceptionTestTime(r.permission.expiresAt - r.clock); });
+    const expired = await snapshot(); expect(expired.context.permit).toBeNull(); expect(expired.supplier.orders[1].handed).toBe(1); expect(expired.money).toBe(received.money);
+    expect(await page.evaluate(() => window.helixHeresyDebug.foreignSupplyAction('outer'))).toBe(true);
+    await page.evaluate(() => window.helixHeresyDebug.advanceForeignReceptionTestTime(420));
+    const completed = await snapshot(); expect(completed.supplier.orders[1].status).toBe('received'); expect(completed.supplier.orders[1].target).toBe('outer');
+    expect(completed.money).toBe(received.money + completed.supplier.orders[1].quote.net);
+  }
   expect(errors).toEqual([]);
 });
