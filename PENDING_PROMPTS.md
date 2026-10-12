@@ -18,13 +18,14 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 ## Current Priority Order
 
-1. Further Appointment Procedures
-2. Wider Local Opposition and Continuing Occupation
-3. Strategic Expansion and World Domination
-4. Divine Supremacy: Rule over the Gods
-5. New-Run Onboarding and Contextual Tutorial
-6. Sound, Notifications, and Accessibility Audit
-7. Production Art Pass Using the Sprite Pipeline
+1. Foreign City Admission and First Local Contact
+2. Further Appointment Procedures
+3. Wider Local Opposition and Continuing Occupation
+4. Strategic Expansion and World Domination
+5. Divine Supremacy: Rule over the Gods
+6. New-Run Onboarding and Contextual Tutorial
+7. Sound, Notifications, and Accessibility Audit
+8. Production Art Pass Using the Sprite Pipeline
 
 Human staffing now supports bounded independent annex operation without intelligent creations. Homunculus growth, learned local continue/stop gestures, small separately learned signed and spoken languages, care-grounded spoken help requests and specifically demonstrated voluntary carrying agreements exist; literacy, wider education and standing creature employment do not. Homunculi remain advanced stage-two/three work, not early-laboratory unlocks; priority order does not impose compulsory campaign chapters.
 
@@ -157,13 +158,23 @@ One physical recovery of the original deceased public-works official's documente
 
 One temporary supplied maintenance commission for a bodily incapacitated living public-works official is implemented under a separate published law after actual voluntary sovereign handover. Personally observed injury, finite original-clerk recording, the existing independent shared queue, documented eligibility and stable willingness precede exact attended one-repair consent with one-day expiry. The incumbent retains the original office, roles, agreements, rights, injuries, faith, property and cases; absence, dissent, exhaustion and death are not incapacity evidence. Actual source inspection, one-minute collection, ordinary capacity, loaded paths and two full installation minutes consume documented available city supplies once. Injured-carrier cargo and original partial jobs are excluded. Completion ends the narrow commission; expiry prevents further installation and requires physical return of collected cargo to municipal custody, not a reserve refund or player stock. Supplied rest preserves the same physical cargo and job without healing or extending authority. Finite costs, outages, interrupted return, saved positions and dated records persist; scientist death freezes work. Do not repeat this completed one-repair injury-cover slice. Standing deputies, other living-incapacity procedures, repeat commissions and injured-carrier cargo recovery remain separate consumers.
 
-## 1. Further Appointment Procedures
+Direct-neighbor passenger travel is implemented as a bounded strategic-expansion consumer, not another home-city takeover prerequisite. At the existing municipal survey-ground rendezvous, a supported licensed commercial transport branch supplies one persistent finite driver and vehicle. Exact separate fares, physical boarding with carried cargo, saved occupied road progress, finite fuel/condition/duty/provisions and physical unloading lead only to the neighboring city's outer stand. Waiting consumes supplies; separately paid return needs the same actually capable available carrier and usable corridor, with no guaranteed rescue, resupply or teleport. Original possessions, injuries, home obligations and dated knowledge persist; itinerary directions release neither maps nor resource surveys. No foreign admission, office access, authority, alliance, extradition, city command or ambition completion follows. Do not repeat this completed passenger journey; foreign admission is the next separate discussion.
+
+## 1. Foreign City Admission and First Local Contact
+
+Discuss one bounded physically attended admission/contact service at the already reached neighboring city's outer passenger stand. Use the actual destination's separate sovereignty, current local law, existing institutions and population-backed finite staff. Specify exact requested access, required identity/evidence, stable refusal or conditional permission, ordinary service costs and separately attended acceptance. Do not turn physical arrival into admission, diplomatic recognition, immunity, extradition, guilt, an army, a maps release or sovereign control. Home-city authority must not be compulsory for ordinary travel or visitor admission. Maps and especially costly resource surveys remain withheld except under a separately justified narrow bargain; itinerary directions are not an atlas.
+
+Keep carried possessions, injuries, legal obligations, available return vehicle and depleting waiting provisions real. A refused visitor remains playable outside, and return must use actual supported transport. Do not repeat municipal collection or the completed paid direct-neighbor passenger journey. Choose one local contact or admission scope before adding foreign markets, residence, research rights, new custody proceedings, alliances or takeover; split those into later prompts only where needed. Preserve immutable reusable worlds, dated received knowledge, shared finite original people, interrupted attendance and once-only saved outcomes. Death freezes unfinished work; a replacement body inherits no old passenger booking.
+
+Do not modify files until the design has been discussed and the developer explicitly approves implementation.
+
+## 2. Further Appointment Procedures
 
 Discuss one additional supported local appointment procedure only when a playable consumer requires it. Collective authorities, appointments after later revised disputed-succession findings, broader living-incapacity or standing-deputy procedures, vacancies under disputed succession, repeated replacements and other combined roles are not covered by the completed original-confirmation peaceful disputed replacement, voluntary separate-office replacement, voluntary-succession death-only vacancy, single-repair living-injury commission or public-works-only combined-directorate reassignment. Specify actual published selection/removal powers, all affected roles, independent review, real qualified consenting candidates, finite duties and physical handover. A laboratory employment credential is not civic eligibility. Do not silently amend an old charter, reuse designation-only patron authorization as removal approval, invent a vacancy or a freely replenished candidate market, or replace multiple institutions through one narrow receipt. This is an optional branch, not a compulsory checklist before every campaign action. Do not repeat completed appointment or temporary injury-cover routes; neither peaceful disputed replacement, death vacancy, injury cover nor combined reassignment confers new force authority. The completed original-casualty municipal-cargo recovery is a separate physical consumer, not automatic appointment stock or a general estate procedure.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 2. Wider Local Opposition and Continuing Occupation
+## 3. Wider Local Opposition and Continuing Occupation
 
 Discuss one additional playable opposition or continuing-control obligation only when its actual consumer is identified. Wider recruitment, religious disputes, preemptive organized armed resistance, other enforceable safeguards and occupation remain separate from the completed two-person receiving-approach protest, its bounded reactive unarmed defense and its narrow breached-promise watch-cooperation remedy. Choose one installation, enforceable obligation or identified opposing group before widening to citywide occupation. The existing rare defender and civic people are not a freely controllable army, and a conquered installation supplies neither complete intelligence nor automatic institutional obedience. Collective rulers and unsupported charters retain distinct procedures. Split wider provisioning and organized resistance prerequisites when required. No assay appointment, bargain, witnessed bout, personal ceasefire, payment, reputation or internet recognition grants sovereign command by itself. Do not repeat the completed individual public-works policy objection, appointment hearing, supplied upkeep, two-person protest, witnessed defensive encounter or personal watch withdrawal/review/explicit renewal as organized revolt.
 
@@ -173,31 +184,31 @@ The completed civil installation-access commission covers passive resistance onl
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 3. Strategic Expansion and World Domination
+## 4. Strategic Expansion and World Domination
 
 Design physically supportable expansion between existing support components, significant beast powers, and divine interests, then implement only the next mechanically supported slice. Specify finite, testable durable-supremacy criteria before adding victory evaluation; occupation of every empty globe cell is not required. Bind campaigns to actual routes, transport, manpower, resources, defense, agreements, and resistance. Keep unknown powers and hidden totals out of ordinary campaign records. World domination is an exceptionally rare dated accomplishment, not a game-over transition, and remains separate from divine supremacy.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 4. Divine Supremacy: Rule over the Gods
+## 5. Divine Supremacy: Rule over the Gods
 
 Design and implement the ultimate ambition of imposing enforceable submission on the gods, killing those who refuse, and reigning over the rest. Submission must impose actual terms and consequences rather than a reputation threshold or cosmetic declaration. Cover discovery, human and beast gods, living descended individuals, avatars versus the actual divine individual, rebellion, and new ascendants. Destroying worship or forcing descent is not a kill. Scientific, animantic, engineered-creature, and personal-power approaches should remain possible without requiring the scientist to ascend. Theme-compatible presentations do not remove the refusal-and-death requirement. Define finite, testable accomplishment criteria without exposing hidden identities or counts; allow continued play after success and keep world domination a separate accomplishment. Split prerequisite combat, submission, or enforcement systems into further prompts if needed.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 5. New-Run Onboarding and Contextual Tutorial
+## 6. New-Run Onboarding and Contextual Tutorial
 
 Design and implement optional contextual guidance after world selection, site selection, and the early campaign loop are stable. Teach discovery, containment, map, task, research, company, economy, secrecy, and defeat/restart loops without turning the campaign into a rigid tutorial script.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 6. Sound, Notifications, and Accessibility Audit
+## 7. Sound, Notifications, and Accessibility Audit
 
 Design and implement restrained sound and notification language, user controls, urgency rules, reduced-sensory alternatives, keyboard coverage, screen-reader coverage, and a complete accessibility review. Treat sound as an additional cue rather than the only carrier of state.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 
-## 7. Production Art Pass Using the Sprite Pipeline
+## 8. Production Art Pass Using the Sprite Pipeline
 
 Use the existing sprite manifest, loader, atlas workflow, semantic keys, and development sprites to establish and replace assets with a coherent first production-quality set, including title-screen key art. Preserve footprint anchors, transforms, renderer-neutral semantic keys, DOM glyph fallbacks, accessibility modes, and the approved visual language. Keep this prompt last because world generation and campaign work may introduce new visuals.
 

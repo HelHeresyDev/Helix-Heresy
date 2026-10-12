@@ -97,6 +97,7 @@
   const StrategicJourneys = window.HelixStrategicJourneys;
   const ResourceSurveys = window.HelixResourceSurveys;
   const SurveyExpeditions = window.HelixSurveyExpeditions;
+  const IntercityPassenger = window.HelixIntercityPassenger;
   const MunicipalCarrier = window.HelixMunicipalCarrier;
   const CarrierBriefings = window.HelixCarrierBriefings;
   const LocalDiscovery = window.HelixLocalDiscovery;
@@ -5440,6 +5441,7 @@
       strategicJourneys: StrategicJourneys.defaultState(),
       resourceSurveys: ResourceSurveys.defaultState(),
       surveyExpeditions: SurveyExpeditions.defaultState(),
+      intercityPassenger: null,
       unsupportedExcursions: UnsupportedExcursions.defaultState(),
       medicalExtraction: MedicalExtraction.defaultState(),
       penalFlights: PenalFlights.defaultState(),
@@ -16706,6 +16708,24 @@
       startEnvironmentalSample: (methodId, recordId) => startEnvironmentalSample(methodId, recordId),
       startResourceSurvey: (methodId, cell) => startResourceSurvey(methodId, cell),
       packSurveyItem,
+      bookIntercityPassenger,
+      queueIntercityPassenger,
+      intercityPassengerSnapshot: () => clonePlainObject({ carrier: state.intercityPassenger, public: IntercityPassenger.publicView(state.intercityPassenger), clock: state.clock,
+        roomId: scientistRoomId(), cell: scientistMapCell(), carried: surveyCarriedStacks(), injuries: actorInjuries('scientist'), money: ensureEconomy().money,
+        constructionReason: constructionTileStaticBlockReason('dig', scientistMapCell()), envelope: surfaceEnvelopeAtCell(scientistMapCell()), surveyContext: resourceContextForCell(scientistMapCell()),
+        tasks: scientistQueueTasks().map(task => ({ ...task, reason: taskBlockReason(task) })) }),
+      setIntercityPassengerTestContext: ({ network, city, standings }) => {
+        state.started = true; state.seed = 'intercity-passenger-test'; ensureEconomy().money = 5000;
+        state.strategicJourneys = StrategicJourneys.defaultState({ network, clock: state.clock });
+        state.surveyExpeditions = SurveyExpeditions.defaultState();
+        state.surveyExpeditions.destination = SurveyExpeditions.destinationFor(network);
+        state.surveyExpeditions.departure = { roomId: scientistRoomId(), cell: scientistMapCell() };
+        ensureSurveyExpeditions(); materializeSurveySpaces();
+        state.surveyExpeditions.phase = 'field'; state.surveyExpeditions.departedAt = state.clock;
+        state.intercityPassenger = IntercityPassenger.create(city, standings, state.clock);
+        moveSurveyScientist(SurveyExpeditions.FIELD_ROOM, SurveyExpeditions.RENDEZVOUS);
+        enterGameplay({ focus: false }); render(); return true;
+      },
       reserveMunicipalCarrier,
       cancelMunicipalCollection,
       carrierBriefingAction,
@@ -22303,7 +22323,11 @@
       const reportedMedicalAt = state.medicalExtraction?.lastReport?.arriveAt;
       const clinicEvent = clinicActive() ? { time: clinicNextAt(), label: "Clinic care checkpoint", type: "medical" } : null;
       const remoteAt = unsupportedActive() ? Math.min(UnsupportedExcursions.nextPublicEventAt(state.unsupportedExcursions.trip, state.unsupportedExcursions.lastReport, state.clock), reportedMedicalAt > state.clock ? reportedMedicalAt : Infinity) : Infinity;
-      const travelEvent = unsupportedActive() ? (Number.isFinite(remoteAt) ? { time: remoteAt, label: "Known charter schedule checkpoint", type: "travel" } : null) : StrategicJourneys.nextPublicEvent({ journeys: journey ? [journey] : [] }, state.clock);
+      const passenger = state.intercityPassenger;
+      const travelEvent = IntercityPassenger.moving(passenger)
+        ? { time: Math.max(state.clock + 60, passenger.trip.arrivalWindow.end), label: 'Passenger carrier arrival estimate', type: 'travel' }
+        : passenger?.rest && intercityLocal() ? { time: state.clock + passenger.rest.remaining, label: 'Supplied passenger-driver rest checkpoint', type: 'travel' }
+        : unsupportedActive() ? (Number.isFinite(remoteAt) ? { time: remoteAt, label: "Known charter schedule checkpoint", type: "travel" } : null) : StrategicJourneys.nextPublicEvent({ journeys: journey ? [journey] : [] }, state.clock);
       return [clinicEvent, task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, nextLeasedAnnexEvent(), nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
         .filter((event) => event && (!options.includeTypes || options.includeTypes.includes(event.type)) && event.time >= state.clock)
         .sort((a, b) => a.time - b.time)[0] || null;
@@ -22770,6 +22794,7 @@
     if (id === "administration") {
       changes.propertyPresentationChanged += updatePropertyPresentationWeather();
       changes.strategicJourneyChanged += updateStrategicJourneys();
+      changes.strategicJourneyChanged += updateIntercityPassenger();
       changes.strategicJourneyChanged += updateSurveyExpedition();
       changes.siteVisitChanged += updateSiteVisits(elapsed);
       changes.raidChanged += updateLawEnforcementRaids(elapsed);
@@ -22915,6 +22940,20 @@
     if (scientistIsDead()) return 0;
     const advanceStartedAt = performance.now();
     const elapsed = Math.max(0, Number(seconds) || 0);
+    // An occupied intercity vehicle stops a skip at arrival, a real hold or a
+    // personal survival warning. Home systems still receive every elapsed step.
+    if (IntercityPassenger.moving(state.intercityPassenger) && !options.passengerStep && elapsed > 0) {
+      let remaining = elapsed, changed = 0;
+      while (remaining > 0 && IntercityPassenger.moving(state.intercityPassenger) && !scientistIsDead()) {
+        const s = state.intercityPassenger, phase = s.phase, hold = s.hold || '', band = ensureWildernessSurvival().warningBand;
+        const task = scientistQueueTasks().find(t => !taskBlockReason(t) && t.dueAt > state.clock);
+        const step = Math.min(remaining, 600, Math.max(1, s.trip.seconds - s.trip.progressSeconds + s.trip.delaySeconds), task ? Math.max(1, task.dueAt - state.clock) : Infinity);
+        const before = state.clock;
+        changed += advanceTime(step, { ...options, passengerStep: true }); remaining -= state.clock - before;
+        if (state.clock <= before || s.phase !== phase || (s.hold || '') !== hold || ensureWildernessSurvival().warningBand > band) break;
+      }
+      return changed;
+    }
     if (!options.recognitionStep && elapsed > 1 && (state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job || state.religiousRecognition?.job)) {
       let remaining = elapsed, changed = 0;
       while (remaining > 0 && !scientistIsDead() && (state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job || state.religiousRecognition?.job)) {
@@ -24507,6 +24546,7 @@
   }
 
   function constructionTileStaticBlockReason(mode, cell, options = {}) {
+    if (/^passenger-(cabin|outer)-/.test((state.labMap || ensureLabMap()).layers?.[String(cell?.z)]?.id || '')) return 'Passenger transport and outer-stand access grant no construction or excavation rights.';
     if ([SurveyExpeditions.FIELD_Z, SurveyExpeditions.CABIN_Z, UnsupportedExcursions.Z, UnsupportedExcursions.CABIN_Z].includes(cell?.z)) return "Survey access grants no construction or excavation rights.";
     const clean = cleanMapCell(cell);
     if (!clean || clean.x < 0 || clean.y < 0) return "Select a valid map tile.";
@@ -31982,6 +32022,9 @@
   function surfaceEnvelopeAtCell(cell, map = ensureLabMap(), context = null) {
     const clean = cleanMapCell(cell);
     if (!clean) return { kind: "subterranean", roofed: true, openSky: false };
+    const passengerLayer = map.layers?.[String(clean.z)]?.id;
+    if (passengerLayer?.startsWith('passenger-cabin-') && mapCellInRoomFootprint(clean, map.rooms[passengerLayer])) return { kind: 'interior', roofed: true, openSky: false };
+    if (passengerLayer?.startsWith('passenger-outer-') && mapCellInRoomFootprint(clean, map.rooms[passengerLayer])) return { kind: 'outdoor', roofed: false, openSky: true };
     const workshop = state.hiddenWorkshop?.site;
     if (workshop?.shellBuiltAt != null && clean.z === workshop.layout.origin.z
       && workshop.layout.floors.some(c => sameMapCell(c, clean))) {
@@ -87183,6 +87226,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return Boolean(stack && mapCellKey(stack.cell) === mapCellKey(shelter.cell) && mapCellKey(scientistMapCell()) === mapCellKey(shelter.cell));
   }
   function resourceContextForCell(cell) {
+    if (IntercityPassenger.away(state.intercityPassenger)) return null;
     if (labMapCellRoomId(cell) === activeWildernessRoom()) return ensureWildernessSurvival().context;
     if (surveyScientistAway()) return ensureSurveyExpeditions().fieldContext;
     return ensureResourceSurveys().context;
@@ -87670,6 +87714,152 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
 
+  function atIntercityHomeStand() {
+    return state.surveyExpeditions?.phase === 'field' && scientistRoomId() === SurveyExpeditions.FIELD_ROOM;
+  }
+  function ensureIntercityPassenger() {
+    if (state.intercityPassenger || !atIntercityHomeStand()) return state.intercityPassenger;
+    const map = activeWorldRecord?.generatedData?.strategicMap, cityId = ensureSurveyExpeditions().destination?.cityId;
+    const city = map?.strategicPlayableSettlementState?.cityRows.find(c => c.cityId === cityId);
+    const profile = map?.publicNonStateNetworkHistoryDirectory ? StrategicNonStateNetworkHistory.cityCurrentNetworkProfile(map, cityId)
+      : map?.publicNonStateNetworkDirectory ? StrategicNonStateNetworks.cityNetworkProfile(map, cityId) : null;
+    state.intercityPassenger = IntercityPassenger.create(city, profile?.standings, state.clock);
+    return state.intercityPassenger;
+  }
+  function intercityStand() {
+    const s = state.intercityPassenger;
+    if (s?.phase === 'foreign') return { roomId: s.spaces.outer.roomId, cell: s.spaces.outer.cell };
+    if (s?.phase === 'arrival') return { roomId: s.spaces.cabin.roomId, cell: s.spaces.cabin.cell };
+    return { roomId: SurveyExpeditions.FIELD_ROOM, cell: SurveyExpeditions.RENDEZVOUS };
+  }
+  function intercityLocal() {
+    const s = state.intercityPassenger;
+    return atIntercityHomeStand() && (!s || s.location === s.homeCityId)
+      || s?.spaces && [s.spaces.outer.roomId, s.spaces.cabin.roomId].includes(scientistRoomId()) && IntercityPassenger.away(s);
+  }
+  function intercityPassengerWorkReason(action, data = null) {
+    if (!['passengerBoard', 'passengerDisembark'].includes(action)) return 'Unknown passenger operation.';
+    const s = state.intercityPassenger;
+    if (data && (action === 'passengerBoard' ? data.passengerBookingId !== s?.booking?.id : data.passengerTripId !== s?.trip?.id)) return 'The original passenger booking or occupied journey no longer owns this queued work.';
+    if (!intercityLocal() || scientistRoomId() !== intercityStand().roomId) return 'The original passenger vehicle is not at this physical location.';
+    if (scientistIsDead() || actorIsIncapacitated('scientist')) return 'A living capable passenger is required.';
+    if (action === 'passengerDisembark') return s?.phase === 'arrival' ? '' : 'The occupied vehicle has not arrived.';
+    if (escortContractActive()) return 'Settle the local escort contract before intercity departure; no extra seat is allocated.';
+    return IntercityPassenger.boardingReason(s, ensureStrategicJourneys(), IntercityPassenger.load(surveyCarriedStacks()), state.clock, ensureScientistIdentity().bodyEpoch);
+  }
+  function bookIntercityPassenger(destinationId) {
+    const s = ensureIntercityPassenger();
+    if (!s || !intercityLocal() || !['home', 'foreign'].includes(s.phase) || surveyBusy() || scientistIsDead() || actorIsIncapacitated('scientist') || escortContractActive()) return false;
+    const q = IntercityPassenger.quote(s, ensureStrategicJourneys(), destinationId);
+    const reason = IntercityPassenger.book(s, q, IntercityPassenger.load(surveyCarriedStacks()), ensureEconomy(), state.clock, ensureScientistIdentity().bodyEpoch);
+    surveyEvent(reason || `Accepted ${s.label}: $${q.fee}, ${q.km} km, one seat, ${q.cargoKg} kg / ${q.cargoL} L. Board physically within one hour. Outer stand only; return is separately paid and capacity-bound.`);
+    persist(); render(); return !reason;
+  }
+  function queueIntercityPassenger(action) {
+    const reason = intercityPassengerWorkReason(action);
+    if (reason) { surveyEvent(reason); render(); return false; }
+    const s = state.intercityPassenger;
+    return queueSurveyWork(action, intercityStand().cell, { passengerBookingId: s.booking?.id, passengerTripId: s.trip?.id }, { workSeconds: 30 });
+  }
+  function materializeIntercitySpaces(s) {
+    if (s.spaces?.cityId === s.booking.destinationCityId) return;
+    s.spacesByCity ||= {};
+    if (s.spacesByCity[s.booking.destinationCityId]) { s.spaces = s.spacesByCity[s.booking.destinationCityId]; return; }
+    const map = ensureLabMap(), highest = Math.max(20, ...Object.keys(map.layers).map(Number).filter(Number.isFinite));
+    const cityId = s.booking.destinationCityId;
+    const specs = [
+      { id: `passenger-cabin-${cleanRoomId(s.source.branchId)}-${cleanRoomId(cityId)}`, name: 'Occupied Intercity Passenger Vehicle', z: highest + 1, x: 8, y: 8, width: 4, height: 3, purposeId: 'quarters' },
+      { id: `passenger-outer-${cleanRoomId(cityId)}`, name: `${s.booking.destinationLabel} Outer Passenger Stand`, z: highest + 2, x: 8, y: 8, width: 10, height: 6, purposeId: 'corridor' }
+    ];
+    s.spaces = { cityId };
+    for (const [i, spec] of specs.entries()) {
+      const room = normalizeRoom({ ...spec, articleName: `the ${spec.name}`, facilityClass: 'intercityPassenger', connections: [],
+        geometry: { lengthM: spec.width, widthM: spec.height, heightM: 3, floorAreaM2: spec.width * spec.height, volumeM3: spec.width * spec.height * 3 },
+        description: i ? 'Outside the city. No admission, office access, ownership or supplies are granted.' : 'A finite commercial vehicle; the home laboratory is physically unreachable.', purposeSource: 'intercityPassenger' });
+      state.rooms = normalizeRooms([...state.rooms, room]);
+      const rect = { roomId: spec.id, x: spec.x, y: spec.y, z: spec.z, width: spec.width, height: spec.height }, cell = { x: 10, y: 10, z: spec.z };
+      map.layers[String(spec.z)] = { id: spec.id, kind: 'structure', label: spec.name };
+      map.rooms[spec.id] = normalizeLabMapRoom({ ...rect, cells: rectangularRoomCells(rect), anchor: cell }, room);
+      map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...rectangularRoomCells(rect)]);
+      state.roomStockpiles[spec.id] ||= emptyRoomStockpile();
+      s.spaces[i ? 'outer' : 'cabin'] = { roomId: spec.id, cell };
+      map.terrain.constructedFloors = normalizeConstructedSurfaces([...(map.terrain.constructedFloors || []),
+        ...rectangularRoomCells(rect).map(cell => ({ cell, materialId: 'stone', purpose: 'floor', supportSpanM: 24, condition: 100, builtAt: state.clock }))]);
+    }
+    s.spacesByCity[cityId] = s.spaces;
+    bumpNavigationRevision('topology');
+  }
+  function completeIntercityPassengerWork(task) {
+    const action = task.data?.action;
+    if (!['passengerBoard', 'passengerDisembark'].includes(action)) return false;
+    const s = state.intercityPassenger, reason = intercityPassengerWorkReason(action, task.data), point = intercityStand();
+    if (reason || scientistRoomId() !== point.roomId || WildernessBeasts.distance(scientistMapCell(), point.cell) > 1) { surveyEvent(reason || 'Boarding requires physical contact with the actual vehicle.'); return true; }
+    if (action === 'passengerBoard') {
+      if (s.booking.outbound) materializeIntercitySpaces(s);
+      const manifest = surveyCarriedStacks().map(stack => ({ stackId: stack.id, key: stack.key, quantity: stack.quantity, toolInstanceId: stack.toolInstanceId }));
+      IntercityPassenger.board(s, state.clock, manifest, state.seed);
+      moveSurveyScientist(s.spaces.cabin.roomId, s.spaces.cabin.cell);
+      surveyEvent('Physically boarded the original commercial passenger vehicle with the actual carried load. No laboratory or foreign office access is available in transit.');
+    } else {
+      IntercityPassenger.disembark(s);
+      const dest = s.phase === 'home' ? { roomId: SurveyExpeditions.FIELD_ROOM, cell: SurveyExpeditions.RENDEZVOUS } : s.spaces.outer;
+      moveSurveyScientist(dest.roomId, dest.cell);
+      surveyEvent(s.phase === 'home' ? 'Disembarked at the home municipal ground. Laboratory return still requires the original local transport.' : 'Disembarked at the neighboring city’s outer passenger stand. Admission and local contacts are separate; no maps or resource surveys were released.');
+    }
+    state.paused = true; return true;
+  }
+  function updateIntercityPassenger() {
+    const s = state.intercityPassenger; if (!s || scientistIsDead()) return 0;
+    if (IntercityPassenger.away(s) && s.trip.bodyEpoch !== ensureScientistIdentity().bodyEpoch) {
+      s.phase = 'bodyLost'; s.hold = 'The original passenger body was lost; its booking does not belong to a replacement body.';
+      return 1;
+    }
+    const oldPhase = s.phase, oldHold = s.hold;
+    const changed = IntercityPassenger.advance(s, ensureStrategicJourneys(), state.clock);
+    if (intercityLocal()) {
+      s.observation = { at: state.clock, view: IntercityPassenger.publicView(s) };
+      if (oldPhase !== s.phase) { surveyEvent('The occupied passenger vehicle reached the outer stand. Walk to the cabin exit and disembark physically.'); state.paused = true; }
+      if (s.hold && s.hold !== oldHold) { surveyEvent(s.hold); state.paused = true; }
+    }
+    return Number(changed);
+  }
+  function renderIntercityPassenger() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.intercityPassenger = 'true';
+    panel.append(textEl('strong', 'Direct-Neighbor Passenger Travel'));
+    const s = ensureIntercityPassenger(), local = intercityLocal();
+    if (!local) { panel.append(textEl('p', 'Reach the existing home municipal survey-ground rendezvous first; city control is not required. Carrier records while away are dated, not live intelligence.')); return panel; }
+    if (!s) { panel.append(textEl('p', 'No capable source-backed commercial passenger carrier is available at this city.')); return panel; }
+    const v = IntercityPassenger.publicView(s), busy = surveyBusy() || scientistIsDead() || actorIsIncapacitated('scientist');
+    panel.append(textEl('p', `${v.label} · ${v.phase} · provider waiting provisions ${v.waitingHours} hours. One original driver and vehicle; no automatic resupply or rescue.`));
+    panel.append(textEl('p', 'Bring your own food, water and medical supplies. Arrival is outside the destination city. Directions cover only the booked corridor; maps and surveys remain withheld.'));
+    const button = (label, run, disabled = false) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = disabled; b.onclick = run; panel.append(b); };
+    if (v.hold) panel.append(textEl('p', v.hold));
+    if (v.trip && ['outbound', 'inbound', 'arrival'].includes(v.phase)) {
+      panel.append(textEl('p', `Recorded arrival estimate ${formatClock(v.trip.arrivalWindow.start)}–${formatClock(v.trip.arrivalWindow.end)}. ${v.trip.delay}`));
+      if (v.phase === 'arrival') button('Walk to Exit and Disembark', () => queueIntercityPassenger('passengerDisembark'), busy);
+    }
+    if (v.booking) {
+      panel.append(textEl('p', `Accepted fare $${v.booking.fee}; boarding expires ${formatClock(v.booking.expiresAt)}. ${v.booking.cargoKg} kg / ${v.booking.cargoL} L.`));
+      button('Walk to Vehicle and Board', () => queueIntercityPassenger('passengerBoard'), busy || Boolean(intercityPassengerWorkReason('passengerBoard')));
+      button('Cancel Unlaunched Booking (Refund Fare)', () => { if (IntercityPassenger.cancel(s, ensureEconomy())) { surveyEvent('Unlaunched passenger booking cancelled; exact fare refunded once. No fuel, condition or provisions restored.'); persist(); render(); } }, busy);
+    } else if (['home', 'foreign'].includes(v.phase)) {
+      const destinations = v.phase === 'foreign' ? [s.trip.destinationId] : IntercityPassenger.neighbors(ensureStrategicJourneys(), s.homeCityId).map(e => e.destination.id);
+      if (!destinations.length) panel.append(textEl('p', 'No known directly connected usable corridor destination.'));
+      for (const id of destinations) {
+        const q = IntercityPassenger.quote(s, ensureStrategicJourneys(), id), reason = IntercityPassenger.reason(s, q, IntercityPassenger.load(surveyCarriedStacks()), ensureEconomy().money);
+        panel.append(textEl('p', q.ok ? `${v.phase === 'foreign' ? 'Return to home municipal ground' : q.destinationLabel}: $${q.fee}, ${q.km} km, one seat, ${q.cargoKg} kg / ${q.cargoL} L. ${reason}` : reason));
+        button(v.phase === 'foreign' ? 'Accept Separate Return Fare' : `Accept Passenger Fare to ${q.destinationLabel || id}`, () => bookIntercityPassenger(id), busy || Boolean(reason));
+      }
+      button(v.rest ? 'Original Driver Resting' : 'Supply Eight Hours of Driver Rest', () => { if (IntercityPassenger.rest(s)) { surveyEvent('Original driver started an eight-hour provision-funded rest; no injury, fuel or condition is restored.'); persist(); render(); } }, busy || v.rest || s.provisionsSeconds < 8 * 3600);
+    }
+    const needs = ensureWildernessSurvival();
+    panel.append(textEl('p', `Personal thirst ${Math.round(needs.thirst)}/100 · hunger ${Math.round(needs.hunger)}/100. All carried supplies and injuries persist.`));
+    for (const key of ['drinkingWater', 'trailMeal']) button(`Use ${inventoryItemLabel(key)}`, () => queueSurvivalConsumption(key), busy || !survivalSupply(key));
+    button('Rest Here (15 minutes)', () => createRestTask(15), busy);
+    for (const injury of actorInjuries('scientist').filter(e => e.status !== 'healed')) button(`Treat ${INJURY_TYPE_DEFS[injury.typeId].label}`, () => startInjuryTreatment(injury.id), Boolean(injuryTreatmentBlockReason(injury)) || surveyBusy());
+    return panel;
+  }
+
   function ensureSurveyExpeditions() {
     state.surveyExpeditions ||= SurveyExpeditions.defaultState();
     const expedition = state.surveyExpeditions;
@@ -87688,7 +87878,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return expedition;
   }
 
-  function surveyScientistAway() { return Boolean(state?.surveyExpeditions && state.surveyExpeditions.phase !== "home"); }
+  function surveyScientistAway() { return IntercityPassenger.away(state.intercityPassenger) || Boolean(state?.surveyExpeditions && state.surveyExpeditions.phase !== "home"); }
   function surveyScientistReserved() { return surveyScientistAway() || Boolean(state?.surveyExpeditions?.preparing); }
   function surveyTaskAllowed(task) {
     if ((CityConfrontations.active(state.cityConfrontation) || IncumbentResistance.active(state.incumbentResistance)) && task.type !== 'scientistMove'
@@ -87710,6 +87900,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       || task.type === "physicalDiagnostic" && task.data.workflowId === "assaySample" && !annexWorkReason(ensureDiagnosticState().samples.find(s => s.id === task.data.sampleId)?.stackId || ""));
     if (task.type === "injuryTreatment") return task.data.targetActorId === "scientist";
     if (task.type === "surveyExpeditionWork" && ["consume", "radioBattery"].includes(task.data.action)) return true;
+    if (IntercityPassenger.away(state.intercityPassenger)) return task.type === 'scientistMove'
+      || task.type === 'surveyExpeditionWork' && ['passengerBoard', 'passengerDisembark'].includes(task.data.action);
     if (state.surveyExpeditions.phase !== "field") return false;
     return ["scientistMove", "surveyExpeditionWork", "physicalDiagnostic", "hiddenWorkshopWork"].includes(task.type)
       || task.type === 'soulBeaconWork' && hiddenWorkshopLocal() && labMapCellRoomId(target) === state.hiddenWorkshop?.site?.roomId;
@@ -87914,6 +88106,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function boardSurveyVehicle() {
+    if (IntercityPassenger.away(state.intercityPassenger) || state.intercityPassenger?.booking) return false;
     if (CitySuccession.working(state.citySuccession) || state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job || state.religiousRecognition?.job || state.cityAdministration?.resistance?.job) return false;
     if (currentPenalFlight()) return false;
     if (DefenderChallenges.reserved(state.defenderChallenge) && state.defenderChallenge.phase !== 'returning') return false;
@@ -87937,6 +88130,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function surveyWorkBlockReason(task) {
+    if (['passengerBoard', 'passengerDisembark'].includes(task.data?.action)) return intercityPassengerWorkReason(task.data.action, task.data);
     if (task.data?.action === "gateEnforcement") return gateEnforcementWorkReason(task.data);
     if (task.data?.action === "cityApproach") return cityApproachWorkReason(task.data);
     if (task.data?.action === "remoteDepart") return unsupportedDepartureReason();
@@ -88021,6 +88215,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function completeSurveyWork(task) {
+    if (completeIntercityPassengerWork(task)) return;
     if (completeGateEnforcementWork(task)) return;
     if (completeCityApproachWork(task)) return;
     if (finishCastawayBoard(task)) return;
@@ -88062,6 +88257,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function updateSurveyExpedition() {
+    if (IntercityPassenger.away(state.intercityPassenger)) return 0;
     if (annexAway()) return updateLeasedAnnex();
     updateLeasedAnnex(); // Expiry remains physical even when the scientist is elsewhere.
     if (state.penalFlights?.assistance?.cityApproach && cityReceptionRoomIds().includes(scientistRoomId())) return 0;
@@ -88111,6 +88307,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function controlSurveyJourney(action) {
+    if (IntercityPassenger.away(state.intercityPassenger) || state.intercityPassenger?.booking) return false;
     if (annexAway()) return false;
     if (unsupportedActive()) return false;
     if (action === "recover") { surveyEvent("No separate municipal recovery crew and vehicle are allocated. Automatic rescue is unavailable."); persist(); render(); return false; }
@@ -88123,10 +88320,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function renderSurveyExpeditions() {
+    if (IntercityPassenger.away(state.intercityPassenger)) return renderIntercityPassenger();
     if (annexAway()) return renderLeasedAnnex();
     const expedition = ensureSurveyExpeditions();
     const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.surveyExpeditions = "true";
     panel.append(textEl("strong", "Supported Survey Excursions"));
+    panel.append(renderIntercityPassenger());
     const discovery = LocalDiscovery.publicView(expedition.discovery);
     if (discovery) {
       const journal = document.createElement("section"); journal.className = "subpanel"; journal.dataset.localDiscovery = "true";
