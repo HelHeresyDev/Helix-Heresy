@@ -14,7 +14,7 @@
     if (!fleet.support) fleet.support = {
       lastAt: now, money: 1000, revenue: 0, expenses: 0, parts: 6, workshop: null, reason: '',
       supplier: { fuelStockKm: 8000, partsStock: 80, operatingFuelKm: 800, distanceKm: 4, routeOpen: true,
-        vehicle: { id: `${fleet.cityId}:supply-truck`, condition: 100, fuelKm: 120, location: 'supplier', driver: { id: `${fleet.cityId}:supply-driver`, name: 'Sana Reed', health: 100, status: 'alive', fatigue: 0 } }, shipment: null, nextNumber: 1 }, history: []
+        vehicle: { id: `${fleet.cityId}:supply-truck`, condition: 100, fuelKm: 120, capacityKg: 48, capacityL: 96, location: 'supplier', driver: { id: `${fleet.cityId}:supply-driver`, name: 'Sana Reed', health: 100, status: 'alive', fatigue: 0 } }, shipment: null, nextNumber: 1 }, history: []
     };
     for (const v of fleet.vehicles) v.driver.fatigue ??= 0;
     return fleet.support;
@@ -36,12 +36,12 @@
   function advanceSupport(fleet, now) {
     const s = support(fleet, now), elapsed = Math.max(0, now - s.lastAt), supplier = s.supplier, truck = supplier.vehicle;
     s.lastAt = Math.max(now, s.lastAt);
-    if (supplier.repairAt && !supplier.shipment && !supplier.passengerService && !supplier.maintenanceReservedBy && now >= supplier.repairAt) {
+    if (supplier.repairAt && !supplier.shipment && !supplier.passengerService && !supplier.mechanicService && !supplier.maintenanceReservedBy && now >= supplier.repairAt) {
       truck.condition = Math.min(100, truck.condition + 25); supplier.repairAt = null;
       record(s, now, 'Supplier workshop completed truck maintenance using allocated local parts.');
     }
     for (const v of fleet.vehicles.filter(v => !v.assignment && v.location === 'depot')) v.driver.fatigue = Math.max(0, v.driver.fatigue - elapsed / 3600 * 15);
-    if (!supplier.shipment && !supplier.passengerService) truck.driver.fatigue = Math.max(0, truck.driver.fatigue - Math.min(elapsed, Math.max(0, now - (supplier.passengerReturnedAt || 0))) / 3600 * 15);
+    if (!supplier.shipment && !supplier.passengerService && !supplier.mechanicService) truck.driver.fatigue = Math.max(0, truck.driver.fatigue - Math.min(elapsed, Math.max(0, now - (supplier.passengerReturnedAt || 0))) / 3600 * 15);
     // Explicit saved legs: supplier -> exchange depot -> supplier. Cargo is credited
     // only at the depot; the independently fuelled supplier truck stays occupied on return.
     const shipment = supplier.shipment;
@@ -60,7 +60,7 @@
         }
       }
     }
-    if (s.workshop && !s.passengerMaintenance?.job && now >= s.workshop.finishAt) {
+    if (s.workshop && !s.passengerMaintenance?.job && !s.passengerMaintenance?.recovery && now >= s.workshop.finishAt) {
       const vehicle = fleet.vehicles.find(v => v.id === s.workshop.vehicleId);
       if (vehicle && !vehicle.assignment && vehicle.location === 'depot') {
         vehicle.condition = Math.min(100, vehicle.condition + s.workshop.repair);
@@ -68,14 +68,14 @@
       }
     }
     const repair = fleet.vehicles.find(v => !v.assignment && v.location === 'depot' && v.condition < 85);
-    if (!s.workshop && !s.passengerMaintenance?.job && repair) {
+    if (!s.workshop && !s.passengerMaintenance?.job && !s.passengerMaintenance?.recovery && repair) {
       if (s.parts >= 2 && s.money >= 8) {
         s.parts -= 2; s.money -= 8; s.expenses += 8;
         s.workshop = { vehicleId: repair.id, finishAt: now + 7200, repair: 25 };
         record(s, now, `Maintenance started for ${repair.id}; two parts and operator-paid workshop labour allocated.`);
       }
     }
-    if (!supplier.shipment && !supplier.passengerService && (fleet.fuelReserveKm < 400 || s.parts < 4)) {
+    if (!supplier.shipment && !supplier.passengerService && !supplier.mechanicService && (fleet.fuelReserveKm < 400 || s.parts < 4)) {
       const fuelKm = Math.min(600, Math.max(0, 1000 - fleet.fuelReserveKm), supplier.fuelStockKm);
       const parts = Math.min(12 - s.parts, supplier.partsStock);
       const quantityParts = Math.max(0, parts), cost = fuelKm * 0.05 + quantityParts * 5;

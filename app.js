@@ -100,6 +100,7 @@
   const IntercityPassenger = window.HelixIntercityPassenger;
   const PassengerFuel = window.HelixPassengerFuel;
   const PassengerMaintenance = window.HelixPassengerMaintenance;
+  const MechanicRecovery = window.HelixMechanicRecovery;
   const ForeignReception = window.HelixForeignReception;
   const ForeignSupplies = window.HelixForeignSupplies;
   const TradeTripPreparation = window.HelixTradeTripPreparation;
@@ -16779,6 +16780,14 @@
       selectIntercityConnection,
       passengerFuelAction,
       passengerMaintenanceAction,
+      mechanicRecoveryAction,
+      mechanicRecoverySnapshot: () => {
+        const s = state.intercityPassenger, fleet = s && passengerFuelFleet(s.location), support = fleet?.support;
+        const market = mechanicRecoveryMarket(s?.location), c = mechanicRecoveryContext(s, fleet, support?.passengerMaintenance?.recovery);
+        return clonePlainObject({ carrier: s, support, market, context: c, clock: state.clock, money: ensureEconomy().money,
+          quote: MechanicRecovery.quote(s, support, market, COMMODITY_MARKET_LISTING_DEFS, c, state.clock),
+          checkpoint: MechanicRecovery.nextEvent(support, market, c, state.clock) });
+      },
       passengerMaintenanceSnapshot: () => {
         const s = state.intercityPassenger, fleet = s && passengerFuelFleet(s.location), support = fleet?.support;
         const c = passengerMaintenanceContext(s, fleet, support?.passengerMaintenance?.job);
@@ -22436,11 +22445,13 @@
       const fuelEvent = PassengerFuel.nextEvent(passenger, fuelSupplier, passengerFuelContext(passenger, fuelFleet, fuelSupplier?.passengerService), state.clock);
       const maintenanceEvent = PassengerMaintenance.nextEvent(passenger, fuelFleet?.support,
         passengerMaintenanceContext(passenger, fuelFleet, fuelFleet?.support?.passengerMaintenance?.job), state.clock);
+      const recoveryEvent = MechanicRecovery.nextEvent(fuelFleet?.support, mechanicRecoveryMarket(passenger?.location),
+        mechanicRecoveryContext(passenger, fuelFleet, fuelFleet?.support?.passengerMaintenance?.recovery), state.clock);
       const travelEvent = receptionEvent || (IntercityPassenger.moving(passenger)
         ? { time: Math.max(state.clock + 60, passenger.trip.arrivalWindow.end), label: 'Passenger carrier arrival estimate', type: 'travel' }
         : passenger?.rest && intercityLocal() ? { time: state.clock + passenger.rest.remaining, label: 'Supplied passenger-driver rest checkpoint', type: 'travel' }
         : unsupportedActive() ? (Number.isFinite(remoteAt) ? { time: remoteAt, label: "Known charter schedule checkpoint", type: "travel" } : null) : StrategicJourneys.nextPublicEvent({ journeys: journey ? [journey] : [] }, state.clock));
-      return [clinicEvent, task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, supplyEvent, fuelEvent, maintenanceEvent, nextLeasedAnnexEvent(), nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
+      return [clinicEvent, task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, supplyEvent, fuelEvent, maintenanceEvent, recoveryEvent, nextLeasedAnnexEvent(), nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
         .filter((event) => event && (!options.includeTypes || options.includeTypes.includes(event.type)) && event.time >= state.clock)
         .sort((a, b) => a.time - b.time)[0] || null;
     }
@@ -23300,6 +23311,7 @@
   function completeDueTasks() {
     updatePassengerFuelServices();
     updatePassengerMaintenanceServices();
+    updateMechanicRecoveryServices();
     updatePassengerProvisionWork();
     let changeCount = 0;
     let completedAny = true;
@@ -88481,6 +88493,68 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         && (!order || fleet.support.supplier.distanceKm === order.quote.distanceKm)),
       stand: point && clonePlainObject(point), distanceKm: fleet?.support?.supplier?.distanceKm };
   }
+  function mechanicRecoveryMarket(cityId) {
+    if (!cityId) return null;
+    const market = ensureEconomy().commodityMarket, trade = market.intercityTrade;
+    if (market.cityContext?.cityId === cityId) {
+      const finance = market.localProduction?.finance;
+      if (trade?.homeId !== cityId && !finance) return null;
+      return { id: cityId, listings: market.listings,
+        get treasury() { return trade?.homeId === cityId ? trade.homeTreasury : finance.exchangeMoney; },
+        set treasury(value) { if (trade?.homeId === cityId) trade.homeTreasury = value; else finance.exchangeMoney = value; } };
+    }
+    return trade?.neighbors.find(n => n.id === cityId) || null;
+  }
+  function mechanicRecoveryContext(s, fleet, order = null) {
+    const c = passengerMaintenanceContext(s, fleet, order);
+    c.local = Boolean(c.local && s?.location === (order?.quote.cityId || s?.location));
+    c.metrics = Object.fromEntries(['fieldRation', 'drinkingWater'].map(key => [key, physicalItemUnitMetrics('inventory', key)]));
+    return c;
+  }
+  function mechanicRecoveryAction(action, expected = null) {
+    const s = ensureIntercityPassenger(), fleet = s && passengerFuelFleet(s.location), m = ensurePassengerMaintenance(fleet, s?.location);
+    if (!m || !intercityLocal()) return false;
+    const c = mechanicRecoveryContext(s, fleet, m.recovery), market = mechanicRecoveryMarket(s.location);
+    const ok = action === 'request' ? MechanicRecovery.request(s, fleet.support, market, COMMODITY_MARKET_LISTING_DEFS, c, expected, ensureEconomy(), state.clock)
+      : action === 'cancel' && MechanicRecovery.cancel(fleet.support, c, state.clock);
+    if (ok) MechanicRecovery.observe(m, c);
+    surveyEvent(ok ? action === 'request' ? 'Paid exact supplied-recovery terms: two ration packs and two water units reserved at the original exchange. Physical truck delivery and eight off-duty hours still required.'
+      : 'Mechanic recovery canceled. Spent handling and consumed supplies remain spent; unused original goods must return physically before refunds.'
+      : 'Recovery terms or original source, stock, mechanic, truck or attendance unavailable; no payment taken.');
+    persist(); render(); return Boolean(ok);
+  }
+  function updateMechanicRecoveryServices() {
+    if (scientistIsDead()) return 0;
+    const economy = ensureEconomy(), fleets = [economy.exchangeCarrier, ...(economy.commodityMarket.intercityTrade?.neighbors || []).map(n => n.carrier)].filter(Boolean);
+    let changes = 0;
+    for (const fleet of fleets) {
+      const m = fleet.support?.passengerMaintenance, o = m?.recovery; if (!o) continue;
+      const s = [state.intercityPassenger, state.passengerConnection?.otherCarrier].find(s => s?.vehicle.id === o.quote.vehicleId);
+      const c = mechanicRecoveryContext(s, fleet, o), previous = o.reports.length;
+      changes += Number(MechanicRecovery.advance(fleet.support, mechanicRecoveryMarket(o.quote.cityId), c, economy, state.clock));
+      MechanicRecovery.observe(m, c);
+      if (c.local && c.atStand && o.reports.length > previous) { surveyEvent(o.reports.at(-1).message); state.paused = true; }
+    }
+    return changes;
+  }
+  function renderMechanicRecovery(s, fleet, m) {
+    const panel = document.createElement('section'); panel.dataset.mechanicRecovery = 'true';
+    panel.append(textEl('strong', 'Supplied Mechanic Duty Recovery'), textEl('p', 'Two field-ration packs and two drinking-water units at this city’s current asking prices, plus $10 handling. The original truck physically collects and delivers them; only delivery starts eight off-duty hours. Completion restores eight duty hours, capped at eight, and reduces fatigue by 30. No healing, toolkit servicing, vehicle repair or free supplies. Truck reserved until recovery or physical cancellation return ends.'));
+    const o = m.recovery, c = mechanicRecoveryContext(s, fleet, o), market = mechanicRecoveryMarket(s.location);
+    MechanicRecovery.observe(m, c);
+    const button = (label, run, disabled) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = disabled; b.onclick = run; panel.append(b); };
+    if (o) button('Cancel Unfinished Mechanic Recovery', () => mechanicRecoveryAction('cancel'), !c.alive || !c.sameBody || o.cancelled || Boolean(o.receipt));
+    else {
+      const q = MechanicRecovery.quote(s, fleet.support, market, COMMODITY_MARKET_LISTING_DEFS, c, state.clock);
+      if (q) panel.append(textEl('p', `Exact $${q.total}: two ration packs at $${q.goods[0].unitPrice} each, two water units at $${q.goods[1].unitPrice} each, $10 handling. ${q.distanceKm}-km road each way; ${formatDuration(q.deliverySeconds)} delivery work plus eight hours of rest. Quote expires in one minute.`));
+      button('Request Supplied Mechanic Recovery', () => mechanicRecoveryAction('request', q), !q || ensureEconomy().money < q.total);
+      if (!q) panel.append(textEl('p', 'The original mechanic must have returned, need duty/fatigue recovery, and be alive and capable. Attend the original stand with no unfinished booking or work. A backed city exchange, real food/water stock and an available original truck with enough fuel, capacity and endurance are required.'));
+    }
+    const report = m.recoveryObservation;
+    if (report && report.cityId === s.location && report.bodyEpoch === c.bodyEpoch && c.sameBody)
+      panel.append(textEl('p', `${formatClock(report.at)} — received original recovery report: ${report.message} This is dated, not live unseen rest progress.`));
+    return panel;
+  }
   function passengerMaintenanceAction(action, expected = null) {
     const s = ensureIntercityPassenger(), fleet = s && passengerFuelFleet(s.location);
     const m = ensurePassengerMaintenance(fleet, s?.location), support = fleet?.support;
@@ -88536,6 +88610,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const report = m.observation;
     if (report?.job?.completed && report.job.vehicleId === s.vehicle.id && report.job.bodyEpoch === c.bodyEpoch && c.sameBody)
       panel.append(textEl('p', `${formatClock(report.at)} — original vehicle repair completion received; no other vehicle resources restored.`));
+    panel.append(renderMechanicRecovery(s, fleet, m));
     return panel;
   }
   function passengerFuelContext(s, fleet, order = null) {

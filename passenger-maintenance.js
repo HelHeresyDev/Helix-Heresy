@@ -26,7 +26,7 @@
     const m = support?.passengerMaintenance, supplier = support?.supplier;
     if (!s || !m || !supplier || !c.local || !c.atStand || !c.sameBody || !c.alive || !c.capable || !c.free || c.busy || !c.sourceCurrent
       || !['home', 'foreign'].includes(s.phase) || s.booking || s.rest || s.driver.health < 50 || m.source.cityId !== s.location
-      || m.job || support.workshop || supplier.repairAt || supplier.maintenanceReservedBy || supplier.passengerService
+      || m.job || m.recovery || support.workshop || supplier.repairAt || supplier.maintenanceReservedBy || supplier.passengerService || supplier.mechanicService
       || !supplier.routeOpen || !able(m) || m.actor.qualification !== 'roadVehicleMaintenance' || m.actor.location !== 'workshop'
       || !Number.isInteger(support.parts) || support.parts < PARTS || !Number.isFinite(s.vehicle.condition) || s.vehicle.condition <= 0 || s.vehicle.condition >= 100
       || !Number.isFinite(c.distanceKm) || c.distanceKm <= 0) return null;
