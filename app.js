@@ -16775,6 +16775,11 @@
         persist(); render(); return Boolean(g?.visitorAdmission);
       },
       selectIntercityConnection,
+      queuePassengerProvisions,
+      passengerProvisionPreview: stackId => {
+        const item = ensurePhysicalItemStacks().find(i => i.id === stackId);
+        return clonePlainObject(IntercityPassenger.provisionPlan(state.intercityPassenger, item, passengerProvisionContext()));
+      },
       intercityPassengerSnapshot: () => clonePlainObject({ carrier: state.intercityPassenger, connection: state.passengerConnection, public: IntercityPassenger.publicView(state.intercityPassenger), clock: state.clock,
         roomId: scientistRoomId(), cell: scientistMapCell(), carried: surveyCarriedStacks(), injuries: actorInjuries('scientist'), money: ensureEconomy().money,
         constructionReason: constructionTileStaticBlockReason('dig', scientistMapCell()), envelope: surfaceEnvelopeAtCell(scientistMapCell()), surveyContext: resourceContextForCell(scientistMapCell()),
@@ -23265,6 +23270,7 @@
   }
 
   function completeDueTasks() {
+    updatePassengerProvisionWork();
     let changeCount = 0;
     let completedAny = true;
     while (completedAny) {
@@ -23276,6 +23282,10 @@
         .sort((a, b) => a.dueAt - b.dueAt);
       for (const task of due) {
         if (scientistIsDead()) return changeCount;
+        if (task.type === 'surveyExpeditionWork' && task.data?.action === 'passengerProvisions' && task.data.provisionWork.progress < IntercityPassenger.HANDOFF_SECONDS) {
+          task.dueAt = state.clock + Math.max(1, IntercityPassenger.HANDOFF_SECONDS - task.data.provisionWork.progress);
+          continue;
+        }
         if (task.type === 'hiddenWorkshopWork' && task.data?.work.progress < task.data.work.required) {
           task.dueAt = state.clock + Math.max(1, task.data.work.required - task.data.work.progress);
           continue;
@@ -88321,6 +88331,69 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const s = state.intercityPassenger;
     return queueSurveyWork(action, intercityStand().cell, { passengerBookingId: s.booking?.id, passengerTripId: s.trip?.id, workSeconds: 30 });
   }
+  function passengerProvisionContext(task = null) {
+    const s = state.intercityPassenger, d = task?.data, point = intercityStand();
+    return { local: Boolean(intercityLocal() && ['home', 'foreign'].includes(s?.phase)),
+      atStand: scientistRoomId() === point.roomId && sameMapCell(scientistMapCell(), point.cell),
+      carrierCurrent: Boolean(s && (!d || d.provisionBranchId === s.source.branchId && d.provisionDriverId === s.driver.id && d.provisionCityId === s.location)),
+      sameBody: passengerBodyCurrent() && (!d || d.provisionBodyEpoch === ensureScientistIdentity().bodyEpoch),
+      bodyEpoch: ensureScientistIdentity().bodyEpoch, alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist'),
+      free: !restrictedOffsiteStay() && !currentDetentionRaid(), busy: !task && (surveyBusy() || scientistQueueTasks().some(t => t.data?.action === 'passengerProvisions')) || Boolean(passengerReceptionGate()?.visitorAdmission?.job) };
+  }
+  function passengerProvisionReason(task) {
+    const d = task.data, item = ensurePhysicalItemStacks().find(i => i.id === d.stackId);
+    const q = IntercityPassenger.provisionPlan(state.intercityPassenger, item, passengerProvisionContext(task), task.id);
+    if (!q.ok) return q.reason;
+    if (item.reservedTaskId !== task.id || item.quantity !== 1 || item.unitMassKg !== d.provisionUnitMassKg
+      || item.unitVolumeL !== d.provisionUnitVolumeL || JSON.stringify(item.sourceLabels) !== JSON.stringify(d.provisionSourceLabels))
+      return 'The exact reserved ration pack, dimensions or provenance changed; cancel and inspect it again.';
+    return '';
+  }
+  function queuePassengerProvisions(stackId) {
+    const s = ensureIntercityPassenger(), item = ensurePhysicalItemStacks().find(i => i.id === stackId), c = passengerProvisionContext();
+    const q = IntercityPassenger.provisionPlan(s, item, c);
+    if (!q.ok) { surveyEvent(q.reason); persist(); render(); return false; }
+    const point = intercityStand();
+    const data = { stackId, passengerProvisionSlice: true, provisionBranchId: s.source.branchId, provisionDriverId: s.driver.id,
+      provisionCityId: s.location, provisionBodyEpoch: c.bodyEpoch, provisionUnitMassKg: item.unitMassKg, provisionUnitVolumeL: item.unitVolumeL,
+      provisionSourceLabels: clonePlainObject(item.sourceLabels), label: 'Hand Over One Field-Ration Pack to Original Driver',
+      workSeconds: IntercityPassenger.HANDOFF_SECONDS, provisionWork: { progress: 0, lastAt: state.clock, attendedAt: c.atStand ? state.clock : null } };
+    if (!queueSurveyWork('passengerProvisions', point.cell, data, { deferRender: true })) return false;
+    syncActorInventories(); persist(); render(); return true;
+  }
+  function reservePassengerProvisionSlice(task) {
+    const item = ensurePhysicalItemStacks().find(i => i.id === task.data.stackId);
+    if (!IntercityPassenger.provisionPlan(state.intercityPassenger, item, passengerProvisionContext(task)).ok) return false;
+    const ids = reserveProductionMaterialSlices([{ stackId: item.id, quantity: 1 }], task.id);
+    if (!ids?.length) return false;
+    task.data.stackId = ids[0]; return true;
+  }
+  function updatePassengerProvisionWork() {
+    if (scientistIsDead()) return 0;
+    const first = firstScientistQueueTask(); let changed = 0;
+    for (const task of scientistQueueTasks().filter(t => t.type === 'surveyExpeditionWork' && t.data?.action === 'passengerProvisions')) {
+      const work = task.data.provisionWork, c = passengerProvisionContext(task);
+      const attended = first?.id === task.id && c.atStand && (task.data.movement.completed || task.data.movement.steps.length <= 1) && !taskBlockReason(task)
+        && (!state.combat?.routineSuspension || state.combat.routineSuspension.taskId === task.id);
+      changed += Number(IntercityPassenger.advanceProvisionWork(work, state.clock, attended));
+      task.dueAt = state.clock + Math.max(0, IntercityPassenger.HANDOFF_SECONDS - work.progress);
+    }
+    return changed;
+  }
+  function completePassengerProvisionWork(task) {
+    if (task.data?.action !== 'passengerProvisions') return false;
+    const s = state.intercityPassenger, c = passengerProvisionContext(task), item = ensurePhysicalItemStacks().find(i => i.id === task.data.stackId);
+    const reason = passengerProvisionReason(task);
+    if (reason || !c.atStand) { surveyEvent(reason || 'Actual contact with the selected original driver is required.'); return true; }
+    // Settle original waiting before accepting new food; newly received packs
+    // cannot fund the interval that preceded their physical handoff.
+    IntercityPassenger.advance(s, ensureStrategicJourneys(), state.clock);
+    if (IntercityPassenger.receiveProvisions(s, item, c, task.data.provisionWork, task.id, state.clock, consumeMedicSupply)) {
+      s.observation = { at: state.clock, view: IntercityPassenger.publicView(s) };
+      surveyEvent('One original field-ration pack physically handed over: four hours of driver provisions, capped at 96 hours. No fuel, wear, health or fatigue restored; return remains separate.');
+    }
+    return true;
+  }
   function materializeIntercitySpaces(s) {
     if (s.spaces?.cityId === s.booking.destinationCityId) return;
     s.spacesByCity ||= {};
@@ -88421,6 +88494,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         button(v.phase === 'foreign' ? 'Accept Separate Return Fare' : `Accept Passenger Fare to ${q.destinationLabel || id}`, () => bookIntercityPassenger(id), busy || Boolean(reason) || scientistRoomId() !== intercityStand().roomId);
       }
       button(v.rest ? 'Original Driver Resting' : 'Supply Eight Hours of Driver Rest', () => { if (IntercityPassenger.rest(s)) { surveyEvent('Original driver started an eight-hour provision-funded rest; no injury, fuel or condition is restored.'); persist(); render(); } }, busy || v.rest || s.provisionsSeconds < 8 * 3600);
+      panel.append(textEl('p', 'Driver provision resupply: one owned carried field-ration pack gives four hours, capped at 96 hours; thirty seconds of physical handoff per pack. This spends your own survival food, restores no fatigue or vehicle resources, and guarantees no return.'));
+      const provisionTask = scientistQueueTasks().find(t => t.data?.action === 'passengerProvisions');
+      if (provisionTask) {
+        panel.append(textEl('p', `${formatDuration(provisionTask.data.provisionWork.progress)} / thirty seconds actually attended. ${passengerProvisionReason(provisionTask)}`));
+        button('Cancel Unfinished Driver Ration Handoff', () => cancelTask(provisionTask.id), scientistIsDead());
+      } else for (const item of surveyCarriedStacks().filter(i => i.key === 'fieldRation')) {
+        const q = IntercityPassenger.provisionPlan(s, item, passengerProvisionContext());
+        panel.append(textEl('p', `${item.quantity} carried field-ration packs (${item.id}). ${q.reason}`));
+        button(`Hand Over One Field-Ration Pack (${item.id})`, () => queuePassengerProvisions(item.id), busy || !q.ok);
+      }
+      for (const r of (s.provisionReceipts || []).slice(-3)) panel.append(textEl('p', `${formatClock(r.at)} — received one actual ${r.stackId}: four hours of provisions. Original handoff receipt ${r.id}.`));
       const c = state.passengerConnection;
       if ((!c && v.phase === 'foreign') || c && s.location === c.intermediateCityId) {
         const point = intercityStand(), atTransfer = scientistRoomId() === point.roomId && WildernessBeasts.distance(scientistMapCell(), point.cell) <= 1;
@@ -88480,7 +88564,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "injuryTreatment") return task.data.targetActorId === "scientist";
     if (task.type === "surveyExpeditionWork" && ["consume", "radioBattery"].includes(task.data.action)) return true;
     if (passengerAway()) return task.type === 'scientistMove'
-      || task.type === 'surveyExpeditionWork' && ['passengerBoard', 'passengerDisembark'].includes(task.data.action);
+      || task.type === 'surveyExpeditionWork' && ['passengerBoard', 'passengerDisembark', 'passengerProvisions'].includes(task.data.action);
     if (state.surveyExpeditions.phase !== "field") return false;
     return ["scientistMove", "surveyExpeditionWork", "physicalDiagnostic", "hiddenWorkshopWork"].includes(task.type)
       || task.type === 'soulBeaconWork' && hiddenWorkshopLocal() && labMapCellRoomId(target) === state.hiddenWorkshop?.site?.roomId;
@@ -88656,6 +88740,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const task = { id: `task-${state.nextTaskNumber++}`, type: "surveyExpeditionWork", label: data.label || (action === "pack" ? `Pack ${inventoryItemLabel(data.itemKey)}` : "Walk to and board survey vehicle"), createdAt: state.clock, dueAt: state.clock + travelSeconds + (data.workSeconds || 10) * workMultiplier,
       data: { ...data, action, ...(deliberateGateCrossing || localPrisonAction ? { accessOverrideAll: true } : {}), toCell: cleanMapCell(cell), toRoomId: labMapCellRoomId(cell), mapPath: path, movement: createScientistMovementRecord(path, travelSeconds, state.clock, { intent: "survey" }) } };
     if (data.tradePacking && !reserveTradePackingSlice(task)) return false;
+    if (data.passengerProvisionSlice && !reservePassengerProvisionSlice(task)) return false;
     state.tasks.push(task);
     if (task.data.stackId) ensurePhysicalItemStacks().find((entry) => entry.id === task.data.stackId).reservedTaskId = task.id;
     if (data.toolInstanceId) toolInstanceById(data.toolInstanceId).instance.reservedTaskId = task.id;
@@ -88865,6 +88950,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function surveyWorkBlockReason(task) {
+    if (task.data?.action === 'passengerProvisions') return passengerProvisionReason(task);
     if (task.data?.action === 'unloadLabInput') return foreignLabUnloadReason(task);
     if (['passengerBoard', 'passengerDisembark'].includes(task.data?.action)) return intercityPassengerWorkReason(task.data.action, task.data);
     if (task.data?.action === "gateEnforcement") return gateEnforcementWorkReason(task.data);
@@ -88957,6 +89043,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function completeSurveyWork(task) {
+    if (completePassengerProvisionWork(task)) return;
     if (completeIntercityPassengerWork(task)) return;
     if (completeGateEnforcementWork(task)) return;
     if (completeCityApproachWork(task)) return;

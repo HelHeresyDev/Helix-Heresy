@@ -7,6 +7,7 @@
   const clone = x => JSON.parse(JSON.stringify(x));
   const moving = s => ['outbound', 'inbound'].includes(s?.phase);
   const away = s => moving(s) || s?.phase === 'arrival' || s?.phase === 'foreign';
+  const PROVISION_SECONDS = 4 * 3600, PROVISION_CAP = 96 * 3600, HANDOFF_SECONDS = 30;
   function create(city, standings, at) {
     const entry = standings?.find(e => e.network?.category === 'transport' && e.branch
       && (!e.branch.cityId || e.branch.cityId === city?.cityId)
@@ -120,6 +121,44 @@
     if (!s || moving(s) || s.booking || s.rest || s.provisionsSeconds < 8 * 3600 || s.driver.health < 50) return false;
     s.rest = { remaining: 8 * 3600 }; return true;
   }
+  function provisionPlan(s, item, c, reservationId = '') {
+    const refuse = reason => ({ ok: false, reason });
+    if (!s || !c.local || !c.carrierCurrent || !c.sameBody || !c.alive || !c.capable || !c.free)
+      return refuse('The original body and selected original carrier must be physically local, free and able to receive supplies.');
+    if (!['home', 'foreign'].includes(s.phase) || s.booking || s.rest || c.busy)
+      return refuse('Finish or cancel current work, booking or driver rest before the physical ration handoff.');
+    // Fatigue or empty provisions do not prevent receiving food; this heals
+    // neither an incapacitated driver nor any vehicle resource.
+    if (s.driver.health < 50) return refuse('The original driver cannot receive this physical handoff.');
+    if (!item?.id || item.section !== 'inventory' || item.key !== 'fieldRation' || item.carriedBy !== 'scientist'
+      || !Number.isInteger(item.quantity) || item.quantity < 1 || item.cityOwnerId || item.civicCustody || item.carryTaskId
+      || item.fixtureId || item.containerId || item.toolInstanceId || item.contents?.length || item.chemicalBatch || item.biology
+      || item.tags?.some(t => /(^|[-_ ])(contaminated|unsealed|broken)([-_ ]|$)/i.test(t))
+      || item.reservedTaskId && (!reservationId || item.reservedTaskId !== reservationId))
+      return refuse('Choose an actual owned, unreserved carried field-ration pack; claimed, contained or spoiled supplies are excluded.');
+    if (!Number.isFinite(item.unitMassKg) || item.unitMassKg <= 0 || !Number.isFinite(item.unitVolumeL) || item.unitVolumeL <= 0)
+      return refuse('The original pack dimensions are unavailable.');
+    if (!Number.isFinite(s.provisionsSeconds) || s.provisionsSeconds < 0 || s.provisionsSeconds + PROVISION_SECONDS > PROVISION_CAP)
+      return refuse('A whole four-hour pack must fit within the original 96-hour provision capacity.');
+    return { ok: true, stackId: item.id, quantity: 1, seconds: PROVISION_SECONDS, handoffSeconds: HANDOFF_SECONDS, capSeconds: PROVISION_CAP, reason: '' };
+  }
+  function advanceProvisionWork(work, at, attended) {
+    const dt = Math.max(0, at - work.lastAt); work.lastAt = at;
+    if (!attended) { work.attendedAt = null; return false; }
+    if (work.attendedAt == null) { work.attendedAt = at; return false; }
+    const before = work.progress; work.progress = Math.min(HANDOFF_SECONDS, work.progress + dt);
+    return work.progress !== before;
+  }
+  function receiveProvisions(s, item, c, work, taskId, at, consume) {
+    if (!taskId || s?.provisionReceipts?.some(r => r.id === taskId) || work?.progress !== HANDOFF_SECONDS || !c.atStand) return false;
+    const q = provisionPlan(s, item, c, taskId);
+    if (!q.ok || item.quantity !== 1 || item.reservedTaskId !== taskId) return false;
+    const receipt = { id: taskId, at, stackId: item.id, key: item.key, quantity: 1, seconds: q.seconds,
+      branchId: s.source.branchId, driverId: s.driver.id, cityId: s.location, bodyEpoch: c.bodyEpoch, sourceLabels: clone(item.sourceLabels || []) };
+    if (!consume(item)) return false;
+    s.provisionsSeconds += q.seconds;
+    (s.provisionReceipts ||= []).push(receipt); return true;
+  }
   function publicView(s) {
     if (!s) return null;
     return { phase: s.phase, label: s.label, location: s.location, hold: s.hold || '', booking: clone(s.booking),
@@ -154,5 +193,6 @@
     return other;
   }
   return { create, neighbors, load, quote, reason, book, cancel, boardingReason, board, advance, disembark, rest, publicView, away, moving,
-    connection, connectionDestinations, selectConnection };
+    connection, connectionDestinations, selectConnection, PROVISION_SECONDS, PROVISION_CAP, HANDOFF_SECONDS,
+    provisionPlan, advanceProvisionWork, receiveProvisions };
 });
