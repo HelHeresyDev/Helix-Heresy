@@ -102,6 +102,7 @@
   const PassengerMaintenance = window.HelixPassengerMaintenance;
   const MechanicRecovery = window.HelixMechanicRecovery;
   const ToolkitServicing = window.HelixToolkitServicing;
+  const ForeignLodging = window.HelixForeignLodging;
   const ForeignReception = window.HelixForeignReception;
   const ForeignSupplies = window.HelixForeignSupplies;
   const TradeTripPreparation = window.HelixTradeTripPreparation;
@@ -16724,6 +16725,15 @@
       bookIntercityPassenger,
       queueIntercityPassenger,
       foreignReceptionAction,
+      foreignLodgingAction,
+      foreignLodgingSnapshot: () => {
+        const g = passengerReceptionGate(); ensureForeignLodging(g);
+        const c = foreignLodgingContext(g);
+        return clonePlainObject({ gate: g, context: c, quote: ForeignLodging.quote(g, c, state.clock),
+          permission: ForeignLodging.permission(g, c.bodyEpoch, c.visitId, state.clock), clock: state.clock,
+          money: ensureEconomy().money, roomId: scientistRoomId(), cell: scientistMapCell(),
+          needs: ensureWildernessSurvival(), tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) });
+      },
       foreignSupplyAction,
       unloadForeignLabInput,
       foreignLabUnloadingSnapshot: () => clonePlainObject({ context: tradePackingContext(), lots: surveyCarriedStacks().filter(i => ForeignSupplies.labInputLot(i)),
@@ -22445,6 +22455,7 @@
       const remoteAt = unsupportedActive() ? Math.min(UnsupportedExcursions.nextPublicEventAt(state.unsupportedExcursions.trip, state.unsupportedExcursions.lastReport, state.clock), reportedMedicalAt > state.clock ? reportedMedicalAt : Infinity) : Infinity;
       const passenger = state.intercityPassenger;
       const visitor = passengerReceptionGate()?.visitorAdmission, permit = foreignVisitorPermission();
+      const lodgingGate = passengerReceptionGate(), lodgingEvent = ForeignLodging.nextEvent(lodgingGate, foreignLodgingContext(lodgingGate), state.clock);
       const receptionEvent = visitor?.job ? { time: state.clock + visitor.job.seconds - visitor.job.progress, label: 'Attended visitor reception', type: 'travel' }
         : permit ? { time: Math.max(state.clock + 1, permit.expiresAt - (permit.warned ? 0 : 900)), label: 'Visitor permission deadline', type: 'travel' } : null;
       const supplyOrder = ForeignSupplies.active(passengerReceptionGate()?.visitorSupplies);
@@ -22461,7 +22472,7 @@
         ? { time: Math.max(state.clock + 60, passenger.trip.arrivalWindow.end), label: 'Passenger carrier arrival estimate', type: 'travel' }
         : passenger?.rest && intercityLocal() ? { time: state.clock + passenger.rest.remaining, label: 'Supplied passenger-driver rest checkpoint', type: 'travel' }
         : unsupportedActive() ? (Number.isFinite(remoteAt) ? { time: remoteAt, label: "Known charter schedule checkpoint", type: "travel" } : null) : StrategicJourneys.nextPublicEvent({ journeys: journey ? [journey] : [] }, state.clock));
-      return [clinicEvent, task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, supplyEvent, fuelEvent, maintenanceEvent, recoveryEvent, toolkitEvent, nextLeasedAnnexEvent(), nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
+      return [clinicEvent, task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, supplyEvent, fuelEvent, maintenanceEvent, recoveryEvent, toolkitEvent, lodgingEvent, nextLeasedAnnexEvent(), nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
         .filter((event) => event && (!options.includeTypes || options.includeTypes.includes(event.type)) && event.time >= state.clock)
         .sort((a, b) => a.time - b.time)[0] || null;
     }
@@ -23319,6 +23330,7 @@
   }
 
   function completeDueTasks() {
+    updateForeignLodging();
     updatePassengerFuelServices();
     updatePassengerMaintenanceServices();
     updateMechanicRecoveryServices();
@@ -26420,6 +26432,10 @@
   }
 
   function createRestTask(minutes) {
+    const lodgingGate = passengerReceptionGate(), berth = lodgingGate?.visitorLodging?.berth;
+    const atBerth = berth && scientistRoomId() === berth.roomId && sameMapCell(scientistMapCell(), berth.cell);
+    const lodging = atBerth && ForeignLodging.permission(lodgingGate, ensureScientistIdentity().bodyEpoch, passengerVisitId(), state.clock);
+    if (atBerth && (lodgingGate.visitorLodging.job || ForeignLodging.restReason(lodgingGate, foreignLodgingPhysicalContext(lodgingGate), state.clock, minutesToSeconds(minutes)))) return false;
     const quality = restQualityInfo();
     const duration = minutesToSeconds(minutes);
     createTask({
@@ -26431,7 +26447,8 @@
         roomId: quality.roomId,
         restQuality: quality.label,
         exposureBandAtStart: quality.exposureBand,
-        expectedEffect: quality.expectedEffect
+        expectedEffect: quality.expectedEffect,
+        ...(atBerth ? { foreignLodging: { gateId: lodgingGate.id, berthId: berth.id, stayId: lodging.id } } : {})
       }
     });
   }
@@ -54865,7 +54882,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (GateEnforcement.custodyActive(currentGateEnforcement())) return "The scientist is physically in receiving-city custody; use the local jail's actions.";
     const reception = state.penalFlights?.assistance?.cityApproach?.gates.find(g => g.annexRoomId === toRoomId);
     if (reception && passengerAway()) {
-      if (!foreignVisitorPermission(reception)) return 'No current visitor-hall permission; the outer stand remains accessible for departure.';
+      if (!foreignAnnexPermission(reception)) return 'No current visitor-hall or guest-berth permission; the outer stand remains accessible for departure.';
     } else {
       if (reception && currentCityApproach()?.decisions.find(d => d.personId === "scientist")?.expiresAt <= state.clock) return "Temporary annex permission has expired; the checkpoint remains available for departure.";
       if (reception && !CityApproach.canEnter(currentCityApproach()?.decisions.find(d => d.personId === "scientist"), currentCityApproach()?.acceptedConditions)) return "The staffed gate has not authorized entry. Deliberate crossing requires the explicit prohibited-entry action and a physically passable gate.";
@@ -67275,6 +67292,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (reception) for (const person of [reception.clerk, reception.guard]) if (cityApproachNear("scientist", person.mapCell, 8)) setLabMapOverlayEntry(assignments, person.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: person.name, title: person.id === reception.clerk.id ? "City identity clerk" : "City reception gate guard", value: person.status === "dead" ? "†" : person.id === reception.clerk.id ? "C" : "G", source: "Direct observation", target: { kind: "tile", tile: person.mapCell } }, map);
     const reviewer = reception?.enforcement?.materialized && reception.enforcement.reviewer;
     const supplier = reception?.visitorSupplies?.actor;
+    const berth = reception?.visitorLodging?.berth;
+    if (berth && cityApproachNear('scientist', berth.cell, 8) && sensoryLineOfSight(scientistMapCell(), berth.cell)) setLabMapOverlayEntry(assignments, berth.cell, { overlayId, classNames: ['map-overlay-resources'], label: 'Original visitor guest berth', title: `Guest berth: condition ${formatNumber(berth.condition)}%; separately paid lodging, not free supplies`, value: 'B', source: 'Direct observation', target: { kind: 'tile', tile: berth.cell } }, map);
     if (supplier && cityApproachNear('scientist', supplier.mapCell, 8) && sensoryLineOfSight(scientistMapCell(), supplier.mapCell)) setLabMapOverlayEntry(assignments, supplier.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: supplier.name, title: 'Local personal-provisions supplier', value: supplier.status === 'dead' ? '†' : 'S', source: 'Direct observation', target: { kind: 'tile', tile: supplier.mapCell } }, map);
     if (reviewer && cityApproachNear("scientist", reviewer.mapCell, 8)) setLabMapOverlayEntry(assignments, reviewer.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: reviewer.name, title: "Receiving-city judicial reviewer", value: reviewer.status === "dead" ? "†" : "J", source: "Direct observation", target: { kind: "tile", tile: reviewer.mapCell } }, map);
     if (reception?.enforcement?.hearingMaterialized) for (const [role, person] of Object.entries(reception.enforcement.courtOfficials)) if (cityApproachNear("scientist", person.mapCell, 8)) setLabMapOverlayEntry(assignments, person.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: person.name, title: `Receiving-city ${role}`, value: person.status === "dead" ? "†" : role === "prosecutor" ? "P" : "L", source: "Direct observation", target: { kind: "tile", tile: person.mapCell } }, map);
@@ -68605,6 +68624,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (localPrisonRestricted() && !(task.type === "surveyExpeditionWork" && task.data?.action === "gateEnforcement" && task.data?.kind?.startsWith("prison"))) return "Receiving-city prison or transfer prevents this ordinary action.";
     if (GateEnforcement.custodyActive(currentGateEnforcement()) && task.type !== "rest" && !(task.type === "surveyExpeditionWork" && task.data?.action === "gateEnforcement")) return "Receiving-city custody prevents this ordinary action.";
     if (surveyScientistAway() && !surveyTaskAllowed(task)) return "The scientist is off site; laboratory work awaits physical return.";
+    if (task.type === 'rest' && task.data?.foreignLodging) {
+      const binding = task.data.foreignLodging, g = passengerReceptionGate();
+      if (!g || g.id !== binding.gateId || g.visitorLodging?.berth?.id !== binding.berthId) return 'The original lodging berth is unavailable.';
+      const reason = ForeignLodging.restReason(g, foreignLodgingPhysicalContext(g), state.clock, 0, binding.stayId);
+      if (reason) return reason;
+    }
     if (task.type === "surveyExpeditionWork") { const reason = surveyWorkBlockReason(task); if (reason) return reason; }
     if (task.type === "homunculusWork") { const reason = homunculusTaskReason(task); if (reason) return reason; }
     if (task.type === "soulBeaconWork") { const reason = soulBeaconTaskReason(task); if (reason) return reason; }
@@ -68751,7 +68776,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (task.type === 'scientistMove' && passengerAway()) {
       const gate = passengerReceptionGate();
-      if (gate && task.data?.toRoomId === gate.annexRoomId && !foreignVisitorPermission(gate)) return 'Visitor-hall permission expired or no longer belongs to this body and visit; exit remains available.';
+      if (gate && task.data?.toRoomId === gate.annexRoomId && !foreignAnnexPermission(gate)) return 'Visitor-hall and guest-berth permission expired or no longer belong to this body and visit; exit remains available.';
     }
     if (task.type === "scientistMove" && !canActorOccupyTile(state.scientist, task.data?.toCell)) {
       return "The destination tile no longer has enough clear space for the scientist.";
@@ -87949,6 +87974,86 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return passengerLanded() && p.location === g?.cityId
       ? ForeignReception.permission(g, ensureScientistIdentity().bodyEpoch, passengerVisitId(), state.clock) : null;
   }
+  function ensureForeignLodging(g) {
+    if (scientistIsDead()) return g?.visitorLodging || null;
+    return ForeignLodging.publish(g, g?.preparedReceptionTestSource || (g && passengerReceptionSource(g.cityId)), state.clock);
+  }
+  function foreignLodgingPhysicalContext(g) {
+    const p = state.intercityPassenger, profile = ensureScientistIdentity(), b = g?.visitorLodging?.berth;
+    const source = g?.preparedReceptionTestSource || (g && passengerReceptionSource(g.cityId));
+    const cell = scientistMapCell(), map = ensureLabMap();
+    const floor = b && map.terrain.constructedFloors?.find(s => sameMapCell(s.cell, b.cell));
+    return { alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist'), bodyEpoch: profile.bodyEpoch, visitId: passengerVisitId(),
+      local: Boolean(g && passengerLanded() && p.location === g.cityId && [g.checkpointRoomId, g.annexRoomId].includes(scientistRoomId())),
+      atBerth: Boolean(b && scientistRoomId() === b.roomId && sameMapCell(cell, b.cell)),
+      authorityCurrent: Boolean(source?.currentAuthority && source.administrationId === g?.institutionId && source.lawId === g?.visitorLodging?.rule.lawId),
+      sourceCurrent: Boolean(source && source.cityId === g?.cityId && source.currentPopulation >= 2 && source.physicalCondition !== 'ruined'
+        && ['functional', 'strong', 'regionalHub'].includes(source.capacityBand)),
+      accommodationIntact: Boolean(g?.materialized && b && map.rooms[b.roomId] && mapCellInRoomFootprint(b.cell, map.rooms[b.roomId]) && floor && floor.condition >= 50),
+      bans: (state.penalFlights?.banishments || []).filter(b => b.personId === 'scientist' && b.status === 'active') };
+  }
+  function foreignLodgingContext(g) {
+    return { ...foreignReceptionContext(g), ...foreignLodgingPhysicalContext(g), visitorPermit: foreignVisitorPermission(g) };
+  }
+  function foreignAnnexPermission(g) {
+    if (foreignVisitorPermission(g)) return true;
+    const c = foreignLodgingPhysicalContext(g);
+    return Boolean(c.local && ForeignLodging.sourceReady(g, c) && ForeignLodging.permission(g, c.bodyEpoch, c.visitId, state.clock));
+  }
+  function foreignLodgingAction(action, expected = null) {
+    const g = passengerReceptionGate(), s = ensureForeignLodging(g), c = foreignLodgingContext(g);
+    if (!s || !c.alive || !c.local) return false;
+    let ok = false;
+    if (action === 'book') ok = ForeignLodging.begin(g, c, expected, ensureEconomy(), state.clock);
+    if (action === 'cancel') ok = ForeignLodging.cancel(g, c, ensureEconomy(), state.clock);
+    if (action === 'walk' && !surveyBusy() && !s.job && c.capable && ForeignLodging.sourceReady(g, c)
+      && ForeignLodging.permission(g, c.bodyEpoch, c.visitId, state.clock) && g.guard.status === 'alive' && g.guard.health >= 50) {
+      Object.assign(state.doors[g.doorId], { state: DOOR_STATE_OPEN, lockState: DOOR_LOCK_UNLOCKED, accessRuleId: 'unrestricted' }); bumpNavigationRevision('door');
+      ok = Boolean(startScientistMove(g.annexRoomId, { toCell: s.berth.cell, allowMultiRoom: true }));
+    }
+    if (action === 'rest' && !surveyBusy() && !s.job && !ForeignLodging.restReason(g, c, state.clock, 900)) { createRestTask(15); ok = true; }
+    if (action === 'cancelRest') {
+      const task = scientistQueueTasks().find(t => t.type === 'rest' && t.data?.foreignLodging?.gateId === g.id);
+      if (task) { cancelTask(task.id); ok = true; }
+    }
+    ForeignLodging.observe(g, foreignLodgingContext(g), state.clock);
+    surveyEvent(ok ? action === 'book' || action === 'cancel' ? s.message : action === 'walk' ? 'Walking to the original paid guest berth; no instant rest or supplies.'
+      : action === 'rest' ? 'Fifteen minutes of ordinary physical berth rest started. Food, water, injuries and waiting carriers remain separate.' : 'Berth rest canceled; no lodging refund or instant recovery.'
+      : 'Original lodging terms, visitor approval, local law, berth, staff, finite resources or physical attendance unavailable. No new permission or recovery.');
+    persist(); render(); return Boolean(ok);
+  }
+  function updateForeignLodging() {
+    if (scientistIsDead()) return 0;
+    let changes = 0;
+    for (const g of state.penalFlights?.assistance?.cityApproach?.gates || []) if (g.visitorLodging) {
+      const c = foreignLodgingContext(g), previous = g.visitorLodging.message;
+      changes += Number(ForeignLodging.advance(g, c, state.clock));
+      ForeignLodging.observe(g, c, state.clock);
+      if (c.local && previous !== g.visitorLodging.message) { surveyEvent(g.visitorLodging.message); state.paused = true; }
+    }
+    return changes;
+  }
+  function renderForeignLodging(g) {
+    const panel = document.createElement('section'); panel.dataset.foreignLodging = 'true'; panel.className = 'subpanel';
+    panel.append(textEl('h3', 'Foreign Short-Stay Lodging'), textEl('p', '$20 for eight elapsed hours at one original visitor-annex guest berth. One attended check-in minute uses the original clerk’s finite shared work and terminal power. Bring your own food and water; ordinary rest is physical, not purchased healing. Lodging does not extend visitor-hall trading permission or supply residence, research rights or transport.'));
+    const s = ensureForeignLodging(g), c = foreignLodgingContext(g);
+    if (!s) { panel.append(textEl('p', 'This original reception has no supported guest-accommodation capacity. No bed or staff replacement is generated.')); return panel; }
+    const v = ForeignLodging.observe(g, c, state.clock), p = ForeignLodging.permission(g, c.bodyEpoch, c.visitId, state.clock);
+    const button = (label, action, disabled, expected = null) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = disabled; b.onclick = () => foreignLodgingAction(action, expected); panel.append(b); };
+    if (s.job) button('Cancel Unfinished Lodging Check-In (Full Refund)', 'cancel', s.job.bodyEpoch !== c.bodyEpoch || !c.alive);
+    else if (!p) { const q = ForeignLodging.quote(g, c, state.clock);
+      button('Reserve Eight-Hour Guest Berth ($20)', 'book', !q || ensureEconomy().money < 20, q);
+      panel.append(textEl('p', 'Book at the original reception desk while your separate visitor approval remains valid. Original law, clerk, usable berth, shared queue, power and duty must support check-in. Full refund before check-in completes; no refund once the stay begins.'));
+    }
+    if (p) { panel.append(textEl('p', `Your separate lodging permission expires ${formatClock(p.expiresAt)} whether or not you occupy the berth. Visitor-hall purchases and sales still require their own permit.`));
+      button('Walk to Paid Guest Berth', 'walk', surveyBusy() || !c.capable || !ForeignLodging.sourceReady(g, c));
+      button('Rest at Guest Berth (15 minutes)', 'rest', surveyBusy() || Boolean(ForeignLodging.restReason(g, c, state.clock, 900)));
+    }
+    if (scientistQueueTasks().some(t => t.data?.foreignLodging?.gateId === g.id)) button('Cancel Berth Rest', 'cancelRest', !c.alive);
+    if (v && v.bodyEpoch === c.bodyEpoch && v.visitId === c.visitId)
+      panel.append(textEl('p', `${formatClock(v.at)} — received lodging report: ${v.message} ${v.checkIn ? `${formatDuration(v.checkIn.progress)} / one attended minute.` : ''} Reports remain dated while away.`));
+    return panel;
+  }
   function foreignReceptionContext(g = passengerReceptionGate()) {
     const p = state.intercityPassenger, profile = ensureScientistIdentity(), cell = scientistMapCell();
     const local = Boolean(g && passengerLanded() && p.location === g.cityId && [g.checkpointRoomId, g.annexRoomId].includes(scientistRoomId()));
@@ -87984,7 +88089,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (action === 'review') ok = ForeignReception.begin(g, c.issuer, expected, c, ensureEconomy(), state.clock);
     if (action === 'accept') ok = ForeignReception.accept(g, expected, c, state.clock);
     if (action === 'cancel') ok = ForeignReception.cancel(g, c.issuer, state.clock);
-    if (action === 'enter' && !surveyBusy() && !g.visitorAdmission.job && foreignVisitorPermission(g) && g.guard.status === 'alive' && g.guard.health >= 50) {
+    if (action === 'enter' && !surveyBusy() && !g.visitorAdmission.job && foreignAnnexPermission(g) && g.guard.status === 'alive' && g.guard.health >= 50) {
       Object.assign(state.doors[g.doorId], { state: DOOR_STATE_OPEN, lockState: DOOR_LOCK_UNLOCKED, accessRuleId: 'unrestricted' }); bumpNavigationRevision('door');
       ok = Boolean(startScientistMove(g.annexRoomId, { toCell: { x: 15, y: 7, z: g.z }, allowMultiRoom: true }));
     }
@@ -88282,6 +88387,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const g = passengerReceptionGate(), c = foreignReceptionContext(g), s = g?.visitorAdmission;
     if (!s || !c.local) { panel.append(textEl('p', 'No supported local visitor reception is available here. The outer stand and actual return transport remain separate.')); return panel; }
     const v = ForeignReception.observe(g, c, state.clock), busy = surveyBusy() || !c.alive || !c.capable;
+    panel.append(renderForeignLodging(g));
     const button = (label, action, disabled = false, expected = null) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = disabled; b.onclick = () => foreignReceptionAction(action, expected); panel.append(b); };
     panel.append(textEl('p', ForeignReception.LIMITS));
     button('Walk to Foreign Reception Desk', 'walk', busy || Boolean(s.job));
