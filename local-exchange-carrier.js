@@ -60,7 +60,7 @@
         }
       }
     }
-    if (s.workshop && !s.passengerMaintenance?.job && !s.passengerMaintenance?.recovery && now >= s.workshop.finishAt) {
+    if (s.workshop && !s.passengerMaintenance?.job && !s.passengerMaintenance?.recovery && !s.passengerMaintenance?.toolkitService && now >= s.workshop.finishAt) {
       const vehicle = fleet.vehicles.find(v => v.id === s.workshop.vehicleId);
       if (vehicle && !vehicle.assignment && vehicle.location === 'depot') {
         vehicle.condition = Math.min(100, vehicle.condition + s.workshop.repair);
@@ -68,7 +68,7 @@
       }
     }
     const repair = fleet.vehicles.find(v => !v.assignment && v.location === 'depot' && v.condition < 85);
-    if (!s.workshop && !s.passengerMaintenance?.job && !s.passengerMaintenance?.recovery && repair) {
+    if (!s.workshop && !s.passengerMaintenance?.job && !s.passengerMaintenance?.recovery && !s.passengerMaintenance?.toolkitService && repair) {
       if (s.parts >= 2 && s.money >= 8) {
         s.parts -= 2; s.money -= 8; s.expenses += 8;
         s.workshop = { vehicleId: repair.id, finishAt: now + 7200, repair: 25 };

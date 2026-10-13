@@ -15,7 +15,7 @@
     const m = support?.passengerMaintenance, supplier = support?.supplier, v = supplier?.vehicle;
     if (!s || !m || !market || market.id !== s.location || !Number.isFinite(market.treasury) || market.treasury < 0 || m.source.cityId !== s.location || !healthy(m)
       || !Number.isFinite(m.workSeconds) || m.workSeconds < 0 || m.workSeconds >= REST && m.actor.fatigue === 0
-      || m.job || m.recovery || m.actor.location !== 'workshop' || m.actor.positionKm !== 0 || m.actor.carriedParts !== 0
+      || m.job || m.recovery || m.toolkitService || m.actor.location !== 'workshop' || m.actor.positionKm !== 0 || m.actor.carriedParts !== 0
       || !c.local || !c.atStand || !c.sameBody || !c.alive || !c.capable || !c.free || c.busy || !c.sourceCurrent
       || !['home', 'foreign'].includes(s.phase) || s.booking || s.rest || support.workshop || supplier.repairAt || supplier.shipment
       || supplier.passengerService || supplier.mechanicService || supplier.maintenanceReservedBy || !supplier.routeOpen
@@ -71,7 +71,7 @@
     if (!c.sourceCurrent || c.bodyEpoch !== q.bodyEpoch || market?.id !== q.cityId || m.source.cityId !== q.cityId
       || m.source.branchId !== q.branchId || m.actor.id !== q.mechanicId || supplier.vehicle.id !== q.supplierVehicleId
       || supplier.vehicle.driver.id !== q.supplierDriverId || supplier.mechanicService !== o.id
-      || supplier.distanceKm !== q.distanceKm || supplier.shipment || supplier.passengerService || supplier.repairAt || m.job
+      || supplier.distanceKm !== q.distanceKm || supplier.shipment || supplier.passengerService || supplier.repairAt || m.job || m.toolkitService
       || m.actor.location !== 'workshop' || m.actor.positionKm !== 0 || m.actor.carriedParts !== 0) return 'Original city, mechanic, truck, assignment or workshop custody unavailable.';
     for (const g of o.cargo) {
       const original = q.goods.find(e => e.key === g.key);

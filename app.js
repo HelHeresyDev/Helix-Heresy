@@ -101,6 +101,7 @@
   const PassengerFuel = window.HelixPassengerFuel;
   const PassengerMaintenance = window.HelixPassengerMaintenance;
   const MechanicRecovery = window.HelixMechanicRecovery;
+  const ToolkitServicing = window.HelixToolkitServicing;
   const ForeignReception = window.HelixForeignReception;
   const ForeignSupplies = window.HelixForeignSupplies;
   const TradeTripPreparation = window.HelixTradeTripPreparation;
@@ -16781,6 +16782,13 @@
       passengerFuelAction,
       passengerMaintenanceAction,
       mechanicRecoveryAction,
+      toolkitServicingAction,
+      toolkitServicingSnapshot: () => {
+        const s = state.intercityPassenger, fleet = s && passengerFuelFleet(s.location), support = fleet?.support;
+        const c = passengerMaintenanceContext(s, fleet, support?.passengerMaintenance?.toolkitService);
+        return clonePlainObject({ carrier: s, support, context: c, clock: state.clock, money: ensureEconomy().money,
+          quote: ToolkitServicing.quote(s, support, c, state.clock), checkpoint: ToolkitServicing.nextEvent(support, c, state.clock) });
+      },
       mechanicRecoverySnapshot: () => {
         const s = state.intercityPassenger, fleet = s && passengerFuelFleet(s.location), support = fleet?.support;
         const market = mechanicRecoveryMarket(s?.location), c = mechanicRecoveryContext(s, fleet, support?.passengerMaintenance?.recovery);
@@ -22447,11 +22455,13 @@
         passengerMaintenanceContext(passenger, fuelFleet, fuelFleet?.support?.passengerMaintenance?.job), state.clock);
       const recoveryEvent = MechanicRecovery.nextEvent(fuelFleet?.support, mechanicRecoveryMarket(passenger?.location),
         mechanicRecoveryContext(passenger, fuelFleet, fuelFleet?.support?.passengerMaintenance?.recovery), state.clock);
+      const toolkitEvent = ToolkitServicing.nextEvent(fuelFleet?.support,
+        passengerMaintenanceContext(passenger, fuelFleet, fuelFleet?.support?.passengerMaintenance?.toolkitService), state.clock);
       const travelEvent = receptionEvent || (IntercityPassenger.moving(passenger)
         ? { time: Math.max(state.clock + 60, passenger.trip.arrivalWindow.end), label: 'Passenger carrier arrival estimate', type: 'travel' }
         : passenger?.rest && intercityLocal() ? { time: state.clock + passenger.rest.remaining, label: 'Supplied passenger-driver rest checkpoint', type: 'travel' }
         : unsupportedActive() ? (Number.isFinite(remoteAt) ? { time: remoteAt, label: "Known charter schedule checkpoint", type: "travel" } : null) : StrategicJourneys.nextPublicEvent({ journeys: journey ? [journey] : [] }, state.clock));
-      return [clinicEvent, task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, supplyEvent, fuelEvent, maintenanceEvent, recoveryEvent, nextLeasedAnnexEvent(), nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
+      return [clinicEvent, task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, supplyEvent, fuelEvent, maintenanceEvent, recoveryEvent, toolkitEvent, nextLeasedAnnexEvent(), nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
         .filter((event) => event && (!options.includeTypes || options.includeTypes.includes(event.type)) && event.time >= state.clock)
         .sort((a, b) => a.time - b.time)[0] || null;
     }
@@ -23312,6 +23322,7 @@
     updatePassengerFuelServices();
     updatePassengerMaintenanceServices();
     updateMechanicRecoveryServices();
+    updateToolkitServicingServices();
     updatePassengerProvisionWork();
     let changeCount = 0;
     let completedAny = true;
@@ -88493,6 +88504,50 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         && (!order || fleet.support.supplier.distanceKm === order.quote.distanceKm)),
       stand: point && clonePlainObject(point), distanceKm: fleet?.support?.supplier?.distanceKm };
   }
+  function toolkitServicingAction(action, expected = null) {
+    const s = ensureIntercityPassenger(), fleet = s && passengerFuelFleet(s.location), m = ensurePassengerMaintenance(fleet, s?.location);
+    if (!m || !intercityLocal()) return false;
+    const c = passengerMaintenanceContext(s, fleet, m.toolkitService);
+    const ok = action === 'request' ? ToolkitServicing.request(s, fleet.support, c, expected, ensureEconomy(), state.clock)
+      : action === 'cancel' && ToolkitServicing.cancel(fleet.support, c, ensureEconomy(), state.clock);
+    if (ok) ToolkitServicing.observe(m, c);
+    surveyEvent(ok ? action === 'request' ? 'Paid exact toolkit-servicing terms: one original depot part reserved at the workshop. One hour of actual mechanic work still required.'
+      : 'Toolkit servicing canceled. Actual improvements, consumed part and earned labor remain; unused workshop stock and unearned payment returned once.'
+      : 'Toolkit-servicing terms, original source, stock, mechanic, tools or attendance unavailable; no transaction made.');
+    persist(); render(); return Boolean(ok);
+  }
+  function updateToolkitServicingServices() {
+    if (scientistIsDead()) return 0;
+    const economy = ensureEconomy(), fleets = [economy.exchangeCarrier, ...(economy.commodityMarket.intercityTrade?.neighbors || []).map(n => n.carrier)].filter(Boolean);
+    let changes = 0;
+    for (const fleet of fleets) {
+      const m = fleet.support?.passengerMaintenance, o = m?.toolkitService; if (!o) continue;
+      const s = [state.intercityPassenger, state.passengerConnection?.otherCarrier].find(s => s?.vehicle.id === o.quote.vehicleId);
+      const c = passengerMaintenanceContext(s, fleet, o), previous = o.reports.length;
+      changes += Number(ToolkitServicing.advance(fleet.support, c, state.clock));
+      ToolkitServicing.observe(m, c);
+      if (c.local && c.atStand && o.reports.length > previous) { surveyEvent(o.reports.at(-1).message); state.paused = true; }
+    }
+    return changes;
+  }
+  function renderToolkitServicing(s, fleet, m) {
+    const panel = document.createElement('section'); panel.dataset.toolkitServicing = 'true';
+    panel.append(textEl('strong', 'Mechanic Toolkit Servicing'), textEl('p', '$15: one real depot part ($5) and one hour of actual mechanic work ($10). Progressively restores up to 25 condition to the same returned toolkit, capped at 100. Zero condition is eligible wear, not destruction. Spends finite mechanic duty and fatigue; no healing, duty recovery, new tools or vehicle repairs. The existing workshop is reserved; authorized work may continue during scientist absence.'));
+    const o = m.toolkitService, c = passengerMaintenanceContext(s, fleet, o);
+    ToolkitServicing.observe(m, c);
+    const button = (label, run, disabled) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = disabled; b.onclick = run; panel.append(b); };
+    if (o) button('Cancel Unfinished Toolkit Servicing', () => toolkitServicingAction('cancel'), !c.alive || !c.sameBody || o.cancelled || Boolean(o.receipt));
+    else {
+      const q = ToolkitServicing.quote(s, fleet.support, c, state.clock);
+      if (q) panel.append(textEl('p', `Exact $15 terms: one original depot part, one hour of work, up to ${q.gain.toFixed(1)} toolkit condition restored. Quote expires in one minute.`));
+      button('Request Toolkit Servicing ($15)', () => toolkitServicingAction('request', q), !q || ensureEconomy().money < q.total);
+      if (!q) panel.append(textEl('p', 'Attend the parked original stand. The original mechanic and worn toolkit must have returned, with one real depot part, an available shared workshop and sufficient finite duty and fatigue capacity. Repairs, recovery and other workshop jobs cannot overlap.'));
+    }
+    const report = m.toolkitServiceObservation;
+    if (report && report.cityId === s.location && report.bodyEpoch === c.bodyEpoch && c.sameBody)
+      panel.append(textEl('p', `${formatClock(report.at)} — received original toolkit report: ${report.message} This is dated, not live unseen servicing progress.`));
+    return panel;
+  }
   function mechanicRecoveryMarket(cityId) {
     if (!cityId) return null;
     const market = ensureEconomy().commodityMarket, trade = market.intercityTrade;
@@ -88611,6 +88666,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (report?.job?.completed && report.job.vehicleId === s.vehicle.id && report.job.bodyEpoch === c.bodyEpoch && c.sameBody)
       panel.append(textEl('p', `${formatClock(report.at)} — original vehicle repair completion received; no other vehicle resources restored.`));
     panel.append(renderMechanicRecovery(s, fleet, m));
+    panel.append(renderToolkitServicing(s, fleet, m));
     return panel;
   }
   function passengerFuelContext(s, fleet, order = null) {
