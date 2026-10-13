@@ -99,6 +99,7 @@
   const SurveyExpeditions = window.HelixSurveyExpeditions;
   const IntercityPassenger = window.HelixIntercityPassenger;
   const PassengerFuel = window.HelixPassengerFuel;
+  const PassengerMaintenance = window.HelixPassengerMaintenance;
   const ForeignReception = window.HelixForeignReception;
   const ForeignSupplies = window.HelixForeignSupplies;
   const TradeTripPreparation = window.HelixTradeTripPreparation;
@@ -16777,6 +16778,21 @@
       },
       selectIntercityConnection,
       passengerFuelAction,
+      passengerMaintenanceAction,
+      passengerMaintenanceSnapshot: () => {
+        const s = state.intercityPassenger, fleet = s && passengerFuelFleet(s.location), support = fleet?.support;
+        const c = passengerMaintenanceContext(s, fleet, support?.passengerMaintenance?.job);
+        return clonePlainObject({ carrier: s, support, context: c, money: ensureEconomy().money, clock: state.clock,
+          quote: PassengerMaintenance.quote(s, support, c, state.clock), checkpoint: PassengerMaintenance.nextEvent(s, support, c, state.clock) });
+      },
+      advancePassengerMaintenanceTestTime: seconds => {
+        let remaining = Math.max(0, seconds);
+        while (remaining > 0 && !scientistIsDead()) {
+          const step = Math.min(60, remaining); state.clock += step; remaining -= step;
+          updateIntercityPassenger(); updateScientistMovementTask(); completeDueTasks(); updateWildernessNeeds();
+        }
+        persist(); render(); return state.clock;
+      },
       passengerFuelSnapshot: (amount = 100) => {
         const s = state.intercityPassenger, fleet = s && passengerFuelFleet(s.location), support = fleet && LocalExchangeCarrier.support(fleet, state.clock);
         const c = passengerFuelContext(s, fleet);
@@ -22418,11 +22434,13 @@
       const supplyEvent = supplyOrder && !supplyOrder.delay ? { time: state.clock + 30, label: supplyOrder.kind === 'sale' ? 'Physical foreign sale receipt' : 'Physical personal-provisions delivery', type: 'travel' } : null;
       const fuelFleet = passenger && passengerFuelFleet(passenger.location), fuelSupplier = fuelFleet?.support?.supplier;
       const fuelEvent = PassengerFuel.nextEvent(passenger, fuelSupplier, passengerFuelContext(passenger, fuelFleet, fuelSupplier?.passengerService), state.clock);
+      const maintenanceEvent = PassengerMaintenance.nextEvent(passenger, fuelFleet?.support,
+        passengerMaintenanceContext(passenger, fuelFleet, fuelFleet?.support?.passengerMaintenance?.job), state.clock);
       const travelEvent = receptionEvent || (IntercityPassenger.moving(passenger)
         ? { time: Math.max(state.clock + 60, passenger.trip.arrivalWindow.end), label: 'Passenger carrier arrival estimate', type: 'travel' }
         : passenger?.rest && intercityLocal() ? { time: state.clock + passenger.rest.remaining, label: 'Supplied passenger-driver rest checkpoint', type: 'travel' }
         : unsupportedActive() ? (Number.isFinite(remoteAt) ? { time: remoteAt, label: "Known charter schedule checkpoint", type: "travel" } : null) : StrategicJourneys.nextPublicEvent({ journeys: journey ? [journey] : [] }, state.clock));
-      return [clinicEvent, task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, supplyEvent, fuelEvent, nextLeasedAnnexEvent(), nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
+      return [clinicEvent, task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, supplyEvent, fuelEvent, maintenanceEvent, nextLeasedAnnexEvent(), nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
         .filter((event) => event && (!options.includeTypes || options.includeTypes.includes(event.type)) && event.time >= state.clock)
         .sort((a, b) => a.time - b.time)[0] || null;
     }
@@ -23281,6 +23299,7 @@
 
   function completeDueTasks() {
     updatePassengerFuelServices();
+    updatePassengerMaintenanceServices();
     updatePassengerProvisionWork();
     let changeCount = 0;
     let completedAny = true;
@@ -88296,7 +88315,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function selectIntercityConnection() {
     const s = state.intercityPassenger, point = intercityStand();
     if (!s || !intercityLocal() || scientistRoomId() !== point.roomId || WildernessBeasts.distance(scientistMapCell(), point.cell) > 1
-      || s.booking || s.rest || passengerFuelBusy(s) || !passengerBodyCurrent() || surveyBusy() || passengerReceptionGate()?.visitorAdmission?.job || scientistIsDead() || actorIsIncapacitated('scientist') || escortContractActive()) return false;
+      || s.booking || s.rest || passengerServiceBusy(s) || !passengerBodyCurrent() || surveyBusy() || passengerReceptionGate()?.visitorAdmission?.job || scientistIsDead() || actorIsIncapacitated('scientist') || escortContractActive()) return false;
     if (!state.passengerConnection) {
       const map = activeWorldRecord?.generatedData?.strategicMap, cityId = s.location;
       const prepared = s.preparedConnectionTestSource;
@@ -88328,7 +88347,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function bookIntercityPassenger(destinationId) {
     const s = ensureIntercityPassenger();
-    if (!s || passengerFuelBusy(s) || !passengerBodyCurrent() || !intercityLocal() || scientistRoomId() !== intercityStand().roomId || passengerReceptionGate()?.visitorAdmission?.job || !['home', 'foreign'].includes(s.phase) || surveyBusy() || scientistIsDead() || actorIsIncapacitated('scientist') || escortContractActive()) return false;
+    if (!s || passengerServiceBusy(s) || !passengerBodyCurrent() || !intercityLocal() || scientistRoomId() !== intercityStand().roomId || passengerReceptionGate()?.visitorAdmission?.job || !['home', 'foreign'].includes(s.phase) || surveyBusy() || scientistIsDead() || actorIsIncapacitated('scientist') || escortContractActive()) return false;
     if (!IntercityPassenger.connectionDestinations(state.passengerConnection, s, ensureStrategicJourneys()).includes(destinationId)) return false;
     const q = IntercityPassenger.quote(s, ensureStrategicJourneys(), destinationId);
     const reason = IntercityPassenger.book(s, q, IntercityPassenger.load(surveyCarriedStacks()), ensureEconomy(), state.clock, ensureScientistIdentity().bodyEpoch);
@@ -88349,7 +88368,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       carrierCurrent: Boolean(s && (!d || d.provisionBranchId === s.source.branchId && d.provisionDriverId === s.driver.id && d.provisionCityId === s.location)),
       sameBody: passengerBodyCurrent() && (!d || d.provisionBodyEpoch === ensureScientistIdentity().bodyEpoch),
       bodyEpoch: ensureScientistIdentity().bodyEpoch, alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist'),
-      free: !restrictedOffsiteStay() && !currentDetentionRaid(), busy: passengerFuelBusy(s) || !task && (surveyBusy() || scientistQueueTasks().some(t => t.data?.action === 'passengerProvisions')) || Boolean(passengerReceptionGate()?.visitorAdmission?.job) };
+      free: !restrictedOffsiteStay() && !currentDetentionRaid(), busy: passengerServiceBusy(s) || !task && (surveyBusy() || scientistQueueTasks().some(t => t.data?.action === 'passengerProvisions')) || Boolean(passengerReceptionGate()?.visitorAdmission?.job) };
   }
   function passengerProvisionReason(task) {
     const d = task.data, item = ensurePhysicalItemStacks().find(i => i.id === d.stackId);
@@ -88420,6 +88439,105 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const o = passengerFuelFleet(s.location)?.support?.supplier?.passengerService;
     return Boolean(o && o.quote.vehicleId === s.vehicle.id && !o.receipt && !o.cancelled);
   }
+  function passengerMaintenanceBusy(s) {
+    const o = s && passengerFuelFleet(s.location)?.support?.passengerMaintenance?.job;
+    return Boolean(o && o.quote.vehicleId === s.vehicle.id && !o.receipt && !o.cancelled);
+  }
+  function passengerServiceBusy(s) { return passengerFuelBusy(s) || passengerMaintenanceBusy(s); }
+  function passengerMaintenanceSource(fleet, cityId) {
+    if (!fleet || !cityId) return { city: null, standings: null };
+    const map = activeWorldRecord?.generatedData?.strategicMap;
+    const prepared = fleet?.preparedMaintenanceTestSource;
+    const city = prepared?.city || map?.strategicPlayableSettlementState?.cityRows.find(c => c.cityId === cityId);
+    const profile = prepared || (map?.publicNonStateNetworkHistoryDirectory
+      ? StrategicNonStateNetworkHistory.cityCurrentNetworkProfile(map, cityId)
+      : map?.publicNonStateNetworkDirectory ? StrategicNonStateNetworks.cityNetworkProfile(map, cityId) : null);
+    return { city, standings: profile?.standings };
+  }
+  function ensurePassengerMaintenance(fleet, cityId) {
+    if (!fleet) return null;
+    const support = LocalExchangeCarrier.support(fleet, state.clock);
+    if (support.passengerMaintenance) return support.passengerMaintenance;
+    if (scientistIsDead()) return null;
+    const source = passengerMaintenanceSource(fleet, cityId);
+    const m = PassengerMaintenance.create(source.city, source.standings, state.clock);
+    if (m) support.passengerMaintenance = m;
+    return m;
+  }
+  function passengerMaintenanceContext(s, fleet, order = null) {
+    const selected = Boolean(s && state.intercityPassenger?.vehicle.id === s.vehicle.id);
+    const point = selected ? intercityStand() : s?.phase === 'foreign' ? s.spaces?.outer : s?.originOuter || order?.quote.stand;
+    const cityId = order?.quote.cityId || s?.location, source = passengerMaintenanceSource(fleet, cityId);
+    const backing = PassengerMaintenance.create(source.city, source.standings, state.clock);
+    const m = fleet?.support?.passengerMaintenance;
+    return { local: selected && intercityLocal(),
+      atStand: Boolean(selected && point && scientistRoomId() === point.roomId && sameMapCell(scientistMapCell(), point.cell)),
+      sameBody: passengerBodyCurrent() && (!order || order.quote.bodyEpoch === ensureScientistIdentity().bodyEpoch),
+      bodyEpoch: ensureScientistIdentity().bodyEpoch, alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist'),
+      free: !restrictedOffsiteStay() && !currentDetentionRaid() && !escortContractActive(),
+      busy: passengerFuelBusy(s) || surveyBusy() || Boolean(state.combat?.routineSuspension) || Boolean(passengerReceptionGate()?.visitorAdmission?.job),
+      sourceCurrent: Boolean(s && fleet && passengerFuelFleet(cityId) === fleet && backing && m
+        && backing.source.cityId === m.source.cityId && backing.source.branchId === m.source.branchId
+        && (!order || fleet.support.supplier.distanceKm === order.quote.distanceKm)),
+      stand: point && clonePlainObject(point), distanceKm: fleet?.support?.supplier?.distanceKm };
+  }
+  function passengerMaintenanceAction(action, expected = null) {
+    const s = ensureIntercityPassenger(), fleet = s && passengerFuelFleet(s.location);
+    const m = ensurePassengerMaintenance(fleet, s?.location), support = fleet?.support;
+    if (!m || !intercityLocal()) return false;
+    const c = passengerMaintenanceContext(s, fleet, m.job);
+    const ok = action === 'request' ? PassengerMaintenance.request(s, support, c, expected, ensureEconomy(), state.clock)
+      : action === 'cancel' && m.job?.quote.vehicleId === s.vehicle.id && PassengerMaintenance.cancel(support, c, state.clock);
+    if (ok) PassengerMaintenance.observe(m, c, state.clock);
+    surveyEvent(ok ? action === 'request' ? 'Paid exact routine-maintenance terms. The original mechanic carries two depot parts; payment alone repairs nothing.'
+      : 'Maintenance canceled: actual repairs and spent costs remain. Unused parts and refund await the original mechanic’s physical return.'
+      : 'Original maintenance terms, source, finite mechanic or attendance unavailable; no payment taken.');
+    persist(); render(); return Boolean(ok);
+  }
+  function updatePassengerMaintenanceServices() {
+    if (scientistIsDead()) return 0;
+    const economy = ensureEconomy(), fleets = [economy.exchangeCarrier, ...(economy.commodityMarket.intercityTrade?.neighbors || []).map(n => n.carrier)].filter(Boolean);
+    let changes = 0;
+    for (const fleet of fleets) {
+      const support = fleet.support, m = support?.passengerMaintenance, o = m?.job;
+      if (!o) continue;
+      const s = [state.intercityPassenger, state.passengerConnection?.otherCarrier].find(s => s?.vehicle.id === o.quote.vehicleId);
+      const c = passengerMaintenanceContext(s, fleet, o), completed = Boolean(o.receipt);
+      changes += Number(PassengerMaintenance.advance(s, support, c, economy, state.clock));
+      if (m.actor.location === `passenger stand:${o.quote.vehicleId}`) PassengerMaintenance.observe(m, c, state.clock);
+      if (c.local && c.atStand && !completed && o.receipt) {
+        PassengerMaintenance.observe(m, c, state.clock);
+        surveyEvent('Original mechanic completed the authorized physical repair. Condition alone improved; return and other supplies remain separate.'); state.paused = true;
+      }
+    }
+    return changes;
+  }
+  function renderPassengerMaintenance(s) {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.passengerMaintenance = 'true';
+    panel.append(textEl('strong', 'Passenger Vehicle Maintenance'), textEl('p', '$40: $20 spent callout, $10 for two depot parts and $10 for two hours of actual repair. Restores up to 25 condition, capped at 100; walking the saved local road at 4 km/h is additional. No fuel, provisions, driver health or fatigue restored. Wreck recovery, towing and roadside rescue are unsupported. Authorized repairs can continue during scientist absence. Cancellation retains spent work; unused parts and unspent payment return only with the original mechanic.'));
+    const fleet = passengerFuelFleet(s.location), m = ensurePassengerMaintenance(fleet, s.location), support = fleet?.support;
+    if (!m) { panel.append(textEl('p', 'No qualified source-backed local callout mechanic is available.')); return panel; }
+    const o = m.job, c = passengerMaintenanceContext(s, fleet, o);
+    if (m.actor.location === `passenger stand:${s.vehicle.id}`) PassengerMaintenance.observe(m, c, state.clock);
+    const button = (label, run, disabled) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = disabled; b.onclick = run; panel.append(b); };
+    if (o) {
+      const report = m.observation;
+      if (report?.job?.vehicleId === s.vehicle.id && report.job.bodyEpoch === c.bodyEpoch)
+        panel.append(textEl('p', `${formatClock(report.at)} — ${report.mechanicName}: ${report.job.phase}, ${formatDuration(report.job.progress)} / two hours. ${report.job.message} This is a dated received report, not live away intelligence.`));
+      else panel.append(textEl('p', 'The original mechanic and workshop have an existing assignment. No duplicate worker or tools are supplied.'));
+      if (o.quote.vehicleId === s.vehicle.id && o.quote.bodyEpoch === c.bodyEpoch)
+        button('Cancel Unfinished Vehicle Maintenance', () => passengerMaintenanceAction('cancel'), !c.alive || !c.sameBody || o.cancelled || Boolean(o.receipt));
+    } else {
+      const q = PassengerMaintenance.quote(s, support, c, state.clock);
+      if (q) panel.append(textEl('p', `${m.actor.name}: exact $40 terms, ${q.distanceKm}-km road each way; ${formatDuration(q.seconds)} including repair and return. Quote expires in one minute. Current vehicle condition ${q.condition.toFixed(1)}; authorized improvement ${q.gain.toFixed(1)}.`));
+      button('Request Routine Vehicle Maintenance ($40)', () => passengerMaintenanceAction('request', q), !q || ensureEconomy().money < q.total);
+      if (!q) panel.append(textEl('p', 'Attend the parked outer stand with no conflicting work. Original workshop, two real parts, open road, qualified mechanic, finite duty and usable toolkit must support the whole callout. Full-condition vehicles and wrecks cannot use routine repairs.'));
+    }
+    const report = m.observation;
+    if (report?.job?.completed && report.job.vehicleId === s.vehicle.id && report.job.bodyEpoch === c.bodyEpoch && c.sameBody)
+      panel.append(textEl('p', `${formatClock(report.at)} — original vehicle repair completion received; no other vehicle resources restored.`));
+    return panel;
+  }
   function passengerFuelContext(s, fleet, order = null) {
     const supplier = fleet?.support?.supplier, selected = s && state.intercityPassenger?.vehicle.id === s.vehicle.id;
     const point = selected ? intercityStand() : order?.quote.stand || intercityStand();
@@ -88428,7 +88546,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       sameBody: passengerBodyCurrent() && (!order || order.quote.bodyEpoch === ensureScientistIdentity().bodyEpoch),
       bodyEpoch: ensureScientistIdentity().bodyEpoch, alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist'),
       free: !restrictedOffsiteStay() && !currentDetentionRaid() && !escortContractActive(),
-      busy: surveyBusy() || Boolean(state.combat?.routineSuspension) || Boolean(passengerReceptionGate()?.visitorAdmission?.job),
+      busy: passengerMaintenanceBusy(s) || surveyBusy() || Boolean(state.combat?.routineSuspension) || Boolean(passengerReceptionGate()?.visitorAdmission?.job),
       sourceCurrent: Boolean(s && fleet && passengerFuelFleet(order?.quote.cityId || s.location) === fleet
         && (!order || supplier.vehicle.id === order.quote.supplierVehicleId && supplier.vehicle.driver.id === order.quote.supplierDriverId
           && supplier.distanceKm === order.quote.distanceKm)),
@@ -88563,7 +88681,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!local) { panel.append(textEl('p', 'Reach the existing home municipal survey-ground rendezvous first; city control is not required. Carrier records while away are dated, not live intelligence.')); return panel; }
     if (!s) { panel.append(textEl('p', 'No capable source-backed commercial passenger carrier is available at this city.')); return panel; }
     const v = IntercityPassenger.publicView(s), busy = surveyBusy() || Boolean(passengerReceptionGate()?.visitorAdmission?.job) || scientistIsDead() || actorIsIncapacitated('scientist');
-    const carrierBusy = busy || passengerFuelBusy(s);
+    const carrierBusy = busy || passengerServiceBusy(s);
     panel.append(textEl('p', `${v.label} · ${v.phase} · provider waiting provisions ${v.waitingHours} hours. One original driver and vehicle; no automatic resupply or rescue.`));
     const otherReport = state.passengerConnection?.otherCarrier?.observation;
     if (otherReport) panel.append(textEl('p', `Other original carrier last seen ${formatClock(otherReport.at)}: ${otherReport.view.label}, ${otherReport.view.phase}, ${otherReport.view.waitingHours} hours of provisions. This is a dated report, not a guaranteed return.`));
@@ -88580,6 +88698,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       button('Cancel Unlaunched Booking (Refund Fare)', () => { if (IntercityPassenger.cancel(s, ensureEconomy())) { surveyEvent('Unlaunched passenger booking cancelled; exact fare refunded once. No fuel, condition or provisions restored.'); persist(); render(); } }, busy);
     } else if (['home', 'foreign'].includes(v.phase)) {
       panel.append(renderPassengerFuel(s));
+      panel.append(renderPassengerMaintenance(s));
       const destinations = IntercityPassenger.connectionDestinations(state.passengerConnection, s, ensureStrategicJourneys());
       if (!destinations.length) panel.append(textEl('p', 'No known directly connected usable corridor destination.'));
       for (const id of destinations) {

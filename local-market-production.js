@@ -71,7 +71,7 @@
     // The city producer depot and support supplier exchange real local stores.
     // Replenishment transfers no fuel from an inaccessible remote source.
     if (supplier.routeOpen && !supplier.shipment && !supplier.passengerService && !supplier.repairAt) {
-      if (supplier.vehicle.condition < 85 && supplier.partsStock >= 2) {
+      if (!supplier.maintenanceReservedBy && supplier.vehicle.condition < 85 && supplier.partsStock >= 2) {
         supplier.partsStock -= 2; supplier.repairAt = at + 2 * HOUR;
       }
       const fuel = Math.min(Math.max(0, 400 - supplier.operatingFuelKm), supplier.fuelStockKm);

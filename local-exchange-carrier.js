@@ -36,7 +36,7 @@
   function advanceSupport(fleet, now) {
     const s = support(fleet, now), elapsed = Math.max(0, now - s.lastAt), supplier = s.supplier, truck = supplier.vehicle;
     s.lastAt = Math.max(now, s.lastAt);
-    if (supplier.repairAt && !supplier.shipment && !supplier.passengerService && now >= supplier.repairAt) {
+    if (supplier.repairAt && !supplier.shipment && !supplier.passengerService && !supplier.maintenanceReservedBy && now >= supplier.repairAt) {
       truck.condition = Math.min(100, truck.condition + 25); supplier.repairAt = null;
       record(s, now, 'Supplier workshop completed truck maintenance using allocated local parts.');
     }
@@ -60,7 +60,7 @@
         }
       }
     }
-    if (s.workshop && now >= s.workshop.finishAt) {
+    if (s.workshop && !s.passengerMaintenance?.job && now >= s.workshop.finishAt) {
       const vehicle = fleet.vehicles.find(v => v.id === s.workshop.vehicleId);
       if (vehicle && !vehicle.assignment && vehicle.location === 'depot') {
         vehicle.condition = Math.min(100, vehicle.condition + s.workshop.repair);
@@ -68,7 +68,7 @@
       }
     }
     const repair = fleet.vehicles.find(v => !v.assignment && v.location === 'depot' && v.condition < 85);
-    if (!s.workshop && repair) {
+    if (!s.workshop && !s.passengerMaintenance?.job && repair) {
       if (s.parts >= 2 && s.money >= 8) {
         s.parts -= 2; s.money -= 8; s.expenses += 8;
         s.workshop = { vehicleId: repair.id, finishAt: now + 7200, repair: 25 };

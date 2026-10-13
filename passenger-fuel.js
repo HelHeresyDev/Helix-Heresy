@@ -12,7 +12,7 @@
   function quote(s, supplier, c, amount, at) {
     if (!s || !supplier || !c.local || !c.atStand || !c.sameBody || !c.alive || !c.capable || !c.free || c.busy
       || !c.sourceCurrent || !['home', 'foreign'].includes(s.phase) || s.booking || s.rest || active(supplier)
-      || supplier.shipment || supplier.repairAt || supplier.vehicle.location !== 'supplier' || !supplier.routeOpen
+      || supplier.shipment || supplier.repairAt || supplier.maintenanceReservedBy || supplier.vehicle.location !== 'supplier' || !supplier.routeOpen
       || !able(supplier.vehicle) || s.driver.health < 50 || ![100, 200, 400].includes(amount)
       || !Number.isFinite(s.vehicle.fuelKm) || s.vehicle.fuelKm < 0 || s.vehicle.fuelKm + amount > CAP
       || !Number.isFinite(supplier.fuelStockKm) || supplier.fuelStockKm < amount
