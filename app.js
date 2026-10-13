@@ -104,6 +104,7 @@
   const ToolkitServicing = window.HelixToolkitServicing;
   const ForeignLodging = window.HelixForeignLodging;
   const ForeignReception = window.HelixForeignReception;
+  const ForeignResearchInquiry = window.HelixForeignResearchInquiry;
   const ForeignSupplies = window.HelixForeignSupplies;
   const TradeTripPreparation = window.HelixTradeTripPreparation;
   const passengerReceptionSourceCache = new WeakMap();
@@ -16786,6 +16787,13 @@
         syncActorInventories(); persist(); render(); return state.clock;
       },
       foreignReceptionSnapshot: () => { const g = passengerReceptionGate(), c = foreignReceptionContext(g); return clonePlainObject({ gate: g, context: c, quote: ForeignReception.quote(g, c), permission: foreignVisitorPermission(g), clock: state.clock, roomId: scientistRoomId(), cell: scientistMapCell(), money: ensureEconomy().money, doors: g ? state.doors[g.doorId] : null, busy: surveyBusy(), tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) }); },
+      foreignResearchInquiryAction,
+      foreignResearchInquirySnapshot: (topic = 'geneticEngineering') => {
+        const g = passengerReceptionGate(), c = foreignResearchInquiryContext(g);
+        return clonePlainObject({ inquiry: g?.researchInquiry, context: c, quote: ForeignResearchInquiry.quote(g, c, topic, state.clock),
+          clock: state.clock, workSeconds: g?.receptionWorkSeconds, powerSeconds: g?.powerSeconds, assignment: g?.receptionAssignment,
+          money: ensureEconomy().money, roomId: scientistRoomId(), cell: scientistMapCell() });
+      },
       setForeignReceptionTestContext: ({ source, identity, offices }) => {
         const z = Math.max(20, ...Object.keys(ensureLabMap().layers).map(Number).filter(Number.isFinite)) + 2;
         const g = preparePassengerReception(source.cityId, 'Prepared Neighbor', z, source);
@@ -87969,6 +87977,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       administrationId: current?.institutionId || administration.id, administrationName: administration.publicName,
       capacityBand: administration.capacityBand, watchId: currentWatch?.institutionId || watch.id, lawId: law.id,
       currentAuthority: !map.strategicCivicHistory || Boolean(current && currentWatch && ![current, currentWatch].some(i => ['displaced', 'disrupted'].includes(i.operationalStatus))),
+      researchRecords: ForeignResearchInquiry.recordsFrom(administration, law, current?.institutionId || administration.id),
       localRules: law.offenseRules.filter(r => ['geneticEngineering', 'animancy', 'contrabandCommerce', 'obstructionOfLawfulProcess'].includes(r.offenseId))
         .map(r => ({ offenseId: r.offenseId, legalStatus: r.legalStatus, summary: r.summary || r.label || r.offenseId })) };
     cache.set(cityId, source); return source;
@@ -88079,7 +88088,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       panel.append(textEl('p', `${formatClock(v.at)} — received lodging report: ${v.message} ${v.checkIn ? `${formatDuration(v.checkIn.progress)} / one attended minute.` : ''} Reports remain dated while away.`));
     return panel;
   }
-  function foreignReceptionContext(g = passengerReceptionGate()) {
+  function foreignReceptionContext(g = passengerReceptionGate(), ignoreInquiry = false) {
     const p = state.intercityPassenger, profile = ensureScientistIdentity(), cell = scientistMapCell();
     const local = Boolean(g && passengerLanded() && p.location === g.cityId && [g.checkpointRoomId, g.annexRoomId].includes(scientistRoomId()));
     const document = profile.documents.find(d => d.number === g?.visitorAdmission?.selectedDocument) || (!g?.visitorAdmission?.selectedDocument ? profile.documents.at(-1) : null);
@@ -88100,7 +88109,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       clerkPresent: Boolean(local && clerk?.mapCell?.z === cell.z && WildernessBeasts.distance(clerk.mapCell, { x: 10, y: 6, z: g.z }) <= 1),
       lineOfSight: Boolean(local && clerk?.mapCell && sensoryLineOfSight(cell, clerk.mapCell)),
       authorityCurrent: Boolean(source?.currentAuthority && source.administrationId === g?.institutionId && source.lawId === g?.visitorAdmission?.rule.lawId),
-      otherBusy: surveyBusy() || Boolean(profile.job) || Boolean(currentCityApproach()?.gateId === g?.id && ['requested', 'preparing'].includes(currentCityApproach()?.status)),
+      otherBusy: surveyBusy(ignoreInquiry) || Boolean(profile.job) || Boolean(currentCityApproach()?.gateId === g?.id && ['requested', 'preparing'].includes(currentCityApproach()?.status)),
       issuer, bans,
       evidence: { present: Boolean(document), sourceRecordId: document?.number || null,
         document: document ? clonePlainObject(document) : null, comparison,
@@ -88135,9 +88144,77 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       changed = ForeignReception.advance(g, issuer, c, state.clock) || changed;
       if (c.local && g.visitorAdmission.message !== message) { surveyEvent(g.visitorAdmission.message); state.paused = true; }
       ForeignReception.observe(g, c, state.clock);
+      const inquiryContext = foreignResearchInquiryContext(g);
+      const inquiryJob = g.researchInquiry?.job;
+      changed = ForeignResearchInquiry.advance(g, inquiryContext, state.clock) || changed;
+      ForeignResearchInquiry.observe(g, inquiryContext, state.clock);
+      if (inquiryJob && !g.researchInquiry.job && inquiryContext.local) { surveyEvent(g.researchInquiry.message); state.paused = true; }
     }
     if (!passengerReceptionGate()?.visitorAdmission?.job && state.combat?.routineSuspension?.reason === 'foreign visitor reception') resumeScientistRoutineWork();
+    if (!passengerReceptionGate()?.researchInquiry?.job && state.combat?.routineSuspension?.reason === 'foreign research inquiry') resumeScientistRoutineWork();
     return Number(changed);
+  }
+  function foreignResearchInquiryContext(g = passengerReceptionGate()) {
+    const c = foreignReceptionContext(g, true), j = g?.researchInquiry?.job;
+    return { ...c, source: g?.preparedReceptionTestSource || (g && passengerReceptionSource(g.cityId)),
+      visitorPermit: j ? g.visitorAdmission.permits.find(p => p.id === j.quote.visitorPermitId) : foreignVisitorPermission(g),
+      originalBody: passengerBodyCurrent(), custodyActive: GateEnforcement.custodyActive(currentGateEnforcement()) || localPrisonRestricted() };
+  }
+  function foreignResearchInquiryAction(action, expected = null) {
+    const g = passengerReceptionGate(), c = foreignResearchInquiryContext(g);
+    if (!g || !c.alive || !c.local) return false;
+    ForeignResearchInquiry.publish(g, state.clock);
+    let ok = false;
+    if (action === 'begin') ok = ForeignResearchInquiry.begin(g, c, expected, state.clock);
+    if (action === 'cancel') ok = ForeignResearchInquiry.cancel(g, c, state.clock);
+    if (ok && action === 'begin') suspendScientistRoutineWork('foreign research inquiry');
+    if (ok && action === 'cancel' && state.combat?.routineSuspension?.reason === 'foreign research inquiry') resumeScientistRoutineWork();
+    ForeignResearchInquiry.observe(g, foreignResearchInquiryContext(g), state.clock); persist(); render(); return ok;
+  }
+  function renderForeignResearchInquiry() {
+    const panel = document.createElement('section'); panel.dataset.foreignResearchInquiry = 'true'; panel.className = 'subpanel';
+    const lawLabel = value => titleCase(String(value).replace(/([a-z])([A-Z])/g, '$1 $2'));
+    panel.append(textEl('h3', 'Foreign Research-Law Inquiry'), textEl('p', ForeignResearchInquiry.LIMITS));
+    const g = passengerReceptionGate(), c = foreignResearchInquiryContext(g);
+    const s = scientistIsDead() ? g?.researchInquiry : ForeignResearchInquiry.publish(g, state.clock);
+    if (s && c.local) {
+      const v = ForeignResearchInquiry.observe(g, c, state.clock);
+      if (v) panel.append(textEl('p', `${formatClock(v.at)} — received from ${v.clerkName}: ${v.message || 'Research-law inquiries use the existing public-records desk.'}`));
+      if (s.job) {
+        // Show only received progress, not an unobserved live job update.
+        if (v?.working) panel.append(textEl('p', `${ForeignResearchInquiry.TOPICS[v.working.topic]}: ${formatDuration(v.working.progress)} / three attended minutes. Interruptions retain work without backfill.`));
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Cancel Unfinished Research-Law Inquiry';
+        b.disabled = !c.alive || s.job.bodyEpoch !== c.bodyEpoch || s.job.visitId !== c.visitId;
+        b.onclick = () => foreignResearchInquiryAction('cancel'); panel.append(b);
+      } else {
+        panel.append(textEl('p', 'Walk to the original reception desk with current visitor permission. Three attended minutes consume the shared clerk duty and terminal power; no filing fee. Lodging alone is insufficient.'));
+        for (const [topic, label] of Object.entries(ForeignResearchInquiry.TOPICS)) {
+          const q = ForeignResearchInquiry.quote(g, c, topic, state.clock), reason = ForeignResearchInquiry.reason(g, c, topic, state.clock);
+          const b = document.createElement('button'); b.type = 'button'; b.textContent = `Inquire About ${label}`; b.disabled = !q;
+          b.onclick = () => foreignResearchInquiryAction('begin', q); panel.append(b);
+          if (!q) panel.append(textEl('p', reason || 'The unchanged public-law extract has already been received; no repeated attendance is needed.'));
+        }
+      }
+    } else panel.append(textEl('p', 'Reach a supported foreign reception for a new inquiry. Previously received extracts below are dated records, not remote law updates.'));
+    for (const gate of state.penalFlights?.assistance?.cityApproach?.gates || []) for (const e of gate.researchInquiry?.extracts || []) {
+      const r = e.source.rule, sentence = r.sentencing, row = document.createElement('article'); row.dataset.researchLawExtract = e.id;
+      row.append(textEl('h4', `${r.label} — ${r.legalStatus}`), textEl('p', `Received ${formatClock(e.at)} from ${e.clerkName}, ${e.source.cityId}; code ${e.source.lawId}, rule ${r.id}. Dated extract, not current remote law.`));
+      row.append(textEl('p', `Disclosed interest: ${e.disclosedInterest}. ${e.application}`));
+      for (const exception of r.authorizationExceptions) row.append(textEl('p', `Published authorization boundary: ${exception}`));
+      if (!r.authorizationExceptions.length) row.append(textEl('p', 'No authorization exception is published in this rule.'));
+      for (const element of r.elements) row.append(textEl('p', `Required offense element: ${element.label}`));
+      if (r.culpability) row.append(textEl('p', `Culpability: ${lawLabel(r.culpability)}.`));
+      if (r.defenses.length) row.append(textEl('p', `Published defenses: ${r.defenses.map(lawLabel).join(', ')}. Applicability requires actual facts.`));
+      if (r.aggravatingFactors.length) row.append(textEl('p', `Published aggravating factors: ${r.aggravatingFactors.map(lawLabel).join(', ')}.`));
+      row.append(textEl('p', `Potential ordinary sanctions: ${sentence.ordinarySanctions.map(lawLabel).join(', ') || 'none specified in this extract'}.`));
+      if (sentence.fineRangeCredits) row.append(textEl('p', `Published fine range: ${formatMoney(sentence.fineRangeCredits.minimum)}–${formatMoney(sentence.fineRangeCredits.maximum)}; no fine assessed by this inquiry.`));
+      if (sentence.finitePrisonRangeMonths) row.append(textEl('p', `Published finite-prison range: ${sentence.finitePrisonRangeMonths.minimum}–${sentence.finitePrisonRangeMonths.maximum} months.`));
+      if (sentence.penalLegionEligible) row.append(textEl('p', 'Penal-legion sentencing may be eligible after a separate lawful case.'));
+      if (sentence.capitalEligibility) row.append(textEl('p', `Capital sentencing requires separately proven qualifying grounds: ${sentence.capitalEligibility.triggers.map(lawLabel).join(', ')}. Without a public-enemy finding: ${lawLabel(sentence.capitalEligibility.withoutPublicEnemy || 'unavailable')}; with one: ${lawLabel(sentence.capitalEligibility.withPublicEnemy || 'unavailable')}. No sentence or automatic death follows an inquiry.`));
+      if (r.responsibleInstitutionIds.length) row.append(textEl('p', `Published responsible enforcement institutions (not licensing issuers): ${r.responsibleInstitutionIds.join(', ')}.`));
+      row.append(textEl('p', e.safeguard), textEl('p', e.scope)); panel.append(row);
+    }
+    return panel;
   }
   function foreignSupplierMarket(g) {
     const economy = ensureEconomy(); bindCityCommodityMarket(economy);
@@ -89009,6 +89086,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.intercityPassenger = 'true';
     panel.append(textEl('strong', 'Direct-Neighbor and Second-Hop Passenger Travel'));
     panel.append(renderTradeTripPreparation());
+    panel.append(renderForeignResearchInquiry());
     const s = ensureIntercityPassenger(), local = intercityLocal();
     if (!local) { panel.append(textEl('p', 'Reach the existing home municipal survey-ground rendezvous first; city control is not required. Carrier records while away are dated, not live intelligence.')); return panel; }
     if (!s) { panel.append(textEl('p', 'No capable source-backed commercial passenger carrier is available at this city.')); return panel; }
@@ -89089,6 +89167,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function surveyScientistAway() { return passengerAway() || Boolean(state?.surveyExpeditions && state.surveyExpeditions.phase !== "home"); }
   function surveyScientistReserved() { return surveyScientistAway() || Boolean(state?.surveyExpeditions?.preparing); }
   function surveyTaskAllowed(task) {
+    if (passengerReceptionGate()?.researchInquiry?.job) return false;
     if (passengerReceptionGate()?.visitorAdmission?.job) return false;
     if ((CityConfrontations.active(state.cityConfrontation) || IncumbentResistance.active(state.incumbentResistance)) && task.type !== 'scientistMove'
       && !(task.type === 'surveyExpeditionWork' && task.data?.action === 'board')) return false;
@@ -89115,7 +89194,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return ["scientistMove", "surveyExpeditionWork", "physicalDiagnostic", "hiddenWorkshopWork"].includes(task.type)
       || task.type === 'soulBeaconWork' && hiddenWorkshopLocal() && labMapCellRoomId(target) === state.hiddenWorkshop?.site?.roomId;
   }
-  function surveyBusy() { return scientistQueueTasks().some((task) => !taskBlockReason(task)); }
+  function surveyBusy(ignoreInquiry = false) { return (!ignoreInquiry && Boolean(passengerReceptionGate()?.researchInquiry?.job)) || scientistQueueTasks().some((task) => !taskBlockReason(task)); }
   function surveyEvent(message) { addEvent(message, { sourceKind: "surveyExpedition" }); }
   function surveyCarriedStacks() { return ensurePhysicalItemStacks().filter((entry) => entry.carriedBy === "scientist"); }
   function surveyQuote() {
