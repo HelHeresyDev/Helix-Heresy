@@ -16735,6 +16735,11 @@
           needs: ensureWildernessSurvival(), tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) });
       },
       foreignSupplyAction,
+      foreignSelfCareAction,
+      foreignSelfCareSnapshot: () => clonePlainObject({ clock: state.clock, roomId: scientistRoomId(), cell: scientistMapCell(),
+        bodyEpoch: ensureScientistIdentity().bodyEpoch, visitId: passengerVisitId(), health: scientistVital('health').current,
+        injuries: actorInjuries('scientist').map(i => ({ ...i, reasons: Object.fromEntries(['examine', 'stabilize', 'treat'].map(mode => [mode, foreignSelfCareReason(i, mode)])) })),
+        carried: surveyCarriedStacks(), tasks: scientistQueueTasks().filter(t => t.data?.foreignSelfCare).map(t => ({ ...t, reason: taskBlockReason(t) })) }),
       unloadForeignLabInput,
       foreignLabUnloadingSnapshot: () => clonePlainObject({ context: tradePackingContext(), lots: surveyCarriedStacks().filter(i => ForeignSupplies.labInputLot(i)),
         destinations: foreignLabStorageDestinations(), receipts: ensureSurveyExpeditions().foreignLabReceipts || [],
@@ -23330,6 +23335,7 @@
   }
 
   function completeDueTasks() {
+    updateForeignSelfCareTasks();
     updateForeignLodging();
     updatePassengerFuelServices();
     updatePassengerMaintenanceServices();
@@ -23809,31 +23815,33 @@
     return slime ? { actor: slime, label: slime.name, cell: combatActorCell(slime), roomId: slimeEffectiveRoomId(slime) } : null;
   }
 
-  function injurySupplyStack(injury) {
+  function injurySupplyStack(injury, carriedOnly = false) {
     const key = INJURY_TYPE_DEFS[injury?.typeId]?.supplyKey;
     return ensurePhysicalItemStacks()
       .filter((stack) => stack.section === "inventory" && stack.key === key && stack.quantity > 0 && !stack.reservedTaskId && (!stack.carriedBy || stack.carriedBy === "scientist"))
+      .filter((stack) => !carriedOnly || ForeignSupplies.medicalSupplyLot(stack))
       .filter((stack) => stack.carriedBy === "scientist" || labMapPathBetweenCells(scientistMapCell(), stack.cell, { map: ensureLabMap(), ignoreDoors: true }).length)
       .sort((a, b) => Number(b.carriedBy === "scientist") - Number(a.carriedBy === "scientist") || mapCellDistance(scientistMapCell(), a.cell) - mapCellDistance(scientistMapCell(), b.cell))[0] || null;
   }
 
-  function injuryTreatmentBlockReason(injury, mode = "treat") {
+  function injuryTreatmentBlockReason(injury, mode = "treat", carriedOnly = false) {
     if (!injury || injury.status === "healed") return "This injury no longer needs care.";
     if (scientistIsDead()) return "The scientist is dead.";
     if (actorIsIncapacitated("scientist") && injury.actorId !== "scientist") return "The scientist is incapacitated and cannot treat another actor.";
     if (mode === "examine") return injury.diagnosedAt != null ? "This injury has already been examined." : "";
     if (mode === "stabilize" && injury.status !== "active") return "This injury is already stabilized or recovering.";
     if (mode === "treat" && injury.status === "recovering") return "This injury is already recovering.";
-    return injurySupplyStack(injury) ? "" : `${inventoryItemLabel(INJURY_TYPE_DEFS[injury.typeId].supplyKey)} is required.`;
+    return injurySupplyStack(injury, carriedOnly) ? "" : `${carriedOnly ? 'Owned, unreserved carried ' : ''}${inventoryItemLabel(INJURY_TYPE_DEFS[injury.typeId].supplyKey)} is required.`;
   }
 
-  function startInjuryTreatment(injuryId, mode = "treat") {
+  function startInjuryTreatment(injuryId, mode = "treat", options = {}) {
     const injury = (state.injuries || []).find((entry) => entry.id === injuryId);
-    const reason = injuryTreatmentBlockReason(injury, mode);
+    if (passengerLanded() && injury?.actorId === 'scientist' && !options.foreignSelfCare) return foreignSelfCareAction(mode, injuryId);
+    const reason = injuryTreatmentBlockReason(injury, mode, Boolean(options.foreignSelfCare));
     if (reason) { addEvent(reason); persist(); render(); return false; }
     const target = injuryTreatmentTarget(injury);
     if (!target?.cell) { addEvent("The patient has no reachable physical position."); persist(); render(); return false; }
-    const supply = mode === "examine" ? null : injurySupplyStack(injury);
+    const supply = mode === "examine" ? null : injurySupplyStack(injury, Boolean(options.foreignSelfCare));
     const start = scientistMapCell();
     const supplyCell = supply ? nearestOpenMapCellInRoom(supply.roomId, supply.cell, { preferredCell: start }) : start;
     const targetCell = nearestOpenMapCellInRoom(target.roomId, target.cell, { preferredCell: supplyCell });
@@ -23844,14 +23852,18 @@
     const staminaCost = adjustedStaminaCost(mode === "examine" ? 2 : 4, ["medicine"]);
     if (!spendStamina(staminaCost)) { addEvent(`Not enough stamina. ${staminaCost} required.`); persist(); render(); return false; }
     const workSeconds = mode === "examine" ? 20 : mode === "stabilize" ? 35 : 60;
+    const medicalWorkSeconds = adjustedActionDuration(workSeconds, 'medicine');
     const travelSeconds = mapPathTravelDistanceMeters(path, ensureLabMap()) / scientistMoveSpeedMps();
     stopScientistGuard({ quiet: true });
     cancelPendingScientistCombatAction({ quiet: true });
     const task = createTask({
       type: "injuryTreatment",
       label: `${mode === "examine" ? "Examine" : mode === "stabilize" ? "Stabilize" : "Treat"} ${target.label}: ${INJURY_TYPE_DEFS[injury.typeId].label}`,
-      duration: travelSeconds + adjustedActionDuration(workSeconds, "medicine"),
-      data: { injuryId, mode, targetActorId: injury.actorId, supplyStackId: supply?.id || "", mapPath: path, toCell: targetCell, movement: createScientistMovementRecord(path, travelSeconds, state.clock, { intent: "medical" }), staminaCost, skillId: "medicine", baseXp: mode === "examine" ? 5 : mode === "stabilize" ? 8 : 12 }
+      duration: travelSeconds + medicalWorkSeconds,
+      data: { injuryId, mode, targetActorId: injury.actorId, supplyStackId: supply?.id || "", mapPath: path, toCell: targetCell, movement: createScientistMovementRecord(path, travelSeconds, state.clock, { intent: "medical" }), staminaCost, skillId: "medicine", baseXp: mode === "examine" ? 5 : mode === "stabilize" ? 8 : 12,
+        ...(options.foreignSelfCare ? { foreignSelfCare: { ...options.foreignSelfCare,
+          supplyKey: supply?.key || '', unitMassKg: supply?.unitMassKg ?? null, unitVolumeL: supply?.unitVolumeL ?? null,
+          requiredSeconds: medicalWorkSeconds, progressSeconds: 0, lastAt: state.clock, ready: true } } : {}) }
     });
     if (supply) supply.reservedTaskId = task.id;
     persist();
@@ -40380,11 +40392,11 @@
       location: String(candidate.location || (actorKind === "scientist" ? "torso" : "body mass")),
       status, cause: String(candidate.cause || "trauma"), damageTypes: idList(candidate.damageTypes),
       createdAt, updatedAt: finiteTime(candidate.updatedAt, createdAt),
-      observedAt: Number.isFinite(Number(candidate.observedAt)) ? Number(candidate.observedAt) : null,
-      diagnosedAt: Number.isFinite(Number(candidate.diagnosedAt)) ? Number(candidate.diagnosedAt) : null,
-      stabilizedAt: Number.isFinite(Number(candidate.stabilizedAt)) ? Number(candidate.stabilizedAt) : null,
-      treatedAt: Number.isFinite(Number(candidate.treatedAt)) ? Number(candidate.treatedAt) : null,
-      healedAt: Number.isFinite(Number(candidate.healedAt)) ? Number(candidate.healedAt) : null,
+      observedAt: candidate.observedAt != null && Number.isFinite(Number(candidate.observedAt)) ? Number(candidate.observedAt) : null,
+      diagnosedAt: candidate.diagnosedAt != null && Number.isFinite(Number(candidate.diagnosedAt)) ? Number(candidate.diagnosedAt) : null,
+      stabilizedAt: candidate.stabilizedAt != null && Number.isFinite(Number(candidate.stabilizedAt)) ? Number(candidate.stabilizedAt) : null,
+      treatedAt: candidate.treatedAt != null && Number.isFinite(Number(candidate.treatedAt)) ? Number(candidate.treatedAt) : null,
+      healedAt: candidate.healedAt != null && Number.isFinite(Number(candidate.healedAt)) ? Number(candidate.healedAt) : null,
       nextProgressAt: Math.max(createdAt, finiteTime(candidate.nextProgressAt, createdAt + minutesToSeconds(1))),
       nextRecoveryAt: Math.max(createdAt, finiteTime(candidate.nextRecoveryAt, createdAt + minutesToSeconds(120)))
     };
@@ -68850,10 +68862,23 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "injuryTreatment") {
       const injury = (state.injuries || []).find((entry) => entry.id === task.data?.injuryId);
       if (!injury || injury.status === "healed") return "The selected injury no longer needs care.";
+      const binding = task.data?.foreignSelfCare;
+      if (binding) {
+        const g = passengerReceptionGate();
+        if (!passengerLanded() || !passengerBodyCurrent() || g?.cityId !== binding.cityId || passengerVisitId() !== binding.visitId
+          || ensureScientistIdentity().bodyEpoch !== binding.bodyEpoch || scientistRoomId() !== binding.roomId
+          || !sameMapCell(scientistMapCell(), binding.cell) || injury.actorId !== 'scientist' || actorIsIncapacitated('scientist'))
+          return 'Original living capable body, visit, injury and physical self-care position required; no remote or replacement-body treatment.';
+        if (task.data.mode !== 'examine' && !INJURY_TYPE_DEFS[injury.typeId].visible && injury.diagnosedAt == null)
+          return 'Examine the suspected internal injury before selecting its care.';
+      }
       const stackId = task.data?.supplyStackId;
       if (stackId) {
         const stack = ensurePhysicalItemStacks().find((entry) => entry.id === stackId);
         if (!stack || stack.reservedTaskId !== task.id || stack.quantity <= 0) return "The reserved medical supply is no longer available.";
+        if (binding && (!ForeignSupplies.medicalSupplyLot(stack, task.id) || stack.key !== binding.supplyKey
+          || stack.key !== INJURY_TYPE_DEFS[injury.typeId].supplyKey || stack.unitMassKg !== binding.unitMassKg || stack.unitVolumeL !== binding.unitVolumeL))
+          return 'The exact owned carried first-aid supply changed or left personal custody; no substitute is consumed.';
       }
     }
     if (task.type === "laborWork") {
@@ -88124,6 +88149,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       // Publish this branch's separate narrow buying terms; admission itself grants no selling authority.
       g.visitorSupplies.salesTerms ||= clonePlainObject(ForeignSupplies.SALE_TERMS);
       g.visitorSupplies.labTerms ||= clonePlainObject(ForeignSupplies.LAB_TERMS);
+      if (!scientistIsDead()) g.visitorSupplies.medicalTerms ||= clonePlainObject(ForeignSupplies.MEDICAL_TERMS);
       return g.visitorSupplies;
     }
     const market = foreignSupplierMarket(g); if (!market) return null;
@@ -88218,12 +88244,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       allocate: (id, q) => {
         const item = createPhysicalItemStack(q.section || 'inventory', q.good, q.quantity, { roomId: g.annexRoomId, cell: { x: 19, y: 9, z: g.z } },
           { suppressEvidence: true, sourceLabels: [g.cityId, s.source.branchId, id, q.good === 'assayReagent'
-            ? 'Paid foreign laboratory input in original supplier custody' : 'Paid personal provisions in original supplier custody'] });
+            ? 'Paid foreign laboratory input in original supplier custody' : ForeignSupplies.medicalGood(q.good)
+              ? 'Paid foreign first-aid supplies in original supplier custody' : 'Paid personal provisions in original supplier custody'] });
         item.reservedTaskId = id; return item.id;
       },
       custody: o => { const item = stack(o); return item?.key === o.quote.good && item.section === (o.quote.section || 'inventory') && !item.cityOwnerId && !item.civicCustody
         && !item.carryTaskId && !item.chemicalBatch && !item.biology && item.quantity === o.quote.quantity - o.delivered
-        && (o.quote.good !== 'assayReagent' || !item.containerId && !item.toolInstanceId && !item.contents?.length
+        && (!(o.quote.good === 'assayReagent' || ForeignSupplies.medicalGood(o.quote.good)) || !item.containerId && !item.toolInstanceId && !item.contents?.length
           && item.sourceLabels.includes(o.id) && item.sourceLabels.includes(o.quote.cityId)
           && Math.abs(item.unitMassKg - o.quote.massKg / o.quote.quantity) < .000001
           && Math.abs(item.unitVolumeL - o.quote.volumeL / o.quote.quantity) < .000001)
@@ -88250,7 +88277,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       handoff: o => {
         const c = foreignSupplyContext(g, o.quote.good), item = stack(o);
         if (!c.contact || !(o.target === 'outer' ? c.atOuter : c.atCounter && c.permit) || !item || !actorInventoryCanCarry('scientist', item, 1)) return null;
-        if (o.quote.good === 'assayReagent' && (c.passengerRemaining.massKg < item.unitMassKg || c.passengerRemaining.volumeL < item.unitVolumeL)) return null;
+        if ((o.quote.good === 'assayReagent' || ForeignSupplies.medicalGood(o.quote.good)) && (c.passengerRemaining.massKg < item.unitMassKg || c.passengerRemaining.volumeL < item.unitVolumeL)) return null;
         item.carriedBy = '';
         const received = carryPhysicalStack('scientist', item.id, 1, { allowReserved: true });
         if (!received) { item.carriedBy = a.id; return null; }
@@ -88267,7 +88294,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (action === 'buy') {
       const def = COMMODITY_MARKET_LISTING_BY_ID[options.quote?.good];
       ok = ForeignSupplies.buy(s, market, def, options.quote, foreignSupplyContext(g, def?.id, true), ensureEconomy(), state.clock, foreignSupplyHooks(g));
-      if (ok) recordLegalLedger(def.id === 'assayReagent' ? 'foreignLabInput' : 'foreignProvisions', `Purchased ${options.quote.quantity} ${def.label} from ${s.label}; paid title precedes actual handoff.`, { listingId: def.id, amount: -options.quote.total, quantity: options.quote.quantity, consignmentId: ForeignSupplies.active(s).id });
+      if (ok) recordLegalLedger(def.id === 'assayReagent' ? 'foreignLabInput' : ForeignSupplies.medicalGood(def.id) ? 'foreignFirstAid' : 'foreignProvisions', `Purchased ${options.quote.quantity} ${def.label} from ${s.label}; paid title precedes actual handoff.`, { listingId: def.id, amount: -options.quote.total, quantity: options.quote.quantity, consignmentId: ForeignSupplies.active(s).id });
       else s.message = 'Purchase not accepted. Review current stock, price, permit time, funds and actual capacity; nothing was charged.';
     }
     if (action === 'sell') {
@@ -88297,12 +88324,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!s) { panel.append(textEl('p', 'No supported local commercial supplier and existing city stock are available. Reception is not a market allocation; return remains separate.')); return panel; }
     const c = foreignSupplyContext(g), market = foreignSupplierMarket(g), v = ForeignSupplies.observe(s, c, market, COMMODITY_MARKET_LISTING_DEFS, state.clock);
     const button = (label, action, options = {}, disabled = false) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = disabled; b.onclick = () => foreignSupplyAction(action, options); panel.append(b); };
-    panel.append(textEl('p', `${s.label}: personal provisions, separately published assay-reagent purchase terms and metal-parts buying terms only, not a general trading license. One outstanding transaction, at most six units; $4 handling per transaction. Payment and physical receipt remain distinct.`));
+    panel.append(textEl('p', `${s.label}: personal provisions, separately published first-aid and assay-reagent purchase terms and metal-parts buying terms only, not a general trading license. One outstanding transaction, at most six units; $4 handling per transaction. Payment and physical receipt remain distinct.`));
     panel.append(textEl('p', 'Published laboratory-input terms: standardized assay reagent only, one to six units from existing exchange stock, current asking price plus four marks handling. Real backpack and passenger cargo headroom apply. Carry received resources home and explicitly unload into storage before ordinary laboratory use. No wider chemical permission, automatic orders, carrier replenishment or guaranteed return.'));
+    panel.append(textEl('p', 'Published first-aid purchase terms: medical bandages and neutralizing wash only, one to six units, existing finite exchange stock at current asking prices plus four marks handling. Actual backpack and passenger capacity apply. Payment and handoff treat no injury; ordinary self-care consumes carried supplies. No clinician, hospital, rescue or broader chemical license.'));
     button('Walk to Visitor Provisions Counter', 'walk', {}, !c.permit || c.busy || !c.alive || !c.capable);
     if (v) {
       panel.append(textEl('p', `Supplier report received ${formatClock(v.at)}. ${v.message}`));
-      for (const l of v.listings) panel.append(textEl('p', `${l.label}: last reported ${l.supply} units, ${formatMoney(l.ask)} per unit. No automatic restock.`));
+      for (const l of v.listings.filter(l => !ForeignSupplies.medicalGood(l.good))) panel.append(textEl('p', `${l.label}: last reported ${l.supply} units, ${formatMoney(l.ask)} per unit. No automatic restock.`));
+      if (v.medical) for (const l of v.medical.listings) panel.append(textEl('p', `${formatClock(v.medical.at)} — received first-aid quote: ${l.label}, ${l.supply} reported units, ${formatMoney(l.ask)} per unit. Dated knowledge, not live stock; no automatic restock.`));
       for (const o of v.orders.slice(-3)) panel.append(textEl('p', `${o.id}: ${o.status}, ${o.kind === 'sale' ? `${o.handed}/${o.quote.quantity} handed to buyer; ` : ''}${o.delivered}/${o.quote.quantity} physically received${o.kind === 'sale' ? ' at store and settled' : ''}. ${o.delay}`));
     }
     panel.append(renderForeignSales(g, s, c, market, v));
@@ -88320,6 +88349,72 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     button(ForeignSupplies.active(s)?.kind === 'sale' ? 'Request Remaining Sale Handoffs at Outer Stand' : 'Request Paid Goods at Outer Stand', 'outer', {}, !ForeignSupplies.active(s) || !c.atOuter || c.busy || !c.alive || !c.capable);
     button('Use Carried Field Provision Pack', 'consume', {}, c.busy || !c.alive || !c.capable || !survivalSupply('fieldRation'));
+    return panel;
+  }
+  function foreignSelfCareReason(injury, mode) {
+    const g = passengerReceptionGate();
+    if (!['examine', 'stabilize', 'treat'].includes(mode)) return 'Unsupported self-care action.';
+    if (!passengerLanded() || !passengerBodyCurrent() || !g || ![g.checkpointRoomId, g.annexRoomId].includes(scientistRoomId()))
+      return 'Physically reach the foreign receiving stand or visitor annex with the original traveling body.';
+    if (scientistIsDead() || actorIsIncapacitated('scientist')) return 'A living capable scientist is required; professional care and rescue are separate.';
+    if (!injury || injury.actorId !== 'scientist') return 'This service supports only the scientist’s own injuries.';
+    if (surveyBusy() || g.visitorLodging?.job || g.visitorAdmission?.job || GateEnforcement.custodyActive(currentGateEnforcement()) || localPrisonRestricted())
+      return 'Finish or cancel current work; ordinary self-care does not bypass custody.';
+    if (mode !== 'examine' && !INJURY_TYPE_DEFS[injury.typeId].visible && injury.diagnosedAt == null)
+      return 'Examine the suspected internal injury before selecting its care.';
+    if (mode !== 'examine' && !ForeignSupplies.medicalGood(INJURY_TYPE_DEFS[injury.typeId].supplyKey))
+      return 'This injury requires supplies outside the supported personal first-aid service.';
+    return injuryTreatmentBlockReason(injury, mode, true);
+  }
+  function foreignSelfCareAction(mode, injuryId) {
+    if (mode === 'cancel') {
+      const task = scientistQueueTasks().find(t => t.id === injuryId && t.data?.foreignSelfCare);
+      if (!task || scientistIsDead() || task.data.foreignSelfCare.bodyEpoch !== ensureScientistIdentity().bodyEpoch) return false;
+      cancelTask(task.id); return true;
+    }
+    const injury = (state.injuries || []).find(i => i.id === injuryId), reason = foreignSelfCareReason(injury, mode);
+    if (reason) { surveyEvent(reason); persist(); render(); return false; }
+    return startInjuryTreatment(injuryId, mode, { foreignSelfCare: { bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      visitId: passengerVisitId(), cityId: passengerReceptionGate().cityId, roomId: scientistRoomId(), cell: cleanMapCell(scientistMapCell()) } });
+  }
+  function updateForeignSelfCareTasks() {
+    if (scientistIsDead()) return;
+    for (const task of state.tasks.filter(t => t.data?.foreignSelfCare)) {
+      const work = task.data.foreignSelfCare, elapsed = Math.max(0, state.clock - work.lastAt);
+      if (!elapsed) continue;
+      work.lastAt = Math.max(work.lastAt, state.clock);
+      if (taskBlockReason(task) || firstScientistQueueTask()?.id !== task.id) work.ready = false;
+      else if (!work.ready) work.ready = true;
+      else work.progressSeconds = Math.min(work.requiredSeconds, work.progressSeconds + elapsed);
+      task.dueAt = state.clock + Math.max(0, work.requiredSeconds - work.progressSeconds);
+    }
+  }
+  function renderForeignSelfCare() {
+    const panel = document.createElement('section'); panel.dataset.foreignSelfCare = 'true'; panel.className = 'subpanel';
+    panel.append(textEl('h3', 'Personal First Aid'), textEl('p', 'Examine, stabilize or treat your own wounds using ordinary Medicine, stamina and actual timed work. Stabilization stops progression; treatment begins normal recovery, not an instant cure. Only owned, unreserved carried supplies are usable here. Visitor trading permission and paid lodging are separate; no clinician, rescue or driver/mechanic treatment is included.'));
+    const injuries = actorInjuries('scientist').filter(i => i.status !== 'healed');
+    if (!injuries.length) panel.append(textEl('p', 'No current personal injury needs first aid. Buying supplies creates no injury or treatment.'));
+    for (const injury of injuries) {
+      const row = document.createElement('section'); row.dataset.foreignCareInjury = injury.id;
+      const known = INJURY_TYPE_DEFS[injury.typeId].visible || injury.diagnosedAt != null;
+      const label = known ? `${INJURY_TYPE_DEFS[injury.typeId].label} — ${injury.location}` : 'Suspected internal injury';
+      row.append(textEl('p', `${label}: ${injury.status}.`));
+      for (const mode of ['examine', 'stabilize', 'treat']) {
+        if (mode !== 'examine' && !known) continue;
+        const reason = foreignSelfCareReason(injury, mode), b = document.createElement('button'); b.type = 'button';
+        b.textContent = `${titleCase(mode)} Own Injury: ${label}`; b.disabled = Boolean(reason); b.title = reason || 'Ordinary physical self-care; supplies are consumed only on completed care.';
+        b.onclick = () => foreignSelfCareAction(mode, injury.id); row.append(b);
+        if (reason) row.append(textEl('p', `${titleCase(mode)} unavailable: ${reason}`));
+      }
+      panel.append(row);
+    }
+    for (const task of scientistQueueTasks().filter(t => t.data?.foreignSelfCare)) {
+      const work = task.data.foreignSelfCare;
+      panel.append(textEl('p', `${task.label}: ${formatDuration(work.progressSeconds)} / ${formatDuration(work.requiredSeconds)} actually attended. ${taskBlockReason(task) || 'Original supply reserved; no completed treatment yet.'}`));
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = `Cancel Personal First Aid (${task.id})`;
+      b.disabled = scientistIsDead() || task.data.foreignSelfCare.bodyEpoch !== ensureScientistIdentity().bodyEpoch;
+      b.onclick = () => foreignSelfCareAction('cancel', task.id); panel.append(b);
+    }
     return panel;
   }
   function renderForeignLabAskHistory(v) {
@@ -88967,7 +89062,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(textEl('p', `Personal thirst ${Math.round(needs.thirst)}/100 · hunger ${Math.round(needs.hunger)}/100. All carried supplies and injuries persist.`));
     for (const key of ['drinkingWater', 'trailMeal']) button(`Use ${inventoryItemLabel(key)}`, () => queueSurvivalConsumption(key), busy || !survivalSupply(key));
     button('Rest Here (15 minutes)', () => createRestTask(15), busy);
-    for (const injury of actorInjuries('scientist').filter(e => e.status !== 'healed')) button(`Treat ${INJURY_TYPE_DEFS[injury.typeId].label}`, () => startInjuryTreatment(injury.id), Boolean(injuryTreatmentBlockReason(injury)) || surveyBusy());
+    if (passengerLanded()) panel.append(renderForeignSelfCare());
+    else for (const injury of actorInjuries('scientist').filter(e => e.status !== 'healed')) button(`Treat ${INJURY_TYPE_DEFS[injury.typeId].label}`, () => startInjuryTreatment(injury.id), Boolean(injuryTreatmentBlockReason(injury)) || surveyBusy());
     if (passengerLanded()) { panel.append(renderForeignReception()); panel.append(renderForeignSupplies(passengerReceptionGate())); }
     return panel;
   }
