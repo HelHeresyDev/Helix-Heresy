@@ -1,39 +1,26 @@
 // @ts-check
 const { test, expect } = require('@playwright/test');
-const path = require('path');
-const { pathToFileURL } = require('url');
 const { genomeForTraits } = require('./gene-fixtures');
-
-const projectRoot = path.resolve(__dirname, '..');
-const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-const { activeRunStorageKey } = require('./helpers/active-run-storage');
+const { startLifecycleRun } = require('./helpers/start-lifecycle-run');
+test.setTimeout(120000);
 
 async function startRun(page) {
-  await page.goto(appUrl);
-  await page.evaluate(() => {
-    window.localStorage.clear();
-    window.localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: 'dom' }));
-  });
-  await page.reload();
-  await page.locator('#titleNewRunBtn').click();
-  await page.locator('#setupForm button[type="submit"]').click();
+  await startLifecycleRun(page, 'focused-tool-durability');
 }
 
 async function loadSavedRun(page) {
-  await page.reload();
-  await page.locator('#loadLastSaveBtn').click();
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
 }
 
 async function saveContext(page) {
-  return page.evaluate(({ key }) => {
-    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
-    const state = payload.state || payload;
+  return page.evaluate(() => {
+    const state = window.helixHeresyDebug.exportSurveyExpeditionTestState();
     return {
       seed: state.seed,
       complexity: state.complexity || 'clean',
       currentGenome: state.currentGenome || 'A'.repeat(26),
     };
-  }, { key: await activeRunStorageKey(page) });
+  });
 }
 
 async function finishQueuedTask(page, label) {
@@ -44,9 +31,8 @@ async function finishQueuedTask(page, label) {
 }
 
 async function stageToolDurabilitySlime(page, { genome, toolCurrent = 10 }) {
-  await page.evaluate(({ key, genome, toolCurrent }) => {
-    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
-    const state = payload.state || payload;
+  await page.evaluate(({ genome, toolCurrent }) => {
+    const state = window.helixHeresyDebug.exportSurveyExpeditionTestState();
     const container = (state.containers || []).find((item) => item.id === 'basic-1');
     if (!container) {
       throw new Error('basic-1 container not found');
@@ -123,8 +109,8 @@ async function stageToolDurabilitySlime(page, { genome, toolCurrent = 10 }) {
         jobKnowledge: {},
       },
     ];
-    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
-  }, { key: await activeRunStorageKey(page), genome, toolCurrent });
+    window.helixHeresyDebug.importSurveyExpeditionTestState(state);
+  }, { genome, toolCurrent });
   await loadSavedRun(page);
 }
 
@@ -156,16 +142,15 @@ test('hazardous handling wears a usable tool and shows condition in inventory', 
   await expect(page.locator('[data-inventory-item-key="thickGloves"]')).toContainText('Damaged (5/10)');
   await expect(page.locator('[data-handling-inventory-note="true"]')).toContainText('Damaged 5/10');
 
-  const result = await page.evaluate(({ key }) => {
-    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
-    const state = payload.state || payload;
+  const result = await page.evaluate(() => {
+    const state = window.helixHeresyDebug.exportSurveyExpeditionTestState();
     const gloves = state.toolDurability?.thickGloves?.[0];
     return {
       current: gloves?.current,
       max: gloves?.max,
       events: (state.events || []).map((event) => event.text || event.message || String(event)),
     };
-  }, { key: await activeRunStorageKey(page) });
+  });
 
   expect(result.current).toBeLessThan(result.max);
   expect(result.current).toBeGreaterThan(0);

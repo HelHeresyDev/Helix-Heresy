@@ -105,9 +105,11 @@
   const ForeignLodging = window.HelixForeignLodging;
   const ForeignReception = window.HelixForeignReception;
   const ForeignResearchInquiry = window.HelixForeignResearchInquiry;
+  const ForeignAssayWorkspace = window.HelixForeignAssayWorkspace;
   const ForeignSupplies = window.HelixForeignSupplies;
   const TradeTripPreparation = window.HelixTradeTripPreparation;
   const passengerReceptionSourceCache = new WeakMap();
+  const foreignWorkspaceSourceCache = new WeakMap();
   const MunicipalCarrier = window.HelixMunicipalCarrier;
   const CarrierBriefings = window.HelixCarrierBriefings;
   const LocalDiscovery = window.HelixLocalDiscovery;
@@ -16788,6 +16790,20 @@
       },
       foreignReceptionSnapshot: () => { const g = passengerReceptionGate(), c = foreignReceptionContext(g); return clonePlainObject({ gate: g, context: c, quote: ForeignReception.quote(g, c), permission: foreignVisitorPermission(g), clock: state.clock, roomId: scientistRoomId(), cell: scientistMapCell(), money: ensureEconomy().money, doors: g ? state.doors[g.doorId] : null, busy: surveyBusy(), tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) }); },
       foreignResearchInquiryAction,
+      foreignWorkspaceAction,
+      foreignWorkspaceAssayReason: stackId => diagnosticSampleAssayBlockReason(stackId),
+      foreignWorkspaceSnapshot: () => {
+        const g = passengerReceptionGate(), s = ensureForeignWorkspace(g); updateForeignWorkspace(g);
+        return clonePlainObject({ saved: s, view: ForeignAssayWorkspace.publicView(s, state.clock), context: foreignWorkspaceContext(g),
+          clock: state.clock, money: ensureEconomy().money, roomId: scientistRoomId(), cell: scientistMapCell(),
+          stacks: ensurePhysicalItemStacks(), tools: [...toolInstancesForItem('assayCase')], diagnostics: ensureDiagnosticState(),
+          tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) });
+      },
+      setForeignWorkspaceTestSource: (source) => {
+        const g = passengerReceptionGate() || state.penalFlights?.assistance?.cityApproach?.gates.find(g => g.cityId === source.city.cityId);
+        if (!g || g.foreignWorkspace) return false;
+        g.preparedWorkspaceTestSource = clonePlainObject(source); ensureForeignWorkspace(g); persist(); render(); return Boolean(g.foreignWorkspace);
+      },
       foreignResearchInquirySnapshot: (topic = 'geneticEngineering') => {
         const g = passengerReceptionGate(), c = foreignResearchInquiryContext(g);
         return clonePlainObject({ inquiry: g?.researchInquiry, context: c, quote: ForeignResearchInquiry.quote(g, c, topic, state.clock),
@@ -22485,7 +22501,10 @@
         ? { time: Math.max(state.clock + 60, passenger.trip.arrivalWindow.end), label: 'Passenger carrier arrival estimate', type: 'travel' }
         : passenger?.rest && intercityLocal() ? { time: state.clock + passenger.rest.remaining, label: 'Supplied passenger-driver rest checkpoint', type: 'travel' }
         : unsupportedActive() ? (Number.isFinite(remoteAt) ? { time: remoteAt, label: "Known charter schedule checkpoint", type: "travel" } : null) : StrategicJourneys.nextPublicEvent({ journeys: journey ? [journey] : [] }, state.clock));
-      return [clinicEvent, task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, supplyEvent, fuelEvent, maintenanceEvent, recoveryEvent, toolkitEvent, lodgingEvent, nextLeasedAnnexEvent(), nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
+      const workspace = passengerReceptionGate()?.foreignWorkspace;
+      const workspaceEvent = workspace?.lease?.status === 'active' && workspace.lease.endsAt > state.clock
+        ? { time: workspace.lease.endsAt, label: 'Foreign workspace prepaid lease expiry', type: 'travel' } : null;
+      return [clinicEvent, task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, supplyEvent, fuelEvent, maintenanceEvent, recoveryEvent, toolkitEvent, lodgingEvent, workspaceEvent, nextLeasedAnnexEvent(), nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
         .filter((event) => event && (!options.includeTypes || options.includeTypes.includes(event.type)) && event.time >= state.clock)
         .sort((a, b) => a.time - b.time)[0] || null;
     }
@@ -25222,6 +25241,10 @@
         && entry.tool.current > 0
         && constructionItemCouldServePendingWork(entry.itemKey);
       if (entry.tool.carriedBy === "scientist" && !retain) {
+        if ((state.penalFlights?.assistance?.cityApproach?.gates || []).some(g => g.foreignWorkspace?.benchId === task.data?.workstationId)) {
+          const stack = ensurePhysicalItemStacks().find(i => i.carriedBy === 'scientist' && i.toolInstanceId === entry.tool.id);
+          if (stack && dropActorInventoryStack('scientist', stack.id)) { changed += 1; continue; }
+        }
         entry.tool.carriedBy = "";
         entry.tool.roomId = scientistRoomId();
         releasePhysicalDurableTool(entry.tool.id, scientistRoomId());
@@ -33200,6 +33223,8 @@
     if (context?.homunculi?.individuals.some(a => a.id === id)) return context.homunculi.individuals.find(a => a.id === id);
     if (context?.medicalExtraction?.medic?.id === id) return context.medicalExtraction.medic;
     const supplier = context?.penalFlights?.assistance?.cityApproach?.gates.map(g => g.visitorSupplies?.actor).find(a => a?.id === id);
+    const assayRepresentative = context?.penalFlights?.assistance?.cityApproach?.gates.map(g => g.foreignWorkspace?.actor).find(a => a?.id === id);
+    if (assayRepresentative) return assayRepresentative;
     if (supplier) return supplier;
     if (context?.penalFlights?.actors?.some(a => a.id === id)) return context.penalFlights.actors.find(a => a.id === id);
     return (context?.slimes || []).find((slime) => slime.id === id && slime.status !== "dead")
@@ -33239,6 +33264,7 @@
       ...(context.citySuccession?.appointments?.candidate ? [{ id: context.citySuccession.appointments.candidate.id, actor: context.citySuccession.appointments.candidate }] : []),
       ...(context.medicalExtraction?.medic ? [{ id: context.medicalExtraction.medic.id, actor: context.medicalExtraction.medic }] : []),
       ...(context.penalFlights?.assistance?.cityApproach?.gates || []).filter(g => g.visitorSupplies).map(g => ({ id: g.visitorSupplies.actor.id, actor: g.visitorSupplies.actor })),
+      ...(context.penalFlights?.assistance?.cityApproach?.gates || []).filter(g => g.foreignWorkspace).map(g => ({ id: g.foreignWorkspace.actor.id, actor: g.foreignWorkspace.actor })),
       ...(context.penalFlights?.actors || []).map(actor => ({ id: actor.id, actor })),
       ...(context.homunculi?.individuals || []).map(actor => ({ id: actor.id, actor })),
       ...(context.slimes || []).map((slime) => ({ id: slime.id, actor: slime })),
@@ -33285,6 +33311,8 @@
           tool.carriedBy = "";
           changed = true;
         }
+        const location = tool.carriedBy && actorInventoryLocation(tool.carriedBy, context);
+        if (location && tool.roomId !== location.roomId) { tool.roomId = location.roomId; changed = true; }
       }
     }
     for (const { id, actor } of actors) {
@@ -33826,8 +33854,10 @@
   }
 
   function carryPhysicalDurableTool(itemKey, toolInstanceId) {
+    const foreignRoom = foreignWorkspaceAtProperty() ? passengerReceptionGate().foreignWorkspace.roomId : '';
     const source = ensurePhysicalItemStacks().find((stack) =>
       stack.section === "inventory" && stack.key === itemKey && !stack.carriedBy && stack.quantity > 0
+      && (!foreignRoom || stack.roomId === foreignRoom && stack.toolInstanceId === toolInstanceId)
     );
     if (!source) return null;
     return carryPhysicalStack("scientist", source.id, 1, { toolInstanceId });
@@ -34776,14 +34806,14 @@
     return true;
   }
 
-  function productionMaterialRoute(costs, startCell, workstationCell, recipe = null, bill = null) {
+  function productionMaterialRoute(costs, startCell, workstationCell, recipe = null, bill = null, scopedRoomId = '') {
     const reservations = [];
     let path = [startCell];
     let cursor = startCell;
     for (const [key, amount] of Object.entries(normalizeResourceCosts(costs))) {
       let remaining = amount;
       const fabricatedComponent = Boolean(PRODUCTION_RECIPE_BY_OUTPUT_KEY[key]);
-      const candidates = productionResourceStacks(key, bill).map((stack) => {
+      const candidates = productionResourceStacks(key, bill).filter(stack => !scopedRoomId || stack.roomId === scopedRoomId && !stack.cityOwnerId && !stack.civicCustody).map((stack) => {
         const accessCell = stockpileHaulAccessCell(stack);
         const route = accessCell ? labMapPathBetweenCells(cursor, accessCell, { map: ensureLabMap(), ignoreDoors: true }) : [];
         return { stack, accessCell, route };
@@ -36684,6 +36714,8 @@
     for (const g of state.penalFlights?.assistance?.cityApproach?.gates || []) {
       const a = g.visitorSupplies?.actor;
       if (a && a.id !== excludeActor?.id && mapCellKey(a.mapCell) === key) occupied += .6;
+      const representative = g.foreignWorkspace?.actor;
+      if (representative && representative.id !== excludeActor?.id && mapCellKey(representative.mapCell) === key) occupied += .6;
     }
     for (const beast of state.wildernessBeasts?.actors || []) {
       if (beast.id !== excludeActor?.id && mapCellKey(beast.mapCell) === key) occupied += MAP_TILE_AREA_M2;
@@ -40222,7 +40254,7 @@
     if (state.surfaceWorkers?.actor?.id === actorId) return state.surfaceWorkers.actor;
     if (state.laboratoryAssistant?.actor?.id === actorId) return state.laboratoryAssistant.actor;
     return actorId === "scientist" ? state.scientist : findSlime(actorId) || wildernessBeast(actorId) || (state.expeditionEscorts?.actor?.id === actorId ? state.expeditionEscorts.actor : null) || (state.medicalExtraction?.medic?.id === actorId ? state.medicalExtraction.medic : null) || state.penalFlights?.actors.find(a => a.id === actorId)
-      || (state.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.visitorSupplies?.actor).find(a => a?.id === actorId);
+      || (state.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => [g.visitorSupplies?.actor, g.foreignWorkspace?.actor]).find(a => a?.id === actorId);
   }
 
   function combatActorCell(actor) {
@@ -55131,6 +55163,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function activeScientistTravelTask() {
     refreshAnnexTaskClocks();
+    for (const g of state.penalFlights?.assistance?.cityApproach?.gates || []) updateForeignWorkspace(g);
     const task = firstScientistQueueTask();
     if (!task) return null;
     const suspension = state.combat?.routineSuspension;
@@ -67312,6 +67345,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (reception) for (const person of [reception.clerk, reception.guard]) if (cityApproachNear("scientist", person.mapCell, 8)) setLabMapOverlayEntry(assignments, person.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: person.name, title: person.id === reception.clerk.id ? "City identity clerk" : "City reception gate guard", value: person.status === "dead" ? "†" : person.id === reception.clerk.id ? "C" : "G", source: "Direct observation", target: { kind: "tile", tile: person.mapCell } }, map);
     const reviewer = reception?.enforcement?.materialized && reception.enforcement.reviewer;
     const supplier = reception?.visitorSupplies?.actor;
+    const representative = reception?.foreignWorkspace?.actor;
+    if (representative && cityApproachNear('scientist', representative.mapCell, 8) && sensoryLineOfSight(scientistMapCell(), representative.mapCell)) setLabMapOverlayEntry(assignments, representative.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: representative.name, title: 'Original research-branch property representative; not assay staff', value: representative.status === 'dead' ? '†' : 'A', source: 'Direct observation', target: { kind: 'tile', tile: representative.mapCell } }, map);
     const berth = reception?.visitorLodging?.berth;
     if (berth && cityApproachNear('scientist', berth.cell, 8) && sensoryLineOfSight(scientistMapCell(), berth.cell)) setLabMapOverlayEntry(assignments, berth.cell, { overlayId, classNames: ['map-overlay-resources'], label: 'Original visitor guest berth', title: `Guest berth: condition ${formatNumber(berth.condition)}%; separately paid lodging, not free supplies`, value: 'B', source: 'Direct observation', target: { kind: 'tile', tile: berth.cell } }, map);
     if (supplier && cityApproachNear('scientist', supplier.mapCell, 8) && sensoryLineOfSight(scientistMapCell(), supplier.mapCell)) setLabMapOverlayEntry(assignments, supplier.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: supplier.name, title: 'Local personal-provisions supplier', value: supplier.status === 'dead' ? '†' : 'S', source: 'Direct observation', target: { kind: 'tile', tile: supplier.mapCell } }, map);
@@ -81104,6 +81139,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return [...toolInstancesForItem(itemKey)]
       .filter((tool) => tool.current > 0 && (!tool.reservedTaskId || tool.reservedTaskId === taskId))
       .filter((tool) => !annexAway() || tool.roomId === LeasedAnnex.ROOM && (!tool.carriedBy || tool.carriedBy === "scientist"))
+      .filter((tool) => !passengerAway() || foreignWorkspaceAtProperty() && tool.roomId === passengerReceptionGate().foreignWorkspace.roomId && (!tool.carriedBy || tool.carriedBy === 'scientist'))
+      .filter((tool) => !passengerAway() || ensurePhysicalItemStacks().some(i => i.toolInstanceId === tool.id && i.quantity > 0
+        && i.roomId === passengerReceptionGate()?.foreignWorkspace?.roomId && i.carriedBy === (tool.carriedBy || '') && !i.cityOwnerId && !i.civicCustody))
       .sort((a, b) => Number(b.carriedBy === "scientist") - Number(a.carriedBy === "scientist") || b.current - a.current)[0] || null;
   }
 
@@ -87945,7 +87983,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function passengerAway() {
     const s = state.intercityPassenger;
-    if (s?.phase === 'bodyLost') return Boolean(s.spaces && [s.spaces.outer.roomId, s.spaces.cabin?.roomId, passengerReceptionGate()?.annexRoomId].includes(scientistRoomId()));
+    if (s?.phase === 'bodyLost') return Boolean(s.spaces && [s.spaces.outer.roomId, s.spaces.cabin?.roomId, passengerReceptionGate()?.annexRoomId,
+      passengerReceptionGate()?.foreignWorkspace?.roomId, passengerReceptionGate()?.foreignWorkspace?.approachRoomId].includes(scientistRoomId()));
     return IntercityPassenger.away(s)
       || Boolean(state.passengerConnection && state.intercityPassenger?.homeCityId === state.passengerConnection.intermediateCityId);
   }
@@ -88148,6 +88187,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const inquiryJob = g.researchInquiry?.job;
       changed = ForeignResearchInquiry.advance(g, inquiryContext, state.clock) || changed;
       ForeignResearchInquiry.observe(g, inquiryContext, state.clock);
+      changed = updateForeignWorkspace(g) || changed;
       if (inquiryJob && !g.researchInquiry.job && inquiryContext.local) { surveyEvent(g.researchInquiry.message); state.paused = true; }
     }
     if (!passengerReceptionGate()?.visitorAdmission?.job && state.combat?.routineSuspension?.reason === 'foreign visitor reception') resumeScientistRoutineWork();
@@ -88219,6 +88259,184 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function foreignSupplierMarket(g) {
     const economy = ensureEconomy(); bindCityCommodityMarket(economy);
     return economy.commodityMarket.intercityTrade?.neighbors.find(n => n.id === g?.cityId) || null;
+  }
+  function foreignWorkspaceSource(g) {
+    const map = activeWorldRecord?.generatedData?.strategicMap;
+    let backing = g?.preparedWorkspaceTestSource;
+    if (!backing && map && g) {
+      let cache = foreignWorkspaceSourceCache.get(map);
+      if (!cache) { cache = new Map(); foreignWorkspaceSourceCache.set(map, cache); }
+      if (!cache.has(g.cityId)) {
+        // Immutable generated public backing, not live remote property observations.
+        const profile = map.publicNonStateNetworkHistoryDirectory ? StrategicNonStateNetworkHistory.cityCurrentNetworkProfile(map, g.cityId)
+          : map.publicNonStateNetworkDirectory ? StrategicNonStateNetworks.cityNetworkProfile(map, g.cityId) : null;
+        cache.set(g.cityId, { city: map.strategicPlayableSettlementState?.cityRows.find(c => c.cityId === g.cityId), standings: profile?.standings });
+      }
+      backing = cache.get(g.cityId);
+    }
+    return { city: backing?.city, standings: backing?.standings, authority: g?.preparedReceptionTestSource || (g && passengerReceptionSource(g.cityId)) };
+  }
+  function ensureForeignWorkspace(g = passengerReceptionGate()) {
+    if (!g?.materialized || scientistIsDead()) return g?.foreignWorkspace || null;
+    if (g.foreignWorkspace) return g.foreignWorkspace; // Never replace a dead representative or damaged bench.
+    const source = foreignWorkspaceSource(g);
+    const s = ForeignAssayWorkspace.create(source.city, source.standings, source.authority,
+      { cityName: g.label, representativeCell: { x: 9, y: 13, z: g.z } }, state.seed, state.clock, state.worldTheme);
+    if (!s) return null;
+    g.foreignWorkspace = s;
+    s.site = { z: g.z, entry: { x: 10, y: 13, z: g.z }, benchCell: { x: 11, y: 15, z: g.z } };
+    const map = ensureLabMap();
+    for (const spec of [{ id: s.approachRoomId, name: 'Named Research Workspace Approach', x: 9, y: 11, width: 2, height: 2, purposeId: 'corridor', connections: [g.checkpointRoomId, s.roomId] },
+      { id: s.roomId, name: s.property.name, x: 5, y: 13, width: 8, height: 6, purposeId: 'laboratory', connections: [s.approachRoomId] }]) {
+      const room = normalizeRoom({ ...spec, facilityClass: 'foreignAssayWorkspace', description: `${s.property.purpose} ${s.property.utilities}`,
+        geometry: { lengthM: spec.width, widthM: spec.height, heightM: 3, floorAreaM2: spec.width * spec.height, volumeM3: spec.width * spec.height * 3 } });
+      state.rooms = normalizeRooms([...state.rooms, room]);
+      const rect = { roomId: spec.id, x: spec.x, y: spec.y, z: g.z, width: spec.width, height: spec.height }, cells = rectangularRoomCells(rect);
+      map.rooms[spec.id] = normalizeLabMapRoom({ ...rect, cells, anchor: spec.id === s.roomId ? s.site.entry : cells[0] }, room);
+      map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...cells]);
+      map.terrain.constructedFloors = normalizeConstructedSurfaces([...(map.terrain.constructedFloors || []),
+        ...cells.map(cell => ({ cell, materialId: 'stone', purpose: 'floor', supportSpanM: 24, condition: 100, builtAt: state.clock }))]);
+      state.roomStockpiles[spec.id] = emptyRoomStockpile();
+    }
+    roomById(g.checkpointRoomId).connections.push(s.approachRoomId);
+    state.fixtures.push(defaultFixtureInstance(s.benchId, 'basicWorkbench', s.site.benchCell, 0,
+      { name: 'Branch-owned Manual Assay Bench', materialPolicy: 'wood', installedAt: state.clock }));
+    state.fixtures = normalizeFixtures(state.fixtures); bumpNavigationRevision('topology');
+    return s;
+  }
+  function foreignWorkspaceAtProperty(g = passengerReceptionGate()) {
+    return Boolean(g?.foreignWorkspace && passengerLanded() && passengerReceptionGate() === g && scientistRoomId() === g.foreignWorkspace.roomId);
+  }
+  function foreignWorkspaceContext(g = passengerReceptionGate()) {
+    const s = g?.foreignWorkspace, cell = scientistMapCell(), source = foreignWorkspaceSource(g), a = s?.actor;
+    const local = Boolean(g && passengerLanded() && passengerReceptionGate() === g && cell.z === g.z);
+    const bench = s && fixtureById(s.benchId);
+    const inspectionCell = bench && labMapCellRoomId(bench.origin) === s.roomId ? bench.origin : s?.site?.benchCell;
+    return { ...source, alive: !scientistIsDead(), capable: annexCapable(), originalBody: passengerBodyCurrent(),
+      custody: GateEnforcement.custodyActive(currentGateEnforcement()) || localPrisonRestricted(), local, cityId: g?.cityId,
+      bodyEpoch: ensureScientistIdentity().bodyEpoch, visitId: passengerVisitId(), visitorPermit: foreignVisitorPermission(g),
+      bans: (state.penalFlights?.banishments || []).filter(b => b.personId === 'scientist'),
+      tenant: ensureScientistIdentity().documents.at(-1)?.registeredName || 'Scientist — manual sample analyst', busy: false,
+      atProperty: foreignWorkspaceAtProperty(g), atDesk: Boolean(s && local && sameMapCell(cell, s.site.entry)),
+      contact: Boolean(a && a.present !== false && !actorIsIncapacitated(a) && local && a.roomId === s.roomId && mapCellDistance(cell, a.mapCell) <= 2 && sensoryLineOfSight(cell, a.mapCell)),
+      inspected: Boolean(a && local && inspectionCell && mapCellDistance(a.mapCell, inspectionCell) <= 8 && sensoryLineOfSight(a.mapCell, inspectionCell)),
+      empty: Boolean(s && !ensurePhysicalItemStacks().some(i => i.roomId === s.roomId && !i.carriedBy)),
+      benchCondition: bench && labMapCellRoomId(bench.origin) === s.roomId ? bench.condition : 0 };
+  }
+  function foreignWorkspaceWorkReason(stackId = '', g = passengerReceptionGate()) {
+    const s = g?.foreignWorkspace;
+    const reason = ForeignAssayWorkspace.workReason(s, foreignWorkspaceContext(g), state.clock);
+    if (reason) return reason;
+    if (stackId) {
+      const stack = ensurePhysicalItemStacks().find(i => i.id === stackId), sample = diagnosticSampleByStackId(stackId);
+      if (!LaboratoryAssistant.category(sample) || !stack?.tags?.includes('sealed')
+        || stack.tags.some(t => /(^|[-_ ])(living|soul|biological|unsealed|broken)([-_ ]|$)/i.test(t))
+        || stack.cityOwnerId || stack.civicCustody || stack.roomId !== s.roomId || stack.carriedBy && stack.carriedBy !== 'scientist') return 'Only an actual owned sealed nonliving sample physically present in this workspace is authorized.';
+    }
+    return '';
+  }
+  function updateForeignWorkspace(g) {
+    const s = g?.foreignWorkspace; if (!s || scientistIsDead()) return false;
+    const changed = LeasedAnnex.expire(s, state.clock);
+    for (const task of state.tasks.filter(t => t.type === 'physicalDiagnostic' && t.data?.workstationId === s.benchId)) {
+      const reason = physicalDiagnosticTaskBlockReason(task);
+      if (reason) {
+        task.data.foreignWorkspaceHeldAt ??= !LeasedAnnex.usable(s, state.clock) ? Math.max(task.createdAt, Math.min(state.clock, s.lease?.endsAt ?? state.clock)) : state.clock;
+        task.data.foreignWorkspaceInterruption = { at: task.data.foreignWorkspaceHeldAt, reason };
+      } else if (task.data.foreignWorkspaceHeldAt != null) {
+        const movement = task.data.movement, pausedCell = movement?.steps?.[movement.stepIndex]?.cell || task.data.mapPath?.[0];
+        let returnPath = null;
+        if (pausedCell && !sameMapCell(scientistMapCell(), pausedCell)) {
+          returnPath = labMapPathBetweenCells(scientistMapCell(), pausedCell, { map: ensureLabMap(), actor: state.scientist, ignoreDoors: true });
+          if (!returnPath.length) { task.data.foreignWorkspaceInterruption.reason = 'The actual walking route back to the paused assay position is unavailable.'; continue; }
+        }
+        const held = Math.max(0, state.clock - task.data.foreignWorkspaceHeldAt); task.dueAt += held;
+        if (returnPath) {
+          const extra = mapPathTravelDistanceMeters(returnPath, ensureLabMap()) / scientistMoveSpeedMps();
+          task.dueAt += extra;
+          task.data.mapPath = appendMapPath(returnPath, movement ? movement.steps.slice(movement.stepIndex).map(step => step.cell) : task.data.mapPath);
+          task.data.movement = createScientistMovementRecord(task.data.mapPath, Math.max(0, task.dueAt - state.clock));
+        } else if (movement) for (const key of ['segmentStartedAt', 'segmentArriveAt', 'startedAt', 'estimatedArrivalAt'])
+          if (Number.isFinite(movement[key])) movement[key] += held;
+        delete task.data.foreignWorkspaceHeldAt;
+      }
+    }
+    if (foreignWorkspaceAtProperty(g) && annexCapable()) {
+      const cell = scientistMapCell(), bench = fixtureById(s.benchId);
+      const visible = c => mapCellDistance(cell, c) <= 8 && sensoryLineOfSight(cell, c);
+      s.observation = { at: state.clock, goods: ensurePhysicalItemStacks().filter(i => i.roomId === s.roomId && !i.containerId && !i.fixtureId && (!i.carriedBy || i.carriedBy === 'scientist') && visible(i.cell))
+        .map(i => ({ id: i.id, key: i.key, quantity: i.quantity, cell: clonePlainObject(i.cell) })),
+        benchCondition: bench && visible(bench.origin) ? bench.condition : s.observation?.benchCondition ?? null };
+    }
+    return changed;
+  }
+  function foreignWorkspaceAction(action, options = {}) {
+    const g = passengerReceptionGate(), s = ensureForeignWorkspace(g); if (!s || scientistIsDead()) return false;
+    updateForeignWorkspace(g); const c = foreignWorkspaceContext(g); c.busy = surveyBusy() || Boolean(g.visitorAdmission?.job);
+    let result = { ok: false, reason: 'Reach the named workspace personally under its separate approach permission.' };
+    if (action === 'walk' && !c.busy && (ForeignAssayWorkspace.access(s, c, state.clock) || ForeignAssayWorkspace.invite(s, c, state.clock)))
+      result.ok = Boolean(startScientistMove(s.roomId, { toCell: s.site.entry, allowMultiRoom: true }));
+    else if (action === 'return' && c.local && annexCapable() && !c.busy) result.ok = Boolean(startScientistMove(g.checkpointRoomId, { toCell: { x: 10, y: 7, z: g.z }, allowMultiRoom: true }));
+    else if (action === 'quote') result = ForeignAssayWorkspace.request(s, c, state.clock);
+    else if (action === 'sign') result = ForeignAssayWorkspace.sign(s, c, options.expected, ensureEconomy(), state.clock);
+    else if (action === 'handback') result = ForeignAssayWorkspace.handBack(s, c, ensureEconomy(), state.clock);
+    else if (action === 'cancelAssay' && c.local && c.originalBody) {
+      const task = state.tasks.find(t => t.type === 'physicalDiagnostic' && t.data?.workstationId === s.benchId);
+      result.ok = Boolean(task && cancelTask(task.id, { quiet: true, noLaborClaim: true, noProductionClaim: true }));
+    } else if (foreignWorkspaceAtProperty() && annexCapable() && !c.busy && ForeignAssayWorkspace.access(s, c, state.clock)) {
+      const stack = ensurePhysicalItemStacks().find(i => i.id === options.stackId && i.roomId === s.roomId);
+      if (action === 'assay') result.ok = startDiagnosticSampleAssay(options.stackId);
+      if (action === 'drop' && stack?.carriedBy === 'scientist' && !stack.reservedTaskId) result.ok = dropActorInventoryStack('scientist', stack.id, stack.quantity);
+      if (action === 'pack' && stack && !stack.carriedBy && !stack.reservedTaskId && !stack.cityOwnerId && !stack.civicCustody && !stack.containerId && !stack.fixtureId
+        && mapCellDistance(scientistMapCell(), stack.cell) <= 8 && sensoryLineOfSight(scientistMapCell(), stack.cell)) result.ok = Boolean(queueSurveyWork('pack', stack.cell, { stackId: stack.id, itemKey: stack.key, amount: 1,
+          toolInstanceId: stack.toolInstanceId && toolInstanceById(stack.toolInstanceId)?.instance.current > 0 ? stack.toolInstanceId : '' }));
+    }
+    if (result.ok && ['sign', 'handback'].includes(action)) recordLegalLedger('foreignAssayWorkspace', s.history.at(-1).summary);
+    updateForeignWorkspace(g); surveyEvent(result.ok ? `Foreign workspace ${action}: ${s.property.name}.` : result.reason);
+    persist(); render(); return Boolean(result.ok);
+  }
+  function renderForeignWorkspace() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.foreignAssayWorkspace = 'true';
+    panel.append(textEl('h3', 'Foreign Manual Assay Workspace'));
+    const g = passengerReceptionGate(), s = ensureForeignWorkspace(g);
+    if (!s) panel.append(textEl('p', 'No supported locally licensed physical research laboratory offers a workspace here. Reception and internet access do not create one.'));
+    if (s) {
+      updateForeignWorkspace(g); const v = ForeignAssayWorkspace.publicView(s, state.clock), c = foreignWorkspaceContext(g);
+      panel.append(textEl('p', `${v.property.name} · representative ${v.property.landlord.name} · 48 m² manual workspace.`), textEl('p', v.property.purpose), textEl('p', v.property.utilities), textEl('p', v.property.privacy));
+      const button = (label, action, options = {}, enabled = true) => { const b = storesActionButton(label, label, () => foreignWorkspaceAction(action, options)); b.disabled = !enabled || !c.alive; panel.append(b); };
+      button('Accept named approach and walk to workspace', 'walk', {}, c.local && annexCapable() && !surveyBusy() && !s.lease?.settled);
+      if (c.atDesk) {
+        button(s.lease ? 'Review foreign workspace renewal' : 'Review foreign workspace lease', 'quote', {}, !surveyBusy());
+        if (v.quote) {
+          panel.append(textEl('p', `Exact three-day terms: rent ${formatMoney(v.quote.rent)}, deposit ${formatMoney(v.quote.deposit)}, total ${formatMoney(v.quote.total)}; valid until ${formatClock(v.quote.expiresAt)}. ${v.quote.termination} ${v.quote.permission}`));
+          button('Sign exact foreign workspace terms', 'sign', { expected: v.quote }, !surveyBusy());
+        }
+        if (s.lease) button('Hand back empty foreign workspace', 'handback', {}, !surveyBusy());
+      }
+      if (v.lease) panel.append(textEl('p', `Lease ${v.lease.status}; prepaid until ${formatClock(v.lease.endsAt)}; deposit ${formatMoney(v.lease.depositHeld)}. ${v.permission?.scope || ''}`));
+      if (c.atProperty) {
+        panel.append(textEl('p', foreignWorkspaceWorkReason() || 'Manual sealed nonliving assays only. Bring an actual Assay Case and stage actual reagent on the floor.'));
+        button('Walk back to reception checkpoint', 'return', {}, !surveyBusy());
+        if (state.tasks.some(t => t.type === 'physicalDiagnostic' && t.data?.workstationId === s.benchId)) button('Cancel foreign workspace assay', 'cancelAssay');
+        for (const stack of surveyCarriedStacks().filter(i => !i.reservedTaskId)) button(`Stage ${physicalStackLabel(stack)} (${stack.id})`, 'drop', { stackId: stack.id }, !surveyBusy());
+        for (const item of s.observation?.goods || []) {
+          const stack = ensurePhysicalItemStacks().find(i => i.id === item.id); if (!stack) continue;
+          if (diagnosticSampleByStackId(stack.id)) button(`Foreign assay sealed portion (${stack.id})`, 'assay', { stackId: stack.id }, !diagnosticSampleAssayBlockReason(stack.id));
+          if (!stack.carriedBy) button(`Retrieve one ${physicalStackLabel(stack)} (${stack.id})`, 'pack', { stackId: stack.id }, !surveyBusy() && !stack.reservedTaskId);
+        }
+        const needs = ensureWildernessSurvival();
+        panel.append(textEl('p', `Personal thirst ${Math.round(needs.thirst)}/100 · hunger ${Math.round(needs.hunger)}/100. No survival supplies are included.`));
+        for (const key of ['drinkingWater', 'trailMeal', 'fieldRation']) {
+          const b = storesActionButton(`Use Carried ${inventoryItemLabel(key)}`, 'Consume one actual owned carried portion', () => queueSurvivalConsumption(key));
+          b.disabled = !c.alive || !c.capable || surveyBusy() || !survivalSupply(key); panel.append(b);
+        }
+        const rest = storesActionButton('Rest Here (15 minutes)', 'Ordinary physical rest, not a lodging permit or purchased healing', () => createRestTask(15));
+        rest.disabled = !c.alive || !c.capable || surveyBusy(); panel.append(rest, renderForeignSelfCare());
+      }
+      if (v.observation) panel.append(textEl('p', `${formatClock(v.observation.at)} — personally observed bench ${v.observation.benchCondition ?? 'unknown'}%; goods ${v.observation.goods.map(i => `${i.quantity} ${i.key}`).join(', ') || 'none seen'}. Away reports do not refresh.`));
+    }
+    for (const gate of state.penalFlights?.assistance?.cityApproach?.gates || []) for (const h of gate.foreignWorkspace?.history || []) panel.append(textEl('p', `${formatClock(h.at)} — ${h.summary}`));
+    return panel;
   }
   function ensureForeignSupplier(g = passengerReceptionGate()) {
     if (!g?.materialized || !g.visitorAdmission) return null;
@@ -88431,8 +88649,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function foreignSelfCareReason(injury, mode) {
     const g = passengerReceptionGate();
     if (!['examine', 'stabilize', 'treat'].includes(mode)) return 'Unsupported self-care action.';
-    if (!passengerLanded() || !passengerBodyCurrent() || !g || ![g.checkpointRoomId, g.annexRoomId].includes(scientistRoomId()))
-      return 'Physically reach the foreign receiving stand or visitor annex with the original traveling body.';
+    if (!passengerLanded() || !passengerBodyCurrent() || !g || ![g.checkpointRoomId, g.annexRoomId, g.foreignWorkspace?.roomId].includes(scientistRoomId()))
+      return 'Physically reach the foreign receiving stand, visitor annex or leased workspace with the original traveling body.';
     if (scientistIsDead() || actorIsIncapacitated('scientist')) return 'A living capable scientist is required; professional care and rescue are separate.';
     if (!injury || injury.actorId !== 'scientist') return 'This service supports only the scientist’s own injuries.';
     if (surveyBusy() || g.visitorLodging?.job || g.visitorAdmission?.job || GateEnforcement.custodyActive(currentGateEnforcement()) || localPrisonRestricted())
@@ -89087,6 +89305,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(textEl('strong', 'Direct-Neighbor and Second-Hop Passenger Travel'));
     panel.append(renderTradeTripPreparation());
     panel.append(renderForeignResearchInquiry());
+    panel.append(renderForeignWorkspace());
     const s = ensureIntercityPassenger(), local = intercityLocal();
     if (!local) { panel.append(textEl('p', 'Reach the existing home municipal survey-ground rendezvous first; city control is not required. Carrier records while away are dated, not live intelligence.')); return panel; }
     if (!s) { panel.append(textEl('p', 'No capable source-backed commercial passenger carrier is available at this city.')); return panel; }
@@ -89186,6 +89405,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (annexAway()) return annexAtProperty() && (task.type === "scientistMove" || task.type === "injuryTreatment" && task.data.targetActorId === "scientist"
       || task.type === "surveyExpeditionWork" && ["pack", "consume", "radioBattery"].includes(task.data.action)
       || task.type === "physicalDiagnostic" && task.data.workflowId === "assaySample" && !annexWorkReason(ensureDiagnosticState().samples.find(s => s.id === task.data.sampleId)?.stackId || ""));
+    if (foreignWorkspaceAtProperty() && (task.type === 'surveyExpeditionWork' && labMapCellRoomId(target) === passengerReceptionGate().foreignWorkspace.roomId && ['pack', 'consume', 'radioBattery'].includes(task.data.action)
+      || task.type === 'physicalDiagnostic' && task.data.workflowId === 'assaySample' && task.data.workstationId === passengerReceptionGate().foreignWorkspace.benchId)) return true;
     if (task.type === "injuryTreatment") return task.data.targetActorId === "scientist";
     if (task.type === "surveyExpeditionWork" && ["consume", "radioBattery"].includes(task.data.action)) return true;
     if (passengerAway()) return task.type === 'scientistMove'
@@ -89977,7 +90198,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const tool = diagnosticInstrumentInstance(itemKey);
     if (!tool) return { ok: false, reason: `No usable ${inventoryItemLabel(itemKey)} is available.` };
     if (tool.carriedBy === "scientist") return { ok: true, tool, path: [startCell], endpoint: startCell };
-    const cell = toolMapCell(tool);
+    const localStack = passengerAway() && ensurePhysicalItemStacks().find(i => i.toolInstanceId === tool.id && i.roomId === passengerReceptionGate()?.foreignWorkspace?.roomId && !i.carriedBy);
+    const cell = localStack ? stockpileHaulAccessCell(localStack) : toolMapCell(tool);
     const path = labMapPathBetweenCells(startCell, cell, { map: ensureLabMap(), ignoreDoors: true });
     return path.length
       ? { ok: true, tool, path, endpoint: cell }
@@ -89986,7 +90208,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function diagnosticWorkbenchPlan(startCell) {
     const plans = [];
-    const workstations = annexAtProperty() ? [fixtureById(LeasedAnnex.BENCH)].filter(f => f && f.condition > 0 && f.operationalState === "operational" && !f.productionTaskId) : researchWorkstations();
+    const scopedBench = foreignWorkspaceAtProperty() ? passengerReceptionGate().foreignWorkspace.benchId : annexAtProperty() ? LeasedAnnex.BENCH : null;
+    const workstations = scopedBench ? [fixtureById(scopedBench)].filter(f => f && f.condition > 0 && f.operationalState === "operational" && !f.productionTaskId) : passengerAway() ? [] : researchWorkstations();
     for (const fixture of workstations) {
       for (const port of fixtureAccessCells(fixture)) {
         const path = labMapPathBetweenCells(startCell, port.cell, { map: ensureLabMap(), ignoreDoors: true });
@@ -89998,6 +90221,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function physicalDiagnosticTaskBlockReason(task) {
     if (!task) return "Diagnostic task is missing.";
+    const foreignGate = (state.penalFlights?.assistance?.cityApproach?.gates || []).find(g => g.foreignWorkspace?.benchId === task.data?.workstationId);
+    if (foreignGate) {
+      const s = foreignGate.foreignWorkspace, reason = foreignWorkspaceWorkReason(ensureDiagnosticState().samples.find(sample => sample.id === task.data.sampleId)?.stackId || '', foreignGate);
+      if (reason) return reason;
+      const pausedCell = task.data.movement?.steps?.[task.data.movement.stepIndex]?.cell || task.data.mapPath?.[0];
+      if (task.data.foreignWorkspaceHeldAt != null && pausedCell && !sameMapCell(scientistMapCell(), pausedCell)
+        && !labMapPathBetweenCells(scientistMapCell(), pausedCell, { map: ensureLabMap(), actor: state.scientist, ignoreDoors: true }).length)
+        return 'The actual walking route back to the paused assay position is unavailable.';
+      if (task.data.workflowId !== 'assaySample') return 'Only manual sealed nonliving assays are authorized at this foreign bench.';
+      const tool = toolInstanceById(task.data.instrumentInstanceId)?.instance;
+      if (!tool || tool.roomId !== s.roomId || tool.carriedBy && tool.carriedBy !== 'scientist') return 'The original assay instrument is not physically here.';
+      if (!ensurePhysicalItemStacks().some(i => i.toolInstanceId === tool.id && i.quantity > 0 && i.roomId === s.roomId
+        && i.carriedBy === (tool.carriedBy || '') && !i.cityOwnerId && !i.civicCustody)) return 'The original physical Assay Case is no longer available here.';
+      if ((task.data.reservedStackIds || []).some(id => { const stack = ensurePhysicalItemStacks().find(i => i.id === id); return !stack || stack.roomId !== s.roomId || stack.carriedBy && stack.carriedBy !== 'scientist'; })) return 'Reserved sample or reagent left the foreign workspace; no remote consumption.';
+    } else if (passengerAway()) return 'Foreign diagnostics require the exact leased manual assay bench.';
     if (task.data?.workstationId === LeasedAnnex.BENCH && !annexAtProperty()) return "The scientist must physically return to the leased assay bench before this unfinished assay can continue.";
     if (annexAway() && (task.data?.workflowId !== "assaySample" || task.data?.workstationId !== LeasedAnnex.BENCH || annexWorkReason())) return annexWorkReason() || "Only scoped manual assays at the leased bench are authorized here.";
     if (task.data?.workflowId === "resourceSurvey") {
@@ -90030,13 +90268,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return "";
   }
 
-  function diagnosticBaseBlockReason() {
+  function diagnosticBaseBlockReason(workflowId = '') {
     if (scientistIsDead()) return "The scientist is dead.";
+    if (passengerAway() && workflowId !== 'assaySample') return 'Foreign workspace permission supports only manual sealed nonliving assays, not other diagnostic procedures.';
     if (physicalDiagnosticTask()) return "A diagnostic task is already in progress.";
     return "";
   }
 
   function queueInstrumentDiagnostic(options) {
+    if (passengerAway() && (options.workflowId !== 'assaySample' || foreignWorkspaceWorkReason(options.sample?.stackId))) return null;
     if (annexAway() && (options.workflowId !== "assaySample" || annexWorkReason(options.sample?.stackId))) return null;
     const path = options.path || [scientistMapCell()];
     const task = {
@@ -90191,15 +90431,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!toSample.length) return { ok: false, reason: "The physical sample is unreachable." };
     const bench = diagnosticWorkbenchPlan(sampleCell);
     if (!bench) return { ok: false, reason: "No reachable operational research workbench is available." };
-    const materials = productionMaterialRoute({ assayReagent: 1 }, sampleCell, bench.cell);
+    const materials = productionMaterialRoute({ assayReagent: 1 }, sampleCell, bench.cell, null, null, passengerAway() ? passengerReceptionGate()?.foreignWorkspace?.roomId : '');
     if (!materials.ok) return materials;
+    if (passengerAway() && materials.reservations.some(p => { const stack = ensurePhysicalItemStacks().find(i => i.id === p.stackId); return !stack || stack.roomId !== passengerReceptionGate()?.foreignWorkspace?.roomId || stack.carriedBy && stack.carriedBy !== 'scientist'; })) return { ok: false, reason: 'Stage actual reagent at the foreign workspace; no home or supplier stocks may be consumed.' };
     return { ok: true, sample, stack, toolPlan, bench, materials, path: appendMapPath(appendMapPath(toolPlan.path, toSample), materials.path) };
   }
 
   function diagnosticSampleAssayBlockReason(stackId) {
+    if (passengerAway() && foreignWorkspaceWorkReason(stackId)) return foreignWorkspaceWorkReason(stackId);
     if (annexAway() && annexWorkReason(stackId)) return annexWorkReason(stackId);
-    if (!annexAtProperty() && diagnosticSampleByStackId(stackId)?.captured.confidentialService && confidentialServiceChannelReason()) return confidentialServiceChannelReason();
-    const base = diagnosticBaseBlockReason();
+    if (!annexAtProperty() && !foreignWorkspaceAtProperty() && diagnosticSampleByStackId(stackId)?.captured.confidentialService && confidentialServiceChannelReason()) return confidentialServiceChannelReason();
+    const base = diagnosticBaseBlockReason('assaySample');
     if (base) return base;
     const plan = diagnosticSampleAssayPlan(stackId);
     return plan.ok ? staminaBlockReason(adjustedStaminaCost(4, ["alchemy", "analysis"])) : plan.reason;
@@ -95164,6 +95406,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!actorUsesAccessPolicy(actor)) return null;
     const clean = cleanMapCell(cell);
     if (!clean) return { key: "access:invalid", reason: "No valid access tile was provided." };
+    if (actor === state.scientist) {
+      const g = (state.penalFlights?.assistance?.cityApproach?.gates || []).find(g => g.foreignWorkspace && [g.foreignWorkspace.roomId, g.foreignWorkspace.approachRoomId].includes(labMapCellRoomId(clean)));
+      if (g && !g.foreignWorkspace.permission && labMapCellRoomId(clean) === g.foreignWorkspace.roomId && !sameMapCell(clean, g.foreignWorkspace.site.entry))
+        return { key: `foreign-inspection-desk:${g.cityId}`, reason: 'The inspection invitation covers the named desk and approach only, not the whole workspace.' };
+      if (g && !ForeignAssayWorkspace.access(g.foreignWorkspace, foreignWorkspaceContext(g), state.clock)) {
+        // Never lock an existing occupant inside when operating permission changes.
+        if (![g.foreignWorkspace.roomId, g.foreignWorkspace.approachRoomId].includes(scientistRoomId())) return { key: `foreign-workspace:${g.cityId}`, reason: 'Separate named-workspace approach permission is required; visitor-hall access is not enough.' };
+      }
+    }
     const { profile, allowed, forbidden } = actorAccessAreas(actor);
     const key = mapCellKey(clean);
     const forbiddenArea = forbidden.find((area) => area.cells.some((candidate) => mapCellKey(candidate) === key));
