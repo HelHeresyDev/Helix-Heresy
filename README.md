@@ -792,6 +792,16 @@ Bring real carried samples and tools; stage actual reagent on the workspace floo
 
 Focused checks: `npx playwright test tests/foreign-assay-workspace.spec.js tests/foreign-assay-workspace-browser.spec.js --project=chromium --workers=2`. Research-license applications, living-specimen work and staffing remain separate future discussions.
 
+### Foreign industrial assay commissions
+
+At a leased foreign manual workspace, one actual local chemical works can offer a named quality-account commission through the original branch representative acting as its disclosed liaison. No factory, customer employee, courier or stock is created by renting. Personally review exact terms at the desk: 120 marks for a conclusive truthful report within 48 hours; the customer also pays 8 marks for the existing four-kilometre local truck route. Offers require a produced batch, functioning original facility and a funded, available original truck and driver. One commission may be active at a time.
+
+Acceptance withholds one real batch and escrows the fee. Its sealed 0.1 portion travels in the producer's saved truck to this named workspace; the remaining 0.9 stays withheld. Driver, route or receiving-workspace failure holds the same cargo rather than replacing it. No portion appears before actual delivery, and no home inventory can supply the assay. Stage your own reagent and use your actual Assay Case in the ordinary manual assay. Clean and contaminated conclusive findings earn the same fee; an inconclusive finding requires another finite portion from the same held batch and customer-funded delivery, without changing contamination or extending the deadline.
+
+Walk back to the original liaison's desk, review the exact dated report and explicitly deliver it. Only actual receipt pays once: a clean finding releases the remaining batch to the original works, while contamination quarantines it. Cancellation or deadline expiry returns only unearned escrow; dispatched freight, portions, supplies and instrument wear remain spent. Lease expiry stops work but permits personal cancellation at the retrieval desk. Original people, funds, shipment custody, report dates and partial assays survive reload; away records remain dated and death freezes work. This grants no materials reservation, remote account access, divine endorsement, political recognition or wider research permission.
+
+Focused checks: `npx playwright test tests/foreign-industrial-assay.spec.js tests/foreign-industrial-assay-browser.spec.js --project=chromium --workers=1`.
+
 ### Annex staffing and independent operations
 
 Facilities at home and Visits at the annex offer the existing assay technician a separately reviewed annex engagement. This is the same person, with retained qualifications, observations, wounds and finite provisions, not another free employee. Finish the previous engagement and actual return before selecting a new workplace. Annex terms disclose the aboveground manual bench, one-room access, permitted sealed nonliving samples, known hazards, absent utilities and confidentiality request. The landlord's lease explicitly allows one disclosed consenting technician. No underground passage is granted by an annex agreement. Pay the existing 40 walking fee plus 24/hour in finite escrow for two, four or eight on-site hours.

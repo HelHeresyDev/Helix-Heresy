@@ -98,9 +98,12 @@
     }
   }
   function deliver(state, shipment, listings, supplier, at) {
-    if (shipment.target === 'serviceDepot') {
+    if (shipment.target === 'serviceDepot' || shipment.target === 'foreignWorkspace') {
       state.serviceDepot ||= {};
       state.serviceDepot[shipment.id] = { cargo: shipment.cargo, quantity: shipment.quantity, deliveredAt: at };
+      if (shipment.target === 'foreignWorkspace') Object.assign(state.serviceDepot[shipment.id], {
+        destination: copy(shipment.destination), serviceJobId: shipment.serviceJobId, sampleAt: shipment.sampleAt
+      });
     }
     else if (shipment.target === 'workshops') state.inputs[shipment.cargo] = (state.inputs[shipment.cargo] || 0) + shipment.quantity;
     else if (shipment.target === 'exchange') {
@@ -162,7 +165,7 @@
     // hour's production work. They become inputs for the next hour.
     for (const truck of state.trucks.filter(t => t.shipment)) {
       const sh = state.shipments.find(s => s.id === truck.shipment), source = state.sources.find(s => s.id === sh.sourceId);
-      if (!capable(truck) || !sh.route.open || (source && !source.route.open) || (sh.procurement && !inputRouteOpen(state, sh.cargo)) || (sh.facilityIds || []).some(id => state.facilities.find(f => f.id === id)?.routeOpen === false) || (sh.target === 'supplier' && !supplier.routeOpen)) {
+      if (!capable(truck) || !sh.route.open || (!sh.delivered && sh.destination && (sh.destination.closed || at >= sh.destination.endsAt)) || (source && !source.route.open) || (sh.procurement && !inputRouteOpen(state, sh.cargo)) || (sh.facilityIds || []).some(id => state.facilities.find(f => f.id === id)?.routeOpen === false) || (sh.target === 'supplier' && !supplier.routeOpen)) {
         if (sh.pickupAt > at - HOUR) sh.pickupAt += HOUR;
         sh.arriveAt += HOUR; sh.returnAt += HOUR; sh.reason = 'Shipment delayed: saved route, vehicle or driver unavailable.'; continue;
       }
@@ -235,16 +238,22 @@
     return 'Local workshop processing delivered inputs.';
   }
   // Caller has already allocated exact customer-owned cargo. This books only
-  // its facility-to-depot leg, sharing the ordinary finite producer trucks.
-  function bookServiceCargo(state, facilityId, cargo, quantity, at) {
+  // its facility-to-depot (or named local workspace) leg, sharing the ordinary
+  // finite producer trucks. Neither booking nor payment creates the cargo.
+  function serviceTruck(state) {
+    return state?.trucks?.find(t => Number.isFinite(t.capacity) && t.capacity >= 1 && !t.shipment && !t.repairAt && capable(t) && t.fuelKm >= 8 && t.condition - 0.16 >= 50 && t.driver.fatigue + 0.32 <= 80);
+  }
+  function bookServiceCargo(state, facilityId, cargo, quantity, at, destination = null) {
     const f = state?.facilities?.find(entry => entry.id === facilityId);
-    const truck = state?.trucks?.find(t => !t.shipment && !t.repairAt && capable(t) && t.fuelKm >= 8 && t.condition - 0.16 >= 50 && t.driver.fatigue + 0.32 <= 80);
+    const truck = serviceTruck(state);
     if (!f?.routeOpen || !truck || !Number.isFinite(quantity) || quantity <= 0 || quantity > truck.capacity) return null;
+    if (destination && (destination.cityId !== state.cityId || !destination.propertyId || !Number.isFinite(destination.endsAt) || destination.endsAt <= at)) return null;
     truck.fuelKm -= 8; truck.condition -= 0.16; truck.driver.fatigue += 0.32;
     const sh = { id: `producer-shipment-${state.nextNumber++}`, sourceId: '', cargo, quantity, target: 'serviceDepot', facilityIds: [facilityId],
       route: { open: true, distanceKm: 4, cellIds: [], mode: 'groundConvoy' }, truckId: truck.id, departedAt: at, pickupAt: at,
       arriveAt: at + HOUR, returnAt: at + 2 * HOUR, delivered: false, returned: false, reason: '' };
+    if (destination) { sh.target = 'foreignWorkspace'; sh.destination = copy(destination); }
     state.shipments.push(sh); truck.shipment = sh.id; return sh;
   }
-  return { HOUR, RECIPES, INDUSTRIAL_RECIPES, PRECISION_RECIPES, create, advance, status, bookServiceCargo };
+  return { HOUR, RECIPES, INDUSTRIAL_RECIPES, PRECISION_RECIPES, create, advance, status, serviceTruck, bookServiceCargo };
 });

@@ -106,6 +106,7 @@
   const ForeignReception = window.HelixForeignReception;
   const ForeignResearchInquiry = window.HelixForeignResearchInquiry;
   const ForeignAssayWorkspace = window.HelixForeignAssayWorkspace;
+  const ForeignIndustrialAssay = window.HelixForeignIndustrialAssay;
   const ForeignSupplies = window.HelixForeignSupplies;
   const TradeTripPreparation = window.HelixTradeTripPreparation;
   const passengerReceptionSourceCache = new WeakMap();
@@ -12423,6 +12424,7 @@
     if (!market.localProduction) return 0;
     const previous = market.localProduction.lastAt;
     const support = LocalExchangeCarrier.support(exchangeCarrier(), state.clock);
+    for (const g of state.penalFlights?.assistance?.cityApproach?.gates || []) prepareForeignCommissionDeliveries(g);
     // Advance producer and supplier events together, preserving causality on long waits.
     while (market.localProduction.lastAt + LocalMarketProduction.HOUR <= now) {
       const at = market.localProduction.lastAt + LocalMarketProduction.HOUR;
@@ -16790,6 +16792,12 @@
       },
       foreignReceptionSnapshot: () => { const g = passengerReceptionGate(), c = foreignReceptionContext(g); return clonePlainObject({ gate: g, context: c, quote: ForeignReception.quote(g, c), permission: foreignVisitorPermission(g), clock: state.clock, roomId: scientistRoomId(), cell: scientistMapCell(), money: ensureEconomy().money, doors: g ? state.doors[g.doorId] : null, busy: surveyBusy(), tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) }); },
       foreignResearchInquiryAction,
+      foreignCommissionAction,
+      foreignCommissionSnapshot: () => {
+        const g = passengerReceptionGate(), w = ensureForeignWorkspace(g); updateForeignWorkspace(g);
+        return clonePlainObject({ commission: w?.commission, production: g && foreignSupplierMarket(g)?.production,
+          clock: state.clock, money: ensureEconomy().money, stacks: ensurePhysicalItemStacks(), diagnostics: ensureDiagnosticState() });
+      },
       foreignWorkspaceAction,
       foreignWorkspaceAssayReason: stackId => diagnosticSampleAssayBlockReason(stackId),
       foreignWorkspaceSnapshot: () => {
@@ -22504,7 +22512,13 @@
       const workspace = passengerReceptionGate()?.foreignWorkspace;
       const workspaceEvent = workspace?.lease?.status === 'active' && workspace.lease.endsAt > state.clock
         ? { time: workspace.lease.endsAt, label: 'Foreign workspace prepaid lease expiry', type: 'travel' } : null;
-      return [clinicEvent, task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, supplyEvent, fuelEvent, maintenanceEvent, recoveryEvent, toolkitEvent, lodgingEvent, workspaceEvent, nextLeasedAnnexEvent(), nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
+      const commissionJobs = workspace?.commission?.service.jobs.filter(LocalServices.active) || [];
+      const commissionEvents = commissionJobs.map(j => ({ time: j.dueAt + 1, label: 'Foreign assay commission deadline', type: 'travel' }));
+      if (commissionJobs.some(j => j.status === 'sampleInTransit')) {
+        const p = foreignSupplierMarket(passengerReceptionGate())?.production;
+        if (p) commissionEvents.push({ time: p.lastAt + LocalMarketProduction.HOUR, label: 'Foreign industrial sample delivery checkpoint', type: 'travel' });
+      }
+      return [clinicEvent, task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, supplyEvent, fuelEvent, maintenanceEvent, recoveryEvent, toolkitEvent, lodgingEvent, workspaceEvent, ...commissionEvents, nextLeasedAnnexEvent(), nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
         .filter((event) => event && (!options.includeTypes || options.includeTypes.includes(event.type)) && event.time >= state.clock)
         .sort((a, b) => a.time - b.time)[0] || null;
     }
@@ -66164,7 +66178,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     recordResearchEvidence({ methodId: "diagnostic:assaySample", category: "diagnostic", specimenId: result.targetId,
       specimenName: result.targetLabel, sourceKey: `diagnostic:${result.id}`, summary: `${state.laboratoryAssistant.actor.name}: ${result.summary}`, confidence: result.confidenceScore / 100 });
     const sample = order.sampleRecord;
-    if (sample?.captured.industrialService && state.localServices) LocalServices.recordAssay(state.localServices, sample.captured.industrialService.jobId, result, sample.collectedAt, result.measuredAt);
+    if (sample?.captured.industrialService) recordIndustrialServiceAssay(sample, result, result.measuredAt);
     if (sample?.captured.confidentialService && state.confidentialServices) {
       const c = sample.captured.confidentialService;
       if (ConfidentialServices.recordAssay(state.confidentialServices, c.jobId, result, c.round, result.measuredAt)) {
@@ -88319,6 +88333,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       tenant: ensureScientistIdentity().documents.at(-1)?.registeredName || 'Scientist — manual sample analyst', busy: false,
       atProperty: foreignWorkspaceAtProperty(g), atDesk: Boolean(s && local && sameMapCell(cell, s.site.entry)),
       contact: Boolean(a && a.present !== false && !actorIsIncapacitated(a) && local && a.roomId === s.roomId && mapCellDistance(cell, a.mapCell) <= 2 && sensoryLineOfSight(cell, a.mapCell)),
+      receivingReady: Boolean(a && a.present !== false && !actorIsIncapacitated(a) && a.roomId === s.roomId
+        && labMapCellIsWalkable(s.site.entry, ensureLabMap()) && labMapCellRoomId(s.site.entry) === s.roomId
+        && mapCellDistance(a.mapCell, s.site.entry) <= 2 && sensoryLineOfSight(a.mapCell, s.site.entry)),
       inspected: Boolean(a && local && inspectionCell && mapCellDistance(a.mapCell, inspectionCell) <= 8 && sensoryLineOfSight(a.mapCell, inspectionCell)),
       empty: Boolean(s && !ensurePhysicalItemStacks().some(i => i.roomId === s.roomId && !i.carriedBy)),
       benchCondition: bench && labMapCellRoomId(bench.origin) === s.roomId ? bench.condition : 0 };
@@ -88337,7 +88354,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function updateForeignWorkspace(g) {
     const s = g?.foreignWorkspace; if (!s || scientistIsDead()) return false;
-    const changed = LeasedAnnex.expire(s, state.clock);
+    let changed = LeasedAnnex.expire(s, state.clock);
+    changed = updateForeignCommission(g) || changed;
     for (const task of state.tasks.filter(t => t.type === 'physicalDiagnostic' && t.data?.workstationId === s.benchId)) {
       const reason = physicalDiagnosticTaskBlockReason(task);
       if (reason) {
@@ -88369,6 +88387,100 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         benchCondition: bench && visible(bench.origin) ? bench.condition : s.observation?.benchCondition ?? null };
     }
     return changed;
+  }
+  function ensureForeignCommission(g) {
+    const w = g?.foreignWorkspace; if (!w || scientistIsDead()) return w?.commission || null;
+    if (!w.commission) w.commission = ForeignIndustrialAssay.create(w, foreignSupplierMarket(g)?.production);
+    return w.commission;
+  }
+  function updateForeignCommission(g) {
+    const w = g?.foreignWorkspace, existed = Boolean(w?.commission), s = ensureForeignCommission(g), market = s && foreignSupplierMarket(g), p = market?.production;
+    if (!s || !p || scientistIsDead()) return false;
+    const c = foreignWorkspaceContext(g); prepareForeignCommissionDeliveries(g);
+    // Same finite city producer trucks as ordinary industry. The reserved route
+    // ends at this named workspace, not a depot followed by a free last mile.
+    const support = LocalExchangeCarrier.support(market.carrier, state.clock);
+    const previous = p.lastAt; LocalMarketProduction.advance(p, state.clock, market.listings, support.supplier);
+    let changed = LocalServices.advance(s.service, p, state.clock) || p.lastAt !== previous || !existed;
+    for (const job of s.service.jobs) {
+      const receipt = p.serviceDepot?.[job.shipmentId];
+      if (!receipt || receipt.destination?.propertyId !== w.property.id || receipt.destination.cityId !== g.cityId
+        || receipt.serviceJobId !== job.id || receipt.sampleAt !== job.sampleAt || job.sampleStackId) continue;
+      const item = createPhysicalItemStack('inventory', 'diagnosticSample', 1, { roomId: w.roomId, cell: w.site.entry },
+        { tags: ['sealed', 'industrial-portion'], sourceLabels: [`${s.service.client.organization}: held ${job.sourceGood} batch, portion 0.1, collected ${formatClock(job.sampleAt)}`] });
+      if (!item) continue;
+      job.sampleStackId = item.id; job.receivedAt = receipt.deliveredAt;
+      if (LocalServices.active(job)) job.status = 'awaitingAssay';
+      const d = ensureDiagnosticState();
+      d.samples.push(Diagnostics.normalizeSample({ id: `diagnostic-sample-${d.nextSampleNumber++}`, stackId: item.id,
+        methodId: 'industrialBatchPortion', targetKind: 'industrialService', targetId: job.id,
+        targetLabel: `${s.service.client.organization} captured ${job.sourceGood} batch`, cell: item.cell, collectedAt: job.sampleAt,
+        captured: { industrialService: { jobId: job.id, burden: job.burden, cityId: g.cityId, propertyId: w.property.id } } }, d.samples.length));
+      delete p.serviceDepot[job.shipmentId];
+      changed = true;
+    }
+    ForeignIndustrialAssay.observe(s, w, p, c, state.clock);
+    return changed;
+  }
+  function prepareForeignCommissionDeliveries(g) {
+    const w = g?.foreignWorkspace, s = w?.commission, p = s && foreignSupplierMarket(g)?.production;
+    if (!p || scientistIsDead()) return;
+    const blocked = ForeignIndustrialAssay.deliveryReason(s, w, p, foreignWorkspaceContext(g), state.clock);
+    for (const sh of p.shipments.filter(sh => sh.destination?.propertyId === w.property.id)) {
+      sh.destination.endsAt = w.lease?.endsAt || 0; sh.destination.closed = Boolean(blocked);
+    }
+  }
+  function recordIndustrialServiceAssay(sample, result, now) {
+    const captured = sample?.captured?.industrialService; if (!captured) return false;
+    if (!captured.cityId) return state.localServices && LocalServices.recordAssay(state.localServices, captured.jobId, result, sample.collectedAt, now);
+    const w = passengerReceptionGate(captured.cityId)?.foreignWorkspace;
+    const service = w?.property.id === captured.propertyId && w.commission?.service;
+    const job = service?.jobs.find(j => j.id === captured.jobId);
+    return Boolean(job?.sampleStackId === sample.stackId && LocalServices.recordAssay(service, captured.jobId, result, sample.collectedAt, now));
+  }
+  function foreignCommissionAction(action, options = {}) {
+    const g = passengerReceptionGate(), w = ensureForeignWorkspace(g), s = ensureForeignCommission(g);
+    if (!s || scientistIsDead()) return false;
+    updateForeignWorkspace(g);
+    const c = foreignWorkspaceContext(g); c.busy = surveyBusy() || Boolean(g.visitorAdmission?.job);
+    const r = ForeignIndustrialAssay.action(s, w, foreignSupplierMarket(g)?.production, c, state.clock, action, options, ensureEconomy());
+    if (r.ok && action === 'submit') recordLegalLedger('foreignServiceIncome', `${s.service.client.name} received the exact report through the original workspace liaison; batch ${r.job.lotStatus}.`, { amount: r.amount });
+    updateForeignCommission(g); surveyEvent(r.ok ? `Foreign industrial assay: ${action}. ${s.service.history.at(-1)?.summary || 'Exact terms reviewed.'}` : r.reason || 'No supported funded commission is available.');
+    persist(); render(); return Boolean(r.ok);
+  }
+  function renderForeignCommission(g) {
+    const panel = document.createElement('section'); panel.dataset.foreignIndustrialAssay = 'true';
+    panel.append(textEl('h4', 'Foreign Industrial Assay Commission'));
+    const w = g?.foreignWorkspace, s = ensureForeignCommission(g), p = s && foreignSupplierMarket(g)?.production, c = foreignWorkspaceContext(g);
+    if (!s) { panel.append(textEl('p', 'No actual local chemical works supports a customer account here.')); return panel; }
+    c.busy = surveyBusy() || Boolean(g.visitorAdmission?.job);
+    const reason = ForeignIndustrialAssay.contactReason(s, w, p, c, state.clock);
+    const v = s.observation;
+    panel.append(textEl('p', reason || `${s.service.client.name} · ${s.service.client.organization}. Original branch representative ${w.actor.name} is the disclosed customer-account liaison, not a new worker or research sponsor.`));
+    const button = (label, action, options = {}) => { const b = storesActionButton(label, label, () => foreignCommissionAction(action, options)); b.disabled = Boolean(reason); panel.append(b); };
+    if (!reason) {
+      button('Review foreign assay commission terms', 'quote');
+      panel.append(textEl('p', LocalServices.offerReason(s.service, p, state.clock, ForeignIndustrialAssay.FREIGHT)
+        || (!LocalMarketProduction.serviceTruck(p) ? 'Original local trucks are busy or unfit; no replacement courier is created.' : 'One produced batch and funded local delivery are available.')));
+      if (s.quote) { panel.append(textEl('p', `${s.quote.scope} Fee ${formatMoney(s.quote.fee)}; customer-paid local freight ${formatMoney(s.quote.freight)}; quote expires ${formatClock(s.quote.expiresAt)}.`)); button('Accept exact foreign assay commission', 'accept', { expected: clonePlainObject(s.quote) }); }
+      for (const job of s.service.jobs.filter(LocalServices.active)) {
+        button('Cancel foreign assay commission', 'cancel', { jobId: job.id });
+        if (job.status === 'assayed') {
+          button('Review exact foreign assay report', 'preview', { jobId: job.id });
+          if (job.preview) { panel.append(textEl('p', `${job.preview.summary} Confidence ${job.preview.confidence}%; collected ${formatClock(job.preview.sampleCollectedAt)}, measured ${formatClock(job.preview.measuredAt)}.`)); button('Deliver reviewed foreign assay report', 'submit', { jobId: job.id }); }
+          if (job.result?.finding === 'inconclusive') button('Request another held-batch portion (customer freight $8)', 'resample', { jobId: job.id });
+        }
+      }
+    }
+    if (reason && c.atDesk && c.contact && c.originalBody && c.alive && !c.busy && s.bodyEpoch === c.bodyEpoch && ForeignAssayWorkspace.access(w, c, state.clock)) {
+      for (const j of s.service.jobs.filter(LocalServices.active)) {
+        const b = storesActionButton('Cancel foreign assay commission', 'Terminate this original unpaid commission; no assay work permission follows.', () => foreignCommissionAction('cancel', { jobId: j.id })); panel.append(b);
+      }
+    }
+    if (v) { panel.append(textEl('p', `${formatClock(v.at)} — personally received customer account: ${v.client.name}. These records do not update remotely.`));
+      for (const j of v.jobs) panel.append(textEl('p', `${j.id}: ${j.status}; original deadline ${formatClock(j.dueAt)}; batch ${j.lotStatus}. ${j.result?.summary || 'No conclusive report received.'}`));
+      for (const h of v.history.slice(-5)) panel.append(textEl('p', `${formatClock(h.at)} — ${h.summary}`)); }
+    return panel;
   }
   function foreignWorkspaceAction(action, options = {}) {
     const g = passengerReceptionGate(), s = ensureForeignWorkspace(g); if (!s || scientistIsDead()) return false;
@@ -88434,6 +88546,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         rest.disabled = !c.alive || !c.capable || surveyBusy(); panel.append(rest, renderForeignSelfCare());
       }
       if (v.observation) panel.append(textEl('p', `${formatClock(v.observation.at)} — personally observed bench ${v.observation.benchCondition ?? 'unknown'}%; goods ${v.observation.goods.map(i => `${i.quantity} ${i.key}`).join(', ') || 'none seen'}. Away reports do not refresh.`));
+      panel.append(renderForeignCommission(g));
     }
     for (const gate of state.penalFlights?.assistance?.cityApproach?.gates || []) for (const h of gate.foreignWorkspace?.history || []) panel.append(textEl('p', `${formatClock(h.at)} — ${h.summary}`));
     return panel;
@@ -90941,9 +91054,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         sampleCollectedAt: sample?.collectedAt ?? null
       });
       if (sample?.captured.resourceSurvey) saveResourceObservation(sample.captured.resourceSurvey, task, confidence, result, sample);
-      if (sample?.captured.industrialService && state.localServices) {
-        LocalServices.recordAssay(state.localServices, sample.captured.industrialService.jobId, result, sample.collectedAt, state.clock);
-      }
+      if (sample?.captured.industrialService) recordIndustrialServiceAssay(sample, result, state.clock);
       if (sample?.captured.confidentialService && state.confidentialServices) {
         const captured = sample.captured.confidentialService;
         if (ConfidentialServices.recordAssay(state.confidentialServices, captured.jobId, result, captured.round, state.clock)) {
