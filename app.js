@@ -22514,7 +22514,9 @@
         ? { time: workspace.lease.endsAt, label: 'Foreign workspace prepaid lease expiry', type: 'travel' } : null;
       const commissionJobs = workspace?.commission?.service.jobs.filter(LocalServices.active) || [];
       const commissionEvents = commissionJobs.map(j => ({ time: j.dueAt + 1, label: 'Foreign assay commission deadline', type: 'travel' }));
-      if (commissionJobs.some(j => j.status === 'sampleInTransit')) {
+      const reagentAllocation = workspace?.commission?.service.reservation;
+      if (reagentAllocation?.status === 'held') commissionEvents.push({ time: reagentAllocation.expiresAt, label: 'Foreign reagent price hold expiry', type: 'travel' });
+      if (commissionJobs.some(j => j.status === 'sampleInTransit') || reagentAllocation?.status === 'purchased') {
         const p = foreignSupplierMarket(passengerReceptionGate())?.production;
         if (p) commissionEvents.push({ time: p.lastAt + LocalMarketProduction.HOUR, label: 'Foreign industrial sample delivery checkpoint', type: 'travel' });
       }
@@ -88402,6 +88404,25 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const support = LocalExchangeCarrier.support(market.carrier, state.clock);
     const previous = p.lastAt; LocalMarketProduction.advance(p, state.clock, market.listings, support.supplier);
     let changed = LocalServices.advance(s.service, p, state.clock) || p.lastAt !== previous || !existed;
+    changed = ForeignIndustrialAssay.dispatchReservation(s, w, p, c, state.clock) || changed;
+    const allocation = s.service.reservation, allocationReceipt = allocation && p.serviceDepot?.[allocation.shipmentId];
+    if (allocation?.status === 'purchased' && !allocation.receipt && allocationReceipt?.serviceReservationId === allocation.id
+      && allocationReceipt.destination?.propertyId === w.property.id && allocationReceipt.destination.cityId === g.cityId
+      && allocationReceipt.cargo === allocation.good && allocationReceipt.quantity === allocation.quantity) {
+      const item = createPhysicalItemStack('resources', allocation.good, allocation.quantity, { roomId: w.roomId, cell: w.site.entry },
+        { tags: ['legalfreight', 'factory-reagent-allocation'], sourceLabels: [g.cityId, s.service.client.facilityId, allocation.id,
+          'Owned foreign customer-backed reagent allocation; original truck workspace receipt'] });
+      if (item) {
+        allocation.receivedAt = allocationReceipt.deliveredAt; allocation.status = 'received'; allocation.receivingWorkSeconds = 0;
+        w.actor.fatigue += .1;
+        allocation.receipt = { at: allocationReceipt.deliveredAt, stackId: item.id, quantity: item.quantity,
+          cityId: g.cityId, propertyId: w.property.id, facilityId: s.service.client.facilityId, shipmentId: allocation.shipmentId };
+        s.service.history.push({ at: allocationReceipt.deliveredAt, kind: 'reservationReceived', sourceId: allocation.id,
+          summary: 'Two paid original factory reagent units physically delivered to the named workspace; no remote stock or recurring order created.' });
+        s.service.history = s.service.history.slice(-60); delete p.serviceDepot[allocation.shipmentId]; changed = true;
+        syncPhysicalReadModels();
+      }
+    }
     for (const job of s.service.jobs) {
       const receipt = p.serviceDepot?.[job.shipmentId];
       if (!receipt || receipt.destination?.propertyId !== w.property.id || receipt.destination.cityId !== g.cityId
@@ -88427,7 +88448,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!p || scientistIsDead()) return;
     const blocked = ForeignIndustrialAssay.deliveryReason(s, w, p, foreignWorkspaceContext(g), state.clock);
     for (const sh of p.shipments.filter(sh => sh.destination?.propertyId === w.property.id)) {
-      sh.destination.endsAt = w.lease?.endsAt || 0; sh.destination.closed = Boolean(blocked);
+      sh.destination.endsAt = w.lease?.endsAt || 0;
+      sh.destination.closed = sh.serviceReservationId
+        ? Boolean(ForeignIndustrialAssay.reservationDeliveryReason(s, w, p, foreignWorkspaceContext(g), state.clock)) : Boolean(blocked);
     }
   }
   function recordIndustrialServiceAssay(sample, result, now) {
@@ -88443,10 +88466,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!s || scientistIsDead()) return false;
     updateForeignWorkspace(g);
     const c = foreignWorkspaceContext(g); c.busy = surveyBusy() || Boolean(g.visitorAdmission?.job);
-    const r = ForeignIndustrialAssay.action(s, w, foreignSupplierMarket(g)?.production, c, state.clock, action, options, ensureEconomy());
+    const market = foreignSupplierMarket(g);
+    const r = ForeignIndustrialAssay.action(s, w, market?.production, c, state.clock, action, options, ensureEconomy(), foreignReagentMarketQuote(g));
     if (r.ok && action === 'submit') recordLegalLedger('foreignServiceIncome', `${s.service.client.name} received the exact report through the original workspace liaison; batch ${r.job.lotStatus}.`, { amount: r.amount });
+    if (r.ok && action === 'purchaseReagent') recordLegalLedger('foreignReagentPurchase', `Paid ${formatMoney(r.total)} for two held factory reagent units and original local truck delivery; title transferred, no usable stock before receipt.`,
+      { amount: -r.total, listingId: 'assayReagent', quantity: r.reservation.quantity, consignmentId: r.reservation.id });
     updateForeignCommission(g); surveyEvent(r.ok ? `Foreign industrial assay: ${action}. ${s.service.history.at(-1)?.summary || 'Exact terms reviewed.'}` : r.reason || 'No supported funded commission is available.');
     persist(); render(); return Boolean(r.ok);
+  }
+  function foreignReagentMarketQuote(g) {
+    const m = foreignSupplierMarket(g), def = COMMODITY_MARKET_LISTING_BY_ID.assayReagent, listing = m?.listings?.assayReagent;
+    if (!def?.buyable || def.section !== 'resources' || m?.id !== g?.cityId || !listing || !Number.isFinite(listing.supply) || listing.supply < 0
+      || !Number.isFinite(listing.demand) || listing.demand <= 0) return null;
+    const unitPrice = Math.ceil(IntercityTrade.quote(def, listing).ask);
+    return Number.isFinite(unitPrice) && unitPrice > 0 ? { cityId: m.id, good: 'assayReagent', unitPrice } : null;
   }
   function renderForeignCommission(g) {
     const panel = document.createElement('section'); panel.dataset.foreignIndustrialAssay = 'true';
@@ -88471,6 +88504,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           if (job.result?.finding === 'inconclusive') button('Request another held-batch portion (customer freight $8)', 'resample', { jobId: job.id });
         }
       }
+      panel.append(textEl('h4', 'Customer-backed Reagent Allocation'));
+      const unavailable = ForeignIndustrialAssay.reservationReason(s, p);
+      panel.append(textEl('p', unavailable || 'The same customer can hold two actual surplus reagent units. Normal local-market pricing; no discount, free supplies or automatic procurement.'));
+      if (!unavailable) button('Review foreign reagent reservation terms', 'reviewReservation');
+      if (s.reservationQuote && state.clock < s.reservationQuote.expiresAt) {
+        const q = s.reservationQuote;
+        panel.append(textEl('p', `${q.scope} Unit ask ${formatMoney(q.unitPrice)}, delivery ${formatMoney(q.freight)}, total ${formatMoney(q.total)}; proposal expires ${formatClock(q.expiresAt)}.`));
+        button('Reserve two foreign reagent units for four hours', 'reserveReagent', { expected: clonePlainObject(q) });
+      }
+      const allocation = s.service.reservation;
+      if (allocation?.status === 'held') {
+        panel.append(textEl('p', `Two original reagent units held until ${formatClock(allocation.expiresAt)}. Fixed unit ask ${formatMoney(allocation.goodsUnitPrice)}, delivery ${formatMoney(ForeignIndustrialAssay.FREIGHT)}, total ${formatMoney(allocation.unitPrice * allocation.quantity)}. No title or usable stock before payment and delivery.`));
+        button('Pay exact held foreign reagent terms', 'purchaseReagent', { expected: clonePlainObject(allocation.foreignTerms) });
+      }
     }
     if (reason && c.atDesk && c.contact && c.originalBody && c.alive && !c.busy && s.bodyEpoch === c.bodyEpoch && ForeignAssayWorkspace.access(w, c, state.clock)) {
       for (const j of s.service.jobs.filter(LocalServices.active)) {
@@ -88478,6 +88525,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
     }
     if (v) { panel.append(textEl('p', `${formatClock(v.at)} — personally received customer account: ${v.client.name}. These records do not update remotely.`));
+      for (const r of [...(v.reservationHistory || []), ...(v.reservation ? [v.reservation] : [])]) panel.append(textEl('p',
+        `${r.id}: ${r.status}; two reagent units at held ask ${formatMoney(r.goodsUnitPrice)}, eight marks delivery; price hold ended ${formatClock(r.expiresAt)}.${r.receipt ? ` Actual workspace receipt ${formatClock(r.receipt.at)}, original lot ${r.receipt.stackId}.` : ' No physical receipt yet.'}`));
       for (const j of v.jobs) panel.append(textEl('p', `${j.id}: ${j.status}; original deadline ${formatClock(j.dueAt)}; batch ${j.lotStatus}. ${j.result?.summary || 'No conclusive report received.'}`));
       for (const h of v.history.slice(-5)) panel.append(textEl('p', `${formatClock(h.at)} — ${h.summary}`)); }
     return panel;

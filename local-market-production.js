@@ -102,7 +102,8 @@
       state.serviceDepot ||= {};
       state.serviceDepot[shipment.id] = { cargo: shipment.cargo, quantity: shipment.quantity, deliveredAt: at };
       if (shipment.target === 'foreignWorkspace') Object.assign(state.serviceDepot[shipment.id], {
-        destination: copy(shipment.destination), serviceJobId: shipment.serviceJobId, sampleAt: shipment.sampleAt
+        destination: copy(shipment.destination), serviceJobId: shipment.serviceJobId, sampleAt: shipment.sampleAt,
+        serviceReservationId: shipment.serviceReservationId
       });
     }
     else if (shipment.target === 'workshops') state.inputs[shipment.cargo] = (state.inputs[shipment.cargo] || 0) + shipment.quantity;
@@ -240,12 +241,12 @@
   // Caller has already allocated exact customer-owned cargo. This books only
   // its facility-to-depot (or named local workspace) leg, sharing the ordinary
   // finite producer trucks. Neither booking nor payment creates the cargo.
-  function serviceTruck(state) {
-    return state?.trucks?.find(t => Number.isFinite(t.capacity) && t.capacity >= 1 && !t.shipment && !t.repairAt && capable(t) && t.fuelKm >= 8 && t.condition - 0.16 >= 50 && t.driver.fatigue + 0.32 <= 80);
+  function serviceTruck(state, quantity = 1) {
+    return state?.trucks?.find(t => Number.isFinite(t.capacity) && t.capacity >= quantity && !t.shipment && !t.repairAt && capable(t) && t.fuelKm >= 8 && t.condition - 0.16 >= 50 && t.driver.fatigue + 0.32 <= 80);
   }
   function bookServiceCargo(state, facilityId, cargo, quantity, at, destination = null) {
     const f = state?.facilities?.find(entry => entry.id === facilityId);
-    const truck = serviceTruck(state);
+    const truck = serviceTruck(state, quantity);
     if (!f?.routeOpen || !truck || !Number.isFinite(quantity) || quantity <= 0 || quantity > truck.capacity) return null;
     if (destination && (destination.cityId !== state.cityId || !destination.propertyId || !Number.isFinite(destination.endsAt) || destination.endsAt <= at)) return null;
     truck.fuelKm -= 8; truck.condition -= 0.16; truck.driver.fatigue += 0.32;
