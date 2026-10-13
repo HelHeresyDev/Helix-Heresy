@@ -98,6 +98,7 @@
   const ResourceSurveys = window.HelixResourceSurveys;
   const SurveyExpeditions = window.HelixSurveyExpeditions;
   const IntercityPassenger = window.HelixIntercityPassenger;
+  const PassengerFuel = window.HelixPassengerFuel;
   const ForeignReception = window.HelixForeignReception;
   const ForeignSupplies = window.HelixForeignSupplies;
   const TradeTripPreparation = window.HelixTradeTripPreparation;
@@ -16775,6 +16776,13 @@
         persist(); render(); return Boolean(g?.visitorAdmission);
       },
       selectIntercityConnection,
+      passengerFuelAction,
+      passengerFuelSnapshot: (amount = 100) => {
+        const s = state.intercityPassenger, fleet = s && passengerFuelFleet(s.location), support = fleet && LocalExchangeCarrier.support(fleet, state.clock);
+        const c = passengerFuelContext(s, fleet);
+        return clonePlainObject({ carrier: s, supplier: support?.supplier, support, context: c, money: ensureEconomy().money, clock: state.clock,
+          quote: PassengerFuel.quote(s, support?.supplier, c, amount, state.clock) });
+      },
       queuePassengerProvisions,
       passengerProvisionPreview: stackId => {
         const item = ensurePhysicalItemStacks().find(i => i.id === stackId);
@@ -22408,11 +22416,13 @@
         : permit ? { time: Math.max(state.clock + 1, permit.expiresAt - (permit.warned ? 0 : 900)), label: 'Visitor permission deadline', type: 'travel' } : null;
       const supplyOrder = ForeignSupplies.active(passengerReceptionGate()?.visitorSupplies);
       const supplyEvent = supplyOrder && !supplyOrder.delay ? { time: state.clock + 30, label: supplyOrder.kind === 'sale' ? 'Physical foreign sale receipt' : 'Physical personal-provisions delivery', type: 'travel' } : null;
+      const fuelFleet = passenger && passengerFuelFleet(passenger.location), fuelSupplier = fuelFleet?.support?.supplier;
+      const fuelEvent = PassengerFuel.nextEvent(passenger, fuelSupplier, passengerFuelContext(passenger, fuelFleet, fuelSupplier?.passengerService), state.clock);
       const travelEvent = receptionEvent || (IntercityPassenger.moving(passenger)
         ? { time: Math.max(state.clock + 60, passenger.trip.arrivalWindow.end), label: 'Passenger carrier arrival estimate', type: 'travel' }
         : passenger?.rest && intercityLocal() ? { time: state.clock + passenger.rest.remaining, label: 'Supplied passenger-driver rest checkpoint', type: 'travel' }
         : unsupportedActive() ? (Number.isFinite(remoteAt) ? { time: remoteAt, label: "Known charter schedule checkpoint", type: "travel" } : null) : StrategicJourneys.nextPublicEvent({ journeys: journey ? [journey] : [] }, state.clock));
-      return [clinicEvent, task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, supplyEvent, nextLeasedAnnexEvent(), nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
+      return [clinicEvent, task && { time: task.dueAt, label: task.label, type: "queue" }, travelEvent, supplyEvent, fuelEvent, nextLeasedAnnexEvent(), nextVitalFullEvent("stamina"), nextVitalFullEvent("mana")]
         .filter((event) => event && (!options.includeTypes || options.includeTypes.includes(event.type)) && event.time >= state.clock)
         .sort((a, b) => a.time - b.time)[0] || null;
     }
@@ -23270,6 +23280,7 @@
   }
 
   function completeDueTasks() {
+    updatePassengerFuelServices();
     updatePassengerProvisionWork();
     let changeCount = 0;
     let completedAny = true;
@@ -88285,7 +88296,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function selectIntercityConnection() {
     const s = state.intercityPassenger, point = intercityStand();
     if (!s || !intercityLocal() || scientistRoomId() !== point.roomId || WildernessBeasts.distance(scientistMapCell(), point.cell) > 1
-      || s.booking || s.rest || !passengerBodyCurrent() || surveyBusy() || passengerReceptionGate()?.visitorAdmission?.job || scientistIsDead() || actorIsIncapacitated('scientist') || escortContractActive()) return false;
+      || s.booking || s.rest || passengerFuelBusy(s) || !passengerBodyCurrent() || surveyBusy() || passengerReceptionGate()?.visitorAdmission?.job || scientistIsDead() || actorIsIncapacitated('scientist') || escortContractActive()) return false;
     if (!state.passengerConnection) {
       const map = activeWorldRecord?.generatedData?.strategicMap, cityId = s.location;
       const prepared = s.preparedConnectionTestSource;
@@ -88317,7 +88328,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function bookIntercityPassenger(destinationId) {
     const s = ensureIntercityPassenger();
-    if (!s || !passengerBodyCurrent() || !intercityLocal() || scientistRoomId() !== intercityStand().roomId || passengerReceptionGate()?.visitorAdmission?.job || !['home', 'foreign'].includes(s.phase) || surveyBusy() || scientistIsDead() || actorIsIncapacitated('scientist') || escortContractActive()) return false;
+    if (!s || passengerFuelBusy(s) || !passengerBodyCurrent() || !intercityLocal() || scientistRoomId() !== intercityStand().roomId || passengerReceptionGate()?.visitorAdmission?.job || !['home', 'foreign'].includes(s.phase) || surveyBusy() || scientistIsDead() || actorIsIncapacitated('scientist') || escortContractActive()) return false;
     if (!IntercityPassenger.connectionDestinations(state.passengerConnection, s, ensureStrategicJourneys()).includes(destinationId)) return false;
     const q = IntercityPassenger.quote(s, ensureStrategicJourneys(), destinationId);
     const reason = IntercityPassenger.book(s, q, IntercityPassenger.load(surveyCarriedStacks()), ensureEconomy(), state.clock, ensureScientistIdentity().bodyEpoch);
@@ -88338,7 +88349,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       carrierCurrent: Boolean(s && (!d || d.provisionBranchId === s.source.branchId && d.provisionDriverId === s.driver.id && d.provisionCityId === s.location)),
       sameBody: passengerBodyCurrent() && (!d || d.provisionBodyEpoch === ensureScientistIdentity().bodyEpoch),
       bodyEpoch: ensureScientistIdentity().bodyEpoch, alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist'),
-      free: !restrictedOffsiteStay() && !currentDetentionRaid(), busy: !task && (surveyBusy() || scientistQueueTasks().some(t => t.data?.action === 'passengerProvisions')) || Boolean(passengerReceptionGate()?.visitorAdmission?.job) };
+      free: !restrictedOffsiteStay() && !currentDetentionRaid(), busy: passengerFuelBusy(s) || !task && (surveyBusy() || scientistQueueTasks().some(t => t.data?.action === 'passengerProvisions')) || Boolean(passengerReceptionGate()?.visitorAdmission?.job) };
   }
   function passengerProvisionReason(task) {
     const d = task.data, item = ensurePhysicalItemStacks().find(i => i.id === d.stackId);
@@ -88393,6 +88404,87 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       surveyEvent('One original field-ration pack physically handed over: four hours of driver provisions, capped at 96 hours. No fuel, wear, health or fatigue restored; return remains separate.');
     }
     return true;
+  }
+  function passengerFuelFleet(cityId) {
+    const economy = ensureEconomy(), network = ensureStrategicJourneys();
+    const home = network.destinations.find(d => d.id === network.nearestSettlementDestinationId);
+    if (home?.cityId === cityId) {
+      const fleet = exchangeCarrier();
+      return [home.id, cityId].includes(fleet.cityId) ? fleet : null;
+    }
+    const fleet = economy.commodityMarket.intercityTrade?.neighbors.find(n => n.id === cityId)?.carrier;
+    return fleet?.cityId === cityId ? fleet : null;
+  }
+  function passengerFuelBusy(s) {
+    if (!s) return false;
+    const o = passengerFuelFleet(s.location)?.support?.supplier?.passengerService;
+    return Boolean(o && o.quote.vehicleId === s.vehicle.id && !o.receipt && !o.cancelled);
+  }
+  function passengerFuelContext(s, fleet, order = null) {
+    const supplier = fleet?.support?.supplier, selected = s && state.intercityPassenger?.vehicle.id === s.vehicle.id;
+    const point = selected ? intercityStand() : order?.quote.stand || intercityStand();
+    return { local: Boolean(selected && intercityLocal()),
+      atStand: Boolean(selected && scientistRoomId() === point.roomId && sameMapCell(scientistMapCell(), point.cell)),
+      sameBody: passengerBodyCurrent() && (!order || order.quote.bodyEpoch === ensureScientistIdentity().bodyEpoch),
+      bodyEpoch: ensureScientistIdentity().bodyEpoch, alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist'),
+      free: !restrictedOffsiteStay() && !currentDetentionRaid() && !escortContractActive(),
+      busy: surveyBusy() || Boolean(state.combat?.routineSuspension) || Boolean(passengerReceptionGate()?.visitorAdmission?.job),
+      sourceCurrent: Boolean(s && fleet && passengerFuelFleet(order?.quote.cityId || s.location) === fleet
+        && (!order || supplier.vehicle.id === order.quote.supplierVehicleId && supplier.vehicle.driver.id === order.quote.supplierDriverId
+          && supplier.distanceKm === order.quote.distanceKm)),
+      stand: clonePlainObject(point), distanceKm: supplier?.distanceKm };
+  }
+  function passengerFuelAction(action, expected = null) {
+    const s = ensureIntercityPassenger(), fleet = s && passengerFuelFleet(s.location);
+    const support = fleet && LocalExchangeCarrier.support(fleet, state.clock), supplier = support?.supplier;
+    if (!supplier || !intercityLocal()) return false;
+    const c = passengerFuelContext(s, fleet, supplier.passengerService);
+    const ok = action === 'request' ? PassengerFuel.request(s, supplier, c, expected, ensureEconomy(), support, state.clock)
+      : action === 'cancel' && supplier.passengerService?.quote.vehicleId === s.vehicle.id && PassengerFuel.cancel(supplier, c, state.clock);
+    surveyEvent(ok ? action === 'request' ? 'Paid exact fuel terms: the original local supplier truck is dispatched. No fuel reaches the passenger tank until physical attended transfer.'
+      : 'Fuel service canceled. Handling is spent; unused fuel and its payment return only with the original truck.' : 'Fuel terms changed or actual source, attendance, truck or capacity is unavailable; no new payment.');
+    persist(); render(); return Boolean(ok);
+  }
+  function updatePassengerFuelServices() {
+    if (scientistIsDead()) return 0;
+    const economy = ensureEconomy(), fleets = [economy.exchangeCarrier, ...(economy.commodityMarket.intercityTrade?.neighbors || []).map(n => n.carrier)].filter(Boolean);
+    let changes = 0;
+    for (const fleet of fleets) {
+      const support = fleet.support, supplier = support?.supplier, o = supplier?.passengerService;
+      if (!o) continue;
+      const s = [state.intercityPassenger, state.passengerConnection?.otherCarrier].find(s => s?.vehicle.id === o.quote.vehicleId);
+      const hadReceipt = Boolean(o.receipt), c = passengerFuelContext(s, fleet, o);
+      changes += Number(PassengerFuel.advance(s, supplier, c, economy, support, state.clock));
+      if (c.local && !hadReceipt && o.receipt) {
+        surveyEvent(`Original supplier physically transferred ${o.receipt.amount} vehicle-km of fuel. No wear, health, fatigue or provisions restored; return remains separate.`);
+        state.paused = true;
+      }
+    }
+    return changes;
+  }
+  function renderPassengerFuel(s) {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.passengerFuel = 'true';
+    panel.append(textEl('strong', 'Passenger Carrier Refuelling'));
+    panel.append(textEl('p', '100, 200 or 400 vehicle-km; $20 handling plus $0.05/km, capped at the original 2,400-km tank. Original city supplier and truck only; no repair, duty recovery or guaranteed return. Two minutes of attended transfer after real local delivery. Handling is spent on dispatch; canceled unused fuel is refunded only on physical supplier return.'));
+    const fleet = passengerFuelFleet(s.location), support = fleet && LocalExchangeCarrier.support(fleet, state.clock), supplier = support?.supplier;
+    if (!supplier) { panel.append(textEl('p', 'No existing source-backed local fuel supplier is available in this city.')); return panel; }
+    const o = supplier.passengerService, c = passengerFuelContext(s, fleet, o);
+    const button = (label, run, disabled) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = disabled; b.onclick = run; panel.append(b); };
+    if (o) {
+      if (o.quote.vehicleId === s.vehicle.id && o.quote.bodyEpoch === c.bodyEpoch) {
+        panel.append(textEl('p', `${supplier.vehicle.driver.name} / ${o.quote.supplierVehicleId}: ${o.phase}. ${o.message} Recorded attended transfer ${formatDuration(o.progress)} / two minutes. No booking or carrier transfer during unfinished refuelling.`));
+        button('Cancel Unfinished Passenger Fuel Service', () => passengerFuelAction('cancel'), !c.alive || o.cancelled || Boolean(o.receipt));
+      } else panel.append(textEl('p', 'The original supplier truck has another assignment; no duplicate vehicle is provided.'));
+    } else for (const amount of [100, 200, 400]) {
+      const q = PassengerFuel.quote(s, supplier, c, amount, state.clock);
+      if (q) panel.append(textEl('p', `Exact ${amount}-km allocation: $${q.total}; saved ${q.distanceKm}-km local road each way, estimated ${formatDuration(q.seconds)} including transfer and return. Quote expires in one minute. Tank currently ${s.vehicle.fuelKm.toFixed(1)} / 2,400 km.`));
+      button(`Request ${amount}-km Fuel Service ($${20 + amount * .05})`, () => passengerFuelAction('request', q), !q || ensureEconomy().money < q.total);
+    }
+    if (!o && !PassengerFuel.quote(s, supplier, c, 100, state.clock)) panel.append(textEl('p', 'Physically attend the parked stand with no conflicting work. Tank room, original source stock, open local road and available capable truck must support the whole delivery; no emergency source is created.'));
+    for (const r of (s.fuelReceipts || []).slice(-3)) panel.append(textEl('p', `${formatClock(r.at)} — original fuel receipt ${r.id}: ${r.amount} vehicle-km into ${r.vehicleId}, paid $${r.total}.`));
+    const returned = (supplier.passengerHistory || []).filter(o => o.quote.vehicleId === s.vehicle.id && o.quote.bodyEpoch === c.bodyEpoch).at(-1);
+    if (returned) panel.append(textEl('p', `${formatClock(returned.lastAt)} — original supplier truck physically returned; unused-fuel refund $${returned.refund}.`));
+    return panel;
   }
   function materializeIntercitySpaces(s) {
     if (s.spaces?.cityId === s.booking.destinationCityId) return;
@@ -88471,6 +88563,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!local) { panel.append(textEl('p', 'Reach the existing home municipal survey-ground rendezvous first; city control is not required. Carrier records while away are dated, not live intelligence.')); return panel; }
     if (!s) { panel.append(textEl('p', 'No capable source-backed commercial passenger carrier is available at this city.')); return panel; }
     const v = IntercityPassenger.publicView(s), busy = surveyBusy() || Boolean(passengerReceptionGate()?.visitorAdmission?.job) || scientistIsDead() || actorIsIncapacitated('scientist');
+    const carrierBusy = busy || passengerFuelBusy(s);
     panel.append(textEl('p', `${v.label} · ${v.phase} · provider waiting provisions ${v.waitingHours} hours. One original driver and vehicle; no automatic resupply or rescue.`));
     const otherReport = state.passengerConnection?.otherCarrier?.observation;
     if (otherReport) panel.append(textEl('p', `Other original carrier last seen ${formatClock(otherReport.at)}: ${otherReport.view.label}, ${otherReport.view.phase}, ${otherReport.view.waitingHours} hours of provisions. This is a dated report, not a guaranteed return.`));
@@ -88483,17 +88576,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (v.booking) {
       panel.append(textEl('p', `Accepted fare $${v.booking.fee}; boarding expires ${formatClock(v.booking.expiresAt)}. ${v.booking.cargoKg} kg / ${v.booking.cargoL} L.`));
-      button('Walk to Vehicle and Board', () => queueIntercityPassenger('passengerBoard'), busy || Boolean(intercityPassengerWorkReason('passengerBoard')));
+      button('Walk to Vehicle and Board', () => queueIntercityPassenger('passengerBoard'), carrierBusy || Boolean(intercityPassengerWorkReason('passengerBoard')));
       button('Cancel Unlaunched Booking (Refund Fare)', () => { if (IntercityPassenger.cancel(s, ensureEconomy())) { surveyEvent('Unlaunched passenger booking cancelled; exact fare refunded once. No fuel, condition or provisions restored.'); persist(); render(); } }, busy);
     } else if (['home', 'foreign'].includes(v.phase)) {
+      panel.append(renderPassengerFuel(s));
       const destinations = IntercityPassenger.connectionDestinations(state.passengerConnection, s, ensureStrategicJourneys());
       if (!destinations.length) panel.append(textEl('p', 'No known directly connected usable corridor destination.'));
       for (const id of destinations) {
         const q = IntercityPassenger.quote(s, ensureStrategicJourneys(), id), reason = IntercityPassenger.reason(s, q, IntercityPassenger.load(surveyCarriedStacks()), ensureEconomy().money);
         panel.append(textEl('p', q.ok ? `${v.phase === 'foreign' ? s.originOuter ? 'Return to intermediate city outer stand' : 'Return to home municipal ground' : q.destinationLabel}: $${q.fee}, ${q.km} km, one seat, ${q.cargoKg} kg / ${q.cargoL} L. ${reason}` : reason));
-        button(v.phase === 'foreign' ? 'Accept Separate Return Fare' : `Accept Passenger Fare to ${q.destinationLabel || id}`, () => bookIntercityPassenger(id), busy || Boolean(reason) || scientistRoomId() !== intercityStand().roomId);
+        button(v.phase === 'foreign' ? 'Accept Separate Return Fare' : `Accept Passenger Fare to ${q.destinationLabel || id}`, () => bookIntercityPassenger(id), carrierBusy || Boolean(reason) || scientistRoomId() !== intercityStand().roomId);
       }
-      button(v.rest ? 'Original Driver Resting' : 'Supply Eight Hours of Driver Rest', () => { if (IntercityPassenger.rest(s)) { surveyEvent('Original driver started an eight-hour provision-funded rest; no injury, fuel or condition is restored.'); persist(); render(); } }, busy || v.rest || s.provisionsSeconds < 8 * 3600);
+      button(v.rest ? 'Original Driver Resting' : 'Supply Eight Hours of Driver Rest', () => { if (IntercityPassenger.rest(s)) { surveyEvent('Original driver started an eight-hour provision-funded rest; no injury, fuel or condition is restored.'); persist(); render(); } }, carrierBusy || v.rest || s.provisionsSeconds < 8 * 3600);
       panel.append(textEl('p', 'Driver provision resupply: one owned carried field-ration pack gives four hours, capped at 96 hours; thirty seconds of physical handoff per pack. This spends your own survival food, restores no fatigue or vehicle resources, and guarantees no return.'));
       const provisionTask = scientistQueueTasks().find(t => t.data?.action === 'passengerProvisions');
       if (provisionTask) {
@@ -88510,7 +88604,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         const point = intercityStand(), atTransfer = scientistRoomId() === point.roomId && WildernessBeasts.distance(scientistMapCell(), point.cell) <= 1;
         if (!atTransfer) button('Walk to Passenger Transfer Stand', () => startScientistMove(point.roomId, { toCell: point.cell, allowMultiRoom: true }), busy);
         button(c ? s.originOuter ? 'Select Original Homeward Carrier' : 'Select Original Onward Carrier' : 'Inspect and Select Local Onward Carrier', selectIntercityConnection,
-          busy || Boolean(s.booking || s.rest || c?.otherCarrier?.booking || c?.otherCarrier?.rest) || Boolean(c && !c.otherCarrier) || !atTransfer);
+          carrierBusy || Boolean(s.booking || s.rest || c?.otherCarrier?.booking || c?.otherCarrier?.rest) || Boolean(c && !c.otherCarrier) || !atTransfer);
       }
     }
     const needs = ensureWildernessSurvival();

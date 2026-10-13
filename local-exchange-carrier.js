@@ -36,12 +36,12 @@
   function advanceSupport(fleet, now) {
     const s = support(fleet, now), elapsed = Math.max(0, now - s.lastAt), supplier = s.supplier, truck = supplier.vehicle;
     s.lastAt = Math.max(now, s.lastAt);
-    if (supplier.repairAt && !supplier.shipment && now >= supplier.repairAt) {
+    if (supplier.repairAt && !supplier.shipment && !supplier.passengerService && now >= supplier.repairAt) {
       truck.condition = Math.min(100, truck.condition + 25); supplier.repairAt = null;
       record(s, now, 'Supplier workshop completed truck maintenance using allocated local parts.');
     }
     for (const v of fleet.vehicles.filter(v => !v.assignment && v.location === 'depot')) v.driver.fatigue = Math.max(0, v.driver.fatigue - elapsed / 3600 * 15);
-    if (!supplier.shipment) truck.driver.fatigue = Math.max(0, truck.driver.fatigue - elapsed / 3600 * 15);
+    if (!supplier.shipment && !supplier.passengerService) truck.driver.fatigue = Math.max(0, truck.driver.fatigue - Math.min(elapsed, Math.max(0, now - (supplier.passengerReturnedAt || 0))) / 3600 * 15);
     // Explicit saved legs: supplier -> exchange depot -> supplier. Cargo is credited
     // only at the depot; the independently fuelled supplier truck stays occupied on return.
     const shipment = supplier.shipment;
@@ -75,7 +75,7 @@
         record(s, now, `Maintenance started for ${repair.id}; two parts and operator-paid workshop labour allocated.`);
       }
     }
-    if (!supplier.shipment && (fleet.fuelReserveKm < 400 || s.parts < 4)) {
+    if (!supplier.shipment && !supplier.passengerService && (fleet.fuelReserveKm < 400 || s.parts < 4)) {
       const fuelKm = Math.min(600, Math.max(0, 1000 - fleet.fuelReserveKm), supplier.fuelStockKm);
       const parts = Math.min(12 - s.parts, supplier.partsStock);
       const quantityParts = Math.max(0, parts), cost = fuelKm * 0.05 + quantityParts * 5;
@@ -95,7 +95,7 @@
         truck.location = 'en route to exchange depot'; s.reason = 'Awaiting physical supplier delivery.';
         record(s, now, `Paid ${cost} from operator account for allocated supplier cargo; truck dispatched.`);
       }
-    } else if (!supplier.shipment) s.reason = repair && !s.workshop ? 'Maintenance awaiting stocked parts or operator funds.' : '';
+    } else if (!supplier.shipment) s.reason = supplier.passengerService ? 'Original supplier truck reserved for physical passenger refuelling and return.' : repair && !s.workshop ? 'Maintenance awaiting stocked parts or operator funds.' : '';
     return s;
   }
   function depotSpace(consignments) { return Math.max(0, DEPOT_CAPACITY - consignments.filter(c => c.direction === 'inbound' && ACTIVE.includes(c.status)).reduce((n, c) => n + c.quantity, 0)); }
