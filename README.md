@@ -804,6 +804,16 @@ Walk back to the original liaison's desk, review the exact dated report and expl
 
 Focused checks: `npx playwright test tests/foreign-industrial-assay.spec.js tests/foreign-industrial-assay-browser.spec.js --project=chromium --workers=1`.
 
+### Foreign municipal advisory assay
+
+At the same personally reached leased workspace, a supported receiving-city protected-provisioning office can become an optional customer. Its existing charter, treasury funding, functioning institution and surviving population back one persistent named sample officer and one saved 128-mark departmental allocation. A combined emergency/works institution can act through its actual provisioning branch; unsupported or displaced offices cannot offer this service. This is not a second factory account, a replenishing treasury or a home-city appointment prerequisite, and it does not require the private customer's two-report threshold.
+
+Personally review exact one-minute terms with the officer, obtain the original factory liaison's explicit consent, then accept the supplier-consented contract. Consent holds one actual produced batch and captures its condition; an unbooked expired consent returns that whole batch once. Acceptance escrows 120 city marks and spends eight separately funded marks on the original producer truck. Only its physical destination receipt creates the sealed 0.1 sample; driver, route and receiver failures retain the original cargo. The scientist supplies real reagent and their Assay Case for ordinary manual bench analysis.
+
+Walk back, review the identified report and explicitly deliver it to the original municipal officer within the original 48 hours. Conclusive clean and contaminated findings pay the same 120 marks, once, on actual advisory report receipt—not on assay completion. Inconclusive work is unpaid; this bounded allocation funds one sample delivery, not automatic resampling. The supplier retains and voluntarily withholds its 0.9 remainder under the consent terms. The municipality issues no release, quarantine or enforcement order. Cancellation/expiry refunds only unpaid city escrow, retaining spent freight, original samples and the supplier's untested remainder. Personal termination remains possible at the retrieval desk after lease expiry. Original bodies, cargo, budgets, partial assays and dated personally received knowledge survive saves; death freezes work. No private customer trust, research license, divine endorsement, maps, political recognition or ambition completion follows.
+
+Focused checks: `npx playwright test tests/foreign-municipal-assay.spec.js tests/foreign-municipal-assay-browser.spec.js --project=chromium --workers=1`.
+
 ### Foreign customer-backed reagent allocations
 
 After two successfully received conclusive reports, the same foreign chemical-works customer can separately offer two actual surplus reagent units. Clean and contaminated truthful findings qualify equally; a confidence score without received reports does not. The factory must retain two units for its own needs. Ordinary visitor-counter purchasing remains unchanged, and this relationship grants no automatic supplies, discount or wider trading rights.

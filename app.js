@@ -107,6 +107,7 @@
   const ForeignResearchInquiry = window.HelixForeignResearchInquiry;
   const ForeignAssayWorkspace = window.HelixForeignAssayWorkspace;
   const ForeignIndustrialAssay = window.HelixForeignIndustrialAssay;
+  const ForeignMunicipalAssay = window.HelixForeignMunicipalAssay;
   const ForeignReagentImports = window.HelixForeignReagentImports;
   const ForeignSupplies = window.HelixForeignSupplies;
   const TradeTripPreparation = window.HelixTradeTripPreparation;
@@ -16794,9 +16795,14 @@
       foreignReceptionSnapshot: () => { const g = passengerReceptionGate(), c = foreignReceptionContext(g); return clonePlainObject({ gate: g, context: c, quote: ForeignReception.quote(g, c), permission: foreignVisitorPermission(g), clock: state.clock, roomId: scientistRoomId(), cell: scientistMapCell(), money: ensureEconomy().money, doors: g ? state.doors[g.doorId] : null, busy: surveyBusy(), tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) }); },
       foreignResearchInquiryAction,
       foreignCommissionAction,
+      foreignMunicipalAssayAction,
+      setForeignMunicipalAssayTestSource: source => {
+        const g = passengerReceptionGate(); if (!g || g.foreignWorkspace?.municipalAssay) return false;
+        g.preparedMunicipalAssayTestSource = clonePlainObject(source); updateForeignWorkspace(g); persist(); render(); return true;
+      },
       foreignCommissionSnapshot: () => {
         const g = passengerReceptionGate(), w = ensureForeignWorkspace(g); updateForeignWorkspace(g);
-        return clonePlainObject({ commission: w?.commission, production: g && foreignSupplierMarket(g)?.production,
+        return clonePlainObject({ commission: w?.commission, municipal: w?.municipalAssay, production: g && foreignSupplierMarket(g)?.production,
           clock: state.clock, money: ensureEconomy().money, stacks: ensurePhysicalItemStacks(), diagnostics: ensureDiagnosticState() });
       },
       foreignWorkspaceAction,
@@ -33242,6 +33248,8 @@
     const supplier = context?.penalFlights?.assistance?.cityApproach?.gates.map(g => g.visitorSupplies?.actor).find(a => a?.id === id);
     const assayRepresentative = context?.penalFlights?.assistance?.cityApproach?.gates.map(g => g.foreignWorkspace?.actor).find(a => a?.id === id);
     if (assayRepresentative) return assayRepresentative;
+    const municipalSampleOfficer = context?.penalFlights?.assistance?.cityApproach?.gates.map(g => g.foreignWorkspace?.municipalAssay?.actor).find(a => a?.id === id);
+    if (municipalSampleOfficer) return municipalSampleOfficer;
     if (supplier) return supplier;
     if (context?.penalFlights?.actors?.some(a => a.id === id)) return context.penalFlights.actors.find(a => a.id === id);
     return (context?.slimes || []).find((slime) => slime.id === id && slime.status !== "dead")
@@ -33282,6 +33290,7 @@
       ...(context.medicalExtraction?.medic ? [{ id: context.medicalExtraction.medic.id, actor: context.medicalExtraction.medic }] : []),
       ...(context.penalFlights?.assistance?.cityApproach?.gates || []).filter(g => g.visitorSupplies).map(g => ({ id: g.visitorSupplies.actor.id, actor: g.visitorSupplies.actor })),
       ...(context.penalFlights?.assistance?.cityApproach?.gates || []).filter(g => g.foreignWorkspace).map(g => ({ id: g.foreignWorkspace.actor.id, actor: g.foreignWorkspace.actor })),
+      ...(context.penalFlights?.assistance?.cityApproach?.gates || []).filter(g => g.foreignWorkspace?.municipalAssay).map(g => ({ id: g.foreignWorkspace.municipalAssay.actor.id, actor: g.foreignWorkspace.municipalAssay.actor })),
       ...(context.penalFlights?.actors || []).map(actor => ({ id: actor.id, actor })),
       ...(context.homunculi?.individuals || []).map(actor => ({ id: actor.id, actor })),
       ...(context.slimes || []).map((slime) => ({ id: slime.id, actor: slime })),
@@ -36737,6 +36746,8 @@
       if (a && a.id !== excludeActor?.id && mapCellKey(a.mapCell) === key) occupied += .6;
       const representative = g.foreignWorkspace?.actor;
       if (representative && representative.id !== excludeActor?.id && mapCellKey(representative.mapCell) === key) occupied += .6;
+      const officer = g.foreignWorkspace?.municipalAssay?.actor;
+      if (officer && officer.id !== excludeActor?.id && mapCellKey(officer.mapCell) === key) occupied += .6;
     }
     for (const beast of state.wildernessBeasts?.actors || []) {
       if (beast.id !== excludeActor?.id && mapCellKey(beast.mapCell) === key) occupied += MAP_TILE_AREA_M2;
@@ -40275,7 +40286,7 @@
     if (state.surfaceWorkers?.actor?.id === actorId) return state.surfaceWorkers.actor;
     if (state.laboratoryAssistant?.actor?.id === actorId) return state.laboratoryAssistant.actor;
     return actorId === "scientist" ? state.scientist : findSlime(actorId) || wildernessBeast(actorId) || (state.expeditionEscorts?.actor?.id === actorId ? state.expeditionEscorts.actor : null) || (state.medicalExtraction?.medic?.id === actorId ? state.medicalExtraction.medic : null) || state.penalFlights?.actors.find(a => a.id === actorId)
-      || (state.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => [g.visitorSupplies?.actor, g.foreignWorkspace?.actor]).find(a => a?.id === actorId);
+      || (state.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => [g.visitorSupplies?.actor, g.foreignWorkspace?.actor, g.foreignWorkspace?.municipalAssay?.actor]).find(a => a?.id === actorId);
   }
 
   function combatActorCell(actor) {
@@ -67369,6 +67380,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const representative = reception?.foreignWorkspace?.actor;
     if (representative && cityApproachNear('scientist', representative.mapCell, 8) && sensoryLineOfSight(scientistMapCell(), representative.mapCell)) setLabMapOverlayEntry(assignments, representative.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: representative.name, title: 'Original research-branch property representative; not assay staff', value: representative.status === 'dead' ? '†' : 'A', source: 'Direct observation', target: { kind: 'tile', tile: representative.mapCell } }, map);
     const berth = reception?.visitorLodging?.berth;
+    const sampleOfficer = reception?.foreignWorkspace?.municipalAssay?.actor;
+    if (sampleOfficer && cityApproachNear('scientist', sampleOfficer.mapCell, 8) && sensoryLineOfSight(scientistMapCell(), sampleOfficer.mapCell)) setLabMapOverlayEntry(assignments, sampleOfficer.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: sampleOfficer.name, title: 'Original municipal advisory assay customer; no enforcement authority', value: sampleOfficer.status === 'dead' ? '†' : 'M', source: 'Direct observation', target: { kind: 'tile', tile: sampleOfficer.mapCell } }, map);
     if (berth && cityApproachNear('scientist', berth.cell, 8) && sensoryLineOfSight(scientistMapCell(), berth.cell)) setLabMapOverlayEntry(assignments, berth.cell, { overlayId, classNames: ['map-overlay-resources'], label: 'Original visitor guest berth', title: `Guest berth: condition ${formatNumber(berth.condition)}%; separately paid lodging, not free supplies`, value: 'B', source: 'Direct observation', target: { kind: 'tile', tile: berth.cell } }, map);
     if (supplier && cityApproachNear('scientist', supplier.mapCell, 8) && sensoryLineOfSight(scientistMapCell(), supplier.mapCell)) setLabMapOverlayEntry(assignments, supplier.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: supplier.name, title: 'Local personal-provisions supplier', value: supplier.status === 'dead' ? '†' : 'S', source: 'Direct observation', target: { kind: 'tile', tile: supplier.mapCell } }, map);
     if (reviewer && cityApproachNear("scientist", reviewer.mapCell, 8)) setLabMapOverlayEntry(assignments, reviewer.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: reviewer.name, title: "Receiving-city judicial reviewer", value: reviewer.status === "dead" ? "†" : "J", source: "Direct observation", target: { kind: "tile", tile: reviewer.mapCell } }, map);
@@ -88400,15 +88413,33 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!w.commission) w.commission = ForeignIndustrialAssay.create(w, foreignSupplierMarket(g)?.production);
     return w.commission;
   }
+  function foreignMunicipalAssayContext(g) {
+    const c = foreignWorkspaceContext(g), a = g?.foreignWorkspace?.municipalAssay?.actor;
+    c.municipalSource = g?.preparedMunicipalAssayTestSource || ForeignMunicipalAssay.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, g?.cityId);
+    c.busy = surveyBusy() || Boolean(g?.visitorAdmission?.job);
+    c.municipalContact = Boolean(a && c.local && a.present !== false && !actorIsIncapacitated(a) && a.roomId === g.foreignWorkspace.roomId
+      && mapCellDistance(scientistMapCell(), a.mapCell) <= 2 && sensoryLineOfSight(scientistMapCell(), a.mapCell));
+    return c;
+  }
+  function ensureForeignMunicipalAssay(g) {
+    const w = g?.foreignWorkspace; if (!w || scientistIsDead()) return w?.municipalAssay || null;
+    if (!w.municipalAssay) {
+      const c = foreignMunicipalAssayContext(g);
+      if (c.atDesk && !ForeignAssayWorkspace.workReason(w, c, state.clock)) w.municipalAssay = ForeignMunicipalAssay.create(c.municipalSource, w, w.commission);
+    }
+    return w.municipalAssay;
+  }
   function updateForeignCommission(g) {
     const w = g?.foreignWorkspace, existed = Boolean(w?.commission), s = ensureForeignCommission(g), market = s && foreignSupplierMarket(g), p = market?.production;
     if (!s || !p || scientistIsDead()) return false;
+    const municipal = ensureForeignMunicipalAssay(g);
     const c = foreignWorkspaceContext(g); prepareForeignCommissionDeliveries(g);
     // Same finite city producer trucks as ordinary industry. The reserved route
     // ends at this named workspace, not a depot followed by a free last mile.
     const support = LocalExchangeCarrier.support(market.carrier, state.clock);
     const previous = p.lastAt; LocalMarketProduction.advance(p, state.clock, market.listings, support.supplier);
     let changed = LocalServices.advance(s.service, p, state.clock) || p.lastAt !== previous || !existed;
+    changed = ForeignMunicipalAssay.advance(municipal, s, p, state.clock) || changed;
     changed = ForeignIndustrialAssay.dispatchReservation(s, w, p, c, state.clock) || changed;
     const allocation = s.service.reservation, allocationReceipt = allocation && p.serviceDepot?.[allocation.shipmentId];
     if (allocation?.status === 'purchased' && !allocation.receipt && allocationReceipt?.serviceReservationId === allocation.id
@@ -88429,7 +88460,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         syncPhysicalReadModels();
       }
     }
-    for (const job of s.service.jobs) {
+    for (const job of [...s.service.jobs, ...(municipal?.jobs || [])]) {
       const receipt = p.serviceDepot?.[job.shipmentId];
       if (!receipt || receipt.destination?.propertyId !== w.property.id || receipt.destination.cityId !== g.cityId
         || receipt.serviceJobId !== job.id || receipt.sampleAt !== job.sampleAt || job.sampleStackId) continue;
@@ -88442,11 +88473,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       d.samples.push(Diagnostics.normalizeSample({ id: `diagnostic-sample-${d.nextSampleNumber++}`, stackId: item.id,
         methodId: 'industrialBatchPortion', targetKind: 'industrialService', targetId: job.id,
         targetLabel: `${s.service.client.organization} captured ${job.sourceGood} batch`, cell: item.cell, collectedAt: job.sampleAt,
-        captured: { industrialService: { jobId: job.id, burden: job.burden, cityId: g.cityId, propertyId: w.property.id } } }, d.samples.length));
+        captured: { industrialService: { jobId: job.id, burden: job.burden, cityId: g.cityId, propertyId: w.property.id,
+          ...(municipal?.jobs.includes(job) ? { municipal: true, institutionId: municipal.source.institutionId } : {}) } } }, d.samples.length));
       delete p.serviceDepot[job.shipmentId];
       changed = true;
     }
     ForeignIndustrialAssay.observe(s, w, p, c, state.clock);
+    ForeignMunicipalAssay.observe(municipal, w, foreignMunicipalAssayContext(g), state.clock);
     return changed;
   }
   function prepareForeignCommissionDeliveries(g) {
@@ -88463,9 +88496,51 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const captured = sample?.captured?.industrialService; if (!captured) return false;
     if (!captured.cityId) return state.localServices && LocalServices.recordAssay(state.localServices, captured.jobId, result, sample.collectedAt, now);
     const w = passengerReceptionGate(captured.cityId)?.foreignWorkspace;
-    const service = w?.property.id === captured.propertyId && w.commission?.service;
-    const job = service?.jobs.find(j => j.id === captured.jobId);
+    const service = w?.property.id === captured.propertyId && (captured.municipal
+      ? w.municipalAssay?.source.institutionId === captured.institutionId && w.municipalAssay : w.commission?.service);
+    const job = service?.jobs?.find(j => j.id === captured.jobId);
     return Boolean(job?.sampleStackId === sample.stackId && LocalServices.recordAssay(service, captured.jobId, result, sample.collectedAt, now));
+  }
+  function foreignMunicipalAssayAction(action, options = {}) {
+    const g = passengerReceptionGate(), w = ensureForeignWorkspace(g); if (!w || scientistIsDead()) return false;
+    updateForeignWorkspace(g);
+    const m = ensureForeignMunicipalAssay(g), p = foreignSupplierMarket(g)?.production;
+    const r = ForeignMunicipalAssay.action(m, w, w.commission, p, foreignMunicipalAssayContext(g), state.clock, action, options, ensureEconomy());
+    if (r.ok && action === 'submit') recordLegalLedger('foreignMunicipalServiceIncome', `${m.source.name} received identified advisory report ${r.job.reportReceipt.reportId}; no enforcement or political authority conferred.`, { amount: r.amount });
+    updateForeignCommission(g); surveyEvent(r.ok ? `Foreign municipal assay: ${action}. ${m.history.at(-1)?.summary || 'Exact advisory contract terms reviewed.'}` : r.reason || 'No supported municipal contract.');
+    persist(); render(); return Boolean(r.ok);
+  }
+  function renderForeignMunicipalAssay(g) {
+    const panel = document.createElement('section'); panel.dataset.foreignMunicipalAssay = 'true';
+    panel.append(textEl('h4', 'Foreign Municipal Advisory Assay'));
+    const w = g.foreignWorkspace, m = ensureForeignMunicipalAssay(g), c = foreignMunicipalAssayContext(g);
+    if (!m) { panel.append(textEl('p', 'No supported municipal protected-provisioning customer is personally available at this leased workspace. No civic office, budget or person is invented for unsupported cities.')); return panel; }
+    const reason = ForeignMunicipalAssay.contactReason(m, w, c, state.clock);
+    panel.append(textEl('p', reason || `${m.actor.name}, sample officer · ${m.source.name}. One original departmental 128-mark allocation, not recurring funds. ${ForeignMunicipalAssay.SCOPE}`));
+    const button = (label, action, options = {}, blocked = reason) => { const b = storesActionButton(label, label, () => foreignMunicipalAssayAction(action, options)); b.disabled = Boolean(blocked); panel.append(b); };
+    if (!reason) {
+      button('Review municipal advisory assay terms', 'quote');
+      if (m.quote) {
+        panel.append(textEl('p', `Exact offer ${m.quote.id}, supplier ${m.quote.supplierId}; expires ${formatClock(m.quote.expiresAt)}. Consent holds one actual batch. The supplier retains and voluntarily withholds its remainder; no government disposition follows.`));
+        button('Obtain explicit supplier consent', 'consent', { expected: clonePlainObject(m.quote) }, m.quote.consentId ? 'Already consented.' : '');
+        if (m.quote.consentId) button('Accept supplier-consented municipal contract', 'accept', { expected: clonePlainObject(m.quote) });
+      }
+      for (const job of m.jobs.filter(LocalServices.active)) {
+        button('Cancel municipal assay contract', 'cancel', { jobId: job.id });
+        if (job.status === 'assayed') {
+          button('Review identified municipal assay report', 'preview', { jobId: job.id });
+          if (job.preview) { panel.append(textEl('p', `${job.preview.summary} Confidence ${job.preview.confidence}%; report ${job.preview.id}, collected ${formatClock(job.preview.sampleCollectedAt)}, measured ${formatClock(job.preview.measuredAt)}. Inconclusive work earns no fee; this bounded allocation funds one sample freight only.`)); button('Deliver reviewed advisory report to municipality', 'submit', { jobId: job.id }); }
+        }
+      }
+    } else if (c.atDesk && c.municipalContact && c.originalBody && c.alive && c.capable && !c.custody && !c.busy && ForeignAssayWorkspace.access(w, c, state.clock)) {
+      for (const job of m.jobs.filter(LocalServices.active)) button('Cancel municipal assay contract', 'cancel', { jobId: job.id }, '');
+    }
+    if (m.observation) {
+      panel.append(textEl('p', `${formatClock(m.observation.at)} — personally received municipal account. Dated knowledge, not remote monitoring.`));
+      for (const j of m.observation.jobs) panel.append(textEl('p', `${j.id}: ${j.status}; deadline ${formatClock(j.dueAt)}; ${j.result?.summary || 'No conclusive report.'}${j.reportReceipt ? ` Advisory report ${j.reportReceipt.reportId} received by original officer ${formatClock(j.reportReceipt.at)}.` : ' No municipal report receipt or fee yet.'}`));
+      for (const h of m.observation.history.slice(-4)) panel.append(textEl('p', `${formatClock(h.at)} — ${h.summary}`));
+    }
+    return panel;
   }
   function foreignCommissionAction(action, options = {}) {
     const g = passengerReceptionGate(), w = ensureForeignWorkspace(g), s = ensureForeignCommission(g);
@@ -88604,6 +88679,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       if (v.observation) panel.append(textEl('p', `${formatClock(v.observation.at)} — personally observed bench ${v.observation.benchCondition ?? 'unknown'}%; goods ${v.observation.goods.map(i => `${i.quantity} ${i.key}`).join(', ') || 'none seen'}. Away reports do not refresh.`));
       panel.append(renderForeignCommission(g));
+      panel.append(renderForeignMunicipalAssay(g));
     }
     for (const gate of state.penalFlights?.assistance?.cityApproach?.gates || []) for (const h of gate.foreignWorkspace?.history || []) panel.append(textEl('p', `${formatClock(h.at)} — ${h.summary}`));
     return panel;
