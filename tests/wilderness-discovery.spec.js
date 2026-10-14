@@ -156,6 +156,9 @@ test('physical crossing elaborates once; terrain, observations, dropped property
   expect(saved.discovery.baseline).toEqual(baseline);
   expect((await page.evaluate(rock => window.helixHeresyDebug.boundaryDiscoverySnapshot(rock, rock), rock)).path).toHaveLength(1);
   expect((await page.evaluate(() => window.helixHeresyDebug.wildernessBeastSnapshot())).actors).toMatchObject([{ id: 'saved-corpse', status: 'dead', health: 0 }]);
-  expect(await page.evaluate(id => window.helixHeresyDebug.exportSurveyExpeditionTestState().physicalItemStacks.find(stack => stack.id === id), dropped.id)).toEqual(dropped);
+  const retained = await page.evaluate(id => window.helixHeresyDebug.exportSurveyExpeditionTestState().physicalItemStacks.find(stack => stack.id === id), dropped.id);
+  // Re-observing nearby property may refresh its knowledge date, not its physical contents.
+  expect(retained.observedAt).toBeGreaterThanOrEqual(dropped.observedAt);
+  expect({ ...retained, observedAt: dropped.observedAt }).toEqual(dropped);
   expect(errors).toEqual([]);
 });

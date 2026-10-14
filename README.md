@@ -806,6 +806,18 @@ Permission expiry stops sampling, not the paid return or belongings retrieval. R
 
 Focused checks: `npx playwright test tests/foreign-survey-excursion.spec.js tests/foreign-survey-excursion-browser.spec.js --project=chromium --workers=1`.
 
+### Foreign wilderness boundary exploration
+
+At a foreign sampling ground, optionally **Walk beyond foreign defended boundary** into one small sector backed by actual adjacent land, regional slope/climate and resource context. Occupied city cores, ocean and impractically steep land cannot supply a destination. This is tens of metres of walking, not travel across a globe hex. Planning creates only the entrance; first physical crossing elaborates persistent terrain and supported local beasts. Unknown terrain and creatures are not surveyed by the button.
+
+The confirmation estimates walking time and warns about missing supplies, but permits under-equipped departure. The original municipal driver and vehicle wait on the sampling ground; the separate intercity carrier's waiting provisions continue. No escort, clinic, rescue, food, replacement tools or extraction rights are supplied. Municipal sampling permission is not extended into wilderness: its expiry stops work on the reserve, not voluntary wilderness fieldwork or the already paid physical return. Bring the actual instruments and bottles for ordinary reconnaissance, surface sampling, shallow soil cores or arcane indicators; none establishes a recoverable deposit or surveyed hex.
+
+Use ordinary carried provisions, physical shelter deployment/repacking, rest, self-care and combat. Only existing Rimefang and Gravebloom Elk profiles backed by actual regional populations can appear; unsupported species are not substituted and silence is not safety. Beasts and their attacks cannot cross the defended boundary. **Withdraw to foreign sampling ground** walks the original body back to its waiting vehicle; incapacity or failed transport can strand a living scientist without an automatic defeat or rescue.
+
+Terrain, original creature identities/wounds/remains, dropped goods, shelter, interrupted sampling and dated personal observations persist across real saves and revisits. Foreign sector geography and property never replace the home wilderness, remote workshop or laboratory survey context. Carry samples to the separately leased actual bench for ordinary analysis with your own reagent and Assay Case.
+
+Focused checks: `npx playwright test tests/foreign-wilderness.spec.js tests/foreign-wilderness-browser.spec.js --project=chromium --workers=1`.
+
 ### Foreign manual assay workspace
 
 Visits offers one persistent manual workspace only where an active, physically present, licensed or chartered research branch actually operates a local laboratory. A reception desk or internet connection alone supplies no premises. Accept the separate named approach invitation and physically walk from the checkpoint to the branch representative. Review the exact three-day lease: 225 marks rent plus a 150-mark damage deposit; explicit renewals cost 225 with no second deposit or automatic debt.

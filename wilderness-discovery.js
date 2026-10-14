@@ -34,9 +34,9 @@
     }
     return reached.size === allowed.size;
   }
-  function materialize(state, worldId, worldSeed, destination, clock, existingCells = null) {
+  function materialize(state, worldId, worldSeed, destination, clock, existingCells = null, layout = null) {
     if (!state || state.baseline) return state?.baseline;
-    const remote = state.kind === "remote", bounds = remote ? REMOTE_BOUNDS : BOUNDS, entry = remote ? REMOTE_ENTRY : ENTRY;
+    const remote = state.kind === "remote", bounds = layout?.bounds || (remote ? REMOTE_BOUNDS : BOUNDS), entry = layout?.entry || (remote ? REMOTE_ENTRY : ENTRY);
     const seed = hash(`${worldSeed}:${state.placeId}:${remote ? "remote" : "boundary"}-ground`), rocks = [];
     const broken = Number(destination.slopePercent) > 15;
     const clearing = { x: bounds.x + 9 + seed % 5, y: bounds.y + 1 + (seed >>> 5) % 2, z: bounds.z };

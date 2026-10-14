@@ -33,7 +33,8 @@ async function openForeignWorkspace(page, seed = 'foreign-industrial-commission'
     if (carrySample) for (const sampleId of samples) if (!d.carryActorStack('scientist', sampleId, 1)) throw new Error('Finite original sample unavailable');
     if (fieldKit) {
       // Explicit original departure fixture, never supplies awarded by a visit.
-      const ids = d.configureHiddenWorkshopTest({ carryTools: ['environmentalSurveyKit'], supplies: { sealedReagentBottle: 1, drinkingWater: 1, fieldRation: 1 } });
+      const ids = d.configureHiddenWorkshopTest({ carryTools: ['environmentalSurveyKit'], supplies: { sealedReagentBottle: 1, drinkingWater: 1, fieldRation: 1,
+        ...(fieldKit === 'wilderness' ? { fieldShelter: 1 } : {}) } });
       for (const id of ids) if (!d.carryActorStack('scientist', id, 1)) throw new Error('Finite original survey cargo unavailable');
     }
     const city = { cityId: 'a', currentPopulation: 100, physicalCondition: 'intact', services: { transport: 'functional', provisioning: 'functional' } };
