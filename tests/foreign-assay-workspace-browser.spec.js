@@ -70,7 +70,8 @@ for (const renderer of ['dom', 'canvas']) test(`foreign manual workspace physica
   await panel.getByRole('button', { name: 'Sign exact foreign workspace terms', exact: true }).click();
   s = await snapshot(page); expect(s.money).toBe(initial.money - 375); expect(s.saved.property.tenantStaffAuthorized).toBe(false);
   expect(s.tools.find(t => t.carriedBy === 'scientist').roomId).toBe(s.saved.roomId);
-  expect(await page.evaluate(() => window.helixHeresyDebug.startDiagnosticCalibration('assayCase'))).toBe(false);
+  expect(await page.evaluate(() => window.helixHeresyDebug.startDiagnosticCalibration('assayCase'))).toBe(true);
+  expect(await action(page, 'cancelAssay')).toBe(true);
   expect(s.stacks.filter(i => i.roomId === s.saved.roomId && !i.carriedBy)).toHaveLength(0);
   expect(await action(page, 'assay', { stackId: samples[0] })).toBe(false); // Carrying reagent is not staging it.
   const reagent = s.stacks.find(i => i.key === 'assayReagent' && i.carriedBy === 'scientist');

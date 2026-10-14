@@ -14,6 +14,17 @@ function fixture() {
   return { s, c, wallet: { money: 1000 } };
 }
 function sign(f, now = 100) { Workspace.invite(f.s, f.c, now); const q = Workspace.request(f.s, f.c, now); return Workspace.sign(f.s, f.c, q, f.wallet, now); }
+test('foreign diagnostic scope permits only sealed assays and personal Assay Case calibration', () => {
+  expect(Workspace.diagnosticScopeReason('assaySample', 'assayCase')).toBe('');
+  expect(Workspace.diagnosticScopeReason('calibrateInstrument', 'assayCase')).toBe('');
+  for (const [workflow, instrument] of [['calibrateInstrument', 'thaumometer'], ['calibrateInstrument', 'environmentalSurveyKit'],
+    ['calibrateInstrument', ''], ['fieldSurvey', 'assayCase'], ['collectSample', 'assayCase'], ['repair', 'assayCase'], ['', 'assayCase']])
+    expect(Workspace.diagnosticScopeReason(workflow, instrument)).not.toBe('');
+  const f = fixture(); sign(f);
+  expect(f.s.property.purpose).toContain('personal calibration');
+  expect(f.s.property.purpose).toContain('No instrument repair');
+  expect(f.s.permission.scope).toContain('calibration work');
+});
 test('foreign workspace requires an actual active locally authorized laboratory and existing people', () => {
   const f = fixture(); expect(f.s.property.tenantStaffAuthorized).toBe(false); expect(f.s.actor.id).not.toBe('original-clerk');
   for (const change of [c => c.city.currentPopulation = 3, c => c.city.currentPopulation = NaN, c => c.city.physicalCondition = 'ruined',

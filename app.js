@@ -88368,7 +88368,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         let returnPath = null;
         if (pausedCell && !sameMapCell(scientistMapCell(), pausedCell)) {
           returnPath = labMapPathBetweenCells(scientistMapCell(), pausedCell, { map: ensureLabMap(), actor: state.scientist, ignoreDoors: true });
-          if (!returnPath.length) { task.data.foreignWorkspaceInterruption.reason = 'The actual walking route back to the paused assay position is unavailable.'; continue; }
+          if (!returnPath.length) { task.data.foreignWorkspaceInterruption.reason = 'The actual walking route back to the paused diagnostic position is unavailable.'; continue; }
         }
         const held = Math.max(0, state.clock - task.data.foreignWorkspaceHeldAt); task.dueAt += held;
         if (returnPath) {
@@ -88547,6 +88547,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     } else if (foreignWorkspaceAtProperty() && annexCapable() && !c.busy && ForeignAssayWorkspace.access(s, c, state.clock)) {
       const stack = ensurePhysicalItemStacks().find(i => i.id === options.stackId && i.roomId === s.roomId);
       if (action === 'assay') result.ok = startDiagnosticSampleAssay(options.stackId);
+      if (action === 'calibrate') result.ok = startDiagnosticCalibration('assayCase');
       if (action === 'drop' && stack?.carriedBy === 'scientist' && !stack.reservedTaskId) result.ok = dropActorInventoryStack('scientist', stack.id, stack.quantity);
       if (action === 'pack' && stack && !stack.carriedBy && !stack.reservedTaskId && !stack.cityOwnerId && !stack.civicCustody && !stack.containerId && !stack.fixtureId
         && mapCellDistance(scientistMapCell(), stack.cell) <= 8 && sensoryLineOfSight(scientistMapCell(), stack.cell)) result.ok = Boolean(queueSurveyWork('pack', stack.cell, { stackId: stack.id, itemKey: stack.key, amount: 1,
@@ -88576,9 +88577,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       if (v.lease) panel.append(textEl('p', `Lease ${v.lease.status}; prepaid until ${formatClock(v.lease.endsAt)}; deposit ${formatMoney(v.lease.depositHeld)}. ${v.permission?.scope || ''}`));
       if (c.atProperty) {
-        panel.append(textEl('p', foreignWorkspaceWorkReason() || 'Manual sealed nonliving assays only. Bring an actual Assay Case and stage actual reagent on the floor.'));
+        panel.append(textEl('p', foreignWorkspaceWorkReason() || 'Manual sealed nonliving assays and personal Assay Case calibration only. Bring an actual usable Case and stage actual assay reagent on the floor. Calibration restores reference accuracy, not durability or earlier findings.'));
         button('Walk back to reception checkpoint', 'return', {}, !surveyBusy());
-        if (state.tasks.some(t => t.type === 'physicalDiagnostic' && t.data?.workstationId === s.benchId)) button('Cancel foreign workspace assay', 'cancelAssay');
+        button('Calibrate own Assay Case at foreign bench', 'calibrate', {}, !surveyBusy() && !diagnosticCalibrationBlockReason('assayCase'));
+        if (state.tasks.some(t => t.type === 'physicalDiagnostic' && t.data?.workstationId === s.benchId)) button('Cancel foreign workspace diagnostic work', 'cancelAssay');
         for (const stack of surveyCarriedStacks().filter(i => !i.reservedTaskId)) button(`Stage ${physicalStackLabel(stack)} (${stack.id})`, 'drop', { stackId: stack.id }, !surveyBusy());
         for (const item of s.observation?.goods || []) {
           const stack = ensurePhysicalItemStacks().find(i => i.id === item.id); if (!stack) continue;
@@ -89568,7 +89570,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       || task.type === "surveyExpeditionWork" && ["pack", "consume", "radioBattery"].includes(task.data.action)
       || task.type === "physicalDiagnostic" && task.data.workflowId === "assaySample" && !annexWorkReason(ensureDiagnosticState().samples.find(s => s.id === task.data.sampleId)?.stackId || ""));
     if (foreignWorkspaceAtProperty() && (task.type === 'surveyExpeditionWork' && labMapCellRoomId(target) === passengerReceptionGate().foreignWorkspace.roomId && ['pack', 'consume', 'radioBattery'].includes(task.data.action)
-      || task.type === 'physicalDiagnostic' && task.data.workflowId === 'assaySample' && task.data.workstationId === passengerReceptionGate().foreignWorkspace.benchId)) return true;
+      || task.type === 'physicalDiagnostic' && !ForeignAssayWorkspace.diagnosticScopeReason(task.data.workflowId, task.data.instrumentId)
+        && task.data.workstationId === passengerReceptionGate().foreignWorkspace.benchId)) return true;
     if (task.type === "injuryTreatment") return task.data.targetActorId === "scientist";
     if (task.type === "surveyExpeditionWork" && ["consume", "radioBattery"].includes(task.data.action)) return true;
     if (passengerAway()) return task.type === 'scientistMove'
@@ -90371,7 +90374,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function diagnosticWorkbenchPlan(startCell) {
     const plans = [];
     const scopedBench = foreignWorkspaceAtProperty() ? passengerReceptionGate().foreignWorkspace.benchId : annexAtProperty() ? LeasedAnnex.BENCH : null;
-    const workstations = scopedBench ? [fixtureById(scopedBench)].filter(f => f && f.condition > 0 && f.operationalState === "operational" && !f.productionTaskId) : passengerAway() ? [] : researchWorkstations();
+    const workstations = scopedBench ? [fixtureById(scopedBench)].filter(f => f && f.condition > 0 && f.operationalState === "operational" && !f.productionTaskId
+      && (!foreignWorkspaceAtProperty() || labMapCellRoomId(f.origin) === passengerReceptionGate().foreignWorkspace.roomId)) : passengerAway() ? [] : researchWorkstations();
     for (const fixture of workstations) {
       for (const port of fixtureAccessCells(fixture)) {
         const path = labMapPathBetweenCells(startCell, port.cell, { map: ensureLabMap(), ignoreDoors: true });
@@ -90387,11 +90391,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (foreignGate) {
       const s = foreignGate.foreignWorkspace, reason = foreignWorkspaceWorkReason(ensureDiagnosticState().samples.find(sample => sample.id === task.data.sampleId)?.stackId || '', foreignGate);
       if (reason) return reason;
+      const scopeReason = ForeignAssayWorkspace.diagnosticScopeReason(task.data.workflowId, task.data.instrumentId);
+      if (scopeReason) return scopeReason;
+      if (task.data.workflowId === 'calibrateInstrument' && task.data.foreignWorkspaceBodyEpoch !== ensureScientistIdentity().bodyEpoch)
+        return 'Only the original tenant body can continue this calibration.';
+      if (labMapCellRoomId(fixtureById(s.benchId)?.origin) !== s.roomId) return 'The original manual bench is no longer physically in this workspace.';
       const pausedCell = task.data.movement?.steps?.[task.data.movement.stepIndex]?.cell || task.data.mapPath?.[0];
       if (task.data.foreignWorkspaceHeldAt != null && pausedCell && !sameMapCell(scientistMapCell(), pausedCell)
         && !labMapPathBetweenCells(scientistMapCell(), pausedCell, { map: ensureLabMap(), actor: state.scientist, ignoreDoors: true }).length)
-        return 'The actual walking route back to the paused assay position is unavailable.';
-      if (task.data.workflowId !== 'assaySample') return 'Only manual sealed nonliving assays are authorized at this foreign bench.';
+        return 'The actual walking route back to the paused diagnostic position is unavailable.';
       const tool = toolInstanceById(task.data.instrumentInstanceId)?.instance;
       if (!tool || tool.roomId !== s.roomId || tool.carriedBy && tool.carriedBy !== 'scientist') return 'The original assay instrument is not physically here.';
       if (!ensurePhysicalItemStacks().some(i => i.toolInstanceId === tool.id && i.quantity > 0 && i.roomId === s.roomId
@@ -90430,15 +90438,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return "";
   }
 
-  function diagnosticBaseBlockReason(workflowId = '') {
+  function diagnosticBaseBlockReason(workflowId = '', instrumentId = '') {
     if (scientistIsDead()) return "The scientist is dead.";
-    if (passengerAway() && workflowId !== 'assaySample') return 'Foreign workspace permission supports only manual sealed nonliving assays, not other diagnostic procedures.';
+    if (passengerAway()) {
+      const reason = ForeignAssayWorkspace.diagnosticScopeReason(workflowId, instrumentId) || foreignWorkspaceWorkReason();
+      if (reason) return reason;
+    }
     if (physicalDiagnosticTask()) return "A diagnostic task is already in progress.";
     return "";
   }
 
   function queueInstrumentDiagnostic(options) {
-    if (passengerAway() && (options.workflowId !== 'assaySample' || foreignWorkspaceWorkReason(options.sample?.stackId))) return null;
+    if (passengerAway() && (ForeignAssayWorkspace.diagnosticScopeReason(options.workflowId, options.instrumentId) || foreignWorkspaceWorkReason(options.sample?.stackId))) return null;
     if (annexAway() && (options.workflowId !== "assaySample" || annexWorkReason(options.sample?.stackId))) return null;
     const path = options.path || [scientistMapCell()];
     const task = {
@@ -90472,6 +90483,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       task.data.instrumentInstanceId = tool.id;
       task.data.toolSelections = [{ itemKey: options.instrumentId, instanceId: tool.id }];
     }
+    if (passengerAway() && options.workflowId === 'calibrateInstrument') task.data.foreignWorkspaceBodyEpoch = ensureScientistIdentity().bodyEpoch;
     state.tasks.push(task);
     addEvent(`${task.label} started; the scientist will follow the marked route.`);
     persist();
@@ -90645,7 +90657,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function diagnosticCalibrationBlockReason(itemKey) {
-    const base = diagnosticBaseBlockReason();
+    const base = diagnosticBaseBlockReason('calibrateInstrument', itemKey);
     if (base) return base;
     if (!Diagnostics.INSTRUMENT_BY_ID[itemKey]) return "That item is not a diagnostic instrument.";
     const toolPlan = diagnosticToolPlan(itemKey, scientistMapCell());

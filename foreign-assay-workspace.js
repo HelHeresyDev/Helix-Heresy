@@ -7,7 +7,11 @@
   const copy = x => JSON.parse(JSON.stringify(x));
   const banned = c => (c.bans || []).some(b => b.status === 'active' && (b.cityId === c.cityId
     || (b.recognizedBy || []).some(r => r.cityId === c.cityId && r.status === 'active' && r.localOrderId && r.institutionId)));
-  const PURPOSE = 'Manual analysis of sealed nonliving sample portions only. No genetic modification, creature creation, animancy, extraction, fabrication, hazardous bulk processing or tenant staffing.';
+  const PURPOSE = 'Manual analysis of sealed nonliving sample portions and personal calibration of the tenant\'s usable Assay Case only. No instrument repair or other instrument calibration. No genetic modification, creature creation, animancy, extraction, fabrication, hazardous bulk processing or tenant staffing.';
+  function diagnosticScopeReason(workflowId, instrumentId) {
+    return workflowId === 'assaySample' || workflowId === 'calibrateInstrument' && instrumentId === 'assayCase'
+      ? '' : 'Only manual sealed nonliving assays and personal Assay Case calibration are authorized at this foreign bench.';
+  }
   function supportingBranch(city, standings, authority) {
     if (!city?.cityId || !Number.isFinite(city.currentPopulation) || city.currentPopulation < 4
       || city.physicalCondition === 'ruined' || ['abandoned', 'destroyed'].includes(city.habitationStatus)
@@ -59,7 +63,7 @@
     const q = Lease.request(s, route(s), now);
     if (q.ok) { Object.assign(s.quote, { bodyEpoch: c.bodyEpoch, visitId: c.visitId, tenant: c.tenant,
       branchId: s.source.branchId, administrationId: s.source.administrationId,
-      permission: 'Named workspace and its reception approach only. Expiry stops new assays, not egress or belongings retrieval. No visitor-hall, trading, lodging or unrestricted city access.' }); return copy(s.quote); }
+      permission: 'Named workspace and its reception approach only. Expiry stops assay and calibration work, not egress or belongings retrieval. No visitor-hall, trading, lodging or unrestricted city access.' }); return copy(s.quote); }
     return q;
   }
   function sign(s, c, expected, wallet, now) {
@@ -86,5 +90,5 @@
     return copy({ property: s.property, source: s.source, quote: s.quote, lease: s.lease, permission: s.permission,
       invitation: s.invitation, observation: s.observation, history: s.history, workAccess: Lease.usable(s, now) });
   }
-  return { PURPOSE, supportingBranch, create, current, body, access, invite, request, sign, workReason, handBack, publicView };
+  return { PURPOSE, diagnosticScopeReason, supportingBranch, create, current, body, access, invite, request, sign, workReason, handBack, publicView };
 });
