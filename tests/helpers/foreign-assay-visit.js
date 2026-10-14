@@ -17,9 +17,9 @@ function identity() {
   Civic.begin(identity, office, Civic.preview(identity, office, 'Mira Vale'), { money: 100 }, c, -1800); Civic.advance(identity, m.identityOffices, c, 0);
   return { identity, offices: m.identityOffices };
 }
-async function openForeignWorkspace(page, seed = 'foreign-industrial-commission', renderer = 'dom', carrySample = false, viaMunicipal = false) {
+async function openForeignWorkspace(page, seed = 'foreign-industrial-commission', renderer = 'dom', carrySample = false, viaMunicipal = false, carriedMetalParts = 0) {
   page.setDefaultTimeout(30000); await startLifecycleRun(page, seed);
-  await page.evaluate(({ identity, renderer, carrySample, viaMunicipal }) => {
+  await page.evaluate(({ identity, renderer, carrySample, viaMunicipal, carriedMetalParts }) => {
     const d = window.helixHeresyDebug, network = { homeDestinationId: 'site:lab', nearestSettlementDestinationId: 'city:a', destinations: [
       { id: 'site:lab', kind: 'laboratorySite', cityId: 'a', known: true, supportComponentId: 'one', localDistanceKm: 2, routeContinuity: 'municipal', cellId: 'planet-cell:00009' },
       ...['a', 'b'].map(id => ({ id: `city:${id}`, kind: 'fortifiedCity', cityId: id, label: `City ${id}`, known: true, supportComponentId: 'one', jurisdiction: { kind: 'city', cityId: id }, cellId: 'planet-cell:00001' }))
@@ -41,8 +41,9 @@ async function openForeignWorkspace(page, seed = 'foreign-industrial-commission'
     d.setMapRenderer(renderer);
     d.setForeignReceptionTestContext({ source: { cityId: 'b', currentPopulation: 100, physicalCondition: 'intact', administrationId: 'admin:b', administrationName: 'B Administration',
       capacityBand: 'functional', watchId: 'watch:b', lawId: 'law:b', currentAuthority: true, recognition: 'verified', localRules: [] }, ...identity });
+    if (carriedMetalParts) d.setForeignSuppliesTestContext({ city: { cityId: 'b', currentPopulation: 100, physicalCondition: 'intact' }, standings: [], carriedMetalParts });
     if (!viaMunicipal && (!d.bookIntercityPassenger('city:b') || !d.queueIntercityPassenger('passengerBoard'))) throw new Error('Unable to board');
-  }, { identity: identity(), renderer, carrySample, viaMunicipal });
+  }, { identity: identity(), renderer, carrySample, viaMunicipal, carriedMetalParts });
   if (viaMunicipal) {
     for (const key of ['environmentalSurveyKit', 'sealedReagentBottle', 'medicalBandage', 'fieldRation']) {
       expect(await page.evaluate(key => window.helixHeresyDebug.packSurveyItem(key), key)).toBe(true); await finishHome(page);

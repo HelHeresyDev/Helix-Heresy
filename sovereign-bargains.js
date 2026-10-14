@@ -50,13 +50,15 @@
     const content = Theme.selectContent(registry, { kind: 'civicBargain', worldTheme: options.theme || 'madcap', seed: options.seed || source.cityId, required: true });
     if (!content.ok) return null;
     const n = [...source.defenseId].reduce((a, c) => a + c.charCodeAt(0), 0);
+    const location = options.location;
     const person = (id, name, role, cell) => ({ id, name, role, status: 'alive', health: 100, fatigue: 0,
-      locationId: office.id, roomId: 'supportedSurveyGround', mapCell: cell, workSeconds: 3600 });
+      locationId: office.id, roomId: location?.roomId || 'supportedSurveyGround', mapCell: cell, workSeconds: 3600 });
     return { definitionId: content.definitionId, sourceTheme: content.sourceTheme, source: copy(source), officeId: office.id,
+      ...(location ? { contactLocation: location.label, counter: copy(location.counter) } : {}),
       representative: person(`${source.authority.id}:supply-representative`, ['Aderyn Vale', 'Cerys Reed', 'Iven Holt', 'Rysa Ash'][n % 4],
-        source.authority.kind === 'collective' ? 'Authorized representative of the ruling collective' : 'Authorized sovereign representative', { x: 18, y: 9, z: 6 }),
+        source.authority.kind === 'collective' ? 'Authorized representative of the ruling collective' : 'Authorized sovereign representative', location?.representativeCell || { x: 18, y: 9, z: 6 }),
       defender: { ...person(`${source.defenseId}:ward-defender`, ['Kael Farwatch', 'Hessa Ironveil', 'Orin Brightwire', 'Tavia Ashward'][n % 4],
-        'Exceptional city defender — walls-and-wards duty', { x: 19, y: 9, z: 6 }), exceptionalCapabilities: ['city-scale ward defense'], institutionId: source.defenseId,
+        'Exceptional city defender — walls-and-wards duty', location?.defenderCell || { x: 19, y: 9, z: 6 }), exceptionalCapabilities: ['city-scale ward defense'], institutionId: source.defenseId,
         physicalStrength: 80, civilAccessPolicy: n % 5 === 0 ? 'declineCivilEscort' : 'considerCivilEscort' },
       // A bounded run-local maintenance requisition at an existing defense branch,
       // not an army, a new wall, or supplies awarded to either party.
@@ -81,7 +83,7 @@
       let r = s.contacts.find(r => r.personId === a.id);
       if (!r) { r = { personId: a.id, firstMetAt: at }; s.contacts.push(r); }
       Object.assign(r, { name: a.name, role: a.role, lastConfirmedAt: at, institutionId: a === s.defender ? s.source.defenseId : s.source.administrationId,
-        location: 'Municipal civic counter at 17,8', source: 'Personal attendance; role confirmed by the city administration' });
+        location: s.contactLocation || 'Municipal civic counter at 17,8', source: 'Personal attendance; role confirmed by the city administration' });
     }
   }
   function release(s, office, at) {
@@ -175,7 +177,7 @@
     const work = j.wasReady ? Math.min(Math.max(0, at - start), j.seconds - j.progress, office.workSeconds, s.representative.workSeconds, s.defender.workSeconds) : 0;
     office.workSeconds -= work; s.representative.workSeconds -= work; s.defender.workSeconds -= work;
     j.progress += work; j.lastAt = at; j.wasReady = true;
-    if (j.progress < j.seconds) return changed;
+    if (j.progress + 1e-8 < j.seconds) return changed;
     const completedAt = start + work;
     recordContacts(s, completedAt);
     if (j.kind === 'audience') {

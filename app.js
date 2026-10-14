@@ -118,6 +118,7 @@
   const LocalDiscovery = window.HelixLocalDiscovery;
   const MunicipalMaps = window.HelixMunicipalMaps;
   const SovereignBargains = window.HelixSovereignBargains;
+  const ForeignCivicBargains = window.HelixForeignCivicBargains;
   const DefenderChallenges = window.HelixDefenderChallenges;
   const CityConfrontations = window.HelixCityConfrontations;
   const IncumbentResistance = window.HelixIncumbentResistance;
@@ -16793,6 +16794,18 @@
         syncActorInventories(); persist(); render(); return state.clock;
       },
       foreignReceptionSnapshot: () => { const g = passengerReceptionGate(), c = foreignReceptionContext(g); return clonePlainObject({ gate: g, context: c, quote: ForeignReception.quote(g, c), permission: foreignVisitorPermission(g), clock: state.clock, roomId: scientistRoomId(), cell: scientistMapCell(), money: ensureEconomy().money, doors: g ? state.doors[g.doorId] : null, busy: surveyBusy(), tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) }); },
+      foreignCivicBargainAction,
+      foreignCivicBargainSnapshot: () => {
+        const g = passengerReceptionGate(); updateForeignCivicBargain(g);
+        const c = foreignCivicBargainContext(g);
+        return clonePlainObject({ civic: g?.foreignCivic, context: c, quote: ForeignCivicBargains.quote(g, c, state.clock),
+          clock: state.clock, money: ensureEconomy().money, power: g?.powerSeconds, duty: g?.receptionWorkSeconds, assignment: g?.receptionAssignment,
+          stacks: ensurePhysicalItemStacks(), knownAlignment: ForeignCivicBargains.knownAlignment(g?.foreignCivic), homeBargain: state.sovereignBargains });
+      },
+      setForeignCivicBargainTestSource: source => {
+        const g = passengerReceptionGate(); if (!g || g.foreignCivic) return false;
+        g.preparedForeignCivicTestSource = clonePlainObject(source); ensureForeignCivicBargain(g); persist(); render(); return Boolean(g.foreignCivic);
+      },
       foreignResearchInquiryAction,
       foreignCommissionAction,
       foreignMunicipalAssayAction,
@@ -33250,6 +33263,8 @@
     if (assayRepresentative) return assayRepresentative;
     const municipalSampleOfficer = context?.penalFlights?.assistance?.cityApproach?.gates.map(g => g.foreignWorkspace?.municipalAssay?.actor).find(a => a?.id === id);
     if (municipalSampleOfficer) return municipalSampleOfficer;
+    const foreignCivicActor = context?.penalFlights?.assistance?.cityApproach?.gates.flatMap(g => [g.foreignCivic?.bargain.representative, g.foreignCivic?.bargain.defender]).find(a => a?.id === id);
+    if (foreignCivicActor) return foreignCivicActor;
     if (supplier) return supplier;
     if (context?.penalFlights?.actors?.some(a => a.id === id)) return context.penalFlights.actors.find(a => a.id === id);
     return (context?.slimes || []).find((slime) => slime.id === id && slime.status !== "dead")
@@ -33291,6 +33306,7 @@
       ...(context.penalFlights?.assistance?.cityApproach?.gates || []).filter(g => g.visitorSupplies).map(g => ({ id: g.visitorSupplies.actor.id, actor: g.visitorSupplies.actor })),
       ...(context.penalFlights?.assistance?.cityApproach?.gates || []).filter(g => g.foreignWorkspace).map(g => ({ id: g.foreignWorkspace.actor.id, actor: g.foreignWorkspace.actor })),
       ...(context.penalFlights?.assistance?.cityApproach?.gates || []).filter(g => g.foreignWorkspace?.municipalAssay).map(g => ({ id: g.foreignWorkspace.municipalAssay.actor.id, actor: g.foreignWorkspace.municipalAssay.actor })),
+      ...(context.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => [g.foreignCivic?.bargain.representative, g.foreignCivic?.bargain.defender]).filter(Boolean).map(actor => ({ id: actor.id, actor })),
       ...(context.penalFlights?.actors || []).map(actor => ({ id: actor.id, actor })),
       ...(context.homunculi?.individuals || []).map(actor => ({ id: actor.id, actor })),
       ...(context.slimes || []).map((slime) => ({ id: slime.id, actor: slime })),
@@ -36748,6 +36764,7 @@
       if (representative && representative.id !== excludeActor?.id && mapCellKey(representative.mapCell) === key) occupied += .6;
       const officer = g.foreignWorkspace?.municipalAssay?.actor;
       if (officer && officer.id !== excludeActor?.id && mapCellKey(officer.mapCell) === key) occupied += .6;
+      for (const a of [g.foreignCivic?.bargain.representative, g.foreignCivic?.bargain.defender]) if (a && a.id !== excludeActor?.id && mapCellKey(a.mapCell) === key) occupied += .6;
     }
     for (const beast of state.wildernessBeasts?.actors || []) {
       if (beast.id !== excludeActor?.id && mapCellKey(beast.mapCell) === key) occupied += MAP_TILE_AREA_M2;
@@ -40286,7 +40303,7 @@
     if (state.surfaceWorkers?.actor?.id === actorId) return state.surfaceWorkers.actor;
     if (state.laboratoryAssistant?.actor?.id === actorId) return state.laboratoryAssistant.actor;
     return actorId === "scientist" ? state.scientist : findSlime(actorId) || wildernessBeast(actorId) || (state.expeditionEscorts?.actor?.id === actorId ? state.expeditionEscorts.actor : null) || (state.medicalExtraction?.medic?.id === actorId ? state.medicalExtraction.medic : null) || state.penalFlights?.actors.find(a => a.id === actorId)
-      || (state.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => [g.visitorSupplies?.actor, g.foreignWorkspace?.actor, g.foreignWorkspace?.municipalAssay?.actor]).find(a => a?.id === actorId);
+      || (state.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => [g.visitorSupplies?.actor, g.foreignWorkspace?.actor, g.foreignWorkspace?.municipalAssay?.actor, g.foreignCivic?.bargain.representative, g.foreignCivic?.bargain.defender]).find(a => a?.id === actorId);
   }
 
   function combatActorCell(actor) {
@@ -67376,6 +67393,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const reception = state.penalFlights?.assistance?.cityApproach?.gates.find(g => g.z === scientistMapCell().z && g.materialized);
     if (reception) for (const person of [reception.clerk, reception.guard]) if (cityApproachNear("scientist", person.mapCell, 8)) setLabMapOverlayEntry(assignments, person.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: person.name, title: person.id === reception.clerk.id ? "City identity clerk" : "City reception gate guard", value: person.status === "dead" ? "†" : person.id === reception.clerk.id ? "C" : "G", source: "Direct observation", target: { kind: "tile", tile: person.mapCell } }, map);
     const reviewer = reception?.enforcement?.materialized && reception.enforcement.reviewer;
+    for (const person of [reception?.foreignCivic?.bargain.representative, reception?.foreignCivic?.bargain.defender]) if (person && cityApproachNear('scientist', person.mapCell, 8) && sensoryLineOfSight(scientistMapCell(), person.mapCell)) setLabMapOverlayEntry(assignments, person.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: person.name, title: person.role, value: person.status === 'dead' ? '†' : person === reception.foreignCivic.bargain.defender ? 'D' : 'R', source: 'Direct observation', target: { kind: 'tile', tile: person.mapCell } }, map);
     const supplier = reception?.visitorSupplies?.actor;
     const representative = reception?.foreignWorkspace?.actor;
     if (representative && cityApproachNear('scientist', representative.mapCell, 8) && sensoryLineOfSight(scientistMapCell(), representative.mapCell)) setLabMapOverlayEntry(assignments, representative.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: representative.name, title: 'Original research-branch property representative; not assay staff', value: representative.status === 'dead' ? '†' : 'A', source: 'Direct observation', target: { kind: 'tile', tile: representative.mapCell } }, map);
@@ -88161,7 +88179,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       panel.append(textEl('p', `${formatClock(v.at)} — received lodging report: ${v.message} ${v.checkIn ? `${formatDuration(v.checkIn.progress)} / one attended minute.` : ''} Reports remain dated while away.`));
     return panel;
   }
-  function foreignReceptionContext(g = passengerReceptionGate(), ignoreInquiry = false) {
+  function foreignReceptionContext(g = passengerReceptionGate(), ignoreInquiry = false, ignoreCivic = false) {
     const p = state.intercityPassenger, profile = ensureScientistIdentity(), cell = scientistMapCell();
     const local = Boolean(g && passengerLanded() && p.location === g.cityId && [g.checkpointRoomId, g.annexRoomId].includes(scientistRoomId()));
     const document = profile.documents.find(d => d.number === g?.visitorAdmission?.selectedDocument) || (!g?.visitorAdmission?.selectedDocument ? profile.documents.at(-1) : null);
@@ -88182,7 +88200,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       clerkPresent: Boolean(local && clerk?.mapCell?.z === cell.z && WildernessBeasts.distance(clerk.mapCell, { x: 10, y: 6, z: g.z }) <= 1),
       lineOfSight: Boolean(local && clerk?.mapCell && sensoryLineOfSight(cell, clerk.mapCell)),
       authorityCurrent: Boolean(source?.currentAuthority && source.administrationId === g?.institutionId && source.lawId === g?.visitorAdmission?.rule.lawId),
-      otherBusy: surveyBusy(ignoreInquiry) || Boolean(profile.job) || Boolean(currentCityApproach()?.gateId === g?.id && ['requested', 'preparing'].includes(currentCityApproach()?.status)),
+      otherBusy: surveyBusy(ignoreInquiry, ignoreCivic) || Boolean(profile.job) || Boolean(currentCityApproach()?.gateId === g?.id && ['requested', 'preparing'].includes(currentCityApproach()?.status)),
       issuer, bans,
       evidence: { present: Boolean(document), sourceRecordId: document?.number || null,
         document: document ? clonePlainObject(document) : null, comparison,
@@ -88222,11 +88240,114 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       changed = ForeignResearchInquiry.advance(g, inquiryContext, state.clock) || changed;
       ForeignResearchInquiry.observe(g, inquiryContext, state.clock);
       changed = updateForeignWorkspace(g) || changed;
+      changed = updateForeignCivicBargain(g) || changed;
       if (inquiryJob && !g.researchInquiry.job && inquiryContext.local) { surveyEvent(g.researchInquiry.message); state.paused = true; }
     }
     if (!passengerReceptionGate()?.visitorAdmission?.job && state.combat?.routineSuspension?.reason === 'foreign visitor reception') resumeScientistRoutineWork();
     if (!passengerReceptionGate()?.researchInquiry?.job && state.combat?.routineSuspension?.reason === 'foreign research inquiry') resumeScientistRoutineWork();
+    if (!foreignCivicWork(passengerReceptionGate()) && state.combat?.routineSuspension?.reason === 'foreign civic audience') resumeScientistRoutineWork();
     return Number(changed);
+  }
+  function foreignCivicWork(g) { return Boolean(g?.foreignCivic?.accessJob || g?.foreignCivic?.bargain.job); }
+  function foreignCivicBargainContext(g = passengerReceptionGate()) {
+    const c = foreignReceptionContext(g, false, true), b = g?.foreignCivic?.bargain;
+    const m = g?.foreignWorkspace?.municipalAssay, job = m?.bodyEpoch === c.bodyEpoch && m.jobs.find(j => j.status === 'completed' && j.paidAt != null
+      && j.reportReceipt?.institutionId === m.source.institutionId && j.reportReceipt.officerId === m.actor.id
+      && j.reportReceipt.propertyId === g.foreignWorkspace.property.id && m.source.cityId === g.cityId);
+    return { ...c, source: g?.preparedForeignCivicTestSource || (g && ForeignCivicBargains.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, g)),
+      introduction: job ? { cityId: g.cityId, bodyEpoch: c.bodyEpoch, reportId: job.reportReceipt.reportId, officerId: m.actor.id, receivedAt: job.reportReceipt.at } : null,
+      originalBody: passengerBodyCurrent(), custodyActive: GateEnforcement.custodyActive(currentGateEnforcement()) || localPrisonRestricted(),
+      participantsPresent: Boolean(b && [b.representative, b.defender].every(a => a.present !== false && !actorIsIncapacitated(a)
+        && a.roomId === g.checkpointRoomId && mapCellDistance(a.mapCell, { x: 10, y: 7, z: g.z }) <= 2
+        && sensoryLineOfSight(scientistMapCell(), a.mapCell))) };
+  }
+  function ensureForeignCivicBargain(g = passengerReceptionGate()) {
+    if (!g || scientistIsDead()) return g?.foreignCivic || null;
+    if (g.foreignCivic) return g.foreignCivic; // Original people, duty and archive are never replaced.
+    const c = foreignCivicBargainContext(g);
+    if (!c.local || !c.atDesk || !c.alive || !c.capable || !c.originalBody || c.custodyActive || !c.authorityCurrent) return null;
+    g.foreignCivic = ForeignCivicBargains.create(g, c.source, { theme: state.worldTheme, seed: state.seed });
+    return g.foreignCivic;
+  }
+  function updateForeignCivicBargain(g) {
+    if (!g?.foreignCivic || scientistIsDead()) return false;
+    return ForeignCivicBargains.advance(g, foreignCivicBargainContext(g), state.clock);
+  }
+  function foreignCivicBargainAction(action, expected = null) {
+    const g = passengerReceptionGate(); if (!g || scientistIsDead()) return false;
+    if (action === 'walk') return foreignReceptionAction('walk');
+    const s = ensureForeignCivicBargain(g); if (!s) return false;
+    const ok = ForeignCivicBargains.action(g, foreignCivicBargainContext(g), action, expected, state.clock, ensurePhysicalItemStacks());
+    if (ok && action === 'deliver') { state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0); syncActorInventories(); syncPhysicalReadModels(); }
+    if (ok && foreignCivicWork(g)) suspendScientistRoutineWork('foreign civic audience');
+    if (!foreignCivicWork(g) && state.combat?.routineSuspension?.reason === 'foreign civic audience') resumeScientistRoutineWork();
+    ForeignCivicBargains.observe(g, foreignCivicBargainContext(g), state.clock);
+    surveyEvent(ok ? s.message || s.bargain.message : ForeignCivicBargains.reason(g, s, foreignCivicBargainContext(g), state.clock)
+      || 'No unchanged exact terms, current civic access, original participants or owned carried supplies. Nothing was transferred or disclosed.');
+    persist(); render(); return Boolean(ok);
+  }
+  function renderForeignReceivedChart(record) {
+    const article = document.createElement('article'); article.dataset.foreignApproachExtract = record.id;
+    article.append(textEl('h4', `${record.cityId}: received restricted approach alignment`), textEl('p',
+      `${record.source}; issued ${formatClock(record.issuedAt)}; original survey date ${record.sourceDate == null ? 'not supplied' : record.sourceDate}. Dated received knowledge, not current route safety.`));
+    const canvas = document.createElement('canvas'); canvas.width = 320; canvas.height = 220;
+    canvas.setAttribute('role', 'img'); canvas.setAttribute('aria-label', 'Restricted globe alignment: numbered received city-end positions only; unknown surroundings omitted');
+    const ctx = canvas.getContext('2d'), cells = record.coverage;
+    if (ctx && cells.length) {
+      const rad = Math.PI / 180, lat0 = cells[0].latitude * rad, lon0 = cells[0].longitude * rad;
+      const points = cells.map(c => { const lat = c.latitude * rad, delta = c.longitude * rad - lon0;
+        return { x: Math.cos(lat) * Math.sin(delta), y: Math.sin(lat) * Math.cos(lat0) - Math.cos(lat) * Math.sin(lat0) * Math.cos(delta),
+          front: Math.sin(lat) * Math.sin(lat0) + Math.cos(lat) * Math.cos(lat0) * Math.cos(delta) >= 0 }; });
+      ctx.fillStyle = '#111820'; ctx.fillRect(0, 0, 320, 220); ctx.strokeStyle = '#536573'; ctx.beginPath(); ctx.arc(160, 110, 95, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = '#91c8c0'; ctx.beginPath(); let previous = false;
+      points.forEach(p => { if (!p.front) { previous = false; return; } const x = 160 + p.x * 95, y = 110 - p.y * 95;
+        if (previous) ctx.lineTo(x, y); else ctx.moveTo(x, y); previous = true; }); ctx.stroke();
+      points.forEach((p, n) => { if (!p.front) return; const x = 160 + p.x * 95, y = 110 - p.y * 95;
+        ctx.fillStyle = '#e0b864'; ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill(); ctx.font = '12px sans-serif'; ctx.fillText(String(n + 1), x + 6, y - 5); });
+    }
+    article.append(canvas);
+    const list = document.createElement('ol'); list.setAttribute('aria-label', 'Received city-outward alignment coordinates');
+    for (const cell of cells) list.append(textEl('li', `${cell.cellId}: latitude ${formatDecimal(cell.latitude, 2)}, longitude ${formatDecimal(cell.longitude, 2)}`));
+    article.append(list, textEl('p', record.notes.join(' ')), textEl('p', record.limitations)); return article;
+  }
+  function renderForeignCivicBargain() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.foreignCivicBargain = 'true';
+    panel.append(textEl('h3', 'Foreign Civic Audience and Defense-Supply Bargain'), textEl('p', `${ForeignCivicBargains.POSITION} ${ForeignCivicBargains.SCOPE}`));
+    const g = passengerReceptionGate(), s = ensureForeignCivicBargain(g), c = foreignCivicBargainContext(g);
+    const button = (label, action, blocked = false, expected = null) => { const b = storesActionButton(label, label, () => foreignCivicBargainAction(action, expected)); b.disabled = Boolean(blocked || scientistIsDead()); panel.append(b); };
+    if (g && c.local) button('Walk to foreign civic reception desk', 'walk', surveyBusy() || c.atDesk);
+    if (s) {
+      const v = ForeignCivicBargains.observe(g, c, state.clock), b = v?.bargain, reason = ForeignCivicBargains.reason(g, s, c, state.clock, s.accessJob?.id || s.bargain.job?.id);
+      panel.append(textEl('p', reason || 'Actual foreign administration and defense office support one finite six-part supply exchange. No private assay threshold or home-city control is required.'));
+      if (s.introduction) panel.append(textEl('p', `Optional original municipal officer introduction, report ${s.introduction.reportId}. No political endorsement.`));
+      else if (c.introduction) { panel.append(textEl('p', 'Optional introduction discloses only the identity and issuer of your received municipal report, not its findings or laboratory records. It is not required for access or the bargain.'));
+        button('Present optional municipal report introduction', 'introduce', reason || foreignCivicWork(g), clonePlainObject(c.introduction)); }
+      if (!ForeignCivicBargains.permission(g, c, state.clock) && !foreignCivicWork(g)) {
+        const q = ForeignCivicBargains.quote(g, c, state.clock);
+        button('Review separate foreign civic access terms', 'reviewAccess', !q, q);
+        if (v?.accessOffer) button('Accept exact foreign civic counter access', 'acceptAccess', reason, clonePlainObject(v.accessOffer));
+      }
+      if (v) panel.append(textEl('p', `${formatClock(v.at)} — personally received civic account. ${v.message}${v.permit ? ` Named-counter access ends ${formatClock(v.permit.expiresAt)}; visitor trading/lodging clocks are unchanged.` : ''}`));
+      if (foreignCivicWork(g)) { if (v?.accessWork || b?.working) panel.append(textEl('p', `${formatDuration((v.accessWork || b.working).progress)} attended of ${formatDuration((v.accessWork || b.working).seconds)}; interrupted work never backfills.`)); button('Cancel foreign civic attendance', 'cancel'); }
+      if (ForeignCivicBargains.permission(g, c, state.clock) && b) {
+        for (const person of b.contacts) panel.append(textEl('p', `${person.name}: ${person.role}, ${person.location}; personally confirmed ${formatClock(person.lastConfirmedAt)}.`));
+        button('Request foreign defense-supply audience', 'request', reason || foreignCivicWork(g) || !SovereignBargains.canRequest(s.bargain));
+        if (['queued', 'interrupted'].includes(b.audience?.status)) { panel.append(textEl('p', `Audience allocated from ${formatClock(b.audience.readyAt)} to ${formatClock(b.audience.expiresAt)}; no shared civic duty is preempted.`)); button('Attend foreign defense-supply audience', 'attend', reason || foreignCivicWork(g) || state.clock < b.audience.readyAt); }
+        if (b.terms) {
+          const t = b.terms; panel.append(textEl('p', `${t.status}: ${t.quantity} owned carried metal parts to ${t.destinationLabel}. ${t.compensation}. ${t.partialDelivery}${t.deliverBy != null ? ` Original receive-by deadline ${formatClock(t.deliverBy)}.` : ''} ${t.disclosure}`));
+          if (t.status === 'offered') button('Sign exact foreign defense-supply bargain', 'sign', reason || foreignCivicWork(g), clonePlainObject(t));
+          if (['offered', 'signed'].includes(t.status)) button('Decline foreign defense-supply bargain', 'decline', reason || foreignCivicWork(g));
+          if (t.status === 'signed') {
+            panel.append(textEl('p', `Original installation custody ${b.received}/${t.quantity}. Partial supplies buy no map; no laboratory stock can be delivered remotely.`));
+            button('Hand over carried foreign defense supplies', 'deliver', reason || foreignCivicWork(g) || b.received >= t.quantity);
+            button('Copy fulfilled foreign restricted approach extract', 'claim', reason || foreignCivicWork(g) || b.received !== t.quantity);
+          }
+        }
+        for (const r of b.receipts) panel.append(textEl('p', `${formatClock(r.at)} — ${r.quantity} physical parts received by ${r.custodianId}; original stacks ${r.manifest.map(i => `${i.stackId} ×${i.quantity}`).join(', ')}.`));
+      }
+    } else panel.append(textEl('p', 'Personally reach a supported foreign civic desk. No unsupported city, joint stronghold, invented defender or undisclosed archive can offer this bargain.'));
+    for (const gate of state.penalFlights?.assistance?.cityApproach?.gates || []) for (const record of ForeignCivicBargains.knownAlignment(gate.foreignCivic)) panel.append(renderForeignReceivedChart(record));
+    return panel;
   }
   function foreignResearchInquiryContext(g = passengerReceptionGate()) {
     const c = foreignReceptionContext(g, true), j = g?.researchInquiry?.job;
@@ -89551,6 +89672,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(textEl('strong', 'Direct-Neighbor and Second-Hop Passenger Travel'));
     panel.append(renderTradeTripPreparation());
     panel.append(renderForeignResearchInquiry());
+    panel.append(renderForeignCivicBargain());
     panel.append(renderForeignWorkspace());
     const s = ensureIntercityPassenger(), local = intercityLocal();
     if (!local) { panel.append(textEl('p', 'Reach the existing home municipal survey-ground rendezvous first; city control is not required. Carrier records while away are dated, not live intelligence.')); return panel; }
@@ -89662,7 +89784,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return ["scientistMove", "surveyExpeditionWork", "physicalDiagnostic", "hiddenWorkshopWork"].includes(task.type)
       || task.type === 'soulBeaconWork' && hiddenWorkshopLocal() && labMapCellRoomId(target) === state.hiddenWorkshop?.site?.roomId;
   }
-  function surveyBusy(ignoreInquiry = false) { return (!ignoreInquiry && Boolean(passengerReceptionGate()?.researchInquiry?.job)) || scientistQueueTasks().some((task) => !taskBlockReason(task)); }
+  function surveyBusy(ignoreInquiry = false, ignoreCivic = false) { return (!ignoreInquiry && Boolean(passengerReceptionGate()?.researchInquiry?.job)) || (!ignoreCivic && foreignCivicWork(passengerReceptionGate())) || scientistQueueTasks().some((task) => !taskBlockReason(task)); }
   function surveyEvent(message) { addEvent(message, { sourceKind: "surveyExpedition" }); }
   function surveyCarriedStacks() { return ensurePhysicalItemStacks().filter((entry) => entry.carriedBy === "scientist"); }
   function surveyQuote() {
