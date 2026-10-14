@@ -97,8 +97,11 @@ function identity() {
 }
 async function start(page, renderer) {
   await page.addInitScript(() => localStorage.clear()); await page.goto(pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href);
-  await page.evaluate(({ network, identity, renderer }) => {
+  return page.evaluate(({ network, identity, renderer }) => {
     const d = window.helixHeresyDebug, city = { cityId: 'a', assetId: 'a', currentPopulation: 100, physicalCondition: 'intact', services: { transport: 'functional', provisioning: 'functional' } };
+    // The consumer under test is import-to-assay, not wilderness prospecting.
+    // One explicit original sealed home sample avoids that unrelated setup.
+    const sampleId = d.configureLaboratoryAssistantTestSupport();
     d.setSurveyExpeditionTestContext({ network, context: { worldId: 'lab-input-world', siteId: 'parcel', strategicCellId: 'planet-cell:00009', seed: 'lab-input', publicProspects: { prospectBands: { ferrousOre: 'moderate' } }, truth: { potentialPermille: { ferrousOre: 900 }, typicalDepth: { ferrousOre: 'exposed' }, surfaceAccessibilityPermille: 1000, environmentalDifficultyPermille: 0 } },
       carrierSource: { strategicPlayableSettlementState: { cityRows: [city] }, cityGovernments: { governments: [{ cityId: 'a', roleAssignments: { publicWorksAndProvisioning: 'works:a' }, institutions: [{ id: 'works:a', name: 'Aster Works', capacityBand: 'functional' }] }] } },
       passengerSource: { city, standings: [{ network: { id: 'transport:a', category: 'transport' }, standing: 'licensed', branch: { id: 'branch:a', publicName: 'Aster Passenger Depot', capacityBand: 'functional' } }] } });
@@ -112,8 +115,8 @@ async function start(page, renderer) {
     s.physicalItemStacks = s.physicalItemStacks.filter(i => i.key !== 'assayReagent'
       && !(renderer === 'canvas' && i.section === 'resources' && i.fixtureId === 'starter-storage-shelf'));
     d.importSurveyExpeditionTestState(s); d.setMapRenderer(renderer);
+    return { stackId: sampleId };
   }, { network: network(), identity: identity(), renderer });
-  await page.locator('[data-workspace-tab="visits"]').click();
 }
 async function finish(page) { await page.evaluate(() => { const d = window.helixHeresyDebug; for (let n = 0; n < 12; n++) {
   const s = d.surveyExpeditionSnapshot(), t = s.tasks.find(t => !t.reason); if (!t) return; d.advanceSimulation(Math.max(1, t.dueAt - s.clock + 1));
@@ -134,15 +137,14 @@ async function passengerLeg(page, outbound) {
   expect(await page.evaluate(() => window.helixHeresyDebug.queueIntercityPassenger('passengerDisembark'))).toBe(true); await finish(page);
 }
 for (const renderer of ['dom', 'canvas']) test(`foreign reagent purchase, saved physical receipt, paid return, home storage and real assay through ${renderer}`, async ({ page }) => {
-  test.setTimeout(900000); const errors = []; page.on('pageerror', e => errors.push(e.message)); await start(page, renderer);
+  test.setTimeout(900000); const errors = []; page.on('pageerror', e => errors.push(e.message)); const sample = await start(page, renderer);
+  await page.locator('[data-workspace-tab="visits"]').click();
   for (const key of ['environmentalSurveyKit', 'sealedReagentBottle', 'medicalBandage', 'fieldRation']) {
     expect(await page.evaluate(key => window.helixHeresyDebug.packSurveyItem(key), key)).toBe(true); await finish(page);
   }
   expect(await page.evaluate(() => window.helixHeresyDebug.reserveMunicipalCarrier())).toBe(true);
   await page.evaluate(() => { const d = window.helixHeresyDebug, s = d.surveyExpeditionSnapshot(), j = d.strategicJourneysSnapshot().journeys.find(j => j.id === s.carrier.journeyId); d.advanceSimulation(j.exactArrivalAt - s.clock + 1); });
   expect(await page.evaluate(() => window.helixHeresyDebug.boardSurveyVehicle())).toBe(true); await finish(page); await municipalTravel(page);
-  expect(await page.evaluate(() => window.helixHeresyDebug.startResourceSurvey('surfaceSample', { x: 13, y: 12, z: 6 }))).toBe(true); await finish(page);
-  const sample = (await page.evaluate(() => window.helixHeresyDebug.resourceSurveySnapshot())).samples[0]; expect(sample).toBeTruthy();
   await passengerLeg(page, true);
   expect(await page.evaluate(() => window.helixHeresyDebug.foreignReceptionAction('walk'))).toBe(true); await finish(page);
   expect(await page.evaluate(() => { const d = window.helixHeresyDebug; return d.foreignReceptionAction('review', d.foreignReceptionSnapshot().quote); })).toBe(true);

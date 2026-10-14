@@ -816,6 +816,16 @@ Lease expiry or lost receiving support holds the same cargo without refund, reca
 
 Focused checks: `npx playwright test tests/foreign-reagent-reservations.spec.js tests/foreign-reagent-reservations-browser.spec.js --project=chromium --workers=1`.
 
+### Bringing factory reagent home
+
+Personally retrieve actually delivered factory reagent from the foreign workspace and carry it home on existing transport. Passenger return fares, bookings, boarding, cargo capacity, finite vehicles and the local laboratory connection still apply. A held allocation or payment alone cannot supply cargo, and no remote transfer or replacement stock is created.
+
+At home, Visits > Unload Imported Laboratory Inputs accepts the original factory truck receipt as well as existing visitor-counter receipts. Select accessible existing storage with enough space, then explicitly walk there and complete ten seconds of physical unloading. Only actual placement makes the carried reagent available to ordinary home assays. Changed body, ownership, custody, receipt, dimensions, storage access or capacity blocks work without discarding cargo. Cancellation leaves the goods carried; unfinished work and the original reservation survive a real save/load.
+
+Factory receipts track the actual original lot and its physical splits. Using one of the two delivered units abroad leaves the remaining unit importable; consuming or losing units reduces recorded balances permanently. Copying labels, inflating quantity or inventing another stack cannot establish provenance. Archived allocations remain valid ownership evidence after another offer, departure or lease expiry. A home receipt is once-only for that physical lot, and its already-unloaded status follows later splits or repacking. Original delivery dates and quantities remain distinct from home receipt dates and quantities. Ordinary cargo rules are unchanged; this is not remote buying, automatic procurement or a broader trade/research permission.
+
+Focused checks: `npx playwright test tests/foreign-reagent-imports.spec.js tests/foreign-reagent-imports-browser.spec.js --project=chromium --workers=1`. Existing visitor-counter imports retain their separate receipt path.
+
 ### Annex staffing and independent operations
 
 Facilities at home and Visits at the annex offer the existing assay technician a separately reviewed annex engagement. This is the same person, with retained qualifications, observations, wounds and finite provisions, not another free employee. Finish the previous engagement and actual return before selecting a new workplace. Annex terms disclose the aboveground manual bench, one-room access, permitted sealed nonliving samples, known hazards, absent utilities and confidentiality request. The landlord's lease explicitly allows one disclosed consenting technician. No underground passage is granted by an annex agreement. Pay the existing 40 walking fee plus 24/hour in finite escrow for two, four or eight on-site hours.
