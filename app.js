@@ -114,6 +114,7 @@
   const passengerReceptionSourceCache = new WeakMap();
   const foreignWorkspaceSourceCache = new WeakMap();
   const MunicipalCarrier = window.HelixMunicipalCarrier;
+  const ForeignSurveyExcursion = window.HelixForeignSurveyExcursion;
   const CarrierBriefings = window.HelixCarrierBriefings;
   const LocalDiscovery = window.HelixLocalDiscovery;
   const MunicipalMaps = window.HelixMunicipalMaps;
@@ -16794,6 +16795,15 @@
         syncActorInventories(); persist(); render(); return state.clock;
       },
       foreignReceptionSnapshot: () => { const g = passengerReceptionGate(), c = foreignReceptionContext(g); return clonePlainObject({ gate: g, context: c, quote: ForeignReception.quote(g, c), permission: foreignVisitorPermission(g), clock: state.clock, roomId: scientistRoomId(), cell: scientistMapCell(), money: ensureEconomy().money, doors: g ? state.doors[g.doorId] : null, busy: surveyBusy(), tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) }); },
+      foreignSurveyAction,
+      foreignSurveySnapshot: () => { const g = passengerReceptionGate(); updateForeignSurvey(g); return clonePlainObject({ excursion: g?.foreignSurvey,
+        context: foreignSurveyContext(g), clock: state.clock, money: ensureEconomy().money, stacks: ensurePhysicalItemStacks(),
+        diagnostics: ensureDiagnosticState(), surveys: ensureResourceSurveys(), passenger: state.intercityPassenger,
+        tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) }); },
+      setForeignSurveyTestSource: (source, carrier, context) => {
+        const g = passengerReceptionGate(); if (!g || g.foreignSurvey) return false;
+        g.preparedForeignSurveyTestSource = clonePlainObject({ source, carrier, context }); ensureForeignSurvey(g); persist(); render(); return Boolean(g.foreignSurvey);
+      },
       foreignCivicBargainAction,
       foreignCivicBargainSnapshot: () => {
         const g = passengerReceptionGate(); updateForeignCivicBargain(g);
@@ -32062,6 +32072,8 @@
   }
 
   function surfaceGroundAtCell(cell, map = ensureLabMap()) {
+    if ((state.penalFlights?.assistance?.cityApproach?.gates || []).some(g => g.foreignSurvey && cell?.z === g.foreignSurvey.entry.z
+      && map.rooms[g.foreignSurvey.roomId]?.cells.some(c => sameMapCell(cell, c)))) return { cell: cleanMapCell(cell), terrainId: 'soil' };
     if ([SurveyExpeditions.FIELD_Z, UnsupportedExcursions.Z].includes(cell?.z) && [WildernessSurvival.ROOM, UnsupportedExcursions.ROOM].some((roomId) => map.rooms?.[roomId]?.cells?.some((entry) => mapCellKey(entry) === mapCellKey(cell)))) return { cell: cleanMapCell(cell), terrainId: "soil" };
     if (cell?.z === SurveyExpeditions.FIELD_Z && map.rooms?.[SurveyExpeditions.FIELD_ROOM]?.cells?.some((entry) => mapCellKey(entry) === mapCellKey(cell))) return { cell: cleanMapCell(cell), terrainId: "soil" };
     return indexedMapCellEntry(map.terrain?.surfaceGround, cell);
@@ -32263,6 +32275,8 @@
   function surfaceEnvelopeAtCell(cell, map = ensureLabMap(), context = null) {
     const clean = cleanMapCell(cell);
     if (!clean) return { kind: "subterranean", roofed: true, openSky: false };
+    const foreignGround = (state.penalFlights?.assistance?.cityApproach?.gates || []).find(g => g.foreignSurvey && [g.foreignSurvey.entry.z, g.foreignSurvey.cabinEntry.z].includes(clean.z));
+    if (foreignGround) return clean.z === foreignGround.foreignSurvey.entry.z ? { kind: 'outdoor', roofed: false, openSky: true } : { kind: 'interior', roofed: true, openSky: false };
     const passengerLayer = map.layers?.[String(clean.z)]?.id;
     const reception = state.penalFlights?.assistance?.cityApproach?.gates.find(g => g.z === clean.z && g.materialized);
     if (reception && mapCellInRoomFootprint(clean, map.rooms[reception.annexRoomId])) return { kind: 'interior', roofed: true, openSky: false };
@@ -33265,6 +33279,8 @@
     if (municipalSampleOfficer) return municipalSampleOfficer;
     const foreignCivicActor = context?.penalFlights?.assistance?.cityApproach?.gates.flatMap(g => [g.foreignCivic?.bargain.representative, g.foreignCivic?.bargain.defender]).find(a => a?.id === id);
     if (foreignCivicActor) return foreignCivicActor;
+    const foreignSurveyDriver = context?.penalFlights?.assistance?.cityApproach?.gates.map(g => g.foreignSurvey?.carrier.driver).find(a => a?.id === id);
+    if (foreignSurveyDriver) return foreignSurveyDriver;
     if (supplier) return supplier;
     if (context?.penalFlights?.actors?.some(a => a.id === id)) return context.penalFlights.actors.find(a => a.id === id);
     return (context?.slimes || []).find((slime) => slime.id === id && slime.status !== "dead")
@@ -33307,6 +33323,7 @@
       ...(context.penalFlights?.assistance?.cityApproach?.gates || []).filter(g => g.foreignWorkspace).map(g => ({ id: g.foreignWorkspace.actor.id, actor: g.foreignWorkspace.actor })),
       ...(context.penalFlights?.assistance?.cityApproach?.gates || []).filter(g => g.foreignWorkspace?.municipalAssay).map(g => ({ id: g.foreignWorkspace.municipalAssay.actor.id, actor: g.foreignWorkspace.municipalAssay.actor })),
       ...(context.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => [g.foreignCivic?.bargain.representative, g.foreignCivic?.bargain.defender]).filter(Boolean).map(actor => ({ id: actor.id, actor })),
+      ...(context.penalFlights?.assistance?.cityApproach?.gates || []).filter(g => g.foreignSurvey).map(g => ({ id: g.foreignSurvey.carrier.driver.id, actor: g.foreignSurvey.carrier.driver })),
       ...(context.penalFlights?.actors || []).map(actor => ({ id: actor.id, actor })),
       ...(context.homunculi?.individuals || []).map(actor => ({ id: actor.id, actor })),
       ...(context.slimes || []).map((slime) => ({ id: slime.id, actor: slime })),
@@ -36765,6 +36782,8 @@
       const officer = g.foreignWorkspace?.municipalAssay?.actor;
       if (officer && officer.id !== excludeActor?.id && mapCellKey(officer.mapCell) === key) occupied += .6;
       for (const a of [g.foreignCivic?.bargain.representative, g.foreignCivic?.bargain.defender]) if (a && a.id !== excludeActor?.id && mapCellKey(a.mapCell) === key) occupied += .6;
+      const driver = g.foreignSurvey?.carrier.driver;
+      if (driver?.mapCell && driver.id !== excludeActor?.id && mapCellKey(driver.mapCell) === key) occupied += .6;
     }
     for (const beast of state.wildernessBeasts?.actors || []) {
       if (beast.id !== excludeActor?.id && mapCellKey(beast.mapCell) === key) occupied += MAP_TILE_AREA_M2;
@@ -40303,7 +40322,7 @@
     if (state.surfaceWorkers?.actor?.id === actorId) return state.surfaceWorkers.actor;
     if (state.laboratoryAssistant?.actor?.id === actorId) return state.laboratoryAssistant.actor;
     return actorId === "scientist" ? state.scientist : findSlime(actorId) || wildernessBeast(actorId) || (state.expeditionEscorts?.actor?.id === actorId ? state.expeditionEscorts.actor : null) || (state.medicalExtraction?.medic?.id === actorId ? state.medicalExtraction.medic : null) || state.penalFlights?.actors.find(a => a.id === actorId)
-      || (state.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => [g.visitorSupplies?.actor, g.foreignWorkspace?.actor, g.foreignWorkspace?.municipalAssay?.actor, g.foreignCivic?.bargain.representative, g.foreignCivic?.bargain.defender]).find(a => a?.id === actorId);
+      || (state.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => [g.visitorSupplies?.actor, g.foreignWorkspace?.actor, g.foreignWorkspace?.municipalAssay?.actor, g.foreignCivic?.bargain.representative, g.foreignCivic?.bargain.defender, g.foreignSurvey?.carrier.driver]).find(a => a?.id === actorId);
   }
 
   function combatActorCell(actor) {
@@ -67393,6 +67412,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const reception = state.penalFlights?.assistance?.cityApproach?.gates.find(g => g.z === scientistMapCell().z && g.materialized);
     if (reception) for (const person of [reception.clerk, reception.guard]) if (cityApproachNear("scientist", person.mapCell, 8)) setLabMapOverlayEntry(assignments, person.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: person.name, title: person.id === reception.clerk.id ? "City identity clerk" : "City reception gate guard", value: person.status === "dead" ? "†" : person.id === reception.clerk.id ? "C" : "G", source: "Direct observation", target: { kind: "tile", tile: person.mapCell } }, map);
     const reviewer = reception?.enforcement?.materialized && reception.enforcement.reviewer;
+    for (const gate of state.penalFlights?.assistance?.cityApproach?.gates || []) {
+      const s = gate.foreignSurvey, a = s?.carrier.driver;
+      if (a?.mapCell && a.roomId === scientistRoomId() && cityApproachNear('scientist', a.mapCell, 8) && sensoryLineOfSight(scientistMapCell(), a.mapCell)) setLabMapOverlayEntry(assignments, a.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: a.name, title: 'Original foreign municipal survey driver; not an escort or free rescue', value: a.status === 'dead' ? '†' : 'D', source: 'Direct observation', target: { kind: 'tile', tile: a.mapCell } }, map);
+      if (s && foreignSurveyAtField() === s && cityApproachNear('scientist', s.hazard, 8)) setLabMapOverlayEntry(assignments, s.hazard, { overlayId, classNames: ['map-overlay-resources'], label: s.hazardDisturbed ? 'Settled original loose-rock patch' : 'Flagged unstable footing', title: 'Municipal surface-survey warning, not a mineral survey', value: '!', source: 'Purpose-limited visit warning', target: { kind: 'tile', tile: s.hazard } }, map);
+    }
     for (const person of [reception?.foreignCivic?.bargain.representative, reception?.foreignCivic?.bargain.defender]) if (person && cityApproachNear('scientist', person.mapCell, 8) && sensoryLineOfSight(scientistMapCell(), person.mapCell)) setLabMapOverlayEntry(assignments, person.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: person.name, title: person.role, value: person.status === 'dead' ? '†' : person === reception.foreignCivic.bargain.defender ? 'D' : 'R', source: 'Direct observation', target: { kind: 'tile', tile: person.mapCell } }, map);
     const supplier = reception?.visitorSupplies?.actor;
     const representative = reception?.foreignWorkspace?.actor;
@@ -81191,9 +81215,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return [...toolInstancesForItem(itemKey)]
       .filter((tool) => tool.current > 0 && (!tool.reservedTaskId || tool.reservedTaskId === taskId))
       .filter((tool) => !annexAway() || tool.roomId === LeasedAnnex.ROOM && (!tool.carriedBy || tool.carriedBy === "scientist"))
-      .filter((tool) => !passengerAway() || foreignWorkspaceAtProperty() && tool.roomId === passengerReceptionGate().foreignWorkspace.roomId && (!tool.carriedBy || tool.carriedBy === 'scientist'))
+      .filter((tool) => !passengerAway() || foreignSurveyAtField() && itemKey === 'environmentalSurveyKit' && tool.roomId === foreignSurveyAtField().roomId && tool.carriedBy === 'scientist'
+        || foreignWorkspaceAtProperty() && tool.roomId === passengerReceptionGate().foreignWorkspace.roomId && (!tool.carriedBy || tool.carriedBy === 'scientist'))
       .filter((tool) => !passengerAway() || ensurePhysicalItemStacks().some(i => i.toolInstanceId === tool.id && i.quantity > 0
-        && i.roomId === passengerReceptionGate()?.foreignWorkspace?.roomId && i.carriedBy === (tool.carriedBy || '') && !i.cityOwnerId && !i.civicCustody))
+        && i.roomId === (foreignSurveyAtField()?.roomId || passengerReceptionGate()?.foreignWorkspace?.roomId) && i.carriedBy === (tool.carriedBy || '') && !i.cityOwnerId && !i.civicCustody))
       .sort((a, b) => Number(b.carriedBy === "scientist") - Number(a.carriedBy === "scientist") || b.current - a.current)[0] || null;
   }
 
@@ -87542,6 +87567,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return Boolean(stack && mapCellKey(stack.cell) === mapCellKey(shelter.cell) && mapCellKey(scientistMapCell()) === mapCellKey(shelter.cell));
   }
   function resourceContextForCell(cell) {
+    const foreign = foreignSurveyAtField();
+    if (foreign && cell?.z === foreign.entry.z && labMapCellRoomId(cell) === foreign.roomId) return foreign.context;
     if (passengerAway()) return null;
     if (labMapCellRoomId(cell) === activeWildernessRoom()) return ensureWildernessSurvival().context;
     if (surveyScientistAway()) return ensureSurveyExpeditions().fieldContext;
@@ -88179,7 +88206,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       panel.append(textEl('p', `${formatClock(v.at)} — received lodging report: ${v.message} ${v.checkIn ? `${formatDuration(v.checkIn.progress)} / one attended minute.` : ''} Reports remain dated while away.`));
     return panel;
   }
-  function foreignReceptionContext(g = passengerReceptionGate(), ignoreInquiry = false, ignoreCivic = false) {
+  function foreignReceptionContext(g = passengerReceptionGate(), ignoreInquiry = false, ignoreCivic = false, ignoreTasks = false) {
     const p = state.intercityPassenger, profile = ensureScientistIdentity(), cell = scientistMapCell();
     const local = Boolean(g && passengerLanded() && p.location === g.cityId && [g.checkpointRoomId, g.annexRoomId].includes(scientistRoomId()));
     const document = profile.documents.find(d => d.number === g?.visitorAdmission?.selectedDocument) || (!g?.visitorAdmission?.selectedDocument ? profile.documents.at(-1) : null);
@@ -88200,7 +88227,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       clerkPresent: Boolean(local && clerk?.mapCell?.z === cell.z && WildernessBeasts.distance(clerk.mapCell, { x: 10, y: 6, z: g.z }) <= 1),
       lineOfSight: Boolean(local && clerk?.mapCell && sensoryLineOfSight(cell, clerk.mapCell)),
       authorityCurrent: Boolean(source?.currentAuthority && source.administrationId === g?.institutionId && source.lawId === g?.visitorAdmission?.rule.lawId),
-      otherBusy: surveyBusy(ignoreInquiry, ignoreCivic) || Boolean(profile.job) || Boolean(currentCityApproach()?.gateId === g?.id && ['requested', 'preparing'].includes(currentCityApproach()?.status)),
+      otherBusy: (ignoreTasks ? Boolean(!ignoreInquiry && g?.researchInquiry?.job || !ignoreCivic && foreignCivicWork(g)) : surveyBusy(ignoreInquiry, ignoreCivic)) || Boolean(profile.job) || Boolean(currentCityApproach()?.gateId === g?.id && ['requested', 'preparing'].includes(currentCityApproach()?.status)),
       issuer, bans,
       evidence: { present: Boolean(document), sourceRecordId: document?.number || null,
         document: document ? clonePlainObject(document) : null, comparison,
@@ -88241,12 +88268,131 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ForeignResearchInquiry.observe(g, inquiryContext, state.clock);
       changed = updateForeignWorkspace(g) || changed;
       changed = updateForeignCivicBargain(g) || changed;
+      changed = updateForeignSurvey(g) || changed;
       if (inquiryJob && !g.researchInquiry.job && inquiryContext.local) { surveyEvent(g.researchInquiry.message); state.paused = true; }
     }
     if (!passengerReceptionGate()?.visitorAdmission?.job && state.combat?.routineSuspension?.reason === 'foreign visitor reception') resumeScientistRoutineWork();
     if (!passengerReceptionGate()?.researchInquiry?.job && state.combat?.routineSuspension?.reason === 'foreign research inquiry') resumeScientistRoutineWork();
     if (!foreignCivicWork(passengerReceptionGate()) && state.combat?.routineSuspension?.reason === 'foreign civic audience') resumeScientistRoutineWork();
     return Number(changed);
+  }
+  function foreignSurveyAtField() {
+    const s = passengerReceptionGate()?.foreignSurvey;
+    return s && s.phase === 'field' && scientistRoomId() === s.roomId ? s : null;
+  }
+  function foreignSurveyContext(g = passengerReceptionGate()) {
+    const c = foreignReceptionContext(g, false, false, true), s = g?.foreignSurvey, cell = scientistMapCell();
+    const carried = surveyCarriedStacks();
+    return { ...c, source: g?.preparedForeignSurveyTestSource?.source || (g && ForeignSurveyExcursion.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, g)),
+      originalBody: passengerBodyCurrent(), custodyActive: GateEnforcement.custodyActive(currentGateEnforcement()) || localPrisonRestricted(),
+      excluded: c.bans.length > 0, routeOpen: g?.foreignSurvey?.routeOpen !== false,
+      atStand: Boolean(g && scientistRoomId() === g.checkpointRoomId && sameMapCell(cell, { x: 10, y: 7, z: g.z })),
+      atField: Boolean(s && scientistRoomId() === s.roomId), atFieldEntry: Boolean(s && scientistRoomId() === s.roomId && sameMapCell(cell, s.entry)),
+      aboard: Boolean(s && scientistRoomId() === s.cabinId), cargo: SurveyExpeditions.cargoUnits(carried),
+      kit: carried.some(i => i.key === 'environmentalSurveyKit' && !i.reservedTaskId && toolInstanceById(i.toolInstanceId)?.instance.current > 0),
+      bottle: carried.some(i => i.key === 'sealedReagentBottle' && !i.reservedTaskId && i.quantity >= 1),
+      provisions: carried.some(i => ['fieldRation', 'trailMeal'].includes(i.key) && i.quantity >= 1) && carried.some(i => i.key === 'drinkingWater' && i.quantity >= 1) };
+  }
+  function ensureForeignSurvey(g = passengerReceptionGate()) {
+    if (!g || scientistIsDead() || !g.materialized) return g?.foreignSurvey || null;
+    if (g.foreignSurvey) return g.foreignSurvey;
+    const c = foreignSurveyContext(g);
+    if (!c.atDesk || !c.alive || !c.capable || !c.originalBody || c.custodyActive || g.cityId === state.surveyExpeditions?.destination?.cityId) return null;
+    const source = c.source, map = activeWorldRecord?.generatedData?.strategicMap, test = g.preparedForeignSurveyTestSource;
+    const context = test?.context || (source && resourceSurveyContext(activeWorldRecord, { strategicLocation: { id: source.placeId, strategicCellId: source.cellId } }, activeWorldRecord?.worldSeed || state.seed));
+    const carrier = test ? clonePlainObject(test.carrier) : source && MunicipalCarrier.fromWorld(map, g.cityId, state.clock);
+    const z = Math.max(20, ...Object.keys(ensureLabMap().layers).map(Number).filter(Number.isFinite)) + 1;
+    const s = ForeignSurveyExcursion.create(g, source, carrier, context, z); if (!s) return null;
+    g.foreignSurvey = s; ensureResourceSurveys().sites[s.context.siteId] = clonePlainObject(s.context);
+    Object.assign(s.carrier.driver, { actorKind: 'foreignSurveyDriver', kind: 'visitor', maxHealth: 100, present: true, roomId: null, mapCell: null });
+    for (const spec of [{ id: s.roomId, name: source.name, x: 8, y: 8, width: 12, height: 10, z, outdoor: true },
+      { id: s.cabinId, name: 'Original Foreign Municipal Survey Vehicle', x: 8, y: 8, width: 4, height: 3, z: z + 1, outdoor: false }]) {
+      const room = normalizeRoom({ ...spec, facilityClass: 'foreignSurveyExcursion', purposeId: 'corridor', connections: [], description: ForeignSurveyExcursion.SCOPE,
+        geometry: { lengthM: spec.width, widthM: spec.height, heightM: 3, floorAreaM2: spec.width * spec.height, volumeM3: spec.width * spec.height * 3 } });
+      const lab = ensureLabMap(), cells = rectangularRoomCells({ ...spec, roomId: spec.id });
+      state.rooms = normalizeRooms([...state.rooms, room]); lab.layers[String(spec.z)] = { id: spec.id, kind: 'structure', label: spec.name };
+      lab.rooms[spec.id] = normalizeLabMapRoom({ ...spec, roomId: spec.id, cells, anchor: spec.outdoor ? s.entry : s.cabinEntry }, room);
+      lab.terrain.excavated = normalizeDigCells([...lab.terrain.excavated, ...cells]); state.roomStockpiles[spec.id] = emptyRoomStockpile();
+      if (!spec.outdoor) lab.terrain.constructedFloors = normalizeConstructedSurfaces([...(lab.terrain.constructedFloors || []), ...cells.map(cell => ({ cell, materialId: 'steel', purpose: 'floor', supportSpanM: 24, condition: 100, builtAt: state.clock }))]);
+    }
+    bumpNavigationRevision('topology'); return s;
+  }
+  function updateForeignSurvey(g) {
+    const s = g?.foreignSurvey; if (!s || scientistIsDead()) return false;
+    const c = foreignSurveyContext(g), changed = ForeignSurveyExcursion.advance(s, c, state.clock), a = s.carrier.driver;
+    if (['city', 'cityReturned'].includes(s.phase)) { a.roomId = g.checkpointRoomId; a.mapCell = { x: 9, y: 7, z: g.z }; }
+    else if (s.phase === 'field') { a.roomId = s.roomId; a.mapCell = { x: 11, y: 10, z: s.entry.z }; }
+    else if (['outbound', 'inbound'].includes(s.phase)) { a.roomId = s.cabinId; a.mapCell = { x: 9, y: 9, z: s.cabinEntry.z }; }
+    else { a.roomId = null; a.mapCell = null; }
+    for (const task of state.tasks.filter(t => t.type === 'physicalDiagnostic' && t.data?.foreignSurveyTripId === s.trip?.id)) {
+      const blocked = physicalDiagnosticTaskBlockReason(task);
+      if (blocked) task.data.foreignSurveyHeldAt ??= Math.max(task.createdAt, Math.min(state.clock, s.permission?.endsAt ?? state.clock));
+      else if (task.data.foreignSurveyHeldAt != null) { task.dueAt += state.clock - task.data.foreignSurveyHeldAt; delete task.data.foreignSurveyHeldAt; }
+    }
+    if (foreignSurveyAtField() === s && !s.hazardDisturbed && sameMapCell(scientistMapCell(), s.hazard)) {
+      s.hazardDisturbed = true; const previous = surveyDirectEvent; surveyDirectEvent = true;
+      try { recordCombatInjury(state.scientist, 2, ['physical'], 'Flagged foreign municipal loose rock shifted underfoot', { location: 'left leg', observed: true }); }
+      finally { surveyDirectEvent = previous; } surveyEvent('Flagged loose rock shifted: a real minor leg injury. This original patch is now settled; no hazard reroll on revisits.');
+    }
+    ForeignSurveyExcursion.observe(s, c, state.clock); return changed;
+  }
+  function foreignSurveyAction(action, options = {}) {
+    const g = passengerReceptionGate(); if (!g || scientistIsDead()) return false;
+    if (action === 'walkDesk') return foreignReceptionAction('walk');
+    const s = ensureForeignSurvey(g); if (!s) return false;
+    updateForeignSurvey(g); const c = foreignSurveyContext(g); c.otherBusy ||= surveyBusy(); let ok = false;
+    if (['quote', 'accept', 'book'].includes(action)) ok = ForeignSurveyExcursion.action(g, s, c, state.clock, action, options.expected, ensureEconomy());
+    else if (action === 'walkVehicle' && !c.otherBusy && s.phase === 'field') ok = Boolean(startScientistMove(s.roomId, { toCell: s.entry, allowMultiRoom: true }));
+    else if (['board', 'disembark'].includes(action) && !ForeignSurveyExcursion.boardingReason(s, c, state.clock, action))
+      ok = Boolean(queueSurveyWork('foreignSurveyTravel', action === 'disembark' ? s.cabinEntry : s.phase === 'field' ? s.entry : { x: 10, y: 7, z: g.z },
+        { gateCityId: g.cityId, travelKind: action, bodyEpoch: c.bodyEpoch, visitId: c.visitId, workSeconds: 30, label: `Physically ${action} original foreign municipal survey vehicle` }));
+    else if (action === 'survey') ok = startResourceSurvey(options.method || 'surfaceSample', options.cell || scientistMapCell());
+    else if (action === 'cancelSample') { const task = state.tasks.find(t => t.data?.foreignSurveyTripId === s.trip?.id); ok = Boolean(task && cancelTask(task.id, { quiet: true })); }
+    updateForeignSurvey(g); surveyEvent(ok ? `Foreign municipal survey: ${action}. Original materials, routes and vehicles remain finite.` : ForeignSurveyExcursion.contactReason(g, s, c) || 'No current permission, original physical trip, carried supplies or available vehicle for that action.'); persist(); render(); return ok;
+  }
+  function finishForeignSurveyTravel(task) {
+    const g = passengerReceptionGate(task.data.gateCityId), s = g?.foreignSurvey, c = foreignSurveyContext(g); c.otherBusy = false;
+    if (task.data.bodyEpoch !== c.bodyEpoch || task.data.visitId !== c.visitId) return;
+    if (task.data.travelKind === 'board' && ForeignSurveyExcursion.board(s, c, state.clock)) moveSurveyScientist(s.cabinId, s.cabinEntry);
+    else if (task.data.travelKind === 'disembark' && ForeignSurveyExcursion.disembark(s, c, state.clock)) {
+      if (s.phase === 'field') moveSurveyScientist(s.roomId, s.entry);
+      else moveSurveyScientist(g.checkpointRoomId, { x: 10, y: 7, z: g.z });
+    }
+    updateForeignSurvey(g);
+  }
+  function renderForeignSurvey() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.foreignSurvey = 'true';
+    panel.append(textEl('h3', 'Foreign Municipal Surface-Survey Excursion'), textEl('p', ForeignSurveyExcursion.SCOPE));
+    const g = passengerReceptionGate(), s = ensureForeignSurvey(g);
+    if (!s) { panel.append(textEl('p', 'Reach an actually supported foreign public-works reception. No sampling ground, driver, vehicle or resource deposit is awarded to unsupported cities.')); return panel; }
+    const c = foreignSurveyContext(g), v = s.observation, busy = surveyBusy();
+    const button = (label, action, blocked = false, options = {}) => { const b = storesActionButton(label, label, () => foreignSurveyAction(action, options)); b.disabled = Boolean(blocked || scientistIsDead()); panel.append(b); };
+    panel.append(textEl('p', `${s.source.name}. Local municipal ground two kilometres away; depot collection 0.25 km. Round-trip fare 94 marks, no kit, provisions or instrument supplied. Intercity waiting costs/provisions continue independently; neither carrier nor home expedition is reset.`));
+    if (c.local && !c.atDesk) button('Walk to foreign sampling-permission desk', 'walkDesk', busy);
+    if (c.atDesk) { const reason = ForeignSurveyExcursion.contactReason(g, s, c); panel.append(textEl('p', reason || 'Original municipal sampling-access clerk available. No assay reputation, civic map bargain or home-city control is required.'));
+      button('Review foreign municipal sampling terms', 'quote', reason || busy);
+      if (s.quote) button('Accept exact foreign sampling access', 'accept', reason || busy, { expected: clonePlainObject(s.quote) });
+      button('Book original foreign municipal round trip (94 marks)', 'book', reason || busy || s.phase !== 'depot' || !ForeignSurveyExcursion.permit(s, c, state.clock)); }
+    if (v) panel.append(textEl('p', `${formatClock(v.at)} — personally received excursion record: ${v.phase}; ${v.leg ? `${v.leg.progressKm.toFixed(2)}/${v.leg.km} km; ${v.leg.reason}` : 'original vehicle parked or at depot'}. Records away stay dated.`));
+    if (s.permission) panel.append(textEl('p', `Separate ground permission ends ${formatClock(s.permission.endsAt)}. Expiry stops sampling, not the already paid return or belongings retrieval.`));
+    if (c.atStand || c.atFieldEntry) button('Board original foreign survey vehicle', 'board', busy || ForeignSurveyExcursion.boardingReason(s, c, state.clock, 'board'));
+    if (c.aboard) button('Disembark foreign survey vehicle', 'disembark', busy || ForeignSurveyExcursion.boardingReason(s, c, state.clock, 'disembark'));
+    if (c.atField) {
+      panel.append(textEl('p', 'Flagged unstable footing at 15,14; stay within the named sampling ground. Findings concern local indicators, never surveyed hex reserves. Return requires the same capable original vehicle; no rescue is created.'));
+      button('Walk to foreign survey rendezvous', 'walkVehicle', busy || c.atFieldEntry);
+      for (const method of ['reconnaissance', 'surfaceSample']) button(ResourceSurveys.METHODS[method].label + ' at foreign selected ground', 'survey', busy || resourceSurveyPlan(method, mapCursorCell()).reason, { method, cell: mapCursorCell() });
+      if (state.tasks.some(t => t.data?.foreignSurveyTripId === s.trip?.id)) button('Cancel foreign surface-sampling work', 'cancelSample');
+    }
+    if (c.atField || c.aboard) {
+      for (const key of ['drinkingWater', 'fieldRation', 'trailMeal']) {
+        const b = storesActionButton(`Use carried ${inventoryItemLabel(key)}`, 'Consume one actual owned carried provision; no municipal food or water is supplied.', () => queueSurvivalConsumption(key));
+        b.disabled = busy || !survivalSupply(key, true); panel.append(b);
+      }
+      const rest = storesActionButton('Rest during foreign excursion (15 minutes)', 'Ordinary elapsed rest without food, water, healing or driver/vehicle recovery.', () => createRestTask(15));
+      rest.disabled = busy || !c.capable || ['outbound', 'inbound'].includes(s.phase); panel.append(rest);
+    }
+    for (const r of ensureResourceSurveys().observations.filter(r => r.siteId === s.context.siteId).slice(-5)) panel.append(textEl('p', `${formatClock(r.recordedAt)} — ${r.coverage}: ${r.findings.map(f => f.summary).join('; ')}`));
+    return panel;
   }
   function foreignCivicWork(g) { return Boolean(g?.foreignCivic?.accessJob || g?.foreignCivic?.bargain.job); }
   function foreignCivicBargainContext(g = passengerReceptionGate()) {
@@ -89672,6 +89818,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(textEl('strong', 'Direct-Neighbor and Second-Hop Passenger Travel'));
     panel.append(renderTradeTripPreparation());
     panel.append(renderForeignResearchInquiry());
+    panel.append(renderForeignSurvey());
     panel.append(renderForeignCivicBargain());
     panel.append(renderForeignWorkspace());
     const s = ensureIntercityPassenger(), local = intercityLocal();
@@ -89770,6 +89917,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task?.type === "rest") return true;
     const target = task?.data?.toCell || task?.data?.targetCell;
     if (!target || target.z !== scientistMapCell().z) return false;
+    const foreignGround = foreignSurveyAtField();
+    if (task.type === 'surveyExpeditionWork' && task.data.action === 'foreignSurveyTravel') return true;
+    if (foreignGround && (task.type === 'scientistMove' || task.type === 'surveyExpeditionWork' && ['pack', 'consume'].includes(task.data.action)
+      || task.type === 'physicalDiagnostic' && task.data.workflowId === 'resourceSurvey' && ['reconnaissance', 'surfaceSample'].includes(task.data.resourceMethodId))) return true;
     if (annexAway()) return annexAtProperty() && (task.type === "scientistMove" || task.type === "injuryTreatment" && task.data.targetActorId === "scientist"
       || task.type === "surveyExpeditionWork" && ["pack", "consume", "radioBattery"].includes(task.data.action)
       || task.type === "physicalDiagnostic" && task.data.workflowId === "assaySample" && !annexWorkReason(ensureDiagnosticState().samples.find(s => s.id === task.data.sampleId)?.stackId || ""));
@@ -90171,6 +90322,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function surveyWorkBlockReason(task) {
+    if (task.data?.action === 'foreignSurveyTravel') {
+      const g = passengerReceptionGate(task.data.gateCityId), s = g?.foreignSurvey, c = foreignSurveyContext(g); c.otherBusy = false;
+      if (task.data.bodyEpoch !== c.bodyEpoch || task.data.visitId !== c.visitId) return 'Only the original body and visit can continue this municipal boarding task.';
+      return ForeignSurveyExcursion.boardingReason(s, c, state.clock, task.data.travelKind);
+    }
     if (task.data?.action === 'passengerProvisions') return passengerProvisionReason(task);
     if (task.data?.action === 'unloadLabInput') return foreignLabUnloadReason(task);
     if (['passengerBoard', 'passengerDisembark'].includes(task.data?.action)) return intercityPassengerWorkReason(task.data.action, task.data);
@@ -90264,6 +90420,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function completeSurveyWork(task) {
+    if (task.data?.action === 'foreignSurveyTravel') { finishForeignSurveyTravel(task); return; }
     if (completePassengerProvisionWork(task)) return;
     if (completeIntercityPassengerWork(task)) return;
     if (completeGateEnforcementWork(task)) return;
@@ -90494,6 +90651,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function resourceSurveyCellReason(cell, methodId) {
+    const foreign = foreignSurveyAtField();
+    if (foreign) return ForeignSurveyExcursion.sampleReason(foreign, foreignSurveyContext(passengerReceptionGate()), state.clock, methodId)
+      || (labMapCellRoomId(cell) !== foreign.roomId || constructedFloorAtCell(cell) || surfaceGroundAtCell(cell)?.terrainId !== 'soil' ? 'Select exposed ground inside this named municipal sampling reserve.' : '');
     const target = diagnosticTargetInfo("tile", "", cell);
     if (!target || !ensureResourceSurveys().context || ([SurveyExpeditions.FIELD_Z, UnsupportedExcursions.Z].includes(cell?.z) && cell.z !== scientistMapCell().z) || surfaceEnvelopeAtCell(cell).kind !== "outdoor") return "Select accessible outdoor ground at the scientist's current survey site.";
     if (surveyScientistAway() && (state.surveyExpeditions.phase !== "field" || cell.z !== scientistMapCell().z)) return "The scientist cannot survey the laboratory from off site.";
@@ -90504,7 +90664,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function resourceSurveyPlan(methodId, cell) {
     const method = ResourceSurveys.METHODS[methodId];
     if (!method) return { ok: false, reason: "Unknown prospecting method." };
-    const reason = diagnosticBaseBlockReason() || resourceSurveyCellReason(cell, methodId) || fieldDiagnosticBlockReason(method.instrument, "tile", "", cell);
+    const reason = diagnosticBaseBlockReason('resourceSurvey', method.instrument) || resourceSurveyCellReason(cell, methodId) || fieldDiagnosticBlockReason(method.instrument, "tile", "", cell, 'resourceSurvey');
     if (reason) return { ok: false, reason };
     const target = diagnosticTargetInfo("tile", "", cell);
     const tool = diagnosticToolPlan(method.instrument, scientistMapCell());
@@ -90525,6 +90685,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!spendStamina(staminaCost)) return false;
     const task = queueInstrumentDiagnostic({ workflowId: "resourceSurvey", label: `${plan.method.label}: ${plan.target.label}`, instrumentId: plan.method.instrument, target: plan.target, path: plan.path, workSeconds: plan.method.seconds, staminaCost, skillId, data: { resourceMethodId: methodId } });
     if (!task) return false;
+    if (foreignSurveyAtField()) Object.assign(task.data, { foreignSurveyBodyEpoch: ensureScientistIdentity().bodyEpoch, foreignSurveyTripId: foreignSurveyAtField().trip.id });
     if (plan.method.sampleMethod) {
       const reserved = reserveProductionMaterialSlices(plan.reservations, task.id);
       if (!reserved) { cancelTask(task.id, { quiet: true }); return false; }
@@ -90619,7 +90780,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (!ensurePhysicalItemStacks().some(i => i.toolInstanceId === tool.id && i.quantity > 0 && i.roomId === s.roomId
         && i.carriedBy === (tool.carriedBy || '') && !i.cityOwnerId && !i.civicCustody)) return 'The original physical Assay Case is no longer available here.';
       if ((task.data.reservedStackIds || []).some(id => { const stack = ensurePhysicalItemStacks().find(i => i.id === id); return !stack || stack.roomId !== s.roomId || stack.carriedBy && stack.carriedBy !== 'scientist'; })) return 'Reserved sample or reagent left the foreign workspace; no remote consumption.';
-    } else if (passengerAway()) return 'Foreign diagnostics require the exact leased manual assay bench.';
+    } else if (passengerAway()) {
+      const field = foreignSurveyAtField();
+      if (!field || task.data.workflowId !== 'resourceSurvey' || task.data.foreignSurveyBodyEpoch !== ensureScientistIdentity().bodyEpoch
+        || task.data.foreignSurveyTripId !== field.trip?.id) return 'Foreign diagnostics require the exact leased bench or original permitted surface-survey trip.';
+      const tool = toolInstanceById(task.data.instrumentInstanceId)?.instance;
+      if (!tool || tool.roomId !== field.roomId || tool.carriedBy !== 'scientist'
+        || !ensurePhysicalItemStacks().some(i => i.toolInstanceId === tool.id && i.carriedBy === 'scientist' && i.roomId === field.roomId && i.quantity > 0))
+        return 'The original owned carried survey kit is no longer physically available at this ground.';
+      if ((task.data.reservedStackIds || []).some(id => { const i = ensurePhysicalItemStacks().find(i => i.id === id); return !i || i.carriedBy !== 'scientist' || i.roomId !== field.roomId; }))
+        return 'The original reserved sample container is no longer carried here.';
+    }
     if (task.data?.workstationId === LeasedAnnex.BENCH && !annexAtProperty()) return "The scientist must physically return to the leased assay bench before this unfinished assay can continue.";
     if (annexAway() && (task.data?.workflowId !== "assaySample" || task.data?.workstationId !== LeasedAnnex.BENCH || annexWorkReason())) return annexWorkReason() || "Only scoped manual assays at the leased bench are authorized here.";
     if (task.data?.workflowId === "resourceSurvey") {
@@ -90655,7 +90826,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function diagnosticBaseBlockReason(workflowId = '', instrumentId = '') {
     if (scientistIsDead()) return "The scientist is dead.";
     if (passengerAway()) {
-      const reason = ForeignAssayWorkspace.diagnosticScopeReason(workflowId, instrumentId) || foreignWorkspaceWorkReason();
+      const reason = foreignSurveyAtField() && workflowId === 'resourceSurvey' && instrumentId === 'environmentalSurveyKit'
+        ? '' : ForeignAssayWorkspace.diagnosticScopeReason(workflowId, instrumentId) || foreignWorkspaceWorkReason();
       if (reason) return reason;
     }
     if (physicalDiagnosticTask()) return "A diagnostic task is already in progress.";
@@ -90663,7 +90835,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function queueInstrumentDiagnostic(options) {
-    if (passengerAway() && (ForeignAssayWorkspace.diagnosticScopeReason(options.workflowId, options.instrumentId) || foreignWorkspaceWorkReason(options.sample?.stackId))) return null;
+    const fieldWork = foreignSurveyAtField() && options.workflowId === 'resourceSurvey' && options.instrumentId === 'environmentalSurveyKit'
+      && !ForeignSurveyExcursion.sampleReason(foreignSurveyAtField(), foreignSurveyContext(passengerReceptionGate()), state.clock, options.data?.resourceMethodId);
+    if (passengerAway() && !fieldWork && (ForeignAssayWorkspace.diagnosticScopeReason(options.workflowId, options.instrumentId) || foreignWorkspaceWorkReason(options.sample?.stackId))) return null;
     if (annexAway() && (options.workflowId !== "assaySample" || annexWorkReason(options.sample?.stackId))) return null;
     const path = options.path || [scientistMapCell()];
     const task = {
@@ -90705,8 +90879,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return task;
   }
 
-  function fieldDiagnosticBlockReason(instrumentId, kind, id = "", cell = null) {
-    const base = diagnosticBaseBlockReason();
+  function fieldDiagnosticBlockReason(instrumentId, kind, id = "", cell = null, workflowId = '') {
+    const base = diagnosticBaseBlockReason(workflowId, instrumentId);
     if (base) return base;
     const target = diagnosticTargetInfo(kind, id, cell);
     if (!target) return "The diagnostic target is no longer available.";
