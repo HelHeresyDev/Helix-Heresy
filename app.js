@@ -117,6 +117,7 @@
   const ForeignSurveyExcursion = window.HelixForeignSurveyExcursion;
   const ForeignWilderness = window.HelixForeignWilderness;
   const SurfaceStone = window.HelixSurfaceStone;
+  const FallenTimber = window.HelixFallenTimber;
   const FieldStation = window.HelixFieldStation;
   const ForeignExpeditionEscort = window.HelixForeignExpeditionEscort;
   const ForeignEscortRecovery = window.HelixForeignEscortRecovery;
@@ -3709,6 +3710,8 @@
     { key: "waste", label: "Waste", initial: 0 },
     { key: "stoneBlocks", label: "Stone Blocks", initial: 40 },
     { key: "lumber", label: "Lumber", initial: 20 },
+    { key: "fallenTrunk", label: "Uncut Fallen Trunk", initial: 0 },
+    { key: "fieldLog", label: "Field Log", initial: 0 },
     { key: "steelPanels", label: "Steel Panels", initial: 12 },
     { key: "metalParts", label: "Metal Parts", initial: 12 },
     { key: "refinedConductors", label: "Refined Conductors", initial: 0 },
@@ -16808,6 +16811,24 @@
       foreignReceptionSnapshot: () => { const g = passengerReceptionGate(), c = foreignReceptionContext(g); return clonePlainObject({ gate: g, context: c, quote: ForeignReception.quote(g, c), permission: foreignVisitorPermission(g), clock: state.clock, roomId: scientistRoomId(), cell: scientistMapCell(), money: ensureEconomy().money, doors: g ? state.doors[g.doorId] : null, busy: surveyBusy(), tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) }); },
       foreignSurveyAction,
       startSurfaceStoneWork,
+      startFallenTimberWork,
+      fallenTimberAction,
+      fallenTimberSnapshot: () => clonePlainObject({ site: fallenTimberSite(), saved: state.fallenTimber,
+        knowledge: FallenTimber.publicView(fallenTimberSite()), clock: state.clock, roomId: scientistRoomId(), cell: scientistMapCell(),
+        tools: fallenTimberTools(), stamina: scientistVital('stamina').current, stacks: ensurePhysicalItemStacks(),
+        tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) }),
+      advanceFallenTimberForTest: seconds => {
+        let remaining = Math.max(0, seconds);
+        while (remaining > 0 && !scientistIsDead() && fallenTimberSite()) {
+          const beasts = ensureWildernessBeasts(), notice = beasts.noticeSerial;
+          const step = Math.min(remaining, beasts.actors.some(b => b.status !== 'dead') || escortContractActive() ? 1 : 60);
+          state.clock += step; remaining -= step;
+          updateScientistMovementTask(); completeDueTasks(); updateWildernessNeeds();
+          updateForeignWilderness(foreignSurveyAtField()); collectCombatRecords(); updateWildernessBeasts(step); updateAllExpeditionEscorts(step);
+          if (ensureWildernessBeasts().noticeSerial !== notice) break;
+        }
+        syncActorInventories(); persist(); render(); return state.clock;
+      },
       fieldStationAction,
       configureFieldStationMaintenanceTest: ({ source, carrier, context, wilderness }) => {
         // Explicit local maintenance fixture, not a player arrival, permission,
@@ -23518,6 +23539,7 @@
     updateForeignSelfCareTasks();
     updateForeignEscortRepairs();
     updateSurfaceStoneWork();
+    updateFallenTimberWork();
     updateFieldStationWork();
     updateForeignLodging();
     updatePassengerFuelServices();
@@ -33109,6 +33131,8 @@
         carrion: { volumeL: 1.5, massKg: 1.2 },
         contaminatedFeedstock: { volumeL: 1.1, massKg: 0.9 },
         lumber: { volumeL: 12, massKg: 5 },
+        fallenTrunk: { volumeL: 78, massKg: 33 },
+        fieldLog: { volumeL: FallenTimber.LOG.volumeL, massKg: FallenTimber.LOG.massKg },
         steelPanels: { volumeL: 6, massKg: 8 },
         stoneBlocks: { volumeL: 5, massKg: 8 },
         bricks: { volumeL: 3, massKg: 4 },
@@ -69303,6 +69327,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (task.data?.fieldStationWork) FieldStation.cancel(state.fieldStation, task.data.fieldStationWork, fieldStationTools(), ensurePhysicalItemStacks(), state.clock);
       if (task.data?.fieldStationTransfer) releaseProductionMaterialReservations(task);
       if (task.data?.stoneWork) SurfaceStone.cancel(task.data.stoneWork, surfaceStoneTools(), state.clock);
+      if (task.data?.timberWork) FallenTimber.cancel(task.data.timberWork, fallenTimberTools(), ensurePhysicalItemStacks(), state.clock);
       if (task.data?.action === 'foreignEscortRepair') {
         const saved = foreignEscortRepairState(task);
         if (saved) ForeignEscortRepairs.cancel(saved, ensurePhysicalItemStacks(), foreignEscortRepairTool(saved), state.clock);
@@ -88650,6 +88675,162 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
 
+  function fallenTimberSite() {
+    if (!scientistInWilderness() || scientistRoomId() === PenalFlights.FIELD
+      || state.penalLegion && scientistRoomId() === legionFieldRoom()) return null;
+    const context = resourceContextForCell(scientistMapCell());
+    const discovery = foreignWildernessLocal()?.discovery || ensureWildernessSurvival().discovery;
+    if (!context || !discovery?.baseline) return null;
+    state.fallenTimber ||= { sites: {} };
+    const sites = state.fallenTimber.sites;
+    if (!Object.prototype.hasOwnProperty.call(sites, context.siteId)) {
+      const roomId = scientistRoomId(), stacks = ensurePhysicalItemStacks();
+      const site = sites[context.siteId] = FallenTimber.create(context, discovery.baseline, roomId, cell =>
+        labMapCellRoomId(cell) === roomId && labMapCellHasFloor(cell) && !constructedFloorAtCell(cell)
+        && mapCellDistance(cell, scientistMapCell()) > 1 && !fixturesAtCell(cell).length
+        && !stacks.some(i => i.quantity > 0 && sameMapCell(i.cell, cell))
+        && !state.fieldStation?.site?.layout.parts.some(p => sameMapCell(p.cell, cell)));
+      // A natural source is represented once, never re-created from a survey,
+      // a missing stack, a new visit or an exhausted receipt.
+      for (const node of site?.nodes || []) {
+        const item = createPhysicalItemStack('resources', 'fallenTrunk', 1, { roomId, cell: node.cell }, {
+          sourceLabel: `Original fallen timber: ${site.siteId}; ${node.id}`, materialComposition: { primary: 'wood' },
+          tags: ['fallen-timber-source'], known: false, deferSync: true });
+        item.reservedTaskId = FallenTimber.sourceClaim(node); item.unitMassKg = node.remaining * FallenTimber.LOG.massKg;
+        item.unitVolumeL = node.remaining * FallenTimber.LOG.volumeL; node.stackId = item.id;
+      }
+      syncPhysicalReadModels();
+    }
+    return sites[context.siteId];
+  }
+  function fallenTimberTools() {
+    return ensurePhysicalItemStacks().filter(s => s.key === 'handSaw')
+      .map(stack => ({ key: stack.key, stack, tool: toolInstanceById(stack.toolInstanceId)?.instance || null }));
+  }
+  function fallenTimberContext(node, action = 'inspect', input = null, task = null) {
+    const site = fallenTimberSite(), cell = cleanMapCell(scientistMapCell()), roomId = scientistRoomId();
+    const target = action === 'saw' ? input?.cell : node?.cell;
+    const visible = Boolean(target && mapCellDistance(cell, target) <= 5 && sensoryLineOfSight(cell, target));
+    const actionable = action === 'saw' ? input?.quantity === 1 && !input.reservedTaskId && !input.carriedBy
+      : node?.remaining > 0 && (action === 'inspect' ? !node.inspected : Boolean(node.inspected?.workable));
+    const positions = visible && actionable && !task && !surveyBusy() ? [target, ...[[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => ({ ...target, x: target.x + dx, y: target.y + dy }))]
+      .filter(p => labMapCellRoomId(p) === roomId && labMapCellHasFloor(p)
+        && (action === 'saw' || !constructedFloorAtCell(p)))
+      .map(p => ({ cell: p, path: labMapPathBetweenCells(cell, p, { map: ensureLabMap(), actor: state.scientist }) }))
+      .filter(p => p.path.length && !pathAccessViolations(state.scientist, p.path).length).sort((a, b) => a.path.length - b.path.length) : [];
+    const workCell = task?.data.toCell || positions[0]?.cell, foreign = foreignSurveyAtField();
+    return { wilderness: Boolean(site), controlled: !site, worldId: site?.worldId, siteId: site?.siteId, roomId, cell,
+      bodyEpoch: ensureScientistIdentity().bodyEpoch, visitId: foreign ? foreignSurveyContext().visitId : '',
+      tripId: foreign?.trip?.id || state.unsupportedExcursions?.trip?.id || String(state.surveyExpeditions?.tripNumber || ''),
+      alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist'), free: annexCapable(), busy: !task && surveyBusy(),
+      visible, reachable: Boolean(positions.length), workCell,
+      groundPresent: Boolean(workCell && labMapCellRoomId(workCell) === roomId && labMapCellHasFloor(workCell)
+        && (action === 'saw' || !constructedFloorAtCell(workCell) && node && mapCellDistance(workCell, node.cell) <= 1
+          && !constructedFloorAtCell(node.cell) && !constructedWallAtCell(node.cell) && sensoryLineOfSight(workCell, node.cell))),
+      inputAccessible: Boolean(input && workCell && mapCellDistance(input.cell, workCell) <= 1 && sensoryLineOfSight(workCell, input.cell)),
+      seconds: adjustedActionDuration(FallenTimber.SECONDS[action], 'fabrication') * WildernessSurvival.fatigueMultiplier(state.wildernessSurvival),
+      staminaCost: adjustedStaminaCost(action === 'inspect' ? 1 : action === 'cut' ? 6 : 10, ['fabrication']), stamina: scientistVital('stamina').current,
+      atHead: Boolean(task && firstScientistQueueTask()?.id === task.id && surveyTaskAllowed(task) && !state.combat?.routineSuspension),
+      threatened: Boolean(state.combat?.pendingActions?.scientist || state.combat?.routineSuspension
+        || scientistInWilderness() && ensureWildernessBeasts().actors.some(b => b.status !== 'dead'
+          && mapCellDistance(cell, b.mapCell) <= 3 && sensoryLineOfSight(cell, b.mapCell))) };
+  }
+  function fallenTimberWorkReason(task) {
+    const j = task.data.timberWork, site = state.fallenTimber?.sites[j.siteId];
+    const node = site?.nodes.find(n => n.id === j.nodeId), input = ensurePhysicalItemStacks().find(i => i.id === j.inputId);
+    const c = fallenTimberContext(node, j.action, input, task);
+    return FallenTimber.reason(site, j, c, fallenTimberTools(), ensurePhysicalItemStacks())
+      || (c.threatened ? 'Fighting or a nearby visible beast prevents attended timber work.' : '');
+  }
+  function startFallenTimberWork(action, targetId) {
+    const site = fallenTimberSite(); if (!site) return false;
+    const node = site.nodes.find(n => n.id === targetId), stacks = ensurePhysicalItemStacks();
+    const input = action === 'saw' ? stacks.find(i => i.id === targetId) : null;
+    const c = fallenTimberContext(node, action, input), tools = fallenTimberTools();
+    const plan = FallenTimber.plan(site, node, action, c, tools, stacks, input); if (!plan) return false;
+    if (!queueSurveyWork('fallenTimber', c.workCell, { label: action === 'inspect' ? 'Inspect original fallen trunk'
+      : action === 'cut' ? 'Cut one manageable field log' : 'Hand-saw one field log into two lumber', workSeconds: plan.required }, { deferRender: true })) return false;
+    const task = state.tasks.at(-1);
+    if (!spendStamina(plan.staminaCost)) { cancelTask(task.id, { quiet: true }); return false; }
+    task.data.timberWork = FallenTimber.begin(plan, task.id, state.clock, tools, stacks);
+    persist(); render(); return true;
+  }
+  function updateFallenTimberWork() {
+    if (scientistIsDead()) return;
+    for (const task of state.tasks.filter(t => t.data?.timberWork)) {
+      const job = task.data.timberWork, site = state.fallenTimber?.sites[job.siteId], stacks = ensurePhysicalItemStacks();
+      const c = fallenTimberContext(site?.nodes.find(n => n.id === job.nodeId), job.action, stacks.find(s => s.id === job.inputId), task);
+      if (taskBlockReason(task)) c.atHead = false;
+      FallenTimber.advance(site, job, c, fallenTimberTools(), stacks, state.clock);
+      task.dueAt = state.clock + Math.max(.01, job.required - job.progress);
+      if (job.progress >= job.required) task.dueAt = state.clock;
+    }
+  }
+  function finishFallenTimberWork(task) {
+    const job = task.data.timberWork, site = state.fallenTimber?.sites[job.siteId], stacks = ensurePhysicalItemStacks(), tools = fallenTimberTools();
+    const c = fallenTimberContext(site?.nodes.find(n => n.id === job.nodeId), job.action, stacks.find(s => s.id === job.inputId), task);
+    c.atHead = surveyTaskAllowed(task) && !state.combat?.routineSuspension;
+    if (job.status !== 'working' || FallenTimber.reason(site, job, c, tools, stacks) || job.progress < job.required
+      || !c.atHead || c.threatened || !sameMapCell(c.cell, job.workCell)) return false;
+    const outputs = (job.action === 'cut' ? [['fieldLog', 1]] : job.action === 'saw' ? [['lumber', 2], ['woodDebris', 1]] : []).map(([key, quantity]) =>
+      createPhysicalItemStack('resources', key, quantity, { roomId: c.roomId, cell: job.workCell }, {
+        sourceLabels: [...(stacks.find(i => i.id === (job.inputId || job.sourceStackId))?.sourceLabels || []), `Attended ${job.action}: ${site.siteId}; ${job.taskId}`],
+        materialComposition: { primary: 'wood' }, tags: ['fallen-timber', 'field-recovered'], deferSync: true }));
+    const receipt = FallenTimber.finish(site, job, c, tools, stacks, state.clock, outputs.map(o => ({ id: o.id, key: o.key, quantity: o.quantity })));
+    if (!receipt) throw new Error('Validated timber completion failed before physical receipt.');
+    state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0);
+    awardXp('fabrication', job.action === 'inspect' ? 1 : 5, task.label, { physical: true });
+    syncActorInventories(); syncPhysicalReadModels();
+    surveyEvent(job.action === 'inspect' ? 'Fallen trunk personally inspected. This establishes no regional reserves or forestry rights.'
+      : job.action === 'cut' ? 'One 11 kg field log left on the actual work tile. Carry or stage it within real capacity.'
+        : 'One original log consumed: two ordinary lumber and one wood-debris offcut remain on the work tile.');
+    return true;
+  }
+  function fallenTimberAction(action, stackId) {
+    const site = fallenTimberSite(); if (!site || surveyBusy() || scientistIsDead() || !annexCapable()) return false;
+    const i = ensurePhysicalItemStacks().find(i => i.id === stackId && ['fieldLog', 'lumber', 'woodDebris'].includes(i.key)
+      && i.quantity > 0 && !i.reservedTaskId && !i.cityOwnerId && !i.civicCustody && i.roomId === site.roomId);
+    if (!i) return false;
+    if (action === 'stage' && i.carriedBy === 'scientist') {
+      const ok = dropActorInventoryStack('scientist', i.id); persist(); render(); return ok;
+    }
+    if (action !== 'collect' || i.carriedBy || i.fixtureId || i.containerId || mapCellDistance(i.cell, scientistMapCell()) > 5
+      || !sensoryLineOfSight(scientistMapCell(), i.cell) || !actorInventoryCanCarry('scientist', i, 1)) return false;
+    const access = stockpileHaulAccessCell(i);
+    return Boolean(access && queueSurveyWork('pack', access, { stackId: i.id, itemKey: i.key, amount: 1, label: `Collect one ${physicalStackLabel(i)} (${i.id})` }));
+  }
+  function renderFallenTimberPanel() {
+    const panel = document.createElement('section'); panel.dataset.fallenTimber = 'true';
+    panel.append(textEl('h4', 'Fallen Timber and Hand-Sawn Lumber'), textEl('p', 'Unoccupied wilderness only. Inspect: 1 base minute. Cut one 11 kg / 26 L log: 10 base minutes, 6 stamina, 4 hand-saw wear. Stage the log beside a reachable work position, then hand-saw: 20 base minutes, 10 stamina, 8 saw wear → 2 ordinary lumber + 1 kg wood offcuts. Fabrication and fatigue affect work; outputs stay on the ground. No standing-tree felling, regrowth, title or safety.'));
+    const site = fallenTimberSite(); if (!site) return panel;
+    for (const record of FallenTimber.publicView(site).observations)
+      panel.append(textEl('p', `${formatClock(record.at)} — trunk ${record.cell.x},${record.cell.y}: ${record.summary}`));
+    const button = (label, run, disabled) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = disabled; b.onclick = run; panel.append(b); };
+    for (const node of site.nodes) {
+      if (mapCellDistance(scientistMapCell(), node.cell) > 5 || !sensoryLineOfSight(scientistMapCell(), node.cell)) continue;
+      for (const action of ['inspect', 'cut']) {
+        const c = fallenTimberContext(node, action);
+        button(`${action === 'inspect' ? 'Inspect fallen trunk' : 'Cut one field log'} ${node.cell.x},${node.cell.y}`,
+          () => startFallenTimberWork(action, node.id), !FallenTimber.plan(site, node, action, c, fallenTimberTools(), ensurePhysicalItemStacks()));
+      }
+    }
+    for (const i of ensurePhysicalItemStacks().filter(i => i.quantity > 0 && i.roomId === site.roomId && ['fieldLog', 'lumber', 'woodDebris'].includes(i.key))) {
+      if (i.carriedBy === 'scientist') button(`Stage carried ${physicalStackLabel(i)} (${i.id})`, () => fallenTimberAction('stage', i.id), surveyBusy() || Boolean(i.reservedTaskId));
+      else if (!i.carriedBy && !i.fixtureId && !i.containerId && mapCellDistance(i.cell, scientistMapCell()) <= 5 && sensoryLineOfSight(scientistMapCell(), i.cell)) {
+        button(`Collect one ${physicalStackLabel(i)} (${i.id})`, () => fallenTimberAction('collect', i.id), surveyBusy() || Boolean(i.reservedTaskId) || !actorInventoryCanCarry('scientist', i, 1));
+        if (i.key === 'fieldLog') {
+          const c = fallenTimberContext(null, 'saw', i);
+          button(`Hand-saw staged log (${i.id})`, () => startFallenTimberWork('saw', i.id), !FallenTimber.plan(site, null, 'saw', c, fallenTimberTools(), ensurePhysicalItemStacks(), i));
+        }
+      }
+    }
+    for (const t of scientistQueueTasks().filter(t => t.data?.timberWork)) {
+      panel.append(textEl('p', `${t.label}: ${Math.floor(t.data.timberWork.progress)}/${Math.ceil(t.data.timberWork.required)} attended seconds. ${taskBlockReason(t)}`));
+      button('Pause timber work and release claims', () => cancelTask(t.id), false);
+    }
+    return panel;
+  }
+
   function renderWildernessPanel() {
     const survival = ensureWildernessSurvival(), panel = document.createElement("section"); panel.dataset.wildernessSurvival = "true"; panel.className = "subpanel";
     if (!unsupportedActive() && !state.penalFlights?.fieldActive) panel.append(renderExpeditionEscortPanel());
@@ -88664,6 +88845,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       panel.append(textEl("p", "Wilderness mode warns about missing equipment but does not enforce the municipal packing checklist. The hired vehicle still stops at the defended survey ground."));
       for (const item of WildernessSurvival.ITEMS) button(`Pack ${item.label}`, () => packSurveyItem(item.key), surveyBusy());
       for (const key of ['masonryHammer', 'stoneChisel']) button(`Pack ${inventoryItemLabel(key)} for optional stone recovery`, () => packSurveyItem(key), surveyBusy());
+      button('Pack Hand saw for optional timber work', () => packSurveyItem('handSaw'), surveyBusy());
     }
     const site = activeWildernessSite();
     if (!site.destination) panel.append(textEl("p", "No traversable adjacent wilderness sector is known at this access point."));
@@ -88676,6 +88858,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         panel.append(textEl("p", `This bounded ${unsupportedActive() ? "remote site" : "boundary trail"} is tens of metres of local walking, not the globe cell's full width. Terrain, load, and condition affect travel. No food, water, or rescue is automatically generated in the wild.`));
         if (scientistInWilderness()) {
           panel.append(renderSurfaceStonePanel());
+          panel.append(renderFallenTimberPanel());
           button(site.shelter ? "Walk to and Pack Shelter" : "Deploy Shelter Here", () => queueWildernessShelter(site.shelter ? "packShelter" : "deployShelter"), surveyBusy());
           if (site.shelter) button("Walk to Shelter", () => startScientistMove(activeWildernessRoom(), { toCell: site.shelter.cell }), surveyBusy());
           button("Rest Here (15 minutes)", () => createRestTask(15), surveyBusy());
@@ -90898,7 +91081,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!target || target.z !== scientistMapCell().z) return false;
     const foreignGround = foreignSurveyAtField();
     if (task.type === 'surveyExpeditionWork' && task.data.action === 'foreignSurveyTravel') return true;
-    if (foreignGround && (task.type === 'scientistMove' || task.type === 'surveyExpeditionWork' && ['pack', 'consume', 'radioBattery', 'walkWilderness', 'deployShelter', 'packShelter', 'foreignEscortRepair', 'surfaceStone', 'fieldStation', 'fieldStationPut'].includes(task.data.action)
+    if (foreignGround && (task.type === 'scientistMove' || task.type === 'surveyExpeditionWork' && ['pack', 'consume', 'radioBattery', 'walkWilderness', 'deployShelter', 'packShelter', 'foreignEscortRepair', 'surfaceStone', 'fallenTimber', 'fieldStation', 'fieldStationPut'].includes(task.data.action)
       || task.type === 'physicalDiagnostic' && task.data.workflowId === 'resourceSurvey')) return true;
     if (annexAway()) return annexAtProperty() && (task.type === "scientistMove" || task.type === "injuryTreatment" && task.data.targetActorId === "scientist"
       || task.type === "surveyExpeditionWork" && ["pack", "consume", "radioBattery"].includes(task.data.action)
@@ -91258,15 +91441,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function packSurveyItem(itemKey) {
     const expedition = ensureSurveyExpeditions();
     const def = [...SurveyExpeditions.PACK_LIST, ...WildernessSurvival.ITEMS, { key: 'metalParts', amount: 6 },
-      { key: 'masonryHammer', amount: 1 }, { key: 'stoneChisel', amount: 1 }].find((entry) => entry.key === itemKey);
+      { key: 'masonryHammer', amount: 1 }, { key: 'stoneChisel', amount: 1 }, { key: 'handSaw', amount: 1 }].find((entry) => entry.key === itemKey);
     if (!def || expedition.phase !== "home" || restrictedOffsiteStay() || currentDetentionRaid()) return false;
     const carried = surveyCarriedStacks().filter((entry) => entry.key === itemKey).reduce((n, entry) => n + entry.quantity, 0);
     if (carried >= def.amount) return false;
     const candidates = ensurePhysicalItemStacks().filter((entry) => entry.key === itemKey && !entry.carriedBy && !entry.reservedTaskId && entry.quantity > 0)
+      .filter(entry => itemKey !== 'handSaw' || fieldStationHomeSupply(entry))
       .filter((entry) => !entry.fixtureId || storageFixtureScientistAccessible(fixtureById(entry.fixtureId)))
       .filter((entry) => !entry.toolInstanceId || toolInstanceById(entry.toolInstanceId)?.instance.current > 0);
     for (const stack of candidates) {
-      const isInstrument = ["environmentalSurveyKit", "thaumometer", "masonryHammer", "stoneChisel"].includes(itemKey);
+      const isInstrument = ["environmentalSurveyKit", "thaumometer", "masonryHammer", "stoneChisel", "handSaw"].includes(itemKey);
       const tool = isInstrument ? toolInstancesForItem(itemKey).find((entry) => entry.roomId === stack.roomId && !entry.carriedBy && !entry.reservedTaskId && entry.current > 0 && (!stack.toolInstanceId || entry.id === stack.toolInstanceId)) : null;
       if (isInstrument && !tool) continue;
       const amount = Math.min(def.amount - carried, stack.quantity);
@@ -91308,6 +91492,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (reason || task.data.fieldStationTransfer.kind === 'recover') return reason;
     }
     if (task.data?.stoneWork) return surfaceStoneWorkReason(task);
+    if (task.data?.timberWork) return fallenTimberWorkReason(task);
     if (task.data?.action === 'foreignEscortRepair') return foreignEscortRepairReason(task);
     if (task.data?.foreignWildernessTripId) {
       const s = foreignSurveyAtField(), c = foreignSurveyContext();
@@ -91423,6 +91608,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       i.fixtureId = f.id; i.cell = cleanMapCell(f.origin); syncPhysicalReadModels(); observeFieldStation(); return;
     }
     if (task.data?.stoneWork) { finishSurfaceStoneWork(task); return; }
+    if (task.data?.timberWork) { finishFallenTimberWork(task); return; }
     if (task.data?.action === 'foreignEscortRepair') { finishForeignEscortRepair(task); return; }
     if (task.data?.action === 'foreignSurveyTravel') { finishForeignSurveyTravel(task); return; }
     if (completePassengerProvisionWork(task)) return;
@@ -98590,6 +98776,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.strategicJourneys = StrategicJourneys.normalizeState(candidate?.strategicJourneys);
     next.resourceSurveys = ResourceSurveys.normalizeState(candidate?.resourceSurveys);
     next.surfaceStone = clonePlainObject(candidate?.surfaceStone || { sites: {} });
+    next.fallenTimber = clonePlainObject(candidate?.fallenTimber || { sites: {} });
     next.fieldStation = candidate?.fieldStation ? clonePlainObject(candidate.fieldStation) : null;
     next.surveyExpeditions = SurveyExpeditions.normalizeState(candidate?.surveyExpeditions);
     next.wildernessSurvival = WildernessSurvival.normalizeState(candidate?.wildernessSurvival, next.clock);
@@ -98875,6 +99062,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const stoneTools = new Map(next.tasks.filter(t => t.type === 'surveyExpeditionWork' && t.data?.action === 'surfaceStone'
       && t.data.stoneWork?.status === 'working' && t.data.stoneWork.taskId === t.id)
       .map(t => [t.id, new Set(t.data.stoneWork.tools.map(c => c.toolId))]));
+    const timberTools = new Map(next.tasks.filter(t => t.type === 'surveyExpeditionWork' && t.data?.action === 'fallenTimber'
+      && t.data.timberWork?.status === 'working' && t.data.timberWork.taskId === t.id
+      && next.fallenTimber?.sites[t.data.timberWork.siteId]?.worldId === t.data.timberWork.worldId
+      && next.physicalItemStacks.some(s => s.id === t.data.timberWork.toolStackId && s.key === 'handSaw'
+        && s.toolInstanceId === t.data.timberWork.toolId && s.reservedTaskId === t.id && s.carriedBy === 'scientist'))
+      .map(t => [t.id, t.data.timberWork.toolId]));
     const stonePackingTools = new Map(next.tasks.filter(t => t.type === 'surveyExpeditionWork' && t.data?.action === 'pack'
       && ['masonryHammer', 'stoneChisel', 'handSaw', 'foldingLadder'].includes(t.data.itemKey) && t.data.toolInstanceId
       && next.physicalItemStacks.some(s => s.id === t.data.stackId && s.key === t.data.itemKey && s.reservedTaskId === t.id
@@ -98892,6 +99085,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       for (const tool of instances) {
         if (tool.reservedTaskId && !toolTaskIds.has(tool.reservedTaskId) && escortRepairTools.get(tool.reservedTaskId) !== tool.id
           && !stoneTools.get(tool.reservedTaskId)?.has(tool.id) && stonePackingTools.get(tool.reservedTaskId) !== tool.id
+          && timberTools.get(tool.reservedTaskId) !== tool.id
           && !stationTools.get(tool.reservedTaskId)?.has(tool.id) && stationTransferTools.get(tool.reservedTaskId) !== tool.id) tool.reservedTaskId = "";
       }
     }
