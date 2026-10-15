@@ -33,8 +33,8 @@ async function openForeignWorkspace(page, seed = 'foreign-industrial-commission'
     if (carrySample) for (const sampleId of samples) if (!d.carryActorStack('scientist', sampleId, 1)) throw new Error('Finite original sample unavailable');
     if (fieldKit) {
       // Explicit original departure fixture, never supplies awarded by a visit.
-      const ids = d.configureHiddenWorkshopTest({ carryTools: ['environmentalSurveyKit', ...(repairKit ? ['masonryHammer'] : []), ...(repairKit === 'stone' ? ['stoneChisel'] : [])], supplies: { sealedReagentBottle: 1, drinkingWater: 1, fieldRation: 1,
-        ...(repairKit && repairKit !== 'stone' ? { metalParts: 3, rubber: 2 } : {}),
+      const ids = d.configureHiddenWorkshopTest({ carryTools: ['environmentalSurveyKit', ...(repairKit ? ['masonryHammer'] : []), ...(['stone', 'station'].includes(repairKit) ? ['stoneChisel'] : []), ...(repairKit === 'station' ? ['handSaw'] : [])], supplies: { sealedReagentBottle: 1, drinkingWater: 1, fieldRation: 1,
+        ...(repairKit && !['stone', 'station'].includes(repairKit) ? { metalParts: 3, rubber: 2 } : {}),
         ...(fieldKit === 'wilderness' ? { fieldShelter: 1 } : {}) } });
       const quantities = repairKit ? new Map(d.exportSurveyExpeditionTestState().physicalItemStacks.filter(i => ids.includes(i.id)).map(i => [i.id, i.quantity])) : null;
       for (const id of ids) if (!d.carryActorStack('scientist', id, quantities?.get(id) || 1)) throw new Error('Finite original survey cargo unavailable');
