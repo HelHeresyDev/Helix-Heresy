@@ -117,6 +117,7 @@
   const ForeignSurveyExcursion = window.HelixForeignSurveyExcursion;
   const ForeignWilderness = window.HelixForeignWilderness;
   const ForeignExpeditionEscort = window.HelixForeignExpeditionEscort;
+  const ForeignEscortRecovery = window.HelixForeignEscortRecovery;
   const CarrierBriefings = window.HelixCarrierBriefings;
   const LocalDiscovery = window.HelixLocalDiscovery;
   const MunicipalMaps = window.HelixMunicipalMaps;
@@ -16794,7 +16795,8 @@
           const fieldThreats = foreignSurveyAtField() && (ensureWildernessBeasts().actors.some(b => b.status !== 'dead') || escortContractActive());
           const step = Math.min(stopOnSupplyReceipt || fieldThreats ? 1 : 60, remaining); state.clock += step; remaining -= step;
           updateIntercityPassenger(); updateForeignReception(); updateForeignSupplies(); updateScientistMovementTask(); completeDueTasks(); updateWildernessNeeds();
-          if (foreignSurveyAtField()) { updateForeignWilderness(passengerReceptionGate()?.foreignSurvey); collectCombatRecords(); updateWildernessBeasts(step); updateAllExpeditionEscorts(step); }
+          if (foreignSurveyAtField()) { updateForeignWilderness(passengerReceptionGate()?.foreignSurvey); collectCombatRecords(); updateWildernessBeasts(step); }
+          updateAllExpeditionEscorts(step);
           if (notice != null && ensureWildernessBeasts().noticeSerial !== notice) break;
           if (stopOnSupplyReceipt === 'handoff' ? order?.handed > handed : stopOnSupplyReceipt && order?.delivered > delivered) break;
         }
@@ -16985,6 +16987,17 @@
         const q = s.source && ForeignExpeditionEscort.review(s, foreignEscortContext(s, true), state.clock); persist(); render(); return q;
       },
       hireExpeditionEscort, orderExpeditionEscort, transferEscortSupply, settleEscortContract, startEscortCare, startEscortDrag,
+      beginForeignEscortRecovery, endForeignEscortRecovery,
+      advanceForeignEscortRecoveryForTest: seconds => {
+        // Exercise the production off-duty updater without simulating unrelated
+        // eight-hour laboratory/economy fixtures or inventing a patient cure.
+        for (let left = seconds; left > 0 && !scientistIsDead();) {
+          const step = Math.min(60, left); state.clock += step; left -= step;
+          for (const saved of foreignEscortStates()) if (ForeignEscortRecovery.active(saved)) withEscortState(saved, () => updateForeignEscortRecovery(saved));
+          progressInjuries();
+        }
+        persist(); render();
+      },
       stopEscortDrag: () => { stopEscortDrag(); persist(); render(); },
       configureEscortTest: (options = {}) => {
         const actor = ensureEscortCandidate();
@@ -67443,6 +67456,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (a?.mapCell && a.roomId === scientistRoomId() && cityApproachNear('scientist', a.mapCell, 8) && sensoryLineOfSight(scientistMapCell(), a.mapCell)) setLabMapOverlayEntry(assignments, a.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: a.name, title: 'Original foreign municipal survey driver; not an escort or free rescue', value: a.status === 'dead' ? '†' : 'D', source: 'Direct observation', target: { kind: 'tile', tile: a.mapCell } }, map);
       if (s && foreignSurveyAtField() === s && cityApproachNear('scientist', s.hazard, 8)) setLabMapOverlayEntry(assignments, s.hazard, { overlayId, classNames: ['map-overlay-resources'], label: s.hazardDisturbed ? 'Settled original loose-rock patch' : 'Flagged unstable footing', title: 'Municipal surface-survey warning, not a mineral survey', value: '!', source: 'Purpose-limited visit warning', target: { kind: 'tile', tile: s.hazard } }, map);
       const w = s?.wilderness;
+      const rest = s?.escort?.restPlace;
+      if (rest && cityApproachNear('scientist', rest.cell, 8) && sensoryLineOfSight(scientistMapCell(), rest.cell)) setLabMapOverlayEntry(assignments, rest.cell, {
+        overlayId, classNames: ['map-overlay-resources'], label: 'Original chapter shelter: one professional’s off-duty rest place, not a clinic or visitor bed',
+        value: 'S', source: 'Direct observation', target: { kind: 'tile', tile: rest.cell } }, map);
       if (w?.materialized) {
         for (const r of WildernessDiscovery.publicView(w.discovery)?.records || []) setLabMapOverlayEntry(assignments, r.cell, { overlayId, classNames: ['map-overlay-resources'], label: `${r.text} — observed ${formatClock(r.at)}; last known, not live telemetry`,
           value: 'L', source: r.source, scope: 'roomObservation', knowledge: { state: 'stale', observedAt: r.at }, target: { kind: 'tile', tile: r.cell } }, map);
@@ -87233,6 +87250,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       saved.actor.needs = WildernessSurvival.defaultState(state.clock);
     }
     const actor = saved.actor;
+    if (saved.source && actor && !actor.restPlaceAllocated && !scientistIsDead()) {
+      actor.restPlaceAllocated = true;
+      const cell = cleanMapCell(escortMeeting()), id = `${saved.source.branchId}:survey-rest-place`;
+      const shelter = createPhysicalItemStack('inventory', 'fieldShelter', 1, { roomId: escortGroundRoom(), cell }, {
+        suppressEvidence: true, sourceLabels: [`Original ${saved.source.branchId} one-place field-rest allocation`] });
+      shelter.reservedTaskId = id;
+      saved.restPlace = { id, branchId: saved.source.branchId, actorId: actor.id, stackId: shelter.id, roomId: escortGroundRoom(), cell, condition: 100 };
+    }
     if (actor && !actor.initializedKit) {
       actor.initializedKit = true;
       for (const [key, amount] of [["escortBaton", 1], ["escortVest", 1], ["drinkingWater", 4], ["trailMeal", 3], ["medicalBandage", 3], ["neutralizingWash", 1]]) {
@@ -87281,8 +87306,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function transferEscortSupply(key, direction = "give") {
     const saved = ensureExpeditionEscorts(), actor = saved.actor;
-    if (saved.source && !ForeignExpeditionEscort.control(saved, foreignEscortContext(saved))) return false;
-    if (!escortContractActive() || !escortNearby() || actorIsIncapacitated("scientist") || actor.status === "dead" || !["drinkingWater", "trailMeal", "medicalBandage", "neutralizingWash", "escortBaton", "escortVest"].includes(key)) return false;
+    const offDutySupply = saved.source && !escortContractActive() && saved.contract?.status === 'completed'
+      && direction === 'give' && ['drinkingWater', 'trailMeal'].includes(key)
+      && !ForeignExpeditionEscort.contactReason(saved, foreignEscortContext(saved, true));
+    if (saved.source && !offDutySupply && !ForeignExpeditionEscort.control(saved, foreignEscortContext(saved))) return false;
+    if ((!escortContractActive() && !offDutySupply) || !escortNearby() || actorIsIncapacitated("scientist") || actor.status === "dead" || !["drinkingWater", "trailMeal", "medicalBandage", "neutralizingWash", "escortBaton", "escortVest"].includes(key)) return false;
+    if (offDutySupply && ForeignEscortRecovery.active(saved)) updateForeignEscortRecovery(saved);
     if (direction === "take" && key.startsWith("escort")) return false;
     const from = direction === "give" ? "scientist" : actor.id, to = direction === "give" ? actor.id : "scientist";
     const stack = actorInventoryStacks(from).find((entry) => entry.key === key && entry.quantity > 0 && !entry.reservedTaskId);
@@ -87341,6 +87370,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (owner && owner !== ensureExpeditionEscorts()) return withEscortState(owner, () => damageExpeditionEscort(amount, options));
     const actor = ensureExpeditionEscorts().actor;
     if (!actor || actor.status === "dead" || amount <= 0) return false;
+    ensureExpeditionEscorts().lastHarmedAt = state.clock;
     const vest = !options.injuryProgress && escortGear("escortVest");
     if (vest) ensureExpeditionEscorts().gearCondition[vest.id] = Math.max(0, ensureExpeditionEscorts().gearCondition[vest.id] - 1);
     const damage = Math.max(1, Math.round(amount * (vest ? .85 : 1)));
@@ -87423,6 +87453,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function updateExpeditionEscort(elapsed = 0) {
     const saved = ensureExpeditionEscorts(), actor = saved.actor;
+    if (saved.source && ForeignEscortRecovery.active(saved)) return updateForeignEscortRecovery(saved);
     if (!actor || !escortContractActive()) return 0;
     if (actor.status === "dead") { if (escortObserved()) settleEscortContract(true); return 0; }
     const contract = saved.contract, previousReason = contract.returnReason;
@@ -87487,11 +87518,52 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const previous = escortSimulationState; escortSimulationState = saved;
     try { return work(); } finally { escortSimulationState = previous; }
   }
+  function foreignEscortRecoveryContext(saved, contact = false) {
+    const c = foreignEscortContext(saved, contact), place = saved.restPlace, actor = saved.actor;
+    const stack = place && ensurePhysicalItemStacks().find(i => i.id === place.stackId);
+    return { ...c, placeUsable: Boolean(place && place.branchId === saved.source.branchId && place.actorId === actor.id && place.condition > 0
+        && stack?.section === 'inventory' && stack.key === 'fieldShelter' && stack.quantity === 1 && !stack.carriedBy
+        && stack.reservedTaskId === place.id && stack.roomId === place.roomId && sameMapCell(stack.cell, place.cell)),
+      atRestPlace: Boolean(place && actor.roomId === place.roomId && WildernessBeasts.distance(actor.mapCell, place.cell) <= 1
+        && sensoryLineOfSight(actor.mapCell, place.cell)),
+      careActive: state.tasks.some(t => t.type === 'injuryTreatment' && t.data?.targetActorId === actor.id),
+      threatened: actor.nextAttackAt > state.clock || saved.lastHarmedAt != null && state.clock - saved.lastHarmedAt < 30
+        || Object.values(state.combat?.pendingActions || {}).some(a => !a.interrupted && (a.actorId === actor.id || a.target?.id === actor.id)) };
+  }
+  function beginForeignEscortRecovery() {
+    const saved = ensureExpeditionEscorts();
+    if (!saved.source || scientistIsDead() || !ForeignEscortRecovery.begin(saved, foreignEscortRecoveryContext(saved, true), ensurePhysicalItemStacks(), state.clock)) return false;
+    state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0);
+    ForeignEscortRecovery.observe(saved, state.clock); syncActorInventories(); syncPhysicalReadModels();
+    surveyEvent('The original professional begins eight supplied off-duty hours at their chapter shelter. No paid protection, clinic, equipment repair or scientist lodging is included.');
+    persist(); render(); return true;
+  }
+  function endForeignEscortRecovery() {
+    const saved = ensureExpeditionEscorts();
+    if (!saved.source || scientistIsDead()) return false;
+    updateForeignEscortRecovery(saved);
+    if (!ForeignEscortRecovery.end(saved, foreignEscortContext(saved, true), state.clock)) return false;
+    ForeignEscortRecovery.observe(saved, state.clock); persist(); render(); return true;
+  }
+  function updateForeignEscortRecovery(saved) {
+    if (scientistIsDead()) return 0;
+    const consumedBefore = saved.recovery?.consumed.length;
+    const result = ForeignEscortRecovery.advance(saved, foreignEscortRecoveryContext(saved), ensurePhysicalItemStacks(), state.clock);
+    if (result.damage) damageExpeditionEscort(result.damage, { injuryProgress: true });
+    // Resting does not move inventory. Rebuild physical read models only when
+    // a real portion was consumed, not every second of an eight-hour period.
+    if (saved.recovery?.consumed.length !== consumedBefore) {
+      state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0);
+      syncActorInventories(); syncPhysicalReadModels();
+    }
+    if (escortNearby() && !actorIsIncapacitated('scientist')) ForeignEscortRecovery.observe(saved, state.clock);
+    return Number(result.changed);
+  }
   function updateAllExpeditionEscorts(elapsed = 0) {
     if (scientistIsDead()) return 0;
     const current = ensureExpeditionEscorts(); let changed = updateExpeditionEscort(elapsed);
-    for (const saved of foreignEscortStates()) if (saved !== current && ForeignExpeditionEscort.active(saved)) {
-      changed += withEscortState(saved, () => { updateWildernessBeasts(elapsed); return updateExpeditionEscort(elapsed); });
+    for (const saved of foreignEscortStates()) if (saved !== current && (ForeignExpeditionEscort.active(saved) || ForeignEscortRecovery.active(saved))) {
+      changed += withEscortState(saved, () => { if (ForeignExpeditionEscort.active(saved)) updateWildernessBeasts(elapsed); return updateExpeditionEscort(elapsed); });
     }
     return changed;
   }
@@ -87507,7 +87579,23 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       panel.append(textEl('p', ForeignExpeditionEscort.SCOPE));
       panel.append(textEl('p', 'Declared purpose: nonliving local survey protection. The scientist’s opposition to the gods is explicit, not an undisclosed allegiance or endorsement.'));
       if (saved.received) panel.append(textEl('p', `${formatClock(saved.received.at)} — received terms: ${saved.received.willingness.reason} ${saved.received.reason || ''} ${(saved.received.prohibitions || []).join('; ')}. Dated report, not a private archive.`));
-      button('Review exact foreign escort terms', () => { ForeignExpeditionEscort.review(saved, foreignEscortContext(saved, true), state.clock); }, escortContractActive() || Boolean(ForeignExpeditionEscort.contactReason(saved, foreignEscortContext(saved, true))));
+      button('Review exact foreign escort terms', () => { ForeignExpeditionEscort.review(saved, foreignEscortContext(saved, true), state.clock); }, escortContractActive() || ForeignEscortRecovery.active(saved) || Boolean(ForeignExpeditionEscort.contactReason(saved, foreignEscortContext(saved, true))));
+      if (saved.restPlace) {
+        if (!scientistIsDead() && escortNearby() && !actorIsIncapacitated('scientist')) ForeignEscortRecovery.observe(saved, state.clock);
+        const report = saved.recoveryReport, rest = report?.recovery;
+        panel.append(textEl('p', 'Chapter shelter: one original professional only. Settle first; stage two drinking-water units and one trail meal. Begin eight supplied off-duty hours, consuming real provisions. Completion restores at most twelve duty hours; no wages, clinic, wound cure, equipment repair or scientist lodging.'));
+        if (report) panel.append(textEl('p', `${formatClock(report.at)} — received off-duty report: ${formatDuration(report.dutySeconds)} duty available. ${rest ? `${rest.status}; ${formatDuration(rest.progressSeconds)} / eight hours. ${rest.reason}` : 'No recovery period begun.'} Thirst ${Math.round(report.needs.thirst)}, hunger ${Math.round(report.needs.hunger)}, exertion ${Math.round(report.needs.exertion)}. Dated personal information, not remote tracking.`));
+        if (!escortContractActive()) {
+          const blocked = ForeignEscortRecovery.startReason(saved, foreignEscortRecoveryContext(saved, true), ensurePhysicalItemStacks());
+          button('Begin supplied eight-hour off-duty rest', beginForeignEscortRecovery, Boolean(blocked));
+          button('End off-duty rest without restoring duty', endForeignEscortRecovery, !ForeignEscortRecovery.active(saved) || Boolean(ForeignExpeditionEscort.contactReason(saved, foreignEscortContext(saved, true))));
+          if (escortNearby()) {
+            panel.append(textEl('p', actorInventoryContentsLabel(actor.id)));
+            if (blocked) panel.append(textEl('p', blocked));
+            for (const key of ['drinkingWater', 'trailMeal']) button(`Give off-duty ${inventoryItemLabel(key)}`, () => transferEscortSupply(key), saved.contract?.status !== 'completed');
+          }
+        }
+      }
     }
     if (actor.lastObservation) panel.append(textEl("p", `${actor.lastObservation.condition}; last observed at ${actor.lastObservation.cell.x},${actor.lastObservation.cell.y}, ${formatDuration(actor.lastObservation.at)}. ${escortObserved() ? "Currently in sight." : "Current condition and position are not known."}`));
     if (!escortContractActive()) {

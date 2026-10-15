@@ -112,3 +112,76 @@ test('canvas source-backed foreign escort uses exact local terms, original gear,
   expect(await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState().expeditionEscorts)).toEqual(home);
   expect(errors).toEqual([]);
 });
+
+test('canvas foreign escort supplied off-duty recovery preserves original shelter, physical handoffs, interrupted effort and dated away knowledge before fresh paid rehire', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await openField(page);
+  const initial = await escort(page), f = await field(page);
+  const home = await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState().expeditionEscorts);
+  expect(initial.restPlace.stackId).toBeTruthy();
+  expect(await page.evaluate(() => window.helixHeresyDebug.beginForeignEscortRecovery())).toBe(false);
+  expect(await page.evaluate(() => { const d = window.helixHeresyDebug, s = d.foreignSurveySnapshot().excursion;
+    return Boolean(d.startScientistMove(s.roomId, { toCell: { x: 13, y: 10, z: s.entry.z } })); })).toBe(true); await finish(page);
+  expect(await page.evaluate(() => window.helixHeresyDebug.reviewForeignEscort())).toBeTruthy();
+  expect(await page.evaluate(() => window.helixHeresyDebug.hireExpeditionEscort())).toBe(true);
+  expect(await page.evaluate(() => window.helixHeresyDebug.beginForeignEscortRecovery())).toBe(false);
+  for (const key of ['drinkingWater', 'trailMeal']) expect(await page.evaluate(key => window.helixHeresyDebug.transferEscortSupply(key, 'take'), key)).toBe(true);
+  // Keep another original bottle for the scientist's elapsed-time consumption
+  // and the second trip's real departure requirement; rest creates no supplies.
+  expect(await page.evaluate(() => window.helixHeresyDebug.transferEscortSupply('drinkingWater', 'take'))).toBe(true);
+  expect(await page.evaluate(() => window.helixHeresyDebug.settleEscortContract())).toBe(true);
+  // Explicit exhausted/injured original-person fixture, not an awarded new kit.
+  await page.evaluate(() => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState(), e = s.penalFlights.assistance.cityApproach.gates.find(g => g.cityId === 'b').foreignSurvey.escort;
+    e.dutySeconds = 100; e.actor.health = 72; Object.assign(e.actor.needs, { thirst: 80, hunger: 75, exertion: 85 });
+    for (const id of Object.keys(e.gearCondition)) e.gearCondition[id] = 43;
+    s.injuries.push({ id: 'original-escort-bruise', actorId: e.actor.id, actorKind: 'expeditionEscort', typeId: 'bruising', severityId: 'minor',
+      location: 'left arm', status: 'stabilized', createdAt: s.clock, updatedAt: s.clock, stabilizedAt: s.clock, diagnosedAt: s.clock });
+    d.importSurveyExpeditionTestState(s);
+  });
+  expect(await page.evaluate(() => window.helixHeresyDebug.transferEscortSupply('drinkingWater', 'take'))).toBe(false);
+  for (const key of ['drinkingWater', 'trailMeal']) expect(await page.evaluate(key => window.helixHeresyDebug.transferEscortSupply(key), key)).toBe(true);
+  const beforeRest = await escort(page);
+  await page.locator('[data-workspace-tab="visits"]').click();
+  const panel = page.locator('[data-expedition-escort]');
+  await panel.getByRole('button', { name: 'Begin supplied eight-hour off-duty rest', exact: true }).click();
+  expect((await escort(page)).recovery.status).toBe('resting');
+  expect(await page.evaluate(() => window.helixHeresyDebug.reviewForeignEscort())).toBeNull();
+  await page.evaluate(() => window.helixHeresyDebug.advanceForeignEscortRecoveryForTest(3600));
+  let s = await escort(page); expect(s.recovery.progressSeconds).toBe(3600); expect(s.dutySeconds).toBe(100);
+  await reload(page); expect((await escort(page)).recovery.progressSeconds).toBe(3600);
+  await page.evaluate(() => { const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState(), e = s.penalFlights.assistance.cityApproach.gates.find(g => g.cityId === 'b').foreignSurvey.escort;
+    s.physicalItemStacks.find(i => i.id === e.restPlace.stackId).cell.x++; d.importSurveyExpeditionTestState(s); });
+  await page.evaluate(() => window.helixHeresyDebug.advanceForeignEscortRecoveryForTest(1800));
+  s = await escort(page); expect(s.recovery.status).toBe('paused'); expect(s.recovery.progressSeconds).toBe(3600);
+  await reload(page); expect((await escort(page)).recovery.status).toBe('paused');
+  await page.evaluate(() => { const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState(), e = s.penalFlights.assistance.cityApproach.gates.find(g => g.cityId === 'b').foreignSurvey.escort;
+    s.physicalItemStacks.find(i => i.id === e.restPlace.stackId).cell = { ...e.restPlace.cell }; d.importSurveyExpeditionTestState(s); });
+  expect(await act(page, 'walkVehicle')).toBe(true); await finish(page);
+  const boarding = await act(page, 'board');
+  expect(boarding, JSON.stringify((await field(page)).context)).toBe(true); await finish(page); await advance(page, 600);
+  expect(await act(page, 'disembark')).toBe(true); await finish(page); await advance(page, 120);
+  const away = () => page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState().penalFlights.assistance.cityApproach.gates.find(g => g.cityId === 'b').foreignSurvey.escort);
+  const dated = (await away()).recoveryReport;
+  console.info('Foreign escort recovery: original shelter, physical provisions, partial real save/load and loss-of-shelter pause verified; scientist physically returned to city.');
+  await page.evaluate(() => window.helixHeresyDebug.advanceForeignEscortRecoveryForTest(8 * 3600));
+  s = await away(); expect(s.recovery.status).toBe('completed'); expect(s.dutySeconds).toBe(12 * 3600); expect(s.recovery.progressSeconds).toBe(8 * 3600);
+  expect(s.recoveryReport).toEqual(dated); expect(s.actor.health).toBe(72); expect(s.gearCondition).toEqual(beforeRest.gearCondition);
+  expect(s.actor.id).toBe(initial.actor.id); expect(s.restPlace.stackId).toBe(initial.restPlace.stackId);
+  await reload(page); expect((await away()).recovery).toEqual(s.recovery);
+  expect(await act(page, 'book')).toBe(true); await advance(page, 120);
+  expect(await act(page, 'board')).toBe(true); await finish(page); await advance(page, 600);
+  expect(await act(page, 'disembark')).toBe(true); await finish(page);
+  expect(await page.evaluate(() => { const d = window.helixHeresyDebug, s = d.foreignSurveySnapshot().excursion;
+    return Boolean(d.startScientistMove(s.roomId, { toCell: { x: 13, y: 10, z: s.entry.z } })); })).toBe(true); await finish(page);
+  s = await escort(page); expect(s.recoveryReport.recovery.status).toBe('completed'); expect(s.recoveryReport.at).toBeGreaterThan(dated.at);
+  expect(s.injuries.find(i => i.id === 'original-escort-bruise').status).toBe('stabilized');
+  const q = await page.evaluate(() => window.helixHeresyDebug.reviewForeignEscort()); expect(q).toBeTruthy();
+  const money = s.money; expect(await page.evaluate(() => window.helixHeresyDebug.hireExpeditionEscort())).toBe(true);
+  s = await escort(page); expect(s.actor.id).toBe(initial.actor.id); expect(s.money).toBe(money - q.upfront);
+  expect(s.contract.id).not.toBe(beforeRest.contract.id); expect(s.contract.tripId).not.toBe(beforeRest.contract.tripId);
+  expect(s.gearCondition).toEqual(beforeRest.gearCondition); expect(s.actor.health).toBe(72);
+  expect((await field(page)).excursion.carrier.vehicle.fuelKm).toBeLessThan(f.excursion.carrier.vehicle.fuelKm);
+  expect(await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState().expeditionEscorts)).toEqual(home);
+  expect(errors).toEqual([]);
+});
