@@ -118,6 +118,7 @@
   const ForeignWilderness = window.HelixForeignWilderness;
   const ForeignExpeditionEscort = window.HelixForeignExpeditionEscort;
   const ForeignEscortRecovery = window.HelixForeignEscortRecovery;
+  const ForeignEscortRepairs = window.HelixForeignEscortRepairs;
   const CarrierBriefings = window.HelixCarrierBriefings;
   const LocalDiscovery = window.HelixLocalDiscovery;
   const MunicipalMaps = window.HelixMunicipalMaps;
@@ -16988,6 +16989,11 @@
       },
       hireExpeditionEscort, orderExpeditionEscort, transferEscortSupply, settleEscortContract, startEscortCare, startEscortDrag,
       beginForeignEscortRecovery, endForeignEscortRecovery,
+      startForeignEscortRepair,
+      cancelForeignEscortRepair: () => { const j = ensureExpeditionEscorts().repair; return j && cancelTask(j.taskId); },
+      foreignEscortRepairSnapshot: () => { const s = ensureExpeditionEscorts(); return clonePlainObject({ repair: s.repair, history: s.repairHistory,
+        tool: foreignEscortRepairTool(s), stamina: scientistVital('stamina').current, stacks: ensurePhysicalItemStacks(),
+        tasks: scientistQueueTasks().filter(t => t.data?.action === 'foreignEscortRepair').map(t => ({ ...t, reason: taskBlockReason(t) })) }); },
       advanceForeignEscortRecoveryForTest: seconds => {
         // Exercise the production off-duty updater without simulating unrelated
         // eight-hour laboratory/economy fixtures or inventing a patient cure.
@@ -23445,6 +23451,7 @@
 
   function completeDueTasks() {
     updateForeignSelfCareTasks();
+    updateForeignEscortRepairs();
     updateForeignLodging();
     updatePassengerFuelServices();
     updatePassengerMaintenanceServices();
@@ -69127,6 +69134,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!task) {
       return "Task no longer exists.";
     }
+    if (task.data?.action === 'foreignEscortRepair' && scientistIsDead()) return 'Scientist death freezes this unfinished equipment repair.';
     if (!isScientistQueueTask(task)) {
       return "Only scientist queue tasks can be canceled here.";
     }
@@ -69222,6 +69230,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (stack?.reservedTaskId === task.id) stack.reservedTaskId = "";
     }
     if (task.type === "surveyExpeditionWork") {
+      if (task.data?.action === 'foreignEscortRepair') {
+        const saved = foreignEscortRepairState(task);
+        if (saved) ForeignEscortRepairs.cancel(saved, ensurePhysicalItemStacks(), foreignEscortRepairTool(saved), state.clock);
+      }
       const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.stackId);
       if (stack?.reservedTaskId === task.id) stack.reservedTaskId = "";
       const tool = task.data?.toolInstanceId && toolInstanceById(task.data.toolInstanceId)?.instance;
@@ -87530,6 +87542,73 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       threatened: actor.nextAttackAt > state.clock || saved.lastHarmedAt != null && state.clock - saved.lastHarmedAt < 30
         || Object.values(state.combat?.pendingActions || {}).some(a => !a.interrupted && (a.actorId === actor.id || a.target?.id === actor.id)) };
   }
+  function foreignEscortRepairState(task) { return foreignEscortStates().find(s => s.repair?.taskId === task?.id); }
+  function foreignEscortRepairTool(saved) {
+    if (ForeignEscortRepairs.active(saved)) return toolInstanceById(saved.repair.toolId)?.instance || null;
+    const carried = actorInventoryStacks('scientist');
+    return toolInstancesForItem('masonryHammer').filter(t => t.current > 0 && !t.reservedTaskId
+      && carried.some(i => i.key === 'masonryHammer' && i.toolInstanceId === t.id && !i.reservedTaskId))
+      .sort((a, b) => b.current - a.current || a.id.localeCompare(b.id))[0] || null;
+  }
+  function foreignEscortRepairContext(saved, working = false) {
+    const c = foreignEscortRecoveryContext(saved);
+    return { ...c, near: escortNearby(), busy: !working && surveyBusy(), roomId: scientistRoomId(), cell: cleanMapCell(scientistMapCell()),
+      seconds: adjustedActionDuration(ForeignEscortRepairs.SECONDS, 'materialsScience'),
+      staminaCost: adjustedStaminaCost(6, ['materialsScience']), stamina: scientistVital('stamina').current,
+      atHead: firstScientistQueueTask()?.id === saved.repair?.taskId && !state.combat?.routineSuspension
+        && Boolean(state.tasks.find(t => t.id === saved.repair?.taskId && surveyTaskAllowed(t))),
+      threatened: c.threatened || Boolean(state.combat?.pendingActions?.scientist) };
+  }
+  function foreignEscortRepairReason(task) {
+    const saved = foreignEscortRepairState(task);
+    if (!saved) return 'The original professional’s saved repair is unavailable.';
+    return withEscortState(saved, () => ForeignEscortRepairs.reason(saved, foreignEscortRepairContext(saved, true), ensurePhysicalItemStacks(), foreignEscortRepairTool(saved)));
+  }
+  function startForeignEscortRepair(gearId) {
+    const saved = ensureExpeditionEscorts(); if (!saved.source || scientistIsDead()) return false;
+    const c = foreignEscortRepairContext(saved), tool = foreignEscortRepairTool(saved), stacks = ensurePhysicalItemStacks();
+    const plan = ForeignEscortRepairs.plan(saved, c, stacks, tool, gearId, state.clock);
+    if (!plan) return false;
+    const taskId = `task-${state.nextTaskNumber++}`;
+    if (!ForeignEscortRepairs.begin(saved, c, stacks, tool, plan, taskId, state.clock)) return false;
+    const job = saved.repair, reserved = reserveProductionMaterialSlices(job.inputs, taskId);
+    if (!reserved || !spendStamina(plan.staminaCost)) {
+      ForeignEscortRepairs.cancel(saved, ensurePhysicalItemStacks(), tool, state.clock); return false;
+    }
+    for (const id of [job.gearId, job.toolStackId]) ensurePhysicalItemStacks().find(i => i.id === id).reservedTaskId = taskId;
+    tool.reservedTaskId = taskId; saved.actor.needs.lastAt = state.clock;
+    state.tasks.push({ id: taskId, type: 'surveyExpeditionWork', label: `Repair original escort ${inventoryItemLabel(job.gearKey)} (${job.gearId})`,
+      createdAt: state.clock, dueAt: state.clock + job.requiredSeconds,
+      data: { action: 'foreignEscortRepair', toCell: c.cell, toRoomId: c.roomId, mapPath: [c.cell],
+        movement: createScientistMovementRecord([c.cell], 0, state.clock, { intent: 'survey' }) } });
+    surveyEvent(`The original professional permits repair of ${job.gearId} only. Exact gear, carried hammer and actual component portions reserved; no ownership or allegiance transferred.`);
+    syncActorInventories(); syncPhysicalReadModels(); persist(); render(); return true;
+  }
+  function updateForeignEscortRepairs() {
+    if (scientistIsDead()) return;
+    for (const task of state.tasks.filter(t => t.data?.action === 'foreignEscortRepair')) {
+      const saved = foreignEscortRepairState(task); if (!saved) continue;
+      withEscortState(saved, () => {
+        const needs = WildernessSurvival.advance(saved.actor.needs, state.clock, { working: false, resting: false });
+        saved.actor.needs = needs.state;
+        if (needs.damage) damageExpeditionEscort(needs.damage, { injuryProgress: true });
+        const c = foreignEscortRepairContext(saved, true);
+        if (taskBlockReason(task)) c.atHead = false;
+        ForeignEscortRepairs.advance(saved, c, ensurePhysicalItemStacks(), foreignEscortRepairTool(saved), state.clock);
+        task.dueAt = state.clock + Math.max(0, saved.repair.requiredSeconds - saved.repair.progressSeconds);
+      });
+    }
+  }
+  function finishForeignEscortRepair(task) {
+    const saved = foreignEscortRepairState(task); if (!saved) return false;
+    return withEscortState(saved, () => {
+      if (!ForeignEscortRepairs.finish(saved, foreignEscortRepairContext(saved, true), ensurePhysicalItemStacks(), foreignEscortRepairTool(saved), state.clock)) return false;
+      state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0);
+      awardXp('materialsScience', 7, task.label, { physical: true }); syncActorInventories(); syncPhysicalReadModels();
+      surveyEvent(`Original ${saved.repair.gearId} repaired from ${saved.repair.receipt.from} to ${saved.repair.receipt.to}/100 using the reserved real components. Wounds, duty, wages and ownership unchanged.`);
+      return true;
+    });
+  }
   function beginForeignEscortRecovery() {
     const saved = ensureExpeditionEscorts();
     if (!saved.source || scientistIsDead() || !ForeignEscortRecovery.begin(saved, foreignEscortRecoveryContext(saved, true), ensurePhysicalItemStacks(), state.clock)) return false;
@@ -87579,7 +87658,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       panel.append(textEl('p', ForeignExpeditionEscort.SCOPE));
       panel.append(textEl('p', 'Declared purpose: nonliving local survey protection. The scientist’s opposition to the gods is explicit, not an undisclosed allegiance or endorsement.'));
       if (saved.received) panel.append(textEl('p', `${formatClock(saved.received.at)} — received terms: ${saved.received.willingness.reason} ${saved.received.reason || ''} ${(saved.received.prohibitions || []).join('; ')}. Dated report, not a private archive.`));
-      button('Review exact foreign escort terms', () => { ForeignExpeditionEscort.review(saved, foreignEscortContext(saved, true), state.clock); }, escortContractActive() || ForeignEscortRecovery.active(saved) || Boolean(ForeignExpeditionEscort.contactReason(saved, foreignEscortContext(saved, true))));
+      button('Review exact foreign escort terms', () => { ForeignExpeditionEscort.review(saved, foreignEscortContext(saved, true), state.clock); }, escortContractActive() || ForeignEscortRecovery.active(saved) || ForeignEscortRepairs.active(saved) || Boolean(ForeignExpeditionEscort.contactReason(saved, foreignEscortContext(saved, true))));
       if (saved.restPlace) {
         if (!scientistIsDead() && escortNearby() && !actorIsIncapacitated('scientist')) ForeignEscortRecovery.observe(saved, state.clock);
         const report = saved.recoveryReport, rest = report?.recovery;
@@ -87596,6 +87675,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           }
         }
       }
+      const repairs = document.createElement('section'); repairs.dataset.foreignEscortRepairs = 'true';
+      repairs.append(textEl('strong', 'Original escort equipment repairs'), textEl('p', 'After settlement: request consent for one named baton or vest at the chapter shelter. Thirty base minutes of Materials Science work, stamina and actual carried hammer wear restore up to 25 condition, capped at 100. Baton: one carried metal part. Vest: one carried metal part and one rubber. No remote laboratory stock, new mechanic, healing, duty recovery, replacement gear or ownership. Finish recovery before repair.'));
+      panel.append(repairs);
+      if (saved.repair && (!scientistIsDead() && escortNearby() || saved.repair.bodyEpoch === ensureScientistIdentity().bodyEpoch)) repairs.append(textEl('p',
+        `${formatClock(saved.repair.at)} — original ${saved.repair.gearId} consent: ${saved.repair.consent.scope} Saved work: ${formatDuration(saved.repair.progressSeconds)} / ${formatDuration(saved.repair.requiredSeconds)}; ${saved.repair.status}. ${saved.repair.reason || ''} This is your work record, not remote knowledge of current gear condition.`));
+      if (!scientistIsDead() && escortNearby()) {
+        const c = foreignEscortRepairContext(saved), tool = foreignEscortRepairTool(saved);
+        for (const item of actorInventoryStacks(actor.id).filter(i => Object.hasOwn(ForeignEscortRepairs.RECIPES, i.key))) {
+          repairs.append(textEl('p', `${inventoryItemLabel(item.key)} ${item.id}: observed ${saved.gearCondition[item.id]}/100; remains ${actor.name}’s property.`));
+          button(`Request consent and repair ${inventoryItemLabel(item.key)} (${item.id})`, () => startForeignEscortRepair(item.id),
+            !ForeignEscortRepairs.plan(saved, c, ensurePhysicalItemStacks(), tool, item.id, state.clock));
+        }
+      }
+      if (ForeignEscortRepairs.active(saved)) button('Cancel original escort equipment repair', () => cancelTask(saved.repair.taskId), scientistIsDead());
     }
     if (actor.lastObservation) panel.append(textEl("p", `${actor.lastObservation.condition}; last observed at ${actor.lastObservation.cell.x},${actor.lastObservation.cell.y}, ${formatDuration(actor.lastObservation.at)}. ${escortObserved() ? "Currently in sight." : "Current condition and position are not known."}`));
     if (!escortContractActive()) {
@@ -90232,7 +90325,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!target || target.z !== scientistMapCell().z) return false;
     const foreignGround = foreignSurveyAtField();
     if (task.type === 'surveyExpeditionWork' && task.data.action === 'foreignSurveyTravel') return true;
-    if (foreignGround && (task.type === 'scientistMove' || task.type === 'surveyExpeditionWork' && ['pack', 'consume', 'radioBattery', 'walkWilderness', 'deployShelter', 'packShelter'].includes(task.data.action)
+    if (foreignGround && (task.type === 'scientistMove' || task.type === 'surveyExpeditionWork' && ['pack', 'consume', 'radioBattery', 'walkWilderness', 'deployShelter', 'packShelter', 'foreignEscortRepair'].includes(task.data.action)
       || task.type === 'physicalDiagnostic' && task.data.workflowId === 'resourceSurvey')) return true;
     if (annexAway()) return annexAtProperty() && (task.type === "scientistMove" || task.type === "injuryTreatment" && task.data.targetActorId === "scientist"
       || task.type === "surveyExpeditionWork" && ["pack", "consume", "radioBattery"].includes(task.data.action)
@@ -90635,6 +90728,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function surveyWorkBlockReason(task) {
+    if (task.data?.action === 'foreignEscortRepair') return foreignEscortRepairReason(task);
     if (task.data?.foreignWildernessTripId) {
       const s = foreignSurveyAtField(), c = foreignSurveyContext();
       if (!s || task.data.foreignWildernessTripId !== s.trip?.id || task.data.foreignWildernessBodyEpoch !== c.bodyEpoch || !c.originalBody || c.custodyActive)
@@ -90739,6 +90833,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function completeSurveyWork(task) {
+    if (task.data?.action === 'foreignEscortRepair') { finishForeignEscortRepair(task); return; }
     if (task.data?.action === 'foreignSurveyTravel') { finishForeignSurveyTravel(task); return; }
     if (completePassengerProvisionWork(task)) return;
     if (completeIntercityPassengerWork(task)) return;
@@ -98180,9 +98275,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const diagnosticTaskIds = new Set(next.tasks.filter((task) => task?.type === "physicalDiagnostic").map((task) => String(task.id || "")));
     const assistantOrderIds = new Set((next.laboratoryAssistant?.orders || []).filter(o => o.status === "active").flatMap(o => [o.id, o.batchId].filter(Boolean)));
     const toolTaskIds = new Set([...constructionTaskIds, ...productionTaskIds, ...diagnosticTaskIds, ...assistantOrderIds]);
+    const escortRepairTools = new Map((next.penalFlights?.assistance?.cityApproach?.gates || [])
+      .map(g => g.foreignSurvey?.escort).filter(s => ForeignEscortRepairs.active(s)
+        && next.tasks.some(t => t.id === s.repair.taskId && t.type === 'surveyExpeditionWork' && t.data?.action === 'foreignEscortRepair'))
+      .map(s => [s.repair.taskId, s.repair.toolId]));
     for (const instances of Object.values(next.toolDurability || {})) {
       for (const tool of instances) {
-        if (tool.reservedTaskId && !toolTaskIds.has(tool.reservedTaskId)) tool.reservedTaskId = "";
+        if (tool.reservedTaskId && !toolTaskIds.has(tool.reservedTaskId) && escortRepairTools.get(tool.reservedTaskId) !== tool.id) tool.reservedTaskId = "";
       }
     }
     for (const order of next.construction.orders || []) {

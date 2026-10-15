@@ -11,10 +11,14 @@ test.afterEach(async ({ page }, info) => {
   await info.attach('foreign-escort-failure-state', { body: JSON.stringify(await page.evaluate(() => ({ storage: Object.fromEntries(Object.entries(localStorage)),
     escort: window.helixHeresyDebug.expeditionEscortSnapshot(), scientist: window.helixHeresyDebug.exportSurveyExpeditionTestState().scientist }))), contentType: 'application/json' });
 });
-async function reload(page) { await page.reload(); await page.locator('#loadLastSaveBtn').click(); await page.locator('[data-workspace-tab="visits"]').click(); }
-async function openField(page) {
+async function reload(page, renderer) {
+  await page.reload(); await page.locator('#loadLastSaveBtn').click();
+  if (renderer) expect(await page.evaluate(mode => window.helixHeresyDebug.setMapRenderer(mode), renderer)).toBe(renderer);
+  await page.locator('[data-workspace-tab="visits"]').click();
+}
+async function openField(page, repairKit = false) {
   page.on('dialog', d => d.accept());
-  await openForeignWorkspace(page, 'foreign-escort', 'canvas', false, false, 0, true);
+  await openForeignWorkspace(page, 'foreign-escort', 'canvas', false, false, 0, true, repairKit);
   expect(await wa(page, 'return')).toBe(true); await finish(page);
   const source = { cityId: 'b', administrationId: 'admin:b', worksId: 'works:b', charterId: 'charter:b', populationSourceId: 'population:b',
     cellId: 'planet-cell:00001', name: 'Birch Municipal Sampling Ground', placeId: 'foreign-survey:b' };
@@ -184,4 +188,67 @@ test('canvas foreign escort supplied off-duty recovery preserves original shelte
   expect((await field(page)).excursion.carrier.vehicle.fuelKm).toBeLessThan(f.excursion.carrier.vehicle.fuelKm);
   expect(await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState().expeditionEscorts)).toEqual(home);
   expect(errors).toEqual([]);
+});
+
+test('canvas foreign escort original gear repairs reserve real carried materials and hammer, hold through departure and saves, cancel honestly and finish each named item once', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await openField(page, true);
+  const repair = () => page.evaluate(() => window.helixHeresyDebug.foreignEscortRepairSnapshot());
+  const startRepair = id => page.evaluate(id => window.helixHeresyDebug.startForeignEscortRepair(id), id);
+  const initial = await escort(page), f = await field(page), z = f.excursion.entry.z;
+  const baton = initial.stacks.find(i => i.key === 'escortBaton').id, vest = initial.stacks.find(i => i.key === 'escortVest').id;
+  expect(await startRepair(baton)).toBe(false);
+  expect(await page.evaluate(({ roomId, z }) => Boolean(window.helixHeresyDebug.startScientistMove(roomId, { toCell: { x: 13, y: 10, z } })), { roomId: f.excursion.roomId, z })).toBe(true); await finish(page);
+  expect(await page.evaluate(() => window.helixHeresyDebug.reviewForeignEscort())).toBeTruthy();
+  expect(await page.evaluate(() => window.helixHeresyDebug.hireExpeditionEscort())).toBe(true);
+  expect(await startRepair(baton)).toBe(false);
+  expect(await page.evaluate(() => window.helixHeresyDebug.settleEscortContract())).toBe(true);
+  await page.evaluate(({ baton, vest }) => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState(), e = s.penalFlights.assistance.cityApproach.gates.find(g => g.cityId === 'b').foreignSurvey.escort;
+    e.gearCondition[baton] = 0; e.gearCondition[vest] = 90; e.actor.health = 75;
+    s.injuries.push({ id: 'repair-original-bruise', actorId: e.actor.id, actorKind: 'expeditionEscort', typeId: 'bruising', severityId: 'minor',
+      location: 'left arm', status: 'stabilized', createdAt: s.clock, updatedAt: s.clock, stabilizedAt: s.clock, diagnosedAt: s.clock });
+    d.importSurveyExpeditionTestState(s); d.setMapRenderer('canvas');
+  }, { baton, vest });
+  const before = await repair(page), beforePerson = await escort(page);
+  const balance = (s, key) => s.stacks.filter(i => i.key === key && i.carriedBy === 'scientist').reduce((n, i) => n + i.quantity, 0);
+  expect(before.tool.current).toBeGreaterThan(10); expect(balance(before, 'metalParts')).toBe(3); expect(balance(before, 'rubber')).toBe(2);
+  await page.locator('[data-workspace-tab="visits"]').click();
+  await page.locator('[data-expedition-escort]').getByRole('button', { name: `Request consent and repair Field Escort Baton (${baton})`, exact: true }).click();
+  let r = await repair(page); expect(r.repair.gearId).toBe(baton); expect(r.repair.consent.actorId).toBe(initial.actor.id);
+  expect(r.stamina).toBe(before.stamina - r.repair.staminaCost);
+  expect(r.stacks.find(i => i.id === baton).reservedTaskId).toBe(r.repair.taskId);
+  expect(r.stacks.find(i => i.id === r.repair.toolStackId).reservedTaskId).toBe(r.repair.taskId);
+  expect(r.tool.reservedTaskId).toBe(r.repair.taskId);
+  expect(r.repair.inputs).toHaveLength(1); expect(r.stacks.find(i => i.id === r.repair.inputs[0].stackId).quantity).toBe(1);
+  expect(r.stacks.filter(i => i.key === 'metalParts' && i.carriedBy === 'scientist' && !i.reservedTaskId).reduce((n, i) => n + i.quantity, 0)).toBe(2);
+  expect(await page.evaluate(() => window.helixHeresyDebug.reviewForeignEscort())).toBeNull();
+  expect(await page.evaluate(() => window.helixHeresyDebug.beginForeignEscortRecovery())).toBe(false);
+  await advance(page, 600); r = await repair(page); expect(r.repair.progressSeconds).toBe(600);
+  expect((await escort(page)).gearCondition[baton]).toBe(0); expect(r.tool.current).toBeLessThan(before.tool.current);
+  console.info('Foreign escort repair: named consent, exact one-unit reservations, actual stamina/tool wear and unfinished zero-condition original verified.');
+  await reload(page, 'canvas'); r = await repair(page); expect(r.repair.progressSeconds).toBe(600);
+  expect(r.tool.reservedTaskId).toBe(r.repair.taskId); expect(r.tool.id).toBe(before.tool.id);
+  expect(await page.evaluate(({ roomId, z }) => Boolean(window.helixHeresyDebug.startScientistMove(roomId, { toCell: { x: 15, y: 10, z } })), { roomId: f.excursion.roomId, z })).toBe(true); await finish(page);
+  const held = await repair(page); expect(held.tasks[0].reason).toBeTruthy(); const heldProgress = held.repair.progressSeconds;
+  await advance(page, 600); expect((await repair(page)).repair.progressSeconds).toBe(heldProgress);
+  await reload(page, 'canvas'); expect((await repair(page)).repair.progressSeconds).toBe(heldProgress);
+  expect(await page.evaluate(({ roomId, z }) => Boolean(window.helixHeresyDebug.startScientistMove(roomId, { toCell: { x: 13, y: 10, z } })), { roomId: f.excursion.roomId, z })).toBe(true); await finish(page);
+  r = await repair(page); expect(r.repair.status).toBe('completed'); expect(r.repair.receipt.gearId).toBe(baton);
+  expect((await escort(page)).gearCondition[baton]).toBe(25); expect(balance(r, 'metalParts')).toBe(2); expect(balance(r, 'rubber')).toBe(2);
+  expect(r.tool.current).toBe(before.tool.current - 6); expect(r.tool.id).toBe(before.tool.id);
+  await reload(page, 'canvas'); expect((await escort(page)).gearCondition[baton]).toBe(25); expect(balance(await repair(page), 'metalParts')).toBe(2);
+  expect(await startRepair(vest)).toBe(true); await advance(page, 300); const cancelled = await repair(page);
+  expect(await page.evaluate(() => window.helixHeresyDebug.cancelForeignEscortRepair())).toBe(true);
+  r = await repair(page); expect(r.repair.status).toBe('cancelled'); expect((await escort(page)).gearCondition[vest]).toBe(90);
+  expect(balance(r, 'metalParts')).toBe(2); expect(balance(r, 'rubber')).toBe(2); expect(r.tool.current).toBe(cancelled.tool.current);
+  expect(r.stamina).toBe(cancelled.stamina); expect(r.stacks.filter(i => i.reservedTaskId === cancelled.repair.taskId)).toHaveLength(0);
+  expect(await startRepair(vest)).toBe(true); await finish(page); r = await repair(page);
+  expect(r.repair.status).toBe('completed'); expect(r.repair.receipt.gain).toBeUndefined(); expect(r.repair.receipt.to).toBe(100);
+  expect(balance(r, 'metalParts')).toBe(1); expect(balance(r, 'rubber')).toBe(1); expect(await startRepair(vest)).toBe(false);
+  const after = await escort(page); expect(after.actor.id).toBe(initial.actor.id); expect(after.actor.health).toBe(75);
+  expect(after.dutySeconds).toBe(beforePerson.dutySeconds); expect(after.money).toBe(beforePerson.money);
+  expect(after.stacks.find(i => i.id === baton).carriedBy).toBe(initial.actor.id); expect(after.stacks.find(i => i.id === vest).carriedBy).toBe(initial.actor.id);
+  expect(after.injuries.find(i => i.id === 'repair-original-bruise').status).toBe('stabilized');
+  expect(r.history.map(j => j.status)).toEqual(['completed', 'cancelled']); expect(errors).toEqual([]);
 });

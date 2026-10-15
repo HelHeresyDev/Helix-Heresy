@@ -48,7 +48,7 @@
     return s.decisions[key];
   }
   function review(s, c, now) {
-    if (contactReason(s, c) || active(s) || ['resting', 'paused'].includes(s.recovery?.status)) return null;
+    if (contactReason(s, c) || active(s) || ['resting', 'paused'].includes(s.recovery?.status) || ['working', 'held'].includes(s.repair?.status)) return null;
     const willingness = decision(s, c); s.received = { at: now, willingness: copy(willingness), scope: SCOPE, prohibitions: copy(c.source.prohibitions) };
     if (!willingness.accepted) { s.quote = null; return null; }
     const refusal = Escorts.refusal(s.actor);
@@ -61,7 +61,7 @@
   }
   function hire(s, c, expected, wallet, now) {
     const q = s?.quote;
-    if (!q || contactReason(s, c) || active(s) || ['resting', 'paused'].includes(s.recovery?.status) || !Number.isFinite(now) || now < q.at || now >= q.expiresAt
+    if (!q || contactReason(s, c) || active(s) || ['resting', 'paused'].includes(s.recovery?.status) || ['working', 'held'].includes(s.repair?.status) || !Number.isFinite(now) || now < q.at || now >= q.expiresAt
       || JSON.stringify(q) !== JSON.stringify(expected) || q.bodyEpoch !== c.bodyEpoch || q.visitId !== c.visitId || q.tripId !== c.tripId
       || q.limitHours !== Escorts.quote(s.budgetHours).limitHours
       || q.policy !== JSON.stringify(c.source.restrictions) || s.dutySeconds < q.limitHours * 3600 + 300

@@ -16,7 +16,7 @@
     if (!c.placeUsable) return 'The original chapter shelter must remain physically deployed and usable.';
     if (!s.restPlace || s.restPlace.actorId !== s.actor.id || active(s)
       && (s.recovery.actorId !== s.actor.id || s.recovery.placeId !== s.restPlace.id)) return 'The original professional and resting place cannot be replaced.';
-    if (Foreign.active(s) || s.drag || s.actor.care || c.careActive) return 'Finish protection, casualty assistance and care before resting.';
+    if (Foreign.active(s) || ['working', 'held'].includes(s.repair?.status) || s.drag || s.actor.care || c.careActive) return 'Finish protection, equipment repair, casualty assistance and care before resting.';
     if (s.actor.id !== s.source.allocationId || s.actor.status === 'dead' || s.actor.health <= 10 || c.escortIncapacitated)
       return 'The same living capable professional must be able to rest without clinical assistance.';
     if (!c.atRestPlace || c.threatened) return 'The professional must remain at the sheltered defended resting place without fighting.';
