@@ -818,6 +818,18 @@ Terrain, original creature identities/wounds/remains, dropped goods, shelter, in
 
 Focused checks: `npx playwright test tests/foreign-wilderness.spec.js tests/foreign-wilderness-browser.spec.js --project=chromium --workers=1`.
 
+### Finite surface-stone recovery
+
+On a physically explored wilderness boundary or remote site, Field Survival now offers **Exposed Construction Stone**. Approach an actual visible rock and **Inspect stone face**. Saved geology, surface accessibility and exposed construction-stone potential determine whether that particular face is workable; some or all faces may be unsuitable. A survey reading cannot create stone, reveal a whole hex's reserves or reroll the outcome.
+
+Bring your existing **Masonry hammer** and **Stone chisel**; optional packing buttons are available at home. Inspection takes one base minute and one base stamina. **Recover one stone block** physically routes to adjacent natural ground, then takes fifteen base Materials Science/fatigue-adjusted minutes and eight base skill-adjusted stamina. The exact carried hammer/chisel are reserved and lose four/six durability through actual supported work. Each face contains only a small finite quantity. One completion produces one ordinary **Stone Blocks** unit (8 kg / 5 L) on the actual work tile—not in a remote stockpile or an overfull backpack. Use **Walk to and carry stone block** within normal load limits; existing vehicle allowances and fares still apply. Blocks physically brought back and dropped into accessible laboratory storage can be used in ordinary stone construction.
+
+This small hand-recovery rule covers unoccupied wilderness surface faces only. Municipal sampling reserves, controlled land, floor slabs and imported materials provide no extraction access through this interface; separate explicit extraction terms would be required there. Neither finding nor removing stone establishes land ownership, permanent claims, safe working ground, deep mining rights or an outpost. The outcrop remains an obstacle; this is a finite exposed face, not a tunnel or whole-rock demolition.
+
+Walking, displacement, fighting, nearby visible beasts, incapacity, custody, changed body/site/trip, missing tools or altered ground hold unfinished work without catch-up credit. Reload retains progress and both exact tool claims, including the original tool reservation during home packing. Known faces cannot be repeatedly inspected for extra skill gains. Cancellation releases tools but retains spent stamina, effort and wear, produces no block and consumes no stone; restarting is a fresh work attempt. Depletion, inspection dates, output receipts and physical dropped blocks persist. Death freezes work; a replacement body cannot inherit it. Escort protection remains optional, not a quarry workforce or new contractual extraction service.
+
+Focused checks: `tests/surface-stone.spec.js`, `tests/surface-stone-browser.spec.js`, the resource-survey model/integration cases and foreign-wilderness source models. Run only the relevant named files/cases, not the full suite.
+
 ### Foreign expedition escort
 
 Foreign survey grounds can offer one optional professional only when that city's surviving population and an actual physically present, locally licensed/chartered/recognized functional military escort chapter support them. A training hall, remote network listing, missing chapter or ruined city supplies no professional. The same source-backed person and owned kit persist; the home escort, municipal driver and intercity carrier are separate people. Exploration itself provides neither an escort nor rescue.
