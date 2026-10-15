@@ -122,6 +122,7 @@
   const ForeignExpeditionEscort = window.HelixForeignExpeditionEscort;
   const ForeignEscortRecovery = window.HelixForeignEscortRecovery;
   const ForeignEscortRepairs = window.HelixForeignEscortRepairs;
+  const ForeignEscortHauling = window.HelixForeignEscortHauling;
   const CarrierBriefings = window.HelixCarrierBriefings;
   const LocalDiscovery = window.HelixLocalDiscovery;
   const MunicipalMaps = window.HelixMunicipalMaps;
@@ -17076,6 +17077,22 @@
       hireExpeditionEscort, orderExpeditionEscort, transferEscortSupply, settleEscortContract, startEscortCare, startEscortDrag,
       beginForeignEscortRecovery, endForeignEscortRecovery,
       startForeignEscortRepair,
+      foreignEscortHaulingAction,
+      foreignEscortHaulingSnapshot: () => {
+        const s = ensureExpeditionEscorts();
+        return clonePlainObject({ saved: s.hauling, known: ForeignEscortHauling.publicView(s),
+          context: s.source ? foreignEscortHaulingContext(s, null, true) : null,
+          actor: s.actor, inventory: s.actor ? actorInventorySnapshot(s.actor.id) : null, contract: s.contract,
+          clock: state.clock, stacks: ensurePhysicalItemStacks(), station: state.fieldStation?.site });
+      },
+      advanceForeignEscortHaulingForTest: seconds => {
+        for (let left = Math.max(0, seconds); left > 0 && !scientistIsDead() && foreignSurveyAtField();) {
+          const step = Math.min(left, escortContractActive() ? 1 : 60); state.clock += step; left -= step;
+          updateScientistMovementTask(); completeDueTasks(); updateWildernessNeeds();
+          updateForeignWilderness(foreignSurveyAtField()); collectCombatRecords(); updateWildernessBeasts(step); updateAllExpeditionEscorts(step);
+        }
+        syncActorInventories(); persist(); render(); return state.clock;
+      },
       cancelForeignEscortRepair: () => { const j = ensureExpeditionEscorts().repair; return j && cancelTask(j.taskId); },
       foreignEscortRepairSnapshot: () => { const s = ensureExpeditionEscorts(); return clonePlainObject({ repair: s.repair, history: s.repairHistory,
         tool: foreignEscortRepairTool(s), stamina: scientistVital('stamina').current, stacks: ensurePhysicalItemStacks(),
@@ -87397,6 +87414,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const actor = saved.actor;
     if (saved.source && (!ForeignExpeditionEscort.control(saved, foreignEscortContext(saved)) || !dead && actorIsIncapacitated('scientist'))) return false;
     if (!dead && (actor.roomId !== escortGroundRoom() || WildernessBeasts.distance(actor.mapCell, escortMeeting()) > 2 || scientistRoomId() !== escortGroundRoom() || !escortNearby())) return false;
+    if (ForeignEscortHauling.active(saved)) ForeignEscortHauling.stop(saved, foreignEscortHaulingHooks(saved), state.clock, 'The original engagement is settling; no further hauling is authorized.', 'interrupted', !dead);
     const refund = ExpeditionEscorts.finish(saved.contract, dead ? actor.diedAt : state.clock, dead);
     ensureEconomy().money += refund;
     saved.history.push(clonePlainObject(saved.contract));
@@ -87410,6 +87428,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!escortContractActive() || !ExpeditionEscorts.ORDERS.includes(order) || !escortObserved() || actor.status === "dead"
       || saved.source && (!ForeignExpeditionEscort.control(saved, foreignEscortContext(saved)) || actorIsIncapacitated('scientist'))) return false;
     if (saved.contract.status === "returning" && order !== "withdraw") { actor.trust = Math.max(0, actor.trust - 1); surveyEvent(`${actor.name} refuses: ${saved.contract.returnReason}.`); persist(); render(); return false; }
+    if (ForeignEscortHauling.active(saved)) ForeignEscortHauling.stop(saved, foreignEscortHaulingHooks(saved), state.clock, `Delivery cancelled by the personally received ${order} instruction.`);
     actor.order = order; actor.holdCell = cleanMapCell(actor.mapCell); actor.lastOrderAt = state.clock;
     if (order === "withdraw") { saved.contract.status = "returning"; saved.contract.returnReason ||= "The scientist requested return"; }
     persist(); render(); return true;
@@ -87487,9 +87506,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     actor.health = Math.max(0, actor.health - damage);
     cancelEscortCare();
     if (!options.injuryProgress) recordCombatInjury(actor, damage, options.damageTypes || ["physical"], "Field escort trauma", { observed: escortObserved() });
+    if (ForeignEscortHauling.active(ensureExpeditionEscorts())) ForeignEscortHauling.stop(ensureExpeditionEscorts(), foreignEscortHaulingHooks(ensureExpeditionEscorts()), state.clock,
+      'Physical injury interrupted the delivery; original possessions remain at the person.', 'interrupted', actor.health > 0 && !actorIsIncapacitated(actor));
     if (!actor.health) {
       actor.status = "dead"; actor.diedAt = state.clock;
       for (const stack of actorInventoryStacks(actor.id)) { stack.carriedBy = ""; stack.cell = cleanMapCell(actor.mapCell); stack.roomId = actor.roomId; }
+      if (ForeignEscortHauling.active(ensureExpeditionEscorts())) ForeignEscortHauling.stop(ensureExpeditionEscorts(), foreignEscortHaulingHooks(ensureExpeditionEscorts()), state.clock, 'The original professional died; actual possessions remain at the body.', 'interrupted', false);
       stopEscortDrag();
       if (escortObserved()) settleEscortContract(true);
       syncActorInventories(); syncPhysicalReadModels();
@@ -87561,11 +87583,123 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     drag.nextAt = state.clock + 4 * WildernessSurvival.fatigueMultiplier(needs);
     syncActorInventories(); return true;
   }
+  function foreignEscortHaulingDropLegal(site, cell) {
+    return Boolean(site && cell && labMapCellRoomId(cell) === site.roomId && labMapCellHasFloor(cell)
+      && mapCellDistance(cell, site.layout.apron) <= 2 && !site.layout.footprint.some(p => sameMapCell(p, cell))
+      && !constructedWallAtCell(cell) && !labMapDoorAtCell(cell) && !fixturesAtCell(cell).length);
+  }
+  function foreignEscortHaulingContext(saved, item = null, contact = false, marking = false) {
+    const c = foreignEscortContext(saved, contact), excursion = escortExcursion(saved), h = saved.hauling;
+    const candidate = state.fieldStation?.site;
+    const site = candidate && candidate.siteId === excursion?.wilderness?.context.siteId
+      && candidate.worldId === excursion?.wilderness?.context.worldId && candidate.cityId === saved.source.cityId ? candidate : null;
+    const dropCell = marking ? cleanMapCell(scientistMapCell()) : h?.job?.status === 'working' ? h.job.drop : h?.drop?.cell;
+    const itemVisible = Boolean(item && scientistRoomId() === item.roomId && mapCellDistance(scientistMapCell(), item.cell) <= 5
+      && sensoryLineOfSight(scientistMapCell(), item.cell));
+    const threats = ensureWildernessBeasts().actors.some(b => b.status !== 'dead' && b.roomId === saved.actor.roomId
+      && WildernessBeasts.distance(saved.actor.mapCell, b.mapCell) <= 7 && sensoryLineOfSight(saved.actor.mapCell, b.mapCell));
+    return { ...c, site: site ? { siteId: site.siteId, worldId: site.worldId, roomId: site.roomId } : null,
+      dropCell, dropLegal: foreignEscortHaulingDropLegal(site, dropCell), itemVisible,
+      carryOk: Boolean(item && actorInventoryCanCarry(saved.actor.id, item, 1)),
+      routeOk: Boolean(contact && item && dropCell && itemVisible && site && item.roomId === site.roomId
+        && (WildernessBeasts.distance(saved.actor.mapCell, item.cell) <= 1 || escortNextStep(saved.actor, item.cell))
+        && (WildernessBeasts.distance(item.cell, dropCell) <= 1 || escortNextStep({ ...saved.actor, mapCell: item.cell, roomId: item.roomId }, dropCell))),
+      threatened: threats, care: Boolean(saved.actor.care), drag: Boolean(saved.drag),
+      otherWork: ForeignEscortRecovery.active(saved) || ForeignEscortRepairs.active(saved) };
+  }
+  function foreignEscortHaulingHooks(saved) {
+    const actor = saved.actor;
+    return {
+      item: id => ensurePhysicalItemStacks().find(i => i.id === id),
+      capacity: (carrying, item) => carrying ? actorEncumbranceInfo(actor.id).ratio <= 1 : actorInventoryCanCarry(actor.id, item, 1),
+      adjacent: cell => actor.roomId === labMapCellRoomId(cell) && WildernessBeasts.distance(actor.mapCell, cell) <= 1
+        && sensoryLineOfSight(actor.mapCell, cell),
+      move: goal => {
+        if (state.clock < actor.nextMoveAt) return true;
+        const next = escortNextStep(actor, goal); if (!next) return false;
+        actor.mapCell = cleanMapCell(next); actor.roomId = labMapCellRoomId(next);
+        const load = actorEncumbranceInfo(actor.id);
+        actor.needs.exertion = Math.min(100, actor.needs.exertion + .05 + load.usage.massKg * .005);
+        actor.nextMoveAt = state.clock + 1.3 * WildernessSurvival.fatigueMultiplier(actor.needs)
+          * (1 + injuryEffectTotals(actor).movement) / load.speedMultiplier;
+        syncActorInventories(); return true;
+      },
+      pickup: j => {
+        const i = ensurePhysicalItemStacks().find(i => i.id === j.stackId);
+        if (!i || i.reservedTaskId !== j.id || !actorInventoryCanCarry(actor.id, i, 1)) return false;
+        const carried = carryPhysicalStack(actor.id, i.id, 1, { allowReserved: true });
+        if (!carried) return false;
+        carried.reservedTaskId = j.id; return true;
+      },
+      deposit: j => {
+        const i = ensurePhysicalItemStacks().find(i => i.id === j.stackId);
+        if (!i || i.reservedTaskId !== j.id || i.carriedBy !== actor.id || !foreignEscortHaulingDropLegal(state.fieldStation?.site, j.drop)) return false;
+        if (!dropActorInventoryStack(actor.id, i.id, { roomId: j.roomId, cell: j.drop })) return false;
+        i.reservedTaskId = ''; syncPhysicalReadModels(); return true;
+      },
+      release: (j, canDrop) => {
+        const i = ensurePhysicalItemStacks().find(i => i.id === j.stackId);
+        if (!i || i.reservedTaskId !== j.id) return;
+        if (canDrop && i.carriedBy === actor.id && !i.cityOwnerId && !i.civicCustody) dropActorInventoryStack(actor.id, i.id);
+        i.reservedTaskId = ''; syncPhysicalReadModels();
+      }
+    };
+  }
+  function foreignEscortHaulingAction(action, options = {}) {
+    const saved = ensureExpeditionEscorts(); if (!saved.source || scientistIsDead()) return false;
+    const item = ensurePhysicalItemStacks().find(i => i.id === options.stackId);
+    const c = foreignEscortHaulingContext(saved, item, true, action === 'mark');
+    let result = false;
+    if (action === 'mark') result = ForeignEscortHauling.mark(saved, c, state.clock);
+    if (action === 'review') result = ForeignEscortHauling.review(saved, c, item, state.clock);
+    if (action === 'accept') {
+      const q = saved.hauling?.quote, original = ensurePhysicalItemStacks().find(i => i.id === q?.sourceId);
+      result = ForeignEscortHauling.accept(saved, foreignEscortHaulingContext(saved, original, true), original, options.expected, state.clock, (i, claim) => {
+        let slice = i;
+        if (i.quantity > 1) {
+          slice = normalizePhysicalItemStack({ ...i, id: `stack-${state.nextPhysicalItemStackNumber++}`, quantity: 1, knownQuantity: 1 }, state.nextPhysicalItemStackNumber);
+          i.quantity--; i.knownQuantity = Math.min(i.knownQuantity, i.quantity); ensurePhysicalItemStacks().push(slice);
+        }
+        slice.reservedTaskId = claim; return slice;
+      });
+    }
+    if (action === 'report') result = ForeignEscortHauling.receive(saved, c, state.clock);
+    if (action === 'cancel' && c.alive && c.capable && c.near && ForeignExpeditionEscort.control(saved, c))
+      result = ForeignEscortHauling.stop(saved, foreignEscortHaulingHooks(saved), state.clock);
+    syncActorInventories(); syncPhysicalReadModels(); persist(); render(); return result;
+  }
+  function renderForeignEscortHaulingPanel(saved) {
+    const panel = document.createElement('section'); panel.dataset.foreignEscortHauling = 'true';
+    const view = ForeignEscortHauling.publicView(saved), c = foreignEscortHaulingContext(saved, null, true);
+    panel.append(textEl('h4', 'One paid field delivery'), textEl('p', ForeignEscortHauling.SCOPE));
+    const button = (label, action, options = {}, disabled = false) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
+      b.disabled = disabled; b.onclick = () => foreignEscortHaulingAction(action, options); panel.append(b); };
+    button('Mark this outdoor station drop', 'mark', {}, !c.near || !foreignEscortHaulingContext(saved, null, true, true).dropLegal || !c.capable || c.custody || ForeignEscortHauling.active(saved));
+    if (view.drop) panel.append(textEl('p', `Your marked drop: ${view.drop.cell.x},${view.drop.cell.y}; ${formatClock(view.drop.at)}.`));
+    if (view.reply) panel.append(textEl('p', `${formatClock(view.reply.at)} — received terms: ${view.reply.reason}`));
+    if (view.quote) {
+      panel.append(textEl('p', `Exact offer: one unit from ${view.quote.sourceId}, ${view.quote.pickup.x},${view.quote.pickup.y} → ${view.quote.drop.x},${view.quote.drop.y}; existing ${formatMoney(view.quote.hourly)}/hour. Expires ${formatClock(view.quote.expiresAt)}.`));
+      button('Accept exact one-delivery hauling terms', 'accept', { expected: view.quote }, !c.near || state.clock >= view.quote.expiresAt);
+    }
+    if (view.issued.length) panel.append(textEl('p', `Last issued: ${view.issued.at(-1).id}, one unit from ${view.issued.at(-1).sourceId}. An instruction is not a delivery receipt.`));
+    if (view.received) panel.append(textEl('p', `${formatClock(view.received.at)} — personally received hauling report: ${view.received.status}; ${view.received.reason || view.received.phase}. Dated information, not remote tracking.`));
+    button('Ask for hauling report', 'report', {}, !c.near || !c.capable || c.busy);
+    button('Cancel current field delivery here', 'cancel', {}, !c.near || !c.capable);
+    if (c.near && !ForeignEscortHauling.reason(saved, c, true)) for (const item of ensurePhysicalItemStacks().filter(i => ForeignEscortHauling.eligible(i)
+      && !i.carriedBy && !i.reservedTaskId && i.roomId === scientistRoomId() && mapCellDistance(i.cell, scientistMapCell()) <= 5 && sensoryLineOfSight(scientistMapCell(), i.cell))) {
+      button(`Review haul one ${physicalStackLabel(item)} (${item.id})`, 'review', { stackId: item.id }, ForeignEscortHauling.active(saved));
+    }
+    return panel;
+  }
+
   function updateExpeditionEscort(elapsed = 0) {
     const saved = ensureExpeditionEscorts(), actor = saved.actor;
     if (saved.source && ForeignEscortRecovery.active(saved)) return updateForeignEscortRecovery(saved);
     if (!actor || !escortContractActive()) return 0;
-    if (actor.status === "dead") { if (escortObserved()) settleEscortContract(true); return 0; }
+    if (actor.status === "dead") {
+      if (ForeignEscortHauling.active(saved)) ForeignEscortHauling.stop(saved, foreignEscortHaulingHooks(saved), state.clock, 'The original professional is dead; no replacement completes the delivery.', 'interrupted', false);
+      if (escortObserved()) settleEscortContract(true); return 0;
+    }
     const contract = saved.contract, previousReason = contract.returnReason;
     let exhausted = false;
     if (saved.source) {
@@ -87579,10 +87713,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     actor.needs = needs.state;
     if (needs.damage) damageExpeditionEscort(needs.damage, { injuryProgress: true });
     if (actor.status === "dead") return 1;
-    if (exhausted) return Number(Boolean(needs.damage));
+    if (exhausted) {
+      if (ForeignEscortHauling.active(saved)) ForeignEscortHauling.stop(saved, foreignEscortHaulingHooks(saved), state.clock, 'Original finite duty exhausted; delivery interrupted.', 'interrupted', !actorIsIncapacitated(actor));
+      return Number(Boolean(needs.damage));
+    }
     const threats = ensureWildernessBeasts().actors.filter((beast) => beast.status !== "dead" && inWild && WildernessBeasts.distance(actor.mapCell, beast.mapCell) <= 7 && sensoryLineOfSight(actor.mapCell, beast.mapCell));
     const refusal = ExpeditionEscorts.refusal(actor, threats.length);
     if (refusal && !contract.returnReason) { contract.returnReason = refusal; contract.status = "returning"; }
+    if (ForeignEscortHauling.active(saved) && (threats.length || actorIsIncapacitated(actor) || contract.returnReason || saved.drag
+      || !ForeignExpeditionEscort.control(saved, foreignEscortContext(saved)) || actorIsIncapacitated('scientist'))) {
+      ForeignEscortHauling.stop(saved, foreignEscortHaulingHooks(saved), state.clock,
+        threats.length ? 'Personally perceived danger interrupted hauling; ordinary defense takes priority.'
+          : contract.returnReason || 'Capability, original local engagement or casualty assistance interrupted hauling.', 'interrupted', !actorIsIncapacitated(actor));
+    }
     if (!previousReason && contract.returnReason && escortObserved()) pauseForWildernessThreat(`${actor.name} requests withdrawal: ${contract.returnReason}. Reserved wages will not be exceeded.`);
     if (contract.returnReason) actor.order = "withdraw";
     if (escortObserved()) actor.lastObservation = { at: state.clock, cell: cleanMapCell(actor.mapCell), condition: actor.health < 35 ? "Seriously wounded" : actor.health < actor.maxHealth ? "Wounded" : "No visible wounds", needs: clonePlainObject(actor.needs), order: actor.order, returnReason: contract.returnReason };
@@ -87596,7 +87739,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const scientistAtSafety = scientistRoomId() === escortGroundRoom() && WildernessBeasts.distance(scientistMapCell(), escortMeeting()) <= 2;
     if (!scientistAtSafety && actorIsIncapacitated("scientist") && !scientistIsDead() && escortNearby() && (!saved.source || ForeignExpeditionEscort.control(saved, foreignEscortContext(saved))) && startEscortDrag(actor.id)) return 1;
     const attacker = threats.filter((beast) => WildernessBeasts.distance(actor.mapCell, beast.mapCell) <= 1 && (beast.behavior === "pursue" || beast.targetId === actor.id)).sort((a, b) => a.health - b.health)[0];
-    state.combat.guarding[actor.id] = { startedAt: state.clock };
+    if (ForeignEscortHauling.active(saved)) delete state.combat.guarding[actor.id];
+    else state.combat.guarding[actor.id] = { startedAt: state.clock };
     if (attacker && elapsed > 0 && state.clock >= actor.nextAttackAt) {
       cancelEscortCare();
       const weapon = escortGear("escortBaton");
@@ -87604,13 +87748,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (weapon) saved.gearCondition[weapon.id] = Math.max(0, saved.gearCondition[weapon.id] - 1);
       actor.nextAttackAt = state.clock + 5;
     }
-    if (actor.care) { if (threats.some((beast) => WildernessBeasts.distance(actor.mapCell, beast.mapCell) <= 2)) cancelEscortCare(); else { completeEscortCare(); return 1; } }
+    if (actor.care) { if (threats.some((beast) => WildernessBeasts.distance(actor.mapCell, beast.mapCell) <= 2)) cancelEscortCare(); else {
+      if (ForeignEscortHauling.active(saved)) { saved.hauling.job.lastAt = state.clock; saved.hauling.job.attended = false; }
+      completeEscortCare(); return 1;
+    } }
     if (!threats.length && !actor.care) {
       if (actor.needs.thirst >= 40 && startEscortCare("drinkingWater")) return 1;
       if (actor.needs.hunger >= 40 && startEscortCare("trailMeal")) return 1;
       const injury = actorInjuries(actor).find((entry) => entry.status === "active");
       if (injury && startEscortCare(INJURY_TYPE_DEFS[injury.typeId].supplyKey)) return 1;
     }
+    if (ForeignEscortHauling.active(saved)) return ForeignEscortHauling.advance(saved, foreignEscortHaulingContext(saved), foreignEscortHaulingHooks(saved), state.clock);
     if (elapsed <= 0 || state.clock < actor.nextMoveAt) return 0;
     let goal = null;
     if (actor.order === "withdraw") goal = escortMeeting();
@@ -87753,6 +87901,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(textEl("p", `${actor.name} · ${actor.affiliation}. ${actor.temperament}. Trust: ${actor.trust >= 50 ? "steady" : "strained"}.`));
     panel.append(textEl("p", `Professional skills: Striking ${actor.skills.striking}, Guarding ${actor.skills.guarding}, Evasion ${actor.skills.evasion}, Perception ${actor.skills.perception}.`));
     if (saved.source) {
+      panel.append(renderForeignEscortHaulingPanel(saved));
       panel.append(textEl('p', ForeignExpeditionEscort.SCOPE));
       panel.append(textEl('p', 'Declared purpose: nonliving local survey protection. The scientist’s opposition to the gods is explicit, not an undisclosed allegiance or endorsement.'));
       if (saved.received) panel.append(textEl('p', `${formatClock(saved.received.at)} — received terms: ${saved.received.willingness.reason} ${saved.received.reason || ''} ${(saved.received.prohibitions || []).join('; ')}. Dated report, not a private archive.`));
