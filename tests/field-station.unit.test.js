@@ -133,3 +133,110 @@ test('away public records stay dated and contain no live actor, inventory or pri
   view.observations.inventory.goods[0].quantity = 99; assert.equal(f.saved.observations.inventory.goods[0].quantity, 1);
   assert(!JSON.stringify(view).includes('privateThreat')); assert(!JSON.stringify(view).includes('layout'));
 });
+
+function damaged(kind = 'wall', condition = 20, present = true) {
+  const f = fixture(); f.part = f.l.parts.find(p => p.kind === kind);
+  f.saved.site.parts[f.part.id] = { at: 0, physicalId: 'original', partId: f.part.id };
+  f.saved.site.effort[f.part.id] = 1;
+  f.c.target = { id: 'original', present, condition: present ? condition : null, stamp: present ? 0 : null,
+    original: true, visible: true, goodsRemain: false };
+  return f;
+}
+function maintenance(f, operation = 'repair') {
+  const part = Station.workPart(f.saved, f.part.id, operation);
+  f.inputs = Object.entries(part.costs).map(([key, quantity], i) => ({ stackId: `input-${i}`, key, quantity, cell: f.l.rest }));
+  f.stacks = [...f.inputs.map(i => ({ ...i, id: i.stackId, section: 'resources', roomId: 'forest', reservedTaskId: '', carriedBy: '' })), ...f.tools.map(t => t.stack)];
+  const plan = Station.plan(f.saved, f.part.id, f.c, f.tools, f.inputs, operation); assert(plan);
+  const j = Station.begin(plan, 'maintenance-1', 0, f.tools);
+  f.stacks.filter(i => i.section === 'resources').forEach(i => i.reservedTaskId = j.taskId);
+  return j;
+}
+test('repairs match primary material, retain actual roofing tools and never reuse construction effort', () => {
+  for (const kind of ['floor', 'wall', 'roof', 'door', 'cache']) {
+    const f = damaged(kind), p = Station.workPart(f.saved, f.part.id, 'repair');
+    assert.deepEqual(p.costs, { [kind === 'floor' || kind === 'wall' ? 'stoneBlocks' : 'lumber']: 1 });
+    assert.equal(p.seconds, Math.max(180, f.part.seconds / 2)); assert.deepEqual(p.tools, f.part.tools);
+    const j = maintenance(f); assert.equal(j.from, 0); assert.equal(j.operation, 'repair');
+  }
+});
+test('surviving exhausted components can be repaired; full, missing, unseen or unrelated ones cannot', () => {
+  const f = damaged('roof', 0); const j = maintenance(f); assert(j);
+  for (const target of [{ condition: 100 }, { present: false }, { visible: false }, { original: false }])
+    assert(Station.reason(f.saved, j, { ...f.c, target: { ...f.c.target, ...target } }, f.tools, f.stacks));
+  assert.equal(Station.workPart(f.saved, f.part.id, 'replaceAnything'), null);
+});
+test('a repair receipts the unchanged original exactly once without replacing its installation record', () => {
+  const f = damaged('cache'), original = copy(f.saved.site.parts[f.part.id]), j = maintenance(f);
+  Station.advance(f.saved, j, f.c, f.tools, f.stacks, 1); Station.advance(f.saved, j, f.c, f.tools, f.stacks, 101);
+  assert(Station.finish(f.saved, j, f.c, f.tools, f.stacks, 101, 'original'));
+  assert.deepEqual(f.saved.site.parts[f.part.id], original); assert.equal(f.saved.history.at(-1).operation, 'repair');
+  assert.equal(Station.finish(f.saved, j, f.c, f.tools, f.stacks, 102, 'duplicate'), false);
+});
+test('maintenance cancellation and real serialization preserve partial effort and exact claims', () => {
+  let f = damaged(), j = maintenance(f);
+  Station.advance(f.saved, j, f.c, f.tools, f.stacks, 1); Station.advance(f.saved, j, f.c, f.tools, f.stacks, 51);
+  ({ f, j } = copy({ f, j })); f.tools.forEach(t => t.stack = f.stacks.find(i => i.id === t.stack.id));
+  assert.equal(Station.reason(f.saved, j, f.c, f.tools, f.stacks), '');
+  assert(Station.cancel(f.saved, j, f.tools, f.stacks, 51));
+  assert.equal(Station.effort(f.saved, f.part.id, 'repair', f.c), .5);
+  assert.equal(f.tools[0].tool.current, 99); assert(f.stacks.every(i => !i.reservedTaskId));
+  assert.equal(Station.effort(f.saved, f.part.id, 'repair', { target: { ...f.c.target, condition: 10 } }), 0);
+  const next = maintenance(f); assert.equal(next.from, .5); assert.equal(next.tools[0].wear, 1);
+});
+test('changed target identity, damage or presence interrupts work instead of repairing its replacement', () => {
+  for (const wrong of [{ id: 'replacement' }, { stamp: 999 }, { condition: 19 }, { present: false }]) {
+    const f = damaged(), j = maintenance(f);
+    Station.advance(f.saved, j, f.c, f.tools, f.stacks, 1);
+    const c = { ...f.c, target: { ...f.c.target, ...wrong } };
+    Station.advance(f.saved, j, c, f.tools, f.stacks, 10000); assert.equal(j.progress, 0);
+    assert.equal(Station.finish(f.saved, j, c, f.tools, f.stacks, 10000, 'replacement'), false);
+  }
+});
+test('maintenance cannot backfill absence, threats, custody, incapacity or a changed body/visit/trip', () => {
+  for (const wrong of [{ local: false }, { alive: false }, { capable: false }, { free: false }, { threatened: true },
+    { worldId: 'other' }, { roomId: 'home' }, { bodyEpoch: 2 }, { visitId: 'later' }, { tripId: 'later' }, { materialsLocal: false }, { atHead: false }]) {
+    const f = damaged(), j = maintenance(f);
+    Station.advance(f.saved, j, f.c, f.tools, f.stacks, 1);
+    Station.advance(f.saved, j, { ...f.c, ...wrong }, f.tools, f.stacks, 10000);
+    Station.advance(f.saved, j, f.c, f.tools, f.stacks, 10001); assert.equal(j.progress, 0);
+  }
+});
+test('reconstruction needs a truly missing original, full fresh cost and actual structural support', () => {
+  const f = damaged('wall', 0, false), j = maintenance(f, 'reconstruct');
+  assert.deepEqual(j.inputs.map(i => [i.key, i.quantity]), [['stoneBlocks', 2]]); assert.equal(j.from, 0);
+  assert(Station.reason(f.saved, j, { ...f.c, floorsIntact: false }, f.tools, f.stacks));
+  assert(Station.reason(f.saved, j, { ...f.c, target: { ...f.c.target, present: true } }, f.tools, f.stacks));
+  Station.advance(f.saved, j, f.c, f.tools, f.stacks, 1); Station.advance(f.saved, j, f.c, f.tools, f.stacks, 101);
+  assert(Station.finish(f.saved, j, f.c, f.tools, f.stacks, 101, 'new-wall'));
+  assert.equal(f.saved.site.parts[f.part.id].physicalId, 'new-wall'); assert.equal(f.saved.history.at(-1).operation, 'reconstruct');
+});
+test('missing-crate reconstruction refuses orphan goods while repair preserves the original loaded crate', () => {
+  const f = damaged('cache', 0, false); f.c.target.goodsRemain = true;
+  const p = Station.workPart(f.saved, f.part.id, 'reconstruct'); assert.deepEqual(p.costs, { lumber: 3, metalParts: 1 });
+  assert.match(Station.maintenanceReason(f.saved, p, f.c, 'reconstruct'), /recover all goods/);
+  f.c.target.present = true; f.c.target.condition = 0;
+  assert.equal(Station.maintenanceReason(f.saved, p, f.c, 'repair'), '');
+});
+test('completed repair effort cannot finish on another physical object or during a new threat', () => {
+  const f = damaged(), j = maintenance(f);
+  Station.advance(f.saved, j, f.c, f.tools, f.stacks, 1); Station.advance(f.saved, j, f.c, f.tools, f.stacks, 101);
+  assert.equal(Station.finish(f.saved, j, f.c, f.tools, f.stacks, 101, 'different-object'), false);
+  assert.equal(Station.finish(f.saved, j, { ...f.c, threatened: true }, f.tools, f.stacks, 101, 'original'), false);
+  assert.equal(j.status, 'working'); assert.equal(f.stacks[0].quantity, 1);
+  assert(Station.finish(f.saved, j, f.c, f.tools, f.stacks, 102, 'original'));
+  // Applying the physical improvement is the adapter's responsibility. Even
+  // before its condition changes, a later job receives no old repair effort.
+  assert.equal(Station.effort(f.saved, f.part.id, 'repair', f.c), 0);
+});
+test('observed intervening damage permanently invalidates old work even if condition later matches again', () => {
+  const f = damaged(), j = maintenance(f);
+  Station.advance(f.saved, j, f.c, f.tools, f.stacks, 1); Station.advance(f.saved, j, f.c, f.tools, f.stacks, 51);
+  assert.equal(Station.effort(f.saved, f.part.id, 'repair', f.c), .5);
+  const changed = { ...f.c, target: { ...f.c.target, condition: 10 } };
+  Station.advance(f.saved, j, changed, f.tools, f.stacks, 52);
+  assert.equal(j.invalidated, true); assert.equal(Station.effort(f.saved, f.part.id, 'repair', f.c), 0);
+  Station.advance(f.saved, j, f.c, f.tools, f.stacks, 1000); assert.equal(j.progress, 50);
+  assert(Station.reason(f.saved, j, f.c, f.tools, f.stacks));
+  Station.cancel(f.saved, j, f.tools, f.stacks, 1000);
+  const next = maintenance(f); assert.equal(next.from, 0);
+});

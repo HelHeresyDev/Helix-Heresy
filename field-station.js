@@ -51,13 +51,47 @@
     if (part.kind === 'cache' && (!c.roofsIntact || !c.doorPresent)) return 'Finish the actual roof and original door before installing the crate.';
     return '';
   }
-  function plan(s, partId, c, tools, inputs) {
-    const site = s.site, part = site?.layout.parts.find(p => p.id === partId);
-    if (!part || site.parts[partId] || accessReason(c) || c.siteId !== site.siteId || c.worldId !== site.worldId
+  function workPart(s, partId, operation = 'build') {
+    const part = s?.site?.layout.parts.find(p => p.id === partId);
+    if (!part || !['build', 'repair', 'reconstruct'].includes(operation)) return null;
+    if (operation !== 'repair') return part;
+    // Match ordinary material-aware structure repairs: one primary material,
+    // at most 45 condition. A real surviving zero-condition object is repairable.
+    return { ...copy(part), costs: { [part.kind === 'floor' || part.kind === 'wall' ? 'stoneBlocks' : 'lumber']: 1 },
+      seconds: Math.max(180, part.seconds / 2) };
+  }
+  function maintenanceReason(s, part, c, operation) {
+    if (operation === 'build') return s.site.parts[part.id] ? 'This component already has an installation receipt; inspect it for repair or reconstruction.' : '';
+    if (!s.site.parts[part.id]) return 'Construct the original component first.';
+    const t = c.target;
+    if (!t?.visible) return 'Personally inspect the actual component or its empty footprint nearby.';
+    if (!t.original) return 'The original component or clear original footprint is required; unrelated property cannot be replaced.';
+    if (operation === 'repair') return !t.present ? 'The original component is missing; reconstruct it instead.'
+      : !(t.condition >= 0 && t.condition < 100) ? 'The component is already at full condition.' : '';
+    return t.present ? 'A surviving component must be repaired, not replaced.'
+      : part.kind === 'cache' && t.goodsRemain ? 'Physically recover all goods from the missing original crate before replacing it.' : '';
+  }
+  function effortKey(partId, operation = 'build') { return operation === 'build' ? partId : `${operation}:${partId}`; }
+  function targetKey(c) { return JSON.stringify([c.target?.id, c.target?.present, c.target?.condition, c.target?.stamp]); }
+  function inspectTarget(s, partId, target) {
+    if (!target?.visible) return;
+    for (const operation of ['repair', 'reconstruct']) {
+      const k = effortKey(partId, operation), e = s.site?.maintenanceEffort?.[k];
+      if (e && (!target.original || e.targetKey !== targetKey({ target }))) delete s.site.maintenanceEffort[k];
+    }
+  }
+  function effort(s, partId, operation = 'build', c = {}) {
+    if (operation === 'build') return s.site?.effort[partId] || 0;
+    const e = s.site?.maintenanceEffort?.[effortKey(partId, operation)];
+    return e?.targetKey === targetKey(c) ? e.fraction : 0;
+  }
+  function plan(s, partId, c, tools, inputs, operation = 'build') {
+    const site = s.site, part = workPart(s, partId, operation);
+    if (!part || maintenanceReason(s, part, c, operation) || accessReason(c) || c.siteId !== site.siteId || c.worldId !== site.worldId
       || c.busy || !c.geometryOkay || !c.reachable || c.threatened || prerequisite(site, part, c) || !inputs) return null;
     if (Object.entries(part.costs).some(([key, amount]) => inputs.filter(i => i.key === key).reduce((n, i) => n + i.quantity, 0) !== amount)
       || inputs.some(i => !part.costs[i.key] || !(i.quantity > 0) || !i.stackId || !i.cell)) return null;
-    const from = Math.max(0, Math.min(.999999, site.effort[partId] || 0)), claims = [];
+    const from = Math.max(0, Math.min(.999999, effort(s, partId, operation, c))), claims = [];
     for (const [itemKey, wear] of Object.entries(part.tools)) {
       const budget = Math.max(1, Math.ceil(wear * (1 - from)));
       const t = tools.find(t => t.key === itemKey && t.tool?.current >= budget && !t.tool.reservedTaskId && t.tool.carriedBy === 'scientist'
@@ -66,7 +100,8 @@
       claims.push({ key: itemKey, toolId: t.tool.id, stackId: t.stack.id, wear: budget });
     }
     if (!(c.seconds > 0) || c.stamina < c.staminaCost) return null;
-    return { partId, siteId: site.siteId, worldId: site.worldId, roomId: site.roomId, bodyEpoch: c.bodyEpoch,
+    return { partId, operation, targetKey: operation === 'build' ? '' : targetKey(c), target: copy(c.target || null),
+      siteId: site.siteId, worldId: site.worldId, roomId: site.roomId, bodyEpoch: c.bodyEpoch,
       tripId: c.tripId, visitId: c.visitId, workCell: copy(c.workCell), required: c.seconds, staminaCost: c.staminaCost,
       from, tools: claims, inputs: copy(inputs) };
   }
@@ -80,7 +115,12 @@
   }
   function reason(s, j, c, tools, stacks) {
     const site = s?.site, part = site?.layout.parts.find(p => p.id === j.partId);
-    if (!part || site.parts[j.partId]) return 'The original unfinished station component is unavailable or already installed.';
+    if (!part) return 'The original station component is unavailable.';
+    if (j.invalidated) return 'The inspected target changed during this task; cancel and start fresh supplied work.';
+    const operation = j.operation || 'build';
+    const maintenance = maintenanceReason(s, part, c, operation);
+    if (maintenance) return maintenance;
+    if (operation !== 'build' && targetKey(c) !== j.targetKey) return 'The exact inspected target changed; cancel and inspect it again.';
     if (accessReason(c)) return accessReason(c);
     if (c.siteId !== j.siteId || c.worldId !== j.worldId || c.roomId !== j.roomId || c.bodyEpoch !== j.bodyEpoch
       || c.tripId !== j.tripId || c.visitId !== j.visitId) return 'Only the original body and physical visit/trip may continue this personal task.';
@@ -103,10 +143,16 @@
   function advance(s, j, c, tools, stacks, now) {
     if (!j || j.status !== 'working') return 0;
     const elapsed = Math.max(0, now - j.lastAt); j.lastAt = now;
+    if (j.operation && j.operation !== 'build' && c.local && c.target?.visible) {
+      inspectTarget(s, j.partId, c.target);
+      if (targetKey(c) !== j.targetKey || !c.target.original) j.invalidated = true;
+    }
     const attended = !reason(s, j, c, tools, stacks) && c.atHead && !c.threatened && key(c.cell) === key(j.workCell);
     if (!attended || !j.attended) { j.attended = attended; return 0; }
     const used = Math.min(elapsed, j.required - j.progress); j.progress += used;
-    s.site.effort[j.partId] = j.from + (1 - j.from) * j.progress / j.required;
+    const fraction = j.from + (1 - j.from) * j.progress / j.required;
+    if (!j.operation || j.operation === 'build') s.site.effort[j.partId] = fraction;
+    else (s.site.maintenanceEffort ||= {})[effortKey(j.partId, j.operation)] = { targetKey: j.targetKey, fraction };
     for (const claim of j.tools) {
       const due = Math.min(claim.wear, Math.floor(j.progress / j.required * claim.wear + 1e-8));
       tools.find(t => t.tool?.id === claim.toolId).tool.current -= due - j.wearApplied[claim.toolId]; j.wearApplied[claim.toolId] = due;
@@ -122,14 +168,18 @@
       && c.atHead && !c.threatened && key(c.cell) === key(j.workCell);
   }
   function finish(s, j, c, tools, stacks, now, physicalId) {
-    if (!physicalId || !ready(s, j, c, tools, stacks)) return false;
-    const receipt = { at: now, taskId: j.taskId, partId: j.partId, physicalId, inputs: copy(j.inputs), tools: copy(j.tools) };
-    s.site.parts[j.partId] = receipt; s.site.effort[j.partId] = 1; s.history.push(receipt);
+    if (!physicalId || (j?.operation === 'repair' && physicalId !== j.target?.id) || !ready(s, j, c, tools, stacks)) return false;
+    const receipt = { at: now, taskId: j.taskId, partId: j.partId, physicalId, operation: j.operation || 'build',
+      target: copy(j.target || null), inputs: copy(j.inputs), tools: copy(j.tools) };
+    if (receipt.operation !== 'repair') { s.site.parts[j.partId] = receipt; s.site.effort[j.partId] = 1; }
+    if (s.site.maintenanceEffort) delete s.site.maintenanceEffort[effortKey(j.partId, receipt.operation)];
+    s.history.push(receipt);
     j.status = 'completed'; release(j, tools, stacks); return true;
   }
   function cancel(s, j, tools, stacks, now) {
     if (!j || j.status !== 'working') return false;
-    j.status = 'cancelled'; s.history.push({ at: now, kind: 'cancelled', partId: j.partId, fraction: s.site.effort[j.partId] || 0 });
+    j.status = 'cancelled'; s.history.push({ at: now, kind: 'cancelled', partId: j.partId, operation: j.operation || 'build',
+      fraction: j.from + (1 - j.from) * j.progress / j.required });
     release(j, tools, stacks); return true;
   }
   function observe(s, now, report) { if (s.site && report) s.observations = { at: now, ...copy(report) }; }
@@ -138,5 +188,5 @@
       origin: copy(s.site.layout.origin), observations: s.observations && copy(s.observations), history: copy(s.history),
       limitation: 'Dated supply hut records, not live remote inventory, land title, sovereignty, safety, staffing or transport rights.' } : null;
   }
-  return { create, layout, homeSupply, accessReason, register, prerequisite, plan, begin, reason, advance, ready, finish, cancel, observe, publicView };
+  return { create, layout, homeSupply, accessReason, register, prerequisite, workPart, maintenanceReason, inspectTarget, effort, plan, begin, reason, advance, ready, finish, cancel, observe, publicView };
 });
