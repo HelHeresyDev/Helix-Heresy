@@ -123,6 +123,7 @@
   const ForeignEscortRecovery = window.HelixForeignEscortRecovery;
   const ForeignEscortRepairs = window.HelixForeignEscortRepairs;
   const ForeignEscortHauling = window.HelixForeignEscortHauling;
+  const FieldPorter = window.HelixFieldPorter;
   const CarrierBriefings = window.HelixCarrierBriefings;
   const LocalDiscovery = window.HelixLocalDiscovery;
   const MunicipalMaps = window.HelixMunicipalMaps;
@@ -17078,6 +17079,25 @@
       beginForeignEscortRecovery, endForeignEscortRecovery,
       startForeignEscortRepair,
       foreignEscortHaulingAction,
+      fieldPorterAction,
+      setFieldPorterTestSource: source => {
+        const g = passengerReceptionGate(); if (!g?.foreignSurvey || !source) return false;
+        g.preparedFieldPorterTestSource = clonePlainObject(source); persist(); return true;
+      },
+      fieldPorterSnapshot: () => {
+        const s = foreignSurveyAtField()?.porter || fieldPorterStates()[0];
+        return clonePlainObject({ saved: s || null, known: FieldPorter.publicView(s), context: s ? fieldPorterContext(s, null, true) : null,
+          actor: s?.actor, inventory: s ? actorInventorySnapshot(s.actor.id) : null, money: ensureEconomy().money,
+          stacks: ensurePhysicalItemStacks(), station: state.fieldStation?.site, clock: state.clock, scientistCell: scientistMapCell(), scientistRoom: scientistRoomId() });
+      },
+      advanceFieldPorterForTest: seconds => {
+        for (let left = Math.max(0, seconds); left > 0 && !scientistIsDead();) {
+          const step = Math.min(left, 1); state.clock += step; left -= step;
+          updateScientistMovementTask(); completeDueTasks(); updateWildernessNeeds(); progressInjuries();
+          updateForeignWilderness(foreignSurveyAtField()); collectCombatRecords(); updateWildernessBeasts(step); updateAllExpeditionEscorts(step); updateAllFieldPorters(step);
+        }
+        syncActorInventories(); persist(); render(); return state.clock;
+      },
       foreignEscortHaulingSnapshot: () => {
         const s = ensureExpeditionEscorts();
         return clonePlainObject({ saved: s.hauling, known: ForeignEscortHauling.publicView(s),
@@ -23218,6 +23238,7 @@
     changes.scientistMovementChanged += livingUpdate(() => updateUnsupportedExcursion());
     changes.combatChanged += livingUpdate(() => updateWildernessBeasts(elapsed));
     changes.combatChanged += livingUpdate(() => updateAllExpeditionEscorts(elapsed));
+    changes.combatChanged += livingUpdate(() => updateAllFieldPorters(elapsed));
     changes.scientistMovementChanged += livingUpdate(() => updateSurfaceWorkers());
     changes.scientistMovementChanged += livingUpdate(() => updateLaboratoryAssistant());
     changes.scientistMovementChanged += livingUpdate(() => updateHomunculi());
@@ -23309,6 +23330,16 @@
     if (scientistIsDead()) return 0;
     const advanceStartedAt = performance.now();
     const elapsed = Math.max(0, Number(seconds) || 0);
+    if (!options.porterStep && elapsed > 1 && fieldPorterStates().some(FieldPorter.active)) {
+      let left = elapsed, changed = 0;
+      while (left > 0 && !scientistIsDead()) {
+        const step = Math.min(1, left), before = state.clock, paused = state.paused;
+        changed += advanceTime(step, { ...options, porterStep: true, quiet: true });
+        left -= state.clock - before;
+        if (state.clock <= before || !paused && state.paused) break;
+      }
+      return changed;
+    }
     // An occupied intercity vehicle stops a skip at arrival, a real hold or a
     // personal survival warning. Home systems still receive every elapsed step.
     if (IntercityPassenger.moving(state.intercityPassenger) && !options.passengerStep && elapsed > 0) {
@@ -24025,6 +24056,8 @@
     if (defender?.id === injury.actorId) return { actor: defender, label: defender.name, cell: cleanMapCell(defender.mapCell), roomId: defender.roomId };
     const escort = escortStateForActor(injury.actorId)?.actor;
     if (escort) return { actor: escort, label: escort.name, cell: cleanMapCell(escort.mapCell), roomId: escort.roomId };
+    const porter = fieldPorterStates().find(s => s.actor.id === injury.actorId)?.actor;
+    if (porter) return { actor: porter, label: porter.name, cell: cleanMapCell(porter.mapCell), roomId: porter.roomId };
     const worker = state.surfaceWorkers?.actor;
     if (worker?.present && worker.id === injury.actorId) return { actor: worker, label: worker.name, cell: cleanMapCell(worker.mapCell), roomId: worker.roomId };
     const assistant = state.laboratoryAssistant?.actor;
@@ -33421,6 +33454,8 @@
     if (context?.expeditionEscorts?.actor?.id === id) return context.expeditionEscorts.actor;
     const foreignEscort = (context?.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.escort?.actor).find(a => a?.id === id);
     if (foreignEscort) return foreignEscort;
+    const porter = (context?.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.porter?.actor).find(a => a?.id === id);
+    if (porter) return porter;
     if (context?.surfaceWorkers?.actor?.id === id) return context.surfaceWorkers.actor;
     if (context?.laboratoryAssistant?.actor?.id === id) return context.laboratoryAssistant.actor;
     if (context?.citySuccession?.appointments?.candidate?.id === id) return context.citySuccession.appointments.candidate;
@@ -33470,6 +33505,7 @@
       { id: "scientist", actor: context.scientist },
       ...(context.expeditionEscorts?.actor ? [{ id: context.expeditionEscorts.actor.id, actor: context.expeditionEscorts.actor }] : []),
       ...(context.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.escort?.actor).filter(Boolean).map(actor => ({ id: actor.id, actor })),
+      ...(context.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.porter?.actor).filter(Boolean).map(actor => ({ id: actor.id, actor })),
       ...(context.surfaceWorkers?.actor ? [{ id: context.surfaceWorkers.actor.id, actor: context.surfaceWorkers.actor }] : []),
       ...(context.laboratoryAssistant?.actor ? [{ id: context.laboratoryAssistant.actor.id, actor: context.laboratoryAssistant.actor }] : []),
       ...(context.citySuccession?.appointments?.candidate ? [{ id: context.citySuccession.appointments.candidate.id, actor: context.citySuccession.appointments.candidate }] : []),
@@ -36914,6 +36950,8 @@
     let occupied = 0;
     for (const escort of allEscortStates().map(s => s.actor).filter(Boolean))
       if (escort.id !== excludeActor?.id && mapCellKey(escort.mapCell) === key) occupied += .6;
+    for (const porter of fieldPorterStates().map(s => s.actor))
+      if (porter.id !== excludeActor?.id && mapCellKey(porter.mapCell) === key) occupied += .6;
     const worker = state.surfaceWorkers?.actor;
     if (worker?.present && worker.id !== excludeActor?.id && mapCellKey(worker.mapCell) === key) occupied += .6;
     const assistant = state.laboratoryAssistant?.actor;
@@ -40466,6 +40504,8 @@
   }
 
   function combatActor(actorId) {
+    const porter = fieldPorterStates().find(s => s.actor.id === actorId)?.actor;
+    if (porter) return porter;
     const civil = PublicWorksAppointments.incumbent(state.citySuccession?.appointments, state.citySuccession);
     if (civil?.id === actorId && civil.physicalControl) return civil;
     const opposing = state.citySuccession?.appointments?.opposition;
@@ -40730,7 +40770,8 @@
       return existing;
     }
     const visible = INJURY_TYPE_DEFS[typeId].visible;
-    const observed = scientist || visible || options.observed;
+    const porter = fieldPorterStates().some(s => s.actor.id === actorId);
+    const observed = porter ? fieldPorterObserved(actor) : scientist || visible || options.observed;
     const injury = normalizeInjury({
       id: `injury-${state.nextInjuryNumber++}`, actorKind: scientist ? "scientist" : ["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent", "civicOfficeholder"].includes(actor.actorKind) ? actor.actorKind : "slime", actorId,
       typeId, severityId, location, status: "active", cause, damageTypes,
@@ -40740,7 +40781,7 @@
     if (actor.actorKind === "expeditionEscort" && !escortObserved()) return injury;
     if (actor.actorKind === "rescueMedic" && !rescueMedicObserved()) return injury;
     if (actor.actorKind === "penalPrisoner" && !penalActorObserved(actor)) return injury;
-    if (actor.actorKind === "surfaceWorker" && !surfaceWorkerObserved()) return injury;
+    if (actor.actorKind === "surfaceWorker" && !(porter ? fieldPorterObserved(actor) : surfaceWorkerObserved())) return injury;
     if (actor.actorKind === "laboratoryAssistant" && !laboratoryAssistantNearby(true)) return injury;
     addEvent(scientist || visible
       ? `${scientist ? "Scientist" : actor.name} suffered ${INJURY_SEVERITY_DEFS[severityId].label.toLowerCase()} ${INJURY_TYPE_DEFS[typeId].label.toLowerCase()} at the ${location}.`
@@ -40800,7 +40841,7 @@
       else if (actor.actorKind === "expeditionEscort") damageExpeditionEscort(damage, { injuryProgress: true }, actor);
       else if (actor.actorKind === "rescueMedic") damageRescueMedic(damage, { injuryProgress: true });
       else if (actor.actorKind === "penalPrisoner") damagePenalPrisoner(actor, damage, { injuryProgress: true });
-      else if (actor.actorKind === "surfaceWorker") damageSurfaceWorker(damage, { injuryProgress: true });
+      else if (actor.actorKind === "surfaceWorker") damageSurfaceWorker(damage, { injuryProgress: true }, actor);
       else if (actor.actorKind === "laboratoryAssistant") damageSurfaceWorker(damage, { injuryProgress: true }, actor);
       else if (actor.actorKind === "homunculus") damageHomunculus(actor, damage, { injuryProgress: true });
       else if (actor.actorKind === 'cityDefender') damageCityDefender(damage, { injuryProgress: true });
@@ -40898,7 +40939,7 @@
       : targetActor.actorKind === "expeditionEscort" ? damageExpeditionEscort(guardedDamage, { damageTypes: action.damageTypes }, targetActor)
       : targetActor.actorKind === "rescueMedic" ? damageRescueMedic(guardedDamage, { damageTypes: action.damageTypes })
       : targetActor.actorKind === "penalPrisoner" ? damagePenalPrisoner(targetActor, guardedDamage, { damageTypes: action.damageTypes })
-      : targetActor.actorKind === "surfaceWorker" ? damageSurfaceWorker(guardedDamage, { damageTypes: action.damageTypes })
+      : targetActor.actorKind === "surfaceWorker" ? damageSurfaceWorker(guardedDamage, { damageTypes: action.damageTypes }, targetActor)
       : targetActor.actorKind === "laboratoryAssistant" ? damageSurfaceWorker(guardedDamage, { damageTypes: action.damageTypes }, targetActor)
       : targetActor.actorKind === "homunculus" ? damageHomunculus(targetActor, guardedDamage, { damageTypes: action.damageTypes, observed: actor === state.scientist })
       : targetActor.actorKind === 'cityDefender' ? damageCityDefender(guardedDamage, { damageTypes: action.damageTypes })
@@ -65904,8 +65945,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!actor?.present || actor.status === "dead" || amount <= 0) return false;
     const damage = Math.max(1, Math.round(amount));
     actor.health = Math.max(0, actor.health - damage);
-    if (!options.injuryProgress) recordCombatInjury(actor, damage, options.damageTypes || ["physical"], "Employee trauma", { observed: actor.actorKind === "laboratoryAssistant" ? laboratoryAssistantNearby(true) : surfaceWorkerObserved() });
+    if (!options.injuryProgress) recordCombatInjury(actor, damage, options.damageTypes || ["physical"], "Employee trauma", { observed: fieldPorterStates().some(s => s.actor.id === actor.id) ? fieldPorterObserved(actor) : actor.actorKind === "laboratoryAssistant" ? laboratoryAssistantNearby(true) : surfaceWorkerObserved() });
+    if (fieldPorterStates().some(s => s.actor.id === actor.id)) actor.lastHarmedAt = state.clock;
     if (!actor.health) { actor.status = "dead"; actor.diedAt = state.clock; }
+    if (fieldPorterStates().some(s => s.actor.id === actor.id) && (actor.status === 'dead' || actorIsIncapacitated(actor)) && actor.porterCare) {
+      const i = ensurePhysicalItemStacks().find(i => i.id === actor.porterCare.stackId);
+      if (i?.reservedTaskId === `field-porter-care:${actor.id}`) i.reservedTaskId = '';
+      actor.porterCare = null;
+    }
+    if (fieldPorterStates().some(s => s.actor.id === actor.id) && actor.status === 'dead') {
+      for (const i of actorInventoryStacks(actor.id)) { i.carriedBy = ''; i.cell = cleanMapCell(actor.mapCell); i.roomId = actor.roomId; }
+      syncActorInventories(); syncPhysicalReadModels();
+    }
     markStateDirty(); return true;
   }
 
@@ -67569,6 +67620,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const reviewer = reception?.enforcement?.materialized && reception.enforcement.reviewer;
     for (const gate of state.penalFlights?.assistance?.cityApproach?.gates || []) {
       const s = gate.foreignSurvey, a = s?.carrier.driver;
+      const porter = s?.porter?.actor;
+      if (porter && fieldPorterObserved(porter)) setLabMapOverlayEntry(assignments, porter.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: porter.name, title: 'Original noncombat field porter; direct observation only', value: porter.status === 'dead' ? '†' : 'P', source: 'Direct observation', target: { kind: 'tile', tile: porter.mapCell } }, map);
       if (a?.mapCell && a.roomId === scientistRoomId() && cityApproachNear('scientist', a.mapCell, 8) && sensoryLineOfSight(scientistMapCell(), a.mapCell)) setLabMapOverlayEntry(assignments, a.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: a.name, title: 'Original foreign municipal survey driver; not an escort or free rescue', value: a.status === 'dead' ? '†' : 'D', source: 'Direct observation', target: { kind: 'tile', tile: a.mapCell } }, map);
       if (s && foreignSurveyAtField() === s && cityApproachNear('scientist', s.hazard, 8)) setLabMapOverlayEntry(assignments, s.hazard, { overlayId, classNames: ['map-overlay-resources'], label: s.hazardDisturbed ? 'Settled original loose-rock patch' : 'Flagged unstable footing', title: 'Municipal surface-survey warning, not a mineral survey', value: '!', source: 'Purpose-limited visit warning', target: { kind: 'tile', tile: s.hazard } }, map);
       const w = s?.wilderness;
@@ -87311,7 +87364,190 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
 
+  function fieldPorterStates() { return (state?.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.porter).filter(Boolean); }
+  function fieldPorterExcursion(s) { return (state.penalFlights?.assistance?.cityApproach?.gates || []).find(g => g.foreignSurvey?.porter === s)?.foreignSurvey; }
+  function fieldPorterObserved(a) { return Boolean(a?.mapCell && a.roomId === scientistRoomId() && mapCellDistance(scientistMapCell(), a.mapCell) <= 8 && sensoryLineOfSight(scientistMapCell(), a.mapCell)); }
+  const fieldPorterSourceCache = new WeakMap();
+  function fieldPorterSource(g, excursion) {
+    if (g?.preparedFieldPorterTestSource) return FieldPorter.source(g.preparedFieldPorterTestSource.city, g.preparedFieldPorterTestSource.standings, excursion);
+    const map = activeWorldRecord?.generatedData?.strategicMap; if (!map || !g) return null;
+    let cache = fieldPorterSourceCache.get(map); if (!cache) { cache = new Map(); fieldPorterSourceCache.set(map, cache); }
+    if (!cache.has(g.cityId)) {
+      const city = map.strategicPlayableSettlementState?.cityRows.find(c => c.cityId === g.cityId);
+      const profile = map.publicNonStateNetworkHistoryDirectory ? StrategicNonStateNetworkHistory.cityCurrentNetworkProfile(map, g.cityId)
+        : map.publicNonStateNetworkDirectory ? StrategicNonStateNetworks.cityNetworkProfile(map, g.cityId) : null;
+      cache.set(g.cityId, FieldPorter.source(city, profile?.standings, excursion));
+    }
+    return cache.get(g.cityId);
+  }
+  function ensureFieldPorter() {
+    const e = foreignSurveyAtField(), g = e && passengerReceptionGate(e.source.cityId);
+    if (!e?.wilderness || scientistIsDead()) return null;
+    // One depot employee already posted at this actual defended ground. This
+    // allocation supplies neither an intercity journey nor a new passenger seat.
+    if (!e.porter && scientistRoomId() === e.roomId && !actorIsIncapacitated('scientist')) e.porter = FieldPorter.create(fieldPorterSource(g, e), e, state.clock);
+    const s = e.porter;
+    if (s && !s.actor.initializedKit) {
+      s.actor.initializedKit = true;
+      for (const [key, n] of [['drinkingWater', 3], ['trailMeal', 2]]) createPhysicalItemStack('inventory', key, n,
+        { roomId: s.actor.roomId, cell: s.actor.mapCell }, { carriedBy: s.actor.id, suppressEvidence: true, sourceLabels: [`Original ${s.source.branchId} finite porter provisions`] });
+      syncActorInventories();
+    }
+    return s;
+  }
+  function fieldPorterNextStep(s, actor, goal) {
+    const e = fieldPorterExcursion(s), map = ensureLabMap(); if (!e || !goal) return null;
+    const allowed = new Set([...(map.rooms[e.roomId]?.cells || []), ...(map.rooms[e.wilderness.roomId]?.cells || []), e.wilderness.gate].map(mapCellKey));
+    const beasts = e.wilderness.beasts?.actors || [], passable = new Map();
+    const canEnter = c => {
+      const key = mapCellKey(c); if (passable.has(key)) return passable.get(key);
+      const ok = allowed.has(key) && !beasts.some(b => b.status !== 'dead' && sameMapCell(c, b.mapCell))
+        && labMapCellIsWalkable(c, map) && !labMapCellIsPathBlocked(c, { map, actor }); passable.set(key, ok); return ok;
+    };
+    const goals = canEnter(goal) ? [goal] : WildernessBeasts.neighbors(goal).filter(canEnter);
+    for (const g of goals.sort((a, b) => mapCellDistance(a, actor.mapCell) - mapCellDistance(b, actor.mapCell))) {
+      const step = WildernessBeasts.nextStep(actor.mapCell, g, canEnter); if (step) return step;
+    }
+    return null;
+  }
+  function fieldPorterHooks(s) { return foreignEscortHaulingHooks(s, (a, goal) => fieldPorterNextStep(s, a, goal)); }
+  function fieldPorterContext(s, item = null, contact = false) {
+    const e = fieldPorterExcursion(s), a = s.actor, g = e && passengerReceptionGate(e.source.cityId), site = state.fieldStation?.site;
+    const originalSite = site && site.siteId === e?.wilderness.context.siteId && site.worldId === e.wilderness.context.worldId && site.cityId === e.source.cityId;
+    const drop = s.contract && FieldPorter.active(s) ? s.contract.drop : s.markedDrop?.cell;
+    const visible = Boolean(item && item.roomId === scientistRoomId() && mapCellDistance(item.cell, scientistMapCell()) <= 5 && sensoryLineOfSight(scientistMapCell(), item.cell));
+    return { alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist'), originalBody: passengerBodyCurrent(),
+      bodyEpoch: ensureScientistIdentity().bodyEpoch, visitId: passengerVisitId(), tripId: e?.trip?.id,
+      custody: GateEnforcement.custodyActive(currentGateEnforcement()) || localPrisonRestricted(),
+      originalTrip: Boolean(e?.phase === 'field' && e.trip?.bodyEpoch === ensureScientistIdentity().bodyEpoch && e.trip?.visitId === passengerVisitId()),
+      atGround: scientistRoomId() === e?.roomId && a.roomId === e.roomId,
+      near: Boolean(contact && fieldPorterObserved(a) && mapCellDistance(a.mapCell, scientistMapCell()) <= 1), busy: contact && surveyBusy(),
+      source: fieldPorterSource(g, e), incapacitated: actorIsIncapacitated(a), injured: a.lastHarmedAt >= (s.contract?.hiredAt ?? Infinity), care: Boolean(a.porterCare),
+      site: originalSite ? { siteId: site.siteId, worldId: site.worldId, roomId: site.roomId } : null,
+      drop, dropLegal: originalSite && foreignEscortHaulingDropLegal(site, drop), itemVisible: visible,
+      carryOk: Boolean(item && actorInventoryCanCarry(a.id, item, 1)),
+      routeOk: Boolean(contact && originalSite && drop && (item ? visible && item.roomId === site.roomId
+        && (mapCellDistance(a.mapCell, item.cell) <= 1 || fieldPorterNextStep(s, a, item.cell))
+        && (mapCellDistance(item.cell, drop) <= 1 || fieldPorterNextStep(s, { ...a, mapCell: item.cell, roomId: item.roomId }, drop))
+        : mapCellDistance(a.mapCell, drop) <= 1 || fieldPorterNextStep(s, a, drop))),
+      hazards: { destination: e?.wilderness.destination || null, warnings: ['Unwarded wilderness, hostile beasts, weather and injury; no promised protection or rescue'],
+        known: (e?.wilderness.discovery?.records || []).map(r => ({ at: r.at, text: r.text, cell: r.cell })),
+        beasts: e?.wilderness.beasts ? WildernessBeasts.publicKnowledge(e.wilderness.beasts) : null },
+      threatened: Boolean(e?.wilderness.beasts?.actors.some(b => b.status !== 'dead' && b.roomId === a.roomId && mapCellDistance(b.mapCell, a.mapCell) <= 7 && sensoryLineOfSight(a.mapCell, b.mapCell))) };
+  }
+  function fieldPorterAction(action, options = {}) {
+    const e = foreignSurveyAtField(); if (!e || scientistIsDead()) return false;
+    if (action === 'mark') {
+      const site = state.fieldStation?.site, cell = cleanMapCell(scientistMapCell());
+      if (surveyBusy() || actorIsIncapacitated('scientist') || !passengerBodyCurrent() || GateEnforcement.custodyActive(currentGateEnforcement()) || localPrisonRestricted()
+        || site?.siteId !== e.wilderness?.context.siteId || site.worldId !== e.wilderness.context.worldId || !foreignEscortHaulingDropLegal(site, cell) || FieldPorter.active(e.porter)) return false;
+      e.porterDrop = { at: state.clock, cell }; if (e.porter) { e.porter.markedDrop = clonePlainObject(e.porterDrop); e.porter.quote = null; }
+      persist(); render(); return true;
+    }
+    const s = ensureFieldPorter(); if (!s) return false;
+    s.markedDrop ||= clonePlainObject(e.porterDrop || null);
+    const item = ensurePhysicalItemStacks().find(i => i.id === options.stackId), c = fieldPorterContext(s, item, true), hooks = fieldPorterHooks(s);
+    let result = false;
+    if (action === 'review') result = FieldPorter.review(s, c, state.clock);
+    if (action === 'hire') result = FieldPorter.hire(s, c, options.expected, ensureEconomy(), state.clock);
+    if (action === 'report') result = FieldPorter.receive(s, c, state.clock);
+    if (action === 'settle') result = FieldPorter.settle(s, c, ensureEconomy(), state.clock);
+    if (['cancel', 'withdraw'].includes(action) && c.near && !c.busy && FieldPorter.control(s, c)) result = action === 'withdraw'
+      ? FieldPorter.withdraw(s, hooks, state.clock) : FieldPorter.stopJob(s, hooks, state.clock, 'Personally cancelled delivery.');
+    if (action === 'assign') result = FieldPorter.assign(s, c, item, state.clock, (i, claim) => {
+      let slice = i;
+      if (i.quantity > 1) {
+        slice = normalizePhysicalItemStack({ ...i, id: `stack-${state.nextPhysicalItemStackNumber++}`, quantity: 1, knownQuantity: 1 }, state.nextPhysicalItemStackNumber);
+        i.quantity--; i.knownQuantity = Math.min(i.knownQuantity, i.quantity); ensurePhysicalItemStacks().push(slice);
+      }
+      slice.reservedTaskId = claim; return slice;
+    });
+    if (action === 'provision' && c.near && !c.busy && c.capable && !c.custody && c.originalBody && s.actor.status !== 'dead' && !c.incapacitated
+      && ['drinkingWater', 'trailMeal'].includes(options.key)) {
+      const i = actorInventoryStacks('scientist').find(i => i.key === options.key && !i.reservedTaskId && i.quantity > 0);
+      if (i && actorInventoryCanCarry(s.actor.id, i, 1)) {
+        i.carriedBy = ''; const carried = carryPhysicalStack(s.actor.id, i.id, 1);
+        if (!carried || carried !== i) i.carriedBy = 'scientist'; result = Boolean(carried);
+      }
+    }
+    syncActorInventories(); syncPhysicalReadModels(); persist(); render(); return result;
+  }
+  function updateAllFieldPorters(elapsed = 0) {
+    if (scientistIsDead()) return 0;
+    let changed = 0;
+    for (const s of fieldPorterStates()) {
+      if (!FieldPorter.active(s)) continue;
+      const e = fieldPorterExcursion(s), previous = porterSimulationExcursion; porterSimulationExcursion = e;
+      try {
+        if (e.wilderness.beasts?.lastAt !== state.clock) updateWildernessBeasts(elapsed);
+        const a = s.actor, inWild = a.roomId === e.wilderness.roomId;
+        if (a.status !== 'dead') {
+          const needs = WildernessSurvival.advance(a.needs, state.clock, { working: s.phase !== 'onSite' || s.job?.status === 'working', resting: !s.job || s.job.status !== 'working', destination: inWild ? e.wilderness.destination : null });
+          a.needs = needs.state; if (needs.damage) damageSurfaceWorker(needs.damage, { injuryProgress: true }, a);
+          if (!actorIsIncapacitated(a)) {
+            if (!a.porterCare) {
+              const key = a.needs.thirst >= 45 ? 'drinkingWater' : a.needs.hunger >= 45 ? 'trailMeal' : null;
+              const stack = key && actorInventoryStacks(a.id).find(i => i.key === key && i.quantity > 0 && !i.reservedTaskId);
+              if (stack) { stack.reservedTaskId = `field-porter-care:${a.id}`; a.porterCare = { key, stackId: stack.id, dueAt: state.clock + 20 }; }
+            }
+            const care = a.porterCare;
+            if (care && state.clock >= care.dueAt) {
+              const i = ensurePhysicalItemStacks().find(i => i.id === care.stackId && i.carriedBy === a.id && i.reservedTaskId === `field-porter-care:${a.id}` && i.quantity > 0);
+              if (i) {
+                i.quantity--; i.knownQuantity = Math.min(i.knownQuantity, i.quantity); i.reservedTaskId = '';
+                if (!i.quantity) state.physicalItemStacks = state.physicalItemStacks.filter(stack => stack.id !== i.id);
+                a.needs = WildernessSurvival.consume(a.needs, care.key);
+              }
+              a.porterCare = null; syncPhysicalReadModels();
+            }
+          }
+        }
+        changed += FieldPorter.advance(s, fieldPorterContext(s), fieldPorterHooks(s), state.clock);
+        if (!FieldPorter.active(s) && a.porterCare) {
+          const i = ensurePhysicalItemStacks().find(i => i.id === a.porterCare.stackId);
+          if (i?.reservedTaskId === `field-porter-care:${a.id}`) i.reservedTaskId = '';
+          a.porterCare = null;
+        }
+      } finally { porterSimulationExcursion = previous; }
+    }
+    return changed;
+  }
+  function renderFieldPorterPanel() {
+    const panel = document.createElement('section'); panel.dataset.fieldPorter = 'true';
+    panel.append(textEl('h4', 'Local noncombat field porter'), textEl('p', FieldPorter.SCOPE));
+    const e = foreignSurveyAtField(), s = ensureFieldPorter();
+    const button = (label, action, options = {}, disabled = false) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = disabled;
+      b.onclick = () => fieldPorterAction(action, options); panel.append(b); };
+    button('Mark porter outdoor station drop here', 'mark', {}, surveyBusy() || !foreignEscortHaulingDropLegal(state.fieldStation?.site, scientistMapCell()) || Boolean(s?.contract && s.contract.settledAt == null));
+    if (e?.porterDrop) panel.append(textEl('p', `Personally marked drop ${e.porterDrop.cell.x},${e.porterDrop.cell.y} at ${formatClock(e.porterDrop.at)}.`));
+    if (!s) { panel.append(textEl('p', 'Meet the finite depot-backed worker at the defended ground, if a functioning local transport depot has an allocation.')); return panel; }
+    s.markedDrop ||= clonePlainObject(e.porterDrop || null);
+    const c = fieldPorterContext(s, null, true), view = FieldPorter.publicView(s);
+    panel.append(textEl('p', `${s.source.label}: one original person, not a replacement pool. Meet at ${s.layout.meeting.x},${s.layout.meeting.y} on the defended ground.`));
+    if (fieldPorterObserved(s.actor)) panel.append(textEl('p', `Direct observation: ${s.actor.name}, health ${s.actor.health}/100, ${s.phase}.`));
+    button('Review disclosed two-hour porter terms', 'review', {}, !c.near || !c.atGround || c.busy);
+    if (view.reply) panel.append(textEl('p', `${formatClock(view.reply.at)} — ${view.reply.reason}`));
+    if (view.quote) { panel.append(textEl('p', `Exact offer: ${formatMoney(view.quote.upfront)} prepaid; expires ${formatClock(view.quote.expiresAt)}. Wilderness hazards disclosed; return to the original ground.`));
+      for (const warning of view.quote.hazards.warnings) panel.append(textEl('p', warning));
+      for (const r of view.quote.hazards.known) panel.append(textEl('p', `Disclosed ${formatClock(r.at)}: ${r.text}`));
+      for (const r of view.quote.hazards.beasts?.sightings || []) panel.append(textEl('p', `Disclosed dated beast sighting: ${r.name}, ${r.cell.x},${r.cell.y}, ${formatClock(r.observedAt)}. Not present safety information.`));
+      button('Hire original porter for two-hour station shift', 'hire', { expected: view.quote }, !c.near || c.busy); }
+    if (view.agreement) panel.append(textEl('p', `Issued engagement ${view.agreement.id} at ${formatClock(view.agreement.hiredAt)}. Two on-site hours, no remote progress tracking.`));
+    if (view.issued.length) panel.append(textEl('p', `Last personal delivery instruction: ${view.issued.at(-1).id}, original ${view.issued.at(-1).sourceId}. Not a receipt.`));
+    if (view.received) panel.append(textEl('p', `${formatClock(view.received.at)} — received porter report: ${view.received.phase}; ${view.received.job?.status || 'no delivery'}; ${view.received.reason || 'original agreement'}. Dated, not live telemetry.`));
+    button('Ask porter for personal report', 'report', {}, !c.near || c.busy);
+    button('Cancel porter delivery here', 'cancel', {}, !c.near || c.busy);
+    button('Ask porter to withdraw', 'withdraw', {}, !c.near || c.busy);
+    button('Settle returned porter shift here', 'settle', {}, !c.near || !c.atGround || c.busy);
+    for (const key of ['drinkingWater', 'trailMeal']) button(`Give porter one ${inventoryItemLabel(key)}`, 'provision', { key }, !c.near || c.busy);
+    if (c.near && FieldPorter.control(s, c)) for (const i of ensurePhysicalItemStacks().filter(i => ForeignEscortHauling.eligible(i) && !i.carriedBy && !i.reservedTaskId
+      && i.roomId === scientistRoomId() && mapCellDistance(i.cell, scientistMapCell()) <= 5 && sensoryLineOfSight(scientistMapCell(), i.cell)))
+      button(`Instruct porter: one ${physicalStackLabel(i)} (${i.id})`, 'assign', { stackId: i.id }, !fieldPorterContext(s, i, true).carryOk || s.job?.status === 'working');
+    return panel;
+  }
+
   let escortSimulationState = null;
+  let porterSimulationExcursion = null;
   const foreignEscortSourceCache = new WeakMap();
   function foreignEscortStates() { return (state.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.escort).filter(Boolean); }
   function allEscortStates() { return [state.expeditionEscorts, ...foreignEscortStates()].filter(Boolean); }
@@ -87320,6 +87556,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return saved.source && (state.penalFlights?.assistance?.cityApproach?.gates || []).find(g => g.foreignSurvey?.escort === saved)?.foreignSurvey;
   }
   function ensureExpeditionEscorts() {
+    if (porterSimulationExcursion) return porterSimulationExcursion.escort || ExpeditionEscorts.defaultState();
     if (escortSimulationState) return escortSimulationState;
     const s = foreignSurveyAtField();
     return s ? s.escort || ExpeditionEscorts.defaultState() : state.expeditionEscorts ||= ExpeditionEscorts.defaultState();
@@ -87607,7 +87844,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       threatened: threats, care: Boolean(saved.actor.care), drag: Boolean(saved.drag),
       otherWork: ForeignEscortRecovery.active(saved) || ForeignEscortRepairs.active(saved) };
   }
-  function foreignEscortHaulingHooks(saved) {
+  function foreignEscortHaulingHooks(saved, nextStep = escortNextStep) {
     const actor = saved.actor;
     return {
       item: id => ensurePhysicalItemStacks().find(i => i.id === id),
@@ -87616,7 +87853,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         && sensoryLineOfSight(actor.mapCell, cell),
       move: goal => {
         if (state.clock < actor.nextMoveAt) return true;
-        const next = escortNextStep(actor, goal); if (!next) return false;
+        const next = nextStep(actor, goal); if (!next) return false;
         actor.mapCell = cleanMapCell(next); actor.roomId = labMapCellRoomId(next);
         const load = actorEncumbranceInfo(actor.id);
         actor.needs.exertion = Math.min(100, actor.needs.exertion + .05 + load.usage.massKg * .005);
@@ -87965,7 +88202,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function allWildernessBeasts() { return [...(state?.wildernessBeasts?.actors || []), ...(state?.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => g.foreignSurvey?.wilderness?.beasts?.actors || [])]; }
   function wildernessBeast(id) { return allWildernessBeasts().find(beast => beast.id === id) || state?.unsupportedExcursions?.boundary?.beasts?.actors.find((beast) => beast.id === id) || state?.unsupportedExcursions?.remote?.beasts?.actors.find((beast) => beast.id === id) || null; }
-  function ensureWildernessBeasts() { const s = escortSimulationState?.source ? escortExcursion(escortSimulationState) : foreignSurveyAtField(); return s ? s.wilderness ? s.wilderness.beasts ||= WildernessBeasts.defaultState() : WildernessBeasts.defaultState() : state.wildernessBeasts ||= WildernessBeasts.defaultState(); }
+  function ensureWildernessBeasts() { const s = porterSimulationExcursion || (escortSimulationState?.source ? escortExcursion(escortSimulationState) : foreignSurveyAtField()); return s ? s.wilderness ? s.wilderness.beasts ||= WildernessBeasts.defaultState() : WildernessBeasts.defaultState() : state.wildernessBeasts ||= WildernessBeasts.defaultState(); }
   function materializeWildernessBeasts() {
     const saved = ensureWildernessBeasts(), survival = activeWildernessSite();
     if (saved.materialized || !survival.materialized || !survival.discovery?.baseline || survival.discovery.placeId !== survival.destination?.id) return saved;
@@ -88030,7 +88267,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const actor = ensureExpeditionEscorts().actor;
     const escort = escortContractActive() && actor?.status !== "dead" && actor?.roomId === activeWildernessRoom() ? actor : null;
     const medic = state.medicalExtraction?.medic?.status !== "dead" && state.medicalExtraction?.medic?.roomId === activeWildernessRoom() ? state.medicalExtraction.medic : null;
-    if ((!scientistInWilderness() && !escort && !medic) || scientistIsDead()) {
+    const porters = fieldPorterStates().map(s => s.actor).filter(a => a.status !== 'dead' && a.roomId === activeWildernessRoom());
+    if ((!scientistInWilderness() && !escort && !medic && !porters.length) || scientistIsDead()) {
       for (const beast of saved.actors) { beast.nextMoveAt += Math.max(0, elapsed); beast.nextAttackAt += Math.max(0, elapsed); }
       saved.lastAt = state.clock; return 0;
     }
@@ -88041,7 +88279,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (beast.status === "dead" || actorIsIncapacitated(beast)) continue;
       const profile = WildernessBeasts.PROFILES[beast.speciesId];
       // Navigation may normalize actor records, so target identity must not depend on object equality.
-      const targets = [...(scientistInWilderness() ? [{ id: "scientist", actor: state.scientist }] : []), ...(escort ? [{ id: escort.id, actor: escort }] : []), ...(medic ? [{ id: medic.id, actor: medic }] : []), ...(state.penalFlights?.actors || []).filter(a => a.roomId === activeWildernessRoom() && a.status !== "dead").map(actor => ({ id: actor.id, actor }))];
+      const targets = [...(scientistInWilderness() ? [{ id: "scientist", actor: state.scientist }] : []), ...(escort ? [{ id: escort.id, actor: escort }] : []), ...(medic ? [{ id: medic.id, actor: medic }] : []), ...porters.map(actor => ({ id: actor.id, actor })), ...(state.penalFlights?.actors || []).filter(a => a.roomId === activeWildernessRoom() && a.status !== "dead").map(actor => ({ id: actor.id, actor }))];
       const seenTargets = targets.filter((target) => WildernessBeasts.distance(beast.mapCell, combatActorCell(target.actor)) <= profile.sight && sensoryLineOfSight(beast.mapCell, combatActorCell(target.actor)));
       const target = seenTargets.find((entry) => entry.id === beast.targetId && state.clock < beast.provokedUntil)
         || seenTargets.sort((a, b) => WildernessBeasts.distance(beast.mapCell, combatActorCell(a.actor)) - WildernessBeasts.distance(beast.mapCell, combatActorCell(b.actor)))[0]
@@ -88056,7 +88294,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (scientistInWilderness() && !wildernessBeastVisible(beast) && WildernessBeasts.distance(beast.mapCell, scientistMapCell()) <= 10 && (!saved.heard || state.clock - saved.heard.at >= 30)) saved.heard = { at: state.clock, label: `${profile.sound}; source not located or identified` };
       if (elapsed <= 0) continue;
       if (decision.behavior === "pursue" && sees && range <= 1 && state.clock >= beast.nextAttackAt) {
-        const observed = targetId === "scientist" || targetId === medic?.id && rescueMedicObserved() || targetId === escort?.id && escortObserved();
+        const observed = targetId === "scientist" || targetId === medic?.id && rescueMedicObserved() || targetId === escort?.id && escortObserved() || porters.some(a => a.id === targetId && fieldPorterObserved(a));
         const result = resolveSharedCombatAction(beast.id, "strike", { kind: "creature", id: targetId }, { baseDamage: profile.damage, damageTypes: profile.damageTypes, hideFeedback: !observed });
         beast.nextAttackAt = state.clock + profile.recovery;
         if (result.ok) { if (observed) pauseForWildernessThreat(`${beast.name} ${result.hit ? "struck" : "attacked and missed"} ${targetId === "scientist" ? "the scientist" : target.actor.name} at close range.`); changed++; }
@@ -88983,6 +89221,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function renderWildernessPanel() {
     const survival = ensureWildernessSurvival(), panel = document.createElement("section"); panel.dataset.wildernessSurvival = "true"; panel.className = "subpanel";
     if (!unsupportedActive() && !state.penalFlights?.fieldActive) panel.append(renderExpeditionEscortPanel());
+    if (foreignSurveyAtField()) panel.append(renderFieldPorterPanel());
     if (state.surveyExpeditions?.phase === "field" || foreignSurveyAtField()) panel.append(renderWildernessBeastsPanel());
     panel.append(renderFieldStationPanel());
     panel.append(textEl("strong", "Field Survival"), textEl("p", `Thirst ${Math.round(survival.thirst)}/100 · Hunger ${Math.round(survival.hunger)}/100 · Exertion ${Math.round(survival.exertion)}/100 · Exposure ${Math.round(survival.exposure)}/100. High needs slow movement and work; prolonged critical thirst, hunger, or exposure damages health.`));
@@ -89507,6 +89746,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return s && s.phase === 'field' && [s.roomId, s.wilderness?.roomId].includes(scientistRoomId()) ? s : null;
   }
   function foreignWildernessLocal() {
+    if (porterSimulationExcursion) return porterSimulationExcursion.wilderness || null;
     return escortSimulationState?.source ? escortExcursion(escortSimulationState)?.wilderness || null : foreignSurveyAtField()?.wilderness || null;
   }
   function activeWildernessSite() { return foreignSurveyAtField() ? foreignWildernessLocal() || { destination: null, shelter: null } : ensureWildernessSurvival(); }

@@ -870,6 +870,22 @@ Both people must physically return to the ground and meet to settle unused wages
 
 Focused checks: `npx playwright test tests/foreign-expedition-escort.spec.js tests/foreign-expedition-escort-browser.spec.js --project=chromium --workers=1`.
 
+### Local noncombat field porter
+
+The Visits wilderness controls offer one persistent **field porter**, separate from the escort and home laboratory staff. A functioning, locally recognized transport contract depot and the original city's surviving population must back the employee already posted at the defended sampling ground. No depot allocation means no hire; death, wounds, spent duty and exhausted provisions never create a replacement.
+
+Register the wilderness station, then **Mark porter outdoor station drop here** on inspected accessible ground within two tiles of its apron, outside the footprint. An unfinished station is enough. Walk back to the defended meeting point at 13,10, personally **Review disclosed two-hour porter terms**, and accept the exact minute-long offer. Hiring costs 40 engagement plus 24 prepaid wages at 12/hour. The porter walks to the original drop; the two-hour on-site clock starts only upon physical arrival and includes waiting and rest. Travel spends the original eight-hour duty allocation. Employment discloses wilderness hazards, permitted goods and the return route, not protection or rescue.
+
+At arm's reach, instruct one visible loose owned stone block, field log or lumber unit at a time. Only that physical unit is reserved; surplus remains available. The worker has ordinary **18 kg / 24 L** capacity, initially occupied by three waters and two meals. Bulky logs may not fit. Loading and unloading each require ten attended seconds, with real walking, encumbrance, fatigue and injury in between. There is no automatic repeat, crate access, extraction, construction or garrison duty. An escort's separate protection agreement remains separate.
+
+Earned wages round up to whole currency at settlement, matching the game's saved economy; unused whole-currency escrow is refunded without a fractional balance changing on reload.
+
+Give actual water or meals locally; self-care consumes finite stock and interrupts handoff attendance. Danger, injury, critical needs, lost depot backing, changed original body/trip or custody end work and trigger physical withdrawal, subject to the actual route and bodily ability. Capable cancellation drops cargo at the worker; incapacity or death retains possessions at the actual body. Beasts can encounter a porter out of the scientist's sight, without broadcasting remote reports. Scientist death freezes the work.
+
+**Ask porter for personal report** records a dated reunion snapshot; issued terms and instructions are not live tracking. **Settle returned porter shift here** requires meeting the original worker after actual return to defended ground, refunds only unearned reserved wages once, and restores neither duty nor health nor stock. A later visit by the same original scientist can settle; a replacement body cannot inherit the engagement. Original people, exact goods, claims, partial handoffs, wages and received reports persist through saves.
+
+Focused coverage: `tests/field-porter.spec.js`, `tests/field-porter-browser.spec.js`, and shared physical-hook regressions `tests/foreign-escort-hauling.spec.js` and `tests/foreign-escort-hauling-browser.spec.js`. Browser fixtures explicitly supply initial local presence, finite funds/cargo and a real depot source, not an earned passenger journey or replacement pool. The full suite is not run under repository policy.
+
 ### Foreign escort one-delivery hauling
 
 The existing foreign professional can separately consent to **one paid field delivery** during their original active protection engagement. Protection alone is not a labor agreement. In Visits, meet them beside the registered wilderness station footprint, stand on a reachable outdoor tile within two tiles of its apron, outside the building footprint, and **Mark this outdoor station drop**. Marking creates no shelter or storage; outdoor deliveries can supply a station still under construction.
