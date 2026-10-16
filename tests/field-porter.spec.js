@@ -123,3 +123,138 @@ test('nonfinite clocks and replacement people cannot sign, report or settle orig
   f.s.actor.id = 'replacement';
   expect(Porter.receive(f.s, f.c, f.now)).toBe(false); expect(Porter.settle(f.s, f.c, f.wallet, f.now)).toBe(false);
 });
+
+function inspectOrder(f, items) {
+  for (const i of items) expect(Porter.append(f.s, f.c, i, f.now)).toBe(true);
+  return copy(f.s.proposal);
+}
+function acceptOrder(f, expected = copy(f.s.proposal), contexts = []) {
+  return Porter.accept(f.s, f.c, (f.s.proposal?.rows || []).map((r, n) => ({ item: f.stacks.find(i => i.id === r.sourceId),
+    context: { ...f.c, ...contexts[n] } })), expected, f.now, f.reserve, f.hooks.release);
+}
+function four(f) {
+  f.item.quantity = 5;
+  return inspectOrder(f, [f.item, f.item, f.item, f.item]);
+}
+test('editable orders stop at four and reject depleted piles, altered snapshots and reserved builder materials', () => {
+  const f = fixture(); onsite(f);
+  inspectOrder(f, [f.item, f.item]); expect(Porter.append(f.s, f.c, f.item, f.now)).toBe(false);
+  expect(Porter.edit(f.s, f.c, f.now)).toBe(true); expect(f.s.proposal.rows).toHaveLength(1);
+  expect(Porter.edit(f.s, f.c, f.now, true)).toBe(true); expect(f.s.proposal).toBeNull();
+  const p = four(f); expect(Porter.append(f.s, f.c, f.item, f.now)).toBe(false); expect(f.s.proposal).toEqual(p);
+  expect(acceptOrder(f, { ...p, drop: cell(26) })).toBe(false);
+  f.item.reservedTaskId = 'field-build:original:part-1'; expect(acceptOrder(f)).toBe(false);
+  expect(f.item.quantity).toBe(5); expect(f.wallet.money).toBe(36);
+});
+test('acceptance preflights every exact inspected source and personal condition before reserving anything', () => {
+  for (const wrong of [{ quantity: 6 }, { sourceLabels: ['substitute'] }, { cell: cell(28) }, { carriedBy: 'scientist' }, { cityOwnerId: 'city' }]) {
+    const f = fixture(); onsite(f); four(f); Object.assign(f.item, wrong);
+    expect(acceptOrder(f), JSON.stringify(wrong)).toBe(false); expect(f.stacks).toHaveLength(1); expect(f.item.reservedTaskId).toBe('');
+  }
+  for (const wrong of [{ near: false }, { itemVisible: false }, { carryOk: false }, { routeOk: false }, { injured: true }, { care: true },
+    { tripId: 'new' }, { site: null }, { source: null }, { bodyEpoch: 2 }, { drop: cell(26) }, { threatened: true }]) {
+    const f = fixture(); onsite(f); four(f); expect(acceptOrder(f, copy(f.s.proposal), [{}, {}, {}, wrong]), JSON.stringify(wrong)).toBe(false);
+    expect(f.stacks).toHaveLength(1); expect(f.item.quantity).toBe(5);
+  }
+  const f = fixture(); onsite(f); four(f); f.now = f.s.contract.startedAt + Porter.SHIFT;
+  expect(acceptOrder(f)).toBe(false); expect(f.stacks).toHaveLength(1);
+});
+test('four disjoint one-unit claims from one pile deliver sequentially on one unchanged clock without repeat or surplus claims', () => {
+  const f = fixture(); onsite(f); const start = f.s.contract.startedAt, duty = f.s.dutySeconds;
+  four(f); expect(acceptOrder(f)).toBe(true); const o = f.s.deliveryOrder;
+  expect(f.item).toMatchObject({ quantity: 1, reservedTaskId: '' });
+  expect(new Set(o.jobs.map(j => j.stackId)).size).toBe(4); expect(new Set(o.jobs.map(j => j.id)).size).toBe(4);
+  expect(o.jobs.every(j => f.stacks.find(i => i.id === j.stackId).reservedTaskId === j.id)).toBe(true);
+  expect(Porter.append(f.s, f.c, f.item, f.now)).toBe(false); expect(Porter.assign(f.s, f.c, f.item, f.now, f.reserve)).toBe(false);
+  tick(f, 250); expect(o.status).toBe('delivered'); expect(o.index).toBe(4); expect(f.deposited).toBe(4);
+  expect(f.s.history.map(j => j.id)).toEqual(o.jobs.map(j => j.id)); expect(f.s.contract.startedAt).toBe(start);
+  expect(f.s.dutySeconds).toBe(duty - 250); expect(f.wallet.money).toBe(36);
+  tick(f, 100); expect(f.deposited).toBe(4); expect(f.stacks.reduce((n, i) => n + i.quantity, 0)).toBe(5);
+  inspectOrder(f, [f.item]); expect(acceptOrder(f)).toBe(true); tick(f, 80); expect(f.deposited).toBe(5);
+  expect(f.s.contract.startedAt).toBe(start); expect(f.wallet.money).toBe(36);
+});
+test('mixed sources retain ordered pickups and exact signatures, not a homogeneous delivery quota', () => {
+  const f = fixture(); onsite(f);
+  const lumber = { ...copy(f.item), id: 'wood', key: 'lumber', unitMassKg: 5, unitVolumeL: 4, cell: cell(31) };
+  f.stacks.push(lumber); inspectOrder(f, [lumber, f.item, lumber]); expect(acceptOrder(f)).toBe(true);
+  tick(f, 250); expect(f.deposited).toBe(3); expect(f.s.history.map(j => j.sourceId)).toEqual(['wood', 'stone', 'wood']);
+  expect(f.stacks.find(i => i.id === 'stone').quantity).toBe(1);
+});
+test('partial handoffs and order index survive serialization; blocked next delivery never skips or backfills', () => {
+  const f = fixture(); onsite(f); four(f); expect(acceptOrder(f)).toBe(true);
+  while (!f.s.job.progress) tick(f);
+  const progress = f.s.job.progress, now = f.now;
+  Object.assign(f.s, copy(f.s)); f.stacks = copy(f.stacks); tick(f);
+  expect(f.s.job.progress).toBe(progress + 1);
+  while (f.deposited < 1) tick(f); f.blocked = true; const id = f.s.job.id;
+  tick(f, 100); expect(f.s.deliveryOrder.index).toBe(1); expect(f.s.job.id).toBe(id); expect(f.s.job.reason).toContain('blocked');
+  expect(f.s.job.progress).toBe(0); expect(f.deposited).toBe(1);
+  Object.assign(f.s, copy(f.s)); f.stacks = copy(f.stacks); f.blocked = false; f.c.care = true; tick(f, 50); f.c.care = false;
+  tick(f); expect(f.s.job.progress).toBe(0); tick(f, 250);
+  expect(f.deposited).toBe(4); expect(f.s.history).toHaveLength(4); expect(f.now).toBeGreaterThan(now);
+});
+test('loss of an exact future unit interrupts the order and physically withdraws without reserving surplus', () => {
+  const f = fixture(); onsite(f); four(f); expect(acceptOrder(f)).toBe(true);
+  while (f.deposited < 1) tick(f);
+  while (f.s.job.phase !== 'delivery') tick(f);
+  const at = copy(f.s.actor.mapCell), carried = f.s.job.stackId, missing = f.s.deliveryOrder.jobs[3].stackId;
+  f.stacks = f.stacks.filter(i => i.id !== missing); tick(f);
+  expect(f.s.phase).toBe('returning'); expect(f.s.deliveryOrder.status).toBe('interrupted'); expect(f.deposited).toBe(1);
+  expect(f.stacks.find(i => i.id === carried)).toMatchObject({ carriedBy: '', cell: at, reservedTaskId: '' });
+  expect(f.stacks.every(i => !i.reservedTaskId)).toBe(true); expect(f.item.quantity).toBe(1);
+  tick(f, 100); expect(f.deposited).toBe(1);
+});
+test('altered current order cargo cannot use an identical surplus unit and no incomplete order is inherited by a new body', () => {
+  for (const wrong of ['cargo', 'body', 'incapacity']) {
+    const f = fixture(); onsite(f); four(f); expect(acceptOrder(f)).toBe(true);
+    while (f.s.job.phase !== 'delivery') tick(f); const j = f.s.job;
+    if (wrong === 'cargo') f.stacks.find(i => i.id === j.stackId).sourceLabels = ['changed provenance'];
+    if (wrong === 'body') f.c.bodyEpoch = 2;
+    if (wrong === 'incapacity') f.c.incapacitated = true;
+    tick(f); expect(f.s.phase).toBe('returning'); expect(f.s.deliveryOrder.status).toBe('interrupted');
+    expect(f.deposited).toBe(0); expect(f.stacks.every(i => !i.reservedTaskId)).toBe(true);
+    expect(f.item.quantity).toBe(1); expect(f.item.reservedTaskId).toBe('');
+    expect(f.stacks.find(i => i.id === j.stackId).carriedBy).toBe(wrong === 'incapacity' ? f.s.actor.id : '');
+  }
+});
+test('personal cancellation releases only this order, retaining delivered goods and actual carried position', () => {
+  const f = fixture(); onsite(f); four(f); expect(acceptOrder(f)).toBe(true);
+  while (f.deposited < 1) tick(f); while (f.s.job.phase !== 'delivery') tick(f);
+  const j = f.s.job, at = copy(f.s.actor.mapCell); f.item.reservedTaskId = 'field-build:other';
+  expect(Porter.stopJob(f.s, f.hooks, f.now, 'Personal cancellation')).toBe(true);
+  expect(Porter.stopJob(f.s, f.hooks, f.now, 'Again')).toBe(false);
+  expect(f.stacks.find(i => i.id === j.stackId)).toMatchObject({ cell: at, carriedBy: '', reservedTaskId: '' });
+  expect(f.item.reservedTaskId).toBe('field-build:other'); expect(f.s.deliveryOrder.jobs.map(j => j.status)).toEqual(['delivered', 'interrupted', 'cancelled', 'cancelled']);
+  expect(f.s.history.map(j => j.status)).toEqual(['delivered', 'interrupted', 'cancelled', 'cancelled']);
+  tick(f, 100); expect(f.deposited).toBe(1);
+});
+test('danger, death and spent budget release pending claims without extending time or teleporting body cargo', () => {
+  for (const reason of ['danger', 'dead', 'budget']) {
+    const f = fixture(); onsite(f); four(f); expect(acceptOrder(f)).toBe(true);
+    while (f.s.job.phase !== 'delivery') tick(f); const carried = f.s.job.stackId;
+    if (reason === 'danger') f.c.threatened = true;
+    if (reason === 'dead') { f.s.actor.status = 'dead'; f.s.actor.diedAt = f.now; f.c.incapacitated = true; }
+    if (reason === 'budget') f.now = f.s.contract.startedAt + Porter.SHIFT - 1;
+    tick(f); expect(f.s.deliveryOrder.status).toBe('interrupted'); expect(f.deposited).toBe(0);
+    expect(f.stacks.every(i => !i.reservedTaskId)).toBe(true);
+    expect(f.stacks.find(i => i.id === carried).carriedBy).toBe(reason === 'dead' ? f.s.actor.id : '');
+    if (reason === 'budget') expect(f.s.contract.earned).toBe(24);
+  }
+});
+test('signed instructions stay public but private multi-delivery outcomes require a dated personal report', () => {
+  const f = fixture(); onsite(f); four(f); expect(acceptOrder(f)).toBe(true);
+  expect(Porter.receive(f.s, f.c, f.now)).toBe(true); const known = Porter.publicView(f.s);
+  expect(known.received.order.jobs[0].status).toBe('working'); f.c.near = false; tick(f, 250);
+  expect(Porter.publicView(f.s)).toEqual(known); expect(Porter.receive(f.s, f.c, f.now)).toBe(false);
+  f.c.near = true; expect(Porter.receive(f.s, f.c, f.now)).toBe(true);
+  expect(Porter.publicView(f.s).received.order.jobs.every(j => j.status === 'delivered')).toBe(true);
+  const before = copy(f.s); f.c.alive = false; tick(f, 100); expect(f.s).toEqual(before);
+});
+test('a failed reservation releases acquired exact claims without charging or creating a signed order', () => {
+  const f = fixture(); onsite(f); four(f); let calls = 0;
+  const entries = f.s.proposal.rows.map(() => ({ item: f.item, context: f.c }));
+  expect(Porter.accept(f.s, f.c, entries, copy(f.s.proposal), f.now,
+    (i, id) => ++calls === 3 ? null : f.reserve(i, id), f.hooks.release)).toBe(false);
+  expect(f.stacks.every(i => !i.reservedTaskId)).toBe(true); expect(f.stacks.reduce((n, i) => n + i.quantity, 0)).toBe(5);
+  expect(f.s.deliveryOrder).toBeNull(); expect(f.s.job).toBeNull(); expect(f.wallet.money).toBe(36);
+});

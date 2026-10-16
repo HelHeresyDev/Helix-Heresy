@@ -165,3 +165,97 @@ test('DOM porter respects blocked routes, finite kit capacity, missing cargo and
   expect(s.saved.history.filter(h => h.id === job.id && h.status === 'delivered').length).toBeLessThanOrEqual(1);
   expect(await act(page, 'report')).toBe(false); expect(f.errors).toEqual([]);
 });
+
+test('canvas bounded porter order reserves four exact mixed units, resumes partial reload, delivers independently and settles the original shift', async ({ page }) => {
+  test.setTimeout(720000); // Four physical deliveries plus real reunion/return, not a clock jump.
+  const f = await setup(page, 'canvas'); let s = await snap(page);
+  const started = s.saved.contract.startedAt, capacity = s.inventory.capacity;
+  const append = id => page.getByRole('button', { name: new RegExp(`^Append porter delivery:.*\\(${id}\\)$`) }).click();
+  await append(f.stone); await append(f.stone); await append(f.lumber);
+  await page.getByRole('button', { name: 'Remove last inspected porter delivery', exact: true }).click();
+  expect((await snap(page)).known.proposal.rows).toHaveLength(2);
+  await append(f.stone); await append(f.lumber); s = await snap(page);
+  expect(s.known.proposal.rows.map(r => r.sourceId)).toEqual([f.stone, f.stone, f.stone, f.lumber]);
+  expect(s.stacks.find(i => i.id === f.stone)).toMatchObject({ quantity: 3, reservedTaskId: '' });
+  expect(await act(page, 'append', { stackId: f.lumber })).toBe(false);
+  expect(await act(page, 'acceptOrder', { expected: {} })).toBe(false);
+  await page.getByRole('button', { name: 'Accept exact bounded porter delivery order', exact: true }).click();
+  s = await snap(page); const jobs = s.saved.deliveryOrder.jobs;
+  expect(s.money).toBe(436); expect(jobs).toHaveLength(4); expect(new Set(jobs.map(j => j.stackId)).size).toBe(4);
+  for (const j of jobs) expect(s.stacks.find(i => i.id === j.stackId)).toMatchObject({ quantity: 1, reservedTaskId: j.id });
+  expect(s.stacks.find(i => i.id === f.lumber)).toMatchObject({ quantity: 1, reservedTaskId: '' });
+  await until(page, s => s.saved.job.phase === 'load' && s.saved.job.progress > 0);
+  const partial = (await snap(page)).saved.job.progress;
+  await reload(page, 'canvas'); s = await snap(page);
+  expect(s.saved.job.progress).toBe(partial); expect(s.saved.deliveryOrder.index).toBe(0);
+  for (const j of jobs) expect(s.stacks.find(i => i.id === j.stackId).reservedTaskId).toBe(j.id);
+  const known = s.known;
+  await move(page, f.station.roomId, { x: 35, y: 12, z: f.station.layout.apron.z });
+  s = await until(page, s => s.saved.deliveryOrder.status === 'delivered', 160);
+  expect(s.known).toEqual(known); expect(await act(page, 'report')).toBe(false);
+  expect(s.saved.deliveryOrder.index).toBe(4); expect(s.saved.history.map(j => j.id)).toEqual(jobs.map(j => j.id));
+  for (const j of jobs) expect(s.stacks.find(i => i.id === j.stackId)).toMatchObject({ cell: f.station.layout.apron, carriedBy: '', reservedTaskId: '' });
+  expect(s.saved.contract.startedAt).toBe(started); expect(s.inventory.capacity).toEqual(capacity); expect(s.actor.id).toBe(f.id);
+  await advance(page, 30); expect((await snap(page)).saved.history).toHaveLength(4);
+  await move(page, f.station.roomId, f.station.layout.apron);
+  await page.getByRole('button', { name: 'Ask porter for personal report', exact: true }).click();
+  expect((await snap(page)).known.received.order.jobs.every(j => j.status === 'delivered')).toBe(true);
+  await page.getByRole('button', { name: 'Ask porter to withdraw', exact: true }).click();
+  await until(page, s => s.saved.phase === 'awaitingSettlement');
+  expect(await act(page, 'settle')).toBe(false);
+  await move(page, f.room, { x: 13, y: 11, z: f.station.layout.apron.z });
+  await page.getByRole('button', { name: 'Settle returned porter shift here', exact: true }).click();
+  s = await snap(page); expect(s.saved.phase).toBe('completed'); expect(Number.isInteger(s.money)).toBe(true);
+  expect(s.money).toBeGreaterThan(436); expect(s.money).toBeLessThan(460); const money = s.money;
+  expect(await act(page, 'settle')).toBe(false); await reload(page, 'canvas'); s = await snap(page);
+  expect(s.money).toBe(money); expect(s.actor.id).toBe(f.id); expect(s.saved.history).toHaveLength(4); expect(f.errors).toEqual([]);
+});
+
+test('DOM porter order holds the next blocked delivery across reload and cancels unused claims on missing exact future cargo without substitution', async ({ page }) => {
+  const f = await setup(page, 'dom');
+  for (const id of [f.stone, f.stone, f.lumber]) expect(await act(page, 'append', { stackId: id })).toBe(true);
+  // A real competing builder claim invalidates acceptance before any split.
+  await page.evaluate(id => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState();
+    s.physicalItemStacks.find(i => i.id === id).reservedTaskId = 'field-build:competing-material'; d.importSurveyExpeditionTestState(s);
+  }, f.lumber);
+  expect(await act(page, 'acceptOrder', { expected: (await snap(page)).known.proposal })).toBe(false);
+  expect((await snap(page)).stacks.find(i => i.id === f.stone).quantity).toBe(3);
+  await page.evaluate(id => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState();
+    s.physicalItemStacks.find(i => i.id === id).reservedTaskId = ''; d.importSurveyExpeditionTestState(s);
+  }, f.lumber);
+  await page.getByRole('button', { name: 'Accept exact bounded porter delivery order', exact: true }).click();
+  let s = await until(page, s => s.saved.deliveryOrder.index === 1); const jobs = s.saved.deliveryOrder.jobs;
+  const ring = await page.evaluate(() => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState(), a = d.fieldPorterSnapshot().actor;
+    const cells = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => ({ ...a.mapCell, x: a.mapCell.x + dx, y: a.mapCell.y + dy }));
+    for (const cell of cells) s.labMap.terrain.constructedWalls.push({ cell, materialId: 'stoneBlocks', condition: 100, builtAt: s.clock });
+    d.importSurveyExpeditionTestState(s); return cells;
+  });
+  const position = (await snap(page)).actor.mapCell; await advance(page, 40); s = await snap(page);
+  expect(s.actor.mapCell).toEqual(position); expect(s.saved.deliveryOrder.index).toBe(1); expect(s.saved.job.progress).toBe(0);
+  // This actual wall ring also covers the adjacent agreed drop. Access fails
+  // before pathfinding, rather than inventing a delivery or skipping the unit.
+  expect(s.context.dropLegal).toBe(false); expect(s.saved.job.reason).toContain('unavailable'); expect(s.saved.history).toHaveLength(1);
+  await reload(page, 'dom'); s = await snap(page);
+  expect(s.saved.deliveryOrder.index).toBe(1); expect(s.stacks.find(i => i.id === jobs[2].stackId).reservedTaskId).toBe(jobs[2].id);
+  await page.evaluate(({ ring, missing }) => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState();
+    s.labMap.terrain.constructedWalls = s.labMap.terrain.constructedWalls.filter(w => !ring.some(c => c.x === w.cell.x && c.y === w.cell.y && c.z === w.cell.z));
+    s.physicalItemStacks = s.physicalItemStacks.filter(i => i.id !== missing); d.importSurveyExpeditionTestState(s);
+  }, { ring, missing: jobs[2].stackId });
+  await advance(page, 1); s = await snap(page);
+  expect(s.saved.phase).toBe('returning'); expect(s.saved.deliveryOrder.status).toBe('interrupted');
+  expect(s.stacks.find(i => i.id === f.lumber)).toMatchObject({ quantity: 1, reservedTaskId: '', cell: f.pickup });
+  expect(s.stacks.filter(i => jobs.some(j => j.id === i.reservedTaskId))).toHaveLength(0);
+  expect(s.stacks.find(i => i.id === jobs[0].stackId)).toMatchObject({ cell: f.station.layout.apron, reservedTaskId: '' });
+  expect(s.saved.history.filter(j => j.status === 'delivered')).toHaveLength(1); const started = s.saved.contract.startedAt;
+  await reload(page, 'dom'); await until(page, s => s.saved.phase === 'awaitingSettlement');
+  await move(page, f.room, { x: 13, y: 11, z: f.station.layout.apron.z });
+  await page.getByRole('button', { name: 'Ask porter for personal report', exact: true }).click();
+  expect((await snap(page)).known.received.order.jobs.map(j => j.status)).toEqual(['delivered', 'interrupted', 'cancelled']);
+  expect(await act(page, 'settle')).toBe(true); s = await snap(page); const money = s.money;
+  expect(s.saved.contract.startedAt).toBe(started); expect(await act(page, 'settle')).toBe(false);
+  await reload(page, 'dom'); expect((await snap(page)).money).toBe(money); expect(f.errors).toEqual([]);
+});

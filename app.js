@@ -87851,14 +87851,25 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (action === 'settle') result = FieldPorter.settle(s, c, ensureEconomy(), state.clock);
     if (['cancel', 'withdraw'].includes(action) && c.near && !c.busy && FieldPorter.control(s, c)) result = action === 'withdraw'
       ? FieldPorter.withdraw(s, hooks, state.clock) : FieldPorter.stopJob(s, hooks, state.clock, 'Personally cancelled delivery.');
-    if (action === 'assign') result = FieldPorter.assign(s, c, item, state.clock, (i, claim) => {
+    const reserve = (i, claim) => {
+      if (!i || i.quantity < 1 || i.reservedTaskId || i.carriedBy) return null;
       let slice = i;
       if (i.quantity > 1) {
         slice = normalizePhysicalItemStack({ ...i, id: `stack-${state.nextPhysicalItemStackNumber++}`, quantity: 1, knownQuantity: 1 }, state.nextPhysicalItemStackNumber);
         i.quantity--; i.knownQuantity = Math.min(i.knownQuantity, i.quantity); ensurePhysicalItemStacks().push(slice);
       }
       slice.reservedTaskId = claim; return slice;
-    });
+    };
+    if (action === 'assign') result = FieldPorter.assign(s, c, item, state.clock, reserve);
+    if (action === 'append') result = FieldPorter.append(s, c, item, state.clock);
+    if (action === 'remove' || action === 'clear') result = FieldPorter.edit(s, c, state.clock, action === 'clear');
+    if (action === 'acceptOrder') {
+      const entries = (s.proposal?.rows || []).map(r => {
+        const item = ensurePhysicalItemStacks().find(i => i.id === r.sourceId);
+        return { item, context: fieldPorterContext(s, item, true) };
+      });
+      result = FieldPorter.accept(s, c, entries, options.expected, state.clock, reserve, hooks.release);
+    }
     if (action === 'provision' && c.near && !c.busy && c.capable && !c.custody && c.originalBody && s.actor.status !== 'dead' && !c.incapacitated
       && ['drinkingWater', 'trailMeal'].includes(options.key)) {
       const i = actorInventoryStacks('scientist').find(i => i.key === options.key && !i.reservedTaskId && i.quantity > 0);
@@ -87946,16 +87957,41 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       for (const r of view.quote.hazards.beasts?.sightings || []) panel.append(textEl('p', `Disclosed dated beast sighting: ${r.name}, ${r.cell.x},${r.cell.y}, ${formatClock(r.observedAt)}. Not present safety information.`));
       button('Hire original porter for two-hour station shift', 'hire', { expected: view.quote }, !c.near || c.busy); }
     if (view.agreement) panel.append(textEl('p', `Issued engagement ${view.agreement.id} at ${formatClock(view.agreement.hiredAt)}. Two on-site hours, no remote progress tracking.`));
-    if (view.issued.length) panel.append(textEl('p', `Last personal delivery instruction: ${view.issued.at(-1).id}, original ${view.issued.at(-1).sourceId}. Not a receipt.`));
+    if (view.issued.length) {
+      const last = view.issued.at(-1);
+      panel.append(textEl('p', `Last personal delivery instruction: ${last.id}. Not a receipt or live progress.`));
+      for (const [n, j] of (last.deliveries || [last]).entries()) panel.append(textEl('p',
+        `${n + 1}. Original source ${j.sourceId}, reserved unit ${j.stackId}, pickup ${j.pickup.x},${j.pickup.y} → drop ${j.drop.x},${j.drop.y}.`));
+    }
     if (view.received) panel.append(textEl('p', `${formatClock(view.received.at)} — received porter report: ${view.received.phase}; ${view.received.job?.status || 'no delivery'}; ${view.received.reason || 'original agreement'}. Dated, not live telemetry.`));
+    if (view.received?.order) {
+      const o = view.received.order;
+      panel.append(textEl('p', `Personally reported order ${o.id}: ${o.status}; ${o.index}/${o.jobs.length} deliveries completed as of ${formatClock(view.received.at)}.`));
+      for (const [n, j] of o.jobs.entries()) panel.append(textEl('p',
+        `Reported ${n + 1}. ${j.stackId}: ${j.status}${j.endedAt == null ? '' : ` at ${formatClock(j.endedAt)}`}.`));
+    }
+    if (view.proposal) {
+      panel.append(textEl('h5', `Inspected porter delivery order (${view.proposal.rows.length}/4)`),
+        textEl('p', 'Not yet accepted or reserved. Each named unit travels separately; the original two-hour wage clock is unchanged. All sources must still be personally visible at acceptance.'));
+      for (const [n, r] of view.proposal.rows.entries()) panel.append(textEl('p',
+        `${n + 1}. One ${resourceLabel(r.key)} from ${r.sourceId} (observed ${r.sourceQuantity}; ${r.unitMassKg} kg / ${r.unitVolumeL} L per unit), pickup ${r.pickup.x},${r.pickup.y} → drop ${view.proposal.drop.x},${view.proposal.drop.y}; inspected ${formatClock(r.inspectedAt)}. Provenance: ${r.sourceLabels.join(', ') || 'none recorded'}.`));
+      button('Remove last inspected porter delivery', 'remove', {}, !FieldPorter.canOrder(s, c, state.clock));
+      button('Clear inspected porter delivery order', 'clear', {}, !FieldPorter.canOrder(s, c, state.clock));
+      button('Accept exact bounded porter delivery order', 'acceptOrder', { expected: view.proposal }, !FieldPorter.canOrder(s, c, state.clock));
+    }
     button('Ask porter for personal report', 'report', {}, !c.near || c.busy);
     button('Cancel porter delivery here', 'cancel', {}, !c.near || c.busy);
     button('Ask porter to withdraw', 'withdraw', {}, !c.near || c.busy);
     button('Settle returned porter shift here', 'settle', {}, !c.near || !c.atGround || c.busy);
     for (const key of ['drinkingWater', 'trailMeal']) button(`Give porter one ${inventoryItemLabel(key)}`, 'provision', { key }, !c.near || c.busy);
     if (c.near && FieldPorter.control(s, c)) for (const i of ensurePhysicalItemStacks().filter(i => ForeignEscortHauling.eligible(i) && !i.carriedBy && !i.reservedTaskId
-      && i.roomId === scientistRoomId() && mapCellDistance(i.cell, scientistMapCell()) <= 5 && sensoryLineOfSight(scientistMapCell(), i.cell)))
-      button(`Instruct porter: one ${physicalStackLabel(i)} (${i.id})`, 'assign', { stackId: i.id }, !fieldPorterContext(s, i, true).carryOk || s.job?.status === 'working');
+      && i.roomId === scientistRoomId() && mapCellDistance(i.cell, scientistMapCell()) <= 5 && sensoryLineOfSight(scientistMapCell(), i.cell))) {
+      const ic = fieldPorterContext(s, i, true);
+      button(`Instruct porter: one ${physicalStackLabel(i)} (${i.id})`, 'assign', { stackId: i.id }, !ic.carryOk || s.job?.status === 'working');
+      button(`Append porter delivery: one ${physicalStackLabel(i)} (${i.id})`, 'append', { stackId: i.id },
+        !FieldPorter.canOrder(s, c, state.clock) || !ic.carryOk || (view.proposal?.rows.length || 0) >= 4
+          || (view.proposal?.rows.filter(r => r.sourceId === i.id).length || 0) >= i.quantity);
+    }
     renderFieldEmployeeRecovery(panel, s);
     return panel;
   }
