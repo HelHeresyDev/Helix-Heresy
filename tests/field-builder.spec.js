@@ -193,3 +193,39 @@ test('damage to completed repair targets never retargets or cancels the remainin
   const f = repairFixture(); hire(f); tick(f, 45); expect(f.s.contract.index).toBe(1);
   f.targets[0].present = false; tick(f, 150); expect(f.s.contract.completed).toHaveLength(4); expect(f.s.phase).toBe('onSite');
 });
+function reconstructionFixture() {
+  const f = repairFixture();
+  f.offer = Builder.order(Builder.components(f.offer).map(p => {
+    const target = { ...p.target, present: false, condition: null, stamp: null, installationKey: `old:${p.part.id}`, footprintKey: 'empty', goodsRemain: false };
+    return { ...p, operation: 'reconstruct', target, targetKey: Station.targetKey({ target }) };
+  }));
+  f.targets = copy(Builder.components(f.offer).map(p => p.target)); return f;
+}
+test('reconstruction-only orders bind distinct missing originals and reject mixed entries, orphan goods or unbound footprints', () => {
+  const f = reconstructionFixture(), rows = Builder.components(f.offer); expect(rows).toHaveLength(4);
+  for (const change of [{ operation: 'build' }, { operation: 'repair' }, { targetKey: 'stale' },
+    ...[{ present: true }, { original: false }, { installationKey: '' }, { footprintKey: '' }, { goodsRemain: true }].map(t => {
+      const target = { ...rows[1].target, ...t }; return { target, targetKey: Station.targetKey({ target }) };
+    })]) expect(Builder.order([rows[0], { ...copy(rows[1]), ...change }])).toBeNull();
+  expect(Builder.order([rows[0], rows[0]])).toBeNull(); expect(Builder.order([...rows, { ...rows[0], part: { id: 'fifth' } }])).toBeNull();
+  const q = Builder.review(f.s, f.c, f.offer, 0), changed = copy(rows);
+  changed[1].target.installationKey = 'new-original'; changed[1].targetKey = Station.targetKey(changed[1]);
+  expect(Builder.hire(f.s, f.c, Builder.order(changed), q, f.wallet, 1, () => ({}))).toBe(false); expect(f.wallet.money).toBe(500);
+});
+test('reconstruction completion records only explicit full-condition replacements with one original clock and no remote knowledge', () => {
+  const f = reconstructionFixture(); hire(f); const known = Builder.publicView(f.s); f.c.near = false;
+  tick(f, 45); const started = f.s.contract.startedAt; f.s = copy(f.s); tick(f, 150);
+  expect(f.s.contract.completed.map(p => p.restoredCondition)).toEqual([100, 100, 100, 100]);
+  expect(f.s.history.filter(r => r.kind === 'reconstructed')).toHaveLength(4); expect(f.s.contract.startedAt).toBe(started);
+  expect(f.wallet.money).toBe(412); expect(Builder.publicView(f.s)).toEqual(known);
+  tick(f, 30); expect(f.builds).toBe(4); expect(Builder.complete(f.s, f.now)).toBe(false);
+});
+test('changed reconstruction footprints stop unfinished work during travel, care or a saved partial order without undoing completed work', () => {
+  for (const phase of ['arriving', 'care', 'working']) {
+    const f = reconstructionFixture(); hire(f); if (phase !== 'arriving') tick(f, 45);
+    f.s = copy(f.s); f.c.care = phase === 'care'; const completed = copy(f.s.contract.completed);
+    f.targets[f.s.contract.index].footprintKey = 'new-property'; tick(f);
+    expect(['returning', 'awaitingSettlement']).toContain(f.s.phase); expect(f.s.contract.reason).toContain('fresh consent');
+    expect(f.s.contract.completed).toEqual(completed); expect(f.releases).toBeGreaterThan(0);
+  }
+});

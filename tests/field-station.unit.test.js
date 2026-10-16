@@ -181,6 +181,55 @@ function delegatedRepair(kind = 'wall') {
   for (const t of f.tools) { t.tool.carriedBy = f.c.actorId; t.stack.carriedBy = f.c.actorId; }
   return f;
 }
+function delegatedReconstruction(kind = 'wall') {
+  const f = delegatedRepair(kind); f.c.target.present = false; f.c.target.condition = f.c.target.stamp = null;
+  f.c.target.installationKey = Station.installationKey(f.saved, f.part.id); f.c.target.footprintKey = 'empty-original-footprint';
+  f.c.commission = { operation: 'reconstruct', partId: f.part.id, targetKey: Station.targetKey(f.c) };
+  return f;
+}
+test('delegated reconstruction needs exact missing history and footprint, full original recipes and surviving supports', () => {
+  for (const kind of ['floor', 'wall', 'roof', 'door', 'cache']) {
+    const f = delegatedReconstruction(kind), j = maintenance(f, 'reconstruct');
+    assert.deepEqual(Station.workPart(f.saved, f.part.id, 'reconstruct'), f.part);
+    assert.deepEqual(j.inputs.map(i => [i.key, i.quantity]), Object.entries(f.part.costs));
+    assert.equal(j.from, 0); assert.equal(j.operation, 'reconstruct');
+    for (const commission of [null, { ...f.c.commission, operation: 'repair' }, { ...f.c.commission, partId: 'unrelated' }, { ...f.c.commission, targetKey: 'changed' }])
+      assert(Station.reason(f.saved, j, { ...f.c, commission }, f.tools, f.stacks));
+    if (kind !== 'floor') assert(Station.reason(f.saved, j, { ...f.c, floorsIntact: false }, f.tools, f.stacks));
+    if (kind === 'cache') assert(Station.reason(f.saved, j, { ...f.c, target: { ...f.c.target, goodsRemain: true } }, f.tools, f.stacks));
+    assert(Station.reason(f.saved, j, { ...f.c, target: { ...f.c.target, present: true } }, f.tools, f.stacks));
+  }
+});
+test('reconstruction completion retains previous installation identity and attributes a private new receipt exactly once', () => {
+  const f = delegatedReconstruction('cache'), original = copy(f.saved.site.parts[f.part.id]), j = maintenance(f, 'reconstruct');
+  Station.advance(f.saved, j, f.c, f.tools, f.stacks, 1); Station.advance(f.saved, j, f.c, f.tools, f.stacks, 101);
+  assert(Station.finish(f.saved, j, f.c, f.tools, f.stacks, 101, 'new-empty-cache'));
+  assert.equal(f.saved.site.parts[f.part.id].physicalId, 'new-empty-cache');
+  assert.equal(f.saved.site.parts[f.part.id].previousInstallation.physicalId, original.physicalId);
+  assert.equal(f.saved.site.parts[f.part.id].actorId, 'builder:b');
+  assert(!Station.publicView(f.saved).history.some(r => r.operation === 'reconstruct'));
+  assert(!Station.finish(f.saved, j, f.c, f.tools, f.stacks, 102, 'duplicate'));
+});
+test('unchanged cancelled reconstruction effort survives saves; changed history or footprint permanently invalidates it', () => {
+  for (const changed of ['history', 'footprint']) {
+    let f = delegatedReconstruction(), j = maintenance(f, 'reconstruct');
+    Station.advance(f.saved, j, f.c, f.tools, f.stacks, 1); Station.advance(f.saved, j, f.c, f.tools, f.stacks, 51);
+    ({ f, j } = copy({ f, j })); f.tools.forEach(t => t.stack = f.stacks.find(i => i.id === t.stack.id));
+    assert.equal(Station.effort(f.saved, f.part.id, 'reconstruct', f.c), .5);
+    if (changed === 'history') {
+      f.saved.site.parts[f.part.id].at = 2;
+      assert.match(Station.reason(f.saved, j, f.c, f.tools, f.stacks), /installation record changed/);
+      f.c.target.installationKey = Station.installationKey(f.saved, f.part.id);
+    } else f.c.target.footprintKey = 'unrelated-new-property';
+    Station.advance(f.saved, j, f.c, f.tools, f.stacks, 52); assert.equal(j.invalidated, true);
+    assert.equal(Station.effort(f.saved, f.part.id, 'reconstruct', f.c), 0);
+    Station.cancel(f.saved, j, f.tools, f.stacks, 52); assert.equal(j.status, 'cancelled');
+  }
+  const f = delegatedReconstruction(), j = maintenance(f, 'reconstruct');
+  Station.advance(f.saved, j, f.c, f.tools, f.stacks, 1); Station.advance(f.saved, j, f.c, f.tools, f.stacks, 51);
+  Station.cancel(f.saved, j, f.tools, f.stacks, 51);
+  assert.equal(maintenance(f, 'reconstruct').from, .5);
+});
 test('delegated maintenance authorizes only the exact signed repair, original target and actual worker tools', () => {
   const f = delegatedRepair(), j = maintenance(f);
   for (const commission of [null, { ...f.c.commission, operation: 'build' }, { ...f.c.commission, partId: 'another' }, { ...f.c.commission, targetKey: 'changed' }])

@@ -69,11 +69,20 @@
     if (!t.original) return 'The original component or clear original footprint is required; unrelated property cannot be replaced.';
     if (operation === 'repair') return !t.present ? 'The original component is missing; reconstruct it instead.'
       : !(t.condition >= 0 && t.condition < 100) ? 'The component is already at full condition.' : '';
+    if (t.installationKey && t.installationKey !== installationKey(s, part.id)) return 'The original installation record changed; inspect the missing footprint again.';
     return t.present ? 'A surviving component must be repaired, not replaced.'
       : part.kind === 'cache' && t.goodsRemain ? 'Physically recover all goods from the missing original crate before replacing it.' : '';
   }
   function effortKey(partId, operation = 'build') { return operation === 'build' ? partId : `${operation}:${partId}`; }
-  function targetKey(c) { return JSON.stringify([c.target?.id, c.target?.present, c.target?.condition, c.target?.stamp]); }
+  function installationKey(s, partId) {
+    const r = s?.site?.parts[partId];
+    return r ? JSON.stringify([r.physicalId, r.at, r.taskId || null]) : '';
+  }
+  function targetKey(c) {
+    const t = c.target, fields = [t?.id, t?.present, t?.condition, t?.stamp];
+    if (t?.installationKey) fields.push(t.installationKey, t.footprintKey);
+    return JSON.stringify(fields);
+  }
   function clearChangedEffort(s, partId, target) {
     for (const operation of ['repair', 'reconstruct']) {
       const k = effortKey(partId, operation), e = s.site?.maintenanceEffort?.[k];
@@ -86,8 +95,9 @@
   function commissionAllows(c, partId, operation) {
     if (!c.actorId || c.actorId === 'scientist') return true;
     if (operation === 'build') return !c.commission || c.commission.operation === 'build' && c.commission.partId === partId;
-    return operation === 'repair' && c.employmentAuthorized && c.commission?.operation === 'repair'
-      && c.commission.partId === partId && c.commission.targetKey === targetKey(c);
+    return ['repair', 'reconstruct'].includes(operation) && c.employmentAuthorized && c.commission?.operation === operation
+      && c.commission.partId === partId && c.commission.targetKey === targetKey(c)
+      && (operation !== 'reconstruct' || Boolean(c.target?.installationKey && c.target?.footprintKey));
   }
   function effort(s, partId, operation = 'build', c = {}) {
     if (operation === 'build') return s.site?.effort[partId] || 0;
@@ -185,6 +195,11 @@
     if (!physicalId || (j?.operation === 'repair' && physicalId !== j.target?.id) || !ready(s, j, c, tools, stacks)) return false;
     const receipt = { at: now, actorId: j.actorId || 'scientist', taskId: j.taskId, partId: j.partId, physicalId, operation: j.operation || 'build',
       target: copy(j.target || null), inputs: copy(j.inputs), tools: copy(j.tools) };
+    if (receipt.operation === 'reconstruct') {
+      const previous = s.site.parts[j.partId];
+      receipt.previousInstallation = { at: previous.at, physicalId: previous.physicalId, taskId: previous.taskId || null,
+        actorId: previous.actorId || 'scientist', operation: previous.operation || 'build' };
+    }
     if (receipt.operation !== 'repair') { s.site.parts[j.partId] = receipt; s.site.effort[j.partId] = 1; }
     if (s.site.maintenanceEffort) delete s.site.maintenanceEffort[effortKey(j.partId, receipt.operation)];
     s.history.push(receipt);
@@ -204,5 +219,5 @@
       receipts: copy(Object.values(s.site.parts).filter(known)), history: copy(s.history.filter(known)),
       limitation: 'Dated supply hut records, not live remote inventory, land title, sovereignty, safety, staffing or transport rights.' } : null;
   }
-  return { create, layout, homeSupply, accessReason, register, prerequisite, workPart, maintenanceReason, targetKey, clearChangedEffort, inspectTarget, effort, plan, begin, reason, advance, ready, finish, cancel, observe, publicView };
+  return { create, layout, homeSupply, accessReason, register, prerequisite, workPart, maintenanceReason, installationKey, targetKey, clearChangedEffort, inspectTarget, effort, plan, begin, reason, advance, ready, finish, cancel, observe, publicView };
 });
