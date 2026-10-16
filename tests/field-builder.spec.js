@@ -229,3 +229,51 @@ test('changed reconstruction footprints stop unfinished work during travel, care
     expect(f.s.contract.completed).toEqual(completed); expect(f.releases).toBeGreaterThan(0);
   }
 });
+
+function logFixture() {
+  const f = batchFixture(1), input = { id: 'original-log', cell: cell(25) }, signature = 'exact-original-log-signature';
+  f.offer = { ...f.offer, operation: 'saw', from: 0, inputId: input.id, inputSignature: signature, targetKey: signature,
+    part: Builder.logPart(input), tools: [{ key: 'handSaw', toolId: 'original-saw', stackId: 'saw-stack' }],
+    inputs: [{ stackId: input.id, key: 'fieldLog', quantity: 1 }] };
+  f.hooks.targetsValid = () => !f.changed;
+  const working = f.hooks.work;
+  f.hooks.work = () => {
+    if (f.s.job && f.s.job.progress === 19) f.s.job.receipt = { actorId: f.s.actor.id, taskId: Builder.claimId(f.s), inputId: input.id,
+      outputs: [{ id: 'lumber', key: 'lumber', quantity: 2 }, { id: 'debris', key: 'woodDebris', quantity: 1 }] };
+    working();
+  };
+  return f;
+}
+test('one-log consent is separate, cannot batch or mix with construction, and binds its exact inputs and loan', () => {
+  const f = logFixture(); expect(Builder.validOrder(f.offer)).toBeTruthy();
+  for (const change of [{ components: [f.offer] }, { inputId: 'substitute' }, { targetKey: 'stale' }, { from: 1 },
+    { part: { ...f.offer.part, seconds: 1 } },
+    { tools: [{ ...f.offer.tools[0], key: 'masonryHammer' }] }, { inputs: [{ stackId: f.offer.inputId, quantity: 2 }] }])
+    expect(Builder.validOrder({ ...f.offer, ...change })).toBeFalsy();
+  expect(Builder.order([f.offer, { ...f.offer, part: { ...f.offer.part, id: 'other' } }])).toBeNull();
+  expect(Builder.order([fixture().offer, f.offer])).toBeNull();
+  const q = Builder.review(f.s, f.c, f.offer, 0); expect(q).toMatchObject({ fee: 40, reserve: 48, seconds: 7200 });
+  expect(Builder.hire(f.s, f.c, { ...f.offer, inputSignature: 'other', targetKey: 'other' }, q, f.wallet, 1, () => ({}))).toBe(false);
+  expect(f.wallet.money).toBe(500);
+});
+test('one-log processing records exactly one private output receipt without a second job or new wage clock', () => {
+  const f = logFixture(); hire(f); const known = Builder.publicView(f.s); f.c.near = false; tick(f, 100);
+  expect(f.s.contract.completed).toHaveLength(1); expect(f.s.contract.completed[0]).toMatchObject({ operation: 'saw', inputId: 'original-log' });
+  expect(f.s.contract.completed[0].outputs.map(o => o.quantity)).toEqual([2, 1]);
+  expect(f.s.history.at(-1).kind).toBe('sawn'); expect(f.s.contract.completed[0].restoredCondition).toBeUndefined();
+  const started = f.s.contract.startedAt; tick(f, 50); expect(f.builds).toBe(1); expect(f.s.contract.startedAt).toBe(started);
+  expect(Builder.publicView(f.s)).toEqual(known); expect(Builder.complete(f.s, f.now)).toBe(false);
+  f.c.near = true; expect(Builder.receive(f.s, f.c, f.now)).toBe(true); expect(f.s.received.completed).toHaveLength(1);
+});
+test('changed original processing input withdraws during arrival or care, with normal finite-budget and death rules', () => {
+  for (const care of [false, true]) {
+    const f = logFixture(); hire(f); if (care) tick(f, 15);
+    f.c.care = care; f.changed = true; tick(f); expect(['returning', 'awaitingSettlement']).toContain(f.s.phase);
+    expect(f.s.contract.completed).toEqual([]); expect(f.s.contract.reason).toContain('fresh consent');
+  }
+  const f = logFixture(); hire(f); tick(f, 15); f.c.care = true;
+  const progress = f.s.job.progress; tick(f, 30); expect(f.s.job.progress).toBe(progress);
+  f.c.alive = false; const before = copy(f.s); tick(f, 30); expect(f.s).toEqual(before);
+  f.c.alive = true; Builder.advance(f.s, f.c, f.hooks, f.now = f.s.contract.startedAt + 7200);
+  expect(f.s.phase).toBe('returning'); expect(f.s.contract.earned).toBe(48);
+});

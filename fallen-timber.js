@@ -40,6 +40,8 @@
   function accessReason(c) {
     if (!c.wilderness || c.controlled) return 'Municipal sampling permission is not timber extraction permission; use unoccupied wilderness ground.';
     if (!c.alive || !c.capable || !c.free) return 'A living, free, capable scientist must personally work.';
+    if (c.actorId && c.actorId !== 'scientist' && (!c.employmentAuthorized || c.commission?.operation !== 'saw'))
+      return 'The original craftsperson needs a separate authorized one-log processing agreement.';
     if (!c.groundPresent) return 'The original reachable natural working ground is no longer available.';
     return '';
   }
@@ -51,16 +53,21 @@
   function plan(site, node, action, c, tools, stacks, input = null) {
     if (!site || !SECONDS[action] || accessReason(c) || c.worldId !== site.worldId || c.siteId !== site.siteId
       || c.roomId !== site.roomId || c.busy || !c.reachable || !c.visible || c.threatened) return null;
-    if (action === 'saw') { if (!validLog(input, site, c)) return null; }
+    const delegated = c.actorId && c.actorId !== 'scientist', carrier = c.actorId || 'scientist', claim = delegated ? c.claimId : '';
+    if (delegated && (action !== 'saw' || c.commission.inputId !== input?.id || c.commission.targetKey !== logSignature(input))) return null;
+    if (action === 'saw') { if (!validLog(input, site, c, claim)) return null; }
     else if (!site.nodes.includes(node) || !source(site, node, stacks) || node.remaining <= 0
       || action === 'inspect' && node.inspected || action === 'cut' && !node.inspected?.workable) return null;
     const retained = Math.max(0, Math.min(.999999, effort(site, node, action, input)));
     const wear = Math.ceil(WEAR[action] * (1 - retained));
-    const selected = wear ? tools.find(t => t.key === 'handSaw' && t.tool?.current >= wear && !t.tool.reservedTaskId
-      && t.tool.carriedBy === 'scientist' && t.stack.carriedBy === 'scientist' && t.stack.quantity === 1
-      && !t.stack.reservedTaskId && t.stack.key === 'handSaw' && t.stack.toolInstanceId === t.tool.id) : null;
+    const selected = wear ? tools.find(t => t.key === 'handSaw' && t.tool?.current >= wear && t.tool.reservedTaskId === claim
+      && t.tool.carriedBy === carrier && t.stack.carriedBy === carrier && t.stack.quantity === 1
+      && t.stack.reservedTaskId === claim && t.stack.key === 'handSaw' && t.stack.toolInstanceId === t.tool.id
+      && (!delegated || c.commission.toolId === t.tool.id && c.commission.toolStackId === t.stack.id)) : null;
     if (wear && !selected || !(c.seconds > 0) || !(c.staminaCost >= 0) || c.stamina < c.staminaCost) return null;
-    return { action, siteId: site.siteId, worldId: site.worldId, nodeId: node?.id || '', sourceStackId: node?.stackId || '',
+    return { action, ...(delegated ? { actorId: carrier, operation: 'saw', partId: c.commission.partId, targetKey: logSignature(input),
+        tools: [{ toolId: selected.tool.id, stackId: selected.stack.id }] } : {}),
+      siteId: site.siteId, worldId: site.worldId, nodeId: node?.id || '', sourceStackId: node?.stackId || '',
       sourceRemaining: node?.remaining, inputId: input?.id || '', inputSignature: action === 'saw' ? logSignature(input) : '',
       bodyEpoch: c.bodyEpoch, visitId: c.visitId || '', tripId: c.tripId || '', roomId: c.roomId, workCell: copy(c.workCell),
       retained, required: c.seconds * (1 - retained), staminaCost: c.staminaCost,
@@ -80,6 +87,10 @@
     if (!site || c.worldId !== job.worldId || site.worldId !== job.worldId || site.siteId !== job.siteId || c.siteId !== job.siteId
       || c.roomId !== job.roomId || c.bodyEpoch !== job.bodyEpoch || (c.visitId || '') !== job.visitId || (c.tripId || '') !== job.tripId)
       return 'Only the original body, world, site, visit and physical trip can continue this task.';
+    if ((job.actorId || 'scientist') !== (c.actorId || 'scientist') || job.actorId && job.actorId !== 'scientist'
+      && (job.action !== 'saw' || c.commission?.inputId !== job.inputId || c.commission?.targetKey !== job.inputSignature
+        || c.commission?.toolId !== job.toolId || c.commission?.toolStackId !== job.toolStackId))
+      return 'Only the original authorized worker, log and loaned saw can continue.';
     const node = site.nodes.find(n => n.id === job.nodeId), input = stacks.find(s => s.id === job.inputId);
     if (job.action === 'saw') {
       if (!validLog(input, site, c, job.taskId) || logSignature(input) !== job.inputSignature)
@@ -90,7 +101,7 @@
     if (job.toolId) {
       const t = tools.find(t => t.tool?.id === job.toolId && t.stack.id === job.toolStackId);
       if (!t || t.stack.quantity !== 1 || t.stack.key !== 'handSaw' || t.stack.toolInstanceId !== job.toolId
-        || t.stack.carriedBy !== 'scientist' || t.tool.carriedBy !== 'scientist'
+        || t.stack.carriedBy !== (job.actorId || 'scientist') || t.tool.carriedBy !== (job.actorId || 'scientist')
         || t.stack.reservedTaskId !== job.taskId || t.tool.reservedTaskId !== job.taskId || t.tool.current < job.wear - job.wearApplied)
         return 'The exact original carried hand saw, its claim and remaining durability are required.';
     }
@@ -137,7 +148,7 @@
       input.updatedAt = now;
       delete site.sawEffort[job.inputId];
     }
-    const receipt = { at: now, taskId: job.taskId, action: job.action, worldId: site.worldId, siteId: site.siteId,
+    const receipt = { at: now, taskId: job.taskId, actorId: job.actorId || 'scientist', action: job.action, worldId: site.worldId, siteId: site.siteId,
       nodeId: job.nodeId, inputId: job.inputId, cell: copy(job.workCell), outputs: copy(outputs), exhausted: node ? node.remaining === 0 : false };
     site.receipts.push(receipt); if (node) node.receipts.push(receipt);
     job.status = 'completed'; job.receipt = receipt; release(job, tools, stacks); return receipt;
@@ -150,7 +161,7 @@
     return { siteId: site?.siteId, observations: (site?.nodes || []).filter(n => n.inspected).map(n => ({
       id: n.id, cell: copy(n.cell), at: n.inspected.at, receipts: copy(n.receipts),
       summary: n.receipts.at(-1)?.exhausted ? 'Original fallen trunk exhausted.' : 'Inspected workable fallen timber; no regional reserves established.'
-    })), receipts: copy(site?.receipts || []), limitation: 'Dated personal evidence, not live remote stocks, land ownership, forestry rights or automatic regrowth.' };
+    })), receipts: copy((site?.receipts || []).filter(r => !r.actorId || r.actorId === 'scientist')), limitation: 'Dated personal evidence, not live remote stocks, land ownership, forestry rights or automatic regrowth.' };
   }
-  return { SECONDS, WEAR, LOG, create, sourceClaim, source, logSignature, accessReason, plan, begin, reason, advance, finish, cancel, publicView };
+  return { SECONDS, WEAR, LOG, create, sourceClaim, source, logSignature, validLog, effort, accessReason, plan, begin, reason, advance, finish, cancel, publicView };
 });

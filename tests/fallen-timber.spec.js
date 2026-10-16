@@ -122,3 +122,46 @@ test('no outputs without final attendance and all physical outputs; final stroke
   const g = fixture('saw'), k = start(g); g.tools[0].tool.current = 1;
   work(g, k, 100000); expect(k.progress).toBe(0); expect(g.tools[0].tool.current).toBe(1);
 });
+
+function delegatedFixture() {
+  const f = fixture('saw'), carrier = 'original-builder', claim = 'field-build:one';
+  Object.assign(f.c, { actorId: carrier, employmentAuthorized: true, claimId: claim, commission: {
+    operation: 'saw', inputId: f.input.id, partId: 'log:log', targetKey: Timber.logSignature(f.input), toolId: 'saw', toolStackId: 'saw-stack' } });
+  f.input.reservedTaskId = claim;
+  for (const object of [f.tools[0].tool, f.tools[0].stack]) Object.assign(object, { carriedBy: carrier, reservedTaskId: claim });
+  return f;
+}
+function delegatedStart(f) {
+  const p = Timber.plan(f.site, null, 'saw', f.c, f.tools, f.stacks, f.input); expect(p).toBeTruthy();
+  return Timber.begin(p, f.c.claimId, 0, f.tools, f.stacks);
+}
+test('delegated processing requires separate exact authority, original carried loan and one reserved log; never extraction', () => {
+  const f = delegatedFixture();
+  for (const change of [{ employmentAuthorized: false }, { actorId: 'replacement' }, { claimId: 'other' },
+    ...[{ operation: 'build' }, { inputId: 'other' }, { targetKey: 'stale' }, { toolId: 'other' }, { toolStackId: 'other' }]
+      .map(v => ({ commission: { ...f.c.commission, ...v } }))])
+    expect(Timber.plan(f.site, null, 'saw', { ...f.c, ...change }, f.tools, f.stacks, f.input)).toBeNull();
+  expect(Timber.plan(f.site, f.node, 'cut', f.c, f.tools, f.stacks)).toBeNull();
+  const j = delegatedStart(f); expect(j).toMatchObject({ actorId: 'original-builder', operation: 'saw', partId: 'log:log', targetKey: f.c.commission.targetKey });
+  expect(Timber.reason(f.site, j, { ...f.c, actorId: 'scientist' }, f.tools, f.stacks)).toContain('original authorized worker');
+});
+test('delegated saved partial work pauses without backfill, finishes once with original wear and stays out of personal timber evidence', () => {
+  let f = delegatedFixture(), j = delegatedStart(f); work(f, j, 51);
+  ({ f, j } = copy({ f, j })); f.input = f.stacks.find(i => i.id === 'log');
+  Timber.advance(f.site, j, { ...f.c, groundPresent: false }, f.tools, f.stacks, 1000);
+  Timber.advance(f.site, j, f.c, f.tools, f.stacks, 1001); expect(j.progress).toBe(50);
+  Timber.advance(f.site, j, f.c, f.tools, f.stacks, 1051);
+  expect(Timber.finish(f.site, j, f.c, f.tools, f.stacks, 1051, output('saw'))).toBeTruthy();
+  expect(f.tools[0].tool.current).toBe(32); expect(f.input.quantity).toBe(0); expect(f.site.receipts).toHaveLength(1);
+  expect(Timber.publicView(f.site).receipts).toEqual([]);
+  expect(Timber.finish(f.site, j, f.c, f.tools, f.stacks, 2000, output('saw'))).toBeNull();
+});
+test('cancelled delegated work retains log progress and spent wear for a fresh personally supplied task', () => {
+  const f = delegatedFixture(), j = delegatedStart(f); work(f, j, 51);
+  expect(Timber.cancel(j, f.tools, f.stacks, 51)).toBe(true); expect(f.input.quantity).toBe(1);
+  f.c.actorId = 'scientist'; delete f.c.commission; delete f.c.claimId;
+  for (const object of [f.tools[0].tool, f.tools[0].stack]) object.carriedBy = 'scientist';
+  const resumed = start(f); expect(resumed.retained).toBe(.5); expect(resumed.wear).toBe(4);
+  work(f, resumed, 51); expect(Timber.finish(f.site, resumed, f.c, f.tools, f.stacks, 51, output('saw'))).toBeTruthy();
+  expect(f.tools[0].tool.current).toBe(32);
+});
