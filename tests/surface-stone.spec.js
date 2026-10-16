@@ -16,7 +16,7 @@ function fixture() {
 }
 function start(f, action = 'recover') {
   if (action === 'recover') f.node.inspected = { at: 0, workable: true, bodyEpoch: 1 };
-  return Stone.begin(Stone.plan(f.site, f.node, action, f.c, f.tools), 'task-1', 0, f.tools);
+  return Stone.begin(Stone.plan(f.site, f.node, action, f.c, f.tools), 'task-1', 0, f.tools, f.site);
 }
 test('finite stone uses actual world/site/exposed geography and no survey or reload roll', () => {
   const f = fixture(), before = copy(f);
@@ -88,7 +88,7 @@ test('actual partial work wears tools, real save retains claims, completion depl
 test('cancellation retains spent wear, consumes no stone and releases both claims without output', () => {
   const f = fixture(), j = start(f), initial = f.node.remaining;
   Stone.advance(f.site, j, f.c, f.tools, 1); Stone.advance(f.site, j, f.c, f.tools, 51);
-  expect(Stone.cancel(j, f.tools, 51)).toBe(true); expect(Stone.cancel(j, f.tools, 52)).toBe(false);
+  expect(Stone.cancel(j, f.tools, 51, f.site)).toBe(true); expect(Stone.cancel(j, f.tools, 52, f.site)).toBe(false);
   expect(f.tools.map(t => t.tool.current)).toEqual([48, 47]); expect(f.node.remaining).toBe(initial);
   expect(Stone.finish(f.site, j, f.c, f.tools, 200, 'never')).toBeNull(); expect(f.node.receipts).toEqual([]);
   expect(f.tools.every(t => !t.tool.reservedTaskId && !t.stack.reservedTaskId)).toBe(true);

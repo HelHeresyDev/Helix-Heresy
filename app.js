@@ -17104,9 +17104,10 @@
       fieldBuilderSnapshot: () => {
         const s = foreignSurveyAtField()?.builder || fieldBuilderStates()[0];
         const sawing = FieldBuilder.timberOrder(s?.contract?.offer);
-        const c = s?.job && (sawing ? fieldBuilderTimberContext(s) : fieldStationContext(FieldBuilder.currentOffer(s).part, fieldBuilderTask(s), FieldBuilder.operation(FieldBuilder.currentOffer(s)), s));
+        const stone = s?.contract?.offer.operation === 'recoverStone';
+        const c = s?.job && (stone ? fieldBuilderStoneContext(s) : sawing ? fieldBuilderTimberContext(s) : fieldStationContext(FieldBuilder.currentOffer(s).part, fieldBuilderTask(s), FieldBuilder.operation(FieldBuilder.currentOffer(s)), s));
         return clonePlainObject({ saved: s || null, known: FieldBuilder.publicView(s), context: s ? fieldBuilderContext(s, true) : null,
-          workContext: c || null, workReason: c && (sawing ? FallenTimber.reason(state.fallenTimber.sites[s.contract.site.siteId], s.job, c, fallenTimberTools(), ensurePhysicalItemStacks()) : FieldStation.reason(state.fieldStation, s.job, c, c.tools, ensurePhysicalItemStacks())),
+          workContext: c || null, workReason: c && (stone ? SurfaceStone.reason(state.surfaceStone.sites[s.contract.site.siteId], s.job, c, surfaceStoneTools()) : sawing ? FallenTimber.reason(state.fallenTimber.sites[s.contract.site.siteId], s.job, c, fallenTimberTools(), ensurePhysicalItemStacks()) : FieldStation.reason(state.fieldStation, s.job, c, c.tools, ensurePhysicalItemStacks())),
           actor: s?.actor, inventory: s ? actorInventorySnapshot(s.actor.id) : null, money: ensureEconomy().money,
           stacks: ensurePhysicalItemStacks(), tools: fieldStationTools(), station: state.fieldStation, clock: state.clock,
           scientistCell: scientistMapCell(), scientistRoom: scientistRoomId(), tasks: scientistQueueTasks() });
@@ -69436,7 +69437,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.type === "surveyExpeditionWork") {
       if (task.data?.fieldStationWork) FieldStation.cancel(state.fieldStation, task.data.fieldStationWork, fieldStationTools(), ensurePhysicalItemStacks(), state.clock);
       if (task.data?.fieldStationTransfer) releaseProductionMaterialReservations(task);
-      if (task.data?.stoneWork) SurfaceStone.cancel(task.data.stoneWork, surfaceStoneTools(), state.clock);
+      if (task.data?.stoneWork) SurfaceStone.cancel(task.data.stoneWork, surfaceStoneTools(), state.clock, state.surfaceStone?.sites[task.data.stoneWork.siteId]);
       if (task.data?.timberWork) FallenTimber.cancel(task.data.timberWork, fallenTimberTools(), ensurePhysicalItemStacks(), state.clock);
       if (task.data?.action === 'foreignEscortRepair') {
         const saved = foreignEscortRepairState(task);
@@ -87462,6 +87463,50 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       && FallenTimber.logSignature(input) === offer.inputSignature && sameMapCell(input.cell, offer.part.cell)
       && !input.chemicalBatch && !(input.tags || []).some(t => /living|soul|toxic|hazard|contaminat|volatile|waste/i.test(t)));
   }
+  function fieldBuilderStoneValid(s, offer, claimed = false) {
+    const site = state.surfaceStone?.sites[offer.site.siteId], node = site?.nodes.find(n => n.id === offer.nodeId);
+    if (!site || site.worldId !== offer.site.worldId || !node) return false;
+    const present = wildernessObstacleAtCell(node.cell); SurfaceStone.observeFace(node, present);
+    return Boolean(present && node.inspected?.workable && node.remaining > 0 && SurfaceStone.targetKey(node) === offer.targetKey
+      && JSON.stringify(offer.part) === JSON.stringify(FieldBuilder.stonePart(node))
+      && (node.commissionClaim || '') === (claimed ? s.contract.id : '')
+      && (claimed || SurfaceStone.effort(node) === offer.from));
+  }
+  function fieldBuilderInspectStone(nodeId) {
+    const e = foreignSurveyAtField(), site = surfaceStoneSite(), cell = cleanMapCell(scientistMapCell()), node = site?.nodes.find(n => n.id === nodeId);
+    if (!e?.wilderness || !fieldStationLocal() || !state.fieldStation?.site || !node || surveyBusy() || !annexCapable()
+      || FieldBuilder.active(e.builder) || e.builder?.contract && e.builder.contract.settledAt == null) return false;
+    SurfaceStone.observeFace(node, wildernessObstacleAtCell(node.cell));
+    const offer = { at: state.clock, operation: 'recoverStone', nodeId, targetKey: SurfaceStone.targetKey(node), from: SurfaceStone.effort(node),
+      site: { worldId: site.worldId, siteId: site.siteId, roomId: scientistRoomId() }, part: FieldBuilder.stonePart(node), workCell: cell, inputs: [], tools: [] };
+    if (!fieldBuilderRecoveryGround(offer, state.scientist) || surfaceStoneContext(node, 'recover').threatened) return false;
+    for (const key of Object.keys(SurfaceStone.WEAR)) {
+      const t = surfaceStoneTools().find(t => t.key === key && t.tool && t.stack.quantity === 1 && t.tool.current >= FieldBuilder.toolWear(offer, key)
+        && !t.stack.carriedBy && !t.tool.carriedBy && !t.stack.reservedTaskId && !t.tool.reservedTaskId && !t.stack.cityOwnerId
+        && !t.stack.civicCustody && !t.stack.fixtureId && !t.stack.containerId && !t.stack.chemicalBatch
+        && !(t.stack.tags || []).some(t => /toxic|hazard|contaminat|volatile/i.test(t))
+        && t.stack.roomId === offer.site.roomId && t.tool.roomId === t.stack.roomId && mapCellDistance(t.stack.cell, cell) <= 1 && sensoryLineOfSight(cell, t.stack.cell));
+      if (!t) return false;
+      offer.tools.push({ key, toolId: t.tool.id, stackId: t.stack.id, condition: t.tool.current, cell: cleanMapCell(t.stack.cell) });
+    }
+    if (!fieldBuilderOfferValid(e.builder, offer)) return false;
+    e.builderProposal = offer; if (e.builder) { e.builder.proposal = clonePlainObject(offer); e.builder.quote = null; } return true;
+  }
+  function fieldBuilderStoneContext(s) {
+    const o = FieldBuilder.currentOffer(s), a = s.actor, e = fieldPorterExcursion(s), c = fieldEmployeeContext(s, null, false, fieldBuilderSource);
+    const node = state.surfaceStone?.sites[o.site.siteId]?.nodes.find(n => n.id === o.nodeId), cell = cleanMapCell(a.mapCell);
+    if (node) SurfaceStone.observeFace(node, wildernessObstacleAtCell(node.cell));
+    const reduction = skillReductionMultiplier(a.skills.materialsScience || 0);
+    return { ...o.site, roomId: a.roomId, cell, workCell: o.workCell, wilderness: Boolean(e?.wilderness), controlled: false,
+      actorId: a.id, employmentAuthorized: FieldBuilder.control(s, c) && !FieldBuilder.refusal(s, c), claimId: s.contract.id,
+      commission: { operation: 'recoverStone', nodeId: o.nodeId, targetKey: o.targetKey, partId: o.part.id, tools: o.tools },
+      bodyEpoch: c.bodyEpoch, visitId: c.visitId, tripId: c.tripId, alive: c.alive && a.status !== 'dead',
+      capable: c.capable && !c.incapacitated, free: !c.custody, busy: false, atHead: !a.porterCare, threatened: c.threatened,
+      reachable: sameMapCell(cell, o.workCell), visible: sensoryLineOfSight(cell, o.part.cell),
+      facePresent: Boolean(node && wildernessObstacleAtCell(node.cell) && fieldBuilderRecoveryGround(o, a)),
+      seconds: Math.max(1, Math.ceil(SurfaceStone.SECONDS.recover * reduction * (1 + injuryEffectTotals(a).work) * WildernessSurvival.fatigueMultiplier(a.needs))),
+      staminaCost: 8 * reduction, stamina: 100 - a.needs.exertion };
+  }
   function fieldBuilderRecoveryLog(s) {
     const o = s.contract.offer, log = s.contract.recovery?.log;
     return log ? { ...o, part: { ...o.part, cell: log.cell }, inputId: log.id, inputSignature: log.signature } : null;
@@ -87558,8 +87603,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const rows = FieldBuilder.components(offer), requested = new Map();
     for (let index = claimed ? s.contract.index || 0 : 0; index < rows.length; index++) {
       const p = rows[index], inputs = claimed ? s.contract.claims.inputs.filter(t => (t.componentIndex || 0) === index) : p.inputs;
-      const operation = FieldBuilder.operation(p), target = FieldBuilder.timberOrder(p) ? null : fieldStationTarget(p.part);
-      if (operation === 'recoverTimber') {
+      const operation = FieldBuilder.operation(p), target = FieldBuilder.resourceOrder(p) ? null : fieldStationTarget(p.part);
+      if (operation === 'recoverStone') {
+        if (!fieldBuilderStoneValid(s, p, claimed) || !claimed && !fieldBuilderRecoveryGround(p, state.scientist)) return false;
+      } else if (operation === 'recoverTimber') {
         if (!fieldBuilderRecoveryValid(s, p, claimed) || !claimed && !fieldBuilderRecoveryGround(p, state.scientist)) return false;
       } else if (operation === 'saw') {
         const input = ensurePhysicalItemStacks().find(i => i.id === p.inputId), timber = state.fallenTimber?.sites[p.site.siteId];
@@ -87635,6 +87682,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const physical = fieldPorterHooks(s), a = s.actor;
     return { ...physical, atWork: () => sameMapCell(a.mapCell, s.contract.drop),
       targetsValid: () => {
+        if (s.contract.offer.operation === 'recoverStone') return s.contract.finishedAt != null || fieldBuilderStoneValid(s, s.contract.offer, true);
         if (s.contract.offer.operation === 'recoverTimber') return s.contract.finishedAt != null || fieldBuilderRecoveryValid(s, s.contract.offer, true);
         if (FieldBuilder.operation(s.contract.offer) === 'saw') return s.contract.finishedAt != null || fieldBuilderLogValid(s.contract.offer, s.contract.id);
         // Enforce the signed original targets without publishing remote state.
@@ -87651,9 +87699,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }
         return valid;
       },
-      cancel: j => FieldBuilder.timberOrder(j) ? FallenTimber.cancel(j, fallenTimberTools(), ensurePhysicalItemStacks(), state.clock)
+      cancel: j => j.operation === 'recoverStone' ? SurfaceStone.cancel(j, surfaceStoneTools(), state.clock, state.surfaceStone?.sites[j.siteId])
+        : FieldBuilder.timberOrder(j) ? FallenTimber.cancel(j, fallenTimberTools(), ensurePhysicalItemStacks(), state.clock)
         : FieldStation.cancel(state.fieldStation, j, fieldStationTools(), ensurePhysicalItemStacks(), state.clock),
       release: k => { const claims = new Set([k.id, ...FieldBuilder.components(k.offer).map((p, n) => FieldBuilder.claimId(s, n))]);
+        const face = state.surfaceStone?.sites[k.site.siteId]?.nodes.find(n => n.id === k.offer.nodeId);
+        if (k.offer.operation === 'recoverStone' && face?.commissionClaim === k.id) face.commissionClaim = '';
         const node = state.fallenTimber?.sites[k.site.siteId]?.nodes.find(n => n.id === k.offer.nodeId);
         if (k.offer.operation === 'recoverTimber' && node?.commissionClaim === k.id) node.commissionClaim = '';
         for (const i of ensurePhysicalItemStacks()) if (claims.has(i.reservedTaskId)) i.reservedTaskId = '';
@@ -87677,6 +87728,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }
         if (!sameMapCell(a.mapCell, k.drop)) { k.pickup = null; if (s.job) s.job.attended = false; physical.move(k.drop); return; }
         const operation = FieldBuilder.operation(offer), task = fieldBuilderTask(s);
+        if (operation === 'recoverStone') {
+          const c = fieldBuilderStoneContext(s), site = state.surfaceStone.sites[offer.site.siteId], tools = surfaceStoneTools();
+          if (!s.job) {
+            const plan = SurfaceStone.plan(site, site.nodes.find(n => n.id === offer.nodeId), 'recover', c, tools);
+            if (!plan) { k.reason = 'Current natural work position, face access, original tools or worker capacity unavailable.'; return; }
+            s.job = SurfaceStone.begin(plan, FieldBuilder.claimId(s), state.clock, tools, site);
+            a.needs.exertion = Math.min(100, a.needs.exertion + plan.staminaCost); return;
+          }
+          SurfaceStone.advance(site, s.job, c, tools, state.clock); k.reason = SurfaceStone.reason(site, s.job, c, tools);
+          if (s.job.progress >= s.job.required && finishSurfaceStoneWork({ data: { stoneWork: s.job } }, s)) {
+            for (const loan of k.claims.tools) { const tool = toolInstanceById(loan.toolId).instance, i = ensurePhysicalItemStacks().find(i => i.id === loan.stackId);
+              if (i?.carriedBy === a.id && tool.carriedBy === a.id && !i.reservedTaskId && !tool.reservedTaskId) { i.reservedTaskId = k.id; tool.reservedTaskId = k.id; } }
+            FieldBuilder.complete(s, state.clock);
+          }
+          return;
+        }
         if (FieldBuilder.timberOrder(offer)) {
           const c = fieldBuilderTimberContext(s), site = state.fallenTimber.sites[offer.site.siteId], tools = fallenTimberTools();
           const action = c.commission.action;
@@ -87726,6 +87793,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const e = foreignSurveyAtField(); if (!e || scientistIsDead()) return false;
     if (action === 'inspectLog') { const ok = fieldBuilderInspectLog(options.stackId); persist(); render(); return ok; }
     if (action === 'inspectTimber') { const ok = fieldBuilderInspectRecovery(options.nodeId); persist(); render(); return ok; }
+    if (action === 'inspectStone') { const ok = fieldBuilderInspectStone(options.nodeId); persist(); render(); return ok; }
     if (['inspect', 'append', 'inspectRepair', 'appendRepair', 'inspectReconstruction', 'appendReconstruction'].includes(action)) {
       const ok = fieldBuilderInspect(options.partId, action.startsWith('append'), action.endsWith('Reconstruction') ? 'reconstruct' : action.endsWith('Repair') ? 'repair' : 'build');
       persist(); render(); return ok;
@@ -87755,6 +87823,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       for (const t of o.tools) { const i = ensurePhysicalItemStacks().find(i => i.id === t.stackId); i.reservedTaskId = id; toolInstanceById(t.toolId).instance.reservedTaskId = id; }
       if (o.operation === 'recoverTimber') state.fallenTimber.sites[o.site.siteId].nodes.find(n => n.id === o.nodeId).commissionClaim = id;
+      if (o.operation === 'recoverStone') state.surfaceStone.sites[o.site.siteId].nodes.find(n => n.id === o.nodeId).commissionClaim = id;
       return { inputs, tools: clonePlainObject(o.tools) };
     });
     if (action === 'report') result = FieldBuilder.receive(s, c, state.clock);
@@ -87771,11 +87840,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function renderFieldBuilderPanel() {
     const panel = document.createElement('section'); panel.dataset.fieldBuilder = 'true';
-    panel.append(textEl('h4', 'Bounded field-building, maintenance and timber commissions'), textEl('p', FieldBuilder.SCOPE));
+    panel.append(textEl('h4', 'Bounded field-building, maintenance and resource commissions'), textEl('p', FieldBuilder.SCOPE));
     const e = foreignSurveyAtField(), s = ensureFieldBuilder();
     const button = (label, action, options = {}, disabled = false) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = disabled;
       b.onclick = () => fieldBuilderAction(action, options); panel.append(b); };
     if (fieldStationLocal() && (!s?.contract || s.contract.settledAt != null)) {
+      panel.append(textEl('p', 'Separate one-block stone recovery: personally inspect a workable original exposed face first, then stand beside it on clear natural ground with staged original hammer and chisel. Fifteen base minutes, eight base exertion and four/six tool wear use the worker’s own relevant skill, not scientist stats. One block remains at the worksite. Valid same-face/portion partial effort survives; no automatic hauling, deeper mining rights or hidden reserve count.'));
+      for (const node of surfaceStoneSite()?.nodes || []) if (node.inspected?.workable && node.remaining > 0
+        && mapCellDistance(node.cell, scientistMapCell()) <= 1 && sensoryLineOfSight(scientistMapCell(), node.cell))
+        button(`Inspect one-block stone recovery (${node.id})`, 'inspectStone', { nodeId: node.id }, surveyBusy() || Boolean(node.commissionClaim));
       panel.append(textEl('p', 'Separate source-side timber recovery: personally inspect a workable original fallen trunk first. Stand beside it on clear natural ground with a staged original saw. One exact portion is cut into a real log, then that same log is sawn in place: ten plus twenty base minutes, six plus ten base exertion, four plus eight saw wear. The same two-hour clock covers both stages; outputs remain at the source for separately instructed hauling.'));
       for (const node of fallenTimberSite()?.nodes || []) if (node.inspected?.workable && node.remaining > 0
         && mapCellDistance(node.cell, scientistMapCell()) <= 1 && sensoryLineOfSight(scientistMapCell(), node.cell))
@@ -87804,7 +87877,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         if (rows.length && FieldBuilder.operation(e.builderProposal) === 'repair') button(`Append repair component ${p.id}`, 'appendRepair', { partId: p.id }, surveyBusy() || rows.length >= 4 || rows.some(r => r.part.id === p.id));
       }
     }
-    if (e?.builderProposal) {
+    if (e?.builderProposal?.operation === 'recoverStone') {
+      const p = e.builderProposal;
+      panel.append(textEl('p', `Inspected one-block stone proposal: original face ${p.nodeId}, work ${p.workCell.x},${p.workCell.y}, ${Math.floor(p.from * 100)}% valid face-bound effort; original hammer/chisel. Inspected ${formatClock(p.at)}. Remaining extent unmeasured; no live reserve report.`));
+      if (!s?.contract || s.contract.settledAt != null) button('Clear inspected stone recovery commission', 'clearOrder', {}, surveyBusy());
+    } else if (e?.builderProposal) {
       const rows = FieldBuilder.components(e.builderProposal);
       panel.append(textEl('p', `Inspected ${FieldBuilder.operation(e.builderProposal)} proposal (${rows.length}/${FieldBuilder.timberOrder(e.builderProposal) ? 1 : 4}): ${rows.map((p, n) => `${n + 1}. ${p.part.id}, work ${p.workCell.x},${p.workCell.y}, recipe ${JSON.stringify(p.part.costs)}${p.operation === 'repair' ? `, original ${p.target.id}, stamp ${p.target.stamp}, condition ${p.target.condition} → at most ${Math.min(100, p.target.condition + 45)}` : p.operation === 'reconstruct' ? `, missing original ${p.target.id}, installation ${p.target.installationKey}, inspected footprint ${p.target.footprintKey}, full-condition replacement` : p.operation === 'recoverTimber' ? `, exactly one of ${p.sourceRemaining} inspected trunk portions: cut then saw only its actual log; two lumber and one offcut at source` : p.operation === 'saw' ? ', two lumber and one wood-debris offcut left physically at the worksite' : ''}, inspected ${formatClock(p.at)}`).join('; ')}. Not a live stock or condition report.`));
       if (!s?.contract || s.contract.settledAt != null) {
@@ -87816,8 +87893,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const c = fieldBuilderContext(s, true), view = FieldBuilder.publicView(s);
     panel.append(textEl('p', `${s.source.label}: one qualified person; meeting ${s.layout.meeting.x},${s.layout.meeting.y}.`));
     if (fieldPorterObserved(s.actor)) panel.append(textEl('p', `Direct observation: ${s.actor.name}, ${s.actor.health}/100 health, ${s.phase}.`));
-    const batch = FieldBuilder.components(s.proposal).length > 1, repair = FieldBuilder.operation(s.proposal) === 'repair', reconstruction = FieldBuilder.operation(s.proposal) === 'reconstruct', sawing = FieldBuilder.operation(s.proposal) === 'saw', recovery = s.proposal?.operation === 'recoverTimber';
-    button(recovery ? 'Review exact one-portion timber recovery terms' : sawing ? 'Review exact one-log processing terms' : reconstruction ? 'Review exact reconstruction order terms' : repair ? 'Review exact repair order terms' : batch ? 'Review exact bounded building order terms' : 'Review exact one-component building terms', 'review', {}, !c.near || !c.atGround || c.busy);
+    const batch = FieldBuilder.components(s.proposal).length > 1, repair = FieldBuilder.operation(s.proposal) === 'repair', reconstruction = FieldBuilder.operation(s.proposal) === 'reconstruct', sawing = FieldBuilder.operation(s.proposal) === 'saw', recovery = s.proposal?.operation === 'recoverTimber', stone = s.proposal?.operation === 'recoverStone';
+    button(stone ? 'Review exact one-block stone recovery terms' : recovery ? 'Review exact one-portion timber recovery terms' : sawing ? 'Review exact one-log processing terms' : reconstruction ? 'Review exact reconstruction order terms' : repair ? 'Review exact repair order terms' : batch ? 'Review exact bounded building order terms' : 'Review exact one-component building terms', 'review', {}, !c.near || !c.atGround || c.busy);
     if (view.reply) panel.append(textEl('p', `${formatClock(view.reply.at)} — ${view.reply.reason}`));
     if (view.quote) {
       panel.append(textEl('p', `Original ordered work ${FieldBuilder.components(view.quote.offer).map(p => `${p.part.id}: ${JSON.stringify(p.part.costs)}`).join('; ')}. ${formatMoney(view.quote.upfront)} prepaid for the same two-hour limit, including movement/waiting/rest; shared original tools ${view.quote.offer.tools.map(t => t.key).join(', ')}. Expires ${formatClock(view.quote.expiresAt)}. Unwarded wilderness, known hazards and return route disclosed.`));
@@ -87826,10 +87903,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         const wear = FieldBuilder.components(view.quote.offer).reduce((n, p) => n + (p.tools.some(x => x.toolId === t.toolId) ? FieldBuilder.toolWear(p, t.key) : 0), 0);
         panel.append(textEl('p', `Original loan ${t.key}: ${t.toolId} / ${t.stackId}, inspected condition ${t.condition}, total required wear ${wear}; staged ${t.cell.x},${t.cell.y}.`));
       }
-      button(recovery ? 'Accept original one-portion timber recovery commission' : sawing ? 'Accept original one-log processing commission' : reconstruction ? 'Accept original bounded reconstruction work order' : repair ? 'Accept original bounded repair work order' : batch ? 'Accept original bounded building work order' : 'Accept original one-component building commission', 'hire', { expected: view.quote }, !c.near || c.busy);
+      button(stone ? 'Accept original one-block stone recovery commission' : recovery ? 'Accept original one-portion timber recovery commission' : sawing ? 'Accept original one-log processing commission' : reconstruction ? 'Accept original bounded reconstruction work order' : repair ? 'Accept original bounded repair work order' : batch ? 'Accept original bounded building work order' : 'Accept original one-component building commission', 'hire', { expected: view.quote }, !c.near || c.busy);
     }
     if (view.agreement) panel.append(textEl('p', `Issued ${view.agreement.id} for ordered ${FieldBuilder.components(view.agreement.offer).map(p => p.part.id).join(', ')} at ${formatClock(view.agreement.hiredAt)}. Issued terms are not completion telemetry.`));
-    if (view.received) panel.append(textEl('p', `${formatClock(view.received.at)} — received craftsperson report: ${view.received.phase}; ${(view.received.completed || []).map(p => `${p.partId} ${FieldBuilder.timberOrder(p) ? 'processed into two lumber and one wood-debris offcut at the worksite' : p.operation === 'repair' ? `repaired to ${p.restoredCondition}%` : p.operation === 'reconstruct' ? 'reconstructed at full condition' : 'installed'} ${formatClock(p.at)}`).join('; ')}; ${view.received.reason || 'original agreement'}. Dated, not live tracking.`));
+    if (view.received) panel.append(textEl('p', `${formatClock(view.received.at)} — received craftsperson report: ${view.received.phase}; ${(view.received.completed || []).map(p => `${p.partId} ${p.operation === 'recoverStone' ? `one stone block left at worksite (${p.outputId})` : FieldBuilder.timberOrder(p) ? 'processed into two lumber and one wood-debris offcut at the worksite' : p.operation === 'repair' ? `repaired to ${p.restoredCondition}%` : p.operation === 'reconstruct' ? 'reconstructed at full condition' : 'installed'} ${formatClock(p.at)}`).join('; ')}; ${view.received.reason || 'original agreement'}. Dated, not live tracking.`));
     button('Ask craftsperson for personal report', 'report', {}, !c.near || c.busy);
     button('Ask craftsperson to withdraw', 'withdraw', {}, !c.near || c.busy);
     for (const t of s.contract?.claims.tools || []) button(`Recover loaned ${t.key} (${t.stackId})`, 'tool', { stackId: t.stackId }, !c.near || c.busy);
@@ -89691,6 +89768,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function surfaceStoneContext(node = null, action = 'inspect', task = null) {
     const roomId = scientistRoomId(), cell = cleanMapCell(scientistMapCell()), site = surfaceStoneSite();
     const foreign = foreignSurveyAtField(), current = foreign ? foreignSurveyContext() : null;
+    if (node) SurfaceStone.observeFace(node, wildernessObstacleAtCell(node.cell));
     const visible = Boolean(node && mapCellDistance(cell, node.cell) <= 5 && sensoryLineOfSight(cell, node.cell));
     const adjacent = node && visible && !task ? [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => ({ x: node.cell.x + dx, y: node.cell.y + dy, z: node.cell.z }))
       .filter(c => labMapCellRoomId(c) === roomId && labMapCellHasFloor(c) && !constructedFloorAtCell(c))
@@ -89728,7 +89806,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       workSeconds: plan.required }, { deferRender: true })) return false;
     const task = state.tasks.at(-1);
     if (!spendStamina(plan.staminaCost)) { cancelTask(task.id, { quiet: true }); return false; }
-    task.data.stoneWork = SurfaceStone.begin(plan, task.id, state.clock, tools);
+    task.data.stoneWork = SurfaceStone.begin(plan, task.id, state.clock, tools, site);
     persist(); render(); return true;
   }
   function updateSurfaceStoneWork() {
@@ -89742,22 +89820,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (job.progress >= job.required) task.dueAt = state.clock;
     }
   }
-  function finishSurfaceStoneWork(task) {
+  function finishSurfaceStoneWork(task, worker = null) {
     const job = task.data.stoneWork, site = state.surfaceStone?.sites[job.siteId];
-    const node = site?.nodes.find(n => n.id === job.nodeId), c = surfaceStoneContext(node, job.action, task), tools = surfaceStoneTools();
+    const node = site?.nodes.find(n => n.id === job.nodeId), c = worker ? fieldBuilderStoneContext(worker) : surfaceStoneContext(node, job.action, task), tools = surfaceStoneTools();
     // The scheduler has just validated and removed this completed queue head.
-    c.atHead = surveyTaskAllowed(task) && !state.combat?.routineSuspension;
+    if (!worker) c.atHead = surveyTaskAllowed(task) && !state.combat?.routineSuspension;
     if (job.status !== 'working' || SurfaceStone.reason(site, job, c, tools) || job.progress < job.required || !c.atHead || c.threatened
       || !sameMapCell(c.cell, job.workCell)) return false;
     const output = job.action === 'recover' ? createPhysicalItemStack('resources', 'stoneBlocks', 1,
       { roomId: c.roomId, cell: job.workCell }, { sourceLabel: `Hand-cut exposed stone: ${site.siteId}; face ${node.cell.x},${node.cell.y}; ${formatClock(state.clock)}`,
-        materialComposition: { primary: 'stone' }, tags: ['surface-stone', 'field-recovered'] }) : null;
+        materialComposition: { primary: 'stone' }, tags: ['surface-stone', 'field-recovered'], suppressEvidence: Boolean(worker) }) : null;
     const receipt = SurfaceStone.finish(site, job, c, tools, state.clock, output?.id || '');
     if (!receipt) return false;
     // Output remains on the actual work tile, even when the backpack is full.
-    awardXp('materialsScience', job.action === 'inspect' ? 2 : 6, task.label, { physical: true });
+    if (!worker) awardXp('materialsScience', job.action === 'inspect' ? 2 : 6, task.label, { physical: true });
     syncActorInventories(); syncPhysicalReadModels();
-    surveyEvent(job.action === 'inspect' ? SurfaceStone.publicView(site).observations.find(n => n.id === node.id).summary
+    if (!worker) surveyEvent(job.action === 'inspect' ? SurfaceStone.publicView(site).observations.find(n => n.id === node.id).summary
       : `One real 8 kg stone block left at the work tile (${output.id}). Carry it within actual load and transport limits; no land claim or deeper reserve established.`);
     return true;
   }

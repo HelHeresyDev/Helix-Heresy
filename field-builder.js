@@ -8,18 +8,27 @@
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x));
   const active = s => ['arriving', 'onSite', 'returning'].includes(s?.phase);
-  const SCOPE = 'One original qualified noncombat craftsperson: one to four distinct initial-construction, repair-only OR reconstruction-only components; OR one staged-log sawing commission; OR one inspected fallen-trunk portion cut then sawn at its source. Never mixed or automatically repeated. Timber uses the named original loaned saw and existing time, exertion and wear; two lumber and one wood-debris offcut remain at the actual worksite. Repairs restore at most 45 condition capped at 100; reconstruction uses full original cost/time and actual supports, with orphaned crate goods personally recovered first. Changed unfinished targets stop work for fresh consent. 40 engagement plus 48 reserved wages at 24/hour and one two-hour on-site clock including stage changes, walking, waits and rest. Wages round up at settlement. Actual materials, finite original people/provisions/duty, physical travel and tool return. No supplied stock, extra seat, protection, title, standing-tree felling, regrowth, garrison or automatic hauling. Reports require personal reunion and remain dated.';
+  const SCOPE = 'One original qualified noncombat craftsperson: one to four distinct initial-construction, repair-only OR reconstruction-only components; OR one staged-log sawing commission; OR one fallen-trunk portion cut then sawn; OR one block from an inspected workable exposed stone face. Never mixed or automatically repeated. Stone uses fifteen base minutes, eight base exertion, four original hammer and six original chisel wear, adjusted by the worker’s own Materials Science/condition; no skill grant or hidden reserve disclosure. Valid original-face/portion effort survives cancellation. Timber uses the original saw and existing recipes. Outputs remain at the worksite. Repairs restore at most 45 condition capped at 100; reconstruction requires full cost/time, actual supports and personally recovered orphaned crate goods. Changed unfinished targets require fresh consent. 40 engagement plus 48 reserved wages at 24/hour and one two-hour on-site clock including stage changes, walking, waits and rest; wages round up at settlement. Finite original people, duty, provisions, injuries and physical tools/return. No supplied stock, seat, protection, title, deep mining, rock demolition, standing-tree felling, regrowth, garrison or automatic hauling. Reports require personal reunion and remain dated.';
   const components = offer => offer?.components || (offer ? [offer] : []);
   const operation = offer => offer?.operation || 'build';
   const logPart = input => ({ id: `log:${input.id}`, kind: 'lumber-processing', cell: copy(input.cell),
     costs: { fieldLog: 1 }, tools: { handSaw: 8 }, seconds: 1200 });
   const timberOrder = offer => ['saw', 'recoverTimber'].includes(operation(offer));
+  const resourceOrder = offer => timberOrder(offer) || operation(offer) === 'recoverStone';
+  const stonePart = node => ({ id: `stone:${node.id}`, kind: 'stone-recovery', cell: copy(node.cell),
+    costs: {}, tools: { masonryHammer: 4, stoneChisel: 6 }, seconds: 900 });
   const recoveryPart = node => ({ id: `timber:${node.id}`, kind: 'timber-recovery', cell: copy(node.cell),
     costs: {}, tools: { handSaw: 12 }, seconds: 1800 });
   const toolWear = (offer, key) => operation(offer) === 'recoverTimber' && key === 'handSaw'
     ? Math.max(1, Math.ceil(4 * (1 - offer.from))) + 8 : Math.max(1, Math.ceil(offer.part.tools[key] * (1 - offer.from)));
   function validOrder(offer) {
     const rows = components(offer);
+    if (operation(offer) === 'recoverStone') return rows.length === 1 && !offer.components && Boolean(offer.nodeId && offer.targetKey)
+      && !('remaining' in offer) && !('sourceRemaining' in offer) && offer.part?.cell
+      && JSON.stringify(offer.part) === JSON.stringify(stonePart({ id: offer.nodeId, cell: offer.part.cell }))
+      && Number.isFinite(offer.from) && offer.from >= 0 && offer.from < 1 && offer.workCell && offer.site && offer.inputs?.length === 0
+      && offer.tools?.length === 2 && ['masonryHammer', 'stoneChisel'].every(key => offer.tools.some(t => t.key === key && t.toolId && t.stackId))
+      && new Set(offer.tools.map(t => t.toolId)).size === 2 && new Set(offer.tools.map(t => t.stackId)).size === 2;
     if (operation(offer) === 'recoverTimber') return rows.length === 1 && !offer.components && Boolean(offer.nodeId && offer.sourceStackId)
       && offer.part?.cell && JSON.stringify(offer.part) === JSON.stringify(recoveryPart({ id: offer.nodeId, cell: offer.part.cell }))
       && Number.isInteger(offer.sourceRemaining) && offer.sourceRemaining > 0 && offer.sourceSignature && offer.targetKey === offer.sourceSignature
@@ -86,16 +95,20 @@
       || operation(offer) === 'saw' && (!s.job.receipt || s.job.receipt.actorId !== s.actor.id
         || s.job.receipt.taskId !== s.job.taskId || s.job.receipt.inputId !== offer.inputId)
       || operation(offer) === 'recoverTimber' && (k.recovery?.stage !== 'saw' || s.job.action !== 'saw'
-        || s.job.receipt?.actorId !== s.actor.id || s.job.receipt.taskId !== s.job.taskId || s.job.receipt.inputId !== k.recovery.log.id)) return false;
+        || s.job.receipt?.actorId !== s.actor.id || s.job.receipt.taskId !== s.job.taskId || s.job.receipt.inputId !== k.recovery.log.id)
+      || operation(offer) === 'recoverStone' && (s.job.action !== 'recover' || s.job.receipt?.actorId !== s.actor.id
+        || s.job.receipt.taskId !== s.job.taskId || s.job.receipt.nodeId !== offer.nodeId || !s.job.receipt.outputId
+        || s.job.receipt.worldId !== offer.site.worldId || s.job.receipt.siteId !== offer.site.siteId || s.job.receipt.quantity !== 1)) return false;
     (k.completed ||= []).push({ at: now, partId: offer.part.id, taskId: s.job.taskId, operation: operation(offer),
-      ...(timberOrder(offer) ? { inputId: operation(offer) === 'saw' ? offer.inputId : k.recovery.log.id, outputs: copy(s.job.receipt.outputs),
+      ...(operation(offer) === 'recoverStone' ? { nodeId: offer.nodeId, outputId: s.job.receipt.outputId, quantity: 1 }
+        : timberOrder(offer) ? { inputId: operation(offer) === 'saw' ? offer.inputId : k.recovery.log.id, outputs: copy(s.job.receipt.outputs),
           ...(operation(offer) === 'recoverTimber' ? { nodeId: offer.nodeId, cutReceipt: copy(k.recovery.cutReceipt) } : {}) }
         : operation(offer) !== 'build' ? { target: copy(offer.target), restoredCondition: operation(offer) === 'repair' ? Math.min(100, offer.target.condition + 45) : 100 } : {}) });
-    s.history.push({ at: now, contractId: k.id, partId: offer.part.id, actorId: s.actor.id, kind: timberOrder(offer) ? 'sawn' : operation(offer) === 'repair' ? 'repaired' : operation(offer) === 'reconstruct' ? 'reconstructed' : 'built' });
+    s.history.push({ at: now, contractId: k.id, partId: offer.part.id, actorId: s.actor.id, kind: operation(offer) === 'recoverStone' ? 'recoveredStone' : timberOrder(offer) ? 'sawn' : operation(offer) === 'repair' ? 'repaired' : operation(offer) === 'reconstruct' ? 'reconstructed' : 'built' });
     k.index = (k.index || 0) + 1; k.pickup = null;
     const next = components(k.offer)[k.index];
     if (next) { k.drop = copy(next.workCell); s.job = null; k.reason = 'Next explicitly authorized component; original wage clock continues.'; }
-    else { k.finishedAt = now; k.reason = timberOrder(offer) ? 'The one original log was physically processed; outputs remain at the worksite. Awaiting personal contact.' : operation(offer) === 'repair' ? 'Each explicitly commissioned original target received its single repair; awaiting personal contact.' : operation(offer) === 'reconstruct' ? 'All explicitly commissioned missing components are physically reconstructed; awaiting personal contact.' : 'All explicitly commissioned components are physically installed; awaiting personal contact.'; }
+    else { k.finishedAt = now; k.reason = operation(offer) === 'recoverStone' ? 'One physical stone block remains at the original work position; awaiting personal contact.' : timberOrder(offer) ? 'The one original log was physically processed; outputs remain at the worksite. Awaiting personal contact.' : operation(offer) === 'repair' ? 'Each explicitly commissioned original target received its single repair; awaiting personal contact.' : operation(offer) === 'reconstruct' ? 'All explicitly commissioned missing components are physically reconstructed; awaiting personal contact.' : 'All explicitly commissioned components are physically installed; awaiting personal contact.'; }
     return true;
   }
   function source(city, institution, current, excursion) {
@@ -166,8 +179,8 @@
     if (k.startedAt != null) k.earned = Math.min(k.reserve, Math.max(k.earned, (Math.min(now, a.diedAt ?? now) - k.startedAt) * k.hourly / 3600));
     if (a.status === 'dead') { withdraw(s, hooks, now, 'Original craftsperson died; property remains at the actual body.'); s.phase = 'dead'; return 1; }
     if (['arriving', 'onSite'].includes(s.phase) && k.finishedAt == null && operation(k.offer) !== 'build' && (!hooks.targetsValid || !hooks.targetsValid()))
-      withdraw(s, hooks, now, timberOrder(k.offer)
-        ? 'The exact original timber source or processing log changed; personally inspect it again and obtain fresh consent.'
+      withdraw(s, hooks, now, resourceOrder(k.offer)
+        ? 'The exact original resource target changed; personally inspect it again and obtain fresh consent.'
         : 'An unfinished original maintenance target changed; inspect the remaining components and obtain fresh consent.');
     if (!control(s, c) || refusal(s, c) || c.injured || k.policy !== policy(c) || JSON.stringify(k.site) !== JSON.stringify(c.site)
       || s.dutySeconds <= 300 || k.startedAt != null && now >= k.startedAt + k.seconds)
@@ -198,5 +211,5 @@
       agreement: s?.contract ? { id: s.contract.id, hiredAt: s.contract.hiredAt, offer: s.contract.offer, fee: 40, reserve: 48,
         ...(s.contract.settledAt == null ? {} : { settledAt: s.contract.settledAt, refund: s.contract.refund }) } : null });
   }
-  return { SCOPE, logPart, timberOrder, recoveryPart, toolWear, validRecovery, cutToSaw, components, operation, validOrder, order, currentOffer, claimId, complete, active, source, create, control, refusal, review, hire, withdraw, advance, receive, settle, publicView };
+  return { SCOPE, logPart, stonePart, resourceOrder, timberOrder, recoveryPart, toolWear, validRecovery, cutToSaw, components, operation, validOrder, order, currentOffer, claimId, complete, active, source, create, control, refusal, review, hire, withdraw, advance, receive, settle, publicView };
 });
