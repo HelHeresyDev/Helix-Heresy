@@ -85,3 +85,64 @@ test('physical return and original tool handback precede exactly-once integer se
   const money = f.wallet.money, duty = f.s.dutySeconds, person = f.s.actor; expect(Builder.settle(f.s, f.c, f.wallet, f.now)).toBe(false);
   expect(f.wallet.money).toBe(money); hire(f); expect(f.s.actor).toBe(person); expect(f.s.dutySeconds).toBe(duty);
 });
+
+function batchFixture(count = 4) {
+  const f = fixture();
+  f.offer = Builder.order(Array.from({ length: count }, (_, n) => ({ ...copy(f.offer), part: { ...copy(f.offer.part), id: `floor:${n}` }, workCell: cell(25 + n * 2) })));
+  f.hooks.atWork = () => f.s.actor.mapCell.x === Builder.currentOffer(f.s).workCell.x;
+  f.hooks.move = goal => {
+    if (f.blocked) return false;
+    const a = f.s.actor; a.mapCell.x += Math.sign(goal.x - a.mapCell.x); a.roomId = a.mapCell.x > 20 ? 'wild' : 'ground'; return true;
+  };
+  f.hooks.work = () => {
+    if (!f.hooks.atWork()) { if (f.s.job) f.s.job.attended = false; f.hooks.move(f.s.contract.drop); return; }
+    if (!f.s.job) f.s.job = { actorId: f.s.actor.id, partId: Builder.currentOffer(f.s).part.id, taskId: Builder.claimId(f.s), status: 'working', progress: 0, attended: false };
+    else if (!f.s.job.attended) f.s.job.attended = true;
+    else if (++f.s.job.progress === 20) { f.s.job.status = 'completed'; expect(Builder.complete(f.s, f.now)).toBe(true); f.builds++; }
+  };
+  return f;
+}
+test('an exact ordered list has one to four distinct same-site components and deduplicates identical shared tools', () => {
+  const f = batchFixture(); expect(Builder.components(f.offer)).toHaveLength(4); expect(f.offer.tools).toHaveLength(1); expect(f.offer.inputs).toHaveLength(4);
+  expect(Builder.order([])).toBeNull(); const rows = Builder.components(f.offer);
+  expect(Builder.order([...rows, { ...copy(rows[0]), part: { ...rows[0].part, id: 'fifth' } }])).toBeNull();
+  expect(Builder.order([rows[0], rows[0]])).toBeNull();
+  expect(Builder.order([rows[0], { ...copy(rows[1]), site: { siteId: 'elsewhere' } }])).toBeNull();
+  expect(Builder.order([rows[0], { ...copy(rows[1]), tools: [{ ...rows[1].tools[0], stackId: 'substitute' }] }])).toBeNull();
+  expect(Builder.order([f.offer])).toBeNull();
+});
+test('bounded order consent binds its exact order and contents, without multiplying engagement, reserve or time', () => {
+  const f = batchFixture(), q = Builder.review(f.s, f.c, f.offer, 0); expect(q).toMatchObject({ fee: 40, reserve: 48, seconds: 7200, upfront: 88 });
+  const reordered = Builder.order([...Builder.components(f.offer)].reverse()); let reserves = 0;
+  expect(Builder.hire(f.s, f.c, reordered, q, f.wallet, 1, () => { reserves++; return {}; })).toBe(false); expect(reserves).toBe(0); expect(f.wallet.money).toBe(500);
+  expect(Builder.review(f.s, f.c, { ...f.offer, components: [...f.offer.components, f.offer.components[0]] }, 1)).toBeNull();
+  hire(f); expect(f.wallet.money).toBe(412); expect(f.s.contract.index).toBe(0); expect(f.s.contract.completed).toEqual([]);
+});
+test('sequential physical movement completes only authorized components while preserving the first arrival wage clock', () => {
+  const f = batchFixture(); hire(f); tick(f, 45); expect(f.builds).toBe(1); expect(f.s.contract.index).toBe(1);
+  const started = f.s.contract.startedAt, first = copy(f.s.contract.completed[0]);
+  tick(f, 150); expect(f.builds).toBe(4); expect(f.s.contract.startedAt).toBe(started); expect(f.s.contract.completed[0]).toEqual(first);
+  expect(f.s.contract.completed.map(p => p.partId)).toEqual(Builder.components(f.offer).map(p => p.part.id));
+  expect(new Set(f.s.contract.completed.map(p => p.taskId)).size).toBe(4); expect(f.s.history.filter(p => p.kind === 'built')).toHaveLength(4);
+  expect(Builder.complete(f.s, f.now)).toBe(false); tick(f, 100); expect(f.builds).toBe(4); expect(f.wallet.money).toBe(412);
+});
+test('a blocked ordered component never skips to a later job and its waiting spends the original two-hour budget', () => {
+  const f = batchFixture(); hire(f); tick(f, 34); f.blocked = true; const completed = copy(f.s.contract.completed), position = copy(f.s.actor.mapCell);
+  tick(f, 100); expect(f.s.contract.completed).toEqual(completed); expect(f.s.actor.mapCell).toEqual(position); expect(f.builds).toBe(1);
+  Builder.advance(f.s, f.c, f.hooks, f.now = f.s.contract.startedAt + 7200);
+  expect(f.s.phase).toBe('returning'); expect(f.s.contract.earned).toBe(48); expect(f.s.contract.completed).toEqual(completed); expect(f.wallet.money).toBe(412);
+});
+test('partial batch reload preserves the original order, receipts, person and one wage clock without duplicate completion', () => {
+  const a = batchFixture(), b = batchFixture(); hire(a); hire(b); tick(a, 45); tick(b, 45);
+  b.s = copy(b.s); tick(a, 150); tick(b, 150); expect(b.s).toEqual(a.s); expect(b.builds).toBe(4);
+  const finished = copy(b.s); expect(Builder.complete(b.s, b.now)).toBe(false); expect(b.s).toEqual(finished);
+});
+test('interruption preserves finished components and private batch outcomes require actual reunion before return settlement', () => {
+  const f = batchFixture(); hire(f); tick(f, 45); expect(Builder.receive(f.s, f.c, f.now)).toBe(true); const known = Builder.publicView(f.s);
+  f.c.near = false; tick(f, 30); expect(f.builds).toBe(2); expect(Builder.publicView(f.s)).toEqual(known);
+  f.c.threatened = true; tick(f); expect(f.s.phase).toBe('returning'); expect(f.s.contract.completed).toHaveLength(2);
+  expect(Builder.receive(f.s, f.c, f.now)).toBe(false); expect(Builder.settle(f.s, f.c, f.wallet, f.now)).toBe(false);
+  f.c.threatened = false; f.c.near = true; tick(f, 60); expect(f.s.phase).toBe('awaitingSettlement');
+  expect(Builder.settle(f.s, f.c, f.wallet, f.now)).toBe(true); expect(f.s.received.completed).toHaveLength(2);
+  expect(Builder.settle(f.s, f.c, f.wallet, f.now)).toBe(false); expect(f.s.actor.id).toBe(f.s.source.allocationId);
+});

@@ -6,7 +6,39 @@
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x));
   const active = s => ['arriving', 'onSite', 'returning'].includes(s?.phase);
-  const SCOPE = 'One original qualified noncombat craftsperson, one named initial hut component only. 40 engagement plus 48 reserved wages at 24/hour, capped at two on-site hours including waits and rest; wages round up at settlement. Actual staged owned materials and loaned tools, physical travel, ordinary work and wear. No repair, reconstruction, queue, supplied building stock, seat, protection, title or garrison. Return and tool handback are physical; reports are dated.';
+  const SCOPE = 'One original qualified noncombat craftsperson, an exact ordered list of one to four initial hut components. 40 engagement plus 48 reserved wages at 24/hour, capped at two on-site hours including walking between jobs, waits and rest; wages round up at settlement. Actual staged owned materials and original shared loaned tools, physical travel, ordinary work and wear. No repair, reconstruction, automatic repeat, supplied stock, seat, protection, title or garrison. Return and tool handback are physical; reports are dated.';
+  const components = offer => offer?.components || (offer ? [offer] : []);
+  function validOrder(offer) {
+    const rows = components(offer);
+    return Array.isArray(rows) && rows.length >= 1 && rows.length <= 4 && new Set(rows.map(p => p?.part?.id)).size === rows.length
+      && rows.every(p => p?.part?.id && p.workCell && JSON.stringify(p.site) === JSON.stringify(offer.site));
+  }
+  function order(rows) {
+    if (!Array.isArray(rows) || rows.some(p => !p || p.components)) return null;
+    if (rows.length === 1) return validOrder(rows[0]) ? copy(rows[0]) : null;
+    const tools = new Map();
+    for (const p of rows) for (const t of p.tools || []) {
+      if (tools.has(t.toolId) && JSON.stringify(tools.get(t.toolId)) !== JSON.stringify(t)) return null;
+      tools.set(t.toolId, t);
+    }
+    const offer = { ...copy(rows[0] || {}), components: copy(rows), tools: copy([...tools.values()]), inputs: copy(rows.flatMap(p => p.inputs)) };
+    return validOrder(offer) ? offer : null;
+  }
+  const currentOffer = s => components(s?.contract?.offer)[Math.min(s?.contract?.index || 0, components(s?.contract?.offer).length - 1)];
+  const claimId = (s, index = Math.min(s.contract.index || 0, components(s.contract.offer).length - 1)) => components(s.contract.offer).length > 1 ? `${s.contract.id}:part-${index}` : s.contract.id;
+  function complete(s, now) {
+    const k = s?.contract; if (!k) return false;
+    const offer = currentOffer(s);
+    if (s.phase !== 'onSite' || k.actorId !== s.actor.id || s.job?.actorId !== s.actor.id || k.finishedAt != null || !Number.isFinite(now) || s.job?.status !== 'completed' || s.job.partId !== offer?.part.id
+      || s.job.taskId !== claimId(s)) return false;
+    (k.completed ||= []).push({ at: now, partId: offer.part.id, taskId: s.job.taskId });
+    s.history.push({ at: now, contractId: k.id, partId: offer.part.id, actorId: s.actor.id, kind: 'built' });
+    k.index = (k.index || 0) + 1; k.pickup = null;
+    const next = components(k.offer)[k.index];
+    if (next) { k.drop = copy(next.workCell); s.job = null; k.reason = 'Next explicitly authorized component; original wage clock continues.'; }
+    else { k.finishedAt = now; k.reason = 'All explicitly commissioned components are physically installed; awaiting personal contact.'; }
+    return true;
+  }
   function source(city, institution, current, excursion) {
     if (!city?.assetId || city.cityId !== excursion?.source.cityId || city.assetId !== excursion.source.populationSourceId
       || !Number.isFinite(city.currentPopulation) || city.currentPopulation < 8 || city.physicalCondition === 'ruined'
@@ -41,7 +73,7 @@
   function review(s, c, offer, now) {
     if (!s || !Number.isFinite(now) || !contact(c) || !c.atGround || !c.originalTrip || !['idle', 'completed'].includes(s.phase)) return null;
     s.quote = null;
-    const why = refusal(s, c) || (!offer || !c.routeOk ? 'Personally inspect one unbuilt component, reachable work position, exact staged materials and usable tools first.' : '')
+    const why = refusal(s, c) || (!validOrder(offer) || !c.routeOk ? 'Personally inspect one to four distinct ordered unbuilt components, reachable work positions, exact staged materials and usable tools first.' : '')
       || (s.dutySeconds < 7500 ? 'Finite duty cannot cover the budget and withdrawal margin.' : '');
     s.reply = { at: now, reason: why || SCOPE }; if (why) return null;
     s.quote = { at: now, expiresAt: now + 60, actorId: s.actor.id, bodyEpoch: c.bodyEpoch, visitId: c.visitId, tripId: c.tripId,
@@ -51,15 +83,15 @@
   function hire(s, c, offer, expected, wallet, now, reserve) {
     const q = s?.quote;
     if (!q || !Number.isFinite(now) || now < q.at || now >= q.expiresAt || !contact(c) || !c.atGround || !c.originalTrip || refusal(s, c)
-      || !['idle', 'completed'].includes(s.phase) || !c.routeOk || s.dutySeconds < 7500 || q.actorId !== s.actor.id
+      || !['idle', 'completed'].includes(s.phase) || !validOrder(offer) || !c.routeOk || s.dutySeconds < 7500 || q.actorId !== s.actor.id
       || q.bodyEpoch !== c.bodyEpoch || q.visitId !== c.visitId || q.tripId !== c.tripId || q.policy !== policy(c)
       || JSON.stringify(q) !== JSON.stringify(expected) || JSON.stringify(q.offer) !== JSON.stringify(offer)
       || JSON.stringify(q.hazards) !== JSON.stringify(c.hazards) || !Number.isFinite(wallet?.money) || wallet.money < q.upfront) return false;
     const id = `field-build:${s.actor.id}:${s.next}`;
     const claims = reserve(q.offer, id); if (!claims) return false;
     wallet.money -= q.upfront; s.next++;
-    s.contract = { ...copy(q), id, site: copy(offer.site), drop: copy(offer.workCell), hiredAt: now, startedAt: null, earned: 0, refund: null,
-      claims: copy(claims), reason: '' };
+    s.contract = { ...copy(q), id, site: copy(offer.site), drop: copy(components(offer)[0].workCell), hiredAt: now, startedAt: null, earned: 0, refund: null,
+      claims: copy(claims), index: 0, completed: [], reason: '' };
     s.phase = 'arriving'; s.job = null; s.quote = null; s.lastAt = now; s.actor.needs.lastAt = now; return true;
   }
   function withdraw(s, hooks, now, why = 'Personally requested withdrawal.') {
@@ -90,7 +122,7 @@
   function receive(s, c, now) {
     if (!s?.contract || !Number.isFinite(now) || !contact(c) || c.incapacitated || s.actor.status === 'dead' || s.actor.id !== s.contract.actorId || c.bodyEpoch !== s.contract.bodyEpoch) return false;
     s.received = { at: now, phase: s.phase, earned: s.contract.earned, reason: s.contract.reason, finishedAt: s.contract.finishedAt ?? null,
-      condition: s.actor.health, cell: copy(s.actor.mapCell), job: copy(s.job), scope: SCOPE }; return true;
+      completed: copy(s.contract.completed || []), condition: s.actor.health, cell: copy(s.actor.mapCell), job: copy(s.job), scope: SCOPE }; return true;
   }
   function settle(s, c, wallet, now) {
     if (s?.phase !== 'awaitingSettlement' || !Number.isFinite(now) || !contact(c) || !c.atGround || c.incapacitated || s.actor.status === 'dead' || s.actor.id !== s.contract.actorId
@@ -103,5 +135,5 @@
       agreement: s?.contract ? { id: s.contract.id, hiredAt: s.contract.hiredAt, offer: s.contract.offer, fee: 40, reserve: 48,
         ...(s.contract.settledAt == null ? {} : { settledAt: s.contract.settledAt, refund: s.contract.refund }) } : null });
   }
-  return { SCOPE, active, source, create, control, refusal, review, hire, withdraw, advance, receive, settle, publicView };
+  return { SCOPE, components, validOrder, order, currentOffer, claimId, complete, active, source, create, control, refusal, review, hire, withdraw, advance, receive, settle, publicView };
 });

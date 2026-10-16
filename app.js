@@ -17103,7 +17103,7 @@
         g.preparedFieldBuilderTestSource = clonePlainObject(source); persist(); return true; },
       fieldBuilderSnapshot: () => {
         const s = foreignSurveyAtField()?.builder || fieldBuilderStates()[0];
-        const c = s?.job && fieldStationContext(s.contract.offer.part, fieldBuilderTask(s), 'build', s);
+        const c = s?.job && fieldStationContext(FieldBuilder.currentOffer(s).part, fieldBuilderTask(s), 'build', s);
         return clonePlainObject({ saved: s || null, known: FieldBuilder.publicView(s), context: s ? fieldBuilderContext(s, true) : null,
           workContext: c || null, workReason: c && FieldStation.reason(state.fieldStation, s.job, c, c.tools, ensurePhysicalItemStacks()),
           actor: s?.actor, inventory: s ? actorInventorySnapshot(s.actor.id) : null, money: ensureEconomy().money,
@@ -87433,9 +87433,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function fieldBuilderContext(s, contact = false) {
     const c = fieldEmployeeContext(s, null, contact, fieldBuilderSource), e = fieldPorterExcursion(s), offer = s.contract && FieldBuilder.active(s) ? s.contract.offer : s.proposal;
-    const inventory = actorInventorySnapshot(s.actor.id), extra = (offer?.tools || []).map(t => ensurePhysicalItemStacks().find(i => i.id === t.stackId)).filter(i => i && i.carriedBy !== s.actor.id);
+    const first = FieldBuilder.components(offer)[0];
+    const quoting = contact && c.near && ['idle', 'completed'].includes(s.phase);
+    const inventory = quoting && actorInventorySnapshot(s.actor.id), extra = quoting ? (offer?.tools || []).map(t => ensurePhysicalItemStacks().find(i => i.id === t.stackId)).filter(i => i && i.carriedBy !== s.actor.id) : [];
     const fits = inventory && ['massKg', 'volumeL'].every(k => inventory.usage[k] + extra.reduce((n, i) => n + i[k === 'massKg' ? 'unitMassKg' : 'unitVolumeL'], 0) <= inventory.capacity[k]);
-    return { ...c, routeOk: Boolean(fits && offer && (sameMapCell(s.actor.mapCell, offer.workCell) || fieldPorterNextStep(s, s.actor, offer.workCell))),
+    return { ...c, routeOk: Boolean(quoting && fits && first && (sameMapCell(s.actor.mapCell, first.workCell) || fieldPorterNextStep(s, s.actor, first.workCell))),
       toolsReturned: fieldBuilderToolsReturned(s),
       site: state.fieldStation?.site?.siteId === e?.wilderness.context.siteId && state.fieldStation.site.worldId === e.wilderness.context.worldId
         ? { worldId: state.fieldStation.site.worldId, siteId: state.fieldStation.site.siteId, roomId: state.fieldStation.site.roomId } : null };
@@ -87444,61 +87446,93 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return Boolean(s.contract && s.contract.claims.tools.every(t => t.returnedAt != null || t.borrowedAt == null
       && !s.job?.tools.some(j => j.toolId === t.toolId) && !ensurePhysicalItemStacks().some(i => i.id === t.stackId && i.carriedBy === s.actor.id)));
   }
+  function fieldBuilderPrerequisites(part, preceding) {
+    const site = state.fieldStation.site, l = site.layout, planned = c => preceding.some(p => sameMapCell(p.part.cell, c));
+    return FieldStation.prerequisite(site, part, {
+      floorsIntact: l.floors.every(c => constructedFloorAtCell(c)?.condition >= 50 || preceding.some(p => p.part.kind === 'floor' && sameMapCell(p.part.cell, c))),
+      wallsIntact: l.walls.every(c => constructedWallAtCell(c)?.condition >= 50 || preceding.some(p => p.part.kind === 'wall' && sameMapCell(p.part.cell, c))),
+      roofsIntact: l.roofs.every(c => constructedFloorAtCell(c)?.condition >= 50 && constructedFloorAtCell(c)?.purpose === 'roof' || planned(c)),
+      doorPresent: Boolean(site.doorId && state.doors[site.doorId]?.condition > 0 || preceding.some(p => p.part.kind === 'door')) });
+  }
   function fieldBuilderOfferValid(s, offer, claimed = false) {
-    if (!offer || !state.fieldStation?.site || JSON.stringify(offer.part) !== JSON.stringify(FieldStation.workPart(state.fieldStation, offer.part.id))
-      || state.fieldStation.site.parts[offer.part.id] || state.tasks.some(t => t.data?.fieldStationWork?.partId === offer.part.id)
-      || (!claimed && FieldStation.effort(state.fieldStation, offer.part.id) !== offer.from)) return false;
-    const claimId = claimed ? s.contract.id : '', inputs = claimed ? s.contract.claims.inputs : offer.inputs, tools = claimed ? s.contract.claims.tools : offer.tools;
-    return inputs.every(t => {
-      const i = ensurePhysicalItemStacks().find(i => i.id === t.stackId);
-      return i && i.section === 'resources' && !i.carriedBy && !i.cityOwnerId && !i.civicCustody && !i.fixtureId && !i.containerId && !i.chemicalBatch
-        && !(i.tags || []).some(t => /living|soul|toxic|hazard|contaminat|volatile|waste/i.test(t))
-        && i.key === t.key && i.quantity === (claimed ? t.quantity : t.sourceQuantity) && i.reservedTaskId === claimId
-        && i.roomId === offer.site.roomId && sameMapCell(i.cell, t.cell) && mapCellDistance(i.cell, offer.workCell) <= 1
-        && sensoryLineOfSight(i.cell, offer.workCell) && ForeignEscortHauling.signature(i) === t.signature;
-    }) && tools.every(t => {
+    if (!FieldBuilder.validOrder(offer) || !state.fieldStation?.site || offer.site.siteId !== state.fieldStation.site.siteId
+      || offer.site.worldId !== state.fieldStation.site.worldId || offer.site.roomId !== state.fieldStation.site.roomId) return false;
+    const rows = FieldBuilder.components(offer), requested = new Map();
+    for (let index = claimed ? s.contract.index || 0 : 0; index < rows.length; index++) {
+      const p = rows[index], inputs = claimed ? s.contract.claims.inputs.filter(t => (t.componentIndex || 0) === index) : p.inputs;
+      if (JSON.stringify(p.part) !== JSON.stringify(FieldStation.workPart(state.fieldStation, p.part.id)) || state.fieldStation.site.parts[p.part.id]
+        || state.tasks.some(t => t.data?.fieldStationWork?.partId === p.part.id) || !claimed && (FieldStation.effort(state.fieldStation, p.part.id) !== p.from
+          || fieldBuilderPrerequisites(p.part, rows.slice(0, index)))) return false;
+      if (Object.entries(p.part.costs).some(([key, n]) => inputs.filter(i => i.key === key).reduce((sum, i) => sum + i.quantity, 0) !== n)) return false;
+      for (const t of inputs) {
+        const i = ensurePhysicalItemStacks().find(i => i.id === t.stackId);
+        if (!i || !p.part.costs[t.key] || !(t.quantity > 0) || i.section !== 'resources' || i.carriedBy || i.cityOwnerId || i.civicCustody || i.fixtureId || i.containerId || i.chemicalBatch
+          || (i.tags || []).some(t => /living|soul|toxic|hazard|contaminat|volatile|waste/i.test(t))
+          || i.key !== t.key || i.quantity !== (claimed ? t.quantity : t.sourceQuantity) || i.reservedTaskId !== (claimed ? FieldBuilder.claimId(s, index) : '')
+          || i.roomId !== p.site.roomId || !sameMapCell(i.cell, t.cell) || mapCellDistance(i.cell, p.workCell) > 1
+          || !sensoryLineOfSight(i.cell, p.workCell) || ForeignEscortHauling.signature(i) !== t.signature) return false;
+        requested.set(i.id, (requested.get(i.id) || 0) + t.quantity);
+      }
+    }
+    if ([...requested].some(([id, n]) => ensurePhysicalItemStacks().find(i => i.id === id).quantity < n)) return false;
+    const tools = claimed ? s.contract.claims.tools : offer.tools;
+    return tools.every(t => {
       const i = ensurePhysicalItemStacks().find(i => i.id === t.stackId), tool = toolInstanceById(t.toolId)?.instance;
+      const claim = claimed && s.job?.tools.some(j => j.toolId === t.toolId) && s.job.status === 'working' ? s.job.taskId : claimed ? s.contract.id : '';
+      const wear = rows.reduce((n, p) => n + (p.tools.some(x => x.toolId === t.toolId) ? Math.max(1, Math.ceil(p.part.tools[t.key] * (1 - p.from))) : 0), 0);
       return i && tool && i.quantity === 1 && !i.cityOwnerId && !i.civicCustody && !i.fixtureId && !i.containerId && i.key === t.key && i.toolInstanceId === tool.id
-        && i.reservedTaskId === claimId && tool.reservedTaskId === claimId && (claimed ? tool.current >= 0 : tool.current === t.condition)
+        && i.reservedTaskId === claim && tool.reservedTaskId === claim && (claimed ? tool.current >= 0 : tool.current === t.condition && tool.current >= wear)
         && (claimed && i.carriedBy === s.actor.id && tool.carriedBy === s.actor.id || !i.carriedBy && !tool.carriedBy
-          && i.roomId === offer.site.roomId && tool.roomId === i.roomId && sameMapCell(i.cell, t.cell) && mapCellDistance(i.cell, offer.workCell) <= 1);
+          && i.roomId === offer.site.roomId && tool.roomId === i.roomId && sameMapCell(i.cell, t.cell));
     });
   }
-  function fieldBuilderInspect(partId) {
+  function fieldBuilderInspect(partId, append = false) {
     const e = foreignSurveyAtField(), station = state.fieldStation, part = FieldStation.workPart(station, partId);
-    if (!e?.wilderness || !part || !fieldStationLocal() || surveyBusy() || !annexCapable() || FieldBuilder.active(e.builder)) return false;
-    const c = fieldStationContext(part), cell = cleanMapCell(scientistMapCell()), inputs = fieldStationInputs(part, cell);
-    if (!c.geometryOkay || FieldStation.prerequisite(station.site, part, c) || station.site.parts[partId] || c.threatened || !sameMapCell(c.workCell, cell) || !inputs) return false;
+    if (!e?.wilderness || !part || !fieldStationLocal() || surveyBusy() || !annexCapable() || FieldBuilder.active(e.builder)
+      || e.builder?.contract && e.builder.contract.settledAt == null) return false;
+    const preceding = append ? FieldBuilder.components(e.builderProposal) : [];
+    if (preceding.length >= 4 || preceding.some(p => p.part.id === partId)) return false;
+    const c = fieldStationContext(part), cell = cleanMapCell(scientistMapCell());
+    const committed = preceding.flatMap(p => p.inputs), inputs = fieldStationInputs(part, cell, committed);
+    if (!c.geometryOkay || fieldBuilderPrerequisites(part, preceding) || station.site.parts[partId] || c.threatened || !sameMapCell(c.workCell, cell) || !inputs) return false;
     const from = FieldStation.effort(station, partId), tools = [];
     for (const [key, wear] of Object.entries(part.tools)) {
-      const t = fieldStationTools().find(t => t.key === key && t.tool && t.stack.quantity === 1 && t.tool.current >= Math.max(1, Math.ceil(wear * (1 - from)))
+      const shared = preceding.flatMap(p => p.tools).find(t => t.key === key);
+      const t = fieldStationTools().find(t => t.key === key && (!shared || t.tool?.id === shared.toolId) && t.tool && t.stack.quantity === 1 && t.tool.current >= Math.max(1, Math.ceil(wear * (1 - from)))
         && !t.stack.carriedBy && !t.tool.carriedBy && !t.stack.reservedTaskId && !t.tool.reservedTaskId && !t.stack.cityOwnerId && !t.stack.civicCustody
         && !t.stack.fixtureId && !t.stack.containerId && !t.stack.chemicalBatch && !(t.stack.tags || []).some(t => /toxic|hazard|contaminat|volatile/i.test(t))
         && t.stack.roomId === station.site.roomId && t.tool.roomId === t.stack.roomId
-        && mapCellDistance(t.stack.cell, cell) <= 1 && sensoryLineOfSight(t.stack.cell, cell));
+        && (shared || mapCellDistance(t.stack.cell, cell) <= 1 && sensoryLineOfSight(t.stack.cell, cell)));
       if (!t) return false;
       tools.push({ key, toolId: t.tool.id, stackId: t.stack.id, condition: t.tool.current, cell: cleanMapCell(t.stack.cell) });
     }
-    e.builderProposal = { at: state.clock, site: { worldId: station.site.worldId, siteId: station.site.siteId, roomId: station.site.roomId },
+    const inspected = { at: state.clock, site: { worldId: station.site.worldId, siteId: station.site.siteId, roomId: station.site.roomId },
       part: clonePlainObject(part), from, workCell: cell, tools, inputs: inputs.map(t => { const i = ensurePhysicalItemStacks().find(i => i.id === t.stackId);
         return { ...t, sourceQuantity: i.quantity, signature: ForeignEscortHauling.signature(i) }; }) };
+    const order = FieldBuilder.order([...preceding, inspected]);
+    if (!order || !fieldBuilderOfferValid(e.builder, order)) return false;
+    e.builderProposal = order;
     if (e.builder) { e.builder.proposal = clonePlainObject(e.builderProposal); e.builder.quote = null; }
     return true;
   }
-  function fieldBuilderTask(s) { return { id: s.contract.id, label: `Commissioned station ${s.contract.offer.part.kind}`, data: {
-    toCell: s.contract.drop, fieldStationWork: s.job, reservedStackIds: s.contract.claims.inputs.map(i => i.stackId) } }; }
+  function fieldBuilderTask(s) { return { id: s.job?.taskId || FieldBuilder.claimId(s), label: `Commissioned station ${FieldBuilder.currentOffer(s).part.kind}`, data: {
+    toCell: s.contract.drop, fieldStationWork: s.job, reservedStackIds: s.contract.claims.inputs.filter(i => (i.componentIndex || 0) === Math.min(s.contract.index || 0, FieldBuilder.components(s.contract.offer).length - 1)).map(i => i.stackId) } }; }
   function fieldBuilderHooks(s) {
     const physical = fieldPorterHooks(s), a = s.actor;
     return { ...physical, atWork: () => sameMapCell(a.mapCell, s.contract.drop),
       cancel: j => FieldStation.cancel(state.fieldStation, j, fieldStationTools(), ensurePhysicalItemStacks(), state.clock),
-      release: k => { for (const i of ensurePhysicalItemStacks()) if (i.reservedTaskId === k.id) i.reservedTaskId = '';
-        for (const t of fieldStationTools()) if (t.tool?.reservedTaskId === k.id) t.tool.reservedTaskId = ''; },
+      release: k => { const claims = new Set([k.id, ...FieldBuilder.components(k.offer).map((p, n) => FieldBuilder.claimId(s, n))]);
+        for (const i of ensurePhysicalItemStacks()) if (claims.has(i.reservedTaskId)) i.reservedTaskId = '';
+        for (const t of fieldStationTools()) if (claims.has(t.tool?.reservedTaskId)) t.tool.reservedTaskId = ''; },
       work: () => {
-        const k = s.contract, offer = k.offer;
-        if (!fieldBuilderOfferValid(s, offer, true)) { FieldBuilder.withdraw(s, fieldBuilderHooks(s), state.clock, 'Original component, tools or staged material changed; no substitutes.'); return; }
-        if (!sameMapCell(a.mapCell, k.drop)) { if (s.job) s.job.attended = false; physical.move(k.drop); return; }
-        const pending = k.claims.tools.find(t => ensurePhysicalItemStacks().find(i => i.id === t.stackId)?.carriedBy !== a.id);
+        const k = s.contract, offer = FieldBuilder.currentOffer(s);
+        if (!fieldBuilderOfferValid(s, k.offer, true)) { FieldBuilder.withdraw(s, fieldBuilderHooks(s), state.clock, 'Original ordered component, tools or staged material changed; no substitutes.'); return; }
+        const pending = k.claims.tools.find(t => offer.tools.some(x => x.toolId === t.toolId) && ensurePhysicalItemStacks().find(i => i.id === t.stackId)?.carriedBy !== a.id);
         if (pending) {
+          const original = ensurePhysicalItemStacks().find(i => i.id === pending.stackId);
+          if (a.roomId !== original.roomId || mapCellDistance(a.mapCell, original.cell) > 1 || !sensoryLineOfSight(a.mapCell, original.cell)) {
+            k.pickup = null; if (s.job) s.job.attended = false; physical.move(original.cell); return;
+          }
           if (!k.pickup || k.pickup.stackId !== pending.stackId) { k.pickup = { stackId: pending.stackId, dueAt: state.clock + 10 }; return; }
           if (state.clock < k.pickup.dueAt) return;
           const i = ensurePhysicalItemStacks().find(i => i.id === pending.stackId);
@@ -87507,29 +87541,53 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           if (carried) { carried.reservedTaskId = k.id; pending.borrowedAt = state.clock; const tool = toolInstanceById(pending.toolId).instance; tool.carriedBy = a.id; tool.roomId = a.roomId; tool.reservedTaskId = k.id; }
           k.pickup = null; return;
         }
+        if (!sameMapCell(a.mapCell, k.drop)) { k.pickup = null; if (s.job) s.job.attended = false; physical.move(k.drop); return; }
         const task = fieldBuilderTask(s), c = fieldStationContext(offer.part, task, 'build', s);
         if (!s.job) {
-          const plan = FieldStation.plan(state.fieldStation, offer.part.id, c, c.tools, k.claims.inputs);
+          const namedTools = c.tools.filter(t => offer.tools.some(loan => loan.toolId === t.tool?.id && loan.stackId === t.stack?.id));
+          const plan = FieldStation.plan(state.fieldStation, offer.part.id, c, namedTools, k.claims.inputs.filter(i => (i.componentIndex || 0) === (k.index || 0)));
           if (!plan) { k.reason = 'Current physical work position, supports, tools or capacity are unavailable.'; return; }
-          s.job = FieldStation.begin(plan, k.id, state.clock, c.tools); a.needs.exertion = Math.min(100, a.needs.exertion + plan.staminaCost); return;
+          s.job = FieldStation.begin(plan, FieldBuilder.claimId(s), state.clock, c.tools); a.needs.exertion = Math.min(100, a.needs.exertion + plan.staminaCost); return;
         }
         FieldStation.advance(state.fieldStation, s.job, c, c.tools, ensurePhysicalItemStacks(), state.clock);
+        k.reason = FieldStation.reason(state.fieldStation, s.job, c, c.tools, ensurePhysicalItemStacks()) || '';
         if (FieldStation.ready(state.fieldStation, s.job, c, c.tools, ensurePhysicalItemStacks()) && finishFieldStationPart(fieldBuilderTask(s), s)) {
-          k.finishedAt = state.clock; k.reason = 'The one commissioned component is physically installed; awaiting personal contact.';
-          s.history.push({ at: state.clock, contractId: k.id, partId: offer.part.id, actorId: a.id, kind: 'built' });
+          // Component completion releases that component's materials/tools,
+          // never the rest of the batch. Shared physical loans stay exclusive.
+          for (const t of s.job.tools) {
+            const i = ensurePhysicalItemStacks().find(i => i.id === t.stackId), tool = toolInstanceById(t.toolId)?.instance;
+            if (i?.carriedBy === a.id && tool?.carriedBy === a.id && !i.reservedTaskId && !tool.reservedTaskId) { i.reservedTaskId = k.id; tool.reservedTaskId = k.id; }
+          }
+          FieldBuilder.complete(s, state.clock);
         }
       } };
   }
   function fieldBuilderAction(action, options = {}) {
     const e = foreignSurveyAtField(); if (!e || scientistIsDead()) return false;
-    if (action === 'inspect') { const ok = fieldBuilderInspect(options.partId); persist(); render(); return ok; }
+    if (['inspect', 'append'].includes(action)) { const ok = fieldBuilderInspect(options.partId, action === 'append'); persist(); render(); return ok; }
+    if (['clearOrder', 'removeLast'].includes(action)) {
+      if (surveyBusy() || !annexCapable() || e.builder?.contract && e.builder.contract.settledAt == null) return false;
+      const rows = FieldBuilder.components(e.builderProposal); e.builderProposal = action === 'clearOrder' || rows.length <= 1 ? null : FieldBuilder.order(rows.slice(0, -1));
+      if (e.builder) { e.builder.proposal = clonePlainObject(e.builderProposal); e.builder.quote = null; }
+      persist(); render(); return true;
+    }
     const s = ensureFieldBuilder(); if (!s) return false;
     const c = fieldBuilderContext(s, true), offer = fieldBuilderOfferValid(s, s.proposal) ? s.proposal : null;
     let result = false;
     if (action === 'review') result = FieldBuilder.review(s, c, offer, state.clock);
     if (action === 'hire') result = FieldBuilder.hire(s, c, offer, options.expected, ensureEconomy(), state.clock, (o, id) => {
       if (!fieldBuilderOfferValid(s, o)) return null;
-      const inputs = clonePlainObject(o.inputs), ids = reserveProductionMaterialSlices(inputs, id); if (!ids) return null;
+      const inputs = [];
+      for (const [index, p] of FieldBuilder.components(o).entries()) {
+        const portions = clonePlainObject(p.inputs), claimId = FieldBuilder.components(o).length > 1 ? `${id}:part-${index}` : id;
+        // Whole-order preflight above validates shared source totals first;
+        // all exact disjoint portions reserve synchronously before any fee.
+        if (!reserveProductionMaterialSlices(portions, claimId)) {
+          for (const i of ensurePhysicalItemStacks()) if (i.reservedTaskId === claimId || inputs.some(t => t.claimId === i.reservedTaskId)) i.reservedTaskId = '';
+          return null;
+        }
+        inputs.push(...portions.map(t => ({ ...t, componentIndex: index, claimId })));
+      }
       for (const t of o.tools) { const i = ensurePhysicalItemStacks().find(i => i.id === t.stackId); i.reservedTaskId = id; toolInstanceById(t.toolId).instance.reservedTaskId = id; }
       return { inputs, tools: clonePlainObject(o.tools) };
     });
@@ -87547,27 +87605,44 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function renderFieldBuilderPanel() {
     const panel = document.createElement('section'); panel.dataset.fieldBuilder = 'true';
-    panel.append(textEl('h4', 'One-component field-building commission'), textEl('p', FieldBuilder.SCOPE));
+    panel.append(textEl('h4', 'Bounded field-building work order'), textEl('p', FieldBuilder.SCOPE));
     const e = foreignSurveyAtField(), s = ensureFieldBuilder();
     const button = (label, action, options = {}, disabled = false) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = disabled;
       b.onclick = () => fieldBuilderAction(action, options); panel.append(b); };
     if (fieldStationLocal() && (!s?.contract || s.contract.settledAt != null)) {
-      panel.append(textEl('p', 'Stand at the work position beside staged owned materials and loose usable tools. Inspect one component, then personally take those terms to the worker on defended ground.'));
-      for (const p of state.fieldStation?.site?.layout.parts || []) if (fieldStationTarget(p)?.visible && !state.fieldStation.site.parts[p.id]) button(`Inspect building commission ${p.id}`, 'inspect', { partId: p.id }, surveyBusy());
+      panel.append(textEl('p', 'Inspect one initial component, then append up to three more in explicit construction order. Stand at each work position beside exact staged materials; shared named tools may remain at their original staged position. Later components may depend on earlier authorized installations. One engagement and two on-site hours cover the entire list, without extending the clock.'));
+      const rows = FieldBuilder.components(e?.builderProposal);
+      for (const p of state.fieldStation?.site?.layout.parts || []) if (fieldStationTarget(p)?.visible && !state.fieldStation.site.parts[p.id]) {
+        button(`Inspect building commission ${p.id}`, 'inspect', { partId: p.id }, surveyBusy());
+        if (rows.length) button(`Append building component ${p.id}`, 'append', { partId: p.id }, surveyBusy() || rows.length >= 4 || rows.some(r => r.part.id === p.id));
+      }
     }
-    if (e?.builderProposal) panel.append(textEl('p', `Inspected proposal ${e.builderProposal.part.id} at ${formatClock(e.builderProposal.at)}; not a live stock report.`));
+    if (e?.builderProposal) {
+      const rows = FieldBuilder.components(e.builderProposal);
+      panel.append(textEl('p', `Inspected ordered proposal (${rows.length}/4): ${rows.map((p, n) => `${n + 1}. ${p.part.id}, work ${p.workCell.x},${p.workCell.y}, recipe ${JSON.stringify(p.part.costs)}, inspected ${formatClock(p.at)}`).join('; ')}. Not a live stock report.`));
+      if (!s?.contract || s.contract.settledAt != null) {
+        button('Remove last inspected building component', 'removeLast', {}, surveyBusy());
+        button('Clear inspected building order', 'clearOrder', {}, surveyBusy());
+      }
+    }
     if (!s) { panel.append(textEl('p', 'Meet a qualified original public-works craftsperson at defended ground if the actual local provider has capacity.')); return panel; }
     const c = fieldBuilderContext(s, true), view = FieldBuilder.publicView(s);
     panel.append(textEl('p', `${s.source.label}: one qualified person; meeting ${s.layout.meeting.x},${s.layout.meeting.y}.`));
     if (fieldPorterObserved(s.actor)) panel.append(textEl('p', `Direct observation: ${s.actor.name}, ${s.actor.health}/100 health, ${s.phase}.`));
-    button('Review exact one-component building terms', 'review', {}, !c.near || !c.atGround || c.busy);
+    const batch = FieldBuilder.components(s.proposal).length > 1;
+    button(batch ? 'Review exact bounded building order terms' : 'Review exact one-component building terms', 'review', {}, !c.near || !c.atGround || c.busy);
     if (view.reply) panel.append(textEl('p', `${formatClock(view.reply.at)} — ${view.reply.reason}`));
     if (view.quote) {
-      panel.append(textEl('p', `Original ${view.quote.offer.part.id}: ${formatMoney(view.quote.upfront)} prepaid; actual recipe ${JSON.stringify(view.quote.offer.part.costs)}; tools ${view.quote.offer.tools.map(t => t.key).join(', ')}. Expires ${formatClock(view.quote.expiresAt)}. Unwarded wilderness, known hazards and return route disclosed.`));
-      button('Accept original one-component building commission', 'hire', { expected: view.quote }, !c.near || c.busy);
+      panel.append(textEl('p', `Original ordered work ${FieldBuilder.components(view.quote.offer).map(p => `${p.part.id}: ${JSON.stringify(p.part.costs)}`).join('; ')}. ${formatMoney(view.quote.upfront)} prepaid for the same two-hour limit, including movement/waiting/rest; shared original tools ${view.quote.offer.tools.map(t => t.key).join(', ')}. Expires ${formatClock(view.quote.expiresAt)}. Unwarded wilderness, known hazards and return route disclosed.`));
+      for (const p of FieldBuilder.components(view.quote.offer)) panel.append(textEl('p', `${p.part.id}, work ${p.workCell.x},${p.workCell.y}: ${p.inputs.map(i => `${i.quantity} ${i.key} from original ${i.stackId} (${i.sourceQuantity} inspected) at ${i.cell.x},${i.cell.y}`).join('; ')}.`));
+      for (const t of view.quote.offer.tools) {
+        const wear = FieldBuilder.components(view.quote.offer).reduce((n, p) => n + (p.tools.some(x => x.toolId === t.toolId) ? Math.max(1, Math.ceil(p.part.tools[t.key] * (1 - p.from))) : 0), 0);
+        panel.append(textEl('p', `Original loan ${t.key}: ${t.toolId} / ${t.stackId}, inspected condition ${t.condition}, total required wear ${wear}; staged ${t.cell.x},${t.cell.y}.`));
+      }
+      button(batch ? 'Accept original bounded building work order' : 'Accept original one-component building commission', 'hire', { expected: view.quote }, !c.near || c.busy);
     }
-    if (view.agreement) panel.append(textEl('p', `Issued ${view.agreement.id} for ${view.agreement.offer.part.id} at ${formatClock(view.agreement.hiredAt)}. Issued terms are not completion telemetry.`));
-    if (view.received) panel.append(textEl('p', `${formatClock(view.received.at)} — received construction report: ${view.received.phase}; ${view.received.reason || 'original agreement'}. Dated, not live tracking.`));
+    if (view.agreement) panel.append(textEl('p', `Issued ${view.agreement.id} for ordered ${FieldBuilder.components(view.agreement.offer).map(p => p.part.id).join(', ')} at ${formatClock(view.agreement.hiredAt)}. Issued terms are not completion telemetry.`));
+    if (view.received) panel.append(textEl('p', `${formatClock(view.received.at)} — received construction report: ${view.received.phase}; ${(view.received.completed || []).map(p => `${p.partId} installed ${formatClock(p.at)}`).join('; ')}; ${view.received.reason || 'original agreement'}. Dated, not live tracking.`));
     button('Ask craftsperson for personal report', 'report', {}, !c.near || c.busy);
     button('Ask craftsperson to withdraw', 'withdraw', {}, !c.near || c.busy);
     for (const t of s.contract?.claims.tools || []) button(`Recover loaned ${t.key} (${t.stackId})`, 'tool', { stackId: t.stackId }, !c.near || c.busy);
@@ -87819,7 +87894,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }
         const a = s.actor, inWild = a.roomId === e.wilderness.roomId;
         if (a.status !== 'dead') {
-          const needs = WildernessSurvival.advance(a.needs, state.clock, { working: s.phase !== 'onSite' || s.job?.status === 'working', resting: !s.job || s.job.status !== 'working', destination: inWild ? e.wilderness.destination : null });
+          const betweenJobs = s.role === 'builder' && s.phase === 'onSite' && s.contract.finishedAt == null && !sameMapCell(a.mapCell, s.contract.drop);
+          const needs = WildernessSurvival.advance(a.needs, state.clock, { working: s.phase !== 'onSite' || s.job?.status === 'working' || betweenJobs, resting: !betweenJobs && (!s.job || s.job.status !== 'working'), destination: inWild ? e.wilderness.destination : null });
           a.needs = needs.state; if (needs.damage) damageSurfaceWorker(needs.damage, { injuryProgress: true }, a);
           if (!actorIsIncapacitated(a)) {
             if (!a.porterCare) {
@@ -89017,7 +89093,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       capable: !actorIsIncapacitated('scientist') && (!worker || !actorIsIncapacitated(actor)), free: worker ? !employment.custody : annexCapable(),
       siteId: w?.context.siteId, worldId: w?.context.worldId, roomId: worker ? actor.roomId : scientistRoomId(), cell,
       bodyEpoch: ensureScientistIdentity().bodyEpoch, visitId: passengerVisitId(), tripId: excursion?.trip?.id,
-      busy: !worker && !task && (surveyBusy() || fieldBuilderStates().some(b => FieldBuilder.active(b) && b.contract.offer.part.id === part?.id)),
+      busy: !worker && !task && (surveyBusy() || fieldBuilderStates().some(b => FieldBuilder.active(b) && FieldBuilder.components(b.contract.offer).some(p => p.part.id === part?.id))),
       reachable: worker ? Boolean(workCell && sameMapCell(workCell, cell)) : Boolean(choices.length), workCell, geometryOkay, target,
       floorsIntact: Boolean(l && l.floors.every(c => constructedFloorAtCell(c)?.condition >= 50)),
       wallsIntact: Boolean(l && l.walls.every(c => constructedWallAtCell(c)?.condition >= 50)),
@@ -89034,7 +89110,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       threatened: Boolean((!worker && (state.combat?.routineSuspension || state.combat?.pendingActions?.scientist)) || w?.beasts?.actors.some(b => b.status !== 'dead'
         && mapCellDistance(cell, b.mapCell) <= 3 && sensoryLineOfSight(cell, b.mapCell))), tools };
   }
-  function fieldStationInputs(part, cell) {
+  function fieldStationInputs(part, cell, committed = []) {
     const out = [];
     if (!cell) return null;
     for (const [key, amount] of Object.entries(part.costs)) {
@@ -89043,7 +89119,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         && !i.fixtureId && !i.containerId && !i.cityOwnerId && !i.civicCustody && i.roomId === scientistRoomId()
         && mapCellDistance(i.cell, cell) <= 1 && sensoryLineOfSight(i.cell, cell))
         .sort((a, b) => mapCellDistance(a.cell, cell) - mapCellDistance(b.cell, cell) || a.quantity - b.quantity)) {
-        const quantity = Math.min(remaining, i.quantity); if (quantity > 0) out.push({ stackId: i.id, key, quantity, cell: cleanMapCell(i.cell) });
+        const quantity = Math.max(0, Math.min(remaining, i.quantity - committed.filter(t => t.stackId === i.id).reduce((n, t) => n + t.quantity, 0)));
+        if (quantity > 0) out.push({ stackId: i.id, key, quantity, cell: cleanMapCell(i.cell) });
         remaining -= quantity; if (remaining <= 0) break;
       }
       if (remaining > 0) return null;
@@ -99829,12 +99906,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (!b || !['arriving', 'onSite'].includes(b.phase) || !k?.id?.startsWith('field-build:') || k.actorId !== b.actor.id
         || b.source?.allocationId !== b.actor.id || k.site?.siteId !== next.fieldStation?.site?.siteId
         || k.site?.worldId !== next.fieldStation?.site?.worldId || k.site.siteId !== g.foreignSurvey.wilderness?.context.siteId
-        || b.job && (b.job.taskId !== k.id || b.job.actorId !== b.actor.id || b.job.partId !== k.offer.part.id)) return [];
-      const ids = (k.claims?.tools || []).filter(t => next.physicalItemStacks.some(i => i.id === t.stackId && i.quantity === 1 && i.key === t.key
-        && i.toolInstanceId === t.toolId && i.reservedTaskId === k.id && !i.cityOwnerId && !i.civicCustody
-        && (i.carriedBy === b.actor.id && i.roomId === b.actor.roomId || !i.carriedBy && i.roomId === k.site.roomId && sameMapCell(i.cell, t.cell))))
-        .map(t => t.toolId);
-      return [[k.id, new Set(ids)]];
+        || !FieldBuilder.validOrder(k.offer) || b.job && (b.job.taskId !== FieldBuilder.claimId(b) || b.job.actorId !== b.actor.id
+          || b.job.partId !== FieldBuilder.currentOffer(b).part.id)) return [];
+      const claims = new Map([[k.id, new Set()]]);
+      if (b.job?.status === 'working') claims.set(b.job.taskId, new Set());
+      for (const t of k.claims?.tools || []) {
+        const i = next.physicalItemStacks.find(i => i.id === t.stackId && i.quantity === 1 && i.key === t.key && i.toolInstanceId === t.toolId
+          && claims.has(i.reservedTaskId) && !i.cityOwnerId && !i.civicCustody
+          && (i.reservedTaskId === k.id || b.job.tools.some(j => j.toolId === t.toolId && j.stackId === t.stackId))
+          && (i.carriedBy === b.actor.id && i.roomId === b.actor.roomId || !i.carriedBy && i.roomId === k.site.roomId && sameMapCell(i.cell, t.cell)));
+        if (i) claims.get(i.reservedTaskId).add(t.toolId);
+      }
+      return [...claims];
     }));
     const stationTransferTools = new Map(next.tasks.filter(t => t.type === 'surveyExpeditionWork' && t.data?.fieldStationTransfer
       && t.data.toolInstanceId && t.data.fieldStationTransfer.cacheId === next.fieldStation?.site?.cacheId
