@@ -32,6 +32,8 @@
       && s.unitVolumeL === node.remaining * LOG.volumeL ? s : null;
   }
   function logSignature(s) { return s ? JSON.stringify([s.id, s.section, s.key, s.quantity, s.unitMassKg, s.unitVolumeL, s.sourceLabels, s.materialComposition]) : ''; }
+  function trunkSignature(node, stack) { return node && stack ? JSON.stringify([node.id, node.stackId, node.cell, node.remaining, node.inspected,
+    logSignature(stack), stack.cityOwnerId || '', stack.civicCustody || '', stack.chemicalBatch || null, stack.tags || []]) : ''; }
   function validLog(s, site, c, claim = '') {
     return s?.section === 'resources' && s.key === 'fieldLog' && s.quantity === 1 && !s.carriedBy && !s.fixtureId && !s.containerId
       && !s.cityOwnerId && !s.civicCustody && s.reservedTaskId === claim && s.roomId === site.roomId
@@ -40,8 +42,8 @@
   function accessReason(c) {
     if (!c.wilderness || c.controlled) return 'Municipal sampling permission is not timber extraction permission; use unoccupied wilderness ground.';
     if (!c.alive || !c.capable || !c.free) return 'A living, free, capable scientist must personally work.';
-    if (c.actorId && c.actorId !== 'scientist' && (!c.employmentAuthorized || c.commission?.operation !== 'saw'))
-      return 'The original craftsperson needs a separate authorized one-log processing agreement.';
+    if (c.actorId && c.actorId !== 'scientist' && (!c.employmentAuthorized || !['saw', 'recoverTimber'].includes(c.commission?.operation)))
+      return 'The original craftsperson needs a separate authorized timber agreement.';
     if (!c.groundPresent) return 'The original reachable natural working ground is no longer available.';
     return '';
   }
@@ -54,9 +56,13 @@
     if (!site || !SECONDS[action] || accessReason(c) || c.worldId !== site.worldId || c.siteId !== site.siteId
       || c.roomId !== site.roomId || c.busy || !c.reachable || !c.visible || c.threatened) return null;
     const delegated = c.actorId && c.actorId !== 'scientist', carrier = c.actorId || 'scientist', claim = delegated ? c.claimId : '';
-    if (delegated && (action !== 'saw' || c.commission.inputId !== input?.id || c.commission.targetKey !== logSignature(input))) return null;
+    if (delegated && (action === 'saw' ? c.commission.operation === 'recoverTimber' && c.commission.action !== 'saw'
+        || c.commission.inputId !== input?.id || c.commission.targetKey !== logSignature(input)
+      : action !== 'cut' || c.commission.operation !== 'recoverTimber' || c.commission.action !== 'cut'
+        || c.commission.nodeId !== node?.id || c.commission.targetKey !== trunkSignature(node, source(site, node, stacks)))) return null;
     if (action === 'saw') { if (!validLog(input, site, c, claim)) return null; }
     else if (!site.nodes.includes(node) || !source(site, node, stacks) || node.remaining <= 0
+      || (node.commissionClaim || '') !== claim
       || action === 'inspect' && node.inspected || action === 'cut' && !node.inspected?.workable) return null;
     const retained = Math.max(0, Math.min(.999999, effort(site, node, action, input)));
     const wear = Math.ceil(WEAR[action] * (1 - retained));
@@ -65,7 +71,8 @@
       && t.stack.reservedTaskId === claim && t.stack.key === 'handSaw' && t.stack.toolInstanceId === t.tool.id
       && (!delegated || c.commission.toolId === t.tool.id && c.commission.toolStackId === t.stack.id)) : null;
     if (wear && !selected || !(c.seconds > 0) || !(c.staminaCost >= 0) || c.stamina < c.staminaCost) return null;
-    return { action, ...(delegated ? { actorId: carrier, operation: 'saw', partId: c.commission.partId, targetKey: logSignature(input),
+    return { action, ...(delegated ? { actorId: carrier, operation: c.commission.operation, partId: c.commission.partId,
+        targetKey: c.commission.orderKey || c.commission.targetKey, sourceSignature: action === 'cut' ? c.commission.targetKey : '',
         tools: [{ toolId: selected.tool.id, stackId: selected.stack.id }] } : {}),
       siteId: site.siteId, worldId: site.worldId, nodeId: node?.id || '', sourceStackId: node?.stackId || '',
       sourceRemaining: node?.remaining, inputId: input?.id || '', inputSignature: action === 'saw' ? logSignature(input) : '',
@@ -88,7 +95,12 @@
       || c.roomId !== job.roomId || c.bodyEpoch !== job.bodyEpoch || (c.visitId || '') !== job.visitId || (c.tripId || '') !== job.tripId)
       return 'Only the original body, world, site, visit and physical trip can continue this task.';
     if ((job.actorId || 'scientist') !== (c.actorId || 'scientist') || job.actorId && job.actorId !== 'scientist'
-      && (job.action !== 'saw' || c.commission?.inputId !== job.inputId || c.commission?.targetKey !== job.inputSignature
+      && (c.commission?.operation !== job.operation || c.commission?.partId !== job.partId
+        || (c.commission?.orderKey || c.commission?.targetKey) !== job.targetKey
+        || (job.action === 'saw' ? job.operation === 'recoverTimber' && c.commission?.action !== 'saw'
+            || c.commission?.inputId !== job.inputId || c.commission?.targetKey !== job.inputSignature
+          : job.action !== 'cut' || job.operation !== 'recoverTimber' || c.commission?.action !== 'cut' || c.commission?.nodeId !== job.nodeId
+            || c.commission?.targetKey !== job.sourceSignature)
         || c.commission?.toolId !== job.toolId || c.commission?.toolStackId !== job.toolStackId))
       return 'Only the original authorized worker, log and loaned saw can continue.';
     const node = site.nodes.find(n => n.id === job.nodeId), input = stacks.find(s => s.id === job.inputId);
@@ -96,6 +108,8 @@
       if (!validLog(input, site, c, job.taskId) || logSignature(input) !== job.inputSignature)
         return 'The exact original staged log, dimensions, ownership and reservation must remain available.';
     } else if (!node || node.stackId !== job.sourceStackId || node.remaining !== job.sourceRemaining
+      || (node.commissionClaim || '') !== (c.claimId || '')
+      || job.sourceSignature && trunkSignature(node, source(site, node, stacks)) !== job.sourceSignature
       || !source(site, node, stacks) || node.remaining <= 0 || job.action === 'cut' && !node.inspected?.workable)
       return 'The original inspected fallen trunk is missing, changed or exhausted.';
     if (job.toolId) {
@@ -140,7 +154,7 @@
     if (job.action === 'cut') {
       const s = source(site, node, stacks); node.remaining--; node.effort = 0;
       s.unitMassKg = node.remaining * LOG.massKg; s.unitVolumeL = node.remaining * LOG.volumeL;
-      s.updatedAt = now; s.observedAt = now;
+      s.updatedAt = now; if (!job.actorId || job.actorId === 'scientist') s.observedAt = now;
       if (!node.remaining) { s.quantity = 0; s.knownQuantity = 0; }
     }
     if (job.action === 'saw') {
@@ -158,10 +172,11 @@
     job.status = 'cancelled'; job.endedAt = now; release(job, tools, stacks); return true;
   }
   function publicView(site) {
+    const personal = rows => (rows || []).filter(r => !r.actorId || r.actorId === 'scientist');
     return { siteId: site?.siteId, observations: (site?.nodes || []).filter(n => n.inspected).map(n => ({
-      id: n.id, cell: copy(n.cell), at: n.inspected.at, receipts: copy(n.receipts),
-      summary: n.receipts.at(-1)?.exhausted ? 'Original fallen trunk exhausted.' : 'Inspected workable fallen timber; no regional reserves established.'
-    })), receipts: copy((site?.receipts || []).filter(r => !r.actorId || r.actorId === 'scientist')), limitation: 'Dated personal evidence, not live remote stocks, land ownership, forestry rights or automatic regrowth.' };
+      id: n.id, cell: copy(n.cell), at: n.inspected.at, receipts: copy(personal(n.receipts)),
+      summary: personal(n.receipts).at(-1)?.exhausted ? 'Original fallen trunk exhausted.' : 'Inspected workable fallen timber; no regional reserves established.'
+    })), receipts: copy(personal(site?.receipts)), limitation: 'Dated personal evidence, not live remote stocks, land ownership, forestry rights or automatic regrowth.' };
   }
-  return { SECONDS, WEAR, LOG, create, sourceClaim, source, logSignature, validLog, effort, accessReason, plan, begin, reason, advance, finish, cancel, publicView };
+  return { SECONDS, WEAR, LOG, create, sourceClaim, source, logSignature, trunkSignature, validLog, effort, accessReason, plan, begin, reason, advance, finish, cancel, publicView };
 });
