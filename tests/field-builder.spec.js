@@ -1,5 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const Builder = require('../field-builder');
+const Station = require('../field-station');
 const copy = x => JSON.parse(JSON.stringify(x));
 const cell = x => ({ x, y: 10, z: 21 });
 function fixture() {
@@ -96,7 +97,8 @@ function batchFixture(count = 4) {
   };
   f.hooks.work = () => {
     if (!f.hooks.atWork()) { if (f.s.job) f.s.job.attended = false; f.hooks.move(f.s.contract.drop); return; }
-    if (!f.s.job) f.s.job = { actorId: f.s.actor.id, partId: Builder.currentOffer(f.s).part.id, taskId: Builder.claimId(f.s), status: 'working', progress: 0, attended: false };
+    if (!f.s.job) f.s.job = { actorId: f.s.actor.id, partId: Builder.currentOffer(f.s).part.id, taskId: Builder.claimId(f.s),
+      operation: Builder.operation(Builder.currentOffer(f.s)), targetKey: Builder.currentOffer(f.s).targetKey, status: 'working', progress: 0, attended: false };
     else if (!f.s.job.attended) f.s.job.attended = true;
     else if (++f.s.job.progress === 20) { f.s.job.status = 'completed'; expect(Builder.complete(f.s, f.now)).toBe(true); f.builds++; }
   };
@@ -145,4 +147,49 @@ test('interruption preserves finished components and private batch outcomes requ
   f.c.threatened = false; f.c.near = true; tick(f, 60); expect(f.s.phase).toBe('awaitingSettlement');
   expect(Builder.settle(f.s, f.c, f.wallet, f.now)).toBe(true); expect(f.s.received.completed).toHaveLength(2);
   expect(Builder.settle(f.s, f.c, f.wallet, f.now)).toBe(false); expect(f.s.actor.id).toBe(f.s.source.allocationId);
+});
+
+function repairFixture() {
+  const f = batchFixture();
+  f.offer = Builder.order(Builder.components(f.offer).map((p, n) => {
+    const target = { id: `original-${n}`, present: true, original: true, condition: [0, 20, 80, 99][n], stamp: 0 };
+    return { ...p, operation: 'repair', target, targetKey: Station.targetKey({ target }) };
+  }));
+  f.targets = copy(Builder.components(f.offer).map(p => p.target));
+  f.hooks.targetsValid = () => Builder.components(f.s.contract.offer).slice(f.s.contract.index)
+    .every((p, n) => p.targetKey === Station.targetKey({ target: f.targets[n + f.s.contract.index] }));
+  return f;
+}
+test('repair-only orders require distinct surviving bound originals and reject mixed operations or reconstruction', () => {
+  const f = repairFixture(), rows = Builder.components(f.offer); expect(rows).toHaveLength(4); expect(Builder.operation(f.offer)).toBe('repair');
+  for (const change of [{ operation: 'build' }, { operation: 'reconstruct' }, { targetKey: 'stale' },
+    { target: { ...rows[1].target, present: false } }, { target: { ...rows[1].target, original: false } },
+    { target: { ...rows[1].target, condition: 100 } }, { target: { ...rows[1].target, condition: -1 } }])
+    expect(Builder.order([rows[0], { ...copy(rows[1]), ...change }])).toBeNull();
+  expect(Builder.order([rows[0], rows[0]])).toBeNull(); expect(Builder.order([...rows, { ...rows[0], part: { id: 'fifth' } }])).toBeNull();
+  const q = Builder.review(f.s, f.c, f.offer, 0), changed = copy(rows); changed[1].target.stamp = 1; changed[1].targetKey = Station.targetKey(changed[1]);
+  expect(Builder.hire(f.s, f.c, Builder.order(changed), q, f.wallet, 1, () => ({}))).toBe(false); expect(f.wallet.money).toBe(500);
+});
+test('one finite repair pass per original records capped outcomes without repeats, new clocks or remote reports', () => {
+  const f = repairFixture(); hire(f); const known = Builder.publicView(f.s); f.c.near = false;
+  tick(f, 45); const started = f.s.contract.startedAt; f.s = copy(f.s); tick(f, 150);
+  expect(f.s.contract.completed.map(p => p.restoredCondition)).toEqual([45, 65, 100, 100]);
+  expect(f.s.contract.startedAt).toBe(started); expect(f.s.contract.reserve).toBe(48); expect(f.wallet.money).toBe(412);
+  expect(f.s.history.filter(r => r.kind === 'repaired')).toHaveLength(4); expect(Builder.complete(f.s, f.now)).toBe(false);
+  tick(f, 50); expect(f.builds).toBe(4); expect(Builder.publicView(f.s)).toEqual(known);
+  f.c.near = true; expect(Builder.receive(f.s, f.c, f.now)).toBe(true); expect(f.s.received.completed).toHaveLength(4);
+});
+test('any unfinished target change withdraws the entire repair order even during arrival or self-care', () => {
+  for (const phase of ['arriving', 'care', 'incapacitated']) {
+    const f = repairFixture(); hire(f); if (phase !== 'arriving') tick(f, 45);
+    const completed = copy(f.s.contract.completed), index = f.s.contract.index;
+    f.c.care = phase === 'care'; f.c.incapacitated = phase === 'incapacitated'; f.targets[index].condition++;
+    tick(f); expect(['returning', 'awaitingSettlement']).toContain(f.s.phase); expect(f.s.contract.completed).toEqual(completed);
+    expect(f.s.contract.reason).toContain('fresh consent'); expect(f.releases).toBeGreaterThan(0);
+    f.targets[index].condition--; tick(f, 10); expect(f.s.contract.completed).toEqual(completed);
+  }
+});
+test('damage to completed repair targets never retargets or cancels the remaining agreed originals', () => {
+  const f = repairFixture(); hire(f); tick(f, 45); expect(f.s.contract.index).toBe(1);
+  f.targets[0].present = false; tick(f, 150); expect(f.s.contract.completed).toHaveLength(4); expect(f.s.phase).toBe('onSite');
 });

@@ -175,6 +175,47 @@ function maintenance(f, operation = 'repair') {
   f.stacks.filter(i => i.section === 'resources').forEach(i => i.reservedTaskId = j.taskId);
   return j;
 }
+function delegatedRepair(kind = 'wall') {
+  const f = damaged(kind); f.c.actorId = 'builder:b'; f.c.employmentAuthorized = true;
+  f.c.commission = { operation: 'repair', partId: f.part.id, targetKey: Station.targetKey(f.c) };
+  for (const t of f.tools) { t.tool.carriedBy = f.c.actorId; t.stack.carriedBy = f.c.actorId; }
+  return f;
+}
+test('delegated maintenance authorizes only the exact signed repair, original target and actual worker tools', () => {
+  const f = delegatedRepair(), j = maintenance(f);
+  for (const commission of [null, { ...f.c.commission, operation: 'build' }, { ...f.c.commission, partId: 'another' }, { ...f.c.commission, targetKey: 'changed' }])
+    assert.match(Station.reason(f.saved, j, { ...f.c, commission }, f.tools, f.stacks), /exact component commission/);
+  assert(Station.reason(f.saved, j, { ...f.c, employmentAuthorized: false }, f.tools, f.stacks));
+  const g = delegatedRepair(), other = maintenance(g);
+  Station.cancel(g.saved, other, g.tools, g.stacks, 0);
+  assert.equal(Station.plan(g.saved, g.part.id, g.c, g.tools, g.inputs, 'reconstruct'), null);
+  for (const t of g.tools) { t.tool.carriedBy = 'scientist'; t.stack.carriedBy = 'scientist'; }
+  assert.equal(Station.plan(g.saved, g.part.id, g.c, g.tools, g.inputs, 'repair'), null);
+});
+test('delegated repairs preserve installation identity, exact effort and private receipts through serialization', () => {
+  let f = delegatedRepair('cache'), j = maintenance(f); const original = copy(f.saved.site.parts[f.part.id]);
+  Station.advance(f.saved, j, f.c, f.tools, f.stacks, 1); Station.advance(f.saved, j, f.c, f.tools, f.stacks, 51);
+  ({ f, j } = copy({ f, j })); f.tools.forEach(t => t.stack = f.stacks.find(i => i.id === t.stack.id));
+  assert.equal(Station.effort(f.saved, f.part.id, 'repair', f.c), .5);
+  Station.advance(f.saved, j, f.c, f.tools, f.stacks, 101);
+  assert(Station.finish(f.saved, j, f.c, f.tools, f.stacks, 101, 'original'));
+  assert.deepEqual(f.saved.site.parts[f.part.id], original); assert.equal(f.saved.history.at(-1).actorId, 'builder:b');
+  assert(!Station.publicView(f.saved).history.some(r => r.operation === 'repair'));
+  Station.observe(f.saved, 101, { parts: { [f.part.id]: { at: 101 } } });
+  assert(Station.publicView(f.saved).history.some(r => r.operation === 'repair'));
+  assert(!Station.finish(f.saved, j, f.c, f.tools, f.stacks, 102, 'original'));
+});
+test('cancelled unchanged delegated repairs retain effort but a changed commissioned target discards only stale effort', () => {
+  const f = delegatedRepair(), j = maintenance(f);
+  Station.advance(f.saved, j, f.c, f.tools, f.stacks, 1); Station.advance(f.saved, j, f.c, f.tools, f.stacks, 51);
+  Station.cancel(f.saved, j, f.tools, f.stacks, 51);
+  Station.clearChangedEffort(f.saved, f.part.id, { ...f.c.target, visible: false });
+  assert.equal(Station.effort(f.saved, f.part.id, 'repair', f.c), .5);
+  f.saved.site.maintenanceEffort['repair:other'] = { targetKey: 'other', fraction: .7 };
+  Station.clearChangedEffort(f.saved, f.part.id, { ...f.c.target, stamp: 2, visible: false });
+  assert.equal(Station.effort(f.saved, f.part.id, 'repair', f.c), 0);
+  assert.equal(f.saved.site.maintenanceEffort['repair:other'].fraction, .7);
+});
 test('repairs match primary material, retain actual roofing tools and never reuse construction effort', () => {
   for (const kind of ['floor', 'wall', 'roof', 'door', 'cache']) {
     const f = damaged(kind), p = Station.workPart(f.saved, f.part.id, 'repair');

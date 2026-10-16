@@ -74,12 +74,20 @@
   }
   function effortKey(partId, operation = 'build') { return operation === 'build' ? partId : `${operation}:${partId}`; }
   function targetKey(c) { return JSON.stringify([c.target?.id, c.target?.present, c.target?.condition, c.target?.stamp]); }
-  function inspectTarget(s, partId, target) {
-    if (!target?.visible) return;
+  function clearChangedEffort(s, partId, target) {
     for (const operation of ['repair', 'reconstruct']) {
       const k = effortKey(partId, operation), e = s.site?.maintenanceEffort?.[k];
-      if (e && (!target.original || e.targetKey !== targetKey({ target }))) delete s.site.maintenanceEffort[k];
+      if (e && (!target?.original || e.targetKey !== targetKey({ target }))) delete s.site.maintenanceEffort[k];
     }
+  }
+  function inspectTarget(s, partId, target) {
+    if (target?.visible) clearChangedEffort(s, partId, target);
+  }
+  function commissionAllows(c, partId, operation) {
+    if (!c.actorId || c.actorId === 'scientist') return true;
+    if (operation === 'build') return !c.commission || c.commission.operation === 'build' && c.commission.partId === partId;
+    return operation === 'repair' && c.employmentAuthorized && c.commission?.operation === 'repair'
+      && c.commission.partId === partId && c.commission.targetKey === targetKey(c);
   }
   function effort(s, partId, operation = 'build', c = {}) {
     if (operation === 'build') return s.site?.effort[partId] || 0;
@@ -88,7 +96,7 @@
   }
   function plan(s, partId, c, tools, inputs, operation = 'build') {
     const actorId = c.actorId || 'scientist';
-    if (actorId !== 'scientist' && operation !== 'build') return null;
+    if (!commissionAllows(c, partId, operation)) return null;
     const site = s.site, part = workPart(s, partId, operation);
     if (!part || maintenanceReason(s, part, c, operation) || accessReason(c) || c.siteId !== site.siteId || c.worldId !== site.worldId
       || c.busy || !c.geometryOkay || !c.reachable || c.threatened || prerequisite(site, part, c) || !inputs) return null;
@@ -122,6 +130,7 @@
     if (!part) return 'The original station component is unavailable.';
     if (j.invalidated) return 'The inspected target changed during this task; cancel and start fresh supplied work.';
     const operation = j.operation || 'build';
+    if (!commissionAllows(c, j.partId, operation)) return 'The original exact component commission is required.';
     const maintenance = maintenanceReason(s, part, c, operation);
     if (maintenance) return maintenance;
     if (operation !== 'build' && targetKey(c) !== j.targetKey) return 'The exact inspected target changed; cancel and inspect it again.';
@@ -195,5 +204,5 @@
       receipts: copy(Object.values(s.site.parts).filter(known)), history: copy(s.history.filter(known)),
       limitation: 'Dated supply hut records, not live remote inventory, land title, sovereignty, safety, staffing or transport rights.' } : null;
   }
-  return { create, layout, homeSupply, accessReason, register, prerequisite, workPart, maintenanceReason, inspectTarget, effort, plan, begin, reason, advance, ready, finish, cancel, observe, publicView };
+  return { create, layout, homeSupply, accessReason, register, prerequisite, workPart, maintenanceReason, targetKey, clearChangedEffort, inspectTarget, effort, plan, begin, reason, advance, ready, finish, cancel, observe, publicView };
 });

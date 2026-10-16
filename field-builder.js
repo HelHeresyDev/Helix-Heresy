@@ -1,17 +1,23 @@
 (function (root, factory) {
-  const api = factory(typeof module === 'object' && module.exports ? require('./wilderness-survival') : root.HelixWildernessSurvival);
+  const node = typeof module === 'object' && module.exports;
+  const api = factory(node ? require('./wilderness-survival') : root.HelixWildernessSurvival,
+    node ? require('./field-station') : root.HelixFieldStation);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixFieldBuilder = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Survival) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Survival, Station) {
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x));
   const active = s => ['arriving', 'onSite', 'returning'].includes(s?.phase);
-  const SCOPE = 'One original qualified noncombat craftsperson, an exact ordered list of one to four initial hut components. 40 engagement plus 48 reserved wages at 24/hour, capped at two on-site hours including walking between jobs, waits and rest; wages round up at settlement. Actual staged owned materials and original shared loaned tools, physical travel, ordinary work and wear. No repair, reconstruction, automatic repeat, supplied stock, seat, protection, title or garrison. Return and tool handback are physical; reports are dated.';
+  const SCOPE = 'One original qualified noncombat craftsperson, one to four distinct initial hut components OR a repair-only order; never mixed. Each repair restores at most 45 condition, capped at 100, once per agreed original target. Changed unfinished targets stop the whole order for fresh inspection and consent. 40 engagement plus 48 reserved wages at 24/hour, capped at two on-site hours including walking between jobs, waits and rest; wages round up at settlement. Actual staged owned materials and original shared loaned tools, physical travel, ordinary work and wear. No reconstruction, automatic maintenance, supplied stock, seat, protection, title or garrison. Return and tool handback are physical; reports are dated.';
   const components = offer => offer?.components || (offer ? [offer] : []);
+  const operation = offer => offer?.operation || 'build';
   function validOrder(offer) {
     const rows = components(offer);
     return Array.isArray(rows) && rows.length >= 1 && rows.length <= 4 && new Set(rows.map(p => p?.part?.id)).size === rows.length
-      && rows.every(p => p?.part?.id && p.workCell && JSON.stringify(p.site) === JSON.stringify(offer.site));
+      && ['build', 'repair'].includes(operation(offer))
+      && rows.every(p => p?.part?.id && p.workCell && JSON.stringify(p.site) === JSON.stringify(offer.site)
+        && operation(p) === operation(offer) && (operation(p) === 'build' || p.target?.id && p.target.present && p.target.original
+          && Number.isFinite(p.target.condition) && p.target.condition >= 0 && p.target.condition < 100 && p.targetKey === Station.targetKey(p)));
   }
   function order(rows) {
     if (!Array.isArray(rows) || rows.some(p => !p || p.components)) return null;
@@ -30,13 +36,15 @@
     const k = s?.contract; if (!k) return false;
     const offer = currentOffer(s);
     if (s.phase !== 'onSite' || k.actorId !== s.actor.id || s.job?.actorId !== s.actor.id || k.finishedAt != null || !Number.isFinite(now) || s.job?.status !== 'completed' || s.job.partId !== offer?.part.id
-      || s.job.taskId !== claimId(s)) return false;
-    (k.completed ||= []).push({ at: now, partId: offer.part.id, taskId: s.job.taskId });
-    s.history.push({ at: now, contractId: k.id, partId: offer.part.id, actorId: s.actor.id, kind: 'built' });
+      || s.job.taskId !== claimId(s) || operation(s.job) !== operation(offer)
+      || operation(offer) === 'repair' && s.job.targetKey !== offer.targetKey) return false;
+    (k.completed ||= []).push({ at: now, partId: offer.part.id, taskId: s.job.taskId, operation: operation(offer),
+      ...(operation(offer) === 'repair' ? { target: copy(offer.target), restoredCondition: Math.min(100, offer.target.condition + 45) } : {}) });
+    s.history.push({ at: now, contractId: k.id, partId: offer.part.id, actorId: s.actor.id, kind: operation(offer) === 'repair' ? 'repaired' : 'built' });
     k.index = (k.index || 0) + 1; k.pickup = null;
     const next = components(k.offer)[k.index];
     if (next) { k.drop = copy(next.workCell); s.job = null; k.reason = 'Next explicitly authorized component; original wage clock continues.'; }
-    else { k.finishedAt = now; k.reason = 'All explicitly commissioned components are physically installed; awaiting personal contact.'; }
+    else { k.finishedAt = now; k.reason = operation(offer) === 'repair' ? 'Each explicitly commissioned original target received its single repair; awaiting personal contact.' : 'All explicitly commissioned components are physically installed; awaiting personal contact.'; }
     return true;
   }
   function source(city, institution, current, excursion) {
@@ -73,7 +81,7 @@
   function review(s, c, offer, now) {
     if (!s || !Number.isFinite(now) || !contact(c) || !c.atGround || !c.originalTrip || !['idle', 'completed'].includes(s.phase)) return null;
     s.quote = null;
-    const why = refusal(s, c) || (!validOrder(offer) || !c.routeOk ? 'Personally inspect one to four distinct ordered unbuilt components, reachable work positions, exact staged materials and usable tools first.' : '')
+    const why = refusal(s, c) || (!validOrder(offer) || !c.routeOk ? 'Personally inspect one to four distinct initial components or original repair targets, reachable work positions, exact staged materials and usable tools first.' : '')
       || (s.dutySeconds < 7500 ? 'Finite duty cannot cover the budget and withdrawal margin.' : '');
     s.reply = { at: now, reason: why || SCOPE }; if (why) return null;
     s.quote = { at: now, expiresAt: now + 60, actorId: s.actor.id, bodyEpoch: c.bodyEpoch, visitId: c.visitId, tripId: c.tripId,
@@ -106,6 +114,8 @@
     s.dutySeconds = Math.max(0, s.dutySeconds - dt);
     if (k.startedAt != null) k.earned = Math.min(k.reserve, Math.max(k.earned, (Math.min(now, a.diedAt ?? now) - k.startedAt) * k.hourly / 3600));
     if (a.status === 'dead') { withdraw(s, hooks, now, 'Original craftsperson died; property remains at the actual body.'); s.phase = 'dead'; return 1; }
+    if (['arriving', 'onSite'].includes(s.phase) && k.finishedAt == null && operation(k.offer) === 'repair' && (!hooks.targetsValid || !hooks.targetsValid()))
+      withdraw(s, hooks, now, 'An unfinished original repair target changed; inspect the remaining components and obtain fresh consent.');
     if (!control(s, c) || refusal(s, c) || c.injured || k.policy !== policy(c) || JSON.stringify(k.site) !== JSON.stringify(c.site)
       || s.dutySeconds <= 300 || k.startedAt != null && now >= k.startedAt + k.seconds)
       withdraw(s, hooks, now, c.threatened ? 'Immediate danger: noncombat withdrawal.' : 'Original authority, safe condition or finite budget ended.');
@@ -135,5 +145,5 @@
       agreement: s?.contract ? { id: s.contract.id, hiredAt: s.contract.hiredAt, offer: s.contract.offer, fee: 40, reserve: 48,
         ...(s.contract.settledAt == null ? {} : { settledAt: s.contract.settledAt, refund: s.contract.refund }) } : null });
   }
-  return { SCOPE, components, validOrder, order, currentOffer, claimId, complete, active, source, create, control, refusal, review, hire, withdraw, advance, receive, settle, publicView };
+  return { SCOPE, components, operation, validOrder, order, currentOffer, claimId, complete, active, source, create, control, refusal, review, hire, withdraw, advance, receive, settle, publicView };
 });
