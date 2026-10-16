@@ -9,7 +9,24 @@
   const copy = x => JSON.parse(JSON.stringify(x));
   const same = (a, b) => a && b && ['x', 'y', 'z'].every(k => a[k] === b[k]);
   const SHIFT = 7200, FEE = 40, HOURLY = 12;
-  const SCOPE = 'One noncombat porter, two on-site hours (including waiting and rest), 40 engagement plus 24 prepaid wages. Earned wages round up to whole currency at settlement. Disclosed wilderness hazards and the original station/return route only. Personally accepted orders of one to four exact loose stone, log or lumber units, carried sequentially; no automatic repeat, crates, building, guard, vehicle seat or guaranteed rescue. Orders never extend the shift. Settlement at the defended meeting point after physical return.';
+  const SCOPE = 'One noncombat porter, two on-site hours (including waiting and rest), 40 engagement plus 24 prepaid wages. Earned wages round up to whole currency at settlement. Disclosed wilderness hazards and the original station/return route only. Personally accepted orders of one to four exact loose stone, log or lumber units, carried sequentially to the outdoor drop or separately inspected ground-level hut staging tiles; no automatic repeat, crates, building, guard, vehicle seat or guaranteed rescue. Orders never extend the shift. Settlement at the defended meeting point after physical return.';
+  function stagingArea(site, cell) {
+    return Boolean(site?.layout?.footprint?.length && cell && ['x', 'y', 'z'].every(k => Number.isInteger(cell[k]))
+      && site.layout.footprint.some(p => p.z === cell.z && Math.max(Math.abs(p.x - cell.x), Math.abs(p.y - cell.y)) <= 1));
+  }
+  function stageCurrent(mark, c) {
+    return Boolean(mark && Number.isFinite(mark.at) && mark.cell && ['x', 'y', 'z'].every(k => Number.isInteger(mark.cell[k]))
+      && ['worldId', 'siteId', 'roomId'].every(k => mark.site?.[k] && mark.site[k] === c.site?.[k])
+      && mark.bodyEpoch === c.bodyEpoch && mark.visitId === c.visitId && mark.tripId === c.tripId);
+  }
+  function markStage(c, now) {
+    if (!Number.isFinite(now) || !c.alive || !c.capable || !c.originalBody || c.custody || !c.originalTrip || c.busy || !c.local
+      || !c.stageLegal || !Number.isInteger(c.bodyEpoch) || c.bodyEpoch < 0 || !c.visitId || !c.tripId || !['worldId', 'siteId', 'roomId'].every(k => c.site?.[k])
+      || !stagingArea(c.site, c.cell)) return null;
+    return { id: `stage:${c.cell.x},${c.cell.y},${c.cell.z}`, at: now, cell: copy(c.cell),
+      site: { worldId: c.site.worldId, siteId: c.site.siteId, roomId: c.site.roomId },
+      bodyEpoch: c.bodyEpoch, visitId: c.visitId, tripId: c.tripId };
+  }
   function source(city, standings, excursion) {
     if (!city?.assetId || city.cityId !== excursion?.source.cityId || city.assetId !== excursion.source.populationSourceId
       || !Number.isFinite(city.currentPopulation) || city.currentPopulation < 8 || city.physicalCondition === 'ruined'
@@ -95,14 +112,17 @@
     return Boolean(s && Number.isFinite(now) && s.phase === 'onSite' && control(s, c) && contact(c) && !refusal(s, c)
       && !c.injured && !c.care && s.job?.status !== 'working' && s.actor.id === s.contract.actorId
       && JSON.stringify(s.contract.site) === JSON.stringify(c.site) && s.contract.policy === policy(c)
-      && same(s.contract.drop, c.drop) && c.dropLegal && s.contract.startedAt != null
+      && same(s.contract.drop, c.drop) && s.contract.startedAt != null
       && now >= s.contract.startedAt && now < s.contract.startedAt + SHIFT);
   }
+  const deliveryDrop = c => c.deliveryDrop || c.drop;
+  const destinationOkay = c => Boolean((c.deliveryDropLegal ?? c.dropLegal)
+    && (c.destination ? stageCurrent(c.destination, c) && same(deliveryDrop(c), c.destination.cell) : same(deliveryDrop(c), c.drop)));
   const available = (s, c, i) => Boolean(Hauling.eligible(i) && !i.carriedBy && !i.reservedTaskId
-    && i.roomId === s.contract.site.roomId && c.itemVisible && c.carryOk && c.routeOk);
-  const observed = (i, now) => ({ sourceId: i.id, sourceQuantity: i.quantity, key: i.key, unitMassKg: i.unitMassKg, unitVolumeL: i.unitVolumeL,
+    && i.roomId === s.contract.site.roomId && c.itemVisible && c.carryOk && c.routeOk && destinationOkay(c));
+  const observed = (i, now, c) => ({ sourceId: i.id, sourceQuantity: i.quantity, key: i.key, unitMassKg: i.unitMassKg, unitVolumeL: i.unitVolumeL,
     sourceLabels: copy(i.sourceLabels || []), signature: Hauling.signature(i),
-    roomId: i.roomId, pickup: copy(i.cell), inspectedAt: now });
+    roomId: i.roomId, pickup: copy(i.cell), drop: copy(deliveryDrop(c)), destination: copy(c.destination || null), inspectedAt: now });
   function proposalCurrent(s, c, p) {
     return p && p.contractId === s.contract.id && p.actorId === s.actor.id && p.bodyEpoch === c.bodyEpoch
       && p.visitId === c.visitId && p.tripId === c.tripId && p.policy === policy(c)
@@ -113,7 +133,7 @@
     const p = s.proposal || { contractId: s.contract.id, actorId: s.actor.id, bodyEpoch: c.bodyEpoch, visitId: c.visitId,
       tripId: c.tripId, site: copy(c.site), drop: copy(c.drop), policy: policy(c), rows: [] };
     if (!proposalCurrent(s, c, p) || p.rows.length >= 4) return false;
-    const previous = p.rows.filter(r => r.sourceId === item.id), row = observed(item, now);
+    const previous = p.rows.filter(r => r.sourceId === item.id), row = observed(item, now, c);
     if (previous.length >= item.quantity || previous.some(r => r.sourceQuantity !== row.sourceQuantity || r.signature !== row.signature
       || r.roomId !== row.roomId || !same(r.pickup, row.pickup))) return false;
     p.rows.push(row); s.proposal = p; return true;
@@ -133,7 +153,8 @@
     for (let n = 0; n < p.rows.length; n++) {
       const r = p.rows[n], { item: i, context: ic } = entries[n];
       if (!ic || !canOrder(s, ic, now) || !available(s, ic, i) || i.id !== r.sourceId || i.quantity !== r.sourceQuantity
-        || Hauling.signature(i) !== r.signature || i.roomId !== r.roomId || !same(i.cell, r.pickup)) return false;
+        || Hauling.signature(i) !== r.signature || i.roomId !== r.roomId || !same(i.cell, r.pickup)
+        || !same(deliveryDrop(ic), r.drop) || JSON.stringify(ic.destination || null) !== JSON.stringify(r.destination)) return false;
       counts.set(i.id, (counts.get(i.id) || 0) + 1); if (counts.get(i.id) > i.quantity) return false;
     }
     const orderId = `field-porter-order:${s.contract.id}:${s.next++}`, jobs = [];
@@ -146,7 +167,7 @@
         return false;
       }
       jobs.push({ id, orderId, actorId: s.actor.id, stackId: slice.id, sourceId: r.sourceId, signature: r.signature,
-        roomId: r.roomId, pickup: copy(r.pickup), drop: copy(p.drop), status: 'pending', phase: 'pickup', progress: 0,
+        roomId: r.roomId, pickup: copy(r.pickup), drop: copy(r.drop), destination: copy(r.destination), status: 'pending', phase: 'pickup', progress: 0,
         lastAt: now, attended: false, reason: '' });
     }
     // Only s.job carries live attendance. The list stores pending instructions
@@ -158,7 +179,7 @@
     s.proposal = null; return true;
   }
   function assign(s, c, item, now, reserve) {
-    if (!canOrder(s, c, now) || !available(s, c, item)) return false;
+    if (!canOrder(s, c, now) || c.destination || !available(s, c, item)) return false;
     const id = `field-porter-haul:${s.contract.id}:${s.next++}`, slice = reserve(item, id);
     if (!slice || slice.quantity !== 1 || slice.reservedTaskId !== id) return false;
     s.job = { id, actorId: s.actor.id, stackId: slice.id, sourceId: item.id, signature: Hauling.signature(item),
@@ -176,7 +197,9 @@
       else stopJob(s, hooks, now, 'Original material or custody changed; no substitute fetched.');
       return;
     }
-    if (!c.dropLegal || !hooks.capacity(carrying, i)) { j.attended = false; j.reason = 'Drop or carrying capacity unavailable.'; return; }
+    if (!(hooks.dropLegal ? hooks.dropLegal(j) : c.dropLegal) || !hooks.capacity(carrying, i)) {
+      j.attended = false; j.reason = 'Drop or carrying capacity unavailable.'; return;
+    }
     const goal = carrying ? j.drop : j.pickup;
     if (!hooks.adjacent(goal)) { j.attended = false; j.reason = hooks.move(goal) ? '' : 'Physical route blocked; no attendance credited.'; return; }
     const phase = carrying ? 'unload' : 'load';
@@ -250,6 +273,6 @@
         fee: FEE, reserve: 24, seconds: SHIFT, scope: SCOPE, ...(s.contract.settledAt == null ? {} : { settledAt: s.contract.settledAt, refund: s.contract.refund }) } : null,
       proposal: s?.proposal || null, issued: s?.issued || [], received: s?.received || null, scope: SCOPE });
   }
-  return { SHIFT, FEE, HOURLY, SCOPE, source, create, active, current, control, review, hire, refusal, canOrder, append, edit, accept,
+  return { SHIFT, FEE, HOURLY, SCOPE, stagingArea, stageCurrent, markStage, source, create, active, current, control, review, hire, refusal, canOrder, append, edit, accept,
     assign, stopJob, withdraw, advance, receive, settle, publicView };
 });

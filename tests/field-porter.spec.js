@@ -258,3 +258,81 @@ test('a failed reservation releases acquired exact claims without charging or cr
   expect(f.stacks.every(i => !i.reservedTaskId)).toBe(true); expect(f.stacks.reduce((n, i) => n + i.quantity, 0)).toBe(5);
   expect(f.s.deliveryOrder).toBeNull(); expect(f.s.job).toBeNull(); expect(f.wallet.money).toBe(36);
 });
+
+function stagingContext(f, x = 27) {
+  return { ...f.c, local: true, cell: cell(x), stageLegal: true,
+    site: { ...f.c.site, layout: { footprint: [cell(25), cell(26), cell(27)] } } };
+}
+function destination(f, x = 27) {
+  const mark = Porter.markStage(stagingContext(f, x), f.now); expect(mark).toBeTruthy();
+  return { ...f.c, destination: mark, deliveryDrop: copy(mark.cell), deliveryDropLegal: true };
+}
+test('staging marks require personal inspection of clear local ground inside or one tile beside the same hut', () => {
+  const f = fixture(), c = stagingContext(f);
+  for (const x of [24, 25, 26, 27, 28]) expect(Porter.stagingArea(c.site, cell(x))).toBe(true);
+  for (const target of [cell(23), cell(29), { ...cell(27), z: 22 }, { ...cell(27), x: 27.5 }]) expect(Porter.stagingArea(c.site, target)).toBe(false);
+  for (const wrong of [{ alive: false }, { capable: false }, { originalBody: false }, { custody: true }, { originalTrip: false },
+    { busy: true }, { local: false }, { stageLegal: false }, { tripId: '' }, { visitId: '' }, { bodyEpoch: -1 }, { site: null }, { cell: cell(30) }])
+    expect(Porter.markStage({ ...c, ...wrong }, 1), JSON.stringify(wrong)).toBeNull();
+  expect(Porter.markStage(c, NaN)).toBeNull(); const mark = Porter.markStage(c, 1);
+  expect(mark).toMatchObject({ cell: cell(27), at: 1, bodyEpoch: 1, tripId: 'trip', visitId: 'visit', site: f.c.site });
+  const initial = Porter.markStage({ ...c, bodyEpoch: 0 }, 1);
+  expect(initial.bodyEpoch).toBe(0); expect(Porter.stageCurrent(initial, { ...f.c, bodyEpoch: 0 })).toBe(true);
+});
+test('one pile supplies distinct inspected destinations and the original default without extending the paid shift', () => {
+  const f = fixture(); onsite(f); f.item.quantity = 4; const a = destination(f, 27), b = destination(f, 28);
+  for (const c of [a, f.c, b]) expect(Porter.append(f.s, c, f.item, f.now)).toBe(true);
+  expect(acceptOrder(f, copy(f.s.proposal), [a, {}, b])).toBe(true);
+  const o = f.s.deliveryOrder, started = f.s.contract.startedAt;
+  expect(o.jobs.map(j => j.drop)).toEqual([cell(27), cell(25), cell(28)]);
+  expect(o.jobs.map(j => j.destination?.id || null)).toEqual([a.destination.id, null, b.destination.id]);
+  expect(f.item).toMatchObject({ quantity: 1, reservedTaskId: '' }); expect(f.s.contract.drop).toEqual(cell(25));
+  tick(f, 200); expect(f.deposited).toBe(3); expect(o.status).toBe('delivered');
+  expect(o.jobs.map(j => f.stacks.find(i => i.id === j.stackId).cell)).toEqual([cell(27), cell(25), cell(28)]);
+  expect(f.wallet.money).toBe(36); expect(f.s.contract.startedAt).toBe(started);
+});
+test('missing, altered, stale or inaccessible destination bindings refuse the whole order before reservation', () => {
+  for (const wrong of [{ deliveryDropLegal: false }, { routeOk: false }, { deliveryDrop: cell(26) }, { destination: null },
+    { destination: { at: 2 } }]) {
+    const f = fixture(); onsite(f); const c = destination(f); expect(Porter.append(f.s, c, f.item, f.now)).toBe(true);
+    expect(acceptOrder(f, copy(f.s.proposal), [{ ...c, ...wrong }]), JSON.stringify(wrong)).toBe(false);
+    expect(f.stacks).toHaveLength(1); expect(f.item.quantity).toBe(2); expect(f.item.reservedTaskId).toBe('');
+  }
+  for (const wrong of [{ at: 99 }, { cell: cell(28) }, { bodyEpoch: 2 }, { visitId: 'later' }, { tripId: 'later' },
+    { site: { worldId: 'other', siteId: 'station', roomId: 'wild' } }]) {
+    const f = fixture(); onsite(f); const c = destination(f); expect(Porter.append(f.s, c, f.item, f.now)).toBe(true);
+    expect(acceptOrder(f, copy(f.s.proposal), [{ ...c, destination: { ...c.destination, ...wrong } }])).toBe(false);
+    expect(f.item.quantity).toBe(2);
+  }
+  const f = fixture(); onsite(f); const c = destination(f);
+  expect(Porter.append(f.s, { ...c, destination: null }, f.item, f.now)).toBe(false); // No arbitrary uninspected coordinate.
+  expect(Porter.assign(f.s, c, f.item, f.now, f.reserve)).toBe(false); // Immediate instruction remains the default drop.
+});
+test('blocked later staging holds the named delivery across reload and cannot skip ahead or borrow care time', () => {
+  const f = fixture(); onsite(f); f.item.quantity = 4; const a = destination(f, 27), b = destination(f, 28);
+  for (const c of [f.c, a, b]) expect(Porter.append(f.s, c, f.item, f.now)).toBe(true);
+  expect(acceptOrder(f, copy(f.s.proposal), [{}, a, b])).toBe(true);
+  let obstructed = true; f.hooks.dropLegal = j => !obstructed || j.drop.x !== 27;
+  tick(f, 100); const id = f.s.job.id;
+  expect(f.deposited).toBe(1); expect(f.s.deliveryOrder.index).toBe(1); expect(f.s.job.reason).toContain('unavailable');
+  expect(f.s.job.drop).toEqual(cell(27)); expect(f.s.job.progress).toBe(0);
+  Object.assign(f.s, copy(f.s)); f.stacks = copy(f.stacks);
+  expect(f.s.deliveryOrder.jobs.slice(1).every(j => f.stacks.find(i => i.id === j.stackId).reservedTaskId === j.id)).toBe(true);
+  f.c.care = true; tick(f, 50); obstructed = false; f.c.care = false; tick(f);
+  expect(f.s.job.id).toBe(id); expect(f.s.job.progress).toBe(0); tick(f, 150);
+  expect(f.deposited).toBe(3); expect(f.s.history.map(j => j.drop)).toEqual([cell(25), cell(27), cell(28)]);
+});
+test('runtime access is per delivery, not the old apron or a later edited mark; interruption keeps real cargo custody', () => {
+  for (const budget of [false, true]) {
+    const f = fixture(); onsite(f); const c = destination(f);
+    expect(Porter.append(f.s, c, f.item, f.now)).toBe(true); expect(acceptOrder(f, copy(f.s.proposal), [c])).toBe(true);
+    const job = f.s.job; c.destination.cell.x = 999; // Later note edits cannot retarget accepted cargo.
+    f.c.dropLegal = false; f.hooks.dropLegal = j => j.drop.x === 27;
+    while (f.s.job.phase !== 'delivery') tick(f); const at = copy(f.s.actor.mapCell);
+    expect(job.drop).toEqual(cell(27)); expect(job.destination.cell).toEqual(cell(27));
+    if (budget) { f.now = f.s.contract.startedAt + Porter.SHIFT - 1; tick(f); }
+    else expect(Porter.stopJob(f.s, f.hooks, f.now, 'Personal cancellation')).toBe(true);
+    expect(f.stacks.find(i => i.id === job.stackId)).toMatchObject({ carriedBy: '', cell: at, reservedTaskId: '' });
+    expect(f.deposited).toBe(0); expect(f.item.quantity).toBe(1); if (budget) expect(f.s.phase).toBe('returning');
+  }
+});

@@ -87804,11 +87804,52 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     return null;
   }
-  function fieldPorterHooks(s) { return foreignEscortHaulingHooks(s, (a, goal) => fieldPorterNextStep(s, a, goal)); }
-  function fieldPorterContext(s, item = null, contact = false) {
-    return fieldEmployeeContext(s, item, contact, fieldPorterSource);
+  function fieldPorterStageLegal(site, cell, actor) {
+    if (!(FieldPorter.stagingArea(site, cell) && labMapCellRoomId(cell) === site.roomId
+      && labMapCellHasFloor(cell) && labMapCellIsWalkable(cell) && !constructedWallAtCell(cell)
+      && !labMapDoorAtCell(cell) && !fixturesAtCell(cell).length && !labMapCellIsPathBlocked(cell, { actor }))) return false;
+    // Ordinary movement permits small bodies to share floor space. A staging
+    // target must be body-free (except its own inspector/delivering worker),
+    // while existing loose tools/material piles remain legitimate staging.
+    const loose = ensurePhysicalItemStacks().filter(i => sameMapCell(i.cell, cell)).reduce((n, i) => n + physicalStackFloorLoadM2(i), 0);
+    return tileOccupiedAreaM2(cell, { excludeActor: actor }) - loose <= TILE_OCCUPANCY_EPSILON;
   }
-  function fieldEmployeeContext(s, item = null, contact = false, sourceProvider = fieldPorterSource) {
+  function fieldPorterStageContext() {
+    const e = foreignSurveyAtField(), site = state.fieldStation?.site, cell = cleanMapCell(scientistMapCell());
+    return { alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist'), originalBody: passengerBodyCurrent(),
+      custody: GateEnforcement.custodyActive(currentGateEnforcement()) || localPrisonRestricted(), busy: surveyBusy(),
+      originalTrip: Boolean(e?.phase === 'field' && e.trip?.bodyEpoch === ensureScientistIdentity().bodyEpoch && e.trip?.visitId === passengerVisitId()),
+      local: Boolean(site && site.siteId === e?.wilderness?.context.siteId && site.worldId === e.wilderness.context.worldId
+        && site.cityId === e.source.cityId && scientistRoomId() === site.roomId),
+      site, cell, bodyEpoch: ensureScientistIdentity().bodyEpoch, visitId: passengerVisitId(), tripId: e?.trip?.id,
+      stageLegal: fieldPorterStageLegal(site, cell, state.scientist) };
+  }
+  function fieldPorterDeliveryLegal(s, j) {
+    const site = state.fieldStation?.site, e = fieldPorterExcursion(s), k = s.contract;
+    if (!site || !k || site.siteId !== k.site.siteId || site.worldId !== k.site.worldId || site.roomId !== k.site.roomId
+      || site.siteId !== e?.wilderness?.context.siteId || site.worldId !== e.wilderness.context.worldId) return false;
+    if (!j.destination) return sameMapCell(j.drop, k.drop) && foreignEscortHaulingDropLegal(site, j.drop);
+    return FieldPorter.stageCurrent(j.destination, k) && sameMapCell(j.drop, j.destination.cell) && fieldPorterStageLegal(site, j.drop, s.actor);
+  }
+  function fieldPorterHooks(s) {
+    return foreignEscortHaulingHooks(s, (a, goal) => fieldPorterNextStep(s, a, goal), s.role === 'builder' ? undefined : j => fieldPorterDeliveryLegal(s, j));
+  }
+  function fieldPorterContext(s, item = null, contact = false, destination = null) {
+    // The arrival/default drop stays in the employment context. Only the
+    // particular delivery's route/access may use a separate inspected tile.
+    const c = fieldEmployeeContext(s, item, contact, fieldPorterSource, false), site = state.fieldStation?.site;
+    const drop = destination?.cell || c.drop;
+    const known = !destination || (fieldPorterExcursion(s)?.porterStages || []).some(m => JSON.stringify(m) === JSON.stringify(destination));
+    return { ...c, destination, deliveryDrop: drop,
+      deliveryDropLegal: Boolean(c.site && known && (destination ? FieldPorter.stageCurrent(destination, c)
+        && fieldPorterStageLegal(site, drop, s.actor) : c.dropLegal)),
+      routeOk: Boolean(contact && c.site && drop && (item ? c.itemVisible && item.roomId === c.site.roomId
+        && (mapCellDistance(s.actor.mapCell, item.cell) <= 1 && sensoryLineOfSight(s.actor.mapCell, item.cell) || fieldPorterNextStep(s, s.actor, item.cell))
+        && (mapCellDistance(item.cell, drop) <= 1 && sensoryLineOfSight(item.cell, drop)
+          || fieldPorterNextStep(s, { ...s.actor, mapCell: item.cell, roomId: item.roomId }, drop))
+        : mapCellDistance(s.actor.mapCell, drop) <= 1 && sensoryLineOfSight(s.actor.mapCell, drop) || fieldPorterNextStep(s, s.actor, drop))) };
+  }
+  function fieldEmployeeContext(s, item = null, contact = false, sourceProvider = fieldPorterSource, calculateRoute = true) {
     const e = fieldPorterExcursion(s), a = s.actor, g = e && passengerReceptionGate(e.source.cityId), site = state.fieldStation?.site;
     const originalSite = site && site.siteId === e?.wilderness.context.siteId && site.worldId === e.wilderness.context.worldId && site.cityId === e.source.cityId;
     const drop = s.contract && FieldPorter.active(s) ? s.contract.drop : s.markedDrop?.cell;
@@ -87823,7 +87864,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       site: originalSite ? { siteId: site.siteId, worldId: site.worldId, roomId: site.roomId } : null,
       drop, dropLegal: originalSite && foreignEscortHaulingDropLegal(site, drop), itemVisible: visible,
       carryOk: Boolean(item && actorInventoryCanCarry(a.id, item, 1)),
-      routeOk: Boolean(contact && originalSite && drop && (item ? visible && item.roomId === site.roomId
+      routeOk: Boolean(calculateRoute && contact && originalSite && drop && (item ? visible && item.roomId === site.roomId
         && (mapCellDistance(a.mapCell, item.cell) <= 1 || fieldPorterNextStep(s, a, item.cell))
         && (mapCellDistance(item.cell, drop) <= 1 || fieldPorterNextStep(s, { ...a, mapCell: item.cell, roomId: item.roomId }, drop))
         : mapCellDistance(a.mapCell, drop) <= 1 || fieldPorterNextStep(s, a, drop))),
@@ -87834,6 +87875,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function fieldPorterAction(action, options = {}) {
     const e = foreignSurveyAtField(); if (!e || scientistIsDead()) return false;
+    if (action === 'markStage') {
+      const mark = FieldPorter.markStage(fieldPorterStageContext(), state.clock); if (!mark) return false;
+      e.porterStages = [...(e.porterStages || []).filter(m => m.id !== mark.id), mark];
+      e.porterStageSelection = mark.id; persist(); render(); return true;
+    }
     if (action === 'mark') {
       const site = state.fieldStation?.site, cell = cleanMapCell(scientistMapCell());
       if (surveyBusy() || actorIsIncapacitated('scientist') || !passengerBodyCurrent() || GateEnforcement.custodyActive(currentGateEnforcement()) || localPrisonRestricted()
@@ -87861,12 +87907,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       slice.reservedTaskId = claim; return slice;
     };
     if (action === 'assign') result = FieldPorter.assign(s, c, item, state.clock, reserve);
-    if (action === 'append') result = FieldPorter.append(s, c, item, state.clock);
+    if (action === 'append') {
+      const destination = options.stageId ? (e.porterStages || []).find(m => m.id === options.stageId) : null;
+      if (!options.stageId || destination) result = FieldPorter.append(s, fieldPorterContext(s, item, true, destination), item, state.clock);
+    }
     if (action === 'remove' || action === 'clear') result = FieldPorter.edit(s, c, state.clock, action === 'clear');
     if (action === 'acceptOrder') {
       const entries = (s.proposal?.rows || []).map(r => {
         const item = ensurePhysicalItemStacks().find(i => i.id === r.sourceId);
-        return { item, context: fieldPorterContext(s, item, true) };
+        const destination = r.destination && (e.porterStages || []).find(m => m.id === r.destination.id);
+        return { item, context: fieldPorterContext(s, item, true, destination || null) };
       });
       result = FieldPorter.accept(s, c, entries, options.expected, state.clock, reserve, hooks.release);
     }
@@ -87944,6 +87994,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       b.onclick = () => fieldPorterAction(action, options); panel.append(b); };
     button('Mark porter outdoor station drop here', 'mark', {}, surveyBusy() || !foreignEscortHaulingDropLegal(state.fieldStation?.site, scientistMapCell()) || Boolean(s?.contract && s.contract.settledAt == null));
     if (e?.porterDrop) panel.append(textEl('p', `Personally marked drop ${e.porterDrop.cell.x},${e.porterDrop.cell.y} at ${formatClock(e.porterDrop.at)}.`));
+    const stageContext = fieldPorterStageContext();
+    button('Inspect porter staging tile here', 'markStage', {}, !FieldPorter.markStage(stageContext, state.clock));
+    const destinations = document.createElement('select'); destinations.setAttribute('aria-label', 'Porter delivery staging destination');
+    destinations.append(new Option('Original outdoor drop (default)', ''));
+    for (const mark of e?.porterStages || []) {
+      const option = new Option(`Staging ${mark.cell.x},${mark.cell.y},${mark.cell.z} — inspected ${formatClock(mark.at)}`, mark.id);
+      option.disabled = !FieldPorter.stageCurrent(mark, stageContext); destinations.append(option);
+    }
+    destinations.value = e?.porterStageSelection || '';
+    destinations.onchange = () => { e.porterStageSelection = destinations.value; persist(); render(); };
+    panel.append(textEl('p', 'Choose a destination for the next appended delivery. Staging marks are dated observations, not storage, promised supplies or current access. Step off the target before asking the porter to deliver there.'), destinations);
+    const selectedStage = (e?.porterStages || []).find(m => m.id === destinations.value) || null;
     if (!s) { panel.append(textEl('p', 'Meet the finite depot-backed worker at the defended ground, if a functioning local transport depot has an allocation.')); return panel; }
     s.markedDrop ||= clonePlainObject(e.porterDrop || null);
     const c = fieldPorterContext(s, null, true), view = FieldPorter.publicView(s);
@@ -87974,7 +88036,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       panel.append(textEl('h5', `Inspected porter delivery order (${view.proposal.rows.length}/4)`),
         textEl('p', 'Not yet accepted or reserved. Each named unit travels separately; the original two-hour wage clock is unchanged. All sources must still be personally visible at acceptance.'));
       for (const [n, r] of view.proposal.rows.entries()) panel.append(textEl('p',
-        `${n + 1}. One ${resourceLabel(r.key)} from ${r.sourceId} (observed ${r.sourceQuantity}; ${r.unitMassKg} kg / ${r.unitVolumeL} L per unit), pickup ${r.pickup.x},${r.pickup.y} → drop ${view.proposal.drop.x},${view.proposal.drop.y}; inspected ${formatClock(r.inspectedAt)}. Provenance: ${r.sourceLabels.join(', ') || 'none recorded'}.`));
+        `${n + 1}. One ${resourceLabel(r.key)} from ${r.sourceId} (observed ${r.sourceQuantity}; ${r.unitMassKg} kg / ${r.unitVolumeL} L per unit), pickup ${r.pickup.x},${r.pickup.y} → drop ${r.drop.x},${r.drop.y},${r.drop.z}${r.destination ? ` (staging inspection ${formatClock(r.destination.at)})` : ' (original outdoor drop)'}; source inspected ${formatClock(r.inspectedAt)}. Provenance: ${r.sourceLabels.join(', ') || 'none recorded'}.`));
       button('Remove last inspected porter delivery', 'remove', {}, !FieldPorter.canOrder(s, c, state.clock));
       button('Clear inspected porter delivery order', 'clear', {}, !FieldPorter.canOrder(s, c, state.clock));
       button('Accept exact bounded porter delivery order', 'acceptOrder', { expected: view.proposal }, !FieldPorter.canOrder(s, c, state.clock));
@@ -87986,10 +88048,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const key of ['drinkingWater', 'trailMeal']) button(`Give porter one ${inventoryItemLabel(key)}`, 'provision', { key }, !c.near || c.busy);
     if (c.near && FieldPorter.control(s, c)) for (const i of ensurePhysicalItemStacks().filter(i => ForeignEscortHauling.eligible(i) && !i.carriedBy && !i.reservedTaskId
       && i.roomId === scientistRoomId() && mapCellDistance(i.cell, scientistMapCell()) <= 5 && sensoryLineOfSight(scientistMapCell(), i.cell))) {
-      const ic = fieldPorterContext(s, i, true);
+      const ic = fieldPorterContext(s, i, true, selectedStage);
       button(`Instruct porter: one ${physicalStackLabel(i)} (${i.id})`, 'assign', { stackId: i.id }, !ic.carryOk || s.job?.status === 'working');
-      button(`Append porter delivery: one ${physicalStackLabel(i)} (${i.id})`, 'append', { stackId: i.id },
-        !FieldPorter.canOrder(s, c, state.clock) || !ic.carryOk || (view.proposal?.rows.length || 0) >= 4
+      button(`Append porter delivery: one ${physicalStackLabel(i)} (${i.id})`, 'append', { stackId: i.id, stageId: selectedStage?.id },
+        !FieldPorter.canOrder(s, c, state.clock) || !ic.carryOk || !ic.deliveryDropLegal || !ic.routeOk || (view.proposal?.rows.length || 0) >= 4
           || (view.proposal?.rows.filter(r => r.sourceId === i.id).length || 0) >= i.quantity);
     }
     renderFieldEmployeeRecovery(panel, s);
@@ -88294,11 +88356,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       threatened: threats, care: Boolean(saved.actor.care), drag: Boolean(saved.drag),
       otherWork: ForeignEscortRecovery.active(saved) || ForeignEscortRepairs.active(saved) };
   }
-  function foreignEscortHaulingHooks(saved, nextStep = escortNextStep) {
+  function foreignEscortHaulingHooks(saved, nextStep = escortNextStep, canDeposit = j => foreignEscortHaulingDropLegal(state.fieldStation?.site, j.drop)) {
     const actor = saved.actor;
     return {
       item: id => ensurePhysicalItemStacks().find(i => i.id === id),
       capacity: (carrying, item) => carrying ? actorEncumbranceInfo(actor.id).ratio <= 1 : actorInventoryCanCarry(actor.id, item, 1),
+      dropLegal: canDeposit,
       adjacent: cell => actor.roomId === labMapCellRoomId(cell) && WildernessBeasts.distance(actor.mapCell, cell) <= 1
         && sensoryLineOfSight(actor.mapCell, cell),
       move: goal => {
@@ -88320,7 +88383,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       },
       deposit: j => {
         const i = ensurePhysicalItemStacks().find(i => i.id === j.stackId);
-        if (!i || i.reservedTaskId !== j.id || i.carriedBy !== actor.id || !foreignEscortHaulingDropLegal(state.fieldStation?.site, j.drop)) return false;
+        if (!i || i.reservedTaskId !== j.id || i.carriedBy !== actor.id || !canDeposit(j)) return false;
         if (!dropActorInventoryStack(actor.id, i.id, { roomId: j.roomId, cell: j.drop })) return false;
         i.reservedTaskId = ''; syncPhysicalReadModels(); return true;
       },

@@ -28,7 +28,7 @@ test.afterEach(async ({ page }, info) => {
   if (info.status === info.expectedStatus || page.isClosed()) return;
   await info.attach('porter-state', { body: JSON.stringify(await snap(page)), contentType: 'application/json' });
 });
-async function setup(page, renderer) {
+async function setup(page, renderer, tools = false) {
   const errors = []; page.on('pageerror', e => errors.push(e.message)); page.on('dialog', d => d.accept());
   await startLifecycleRun(page, `field-porter-${renderer}`);
   const city = { cityId: 'b', assetId: 'population:b', currentPopulation: 100, physicalCondition: 'intact', services: { transport: 'functional' } };
@@ -39,7 +39,7 @@ async function setup(page, renderer) {
   const depot = { city, standings: [{ standing: 'licensed', network: { id: 'transport:b', category: 'transport', roles: ['courierDispatch'], prohibitions: [] },
     branch: { id: 'depot:b', publicName: 'Birch Depot', organizationForm: 'contractDepot', currentCityId: 'b', publicPhysicalPresence: true,
       physicalCondition: 'intact', operationalStatus: 'active', capacityBand: 'functional' } }] };
-  const f = await page.evaluate(({ source, carrier, depot, renderer }) => {
+  const f = await page.evaluate(({ source, carrier, depot, renderer, tools }) => {
     const d = window.helixHeresyDebug; d.setMapRenderer(renderer);
     const context = { worldId: 'lifecycle-world', siteId: source.placeId, strategicCellId: source.cellId, seed: 'porter', truth: { potentialPermille: {} } };
     if (!d.configureFieldStationMaintenanceTest({ source, carrier, context, wilderness: {
@@ -50,11 +50,13 @@ async function setup(page, renderer) {
     // Explicit initial local position and finite wallet/cargo. No new journey,
     // worker, transport receipt, materials or teleport after this setup.
     d.configureUnsupportedTest({ cell: station.layout.apron });
+    if (tools) d.configureHiddenWorkshopTest({ carryTools: ['masonryHammer', 'stoneChisel'] });
     const funds = d.exportSurveyExpeditionTestState(); funds.economy.money = 500; d.importSurveyExpeditionTestState(funds);
     const pickup = { ...station.layout.apron, x: station.layout.apron.x + 4 };
     const stock = d.configureHiddenWorkshopTest({ cell: pickup, supplies: { stoneBlocks: 3, lumber: 2 } });
-    return { station, stone: stock[0], lumber: stock[1], pickup };
-  }, { source, carrier, depot, renderer });
+    return { station, stone: stock[0], lumber: stock[1], pickup,
+      tools: tools ? d.fieldStationSnapshot().stacks.filter(i => i.carriedBy === 'scientist' && ['masonryHammer', 'stoneChisel'].includes(i.key)).map(i => i.id) : [] };
+  }, { source, carrier, depot, renderer, tools });
   expect(f).toBeTruthy();
   const tab = page.locator('[data-workspace-tab="visits"]'); if (await tab.getAttribute('aria-current') !== 'page') await tab.click();
   await page.getByRole('button', { name: 'Mark porter outdoor station drop here', exact: true }).click();
@@ -258,4 +260,95 @@ test('DOM porter order holds the next blocked delivery across reload and cancels
   expect(await act(page, 'settle')).toBe(true); s = await snap(page); const money = s.money;
   expect(s.saved.contract.startedAt).toBe(started); expect(await act(page, 'settle')).toBe(false);
   await reload(page, 'dom'); expect((await snap(page)).money).toBe(money); expect(f.errors).toEqual([]);
+});
+
+test('canvas staging binds an interior delivery and the default drop, saves partial hauling and exposes only deposited stock to construction inspection', async ({ page }) => {
+  test.setTimeout(720000);
+  const f = await setup(page, 'canvas', true), tile = f.station.layout.rest;
+  const part = f.station.layout.parts.find(p => p.kind === 'floor' && p.cell.y === f.station.layout.cache.y);
+  await move(page, f.station.roomId, tile);
+  for (const stackId of f.tools) expect(await page.evaluate(stackId => window.helixHeresyDebug.fieldStationAction('stage', { stackId }), stackId)).toBe(true);
+  expect(f.tools).toHaveLength(2);
+  const markButton = page.locator('[data-field-porter] button').filter({ hasText: /^Inspect porter staging tile here$/ });
+  await expect(markButton).toBeEnabled({ timeout: 10000 }); await markButton.click();
+  let stage = await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState().penalFlights.assistance.cityApproach.gates.find(g => g.cityId === 'b').foreignSurvey.porterStages[0]);
+  expect(stage.cell).toEqual(tile);
+  const inspect = () => page.evaluate(partId => window.helixHeresyDebug.fieldBuilderAction('inspect', { partId }), part.id);
+  expect(await inspect()).toBe(false); // Tools are real and staged, but no local stone exists yet.
+  await move(page, f.station.roomId, f.station.layout.apron);
+  const selector = page.getByLabel('Porter delivery staging destination');
+  await selector.selectOption(stage.id);
+  await page.getByRole('button', { name: new RegExp(`^Append porter delivery:.*\\(${f.stone}\\)$`) }).click();
+  await selector.selectOption('');
+  await page.getByRole('button', { name: new RegExp(`^Append porter delivery:.*\\(${f.stone}\\)$`) }).click();
+  let s = await snap(page); const expected = s.known.proposal, start = s.saved.contract.startedAt;
+  expect(expected.rows.map(r => r.drop)).toEqual([tile, f.station.layout.apron]);
+  await page.getByRole('button', { name: 'Accept exact bounded porter delivery order', exact: true }).click();
+  s = await snap(page); const jobs = s.saved.deliveryOrder.jobs;
+  expect(jobs.map(j => j.drop)).toEqual([tile, f.station.layout.apron]);
+  expect(s.money).toBe(436); expect(s.saved.contract.drop).toEqual(f.station.layout.apron);
+  // Actual personal occupation of the staging/work tile prevents unloading,
+  // and reserved cargo still at pickup is not promised construction stock.
+  await move(page, f.station.roomId, tile); await advance(page, 5);
+  s = await snap(page); expect(s.saved.history).toHaveLength(0); expect(s.saved.job.reason).toContain('unavailable');
+  expect(await inspect()).toBe(false);
+  await move(page, f.station.roomId, f.station.layout.apron);
+  await until(page, s => s.saved.job.phase === 'load' && s.saved.job.progress > 0);
+  const partial = (await snap(page)).saved.job.progress;
+  await reload(page, 'canvas'); s = await snap(page);
+  expect(s.saved.job.progress).toBe(partial); expect(s.saved.job.drop).toEqual(tile); expect(s.saved.job.destination).toEqual(stage);
+  expect(s.stacks.find(i => i.id === jobs[0].stackId).reservedTaskId).toBe(jobs[0].id);
+  stage = await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState().penalFlights.assistance.cityApproach.gates.find(g => g.cityId === 'b').foreignSurvey.porterStages[0]);
+  expect(stage).toEqual(expected.rows[0].destination);
+  const known = s.known;
+  await move(page, f.station.roomId, { x: 29, y: 14, z: tile.z }); await advance(page, 90); s = await snap(page);
+  expect(s.saved.deliveryOrder.status, JSON.stringify(s.saved.job)).toBe('delivered');
+  expect(s.saved.history.map(j => j.drop)).toEqual([tile, f.station.layout.apron]); expect(s.known).toEqual(known);
+  expect(await act(page, 'report')).toBe(false);
+  for (const j of jobs) expect(s.stacks.find(i => i.id === j.stackId)).toMatchObject({ cell: j.drop, carriedBy: '', reservedTaskId: '', quantity: 1 });
+  expect(s.stacks.find(i => i.id === f.stone)).toMatchObject({ quantity: 1, cell: f.pickup, reservedTaskId: '' });
+  expect(s.saved.contract.startedAt).toBe(start); expect(s.money).toBe(436);
+  await move(page, f.station.roomId, tile); expect(await inspect()).toBe(true);
+  const proposal = await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState().penalFlights.assistance.cityApproach.gates.find(g => g.cityId === 'b').foreignSurvey.builderProposal);
+  expect(proposal.inputs).toHaveLength(1); expect(proposal.inputs[0]).toMatchObject({ stackId: jobs[0].stackId, cell: tile, quantity: 1 });
+  // Inspection alone neither reserves delivered goods nor commissions a worker.
+  expect((await snap(page)).stacks.find(i => i.id === jobs[0].stackId).reservedTaskId).toBe('');
+  await advance(page, 5); expect((await snap(page)).saved.history).toHaveLength(2); expect(f.errors).toEqual([]);
+});
+
+test('DOM staging rejects obstructed acceptance and holds a newly blocked second destination across reload without skipping the later default delivery', async ({ page }) => {
+  test.setTimeout(720000);
+  const f = await setup(page, 'dom'), tile = f.station.layout.rest;
+  await move(page, f.station.roomId, tile); expect(await act(page, 'markStage')).toBe(true);
+  const stage = await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState().penalFlights.assistance.cityApproach.gates.find(g => g.cityId === 'b').foreignSurvey.porterStages[0]);
+  await move(page, f.station.roomId, f.station.layout.apron);
+  for (const options of [{ stackId: f.stone }, { stackId: f.stone, stageId: stage.id }, { stackId: f.lumber }]) expect(await act(page, 'append', options)).toBe(true);
+  const expected = (await snap(page)).known.proposal;
+  const wall = async present => page.evaluate(({ tile, present }) => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState();
+    s.labMap.terrain.constructedWalls = s.labMap.terrain.constructedWalls.filter(w => !['x', 'y', 'z'].every(k => w.cell[k] === tile[k]));
+    if (present) s.labMap.terrain.constructedWalls.push({ cell: tile, materialId: 'stoneBlocks', condition: 100, builtAt: s.clock });
+    d.importSurveyExpeditionTestState(s);
+  }, { tile, present });
+  await wall(true); expect(await act(page, 'acceptOrder', { expected })).toBe(false);
+  expect((await snap(page)).stacks.find(i => i.id === f.stone)).toMatchObject({ quantity: 3, reservedTaskId: '' });
+  await wall(false); expect(await act(page, 'acceptOrder', { expected })).toBe(true);
+  let s = await snap(page); const jobs = s.saved.deliveryOrder.jobs, start = s.saved.contract.startedAt;
+  await wall(true); const known = (await snap(page)).known; await advance(page, 90); s = await snap(page);
+  expect(s.saved.deliveryOrder.index).toBe(1); expect(s.saved.history).toHaveLength(1);
+  expect(s.saved.job).toMatchObject({ id: jobs[1].id, drop: tile, status: 'working', progress: 0 }); expect(s.saved.job.reason).toContain('unavailable');
+  for (const j of jobs.slice(1)) expect(s.stacks.find(i => i.id === j.stackId)).toMatchObject({ cell: f.pickup, reservedTaskId: j.id, carriedBy: '' });
+  expect(s.known).toEqual(known); expect(s.saved.contract.drop).toEqual(f.station.layout.apron);
+  await reload(page, 'dom'); s = await snap(page);
+  expect(s.saved.job.drop).toEqual(tile); expect(s.saved.job.destination).toEqual(stage); expect(s.saved.deliveryOrder.index).toBe(1);
+  await advance(page, 20); expect((await snap(page)).saved.job.progress).toBe(0);
+  await wall(false); await advance(page, 100); s = await snap(page);
+  expect(s.saved.deliveryOrder.status, JSON.stringify(s.saved.job)).toBe('delivered');
+  expect(s.saved.history.map(j => j.id)).toEqual(jobs.map(j => j.id));
+  expect(s.saved.history.map(j => j.drop)).toEqual([f.station.layout.apron, tile, f.station.layout.apron]);
+  for (const j of jobs) expect(s.stacks.find(i => i.id === j.stackId)).toMatchObject({ cell: j.drop, carriedBy: '', reservedTaskId: '' });
+  expect(s.stacks.find(i => i.id === f.stone)).toMatchObject({ quantity: 1, cell: f.pickup, reservedTaskId: '' });
+  expect(s.stacks.find(i => i.id === f.lumber)).toMatchObject({ quantity: 1, cell: f.pickup, reservedTaskId: '' });
+  expect(s.saved.contract.startedAt).toBe(start); expect(s.money).toBe(436);
+  await reload(page, 'dom'); expect((await snap(page)).saved.history).toHaveLength(3); expect(f.errors).toEqual([]);
 });
