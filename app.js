@@ -124,6 +124,7 @@
   const ForeignEscortRepairs = window.HelixForeignEscortRepairs;
   const ForeignEscortHauling = window.HelixForeignEscortHauling;
   const FieldPorter = window.HelixFieldPorter;
+  const FieldBuilder = window.HelixFieldBuilder;
   const CarrierBriefings = window.HelixCarrierBriefings;
   const LocalDiscovery = window.HelixLocalDiscovery;
   const MunicipalMaps = window.HelixMunicipalMaps;
@@ -17080,6 +17081,18 @@
       startForeignEscortRepair,
       foreignEscortHaulingAction,
       fieldPorterAction,
+      fieldBuilderAction,
+      setFieldBuilderTestSource: source => { const g = passengerReceptionGate(); if (!g?.foreignSurvey) return false;
+        g.preparedFieldBuilderTestSource = clonePlainObject(source); persist(); return true; },
+      fieldBuilderSnapshot: () => {
+        const s = foreignSurveyAtField()?.builder || fieldBuilderStates()[0];
+        const c = s?.job && fieldStationContext(s.contract.offer.part, fieldBuilderTask(s), 'build', s);
+        return clonePlainObject({ saved: s || null, known: FieldBuilder.publicView(s), context: s ? fieldBuilderContext(s, true) : null,
+          workContext: c || null, workReason: c && FieldStation.reason(state.fieldStation, s.job, c, c.tools, ensurePhysicalItemStacks()),
+          actor: s?.actor, inventory: s ? actorInventorySnapshot(s.actor.id) : null, money: ensureEconomy().money,
+          stacks: ensurePhysicalItemStacks(), tools: fieldStationTools(), station: state.fieldStation, clock: state.clock,
+          scientistCell: scientistMapCell(), scientistRoom: scientistRoomId(), tasks: scientistQueueTasks() });
+      },
       setFieldPorterTestSource: source => {
         const g = passengerReceptionGate(); if (!g?.foreignSurvey || !source) return false;
         g.preparedFieldPorterTestSource = clonePlainObject(source); persist(); return true;
@@ -23330,7 +23343,7 @@
     if (scientistIsDead()) return 0;
     const advanceStartedAt = performance.now();
     const elapsed = Math.max(0, Number(seconds) || 0);
-    if (!options.porterStep && elapsed > 1 && fieldPorterStates().some(FieldPorter.active)) {
+    if (!options.porterStep && elapsed > 1 && fieldEmployeeStates().some(s => ['arriving', 'onSite', 'returning'].includes(s.phase))) {
       let left = elapsed, changed = 0;
       while (left > 0 && !scientistIsDead()) {
         const step = Math.min(1, left), before = state.clock, paused = state.paused;
@@ -24056,7 +24069,7 @@
     if (defender?.id === injury.actorId) return { actor: defender, label: defender.name, cell: cleanMapCell(defender.mapCell), roomId: defender.roomId };
     const escort = escortStateForActor(injury.actorId)?.actor;
     if (escort) return { actor: escort, label: escort.name, cell: cleanMapCell(escort.mapCell), roomId: escort.roomId };
-    const porter = fieldPorterStates().find(s => s.actor.id === injury.actorId)?.actor;
+    const porter = fieldEmployeeStates().find(s => s.actor.id === injury.actorId)?.actor;
     if (porter) return { actor: porter, label: porter.name, cell: cleanMapCell(porter.mapCell), roomId: porter.roomId };
     const worker = state.surfaceWorkers?.actor;
     if (worker?.present && worker.id === injury.actorId) return { actor: worker, label: worker.name, cell: cleanMapCell(worker.mapCell), roomId: worker.roomId };
@@ -33454,7 +33467,7 @@
     if (context?.expeditionEscorts?.actor?.id === id) return context.expeditionEscorts.actor;
     const foreignEscort = (context?.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.escort?.actor).find(a => a?.id === id);
     if (foreignEscort) return foreignEscort;
-    const porter = (context?.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.porter?.actor).find(a => a?.id === id);
+    const porter = (context?.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => [g.foreignSurvey?.porter?.actor, g.foreignSurvey?.builder?.actor]).find(a => a?.id === id);
     if (porter) return porter;
     if (context?.surfaceWorkers?.actor?.id === id) return context.surfaceWorkers.actor;
     if (context?.laboratoryAssistant?.actor?.id === id) return context.laboratoryAssistant.actor;
@@ -33506,6 +33519,7 @@
       ...(context.expeditionEscorts?.actor ? [{ id: context.expeditionEscorts.actor.id, actor: context.expeditionEscorts.actor }] : []),
       ...(context.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.escort?.actor).filter(Boolean).map(actor => ({ id: actor.id, actor })),
       ...(context.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.porter?.actor).filter(Boolean).map(actor => ({ id: actor.id, actor })),
+      ...(context.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.builder?.actor).filter(Boolean).map(actor => ({ id: actor.id, actor })),
       ...(context.surfaceWorkers?.actor ? [{ id: context.surfaceWorkers.actor.id, actor: context.surfaceWorkers.actor }] : []),
       ...(context.laboratoryAssistant?.actor ? [{ id: context.laboratoryAssistant.actor.id, actor: context.laboratoryAssistant.actor }] : []),
       ...(context.citySuccession?.appointments?.candidate ? [{ id: context.citySuccession.appointments.candidate.id, actor: context.citySuccession.appointments.candidate }] : []),
@@ -36950,7 +36964,7 @@
     let occupied = 0;
     for (const escort of allEscortStates().map(s => s.actor).filter(Boolean))
       if (escort.id !== excludeActor?.id && mapCellKey(escort.mapCell) === key) occupied += .6;
-    for (const porter of fieldPorterStates().map(s => s.actor))
+    for (const porter of fieldEmployeeStates().map(s => s.actor))
       if (porter.id !== excludeActor?.id && mapCellKey(porter.mapCell) === key) occupied += .6;
     const worker = state.surfaceWorkers?.actor;
     if (worker?.present && worker.id !== excludeActor?.id && mapCellKey(worker.mapCell) === key) occupied += .6;
@@ -40504,7 +40518,7 @@
   }
 
   function combatActor(actorId) {
-    const porter = fieldPorterStates().find(s => s.actor.id === actorId)?.actor;
+    const porter = fieldEmployeeStates().find(s => s.actor.id === actorId)?.actor;
     if (porter) return porter;
     const civil = PublicWorksAppointments.incumbent(state.citySuccession?.appointments, state.citySuccession);
     if (civil?.id === actorId && civil.physicalControl) return civil;
@@ -40770,7 +40784,7 @@
       return existing;
     }
     const visible = INJURY_TYPE_DEFS[typeId].visible;
-    const porter = fieldPorterStates().some(s => s.actor.id === actorId);
+    const porter = fieldEmployeeStates().some(s => s.actor.id === actorId);
     const observed = porter ? fieldPorterObserved(actor) : scientist || visible || options.observed;
     const injury = normalizeInjury({
       id: `injury-${state.nextInjuryNumber++}`, actorKind: scientist ? "scientist" : ["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent", "civicOfficeholder"].includes(actor.actorKind) ? actor.actorKind : "slime", actorId,
@@ -65945,16 +65959,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!actor?.present || actor.status === "dead" || amount <= 0) return false;
     const damage = Math.max(1, Math.round(amount));
     actor.health = Math.max(0, actor.health - damage);
-    if (!options.injuryProgress) recordCombatInjury(actor, damage, options.damageTypes || ["physical"], "Employee trauma", { observed: fieldPorterStates().some(s => s.actor.id === actor.id) ? fieldPorterObserved(actor) : actor.actorKind === "laboratoryAssistant" ? laboratoryAssistantNearby(true) : surfaceWorkerObserved() });
-    if (fieldPorterStates().some(s => s.actor.id === actor.id)) actor.lastHarmedAt = state.clock;
+    const fieldEmployee = fieldEmployeeStates().some(s => s.actor.id === actor.id);
+    if (!options.injuryProgress) recordCombatInjury(actor, damage, options.damageTypes || ["physical"], "Employee trauma", { observed: fieldEmployee ? fieldPorterObserved(actor) : actor.actorKind === "laboratoryAssistant" ? laboratoryAssistantNearby(true) : surfaceWorkerObserved() });
+    if (fieldEmployee) actor.lastHarmedAt = state.clock;
     if (!actor.health) { actor.status = "dead"; actor.diedAt = state.clock; }
-    if (fieldPorterStates().some(s => s.actor.id === actor.id) && (actor.status === 'dead' || actorIsIncapacitated(actor)) && actor.porterCare) {
+    if (fieldEmployee && (actor.status === 'dead' || actorIsIncapacitated(actor)) && actor.porterCare) {
       const i = ensurePhysicalItemStacks().find(i => i.id === actor.porterCare.stackId);
       if (i?.reservedTaskId === `field-porter-care:${actor.id}`) i.reservedTaskId = '';
       actor.porterCare = null;
     }
-    if (fieldPorterStates().some(s => s.actor.id === actor.id) && actor.status === 'dead') {
-      for (const i of actorInventoryStacks(actor.id)) { i.carriedBy = ''; i.cell = cleanMapCell(actor.mapCell); i.roomId = actor.roomId; }
+    if (fieldEmployee && actor.status === 'dead') {
+      for (const i of actorInventoryStacks(actor.id)) {
+        i.carriedBy = ''; i.cell = cleanMapCell(actor.mapCell); i.roomId = actor.roomId;
+        const tool = i.toolInstanceId && toolInstanceById(i.toolInstanceId)?.instance; if (tool) { tool.carriedBy = ''; tool.roomId = actor.roomId; }
+      }
       syncActorInventories(); syncPhysicalReadModels();
     }
     markStateDirty(); return true;
@@ -67622,6 +67640,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const s = gate.foreignSurvey, a = s?.carrier.driver;
       const porter = s?.porter?.actor;
       if (porter && fieldPorterObserved(porter)) setLabMapOverlayEntry(assignments, porter.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: porter.name, title: 'Original noncombat field porter; direct observation only', value: porter.status === 'dead' ? '†' : 'P', source: 'Direct observation', target: { kind: 'tile', tile: porter.mapCell } }, map);
+      const builder = s?.builder?.actor;
+      if (builder && fieldPorterObserved(builder)) setLabMapOverlayEntry(assignments, builder.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: builder.name, title: 'Original commissioned field craftsperson; direct observation only', value: builder.status === 'dead' ? '†' : 'B', source: 'Direct observation', target: { kind: 'tile', tile: builder.mapCell } }, map);
       if (a?.mapCell && a.roomId === scientistRoomId() && cityApproachNear('scientist', a.mapCell, 8) && sensoryLineOfSight(scientistMapCell(), a.mapCell)) setLabMapOverlayEntry(assignments, a.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: a.name, title: 'Original foreign municipal survey driver; not an escort or free rescue', value: a.status === 'dead' ? '†' : 'D', source: 'Direct observation', target: { kind: 'tile', tile: a.mapCell } }, map);
       if (s && foreignSurveyAtField() === s && cityApproachNear('scientist', s.hazard, 8)) setLabMapOverlayEntry(assignments, s.hazard, { overlayId, classNames: ['map-overlay-resources'], label: s.hazardDisturbed ? 'Settled original loose-rock patch' : 'Flagged unstable footing', title: 'Municipal surface-survey warning, not a mineral survey', value: '!', source: 'Purpose-limited visit warning', target: { kind: 'tile', tile: s.hazard } }, map);
       const w = s?.wilderness;
@@ -87364,8 +87384,176 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
 
+  function fieldBuilderSource(g, e) {
+    const fixture = g?.preparedFieldBuilderTestSource;
+    if (fixture) return FieldBuilder.source(fixture.city, fixture.institution, fixture.current, e);
+    const map = activeWorldRecord?.generatedData?.strategicMap;
+    const city = map?.strategicPlayableSettlementState?.cityRows.find(c => c.cityId === g?.cityId);
+    const government = map?.cityGovernments?.governments.find(r => r.cityId === g?.cityId);
+    const institution = government?.institutions.find(i => i.id === government.roleAssignments.publicWorksAndProvisioning);
+    const current = map?.strategicCivicHistory?.currentInstitutionRows.find(i => i.institutionId === institution?.id);
+    return FieldBuilder.source(city, institution, current, e);
+  }
+  function ensureFieldBuilder() {
+    const e = foreignSurveyAtField(); if (!e?.wilderness || scientistIsDead()) return null;
+    const g = passengerReceptionGate(e.source.cityId);
+    if (!e.builder && scientistRoomId() === e.roomId && !actorIsIncapacitated('scientist')) e.builder = FieldBuilder.create(fieldBuilderSource(g, e), e, state.clock);
+    const s = e.builder;
+    if (s && !s.actor.initializedKit) {
+      s.actor.initializedKit = true;
+      for (const [key, n] of [['drinkingWater', 3], ['trailMeal', 2]]) createPhysicalItemStack('inventory', key, n,
+        { roomId: s.actor.roomId, cell: s.actor.mapCell }, { carriedBy: s.actor.id, suppressEvidence: true, sourceLabels: [`Original ${s.source.providerId} finite craftsperson provisions`] });
+      syncActorInventories();
+    }
+    if (s && !FieldBuilder.active(s)) s.proposal = clonePlainObject(e.builderProposal || null);
+    return s;
+  }
+  function fieldBuilderContext(s, contact = false) {
+    const c = fieldEmployeeContext(s, null, contact, fieldBuilderSource), e = fieldPorterExcursion(s), offer = s.contract && FieldBuilder.active(s) ? s.contract.offer : s.proposal;
+    const inventory = actorInventorySnapshot(s.actor.id), extra = (offer?.tools || []).map(t => ensurePhysicalItemStacks().find(i => i.id === t.stackId)).filter(i => i && i.carriedBy !== s.actor.id);
+    const fits = inventory && ['massKg', 'volumeL'].every(k => inventory.usage[k] + extra.reduce((n, i) => n + i[k === 'massKg' ? 'unitMassKg' : 'unitVolumeL'], 0) <= inventory.capacity[k]);
+    return { ...c, routeOk: Boolean(fits && offer && (sameMapCell(s.actor.mapCell, offer.workCell) || fieldPorterNextStep(s, s.actor, offer.workCell))),
+      toolsReturned: Boolean(s.contract && s.contract.claims.tools.every(t => t.returnedAt != null || t.borrowedAt == null
+        && !s.job?.tools.some(j => j.toolId === t.toolId) && !ensurePhysicalItemStacks().some(i => i.id === t.stackId && i.carriedBy === s.actor.id))),
+      site: state.fieldStation?.site?.siteId === e?.wilderness.context.siteId && state.fieldStation.site.worldId === e.wilderness.context.worldId
+        ? { worldId: state.fieldStation.site.worldId, siteId: state.fieldStation.site.siteId, roomId: state.fieldStation.site.roomId } : null };
+  }
+  function fieldBuilderOfferValid(s, offer, claimed = false) {
+    if (!offer || !state.fieldStation?.site || JSON.stringify(offer.part) !== JSON.stringify(FieldStation.workPart(state.fieldStation, offer.part.id))
+      || state.fieldStation.site.parts[offer.part.id] || state.tasks.some(t => t.data?.fieldStationWork?.partId === offer.part.id)
+      || (!claimed && FieldStation.effort(state.fieldStation, offer.part.id) !== offer.from)) return false;
+    const claimId = claimed ? s.contract.id : '', inputs = claimed ? s.contract.claims.inputs : offer.inputs, tools = claimed ? s.contract.claims.tools : offer.tools;
+    return inputs.every(t => {
+      const i = ensurePhysicalItemStacks().find(i => i.id === t.stackId);
+      return i && i.section === 'resources' && !i.carriedBy && !i.cityOwnerId && !i.civicCustody && !i.fixtureId && !i.containerId && !i.chemicalBatch
+        && !(i.tags || []).some(t => /living|soul|toxic|hazard|contaminat|volatile|waste/i.test(t))
+        && i.key === t.key && i.quantity === (claimed ? t.quantity : t.sourceQuantity) && i.reservedTaskId === claimId
+        && i.roomId === offer.site.roomId && sameMapCell(i.cell, t.cell) && mapCellDistance(i.cell, offer.workCell) <= 1
+        && sensoryLineOfSight(i.cell, offer.workCell) && ForeignEscortHauling.signature(i) === t.signature;
+    }) && tools.every(t => {
+      const i = ensurePhysicalItemStacks().find(i => i.id === t.stackId), tool = toolInstanceById(t.toolId)?.instance;
+      return i && tool && i.quantity === 1 && !i.cityOwnerId && !i.civicCustody && !i.fixtureId && !i.containerId && i.key === t.key && i.toolInstanceId === tool.id
+        && i.reservedTaskId === claimId && tool.reservedTaskId === claimId && (claimed ? tool.current >= 0 : tool.current === t.condition)
+        && (claimed && i.carriedBy === s.actor.id && tool.carriedBy === s.actor.id || !i.carriedBy && !tool.carriedBy
+          && i.roomId === offer.site.roomId && tool.roomId === i.roomId && sameMapCell(i.cell, t.cell) && mapCellDistance(i.cell, offer.workCell) <= 1);
+    });
+  }
+  function fieldBuilderInspect(partId) {
+    const e = foreignSurveyAtField(), station = state.fieldStation, part = FieldStation.workPart(station, partId);
+    if (!e?.wilderness || !part || !fieldStationLocal() || surveyBusy() || !annexCapable() || FieldBuilder.active(e.builder)) return false;
+    const c = fieldStationContext(part), cell = cleanMapCell(scientistMapCell()), inputs = fieldStationInputs(part, cell);
+    if (!c.geometryOkay || FieldStation.prerequisite(station.site, part, c) || station.site.parts[partId] || c.threatened || !sameMapCell(c.workCell, cell) || !inputs) return false;
+    const from = FieldStation.effort(station, partId), tools = [];
+    for (const [key, wear] of Object.entries(part.tools)) {
+      const t = fieldStationTools().find(t => t.key === key && t.tool && t.stack.quantity === 1 && t.tool.current >= Math.max(1, Math.ceil(wear * (1 - from)))
+        && !t.stack.carriedBy && !t.tool.carriedBy && !t.stack.reservedTaskId && !t.tool.reservedTaskId && !t.stack.cityOwnerId && !t.stack.civicCustody
+        && !t.stack.fixtureId && !t.stack.containerId && !t.stack.chemicalBatch && !(t.stack.tags || []).some(t => /toxic|hazard|contaminat|volatile/i.test(t))
+        && t.stack.roomId === station.site.roomId && t.tool.roomId === t.stack.roomId
+        && mapCellDistance(t.stack.cell, cell) <= 1 && sensoryLineOfSight(t.stack.cell, cell));
+      if (!t) return false;
+      tools.push({ key, toolId: t.tool.id, stackId: t.stack.id, condition: t.tool.current, cell: cleanMapCell(t.stack.cell) });
+    }
+    e.builderProposal = { at: state.clock, site: { worldId: station.site.worldId, siteId: station.site.siteId, roomId: station.site.roomId },
+      part: clonePlainObject(part), from, workCell: cell, tools, inputs: inputs.map(t => { const i = ensurePhysicalItemStacks().find(i => i.id === t.stackId);
+        return { ...t, sourceQuantity: i.quantity, signature: ForeignEscortHauling.signature(i) }; }) };
+    if (e.builder) { e.builder.proposal = clonePlainObject(e.builderProposal); e.builder.quote = null; }
+    return true;
+  }
+  function fieldBuilderTask(s) { return { id: s.contract.id, label: `Commissioned station ${s.contract.offer.part.kind}`, data: {
+    toCell: s.contract.drop, fieldStationWork: s.job, reservedStackIds: s.contract.claims.inputs.map(i => i.stackId) } }; }
+  function fieldBuilderHooks(s) {
+    const physical = fieldPorterHooks(s), a = s.actor;
+    return { ...physical, atWork: () => sameMapCell(a.mapCell, s.contract.drop),
+      cancel: j => FieldStation.cancel(state.fieldStation, j, fieldStationTools(), ensurePhysicalItemStacks(), state.clock),
+      release: k => { for (const i of ensurePhysicalItemStacks()) if (i.reservedTaskId === k.id) i.reservedTaskId = '';
+        for (const t of fieldStationTools()) if (t.tool?.reservedTaskId === k.id) t.tool.reservedTaskId = ''; },
+      work: () => {
+        const k = s.contract, offer = k.offer;
+        if (!fieldBuilderOfferValid(s, offer, true)) { FieldBuilder.withdraw(s, fieldBuilderHooks(s), state.clock, 'Original component, tools or staged material changed; no substitutes.'); return; }
+        if (!sameMapCell(a.mapCell, k.drop)) { if (s.job) s.job.attended = false; physical.move(k.drop); return; }
+        const pending = k.claims.tools.find(t => ensurePhysicalItemStacks().find(i => i.id === t.stackId)?.carriedBy !== a.id);
+        if (pending) {
+          if (!k.pickup || k.pickup.stackId !== pending.stackId) { k.pickup = { stackId: pending.stackId, dueAt: state.clock + 10 }; return; }
+          if (state.clock < k.pickup.dueAt) return;
+          const i = ensurePhysicalItemStacks().find(i => i.id === pending.stackId);
+          if (!actorInventoryCanCarry(a.id, i, 1)) { k.reason = 'Loaned tools exceed actual carrying capacity.'; k.pickup = null; return; }
+          const carried = carryPhysicalStack(a.id, i.id, 1, { allowReserved: true, toolInstanceId: pending.toolId });
+          if (carried) { carried.reservedTaskId = k.id; pending.borrowedAt = state.clock; const tool = toolInstanceById(pending.toolId).instance; tool.carriedBy = a.id; tool.roomId = a.roomId; tool.reservedTaskId = k.id; }
+          k.pickup = null; return;
+        }
+        const task = fieldBuilderTask(s), c = fieldStationContext(offer.part, task, 'build', s);
+        if (!s.job) {
+          const plan = FieldStation.plan(state.fieldStation, offer.part.id, c, c.tools, k.claims.inputs);
+          if (!plan) { k.reason = 'Current physical work position, supports, tools or capacity are unavailable.'; return; }
+          s.job = FieldStation.begin(plan, k.id, state.clock, c.tools); a.needs.exertion = Math.min(100, a.needs.exertion + plan.staminaCost); return;
+        }
+        FieldStation.advance(state.fieldStation, s.job, c, c.tools, ensurePhysicalItemStacks(), state.clock);
+        if (FieldStation.ready(state.fieldStation, s.job, c, c.tools, ensurePhysicalItemStacks()) && finishFieldStationPart(fieldBuilderTask(s), s)) {
+          k.finishedAt = state.clock; k.reason = 'The one commissioned component is physically installed; awaiting personal contact.';
+          s.history.push({ at: state.clock, contractId: k.id, partId: offer.part.id, actorId: a.id, kind: 'built' });
+        }
+      } };
+  }
+  function fieldBuilderAction(action, options = {}) {
+    const e = foreignSurveyAtField(); if (!e || scientistIsDead()) return false;
+    if (action === 'inspect') { const ok = fieldBuilderInspect(options.partId); persist(); render(); return ok; }
+    const s = ensureFieldBuilder(); if (!s) return false;
+    const c = fieldBuilderContext(s, true), offer = fieldBuilderOfferValid(s, s.proposal) ? s.proposal : null;
+    let result = false;
+    if (action === 'review') result = FieldBuilder.review(s, c, offer, state.clock);
+    if (action === 'hire') result = FieldBuilder.hire(s, c, offer, options.expected, ensureEconomy(), state.clock, (o, id) => {
+      if (!fieldBuilderOfferValid(s, o)) return null;
+      const inputs = clonePlainObject(o.inputs), ids = reserveProductionMaterialSlices(inputs, id); if (!ids) return null;
+      for (const t of o.tools) { const i = ensurePhysicalItemStacks().find(i => i.id === t.stackId); i.reservedTaskId = id; toolInstanceById(t.toolId).instance.reservedTaskId = id; }
+      return { inputs, tools: clonePlainObject(o.tools) };
+    });
+    if (action === 'report') result = FieldBuilder.receive(s, c, state.clock);
+    if (action === 'withdraw' && c.near && !c.busy && FieldBuilder.control(s, c)) result = FieldBuilder.withdraw(s, fieldBuilderHooks(s), state.clock);
+    if (action === 'settle') result = FieldBuilder.settle(s, c, ensureEconomy(), state.clock);
+    if (action === 'tool' && c.near && !c.busy && c.alive && c.capable && c.originalBody && !c.custody && c.bodyEpoch === s.contract?.bodyEpoch && !FieldBuilder.active(s)) {
+      const t = s.contract.claims.tools.find(t => t.stackId === options.stackId), i = t && ensurePhysicalItemStacks().find(i => i.id === t.stackId && i.carriedBy === s.actor.id && !i.reservedTaskId);
+      if (i && actorInventoryCanCarry('scientist', i, 1)) {
+        i.carriedBy = ''; const carried = carryPhysicalStack('scientist', i.id, 1, { toolInstanceId: t.toolId });
+        if (carried) { const tool = toolInstanceById(t.toolId).instance; tool.carriedBy = 'scientist'; tool.roomId = scientistRoomId(); t.returnedAt = state.clock; result = true; } else i.carriedBy = s.actor.id;
+      }
+    }
+    syncActorInventories(); syncPhysicalReadModels(); persist(); render(); return result;
+  }
+  function renderFieldBuilderPanel() {
+    const panel = document.createElement('section'); panel.dataset.fieldBuilder = 'true';
+    panel.append(textEl('h4', 'One-component field-building commission'), textEl('p', FieldBuilder.SCOPE));
+    const e = foreignSurveyAtField(), s = ensureFieldBuilder();
+    const button = (label, action, options = {}, disabled = false) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = disabled;
+      b.onclick = () => fieldBuilderAction(action, options); panel.append(b); };
+    if (fieldStationLocal() && (!s?.contract || s.contract.settledAt != null)) {
+      panel.append(textEl('p', 'Stand at the work position beside staged owned materials and loose usable tools. Inspect one component, then personally take those terms to the worker on defended ground.'));
+      for (const p of state.fieldStation?.site?.layout.parts || []) if (fieldStationTarget(p)?.visible && !state.fieldStation.site.parts[p.id]) button(`Inspect building commission ${p.id}`, 'inspect', { partId: p.id }, surveyBusy());
+    }
+    if (e?.builderProposal) panel.append(textEl('p', `Inspected proposal ${e.builderProposal.part.id} at ${formatClock(e.builderProposal.at)}; not a live stock report.`));
+    if (!s) { panel.append(textEl('p', 'Meet a qualified original public-works craftsperson at defended ground if the actual local provider has capacity.')); return panel; }
+    const c = fieldBuilderContext(s, true), view = FieldBuilder.publicView(s);
+    panel.append(textEl('p', `${s.source.label}: one qualified person; meeting ${s.layout.meeting.x},${s.layout.meeting.y}.`));
+    if (fieldPorterObserved(s.actor)) panel.append(textEl('p', `Direct observation: ${s.actor.name}, ${s.actor.health}/100 health, ${s.phase}.`));
+    button('Review exact one-component building terms', 'review', {}, !c.near || !c.atGround || c.busy);
+    if (view.reply) panel.append(textEl('p', `${formatClock(view.reply.at)} — ${view.reply.reason}`));
+    if (view.quote) {
+      panel.append(textEl('p', `Original ${view.quote.offer.part.id}: ${formatMoney(view.quote.upfront)} prepaid; actual recipe ${JSON.stringify(view.quote.offer.part.costs)}; tools ${view.quote.offer.tools.map(t => t.key).join(', ')}. Expires ${formatClock(view.quote.expiresAt)}. Unwarded wilderness, known hazards and return route disclosed.`));
+      button('Accept original one-component building commission', 'hire', { expected: view.quote }, !c.near || c.busy);
+    }
+    if (view.agreement) panel.append(textEl('p', `Issued ${view.agreement.id} for ${view.agreement.offer.part.id} at ${formatClock(view.agreement.hiredAt)}. Issued terms are not completion telemetry.`));
+    if (view.received) panel.append(textEl('p', `${formatClock(view.received.at)} — received construction report: ${view.received.phase}; ${view.received.reason || 'original agreement'}. Dated, not live tracking.`));
+    button('Ask craftsperson for personal report', 'report', {}, !c.near || c.busy);
+    button('Ask craftsperson to withdraw', 'withdraw', {}, !c.near || c.busy);
+    for (const t of s.contract?.claims.tools || []) button(`Recover loaned ${t.key} (${t.stackId})`, 'tool', { stackId: t.stackId }, !c.near || c.busy);
+    button('Settle returned building commission here', 'settle', {}, !c.near || !c.atGround || c.busy);
+    return panel;
+  }
+
   function fieldPorterStates() { return (state?.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.porter).filter(Boolean); }
-  function fieldPorterExcursion(s) { return (state.penalFlights?.assistance?.cityApproach?.gates || []).find(g => g.foreignSurvey?.porter === s)?.foreignSurvey; }
+  function fieldBuilderStates() { return (state?.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.builder).filter(Boolean); }
+  function fieldEmployeeStates() { return [...fieldPorterStates(), ...fieldBuilderStates()]; }
+  // Shared local geometry and physiology do not confer either employment role.
+  function fieldPorterExcursion(s) { return (state.penalFlights?.assistance?.cityApproach?.gates || []).find(g => g.foreignSurvey?.porter === s || g.foreignSurvey?.builder === s)?.foreignSurvey; }
   function fieldPorterObserved(a) { return Boolean(a?.mapCell && a.roomId === scientistRoomId() && mapCellDistance(scientistMapCell(), a.mapCell) <= 8 && sensoryLineOfSight(scientistMapCell(), a.mapCell)); }
   const fieldPorterSourceCache = new WeakMap();
   function fieldPorterSource(g, excursion) {
@@ -87412,6 +87600,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function fieldPorterHooks(s) { return foreignEscortHaulingHooks(s, (a, goal) => fieldPorterNextStep(s, a, goal)); }
   function fieldPorterContext(s, item = null, contact = false) {
+    return fieldEmployeeContext(s, item, contact, fieldPorterSource);
+  }
+  function fieldEmployeeContext(s, item = null, contact = false, sourceProvider = fieldPorterSource) {
     const e = fieldPorterExcursion(s), a = s.actor, g = e && passengerReceptionGate(e.source.cityId), site = state.fieldStation?.site;
     const originalSite = site && site.siteId === e?.wilderness.context.siteId && site.worldId === e.wilderness.context.worldId && site.cityId === e.source.cityId;
     const drop = s.contract && FieldPorter.active(s) ? s.contract.drop : s.markedDrop?.cell;
@@ -87422,7 +87613,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       originalTrip: Boolean(e?.phase === 'field' && e.trip?.bodyEpoch === ensureScientistIdentity().bodyEpoch && e.trip?.visitId === passengerVisitId()),
       atGround: scientistRoomId() === e?.roomId && a.roomId === e.roomId,
       near: Boolean(contact && fieldPorterObserved(a) && mapCellDistance(a.mapCell, scientistMapCell()) <= 1), busy: contact && surveyBusy(),
-      source: fieldPorterSource(g, e), incapacitated: actorIsIncapacitated(a), injured: a.lastHarmedAt >= (s.contract?.hiredAt ?? Infinity), care: Boolean(a.porterCare),
+      source: sourceProvider(g, e), incapacitated: actorIsIncapacitated(a), injured: a.lastHarmedAt >= (s.contract?.hiredAt ?? Infinity), care: Boolean(a.porterCare),
       site: originalSite ? { siteId: site.siteId, worldId: site.worldId, roomId: site.roomId } : null,
       drop, dropLegal: originalSite && foreignEscortHaulingDropLegal(site, drop), itemVisible: visible,
       carryOk: Boolean(item && actorInventoryCanCarry(a.id, item, 1)),
@@ -87475,8 +87666,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function updateAllFieldPorters(elapsed = 0) {
     if (scientistIsDead()) return 0;
     let changed = 0;
-    for (const s of fieldPorterStates()) {
-      if (!FieldPorter.active(s)) continue;
+    for (const s of fieldEmployeeStates()) {
+      const model = s.role === 'builder' ? FieldBuilder : FieldPorter;
+      if (!model.active(s)) continue;
       const e = fieldPorterExcursion(s), previous = porterSimulationExcursion; porterSimulationExcursion = e;
       try {
         if (e.wilderness.beasts?.lastAt !== state.clock) updateWildernessBeasts(elapsed);
@@ -87502,8 +87694,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
             }
           }
         }
-        changed += FieldPorter.advance(s, fieldPorterContext(s), fieldPorterHooks(s), state.clock);
-        if (!FieldPorter.active(s) && a.porterCare) {
+        changed += model.advance(s, s.role === 'builder' ? fieldBuilderContext(s) : fieldPorterContext(s), s.role === 'builder' ? fieldBuilderHooks(s) : fieldPorterHooks(s), state.clock);
+        if (!model.active(s) && a.porterCare) {
           const i = ensurePhysicalItemStacks().find(i => i.id === a.porterCare.stackId);
           if (i?.reservedTaskId === `field-porter-care:${a.id}`) i.reservedTaskId = '';
           a.porterCare = null;
@@ -88267,7 +88459,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const actor = ensureExpeditionEscorts().actor;
     const escort = escortContractActive() && actor?.status !== "dead" && actor?.roomId === activeWildernessRoom() ? actor : null;
     const medic = state.medicalExtraction?.medic?.status !== "dead" && state.medicalExtraction?.medic?.roomId === activeWildernessRoom() ? state.medicalExtraction.medic : null;
-    const porters = fieldPorterStates().map(s => s.actor).filter(a => a.status !== 'dead' && a.roomId === activeWildernessRoom());
+    const porters = fieldEmployeeStates().map(s => s.actor).filter(a => a.status !== 'dead' && a.roomId === activeWildernessRoom());
     if ((!scientistInWilderness() && !escort && !medic && !porters.length) || scientistIsDead()) {
       for (const beast of saved.actors) { beast.nextMoveAt += Math.max(0, elapsed); beast.nextAttackAt += Math.max(0, elapsed); }
       saved.lastAt = state.clock; return 0;
@@ -88635,9 +88827,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { id, present: Boolean(value), condition: value?.condition ?? null, stamp: stamp ?? null, original, visible,
       goodsRemain: part.kind === 'cache' && ensurePhysicalItemStacks().some(i => i.quantity > 0 && i.fixtureId === s.cacheId) };
   }
-  function fieldStationContext(part = null, task = null, operation = task?.data.fieldStationWork?.operation || 'build') {
-    const s = state.fieldStation?.site, l = s?.layout, w = foreignWildernessLocal(), excursion = foreignSurveyAtField();
-    const cell = cleanMapCell(scientistMapCell()), tools = fieldStationTools();
+  function fieldStationContext(part = null, task = null, operation = task?.data.fieldStationWork?.operation || 'build', worker = null) {
+    const s = state.fieldStation?.site, l = s?.layout, excursion = worker ? fieldPorterExcursion(worker) : foreignSurveyAtField();
+    const w = worker ? excursion?.wilderness : foreignWildernessLocal(), actor = worker?.actor || state.scientist;
+    const cell = cleanMapCell(worker ? actor.mapCell : scientistMapCell()), tools = fieldStationTools();
     const target = fieldStationTarget(part);
     const from = part ? FieldStation.effort(state.fieldStation, part.id, operation, { target }) : 0;
     let choices = [];
@@ -88648,13 +88841,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const positions = cells.filter(c => (operation === 'build' || part.kind === 'roof' && sameMapCell(c, l.rest) || mapCellDistance(c, target) <= 1)
         && !sameMapCell(c, part.cell) && labMapCellRoomId(c) === s.roomId && labMapCellIsWalkable(c)
         && !l.walls.some(p => sameMapCell(p, c)) && (!s.cacheId || !sameMapCell(c, l.cache))
-        && !labMapCellIsPathBlocked(c, { actor: state.scientist }));
+        && !labMapCellIsPathBlocked(c, { actor }));
       // A valid position already underfoot is the shortest possible route.
       // Avoid searching every alternative again while staging or working here.
       const standing = positions.find(c => sameMapCell(c, cell));
       choices = (standing ? [standing] : positions)
-        .map(c => ({ cell: c, path: standing ? [cell] : labMapPathBetweenCells(cell, c, { actor: state.scientist, ignoreDoors: true }) }))
-        .filter(p => p.path.length && !pathAccessViolations(state.scientist, p.path).length)
+        .map(c => ({ cell: c, path: standing ? [cell] : labMapPathBetweenCells(cell, c, { actor, ignoreDoors: true }) }))
+        .filter(p => p.path.length && !pathAccessViolations(actor, p.path).length)
         .sort((a, b) => a.path.length - b.path.length);
     }
     const workCell = task?.data.toCell || choices[0]?.cell;
@@ -88663,26 +88856,36 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     // The existing interior ladder position serves this compact hut's entire
     // roof during construction; maintenance must retain that same real access.
     const workPositionOkay = operation === 'build' || Boolean(workCell && (part?.kind === 'roof' && sameMapCell(workCell, l.rest) || mapCellDistance(workCell, workTarget) <= 1)
-      && labMapCellIsWalkable(workCell) && !labMapCellIsPathBlocked(workCell, { actor: state.scientist }));
-    const geometryOkay = workPositionOkay && (operation === 'repair' ? Boolean(target?.present && target.original)
+      && labMapCellIsWalkable(workCell) && !labMapCellIsPathBlocked(workCell, { actor }));
+    const geometryOkay = workPositionOkay && (!worker || Boolean(workCell && labMapCellIsWalkable(workCell)
+      && !labMapCellIsPathBlocked(workCell, { actor }))) && (operation === 'repair' ? Boolean(target?.present && target.original)
       : Boolean(part && !constructedWallAtCell(part.cell) && (!['floor', 'roof'].includes(part.kind) || !constructedFloorAtCell(part.cell))
         && !labMapDoorAtCell(part.cell) && !fixturesAtCell(part.cell).length
         && !ensurePhysicalItemStacks().some(i => !i.carriedBy && i.quantity > 0 && sameMapCell(i.cell, part.cell))
-        && (part.kind === 'roof' || canActorOccupyTile(state.scientist, part.cell))
+        && (part.kind === 'roof' || canActorOccupyTile(actor, part.cell))
         && (part.kind !== 'cache' || !fixturePlacementBlockReason(FIXTURE_BY_ID.storageCrate, l.cache))));
-    return { local: fieldStationLocal(), wilderness: Boolean(w), alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist'), free: annexCapable(),
-      siteId: w?.context.siteId, worldId: w?.context.worldId, roomId: scientistRoomId(), cell,
+    const employment = worker && fieldEmployeeContext(worker, null, false, fieldBuilderSource);
+    return { local: worker ? Boolean(s && actor.roomId === s.roomId && w?.context.siteId === s.siteId && w.context.worldId === s.worldId) : fieldStationLocal(),
+      actorId: worker ? actor.id : 'scientist', employmentAuthorized: worker ? FieldBuilder.control(worker, employment) && !FieldBuilder.refusal(worker, employment) : false,
+      claimId: worker?.contract?.id, wilderness: Boolean(w), alive: !scientistIsDead() && actor.status !== 'dead',
+      capable: !actorIsIncapacitated('scientist') && (!worker || !actorIsIncapacitated(actor)), free: worker ? !employment.custody : annexCapable(),
+      siteId: w?.context.siteId, worldId: w?.context.worldId, roomId: worker ? actor.roomId : scientistRoomId(), cell,
       bodyEpoch: ensureScientistIdentity().bodyEpoch, visitId: passengerVisitId(), tripId: excursion?.trip?.id,
-      busy: !task && surveyBusy(), reachable: Boolean(choices.length), workCell, geometryOkay, target,
+      busy: !worker && !task && (surveyBusy() || fieldBuilderStates().some(b => FieldBuilder.active(b) && b.contract.offer.part.id === part?.id)),
+      reachable: worker ? Boolean(workCell && sameMapCell(workCell, cell)) : Boolean(choices.length), workCell, geometryOkay, target,
       floorsIntact: Boolean(l && l.floors.every(c => constructedFloorAtCell(c)?.condition >= 50)),
       wallsIntact: Boolean(l && l.walls.every(c => constructedWallAtCell(c)?.condition >= 50)),
       roofsIntact: Boolean(l && l.roofs.every(c => constructedFloorAtCell(c)?.purpose === 'roof' && constructedFloorAtCell(c).condition >= 50)),
       doorPresent: Boolean(s?.doorId && ensureLabMap().doors[s.doorId] && state.doors[s.doorId]?.condition > 0),
       materialsLocal: Boolean(!work || work.inputs.every(i => mapCellDistance(i.cell, workCell) <= 1 && sensoryLineOfSight(i.cell, workCell))),
-      seconds: part ? adjustedActionDuration(part.seconds * (1 - from), 'fabrication') * WildernessSurvival.fatigueMultiplier(state.wildernessSurvival) : 0,
-      staminaCost: adjustedStaminaCost(Math.max(.1, (part?.kind === 'wall' || part?.kind === 'cache' ? 2 : 1) * (1 - from)), ['fabrication']), stamina: scientistVital('stamina').current,
-      atHead: Boolean(task && firstScientistQueueTask()?.id === task.id && surveyTaskAllowed(task) && !state.combat?.routineSuspension),
-      threatened: Boolean(state.combat?.routineSuspension || state.combat?.pendingActions?.scientist || w?.beasts?.actors.some(b => b.status !== 'dead'
+      seconds: part ? worker ? Math.max(1, Math.ceil(part.seconds * (1 - from) * skillReductionMultiplier(actor.skills.fabrication)
+        * (1 + injuryEffectTotals(actor).work) * WildernessSurvival.fatigueMultiplier(actor.needs)))
+        : adjustedActionDuration(part.seconds * (1 - from), 'fabrication') * WildernessSurvival.fatigueMultiplier(state.wildernessSurvival) : 0,
+      staminaCost: worker ? Math.max(.1, (part?.kind === 'wall' || part?.kind === 'cache' ? 2 : 1) * (1 - from))
+        : adjustedStaminaCost(Math.max(.1, (part?.kind === 'wall' || part?.kind === 'cache' ? 2 : 1) * (1 - from)), ['fabrication']),
+      stamina: worker ? 100 - actor.needs.exertion : scientistVital('stamina').current,
+      atHead: worker ? !actor.porterCare : Boolean(task && firstScientistQueueTask()?.id === task.id && surveyTaskAllowed(task) && !state.combat?.routineSuspension),
+      threatened: Boolean((!worker && (state.combat?.routineSuspension || state.combat?.pendingActions?.scientist)) || w?.beasts?.actors.some(b => b.status !== 'dead'
         && mapCellDistance(cell, b.mapCell) <= 3 && sensoryLineOfSight(cell, b.mapCell))), tools };
   }
   function fieldStationInputs(part, cell) {
@@ -88726,9 +88929,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     observeFieldStation();
   }
-  function finishFieldStationPart(task) {
+  function finishFieldStationPart(task, worker = null) {
     const s = state.fieldStation, j = task.data.fieldStationWork, site = s.site, l = site.layout, p = FieldStation.workPart(s, j.partId, j.operation);
-    const c = fieldStationContext(p, task); c.atHead = surveyTaskAllowed(task) && !state.combat?.routineSuspension;
+    const c = fieldStationContext(p, task, j.operation || 'build', worker);
+    if (!worker) c.atHead = surveyTaskAllowed(task) && !state.combat?.routineSuspension;
     if (!FieldStation.ready(s, j, c, c.tools, ensurePhysicalItemStacks())) return false;
     const map = ensureLabMap(); let physicalId = mapCellKey(p.cell);
     if (j.operation === 'repair') {
@@ -88767,7 +88971,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (!FieldStation.finish(s, j, c, c.tools, ensurePhysicalItemStacks(), state.clock, physicalId)) return false;
     consumeProductionMaterialReservations(task); bumpNavigationRevision('topology'); syncActorInventories();
-    awardXp('fabrication', 3, task.label, { physical: true }); surveyEvent(`${task.label} physically installed using original materials. No title, staff, route or safety flag granted.`);
+    if (!worker) { awardXp('fabrication', 3, task.label, { physical: true }); surveyEvent(`${task.label} physically installed using original materials. No title, staff, route or safety flag granted.`); }
     observeFieldStation(); return true;
   }
   function fieldStationTransferReason(task) {
@@ -88855,14 +89059,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const s = state.fieldStation; if (!s?.site || !fieldStationLocal() || scientistIsDead()) return;
     const l = s.site.layout, f = fixtureById(s.site.cacheId), cell = scientistMapCell(), old = s.observations || {};
     const parts = { ...old.parts };
+    let observed = false;
     for (const p of l.parts) {
       const target = fieldStationTarget(p);
       if (target.visible) {
+        observed = true;
         FieldStation.inspectTarget(s, p.id, target);
-        parts[p.id] = { at: state.clock, condition: target.condition, present: target.present, original: target.original };
+        parts[p.id] = { at: state.clock, condition: target.condition, present: target.present, original: target.original, effort: s.site.effort[p.id] || 0 };
       }
     }
     const canInventory = f?.condition > 0 && f.accessState === 'open' && sameMapCell(cell, l.rest);
+    if (!observed && !canInventory) return;
     FieldStation.observe(s, state.clock, { parts, ...(old.inventory ? { inventory: old.inventory } : {}),
       ...(canInventory ? { inventory: { at: state.clock, cacheId: f.id, goods: ensurePhysicalItemStacks().filter(i => i.fixtureId === f.id).map(i => ({ id: i.id, key: i.key, quantity: i.quantity })) } } : {}) });
   }
@@ -88877,8 +89084,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         button(`Pack one station ${inventoryItemLabel(i.key)} (${i.id})`, 'pack', { stackId: i.id });
     }
     const view = FieldStation.publicView(state.fieldStation);
+    const knownParts = new Set((view?.receipts || []).map(r => r.partId));
     if (view) {
-      panel.append(textEl('p', `Registered at ${formatClock(view.registeredAt)}; ${Object.keys(s.parts).length}/${s.layout.parts.length} installation receipts. Historical construction is not current shelter or political control.`));
+      panel.append(textEl('p', `Registered at ${formatClock(view.registeredAt)}; ${knownParts.size}/${s.layout.parts.length} received or personally observed installation receipts. Historical construction is not current shelter or political control.`));
       if (view.observations) panel.append(textEl('p', `Last personal station report ${formatClock(view.observations.at)}. Stocks ${view.observations.inventory ? `inventoried ${formatClock(view.observations.inventory.at)}: ${view.observations.inventory.goods.map(i => `${i.key} ×${i.quantity}`).join(', ') || 'empty'}` : 'not personally inventoried'}. Away records do not refresh.`));
     }
     if (!local) return panel;
@@ -88889,17 +89097,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const pick = document.createElement('select'); pick.setAttribute('aria-label', 'Station construction component');
     for (const p of remainingParts) {
       const seen = view?.observations?.parts?.[p.id];
-      pick.append(new Option(`${p.kind} at ${p.cell.x},${p.cell.y}: ${!s.parts[p.id] ? `${Math.floor((s.effort[p.id] || 0) * 100)}% built`
+      pick.append(new Option(`${p.kind} at ${p.cell.x},${p.cell.y}: ${!knownParts.has(p.id) ? `${Math.floor((seen?.effort || 0) * 100)}% observed built`
         : !seen ? 'not inspected' : seen.present ? `observed ${seen.condition}%` : 'observed missing'}`, p.id));
     }
     const base = fieldStationContext();
     const selected = remainingParts.find(p => p.id === state.fieldStation.selectedPartId)
-      || remainingParts.find(p => !s.parts[p.id] && !FieldStation.prerequisite(s, p, base))
+      || remainingParts.find(p => !knownParts.has(p.id) && !FieldStation.prerequisite(s, p, base))
       || remainingParts.find(p => view?.observations?.parts?.[p.id]?.condition < 100) || remainingParts[0];
     if (selected) { pick.value = selected.id; pick.onchange = () => { state.fieldStation.selectedPartId = pick.value; persist(); render(); }; panel.append(pick); }
     for (const original of selected ? [selected] : []) {
       const seen = view?.observations?.parts?.[original.id];
-      const operation = !s.parts[original.id] ? 'build' : seen?.present === false ? 'reconstruct' : 'repair';
+      if (!fieldStationTarget(original)?.visible) { panel.append(textEl('p', 'Approach the selected component to inspect its current condition and construction effort.')); continue; }
+      const operation = !knownParts.has(original.id) ? 'build' : seen?.present === false ? 'reconstruct' : 'repair';
       if (operation === 'repair' && seen?.condition === 100) {
         panel.append(textEl('p', `${original.kind} ${original.cell.x},${original.cell.y}: personally observed at full condition (${formatClock(seen.at)}).`));
         button(`Repair station ${original.id}`, 'repair', { partId: original.id }, true); continue;
@@ -89222,6 +89431,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const survival = ensureWildernessSurvival(), panel = document.createElement("section"); panel.dataset.wildernessSurvival = "true"; panel.className = "subpanel";
     if (!unsupportedActive() && !state.penalFlights?.fieldActive) panel.append(renderExpeditionEscortPanel());
     if (foreignSurveyAtField()) panel.append(renderFieldPorterPanel());
+    if (foreignSurveyAtField()) panel.append(renderFieldBuilderPanel());
     if (state.surveyExpeditions?.phase === "field" || foreignSurveyAtField()) panel.append(renderWildernessBeastsPanel());
     panel.append(renderFieldStationPanel());
     panel.append(textEl("strong", "Field Survival"), textEl("p", `Thirst ${Math.round(survival.thirst)}/100 · Hunger ${Math.round(survival.hunger)}/100 · Exertion ${Math.round(survival.exertion)}/100 · Exposure ${Math.round(survival.exposure)}/100. High needs slow movement and work; prolonged critical thirst, hunger, or exposure damages health.`));
@@ -99466,6 +99676,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       && t.data.fieldStationWork?.status === 'working' && t.data.fieldStationWork.taskId === t.id
       && next.fieldStation?.site?.siteId === t.data.fieldStationWork.siteId)
       .map(t => [t.id, new Set(t.data.fieldStationWork.tools.map(c => c.toolId))]));
+    const builderTools = new Map((next.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => {
+      const b = g.foreignSurvey?.builder, k = b?.contract;
+      if (!b || !['arriving', 'onSite'].includes(b.phase) || !k?.id?.startsWith('field-build:') || k.actorId !== b.actor.id
+        || b.source?.allocationId !== b.actor.id || k.site?.siteId !== next.fieldStation?.site?.siteId
+        || k.site?.worldId !== next.fieldStation?.site?.worldId || k.site.siteId !== g.foreignSurvey.wilderness?.context.siteId
+        || b.job && (b.job.taskId !== k.id || b.job.actorId !== b.actor.id || b.job.partId !== k.offer.part.id)) return [];
+      const ids = (k.claims?.tools || []).filter(t => next.physicalItemStacks.some(i => i.id === t.stackId && i.quantity === 1 && i.key === t.key
+        && i.toolInstanceId === t.toolId && i.reservedTaskId === k.id && !i.cityOwnerId && !i.civicCustody
+        && (i.carriedBy === b.actor.id && i.roomId === b.actor.roomId || !i.carriedBy && i.roomId === k.site.roomId && sameMapCell(i.cell, t.cell))))
+        .map(t => t.toolId);
+      return [[k.id, new Set(ids)]];
+    }));
     const stationTransferTools = new Map(next.tasks.filter(t => t.type === 'surveyExpeditionWork' && t.data?.fieldStationTransfer
       && t.data.toolInstanceId && t.data.fieldStationTransfer.cacheId === next.fieldStation?.site?.cacheId
       && next.physicalItemStacks.some(s => s.id === t.data.stackId && s.toolInstanceId === t.data.toolInstanceId && s.reservedTaskId === t.id))
@@ -99475,7 +99697,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         if (tool.reservedTaskId && !toolTaskIds.has(tool.reservedTaskId) && escortRepairTools.get(tool.reservedTaskId) !== tool.id
           && !stoneTools.get(tool.reservedTaskId)?.has(tool.id) && stonePackingTools.get(tool.reservedTaskId) !== tool.id
           && timberTools.get(tool.reservedTaskId) !== tool.id
-          && !stationTools.get(tool.reservedTaskId)?.has(tool.id) && stationTransferTools.get(tool.reservedTaskId) !== tool.id) tool.reservedTaskId = "";
+          && !stationTools.get(tool.reservedTaskId)?.has(tool.id) && !builderTools.get(tool.reservedTaskId)?.has(tool.id)
+          && stationTransferTools.get(tool.reservedTaskId) !== tool.id) tool.reservedTaskId = "";
       }
     }
     for (const order of next.construction.orders || []) {

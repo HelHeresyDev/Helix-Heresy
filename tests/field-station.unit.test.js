@@ -21,6 +21,30 @@ function begin(f) {
   const plan = Station.plan(f.saved, f.part.id, f.c, f.tools, f.inputs); assert(plan);
   const j = Station.begin(plan, 'task-1', 0, f.tools); f.stacks[0].reservedTaskId = j.taskId; return j;
 }
+test('delegated construction uses the actual authorized worker and their exact carried tools, never scientist impersonation', () => {
+  const f = fixture(); f.c.actorId = 'builder:b'; f.c.employmentAuthorized = true;
+  assert.equal(Station.plan(f.saved, f.part.id, f.c, f.tools, f.inputs), null);
+  for (const t of f.tools) { t.tool.carriedBy = 'builder:b'; t.stack.carriedBy = 'builder:b'; }
+  const j = begin(f); assert.equal(j.actorId, 'builder:b');
+  assert.match(Station.reason(f.saved, j, { ...f.c, actorId: 'scientist' }, f.tools, f.stacks), /original working person/);
+  assert.match(Station.reason(f.saved, j, { ...f.c, employmentAuthorized: false }, f.tools, f.stacks), /explicit current/);
+  assert.equal(Station.plan(f.saved, f.part.id, f.c, f.tools, f.inputs, 'repair'), null);
+});
+test('delegated receipts and cancellation effort remain private until a dated physical inspection', () => {
+  const f = fixture(); f.c.actorId = 'builder:b'; f.c.employmentAuthorized = true;
+  for (const t of f.tools) { t.tool.carriedBy = 'builder:b'; t.stack.carriedBy = 'builder:b'; }
+  const j = begin(f); Station.advance(f.saved, j, f.c, f.tools, f.stacks, 1); Station.advance(f.saved, j, f.c, f.tools, f.stacks, 101);
+  assert(Station.finish(f.saved, j, f.c, f.tools, f.stacks, 101, 'real-wall'));
+  assert(!Station.publicView(f.saved).history.some(r => r.physicalId === 'real-wall'));
+  assert(!Station.publicView(f.saved).receipts.some(r => r.physicalId === 'real-wall'));
+  Station.observe(f.saved, 101, { parts: {} }); assert(!Station.publicView(f.saved).history.some(r => r.physicalId === 'real-wall'));
+  Station.observe(f.saved, 101, { parts: { [f.part.id]: { at: 101 } } }); assert(Station.publicView(f.saved).history.some(r => r.physicalId === 'real-wall'));
+  assert(Station.publicView(f.saved).receipts.some(r => r.physicalId === 'real-wall'));
+});
+test('older personally known installation manifests remain visible even without duplicate history rows', () => {
+  const f = fixture(); f.saved.site.parts[f.part.id] = { partId: f.part.id, physicalId: 'old-known-wall', at: 1 };
+  assert.equal(Station.publicView(f.saved).receipts[0].physicalId, 'old-known-wall');
+});
 test('shared theme content grants no station, staff, supplies or political rights', () => {
   for (const theme of ['madcap', 'grim', 'unbound']) {
     const s = Station.create(theme); assert.equal(s.sourceTheme, 'shared'); assert.equal(s.site, null); assert.equal(Station.publicView(s), null);

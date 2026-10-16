@@ -38,7 +38,8 @@
   }
   function accessReason(c) {
     return !c.local || !c.wilderness ? 'Personally attend the original foreign wilderness sector; municipal sampling ground is not a construction grant.'
-      : !c.alive || !c.capable || !c.free ? 'A living free capable scientist must personally attend.' : '';
+      : !c.alive || !c.capable || !c.free ? 'A living free capable scientist must personally attend.'
+        : c.actorId && c.actorId !== 'scientist' && !c.employmentAuthorized ? 'The original worker needs an explicit current construction commission.' : '';
   }
   function register(s, place, plan, c, now) {
     if (s.site || accessReason(c) || !c.observed || !c.clear || c.busy || !place?.worldId || !place?.siteId || !place?.cityId) return false;
@@ -86,6 +87,8 @@
     return e?.targetKey === targetKey(c) ? e.fraction : 0;
   }
   function plan(s, partId, c, tools, inputs, operation = 'build') {
+    const actorId = c.actorId || 'scientist';
+    if (actorId !== 'scientist' && operation !== 'build') return null;
     const site = s.site, part = workPart(s, partId, operation);
     if (!part || maintenanceReason(s, part, c, operation) || accessReason(c) || c.siteId !== site.siteId || c.worldId !== site.worldId
       || c.busy || !c.geometryOkay || !c.reachable || c.threatened || prerequisite(site, part, c) || !inputs) return null;
@@ -94,13 +97,14 @@
     const from = Math.max(0, Math.min(.999999, effort(s, partId, operation, c))), claims = [];
     for (const [itemKey, wear] of Object.entries(part.tools)) {
       const budget = Math.max(1, Math.ceil(wear * (1 - from)));
-      const t = tools.find(t => t.key === itemKey && t.tool?.current >= budget && !t.tool.reservedTaskId && t.tool.carriedBy === 'scientist'
-        && t.stack?.quantity === 1 && !t.stack.reservedTaskId && t.stack.carriedBy === 'scientist' && t.stack.toolInstanceId === t.tool.id);
+      const available = id => !id || Boolean(c.claimId && id === c.claimId);
+      const t = tools.find(t => t.key === itemKey && t.tool?.current >= budget && available(t.tool.reservedTaskId) && t.tool.carriedBy === actorId
+        && t.stack?.quantity === 1 && available(t.stack.reservedTaskId) && t.stack.carriedBy === actorId && t.stack.toolInstanceId === t.tool.id);
       if (!t) return null;
       claims.push({ key: itemKey, toolId: t.tool.id, stackId: t.stack.id, wear: budget });
     }
     if (!(c.seconds > 0) || c.stamina < c.staminaCost) return null;
-    return { partId, operation, targetKey: operation === 'build' ? '' : targetKey(c), target: copy(c.target || null),
+    return { partId, actorId, operation, targetKey: operation === 'build' ? '' : targetKey(c), target: copy(c.target || null),
       siteId: site.siteId, worldId: site.worldId, roomId: site.roomId, bodyEpoch: c.bodyEpoch,
       tripId: c.tripId, visitId: c.visitId, workCell: copy(c.workCell), required: c.seconds, staminaCost: c.staminaCost,
       from, tools: claims, inputs: copy(inputs) };
@@ -122,6 +126,7 @@
     if (maintenance) return maintenance;
     if (operation !== 'build' && targetKey(c) !== j.targetKey) return 'The exact inspected target changed; cancel and inspect it again.';
     if (accessReason(c)) return accessReason(c);
+    if ((j.actorId || 'scientist') !== (c.actorId || 'scientist')) return 'Only the original working person may continue this component.';
     if (c.siteId !== j.siteId || c.worldId !== j.worldId || c.roomId !== j.roomId || c.bodyEpoch !== j.bodyEpoch
       || c.tripId !== j.tripId || c.visitId !== j.visitId) return 'Only the original body and physical visit/trip may continue this personal task.';
     if (!c.geometryOkay || !c.materialsLocal || prerequisite(site, part, c)) return prerequisite(site, part, c) || 'Actual work ground, target footprint or staged material access changed.';
@@ -133,7 +138,7 @@
     }
     for (const claim of j.tools) {
       const t = tools.find(t => t.tool?.id === claim.toolId && t.stack?.id === claim.stackId);
-      if (!t || t.tool.carriedBy !== 'scientist' || t.stack.carriedBy !== 'scientist' || t.stack.quantity !== 1
+      if (!t || t.tool.carriedBy !== (j.actorId || 'scientist') || t.stack.carriedBy !== (j.actorId || 'scientist') || t.stack.quantity !== 1
         || t.stack.key !== claim.key || t.stack.toolInstanceId !== claim.toolId || t.tool.reservedTaskId !== j.taskId
         || t.stack.reservedTaskId !== j.taskId || t.tool.current < claim.wear - j.wearApplied[claim.toolId])
         return 'The exact carried reserved tools and their remaining wear budget are required.';
@@ -169,7 +174,7 @@
   }
   function finish(s, j, c, tools, stacks, now, physicalId) {
     if (!physicalId || (j?.operation === 'repair' && physicalId !== j.target?.id) || !ready(s, j, c, tools, stacks)) return false;
-    const receipt = { at: now, taskId: j.taskId, partId: j.partId, physicalId, operation: j.operation || 'build',
+    const receipt = { at: now, actorId: j.actorId || 'scientist', taskId: j.taskId, partId: j.partId, physicalId, operation: j.operation || 'build',
       target: copy(j.target || null), inputs: copy(j.inputs), tools: copy(j.tools) };
     if (receipt.operation !== 'repair') { s.site.parts[j.partId] = receipt; s.site.effort[j.partId] = 1; }
     if (s.site.maintenanceEffort) delete s.site.maintenanceEffort[effortKey(j.partId, receipt.operation)];
@@ -178,14 +183,16 @@
   }
   function cancel(s, j, tools, stacks, now) {
     if (!j || j.status !== 'working') return false;
-    j.status = 'cancelled'; s.history.push({ at: now, kind: 'cancelled', partId: j.partId, operation: j.operation || 'build',
+    j.status = 'cancelled'; s.history.push({ at: now, actorId: j.actorId || 'scientist', kind: 'cancelled', partId: j.partId, operation: j.operation || 'build',
       fraction: j.from + (1 - j.from) * j.progress / j.required });
     release(j, tools, stacks); return true;
   }
   function observe(s, now, report) { if (s.site && report) s.observations = { at: now, ...copy(report) }; }
   function publicView(s) {
+    const known = r => !r.actorId || r.actorId === 'scientist' || s?.observations?.parts?.[r.partId]?.at >= r.at;
     return s?.site ? { siteId: s.site.siteId, cityId: s.site.cityId, registeredAt: s.site.registeredAt,
-      origin: copy(s.site.layout.origin), observations: s.observations && copy(s.observations), history: copy(s.history),
+      origin: copy(s.site.layout.origin), observations: s.observations && copy(s.observations),
+      receipts: copy(Object.values(s.site.parts).filter(known)), history: copy(s.history.filter(known)),
       limitation: 'Dated supply hut records, not live remote inventory, land title, sovereignty, safety, staffing or transport rights.' } : null;
   }
   return { create, layout, homeSupply, accessReason, register, prerequisite, workPart, maintenanceReason, inspectTarget, effort, plan, begin, reason, advance, ready, finish, cancel, observe, publicView };
