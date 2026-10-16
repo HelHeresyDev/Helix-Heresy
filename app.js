@@ -125,6 +125,7 @@
   const ForeignEscortHauling = window.HelixForeignEscortHauling;
   const FieldPorter = window.HelixFieldPorter;
   const FieldBuilder = window.HelixFieldBuilder;
+  const FieldEmployeeRecovery = window.HelixFieldEmployeeRecovery;
   const CarrierBriefings = window.HelixCarrierBriefings;
   const LocalDiscovery = window.HelixLocalDiscovery;
   const MunicipalMaps = window.HelixMunicipalMaps;
@@ -17082,6 +17083,22 @@
       foreignEscortHaulingAction,
       fieldPorterAction,
       fieldBuilderAction,
+      fieldEmployeeRecoveryAction,
+      fieldEmployeeRecoverySnapshot: role => {
+        const s = role === 'builder' ? foreignSurveyAtField()?.builder : foreignSurveyAtField()?.porter;
+        return clonePlainObject({ saved: s || null, context: s ? fieldEmployeeRecoveryContext(s, true) : null,
+          stacks: ensurePhysicalItemStacks(), inventory: s ? actorInventorySnapshot(s.actor.id) : null, clock: state.clock,
+          scientistCell: scientistMapCell(), scientistRoom: scientistRoomId(), money: ensureEconomy().money,
+          tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) });
+      },
+      advanceFieldEmployeeRecoveryForTest: seconds => {
+        // Same production updater; no unrelated eight-hour economy/colony fixture.
+        for (let left = Math.max(0, seconds); left > 0 && !scientistIsDead();) {
+          const step = Math.min(60, left); state.clock += step; left -= step;
+          updateAllFieldPorters(step); progressInjuries();
+        }
+        syncActorInventories(); persist(); render();
+      },
       setFieldBuilderTestSource: source => { const g = passengerReceptionGate(); if (!g?.foreignSurvey) return false;
         g.preparedFieldBuilderTestSource = clonePlainObject(source); persist(); return true; },
       fieldBuilderSnapshot: () => {
@@ -69317,6 +69334,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return "Task no longer exists.";
     }
     if (task.data?.action === 'foreignEscortRepair' && scientistIsDead()) return 'Scientist death freezes this unfinished equipment repair.';
+    if (task.data?.action === 'fieldEmployeeShelter' && scientistIsDead()) return 'Scientist death freezes this unfinished shelter work.';
     if (task.data?.stoneWork && scientistIsDead()) return 'Scientist death freezes this unfinished stone work.';
     if ((task.data?.fieldStationWork || task.data?.fieldStationTransfer) && scientistIsDead()) return 'Scientist death freezes unfinished field-station work.';
     if (!isScientistQueueTask(task)) {
@@ -69424,6 +69442,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.stackId);
       if (stack?.reservedTaskId === task.id) stack.reservedTaskId = "";
+      if (task.data?.action === 'fieldEmployeeShelter' && task.data.packing) {
+        const s = fieldEmployeeStates().find(s => s.actor.id === task.data.actorId);
+        if (stack && s?.restPlace?.stackId === stack.id && stack.key === 'fieldShelter' && stack.quantity === 1 && !stack.reservedTaskId
+          && !stack.carriedBy && stack.roomId === s.restPlace.roomId && sameMapCell(stack.cell, s.restPlace.cell)) stack.reservedTaskId = s.restPlace.id;
+      }
       const tool = task.data?.toolInstanceId && toolInstanceById(task.data.toolInstanceId)?.instance;
       if (tool?.reservedTaskId === task.id) tool.reservedTaskId = "";
     }
@@ -87413,10 +87436,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const inventory = actorInventorySnapshot(s.actor.id), extra = (offer?.tools || []).map(t => ensurePhysicalItemStacks().find(i => i.id === t.stackId)).filter(i => i && i.carriedBy !== s.actor.id);
     const fits = inventory && ['massKg', 'volumeL'].every(k => inventory.usage[k] + extra.reduce((n, i) => n + i[k === 'massKg' ? 'unitMassKg' : 'unitVolumeL'], 0) <= inventory.capacity[k]);
     return { ...c, routeOk: Boolean(fits && offer && (sameMapCell(s.actor.mapCell, offer.workCell) || fieldPorterNextStep(s, s.actor, offer.workCell))),
-      toolsReturned: Boolean(s.contract && s.contract.claims.tools.every(t => t.returnedAt != null || t.borrowedAt == null
-        && !s.job?.tools.some(j => j.toolId === t.toolId) && !ensurePhysicalItemStacks().some(i => i.id === t.stackId && i.carriedBy === s.actor.id))),
+      toolsReturned: fieldBuilderToolsReturned(s),
       site: state.fieldStation?.site?.siteId === e?.wilderness.context.siteId && state.fieldStation.site.worldId === e.wilderness.context.worldId
         ? { worldId: state.fieldStation.site.worldId, siteId: state.fieldStation.site.siteId, roomId: state.fieldStation.site.roomId } : null };
+  }
+  function fieldBuilderToolsReturned(s) {
+    return Boolean(s.contract && s.contract.claims.tools.every(t => t.returnedAt != null || t.borrowedAt == null
+      && !s.job?.tools.some(j => j.toolId === t.toolId) && !ensurePhysicalItemStacks().some(i => i.id === t.stackId && i.carriedBy === s.actor.id)));
   }
   function fieldBuilderOfferValid(s, offer, claimed = false) {
     if (!offer || !state.fieldStation?.site || JSON.stringify(offer.part) !== JSON.stringify(FieldStation.workPart(state.fieldStation, offer.part.id))
@@ -87546,7 +87572,112 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     button('Ask craftsperson to withdraw', 'withdraw', {}, !c.near || c.busy);
     for (const t of s.contract?.claims.tools || []) button(`Recover loaned ${t.key} (${t.stackId})`, 'tool', { stackId: t.stackId }, !c.near || c.busy);
     button('Settle returned building commission here', 'settle', {}, !c.near || !c.atGround || c.busy);
+    renderFieldEmployeeRecovery(panel, s);
     return panel;
+  }
+
+  function fieldEmployeeRecoveryContext(s, contact = false) {
+    // Rest/shelter attendance needs no building proposal, material scan, tool
+    // carrying quote or construction-route search on every task reason check.
+    const c = fieldEmployeeContext(s, null, contact, s.role === 'builder' ? fieldBuilderSource : (g, e) => fieldPorterSource(g, e, true));
+    const p = s.restPlace, a = s.actor, i = p && ensurePhysicalItemStacks().find(i => i.id === p.stackId);
+    return { ...c, toolsReturned: s.role !== 'builder' || fieldBuilderToolsReturned(s),
+      placeUsable: Boolean(p && p.actorId === a.id && p.roomId === s.layout.groundRoomId && p.condition > 0
+        && i?.section === 'inventory' && i.key === 'fieldShelter' && i.quantity === 1 && !i.carriedBy && !i.fixtureId && !i.containerId
+        && !i.cityOwnerId && !i.civicCustody && i.reservedTaskId === p.id && i.roomId === p.roomId && sameMapCell(i.cell, p.cell)
+        && labMapCellIsWalkable(p.cell, ensureLabMap())),
+      atRestPlace: Boolean(p && a.roomId === p.roomId && mapCellDistance(a.mapCell, p.cell) <= 1 && sensoryLineOfSight(a.mapCell, p.cell)),
+      treatment: state.tasks.some(t => t.type === 'injuryTreatment' && t.data?.targetActorId === a.id),
+      threatened: c.threatened || a.nextAttackAt > state.clock || a.lastHarmedAt != null && state.clock - a.lastHarmedAt < 30
+        || Object.values(state.combat?.pendingActions || {}).some(p => !p.interrupted && (p.actorId === a.id || p.target?.id === a.id)) };
+  }
+  function fieldEmployeeShelterReason(s, task = null) {
+    if (!s) return 'The original worker is unavailable.';
+    const c = fieldEmployeeRecoveryContext(s, !task), d = task?.data, packing = d?.packing;
+    if (task) { c.busy = false; c.near = fieldPorterObserved(s.actor) && mapCellDistance(s.actor.mapCell, scientistMapCell()) <= 1; }
+    if (!FieldEmployeeRecovery.contact(c) || c.incapacitated || s.actor.status === 'dead' || c.threatened
+      || !c.source || c.source.allocationId !== s.source.allocationId || c.care || c.treatment
+      || s.phase !== 'completed' || s.contract?.settledAt == null || !c.toolsReturned || FieldEmployeeRecovery.active(s))
+      return 'Personally meet the returned settled worker on defended ground, without work, care or unfinished rest.';
+    if (d && (d.bodyEpoch !== c.bodyEpoch || d.visitId !== c.visitId || d.tripId !== c.tripId || d.actorId !== s.actor.id))
+      return 'Only the original body, visit, trip and worker can continue this shelter work.';
+    const cell = d?.toCell || scientistMapCell();
+    if (scientistRoomId() !== s.layout.groundRoomId || labMapCellRoomId(cell) !== s.layout.groundRoomId
+      || mapCellDistance(cell, s.actor.mapCell) > 1 || !labMapCellIsWalkable(cell, ensureLabMap())) return 'Inspect reachable ground beside the original worker.';
+    if (!packing && !s.restPlace && (fieldEmployeeStates().some(other => other !== s && other.restPlace && sameMapCell(other.restPlace.cell, cell))
+      || foreignEscortStates().some(other => other.restPlace && sameMapCell(other.restPlace.cell, cell)))) return 'Another one-person shelter already occupies this ground.';
+    if (!d) return '';
+    const i = ensurePhysicalItemStacks().find(i => i.id === d.stackId);
+    if (!i || i.section !== 'inventory' || i.key !== 'fieldShelter' || i.quantity !== 1 || i.reservedTaskId !== task.id
+      || i.cityOwnerId || i.civicCustody || i.fixtureId || i.containerId || i.chemicalBatch
+      || (i.tags || []).some(t => /toxic|hazard|contaminat|volatile/i.test(t))) return 'The exact owned shelter kit is unavailable.';
+    if (packing ? !s.restPlace || s.restPlace.stackId !== i.id || i.carriedBy || i.roomId !== s.restPlace.roomId
+      || !sameMapCell(i.cell, s.restPlace.cell) || !actorInventoryCanCarry('scientist', i, 1)
+      : s.restPlace || i.carriedBy !== 'scientist') return 'The original shelter or its physical custody changed.';
+    return '';
+  }
+  function fieldEmployeeShelterWork(task) {
+    const s = fieldEmployeeStates().find(s => s.actor.id === task.data.actorId);
+    if (fieldEmployeeShelterReason(s, task) || !sameMapCell(scientistMapCell(), task.data.toCell)) return false;
+    const i = ensurePhysicalItemStacks().find(i => i.id === task.data.stackId); i.reservedTaskId = '';
+    if (task.data.packing) {
+      if (!carryPhysicalStack('scientist', i.id, 1)) { i.reservedTaskId = s.restPlace.id; return false; }
+      s.restPlace = null;
+    } else {
+      if (!dropActorInventoryStack('scientist', i.id)) return false;
+      s.restPlace = { id: `field-rest-place:${s.actor.id}:${i.id}`, actorId: s.actor.id, stackId: i.id,
+        roomId: i.roomId, cell: cleanMapCell(i.cell), condition: 100, inspectedAt: state.clock };
+      i.reservedTaskId = s.restPlace.id;
+    }
+    FieldEmployeeRecovery.observe(s, fieldEmployeeRecoveryContext(s, true), state.clock);
+    syncActorInventories(); syncPhysicalReadModels(); return true;
+  }
+  function fieldEmployeeRecoveryAction(role, action, options = {}) {
+    const s = role === 'builder' ? ensureFieldBuilder() : role === 'porter' ? ensureFieldPorter() : null;
+    if (!s || scientistIsDead()) return false;
+    const c = fieldEmployeeRecoveryContext(s, true); let result = false;
+    if (action === 'report') result = FieldEmployeeRecovery.observe(s, c, state.clock);
+    if (action === 'begin') result = FieldEmployeeRecovery.begin(s, c, ensurePhysicalItemStacks(), state.clock);
+    if (action === 'end') result = FieldEmployeeRecovery.end(s, c, state.clock);
+    if (action === 'provision' && FieldEmployeeRecovery.contact(c) && !c.incapacitated && s.actor.status !== 'dead'
+      && s.phase === 'completed' && ['drinkingWater', 'trailMeal'].includes(options.key)) {
+      const i = actorInventoryStacks('scientist').find(i => i.key === options.key && !i.reservedTaskId && i.quantity > 0
+        && !i.cityOwnerId && !i.civicCustody && !i.containerId && !i.chemicalBatch
+        && !(i.tags || []).some(t => /toxic|hazard|contaminat|volatile/i.test(t)));
+      if (i && actorInventoryCanCarry(s.actor.id, i, 1)) {
+        i.carriedBy = ''; const carried = carryPhysicalStack(s.actor.id, i.id, 1);
+        if (!carried || carried !== i) i.carriedBy = 'scientist'; result = Boolean(carried);
+      }
+    }
+    if (['deploy', 'pack'].includes(action) && !fieldEmployeeShelterReason(s)) {
+      const packing = action === 'pack', p = s.restPlace;
+      const i = packing ? ensurePhysicalItemStacks().find(i => i.id === p?.stackId && i.reservedTaskId === p.id && !i.carriedBy)
+        : actorInventoryStacks('scientist').find(i => i.key === 'fieldShelter' && i.quantity === 1 && !i.reservedTaskId
+          && !i.cityOwnerId && !i.civicCustody && !i.fixtureId && !i.containerId && !i.chemicalBatch
+          && !(i.tags || []).some(t => /toxic|hazard|contaminat|volatile/i.test(t)));
+      if (i && (packing ? c.placeUsable && actorInventoryCanCarry('scientist', i, 1) : !p)) result = queueSurveyWork('fieldEmployeeShelter', packing ? p.cell : scientistMapCell(), {
+        actorId: s.actor.id, stackId: i.id, bodyEpoch: c.bodyEpoch, visitId: c.visitId, tripId: c.tripId, packing,
+        label: `${packing ? 'Pack' : 'Deploy'} ${role} one-person rest shelter`, workSeconds: packing ? 60 : 120 });
+    }
+    if (result && ['begin', 'end'].includes(action)) FieldEmployeeRecovery.observe(s, c, state.clock);
+    if (result && action === 'begin') state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0);
+    syncActorInventories(); syncPhysicalReadModels(); persist(); render(); return Boolean(result);
+  }
+  function renderFieldEmployeeRecovery(panel, s) {
+    const role = s.role === 'builder' ? 'builder' : 'porter', c = fieldEmployeeRecoveryContext(s, true), local = c.near && c.atGround && !c.busy;
+    const why = local ? FieldEmployeeRecovery.startReason(s, c, ensurePhysicalItemStacks()) : '';
+    panel.append(textEl('h5', 'Supplied off-duty recovery'), textEl('p', 'After return, loan handback and settlement: personally deploy one carried shelter kit beside this worker (two base minutes). Supply two drinking waters and one meal. Eight supplied off-duty hours restore at most eight duty hours, not wounds, tools, stock or wages. No work during rest; interruption never backfills.'));
+    const button = (label, action, options = {}, blocked = false) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
+      b.disabled = !local || blocked; b.onclick = () => fieldEmployeeRecoveryAction(role, action, options); panel.append(b); };
+    button(`Deploy ${role} rest shelter here`, 'deploy', {}, local && (Boolean(s.restPlace) || FieldEmployeeRecovery.active(s) || s.phase !== 'completed'));
+    button(`Pack ${role} rest shelter`, 'pack', {}, local && (!s.restPlace || FieldEmployeeRecovery.active(s)));
+    for (const key of ['drinkingWater', 'trailMeal']) button(`Give off-duty ${role} one ${inventoryItemLabel(key)}`, 'provision', { key });
+    button(`Begin ${role} supplied eight-hour rest`, 'begin', {}, Boolean(why));
+    button(`End ${role} rest without restoring duty`, 'end', {}, local && !FieldEmployeeRecovery.active(s));
+    button(`Ask ${role} for off-duty report`, 'report');
+    if (s.recoveryReport) { const r = s.recoveryReport;
+      panel.append(textEl('p', `${formatClock(r.at)} — received off-duty report: ${formatDuration(r.dutySeconds)} duty; ${r.restPlace ? 'inspected one-person shelter' : 'no inspected rest shelter'}; ${r.recovery ? `${r.recovery.status}, ${formatDuration(r.recovery.progressSeconds)} / eight hours. ${r.recovery.reason}` : 'no rest begun'}. Dated, not live tracking.`)); }
+    if (why) panel.append(textEl('p', why));
   }
 
   function fieldPorterStates() { return (state?.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.porter).filter(Boolean); }
@@ -87556,11 +87687,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function fieldPorterExcursion(s) { return (state.penalFlights?.assistance?.cityApproach?.gates || []).find(g => g.foreignSurvey?.porter === s || g.foreignSurvey?.builder === s)?.foreignSurvey; }
   function fieldPorterObserved(a) { return Boolean(a?.mapCell && a.roomId === scientistRoomId() && mapCellDistance(scientistMapCell(), a.mapCell) <= 8 && sensoryLineOfSight(scientistMapCell(), a.mapCell)); }
   const fieldPorterSourceCache = new WeakMap();
-  function fieldPorterSource(g, excursion) {
+  function fieldPorterSource(g, excursion, fresh = false) {
     if (g?.preparedFieldPorterTestSource) return FieldPorter.source(g.preparedFieldPorterTestSource.city, g.preparedFieldPorterTestSource.standings, excursion);
     const map = activeWorldRecord?.generatedData?.strategicMap; if (!map || !g) return null;
     let cache = fieldPorterSourceCache.get(map); if (!cache) { cache = new Map(); fieldPorterSourceCache.set(map, cache); }
-    if (!cache.has(g.cityId)) {
+    if (fresh || !cache.has(g.cityId)) {
       const city = map.strategicPlayableSettlementState?.cityRows.find(c => c.cityId === g.cityId);
       const profile = map.publicNonStateNetworkHistoryDirectory ? StrategicNonStateNetworkHistory.cityCurrentNetworkProfile(map, g.cityId)
         : map.publicNonStateNetworkDirectory ? StrategicNonStateNetworks.cityNetworkProfile(map, g.cityId) : null;
@@ -87668,10 +87799,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     let changed = 0;
     for (const s of fieldEmployeeStates()) {
       const model = s.role === 'builder' ? FieldBuilder : FieldPorter;
-      if (!model.active(s)) continue;
+      if (!model.active(s) && !FieldEmployeeRecovery.active(s)) continue;
       const e = fieldPorterExcursion(s), previous = porterSimulationExcursion; porterSimulationExcursion = e;
       try {
-        if (e.wilderness.beasts?.lastAt !== state.clock) updateWildernessBeasts(elapsed);
+        // Rest on defended ground needs no second wilderness encounter pass.
+        // The normal world heartbeat still advances wildlife independently;
+        // active field workers (or a displaced resting worker) need local physics.
+        if ((model.active(s) || s.actor.roomId === e.wilderness.roomId) && e.wilderness.beasts?.lastAt !== state.clock) updateWildernessBeasts(elapsed);
+        if (FieldEmployeeRecovery.active(s)) {
+          const consumed = s.recovery.consumed.length;
+          const result = FieldEmployeeRecovery.advance(s, fieldEmployeeRecoveryContext(s), ensurePhysicalItemStacks(), state.clock);
+          if (result.damage) damageSurfaceWorker(result.damage, { injuryProgress: true }, s.actor);
+          if (result.changed) changed++;
+          if (s.recovery.consumed.length !== consumed) {
+            state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0);
+            syncActorInventories(); syncPhysicalReadModels();
+          }
+          continue;
+        }
         const a = s.actor, inWild = a.roomId === e.wilderness.roomId;
         if (a.status !== 'dead') {
           const needs = WildernessSurvival.advance(a.needs, state.clock, { working: s.phase !== 'onSite' || s.job?.status === 'working', resting: !s.job || s.job.status !== 'working', destination: inWild ? e.wilderness.destination : null });
@@ -87735,6 +87880,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (c.near && FieldPorter.control(s, c)) for (const i of ensurePhysicalItemStacks().filter(i => ForeignEscortHauling.eligible(i) && !i.carriedBy && !i.reservedTaskId
       && i.roomId === scientistRoomId() && mapCellDistance(i.cell, scientistMapCell()) <= 5 && sensoryLineOfSight(scientistMapCell(), i.cell)))
       button(`Instruct porter: one ${physicalStackLabel(i)} (${i.id})`, 'assign', { stackId: i.id }, !fieldPorterContext(s, i, true).carryOk || s.job?.status === 'working');
+    renderFieldEmployeeRecovery(panel, s);
     return panel;
   }
 
@@ -91680,7 +91826,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!target || target.z !== scientistMapCell().z) return false;
     const foreignGround = foreignSurveyAtField();
     if (task.type === 'surveyExpeditionWork' && task.data.action === 'foreignSurveyTravel') return true;
-    if (foreignGround && (task.type === 'scientistMove' || task.type === 'surveyExpeditionWork' && ['pack', 'consume', 'radioBattery', 'walkWilderness', 'deployShelter', 'packShelter', 'foreignEscortRepair', 'surfaceStone', 'fallenTimber', 'fieldStation', 'fieldStationPut'].includes(task.data.action)
+    if (foreignGround && (task.type === 'scientistMove' || task.type === 'surveyExpeditionWork' && ['pack', 'consume', 'radioBattery', 'walkWilderness', 'deployShelter', 'packShelter', 'foreignEscortRepair', 'fieldEmployeeShelter', 'surfaceStone', 'fallenTimber', 'fieldStation', 'fieldStationPut'].includes(task.data.action)
       || task.type === 'physicalDiagnostic' && task.data.workflowId === 'resourceSurvey')) return true;
     if (annexAway()) return annexAtProperty() && (task.type === "scientistMove" || task.type === "injuryTreatment" && task.data.targetActorId === "scientist"
       || task.type === "surveyExpeditionWork" && ["pack", "consume", "radioBattery"].includes(task.data.action)
@@ -92085,6 +92231,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function surveyWorkBlockReason(task) {
+    if (task.data?.action === 'fieldEmployeeShelter') return fieldEmployeeShelterReason(fieldEmployeeStates().find(s => s.actor.id === task.data.actorId), task);
     if (task.data?.fieldStationWork) return fieldStationWorkReason(task);
     if (task.data?.fieldStationTransfer) {
       const reason = fieldStationTransferReason(task);
@@ -92209,6 +92356,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.data?.stoneWork) { finishSurfaceStoneWork(task); return; }
     if (task.data?.timberWork) { finishFallenTimberWork(task); return; }
     if (task.data?.action === 'foreignEscortRepair') { finishForeignEscortRepair(task); return; }
+    if (task.data?.action === 'fieldEmployeeShelter') { fieldEmployeeShelterWork(task); return; }
     if (task.data?.action === 'foreignSurveyTravel') { finishForeignSurveyTravel(task); return; }
     if (completePassengerProvisionWork(task)) return;
     if (completeIntercityPassengerWork(task)) return;

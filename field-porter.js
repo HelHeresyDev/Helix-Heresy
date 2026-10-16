@@ -42,6 +42,7 @@
     && s.contract?.bodyEpoch === c.bodyEpoch && s.contract.visitId === c.visitId && s.contract.tripId === c.tripId);
   const contact = c => c.alive && c.capable && c.originalBody && !c.custody && c.near && !c.busy;
   function refusal(s, c) {
+    if (['resting', 'paused'].includes(s.recovery?.status)) return 'Finish or personally end off-duty recovery before a new work agreement.';
     if (!current(s, c)) return 'The original functioning population-backed transport depot is unavailable.';
     if (s.actor.id !== s.source.allocationId || s.actor.status === 'dead' || c.incapacitated || s.actor.health < 60 || s.dutySeconds <= 300
       || Math.max(...['hunger', 'thirst', 'exposure', 'exertion'].map(k => s.actor.needs[k])) >= 80) return 'The original porter cannot safely accept this work; no replacement is allocated.';

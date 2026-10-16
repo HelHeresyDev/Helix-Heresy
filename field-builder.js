@@ -31,6 +31,7 @@
   const control = (s, c) => Boolean(c.alive && c.capable && c.originalBody && !c.custody && c.originalTrip && s.contract
     && s.contract.bodyEpoch === c.bodyEpoch && s.contract.visitId === c.visitId && s.contract.tripId === c.tripId);
   function refusal(s, c) {
+    if (['resting', 'paused'].includes(s.recovery?.status)) return 'Finish or personally end off-duty recovery before a new work agreement.';
     if (!c.source || !['cityId', 'populationId', 'providerId', 'allocationId'].every(k => s.source[k] === c.source[k])) return 'The original qualified public-works allocation is unavailable.';
     if (s.actor.id !== s.source.allocationId || s.actor.status === 'dead' || c.incapacitated || s.actor.health < 60 || s.dutySeconds <= 300
       || ['hunger', 'thirst', 'exposure', 'exertion'].some(k => s.actor.needs[k] >= 80)) return 'The original craftsperson cannot safely accept work; no replacement supplied.';
