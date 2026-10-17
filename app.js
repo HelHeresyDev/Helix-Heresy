@@ -16928,7 +16928,7 @@
       advanceAdjoiningWildernessForTest: seconds => {
         for (let left = Math.max(0, seconds); left > 0 && !scientistIsDead();) {
           const moving = firstScientistQueueTask()?.data?.movement;
-          const step = Math.min(left, moving && !moving.completed || ensureWildernessBeasts().actors.some(b => b.status !== 'dead') ? 1 : 60);
+          const step = Math.min(left, moving && !moving.completed || escortContractActive() || ensureWildernessBeasts().actors.some(b => b.status !== 'dead') ? 1 : 60);
           state.clock += step; left -= step; updateScientistMovementTask(); completeDueTasks(); updateWildernessNeeds();
           updateForeignWilderness(foreignSurveyAtField()); updateWildernessBeasts(step); updateAllExpeditionEscorts(step); updateAllFieldPorters(step);
         }
@@ -17103,6 +17103,9 @@
       hireExpeditionEscort, orderExpeditionEscort, transferEscortSupply, settleEscortContract, startEscortCare, startEscortDrag,
       beginForeignEscortRecovery, endForeignEscortRecovery,
       startForeignEscortRepair,
+      foreignEscortScopeAction,
+      foreignEscortScopeSnapshot: () => { const s = ensureExpeditionEscorts(); return clonePlainObject({ agreement: s.contract?.adjoining || null,
+        context: s.source ? foreignEscortScopeContext(s) : null, tasks: scientistQueueTasks().filter(t => t.data?.action === 'foreignEscortScope').map(t => ({ ...t, reason: taskBlockReason(t) })) }); },
       foreignEscortHaulingAction,
       fieldPorterAction,
       fieldBuilderAction,
@@ -23642,6 +23645,7 @@
     updateFieldToolCare();
     updateForeignSelfCareTasks();
     updateForeignEscortRepairs();
+    updateForeignEscortScope();
     updateSurfaceStoneWork();
     updateFallenTimberWork();
     updateFieldStationWork();
@@ -69462,6 +69466,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (task.data?.fieldToolCare && scientistIsDead()) return 'Scientist death freezes unfinished personal tool care.';
     if (task.data?.action === 'foreignEscortRepair' && scientistIsDead()) return 'Scientist death freezes this unfinished equipment repair.';
+    if (task.data?.action === 'foreignEscortScope' && scientistIsDead()) return 'Scientist death freezes unfinished escort scope acceptance.';
     if (task.data?.action === 'fieldEmployeeShelter' && scientistIsDead()) return 'Scientist death freezes this unfinished shelter work.';
     if (task.data?.stoneWork && scientistIsDead()) return 'Scientist death freezes this unfinished stone work.';
     if ((task.data?.fieldStationWork || task.data?.fieldStationTransfer) && scientistIsDead()) return 'Scientist death freezes unfinished field-station work.';
@@ -69572,6 +69577,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (task.data?.action === 'foreignEscortRepair') {
         const saved = foreignEscortRepairState(task);
         if (saved) ForeignEscortRepairs.cancel(saved, ensurePhysicalItemStacks(), foreignEscortRepairTool(saved), state.clock);
+      }
+      if (task.data?.action === 'foreignEscortScope') {
+        const saved = foreignEscortScopeState(task);
+        if (saved) ForeignExpeditionEscort.adjoiningCancel(saved, state.clock);
       }
       const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data?.stackId);
       if (stack?.reservedTaskId === task.id) stack.reservedTaskId = "";
@@ -88732,10 +88741,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (escortObserved()) pauseForWildernessThreat(`${actor.name} ${actor.status === "dead" ? "died from physical trauma" : "was injured"}.`);
     return true;
   }
-  function escortNextStep(actor, goal, dragging = false) {
+  function escortNextStep(actor, goal, dragging = false, originalOnly = false) {
     const map = ensureLabMap(), from = combatActorCell(actor);
-    const saved = ensureExpeditionEscorts(), bounds = saved.source && escortExcursion(saved)?.wilderness?.bounds;
-    const allowed = new Set([...(map.rooms[escortGroundRoom()]?.cells || []), ...(map.rooms[escortWildRoom()]?.cells || []).filter(c => !bounds || ForeignWilderness.contains(bounds, c)), saved.layout?.gate || WildernessSurvival.GATE].map(mapCellKey));
+    const saved = ensureExpeditionEscorts();
+    const w = escortExcursion(saved)?.wilderness, patch = !originalOnly && saved.source && foreignEscortScopePatch(saved);
+    const extended = patch && ForeignExpeditionEscort.adjoiningAuthorized(saved, patch);
+    const allowed = new Set([...(map.rooms[escortGroundRoom()]?.cells || []), ...(map.rooms[escortWildRoom()]?.cells || []).filter(c => !saved.source
+      || ForeignWilderness.contains(w?.bounds, c) || extended && ForeignWilderness.contains(patch.bounds, c)), saved.layout?.gate || WildernessSurvival.GATE].map(mapCellKey));
     // Bodies and topology cannot change during this synchronous path search.
     const beasts = new Set(ensureWildernessBeasts().actors.map(beast => mapCellKey(beast.mapCell))), passable = new Map();
     const canEnter = cell => {
@@ -88756,6 +88768,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!escortContractActive() || !actor || !escortNearby()) return false;
     const saved = ensureExpeditionEscorts();
     if (saved.source && !ForeignExpeditionEscort.control(saved, foreignEscortContext(saved))) return false;
+    if (saved.source && helperId === actor.id && !foreignEscortProtectionCell(saved, scientistMapCell())) return false;
     const helper = helperId === "scientist" ? { health: scientistVital("health").current, maxHealth: scientistVital("health").max, needs: ensureWildernessSurvival() } : actor;
     const casualty = helperId === "scientist" ? actor : { health: scientistVital("health").current };
     const target = helperId === "scientist" ? actor : state.scientist;
@@ -88817,12 +88830,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       dropCell, dropLegal: foreignEscortHaulingDropLegal(site, dropCell), itemVisible,
       carryOk: Boolean(item && actorInventoryCanCarry(saved.actor.id, item, 1)),
       routeOk: Boolean(contact && item && dropCell && itemVisible && site && item.roomId === site.roomId
-        && (WildernessBeasts.distance(saved.actor.mapCell, item.cell) <= 1 || escortNextStep(saved.actor, item.cell))
-        && (WildernessBeasts.distance(item.cell, dropCell) <= 1 || escortNextStep({ ...saved.actor, mapCell: item.cell, roomId: item.roomId }, dropCell))),
+        && (WildernessBeasts.distance(saved.actor.mapCell, item.cell) <= 1 || escortNextStep(saved.actor, item.cell, false, true))
+        && (WildernessBeasts.distance(item.cell, dropCell) <= 1 || escortNextStep({ ...saved.actor, mapCell: item.cell, roomId: item.roomId }, dropCell, false, true))),
       threatened: threats, care: Boolean(saved.actor.care), drag: Boolean(saved.drag),
-      otherWork: ForeignEscortRecovery.active(saved) || ForeignEscortRepairs.active(saved) };
+      otherWork: ForeignEscortRecovery.active(saved) || ForeignEscortRepairs.active(saved) || ForeignExpeditionEscort.adjoiningActive(saved) };
   }
-  function foreignEscortHaulingHooks(saved, nextStep = escortNextStep, canDeposit = j => foreignEscortHaulingDropLegal(state.fieldStation?.site, j.drop)) {
+  function foreignEscortHaulingHooks(saved, nextStep = (actor, goal) => escortNextStep(actor, goal, false, true), canDeposit = j => foreignEscortHaulingDropLegal(state.fieldStation?.site, j.drop)) {
     const actor = saved.actor;
     return {
       item: id => ensurePhysicalItemStacks().find(i => i.id === id),
@@ -88975,6 +88988,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (injury && startEscortCare(INJURY_TYPE_DEFS[injury.typeId].supplyKey)) return 1;
     }
     if (ForeignEscortHauling.active(saved)) return ForeignEscortHauling.advance(saved, foreignEscortHaulingContext(saved), foreignEscortHaulingHooks(saved), state.clock);
+    // An attended scope conversation is not independent follow work. Wages,
+    // needs, danger and withdrawal above continue on the original clocks.
+    if (ForeignExpeditionEscort.adjoiningActive(saved) && !contract.returnReason) return 1;
     if (elapsed <= 0 || state.clock < actor.nextMoveAt) return 0;
     let goal = null;
     if (actor.order === "withdraw") goal = escortMeeting();
@@ -88991,6 +89007,82 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function withEscortState(saved, work) {
     const previous = escortSimulationState; escortSimulationState = saved;
     try { return work(); } finally { escortSimulationState = previous; }
+  }
+  function foreignEscortScopePatch(saved) {
+    const w = escortExcursion(saved)?.wilderness, p = w?.extension;
+    if (!p?.materialized || !p.discovery?.baseline) return null;
+    return { id: p.id, parentSiteId: p.parentSiteId, worldId: p.context.worldId, strategicCellId: p.context.strategicCellId,
+      roomId: p.roomId, bounds: clonePlainObject(p.bounds), seam: clonePlainObject(p.seam), entry: clonePlainObject(p.entry),
+      visitedAt: p.visitedAt, observations: clonePlainObject(WildernessDiscovery.publicView(p.discovery)?.records || []) };
+  }
+  function foreignEscortProtectionCell(saved, cell, originalOnly = false) {
+    if (!saved.source) return true;
+    const w = escortExcursion(saved)?.wilderness;
+    return Boolean(w && (ForeignWilderness.contains(w.bounds, cell)
+      || !originalOnly && ForeignExpeditionEscort.adjoiningAuthorized(saved, foreignEscortScopePatch(saved)) && ForeignWilderness.contains(w.extension.bounds, cell)));
+  }
+  function foreignEscortScopeContext(saved, working = false) {
+    // Task validation must not enter the contact context's surveyBusy scan,
+    // which would ask this same task for its block reason recursively.
+    const c = foreignEscortContext(saved), w = escortExcursion(saved)?.wilderness, patch = foreignEscortScopePatch(saved);
+    const original = (roomId, cell) => Boolean(w && (roomId === escortGroundRoom() || roomId === w.roomId && ForeignWilderness.contains(w.bounds, cell)));
+    const task = state.tasks.find(t => t.id === saved.contract?.adjoining?.job?.taskId);
+    return { ...c, near: escortNearby(), patch, scouted: Boolean(patch), busy: !working && surveyBusy(), cell: cleanMapCell(scientistMapCell()), roomId: scientistRoomId(),
+      atOriginal: original(scientistRoomId(), scientistMapCell()) && original(saved.actor.roomId, saved.actor.mapCell),
+      supported: [scientistMapCell(), saved.actor.mapCell].every(cell => labMapCellHasFloor(cell) && labMapCellIsWalkable(cell) && !constructedWallAtCell(cell)),
+      hauling: ForeignEscortHauling.active(saved), threatened: Boolean(state.combat?.pendingActions?.scientist || state.combat?.routineSuspension)
+        || ensureWildernessBeasts().actors.some(b => b.status !== 'dead' && b.roomId === saved.actor.roomId
+          && WildernessBeasts.distance(saved.actor.mapCell, b.mapCell) <= 7 && sensoryLineOfSight(saved.actor.mapCell, b.mapCell)),
+      atHead: Boolean(task && firstScientistQueueTask()?.id === task.id && surveyTaskAllowed(task)) };
+  }
+  function foreignEscortScopeState(task) { return foreignEscortStates().find(s => s.contract?.adjoining?.job?.taskId === task?.id); }
+  function foreignEscortScopeReason(task) {
+    const s = foreignEscortScopeState(task);
+    return s ? withEscortState(s, () => {
+      const c = foreignEscortScopeContext(s, true);
+      return ForeignExpeditionEscort.adjoiningReason(s, c, state.clock) || (!c.atHead ? 'Other work has the scientist’s physical attention.' : '');
+    })
+      : 'The original escort scope conversation is unavailable.';
+  }
+  function foreignEscortScopeAction(action, expected = null) {
+    const s = ensureExpeditionEscorts(); if (!s.source || scientistIsDead()) return false;
+    if (action === 'cancel') {
+      const task = state.tasks.find(t => t.id === s.contract?.adjoining?.job?.taskId);
+      return Boolean(task && cancelTask(task.id));
+    }
+    const c = foreignEscortScopeContext(s); let result = false;
+    if (action === 'review') result = ForeignExpeditionEscort.adjoiningReview(s, c, state.clock);
+    if (action === 'accept') {
+      const id = `task-${state.nextTaskNumber}`;
+      if (ForeignExpeditionEscort.adjoiningBegin(s, c, expected, id, state.clock)) {
+        state.nextTaskNumber++;
+        state.tasks.push({ id, type: 'surveyExpeditionWork', label: 'Personally accept adjoining-patch escort protection', createdAt: state.clock,
+          dueAt: state.clock + ForeignExpeditionEscort.ADJOINING_SECONDS, data: { action: 'foreignEscortScope', toRoomId: c.roomId, toCell: c.cell,
+            mapPath: [c.cell], movement: createScientistMovementRecord([c.cell], 0, state.clock, { intent: 'survey' }) } });
+        surveyEvent('One attended minute of exact adjoining-patch protection consent begun. Original wages and duty continue; no scope is granted yet.'); result = true;
+      }
+    }
+    persist(); render(); return result;
+  }
+  function updateForeignEscortScope() {
+    if (scientistIsDead()) return;
+    for (const task of state.tasks.filter(t => t.data?.action === 'foreignEscortScope')) {
+      const s = foreignEscortScopeState(task); if (!s) continue;
+      withEscortState(s, () => {
+        const c = foreignEscortScopeContext(s, true); if (taskBlockReason(task)) c.atHead = false;
+        ForeignExpeditionEscort.adjoiningAdvance(s, c, state.clock);
+        task.dueAt = state.clock + Math.max(0, ForeignExpeditionEscort.ADJOINING_SECONDS - s.contract.adjoining.job.progressSeconds);
+      });
+    }
+  }
+  function finishForeignEscortScope(task) {
+    const s = foreignEscortScopeState(task);
+    if (!s) return false;
+    return withEscortState(s, () => {
+      // The queue verified attendance before removing this completed task.
+      if (!ForeignExpeditionEscort.adjoiningFinish(s, { ...foreignEscortScopeContext(s, true), atHead: true }, state.clock)) return false;
+      surveyEvent('Original professional accepted protection and ordinary casualty assistance in the named adjoining patch only. Original rate, budget, duty, kit and bodily condition unchanged; no extended hauling or building.'); return true;
+    });
   }
   function foreignEscortRecoveryContext(saved, contact = false) {
     const c = foreignEscortContext(saved, contact), place = saved.restPlace, actor = saved.actor;
@@ -89119,6 +89211,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (saved.source) {
       panel.append(renderForeignEscortHaulingPanel(saved));
       panel.append(textEl('p', ForeignExpeditionEscort.SCOPE));
+      if (saved.contract && escortContractActive()) {
+        const c = foreignEscortScopeContext(saved), a = saved.contract.adjoining;
+        panel.append(textEl('p', ForeignExpeditionEscort.ADJOINING_SCOPE));
+        panel.append(textEl('p', 'First personally scout and observe the adjoining patch, then reunite within arm’s reach on the original agreed ground. Review its return route and dated observations; accept within one minute, then attend a further minute together. Unfinished acceptance grants no extended protection.'));
+        button('Review adjoining-patch protection terms', () => foreignEscortScopeAction('review'),
+          Boolean(ForeignExpeditionEscort.adjoiningContactReason(saved, c, state.clock)) || ForeignExpeditionEscort.adjoiningActive(saved) || ForeignExpeditionEscort.adjoiningAuthorized(saved, c.patch));
+        if (a?.quote) {
+          panel.append(textEl('p', `Personally disclosed ${a.quote.patch.id}: return via ${a.quote.patch.seam.x},${a.quote.patch.seam.y}; ${a.quote.patch.observations.map(r => `${formatClock(r.at)} — ${r.text}`).join('; ')}. Existing ${formatMoney(a.quote.hourly)}/hour and remaining original reserve; no new fee or time.`));
+          button('Accept exact adjoining-patch protection terms', () => foreignEscortScopeAction('accept', clonePlainObject(a.quote)), state.clock >= a.quote.expiresAt || Boolean(ForeignExpeditionEscort.adjoiningContactReason(saved, c, state.clock)));
+        }
+        if (ForeignExpeditionEscort.adjoiningActive(saved)) {
+          if (c.near && c.atOriginal && c.originalBody) panel.append(textEl('p', `Personal acceptance: ${formatDuration(a.job.progressSeconds)} / one attended minute. ${a.job.reason || 'Original wages and duty continue.'}`));
+          button('Cancel adjoining-patch protection acceptance', () => foreignEscortScopeAction('cancel'));
+        }
+        if (a?.authorization) panel.append(textEl('p', `${formatClock(a.authorization.at)} — personally accepted adjoining protection for ${a.authorization.patch.id}, original contract only. No live remote condition report or guaranteed safety.`));
+      }
       panel.append(textEl('p', 'Declared purpose: nonliving local survey protection. The scientist’s opposition to the gods is explicit, not an undisclosed allegiance or endorsement.'));
       if (saved.received) panel.append(textEl('p', `${formatClock(saved.received.at)} — received terms: ${saved.received.willingness.reason} ${saved.received.reason || ''} ${(saved.received.prohibitions || []).join('; ')}. Dated report, not a private archive.`));
       button('Review exact foreign escort terms', () => { ForeignExpeditionEscort.review(saved, foreignEscortContext(saved, true), state.clock); }, escortContractActive() || ForeignEscortRecovery.active(saved) || ForeignEscortRepairs.active(saved) || Boolean(ForeignExpeditionEscort.contactReason(saved, foreignEscortContext(saved, true))));
@@ -90787,7 +90895,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           || ensurePhysicalItemStacks().some(i => !i.carriedBy && i.quantity > 0 && sameMapCell(i.cell, cell))) return false;
       }
     }
-    if (!window.confirm('Explore one adjoining local patch within this same globe hex? Walk normally with actual supplies, fatigue and wounds. The seam is unprotected; beasts may pursue. Existing staff and escorts retain only their original territory and clocks. No new station, transport, ownership, map archive or rescue.')) return false;
+    if (!window.confirm('Explore one adjoining local patch within this same globe hex? Walk normally with actual supplies, fatigue and wounds. The seam is unprotected; beasts may pursue. Existing staff retain original work territory; escort protection extends only by separate consent on the same original clocks. No new station, transport, ownership, map archive or guaranteed rescue.')) return false;
     if (!w.extension) {
       w.extension = plan;
       const room = map.rooms[w.roomId]; room.width = w.bounds.width * 2; room.cells.push(clonePlainObject(plan.entry));
@@ -90997,7 +91105,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (state.tasks.some(t => t.data?.foreignSurveyTripId === s.trip?.id)) button('Cancel foreign surface-sampling work', 'cancelSample');
     }
     if (c.atWilderness) {
-      panel.append(textEl('p', 'One adjoining local patch is available within this same globe hex. Its seam is not defended; beasts can pursue across it. Existing professionals retain their original territory, supplies and clocks; no extra station or travel service is granted.'));
+      panel.append(textEl('p', 'One adjoining local patch is available within this same globe hex. Its seam is not defended; beasts can pursue across it. Staff retain original work territory; an escort needs separate protection consent to accompany you farther. Original supplies and clocks continue; no extra station or travel service is granted.'));
       button('Walk to eastern wilderness edge', 'walkWildernessEdge', busy || !c.capable || !c.originalBody || c.custodyActive);
       button(s.wilderness.extension?.materialized ? 'Walk back onto adjoining local ground' : 'Explore adjoining local ground', 'exploreAdjoining',
         ForeignWilderness.extensionReason(s, s.wilderness, foreignWildernessExtensionContext(s)));
@@ -92548,7 +92656,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!target || target.z !== scientistMapCell().z) return false;
     const foreignGround = foreignSurveyAtField();
     if (task.type === 'surveyExpeditionWork' && task.data.action === 'foreignSurveyTravel') return true;
-    if (foreignGround && (task.type === 'scientistMove' || task.type === 'surveyExpeditionWork' && ['pack', 'consume', 'radioBattery', 'walkWilderness', 'deployShelter', 'packShelter', 'foreignEscortRepair', 'fieldEmployeeShelter', 'surfaceStone', 'fallenTimber', 'fieldStation', 'fieldStationPut'].includes(task.data.action)
+    if (foreignGround && (task.type === 'scientistMove' || task.type === 'surveyExpeditionWork' && ['pack', 'consume', 'radioBattery', 'walkWilderness', 'deployShelter', 'packShelter', 'foreignEscortRepair', 'foreignEscortScope', 'fieldEmployeeShelter', 'surfaceStone', 'fallenTimber', 'fieldStation', 'fieldStationPut'].includes(task.data.action)
       || task.type === 'physicalDiagnostic' && task.data.workflowId === 'resourceSurvey')) return true;
     if (annexAway()) return annexAtProperty() && (task.type === "scientistMove" || task.type === "injuryTreatment" && task.data.targetActorId === "scientist"
       || task.type === "surveyExpeditionWork" && ["pack", "consume", "radioBattery"].includes(task.data.action)
@@ -92962,6 +93070,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.data?.stoneWork) return surfaceStoneWorkReason(task);
     if (task.data?.timberWork) return fallenTimberWorkReason(task);
     if (task.data?.action === 'foreignEscortRepair') return foreignEscortRepairReason(task);
+    if (task.data?.action === 'foreignEscortScope') return foreignEscortScopeReason(task);
     if (task.data?.foreignWildernessTripId) {
       const s = foreignSurveyAtField(), c = foreignSurveyContext();
       if (!s || task.data.foreignWildernessTripId !== s.trip?.id || task.data.foreignWildernessBodyEpoch !== c.bodyEpoch || !c.originalBody || c.custodyActive)
@@ -93078,6 +93187,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.data?.stoneWork) { finishSurfaceStoneWork(task); return; }
     if (task.data?.timberWork) { finishFallenTimberWork(task); return; }
     if (task.data?.action === 'foreignEscortRepair') { finishForeignEscortRepair(task); return; }
+    if (task.data?.action === 'foreignEscortScope') { finishForeignEscortScope(task); return; }
     if (task.data?.action === 'fieldEmployeeShelter') { fieldEmployeeShelterWork(task); return; }
     if (task.data?.action === 'foreignSurveyTravel') { finishForeignSurveyTravel(task); return; }
     if (completePassengerProvisionWork(task)) return;

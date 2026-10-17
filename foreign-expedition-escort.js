@@ -8,6 +8,8 @@
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x));
   const SCOPE = 'Personal protection during lawful nonliving field surveys in this named ground and adjacent sector only. No police powers, occupation, laboratory access, political allegiance, divine endorsement, extra passenger seat or guaranteed rescue.';
+  const ADJOINING_SECONDS = 60;
+  const ADJOINING_SCOPE = 'Extend personal survey protection and ordinary casualty assistance to this one personally reached adjoining patch only. Existing rate, wage reserve, duty, provisions, wounds and equipment continue unchanged. No hauling, building, station, garrison, title, extra seat or guaranteed rescue.';
   function source(city, standings, excursion) {
     if (!city?.assetId || city.cityId !== excursion?.source.cityId || city.assetId !== excursion.source.populationSourceId
       || !Number.isFinite(city.currentPopulation) || city.currentPopulation < 8 || city.physicalCondition === 'ruined'
@@ -89,5 +91,84 @@
     }
     return elapsed > 0;
   }
-  return { SCOPE, source, create, active, current, contactReason, decision, review, hire, control, advance };
+  const adjoiningActive = s => ['working', 'held'].includes(s?.contract?.adjoining?.job?.status);
+  const patchKey = p => p && JSON.stringify([p.id, p.parentSiteId, p.worldId, p.strategicCellId, p.roomId, p.bounds, p.seam, p.entry]);
+  function adjoiningAuthorized(s, patch) {
+    const a = s?.contract?.adjoining?.authorization, k = s?.contract;
+    return Boolean(a && active(s) && a.actorId === s.actor?.id && a.branchId === s.source?.branchId && a.contractId === k.id
+      && a.bodyEpoch === k.bodyEpoch && a.visitId === k.visitId && a.tripId === k.tripId && patchKey(a.patch) === patchKey(patch));
+  }
+  function adjoiningContactReason(s, c, now, working = false) {
+    if (!s?.source || !current(s, c) || !control(s, c) || !c.capable || !c.originalTrip || !c.near || !c.atOriginal
+      || c.escortIncapacitated || s.actor.id !== s.source.allocationId || s.actor.status === 'dead')
+      return 'Personally reunite the original free capable body and professional on their original agreed ground.';
+    if (!c.patch || !c.scouted || !Number.isFinite(c.patch.visitedAt) || !c.patch.observations?.length)
+      return 'Personally reach and observe the adjoining patch, then return with its actual route and dated observations.';
+    if (!Number.isFinite(now) || s.contract.status !== 'active' || s.contract.returnReason
+      || now >= s.contract.startedAt + s.contract.limitHours * 3600 - (working ? 0 : ADJOINING_SECONDS)
+      || s.dutySeconds - Math.max(0, now - s.lastAt) <= 300 + (working ? 0 : ADJOINING_SECONDS))
+      return 'The original engagement needs remaining paid time and finite duty for consent and physical withdrawal.';
+    if (!c.supported || c.busy || c.threatened || c.hauling || s.drag || s.actor.care || Escorts.refusal(s.actor))
+      return 'Finish other work, self-care, casualty assistance and danger first; no unattended consent.';
+    if (!decision(s, c).accepted) return decision(s, c).reason;
+    return '';
+  }
+  function adjoiningReview(s, c, now) {
+    if (adjoiningContactReason(s, c, now) || adjoiningActive(s) || adjoiningAuthorized(s, c.patch)) return null;
+    const q = { actorId: s.actor.id, branchId: s.source.branchId, contractId: s.contract.id,
+      bodyEpoch: c.bodyEpoch, visitId: c.visitId, tripId: c.tripId, patch: copy(c.patch), policy: JSON.stringify(c.source.restrictions),
+      scope: ADJOINING_SCOPE, requiredSeconds: ADJOINING_SECONDS, hourly: s.contract.hourly, wageReserve: s.contract.wageReserve,
+      startedAt: s.contract.startedAt, at: now, expiresAt: now + 60 };
+    const a = s.contract.adjoining ||= { history: [] }; a.quote = q;
+    return copy(q);
+  }
+  function adjoiningBegin(s, c, expected, taskId, now) {
+    const a = s?.contract?.adjoining, q = a?.quote;
+    if (!q || !taskId || adjoiningContactReason(s, c, now) || adjoiningActive(s) || adjoiningAuthorized(s, c.patch)
+      || now < q.at || now >= q.expiresAt || JSON.stringify(q) !== JSON.stringify(expected)
+      || q.actorId !== s.actor.id || q.contractId !== s.contract.id || q.branchId !== s.source.branchId
+      || q.bodyEpoch !== c.bodyEpoch || q.visitId !== c.visitId || q.tripId !== c.tripId
+      || q.policy !== JSON.stringify(c.source.restrictions) || JSON.stringify(q.patch) !== JSON.stringify(c.patch)
+      || q.hourly !== s.contract.hourly || q.wageReserve !== s.contract.wageReserve || q.startedAt !== s.contract.startedAt) return false;
+    if (a.job) a.history.push(copy(a.job));
+    a.job = { ...copy(q), taskId, cell: copy(c.cell), actorCell: copy(s.actor.mapCell), roomId: c.roomId,
+      status: 'working', progressSeconds: 0, lastAt: now, ready: true, reason: '' };
+    a.quote = null; return true;
+  }
+  function adjoiningReason(s, c, now) {
+    if (!adjoiningActive(s)) return 'No unfinished adjoining protection agreement.';
+    const j = s.contract.adjoining.job, contact = adjoiningContactReason(s, c, now, true);
+    if (contact) return contact;
+    if (j.actorId !== s.actor.id || j.contractId !== s.contract.id || j.branchId !== s.source.branchId
+      || j.bodyEpoch !== c.bodyEpoch || j.visitId !== c.visitId || j.tripId !== c.tripId
+      || j.policy !== JSON.stringify(c.source.restrictions) || patchKey(j.patch) !== patchKey(c.patch)
+      || j.hourly !== s.contract.hourly || j.wageReserve !== s.contract.wageReserve || j.startedAt !== s.contract.startedAt)
+      return 'Original contract, person, body, visit, trip, published policy and named patch must remain unchanged.';
+    if (j.roomId !== c.roomId || JSON.stringify(j.cell) !== JSON.stringify(c.cell)
+      || JSON.stringify(j.actorCell) !== JSON.stringify(s.actor.mapCell)) return 'Both people must attend their original conversation positions; no remote acceptance.';
+    return '';
+  }
+  function adjoiningAdvance(s, c, now) {
+    if (!adjoiningActive(s) || !c.alive || !Number.isFinite(now) || now < s.contract.adjoining.job.lastAt) return 0;
+    const j = s.contract.adjoining.job, dt = now - j.lastAt; j.lastAt = now;
+    const blocked = adjoiningReason(s, c, now) || (!c.atHead ? 'Other work has the scientist’s attention.' : '');
+    if (blocked) { j.status = 'held'; j.reason = blocked; j.ready = false; return 0; }
+    j.status = 'working'; j.reason = '';
+    if (!j.ready) { j.ready = true; return 0; }
+    const added = Math.max(0, Math.min(dt, ADJOINING_SECONDS - j.progressSeconds)); j.progressSeconds += added;
+    return added;
+  }
+  function adjoiningFinish(s, c, now) {
+    if (!c.alive || !adjoiningActive(s) || adjoiningReason(s, c, now) || !c.atHead
+      || now < s.contract.adjoining.job.lastAt || s.contract.adjoining.job.progressSeconds < ADJOINING_SECONDS) return false;
+    const a = s.contract.adjoining; a.job.status = 'completed'; a.job.completedAt = now;
+    a.authorization = { ...copy(a.job), at: now }; a.history.push(copy(a.authorization)); return true;
+  }
+  function adjoiningCancel(s, now) {
+    if (!adjoiningActive(s)) return false;
+    const j = s.contract.adjoining.job; j.status = 'cancelled'; j.cancelledAt = now;
+    j.reason = 'No extended protection granted; original elapsed wages, duty and supplies remain spent.'; return true;
+  }
+  return { SCOPE, ADJOINING_SECONDS, ADJOINING_SCOPE, source, create, active, current, contactReason, decision, review, hire, control, advance,
+    adjoiningActive, adjoiningAuthorized, adjoiningContactReason, adjoiningReview, adjoiningBegin, adjoiningReason, adjoiningAdvance, adjoiningFinish, adjoiningCancel };
 });
