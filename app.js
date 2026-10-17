@@ -117,6 +117,7 @@
   const ForeignSurveyExcursion = window.HelixForeignSurveyExcursion;
   const ForeignWilderness = window.HelixForeignWilderness;
   const SurfaceStone = window.HelixSurfaceStone;
+  const FieldToolCare = window.HelixFieldToolCare;
   const FallenTimber = window.HelixFallenTimber;
   const FieldStation = window.HelixFieldStation;
   const ForeignExpeditionEscort = window.HelixForeignExpeditionEscort;
@@ -16834,6 +16835,19 @@
         syncActorInventories(); persist(); render(); return state.clock;
       },
       fieldStationAction,
+      startFieldToolCare,
+      queueToolMaintenance,
+      fieldToolCareSnapshot: () => clonePlainObject({ clock: state.clock, cell: scientistMapCell(), roomId: scientistRoomId(),
+        tasks: scientistQueueTasks().filter(t => t.data?.fieldToolCare).map(t => ({ ...t, reason: taskBlockReason(t) })),
+        tools: FieldToolCare.KEYS.flatMap(key => toolInstancesForItem(key).map(tool => ({ key, tool, stack: fieldToolCareItems(tool.id).stack }))),
+        stacks: ensurePhysicalItemStacks(), receipts: state.fieldToolCareReceipts || [], stamina: scientistVital('stamina').current }),
+      advanceFieldToolCareForTest: seconds => {
+        for (let left = Math.max(0, seconds); left > 0 && !scientistIsDead();) {
+          const step = Math.min(1, left); state.clock += step; left -= step;
+          updateScientistMovementTask(); completeDueTasks();
+        }
+        syncActorInventories(); persist(); render();
+      },
       configureFieldStationMaintenanceTest: ({ source, carrier, context, wilderness }) => {
         // Explicit local maintenance fixture, not a player arrival, permission,
         // fare receipt or free transport. Travel has its own lifecycle test.
@@ -23616,6 +23630,7 @@
   }
 
   function completeDueTasks() {
+    updateFieldToolCare();
     updateForeignSelfCareTasks();
     updateForeignEscortRepairs();
     updateSurfaceStoneWork();
@@ -26599,6 +26614,7 @@
       return false;
     }
     if (type === "toolMaintenance") {
+      if (FieldToolCare.KEYS.includes(data?.itemKey)) return false; // These tools require the exact physical workflow.
       const tool = toolInstanceById(data?.toolInstanceId)?.instance;
       if (!tool || tool.reservedTaskId) {
         addEvent(tool ? "Tool maintenance blocked because the tool was claimed by other work." : "Tool maintenance blocked because the tool is no longer available.");
@@ -26666,6 +26682,95 @@
     return true;
   }
 
+  function fieldToolCareItems(toolId, job = null) {
+    return { tool: toolInstanceById(toolId)?.instance,
+      stack: ensurePhysicalItemStacks().find(i => job ? i.id === job.stackId : i.toolInstanceId === toolId),
+      part: ensurePhysicalItemStacks().find(i => job ? i.id === job.part?.stackId : i.section === 'resources' && i.key === 'metalParts'
+        && i.carriedBy === 'scientist' && !i.reservedTaskId && !i.cityOwnerId && !i.civicCustody && i.quantity > 0) };
+  }
+  function fieldToolCareContext(action, task = null) {
+    const cell = cleanMapCell(scientistMapCell()), roomId = scientistRoomId(), context = resourceContextForCell(cell);
+    const foreign = foreignSurveyAtField(), allowed = surveyTaskAllowed(task || { type: 'toolMaintenance', data: { fieldToolCare: true, toCell: cell } });
+    return { alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist'), free: annexCapable() && allowed,
+      bodyEpoch: ensureScientistIdentity().bodyEpoch, roomId, cell, worldId: context?.worldId || ensureResourceSurveys().context?.worldId || `run:${state.seed}`,
+      siteId: context?.siteId || roomId, visitId: passengerVisitId() || '',
+      tripId: foreign?.trip?.id || state.unsupportedExcursions?.trip?.id || String(state.surveyExpeditions?.tripNumber || ''),
+      busy: !task && surveyBusy(), atHead: Boolean(task && firstScientistQueueTask()?.id === task.id && allowed),
+      supported: labMapCellHasFloor(cell) && labMapCellIsWalkable(cell) && !constructedWallAtCell(cell),
+      threatened: Boolean(state.combat?.routineSuspension || state.combat?.pendingActions?.scientist
+        || scientistInWilderness() && ensureWildernessBeasts().actors.some(b => b.status !== 'dead'
+          && b.roomId === roomId && mapCellDistance(cell, b.mapCell) <= 3 && sensoryLineOfSight(cell, b.mapCell))),
+      seconds: adjustedActionDuration(action === 'maintain' ? 20 : 40, 'materialsScience'),
+      staminaCost: adjustedStaminaCost(action === 'maintain' ? 2 : 4, ['materialsScience']), stamina: scientistVital('stamina').current };
+  }
+  function fieldToolCarePlan(toolId, action) {
+    const i = fieldToolCareItems(toolId);
+    return FieldToolCare.plan(action, i.tool, i.stack, i.part, fieldToolCareContext(action));
+  }
+  function startFieldToolCare(toolId, action) {
+    const p = fieldToolCarePlan(toolId, action); if (!p) return false;
+    const id = `task-${state.nextTaskNumber}`, i = fieldToolCareItems(toolId);
+    const reserved = p.part ? reserveProductionMaterialSlices([{ stackId: p.part.stackId, quantity: 1 }], id) : [];
+    if (!reserved) return false;
+    const part = reserved.length ? ensurePhysicalItemStacks().find(i => i.id === reserved[0]) : null;
+    if (!spendStamina(p.staminaCost)) { releaseProductionMaterialReservations({ id }); return false; }
+    const job = FieldToolCare.begin(p, id, state.clock, i.tool, i.stack, part);
+    if (!job) { releaseProductionMaterialReservations({ id }); restoreStamina(p.staminaCost); return false; }
+    state.nextTaskNumber++;
+    state.tasks.push({ id, type: 'toolMaintenance', label: `${action === 'maintain' ? 'Maintain' : 'Repair'} exact ${inventoryItemLabel(p.key)} (${toolId})`,
+      createdAt: state.clock, dueAt: state.clock + p.required,
+      data: { itemKey: p.key, toolInstanceId: toolId, action, toCell: p.cell, toRoomId: p.roomId, fieldToolCare: job } });
+    persist(); render(); return true;
+  }
+  function fieldToolCareReason(task) {
+    const j = task.data.fieldToolCare, i = fieldToolCareItems(j.toolId, j);
+    return FieldToolCare.reason(j, i.tool, i.stack, i.part, fieldToolCareContext(j.action, task));
+  }
+  function updateFieldToolCare() {
+    if (scientistIsDead()) return;
+    const tasks = state.tasks.filter(t => t.data?.fieldToolCare); if (!tasks.length) return;
+    let consumed = false;
+    for (const task of tasks) {
+      const j = task.data.fieldToolCare, i = fieldToolCareItems(j.toolId, j), c = fieldToolCareContext(j.action, task);
+      if (taskBlockReason(task)) c.atHead = false;
+      const supplied = Boolean(j.part && !j.part.consumed);
+      FieldToolCare.advance(j, i.tool, i.stack, i.part, c, state.clock);
+      consumed ||= supplied && j.part.consumed;
+      task.dueAt = state.clock + Math.max(.01, j.required - j.progress);
+      if (j.progress >= j.required) task.dueAt = state.clock;
+    }
+    state.physicalItemStacks = ensurePhysicalItemStacks().filter(i => i.quantity > 0);
+    syncActorInventories();
+    if (consumed) syncPhysicalReadModels();
+  }
+  function finishFieldToolCare(task) {
+    const j = task.data.fieldToolCare, i = fieldToolCareItems(j.toolId, j), c = fieldToolCareContext(j.action, task);
+    c.atHead = surveyTaskAllowed(task) && !state.combat?.routineSuspension;
+    const receipt = FieldToolCare.finish(j, i.tool, i.stack, i.part, c, state.clock); if (!receipt) return false;
+    (state.fieldToolCareReceipts ||= []).push(receipt);
+    awardXp('materialsScience', j.action === 'maintain' ? 3 : 7, task.label, { physical: true });
+    syncActorInventories(); syncPhysicalReadModels(); refreshConstructionOrderBlocks();
+    addEvent(`${task.label} complete: ${formatDecimal(receipt.before, 1)} → ${formatDecimal(receipt.after, 1)}. Actual supplied personal work only.`); return true;
+  }
+  function renderFieldToolCarePanel() {
+    const panel = document.createElement('section'); panel.dataset.fieldToolCare = 'true';
+    panel.append(textEl('h4', 'Personal field-tool care'), textEl('p', 'Exact carried owned hammer, chisel or hand saw only. Maintenance: 20 base seconds / 2 exertion toward 90%. Repair: one actual carried metal part, 40 base seconds / 4 exertion, up to 45% maximum durability restored. Safe supported attended work; no remote stock or replacement tool. Cancellation keeps actual improvements and spent costs.'));
+    for (const i of ensurePhysicalItemStacks().filter(i => FieldToolCare.KEYS.includes(i.key) && i.carriedBy === 'scientist' && i.toolInstanceId)) {
+      const tool = toolInstanceById(i.toolInstanceId)?.instance; if (!tool) continue;
+      panel.append(textEl('p', `${inventoryItemLabel(i.key)} (${tool.id}; ${i.id}): ${formatDecimal(tool.current, 1)} / ${tool.max}.`));
+      for (const action of ['maintain', 'repair']) {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = `${action === 'maintain' ? 'Maintain' : 'Repair'} exact carried tool (${tool.id})`;
+        b.disabled = !fieldToolCarePlan(tool.id, action); b.onclick = () => startFieldToolCare(tool.id, action); panel.append(b);
+      }
+    }
+    for (const t of scientistQueueTasks().filter(t => t.data?.fieldToolCare)) {
+      panel.append(textEl('p', `${t.label}: ${formatDecimal(t.data.fieldToolCare.progress, 1)} / ${t.data.fieldToolCare.required} attended seconds. ${taskBlockReason(t)}`));
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = `Cancel personal tool care (${t.id})`; b.disabled = scientistIsDead();
+      b.onclick = () => cancelTask(t.id); panel.append(b);
+    }
+    for (const r of (state.fieldToolCareReceipts || []).slice(-3)) panel.append(textEl('p', `${formatClock(r.at)} — personal ${r.action} receipt ${r.id}: ${r.toolId}, ${formatDecimal(r.before, 1)} → ${formatDecimal(r.after, 1)}. Historical, not current condition.`));
+    return panel;
+  }
   function toolRepairResourceCosts(itemKey) {
     const primary = toolMaterialComposition(itemKey).primary;
     if (["steel", "iron"].includes(primary)) return { metalParts: 1 };
@@ -26676,6 +26781,7 @@
 
   function toolMaintenanceCandidate(itemKey, action) {
     const instances = toolInstancesForItem(itemKey)
+      .filter(instance => !FieldToolCare.KEYS.includes(itemKey) || fieldToolCareItems(instance.id).stack?.carriedBy === 'scientist')
       .filter((instance) => !instance.reservedTaskId)
       .filter((instance) => action === "maintain" ? instance.current > 0 && instance.current < instance.max * 0.9 : instance.current < instance.max)
       .sort((a, b) => a.current / a.max - b.current / b.max);
@@ -26685,6 +26791,10 @@
   function toolMaintenanceBlockReason(itemKey, action) {
     const item = INVENTORY_ITEM_BY_KEY[itemKey];
     if (!item || !durableToolDef(itemKey)) return "This is not a maintainable tool.";
+    if (FieldToolCare.KEYS.includes(itemKey)) {
+      const tool = toolMaintenanceCandidate(itemKey, action);
+      return tool && fieldToolCarePlan(tool.id, action) ? '' : 'Carry an exact owned unreserved tool here, supply a carried metal part for repair, and finish other work on safe supported ground.';
+    }
     if (toolMaintenanceCandidate(itemKey, action)) return "";
     const damaged = toolInstancesForItem(itemKey).some((instance) => action === "maintain" ? instance.current > 0 && instance.current < instance.max * 0.9 : instance.current < instance.max);
     if (damaged) return `Every eligible ${item.label.toLowerCase()} is reserved for other work.`;
@@ -26692,6 +26802,7 @@
   }
 
   function queueToolMaintenance(itemKey, action) {
+    if (FieldToolCare.KEYS.includes(itemKey)) return startFieldToolCare(toolMaintenanceCandidate(itemKey, action)?.id, action);
     const reason = toolMaintenanceBlockReason(itemKey, action);
     if (reason) {
       addEvent(reason);
@@ -26715,6 +26826,8 @@
   }
 
   function completeToolMaintenance(task) {
+    if (task.data?.fieldToolCare) return finishFieldToolCare(task);
+    if (FieldToolCare.KEYS.includes(task.data?.itemKey)) return false; // Old unbound tasks cannot bypass physical custody.
     const found = toolInstanceById(task.data?.toolInstanceId);
     if (!found) {
       addEvent("Tool maintenance failed because the tool is no longer available.");
@@ -69221,6 +69334,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return productionWorkTaskBlockReason(task);
     }
     if (task.type === "toolMaintenance") {
+      if (task.data?.fieldToolCare) return fieldToolCareReason(task);
+      if (FieldToolCare.KEYS.includes(task.data?.itemKey)) return 'Cancel this unbound task and personally service the exact carried field tool.';
       const tool = toolInstanceById(task.data?.toolInstanceId)?.instance;
       if (!tool) return "The tool is no longer available.";
       if (tool.reservedTaskId && tool.reservedTaskId !== task.id) return "The tool is reserved for other work.";
@@ -69336,6 +69451,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!task) {
       return "Task no longer exists.";
     }
+    if (task.data?.fieldToolCare && scientistIsDead()) return 'Scientist death freezes unfinished personal tool care.';
     if (task.data?.action === 'foreignEscortRepair' && scientistIsDead()) return 'Scientist death freezes this unfinished equipment repair.';
     if (task.data?.action === 'fieldEmployeeShelter' && scientistIsDead()) return 'Scientist death freezes this unfinished shelter work.';
     if (task.data?.stoneWork && scientistIsDead()) return 'Scientist death freezes this unfinished stone work.';
@@ -69409,6 +69525,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       cleanupCanceledProductionTask(task);
     }
     if (task.type === "toolMaintenance") {
+      if (task.data?.fieldToolCare) {
+        const j = task.data.fieldToolCare, i = fieldToolCareItems(j.toolId, j);
+        if (scientistIsDead()) return false;
+        FieldToolCare.cancel(j, i.tool, i.stack, i.part, state.clock);
+      }
       const tool = toolInstanceById(task.data?.toolInstanceId)?.instance;
       if (tool?.reservedTaskId === task.id) tool.reservedTaskId = "";
     }
@@ -89739,6 +89860,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function renderFieldStationPanel() {
     const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.fieldStation = 'true';
+    panel.append(renderFieldToolCarePanel());
     panel.append(textEl('h4', 'Wilderness Field Station'), textEl('p', 'One unstaffed 3 × 4 hut in a personally explored foreign sector: 21 stone blocks, 16 lumber and one metal part, supplied physically in stages. Masonry hammer, chisel, hand saw and a folding ladder for roofing. No ownership, sovereignty, safe-zone flag, employees, research, resurrection or extra transport.'));
     const s = state.fieldStation?.site, local = fieldStationLocal();
     const button = (label, action, options = {}, disabled = false) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
@@ -92339,6 +92461,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (currentPenalFlight() && currentPenalFlight().stage !== "released") return false;
     if (!surveyScientistAway()) return true;
     if (clinicActive()) return false;
+    if (task.type === 'toolMaintenance' && task.data?.fieldToolCare && annexCapable()
+      && sameMapCell(scientistMapCell(), task.data.toCell) && !['assisting', 'handoff'].includes(state.medicalExtraction?.mission?.status)) return true;
     if (["assisting", "handoff"].includes(state.medicalExtraction?.mission?.status)) return task?.type === "rest";
     if (task?.type === "rest") return true;
     const target = task?.data?.toCell || task?.data?.targetCell;
@@ -100322,6 +100446,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const diagnosticTaskIds = new Set(next.tasks.filter((task) => task?.type === "physicalDiagnostic").map((task) => String(task.id || "")));
     const assistantOrderIds = new Set((next.laboratoryAssistant?.orders || []).filter(o => o.status === "active").flatMap(o => [o.id, o.batchId].filter(Boolean)));
     const toolTaskIds = new Set([...constructionTaskIds, ...productionTaskIds, ...diagnosticTaskIds, ...assistantOrderIds]);
+    const fieldCareTools = new Map(next.tasks.filter(t => t.type === 'toolMaintenance' && t.data?.fieldToolCare?.status === 'working'
+      && t.data.fieldToolCare.id === t.id && t.data.toolInstanceId === t.data.fieldToolCare.toolId
+      && next.physicalItemStacks.some(i => i.id === t.data.fieldToolCare.stackId && i.quantity === 1 && i.carriedBy === 'scientist'
+        && i.toolInstanceId === t.data.toolInstanceId && i.reservedTaskId === t.id)).map(t => [t.id, t.data.toolInstanceId]));
     const escortRepairTools = new Map((next.penalFlights?.assistance?.cityApproach?.gates || [])
       .map(g => g.foreignSurvey?.escort).filter(s => ForeignEscortRepairs.active(s)
         && next.tasks.some(t => t.id === s.repair.taskId && t.type === 'surveyExpeditionWork' && t.data?.action === 'foreignEscortRepair'))
@@ -100371,6 +100499,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const instances of Object.values(next.toolDurability || {})) {
       for (const tool of instances) {
         if (tool.reservedTaskId && !toolTaskIds.has(tool.reservedTaskId) && escortRepairTools.get(tool.reservedTaskId) !== tool.id
+          && fieldCareTools.get(tool.reservedTaskId) !== tool.id
           && !stoneTools.get(tool.reservedTaskId)?.has(tool.id) && stonePackingTools.get(tool.reservedTaskId) !== tool.id
           && timberTools.get(tool.reservedTaskId) !== tool.id
           && !stationTools.get(tool.reservedTaskId)?.has(tool.id) && !builderTools.get(tool.reservedTaskId)?.has(tool.id)
