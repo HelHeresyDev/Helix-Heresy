@@ -36,7 +36,7 @@
   }
   function materialize(state, worldId, worldSeed, destination, clock, existingCells = null, layout = null) {
     if (!state || state.baseline) return state?.baseline;
-    const remote = state.kind === "remote", bounds = layout?.bounds || (remote ? REMOTE_BOUNDS : BOUNDS), entry = layout?.entry || (remote ? REMOTE_ENTRY : ENTRY);
+    const remote = state.kind === "remote", adjoining = state.kind === 'adjoining', bounds = layout?.bounds || (remote ? REMOTE_BOUNDS : BOUNDS), entry = layout?.entry || (remote ? REMOTE_ENTRY : ENTRY);
     const seed = hash(`${worldSeed}:${state.placeId}:${remote ? "remote" : "boundary"}-ground`), rocks = [];
     const broken = Number(destination.slopePercent) > 15;
     const clearing = { x: bounds.x + 9 + seed % 5, y: bounds.y + 1 + (seed >>> 5) % 2, z: bounds.z };
@@ -56,7 +56,7 @@
     const cells = retained || cellsWithout(rocks, bounds);
     const physicalRocks = retained ? [] : rocks;
     const landmarks = [
-      { id: remote ? "landing-ground" : "entrance-ground", cell: { ...entry, x: entry.x + 2 }, text: remote ? `${broken ? "Broken" : "Gentle"} ground near the unprotected landing point; no defended perimeter` : broken ? "Broken ground beyond the defended entrance" : "Gentle ground beyond the defended entrance" },
+      { id: remote ? "landing-ground" : "entrance-ground", cell: { ...entry, x: entry.x + 2 }, text: adjoining ? 'Unprotected adjoining wilderness ground within the same globe hex; no defended seam' : remote ? `${broken ? "Broken" : "Gentle"} ground near the unprotected landing point; no defended perimeter` : broken ? "Broken ground beyond the defended entrance" : "Gentle ground beyond the defended entrance" },
       { id: "bare-clearing", cell: clearing, text: "Bare surface clearing; appearance alone establishes no deposits" }
     ].filter(row => cells.some(cell => key(cell) === key(row.cell)));
     if (physicalRocks.length) landmarks.push({ id: "weathered-rock", cell: physicalRocks.at(-1), text: "Weathered rock outcrop; blocks walking and sight" });
@@ -70,7 +70,7 @@
       if (Math.max(Math.abs(observer.x - landmark.cell.x), Math.abs(observer.y - landmark.cell.y)) > 5 || !canSee(landmark.cell)) continue;
       const text = landmark.id === "weathered-rock" && hasFloor(landmark.cell) ? "Previously observed rock outcrop cleared" : landmark.text;
       if (state.records.filter(row => row.subject === landmark.id).at(-1)?.text === text) continue;
-      state.records.push({ id: `${state.kind === "remote" ? "remote" : "boundary"}-observation-${state.records.length}`, subject: landmark.id, kind: "directObservation", source: state.kind === "remote" ? "Scientist remote-site observation" : "Scientist boundary observation", at: clock, cell: copy(landmark.cell), text });
+      state.records.push({ id: `${state.kind === "remote" ? "remote" : state.kind === 'adjoining' ? 'adjoining' : "boundary"}-observation-${state.records.length}`, subject: landmark.id, kind: "directObservation", source: state.kind === 'adjoining' ? 'Scientist adjoining-ground observation' : state.kind === "remote" ? "Scientist remote-site observation" : "Scientist boundary observation", at: clock, cell: copy(landmark.cell), text });
     }
   }
   function publicView(state) {

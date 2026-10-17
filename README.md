@@ -818,6 +818,16 @@ Terrain, original creature identities/wounds/remains, dropped goods, shelter, in
 
 Focused checks: `npx playwright test tests/foreign-wilderness.spec.js tests/foreign-wilderness-browser.spec.js --project=chromium --workers=1`.
 
+### Adjoining local wilderness ground
+
+Within an actual foreign wilderness sector, **Walk to eastern wilderness edge**, then **Explore adjoining local ground**. The original free capable scientist must physically reach the clear edge and accept the unprotected crossing. Only the adjacent entry is prepared initially; ordinary walking onto it elaborates one saved adjoining patch. This is local ground inside the **same globe hex**, not inter-hex travel, a paid journey, a new station or a territorial claim. Preparation and crossing require no equipment checklist or active municipal sampling permit; ordinary supplies, fatigue, weather, wounds and actual routes still matter.
+
+Both patches occupy one contiguous physical map. Their seam has no door, ward, refuge or encounter reset. The same original supported regional beast roster can pursue across it, retaining injuries, target memory and attack/movement clocks. Crossing creates no replacement animals or additional population allocation. The existing defended municipal entrance remains the only protected boundary. Unsupported beast types remain unsimulated; lack of a visible encounter never establishes safety.
+
+The adjoining patch has its own immutable terrain baseline, dated direct observations and saved finite stone/timber source identities under the original world and strategic cell. Personal supported surveys/recovery use that patch's actual ground; revisiting, reloading or observing the parent patch cannot reroll/deplete/refill the other patch's resources. Existing station structures, supplies, shelter, property and receipts remain physical. No second station, staff, transport or map archive is awarded. Existing porters, craftspeople and escorts keep their original work territory and finite clocks: paths, staged destinations and supplies cannot silently extend into the new ground. Issued work can continue at the original site, and reports still require legitimate observation or reunion.
+
+Focused coverage: `tests/foreign-wilderness.spec.js`, `tests/adjoining-wilderness-browser.spec.js` (Canvas terrain/resource/save flow and DOM cross-seam pursuit), plus the relevant existing stone/timber models and named original professional-work regressions. Full-suite testing is not run under repository policy.
+
 ### Finite surface-stone recovery
 
 On a physically explored wilderness boundary or remote site, Field Survival now offers **Exposed Construction Stone**. Approach an actual visible rock and **Inspect stone face**. Saved geology, surface accessibility and exposed construction-stone potential determine whether that particular face is workable; some or all faces may be unsuitable. A survey reading cannot create stone, reveal a whole hex's reserves or reroll the outcome.
