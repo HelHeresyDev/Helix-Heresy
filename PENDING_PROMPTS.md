@@ -20,7 +20,7 @@ The intended long-term frontend is hybrid. Canvas should render physical and str
 
 1. Further Appointment Procedures
 2. Wider Local Opposition and Continuing Occupation
-3. Strategic Expansion and World Domination
+3. Strategic Expansion and World Domination — remaining slices and dependencies are listed under #3; optional field-work branches are not campaign prerequisites
 4. Divine Supremacy: Rule over the Gods
 5. New-Run Onboarding and Contextual Tutorial
 6. Sound, Notifications, and Accessibility Audit
@@ -251,6 +251,8 @@ The approved adjoining local wilderness patch is completed and is no longer pend
 
 The approved personally consented adjoining-patch escort protection is completed and is no longer pending. The scientist first physically reaches and observes the same-hex patch, then personally reunites with the same original professional on the original agreed ground. Exact reviewed terms disclose that patch, return seam and dated personal observations without hidden beasts, reserves or maps. Acceptance begins within the one-minute quote window and requires another sixty attended seconds at the original conversation positions under the same body/visit/trip, provider and contract. Actual published restrictions, capability, remaining paid time, finite duty and danger govern consent without rerolls. Absence, blocked ground, other attention, threats and self-care hold saved effort without backfill; cancellation grants no scope and preserves elapsed costs. Completion extends only protection orders and ordinary physical casualty assistance, with unchanged original hourly rate, remaining reserve, wage calendar, duty, needs, wounds, supplies and gear. No engagement fee, replenishment or clock restart follows. Spent budgets or refusal still require physical retreat through the accepted patch; obstruction retains the actual person. Personal original-ground settlement remains once-only, and later contracts or replacement people cannot inherit authorization. Hauling paths, pickups, porter/building territory and station rights remain separately bounded to their original scope. Exact terms, partial attendance and once-only authorization survive real saves; scientist death freezes unfinished work and cancellation. Focused scope/original-escort/hauling models, Canvas scouted consent/save/follow/casualty return, DOM cancellation/obstruction/no-backfill/finite-budget withdrawal and named original hauling/home-escort regressions validate the slice. No garrison, title, political authority, extra transport seat or guaranteed rescue is granted. Wider travel, labor scope, outposts and broad Strategic Expansion remain separate discussions; do not repeat this optional agreement as a campaign prerequisite.
 
+The approved civic-foothold assessment (completed slice 3.1) is implemented and no longer pending. Free immediate personal assessment at the known original municipal counter separates historical recognition, exact scoped commands, physical access, operational support, known opposition and source freshness. It requires ordinary permitted access but no new hearing, fee, signature, clerk attendance, powered service or timer. Visible outages do not erase signatures; repaired machinery cannot renew withdrawn cooperation. Existing legitimate personal-observation gates alone can refresh political facts, while received refusals, witnessed conduct and archived objections retain provenance without private motives, exact reserves, unseen positions or uncommunicated reports. Visits and the existing available Journal → Campaign view retain the same saved dated report with guidance hidden; absence, custody and death cannot refresh it. Focused assessment models, Canvas actual handover/outage/absent-clerk/save/away behavior, a separate home Journal view, DOM received refusal/restored-power/save behavior and directly consumed civic unit regressions validate the slice. No new authority, sovereignty score or ambition accomplishment follows; wider durable-supremacy vocabulary is documented without a global evaluator. Continue with 3.2 rather than repeating this assessment as another prerequisite.
+
 ## 1. Further Appointment Procedures
 
 Discuss one additional supported local appointment procedure only when a playable consumer requires it. Collective authorities, appointments after later revised disputed-succession findings, broader living-incapacity or standing-deputy procedures, vacancies under disputed succession, repeated replacements and other combined roles are not covered by the completed original-confirmation peaceful disputed replacement, voluntary separate-office replacement, voluntary-succession death-only vacancy, single-repair living-injury commission or public-works-only combined-directorate reassignment. Specify actual published selection/removal powers, all affected roles, independent review, real qualified consenting candidates, finite duties and physical handover. A laboratory employment credential is not civic eligibility. Do not silently amend an old charter, reuse designation-only patron authorization as removal approval, invent a vacancy or a freely replenished candidate market, or replace multiple institutions through one narrow receipt. This is an optional branch, not a compulsory checklist before every campaign action. Do not repeat completed appointment or temporary injury-cover routes; neither peaceful disputed replacement, death vacancy, injury cover nor combined reassignment confers new force authority. The completed original-casualty municipal-cargo recovery is a separate physical consumer, not automatic appointment stock or a general estate procedure.
@@ -269,7 +271,250 @@ Do not modify files until the design has been discussed and the developer explic
 
 ## 3. Strategic Expansion and World Domination
 
-Design physically supportable expansion between existing support components, significant beast powers, and divine interests, then implement only the next mechanically supported slice. Specify finite, testable durable-supremacy criteria before adding victory evaluation; occupation of every empty globe cell is not required. Bind campaigns to actual routes, transport, manpower, resources, defense, agreements, and resistance. Keep unknown powers and hidden totals out of ordinary campaign records. World domination is an exceptionally rare dated accomplishment, not a game-over transition, and remains separate from divine supremacy.
+This is the remaining expansion roadmap, not approval to implement all of it. Each slice still needs its own design discussion and explicit implementation approval. The proposed adjoining-patch porter retrieval has not been approved or implemented. The numbers below identify pending work and dependencies, not software versions, technology tiers or mandatory campaign chapters.
+
+The roadmap covers the current known path from the existing field foothold to playable world domination. It is not a promise that implementation will reveal no additional work. Change or split an entry only for a concrete missing consumer, dependency or discovered risk; do not grow an indefinite chain of permission ceremonies, upkeep variants or resource-by-resource copies. Implement reusable behavior through a small playable consumer, then extend it rather than repeatedly rebuilding it. Remove completed entries and update their dependencies without losing the remaining plan.
+
+Already available: the named finite geodesic world and historical political/ecological geography; supported commercial journeys and limited unsupported aircraft excursions; physical foreign survey/wilderness access; one adjoining same-hex patch; finite stone/timber recovery; the original supply hut, component work and storage; finite source-backed porter/craftsperson/escort engagements; separately accepted adjoining escort protection; and a dated knowledge-limited civic-foothold assessment. Existing civic influence, succession, recognition, upkeep and limited opposition also remain valid. These are inputs, not features to implement again and not proof of completed city or world power.
+
+### Scope and ownership rules
+
+- The recommended next core discussion is **3.2, run-owned strategic changes**; the civic-foothold assessment is completed. **3.5, adjoining porter retrieval**, is an optional near-term logistics branch, not the gateway to the rest of this roadmap.
+- Remaining core workstreams are control/knowledge (3.2–3.4), expedition logistics (3.7–3.11), locally supported operations (3.12–3.18), regional power and counterpowers (3.19–3.28), and global reach plus assessment (3.29–3.35). Optional branches are porter retrieval (3.5), caches (3.6), city founding (3.31) and creation field operations (3.36), with 3.32 providing an alternate nonmilitary route. These are planned alternatives or conveniences, not required systems in every domination playthrough. Dependencies are mechanical, not a prescribed story order; 3.36 can precede any consumer that actually uses it.
+- **#1 owns additional civic appointment procedures. #2 owns additional local opposition, armed enforcement, occupation and continuing city-rule procedures.** #3 consumes their supported outcomes; 3.20 is the explicit integration checkpoint, not permission to duplicate those systems here or require every optional #1/#2 branch. Expand #1/#2 into concrete prompts only when an identified campaign consumer requires them.
+- **#4 owns divine submission, god-killing and divine-supremacy completion.** World domination must account for divine capacity to overturn terrestrial rule but need not require subjugating or killing every god, personal ascension or completion of #4. Likewise, earlier ambitions are not mandatory achievement gates.
+- Every implementation slice needs a player-visible action or meaningful consumed outcome, deterministic focused tests, interruption and real save/load coverage, documentation and queue updates. Select only relevant tests under `AGENTS.md`; an integration entry below is not permission to run the full suite. New behavior must remain renderer-neutral with Canvas and DOM coverage where physical maps change.
+- All campaign mutations belong to the run. Preserve the reusable world, independent same-world restarts, actual people and property, finite capacities, original identities and provenance, and the boundary between private simulation and dated received knowledge. Orders and connectivity do not create consent, ownership or sovereignty. Only irreversible scientist death ends the run, subject to supported soul-beacon recovery; lost territory, custody, retreat and failed campaigns do not.
+
+### Proposed domination contract to resolve in the relevant discussions
+
+Use **durable supremacy**, not an occupied-hex percentage, wealth score, internet popularity or completed quest list. The proposed target is enforceable supremacy over surviving sovereign anchor cities and significant beast powers, supported by locally viable operations and no unresolved counterpower capable and willing to overturn that arrangement within a defined assessment window. Direct rule, materially enforceable tribute/client arrangements and genuine voluntary submission may qualify; ordinary trade, temporary mutual defense and an unenforceable signature do not.
+
+Every anchor city remains a distinct polity. Joint route strongholds retain exactly two sponsors and never become extra sovereign targets. Empty wilderness need not be occupied. Significant beast powers must be defined from actual strategic reach and capability rather than treating every animal or authored species as a kingdom. Divine interests require a supported explanation for being unable or unwilling to overturn the arrangement; mere avatar defeat, worship loss, silence or a friendly reputation cannot prove that. The scientist's opposition to the gods remains explicit, and rare willing divine support is an alternative, not a universal prerequisite.
+
+Agree exact qualifying relationships, significance thresholds, holding periods, acceptable evidence and destruction/empty-world edge cases before implementing their evaluators. Do not let deleting target records or an accidentally empty target set manufacture success. Reconcile these rules in 3.34 before final accomplishment evaluation. Canonical evaluation may inspect private run state, but ordinary UI may show only discovered powers, received evidence and honest uncertainty, never hidden identities or an undiscovered-enemy counter. Success is a dated exceptionally rare accomplishment, not a guarantee of perpetual control or an ending screen.
+
+### Control, knowledge and local geography
+
+#### 3.2 Run-owned strategic changes with a playable consequence
+
+Connect one actual loss/restoration of an existing site or installation to a run-owned strategic condition overlay and its affected local service or route. Reuse existing run receipts rather than inventing a parallel ownership truth. Establish event identity, chronological updates and bounded active-area simulation; do not rerun canonical history or simulate every local tile on the globe continuously.
+
+Dependencies: completed civic-foothold assessment. Completion: a physical outcome changes the correct run's strategic availability once, persists through saves and cannot alter another run or the reusable world.
+
+#### 3.3 Knowledge-limited expansion atlas and operational reports
+
+Extend existing globe/site records with dated personally explored ground, legitimately acquired route information, known claims and received operational reports. Keep public city listings separate from detailed terrain, expensive resource surveys, private archives and operational truth. Organizations remain stingy with maps both for commercial secrecy and to discourage emigration; satellite capability supplies no free archive. A known map is not proof of current access or safety.
+
+Dependencies: existing maps and reports; 3.2 for changed conditions. Completion: the player can select one known expansion objective and explain the source/age of the information without learning hidden sites or reserves.
+
+#### 3.4 Persistent local patch graph and revisitable sites
+
+Generalize the completed adjoining patch into bounded on-demand local geography with stable connections and local positions inside a globe cell. Elaborate only reached ground; preserve terrain changes, property, structures, finite sources and encounter allocations across unloading and revisits. Distinguish meter-scale patch movement from crossing a planet-scale strategic cell. Do not award stations, maps, beasts or labor permissions on discovery.
+
+Dependencies: completed adjoining geography and 3.2. Completion: a short multi-patch route can be walked out and back without a reroll, seam refuge, pursuit reset or coordinate-based teleport.
+
+### Expedition logistics
+
+#### 3.5 Adjoining-patch porter retrieval — optional route
+
+Discuss the currently proposed extension of an existing porter's delivery order: personally inspected exact loose owned goods in the already reached adjoining patch, one existing inspected original-station destination, the known hazards/return route, and at most the existing four entries. Combine scope and cargo consent in the normal order instead of adding a preliminary ceremony. Keep remaining shift, wages, duty, supplies, carrying limits and ground/crate access rules unchanged; no new engagement fee or time reset. Grant entry only for that accepted order and actual withdrawal, not standing labor rights. Escort protection does not automatically protect the porter.
+
+Dependencies: existing porter orders and adjoining geography; no new core campaign dependency. Completion: exact cargo can be retrieved physically with saved claims, interruptions, original-person return and dated reunion reports.
+
+#### 3.6 Deployable field cache — optional route
+
+Let the scientist physically transport and install one appropriately constructed ordinary cache at personally inspected unoccupied ground, using real materials, capacity and handling. Reuse existing storage and custody rules. A cache supplies neither a complete hut nor protection, ownership, replenishment, a receiving body or a soul beacon. Loss, abandonment and recovery retain the actual contents.
+
+Dependencies: persistent site identity; reuse existing storage. Completion: supplies left on an expedition can be retrieved or genuinely lost on a later visit without a remote inventory view or duplication.
+
+#### 3.7 First measured overland expedition leg
+
+Create one player-selected journey between known local sites with actual distance, terrain, mode, carried load and progress. Local pathfinding handles local movement; strategic legs use saved spherical adjacency and plausible distances, not a walk across one screen to cross an entire hex. Show estimated needs and uncertainty, not mandatory gear checklists. Existing paid travel remains available independently. A person may attempt an ill-advised expedition and become stranded alive.
+
+Dependencies: 3.3–3.4; caches and porter retrieval are optional. Completion: an outbound leg and its physical return consume time and bodily capacity while preserving actual people, cargo and saved position.
+
+#### 3.8 Interrupted travel, stopping and field survival
+
+Connect the first expedition to an actual stopping site when resting, encountering danger, turning back, losing a route or becoming incapacitated. Reuse physical shelter, food, water and care; do not create a free safe camp. Resume from the saved location with spent distance and supplies intact. The original municipal driver remains at its actual rendezvous rather than becoming an expedition rescue service.
+
+Dependencies: 3.7 and existing survival. Completion: a journey can be interrupted, saved, locally played and resumed or abandoned without automatic arrival, death or return-home teleportation.
+
+#### 3.9 Regional encounter allocation across travel and local maps
+
+Extend the existing supported-species encounters to expedition sites using the fixed authored beast catalog, saved regional populations and run losses. Encounter materialization must not clone a population through patch cycling or refill killed animals on reload. Preserve pursuit where physical continuity supports it; abstract unresolved regional movement conservatively when local maps unload. Unknown or currently unsimulated species must not become confirmation of safety. Breeding/recovery needs elapsed causal population behavior, not entry-triggered replenishment.
+
+Dependencies: 3.4, 3.7–3.8. Completion: a regional encounter can interrupt travel and retain individuals, wounds, remains and regional consequences through departure and revisit.
+
+#### 3.10 Explicit expedition party and one suitable transport allocation
+
+Authorize a finite manifest of actual consenting people, physical carried goods and, only where supported, transportable creations. Reuse the existing capable provider/vehicle or supply one genuine source-backed asset with explicit seats, load limits, operator, range, upkeep and return terms. Do not convert the single scientist seat into a free party vehicle. Start with one feasible mode; flying mounts, mechs, fleets and gateways are alternatives requiring their own real assets, not automatic unlocks from internet contact.
+
+Dependencies: 3.7–3.9 and existing employment/transport. Completion: a small party can depart and arrive together or be physically separated by a supported failure, without replacement personnel or duplicated cargo.
+
+#### 3.11 Field casualty recovery and retreat
+
+Extend existing finite first aid and dragging to the actual expedition party: one supported casualty collection, viable transport or carried evacuation, real care supplies and an actual receiving location. An aid agreement is not guaranteed rescue or treatment. Capable survivors may retreat while others remain at their real positions; retain wages, possessions, remains and unresolved claims. Reuse existing estate/recovery behavior where present and add only the exact missing custody consumer.
+
+Dependencies: 3.8–3.10. Completion: a failed expedition has playable living survivors and recoverable or lost property rather than an abstract party wipe or free medical reset.
+
+### Locally supported operations
+
+#### 3.12 Second functional outpost with a real purpose
+
+Choose one reached viable site for a specific resource, refuge, research or route-support purpose and establish a separately identified supplied facility. Reuse actual construction, storage, utility and maintenance behavior rather than copying the original hut with free equipment. Preserve unoccupied-wilderness versus controlled-land rights; a map marker does not confer a title. Weather shelter and a working installation are not a fortified city or guaranteed secrecy. Existing late-game workshop/receiver/beacon construction stays separately gated.
+
+Dependencies: 3.2–3.4 and a feasible access method from 3.7 or existing transport. Completion: two distinct sites can remain physically functional, damaged or abandoned independently without requiring both to be loaded.
+
+#### 3.13 Resident staff and one independently supplied outpost duty
+
+Recruit or transfer actual consenting suitable people to the new facility under explicit residence, work, rest, payment, access and withdrawal terms. Reuse original-person employment and care rather than endlessly extending short porter engagements. Start with one recurring stores/maintenance duty and finite local food, water, shelter, tools and wages; no staff pool or automatic resupply. Accepted work may continue during scientist absence or custody; new command authority and inherited obligations after resurrection must be discussed explicitly.
+
+Dependencies: 3.12 and existing worker lifecycles. Completion: a supplied outpost can perform its named duty without the scientist standing beside it, and stop or withdraw causally when support fails.
+
+#### 3.14 One local replenishment chain
+
+Give one outpost an actual replenishment path through nearby purchases, a surveyed source or an existing production recipe, selected for its purpose. Specify the physical source, depletion/production rate, collection, labor, processing losses and local storage. Begin with one useful chain rather than implementing every ore, crop and manufacturing family. Renewable output requires a causal supported source; no generic stock refill or self-sufficiency flag substitutes for water, food, energy, materials and spare parts.
+
+Dependencies: 3.12–3.13 and existing economy/resource systems. Completion: a recurring local need can be met by real finite throughput, with shortages and competing demands visibly affecting operations.
+
+#### 3.15 One short supply leg between operating nodes
+
+Move an exact consignment between two supported nearby nodes using actual allocated labor, vehicle/animal capacity, loading, fuel or feed, route access and unloading. Internet instructions move information only. Waiting, breakdown, theft, obstruction and route closure retain actual cargo and people; delivery is not instantaneous stock sharing. Introduce a bounded recurring schedule only after one complete saved round trip works. Multiple local legs must not become reliable unlimited long-range logistics.
+
+Dependencies: 3.10, 3.12–3.14; existing paid freight may supply a valid first consumer. Completion: one shortage is actually relieved by transported stock, and failure leaves both endpoints with honest inventories and dated reports.
+
+#### 3.16 Powered communications, delegated instructions and delayed reports
+
+Connect one staffed outpost through actual communicator/gateway power, charge and available satellite-magical infrastructure. Explicitly authorize a bounded remote instruction, authenticate its issuer, deliver it when connectivity permits and preserve the recipient's scope and independent refusal. Information may travel globally without physical logistics becoming global. Received reports describe known observations at their dates, not live hidden reserves, map discovery or remote control of bodies. Local authorized work continues during disconnection.
+
+Dependencies: 3.13 and existing communication assets; integrate 3.15 reports where appropriate. Completion: one remote instruction and reply has a causal sent/received lifecycle, including outage, stale knowledge and no duplicate execution.
+
+#### 3.17 First supplied field force
+
+Organize a small actual consenting force for one disclosed defensive or expedition objective, using supported recruitment/population allocations rather than promoting porters or civic clerks into soldiers. Bind original members, command limits, personal skill, finite pay/duty, equipment, provisions, rest, withdrawal and medical needs. Differentiate an ordinary escort from people who agree to hold a post or conduct an assault. Unlawful player action remains possible with actual consequences; lawful authority, employment and willingness are distinct.
+
+Dependencies: 3.10–3.16 as required by its actual location and supply. Completion: a named small force can muster, carry out one order and stand down or refuse without spawning replacements or becoming an abstract strength bonus.
+
+#### 3.18 One defended outpost and a consequential beast attack
+
+Supply actual barriers, detection and one supported defensive capability through finite operators, power, ammunition/mana, maintenance and physical access. Play one causally supported regional attack against it using existing encounters and ordinary wounds/damage. No mandatory attack timer, guaranteed safe zone, replenished wave or attacker spawn solely to demonstrate the mechanic. Retain breach, casualties, consumed stock and evacuation outcomes.
+
+Dependencies: 3.9, 3.12–3.17; an appropriately capable existing defender may supply an alternative to a new force. Completion: defense can materially succeed, fail or evacuate and the outpost remains in its resulting physical state.
+
+### Regional power, agreements and counterpowers
+
+#### 3.19 One contested armed installation objective
+
+Use an actual capable force or sufficiently powerful scientist/creation to contest one installation with identified occupants, real access, defenses, retreat and a concrete objective. Reuse shared combat rather than resolving a battle from payment or reputation. Occupying ground, defeating a defender, taking custody of goods and obtaining lawful command are separate outcomes. Where local compulsory enforcement is involved, obtain the explicit scope owned by #2; hostile conquest does not acquire that lawful scope automatically. Do not bundle a full city siege into this first operation.
+
+Dependencies: 3.17–3.18 or a supported personal-power alternative; #2 only for the relevant local procedure. Completion: the installation changes actual access/possession or successfully resists, with persistent losses and no automatic city surrender.
+
+#### 3.20 First sustainable city-power outcome — integration with #1/#2
+
+Select one supported city and one route to real continuing control. Reuse existing succession/recognition paths, the effective-control assessment and the concrete appointment, resistance or occupation work needed from #1/#2. Account for essential civic provisioning, capable rare defenders, local institutions, population, legal consequences and religious interests. Explicitly identify unresolved consumers in #1/#2 instead of declaring every office obedient or forcing all optional procedures into this route. A bounded counter handover still cannot count as whole-city power.
+
+Dependencies: completed civic-foothold assessment and 3.2; relevant #1/#2 consumers; actual provision/defense appropriate to the chosen route. Completion: one city's claimed power can be exercised and sustained through a disclosed meaningful interval, or demonstrably fail, with a dated city-power assessment rather than a ceremonial receipt alone.
+
+#### 3.21 Enforceable intercity terms and nonmilitary leverage
+
+Negotiate one concrete tribute, client-rule, access, resource-dependency or voluntary-submission arrangement with a distinct sovereign city. Give actual decision-makers stable interests, terms, deliveries, enforcement capacity, refusal, breach and termination. Useful research, products, services or engineered benefits may create leverage, but payment, attractiveness, faith or reputation alone cannot confer control. Ordinary trade and temporary mutual-defense agreements remain distinguishable from terms qualifying for domination. Do not merge the cities into a state.
+
+Dependencies: completed civic-foothold assessment, 3.2–3.3 and the concrete service, supply or force underpinning the proposed terms; 3.20 only if the scientist bargains as an existing city's ruler. Completion: one cross-city obligation changes actual behavior and can be complied with, breached or lost without rewriting sovereignty.
+
+#### 3.22 First intercity campaign
+
+Project a real force or personal capability along one known feasible route to a neighboring objective. Mobilize actual capacity, move supplies and people, stage locally, confront the destination's rare defender and other actual resistance, then retreat or obtain a supported political outcome. Aggregate distant march segments without replacing a decisive local confrontation with a strength roll. Long-range contact supplies no army, landing permission or indefinite campaign support.
+
+Dependencies: 3.7–3.19 as applicable; 3.20 or 3.21 for the actual resulting political relationship. Completion: a campaign can change one neighboring city's enforceable relationship, fail or withdraw while retaining casualties, costs and independent city identity.
+
+#### 3.23 Two-sponsor route-stronghold obligations
+
+Make one existing stronghold operationally relevant to movement, provisioning, warning or defense. Its two endpoint cities remain jointly responsible for staffing/upkeep, with locally autonomous administration and no independent diplomacy. Controlling one sponsor, occupying a gate or paying one official does not grant exclusive stronghold ownership. Implement one actual joint obligation and its disruption, including sponsor hostility where supported.
+
+Dependencies: 3.2, 3.15 and a relevant city agreement/control relationship. Completion: a stronghold's actual support changes route use through both sponsors' real contributions, without inventing a superior state or free garrison.
+
+#### 3.24 Repairing or establishing one support connection
+
+Restore one damaged corridor or establish a feasible short connection using inspected terrain, sponsor consent or actual contested access, labor, resources and vulnerable works. Reuse strongholds where distance requires them. Recompute run-owned physical support connectivity from genuinely usable segments; construction plans and a continuous drawn line are not an open road. Connecting components changes logistics, not allegiance, peace or religion.
+
+Dependencies: 3.15, 3.23 and actual construction capability. Completion: one repaired/new connection opens real bounded transport, can be severed again and preserves the world's disconnected components elsewhere.
+
+#### 3.25 Identifying a significant regional beast power
+
+Define strategic significance from actual territorial reach, population organization, exceptional individuals, ecological effects and capacity to overturn nearby settlements. Obtain knowledge through supported expeditions, testimony or costly released surveys. Separate ordinary roaming encounters from a regional power's canonical capability, and public reports from private truth. Do not require every species to be intelligent, religious, communicative or politically organized; slimes cannot communicate or cooperate.
+
+Dependencies: 3.3, 3.9 and relevant canonical ecology. Completion: one discovered regional power becomes a justified campaign objective with an observable threat or relationship, not an exposed roster of every hidden lair or population.
+
+#### 3.26 Resolving one regional beast-power objective
+
+Implement one supported route appropriate to that power: actual defeat, exclusion/containment, engineered ecological intervention, or enforceable terms with a genuinely communicative willing power. Preserve surviving creatures, changed territory, local ecological costs and the possibility of renewed threat. A negotiation cannot work on an incapable species; a killed encounter group does not automatically eradicate its population. Regional containment need not mean exterminating all wildlife or occupying every hex.
+
+Dependencies: 3.25 and the actual research, forces, installations or diplomacy used. Completion: the power's concrete ability to overturn a specified regional arrangement is changed and can be reassessed from actual run consequences.
+
+#### 3.27 Divine interests as terrestrial counterpressure
+
+Connect an expansion act to one actual god/faith's received information, teachings, interests and finite capacity for response through faithful, an avatar or other supported intervention. The heretical scientist should not receive routine patron approval; rare autonomy-minded, vengeful, oppressed or nihilistic support needs concrete compatible motives. Provide an actual way to resist, deter, negotiate around or endure the response without making conversion or divine endorsement mandatory. Loss of worship causes descent, not death, and an avatar is not the god's actual individual.
+
+Dependencies: an actual city/beast operation from 3.20–3.26 and existing divine history/faith rules. Completion: divine support/opposition changes an enforceable terrestrial outcome and can be recorded honestly. Submission of gods, god-killing and divine-rule completion remain #4.
+
+#### 3.28 Neighboring countercoalition and coordinated resistance
+
+Allow identified threatened cities and other capable actors to coordinate a particular response using actual information, interests, routes, resources and local commitments. Preserve separate sovereignty and the distinction between a temporary coalition and a durable state. Do not spawn a balancing army from a threat meter, assume hidden opponents know every action or repeat the completed two-person protest at larger cosmetic scale. Local revolt/occupation procedures remain owned by #2; this slice coordinates their cross-city consequences.
+
+Dependencies: 3.20–3.27 as appropriate to the coalition's real cause and members. Completion: regional expansion faces one materially supported organized challenge that can prevail, dissolve or be resisted without erasing the original agreements and losses.
+
+### Global reach, alternate routes and completion
+
+#### 3.29 Expedition into a disconnected support component
+
+Reach one genuinely known remote landing/entry site through an actual range-capable aircraft, vessel, mount, exceptional individual or other supported mode. Extend existing providers where appropriate rather than awarding a fleet. Account for distance, operator, seats, cargo, weather, fuel/feed/mana, turnaround, return limits and actual local acceptance. Establish local support after arrival; no single expedition can turn worldwide long-duration supply into routine logistics. Missing return capacity leaves living stranded actors rather than an invented rescue.
+
+Dependencies: 3.3, 3.8–3.16 and the chosen real transport/personal capability. Completion: a remote component can be reached and played without a fictitious road bridge, free map, limitless carrier or inherited local authority.
+
+#### 3.30 Multiple locally viable regional operations
+
+Operate at least two separated regional nodes using their own supplied staff, local provision, defenses and enforceable relationships. Bound remote commands and synchronize causal events without a global inventory, treasury access, labor pool or omniscient command screen. Loss of an original lab, a route or one node must leave other genuinely independent supported operations intact without granting free resurrection. Apply the existing late-game soul-beacon rules only to actually prepared destinations.
+
+Dependencies: 3.12–3.16, relevant regional control, and 3.29 where components are disconnected. Completion: a local disruption can isolate or destroy one node while another actually continues or fails on its own resources.
+
+#### 3.31 Founding a new fortified city — optional route
+
+Support one purpose-built founding or extraordinary refuge project with a genuine resource/reason to exist, a rare sufficiently powerful protecting founder/group, actual population movement, enormous construction inputs, defenses and viable local food/support. Most such powers are god-affiliated; an independent escape-from-the-gods foundation is rare, not impossible or automatically patron-approved. Ordinary foundations need practical support connections and appropriate joint strongholds; explicit refuge exceptions require their own real capability. Founding lineage confers neither allegiance nor alliance. Do not require city founding for domination of existing cities.
+
+Dependencies: 3.12–3.18, 3.23–3.24 as applicable, and qualified exceptional protection. Completion: one run-owned city can become viable or leave a consequential failed project without spawning citizens, resources, sovereignty or a canonical next-run landmark.
+
+#### 3.32 Scientific/cultural or created-species route — alternate route
+
+Develop one concrete research/product/creation-led expansion route that materially changes a city's or region's willingness and ability to accept the scientist's terms. Benefits, distribution, care, competing beliefs, individual agency and opposition need actual consumers, not an automatic charm score or planetary mind-control button. Madcap's catgirl-led unification and Grim's coercive methods can be discussed as theme-compatible presentations of supported mechanisms; neither is a free victory declaration. Unbound may combine compatible content. Reuse 3.21 for real obligations rather than creating a second cosmetic domination meter.
+
+Dependencies: supported advanced research/creation and its actual material chain; 3.21 and relevant opposition from #2/3.27–3.28. Completion: one qualitatively nonmilitary expansion route can produce or lose an enforceable regional relationship, without requiring this route in military playthroughs.
+
+#### 3.33 Run-time strategic change and new challengers
+
+Extend the bounded run simulation to consequential elapsed regional change: damaged/abandoned settlements, displacement, repaired or severed links, actual political turnover, relevant beast recovery/movement and newly significant counterpowers. Process only supported causal events with conserved people/resources and appropriate historical latency, not constant full-world tactical simulation or an arbitrary difficulty director. Use canonical history as the starting baseline only. Changes in divine life/divinity/new ascendants reuse supported divine rules and #4 interfaces, not automatic death from lost faith. New facts do not enter the player's records without receipt.
+
+Dependencies: 3.2, 3.9 and the relevant city, ecology or divine consumers; integrate before final multi-region evaluation. Completion: an unseen consequential change can later be discovered and affect real control without canonical-world mutation, retroactive knowledge or a respawned opposition pool.
+
+#### 3.34 Durable-supremacy assessment and challenge window
+
+Finalize and implement the finite qualifying target/relationship rules, significance thresholds, duration, supply/readiness requirements, counterpower tests and evidence contract drafted above. Consume actual outcomes from multiple regions rather than counting historical signatures. Explain to the player only known supported conditions, missing evidence and uncertainty; do not reveal hidden powers, exact populations or a hidden remaining-target total. Fix how newly founded, destroyed, descended, newly ascended and temporarily unreachable actors enter evaluation, including the non-vacuous treatment of an empty or devastated world. One finite challenge/holding interval should test continuing capacity without asserting that all future rebellion is impossible.
+
+Dependencies: completed civic-foothold assessment, 3.2–3.3, a viable selection of the regional/global routes, 3.27–3.28 and 3.33. Optional route entries are not mandatory checkboxes. Completion: testable states distinguish apparent supremacy, actual durable qualification, stale knowledge and a failed assessment, with exact criteria agreed before evaluation is coded.
+
+#### 3.35 World-domination accomplishment and continued play
+
+Record the once-only dated world-domination accomplishment from the supported 3.34 outcome and legitimate knowledge/assessment handoff. Preserve current operability separately: later revolt or loss can compromise rule without deleting the historical achievement or ending a living run. Continue local management, diplomacy, opposition and recovery; keep divine supremacy independent with no compulsory order. Use theme-selected narration without changing the underlying achievement rules. Include focused end-to-end scenarios for military and nonmilitary qualifying outcomes, failed supply/counterpower cases, same-world independent restarts, real save/load, death/postmortem and continued play. These are named relevant checks, not a full-suite mandate.
+
+Dependencies: 3.34 and existing campaign/postmortem systems. Completion: domination can actually be earned, explained without spoilers, retained historically and subsequently challenged while play continues. Remove completed entries; when the retained #3 scope is finished, close the parent prompt rather than adding another indefinite completion prerequisite. Explicitly requeue any intentionally deferred optional work instead of deleting it as completed.
+
+### Optional creation-operations dependency
+
+#### 3.36 Engineered-creation field operations — optional route
+
+When an approved route actually uses it, extend an existing intelligent creation's learned voluntary cooperation to a specifically demonstrated field task, transport and care arrangement under ordinary risk, independent agency and actual cognition. Slimes cannot communicate or cooperate, and homunculus manufacture remains difficult risky stage-two/three research rather than an early army unlock. Introduce a new creature family or powerful combat capability through its own discussed research/biology work, not by treating a field order as creation technology. Reuse this consumer in 3.10, 3.17, 3.26 or 3.32 as needed; no campaign route universally requires homunculi or personal divinity.
+
+Dependencies: existing cognition/cooperation plus the actually supported task and transport, not completion of 3.35 or every preceding entry. Completion: one real creation can perform or refuse one supported field duty with saved identity, needs, training and consequences, not a freely commandable species or replacement force pool.
 
 Do not modify files until the design has been discussed and the developer explicitly approves implementation.
 

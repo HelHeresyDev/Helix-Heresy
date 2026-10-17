@@ -142,6 +142,7 @@
   const ReligiousRecognition = window.HelixReligiousRecognition;
   const CitySuccession = window.HelixCitySuccession;
   const CityAdministration = window.HelixCityAdministration;
+  const CivicFoothold = window.HelixCivicFoothold;
   const MunicipalCargoRecovery = window.HelixMunicipalCargoRecovery;
   const TemporaryMaintenance = window.HelixTemporaryMaintenanceCommission;
   const PublicWorksAppointments = window.HelixPublicWorksAppointments;
@@ -5520,6 +5521,7 @@
       citySuccessionKnowledge: null,
       cityAdministration: null,
       cityAdministrationKnowledge: null,
+      civicFoothold: null,
       cityAppointmentsKnowledge: null,
       confidentialServices: null,
       confidentialServiceKnowledge: null,
@@ -13639,6 +13641,8 @@
       worldLibrarySnapshot: () => clonePlainObject(worldRepository.snapshot()),
       runLifecycleSnapshot: () => clonePlainObject({ phase: RunLifecycle.phase(state), clock: state.clock, postmortem: state.postmortem, deaths: ensureScientistDeath().records }),
       campaignSnapshot: () => clonePlainObject(Campaign.normalize(state.campaign)),
+      assessCivicFoothold,
+      civicFootholdSnapshot: () => clonePlainObject({ report: CivicFoothold.normalize(state.civicFoothold), context: civicFootholdContext(), clock: state.clock }),
       localServicesSnapshot: () => clonePlainObject({ service: state.localServices, known: state.localServiceKnowledge,
         channelReason: localServiceChannelReason(), samples: ensureDiagnosticState().samples,
         tasks: state.tasks.filter(task => ["commodityFreight", "physicalDiagnostic"].includes(task.type)),
@@ -79572,6 +79576,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       for (const entry of Campaign.accomplishments(campaign)) content.append(textEl("p", `${entry.label} — ${formatClock(entry.at)}`));
       content.append(textEl("p", "Guidance is hidden; successful actions still record accomplishments."));
     }
+    content.append(renderCivicFoothold(false));
   }
 
   function renderJournal() {
@@ -84485,6 +84490,83 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
   function citySuccessionPeople() { return state.citySuccession ? [state.citySuccession.ruler, ...state.citySuccession.leaders] : []; }
+  function civicFootholdOffice() {
+    const id = state.citySuccession?.officeId || state.charterRecognition?.officeId;
+    return (state.economy?.intercitySmuggling?.identityOffices || []).find(o => o.id === id) || null;
+  }
+  function civicFootholdSite() {
+    const office = civicFootholdOffice(), known = state.citySuccessionKnowledge?.source;
+    if (!known?.cityId || office?.cityId !== known.cityId) return null;
+    return { worldId: activeWorldRecord?.id || state.resourceSurveys?.context?.worldId, cityId: known.cityId, cityName: known.cityName,
+      officeId: office.id, installationId: `${office.id}:service-channel` };
+  }
+  function civicFootholdContext() {
+    const office = civicFootholdOffice(), site = civicFootholdSite(), cell = scientistMapCell(), target = office?.civicCounter?.cell;
+    const local = state.surveyExpeditions?.phase === 'field' && scientistRoomId() === office?.civicCounter?.roomId && !unsupportedActive();
+    return { alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist'), free: !restrictedOffsiteStay() && !currentDetentionRaid()
+      && !GateEnforcement.custodyActive(currentGateEnforcement()) && !localPrisonRestricted(),
+      knownSite: Boolean(site), local, atCounter: Boolean(local && sameMapCell(cell, target)), visible: Boolean(local && target && sensoryLineOfSight(cell, target)),
+      supported: Boolean(target && labMapCellIsWalkable(cell) && !labMapCellIsPathBlocked(cell, { actor: state.scientist })),
+      visitPermission: state.surveyExpeditions?.discovery?.access.active === true, cityId: local ? office.cityId : null, officeId: office?.id,
+      bodyEpoch: ensureScientistIdentity().bodyEpoch };
+  }
+  function civicFootholdKnowledge() {
+    const k = { succession: state.citySuccessionKnowledge, charter: state.charterRecognitionKnowledge,
+      works: state.publicWorksRecognitionKnowledge, watch: state.watchRecognitionKnowledge, defense: state.defenseRecognitionKnowledge,
+      administration: state.cityAdministrationKnowledge, abdication: state.incumbentResistanceKnowledge, appointments: state.cityAppointmentsKnowledge };
+    // Use exactly the existing personal-observation gates, but do not mutate
+    // their records or advance a political job merely by assessing evidence.
+    if (state.citySuccession && citySuccessionObserved()) k.succession = { ...CitySuccession.publicView(state.citySuccession),
+      operative: CitySuccession.operative(state.citySuccession, state.sovereignBargains, citySuccessionContext()), reportedAt: state.clock };
+    if (state.charterRecognition && charterRecognitionObserved()) {
+      const s = state.charterRecognition, c = charterRecognitionContext();
+      k.charter = { ...CharterRecognition.publicView(s, c), reportedAt: state.clock,
+        recordsPermissionCurrent: CharterRecognition.recordsAuthorityCurrent(s, state.citySuccession, state.incumbentResistance, civicFootholdOffice(), c) };
+    }
+    if (state.publicWorksRecognition && publicWorksRecognitionObserved()) k.works = { ...PublicWorksRecognition.publicView(state.publicWorksRecognition),
+      permissionCurrent: Boolean(PublicWorksRecognition.authorization(state.publicWorksRecognition, state.charterRecognition, state.citySuccession,
+        state.incumbentResistance, civicFootholdOffice(), publicWorksRecognitionContext())), reportedAt: state.clock };
+    if (state.watchRecognition && watchRecognitionObserved()) k.watch = { ...WatchRecognition.publicView(state.watchRecognition),
+      permissionCurrent: Boolean(WatchRecognition.authorization(state.watchRecognition, state.charterRecognition, state.publicWorksRecognition,
+        state.citySuccession, state.incumbentResistance, civicFootholdOffice(), watchRecognitionContext())), reportedAt: state.clock };
+    if (state.defenseRecognition && defenseRecognitionObserved()) k.defense = { ...DefenseRecognition.publicView(state.defenseRecognition),
+      permissionCurrent: Boolean(DefenseRecognition.authorization(state.defenseRecognition, state.charterRecognition, state.citySuccession,
+        state.incumbentResistance, state.sovereignBargains, civicFootholdOffice(), defenseRecognitionContext())), reportedAt: state.clock };
+    if (state.cityAdministration && cityAdministrationObserved()) k.administration = { ...CityAdministration.publicView(state.cityAdministration, state.clock, civicFootholdOffice()),
+      resistance: CityResistance.publicView(state.cityAdministration.resistance, state.citySuccession, cityAdministrationContext()), reportedAt: state.clock };
+    return k;
+  }
+  function assessCivicFoothold() {
+    const site = civicFootholdSite(), c = civicFootholdContext();
+    if (CivicFoothold.reason(site, c)) return false;
+    const office = civicFootholdOffice();
+    state.civicFoothold = CivicFoothold.assess(state.civicFoothold, site, civicFootholdKnowledge(), {
+      powered: office.channelPowered === true && office.power >= 1,
+      serviceable: office.active === true && office.maintenanceReady !== false
+    }, c, state.clock);
+    persist(); render(); return true;
+  }
+  function renderCivicFoothold(interactive = true) {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.civicFoothold = 'true';
+    panel.append(textEl('strong', 'Civic foothold assessment'));
+    if (interactive) {
+      const b = document.createElement('button'); b.textContent = 'Assess civic foothold';
+      b.disabled = Boolean(CivicFoothold.reason(civicFootholdSite(), civicFootholdContext()));
+      b.title = 'Interpret received records and directly observed local conditions. No fee, clerk work, signature, waiting period or new authority.';
+      b.onclick = assessCivicFoothold; panel.append(b);
+    }
+    const r = CivicFoothold.normalize(state.civicFoothold);
+    if (!r) { panel.append(textEl('p', 'No civic foothold assessment recorded. Physically attend the personally known original municipal counter to assess existing evidence; no powered service or clerk attendance is required.')); return panel; }
+    panel.append(textEl('p', `${r.cityName || r.cityId} — assessed ${formatClock(r.at)}: ${r.conclusion === 'limited' ? 'Specific limited duties supported by evidence' : r.conclusion === 'blocked' ? 'Local counter operations blocked' : 'Current execution not verified'}. Wider city control is not established.`));
+    for (const [label, rows] of [['Recognition', r.recognition], ['Commands', r.commands], ['Physical access', r.access ? [r.access] : []], ['Operational support', r.support], ['Known opposition', r.opposition]]) {
+      const section = document.createElement('section'); section.dataset.footholdDimension = label; section.append(textEl('h4', label));
+      if (!rows.length) section.append(textEl('p', label === 'Known opposition' ? 'No received opposition included. This is not evidence that opposition is absent.' : 'Not established by received evidence.'));
+      for (const row of rows) section.append(textEl('p', `${row.status} — ${row.text} As of ${formatClock(row.at)}; ${row.source}; source ${row.sourceId}.`));
+      panel.append(section);
+    }
+    panel.append(textEl('p', 'Evidence freshness: each fact retains its own observation/receipt date. This report is saved, not live monitoring; reopening it does not refresh anything.'), textEl('p', r.limitations));
+    return panel;
+  }
   function citySuccessionSource() {
     const b = state.sovereignBargains;
     return b?.testFixture ? b.testSuccessionSource || null : CitySuccession.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, b);
@@ -93353,6 +93435,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(renderReligiousRecognition());
     panel.append(renderCitySuccession());
     panel.append(renderCityAdministration());
+    panel.append(renderCivicFoothold());
     panel.append(renderCarrierBriefings());
     const button = (label, action, disabled = false, reason = "") => {
       const element = document.createElement("button"); element.type = "button"; element.textContent = label; element.disabled = disabled; element.title = reason; element.addEventListener("click", action); panel.append(element);
@@ -100461,6 +100544,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.citySuccessionKnowledge = candidate?.citySuccessionKnowledge ? clonePlainObject(candidate.citySuccessionKnowledge) : null;
     next.cityAdministration = CityAdministration.normalize(candidate?.cityAdministration);
     next.cityAdministrationKnowledge = candidate?.cityAdministrationKnowledge ? clonePlainObject(candidate.cityAdministrationKnowledge) : null;
+    next.civicFoothold = CivicFoothold.normalize(candidate?.civicFoothold);
     next.cityAppointmentsKnowledge = candidate?.cityAppointmentsKnowledge ? clonePlainObject(candidate.cityAppointmentsKnowledge) : null;
     next.confidentialServices = ConfidentialServices.normalize(candidate?.confidentialServices);
     next.confidentialServiceKnowledge = candidate?.confidentialServiceKnowledge ? clonePlainObject(candidate.confidentialServiceKnowledge) : null;
