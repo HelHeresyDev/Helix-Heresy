@@ -88088,25 +88088,73 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       site, cell, bodyEpoch: ensureScientistIdentity().bodyEpoch, visitId: passengerVisitId(), tripId: e?.trip?.id,
       stageLegal: fieldPorterStageLegal(site, cell, state.scientist) };
   }
+  function fieldPorterCrateContext(site, actor) {
+    const part = site?.layout.parts.find(p => p.kind === 'cache'), f = site && fixtureById(site.cacheId);
+    const receipt = part && site.parts[part.id], def = f && storageFixtureDef(f), usage = f && storageFixtureUsage(f);
+    const original = Boolean(f && receipt && receipt.physicalId === f.id && f.typeId === 'storageCrate'
+      && f.installedAt === receipt.at && sameMapCell(f.origin, site.layout.cache));
+    return { crate: original ? { fixtureId: f.id, installedAt: f.installedAt,
+      installationKey: FieldStation.installationKey(state.fieldStation, part.id), fixtureCell: cleanMapCell(f.origin), cell: cleanMapCell(site.layout.rest) } : null,
+      crateCapacity: def ? { massKg: Math.max(0, def.storage.massKg - usage.massKg), volumeL: Math.max(0, def.storage.volumeL - usage.volumeL) } : null,
+      crateLegal: Boolean(original && f.condition > 0 && f.operationalState !== 'broken' && f.accessState === 'open'
+        && fixtureAccessCells(f).some(p => sameMapCell(p.cell, site.layout.rest))
+        && fieldPorterStageLegal(site, site.layout.rest, actor)) };
+  }
+  function fieldPorterCrateCurrent(s, j) {
+    if (j.destination?.kind !== 'crate') return true;
+    const site = state.fieldStation?.site;
+    return Boolean(site && FieldPorter.crateCurrent(j.destination, { ...s.contract, site, ...fieldPorterCrateContext(site, s.actor) })
+      && fixtureById(j.destination.fixtureId)?.condition > 0);
+  }
+  function fieldPorterRetainedCargo(s) {
+    return ensurePhysicalItemStacks().filter(i => i.quantity === 1 && ForeignEscortHauling.eligible(i) && i.carriedBy === s.actor.id && s.history.some(j => j.destination?.kind === 'crate'
+      && j.status === 'interrupted' && j.stackId === i.id && j.signature === ForeignEscortHauling.signature(i)));
+  }
   function fieldPorterDeliveryLegal(s, j) {
     const site = state.fieldStation?.site, e = fieldPorterExcursion(s), k = s.contract;
     if (!site || !k || site.siteId !== k.site.siteId || site.worldId !== k.site.worldId || site.roomId !== k.site.roomId
       || site.siteId !== e?.wilderness?.context.siteId || site.worldId !== e.wilderness.context.worldId) return false;
     if (!j.destination) return sameMapCell(j.drop, k.drop) && foreignEscortHaulingDropLegal(site, j.drop);
+    if (j.destination.kind === 'crate') {
+      const c = fieldPorterCrateContext(site, s.actor), i = ensurePhysicalItemStacks().find(i => i.id === j.stackId);
+      return fieldPorterCrateCurrent(s, j) && c.crateLegal && i && ['stoneBlocks', 'lumber'].includes(i.key)
+        && i.unitMassKg > 0 && i.unitVolumeL > 0 && c.crateCapacity.massKg >= i.unitMassKg && c.crateCapacity.volumeL >= i.unitVolumeL;
+    }
     return FieldPorter.stageCurrent(j.destination, k) && sameMapCell(j.drop, j.destination.cell) && fieldPorterStageLegal(site, j.drop, s.actor);
   }
   function fieldPorterHooks(s) {
-    return foreignEscortHaulingHooks(s, (a, goal) => fieldPorterNextStep(s, a, goal), s.role === 'builder' ? undefined : j => fieldPorterDeliveryLegal(s, j));
+    const hooks = foreignEscortHaulingHooks(s, (a, goal) => fieldPorterNextStep(s, a, goal), s.role === 'builder' ? undefined : j => fieldPorterDeliveryLegal(s, j));
+    if (s.role === 'builder') return hooks;
+    const adjacent = hooks.adjacent, deposit = hooks.deposit;
+    hooks.destinationCurrent = j => fieldPorterCrateCurrent(s, j);
+    hooks.adjacent = goal => s.phase === 'onSite' && s.job?.status === 'working' && s.job.destination?.kind === 'crate'
+      && sameMapCell(goal, s.job.drop) && ['delivery', 'unload'].includes(s.job.phase)
+      ? s.actor.roomId === s.job.roomId && sameMapCell(s.actor.mapCell, goal) && sensoryLineOfSight(goal, s.job.destination.fixtureCell) : adjacent(goal);
+    hooks.deposit = j => {
+      if (j.destination?.kind !== 'crate') return deposit(j);
+      const i = hooks.item(j.stackId), f = fixtureById(j.destination.fixtureId);
+      if (!i || i.quantity !== 1 || i.reservedTaskId !== j.id || i.carriedBy !== s.actor.id
+        || !hooks.adjacent(j.drop) || !fieldPorterDeliveryLegal(s, j)) return false;
+      // The very same carried slice enters the original container, never a
+      // temporary ground pile or a replacement fixture's inventory.
+      i.carriedBy = ''; i.reservedTaskId = ''; i.fixtureId = f.id; i.containerId = ''; i.stockpileId = '';
+      i.carryTaskId = ''; i.carryLegIndex = -1; i.updatedAt = state.clock;
+      i.roomId = j.roomId; i.cell = cleanMapCell(f.origin); syncActorInventories(); syncPhysicalReadModels(); return true;
+    };
+    return hooks;
   }
   function fieldPorterContext(s, item = null, contact = false, destination = null) {
     // The arrival/default drop stays in the employment context. Only the
     // particular delivery's route/access may use a separate inspected tile.
     const c = fieldEmployeeContext(s, item, contact, fieldPorterSource, false), site = state.fieldStation?.site;
     const drop = destination?.cell || c.drop;
+    const crate = destination?.kind === 'crate' ? fieldPorterCrateContext(site, s.actor) : {};
     const known = !destination || (fieldPorterExcursion(s)?.porterStages || []).some(m => JSON.stringify(m) === JSON.stringify(destination));
-    return { ...c, destination, deliveryDrop: drop,
+    return { ...c, ...crate, retainedCargo: fieldPorterRetainedCargo(s).length > 0, destination, deliveryDrop: drop,
       deliveryDropLegal: Boolean(c.site && known && (destination ? FieldPorter.stageCurrent(destination, c)
-        && fieldPorterStageLegal(site, drop, s.actor) : c.dropLegal)),
+        && (destination.kind === 'crate' ? FieldPorter.crateCurrent(destination, { ...c, ...crate }) && crate.crateLegal
+          && (!item || crate.crateCapacity.massKg >= item.unitMassKg && crate.crateCapacity.volumeL >= item.unitVolumeL)
+          : fieldPorterStageLegal(site, drop, s.actor)) : c.dropLegal)),
       routeOk: Boolean(contact && c.site && drop && (item ? c.itemVisible && item.roomId === c.site.roomId
         && (mapCellDistance(s.actor.mapCell, item.cell) <= 1 && sensoryLineOfSight(s.actor.mapCell, item.cell) || fieldPorterNextStep(s, s.actor, item.cell))
         && (mapCellDistance(item.cell, drop) <= 1 && sensoryLineOfSight(item.cell, drop)
@@ -88139,8 +88187,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function fieldPorterAction(action, options = {}) {
     const e = foreignSurveyAtField(); if (!e || scientistIsDead()) return false;
-    if (action === 'markStage') {
-      const mark = FieldPorter.markStage(fieldPorterStageContext(), state.clock); if (!mark) return false;
+    if (action === 'markStage' || action === 'markCrate') {
+      const c = fieldPorterStageContext();
+      const mark = action === 'markCrate' ? FieldPorter.markCrate({ ...c, ...fieldPorterCrateContext(c.site, state.scientist) }, state.clock)
+        : FieldPorter.markStage(c, state.clock); if (!mark) return false;
       e.porterStages = [...(e.porterStages || []).filter(m => m.id !== mark.id), mark];
       e.porterStageSelection = mark.id; persist(); render(); return true;
     }
@@ -88161,6 +88211,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (action === 'settle') result = FieldPorter.settle(s, c, ensureEconomy(), state.clock);
     if (['cancel', 'withdraw'].includes(action) && c.near && !c.busy && FieldPorter.control(s, c)) result = action === 'withdraw'
       ? FieldPorter.withdraw(s, hooks, state.clock) : FieldPorter.stopJob(s, hooks, state.clock, 'Personally cancelled delivery.');
+    if (action === 'cargo' && c.near && !c.busy && c.alive && c.capable && c.originalBody && !c.custody && !c.incapacitated
+      && s.actor.status !== 'dead' && s.actor.id === s.contract?.actorId && s.actor.id === s.source.allocationId
+      && c.bodyEpoch === s.contract.bodyEpoch && ['awaitingSettlement', 'completed'].includes(s.phase) && c.atGround) {
+      const i = fieldPorterRetainedCargo(s).find(i => i.id === options.stackId && !i.reservedTaskId);
+      if (i && actorInventoryCanCarry('scientist', i, 1)) {
+        i.carriedBy = ''; const carried = carryPhysicalStack('scientist', i.id, 1);
+        if (carried) { (s.cargoHandbacks ||= []).push({ at: state.clock, stackId: i.id, actorId: s.actor.id, bodyEpoch: c.bodyEpoch }); result = true; }
+        else i.carriedBy = s.actor.id;
+      }
+    }
     const reserve = (i, claim) => {
       if (!i || i.quantity < 1 || i.reservedTaskId || i.carriedBy) return null;
       let slice = i;
@@ -88260,15 +88320,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (e?.porterDrop) panel.append(textEl('p', `Personally marked drop ${e.porterDrop.cell.x},${e.porterDrop.cell.y} at ${formatClock(e.porterDrop.at)}.`));
     const stageContext = fieldPorterStageContext();
     button('Inspect porter staging tile here', 'markStage', {}, !FieldPorter.markStage(stageContext, state.clock));
+    button('Inspect original station crate for porter deposits', 'markCrate', {},
+      !FieldPorter.markCrate({ ...stageContext, ...fieldPorterCrateContext(stageContext.site, state.scientist) }, state.clock));
     const destinations = document.createElement('select'); destinations.setAttribute('aria-label', 'Porter delivery staging destination');
     destinations.append(new Option('Original outdoor drop (default)', ''));
     for (const mark of e?.porterStages || []) {
-      const option = new Option(`Staging ${mark.cell.x},${mark.cell.y},${mark.cell.z} — inspected ${formatClock(mark.at)}`, mark.id);
+      const option = new Option(`${mark.kind === 'crate' ? `Original crate ${mark.fixtureId} via` : 'Staging'} ${mark.cell.x},${mark.cell.y},${mark.cell.z} — inspected ${formatClock(mark.at)}`, mark.id);
       option.disabled = !FieldPorter.stageCurrent(mark, stageContext); destinations.append(option);
     }
     destinations.value = e?.porterStageSelection || '';
     destinations.onchange = () => { e.porterStageSelection = destinations.value; persist(); render(); };
-    panel.append(textEl('p', 'Choose a destination for the next appended delivery. Staging marks are dated observations, not storage, promised supplies or current access. Step off the target before asking the porter to deliver there.'), destinations);
+    panel.append(textEl('p', 'Choose a destination for the next appended delivery. Crate deposits require separate exact acceptance and grant no withdrawals or general storage access. Marks are dated observations, not promised supplies or current access. Step off the work tile before delivery. Closed, blocked or full crates hold work within the same shift; changed crates require fresh consent. Cancelled crate cargo stays carried for personal handback after return.'), destinations);
     const selectedStage = (e?.porterStages || []).find(m => m.id === destinations.value) || null;
     if (!s) { panel.append(textEl('p', 'Meet the finite depot-backed worker at the defended ground, if a functioning local transport depot has an allocation.')); return panel; }
     s.markedDrop ||= clonePlainObject(e.porterDrop || null);
@@ -88287,7 +88349,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const last = view.issued.at(-1);
       panel.append(textEl('p', `Last personal delivery instruction: ${last.id}. Not a receipt or live progress.`));
       for (const [n, j] of (last.deliveries || [last]).entries()) panel.append(textEl('p',
-        `${n + 1}. Original source ${j.sourceId}, reserved unit ${j.stackId}, pickup ${j.pickup.x},${j.pickup.y} → drop ${j.drop.x},${j.drop.y}.`));
+        `${n + 1}. Original source ${j.sourceId}, reserved unit ${j.stackId}, pickup ${j.pickup.x},${j.pickup.y} → ${j.destination?.kind === 'crate' ? `original crate ${j.destination.fixtureId} via` : 'drop'} ${j.drop.x},${j.drop.y}.`));
     }
     if (view.received) panel.append(textEl('p', `${formatClock(view.received.at)} — received porter report: ${view.received.phase}; ${view.received.job?.status || 'no delivery'}; ${view.received.reason || 'original agreement'}. Dated, not live telemetry.`));
     if (view.received?.order) {
@@ -88300,7 +88362,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       panel.append(textEl('h5', `Inspected porter delivery order (${view.proposal.rows.length}/4)`),
         textEl('p', 'Not yet accepted or reserved. Each named unit travels separately; the original two-hour wage clock is unchanged. All sources must still be personally visible at acceptance.'));
       for (const [n, r] of view.proposal.rows.entries()) panel.append(textEl('p',
-        `${n + 1}. One ${resourceLabel(r.key)} from ${r.sourceId} (observed ${r.sourceQuantity}; ${r.unitMassKg} kg / ${r.unitVolumeL} L per unit), pickup ${r.pickup.x},${r.pickup.y} → drop ${r.drop.x},${r.drop.y},${r.drop.z}${r.destination ? ` (staging inspection ${formatClock(r.destination.at)})` : ' (original outdoor drop)'}; source inspected ${formatClock(r.inspectedAt)}. Provenance: ${r.sourceLabels.join(', ') || 'none recorded'}.`));
+        `${n + 1}. One ${resourceLabel(r.key)} from ${r.sourceId} (observed ${r.sourceQuantity}; ${r.unitMassKg} kg / ${r.unitVolumeL} L per unit), pickup ${r.pickup.x},${r.pickup.y} → drop ${r.drop.x},${r.drop.y},${r.drop.z}${r.destination ? ` (${r.destination.kind === 'crate' ? `deposit into original crate ${r.destination.fixtureId};` : 'staging'} inspection ${formatClock(r.destination.at)})` : ' (original outdoor drop)'}; source inspected ${formatClock(r.inspectedAt)}. Provenance: ${r.sourceLabels.join(', ') || 'none recorded'}.`));
       button('Remove last inspected porter delivery', 'remove', {}, !FieldPorter.canOrder(s, c, state.clock));
       button('Clear inspected porter delivery order', 'clear', {}, !FieldPorter.canOrder(s, c, state.clock));
       button('Accept exact bounded porter delivery order', 'acceptOrder', { expected: view.proposal }, !FieldPorter.canOrder(s, c, state.clock));
@@ -88309,13 +88371,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     button('Cancel porter delivery here', 'cancel', {}, !c.near || c.busy);
     button('Ask porter to withdraw', 'withdraw', {}, !c.near || c.busy);
     button('Settle returned porter shift here', 'settle', {}, !c.near || !c.atGround || c.busy);
+    if (c.near) for (const i of fieldPorterRetainedCargo(s)) button(`Collect retained porter cargo (${i.id})`, 'cargo', { stackId: i.id },
+      c.busy || !c.atGround || !['awaitingSettlement', 'completed'].includes(s.phase) || !actorInventoryCanCarry('scientist', i, 1));
     for (const key of ['drinkingWater', 'trailMeal']) button(`Give porter one ${inventoryItemLabel(key)}`, 'provision', { key }, !c.near || c.busy);
     if (c.near && FieldPorter.control(s, c)) for (const i of ensurePhysicalItemStacks().filter(i => ForeignEscortHauling.eligible(i) && !i.carriedBy && !i.reservedTaskId
       && i.roomId === scientistRoomId() && mapCellDistance(i.cell, scientistMapCell()) <= 5 && sensoryLineOfSight(scientistMapCell(), i.cell))) {
       const ic = fieldPorterContext(s, i, true, selectedStage);
       button(`Instruct porter: one ${physicalStackLabel(i)} (${i.id})`, 'assign', { stackId: i.id }, !ic.carryOk || s.job?.status === 'working');
       button(`Append porter delivery: one ${physicalStackLabel(i)} (${i.id})`, 'append', { stackId: i.id, stageId: selectedStage?.id },
-        !FieldPorter.canOrder(s, c, state.clock) || !ic.carryOk || !ic.deliveryDropLegal || !ic.routeOk || (view.proposal?.rows.length || 0) >= 4
+        !FieldPorter.canOrder(s, c, state.clock) || !ic.carryOk || !ic.deliveryDropLegal || !ic.routeOk || (selectedStage?.kind === 'crate' && !['stoneBlocks', 'lumber'].includes(i.key)) || (view.proposal?.rows.length || 0) >= 4
           || (view.proposal?.rows.filter(r => r.sourceId === i.id).length || 0) >= i.quantity);
     }
     renderFieldEmployeeRecovery(panel, s);

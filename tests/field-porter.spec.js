@@ -336,3 +336,89 @@ test('runtime access is per delivery, not the old apron or a later edited mark; 
     expect(f.deposited).toBe(0); expect(f.item.quantity).toBe(1); if (budget) expect(f.s.phase).toBe('returning');
   }
 });
+
+function crateDestination(f) {
+  const c = { ...stagingContext(f), crateLegal: true,
+    crate: { fixtureId: 'original-crate', installedAt: 0, installationKey: 'original-installation', fixtureCell: cell(26), cell: cell(27) },
+    crateCapacity: { massKg: 250, volumeL: 300 } };
+  const mark = Porter.markCrate(c, f.now); expect(mark).toBeTruthy();
+  return { ...c, site: f.c.site, destination: mark, deliveryDrop: mark.cell, deliveryDropLegal: true };
+}
+test('crate inspection binds the personally reached original installation and access tile, not arbitrary storage authority', () => {
+  const f = fixture(), c = crateDestination(f);
+  expect(c.destination).toMatchObject({ kind: 'crate', fixtureId: 'original-crate', installedAt: 0, installationKey: 'original-installation' });
+  for (const wrong of [{ crateLegal: false }, { busy: true }, { local: false }, { custody: true }, { alive: false },
+    { originalBody: false }, { cell: cell(28) }, { crate: null }, { visitId: '' }])
+    expect(Porter.markCrate({ ...c, site: stagingContext(f).site, ...wrong }, 1), JSON.stringify(wrong)).toBeNull();
+  for (const wrong of [{ fixtureId: 'replacement' }, { installedAt: 2 }, { installationKey: 'reconstructed' }, { cell: cell(28) }, { fixtureCell: cell(25) }])
+    expect(Porter.crateCurrent(c.destination, { ...c, crate: { ...c.crate, ...wrong } })).toBe(false);
+});
+test('crate orders require separate exact consent and the whole list must fit before any source is reserved', () => {
+  const f = fixture(); onsite(f); const c = crateDestination(f);
+  expect(Porter.assign(f.s, c, f.item, f.now, f.reserve)).toBe(false);
+  for (let n = 0; n < 2; n++) expect(Porter.append(f.s, c, f.item, f.now)).toBe(true);
+  for (const crateCapacity of [{ massKg: 15, volumeL: 300 }, { massKg: 250, volumeL: 9 }, { massKg: NaN, volumeL: 300 }]) {
+    expect(acceptOrder(f, copy(f.s.proposal), [{ ...c, crateCapacity }, { ...c, crateCapacity }])).toBe(false);
+    expect(f.item.quantity).toBe(2); expect(f.stacks).toHaveLength(1);
+  }
+  expect(acceptOrder(f, { ...copy(f.s.proposal), rows: [] }, [c, c])).toBe(false);
+  expect(acceptOrder(f, copy(f.s.proposal), [c, c])).toBe(true);
+  expect(f.s.job.destination).toEqual(c.destination); expect(f.s.issued.at(-1).deliveries[0].destination).toEqual(c.destination);
+});
+test('crate orders exclude logs and reject substituted or changed original destinations without claims or payment', () => {
+  const f = fixture(); onsite(f); const c = crateDestination(f);
+  expect(Porter.append(f.s, c, { ...f.item, key: 'fieldLog' }, f.now)).toBe(false);
+  expect(Porter.append(f.s, c, f.item, f.now)).toBe(true);
+  for (const wrong of [{ crate: { ...c.crate, fixtureId: 'replacement' } }, { deliveryDropLegal: false }, { routeOk: false },
+    { destination: { ...c.destination, installedAt: 9 } }, { deliveryDrop: cell(28) }]) {
+    expect(acceptOrder(f, copy(f.s.proposal), [{ ...c, ...wrong }])).toBe(false);
+    expect(f.item.quantity).toBe(2); expect(f.wallet.money).toBe(36);
+  }
+});
+test('closed full or blocked crates pause attended work across saves without skipping or resetting the original wage clock', () => {
+  const f = fixture(); onsite(f); const c = crateDestination(f), start = f.s.contract.startedAt;
+  expect(Porter.append(f.s, c, f.item, f.now)).toBe(true); expect(Porter.append(f.s, f.c, f.item, f.now)).toBe(true);
+  expect(acceptOrder(f, copy(f.s.proposal), [c, {}])).toBe(true);
+  f.hooks.dropLegal = () => true; while (f.s.job.phase !== 'unload' || f.s.job.progress < 2) tick(f);
+  const progress = f.s.job.progress, carried = f.s.job.stackId; f.hooks.dropLegal = () => false;
+  tick(f, 90); Object.assign(f.s, copy(f.s)); f.stacks = copy(f.stacks); tick(f, 30);
+  expect(f.s.job.progress).toBe(progress); expect(f.s.deliveryOrder.index).toBe(0); expect(f.deposited).toBe(0);
+  expect(f.stacks.find(i => i.id === carried).carriedBy).toBe(f.s.actor.id);
+  f.hooks.dropLegal = () => true; tick(f); expect(f.s.job.progress).toBe(progress);
+  tick(f, 100); expect(f.deposited).toBe(2); expect(f.s.contract.startedAt).toBe(start); expect(f.wallet.money).toBe(36);
+});
+test('changed current or future crates force fresh consent even during care and retain actual carried custody', () => {
+  for (const future of [false, true]) {
+    const f = fixture(); onsite(f); const c = crateDestination(f);
+    for (const ic of future ? [f.c, c] : [c, f.c]) expect(Porter.append(f.s, ic, f.item, f.now)).toBe(true);
+    expect(acceptOrder(f, copy(f.s.proposal), future ? [{}, c] : [c, {}])).toBe(true);
+    while (f.s.job.phase !== 'delivery') tick(f);
+    const j = f.s.job; f.c.care = true; f.hooks.destinationCurrent = job => job.destination?.kind !== 'crate'; tick(f);
+    expect(f.s.phase).toBe('returning'); expect(f.s.deliveryOrder.status).toBe('interrupted');
+    expect(f.s.contract.reason).toContain('fresh inspection'); expect(f.deposited).toBe(0);
+    expect(f.stacks.every(i => !i.reservedTaskId)).toBe(true);
+    expect(f.stacks.find(i => i.id === j.stackId).carriedBy).toBe(future ? '' : f.s.actor.id);
+  }
+});
+test('cancelled crate cargo is never dumped and danger or expiry cannot fabricate deposits or new shift credit', () => {
+  for (const why of ['cancel', 'danger', 'budget', 'death']) {
+    const f = fixture(); onsite(f); const c = crateDestination(f);
+    expect(Porter.append(f.s, c, f.item, f.now)).toBe(true); expect(acceptOrder(f, copy(f.s.proposal), [c])).toBe(true);
+    while (f.s.job.phase !== 'delivery') tick(f); const id = f.s.job.stackId;
+    if (why === 'cancel') expect(Porter.stopJob(f.s, f.hooks, f.now, 'Cancelled')).toBe(true);
+    else {
+      if (why === 'danger') f.c.threatened = true;
+      if (why === 'budget') f.now = f.s.contract.startedAt + Porter.SHIFT - 1;
+      if (why === 'death') { f.s.actor.status = 'dead'; f.c.incapacitated = true; }
+      tick(f);
+    }
+    expect(f.stacks.find(i => i.id === id)).toMatchObject({ carriedBy: f.s.actor.id, reservedTaskId: '' });
+    expect(f.stacks.find(i => i.id === id).fixtureId).toBeFalsy();
+    expect(f.deposited).toBe(0); expect(f.item.quantity).toBe(1);
+  }
+});
+test('retained crate cargo blocks a new engagement after return but does not prevent the original physical settlement', () => {
+  const f = fixture(); onsite(f); Porter.withdraw(f.s, f.hooks, f.now); tick(f, 30); f.c.retainedCargo = true;
+  expect(Porter.settle(f.s, f.c, f.wallet, f.now)).toBe(true);
+  expect(Porter.review(f.s, f.c, f.now)).toBeNull(); expect(f.s.reply.reason).toContain('retained crate cargo');
+});
