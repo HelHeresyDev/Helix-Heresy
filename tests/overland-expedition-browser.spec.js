@@ -82,13 +82,16 @@ test('DOM on-foot arrival creates no vehicle, preserves changed ground through r
   }, home.cell);
   await advance(page, 12000); s = await snapshot(page);
   expect(s.saved.trip).toMatchObject({ status: 'stopped', positionKm: 0 }); expect(s.saved.trip.reason).toContain('receiving point');
-  expect(s.roomId).toBe('overlandApproachPosition'); expect(s.saved.history).toHaveLength(1); await reload(page);
+  expect(s.roomId).toBe(s.stop.roomId); expect(s.saved.history).toHaveLength(1); await reload(page);
   await page.evaluate(cell => { const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState();
     s.labMap.terrain.constructedWalls = s.labMap.terrain.constructedWalls.filter(w => !['x', 'y', 'z'].every(k => w.cell[k] === cell[k]));
     d.importSurveyExpeditionTestState(s);
   }, home.cell);
   expect(await act(page, 'resume')).toBe(true); await advance(page, 2); expect((await snapshot(page)).roomId).toBe(home.roomId);
-  await depart(page); await advance(page, 12000); s = await snapshot(page); expect(s.roomId).toBe('supportedSurveyGround');
+  await depart(page); await advance(page, 12000); s = await snapshot(page);
+  // The previously visited roadside position now pauses a later physical passage.
+  if (s.stop && s.saved.trip.positionKm < s.saved.route.distanceKm) { expect(await act(page, 'resume')).toBe(true); await advance(page, 12000); }
+  s = await snapshot(page); expect(s.roomId).toBe('supportedSurveyGround');
   const retained = await page.evaluate(id => { const s = window.helixHeresyDebug.exportSurveyExpeditionTestState(); return {
     baseline: s.surveyExpeditions.discovery.baseline, permission: s.surveyExpeditions.discovery.access,
     item: s.physicalItemStacks.find(i => i.id === id), carrier: s.surveyExpeditions.carrier, valid: window.helixHeresyDebug.validateMapScene() }; }, ground.item);

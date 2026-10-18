@@ -65,24 +65,33 @@
     for (; s.trip.lastAt + 1 <= at; ) {
       const t = s.trip, walking = t.status === 'walking' && c.capable && !c.busy && c.routeOpen && c.speedKph > 0;
       if (t.status === 'walking') t.reason = !c.capable ? 'The scientist cannot currently walk.' : !c.routeOpen ? 'The received approach is not currently traversable.' : c.busy ? 'Other physically attended work pauses walking.' : '';
+      const halted = c.playableStops && t.status === 'walking' && (!c.capable || !c.routeOpen);
+      if (halted) t.status = 'stopped';
+      let reachedStop = false;
       if (walking) {
+        const nextStop = (c.stopPositions || []).filter(p => Number.isFinite(p) && p >= 0 && p <= s.route.distanceKm
+          && (p - t.positionKm) * t.direction > 1e-9).sort((a, b) => (a - b) * t.direction)[0];
         let budget = c.speedKph / Survival.fatigueMultiplier(result.needs) / 3600;
         // Spend a one-second distance budget over exact terrain boundaries.
         while (budget > 1e-12) {
           let edge = t.direction > 0 ? s.route.distanceKm : 0, end = 0;
           for (const l of s.route.legs) { end += l.distanceKm; if (t.direction > 0 && end > t.positionKm + 1e-9) { edge = end; break; }
             if (t.direction < 0 && end < t.positionKm - 1e-9) edge = end; }
+          if (nextStop != null && (edge - nextStop) * t.direction >= 0) edge = nextStop;
           const factor = terrainFactor(s), distance = Math.min(Math.abs(edge - t.positionKm), budget / factor);
           if (distance <= 1e-12) break;
           t.positionKm = Math.max(0, Math.min(s.route.distanceKm, t.positionKm + t.direction * distance));
           t.walkedKm += distance; budget -= distance * factor;
+          if (nextStop != null && Math.abs(t.positionKm - nextStop) < 1e-9) { t.positionKm = nextStop; reachedStop = true; break; }
         }
         t.walkingSeconds++;
       }
       const n = Survival.advance(result.needs, t.lastAt + 1, { working: walking || c.busy && !c.resting, resting: c.resting,
-        destination: c.weather || null, sheltered: false, carriedRadioIds: c.carriedRadioIds || [] });
+        destination: c.weather || null, sheltered: !walking && Boolean(c.sheltered), carriedRadioIds: c.carriedRadioIds || [] });
       result.needs = n.state; result.damage += n.damage; result.warning ||= n.warning; t.lastAt++;
       if (c.health != null && result.damage >= c.health) { t.status = 'stopped'; t.reason = 'Physiological failure stopped walking.'; break; }
+      if (reachedStop) { t.status = 'stopped'; t.reason = 'Reached previously visited roadside ground. Resume explicitly from its physical route entry.'; break; }
+      if (halted) break;
       const endpoint = t.direction > 0 ? 'ground' : 'home', reached = t.direction > 0 ? t.positionKm >= s.route.distanceKm - 1e-9 : t.positionKm <= 1e-9;
       if (reached && walking) {
         t.positionKm = t.direction > 0 ? s.route.distanceKm : 0;
