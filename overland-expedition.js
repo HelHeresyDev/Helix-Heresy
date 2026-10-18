@@ -90,7 +90,7 @@
         destination: c.weather || null, sheltered: !walking && Boolean(c.sheltered), carriedRadioIds: c.carriedRadioIds || [] });
       result.needs = n.state; result.damage += n.damage; result.warning ||= n.warning; t.lastAt++;
       if (c.health != null && result.damage >= c.health) { t.status = 'stopped'; t.reason = 'Physiological failure stopped walking.'; break; }
-      if (reachedStop) { t.status = 'stopped'; t.reason = 'Reached previously visited roadside ground. Resume explicitly from its physical route entry.'; break; }
+      if (reachedStop) { t.status = 'stopped'; t.reason = 'Reached a route stopping point. Continue on actual roadside ground and resume explicitly from its physical entry.'; break; }
       if (halted) break;
       const endpoint = t.direction > 0 ? 'ground' : 'home', reached = t.direction > 0 ? t.positionKm >= s.route.distanceKm - 1e-9 : t.positionKm <= 1e-9;
       if (reached && walking) {
