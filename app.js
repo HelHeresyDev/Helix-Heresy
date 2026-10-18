@@ -146,6 +146,7 @@
   const RunStrategicConditions = window.HelixRunStrategicConditions;
   const ExpansionAtlas = window.HelixExpansionAtlas;
   const LocalPatchGraph = window.HelixLocalPatchGraph;
+  const OverlandExpedition = window.HelixOverlandExpedition;
   const MunicipalCargoRecovery = window.HelixMunicipalCargoRecovery;
   const TemporaryMaintenance = window.HelixTemporaryMaintenanceCommission;
   const PublicWorksAppointments = window.HelixPublicWorksAppointments;
@@ -5527,6 +5528,8 @@
       civicFoothold: null,
       runStrategicConditions: null,
       expansionAtlas: null,
+      overlandExpedition: null,
+      overlandApproach: null,
       cityAppointmentsKnowledge: null,
       confidentialServices: null,
       confidentialServiceKnowledge: null,
@@ -13653,6 +13656,22 @@
         serviceReason: RunStrategicConditions.serviceReason(state.runStrategicConditions, strategicCounterBinding()), clock: state.clock }),
       expansionAtlasSnapshot: () => clonePlainObject(currentExpansionAtlas()),
       expansionAtlasAction,
+      overlandAction,
+      overlandSnapshot: () => clonePlainObject({ saved: state.overlandExpedition, approach: state.overlandApproach,
+        route: overlandRoute(), reason: overlandDepartureReason(), clock: state.clock, cell: scientistMapCell(), roomId: scientistRoomId(),
+        needs: state.wildernessSurvival, stacks: surveyCarriedStacks(), tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) }),
+      advanceOverlandForTest: seconds => {
+        // Isolate this consumer from unrelated lab/city work. The route model still
+        // integrates every survival second; real play uses the full simulation below.
+        for (let remaining = Math.max(0, seconds); remaining > 0 && !scientistIsDead();) {
+          const wasRoad = overlandOnRoad(), status = state.overlandExpedition?.trip.status,
+            step = wasRoad ? overlandClockStep(remaining, 300) : Math.min(remaining, 1);
+          state.clock += step; remaining -= step;
+          updateWildernessNeeds(); updateScientistMovementTask(); completeDueTasks(); updateSurveyExpedition();
+          if (wasRoad && (!overlandOnRoad() || state.overlandExpedition.trip.status !== status)) break;
+        }
+        syncActorInventories(); persist(); render();
+      },
       localServicesSnapshot: () => clonePlainObject({ service: state.localServices, known: state.localServiceKnowledge,
         channelReason: localServiceChannelReason(), samples: ensureDiagnosticState().samples,
         tasks: state.tasks.filter(task => ["commodityFreight", "physicalDiagnostic"].includes(task.type)),
@@ -19702,6 +19721,8 @@
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.expansionAtlas = ExpansionAtlas.rebind(importedState.expansionAtlas,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.overlandExpedition = OverlandExpedition.rebind(importedState.overlandExpedition,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     const importedRun = WorldRunLibrary.createRun({
       ...candidate.run,
       id: importedRunId,
@@ -23406,6 +23427,17 @@
     if (scientistIsDead()) return 0;
     const advanceStartedAt = performance.now();
     const elapsed = Math.max(0, Number(seconds) || 0);
+    if (overlandOnRoad() && !options.overlandStep && elapsed > 0) {
+      let left = elapsed, changed = 0;
+      while (left > 0 && overlandOnRoad() && !scientistIsDead()) {
+        const status = state.overlandExpedition.trip.status, reason = state.overlandExpedition.trip.reason, band = ensureWildernessSurvival().warningBand;
+        const step = overlandClockStep(left), before = state.clock;
+        changed += advanceTime(step, { ...options, overlandStep: true }); left -= state.clock - before;
+        if (state.clock <= before || !overlandOnRoad() || state.overlandExpedition.trip.status !== status
+          || state.overlandExpedition.trip.reason !== reason || ensureWildernessSurvival().warningBand > band) break;
+      }
+      return changed;
+    }
     if (!options.porterStep && elapsed > 1 && fieldEmployeeStates().some(s => ['arriving', 'onSite', 'returning'].includes(s.phase))) {
       let left = elapsed, changed = 0;
       while (left > 0 && !scientistIsDead()) {
@@ -33871,6 +33903,7 @@
   }
 
   function dropActorInventoryStack(actorId, stackId, options = {}) {
+    if (actorId === 'scientist' && overlandOnRoad() && !scientistIsDead()) return null; // Loose road-site custody needs a real stopping-site consumer.
     const id = normalizeActorInventoryOwnerId(actorId);
     const stack = ensurePhysicalItemStacks().find((entry) => entry.id === stackId && entry.carriedBy === id);
     const location = actorInventoryLocation(id);
@@ -55367,6 +55400,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function scientistMoveBlockReason(toRoomId, options = {}) {
+    if (overlandOnRoad()) return 'Remain at the saved overland route position; use walking, stop, resume or reverse controls.';
     if (annexAway() && state.leasedAnnex.trip) return "Remain on the municipal walking route; use its pause, resume or turn-back controls.";
     if (localPrisonRescueOccupied()) return 'Remain in the occupied rescue vehicle until the physical journey finishes.';
     if (localPrisonRecord()?.p.escape?.restrained) return 'Physical local prison restraints require an escorted return.';
@@ -79135,6 +79169,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (foothold?.worldId === activeWorldRecord?.id) for (const r of foothold.recognition) add(citySite(foothold.cityId), {
       id: r.id, category: 'rights', subject: 'received civic claim', sourceId: r.sourceId, source: r.source, sourceAt: r.at, receivedAt: r.at,
       text: r.text, coverage: 'Historical scoped civic recognition only; no land ownership or enforceable city control inferred' });
+    const walk = OverlandExpedition.normalize(state.overlandExpedition);
+    if (walk?.worldId === activeWorldRecord?.id && walk.runId === activeRunRecord?.id) for (const r of walk.history.filter(r => r.endpoint !== 'interrupted')) {
+      const site = r.endpoint === 'home' ? rows.find(r => r.site.kind === 'home')?.site
+        : localSite({ ...e?.destination, id: walk.route.groundId }, 'survey');
+      if (site) add(site, { id: `${r.id}:arrival`, category: 'route', subject: 'personally completed measured walk',
+        sourceId: r.id, source: 'Scientist physical overland arrival', sourceAt: r.at, receivedAt: r.at,
+        text: `Walked ${r.walkedKm.toFixed(3)} km in ${Math.round(r.walkingSeconds)} walking seconds before this ${r.endpoint} arrival. Original approach source: ${walk.route.sourceId}.`,
+        coverage: 'This received local approach and actual arrival only; no surrounding map, fresh remote safety or wider access' });
+    }
     return rows;
   }
   function updateExpansionAtlas() {
@@ -89931,7 +89974,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const task = firstScientistQueueTask(), trip = state.leasedAnnex?.trip;
     const walking = trip && !trip.paused && !trip.reason && !surveyBusy() && annexCapable();
     const working = Boolean(walking || task && task.type !== "rest" && !taskBlockReason(task));
-    const result = WildernessSurvival.advance(before, state.clock, { working, resting: clinicActive() || task?.type === "rest", destination: scientistInWilderness() ? activeWildernessSite().destination : null, sheltered: wildernessSheltered(), carriedRadioIds: surveyCarriedStacks().map((stack) => stack.id) });
+    const result = overlandOnRoad() ? advanceOverlandWithNeeds(before)
+      : WildernessSurvival.advance(before, state.clock, { working, resting: clinicActive() || task?.type === "rest", destination: scientistInWilderness() ? activeWildernessSite().destination : null, sheltered: wildernessSheltered(), carriedRadioIds: surveyCarriedStacks().map((stack) => stack.id) });
     state.wildernessSurvival = result.state;
     if (result.warning) { surveyEvent("Field Survival warning: thirst, hunger, exertion, or exposure is worsening. Reach supplies, rest, shelter, or withdraw before the condition becomes critical."); state.paused = true; }
     if (result.damage) {
@@ -89942,6 +89986,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     // Existing custodial meal routines supply their physically present detainee; never use remote lab stock.
     const stay = restrictedOffsiteStay();
     if (stay && /meal|breakfast|lunch|dinner/i.test(stay.routine?.currentLabel || "")) state.wildernessSurvival = WildernessSurvival.consume(result.state, "fieldRation");
+    if (overlandOnRoad() && result.state.autoCare && state.overlandExpedition.trip.status === 'walking'
+      && (result.state.thirst >= 40 || result.state.hunger >= 40)) {
+      state.overlandExpedition = OverlandExpedition.control(state.overlandExpedition, 'stop', state.clock);
+      state.paused = true; surveyEvent('Automatic care stopped at the actual road position. Food or water still requires a real carried supply and attended consumption; resume walking explicitly.');
+    }
     if (result.state.autoCare && !surveyBusy() && !state.tasks.some((entry) => entry.type === "surveyExpeditionWork" && entry.data?.action === "consume") && !stay && !state.surveyExpeditions?.preparing) {
       if (result.state.thirst >= 40) queueSurvivalConsumption("drinkingWater");
       else if (result.state.hunger >= 40) queueSurvivalConsumption("trailMeal");
@@ -92976,6 +93025,172 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
 
+  function overlandOnRoad() {
+    return OverlandExpedition.active(state?.overlandExpedition) && Boolean(state?.overlandApproach?.road)
+      && scientistRoomId() === state.overlandApproach.road.roomId;
+  }
+  function overlandRoute() {
+    const e = state.surveyExpeditions, n = state.strategicJourneys;
+    return OverlandExpedition.routePlan(n?.destinations.find(d => d.id === n.homeDestinationId), e?.destination, e?.discovery);
+  }
+  function overlandHomePoint() {
+    const roomId = roomById(SURFACE_RECEPTION_ROOM_ID) ? SURFACE_RECEPTION_ROOM_ID : CONCEALED_EXIT_ROOM_ID;
+    return { roomId, cell: labMapRoomAnchor(roomId) };
+  }
+  function municipalVehicleRelayPresent() {
+    const e = state.surveyExpeditions, c = e?.carrier;
+    return Boolean(c?.contract && !c.contract.returnToBase && !c.journeyId && c.location === (e.phase === 'field' ? 'field' : 'laboratory'));
+  }
+  function overlandArrivalReason(endpoint) {
+    const e = state.surveyExpeditions, point = endpoint === 'home' ? state.overlandApproach?.home || overlandHomePoint()
+      : { roomId: SurveyExpeditions.FIELD_ROOM, cell: SurveyExpeditions.RENDEZVOUS };
+    if (endpoint === 'ground' && !e?.discovery?.access.active) return 'Municipal access is withdrawn. Stop outside the ground; no entry or replacement permission.';
+    if (endpoint === 'ground' && !e?.materialized) return '';
+    if (!point || !roomById(point.roomId) || !labMapCellHasFloor(point.cell) || !labMapCellIsWalkable(point.cell)
+      || !canActorOccupyTile(state.scientist, point.cell)) return 'The original receiving point is physically unavailable; remain at the actual road endpoint.';
+    if (endpoint === 'home' && point.roomId === SURFACE_RECEPTION_ROOM_ID) {
+      const door = ensureLabMap().doors['door-surface-front'], live = door && doorFixtureState(door);
+      if (!door || !live || !doorFixtureAllowsPassage(door, { ignoreDoors: true })) return 'The original laboratory public gate is impassable.';
+      return doorFixtureSecurityBlockReason(door) || actorDoorAccessBlockReason(state.scientist, live, door.id) || actorAccessCellBlockReason(state.scientist, point.cell) || '';
+    }
+    return actorAccessCellBlockReason(state.scientist, point.cell) || '';
+  }
+  function overlandDepartureReason(working = false) {
+    const e = state.surveyExpeditions;
+    if (!activeWorldRecord || !activeRunRecord || !annexCapable()) return 'The original scientist must be alive, capable and free to depart.';
+    if (overlandOnRoad()) return 'Already on the measured route; stop, resume or reverse from the actual saved position.';
+    if (!overlandRoute()) return 'A known local approach, recorded distances and received municipal visit directions are required; a city listing supplies no route.';
+    if (passengerAway() || annexAway() || unsupportedActive() || currentPenalFlight() || state.penalFlights?.fieldActive
+      || !['home', 'field'].includes(e?.phase) || e.phase === 'field' && scientistRoomId() !== SurveyExpeditions.FIELD_ROOM)
+      return 'Physically attend the original laboratory or its municipal ground, not another site, vehicle or wilderness patch.';
+    if (!working && surveyBusy() || escortContractActive() || clinicActive() || rescueMissionActive() || state.scientistIdentity?.job
+      || state.sovereignBargains?.job || e.mapService?.job || state.intercityPassenger?.booking || state.combat?.routineSuspension)
+      return 'Finish conflicting work or personally settle the existing escort agreement first; no companion scope or transport seat is added.';
+    if (e.phase === 'home' && !e.discovery?.access.active) return 'The received municipal directions remain known, but current entry permission is withdrawn.';
+    return '';
+  }
+  function materializeOverlandRoad() {
+    const a = state.overlandApproach ||= {};
+    if (a.road && roomById(a.road.roomId) && ensureLabMap().rooms[a.road.roomId]) return;
+    const z = Math.max(20, ...Object.keys(ensureLabMap().layers).map(Number).filter(Number.isFinite)) + 1;
+    const roomId = 'overlandApproachPosition', cell = { x: 10, y: 10, z };
+    const room = normalizeRoom({ id: roomId, name: 'Actual Overland Route Position', facilityClass: 'overlandApproach', purposeId: 'corridor', connections: [],
+      description: 'A saved position on the measured walking route, not a camp, shelter, terrain survey, vehicle or endpoint. See Visits for actual distance and controls.',
+      geometry: { lengthM: 1, widthM: 1, heightM: 3, floorAreaM2: 1, volumeM3: 3 } });
+    state.rooms = normalizeRooms([...state.rooms, room]); const map = ensureLabMap();
+    map.layers[String(z)] = { id: roomId, kind: 'surface', label: 'Overland route position' };
+    map.rooms[roomId] = normalizeLabMapRoom({ roomId, ...cell, width: 1, height: 1, cells: [cell], anchor: cell }, room);
+    map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, cell]);
+    map.terrain.surfaceGround = [...(map.terrain.surfaceGround || []), { cell, terrainId: 'soil' }];
+    state.roomStockpiles[roomId] = emptyRoomStockpile(); a.road = { roomId, cell }; bumpNavigationRevision('topology');
+  }
+  function completeOverlandDeparture(task) {
+    if (overlandDepartureReason(true) || task.data.bodyEpoch !== ensureScientistIdentity().bodyEpoch || !sameMapCell(scientistMapCell(), task.data.toCell)) return;
+    const e = ensureSurveyExpeditions(), endpoint = e.phase === 'home' ? 'home' : 'ground', route = overlandRoute();
+    const next = OverlandExpedition.begin(state.overlandExpedition, route, { worldId: activeWorldRecord.id, runId: activeRunRecord.id }, endpoint, state.clock, task.data.bodyEpoch);
+    if (!next) return;
+    updateWildernessNeeds();
+    state.overlandApproach ||= {};
+    state.overlandApproach.home = overlandHomePoint();
+    state.overlandApproach.homeContext = clonePlainObject(e.homeContext || ensureResourceSurveys().context);
+    const env = state.localSiteContext?.environment;
+    state.overlandApproach.weather = { temperatureC: Number.isFinite(env?.meanTemperatureC) ? env.meanTemperatureC : 18, precipitationMm: env?.precipitationMm || 0 };
+    state.overlandExpedition = next; materializeOverlandRoad();
+    if (endpoint === 'home') {
+      e.departure = clonePlainObject(state.overlandApproach.home); e.homeContext = clonePlainObject(state.overlandApproach.homeContext);
+      e.tripNumber++; e.departedAt = state.clock; e.manifest = surveyCarriedStacks().map(s => ({ stackId: s.id, key: s.key, quantity: s.quantity, toolInstanceId: s.toolInstanceId }));
+      e.headerSnapshot = { storage: dom.storageReadout.textContent, waste: dom.wasteReadout.textContent, suspicion: dom.suspicionReadout.textContent };
+    }
+    e.phase = endpoint === 'home' ? 'outbound' : 'inbound'; e.preparing = false; e.journeyId = ''; e.arrivalMode = 'onFoot';
+    moveSurveyScientist(state.overlandApproach.road.roomId, state.overlandApproach.road.cell);
+    surveyEvent(`Started the received ${formatDecimal(route.distanceKm, 2)}-km approach on foot. No fare, vehicle, companion, provision or new permission was supplied.`);
+    state.paused = true;
+  }
+  function overlandClockStep(remaining, maxStep = 10) {
+    const s = state.overlandExpedition, t = s?.trip, needs = state.wildernessSurvival;
+    if (!t) return Math.min(remaining, 1);
+    const distance = t.direction > 0 ? s.route.distanceKm - t.positionKm : t.positionKm;
+    const pace = scientistMoveSpeedMps() / 1000;
+    const critical = Math.max(needs?.thirst || 0, needs?.hunger || 0, needs?.exposure || 0) >= 85;
+    const taskAt = scientistQueueTasks().find(task => !taskBlockReason(task) && task.dueAt > state.clock)?.dueAt || Infinity;
+    return Math.min(remaining, critical ? 1 : maxStep, Math.max(.01, taskAt - state.clock),
+      t.status === 'walking' ? Math.max(1, Math.floor(distance / Math.max(.00001, pace))) : maxStep);
+  }
+  function advanceOverlandWithNeeds(needs) {
+    const e = state.surveyExpeditions, n = state.strategicJourneys, route = overlandRoute(), task = firstScientistQueueTask();
+    const result = OverlandExpedition.advance(state.overlandExpedition, needs, state.clock, {
+      alive: !scientistIsDead(), capable: annexCapable(), atRoad: overlandOnRoad(), bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      busy: Boolean(task && !taskBlockReason(task)), resting: task?.type === 'rest' && !taskBlockReason(task), speedKph: scientistMoveSpeedMps() * 3.6 * WildernessSurvival.fatigueMultiplier(needs),
+      routeOpen: Boolean(route && route.id === state.overlandExpedition.route.id && n?.destinations.find(d => d.id === n.homeDestinationId)),
+      arrivalReasons: { home: overlandArrivalReason('home'), ground: overlandArrivalReason('ground') },
+      weather: state.overlandApproach.weather, carriedRadioIds: surveyCarriedStacks().map(s => s.id), health: scientistVital('health').current });
+    state.overlandExpedition = result.state;
+    if (result.arrived) {
+      if (result.state.trip.direction > 0) {
+        materializeSurveySpaces({ groundOnly: true }); e.phase = 'field'; e.visits++; e.fieldArrivedAt = result.state.trip.arrivedAt;
+        useSurveyContext(e.fieldContext); moveSurveyScientist(SurveyExpeditions.FIELD_ROOM, SurveyExpeditions.RENDEZVOUS);
+      } else {
+        e.phase = 'home'; e.returnedAt = result.state.trip.arrivedAt;
+        useSurveyContext(state.overlandApproach.homeContext); moveSurveyScientist(state.overlandApproach.home.roomId, state.overlandApproach.home.cell);
+      }
+      surveyEvent('Physically completed the measured walk with the original body and remaining carried goods. Existing ground, people, permissions and carrier assignments are unchanged.');
+      state.paused = true; markStateDirty();
+    }
+    return { state: result.needs, damage: result.damage, warning: result.warning };
+  }
+  function overlandAction(action) {
+    if (scientistIsDead() || !annexCapable()) return false;
+    let ok = false;
+    if (action === 'depart') {
+      ensureSurveyExpeditions(); if (overlandDepartureReason()) return false;
+      const point = state.surveyExpeditions.phase === 'home' ? overlandHomePoint() : { roomId: SurveyExpeditions.FIELD_ROOM, cell: SurveyExpeditions.RENDEZVOUS };
+      if (!window.confirm(`Walk the received ${formatDecimal(overlandRoute().distanceKm, 2)}-km approach on foot? Time, load, terrain, wounds and actual supplies matter. Missing gear is a warning, not a checklist. No new map, vehicle, escort, shelter, rescue or permission.\n${WildernessSurvival.warnings(surveyCarriedStacks()).join('\n')}`)) return false;
+      ok = Boolean(queueSurveyWork('overlandDepart', point.cell, { bodyEpoch: ensureScientistIdentity().bodyEpoch, workSeconds: 1, label: 'Walk to the existing overland departure point' }));
+    } else if (overlandOnRoad() && !surveyBusy()) {
+      updateWildernessNeeds();
+      if (!overlandOnRoad()) return false;
+      if (['stop', 'resume', 'reverse'].includes(action)) {
+        state.overlandExpedition = OverlandExpedition.control(state.overlandExpedition, action, state.clock);
+        state.surveyExpeditions.phase = state.overlandExpedition.trip.direction > 0 ? 'outbound' : 'inbound'; ok = true;
+      } else if (['water', 'meal', 'rest'].includes(action)) {
+        state.overlandExpedition = OverlandExpedition.control(state.overlandExpedition, 'stop', state.clock);
+        if (action === 'rest') { const count = state.tasks.length; createRestTask(15); ok = state.tasks.length > count; }
+        else ok = Boolean(queueSurvivalConsumption(action === 'water' ? 'drinkingWater' : 'trailMeal'));
+      }
+    }
+    if (ok) { persist(); render(); } return ok;
+  }
+  function renderOverlandExpedition() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.overlandExpedition = 'true';
+    panel.append(textEl('h3', 'Measured Overland Walk'));
+    const road = overlandOnRoad(), route = road ? state.overlandExpedition.route : overlandRoute(), t = state.overlandExpedition?.trip;
+    const button = (label, action, disabled = false) => { const b = document.createElement('button'); b.textContent = label;
+      b.disabled = Boolean(disabled || scientistIsDead() || !annexCapable()); b.onclick = () => overlandAction(action); panel.append(b); };
+    panel.append(textEl('p', 'Solo on-foot travel over the existing local approach, not a planet-scale hex crossing or a safe camp. Regional encounters and stopping-site terrain remain separate work; silence is not proof of safety.'));
+    if (!route) { panel.append(textEl('p', 'No usable received approach directions and published local distances. A city listing alone supplies no walking route.')); return panel; }
+    panel.append(textEl('p', `${route.label}: ${formatDecimal(route.distanceKm, 2)} km. Source: ${route.source} (${route.sourceId}), received ${formatClock(route.sourceAt)}. ${route.directions} No detailed surrounding map or mineral survey follows.`));
+    const pace = scientistMoveSpeedMps() * 3.6, weighted = route.legs.reduce((n, l) => n + l.distanceKm * l.factor, 0);
+    panel.append(textEl('p', `Current-load estimate: ${formatDuration(weighted / Math.max(.01, pace) * 3600)} for the whole route at current condition; fatigue, obstruction and changing needs can extend it. Actual carried load ${formatDecimal(actorInventorySnapshot('scientist').usage.massKg, 1)} kg. No automatic supplies or healing.`));
+    if (!road) {
+      const reason = overlandDepartureReason(); panel.append(textEl('p', reason || 'Walk to the existing departure point, then depart with the actual carried load. No fare or mandatory gear list.'));
+      button('Walk the known approach on foot', 'depart', reason);
+      return panel;
+    }
+    panel.append(textEl('p', `${t.status}: ${formatDecimal(t.positionKm, 3)} / ${formatDecimal(route.distanceKm, 2)} km from home; walking ${t.direction > 0 ? 'toward municipal ground' : 'toward home'}. Actual distance walked this trip ${formatDecimal(t.walkedKm, 3)} km, ${formatDuration(t.walkingSeconds)} on foot. ${t.reason}`));
+    panel.append(textEl('p', 'Stop retains this exact road position. Reverse direction stops first, then resume physically. No local map movement, dropped caches, remote stock, free shelter, vehicle relay or automatic rescue is available here.'));
+    const busy = surveyBusy();
+    button('Stop walking here', 'stop', busy || t.status !== 'walking'); button('Resume walking', 'resume', busy || t.status !== 'stopped'); button('Reverse direction and stop', 'reverse', busy);
+    button('Stop and drink carried water', 'water', busy || !survivalSupply('drinkingWater', true));
+    button('Stop and eat carried meal', 'meal', busy || !survivalSupply('trailMeal', true)); button('Rest here for 15 minutes', 'rest', busy);
+    const needs = ensureWildernessSurvival(); panel.append(textEl('p', `Thirst ${Math.round(needs.thirst)}/100; hunger ${Math.round(needs.hunger)}/100; exertion ${Math.round(needs.exertion)}/100; exposure ${Math.round(needs.exposure)}/100. ${WildernessSurvival.conditions(state.overlandApproach.weather, state.clock).label}; no shelter.`));
+    for (const task of scientistQueueTasks()) { const b = document.createElement('button'); b.textContent = `Cancel ${task.label}`; b.disabled = scientistIsDead(); b.onclick = () => cancelTask(task.id); panel.append(b); }
+    for (const injury of actorInjuries('scientist').filter(i => i.status !== 'healed')) {
+      const b = document.createElement('button'); b.textContent = `Treat ${INJURY_TYPE_DEFS[injury.typeId].label}`;
+      b.disabled = scientistIsDead() || t.status !== 'stopped' || busy || Boolean(injuryTreatmentBlockReason(injury)); b.onclick = () => startInjuryTreatment(injury.id); panel.append(b);
+    }
+    return panel;
+  }
+
   function ensureSurveyExpeditions() {
     state.surveyExpeditions ||= SurveyExpeditions.defaultState();
     const expedition = state.surveyExpeditions;
@@ -92997,6 +93212,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function surveyScientistAway() { return passengerAway() || Boolean(state?.surveyExpeditions && state.surveyExpeditions.phase !== "home"); }
   function surveyScientistReserved() { return surveyScientistAway() || Boolean(state?.surveyExpeditions?.preparing); }
   function surveyTaskAllowed(task) {
+    if (overlandOnRoad()) return state.overlandExpedition.trip.status === 'stopped' && (task.type === 'rest'
+      || task.type === 'injuryTreatment' && task.data?.targetActorId === 'scientist'
+      || task.type === 'surveyExpeditionWork' && ['consume', 'radioBattery'].includes(task.data?.action));
     if (passengerReceptionGate()?.researchInquiry?.job) return false;
     if (passengerReceptionGate()?.visitorAdmission?.job) return false;
     if ((CityConfrontations.active(state.cityConfrontation) || IncumbentResistance.active(state.incumbentResistance)) && task.type !== 'scientistMove'
@@ -93398,6 +93616,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function boardSurveyVehicle() {
+    if (overlandOnRoad()) return false;
     if (passengerAway() || state.intercityPassenger?.booking) return false;
     if (CitySuccession.working(state.citySuccession) || state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job || state.religiousRecognition?.job || state.cityAdministration?.resistance?.job) return false;
     if (currentPenalFlight()) return false;
@@ -93422,6 +93641,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function surveyWorkBlockReason(task) {
+    if (task.data?.action === 'overlandDepart') {
+      if (task.data.bodyEpoch !== ensureScientistIdentity().bodyEpoch) return 'The original walking body changed.';
+      return overlandDepartureReason(true);
+    }
     if (task.data?.action === 'fieldEmployeeShelter') return fieldEmployeeShelterReason(fieldEmployeeStates().find(s => s.actor.id === task.data.actorId), task);
     if (task.data?.fieldStationWork) return fieldStationWorkReason(task);
     if (task.data?.fieldStationTransfer) {
@@ -93487,14 +93710,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return "";
   }
 
-  function materializeSurveySpaces() {
+  function materializeSurveySpaces({ groundOnly = false } = {}) {
     const expedition = ensureSurveyExpeditions();
     const baseline = LocalDiscovery.materialize(expedition.discovery, activeWorldRecord?.id || expedition.fieldContext?.worldId || "unbound", activeWorldRecord?.worldSeed || expedition.fieldContext?.worldId || "unbound");
-    if (expedition.materialized) return;
+    if (expedition.materialized && (groundOnly || roomById(SurveyExpeditions.CABIN_ROOM) && ensureLabMap().rooms[SurveyExpeditions.CABIN_ROOM])) return;
     for (const spec of [
       { id: SurveyExpeditions.FIELD_ROOM, name: expedition.destination.label, ...baseline.bounds, purposeId: "corridor", description: `${expedition.destination.permission} ${expedition.destination.publicDanger}` },
       { id: SurveyExpeditions.CABIN_ROOM, name: "Hired Survey Vehicle", z: SurveyExpeditions.CABIN_Z, x: 8, y: 8, width: 4, height: 3, purposeId: "quarters", description: "A physical passenger cabin with a driver and satellite-magical account relay. The laboratory is unreachable while travelling." }
     ]) {
+      if (groundOnly && spec.id === SurveyExpeditions.CABIN_ROOM || roomById(spec.id) && ensureLabMap().rooms[spec.id]) continue;
       const room = normalizeRoom({ ...spec, articleName: `the ${spec.name}`, facilityClass: "surveyExpedition", connections: [], geometry: { shape: "bounded survey space", lengthM: spec.width, widthM: spec.height, heightM: 3, floorAreaM2: spec.width * spec.height, volumeM3: spec.width * spec.height * 3 }, purposeSource: "supportedSurvey", purposeReason: "Run-local supported scientific excursion" });
       state.rooms = normalizeRooms([...state.rooms, room]);
       const map = ensureLabMap(), rect = { roomId: spec.id, x: spec.x, y: spec.y, z: spec.z, width: spec.width, height: spec.height };
@@ -93503,7 +93727,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...rectangularRoomCells(rect)]);
       state.roomStockpiles[spec.id] = emptyRoomStockpile();
     }
-    expedition.materialized = true;
+    expedition.materialized = true; // Ground services do not depend on having hired a vehicle cabin.
   }
 
   function moveSurveyScientist(roomId, cell) {
@@ -93526,6 +93750,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function refreshSurveyReport() {
+    if (overlandOnRoad() || state.surveyExpeditions?.arrivalMode === 'onFoot' && !municipalVehicleRelayPresent()) return false;
     if (annexAway()) return false;
     if (unsupportedActive()) return false;
     const expedition = ensureSurveyExpeditions();
@@ -93536,6 +93761,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function completeSurveyWork(task) {
+    if (task.data?.action === 'overlandDepart') { completeOverlandDeparture(task); return; }
     if (task.data?.fieldStationWork) { finishFieldStationPart(task); return; }
     if (task.data?.fieldStationTransfer?.kind === 'put') {
       if (fieldStationTransferReason(task) || !sameMapCell(scientistMapCell(), task.data.toCell)) return;
@@ -93604,6 +93830,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const ration = surveyCarriedStacks().find((stack) => stack.key === "fieldRation" && stack.quantity > 0 && !stack.reservedTaskId);
     if (ration) { ration.quantity -= 1; ration.knownQuantity = Math.min(ration.knownQuantity, ration.quantity); if (!ration.quantity) state.physicalItemStacks = state.physicalItemStacks.filter((stack) => stack.id !== ration.id); state.wildernessSurvival = WildernessSurvival.consume(ensureWildernessSurvival(), "fieldRation"); syncPhysicalReadModels(); }
     expedition.phase = outbound ? "outbound" : "inbound"; expedition.preparing = false; expedition.journeyId = result.journey.id;
+    expedition.arrivalMode = 'vehicle';
     MunicipalCarrier.attach(ensureMunicipalCarrier(), result.journey, outbound ? "outbound" : "inbound");
     moveSurveyScientist(SurveyExpeditions.CABIN_ROOM, { x: 10, y: 10, z: SurveyExpeditions.CABIN_Z });
     surveyEvent(`Scientist boarded the hired vehicle${ration ? "; one provision pack consumed" : "; no combined provision pack consumed"}. Arrival is governed by the saved road journey; no unseen expedition death roll.`);
@@ -93611,6 +93838,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function updateSurveyExpedition() {
+    if (overlandOnRoad()) return 0; // The walking clock, not an old carrier journey, owns this body.
     if (passengerAway()) { updateForeignWilderness(passengerReceptionGate()?.foreignSurvey); return 0; }
     if (annexAway()) return updateLeasedAnnex();
     updateLeasedAnnex(); // Expiry remains physical even when the scientist is elsewhere.
@@ -93661,6 +93889,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function controlSurveyJourney(action) {
+    if (overlandOnRoad()) return false;
     if (passengerAway() || state.intercityPassenger?.booking) return false;
     if (annexAway()) return false;
     if (unsupportedActive()) return false;
@@ -93674,11 +93903,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function renderSurveyExpeditions() {
+    if (overlandOnRoad()) return renderOverlandExpedition();
     if (passengerAway()) return renderIntercityPassenger();
     if (annexAway()) return renderLeasedAnnex();
     const expedition = ensureSurveyExpeditions();
     const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.surveyExpeditions = "true";
     panel.append(textEl("strong", "Supported Survey Excursions"));
+    panel.append(renderOverlandExpedition());
     panel.append(renderIntercityPassenger());
     const discovery = LocalDiscovery.publicView(expedition.discovery);
     if (discovery) {
@@ -93754,7 +93985,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       panel.append(textEl("p", `Carried equipment and supplies: ${surveyCarriedStacks().map((stack) => `${inventoryItemLabel(stack.key)} ×${stack.quantity}`).join("; ") || "none"}. Lab automation and other workers continue; the scientist cannot act in the lab.`));
       for (const task of scientistQueueTasks().filter(surveyTaskAllowed)) button(`Cancel ${task.label}`, () => cancelTask(task.id));
       if (expedition.phase === "field") {
-        button("Walk to Vehicle and Return", boardSurveyVehicle, surveyBusy());
+        const noWaitingVehicle = expedition.arrivalMode === 'onFoot' && !municipalVehicleRelayPresent();
+        button("Walk to Vehicle and Return", boardSurveyVehicle, surveyBusy() || noWaitingVehicle);
+        if (noWaitingVehicle) panel.append(textEl('p', 'No original hired vehicle is waiting here. Walking supplied neither a booking nor a vehicle relay; the measured on-foot return remains available.'));
         for (const item of Object.entries(ResourceSurveys.METHODS)) button(item[1].label + " at Selected Ground", () => startResourceSurvey(item[0], mapCursorCell()), Boolean(resourceSurveyPlan(item[0], mapCursorCell()).reason));
         panel.append(textEl("p", "Select a ground tile on the map for routed fieldwork. Use the Resource Prospects overlay for recorded local findings. Samples need a real laboratory assay after returning."));
       } else {
@@ -93767,8 +94000,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           if (journey.status === "stranded") panel.append(textEl("p", "Recovery unavailable: no separate physical municipal recovery crew and vehicle are allocated. Passengers and cargo remain with the saved vehicle."));
         }
       }
-      button("Read Company Account Report at Vehicle", refreshSurveyReport, !expedition.relayOnline || (expedition.phase === "field" && mapCellKey(scientistMapCell()) !== mapCellKey(SurveyExpeditions.RENDEZVOUS)));
-      button(expedition.relayOnline ? "Disconnect Vehicle Relay" : "Reconnect Vehicle Relay", () => { expedition.relayOnline = !expedition.relayOnline; persist(); render(); });
+      if (expedition.arrivalMode !== 'onFoot' || municipalVehicleRelayPresent()) {
+        button("Read Company Account Report at Vehicle", refreshSurveyReport, !expedition.relayOnline || (expedition.phase === "field" && mapCellKey(scientistMapCell()) !== mapCellKey(SurveyExpeditions.RENDEZVOUS)));
+        button(expedition.relayOnline ? "Disconnect Vehicle Relay" : "Reconnect Vehicle Relay", () => { expedition.relayOnline = !expedition.relayOnline; persist(); render(); });
+      }
       const report = expedition.report;
       if (report) panel.append(textEl("p", `Last received ${formatClock(report.observedAt)} (${formatDuration(Math.max(0, state.clock - report.observedAt))} old): ${report.company}, ${formatMoney(report.money)}, ${report.openLegalOrders} open legal orders. ${report.limitations}`));
       for (const injury of actorInjuries("scientist").filter((entry) => entry.status !== "healed")) button(`Treat ${INJURY_TYPE_DEFS[injury.typeId].label}`, () => startInjuryTreatment(injury.id), Boolean(injuryTreatmentBlockReason(injury)) || surveyBusy(), injuryTreatmentBlockReason(injury));
@@ -99809,7 +100044,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function recoverVitals(seconds) {
     const beforeStamina = Math.floor(scientistVital("stamina").current);
     const beforeMana = Math.floor(scientistVital("mana").current);
-    const hasWork = state.tasks.some((task) => task.type === "rest" || task.data?.staminaCost > 0);
+    const hasWork = overlandOnRoad() && state.overlandExpedition.trip.status === 'walking'
+      || state.tasks.some((task) => task.type === "rest" || task.data?.staminaCost > 0);
     if (!hasWork) {
       restoreStamina(seconds / minutesToSeconds(STAMINA_REGEN_MINUTES));
     }
@@ -100828,6 +101064,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.civicFoothold = CivicFoothold.normalize(candidate?.civicFoothold);
     next.runStrategicConditions = RunStrategicConditions.normalize(candidate?.runStrategicConditions);
     next.expansionAtlas = ExpansionAtlas.normalize(candidate?.expansionAtlas);
+    next.overlandExpedition = OverlandExpedition.normalize(candidate?.overlandExpedition);
+    next.overlandApproach = candidate?.overlandApproach ? clonePlainObject(candidate.overlandApproach) : null;
     next.cityAppointmentsKnowledge = candidate?.cityAppointmentsKnowledge ? clonePlainObject(candidate.cityAppointmentsKnowledge) : null;
     next.confidentialServices = ConfidentialServices.normalize(candidate?.confidentialServices);
     next.confidentialServiceKnowledge = candidate?.confidentialServiceKnowledge ? clonePlainObject(candidate.confidentialServiceKnowledge) : null;
