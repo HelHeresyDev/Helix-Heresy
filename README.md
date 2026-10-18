@@ -270,6 +270,7 @@ The smoke command is a quick cross-system check, but routine changes should run 
 - `research-system.js` - Deterministic research project definitions, evidence requirements, saved project records, and technology-unlock evaluation.
 - `campaign.js` - Renderer-independent known-outcome receipts, local readiness, optional guidance state, and the theme-selected six-ambition roadmap.
 - `civic-foothold.js` - Read-only dated assessment of received civic recognition, scoped commands, local access/support and known opposition, without private reserves or a sovereignty score.
+- `run-strategic-conditions.js` - Run-bound installation conditions derived from existing maintenance deadlines and physical repair receipts, with separate received reports and service eligibility.
 - `charter-recognition.js` - Original independent designation review, bounded administrative consent and records duty, separately queued reconsideration, and explicit records-only reaffirmation with one linked register addendum.
 - `public-works-recognition.js` - Separate original public-works decision and exact attended continuation after authentic charter review and central-administration recognition; no fabricated handover or defense reserve.
 - `watch-recognition.js` - Separate original civil-watch consent, finite physical counter observation, and personally witnessed incidents communicated only through actual attended receipt.
@@ -388,6 +389,18 @@ Only the existing legitimate personal-observation gates can refresh political pe
 This is a limited foothold assessment, not a control score, territorial claim, city-power/world-domination accomplishment, army, immunity or divine assent. The broader campaign target remains durable enforceable supremacy over sovereign cities and significant beast powers with divine counterpressure accounted for, not occupation of every hex or compulsory divine supremacy. Exact global criteria remain later work.
 
 Focused checks: `tests/civic-foothold.spec.js` and `tests/civic-foothold-browser.spec.js` cover received versus hidden evidence, free assessment, real save/load, absent staff, visible outages, stale away/Journal knowledge and refusal despite restored power. The directly consumed civic-authority/upkeep unit files provide focused regressions; the full suite is not run under repository policy.
+
+### Run-owned installation conditions
+
+Visits → **Run-level services — original municipal counter** lists the last legitimately received civic-registration availability report and its source-dated maintenance history. The run owns this condition record; the reusable world's city listings, transport routes and other runs remain unchanged. A maintained installation is not a controlled city.
+
+The existing counter's exact maintenance grace deadline records an installation-specific loss of service. Existing physical supplied repair records restoration at its completion time, referencing that same original receipt. Timely maintenance renews the period without inventing an outage. Updates preserve chronological loss/restoration even across large clock steps, repeated evaluation and real save/load; neither a new date entered in a view nor opening the interface can repair it. Only the already instantiated counter advances through its existing simulation—there is no globe-wide local simulation or historical regeneration.
+
+Civic-registration previews, acceptance and ongoing attendance consume that run's maintenance eligibility as well as the original physical service rules. An expired counter cannot accept or progress the work. Actual repair removes the maintenance blocker, not power, finite battery/duty allocations, staff absence, political refusal or other original requirements. Existing manual essential repairs remain possible through their own unchanged rules; no additional appointment, assessment, fee, supply, authority or refill is introduced by the condition layer.
+
+Actual service can fail while away, but the displayed report remains dated until the existing personal counter/staff observation gate permits receiving another account. Reports show qualitative availability and original maintenance source identifiers, not private motives, exact reserves or unreceived political notices. Merely reopening Visits does not reveal remote changes. Death freezes condition updates and another run in the same world starts without these events or reports. A validated saved-run import preserves the continued copy's history even if the library must assign it a new ID. The separate civic-foothold assessment is still explicitly refreshed, never silently rewritten by this listing.
+
+Focused checks: `tests/run-strategic-conditions.spec.js` and `tests/run-strategic-conditions-browser.spec.js`, the civic identity model, directly relevant administration/resistance units, and the named existing registration-deadline browser regression. Browser flows use actual handover, ordinary counter walks, supplied repair, interrupted saved work and same-world restart; their long civic clock is isolated from unrelated survival simulation.
 
 ### Civic assay mandate
 

@@ -30,7 +30,7 @@
       warning: (kind === 'courtAccess' ? 'Fresh physical identity comparison for a thirty-day local court-access credential. It grants neither access to unrelated defendants nor counsel authority, and proves no criminal participation. ' : '') + 'Attendance at the staffed civic counter is required. Confirmation creates a permanent local visit record and charges the stated nonrefundable fee. Leaving or cancelling stops work; no completed document is invented. Registration is not anonymity or immunity. ' + scope };
   }
   function present(ctx, office) {
-    return ctx?.alive && ctx.capable && ctx.atCounter && ctx.cityId === office.cityId && ctx.clerkPresent && ctx.lineOfSight && !ctx.busy;
+    return ctx?.alive && ctx.capable && ctx.serviceAvailable !== false && ctx.atCounter && ctx.cityId === office.cityId && ctx.clerkPresent && ctx.lineOfSight && !ctx.busy;
   }
   function begin(value, office, quote, wallet, ctx, at) {
     if (!quote || !same(quote, preview(value, office, quote.registeredName, quote.kind, quote.document?.number)) || !present(ctx, office) || quote.kind === 'register' && ctx.visibility !== 'clear'

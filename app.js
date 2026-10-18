@@ -143,6 +143,7 @@
   const CitySuccession = window.HelixCitySuccession;
   const CityAdministration = window.HelixCityAdministration;
   const CivicFoothold = window.HelixCivicFoothold;
+  const RunStrategicConditions = window.HelixRunStrategicConditions;
   const MunicipalCargoRecovery = window.HelixMunicipalCargoRecovery;
   const TemporaryMaintenance = window.HelixTemporaryMaintenanceCommission;
   const PublicWorksAppointments = window.HelixPublicWorksAppointments;
@@ -5522,6 +5523,7 @@
       cityAdministration: null,
       cityAdministrationKnowledge: null,
       civicFoothold: null,
+      runStrategicConditions: null,
       cityAppointmentsKnowledge: null,
       confidentialServices: null,
       confidentialServiceKnowledge: null,
@@ -13643,6 +13645,9 @@
       campaignSnapshot: () => clonePlainObject(Campaign.normalize(state.campaign)),
       assessCivicFoothold,
       civicFootholdSnapshot: () => clonePlainObject({ report: CivicFoothold.normalize(state.civicFoothold), context: civicFootholdContext(), clock: state.clock }),
+      runStrategicConditionsSnapshot: () => clonePlainObject({ conditions: state.runStrategicConditions, site: strategicCounterBinding(),
+        known: RunStrategicConditions.publicView(state.runStrategicConditions, strategicCounterBinding()),
+        serviceReason: RunStrategicConditions.serviceReason(state.runStrategicConditions, strategicCounterBinding()), clock: state.clock }),
       localServicesSnapshot: () => clonePlainObject({ service: state.localServices, known: state.localServiceKnowledge,
         channelReason: localServiceChannelReason(), samples: ensureDiagnosticState().samples,
         tasks: state.tasks.filter(task => ["commodityFreight", "physicalDiagnostic"].includes(task.type)),
@@ -19688,6 +19693,8 @@
       generationVersion: world.generationVersion,
       canonicalDigest: world.canonicalDigest
     };
+    importedState.runStrategicConditions = RunStrategicConditions.rebind(importedState.runStrategicConditions,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     const importedRun = WorldRunLibrary.createRun({
       ...candidate.run,
       id: importedRunId,
@@ -85111,7 +85118,31 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       { theme: activeWorldRecord?.worldTheme || 'madcap', context: administrationRecognitionSources() });
     if (state.cityAdministration) state.cityAdministration.resistance ||= CityResistance.create(state.cityAdministration, state.citySuccession,
       cityAdministrationOffice(), cityAdministrationContext());
+    if (!scientistIsDead() && strategicCounterBinding() && !state.runStrategicConditions)
+      state.runStrategicConditions = RunStrategicConditions.advance(null, strategicCounterBinding(), state.cityAdministration, state.cityAdministration.lastAt);
     return state.cityAdministration;
+  }
+  function strategicCounterBinding(office = null) {
+    const s = state.cityAdministration;
+    if (!activeWorldRecord?.id || !activeRunRecord?.id || !s?.installation?.id || office && office.id !== s.officeId) return null;
+    return { worldId: activeWorldRecord.id, runId: activeRunRecord.id, cityId: s.cityId, officeId: s.officeId,
+      installationId: s.installation.id, maintenanceId: s.id };
+  }
+  function updateRunStrategicConditions() {
+    const site = strategicCounterBinding(); if (!site || scientistIsDead()) return 0;
+    const before = state.runStrategicConditions?.installations[0]?.events.at(-1)?.id;
+    state.runStrategicConditions = RunStrategicConditions.advance(state.runStrategicConditions, site, state.cityAdministration, state.clock);
+    return before !== state.runStrategicConditions?.installations[0]?.events.at(-1)?.id ? 1 : 0;
+  }
+  function renderRunStrategicConditions() {
+    const section = document.createElement('section'); section.dataset.runStrategicConditions = 'true';
+    section.append(textEl('strong', 'Run-level services — original municipal counter'));
+    const v = RunStrategicConditions.publicView(state.runStrategicConditions, strategicCounterBinding());
+    if (!v) { section.append(textEl('p', 'No received run-level counter condition report. Current availability is unknown.')); return section; }
+    section.append(textEl('p', `Received ${formatClock(v.at)}: civic-registration service ${v.available ? 'available at observation' : 'unavailable at observation'}. ${v.availability}.`));
+    for (const e of v.events) section.append(textEl('p', `${formatClock(e.at)} — ${e.kind === 'expired' ? 'Maintenance grace expired' : e.kind === 'restored' ? 'Supplied maintenance restored' : e.kind === 'renewed' ? 'Supplied maintenance renewed' : 'Original service baseline'}. Source: ${e.sourceId}.`));
+    section.append(textEl('p', 'Dated received information, not live monitoring. Maintenance does not prove available power, staff or political consent. This installation only: the city and its transport routes are unchanged.'));
+    return section;
   }
   function cityAdministrationContext(inspectReceiving = false, ownAppointment = false, ownCargo = false, ownTemporary = false) {
     const s = state.cityAdministration, office = cityAdministrationOffice(), source = citySuccessionSource(), home = ensureHomeInstitutionContext();
@@ -85227,8 +85258,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       && c.atCounter && c.clerkPresent && c.lineOfSight && c.workerPresent;
   }
   function refreshCityAdministrationKnowledge() {
-    if (cityAdministrationObserved()) state.cityAdministrationKnowledge = { ...CityAdministration.publicView(state.cityAdministration, state.clock, cityAdministrationOffice()),
+    if (!cityAdministrationObserved()) return;
+    state.cityAdministrationKnowledge = { ...CityAdministration.publicView(state.cityAdministration, state.clock, cityAdministrationOffice()),
       resistance: CityResistance.publicView(state.cityAdministration.resistance, state.citySuccession, cityAdministrationContext()), reportedAt: state.clock };
+    state.runStrategicConditions = RunStrategicConditions.observe(state.runStrategicConditions, strategicCounterBinding(),
+      state.cityAdministrationKnowledge.availability, state.clock, true);
   }
   function updateCityAdministration() {
     if (!(state.citySuccession?.handover || state.publicWorksRecognition?.receipt) || scientistIsDead()) return 0;
@@ -85264,6 +85298,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (changed) { state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0); syncActorInventories(); syncPhysicalReadModels(); }
     if (before !== CityAdministration.status(s, state.clock) && cityAdministrationObserved())
       addEvent(`Municipal counter upkeep is ${CityAdministration.status(s, state.clock)}. Historical recognition is unchanged.`, { sourceKind: 'cityAdministration', sourceId: s.id });
+    changed = updateRunStrategicConditions() || changed;
     refreshCityAdministrationKnowledge(); return changed ? 1 : 0;
   }
   function cityAdministrationAction(action, expected = null) {
@@ -85272,8 +85307,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (action.startsWith('pack:')) return packSurveyItem(action.slice(5));
     updateCityAdministration();
     if (action.startsWith('temporary')) ensureCityAppointments();
-    const s = ensureCityAdministration(), office = cityAdministrationOffice(), c = cityAdministrationContext(action === 'parts', false, action.startsWith('recovery'), action.startsWith('temporary'));
+    const s = ensureCityAdministration();
     if (!s) return false;
+    const office = cityAdministrationOffice(), c = cityAdministrationContext(action === 'parts', false, action.startsWith('recovery'), action.startsWith('temporary'));
     const stacks = ensurePhysicalItemStacks(); let ok = false;
     if (action === 'temporaryObserve') ok = TemporaryMaintenance.observe(s, state.citySuccession, office, c, state.clock);
     if (action === 'temporaryPropose') ok = TemporaryMaintenance.propose(s, state.citySuccession, office, ensureHomeInstitutionContext(), expected, c, state.clock);
@@ -86600,7 +86636,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function scientistCivicContext(office) {
     const cell = scientistMapCell(), clerk = office?.clerk, local = state.surveyExpeditions?.phase === "field" && scientistRoomId() === SurveyExpeditions.FIELD_ROOM && !unsupportedActive();
     const facialInjury = actorInjuries("scientist").some(i => i.status !== "healed" && /head|face|eye/i.test(String(i.location || "")));
-    return { alive: !scientistIsDead(), capable: !actorIsIncapacitated("scientist"), cityId: local ? state.surveyExpeditions.destination?.cityId : null,
+    return { alive: !scientistIsDead(), capable: !actorIsIncapacitated("scientist"),
+      serviceAvailable: !RunStrategicConditions.serviceReason(state.runStrategicConditions, strategicCounterBinding(office)),
+      cityId: local ? state.surveyExpeditions.destination?.cityId : null,
       atCounter: local && mapCellKey(cell) === mapCellKey(office?.civicCounter?.cell),
       clerkPresent: Boolean(office?.civicCounter && clerk.mapCell && WildernessBeasts.distance(clerk.mapCell, ScientistIdentity.COUNTER) <= 1),
       lineOfSight: Boolean(local && clerk?.mapCell && sensoryLineOfSight(cell, clerk.mapCell)), visibility: facialInjury ? "obscured" : "clear",
@@ -86614,6 +86652,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return changed ? 1 : 0;
   }
   function scientistIdentityAction(action, name = "", documentNumber = null) {
+    updateCityAdministration();
     updateScientistIdentity();
     const profile = ensureScientistIdentity(), office = scientistCivicOffice(), market = ensureIntercitySmuggling();
     let ok = false;
@@ -86623,7 +86662,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (office?.civicCounter && scientistCivicContext(office).cityId && !profile.job && !surveyBusy())
         ok = Boolean(startScientistMove(SurveyExpeditions.FIELD_ROOM, { toCell: ScientistIdentity.COUNTER, allowMultiRoom: true }));
     } else if (action === "preview" || action === "previewCheck" || action === "previewCourtAccess") {
-      const p = ScientistIdentity.preview(profile, office, name, action === "preview" ? "register" : action === "previewCourtAccess" ? "courtAccess" : "check", documentNumber);
+      const p = !RunStrategicConditions.serviceReason(state.runStrategicConditions, strategicCounterBinding(office))
+        && ScientistIdentity.preview(profile, office, name, action === "preview" ? "register" : action === "previewCourtAccess" ? "courtAccess" : "check", documentNumber);
       if (p) { profile.preview = p; ok = true; }
     } else if (action === "confirm") {
       if (!state.combat?.routineSuspension) ok = ScientistIdentity.begin(profile, office, profile.preview, ensureEconomy(), scientistCivicContext(office), state.clock);
@@ -93435,6 +93475,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(renderReligiousRecognition());
     panel.append(renderCitySuccession());
     panel.append(renderCityAdministration());
+    panel.append(renderRunStrategicConditions());
     panel.append(renderCivicFoothold());
     panel.append(renderCarrierBriefings());
     const button = (label, action, disabled = false, reason = "") => {
@@ -100545,6 +100586,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.cityAdministration = CityAdministration.normalize(candidate?.cityAdministration);
     next.cityAdministrationKnowledge = candidate?.cityAdministrationKnowledge ? clonePlainObject(candidate.cityAdministrationKnowledge) : null;
     next.civicFoothold = CivicFoothold.normalize(candidate?.civicFoothold);
+    next.runStrategicConditions = RunStrategicConditions.normalize(candidate?.runStrategicConditions);
     next.cityAppointmentsKnowledge = candidate?.cityAppointmentsKnowledge ? clonePlainObject(candidate.cityAppointmentsKnowledge) : null;
     next.confidentialServices = ConfidentialServices.normalize(candidate?.confidentialServices);
     next.confidentialServiceKnowledge = candidate?.confidentialServiceKnowledge ? clonePlainObject(candidate.confidentialServiceKnowledge) : null;
