@@ -13,7 +13,8 @@
     { key: "trailMeal", label: "Trail Meal", amount: 2, initial: 8, massKg: .5, volumeL: .8, price: 8 },
     { key: "fieldShelter", label: "Field Shelter Kit", amount: 1, initial: 1, massKg: 3, volumeL: 8, price: 90 },
     { key: "satelliteCommunicator", label: "Satellite-magical Communicator", amount: 1, initial: 1, massKg: .8, volumeL: 1, price: 120 },
-    { key: "relayBattery", label: "Relay Battery", amount: 1, initial: 2, massKg: .4, volumeL: .5, price: 20 }
+    { key: "relayBattery", label: "Relay Battery", amount: 1, initial: 2, massKg: .4, volumeL: .5, price: 20 },
+    { key: "foldingStretcher", label: "Folding Stretcher with Restraints", amount: 1, initial: 0, massKg: 7, volumeL: 12, price: 140 }
   ]);
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const clamp = (n, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, Number(n) || 0));

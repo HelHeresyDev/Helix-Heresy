@@ -28,6 +28,12 @@
       || !Number.isFinite(value.lastAt) || !Number.isFinite(value.vehicle.fuelKm) || !Number.isFinite(value.vehicle.condition)
       || !Number.isFinite(value.dutySeconds) || !Number.isFinite(value.provisionsSeconds)
       || !Array.isArray(value.boarded) || !Array.isArray(value.history) || value.boarded.length > 2
+      || value.careEscrow != null && (!Number.isFinite(value.careEscrow) || value.careEscrow < 0 || value.careEscrow > 180)
+      || value.evacuation && (value.evacuation.bookingId !== value.booking?.id || value.evacuation.bodyEpoch !== value.booking?.bodyEpoch
+        || !['scientist', value.booking?.escortId].includes(value.evacuation.patientId)
+        || value.evacuation.helperId !== (value.evacuation.patientId === 'scientist' ? value.booking?.escortId : 'scientist')
+        || !['approach', 'aid', 'drag', 'load', 'transport', 'unload', 'receiving', 'handedOver', 'ended'].includes(value.evacuation.phase)
+        || !Number.isFinite(value.evacuation.nextAt) || !Number.isFinite(value.evacuation.startedAt))
       || value.boarded.some(id => id !== 'scientist' && id !== value.booking?.escortId)
       || value.booking && (!Number.isFinite(value.positionKm) || value.positionKm < 0 || value.positionKm > value.booking.distanceKm
         || !Array.isArray(value.booking.manifest) || !value.booking.escortId || !value.booking.routeId)
@@ -61,7 +67,9 @@
     const km = 2 * c.collectionKm + 2 * (c.route.distanceKm - c.stop.positionKm);
     s.quote = { id: `${s.id}:${s.serial + 1}`, bodyEpoch: c.bodyEpoch, escortId: c.escortId, contractId: c.contractId,
       routeId: c.route.id, distanceKm: c.route.distanceKm, stopId: c.stop.id, stopKm: c.stop.positionKm, collectionKm: c.collectionKm,
-      manifest: copy(c.manifest), fee: 100 + Math.ceil(km * 6), fieldSeconds: 7200, at, expiresAt: at + 60 };
+      manifest: copy(c.manifest), fee: 100 + Math.ceil(km * 6) + 180, careBudget: 180,
+      aidPlan: 'Voluntary original-partner assistance; carried supplies; one secured casualty in an existing passenger position; original municipal clinic; at most 180 marks of prepaid care. No guaranteed rescue.',
+      fieldSeconds: 7200, at, expiresAt: at + 60 };
     return copy(s.quote);
   }
   function accept(s, c, expected, wallet, at) {
@@ -74,6 +82,7 @@
     s.positionKm = q.distanceKm; s.boarded = []; s.reason = ''; s.lastAt = at; s.startedAt = at;
     s.departed = false; s.scientistOnLeg = false; s.scientistReleased = false; s.cancelRequested = false; s.previousKm = q.distanceKm;
     s.escortDutyAt = at;
+    s.careEscrow = q.careBudget; s.careRefunded = 0; s.evacuation = null;
     delete s.fieldArrivedAt; delete s.boardingRequest; return true;
   }
   function board(s, id, c) {
@@ -81,10 +90,18 @@
       || !['scientist', s.booking.escortId].includes(id) || s.boarded.includes(id) || s.boarded.length >= s.vehicle.passengerSeats) return false;
     s.boarded.push(id); return true;
   }
+  function assisted(s, c, id) {
+    const e = s?.evacuation;
+    return Boolean(s?.booking?.aidPlan && e?.bookingId === s.booking.id && e.bodyEpoch === s.booking.bodyEpoch
+      && e.patientId === id && ['scientist', s.booking.escortId].includes(id)
+      && e.helperId === (id === 'scientist' ? s.booking.escortId : 'scientist')
+      && s.boarded.includes(e.helperId) && s.boarded.includes(e.patientId) && s.vehicle.passengerSeats >= 2
+      && ['transport', 'unload'].includes(e.phase) && e.secured && c.assistedPassengerId === id && c.helperCapable);
+  }
   function launchReason(s, c, at, returning = false) {
     const cargo = load(c.manifest);
-    if (!active(s) || !c.alive || !c.originalBody || !c.capable) return 'Original free capable scientist and binding are unavailable.';
-    if (!c.escortCapable) return 'A boarded original escort is incapacitated.';
+    if (!active(s) || !c.alive || !c.originalBody || !c.capable && !(returning && assisted(s, c, 'scientist'))) return 'Original free capable scientist and binding are unavailable.';
+    if (!c.escortCapable && !(returning && assisted(s, c, s.booking.escortId))) return 'A boarded original escort is incapacitated.';
     if (!c.sourceCurrent && !returning) return 'Original provider backing is unavailable.';
     if (!c.routeOpen) return 'Original received route is unavailable.';
     if (!capable(s)) return 'Original driver, vehicle, fuel, provisions or duty cannot support movement.';
@@ -108,7 +125,8 @@
       if (!moving(s)) continue;
       const blocked = !c.originalBody ? 'Original body changed; no inherited charter.' : !c.routeOpen ? 'Received route is unavailable.'
         : s.phase === 'outbound' && !c.escortWilling ? 'The original escort requests physical withdrawal; stop before further outward travel.'
-        : !capable(s) || !c.capable && s.boarded.includes('scientist') || !c.escortCapable && s.boarded.includes(s.booking.escortId) ? 'Original person, vehicle or finite reserves cannot continue.' : '';
+        : !capable(s) || !c.capable && s.boarded.includes('scientist') && !(s.phase === 'inbound' && assisted(s, c, 'scientist'))
+          || !c.escortCapable && s.boarded.includes(s.booking.escortId) && !(s.phase === 'inbound' && assisted(s, c, s.booking.escortId)) ? 'Original person, vehicle or finite reserves cannot continue.' : '';
       if (blocked) { s.reason = blocked; s.wasPhase = s.phase; s.phase = 'stranded'; stopped = true; break; }
       const collection = ['collecting', 'depot'].includes(s.phase);
       const target = collection ? 0 : s.phase === 'outbound' ? s.booking.stopKm : s.booking.distanceKm;

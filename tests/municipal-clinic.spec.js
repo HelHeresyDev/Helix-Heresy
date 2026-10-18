@@ -104,4 +104,26 @@ test.describe('physical municipal clinic', () => {
     expect(await page.evaluate(() => window.helixHeresyDebug.leaveMunicipalClinic())).toBe(true);
     expect((await snap(page)).stay.status).toBe('discharged');
   });
+  test('accepted incapacitated patient stays with the clinician, not the escort dragging controller; attending staff clear the bed', async ({ page }) => {
+    await setup(page, 100, false);
+    await page.evaluate(() => window.helixHeresyDebug.configureEscortTest({ scientistCell: { x: 11, y: 10, z: 6 } }));
+    expect(await page.evaluate(() => window.helixHeresyDebug.hireExpeditionEscort())).toBe(true);
+    await page.evaluate(() => {
+      const d = window.helixHeresyDebug; d.configureMedicalTest({ health: 5, cell: { x: 17, y: 11, z: 6 } });
+      d.configureEscortTest({ cell: { x: 16, y: 10, z: 6 }, order: 'follow' });
+      d.admitMunicipalClinic(true);
+      const s = d.exportSurveyExpeditionTestState(), clinic = s.medicalExtraction.clinic;
+      // Saved physical handling fixture: the clinician is still over the bed,
+      // not another patient entitled to deny this original patient's admission.
+      clinic.clinician.mapCell = { x: 17, y: 11, z: 6 };
+      Object.assign(clinic.stay, { patientId: 'scientist', charterId: 'test-original-charter', emergency: false, escrow: 180, authorizedUntil: s.clock + 10800 });
+      d.importSurveyExpeditionTestState(s);
+    });
+    await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(120));
+    const s = await snap(page);
+    expect(s.stay.assessment, s.stay.reason).not.toBeNull(); expect(s.stay.assessment.personId).toBe('scientist');
+    expect(s.cell).toEqual(Clinic.BED); expect(s.clinician.mapCell).toEqual(Clinic.DESK); expect(s.health).toBe(5);
+    expect(s.debt).toBe(0); expect(s.stay.escrow).toBeLessThanOrEqual(180);
+    expect((await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState())).expeditionEscorts.drag).toBeFalsy();
+  });
 });
