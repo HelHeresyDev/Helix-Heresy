@@ -276,6 +276,7 @@ The smoke command is a quick cross-system check, but routine changes should run 
 - `overland-expedition.js` - Received kilometre-scale local approach, original-body walking progress, survival integration, stopping/reversal and physical-arrival receipts.
 - `roadside-stops.js` - Run-owned route-distance stopping-site identity, deterministic bounded ground, original shelter records and continued-save rebinding.
 - `regional-encounters.js` - Shared run-owned encounter allocation, persistent route individuals and distance-based pursuit between physical roadside maps.
+- `field-charter.js` - Finite two-passenger utility charter, exact original-person/cargo manifest, collection, interrupted route travel and physical return.
 - `charter-recognition.js` - Original independent designation review, bounded administrative consent and records duty, separately queued reconsideration, and explicit records-only reaffirmation with one linked register addendum.
 - `public-works-recognition.js` - Separate original public-works decision and exact attended continuation after authentic charter review and central-administration recognition; no fabricated handover or defense reserve.
 - `watch-recognition.js` - Separate original civil-watch consent, finite physical counter observation, and personally witnessed incidents communicated only through actual attended receipt.
@@ -914,6 +915,20 @@ Travel interrupts at the actual allocated distance and opens persistent roadside
 Ordinary records disclose only received dated sightings, tracks and sounds, never hidden population identities, allocation totals or live remote positions. Saves retain the original individuals, wounds, pursuit, remains and once-only losses. Validated continued imports rebind their own copy; fresh same-world runs inherit none, and irreversible scientist death freezes encounter activity.
 
 Focused checks: `tests/regional-encounters.spec.js`, `tests/regional-encounters-browser.spec.js`, the directly affected roadside, overland, wilderness and corridor models, and named local-combat, adjoining-pursuit, convoy-knowledge and Canvas roadside regressions. The full suite is not run under repository policy.
+
+### Two-person roadside field charter
+
+At the original municipal sampling ground, personally meet and hire the original local escort, then review a **field charter** to previously visited roadside ground on the received measured approach. A surviving city with functioning transport and public works must back a separate original driver and utility van. The existing single-passenger municipal carrier is unchanged. One fixed allocation has two passenger seats besides the driver, 80 kg / 160 L combined carried cargo, 160 vehicle-km fuel, eight duty hours and twelve provision hours; lost or exhausted assets never regenerate.
+
+Review discloses the scientist, original escort and engagement, exact carried stack identities/quantities, destination, return and defensive-protection scope. No laboratory access, allegiance, divine endorsement, map archive, resource rights or guaranteed rescue follows. Accept within one minute without changing the body, engagement or cargo. The separate nonrefundable fare is 100 marks plus six times the quoted total vehicle-kilometres, rounded up to a whole mark, including actual collection and depot return. Existing escort wages, equipment, needs and wounds continue; expedition duty is finite and never refreshed by rebooking. The field allowance is two hours, not indefinite service.
+
+Wait for the original vehicle to physically collect the party. Walk to it, ask the escort to board through an actual local path, and separately board the scientist. Depart only with both original people and the exact accepted carried manifest within capacity. The utility van travels at 18 km/h on this supported approach, spending fuel, condition, driver duty and provisions. Actual regional encounters or loss of route, capability or reserves stop at the saved position without an abstract casualty roll. Stops reuse persistent physical roadside ground. Exit obstruction retains the original occupant inside; boarding does not freeze nearby wildlife, protect the driver or make the van invulnerable to adjacent attacks.
+
+The escort uses ordinary Follow/Hold/Defend/Withdraw, perception, defensive combat, finite supplies and bodily injuries on that ground. Rejoin the same van and board separately to return. Explicitly returning with fewer passengers leaves the other original person and possessions at their actual site; nothing automatically drags, packs, heals or rescues them. Municipal arrival still requires the original usable permitted receiving point. The driver retains the assignment until physically returning the original van to its depot. Cancellation before launch retains spent fare and real collection/return movement, rather than refunding resources or teleporting assets home.
+
+People, consent, partial boarding/travel, physical goods, original terrain, wounds and remaining resources survive real saves. Validated continued imports rebind only their own copy; fresh same-world runs inherit none and irreversible scientist death freezes charter activity. Away information remains dated and does not disclose unseen wildlife or remote inventories. Creations, general party recruitment, other vehicles/routes and broader casualty evacuation remain separate consumers.
+
+Focused checks: `tests/field-charter.spec.js`, `tests/field-charter-browser.spec.js` and named directly affected escort, municipal-carrier, roadside, overland and regional-encounter checks. The full suite is not run under repository policy.
 
 ### Finite surface-stone recovery
 
