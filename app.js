@@ -145,6 +145,7 @@
   const CivicFoothold = window.HelixCivicFoothold;
   const RunStrategicConditions = window.HelixRunStrategicConditions;
   const ExpansionAtlas = window.HelixExpansionAtlas;
+  const LocalPatchGraph = window.HelixLocalPatchGraph;
   const MunicipalCargoRecovery = window.HelixMunicipalCargoRecovery;
   const TemporaryMaintenance = window.HelixTemporaryMaintenanceCommission;
   const PublicWorksAppointments = window.HelixPublicWorksAppointments;
@@ -55774,6 +55775,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       movement.waitingFor = "";
       state.scientist.mapCell = nextStep.cell;
       state.scientist.roomId = labMapCellRoomId(nextStep.cell) || state.scientist.roomId;
+      recordForeignPatchStep(currentStep.cell, nextStep.cell, scheduledArrivalAt);
       if (state.surveyExpeditions?.phase === "field") updateSurveyExpedition();
       updateRecaptureCarryState(task, movement);
       changed += updateResourceHaulCarryState(task, movement);
@@ -79081,9 +79083,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const g of state.penalFlights?.assistance?.cityApproach?.gates || []) {
       const s = g.foreignSurvey;
       if (s?.discovery) discovered(LocalDiscovery.publicView(s.discovery), localSite({ ...s.destination, id: s.discovery.placeId, label: s.discovery.label }, 'survey', g.cityId));
-      for (const [w, kind] of [[s?.wilderness, 'wilderness'], [s?.wilderness?.extension, 'adjoining']]) {
+      for (const w of foreignWildernessPatches(s?.wilderness)) {
         const v = WildernessDiscovery.publicView(w?.discovery);
-        if (v?.records.length) discovered(v, localSite({ ...w.destination, id: v.placeId, label: v.label }, kind, g.cityId));
+        if (v?.records.length) discovered(v, localSite({ ...w.destination, id: v.placeId, label: v.label }, w === s.wilderness ? 'wilderness' : 'adjoining', g.cityId));
+      }
+      const graph = LocalPatchGraph.normalize(s?.wilderness?.patchGraph, s?.wilderness);
+      if (graph) for (const r of LocalPatchGraph.publicKnowledge(graph)) {
+        const patch = foreignWildernessPatches(s.wilderness).find(p => p.context.siteId === (r.kind === 'crossing' ? r.toId : r.fromId));
+        if (patch?.materialized) add(localSite({ ...patch.destination, id: patch.context.siteId }, patch === s.wilderness ? 'wilderness' : 'adjoining', g.cityId), {
+          id: r.id, category: 'route', subject: 'personally observed local connection', sourceId: r.id, source: r.source,
+          sourceAt: r.at, receivedAt: r.at, text: r.text, cell: r.cell,
+          coverage: 'This physically reached same-hex connection only; no unseen patch details or live remote route condition' });
       }
     }
     for (const r of e?.mapService?.copies || []) add(localSite({ ...e.destination, id: r.contents.placeId || e.destination?.id }, 'survey'), {
@@ -79145,7 +79155,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const s = g.foreignSurvey, w = s?.wilderness;
       if (s?.phase !== 'field') continue;
       if (scientistRoomId() === s.roomId) ids.push(s.discovery?.placeId);
-      if (w && scientistRoomId() === w.roomId) ids.push(w.extension && ForeignWilderness.contains(w.extension.bounds, cell) ? w.extension.discovery?.placeId : w.discovery?.placeId);
+      if (w && scientistRoomId() === w.roomId) ids.push(foreignWildernessPatch(w, cell).discovery?.placeId);
     }
     return ids.filter(Boolean);
   }
@@ -89780,8 +89790,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function wildernessObstacleAtCell(cell) {
     return Boolean(cell && (["boundary", "remote"].some(kind => WildernessDiscovery.obstacleAt(wildernessDiscoveryFor(kind), cell))
-      || (state.penalFlights?.assistance?.cityApproach?.gates || []).some(g => WildernessDiscovery.obstacleAt(g.foreignSurvey?.wilderness?.discovery, cell)
-        || WildernessDiscovery.obstacleAt(g.foreignSurvey?.wilderness?.extension?.discovery, cell))) && !labMapCellHasFloor(cell));
+      || (state.penalFlights?.assistance?.cityApproach?.gates || []).some(g => foreignWildernessPatches(g.foreignSurvey?.wilderness)
+        .some(p => WildernessDiscovery.obstacleAt(p.discovery, cell)))) && !labMapCellHasFloor(cell));
   }
 
   function updateRemoteDiscovery() {
@@ -91156,8 +91166,81 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (porterSimulationExcursion) return porterSimulationExcursion.wilderness || null;
     return escortSimulationState?.source ? escortExcursion(escortSimulationState)?.wilderness || null : foreignSurveyAtField()?.wilderness || null;
   }
+  function foreignWildernessPatches(w) { return w ? [w, w.extension, ...Object.values(w.localPatches || {})].filter(Boolean) : []; }
   function foreignWildernessPatch(w, cell) {
-    return w.extension && ForeignWilderness.contains(w.extension.bounds, cell) ? w.extension : w;
+    return foreignWildernessPatches(w).find(p => ForeignWilderness.contains(p.bounds, cell)) || w;
+  }
+  function ensureForeignLocalGraph(w) {
+    if (!w || scientistIsDead()) return w?.patchGraph || null;
+    if (!w.patchGraph) w.patchGraph = LocalPatchGraph.create(w);
+    const graph = LocalPatchGraph.normalize(w.patchGraph, w);
+    if (graph) w.patchGraph = graph;
+    return graph;
+  }
+  function recordForeignPatchStep(from, to, at) {
+    if (scientistIsDead()) return;
+    const w = foreignSurveyAtField()?.wilderness;
+    if (!w || scientistRoomId() !== w.roomId) return;
+    const graph = ensureForeignLocalGraph(w);
+    if (graph) w.patchGraph = LocalPatchGraph.observe(LocalPatchGraph.recordStep(graph, from, to, at), to, at);
+  }
+  function foreignLocalConnection(direction, fromId = '') {
+    const s = foreignSurveyAtField(), w = s?.wilderness, graph = ensureForeignLocalGraph(w), c = foreignSurveyContext();
+    const patch = w && foreignWildernessPatch(w, scientistMapCell());
+    const from = fromId || patch?.context.siteId, plan = graph && LocalPatchGraph.plan(graph, from, direction);
+    const source = foreignWildernessPatches(w).find(p => p.context.siteId === from);
+    const capable = Boolean(c.atWilderness && c.alive && c.capable && c.originalBody && !c.custodyActive && !surveyBusy()
+      && !ForeignWilderness.sampleReason(s, w, c, 'reconnaissance'));
+    return { s, w, graph, c, source, plan, capable };
+  }
+  function walkForeignLocalEdge(direction, fromId = '') {
+    const { w, source, plan, capable } = foreignLocalConnection(direction, fromId);
+    return Boolean(capable && source?.discovery?.baseline && plan && startScientistMove(w.roomId, { toCell: plan.seam }));
+  }
+  function crossForeignLocalConnection(direction, fromId = '') {
+    const { s, w, graph, c, source, plan, capable } = foreignLocalConnection(direction, fromId);
+    if (!capable || !plan || !source?.discovery?.baseline || !sameMapCell(scientistMapCell(), plan.seam)
+      || !labMapCellHasFloor(plan.seam) || !labMapCellIsWalkable(plan.seam) || constructedWallAtCell(plan.seam)) return false;
+    const node = graph.nodes.find(n => n.id === plan.toId), map = ensureLabMap();
+    let target = foreignWildernessPatches(w).find(p => p.context.siteId === plan.toId);
+    if (!target) {
+      // Reserve no occupied footprint. No baseline, source allocation or remote
+      // knowledge is generated here; only the single adjacent entry is opened.
+      // Validation must be read-only: placement normalization replaces the
+      // live map object and would leave preparation writing into a stale map.
+      const occupied = labMapBlockingCellKeys(map, { skipPlacement: true });
+      for (let y = node.bounds.y; y < node.bounds.y + node.bounds.height; y++) for (let x = node.bounds.x; x < node.bounds.x + node.bounds.width; x++) {
+        const cell = { x, y, z: node.bounds.z };
+        if (!mapCellInBounds(cell, map) || labMapCellRoomId(cell, map) || labMapCellHasFloor(cell, map)
+          || constructedWallAtCell(cell, map) || constructedFloorAtCell(cell, map) || labMapDoorAtCell(cell, map) || fixturesAtCell(cell).length
+          || occupied.has(mapCellKey(cell)) || tileOccupiedAreaM2(cell) > 0
+          || ensurePhysicalItemStacks().some(i => !i.carriedBy && i.quantity > 0 && sameMapCell(i.cell, cell))) return false;
+      }
+    } else if (target.materialized && (!labMapCellHasFloor(plan.entry) || !labMapCellIsWalkable(plan.entry) || constructedWallAtCell(plan.entry))) return false;
+    if (!window.confirm('Cross onto adjoining local ground within this same globe hex? Walk normally with actual supplies, fatigue and wounds. Every internal seam is unprotected; the same beasts may pursue. Existing agreements cover only their named ground. No new station, transport, ownership, map archive or guaranteed rescue.')) return false;
+    if (!target) {
+      if (node.column === 1 && node.row === 0) target = w.extension = ForeignWilderness.extensionPlan(w);
+      else {
+        target = { id: node.id, parentSiteId: w.context.siteId, roomId: w.roomId, bounds: clonePlainObject(node.bounds), entry: clonePlainObject(node.entry),
+          destination: { ...clonePlainObject(w.destination), id: node.id, label: `${node.column ? 'Southeastern' : 'Southern'} local ground — ${w.destination.label}`,
+            description: 'Unprotected adjoining local ground within the same globe hex; no new station, staff or safe passage.' },
+          context: { ...clonePlainObject(w.context), siteId: node.id, seed: `${w.context.seed || w.context.worldId}:${node.column ? 'southeast' : 'south'}` },
+          materialized: false, discovery: null };
+        w.localPatches ||= {}; w.localPatches[node.id] = target;
+      }
+      ensureResourceSurveys().sites[target.context.siteId] = clonePlainObject(target.context);
+    }
+    if (!target.materialized) {
+      const room = map.rooms[w.roomId];
+      room.width = Math.max(room.width, node.bounds.x + node.bounds.width - room.x);
+      room.height = Math.max(room.height, node.bounds.y + node.bounds.height - room.y);
+      if (!room.cells.some(cell => sameMapCell(cell, plan.entry))) room.cells.push(clonePlainObject(plan.entry));
+      map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, plan.entry]);
+      Object.assign(roomById(w.roomId).geometry, { lengthM: room.width, widthM: room.height });
+      bumpNavigationRevision('topology');
+    }
+    return Boolean(queueSurveyWork('walkWilderness', plan.entry, { label: `Walk ${direction} onto unprotected local ground`,
+      foreignWildernessBodyEpoch: c.bodyEpoch, foreignWildernessTripId: s.trip.id, workSeconds: 1 }));
   }
   function foreignWildernessExtensionContext(s) {
     const c = foreignSurveyContext(), plan = ForeignWilderness.extensionPlan(s?.wilderness);
@@ -91165,30 +91248,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       reachable: Boolean(plan && labMapCellHasFloor(plan.seam) && labMapCellIsWalkable(plan.seam) && !constructedWallAtCell(plan.seam)) };
   }
   function enterAdjoiningForeignGround() {
-    const s = foreignSurveyAtField(), w = s?.wilderness, c = foreignWildernessExtensionContext(s);
-    if (ForeignWilderness.extensionReason(s, w, c)) return false;
-    const plan = ForeignWilderness.extensionPlan(w), map = ensureLabMap();
-    if (!w.extension) {
-      // Claim no occupied footprint and reveal no distant map. Initially only
-      // the adjacent physical entry exists; full elaboration follows crossing.
-      for (let y = plan.bounds.y; y < plan.bounds.y + plan.bounds.height; y++) for (let x = plan.bounds.x; x < plan.bounds.x + plan.bounds.width; x++) {
-        const cell = { x, y, z: plan.bounds.z };
-        if (!mapCellInBounds(cell, map) || labMapCellRoomId(cell, map) || labMapCellHasFloor(cell, map)
-          || constructedWallAtCell(cell, map) || fixturesAtCell(cell).length
-          || ensurePhysicalItemStacks().some(i => !i.carriedBy && i.quantity > 0 && sameMapCell(i.cell, cell))) return false;
-      }
-    }
-    if (!window.confirm('Explore one adjoining local patch within this same globe hex? Walk normally with actual supplies, fatigue and wounds. The seam is unprotected; beasts may pursue. Existing staff retain original work territory; escort protection extends only by separate consent on the same original clocks. No new station, transport, ownership, map archive or guaranteed rescue.')) return false;
-    if (!w.extension) {
-      w.extension = plan;
-      const room = map.rooms[w.roomId]; room.width = w.bounds.width * 2; room.cells.push(clonePlainObject(plan.entry));
-      map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, plan.entry]);
-      roomById(w.roomId).geometry.lengthM = room.width;
-      ensureResourceSurveys().sites[plan.context.siteId] = clonePlainObject(plan.context);
-      bumpNavigationRevision('topology');
-    }
-    return Boolean(queueSurveyWork('walkWilderness', plan.entry, { label: 'Walk onto unprotected adjoining local ground',
-      foreignWildernessBodyEpoch: c.bodyEpoch, foreignWildernessTripId: s.trip.id, workSeconds: 1 }));
+    const w = foreignSurveyAtField()?.wilderness;
+    return crossForeignLocalConnection('east', w?.context.siteId);
   }
   function activeWildernessSite() { return foreignSurveyAtField() ? foreignWildernessLocal() || { destination: null, shelter: null } : ensureWildernessSurvival(); }
   function foreignSurveySampleReason(s, c, now, method) {
@@ -91244,21 +91305,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     materializeWildernessBeasts();
     WildernessDiscovery.observe(w.discovery, state.clock, scientistMapCell(), cell => sensoryLineOfSight(scientistMapCell(), cell), cell => labMapCellHasFloor(cell));
-    const ext = w.extension;
-    if (ext && ForeignWilderness.contains(ext.bounds, scientistMapCell()) && !ext.materialized) {
-      ext.discovery = WildernessDiscovery.create(ext.destination, 'adjoining');
-      const baseline = WildernessDiscovery.materialize(ext.discovery, ext.context.worldId, activeWorldRecord?.worldSeed || state.seed,
-        ext.destination, state.clock, null, ext);
-      const map = ensureLabMap(), room = map.rooms[w.roomId];
-      room.cells = [...room.cells.filter(c => !ForeignWilderness.contains(ext.bounds, c)), ...clonePlainObject(baseline.cells)];
-      map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...baseline.cells]);
-      roomById(w.roomId).geometry.floorAreaM2 = room.cells.length; roomById(w.roomId).geometry.volumeM3 = room.cells.length * 3;
-      ext.materialized = true; ext.visitedAt = state.clock; bumpNavigationRevision('topology');
-      // One original ecology roster covers both contiguous patches. Crossing
-      // never materializes replacement animals or resets pursuit/cooldowns.
+    const graph = ensureForeignLocalGraph(w);
+    if (graph) w.patchGraph = LocalPatchGraph.observe(graph, scientistMapCell(), state.clock);
+    for (const ext of foreignWildernessPatches(w).slice(1)) {
+      if (ForeignWilderness.contains(ext.bounds, scientistMapCell()) && !ext.materialized) {
+        ext.discovery = WildernessDiscovery.create(ext.destination, 'adjoining');
+        const baseline = WildernessDiscovery.materialize(ext.discovery, ext.context.worldId, activeWorldRecord?.worldSeed || state.seed,
+          ext.destination, state.clock, null, ext);
+        const map = ensureLabMap(), room = map.rooms[w.roomId];
+        room.cells = [...room.cells.filter(c => !ForeignWilderness.contains(ext.bounds, c)), ...clonePlainObject(baseline.cells)];
+        map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...baseline.cells]);
+        roomById(w.roomId).geometry.floorAreaM2 = room.cells.length; roomById(w.roomId).geometry.volumeM3 = room.cells.length * 3;
+        ext.materialized = true; ext.visitedAt = state.clock; bumpNavigationRevision('topology');
+        // One original ecology roster covers all contiguous patches. Crossing
+        // never materializes replacement animals or resets pursuit/cooldowns.
+      }
+      if (ext.materialized) WildernessDiscovery.observe(ext.discovery, state.clock, scientistMapCell(),
+        cell => sensoryLineOfSight(scientistMapCell(), cell), cell => labMapCellHasFloor(cell));
     }
-    if (ext?.materialized) WildernessDiscovery.observe(ext.discovery, state.clock, scientistMapCell(),
-      cell => sensoryLineOfSight(scientistMapCell(), cell), cell => labMapCellHasFloor(cell));
   }
   function enterForeignWilderness() {
     const s = foreignSurveyAtField(), c = foreignSurveyContext(); c.otherBusy = surveyBusy();
@@ -91341,6 +91405,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     else if (action === 'survey') ok = startResourceSurvey(options.method || 'surfaceSample', options.cell || scientistMapCell());
     else if (action === 'enterWilderness') ok = enterForeignWilderness();
     else if (action === 'exploreAdjoining') ok = enterAdjoiningForeignGround();
+    else if (action === 'walkLocalEdge') ok = walkForeignLocalEdge(options.direction);
+    else if (action === 'crossLocalConnection') ok = crossForeignLocalConnection(options.direction);
     else if (action === 'walkWildernessEdge' && c.atWilderness && !c.otherBusy && c.capable && c.originalBody && !c.custodyActive) {
       const plan = ForeignWilderness.extensionPlan(s.wilderness);
       ok = Boolean(plan && startScientistMove(s.wilderness.roomId, { toCell: plan.seam }));
@@ -91388,16 +91454,28 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (state.tasks.some(t => t.data?.foreignSurveyTripId === s.trip?.id)) button('Cancel foreign surface-sampling work', 'cancelSample');
     }
     if (c.atWilderness) {
-      panel.append(textEl('p', 'One adjoining local patch is available within this same globe hex. Its seam is not defended; beasts can pursue across it. Staff retain original work territory; an escort needs separate protection consent to accompany you farther. Original supplies and clocks continue; no extra station or travel service is granted.'));
+      panel.append(textEl('p', 'Connected local ground lies within this same globe hex, not across the planet-scale hex. Every internal seam is unprotected; the same beasts may pursue. Staff retain their exact original territory, including any specifically accepted adjoining escort patch, without automatic extension. Original supplies and clocks continue. The supported local area is bounded; further travel is not yet available, not a fictional world edge.'));
       button('Walk to eastern wilderness edge', 'walkWildernessEdge', busy || !c.capable || !c.originalBody || c.custodyActive);
       button(s.wilderness.extension?.materialized ? 'Walk back onto adjoining local ground' : 'Explore adjoining local ground', 'exploreAdjoining',
         ForeignWilderness.extensionReason(s, s.wilderness, foreignWildernessExtensionContext(s)));
+      const w = s.wilderness, patch = foreignWildernessPatch(w, scientistMapCell()), graph = ensureForeignLocalGraph(w);
+      if (graph && patch?.materialized) {
+        panel.append(textEl('p', `Current local patch: ${patch.destination.label}. Only physically reached edges and crossings become dated atlas knowledge; a connection is not proof of present safety.`));
+        for (const link of LocalPatchGraph.connections(graph, patch.context.siteId)) {
+          if (patch === w && link.direction === 'east') continue; // Original controls retain their existing names.
+          const target = foreignWildernessPatches(w).find(p => p.context.siteId === link.toId && p.materialized);
+          panel.append(textEl('p', `${titleCase(link.direction)} local edge: ${target?.destination.label || 'unexplored adjoining ground; immediate entrance only'}.`));
+          button(`Walk to ${link.direction} local edge`, 'walkLocalEdge', busy || !c.capable || !c.originalBody || c.custodyActive, { direction: link.direction });
+          button(`Cross ${link.direction} local connection`, 'crossLocalConnection', busy || !c.capable || !c.originalBody || c.custodyActive
+            || !sameMapCell(scientistMapCell(), link.seam), { direction: link.direction });
+        }
+      }
       button('Withdraw to foreign sampling ground', 'withdraw', !c.capable || c.custodyActive || !c.originalBody);
       for (const method of Object.keys(ResourceSurveys.METHODS)) button(ResourceSurveys.METHODS[method].label + ' at foreign wilderness ground', 'survey', busy || resourceSurveyPlan(method, mapCursorCell()).reason, { method, cell: mapCursorCell() });
       const view = WildernessDiscovery.publicView(s.wilderness.discovery);
       for (const r of view?.records || []) panel.append(textEl('p', `${formatClock(r.at)} — ${r.text}. Dated personal observation.`));
-      for (const r of WildernessDiscovery.publicView(s.wilderness.extension?.discovery)?.records || [])
-        panel.append(textEl('p', `${formatClock(r.at)} — adjoining ground: ${r.text}. Dated personal observation.`));
+      for (const p of foreignWildernessPatches(w).slice(1)) for (const r of WildernessDiscovery.publicView(p.discovery)?.records || [])
+        panel.append(textEl('p', `${formatClock(r.at)} — ${p.destination.label}: ${r.text}. Dated personal observation.`));
     }
     if (c.atField || c.atWilderness) panel.append(renderWildernessPanel());
     else if (state.fieldStation?.site?.cityId === g.cityId) panel.append(renderFieldStationPanel());
