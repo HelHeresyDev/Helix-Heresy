@@ -144,6 +144,7 @@
   const CityAdministration = window.HelixCityAdministration;
   const CivicFoothold = window.HelixCivicFoothold;
   const RunStrategicConditions = window.HelixRunStrategicConditions;
+  const ExpansionAtlas = window.HelixExpansionAtlas;
   const MunicipalCargoRecovery = window.HelixMunicipalCargoRecovery;
   const TemporaryMaintenance = window.HelixTemporaryMaintenanceCommission;
   const PublicWorksAppointments = window.HelixPublicWorksAppointments;
@@ -5524,6 +5525,7 @@
       cityAdministrationKnowledge: null,
       civicFoothold: null,
       runStrategicConditions: null,
+      expansionAtlas: null,
       cityAppointmentsKnowledge: null,
       confidentialServices: null,
       confidentialServiceKnowledge: null,
@@ -13648,6 +13650,8 @@
       runStrategicConditionsSnapshot: () => clonePlainObject({ conditions: state.runStrategicConditions, site: strategicCounterBinding(),
         known: RunStrategicConditions.publicView(state.runStrategicConditions, strategicCounterBinding()),
         serviceReason: RunStrategicConditions.serviceReason(state.runStrategicConditions, strategicCounterBinding()), clock: state.clock }),
+      expansionAtlasSnapshot: () => clonePlainObject(currentExpansionAtlas()),
+      expansionAtlasAction,
       localServicesSnapshot: () => clonePlainObject({ service: state.localServices, known: state.localServiceKnowledge,
         channelReason: localServiceChannelReason(), samples: ensureDiagnosticState().samples,
         tasks: state.tasks.filter(task => ["commodityFreight", "physicalDiagnostic"].includes(task.type)),
@@ -19694,6 +19698,8 @@
       canonicalDigest: world.canonicalDigest
     };
     importedState.runStrategicConditions = RunStrategicConditions.rebind(importedState.runStrategicConditions,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.expansionAtlas = ExpansionAtlas.rebind(importedState.expansionAtlas,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     const importedRun = WorldRunLibrary.createRun({
       ...candidate.run,
@@ -79044,7 +79050,162 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     section.append(row); return section;
   }
 
+  function expansionAtlasRecords() {
+    const rows = [], network = state.strategicJourneys, e = state.surveyExpeditions;
+    const citySite = cityId => {
+      const d = network?.destinations.find(d => d.known && d.cityId === cityId && d.kind === 'fortifiedCity');
+      return { id: `city:${cityId}`, kind: 'city', cityId, label: d?.label || cityId, globeCellId: d?.cellId || '' };
+    };
+    const add = (site, f) => rows.push({ site, fact: f });
+    const home = state.startingSite?.strategicLocation || state.startingSite;
+    if (home?.strategicCellId) add({ id: `home:${activeRunRecord.site?.candidateId || home.id || 'laboratory'}`, kind: 'home', label: 'Laboratory departure site',
+      cityId: home.nearestSettlement?.cityId || '', globeCellId: home.strategicCellId }, { id: 'starting-place', category: 'listing', subject: 'own starting location',
+      sourceId: activeRunRecord.id, source: 'Own starting-site record', receivedAt: 0, text: 'Own starting location; not a public laboratory listing or survey of the surrounding hex.', coverage: 'Starting site only' });
+    for (const d of network?.destinations || []) if (d.known && d.kind === 'fortifiedCity') add(citySite(d.cityId), {
+      id: 'public-listing', category: 'listing', sourceId: d.id, source: 'Existing public city directory', subject: 'city listing',
+      text: `${d.label}: publicly listed city. Detailed surroundings, current access and safety are not established.`, coverage: 'Public city location only' });
+    const localSite = (d, kind, cityId = '') => ({ id: d.id, label: d.label, kind, cityId: d.cityId || cityId,
+      globeCellId: d.cellId || d.strategicCellId || '' });
+    const discovered = (view, site) => {
+      if (!view?.records?.length || !site?.id) return;
+      for (const r of view.records) add(site, { id: r.id, category: r.kind === 'directObservation' ? 'terrain' : r.id === 'visit-extract' ? 'rights' : 'listing',
+        subject: r.subject || r.id, sourceId: `${view.placeId}:${r.id}`, source: r.source,
+        sourceAt: r.kind === 'directObservation' ? r.at : null, receivedAt: r.at, text: r.text,
+        coverage: 'Recorded local point/directions only; no surrounding survey or current access inferred', cell: r.cell });
+    };
+    if (e?.discovery) discovered(LocalDiscovery.publicView(e.discovery), localSite({ ...e.destination, id: e.discovery.placeId, label: e.discovery.label }, 'survey'));
+    for (const saved of [state.wildernessSurvival, state.unsupportedExcursions?.boundary, state.unsupportedExcursions?.remote]) {
+      const v = WildernessDiscovery.publicView(saved?.discovery);
+      if (v?.records.length) discovered(v, localSite({ ...saved.destination, id: v.placeId, label: v.label }, v.kind === 'remote' || saved.discovery.kind === 'remote' ? 'remote' : 'wilderness'));
+    }
+    for (const g of state.penalFlights?.assistance?.cityApproach?.gates || []) {
+      const s = g.foreignSurvey;
+      if (s?.discovery) discovered(LocalDiscovery.publicView(s.discovery), localSite({ ...s.destination, id: s.discovery.placeId, label: s.discovery.label }, 'survey', g.cityId));
+      for (const [w, kind] of [[s?.wilderness, 'wilderness'], [s?.wilderness?.extension, 'adjoining']]) {
+        const v = WildernessDiscovery.publicView(w?.discovery);
+        if (v?.records.length) discovered(v, localSite({ ...w.destination, id: v.placeId, label: v.label }, kind, g.cityId));
+      }
+    }
+    for (const r of e?.mapService?.copies || []) add(localSite({ ...e.destination, id: r.contents.placeId || e.destination?.id }, 'survey'), {
+      id: r.id, category: 'route', subject: r.extractId, sourceId: r.id, source: r.contents.source || 'Received municipal archive extract',
+      sourceAt: r.sourceDate, receivedAt: r.issuedAt, text: (r.contents.notes || []).join(' '),
+      coverage: r.extractId === 'groundPlan' ? 'Authorized sampling parcel plan only; not surrounding terrain or resources' : 'Existing booked return only; no onward route rights' });
+    for (const r of CarrierBriefings.publicView(e?.carrier).copies) {
+      const site = localSite(r.destination, 'survey');
+      add(site, { id: r.id, category: 'route', subject: 'passenger instructions', sourceId: r.id, source: 'Personally received municipal driver briefing',
+        sourceAt: null, receivedAt: r.receivedAt, text: (r.standingInstructions || []).join(' '), coverage: `Booked destination ${r.destination.label}; boarding ${r.boardingPoint}; return ${r.returnPoint}` });
+      for (const report of r.reports || []) add(site, { id: `${r.id}:${report.journeyId}:${report.reportedAt}`, category: 'route', subject: 'received journey event',
+        sourceId: r.id, source: report.source, sourceAt: report.reportedAt, receivedAt: r.receivedAt, text: report.text, coverage: 'Disclosed booked journey only' });
+    }
+    const charts = [];
+    for (const r of state.sovereignBargains?.copies || []) charts.push({ ...r, cityId: state.sovereignBargains.source.cityId,
+      coverage: r.contents.coverage, source: r.contents.source, notes: r.contents.notes });
+    for (const g of state.penalFlights?.assistance?.cityApproach?.gates || []) charts.push(...ForeignCivicBargains.knownAlignment(g.foreignCivic));
+    for (const r of charts) add(citySite(r.cityId), { id: r.id, category: 'route', subject: 'restricted approach alignment', sourceId: r.id,
+      source: r.source, sourceAt: r.sourceDate, receivedAt: r.issuedAt, text: `${(r.coverage || []).map(c => c.cellId).join(' → ')}. ${(r.notes || []).join(' ')}`,
+      coverage: 'Disclosed city-end alignment only; intervening terrain, onward access and safety unverified' });
+    for (const r of ResourceSurveys.publicKnowledge(state.resourceSurveys).observations) {
+      if (r.worldId !== activeWorldRecord?.id) continue;
+      const site = rows.find(row => row.site.id === r.siteId)?.site || { id: r.siteId, label: r.siteId, kind: 'survey', globeCellId: r.strategicCellId };
+      for (const f of r.findings) add(site, { id: `${r.id}:${f.familyId}`, category: 'resources', subject: f.familyId, sourceId: r.id,
+        source: 'Completed personal resource observation/analysis', sourceAt: r.sampledAt, receivedAt: r.recordedAt,
+        text: `${f.label}: ${f.result}, ${f.confidence} confidence. ${f.summary}`, coverage: `${r.coverage}; ${r.depth}`, cell: r.cell });
+    }
+    const conditions = RunStrategicConditions.normalize(state.runStrategicConditions);
+    if (conditions?.worldId === activeWorldRecord?.id && conditions.runId === activeRunRecord?.id) for (const r of conditions.reports) {
+      const site = citySite(r.cityId);
+      add(site, { id: `${r.installationId}:${r.availability}`, category: 'operations', subject: 'original counter service', sourceId: r.installationId,
+        source: 'Received original municipal counter account', sourceAt: r.at, receivedAt: r.at,
+        text: r.availability, coverage: 'This counter only; no current remote service availability or city control inferred' });
+      for (const event of r.events) add(site, { id: event.id, category: 'operations', subject: 'received counter maintenance history', sourceId: event.sourceId,
+        source: 'Received counter maintenance account', sourceAt: event.at, receivedAt: r.at, text: event.kind,
+        coverage: 'Original installation event, not a live city condition' });
+    }
+    const foothold = CivicFoothold.normalize(state.civicFoothold);
+    if (foothold?.worldId === activeWorldRecord?.id) for (const r of foothold.recognition) add(citySite(foothold.cityId), {
+      id: r.id, category: 'rights', subject: 'received civic claim', sourceId: r.sourceId, source: r.source, sourceAt: r.at, receivedAt: r.at,
+      text: r.text, coverage: 'Historical scoped civic recognition only; no land ownership or enforceable city control inferred' });
+    return rows;
+  }
+  function updateExpansionAtlas() {
+    if (!activeWorldRecord || !activeRunRecord || !state.started || scientistIsDead()) return;
+    state.expansionAtlas = ExpansionAtlas.merge(state.expansionAtlas, { worldId: activeWorldRecord.id, runId: activeRunRecord.id }, expansionAtlasRecords(), state.clock);
+  }
+  function currentExpansionAtlas() {
+    const s = ExpansionAtlas.normalize(state.expansionAtlas);
+    return s?.worldId === activeWorldRecord?.id && s?.runId === activeRunRecord?.id ? s : null;
+  }
+  function atlasLocalSiteIds() {
+    const ids = [], e = state.surveyExpeditions, cell = scientistMapCell();
+    if (e?.phase === 'field' && e.discovery?.placeId === e.destination?.id && scientistRoomId() === SurveyExpeditions.FIELD_ROOM && !unsupportedActive()) ids.push(e.destination?.id);
+    const survival = state.wildernessSurvival;
+    if (survival?.discovery?.records.length && survival.discovery.placeId === survival.destination?.id
+      && [WildernessSurvival.ROOM, UnsupportedExcursions.ROOM].includes(scientistRoomId())) ids.push(survival.discovery.placeId);
+    for (const g of state.penalFlights?.assistance?.cityApproach?.gates || []) {
+      const s = g.foreignSurvey, w = s?.wilderness;
+      if (s?.phase !== 'field') continue;
+      if (scientistRoomId() === s.roomId) ids.push(s.discovery?.placeId);
+      if (w && scientistRoomId() === w.roomId) ids.push(w.extension && ForeignWilderness.contains(w.extension.bounds, cell) ? w.extension.discovery?.placeId : w.discovery?.placeId);
+    }
+    return ids.filter(Boolean);
+  }
+  function atlasTravelControls(entry) {
+    return dom.visitsList?.querySelector(entry.kind === 'city' ? '[data-intercity-passenger]' : '[data-foreign-survey], [data-survey-expeditions], [data-intercity-passenger]');
+  }
+  function expansionAtlasAction(action, siteId = '', purpose = 'investigate') {
+    if (scientistIsDead() || actorIsIncapacitated('scientist')) return false;
+    updateExpansionAtlas();
+    const s = currentExpansionAtlas(), entry = s?.entries.find(e => e.id === siteId);
+    if (action === 'clear') { state.expansionAtlas = ExpansionAtlas.select(s, null, '', state.clock); persist(); render(); return Boolean(s); }
+    if (!entry) return false;
+    if (action === 'travel') {
+      const controls = atlasTravelControls(entry);
+      if (!controls) return false;
+      controls.tabIndex = -1; controls.scrollIntoView({ block: 'start' }); controls.focus({ preventScroll: true }); return true;
+    }
+    if (action === 'focus') {
+      const known = entry.facts.find(f => f.category === 'terrain' && f.cell);
+      if (!known || !atlasLocalSiteIds().includes(entry.id) || labMapCellRoomId(known.cell) !== scientistRoomId()) return false;
+      return focusMapTarget({ kind: 'tile', tile: known.cell });
+    }
+    if (action !== 'select' || !['investigate', 'revisit'].includes(purpose)) return false;
+    state.expansionAtlas = ExpansionAtlas.select(s, siteId, purpose, state.clock); persist(); render(); return true;
+  }
+  function renderExpansionAtlas() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.expansionAtlas = 'true';
+    panel.append(textEl('h3', 'Expansion Atlas'), textEl('p', ExpansionAtlas.LIMITS));
+    const s = currentExpansionAtlas(), capable = !scientistIsDead() && !actorIsIncapacitated('scientist');
+    if (!s?.entries.length) { panel.append(textEl('p', 'No indexed place knowledge. Only actual public listings, received records and personal observations can add entries.')); return panel; }
+    const button = (parent, label, action, id, purpose) => { const b = document.createElement('button'); b.textContent = label; b.disabled = !capable;
+      b.onclick = () => expansionAtlasAction(action, id, purpose); parent.append(b); return b; };
+    if (s.objective) {
+      const selected = s.entries.find(e => e.id === s.objective.siteId);
+      panel.append(textEl('p', `Investigation objective: ${s.objective.purpose} ${selected.label || selected.id} — selected ${formatClock(s.objective.at)}.`));
+      button(panel, 'Clear investigation objective', 'clear');
+    } else panel.append(textEl('p', 'No investigation objective selected.'));
+    panel.append(textEl('p', 'Planning is free and moves nobody. To visit another place, use the existing travel or local walking controls; the atlas supplies no new route, booking, permission or supplies. Local map focus is available only on the same current patch.'));
+    for (const e of s.entries) {
+      const article = document.createElement('details'); article.dataset.atlasSite = e.id;
+      article.append(textEl('summary', `${e.label || e.id} · ${e.kind} · globe cell ${e.globeCellId || 'not supplied'}`));
+      button(article, 'Investigate this place', 'select', e.id, 'investigate'); button(article, 'Plan revisit', 'select', e.id, 'revisit');
+      if (atlasTravelControls(e)) button(article, 'Review existing travel/walking controls', 'travel', e.id);
+      if (atlasLocalSiteIds().includes(e.id) && e.facts.some(f => f.category === 'terrain' && f.cell)) button(article, 'Focus known local landmark', 'focus', e.id);
+      article.append(textEl('p', 'Source coverage is limited. Different accounts and earlier conditions are retained separately, not resolved into current truth. Resource indicators are not reserves; old permissions are not current access or ownership.'));
+      for (const f of e.facts) {
+        const row = document.createElement('p'); row.dataset.atlasFact = f.id;
+        row.textContent = `${titleCase(f.category)} — ${f.text} Coverage: ${f.coverage || 'not supplied'}. Source: ${f.source} (${f.sourceId}); source date ${f.sourceAt == null ? 'unknown' : formatClock(f.sourceAt)}; received ${f.receivedAt == null ? 'unknown' : formatClock(f.receivedAt)}; latest receipt ${f.lastReceivedAt == null ? 'unknown' : formatClock(f.lastReceivedAt)}; first indexed ${formatClock(f.indexedAt)}.`;
+        article.append(row);
+      }
+      panel.append(article);
+    }
+    return panel;
+  }
   function renderSiteVisits() {
+    renderSiteVisitsContent();
+    updateExpansionAtlas();
+    dom.visitsList?.prepend(renderExpansionAtlas());
+  }
+  function renderSiteVisitsContent() {
     const localStay = localPrisonRecord();
     if (localStay && (scientistMapCell().z === localStay.p.z || localStay.g.rescueServices?.some(s => Object.values(s.rooms || {}).includes(scientistRoomId())))) {
       dom.visitsSummary.textContent = 'Receiving-city corrections — local sentence and physical escape';
@@ -100401,6 +100562,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function currentRunRecord(savedAt = new Date().toISOString()) {
+    updateExpansionAtlas();
     if (!activeRunRecord || !activeWorldRecord) throw new Error("No world-backed run is active.");
     const ended = Boolean(state.runEnded);
     return WorldRunLibrary.createRun({
@@ -100587,6 +100749,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.cityAdministrationKnowledge = candidate?.cityAdministrationKnowledge ? clonePlainObject(candidate.cityAdministrationKnowledge) : null;
     next.civicFoothold = CivicFoothold.normalize(candidate?.civicFoothold);
     next.runStrategicConditions = RunStrategicConditions.normalize(candidate?.runStrategicConditions);
+    next.expansionAtlas = ExpansionAtlas.normalize(candidate?.expansionAtlas);
     next.cityAppointmentsKnowledge = candidate?.cityAppointmentsKnowledge ? clonePlainObject(candidate.cityAppointmentsKnowledge) : null;
     next.confidentialServices = ConfidentialServices.normalize(candidate?.confidentialServices);
     next.confidentialServiceKnowledge = candidate?.confidentialServiceKnowledge ? clonePlainObject(candidate.confidentialServiceKnowledge) : null;
