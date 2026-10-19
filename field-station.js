@@ -6,11 +6,12 @@
   'use strict';
   const copy = v => JSON.parse(JSON.stringify(v));
   const key = c => `${c?.x},${c?.y},${c?.z}`;
+  const climateIntervals = new WeakMap();
   function homeSupply(item, homeRoomIds) {
     return Boolean(item && homeRoomIds.includes(item.roomId) && item.quantity > 0
       && !item.carriedBy && !item.reservedTaskId && !item.cityOwnerId && !item.civicCustody
       && ['resources', 'inventory'].includes(item.section)
-      && ['stoneBlocks', 'lumber', 'metalParts', 'masonryHammer', 'stoneChisel', 'handSaw', 'foldingLadder'].includes(item.key));
+      && ['stoneBlocks', 'lumber', 'metalParts', 'steelPanels', 'fuelReagent', 'drinkingWater', 'trailMeal', 'masonryHammer', 'stoneChisel', 'handSaw', 'foldingLadder'].includes(item.key));
   }
   const registry = Theme.createRegistry([{ id: 'facility.shared.field-station', kind: 'facility', compatibility: 'shared',
     contentTags: ['survival'], template: 'Unstaffed wilderness supply hut', fallback: true }]);
@@ -19,22 +20,25 @@
     if (!selected.ok) throw new Error('No compatible field station content.');
     return { definitionId: selected.definitionId, sourceTheme: selected.sourceTheme, site: null, observations: null, history: [] };
   }
-  function layout(origin) {
+  function layout(origin, purpose = 'supply') {
+    const refuge = purpose === 'refuge', width = refuge ? 4 : 3, height = refuge ? 5 : 4;
     const at = (x, y, z = 0) => ({ x: origin.x + x, y: origin.y + y, z: origin.z + z });
     const footprint = [], walls = [], roofs = [];
-    const door = at(1, 3), rest = at(1, 2), cache = at(1, 1), apron = at(1, 4);
-    for (let y = 0; y < 4; y++) for (let x = 0; x < 3; x++) {
+    const door = at(1, height - 1), rest = at(1, 2), cache = at(1, 1), apron = at(1, height);
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
       const c = at(x, y); footprint.push(c); roofs.push(at(x, y, 1));
-      if ((x === 0 || x === 2 || y === 0 || y === 3) && key(c) !== key(door)) walls.push(c);
+      if ((x === 0 || x === width - 1 || y === 0 || y === height - 1) && key(c) !== key(door)) walls.push(c);
     }
-    const floors = [cache, rest, door], parts = [];
+    const floors = refuge ? footprint.filter(c => c.x > origin.x && c.x < origin.x + width - 1 && c.y > origin.y && c.y < origin.y + height - 1).concat([door]) : [cache, rest, door], parts = [];
     const add = (kind, cell, costs, seconds, tools) => parts.push({ id: `${kind}:${key(cell)}`, kind, cell: copy(cell), costs, seconds, tools });
     floors.forEach(c => add('floor', c, { stoneBlocks: 1 }, 480, { masonryHammer: 1, stoneChisel: 1 }));
     walls.forEach(c => add('wall', c, { stoneBlocks: 2 }, 720, { masonryHammer: 2 }));
     roofs.forEach(c => add('roof', c, { lumber: 1 }, 360, { masonryHammer: 1, handSaw: 1, foldingLadder: 1 }));
     add('door', door, { lumber: 1 }, 600, { masonryHammer: 1, handSaw: 1 });
     add('cache', cache, { lumber: 3, metalParts: 1 }, 420, { masonryHammer: 1, handSaw: 1 });
-    return { origin: copy(origin), footprint, ground: [...footprint, apron], floors, walls, roofs, door, rest, cache, apron, parts };
+    const heater = refuge ? at(2, 1) : null;
+    if (heater) add('heater', heater, { steelPanels: 2, metalParts: 2 }, 480, { masonryHammer: 1 });
+    return { origin: copy(origin), purpose, footprint, ground: [...footprint, apron], floors, walls, roofs, door, rest, cache, apron, heater, parts };
   }
   function accessReason(c) {
     return !c.local || !c.wilderness ? 'Personally attend the original foreign wilderness sector; municipal sampling ground is not a construction grant.'
@@ -47,9 +51,9 @@
     s.history.push({ at: now, kind: 'registered', summary: 'Inspected physical footprint only; no building, supplies, title, staff or safety granted.' }); return true;
   }
   function prerequisite(site, part, c) {
-    if (part.kind !== 'floor' && !c.floorsIntact) return 'Finish the three actual stone floor tiles first.';
-    if (['roof', 'door', 'cache'].includes(part.kind) && !c.wallsIntact) return 'The actual nine masonry wall tiles must survive before roof, door or cache work.';
-    if (part.kind === 'cache' && (!c.roofsIntact || !c.doorPresent)) return 'Finish the actual roof and original door before installing the crate.';
+    if (part.kind !== 'floor' && !c.floorsIntact) return 'Finish the actual stone floor tiles first.';
+    if (['roof', 'door', 'cache', 'heater'].includes(part.kind) && !c.wallsIntact) return 'The actual masonry wall tiles must survive before roof, door or equipment work.';
+    if (['cache', 'heater'].includes(part.kind) && (!c.roofsIntact || !c.doorPresent)) return 'Finish the actual roof and original door before installing equipment.';
     return '';
   }
   function workPart(s, partId, operation = 'build') {
@@ -58,7 +62,7 @@
     if (operation !== 'repair') return part;
     // Match ordinary material-aware structure repairs: one primary material,
     // at most 45 condition. A real surviving zero-condition object is repairable.
-    return { ...copy(part), costs: { [part.kind === 'floor' || part.kind === 'wall' ? 'stoneBlocks' : 'lumber']: 1 },
+    return { ...copy(part), costs: { [part.kind === 'heater' ? 'metalParts' : part.kind === 'floor' || part.kind === 'wall' ? 'stoneBlocks' : 'lumber']: 1 },
       seconds: Math.max(180, part.seconds / 2) };
   }
   function maintenanceReason(s, part, c, operation) {
@@ -212,12 +216,42 @@
     release(j, tools, stacks); return true;
   }
   function observe(s, now, report) { if (s.site && report) s.observations = { at: now, ...copy(report) }; }
+  function advanceService(work, now, attended, alive = true) {
+    if (!alive) return 0;
+    const elapsed = Math.max(0, now - work.lastAt); work.lastAt = now;
+    const used = attended && work.attended ? Math.min(elapsed, work.required - work.progress) : 0;
+    work.progress += used; work.attended = attended;
+    return used;
+  }
+  function advanceClimate(s, now, c) {
+    if (!s?.site || s.site.layout.purpose !== 'refuge' || !c.alive) return null;
+    const climate = s.site.climate ||= { lastAt: now, temperatureC: c.outdoorAt(now) };
+    const samples = { fromAt: climate.lastAt, values: [], poweredSeconds: 0 };
+    // One-second steps keep exhaustion and cooling invariant under save/load
+    // and clock chunking. Only actual delivered power creates heat.
+    for (; climate.lastAt + 1 <= now; climate.lastAt++) {
+      const outdoor = c.outdoorAt(climate.lastAt);
+      if (!c.intact) climate.temperatureC = outdoor;
+      else climate.temperatureC += (outdoor - climate.temperatureC) / 7200;
+      if (climate.temperatureC < c.targetC && c.drawPower) {
+        const power = c.drawPower(1), delivered = c.heatCPerHour / 3600 * power;
+        samples.poweredSeconds += power;
+        if (c.intact) climate.temperatureC += Math.min(c.targetC - climate.temperatureC, delivered);
+      }
+      samples.values.push(climate.temperatureC);
+    }
+    if (samples.values.length) climateIntervals.set(climate, samples);
+    // Completion/controls can settle heat before physiology runs at the same
+    // clock. Reuse that measured interval, never draw the power twice. The
+    // transient cache follows this exact climate object, not another run/import.
+    return now >= climate.lastAt ? climateIntervals.get(climate) || samples : samples;
+  }
   function publicView(s) {
     const known = r => !r.actorId || r.actorId === 'scientist' || s?.observations?.parts?.[r.partId]?.at >= r.at;
-    return s?.site ? { siteId: s.site.siteId, cityId: s.site.cityId, registeredAt: s.site.registeredAt,
+    return s?.site ? { siteId: s.site.siteId, id: s.site.id, label: s.site.label, purpose: s.site.layout.purpose, cityId: s.site.cityId, registeredAt: s.site.registeredAt,
       origin: copy(s.site.layout.origin), observations: s.observations && copy(s.observations),
       receipts: copy(Object.values(s.site.parts).filter(known)), history: copy(s.history.filter(known)),
       limitation: 'Dated supply hut records, not live remote inventory, land title, sovereignty, safety, staffing or transport rights.' } : null;
   }
-  return { create, layout, homeSupply, accessReason, register, prerequisite, workPart, maintenanceReason, installationKey, targetKey, clearChangedEffort, inspectTarget, effort, plan, begin, reason, advance, ready, finish, cancel, observe, publicView };
+  return { create, layout, homeSupply, accessReason, register, prerequisite, workPart, maintenanceReason, installationKey, targetKey, clearChangedEffort, inspectTarget, effort, plan, begin, reason, advance, ready, finish, cancel, observe, advanceService, advanceClimate, publicView };
 });

@@ -112,6 +112,15 @@ test('heaters use broad controls until an operational thermostat enables an exac
   const usedGenerator = await infrastructureFixture(page, 'fuelGenerator');
   expect(electricHeater.utility.status).toBe('operating');
   expect(usedGenerator.utility.fuel).toBeLessThan(10);
+  // The last partial second of fuel must not taper indefinitely merely
+  // because its demand is below the tile-environment concentration tolerance.
+  await page.evaluate(heater => {
+    const d = window.helixHeresyDebug;
+    d.setTileEnvironment(heater.origin, { temperatureC: 5, rockTemperatureC: 5 });
+    d.setFixtureUtility(heater.id, { enabled: true, powerMode: 'fuel', fuel: .000001, exactTargetC: 40 });
+    d.advanceSimulation(1);
+  }, heater);
+  expect((await infrastructureFixture(page, 'spaceHeater')).utility.fuel).toBeLessThan(1e-15);
 });
 
 test('powered ventilation preserves substance identities and respects finite filter capacity', async ({ page }) => {

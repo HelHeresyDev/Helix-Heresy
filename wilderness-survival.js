@@ -33,9 +33,9 @@
     return { id: `wilderness:${candidate.id}`, strategicCellId: candidate.id, approachCellId: origin.id, label: `${candidate.biomeLabel || "Wilderness"} Boundary Sector`, temperatureC: candidate.temperatureC, slopePercent: candidate.slopePercent, precipitationMm: candidate.precipitationMm || 0,
       terrain: candidate.slopePercent > 15 ? "broken ground" : "gentle ground", jurisdiction: "No ordinary city jurisdiction beyond the defended boundary", description: "A small on-foot boundary sector, not a traversal or survey of the entire strategic cell. Only supported terrestrial encounters are simulated; unobserved ground is not confirmed safe." };
   }
-  function conditions(destination, at, sheltered = false) {
+  function conditions(destination, at, sheltered = false, localTemperatureC = null) {
     if (!destination) return { temperatureC: 18, stress: 0, label: "Protected local conditions" };
-    const temperatureC = destination.temperatureC + 4 * Math.sin(at / 86400 * Math.PI * 2);
+    const temperatureC = Number.isFinite(localTemperatureC) ? localTemperatureC : destination.temperatureC + 4 * Math.sin(at / 86400 * Math.PI * 2);
     const coldHeat = Math.max(0, 8 - temperatureC, temperatureC - 30);
     const wet = destination.precipitationMm > 900 ? 2 : 0;
     return { temperatureC, stress: (coldHeat * .6 + wet) * (sheltered ? .2 : 1), label: `${Math.round(temperatureC)}°C; ${wet ? "damp" : "dry"} exposure${sheltered ? "; shelter reduces weather exposure" : ""}` };
@@ -51,7 +51,7 @@
       state.thirst = clamp(state.thirst + (working ? 8 : 6) / 3600);
       state.hunger = clamp(state.hunger + (working ? 4 : 3) / 3600);
       state.exertion = clamp(state.exertion + (working ? 12 : resting ? (options.sheltered || !options.destination ? -24 : -12) : -6) / 3600);
-      const weather = conditions(options.destination, state.lastAt + second, options.sheltered);
+      const weather = conditions(options.destination, state.lastAt + second, options.sheltered, options.temperatureAt?.(state.lastAt + second));
       state.exposure = clamp(state.exposure + (weather.stress || -6) / 3600);
       state.harmRemainder += ((state.thirst >= 90 ? 4 : 0) + (state.hunger >= 95 ? 1 : 0) + (state.exposure >= 90 ? 4 : 0)) / 3600;
       if (state.harmRemainder >= 1) { damage++; state.harmRemainder -= 1; }
