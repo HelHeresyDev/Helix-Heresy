@@ -127,6 +127,7 @@
   const FieldPorter = window.HelixFieldPorter;
   const FieldBuilder = window.HelixFieldBuilder;
   const FieldEmployeeRecovery = window.HelixFieldEmployeeRecovery;
+  const ResidentCaretaker = window.HelixResidentCaretaker;
   const CarrierBriefings = window.HelixCarrierBriefings;
   const LocalDiscovery = window.HelixLocalDiscovery;
   const MunicipalMaps = window.HelixMunicipalMaps;
@@ -17208,6 +17209,16 @@
       foreignEscortHaulingAction,
       fieldPorterAction,
       fieldBuilderAction,
+      residentCaretakerAction,
+      residentCaretakerSnapshot: () => { const s = residentCaretakerOwner(); return clonePlainObject({ saved: s, context: s && residentCaretakerContext(s, true),
+        clock: state.clock, money: ensureEconomy().money, stacks: ensurePhysicalItemStacks(), fixtures: state.fixtures, plan: state.fieldRefuge?.staffPlan }); },
+      advanceResidentCaretakerForTest: seconds => {
+        for (let left = Math.max(0, seconds); left > 0 && !scientistIsDead();) {
+          const step = Math.min(1, left); state.clock += step; left -= step;
+          updateScientistMovementTask(); completeDueTasks(); updateWildernessNeeds(); updateAllFieldPorters(step);
+        }
+        syncActorInventories(); syncPhysicalReadModels(); persist(); render(); return state.clock;
+      },
       fieldEmployeeRecoveryAction,
       fieldEmployeeRecoverySnapshot: role => {
         const s = role === 'builder' ? foreignSurveyAtField()?.builder : foreignSurveyAtField()?.porter;
@@ -23518,7 +23529,7 @@
       }
       return changed;
     }
-    if (!options.porterStep && elapsed > 1 && fieldEmployeeStates().some(s => ['arriving', 'onSite', 'returning'].includes(s.phase))) {
+    if (!options.porterStep && elapsed > 1 && fieldEmployeeStates().some(s => ResidentCaretaker.active(s) || ['arriving', 'onSite', 'returning'].includes(s.phase))) {
       let left = elapsed, changed = 0;
       while (left > 0 && !scientistIsDead()) {
         const step = Math.min(1, left), before = state.clock, paused = state.paused;
@@ -88425,6 +88436,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function fieldBuilderAction(action, options = {}) {
     const e = foreignSurveyAtField(); if (!e || scientistIsDead()) return false;
+    if (ResidentCaretaker.active(e.builder)) return false;
     if (action === 'inspectLog') { const ok = fieldBuilderInspectLog(options.stackId); persist(); render(); return ok; }
     if (action === 'inspectTimber') { const ok = fieldBuilderInspectRecovery(options.nodeId); persist(); render(); return ok; }
     if (action === 'inspectStone') { const ok = fieldBuilderInspectStone(options.nodeId); persist(); render(); return ok; }
@@ -88606,6 +88618,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     syncActorInventories(); syncPhysicalReadModels(); return true;
   }
   function fieldEmployeeRecoveryAction(role, action, options = {}) {
+    if (role === 'builder' && ResidentCaretaker.active(foreignSurveyAtField()?.builder)) return false;
     const s = role === 'builder' ? ensureFieldBuilder() : role === 'porter' ? ensureFieldPorter() : null;
     if (!s || scientistIsDead()) return false;
     const c = fieldEmployeeRecoveryContext(s, true); let result = false;
@@ -88656,6 +88669,240 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function fieldPorterStates() { return (state?.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.porter).filter(Boolean); }
   function fieldBuilderStates() { return (state?.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.builder).filter(Boolean); }
   function fieldEmployeeStates() { return [...fieldPorterStates(), ...fieldBuilderStates()]; }
+  function residentCaretakerOwner() {
+    return fieldBuilderStates().find(s => ResidentCaretaker.active(s)) || foreignSurveyAtField()?.builder
+      || fieldBuilderStates().find(s => s.source.cityId === state.fieldRefuge?.site?.cityId) || null;
+  }
+  function residentCaretakerPlanValid(p) {
+    const site = state.fieldRefuge?.site, f = site && fixtureById(site.cacheId), heater = site && fixtureById(site.heaterId);
+    return Boolean(p && site && ['id', 'siteId', 'worldId', 'roomId', 'cacheId', 'heaterId', 'doorId'].every(k => p[k] === site[k])
+      && f?.condition > 0 && !['broken', 'unfinished'].includes(f.operationalState)
+      && f.installedAt === p.cacheInstalledAt && sameMapCell(f.origin, site.layout.cache)
+      && heater?.condition > 0 && heater.installedAt === p.heaterInstalledAt && sameMapCell(heater.origin, site.layout.heater)
+      && state.doors[p.doorId]?.condition > 0 && fieldStationSheltered(p.sleep) && fieldStationSheltered(p.cratePort)
+      && site.layout.roofs.every(c => constructedFloorAtCell(c)?.condition >= 50));
+  }
+  function residentCaretakerRoute(s, sleep) {
+    const e = fieldPorterExcursion(s), w = e?.wilderness, map = ensureLabMap(); if (!w || !sleep) return null;
+    const reached = new Set([w.context.siteId]);
+    for (let pass = 0; pass < 4; pass++) for (const r of w.patchGraph?.records || []) if (r.kind === 'crossing' && reached.has(r.fromId)) reached.add(r.toId);
+    const patches = foreignWildernessPatches(w).filter(p => reached.has(p.context.siteId) && p.discovery?.baseline);
+    const known = new Set([...Object.keys(state.mapCellObservations || {}), ...scientistPerceivedMapCellKeys(map)]);
+    const cells = [...(map.rooms[e.roomId]?.cells || []), ...(map.rooms[w.roomId]?.cells || [])
+      .filter(c => patches.some(p => ForeignWilderness.contains(p.bounds, c))), w.gate];
+    const allowed = new Map(cells.map(c => [mapCellKey(c), c])), previous = new Map([[mapCellKey(s.layout.meeting), null]]), queue = [s.layout.meeting];
+    for (let n = 0; n < queue.length; n++) {
+      const cell = queue[n]; if (sameMapCell(cell, sleep)) {
+        const route = []; let c = cell; while (c) { route.unshift(cleanMapCell(c)); c = previous.get(mapCellKey(c)); } return route;
+      }
+      for (const next of WildernessBeasts.neighbors(cell)) {
+        const key = mapCellKey(next), door = labMapDoorAtCell(next);
+        if (!allowed.has(key) || !known.has(key) || previous.has(key) || constructedWallAtCell(next) || !labMapCellHasFloor(next)
+          || fixturesAtCell(next).some(f => fixtureDef(f)?.collision === 'blocking')
+          || !door && !labMapCellIsWalkable(next, map)) continue;
+        previous.set(key, cell); queue.push(next);
+      }
+    }
+    return null;
+  }
+  function residentCaretakerContext(s, contact = false) {
+    const e = s && fieldPorterExcursion(s), g = e && passengerReceptionGate(e.source.cityId), a = s?.actor;
+    const resident = ResidentCaretaker.active(s) ? s.resident : null;
+    const p = resident?.plan || state.fieldRefuge?.staffPlan, site = state.fieldRefuge?.site;
+    const kitId = resident?.kitId || actorInventoryStacks(a?.id).find(i => i.key === 'fieldShelter' && !i.reservedTaskId && !i.cityOwnerId && !i.civicCustody)?.id;
+    const kit = ensurePhysicalItemStacks().find(i => i.id === kitId);
+    const source = e && fieldBuilderSource(g, e);
+    const restriction = source?.restrictions?.find(r => r.refusesDeclaredOpposition || r.forbidsWildernessWork || r.forbidsResidentWork);
+    const threatened = Boolean(a && (a.nextAttackAt > state.clock || a.lastHarmedAt != null && state.clock - a.lastHarmedAt < 30
+      || e?.wilderness?.beasts?.actors.some(b => b.status !== 'dead' && b.roomId === a.roomId
+      && mapCellDistance(a.mapCell, b.mapCell) <= 7 && sensoryLineOfSight(a.mapCell, b.mapCell))));
+    const heater = p && fixtureById(p.heaterId), crate = p && fixtureById(p.cacheId);
+    const sleepUsable = Boolean(p && kit && kit.quantity === 1 && kit.key === 'fieldShelter'
+      && (resident?.deployed ? kit.reservedTaskId === resident.id && !kit.carriedBy && !kit.fixtureId && kit.roomId === p.roomId && sameMapCell(kit.cell, p.sleep)
+        : kit.carriedBy === a?.id && !kit.reservedTaskId));
+    const inv = a ? actorInventoryStacks(a.id) : [];
+    return { alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist'), originalBody: passengerBodyCurrent(),
+      bodyEpoch: ensureScientistIdentity().bodyEpoch, originalTrip: Boolean(e?.trip && e.trip.bodyEpoch === ensureScientistIdentity().bodyEpoch && e.trip.visitId === passengerVisitId()),
+      custody: GateEnforcement.custodyActive(currentGateEnforcement()) || localPrisonRestricted(), busy: surveyBusy(),
+      near: Boolean(contact && a && fieldPorterObserved(a) && mapCellDistance(a.mapCell, scientistMapCell()) <= 1),
+      atGround: Boolean(e && scientistRoomId() === e.roomId && a?.roomId === e.roomId && mapCellDistance(a.mapCell, s.layout.meeting) <= 1),
+      toolsReturned: Boolean(s && fieldBuilderToolsReturned(s)), source, plan: p, kitId, incapacitated: Boolean(a && actorIsIncapacitated(a)),
+      provisions: ['drinkingWater', 'trailMeal'].every(key => inv.some(i => i.key === key && i.quantity >= 1 && !i.reservedTaskId)),
+      routeOk: Boolean(p && e && p.cityId === e.source.cityId && p.worldId === e.wilderness?.context.worldId
+        && p.route?.length && sameMapCell(p.route[0], s.layout.meeting) && sameMapCell(p.route.at(-1), p.sleep)),
+      supported: residentCaretakerPlanValid(p) && sleepUsable, sleepUsable, threatened,
+      stocked: Boolean(p && ['drinkingWater', 'trailMeal', 'fuelReagent'].every(key => ensurePhysicalItemStacks().some(i => i.key === key && i.quantity > 0
+        && i.fixtureId === p.cacheId && i.roomId === p.roomId && sameMapCell(i.cell, crate?.origin)
+        && !i.containerId && !i.reservedTaskId && !i.carriedBy && !i.cityOwnerId && !i.civicCustody && !i.chemicalBatch))),
+      accompanied: Boolean(a && [e?.roomId, e?.wilderness?.roomId].includes(a.roomId)
+        && [e?.roomId, e?.wilderness?.roomId].includes(scientistRoomId()) && sameMapLayer(a.mapCell, scientistMapCell())
+        && mapCellDistance(a.mapCell, scientistMapCell()) <= 6
+        && sensoryLineOfSight(a.mapCell, scientistMapCell()) && !actorIsIncapacitated('scientist') && !GateEnforcement.custodyActive(currentGateEnforcement()) && !localPrisonRestricted()
+        && s.resident?.recognizedBodyEpoch === ensureScientistIdentity().bodyEpoch),
+      atHome: Boolean(a && a.roomId === e?.roomId && sameMapCell(a.mapCell, s.layout.meeting)),
+      atSleep: Boolean(p && a?.roomId === p.roomId && sameMapCell(a.mapCell, p.sleep)),
+      atCrate: Boolean(p && a?.roomId === p.roomId && sameMapCell(a.mapCell, p.cratePort) && crate?.accessState === 'open'),
+      atControls: Boolean(p && a?.roomId === p.roomId && sameMapCell(a.mapCell, p.controls)),
+      doorOpen: Boolean(p && state.doors[p.doorId]?.state === DOOR_STATE_OPEN),
+      atDoorControls: Boolean(p && a?.roomId === p.roomId && sameMapCell(a.mapCell, p.doorPort)),
+      sheltered: Boolean(a && fieldStationSheltered(a.mapCell)),
+      temperatureAt: site?.climate && a?.roomId === site.roomId && fieldStationSheltered(a.mapCell) ? () => site.climate.temperatureC : null,
+      destination: a?.roomId === e?.wilderness?.roomId ? foreignWildernessPatch(e.wilderness, a.mapCell).destination || e.wilderness.destination : null,
+      fuel: Number(heater?.utility?.fuel) || 0, enabled: heater && utilityFixtureEnabled(heater),
+      fuelUsable: Boolean(heater && heater.condition > 0 && !['broken', 'unfinished'].includes(heater.operationalState)
+        && !normalizeUtilityFault(heater.utility?.fault) && heater.utility?.powerMode === 'fuel'),
+      providerRefusal: !source || !['cityId', 'populationId', 'providerId', 'allocationId'].every(k => source[k] === s.source[k])
+        || restriction || source?.prohibitions?.length ? restriction?.text || 'Original provider no longer supports resident work.' : '',
+      recognizedIdentity: Boolean(s?.resident?.recognition?.progress >= 120 && s.resident.recognition.bodyEpoch === ensureScientistIdentity().bodyEpoch) };
+  }
+  function residentCaretakerHooks(s) {
+    const a = s.actor, r = s.resident, p = r.plan;
+    const clean = i => i && i.quantity > 0 && !i.reservedTaskId && !i.cityOwnerId && !i.civicCustody && !i.containerId && !i.chemicalBatch
+      && (i.key === 'fuelReagent' || !(i.tags || []).some(t => /toxic|hazard|contaminat|volatile/i.test(t)));
+    const carried = key => actorInventoryStacks(a.id).find(i => i.key === key && !i.fixtureId && clean(i));
+    const supply = key => {
+      const f = fixtureById(p.cacheId); if (!residentCaretakerPlanValid(p) || f?.accessState !== 'open') return null;
+      return ensurePhysicalItemStacks().find(i => i.key === key && clean(i) && !i.carriedBy && i.fixtureId === p.cacheId
+        && i.roomId === p.roomId && sameMapCell(i.cell, f.origin));
+    };
+    const spend = id => { const i = ensurePhysicalItemStacks().find(i => i.id === id && i.carriedBy === a.id && clean(i));
+      if (!i) return false; i.quantity--; i.knownQuantity = Math.min(i.knownQuantity, i.quantity);
+      state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0); syncActorInventories(); return true; };
+    return { alive: !scientistIsDead(), context: () => residentCaretakerContext(s), carried, supply,
+      available: key => carried(key) || supply(key),
+      move: (goal, at) => {
+        if (sameMapCell(a.mapCell, goal)) return true;
+        if (at < a.nextMoveAt) return true;
+        const atHome = sameMapCell(goal, p.home), route = p.route;
+        let target = goal;
+        if (r.phase === 'accompanying' || r.phase === 'returning') {
+          const index = route.findIndex(c => sameMapCell(c, a.mapCell));
+          if (index >= 0) target = route[Math.max(0, Math.min(route.length - 1, index + (atHome ? -1 : 1)))];
+          else { target = [...route].sort((b, c) => mapCellDistance(a.mapCell, b) - mapCellDistance(a.mapCell, c))[0]; }
+        }
+        const layout = state.fieldRefuge?.site?.layout;
+        const allowed = new Set([...route, ...(layout?.floors || []), ...(layout?.apron ? [layout.apron] : [])].map(mapCellKey));
+        const canEnter = cell => allowed.has(mapCellKey(cell)) && labMapCellHasFloor(cell) && !constructedWallAtCell(cell)
+          && !(fieldPorterExcursion(s).wilderness.beasts?.actors || []).some(b => b.status !== 'dead' && sameMapCell(b.mapCell, cell))
+          && (labMapCellIsWalkable(cell) || labMapDoorAtCell(cell)) && !labMapCellIsPathBlocked(cell, { actor: a });
+        const door = labMapDoorAtCell(target);
+        if (door && mapCellDistance(a.mapCell, target) <= 1 && state.doors[door.id]?.state !== DOOR_STATE_OPEN) {
+          if (door.id !== p.doorId && !route.some(c => sameMapCell(c, door.cell)) || state.doors[door.id]?.lockState === DOOR_LOCK_LOCKED) return false;
+          state.doors[door.id].state = DOOR_STATE_OPEN; bumpNavigationRevision('topology');
+        }
+        const next = WildernessBeasts.nextStep(a.mapCell, target, canEnter); if (!next) { r.reason = 'Actual agreed walking access is obstructed; no attendance or movement is backfilled.'; return false; }
+        a.mapCell = cleanMapCell(next); a.roomId = labMapCellRoomId(next) || a.roomId;
+        const load = actorEncumbranceInfo(a.id);
+        a.needs.exertion = Math.min(100, a.needs.exertion + .05 + load.usage.massKg * .005);
+        a.nextMoveAt = at + 1.3 * WildernessSurvival.fatigueMultiplier(a.needs) * (1 + injuryEffectTotals(a).movement) / load.speedMultiplier;
+        syncActorInventories(); return true;
+      },
+      take: id => { const i = ensurePhysicalItemStacks().find(i => i.id === id);
+        return Boolean(i && ['fuelReagent', 'drinkingWater', 'trailMeal'].includes(i.key) && supply(i.key)?.id === id
+          && residentCaretakerContext(s).atCrate && carryPhysicalStack(a.id, id, 1)); },
+      consume: (id, key) => { if (!['drinkingWater', 'trailMeal'].includes(key) || carried(key)?.id !== id || !spend(id)) return false;
+        a.needs = WildernessSurvival.consume(a.needs, key); return true; },
+      deploy: () => { const c = residentCaretakerContext(s), i = ensurePhysicalItemStacks().find(i => i.id === r.kitId);
+        if (!c.atSleep || !c.sleepUsable || !dropActorInventoryStack(a.id, i.id)) return false;
+        i.reservedTaskId = r.id; return true; },
+      fuel: (id) => { const c = residentCaretakerContext(s), f = fixtureById(p.heaterId);
+        if (!c.atControls || !c.fuelUsable || c.fuel > 23 || carried('fuelReagent')?.id !== id) return false;
+        updateFieldRefugeClimate(); if (!spend(id)) return false; f.utility.fuel += 1; return true; },
+      enable: () => { const c = residentCaretakerContext(s); if (!c.atControls || !c.fuelUsable) return false;
+        updateFieldRefugeClimate(); fixtureById(p.heaterId).utility.enabled = true; return true; },
+      closeDoor: () => { const c = residentCaretakerContext(s); if (!c.atDoorControls || !state.doors[p.doorId]?.condition
+          || fieldEmployeeStates().some(o => sameMapCell(o.actor.mapCell, ensureLabMap().doors[p.doorId]?.cell))
+          || sameMapCell(scientistMapCell(), ensureLabMap().doors[p.doorId]?.cell)) return false;
+        updateFieldRefugeClimate(); state.doors[p.doorId].state = DOOR_STATE_CLOSED; bumpNavigationRevision('door'); return true; } };
+  }
+  function residentCaretakerAction(action, options = {}) {
+    if (scientistIsDead()) return false;
+    const s = residentCaretakerOwner() || ensureFieldBuilder(); if (!s) return false;
+    let result = false, c = residentCaretakerContext(s, true);
+    if (action === 'inspect' && state.fieldRefuge?.site && fieldStationLocal(state.fieldRefuge) && !surveyBusy() && annexCapable() && sameMapCell(scientistMapCell(), state.fieldRefuge.site.layout.rest)) {
+      const site = state.fieldRefuge.site, sleep = site.layout.floors.find(p => p.x === site.layout.heater.x && p.y === site.layout.door.y - 1), route = sleep && residentCaretakerRoute(s, sleep);
+      const f = fixtureById(site.cacheId), h = fixtureById(site.heaterId);
+      if (route && f && h) {
+        const plan = { id: site.id, siteId: site.siteId, worldId: site.worldId, roomId: site.roomId, cityId: site.cityId,
+          cacheId: f.id, cacheInstalledAt: f.installedAt, heaterId: h.id, heaterInstalledAt: h.installedAt, doorId: site.doorId,
+          sleep, home: cleanMapCell(s.layout.meeting), route, cratePort: cleanMapCell(site.layout.rest), controls: mapCellAtOffset(site.layout.heater, 0, 1),
+          doorPort: mapCellAtOffset(site.layout.door, 0, -1) };
+        if (residentCaretakerPlanValid(plan)) { state.fieldRefuge.staffPlan = plan; state.fieldRefuge.staffInspectedAt = state.clock; result = true; }
+      }
+    }
+    if (action === 'inspect' && state.fieldRefuge) state.fieldRefuge.staffReply = { at: state.clock, text: result
+      ? 'Personally inspected original residence, equipment and known connected walking route. No supplies or employee granted.'
+      : 'Stand at the refuge crate/rest tile. Inspect its complete original shell, crate, heater and a previously observed connected walking route to the original worker.' };
+    if (action === 'giveKit' && ResidentCaretaker.contact(c) && !ResidentCaretaker.active(s) && s.phase === 'completed') {
+      const i = actorInventoryStacks('scientist').find(i => i.key === 'fieldShelter' && !i.reservedTaskId && !i.cityOwnerId && !i.civicCustody && !i.containerId);
+      if (i && !c.kitId && actorInventoryCanCarry(s.actor.id, i, 1)) {
+        i.carriedBy = ''; const taken = carryPhysicalStack(s.actor.id, i.id, 1); if (!taken || taken !== i) i.carriedBy = 'scientist'; result = Boolean(taken);
+      }
+    }
+    if (action === 'provision' && ResidentCaretaker.contact(c) && !c.incapacitated && s.actor.status !== 'dead'
+      && ['drinkingWater', 'trailMeal'].includes(options.key)) {
+      const i = actorInventoryStacks('scientist').find(i => i.key === options.key && i.quantity > 0 && !i.reservedTaskId
+        && !i.cityOwnerId && !i.civicCustody && !i.containerId && !i.chemicalBatch && !(i.tags || []).some(t => /toxic|hazard|contaminat|volatile/i.test(t)));
+      if (i && actorInventoryCanCarry(s.actor.id, i, 1)) {
+        i.carriedBy = ''; const taken = carryPhysicalStack(s.actor.id, i.id, 1); if (!taken || taken !== i) i.carriedBy = 'scientist'; result = Boolean(taken);
+      }
+    }
+    if (action === 'review') result = ResidentCaretaker.review(s, c, state.clock);
+    if (action === 'accept' && !fieldBuilderStates().some(other => other !== s && ResidentCaretaker.active(other))) result = ResidentCaretaker.accept(s, c, options.expected, ensureEconomy(), state.clock);
+    if (action === 'report') result = ResidentCaretaker.receive(s, c, state.clock);
+    if (action === 'withdraw' && ResidentCaretaker.authorized(s, c)) result = ResidentCaretaker.withdraw(s, state.clock, 'Personally requested physical withdrawal under the original agreement.');
+    if (action === 'settle') {
+      result = ResidentCaretaker.settle(s, c, ensureEconomy(), state.clock);
+      if (result) { const kit = ensurePhysicalItemStacks().find(i => i.id === s.resident.kitId && i.reservedTaskId === s.resident.id); if (kit) kit.reservedTaskId = ''; }
+    }
+    if (action === 'recognize' && ResidentCaretaker.active(s) && ResidentCaretaker.contact(c) && !c.providerRefusal && !c.threatened) {
+      s.resident.recognition = { bodyEpoch: c.bodyEpoch, lastAt: state.clock, progress: 0 }; result = true;
+    }
+    syncActorInventories(); syncPhysicalReadModels(); persist(); render(); return result;
+  }
+  function updateResidentCaretaker(s) {
+    const r = s.resident, c = residentCaretakerContext(s, true);
+    if (r.recognition && r.recognition.progress < 120) {
+      const elapsed = Math.max(0, Math.min(1, state.clock - r.recognition.lastAt)); r.recognition.lastAt = state.clock;
+      if (ResidentCaretaker.contact(c) && !c.threatened && !c.providerRefusal && r.recognition.bodyEpoch === c.bodyEpoch) {
+        r.recognition.progress += elapsed;
+        if (r.recognition.progress >= 120) ResidentCaretaker.recognize(s, residentCaretakerContext(s, true), state.clock);
+      } else r.recognition.progress = 0;
+    }
+    const damage = ResidentCaretaker.advance(s, state.clock, residentCaretakerHooks(s));
+    if (damage) damageSurfaceWorker(damage, { injuryProgress: true }, s.actor);
+    return 1;
+  }
+  function renderResidentCaretakerPanel() {
+    const panel = document.createElement('section'); panel.dataset.residentCaretaker = 'true';
+    panel.append(textEl('h4', 'Resident refuge caretaker'), textEl('p', ResidentCaretaker.SCOPE));
+    const s = residentCaretakerOwner() || ensureFieldBuilder(); if (!s) { panel.append(textEl('p', 'Meet a supported original qualified craftsperson first.')); return panel; }
+    const c = residentCaretakerContext(s, true);
+    const button = (label, action, disabled = false, options = {}) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = disabled;
+      b.onclick = () => residentCaretakerAction(action, options); panel.append(b); };
+    button('Inspect refuge residence and walking route here', 'inspect', !state.fieldRefuge?.site || !fieldStationLocal(state.fieldRefuge));
+    button('Give original sleeping kit to craftsperson', 'giveKit', !ResidentCaretaker.contact(c) || ResidentCaretaker.active(s) || Boolean(c.kitId));
+    for (const key of ['drinkingWater', 'trailMeal']) button(`Personally give caretaker one ${key}`, 'provision', !ResidentCaretaker.contact(c), { key });
+    button('Review separate resident caretaker terms', 'review', !ResidentCaretaker.contact(c) || ResidentCaretaker.active(s));
+    if (state.fieldRefuge?.staffReply) panel.append(textEl('p', `${formatClock(state.fieldRefuge.staffReply.at)} — ${state.fieldRefuge.staffReply.text}`));
+    if (s.residentReply) panel.append(textEl('p', `${formatClock(s.residentReply.at)} — ${s.residentReply.text}`));
+    if (s.residentQuote) {
+      panel.append(textEl('p', `Received exact offer: ${formatMoney(s.residentQuote.upfront)} prepaid; original kit ${s.residentQuote.kitId}; refuge ${s.residentQuote.plan.siteId}. Expires ${formatClock(s.residentQuote.expiresAt)}.`));
+      button('Accept exact three-day resident agreement', 'accept', !ResidentCaretaker.contact(c), { expected: clonePlainObject(s.residentQuote) });
+    }
+    if (s.resident) {
+      const report = s.resident.report;
+      panel.append(textEl('p', `Signed agreement ${s.resident.id}. Departures and heater use are not remote telemetry. Accompany the person on foot; meet again for reports.`));
+      if (report) panel.append(textEl('p', `${formatClock(report.at)} — personal report: ${report.phase}; ${report.reason}; earned ${formatMoney(report.earned)}. ${report.log.slice(-5).map(l => `${formatClock(l.at)}: ${l.text}`).join(' ')}`));
+      button('Receive personal caretaker report', 'report', !ResidentCaretaker.contact(c));
+      button('Request caretaker physical withdrawal', 'withdraw', !ResidentCaretaker.authorized(s, c));
+      button('Settle returned resident agreement', 'settle', !ResidentCaretaker.authorized(s, c) || !c.atGround);
+      button('Personally reaffirm caretaker agreement (two minutes)', 'recognize', !ResidentCaretaker.contact(c) || s.resident.recognizedBodyEpoch === c.bodyEpoch);
+      if (c.near && s.resident.recognition && s.resident.recognizedBodyEpoch !== c.bodyEpoch)
+        panel.append(textEl('p', `Personal reaffirmation: ${Math.floor(s.resident.recognition.progress)}/120 attended seconds. Remain nearby, free, capable and safe; interruption resets this conversation, not debts.`));
+    }
+    return panel;
+  }
   // Shared local geometry and physiology do not confer either employment role.
   function fieldPorterExcursion(s) { return (state.penalFlights?.assistance?.cityApproach?.gates || []).find(g => g.foreignSurvey?.porter === s || g.foreignSurvey?.builder === s)?.foreignSurvey; }
   function fieldPorterObserved(a) { return Boolean(a?.mapCell && a.roomId === scientistRoomId() && mapCellDistance(scientistMapCell(), a.mapCell) <= 8 && sensoryLineOfSight(scientistMapCell(), a.mapCell)); }
@@ -88895,6 +89142,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (scientistIsDead()) return 0;
     let changed = 0;
     for (const s of fieldEmployeeStates()) {
+      if (ResidentCaretaker.active(s)) {
+        const previous = porterSimulationExcursion; porterSimulationExcursion = fieldPorterExcursion(s);
+        try {
+          const beasts = porterSimulationExcursion?.wilderness?.beasts;
+          if (beasts && beasts.lastAt !== state.clock) updateWildernessBeasts(elapsed);
+          changed += updateResidentCaretaker(s);
+        } finally { porterSimulationExcursion = previous; }
+        continue;
+      }
       const model = s.role === 'builder' ? FieldBuilder : FieldPorter;
       if (!model.active(s) && !FieldEmployeeRecovery.active(s)) continue;
       const e = fieldPorterExcursion(s), previous = porterSimulationExcursion; porterSimulationExcursion = e;
@@ -90662,6 +90918,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function renderFieldStationPanel() {
     const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.fieldStation = 'true';
     panel.append(renderFieldToolCarePanel());
+    panel.append(renderResidentCaretakerPanel());
     const refuge = fieldStationState() === state.fieldRefuge;
     panel.append(textEl('h4', refuge ? 'Supplied Wilderness Refuge' : 'Wilderness Field Station'), textEl('p', refuge
       ? 'A second, unstaffed 4 × 5 refuge on another reached patch: 33 stone blocks, 24 lumber, three metal parts and two steel panels. Real shelter, storage, resting space and an initially empty, switched-off heater. Bring food, drinking water, fuel and repair tools. No free equipment or medical care.'
