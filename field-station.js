@@ -11,7 +11,7 @@
     return Boolean(item && homeRoomIds.includes(item.roomId) && item.quantity > 0
       && !item.carriedBy && !item.reservedTaskId && !item.cityOwnerId && !item.civicCustody
       && ['resources', 'inventory'].includes(item.section)
-      && ['stoneBlocks', 'lumber', 'metalParts', 'steelPanels', 'fuelReagent', 'drinkingWater', 'trailMeal', 'masonryHammer', 'stoneChisel', 'handSaw', 'foldingLadder'].includes(item.key));
+      && ['stoneBlocks', 'lumber', 'metalParts', 'steelPanels', 'cloth', 'rubber', 'fuelReagent', 'drinkingWater', 'trailMeal', 'masonryHammer', 'stoneChisel', 'handSaw', 'foldingLadder'].includes(item.key));
   }
   const registry = Theme.createRegistry([{ id: 'facility.shared.field-station', kind: 'facility', compatibility: 'shared',
     contentTags: ['survival'], template: 'Unstaffed wilderness supply hut', fallback: true }]);

@@ -128,6 +128,7 @@
   const FieldBuilder = window.HelixFieldBuilder;
   const FieldEmployeeRecovery = window.HelixFieldEmployeeRecovery;
   const ResidentCaretaker = window.HelixResidentCaretaker;
+  const FieldWater = window.HelixFieldWater;
   const CarrierBriefings = window.HelixCarrierBriefings;
   const LocalDiscovery = window.HelixLocalDiscovery;
   const MunicipalMaps = window.HelixMunicipalMaps;
@@ -637,6 +638,18 @@
         steel: { composition: { primary: "steel", lining: "ceramic" }, costs: { steelPanels: 2, metalParts: 2 }, score: 82 }
       },
       description: "An independently powered heater with broad controls unless a thermostat is installed nearby."
+    },
+    {
+      id: "manualFieldPurifier", label: "Manual Field Purifier and Drinking Tank", glyph: "PW",
+      assemblyClass: "siteBuilt", footprint: { width: 1, height: 1 }, collision: "blocking", layer: "floor",
+      ports: [{ id: "operator", label: "Manual Treatment and Drinking Point", x: 0, y: 1 }], capabilities: ["manualFieldWater"],
+      workMinutes: 10, materialOptions: { steel: { composition: { primary: "steel", seal: "rubber" }, costs: { steelPanels: 2, metalParts: 2, cloth: 2, rubber: 1 }, score: 80 } },
+      description: "Empty manual purifier: 20 L potable and 5 L reject storage. Field-water controls require original raw water and a finite rated cartridge. No municipal connection, power or free stock."
+    },
+    {
+      id: "fieldSurfaceWater", label: "Surface-Water Pool", glyph: "~W", assemblyClass: "siteBuilt",
+      footprint: { width: 1, height: 1 }, collision: "nonblocking", layer: "floor", ports: [], capabilities: [],
+      materialOptions: {}, description: "A bounded natural surface-water source, not confirmed potable. Only a run-owned original source can supply actual water."
     },
     {
       id: "thermostat",
@@ -1170,7 +1183,7 @@
     { id: "stoneFloor", label: "Stone Floor", kind: "floor", materialId: "stoneBlocks", resourceCosts: { stoneBlocks: 1 }, workMinutes: 8, description: "Lay constructed stone flooring that removes rough-floor movement penalties." },
     { id: "stoneCeiling", label: "Stone Ceiling", kind: "ceiling", materialId: "stoneBlocks", resourceCosts: { stoneBlocks: 1 }, workMinutes: 10, description: "Build a shared stone slab between this space and the layer above." },
     { id: "roughWoodDoor", label: "Rough Wood Door", kind: "door", materialId: "lumber", resourceCosts: { lumber: 1 }, workMinutes: 10, description: "Install a closed rough wood door anchored to at least one cardinally adjacent wall." },
-    ...FIXTURE_DEFS.filter((def) => def.id !== "concealedExit").map((def) => ({
+    ...FIXTURE_DEFS.filter((def) => !["concealedExit", "fieldSurfaceWater", "manualFieldPurifier"].includes(def.id)).map((def) => ({
       id: `fixture:${def.id}`,
       label: def.label,
       kind: "fixture",
@@ -3798,6 +3811,7 @@
     { key: "growthMedium", label: "Prepared Growth Medium", category: "receptacles", initial: 0, description: "Finite personally prepared non-slime nutrient medium. Quality and contamination persist." },
     { key: "grownTissue", label: "Grown Tissue Remains", category: "receptacles", initial: 0, description: "Actual incorporated tissue and growth waste. Cancellation does not turn it back into original supplies." },
     ...WildernessSurvival.ITEMS.map((item) => ({ key: item.key, label: item.label, category: "receptacles", initial: item.initial, description: "Physical field-survival equipment or supplies. Pack and use through the Field Survival panel in Visits." })),
+    { key: 'spentFieldWaterFilter', label: 'Spent Field-Purifier Cartridge', category: 'receptacles', initial: 0, description: 'Original removed cartridge; no treatment capacity is restored by keeping it.' },
     ...PenalLegion.ITEMS.map(item => ({ key: item.key, label: item.label, category: 'receptacles', initial: 0, description: 'Finite issued replacement components for a satellite warning relay.' })),
     { key: "penalTrackingBeacon", label: "Penal Tracking Beacon", category: "receptacles", initial: 0, description: "A physical finite-battery tracking transmitter. No rescue service or explosive charge." },
     { key: "castawayTools", label: "Glider Service Tools and Filter", category: "receptacles", initial: 0, description: "Finite salvaged hand tools and three water-filter cartridges; no magical power required." },
@@ -13835,7 +13849,7 @@
         }
         const ids = [];
         for (const [key, amount] of Object.entries(options.supplies || {})) {
-          const section = ['stoneBlocks', 'lumber', 'steelPanels', 'metalParts', 'rubber', 'glass', 'arcaneFeedstock', 'fuelReagent'].includes(key) ? 'resources' : 'inventory';
+          const section = ['stoneBlocks', 'lumber', 'steelPanels', 'metalParts', 'cloth', 'rubber', 'glass', 'arcaneFeedstock', 'fuelReagent'].includes(key) ? 'resources' : 'inventory';
           ids.push(createPhysicalItemStack(section, key, amount, { roomId, cell })?.id);
         }
         for (const key of options.carryTools || []) {
@@ -17209,6 +17223,17 @@
       foreignEscortHaulingAction,
       fieldPorterAction,
       fieldBuilderAction,
+      fieldWaterAction,
+      fieldWaterSnapshot: () => clonePlainObject({ saved: ensureFieldWater(), local: fieldWaterLocalSite(), clock: state.clock,
+        cell: scientistMapCell(), roomId: scientistRoomId(), stacks: ensurePhysicalItemStacks(), fixtures: state.fixtures,
+        tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) }),
+      advanceFieldWaterForTest: seconds => {
+        for (let left = Math.max(0, seconds); left > 0 && !scientistIsDead();) {
+          const step = Math.min(fieldEmployeeStates().some(ResidentCaretaker.active) ? 1 : 10, left); state.clock += step; left -= step;
+          updateScientistMovementTask(); completeDueTasks(); updateWildernessNeeds(); updateAllFieldPorters(step);
+        }
+        syncActorInventories(); syncPhysicalReadModels(); persist(); render(); return state.clock;
+      },
       residentCaretakerAction,
       residentCaretakerSnapshot: () => { const s = residentCaretakerOwner(); return clonePlainObject({ saved: s, context: s && residentCaretakerContext(s, true),
         clock: state.clock, money: ensureEconomy().money, stacks: ensurePhysicalItemStacks(), fixtures: state.fixtures, plan: state.fieldRefuge?.staffPlan }); },
@@ -23791,6 +23816,7 @@
     updateFallenTimberWork();
     updateFieldStationWork();
     updateFieldRefugeServices();
+    updateFieldWaterWork();
     updateForeignLodging();
     updatePassengerFuelServices();
     updatePassengerMaintenanceServices();
@@ -69645,7 +69671,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.data?.action === 'foreignEscortScope' && scientistIsDead()) return 'Scientist death freezes unfinished escort scope acceptance.';
     if (task.data?.action === 'fieldEmployeeShelter' && scientistIsDead()) return 'Scientist death freezes this unfinished shelter work.';
     if (task.data?.stoneWork && scientistIsDead()) return 'Scientist death freezes this unfinished stone work.';
-    if ((task.data?.fieldStationWork || task.data?.fieldStationTransfer) && scientistIsDead()) return 'Scientist death freezes unfinished field-station work.';
+    if ((task.data?.fieldStationWork || task.data?.fieldStationTransfer || task.data?.fieldWaterWork) && scientistIsDead()) return 'Scientist death freezes unfinished field work.';
     if (!isScientistQueueTask(task)) {
       return "Only scientist queue tasks can be canceled here.";
     }
@@ -69746,6 +69772,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (stack?.reservedTaskId === task.id) stack.reservedTaskId = "";
     }
     if (task.type === "surveyExpeditionWork") {
+      if (task.data?.fieldWaterWork) {
+        releaseProductionMaterialReservations(task);
+        const tool = toolInstanceById(task.data.toolInstanceId)?.instance; if (tool?.reservedTaskId === task.id) tool.reservedTaskId = '';
+      }
       if (task.data?.fieldStationWork) FieldStation.cancel(fieldStationState(null, null, task), task.data.fieldStationWork, fieldStationTools(), ensurePhysicalItemStacks(), state.clock);
       if (task.data?.fieldStationTransfer) releaseProductionMaterialReservations(task);
       if (task.data?.stoneWork) SurfaceStone.cancel(task.data.stoneWork, surfaceStoneTools(), state.clock, state.surfaceStone?.sites[task.data.stoneWork.siteId]);
@@ -88743,6 +88773,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       atSleep: Boolean(p && a?.roomId === p.roomId && sameMapCell(a.mapCell, p.sleep)),
       atCrate: Boolean(p && a?.roomId === p.roomId && sameMapCell(a.mapCell, p.cratePort) && crate?.accessState === 'open'),
       atControls: Boolean(p && a?.roomId === p.roomId && sameMapCell(a.mapCell, p.controls)),
+      atWaterPoint: Boolean(residentWaterPoint(s) && sameMapCell(a?.mapCell, residentWaterPoint(s).port)),
       doorOpen: Boolean(p && state.doors[p.doorId]?.state === DOOR_STATE_OPEN),
       atDoorControls: Boolean(p && a?.roomId === p.roomId && sameMapCell(a.mapCell, p.doorPort)),
       sheltered: Boolean(a && fieldStationSheltered(a.mapCell)),
@@ -88754,6 +88785,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       providerRefusal: !source || !['cityId', 'populationId', 'providerId', 'allocationId'].every(k => source[k] === s.source[k])
         || restriction || source?.prohibitions?.length ? restriction?.text || 'Original provider no longer supports resident work.' : '',
       recognizedIdentity: Boolean(s?.resident?.recognition?.progress >= 120 && s.resident.recognition.bodyEpoch === ensureScientistIdentity().bodyEpoch) };
+  }
+  function residentWaterPoint(s) {
+    const r = s?.resident, a = r?.waterAccess, p = ensureFieldWater().plant;
+    return ResidentCaretaker.active(s) && r.phase === 'resident' && a && p && s.actor.id === r.actorId
+      && a.fixtureId === p.fixtureId && a.installedAt === p.installedAt && a.siteId === p.siteId
+      && a.worldId === p.worldId && a.roomId === p.roomId && sameMapCell(a.port, p.port)
+      && s.actor.roomId === p.roomId && fieldWaterPlantUsable(p) && p.cleanL >= 1 ? a : null;
   }
   function residentCaretakerHooks(s) {
     const a = s.actor, r = s.resident, p = r.plan;
@@ -88769,7 +88807,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (!i) return false; i.quantity--; i.knownQuantity = Math.min(i.knownQuantity, i.quantity);
       state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0); syncActorInventories(); return true; };
     return { alive: !scientistIsDead(), context: () => residentCaretakerContext(s), carried, supply,
-      available: key => carried(key) || supply(key),
+      available: key => carried(key) || supply(key) || key === 'drinkingWater' && residentWaterPoint(s),
+      waterPoint: () => residentWaterPoint(s),
+      drinkTank: at => {
+        const point = residentWaterPoint(s);
+        if (!point || !sameMapCell(a.mapCell, point.port) || !FieldWater.drink(ensureFieldWater(), at, a.id)) return false;
+        a.needs = WildernessSurvival.consume(a.needs, 'drinkingWater'); return true;
+      },
       move: (goal, at) => {
         if (sameMapCell(a.mapCell, goal)) return true;
         if (at < a.nextMoveAt) return true;
@@ -88781,7 +88825,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           else { target = [...route].sort((b, c) => mapCellDistance(a.mapCell, b) - mapCellDistance(a.mapCell, c))[0]; }
         }
         const layout = state.fieldRefuge?.site?.layout;
-        const allowed = new Set([...route, ...(layout?.floors || []), ...(layout?.apron ? [layout.apron] : [])].map(mapCellKey));
+        const allowed = new Set([...route, ...(layout?.floors || []), ...(layout?.apron ? [layout.apron] : []), ...(r.waterAccess?.route || [])].map(mapCellKey));
         const canEnter = cell => allowed.has(mapCellKey(cell)) && labMapCellHasFloor(cell) && !constructedWallAtCell(cell)
           && !(fieldPorterExcursion(s).wilderness.beasts?.actors || []).some(b => b.status !== 'dead' && sameMapCell(b.mapCell, cell))
           && (labMapCellIsWalkable(cell) || labMapDoorAtCell(cell)) && !labMapCellIsPathBlocked(cell, { actor: a });
@@ -88791,6 +88835,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           state.doors[door.id].state = DOOR_STATE_OPEN; bumpNavigationRevision('topology');
         }
         const next = WildernessBeasts.nextStep(a.mapCell, target, canEnter); if (!next) { r.reason = 'Actual agreed walking access is obstructed; no attendance or movement is backfilled.'; return false; }
+        const nextDoor = labMapDoorAtCell(next);
+        if (nextDoor && state.doors[nextDoor.id]?.state !== DOOR_STATE_OPEN) {
+          if (nextDoor.id !== p.doorId && !route.some(c => sameMapCell(c, nextDoor.cell))
+            || state.doors[nextDoor.id]?.lockState === DOOR_LOCK_LOCKED) return false;
+          state.doors[nextDoor.id].state = DOOR_STATE_OPEN; bumpNavigationRevision('topology');
+        }
         a.mapCell = cleanMapCell(next); a.roomId = labMapCellRoomId(next) || a.roomId;
         const load = actorEncumbranceInfo(a.id);
         a.needs.exertion = Math.min(100, a.needs.exertion + .05 + load.usage.massKg * .005);
@@ -88847,6 +88897,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         i.carriedBy = ''; const taken = carryPhysicalStack(s.actor.id, i.id, 1); if (!taken || taken !== i) i.carriedBy = 'scientist'; result = Boolean(taken);
       }
     }
+    if (action === 'waterAccess') {
+      const p = ensureFieldWater().plant, site = state.fieldRefuge?.site, o = site?.layout.origin;
+      const route = o && p ? labMapPathBetweenCells(site.layout.apron, p.port,
+        { map: ensureLabMap(), actor: s.actor, ignoreDoors: true, ignoreActorOccupancy: true }) : [];
+      const inspected = p && ensureFieldWater().reports[p.fixtureId] && fieldWaterPlantUsable(p)
+        && site.id === s.resident?.plan.id && route.length && route.every(cell => cell.z === o.z
+          && cell.x >= o.x - 1 && cell.x <= o.x + 5 && cell.y >= o.y - 1 && cell.y <= o.y + 6
+          && labMapCellHasFloor(cell) && !constructedWallAtCell(cell)
+          && (labMapCellIsWalkable(cell) || labMapDoorAtCell(cell))
+          && (state.mapCellObservations?.[mapCellKey(cell)] || scientistPerceivedMapCellKeys().has(mapCellKey(cell))));
+      if (inspected) result = ResidentCaretaker.acceptWaterPoint(s, { ...c, waterPointInspected: true },
+        { fixtureId: p.fixtureId, installedAt: p.installedAt, port: p.port, roomId: p.roomId, siteId: p.siteId, worldId: p.worldId, route }, state.clock);
+    }
     if (action === 'review') result = ResidentCaretaker.review(s, c, state.clock);
     if (action === 'accept' && !fieldBuilderStates().some(other => other !== s && ResidentCaretaker.active(other))) result = ResidentCaretaker.accept(s, c, options.expected, ensureEconomy(), state.clock);
     if (action === 'report') result = ResidentCaretaker.receive(s, c, state.clock);
@@ -88895,6 +88958,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       panel.append(textEl('p', `Signed agreement ${s.resident.id}. Departures and heater use are not remote telemetry. Accompany the person on foot; meet again for reports.`));
       if (report) panel.append(textEl('p', `${formatClock(report.at)} — personal report: ${report.phase}; ${report.reason}; earned ${formatMoney(report.earned)}. ${report.log.slice(-5).map(l => `${formatClock(l.at)}: ${l.text}`).join(' ')}`));
       button('Receive personal caretaker report', 'report', !ResidentCaretaker.contact(c));
+      button('Offer optional original purifier drinking access', 'waterAccess', !ResidentCaretaker.authorized(s, c));
       button('Request caretaker physical withdrawal', 'withdraw', !ResidentCaretaker.authorized(s, c));
       button('Settle returned resident agreement', 'settle', !ResidentCaretaker.authorized(s, c) || !c.atGround);
       button('Personally reaffirm caretaker agreement (two minutes)', 'recognize', !ResidentCaretaker.contact(c) || s.resident.recognizedBodyEpoch === c.bodyEpoch);
@@ -90487,6 +90551,237 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function fieldStationPatch() {
     const w = foreignWildernessLocal(); return w && foreignWildernessPatch(w, scientistMapCell());
   }
+  function ensureFieldWater() { return state.fieldWater ||= FieldWater.create(); }
+  function fieldWaterPlantUsable(p = ensureFieldWater().plant) {
+    const site = state.fieldRefuge?.site, f = p && fixtureById(p.fixtureId);
+    return Boolean(site && p && p.refugeId === site.id && p.worldId === site.worldId && p.siteId === site.siteId && f?.typeId === 'manualFieldPurifier'
+      && f.installedAt === p.installedAt && sameMapCell(f.origin, p.cell) && f.condition > 0 && !['broken', 'unfinished'].includes(f.operationalState)
+      && labMapCellHasFloor(p.port) && !constructedWallAtCell(p.port));
+  }
+  function fieldWaterLocalSite() {
+    if (scientistIsDead() || !scientistInWilderness() || !foreignSurveyAtField()) return null;
+    const patch = fieldStationPatch(), w = foreignWildernessLocal(); if (!patch?.discovery?.baseline) return null;
+    const saved = ensureFieldWater();
+    if (!Object.prototype.hasOwnProperty.call(saved.sites, patch.context.siteId)) {
+      const natural = cell => !fixturesAtCell(cell).length && !constructedFloorAtCell(cell) && !constructedWallAtCell(cell) && !labMapDoorAtCell(cell)
+        && !sameMapCell(cell, scientistMapCell()) && ![state.fieldStation, state.fieldRefuge].some(s => s?.site?.layout.ground.some(c => sameMapCell(c, cell)))
+        && labMapCellIsWalkable(cell) && !ensurePhysicalItemStacks().some(i => sameMapCell(i.cell, cell) && !i.carriedBy);
+      const local = FieldWater.site(patch.context, patch.discovery.baseline, w.roomId, natural);
+      if (!local) return null;
+      saved.sites[patch.context.siteId] = local;
+      for (const n of local.nodes) {
+        n.fixtureId = `field-water-source:${saved.sites[patch.context.siteId].siteId}`;
+        state.fixtures.push(defaultFixtureInstance(n.fixtureId, 'fieldSurfaceWater', n.cell, 0, { name: 'Unexamined surface water', installedAt: state.clock }));
+      }
+      if (local.nodes.length) bumpNavigationRevision('topology');
+    }
+    return saved.sites[patch.context.siteId];
+  }
+  function fieldWaterCan(task = null) {
+    const id = task?.data.stackId;
+    return actorInventoryStacks('scientist').find(i => (!id || id === i.id) && i.key === 'fieldWaterCan' && i.quantity === 1
+      && (!i.reservedTaskId || i.reservedTaskId === task?.id) && !i.cityOwnerId && !i.civicCustody && !i.fixtureId && !i.containerId);
+  }
+  function syncFieldWaterCan(i) {
+    const v = FieldWater.vessel(ensureFieldWater(), i.id);
+    i.unitMassKg = 1 + v.litres; i.unitVolumeL = 6;
+    i.contents = v.litres ? [{ key: v.kind === 'raw' ? 'fieldRawWater' : 'fieldWaterReject', label: `${v.kind} water from ${v.sourceId}`, amount: v.litres, phase: 'liquid', tags: ['nonpotable'] }] : [];
+    syncActorInventories();
+  }
+  function fieldWaterBinding() {
+    const patch = fieldStationPatch(), e = foreignSurveyAtField();
+    return { siteId: patch?.context.siteId, worldId: patch?.context.worldId, roomId: scientistRoomId(),
+      bodyEpoch: ensureScientistIdentity().bodyEpoch, visitId: passengerVisitId(), tripId: e?.trip?.id };
+  }
+  function fieldWaterNode(j) { return ensureFieldWater().sites[j.siteId]?.nodes.find(n => n.id === j.nodeId); }
+  function fieldWaterDisposalReason(cell, local = fieldWaterLocalSite()) {
+    const p = ensureFieldWater().plant;
+    return !local || !ForeignWilderness.contains(fieldStationPatch()?.bounds, cell) || fixturesAtCell(cell).length
+      || constructedFloorAtCell(cell) || constructedWallAtCell(cell) || labMapDoorAtCell(cell)
+      || [state.fieldStation, state.fieldRefuge].some(t => t?.site?.layout.ground.some(c => sameMapCell(c, cell)))
+      || p?.siteId === local.siteId && (mapCellDistance(p.cell, cell) <= 2 || mapCellDistance(p.port, cell) <= 2)
+      || local.nodes.some(n => mapCellDistance(n.cell, cell) <= 3)
+      ? 'Use bare ground in this reached patch, away from original sources, the drinking point and installations.' : '';
+  }
+  function fieldWaterWorkReason(task) {
+    const j = task.data.fieldWaterWork, c = fieldWaterBinding(), s = ensureFieldWater(), p = s.plant;
+    if (scientistIsDead() || !annexCapable() || !foreignSurveyAtField() || !scientistInWilderness()
+      || ['siteId', 'worldId', 'roomId', 'bodyEpoch', 'visitId', 'tripId'].some(k => c[k] !== j[k])
+      || !passengerBodyCurrent() || GateEnforcement.custodyActive(currentGateEnforcement()) || localPrisonRestricted()) return 'Original free capable body, visited patch, world and trip required.';
+    const beasts = foreignWildernessLocal()?.beasts?.actors || [];
+    if (state.combat?.routineSuspension || beasts.some(a => a.status !== 'dead' && mapCellDistance(a.mapCell, scientistMapCell()) <= 7 && sensoryLineOfSight(scientistMapCell(), a.mapCell))) return 'Danger prevents attended water work.';
+    if (j.kind === 'build') {
+      if (s.plant || state.fieldRefuge?.site?.id !== j.refugeId || fixturesAtCell(j.cell).length || constructedWallAtCell(j.cell)
+        || !labMapCellHasFloor(j.cell) || !labMapCellIsWalkable(j.cell) || labMapDoorAtCell(j.cell)) return 'Original clear refuge installation position changed.';
+      if (!(task.data.reservedStackIds || []).every(id => ensurePhysicalItemStacks().some(i => i.id === id && i.reservedTaskId === task.id && !i.carriedBy
+        && !i.cityOwnerId && !i.civicCustody && i.roomId === j.roomId && mapCellDistance(i.cell, j.port) <= 1))) return 'Original staged reserved construction inputs are missing.';
+      const t = toolInstanceById(task.data.toolInstanceId)?.instance, i = ensurePhysicalItemStacks().find(i => i.id === task.data.waterToolStackId);
+      if (!t || t.carriedBy !== 'scientist' || t.reservedTaskId !== task.id || !i || i.carriedBy !== 'scientist' || i.reservedTaskId !== task.id || t.current < 2 - (j.wearApplied || 0)) return 'Original carried usable reserved masonry hammer required.';
+    } else if (['inspect', 'collect'].includes(j.kind)) {
+      const n = fieldWaterNode(j), f = n && fixtureById(n.fixtureId);
+      if (!n || !f || f.condition <= 0 || !sameMapCell(n.cell, f.origin) || n.fixtureId !== j.sourceFixtureId) return 'Original physical water source is unavailable.';
+      if (j.kind === 'collect' && (!n.inspected || n.quality !== 'filterable' || n.litres !== j.sourceL || n.litres < 5)) return 'Original inspected filterable source or remaining volume changed.';
+    } else if (j.kind !== 'dispose') {
+      if (!fieldWaterPlantUsable() || j.fixtureId !== p.fixtureId || !sameMapCell(task.data.toCell, p.port)) return 'Original usable water plant and actual access point required.';
+      if (j.kind === 'filter' && p.batch) return 'Finish the started retained batch before changing its original filter.';
+      if (j.kind === 'load' && (p.rawL || p.batch)) return 'Original raw intake already contains water.';
+      if (j.kind === 'treat' && (FieldWater.treatmentReason(s) || p.batch?.id !== j.batchId)) return FieldWater.treatmentReason(s) || 'Original batch or cartridge changed.';
+      if (j.kind === 'drink' && p.cleanL < 1) return 'No actual litre of treated water remains.';
+      if (j.kind === 'drain' && !p.rejectL) return 'No actual reject water remains.';
+    }
+    if (j.kind === 'dispose' && fieldWaterDisposalReason(task.data.toCell)) return fieldWaterDisposalReason(task.data.toCell);
+    if (['collect', 'load', 'drain', 'dispose'].includes(j.kind)) {
+      const i = fieldWaterCan(task), v = i && FieldWater.vessel(s, i.id);
+      if (!i || JSON.stringify(v) !== j.vesselSignature) return 'The exact original carried collection vessel or its contents changed.';
+      if (j.kind === 'collect' && (v.litres || actorInventorySnapshot('scientist').remaining.massKg < 5)) return 'An empty original can and five kilograms of actual carrying headroom are required.';
+      if (j.kind === 'load' && (v.kind !== 'raw' || v.litres !== 5)) return 'Carry five actual raw litres in the original can.';
+      if (j.kind === 'drain' && (v.litres || actorInventorySnapshot('scientist').remaining.massKg < Math.min(5, p.rejectL))) return 'The original can must be empty and its added reject-water weight must fit.';
+      if (j.kind === 'dispose' && v.kind !== 'reject') return 'Only retained reject water may be disposed here.';
+    }
+    if (j.kind === 'filter' && !ensurePhysicalItemStacks().some(i => i.id === task.data.stackId && i.key === 'fieldWaterFilter' && i.quantity === 1
+      && i.carriedBy === 'scientist' && i.reservedTaskId === task.id && !i.cityOwnerId && !i.civicCustody)) return 'Original carried reserved cartridge required.';
+    return '';
+  }
+  function fieldWaterAction(kind, options = {}) {
+    if (scientistIsDead() || !annexCapable() || surveyBusy()) return false;
+    const s = ensureFieldWater(), local = fieldWaterLocalSite(), binding = fieldWaterBinding(), p = s.plant;
+    if (!local) return false;
+    let cell, node, can, stack, tool, inputs, extra = {}, token;
+    if (['inspect', 'collect'].includes(kind)) {
+      node = local.nodes.find(n => n.id === options.nodeId); if (!node || mapCellDistance(node.cell, scientistMapCell()) > 5 || !sensoryLineOfSight(scientistMapCell(), node.cell)) return false;
+      cell = node.cell; extra = { nodeId: node.id, sourceFixtureId: node.fixtureId, sourceL: node.litres };
+    } else if (kind === 'build') {
+      const site = state.fieldRefuge?.site; if (!site || s.plant || !fieldStationLocal(state.fieldRefuge)) return false;
+      const origin = site.layout.origin; cell = mapCellAtOffset(origin, 4, 3);
+      const position = mapCellAtOffset(origin, 4, 2);
+      if (!ForeignWilderness.contains(fieldStationPatch().bounds, cell) || !ForeignWilderness.contains(fieldStationPatch().bounds, position)
+        || ![cell, position].every(c => state.mapCellObservations?.[mapCellKey(c)] || scientistPerceivedMapCellKeys().has(mapCellKey(c)))
+        || fixturesAtCell(position).length || fixturesAtCell(cell).length || labMapDoorAtCell(cell) || constructedWallAtCell(cell)) return false;
+      const prior = s.efforts[JSON.stringify(['build', binding.worldId, binding.siteId, position])] || 0;
+      tool = fieldStationTools().find(t => t.key === 'masonryHammer' && t.tool?.carriedBy === 'scientist' && !t.tool.reservedTaskId
+        && t.tool.current > 0 && t.tool.current >= 2 - Math.ceil(prior * 2) && !t.stack.reservedTaskId);
+      inputs = fieldStationInputs({ costs: FieldWater.COSTS }, cell); if (!tool || !inputs) return false;
+      extra = { cell: position, port: cell, refugeId: site.id };
+    } else if (kind === 'dispose') {
+      cell = cleanMapCell(scientistMapCell());
+      if (fieldWaterDisposalReason(cell, local)) return false;
+    } else {
+      if (!fieldWaterPlantUsable() || p.siteId !== binding.siteId || p.worldId !== binding.worldId) return false;
+      cell = p.port; extra = { fixtureId: p.fixtureId };
+      if (kind === 'treat') { if (!FieldWater.beginBatch(s)) return false; extra.batchId = p.batch.id; }
+      if (kind === 'filter') {
+        stack = actorInventoryStacks('scientist').find(i => i.key === 'fieldWaterFilter' && !i.reservedTaskId && !i.cityOwnerId && !i.civicCustody);
+        if (!stack) return false;
+      }
+    }
+    if (!FieldWater.SECONDS[kind] || !cell) return false;
+    if (['collect', 'load', 'drain', 'dispose'].includes(kind)) { can = fieldWaterCan(); if (!can) return false; extra.vesselSignature = JSON.stringify(FieldWater.vessel(s, can.id)); }
+    token = kind === 'build' ? JSON.stringify(['build', binding.worldId, binding.siteId, extra.cell]) : JSON.stringify([kind, binding.worldId, binding.siteId, node?.id, node?.litres, p?.fixtureId, extra.cell, can?.id, extra.vesselSignature,
+      stack?.id, extra.batchId, inputs?.map(i => [i.stackId, i.quantity]), tool?.tool.id]);
+    if (kind === 'treat' && p.batch.fraction) s.efforts[token] = p.batch.fraction;
+    const seconds = FieldWater.SECONDS[kind] * WildernessSurvival.fatigueMultiplier(ensureWildernessSurvival());
+    const j = FieldWater.job(s, kind, token, seconds, state.clock, { ...binding, ...extra });
+    if (!queueSurveyWork('fieldWater', cell, { label: `Local water: ${kind}`, workSeconds: j.required, fieldWaterWork: j,
+      ...(can || stack ? { stackId: (can || stack).id } : {}), ...(tool ? { toolInstanceId: tool.tool.id, waterToolStackId: tool.stack.id } : {}) }, { deferRender: true })) return false;
+    const task = state.tasks.at(-1);
+    if (stack && stack.quantity > 1) {
+      stack.reservedTaskId = ''; const ids = reserveProductionMaterialSlices([{ stackId: stack.id, quantity: 1 }], task.id);
+      if (!ids) { cancelTask(task.id); return false; } task.data.stackId = ids[0];
+    }
+    if (inputs) {
+      const ids = reserveProductionMaterialSlices(inputs, task.id); if (!ids) { cancelTask(task.id); return false; }
+      task.data.reservedStackIds = ids; tool.stack.reservedTaskId = task.id; j.wearApplied = Math.ceil(j.from * 2);
+    }
+    if (fieldWaterWorkReason(task)) { cancelTask(task.id); return false; }
+    persist(); render(); return true;
+  }
+  function updateFieldWaterWork() {
+    const s = ensureFieldWater(); if (scientistIsDead()) return;
+    for (const task of state.tasks.filter(t => t.data?.fieldWaterWork)) {
+      const j = task.data.fieldWaterWork, ready = firstScientistQueueTask()?.id === task.id && surveyTaskAllowed(task)
+        && sameMapCell(scientistMapCell(), task.data.toCell) && !fieldWaterWorkReason(task) && scientistVital('stamina').current > 1;
+      const budget = Math.max(0, scientistVital('stamina').current - 1) / .01;
+      const delta = FieldWater.advance(s, j, Math.min(state.clock, j.lastAt + budget), ready);
+      j.lastAt = state.clock;
+      if (delta) {
+        spendStamina(Math.min(scientistVital('stamina').current, delta * .01));
+        if (j.kind === 'treat') FieldWater.creditBatch(s, j.from + (1 - j.from) * j.progress / j.required);
+        if (j.kind === 'build') {
+          const wear = Math.ceil(2 * (j.from + (1 - j.from) * j.progress / j.required)), t = toolInstanceById(task.data.toolInstanceId)?.instance;
+          if (t) t.current = Math.max(0, t.current - (wear - (j.wearApplied || 0))); j.wearApplied = wear;
+        }
+      }
+      task.dueAt = state.clock + Math.max(0, j.required - j.progress);
+    }
+  }
+  function completeFieldWaterWork(task) {
+    const s = ensureFieldWater(), j = task.data.fieldWaterWork, p = s.plant;
+    if (j.status !== 'working' || fieldWaterWorkReason(task) || !sameMapCell(scientistMapCell(), task.data.toCell) || j.progress < j.required) return false;
+    let ok = false; const can = fieldWaterCan(task);
+    if (j.kind === 'inspect') ok = FieldWater.inspect(fieldWaterNode(j), state.clock);
+    if (j.kind === 'collect') ok = FieldWater.collect(s, fieldWaterNode(j), can.id, state.clock);
+    if (j.kind === 'load') ok = FieldWater.load(s, can.id, state.clock);
+    if (j.kind === 'treat') ok = FieldWater.finishBatch(s, state.clock);
+    if (j.kind === 'drink') { ok = FieldWater.drink(s, state.clock, 'scientist'); if (ok) state.wildernessSurvival = WildernessSurvival.consume(ensureWildernessSurvival(), 'drinkingWater'); }
+    if (j.kind === 'drain') ok = FieldWater.drain(s, can.id, state.clock);
+    if (j.kind === 'build') {
+      const id = `field-water:${j.worldId}:${j.siteId}`;
+      ok = FieldWater.install(s, { ...fieldWaterBinding(), cell: j.cell, port: j.port, refugeId: j.refugeId }, id, state.clock);
+      if (ok) { state.fixtures.push(defaultFixtureInstance(id, 'manualFieldPurifier', j.cell, 0, { installedAt: state.clock, name: 'Original manual water purifier' }));
+        consumeProductionMaterialReservations(task); bumpNavigationRevision('topology'); }
+    }
+    if (j.kind === 'filter') {
+      const i = ensurePhysicalItemStacks().find(i => i.id === task.data.stackId), result = FieldWater.loadFilter(s, i.id, state.clock); ok = Boolean(result);
+      if (ok) {
+        i.quantity--;
+        if (result.old) {
+          const spent = createPhysicalItemStack('inventory', 'spentFieldWaterFilter', 1, { roomId: p.roomId, cell: p.port },
+            { sourceLabels: [`Original removed cartridge ${result.old.stackId}; ${result.old.remaining} L rating remained`] });
+          spent.unitMassKg = .5; spent.unitVolumeL = 1;
+        }
+      }
+    }
+    if (j.kind === 'dispose') {
+      const v = FieldWater.vessel(s, can.id), waste = createPhysicalItemStack('residue', 'fieldWaterReject', 1, { roomId: j.roomId, cell: task.data.toCell },
+        { form: 'spill', phase: 'liquid', tags: ['waste', 'nonpotable', 'field-reject'], sourceLabels: [`Original reject from ${v.sourceId}`] });
+      if (waste) { waste.unitMassKg = v.litres; waste.unitVolumeL = v.litres; FieldWater.setVessel(s, can.id, 0, 'empty'); ok = true; }
+    }
+    if (!ok || !FieldWater.finish(s, j)) return false;
+    if (can) syncFieldWaterCan(can);
+    releaseProductionMaterialReservations(task); const tool = toolInstanceById(task.data.toolInstanceId)?.instance; if (tool?.reservedTaskId === task.id) tool.reservedTaskId = '';
+    state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0); observeFieldWater(); syncPhysicalReadModels(); return true;
+  }
+  function observeFieldWater() {
+    const s = ensureFieldWater(), local = fieldWaterLocalSite(); if (!local) return;
+    for (const n of local.nodes) if (n.inspected && mapCellDistance(n.cell, scientistMapCell()) <= 5 && sensoryLineOfSight(n.cell, scientistMapCell()))
+      FieldWater.observe(s, n.id, { cell: n.cell, litres: n.litres, quality: n.inspected.quality }, state.clock);
+    const p = s.plant;
+    if (p && scientistRoomId() === p.roomId && sameMapCell(scientistMapCell(), p.port)) FieldWater.observe(s, p.fixtureId,
+      { usable: fieldWaterPlantUsable(), cleanL: p.cleanL, rejectL: p.rejectL, rawL: p.rawL, filter: p.filter, fraction: p.batch?.fraction || 0 }, state.clock);
+  }
+  function renderFieldWaterPanel() {
+    const panel = document.createElement('section'); panel.dataset.fieldWater = 'true';
+    panel.append(textEl('h4', 'Local water collection and treatment'), textEl('p', 'No automatic spring, refill or potable survey result. Inspect actual surface water; use an original reusable 5 L can and a rated cartridge. Each 15-minute base batch consumes 5 L raw water and 5 L cartridge rating, yielding 4 L potable water and 1 L retained reject. Only the scientist collects and treats.'));
+    const s = ensureFieldWater(), local = fieldWaterLocalSite(); observeFieldWater();
+    const button = (label, kind, options = {}, disabled = false) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
+      b.disabled = disabled || surveyBusy() || !annexCapable(); b.onclick = () => fieldWaterAction(kind, options); panel.append(b); };
+    for (const [id, r] of Object.entries(s.reports)) panel.append(textEl('p', `${formatClock(r.at)} — ${id}: ${r.cleanL != null
+      ? `${r.usable ? 'usable' : 'unusable'} original plant; ${r.cleanL}/20 L potable, ${r.rejectL}/5 L reject, ${r.rawL}/5 L raw; cartridge ${r.filter ? `${roundOutputValue(r.filter.remaining)} L rating` : 'absent'}; batch ${Math.floor(r.fraction * 100)}%`
+      : `${r.litres} L surface water; ${r.quality === 'filterable' ? 'supported filterable feedwater, not potable' : `unsupported ${r.quality} contamination`}`}. Dated personal observation, not telemetry.`));
+    if (!local) return panel;
+    for (const n of local.nodes.filter(n => mapCellDistance(n.cell, scientistMapCell()) <= 5 && sensoryLineOfSight(n.cell, scientistMapCell()))) {
+      button(`Inspect surface water (${n.id})`, 'inspect', { nodeId: n.id });
+      if (n.inspected) button(`Collect five raw litres (${n.id})`, 'collect', { nodeId: n.id }, n.inspected.quality !== 'filterable');
+    }
+    if (state.fieldRefuge?.site && !s.plant) button('Build manual refuge purifier (2 panels, 2 parts, 2 cloth, 1 rubber)', 'build');
+    if (s.plant?.siteId === local.siteId) for (const [kind, label] of [['filter', 'Install original carried purifier cartridge'], ['load', 'Load five carried raw litres'],
+      ['treat', 'Manually treat retained water batch'], ['drink', 'Drink one litre at purifier'], ['drain', 'Collect retained reject into empty can']]) button(label, kind);
+    button('Dispose carried reject on this bare ground', 'dispose');
+    for (const i of actorInventoryStacks('scientist').filter(i => i.key === 'fieldWaterCan')) { const v = FieldWater.vessel(s, i.id); panel.append(textEl('p', `${i.id}: ${v.litres} L ${v.kind}; actual carried mass ${i.unitMassKg} kg.`)); }
+    for (const t of scientistQueueTasks().filter(t => t.data?.fieldWaterWork)) { panel.append(textEl('p', `${t.label}: ${Math.floor(t.data.fieldWaterWork.progress)}/${Math.ceil(t.data.fieldWaterWork.required)} attended seconds. ${taskBlockReason(t)}`));
+      const b = document.createElement('button'); b.textContent = 'Pause water work and release unused claims'; b.onclick = () => cancelTask(t.id); panel.append(b); }
+    return panel;
+  }
   function fieldStationLocal(saved = fieldStationState()) {
     const w = fieldStationPatch(), s = saved?.site;
     return Boolean(w?.discovery?.baseline && scientistRoomId() === foreignWildernessLocal()?.roomId && ForeignWilderness.contains(w.bounds, scientistMapCell())
@@ -90919,6 +91214,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.fieldStation = 'true';
     panel.append(renderFieldToolCarePanel());
     panel.append(renderResidentCaretakerPanel());
+    panel.append(renderFieldWaterPanel());
     const refuge = fieldStationState() === state.fieldRefuge;
     panel.append(textEl('h4', refuge ? 'Supplied Wilderness Refuge' : 'Wilderness Field Station'), textEl('p', refuge
       ? 'A second, unstaffed 4 × 5 refuge on another reached patch: 33 stone blocks, 24 lumber, three metal parts and two steel panels. Real shelter, storage, resting space and an initially empty, switched-off heater. Bring food, drinking water, fuel and repair tools. No free equipment or medical care.'
@@ -94493,7 +94789,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!target || target.z !== scientistMapCell().z) return false;
     const foreignGround = foreignSurveyAtField();
     if (task.type === 'surveyExpeditionWork' && task.data.action === 'foreignSurveyTravel') return true;
-    if (foreignGround && (task.type === 'scientistMove' || task.type === 'surveyExpeditionWork' && ['pack', 'consume', 'radioBattery', 'walkWilderness', 'deployShelter', 'packShelter', 'foreignEscortRepair', 'foreignEscortScope', 'fieldEmployeeShelter', 'surfaceStone', 'fallenTimber', 'fieldStation', 'fieldStationPut', 'fieldStationService'].includes(task.data.action)
+    if (foreignGround && (task.type === 'scientistMove' || task.type === 'surveyExpeditionWork' && ['pack', 'consume', 'radioBattery', 'walkWilderness', 'deployShelter', 'packShelter', 'foreignEscortRepair', 'foreignEscortScope', 'fieldEmployeeShelter', 'surfaceStone', 'fallenTimber', 'fieldStation', 'fieldStationPut', 'fieldStationService', 'fieldWater'].includes(task.data.action)
       || task.type === 'physicalDiagnostic' && task.data.workflowId === 'resourceSurvey')) return true;
     if (annexAway()) return annexAtProperty() && (task.type === "scientistMove" || task.type === "injuryTreatment" && task.data.targetActorId === "scientist"
       || task.type === "surveyExpeditionWork" && ["pack", "consume", "radioBattery"].includes(task.data.action)
@@ -94911,6 +95207,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (task.data?.action === 'fieldEmployeeShelter') return fieldEmployeeShelterReason(fieldEmployeeStates().find(s => s.actor.id === task.data.actorId), task);
     if (task.data?.fieldStationService) return fieldRefugeServiceReason(task);
+    if (task.data?.fieldWaterWork) return fieldWaterWorkReason(task);
     if (task.data?.fieldStationWork) return fieldStationWorkReason(task);
     if (task.data?.fieldStationTransfer) {
       const reason = fieldStationTransferReason(task);
@@ -95026,6 +95323,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function completeSurveyWork(task) {
+    if (task.data?.fieldWaterWork) { completeFieldWaterWork(task); return; }
     if (task.data?.fieldStationService) { completeFieldRefugeService(task); return; }
     if (task.data?.action === 'overlandResume') { if (!roadsideResumeReason(task) && sameMapCell(scientistMapCell(), overlandStopSite().entry)) resumeFromRoadside(task); return; }
     if (task.data?.action === 'overlandDepart') { completeOverlandDeparture(task); return; }
@@ -102235,6 +102533,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.fallenTimber = clonePlainObject(candidate?.fallenTimber || { sites: {} });
     next.fieldStation = candidate?.fieldStation ? clonePlainObject(candidate.fieldStation) : null;
     next.fieldRefuge = candidate?.fieldRefuge ? clonePlainObject(candidate.fieldRefuge) : null;
+    next.fieldWater = candidate?.fieldWater ? clonePlainObject(candidate.fieldWater) : FieldWater.create();
     next.surveyExpeditions = SurveyExpeditions.normalizeState(candidate?.surveyExpeditions);
     next.wildernessSurvival = WildernessSurvival.normalizeState(candidate?.wildernessSurvival, next.clock);
     next.unsupportedExcursions = UnsupportedExcursions.normalizeState(candidate?.unsupportedExcursions);
@@ -102546,6 +102845,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       && t.data.fieldStationWork?.status === 'working' && t.data.fieldStationWork.taskId === t.id
       && [next.fieldStation, next.fieldRefuge].some(s => s?.site?.siteId === t.data.fieldStationWork.siteId))
       .map(t => [t.id, new Set(t.data.fieldStationWork.tools.map(c => c.toolId))]));
+    for (const t of next.tasks.filter(t => t.type === 'surveyExpeditionWork' && t.data?.fieldWaterWork?.kind === 'build'
+      && t.data.fieldWaterWork.status === 'working' && next.physicalItemStacks.some(i => i.id === t.data.waterToolStackId
+        && i.carriedBy === 'scientist' && i.reservedTaskId === t.id && i.toolInstanceId === t.data.toolInstanceId)))
+      stationTools.set(t.id, new Set([t.data.toolInstanceId]));
     const builderTools = new Map((next.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => {
       const b = g.foreignSurvey?.builder, k = b?.contract;
       if (!b || !['arriving', 'onSite'].includes(b.phase) || !k?.id?.startsWith('field-build:') || k.actorId !== b.actor.id

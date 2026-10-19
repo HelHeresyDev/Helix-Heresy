@@ -54,6 +54,7 @@ test('home packing lists only actual owned home supplies, never parked overseas 
   const item = { roomId: 'lab', section: 'resources', key: 'lumber', quantity: 2 };
   const rooms = ['lab', 'loading'];
   assert.equal(Station.homeSupply(item, rooms), true);
+  for (const key of ['cloth', 'rubber']) assert.equal(Station.homeSupply({ ...item, key }, rooms), true);
   assert.equal(Station.homeSupply({ ...item, roomId: 'loading' }, rooms), true);
   for (const wrong of [{ roomId: 'foreign-station' }, { roomId: 'municipal-reserve' }, { carriedBy: 'scientist' },
     { reservedTaskId: 'other' }, { cityOwnerId: 'city' }, { civicCustody: { institutionId: 'works' } },

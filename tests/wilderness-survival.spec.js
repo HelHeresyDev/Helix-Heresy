@@ -35,7 +35,7 @@ test('only powered carried communicators drain; battery state survives reload', 
   const after = Survival.advance(state, 35, { carriedRadioIds: ['a'] }).state;
   expect(after.radios.a).toMatchObject({ charge: 0, powered: false }); expect(after.radios.b.charge).toBe(30);
   expect(Survival.normalizeState(JSON.parse(JSON.stringify(after)))).toEqual(after);
-  expect(Survival.warnings([])).toHaveLength(Survival.ITEMS.length);
+  expect(Survival.warnings([])).toHaveLength(Survival.ITEMS.filter(i => !i.optional).length);
 });
 
 async function start(page) {

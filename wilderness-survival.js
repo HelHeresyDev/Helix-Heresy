@@ -14,7 +14,9 @@
     { key: "fieldShelter", label: "Field Shelter Kit", amount: 1, initial: 1, massKg: 3, volumeL: 8, price: 90 },
     { key: "satelliteCommunicator", label: "Satellite-magical Communicator", amount: 1, initial: 1, massKg: .8, volumeL: 1, price: 120 },
     { key: "relayBattery", label: "Relay Battery", amount: 1, initial: 2, massKg: .4, volumeL: .5, price: 20 },
-    { key: "foldingStretcher", label: "Folding Stretcher with Restraints", amount: 1, initial: 0, massKg: 7, volumeL: 12, price: 140 }
+    { key: "foldingStretcher", label: "Folding Stretcher with Restraints", amount: 1, initial: 0, massKg: 7, volumeL: 12, price: 140 },
+    { key: "fieldWaterCan", label: "Reusable Five-Litre Water Can", amount: 1, initial: 0, massKg: 1, volumeL: 6, price: 18, optional: true },
+    { key: "fieldWaterFilter", label: "Rated Field-Purifier Cartridge", amount: 1, initial: 0, massKg: .5, volumeL: 1, price: 30, optional: true }
   ]);
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const clamp = (n, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, Number(n) || 0));
@@ -69,7 +71,7 @@
   }
   function fatigueMultiplier(state) { return 1 + Math.max(state?.exertion || 0, state?.thirst || 0, state?.hunger || 0, state?.exposure || 0) / 100; }
   function warnings(stacks) {
-    return ITEMS.filter((item) => stacks.filter((s) => s.carriedBy === "scientist" && s.key === item.key && !s.reservedTaskId).reduce((n, s) => n + s.quantity, 0) < item.amount).map((item) => `Recommended: ${item.amount} ${item.label}`);
+    return ITEMS.filter((item) => !item.optional && stacks.filter((s) => s.carriedBy === "scientist" && s.key === item.key && !s.reservedTaskId).reduce((n, s) => n + s.quantity, 0) < item.amount).map((item) => `Recommended: ${item.amount} ${item.label}`);
   }
   return { ROOM, ENTRY, GATE, RADIO_SECONDS, ITEMS, defaultState, normalizeState, chooseDestination, conditions, advance, consume, band, fatigueMultiplier, warnings };
 });

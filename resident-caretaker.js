@@ -48,6 +48,12 @@
     const r = s.resident; r.phase = 'returning'; r.service = null; r.reason = reason; note(r, now, reason); return true;
   }
   function authorized(s, c) { return Boolean(s?.resident && s.actor.id === s.resident.actorId && contact(c) && c.bodyEpoch === s.resident.recognizedBodyEpoch); }
+  function acceptWaterPoint(s, c, offer, now) {
+    if (!active(s) || s.resident.phase !== 'resident' || !authorized(s, c) || c.threatened
+      || !c.waterPointInspected || !offer?.fixtureId || !offer.port || !offer.route?.length || !Number.isFinite(now)) return false;
+    s.resident.waterAccess = copy(offer);
+    note(s.resident, now, 'Accepted optional original purifier drinking access and its walking route only; no collection, treatment, wages, renewal or wider work authorized.'); return true;
+  }
   function receive(s, c, now) {
     if (!s?.resident || s.actor.id !== s.resident.actorId || !Number.isFinite(now) || !contact(c) || s.actor.status === 'dead') return false;
     const r = s.resident;
@@ -97,6 +103,12 @@
       const care = a.needs.thirst >= 45 ? 'drinkingWater' : a.needs.hunger >= 45 ? 'trailMeal' : null;
       if (care && h.carried(care)) {
         const i = h.carried(care); service(r, 'consume', i.id, 20, at, () => h.consume(i.id, care)); continue;
+      }
+      if (care === 'drinkingWater' && r.phase === 'resident' && h.waterPoint?.()) {
+        const point = h.waterPoint();
+        if (!c.atWaterPoint) { r.service = null; h.move(point.port, at); }
+        else service(r, 'drink original tank', point.fixtureId, 20, at, () => h.drinkTank(at));
+        continue;
       }
       if (r.phase === 'awaitingSettlement') { r.service = null; continue; }
       if (r.phase === 'returning') {
@@ -164,5 +176,5 @@
     }
     return damage;
   }
-  return { DAY, SHIFT, RESERVE, FEE, SCOPE, active, contact, refusal, review, accept, authorized, receive, recognize, settle, withdraw, advance };
+  return { DAY, SHIFT, RESERVE, FEE, SCOPE, active, contact, refusal, review, accept, authorized, acceptWaterPoint, receive, recognize, settle, withdraw, advance };
 });

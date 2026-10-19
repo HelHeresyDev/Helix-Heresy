@@ -37,6 +37,24 @@ function hooks(f) {
     enable: () => { if (f.pos !== 2) return false; f.enabled = true; return true; }, closeDoor: () => true };
 }
 function advance(f, at) { const damage = Caretaker.advance(f.s, at, hooks(f)); f.s.actor.health -= damage; f.time = at; }
+test('optional original water-point consent grants only physical finite drinking and survives reload', () => {
+  const f = fixture(); hire(f); advance(f, 250);
+  const offer = { fixtureId: 'original-purifier', port: 4, route: [3, 4] };
+  assert.equal(Caretaker.acceptWaterPoint(f.s, f.c, offer, 250), false);
+  assert.equal(Caretaker.acceptWaterPoint(f.s, { ...f.c, waterPointInspected: true, bodyEpoch: 1 }, offer, 250), false);
+  assert(Caretaker.acceptWaterPoint(f.s, { ...f.c, waterPointInspected: true }, offer, 250));
+  f.s = copy(f.s); assert.deepEqual(f.s.resident.waterAccess, offer);
+  f.carried.drinkingWater = 0; f.s.actor.needs.thirst = 60; let tank = 1, operations = 0;
+  const h = hooks(f), context = h.context;
+  h.context = at => ({ ...context(at), atWaterPoint: f.pos === offer.port });
+  h.waterPoint = () => f.s.resident.waterAccess && tank ? offer : null;
+  h.drinkTank = () => { if (tank < 1 || f.pos !== offer.port) return false; tank--; operations++; f.s.actor.needs = Survival.consume(f.s.actor.needs, 'drinkingWater'); return true; };
+  Caretaker.advance(f.s, 260, h); assert.equal(tank, 1); assert.equal(f.pos, 4);
+  Caretaker.advance(f.s, 285, h); assert.equal(tank, 0); assert.equal(operations, 1);
+  assert(f.s.actor.needs.thirst < 45); assert.equal(f.carried.drinkingWater, 0);
+  assert.equal(f.s.resident.endsAt, 4 + 3 * 86400);
+  assert(f.s.resident.log.some(l => /no collection, treatment/.test(l.text)));
+});
 test('separate consent requires original settled person, source, returned tools, actual support and exact prepaid terms', () => {
   const f = fixture();
   for (const [key, value] of [['toolsReturned', false], ['stocked', false], ['provisions', false], ['supported', false], ['fuelUsable', false], ['routeOk', false]]) {
