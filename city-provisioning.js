@@ -16,7 +16,7 @@
   const LIMITS = 'One agricultural satellite contribution, not the entire city food supply, famine simulation or city-power completion. Municipal quota, driver, vehicle, custody and spent resources remain original. No player food, ownership, free army, appointment, divine endorsement, immunity or neighboring authority. Reports are dated, not remote telemetry.';
   const same = (a, b) => Boolean(a && b && a.x === b.x && a.y === b.y && a.z === b.z);
   const able = a => a?.status === 'alive' && a.health >= 50;
-  function sourceFromWorld(map, cityId) {
+  function sourceFromWorld(map, cityId, all = false) {
     const city = map?.strategicPlayableSettlementState?.cityRows?.find(a => a.cityId === cityId);
     const g = map?.cityGovernments?.governments?.find(a => a.cityId === cityId);
     const institution = g?.institutions.find(i => i.id === g.roleAssignments.publicWorksAndProvisioning);
@@ -25,7 +25,7 @@
       || !['functional', 'strong'].includes(city.services?.provisioning) || !['functional', 'strong'].includes(city.services?.transport)
       || !institution || ['displaced', 'disrupted', 'suspended'].includes(current?.operationalStatus)
       || !['functional', 'strong', 'exceptional'].includes(current?.currentCapacityBand || institution.capacityBand)
-      || !map.publicSettlementDirectory) return null;
+      || !map.publicSettlementDirectory) return all ? [] : null;
     if (!directories.has(map.publicSettlementDirectory)) directories.set(map.publicSettlementDirectory, Settlements.publicSettlementDirectory(map));
     const farms = directories.get(map.publicSettlementDirectory).satellites.filter(a => a.parentId === cityId
       && a.parentKind === 'sovereignResourceAnchorCity' && a.function === 'agriculture'
@@ -48,7 +48,7 @@
         arableLandBand: farm.arableLandBand, storageDays: farm.logistics.storageEnduranceDays, distanceKm,
         routeCellIds: copy(path), routeUsable: true, provenance: 'One existing municipal agricultural quota; not the farm harvest or the city market stock.' };
     }).filter(Boolean).sort((a, b) => a.distanceKm - b.distanceKm || a.satelliteId.localeCompare(b.satelliteId));
-    return candidates[0] || null;
+    return all ? candidates : candidates[0] || null;
   }
   function validSource(a) {
     return a && ['cityId', 'charterId', 'institutionId', 'populationSourceId', 'satelliteId', 'cityCellId', 'satelliteCellId'].every(k => typeof a[k] === 'string' && a[k])

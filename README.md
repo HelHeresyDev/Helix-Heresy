@@ -1196,6 +1196,26 @@ Reports are explicitly personally received and dated. At the counter, the origin
 
 Focused coverage: `tests/city-defense.unit.test.js`, Canvas/DOM `tests/city-defense-browser.spec.js`, the directly relevant original-defender, supplied-staff-rest and shared structural/combat checks. Full-suite testing remains opt-in under `AGENTS.md`.
 
+### Sustained city-power assessment
+
+After the voluntary handover and both detailed municipal contributions, Visits offers **Sustained city-power assessment** for a supported city. Existing populated city records, all five original institutional continuations, operational fortified water/wall works and power works, and measured direct agricultural routes must support the account. Missing sources remain unverified; a working counter or a capability label alone is not coverage.
+
+**Authorize existing municipal operating priority** assigns one hour from an existing eight-hour municipal operator allocation. Issuing it is not completing it. Safe accepted municipal operation continues during absence; actual authority loss interrupts unfinished work without refund. This is an aggregate city-owned operation, not another personally controlled NPC, appointment, army or player inventory.
+
+The prototype explicitly elaborates finite existing municipal allocations once per run:
+
+- Remaining urban food demand is 0.5 kg per resident per day, with a two-day original buffer. The detailed quota's dependent population and city stock remain separate.
+- Direct farms first feed their own residents. Gross production equivalents are 4/6/8/10 residents per farm resident by marginal/limited/productive/abundant arable band; the detailed quota is then subtracted. Export storage follows original storage endurance; six further export-days of standing crop are finite, not an infinite harvest.
+- One original convoy driver/truck allocation per hundred farm residents, minus the detailed pilot's driver/truck, carries at most 1,200 kg per vehicle. Original fuel is 600 vehicle-km each. Round trips use measured distance at 40 km/h, thirty seconds per 50 kg per truck at both ends, and at most eight hours of duty. Obstruction holds the original loaded convoy. At most one round trip per day and supplied off-duty recovery prevent continuous shifts; no fuel or vehicle is regenerated.
+- Urban water demand is two liters per resident per day. Two original buffer-days and six raw-water days support existing powered waterworks; no source is inexhaustible.
+- The original municipal ward-power allocation lasts 2/3/4/5 days according to the weaker existing water/wall or power site's condition. Draw is at least one unit per second, scaled per thousand residents. The outer station's **entire initial reserve is subtracted**, not duplicated. City power does not recharge that station, personal mana or counter batteries. No perpetual power generation, unsourced imports or free municipal replenishment is assumed.
+
+Three consecutive in-game days require authentic operative authority, functioning original institutional relationships, an actually completed operating priority, supplied food/water including the separate farm quota, usable finite city defenses including the separate outer station and a capable original defender, and no established counterpower both willing and materially able to overturn this rule. Rest and other ordinary duties do not require continuous rare-defender watch. No test attack or disaster is spawned. Independent courts, property and worship are not disobedience; divine strength, hostility, silence or an absent avatar alone establish neither overthrow capability nor endorsement.
+
+**Receive dated city operating assessment** requires actual personal attendance with the original officials. It reports recognized succession, limited exercise, established sustained rule, contested/lost support, or unverified coverage. Merely opening Visits does not tick the interval, acquire information or update an old report. Real failures break the interval; missing personal evidence does not change actual government. Unsupported canonical coverage cannot be certified. The once-only three-day accomplishment is recorded in Campaign only after its evidence is received, separately from later losable control. It grants no immunity, neighboring sovereignty, world domination, rule over gods or ending. Saves preserve stocks, work, loaded convoys, report dates and both historical and current assessments; independent same-world runs inherit none.
+
+Focused coverage: `tests/city-rule.unit.test.js` (including coupled real quota/station operation) and Canvas/DOM `tests/city-rule-browser.spec.js`, plus the directly consumed provisioning and defense model tests. Full-suite testing remains opt-in under `AGENTS.md`.
+
 ### Municipal agricultural supply obligation
 
 After an authentic voluntary individual-ruler handover, Visits offers **Municipal agricultural supply obligation** when the original public-works institution, an actual populated agricultural satellite and usable municipal depot ground support it. This consumes the existing public-works continuation, not another appointment, fee, divine endorsement or hostile-counter victory. Unsupported cities, distant approaches and aircraft-only satellites receive no invented farm or replacement truck.
