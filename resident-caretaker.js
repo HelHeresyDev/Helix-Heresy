@@ -145,7 +145,7 @@
         else service(r, 'deploy sleeping kit', r.kitId, 120, at, () => { if (!h.deploy()) return false; r.deployed = true; return true; });
         continue;
       }
-      if (c.doorOpen) {
+      if (c.doorOpen && !c.doorwayBusy) {
         if (!c.atDoorControls) { r.service = null; h.move(r.plan.doorPort, at); }
         else service(r, 'close refuge door', r.plan.doorId, 10, at, () => h.closeDoor());
         continue;
@@ -172,7 +172,10 @@
       } else if (!c.enabled) {
         if (!c.atControls) { r.service = null; h.move(r.plan.controls, at); }
         else service(r, 'enable heater', r.plan.heaterId, 10, at, () => h.enable(at));
-      } else { r.service = null; r.reason = 'Agreed heater supplied; on-duty standby, not free repairs or other work.'; }
+      } else {
+        r.service = null; r.reason = 'Agreed heater supplied; on-duty standby, not free repairs or other work.';
+        if (!c.atSleep) h.move(r.plan.sleep, at);
+      }
     }
     return damage;
   }

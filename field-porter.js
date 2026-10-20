@@ -100,10 +100,13 @@
     wallet.money -= q.upfront;
     s.contract = { ...copy(q), id: `${s.actor.id}:shift-${s.next++}`, hiredAt: now, startedAt: null, earned: 0, refund: null, reason: '' };
     s.phase = 'arriving'; s.lastAt = now; s.actor.needs.lastAt = now; s.quote = null; s.job = null; s.proposal = null; s.deliveryOrder = null;
+    if (s.supplyLeg) (s.supplyHistory ||= []).push(copy(s.supplyLeg));
+    s.supplyLeg = null; s.supplyPreview = null;
     return true;
   }
   function stopJob(s, hooks, now, why, canDrop = true) {
-    if (s.job?.status !== 'working') return false;
+    const supplyStopped = hooks.stopSupply?.(now, why) || false;
+    if (s.job?.status !== 'working') return supplyStopped;
     hooks.release(s.job, canDrop && s.job.destination?.kind !== 'crate'); s.job.status = 'interrupted'; s.job.reason = why; s.job.endedAt = now; s.job.attended = false;
     s.history.push(copy(s.job));
     const o = s.deliveryOrder;
@@ -123,7 +126,7 @@
   }
   function canOrder(s, c, now) {
     return Boolean(s && Number.isFinite(now) && s.phase === 'onSite' && control(s, c) && contact(c) && !refusal(s, c)
-      && !c.injured && !c.care && s.job?.status !== 'working' && s.actor.id === s.contract.actorId
+      && !c.injured && !c.care && s.job?.status !== 'working' && s.supplyLeg?.status !== 'working' && s.actor.id === s.contract.actorId
       && JSON.stringify(s.contract.site) === JSON.stringify(c.site) && s.contract.policy === policy(c)
       && same(s.contract.drop, c.drop) && s.contract.startedAt != null
       && now >= s.contract.startedAt && now < s.contract.startedAt + SHIFT);
@@ -144,6 +147,7 @@
       && JSON.stringify(p.site) === JSON.stringify(c.site) && same(p.drop, c.drop);
   }
   function append(s, c, item, now) {
+    if (s?.supplyPreview) return false; // One unsigned kind of order at a time.
     if (!canOrder(s, c, now) || !available(s, c, item)) return false;
     const p = s.proposal || { contractId: s.contract.id, actorId: s.actor.id, bodyEpoch: c.bodyEpoch, visitId: c.visitId,
       tripId: c.tripId, site: copy(c.site), drop: copy(c.drop), policy: policy(c), rows: [] };
@@ -201,6 +205,7 @@
     s.proposal = null; return true;
   }
   function assign(s, c, item, now, reserve) {
+    if (s?.supplyPreview) return false;
     if (!canOrder(s, c, now) || c.destination || !available(s, c, item)) return false;
     const id = `field-porter-haul:${s.contract.id}:${s.next++}`, slice = reserve(item, id);
     if (!slice || slice.quantity !== 1 || slice.reservedTaskId !== id) return false;
@@ -261,6 +266,7 @@
       if (hooks.adjacent(k.drop) && a.roomId === k.site.roomId) { s.phase = 'onSite'; k.startedAt = now; }
       else hooks.move(k.drop);
     } else {
+      if (s.supplyLeg?.status === 'working' && hooks.supplyLeg) { hooks.supplyLeg(now, c); return 1; }
       // Every outstanding slice stays exact. Loss never selects surplus or
       // permits later jobs to leapfrog the signed order, even during self-care.
       const o = s.deliveryOrder;
@@ -282,7 +288,7 @@
     const order = copy(s.deliveryOrder || null);
     if (order?.status === 'working') order.jobs[order.index] = copy(s.job);
     s.received = { at: now, phase: s.phase, earned: s.contract.earned, reason: s.contract.reason, health: s.actor.health,
-      needs: copy(s.actor.needs), cell: copy(s.actor.mapCell), job: copy(s.job), order, scope: SCOPE }; return true;
+      needs: copy(s.actor.needs), cell: copy(s.actor.mapCell), job: copy(s.job), order, supplyLeg: copy(s.supplyLeg || null), scope: SCOPE }; return true;
   }
   function settle(s, c, wallet, now) {
     if (s?.phase !== 'awaitingSettlement' || !Number.isFinite(now) || !Number.isFinite(wallet?.money) || !contact(c) || !c.atGround || c.incapacitated

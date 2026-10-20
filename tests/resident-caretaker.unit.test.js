@@ -85,6 +85,16 @@ test('real serialization preserves partial service; chunking produces identical 
   const saved = copy(f); advance(f, 400); advance(saved, 201); advance(saved, 400);
   assert.deepEqual(f, saved); assert.equal(f.loaded, 1);
 });
+test('supplied standby parks at the original sleeping place and does not close an occupied doorway', () => {
+  const f = fixture(); hire(f); advance(f, 250);
+  assert.equal(f.pos, 3); assert.equal(f.s.resident.restSeconds, 0);
+  f.pos = 2; f.flags.doorOpen = true; f.flags.doorwayBusy = true;
+  const h = hooks(f); let closes = 0; h.closeDoor = () => { closes++; return true; };
+  Caretaker.advance(f.s, 280, h);
+  assert.equal(closes, 0); assert.equal(f.pos, 3); assert.equal(f.s.resident.restSeconds, 0);
+  f.flags.doorwayBusy = false; f.flags.atDoorControls = true;
+  Caretaker.advance(f.s, 300, h); assert(closes > 0);
+});
 test('displacement and changed source discard attended progress without paying with absent goods', () => {
   const f = fixture(); hire(f); advance(f, 170); const before = f.s.resident.service.progress;
   assert(before > 0); f.pos = 1; advance(f, 171); assert.equal(f.s.resident.service, null);

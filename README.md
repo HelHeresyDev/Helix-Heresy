@@ -1128,6 +1128,20 @@ Cancellation or withdrawal retains actual carried crate cargo with the original 
 
 Focused coverage: the crate cases in `tests/field-porter.spec.js` and `tests/field-porter-crate-browser.spec.js` (Canvas and DOM).
 
+### One station-to-refuge supply round trip
+
+An existing original field porter can separately accept **one carried consignment of up to four units** of trail meals, drinking water, fuel reagent or rated purifier cartridges. The source is the original station's crate; the destination is the original refuge's crate on one personally reached adjacent local patch. This uses walking, ordinary **18 kg / 24 L** carrying capacity including personal provisions, and the same finite two-hour employment, wage reserve, needs, injuries and duty. No van, extra person, repeated schedule, new fee or shift reset is supplied. The resident caretaker does not become a hauler.
+
+Stand at each original open crate's handling tile and **Inspect original supply source crate here** / **Inspect refuge supply destination crate here**. Source stocks and both original installation identities are dated personal observations. Meet the employed porter beside the source, **Append supply unit…** for each exact unit, then **Accept exact one-round-trip supply order**. One signed order discloses the cargo, original-crate withdrawal/deposit permissions, already known connected route and station return. The whole load and destination must have actual capacity, source portions must still match, and remaining shift/duty must cover the estimated round trip. Unsigned supply and ordinary hauling orders cannot overlap.
+
+Acceptance reserves disjoint exact portions without moving them. The porter walks to the source handling tile, spends ten attended seconds loading each unit, carries the complete load along the disclosed route, unloads each unit with ten attended seconds and physically returns to the original station work point. Doors use real access; obstruction, closed/full storage, self-care and competing space hold work without backfill while the original wage clock continues. Changed original crates or lost exact cargo end unfinished work rather than substituting surplus, another crate or a ground dump. Personal cancellation, danger, injury, provider refusal and existing employment limits prompt physical defended-ground withdrawal. Undelivered carried cargo stays with the original person for the existing personal handback after return; unused claims release, while completed deposits remain. Settlement remains separate and once-only.
+
+The caretaker can physically collect and consume delivered supplies under their existing agreement. No new production, general storage authority or adjoining-resource retrieval is authorized. Accepted work can proceed out of sight under the original employment conditions; source observations and issued instructions never become live shipment tracking. **Ask porter for personal report** yields dated delivery/return information only at reunion. Exact stacks, partial handoffs, claims, bodies, finite budgets and reports survive saves; irreversible scientist death freezes work. New same-world runs inherit nothing.
+
+The idle supplied caretaker physically waits at their own sleeping place, without recovering off-duty time during paid standby, and leaves an occupied doorway open for passage. Retained undelivered meals or water are not the porter's personal provisions.
+
+Focused coverage: `tests/field-supply-leg.unit.test.js`, Canvas/DOM `tests/field-supply-leg-browser.spec.js`, `tests/resident-caretaker.unit.test.js` and the existing porter model cases. Full-suite testing is not automatic under repository policy.
+
 ### Resident refuge caretaker
 
 The supplied second refuge can host **one original consenting qualified craftsperson** under a separate resident agreement. Finish their previous commission, physically return borrowed tools and settle it first. Provider restrictions and the scientist's declared opposition to the gods still apply. No replacement worker, transport seat, protection or political authority is supplied.
