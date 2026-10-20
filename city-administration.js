@@ -117,7 +117,7 @@
       essentialOnly: !authorization(s, succession, office, c),
       dueAt: s.dueAt, graceUntil: s.graceUntil, parts: PARTS, workSeconds: WORK, periodSeconds: PERIOD, graceSeconds: GRACE,
       power: 'One physically delivered relay battery supplies up to twelve counter operations, capped at twelve; it does not override an external outage.',
-      shifts: 'One sealed food-and-water provision pack per existing person funds eight uninterrupted off-duty hours. Recovery restores only bounded duty work and fatigue, never injuries, health or ward energy.' };
+      shifts: 'One sealed food-and-water provision pack per existing person funds eight uninterrupted off-duty hours. Recovery restores bounded duty work, fatigue and up to sixty original-defender physical stamina, never injuries, health or ward energy.' };
     note(s, at, 'inspection', 'The named public-works official inspected the existing counter: three parts and two minutes of local work maintain one service period, with an eight-hour grace period.'); return true;
   }
   function order(s, succession, bargain, office, stacks, expected, c, at) {
@@ -232,6 +232,10 @@
       r.progress += recovered;
       if (r.progress + 1e-8 >= REST) {
         duty.workSeconds = Math.max(duty.workSeconds, s.workCaps[a.id]); a.fatigue = 0;
+        // The original defender's physical station duty is renewable through
+        // this same supplied rest, not through a new shift ceremony. This is
+        // bodily endurance only; personal projection mana remains unchanged.
+        if (a.actorKind === 'cityDefender' && Number.isFinite(a.stamina)) a.stamina = Math.min(a.staminaCapacity || 100, a.stamina + 60);
         if (a.assignment === r.id) a.assignment = null;
         if (duty.assignment === r.id) duty.assignment = null;
         if (r.resumeAssignment && s.job?.id === r.resumeAssignment) { a.assignment = s.job.id; s.job.lastAt = at; }

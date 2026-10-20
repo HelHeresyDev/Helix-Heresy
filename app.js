@@ -141,6 +141,7 @@
   const CityConfrontations = window.HelixCityConfrontations;
   const InstallationSeizure = window.HelixInstallationSeizure;
   const CityProvisioning = window.HelixCityProvisioning;
+  const CityDefense = window.HelixCityDefense;
   const IncumbentResistance = window.HelixIncumbentResistance;
   const CharterRecognition = window.HelixCharterRecognition;
   const PublicWorksRecognition = window.HelixPublicWorksRecognition;
@@ -5552,6 +5553,7 @@
       cityAdministration: null,
       cityAdministrationKnowledge: null,
       cityProvisioning: null,
+      cityDefense: null,
       civicFoothold: null,
       runStrategicConditions: null,
       expansionAtlas: null,
@@ -14619,6 +14621,26 @@
       defenderChallengeAction: (action, expected) => defenderChallengeAction(action, expected),
       cityConfrontationAction: action => cityConfrontationAction(action),
       cityProvisioningAction,
+      cityDefenseAction,
+      cityDefenseSnapshot: () => clonePlainObject({ saved: state.cityDefense, context: cityDefenseContext(), defender: state.sovereignBargains?.defender,
+        door: state.doors?.[CityDefense.DOOR], succession: state.citySuccession, campaign: state.campaign, clock: state.clock,
+        stacks: ensurePhysicalItemStacks(), injuries: state.injuries }),
+      configureCityDefenseTest: source => {
+        if (!state.sovereignBargains?.testFixture || !state.citySuccession || state.cityDefense) return false;
+        state.sovereignBargains.testDefenseSource = clonePlainObject(source); persist(); render(); return true;
+      },
+      advanceCityDefenseForTest: (seconds, quiet = false) => {
+        let left = Math.max(0, seconds);
+        while (left > 0 && !scientistIsDead()) {
+          const step = Math.min(left, activeScientistTravelTask() || (state.injuries || []).some(i => i.status === 'active') ? 1 : left);
+          state.clock += step; left -= step; updateScientistMovementTask(); completeDueTasks(); progressInjuries(); updateCityDefense();
+        }
+        persist(); if (!quiet) render(); return state.clock;
+      },
+      cityDefenseTestStrike: (actorId, target, options = {}) => {
+        if (!state.sovereignBargains?.testFixture) return false;
+        const result = resolveSharedCombatAction(actorId, 'strike', target, options); persist(); render(); return result;
+      },
       cityProvisioningSnapshot: () => clonePlainObject({ saved: state.cityProvisioning, context: cityProvisioningContext(),
         succession: state.citySuccession, office: scientistCivicOffice(), clock: state.clock, campaign: state.campaign,
         stacks: ensurePhysicalItemStacks(), injuries: state.injuries }),
@@ -23576,6 +23598,7 @@
     changes.combatChanged += livingUpdate(() => updateCityConfrontation());
     changes.combatChanged += livingUpdate(() => updateInstallationSeizure());
     changes.scientistMovementChanged += livingUpdate(() => updateCityProvisioning());
+    changes.scientistMovementChanged += livingUpdate(() => updateCityDefense());
     changes.combatChanged += livingUpdate(() => updateIncumbentResistance());
     changes.scientistMovementChanged += livingUpdate(() => updateCharterRecognition());
     changes.scientistMovementChanged += livingUpdate(() => updatePublicWorksRecognition());
@@ -23742,6 +23765,15 @@
       while (remaining > 0 && !scientistIsDead()) {
         const before = state.clock;
         changed += advanceTime(Math.min(remaining, 1), { ...options, provisioningStep: true }); remaining -= state.clock - before;
+        if (state.clock <= before) break;
+      }
+      return changed;
+    }
+    if (!options.cityDefenseStep && elapsed > 1 && (state.cityDefense?.duty || state.cityDefense?.job)) {
+      let remaining = elapsed, changed = 0;
+      while (remaining > 0 && !scientistIsDead()) {
+        const before = state.clock;
+        changed += advanceTime(Math.min(remaining, 1), { ...options, cityDefenseStep: true }); remaining -= state.clock - before;
         if (state.clock <= before) break;
       }
       return changed;
@@ -26396,6 +26428,17 @@
 
   function applyStructuralDamage(cell, amount, damageTypeIds = ["physical"], source = "an attack", options = {}) {
     const map = ensureLabMap();
+    // Resolve interception before taking the mutable door reference. Sensory
+    // checks normalize door records; taking it earlier would damage a stale
+    // object instead of the original persistent installation.
+    if (labMapDoorAtCell(cell, map)?.id === CityDefense.DOOR && options.attackerId) {
+      const cover = cityDefenseAbsorb(options.attackerId, cell, amount, damageTypeIds);
+      amount = cover.damage;
+      if (cover.absorbed && amount <= 0) {
+        const before = doorCondition(state.doors[CityDefense.DOOR]);
+        return { ok: true, destroyed: false, damage: 0, before, after: before, targetKind: 'door' };
+      }
+    }
     const target = structuralTargetAtCell(cell, map);
     if (!target) return { ok: false, reason: "No damageable structure occupies that tile." };
     const before = structuralTargetCondition(target, map);
@@ -41388,7 +41431,8 @@
     }
     if (target.kind === "structure") {
       if (!action.targetKinds.includes("structure")) return { ok: false, reason: `${action.label} cannot affect a structure.` };
-      const result = applyStructuralDamage(target.cell, action.baseDamage, action.damageTypes, `${actorId === "scientist" ? "the scientist's" : "a creature's"} ${action.label.toLowerCase()}`, options);
+      const result = applyStructuralDamage(target.cell, action.baseDamage, action.damageTypes, `${actorId === "scientist" ? "the scientist's" : "a creature's"} ${action.label.toLowerCase()}`, { ...options, attackerId: actorId });
+      if (result.ok && actorId === 'scientist' && sameMapCell(target.cell, CityDefense.GATE)) observeCityDefenseAggression();
       if (result.ok && actorId === 'scientist') observeDefenderCoverAggression(target.cell, labMapCellRoomId(target.cell));
       if (result.ok && !options.hideFeedback) {
         emitMapFeedback("feedbackImpact", target.cell, {
@@ -41398,10 +41442,12 @@
           fromCell: combatActorCell(actor)
         });
       }
-      return { ok: Boolean(result.ok), hit: Boolean(result.ok), damage: result.ok ? action.baseDamage : 0, reason: result.reason || "" };
+      return { ok: Boolean(result.ok), hit: Boolean(result.ok), damage: result.ok ? result.damage : 0, reason: result.reason || "" };
     }
     const targetActor = combatActor(target.id);
     if (!targetActor) return { ok: false, reason: "The target is no longer present." };
+    if (actorId === 'scientist' && (targetActor.id === state.cityDefense?.defenderId || citySuccessionPeople().some(a => a.id === targetActor.id))
+      && !(targetActor.id === state.cityDefense?.defenderId && state.defenderChallenge?.phase === 'active')) observeCityDefenseAggression(combatActorCell(targetActor));
     const targetIsScientist = target.id === 'scientist';
     if (actorId === 'scientist' && state.citySuccession?.appointments?.opposition) {
       const bundle = localOppositionBundle();
@@ -41438,7 +41484,10 @@
       return { ok: true, hit: false, damage: 0, accuracy };
     }
     const targetId = targetIsScientist ? "scientist" : targetActor.id;
-    const guardedDamage = Math.max(1, Math.round(action.baseDamage * combatGuardDamageMultiplier(targetId)));
+    let guardedDamage = Math.max(1, Math.round(action.baseDamage * combatGuardDamageMultiplier(targetId)));
+    const stationCover = cityDefenseAbsorb(actorId, combatActorCell(targetActor), guardedDamage, action.damageTypes);
+    guardedDamage = stationCover.damage;
+    if (stationCover.absorbed && guardedDamage <= 0) return { ok: true, hit: true, damage: 0, absorbed: stationCover.absorbed, accuracy };
     const targetHealthBefore = targetIsScientist ? scientistVital('health').current : targetActor.health;
     const changed = targetIsScientist
       ? damageScientistCombat(guardedDamage, `${action.label} (${damageTypeListText(action.damageTypes.map(damageTypeDef).filter(Boolean))})`, { damageTypes: action.damageTypes, observed: actor === state.scientist, directCombat: true })
@@ -68177,6 +68226,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const clinician = state.medicalExtraction?.clinic?.clinician;
     if (clinician && clinicLocal() && !actorIsIncapacitated("scientist") && sensoryLineOfSight(scientistMapCell(), clinician.mapCell)) setLabMapOverlayEntry(assignments, clinician.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: clinician.name, title: "Municipal clinician", value: "C", source: "Direct observation", target: { kind: "tile", tile: clinician.mapCell } }, map);
     if (state.surveyExpeditions?.materialized) setLabMapOverlayEntry(assignments, MunicipalClinic.BED, { overlayId, classNames: ["map-overlay-resources"], label: "Clinic treatment bed", title: "Timed care using finite local supplies", value: "+", source: "Municipal service notice", target: { kind: "tile", tile: MunicipalClinic.BED } }, map);
+    if (state.cityDefense && !scientistIsDead() && mapCellDistance(scientistMapCell(), CityDefense.GATE) <= 8
+      && sensoryLineOfSight(scientistMapCell(), CityDefense.GATE)) setLabMapOverlayEntry(assignments, CityDefense.GATE,
+      { overlayId, classNames: ['map-overlay-resources'], label: 'Original city approach ward station', title: 'Physical boundary installation; outer coverage and finite reserve require personal inspection',
+        source: 'Direct observation', value: 'W', target: { kind: 'tile', tile: CityDefense.GATE } }, map);
     const grain = state.cityProvisioning;
     for (const [a, symbol, label] of [[grain?.driver, 'G', 'Original municipal grain driver'], [grain?.vehicle, 'V', 'Municipal grain truck — no passenger service']]) {
       if (!a?.mapCell || a.roomId !== scientistRoomId() || scientistIsDead() || WildernessBeasts.distance(scientistMapCell(), a.mapCell) > 8
@@ -86033,6 +86086,134 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(textEl('p', v.message), textEl('p', v.limitations));
     renderCityResistance(panel, v.resistance, observed); renderCityAppointments(panel); return panel;
   }
+  function cityDefenseSource() {
+    const b = state.sovereignBargains;
+    return b?.testFixture ? b.testDefenseSource || null : CityDefense.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, b?.source.cityId);
+  }
+  function cityDefenseContext(ownJob = false) {
+    const s = state.cityDefense, a = state.sovereignBargains?.defender, source = cityDefenseSource(), office = scientistCivicOffice();
+    const base = scientistCivicContext(office), cell = scientistMapCell(), door = state.doors?.[CityDefense.DOOR];
+    const local = Boolean(s && base.cityId === s.source.cityId && scientistRoomId() === SurveyExpeditions.FIELD_ROOM);
+    const atStation = Boolean(local && mapCellDistance(cell, CityDefense.SERVICE) <= 1 && mapCellDistance(cell, CityDefense.GATE) <= 2
+      && sensoryLineOfSight(cell, CityDefense.GATE));
+    const sourceCurrent = Boolean(s && source && ['cityId', 'charterId', 'institutionId', 'populationSourceId', 'installationId'].every(k => source[k] === s.source[k])
+      && s.worldId === activeWorldRecord?.id && s.runId === activeRunRecord?.id);
+    const defenderPresent = Boolean(local && a?.mapCell && a.roomId === scientistRoomId() && mapCellDistance(cell, a.mapCell) <= 6
+      && sensoryLineOfSight(cell, a.mapCell) && CityDefense.able(a) && !actorIsIncapacitated(a));
+    const c = { ...base, local, atStation, sourceCurrent, defenderPresent, bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      installationPresent: Boolean(s && door && labMapDoorAtCell(CityDefense.GATE)?.id === CityDefense.DOOR),
+      condition: door?.condition || 0, incapacitated: Boolean(a && actorIsIncapacitated(a)), suppressed: Boolean(a?.magicSuppressed || a?.suppressionActive),
+      // Existing institution availability and actual role withdrawal matter;
+      // an anti-god scientist never receives implicit divine endorsement.
+      obligation: !sourceCurrent || Boolean(state.cityAdministration?.rests?.some(r => r.personId === a?.id))
+        || ensureHomeInstitutionContext()?.offices[source?.institutionId]?.available === false
+        || Boolean(state.defenseRecognition?.duty || state.defenseRecognition?.job)
+        || Boolean(state.citySuccession?.job || state.sovereignBargains?.job)
+        || Boolean(state.defenderChallenge && DefenderChallenges.reserved(state.defenderChallenge)),
+      free: !base.busy && !state.citySuccession?.job && !state.cityAdministration?.job && (!s?.job || ownJob),
+      violence: scientistInKnownCombat() || InstallationSeizure.claiming(state.installationSeizure),
+      postAccessible: Boolean(a && labMapCellIsWalkable(CityDefense.POST)
+        && !labMapCellIsPathBlocked(CityDefense.POST, { actor: a, skipPlacement: true })),
+      defenderWitness: Boolean(a?.status === 'alive' && !actorIsIncapacitated(a) && a.mapCell
+        && mapCellDistance(a.mapCell, CityDefense.GATE) <= 8 && sensoryLineOfSight(a.mapCell, CityDefense.GATE)) };
+    return c;
+  }
+  function ensureCityDefense() {
+    if (state.cityDefense || scientistIsDead()) return state.cityDefense;
+    const succession = state.citySuccession, office = scientistCivicOffice(), source = cityDefenseSource(), a = state.sovereignBargains?.defender;
+    if (!source || !succession?.handover || succession.control?.recognizedAuthorityId !== 'scientist' || !office) return null;
+    const c = scientistCivicContext(office);
+    if (!c.alive || !c.capable || !c.atCounter || !c.clerkPresent || c.busy) return null;
+    // Reuse the ordinary existing municipal boundary materialization. This
+    // creates no new wall or encounter and never recreates a destroyed gate.
+    materializeWilderness();
+    const door = state.doors?.[CityDefense.DOOR];
+    if (!door || labMapDoorAtCell(CityDefense.GATE)?.id !== CityDefense.DOOR) return null;
+    DefenderChallenges.prepareDefender(state.sovereignBargains);
+    const s = CityDefense.create(source, succession, a, office, { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id }, state.clock, door.condition);
+    if (!s) return null;
+    door.condition = s.baselineCondition; state.cityDefense = s; return s;
+  }
+  function updateCityDefense() {
+    const s = state.cityDefense; if (!s || scientistIsDead()) return 0;
+    const c = cityDefenseContext(true), a = state.sovereignBargains.defender;
+    return CityDefense.advance(s, state.citySuccession, a, () => c, state.clock, {
+      move: (actor, target) => moveDefenderParticipant(actor, target, { skipPlacement: true, ignoreDoors: false,
+        blockedCellKeys: labMapBlockingCellKeys(ensureLabMap(), { actor, skipPlacement: true }) }),
+      stacks: ensurePhysicalItemStacks,
+      repair: condition => {
+        const door = state.doors?.[CityDefense.DOOR]; if (!door || labMapDoorAtCell(CityDefense.GATE)?.id !== CityDefense.DOOR) return false;
+        door.condition = condition;
+        if (condition >= STRUCTURE_BREACH_THRESHOLD) door.breached = false;
+        bumpNavigationRevision('door'); return true;
+      }
+    }) ? 1 : 0;
+  }
+  function cityDefenseAbsorb(actorId, cell, amount, damageTypes) {
+    const s = state.cityDefense, actor = s && combatActor(actorId);
+    if (!s || scientistIsDead() || ![CityDefense.GATE, ...CityDefense.COVERAGE].some(c => sameMapCell(c, cell))) return { damage: amount, absorbed: 0 };
+    updateCityDefense(); const a = state.sovereignBargains.defender, c = cityDefenseContext();
+    c.defenderWitness = Boolean(a.status === 'alive' && !actorIsIncapacitated(a) && a.mapCell && cell
+      && mapCellDistance(a.mapCell, cell) <= 8 && sensoryLineOfSight(a.mapCell, cell)
+      && actor?.mapCell && sensoryLineOfSight(a.mapCell, actor.mapCell));
+    const result = CityDefense.absorb(s, a, c, { cell, amount, damageTypes,
+      hostile: actor?.actorKind === 'wildernessBeast' && actor.status === 'alive',
+      lineOfEffect: Boolean(actor && cell && directedLineOfEffect(combatActorCell(actor), cell)) }, state.clock);
+    if (result.absorbed && scientistRoomId() === labMapCellRoomId(cell) && mapCellDistance(scientistMapCell(), cell) <= 8
+      && sensoryLineOfSight(scientistMapCell(), cell)) addEvent(`The original approach station intercepted ${formatNumber(result.absorbed)} damage using its finite installation reserve.`, { sourceKind: 'cityDefense', sourceId: s.id });
+    return result;
+  }
+  function observeCityDefenseAggression(targetCell = CityDefense.GATE) {
+    if (!state.cityDefense || scientistIsDead()) return;
+    const a = state.sovereignBargains.defender, c = cityDefenseContext();
+    c.defenderWitness &&= Boolean(a.mapCell && mapCellDistance(a.mapCell, targetCell) <= 8
+      && sensoryLineOfSight(a.mapCell, targetCell) && sensoryLineOfSight(a.mapCell, scientistMapCell()));
+    CityDefense.aggression(state.cityDefense, a, c, state.clock);
+  }
+  function cityDefenseAction(action, expected = null) {
+    if (scientistIsDead()) return false;
+    if (action === 'counter') return scientistIdentityAction('walk');
+    const s = ensureCityDefense(); if (!s) return false;
+    updateCityDefense(); const a = state.sovereignBargains.defender, c = cityDefenseContext(), at = state.clock;
+    let ok = false;
+    if (action === 'walk') ok = Boolean(c.local && !c.violence && !s.job && startScientistMove(SurveyExpeditions.FIELD_ROOM, { toCell: CityDefense.SERVICE, urgent: true }));
+    if (action === 'inspect') ok = CityDefense.inspect(s, state.citySuccession, a, c, at);
+    if (action === 'order') ok = CityDefense.order(s, state.citySuccession, a, c, expected, at);
+    if (action === 'report') ok = CityDefense.receive(s, state.citySuccession, a, c, at);
+    if (action === 'release') ok = Boolean(CityDefense.contact(c) && CityDefense.authority(s, state.citySuccession, a, c) && CityDefense.release(s, a, at));
+    if (['charge', 'repair'].includes(action)) ok = CityDefense.beginService(s, state.citySuccession, a, c, action, ensurePhysicalItemStacks(), at);
+    if (action === 'cancel') ok = CityDefense.cancelService(s, a, ensurePhysicalItemStacks());
+    if (!ok) addEvent('Station action refused: current original authority, actual attendance, available original duty/endurance, usable access, unexpired inspection and exact carried supplies are required. Nothing was transferred or restored.');
+    syncActorInventories(); syncPhysicalReadModels(); persist(); render(); return ok;
+  }
+  function renderCityDefense() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.cityDefense = 'true';
+    panel.append(textEl('h3', 'Continuing approach-station defense'), textEl('p', CityDefense.LIMITS));
+    const s = ensureCityDefense(), c = s && cityDefenseContext();
+    const button = (label, action, disabled = false, expected = null) => {
+      const b = storesActionButton(label, label, () => cityDefenseAction(action, expected)); b.dataset.cityDefenseAction = action; b.disabled = Boolean(disabled); panel.append(b);
+    };
+    button('Walk to original municipal counter', 'counter', scientistInKnownCombat());
+    if (!s) { panel.append(textEl('p', 'Requires authentic voluntary succession, the original exceptional defender, surviving generated fortifications and the original municipal boundary. No substitute installation or defender is provided.')); return panel; }
+    button('Walk to original approach-station service point', 'walk', !c.local || c.violence || Boolean(s.job));
+    const contact = CityDefense.contact(c) && CityDefense.authority(s, state.citySuccession, state.sovereignBargains.defender, c);
+    button('Inspect actual station and exact defensive priority', 'inspect', !contact || !c.atStation);
+    button('Receive dated original-defender report', 'report', !contact || !(c.atStation || c.atCounter));
+    if (s.quote) {
+      panel.append(textEl('p', `Inspection ${formatClock(s.quote.at)}: original boundary condition ${s.quote.condition.toFixed(1)}; finite station reserve ${s.quote.charge.toFixed(1)}/${CityDefense.CAPACITY}. Thirty-minute watch, actual outward/return walking and original duty. Passive interception up to 5 damage, attended up to 20; physical/force only, 60 reserve per absorbed point, plus 1 reserve/second standby. Coverage: two outer approach tiles only.`));
+      panel.append(textEl('p', s.quote.availability));
+      button('Issue inspected thirty-minute defensive watch', 'order', !contact || Boolean(s.duty || s.job), clonePlainObject(s.quote));
+      button('Physically charge station: one carried arcane feedstock, 60 seconds, +21600 reserve', 'charge', !contact || !c.atStation || Boolean(s.duty || s.job));
+      button('Physically service boundary: two carried metal parts, 120 seconds, +25 condition', 'repair', !contact || !c.atStation || Boolean(s.duty || s.job));
+    }
+    button('Release watch and require actual return', 'release', !contact || !s.duty);
+    button('Cancel unfinished physical service', 'cancel', !s.job);
+    if (s.job && c.atStation) panel.append(textEl('p', `Attended ${s.job.kind}: ${s.job.progress}/${s.job.seconds} seconds. Supplies remain reserved at the original carried stack until completion.`));
+    if (s.report) panel.append(textEl('p', `Report received ${formatClock(s.report.at)}: ${s.report.status}. ${s.report.condition == null ? 'Station reserves and condition not remotely verified.' : `Condition ${s.report.condition.toFixed(1)}; reserve ${s.report.energy.toFixed(1)}.`} ${s.report.receipts.length} dated duty/service receipts; ${s.report.contacts.length} personally witnessed interceptions.`),
+      textEl('p', s.report.refusal?.reason || 'Existing military continuation, not religious endorsement. Other institutions and legal cases remain independent.'));
+    panel.append(textEl('p', 'Original staffing and supplied rest remain in the existing civic staff recovery controls. Rest does not recharge personal mana or the installation. Missing, injured, exhausted or unavailable originals are never replaced; opening this panel does not update a report.'));
+    return panel;
+  }
   function cityProvisioningSource() {
     const b = state.sovereignBargains;
     return b?.testFixture ? b.testProvisioningSource || null
@@ -96647,6 +96828,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(renderCitySuccession());
     panel.append(renderCityAdministration());
     panel.append(renderCityProvisioning());
+    panel.append(renderCityDefense());
     panel.append(renderRunStrategicConditions());
     panel.append(renderCivicFoothold());
     panel.append(renderCarrierBriefings());
@@ -103776,6 +103958,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.citySuccessionKnowledge = candidate?.citySuccessionKnowledge ? clonePlainObject(candidate.citySuccessionKnowledge) : null;
     next.cityAdministration = CityAdministration.normalize(candidate?.cityAdministration);
     next.cityProvisioning = CityProvisioning.normalize(candidate?.cityProvisioning);
+    next.cityDefense = CityDefense.normalize(candidate?.cityDefense);
     next.cityAdministrationKnowledge = candidate?.cityAdministrationKnowledge ? clonePlainObject(candidate.cityAdministrationKnowledge) : null;
     next.civicFoothold = CivicFoothold.normalize(candidate?.civicFoothold);
     next.runStrategicConditions = RunStrategicConditions.normalize(candidate?.runStrategicConditions);

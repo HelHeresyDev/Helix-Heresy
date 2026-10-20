@@ -153,15 +153,18 @@ test('counter battery delivery depends on its own clerk, not a dead or absent mi
   assert.equal(Administration.handSupply(f.s, f.succession, f.b, f.office, f.stacks, 'relayBattery', f.c, 0), true);
   assert.equal(f.office.power, 12); assert.equal(f.office.workSeconds, 14370); assert.equal(f.b.defender.status, 'dead');
 });
-test('supplied off-duty time restores only bounded work and fatigue; no simultaneous work, daily reset, healed wounds or ward recharge', () => {
+test('supplied off-duty time restores bounded work, fatigue and defender endurance; no simultaneous work, daily reset, healed wounds or ward recharge', () => {
   const f = fixture(); f.stacks.push(item('fieldRation', 2)); const health = f.b.defender.health;
+  Object.assign(f.b.defender, { actorKind: 'cityDefender', stamina: 5, staminaCapacity: 100 });
   assert.equal(Administration.rest(f.s, f.succession, f.b, f.office, f.stacks, f.b.defender.id, f.c, 0), true);
   assert.equal(Administration.rest(f.s, f.succession, f.b, f.office, f.stacks, f.b.defender.id, f.c, 0), false);
   step(f, 14400); assert.equal(f.b.defender.workSeconds, 500); f.s = Administration.normalize(f.s); step(f, 14400);
   assert.equal(f.b.defender.workSeconds, 3600); assert.equal(f.b.defender.fatigue, 0); assert.equal(f.b.defender.health, health);
   assert.equal(f.b.defender.wardMana, 4); assert.equal(f.s.receipts[0].at, 28800); assert.equal(f.b.defender.assignment, null);
+  assert.equal(f.b.defender.stamina, 65);
   f.b.defender.workSeconds = 50; step(f, 172800); assert.equal(f.b.defender.workSeconds, 50);
   assert.equal(f.stacks.at(-1).quantity, 1);
+  assert.equal(f.b.defender.stamina, 65);
 });
 test('voluntary handover retains supplied recovery when the shared app context has no coerced recognition', () => {
   const f = fixture(); f.c.recognitions = { publicWorks: null, charter: null, abdication: null };
