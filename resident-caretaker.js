@@ -35,11 +35,13 @@
     if (!q || !Number.isFinite(now) || !contact(c) || !c.originalBody || !c.originalTrip || !c.atGround || refusal(s, c) || now < q.at || now >= q.expiresAt
       || JSON.stringify(q) !== JSON.stringify(expected) || q.bodyEpoch !== c.bodyEpoch || q.kitId !== c.kitId
       || q.policy !== policy(c) || JSON.stringify(q.plan) !== JSON.stringify(c.plan) || !Number.isFinite(wallet?.money) || wallet.money < q.upfront) return false;
+    const radioLoan = s.resident?.radioLoan && copy(s.resident.radioLoan);
     if (s.resident) (s.residentHistory ||= []).push(copy(s.resident));
     wallet.money -= q.upfront; s.actor.money = (s.actor.money || 0) + FEE;
     s.resident = { ...copy(q), id: `${s.actor.id}:resident-${(s.residentHistory?.length || 0) + 1}`, phase: 'accompanying',
       signedAt: now, lastAt: now, arrivedAt: null, endsAt: null, earned: 0, restSeconds: 0, deployed: false,
       service: null, reason: '', log: [], report: null, recognizedBodyEpoch: c.bodyEpoch };
+    if (radioLoan) s.resident.radioLoan = radioLoan; // Physical loan persists; old pairing/authority does not.
     s.residentQuote = null; s.quote = null; s.proposal = null; s.actor.needs.lastAt = now;
     note(s.resident, now, 'Separate resident terms accepted; same original person must physically walk with the scientist.'); return true;
   }
@@ -99,6 +101,7 @@
       if (r.phase === 'resident' && !resting) s.dutySeconds = Math.max(0, s.dutySeconds - 1);
       if (r.arrivedAt != null && at >= r.endsAt) withdraw(s, at, 'Three-day resident agreement ended; no automatic renewal.');
       if (c.threatened || a.health - damage < 35 || c.providerRefusal) withdraw(s, at, c.providerRefusal || 'Danger or serious injury requires withdrawal.');
+      h.communications?.(at, c, shift);
       if (c.incapacitated || a.health - damage <= 10) { r.service = null; r.reason = 'Incapacitated: actual person and possessions remain; no automatic evacuation.'; continue; }
       const care = a.needs.thirst >= 45 ? 'drinkingWater' : a.needs.hunger >= 45 ? 'trailMeal' : null;
       if (care && h.carried(care)) {

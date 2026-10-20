@@ -151,6 +151,8 @@ test('scientist death freezes all work; worker death retains escrow and original
 });
 test('a later resident agreement needs fresh consent and wages without resetting the original person or duty', () => {
   const f = fixture(); hire(f); advance(f, 250);
+  f.s.resident.radioLoan = { radioId: 'original-physical-loan', givenAt: 250, lastAt: 250 };
+  f.s.resident.communications = { link: { id: 'old-link' } };
   assert(Caretaker.withdraw(f.s, 250, 'Personally ended agreement.')); advance(f, 260);
   assert(Caretaker.settle(f.s, f.c, f.wallet, 260));
   const duty = f.s.dutySeconds, needs = copy(f.s.actor.needs), money = f.wallet.money, old = f.s.resident.id;
@@ -159,6 +161,7 @@ test('a later resident agreement needs fresh consent and wages without resetting
   assert.notEqual(f.s.resident.id, old); assert.equal(f.s.residentHistory.length, 1);
   assert.equal(f.s.actor.id, 'original'); assert.equal(f.s.dutySeconds, duty); assert.deepEqual(f.s.actor.needs, needs);
   assert.equal(f.wallet.money, money - 616); assert.equal(f.s.resident.arrivedAt, null);
+  assert.equal(f.s.resident.radioLoan.radioId, 'original-physical-loan'); assert.equal(f.s.resident.communications, undefined);
 });
 test('a substituted actor cannot inherit standing work, wages, reports or command recognition', () => {
   const f = fixture(); hire(f); advance(f, 170); const wages = f.s.resident.earned;

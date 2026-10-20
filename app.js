@@ -129,6 +129,7 @@
   const FieldBuilder = window.HelixFieldBuilder;
   const FieldEmployeeRecovery = window.HelixFieldEmployeeRecovery;
   const ResidentCaretaker = window.HelixResidentCaretaker;
+  const CaretakerCommunications = window.HelixCaretakerCommunications;
   const FieldWater = window.HelixFieldWater;
   const CarrierBriefings = window.HelixCarrierBriefings;
   const LocalDiscovery = window.HelixLocalDiscovery;
@@ -17254,6 +17255,11 @@
         syncActorInventories(); syncPhysicalReadModels(); persist(); render(); return state.clock;
       },
       residentCaretakerAction,
+      caretakerCommunicationsAction,
+      caretakerCommunicationsSnapshot: () => { const s = residentCaretakerOwner(); return clonePlainObject({
+        public: CaretakerCommunications.publicView(s, state.clock), private: s?.resident?.communications,
+        actor: s?.actor, resident: s?.resident, clock: state.clock, cell: scientistMapCell(),
+        radios: ensureWildernessSurvival().radios, stacks: ensurePhysicalItemStacks(), tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) }); },
       residentCaretakerSnapshot: () => { const s = residentCaretakerOwner(); return clonePlainObject({ saved: s, context: s && residentCaretakerContext(s, true),
         clock: state.clock, money: ensureEconomy().money, stacks: ensurePhysicalItemStacks(), fixtures: state.fixtures, plan: state.fieldRefuge?.staffPlan }); },
       advanceResidentCaretakerForTest: seconds => {
@@ -23827,6 +23833,7 @@
   }
 
   function completeDueTasks() {
+    updateCaretakerRadioBatteryWork();
     updateFieldToolCare();
     updateForeignSelfCareTasks();
     updateForeignEscortRepairs();
@@ -88754,7 +88761,138 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     return null;
   }
-  function residentCaretakerContext(s, contact = false) {
+  function caretakerRadioStack(id, owner) {
+    return ensurePhysicalItemStacks().find(i => i.id === id && i.key === 'satelliteCommunicator' && i.quantity === 1
+      && i.carriedBy === owner && !i.reservedTaskId && !i.cityOwnerId && !i.civicCustody && !i.containerId && !i.fixtureId
+      && !i.chemicalBatch && !(i.tags || []).some(t => /toxic|hazard|contaminat|volatile/i.test(t)));
+  }
+  function caretakerRadioRecord(id) {
+    const radios = ensureWildernessSurvival().radios;
+    return radios[id] ||= { stackId: id, charge: WildernessSurvival.RADIO_SECONDS, powered: false };
+  }
+  function caretakerCommunicationsContext(s) {
+    const r = s.resident, p = r?.communications?.link;
+    const sender = p && caretakerRadioStack(p.senderId, 'scientist'), receiver = p && caretakerRadioStack(p.receiverId, s.actor.id);
+    const map = activeWorldRecord?.generatedData?.strategicMap;
+    // Legacy worlds predate capability history but retain the setting's existing
+    // portable orbital service. New worlds must have the generated mesh baseline.
+    const baseline = map?.publicCapabilityHistory?.currentBaseline?.internet;
+    const network = Boolean(map && (!map.strategicCapabilityHistory || baseline?.globalAddressability && baseline?.orbitalSatellites && baseline?.arcaneRelayLinks)
+      && !fieldPorterExcursion(s)?.communicationsOutage);
+    return { alive: !scientistIsDead(), free: annexCapable(), capable: !actorIsIncapacitated('scientist'),
+      busy: surveyBusy(), bodyEpoch: ensureScientistIdentity().bodyEpoch, network,
+      sender: sender ? { ...caretakerRadioRecord(sender.id), held: true } : null,
+      receiver: receiver ? { ...caretakerRadioRecord(receiver.id), held: true } : null };
+  }
+  function caretakerCommunicationsWilling(c) {
+    return !c.providerRefusal && !c.source?.restrictions?.some(r => r.forbidsRemoteOrders || r.forbidsCommunications);
+  }
+  function advanceCaretakerCommunications(s, at, context = null, shift = false) {
+    const r = s.resident, loan = r?.radioLoan;
+    if (scientistIsDead() || !loan) return;
+    const seconds = Math.max(0, at - loan.lastAt); loan.lastAt = Math.max(loan.lastAt, at);
+    const device = caretakerRadioStack(loan.radioId, s.actor.id), radio = device && caretakerRadioRecord(device.id);
+    if (radio?.powered) { radio.charge = Math.max(0, radio.charge - seconds); if (!radio.charge) radio.powered = false; }
+    if (!r.communications) return;
+    const c = context || residentCaretakerContext(s), t = r.communications;
+    if (c.atCrate && !c.incapacitated && s.actor.status !== 'dead') t.observations.supplies = { observedAt: at,
+      goods: Object.fromEntries(['drinkingWater', 'trailMeal', 'fuelReagent', 'relayBattery'].map(key => [key,
+        ensurePhysicalItemStacks().filter(i => i.key === key && i.fixtureId === r.plan.cacheId && !i.carriedBy
+          && !i.reservedTaskId && !i.cityOwnerId && !i.civicCustody && !i.containerId && i.roomId === r.plan.roomId
+          && sameMapCell(i.cell, fixtureById(r.plan.cacheId)?.origin)).reduce((n, i) => n + i.quantity, 0)])) };
+    if (c.atControls && !c.incapacitated && s.actor.status !== 'dead') t.observations.heater = { observedAt: at, fuel: c.fuel, enabled: Boolean(c.enabled) };
+    const available = Boolean(shift && r.phase === 'resident' && !c.incapacitated && s.actor.status !== 'dead'
+      && s.actor.health >= 35 && s.dutySeconds > 300 && !c.threatened && !r.service
+      && s.actor.needs.thirst < 45 && s.actor.needs.hunger < 45);
+    CaretakerCommunications.advance(s, { ...caretakerCommunicationsContext(s), available, willing: caretakerCommunicationsWilling(c) }, {
+      withdraw: now => ResidentCaretaker.withdraw(s, now, 'Authenticated paired request: end residence and physically return under the original agreement.'),
+      report: now => ({ actorId: s.actor.id, agreementId: r.id, observedAt: now, phase: r.phase, reason: r.reason,
+        health: s.actor.health, needs: Object.fromEntries(['hunger', 'thirst', 'exertion', 'exposure'].map(k => [k, s.actor.needs[k]])),
+        dutySeconds: s.dutySeconds, earned: r.earned,
+        log: clonePlainObject(r.log.slice(-5)), observations: clonePlainObject(t.observations) })
+    }, at);
+  }
+  function caretakerCommunicationsAction(action) {
+    const s = residentCaretakerOwner(); if (!s?.resident || scientistIsDead() || !annexCapable() || surveyBusy()) return false;
+    const r = s.resident, c = residentCaretakerContext(s, true), contact = ResidentCaretaker.authorized(s, c) && !c.incapacitated && s.actor.status !== 'dead';
+    const own = actorInventoryStacks('scientist').filter(i => caretakerRadioStack(i.id, 'scientist'));
+    let ok = false;
+    if (action === 'giveRadio' && contact && !caretakerRadioStack(r.radioLoan?.radioId, s.actor.id)) {
+      const main = r.communications?.link?.senderId || wildernessRadio()?.stackId;
+      const spare = own.find(i => i.id !== main);
+      if (spare && actorInventoryCanCarry(s.actor.id, spare, 1)) {
+        caretakerRadioRecord(spare.id); spare.carriedBy = '';
+        const taken = carryPhysicalStack(s.actor.id, spare.id, 1);
+        if (taken) { r.radioLoan = { radioId: taken.id, givenAt: state.clock, lastAt: state.clock }; ok = true; }
+        else spare.carriedBy = 'scientist';
+      }
+    }
+    if (action === 'pair' && contact && r.phase === 'resident' && s.actor.health >= 35 && s.dutySeconds > 300 && !c.threatened && caretakerCommunicationsWilling(c)) {
+      const sender = own.find(i => i.id === r.communications?.link?.senderId) || own[0], receiver = caretakerRadioStack(r.radioLoan?.radioId, s.actor.id);
+      if (sender && receiver) {
+        ok = CaretakerCommunications.pair(s, { alive: true, personal: true, authorized: true, willing: true, bodyEpoch: c.bodyEpoch,
+          sender: { ...caretakerRadioRecord(sender.id), held: true }, receiver: { ...caretakerRadioRecord(receiver.id), held: true } }, state.clock);
+        if (ok) { const radio = caretakerRadioRecord(receiver.id); radio.powered = radio.charge > 0; }
+      }
+    }
+    if (['report', 'withdraw'].includes(action)) ok = Boolean(CaretakerCommunications.enqueue(s, caretakerCommunicationsContext(s), action, state.clock));
+    if (action === 'toggleSender') {
+      const id = r.communications?.link?.senderId;
+      if (caretakerRadioStack(id, 'scientist')) { const radio = caretakerRadioRecord(id); if (radio.charge > 0) { radio.powered = !radio.powered; ok = true; } }
+    }
+    if (action === 'toggleReceiver' && contact && caretakerRadioStack(r.radioLoan?.radioId, s.actor.id)) {
+      advanceCaretakerCommunications(s, state.clock);
+      const radio = caretakerRadioRecord(r.radioLoan.radioId); if (radio.charge > 0) { radio.powered = !radio.powered; ok = true; }
+    }
+    if (action === 'battery' && contact && caretakerRadioStack(r.radioLoan?.radioId, s.actor.id)) {
+      const battery = actorInventoryStacks('scientist').find(i => i.key === 'relayBattery' && !i.reservedTaskId && !i.cityOwnerId && !i.civicCustody && !i.containerId
+        && !i.chemicalBatch && !(i.tags || []).some(t => /toxic|hazard|contaminat|volatile/i.test(t)));
+      if (battery) ok = Boolean(queueSurveyWork('caretakerRadioBattery', scientistMapCell(), { stackId: battery.id,
+        radioId: r.radioLoan.radioId, workerId: s.actor.id, agreementId: r.id, bodyEpoch: c.bodyEpoch,
+        radioBatteryWork: { lastAt: state.clock, progress: 0, attended: false, required: 30 * WildernessSurvival.fatigueMultiplier(state.wildernessSurvival) },
+        label: 'Personally replace caretaker communicator battery', workSeconds: 30 }));
+    }
+    if (action === 'takeRadio' && contact) {
+      const i = caretakerRadioStack(r.radioLoan?.radioId, s.actor.id);
+      if (i && actorInventoryCanCarry('scientist', i, 1)) {
+        advanceCaretakerCommunications(s, state.clock); i.carriedBy = '';
+        ok = Boolean(carryPhysicalStack('scientist', i.id, 1)); if (!ok) i.carriedBy = s.actor.id;
+      }
+    }
+    syncActorInventories(); syncPhysicalReadModels(); persist(); render(); return ok;
+  }
+  function updateCaretakerRadioBatteryWork() {
+    if (scientistIsDead()) return;
+    for (const task of state.tasks.filter(t => t.data?.action === 'caretakerRadioBattery')) {
+      const w = task.data.radioBatteryWork ||= { lastAt: state.clock, progress: 0, required: 30, attended: false };
+      const available = firstScientistQueueTask()?.id === task.id && sameMapCell(scientistMapCell(), task.data.toCell) && !taskBlockReason(task);
+      CaretakerCommunications.attendBattery(w, state.clock, available);
+      task.dueAt = state.clock + Math.max(0, w.required - w.progress);
+    }
+  }
+  function renderCaretakerCommunications(panel, s, c) {
+    const view = CaretakerCommunications.publicView(s, state.clock);
+    panel.append(textEl('h5', 'Paired caretaker communications'), textEl('p', CaretakerCommunications.SCOPE),
+      textEl('p', 'Pack two separate communicators before departure. Personally give the spare, then pair and enable reception. Batteries last four powered hours, not four hours per visit. Reception can only be switched or supplied in person; ordinary local work continues offline.'));
+    const button = (label, action, disabled) => { const b = document.createElement('button'); b.textContent = label;
+      b.disabled = disabled || surveyBusy() || !annexCapable(); b.onclick = () => caretakerCommunicationsAction(action); panel.append(b); };
+    const contact = ResidentCaretaker.authorized(s, c), own = view.link && caretakerRadioStack(view.link.senderId, 'scientist');
+    button('Personally give spare communicator to caretaker', 'giveRadio', !contact);
+    button('Pair communicators and enable caretaker reception', 'pair', !contact);
+    button('Personally toggle caretaker reception', 'toggleReceiver', !contact);
+    button('Personally replace caretaker radio battery (30 seconds)', 'battery', !contact);
+    button('Personally collect loaned caretaker communicator', 'takeRadio', !contact);
+    if (view.link) {
+      panel.append(textEl('p', `Paired ${formatClock(view.link.at)}: ${view.link.senderId} ↔ ${view.link.receiverId}; original person ${view.link.actorId}, agreement ${view.link.agreementId}. Pairing is not a current connection report.`));
+      if (own) { const radio = caretakerRadioRecord(own.id); panel.append(textEl('p', `Own carried device: ${radio.powered ? 'on' : 'off'}, ${Math.floor(radio.charge)} seconds of charge.`)); }
+      button('Toggle own paired communicator', 'toggleSender', !own);
+      button('Queue caretaker report request', 'report', !own || view.link.bodyEpoch !== c.bodyEpoch);
+      button('Queue end-residence and physical-withdrawal request (expires in one hour)', 'withdraw', !own || view.link.bodyEpoch !== c.bodyEpoch);
+    }
+    for (const m of view.issued.slice(-10)) panel.append(textEl('p', `${m.id} — ${m.kind}; queued ${formatClock(m.queuedAt)}; ${m.sentAt == null ? 'not uploaded' : `uploaded ${formatClock(m.sentAt)}`}; expires ${formatClock(m.expiresAt)}. ${m.status}.`));
+    for (const report of view.received.slice(-5)) panel.append(textEl('p', `Reply to ${report.messageId}: ${report.outcome}. Observed ${formatClock(report.observedAt)}, received ${formatClock(report.receivedAt)}. ${report.account ? JSON.stringify(report.account) : 'No current account supplied.'} Dated knowledge, not live stock or a guarantee of return.`));
+  }
+  function residentCaretakerContext(s, contact = false, checkingTask = false) {
     const e = s && fieldPorterExcursion(s), g = e && passengerReceptionGate(e.source.cityId), a = s?.actor;
     const resident = ResidentCaretaker.active(s) ? s.resident : null;
     const p = resident?.plan || state.fieldRefuge?.staffPlan, site = state.fieldRefuge?.site;
@@ -88772,7 +88910,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const inv = a ? actorInventoryStacks(a.id) : [];
     return { alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist'), originalBody: passengerBodyCurrent(),
       bodyEpoch: ensureScientistIdentity().bodyEpoch, originalTrip: Boolean(e?.trip && e.trip.bodyEpoch === ensureScientistIdentity().bodyEpoch && e.trip.visitId === passengerVisitId()),
-      custody: GateEnforcement.custodyActive(currentGateEnforcement()) || localPrisonRestricted(), busy: surveyBusy(),
+      custody: GateEnforcement.custodyActive(currentGateEnforcement()) || localPrisonRestricted(), busy: checkingTask ? false : surveyBusy(),
       near: Boolean(contact && a && fieldPorterObserved(a) && mapCellDistance(a.mapCell, scientistMapCell()) <= 1),
       atGround: Boolean(e && scientistRoomId() === e.roomId && a?.roomId === e.roomId && mapCellDistance(a.mapCell, s.layout.meeting) <= 1),
       toolsReturned: Boolean(s && fieldBuilderToolsReturned(s)), source, plan: p, kitId, incapacitated: Boolean(a && actorIsIncapacitated(a)),
@@ -88828,6 +88966,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (!i) return false; i.quantity--; i.knownQuantity = Math.min(i.knownQuantity, i.quantity);
       state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0); syncActorInventories(); return true; };
     return { alive: !scientistIsDead(), context: () => residentCaretakerContext(s), carried, supply,
+      communications: (at, c, shift) => advanceCaretakerCommunications(s, at, c, shift),
       available: key => carried(key) || supply(key) || key === 'drinkingWater' && residentWaterPoint(s),
       waterPoint: () => residentWaterPoint(s),
       drinkTank: at => {
@@ -88976,7 +89115,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (s.resident) {
       const report = s.resident.report;
-      panel.append(textEl('p', `Signed agreement ${s.resident.id}. Departures and heater use are not remote telemetry. Accompany the person on foot; meet again for reports.`));
+      panel.append(textEl('p', `Signed agreement ${s.resident.id}. Departures and heater use are not remote telemetry. Accompany the person on foot. Personal reports remain available; remote reports require a separately paired link.`));
       if (report) panel.append(textEl('p', `${formatClock(report.at)} — personal report: ${report.phase}; ${report.reason}; earned ${formatMoney(report.earned)}. ${report.log.slice(-5).map(l => `${formatClock(l.at)}: ${l.text}`).join(' ')}`));
       button('Receive personal caretaker report', 'report', !ResidentCaretaker.contact(c));
       button('Offer optional original purifier drinking access', 'waterAccess', !ResidentCaretaker.authorized(s, c));
@@ -88985,6 +89124,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       button('Personally reaffirm caretaker agreement (two minutes)', 'recognize', !ResidentCaretaker.contact(c) || s.resident.recognizedBodyEpoch === c.bodyEpoch);
       if (c.near && s.resident.recognition && s.resident.recognizedBodyEpoch !== c.bodyEpoch)
         panel.append(textEl('p', `Personal reaffirmation: ${Math.floor(s.resident.recognition.progress)}/120 attended seconds. Remain nearby, free, capable and safe; interruption resets this conversation, not debts.`));
+      renderCaretakerCommunications(panel, s, c);
     }
     return panel;
   }
@@ -89384,6 +89524,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (scientistIsDead()) return 0;
     let changed = 0;
     for (const s of fieldEmployeeStates()) {
+      if (s.resident?.radioLoan && !ResidentCaretaker.active(s)) advanceCaretakerCommunications(s, state.clock);
       if (ResidentCaretaker.active(s)) {
         const previous = porterSimulationExcursion; porterSimulationExcursion = fieldPorterExcursion(s);
         try {
@@ -90650,19 +90791,29 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function wildernessWorkBlockReason(task) {
     const action = task.data?.action;
-    if (!["consume", "radioBattery", "deployShelter", "packShelter"].includes(action)) return "";
+    if (!["consume", "radioBattery", "caretakerRadioBattery", "deployShelter", "packShelter"].includes(action)) return "";
     const stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data.stackId && entry.quantity > 0 && entry.reservedTaskId === task.id);
     if (!stack || stack.carriedBy && stack.carriedBy !== "scientist") return "The reserved survival supply is unavailable.";
     if (stack.fixtureId && !storageFixtureScientistAccessible(fixtureById(stack.fixtureId))) return "The reserved survival supply is inaccessible.";
     if (!stack.carriedBy && mapCellKey(stockpileHaulAccessCell(stack)) !== mapCellKey(task.data.toCell)) return "The reserved survival supply moved.";
     if (action === "radioBattery" && !surveyCarriedStacks().some((entry) => entry.id === task.data.radioId)) return "The communicator is not carried.";
+    if (action === 'caretakerRadioBattery') {
+      const s = residentCaretakerOwner(), d = task.data, c = s && residentCaretakerContext(s, true, true);
+      if (!s || s.actor.id !== d.workerId || s.resident?.id !== d.agreementId || c.bodyEpoch !== d.bodyEpoch
+        || !ResidentCaretaker.authorized(s, { ...c, busy: false }) || c.incapacitated || c.threatened || s.actor.status === 'dead'
+        || !caretakerRadioStack(d.radioId, s.actor.id) || s.resident.radioLoan?.radioId !== d.radioId
+        || stack.carriedBy !== 'scientist' || stack.key !== 'relayBattery' || stack.cityOwnerId || stack.civicCustody || stack.containerId
+        || stack.chemicalBatch || (stack.tags || []).some(t => /toxic|hazard|contaminat|volatile/i.test(t)))
+        return 'Remain personally beside the original recognized caretaker with the same communicator and owned carried battery.';
+    }
     if (action === "packShelter" && !actorInventoryCanCarry("scientist", stack, 1)) return "The packed shelter would exceed carrying capacity.";
     return "";
   }
   function completeWildernessWork(task) {
     const action = task.data?.action;
     if (action === "walkWilderness") { updateSurveyExpedition(); surveyEvent(`${task.label} complete. The waiting vehicle remains at the defended ground; the boundary was crossed on foot.`); return true; }
-    if (!["consume", "radioBattery", "deployShelter", "packShelter"].includes(action)) return false;
+    if (!["consume", "radioBattery", "caretakerRadioBattery", "deployShelter", "packShelter"].includes(action)) return false;
+    if (action === 'caretakerRadioBattery' && wildernessWorkBlockReason(task)) return true;
     const survival = ensureWildernessSurvival(), site = activeWildernessSite(), stack = ensurePhysicalItemStacks().find((entry) => entry.id === task.data.stackId);
     if (!stack) return true;
     stack.reservedTaskId = "";
@@ -90676,7 +90827,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       stack.quantity--; stack.knownQuantity = Math.min(stack.quantity, stack.knownQuantity);
       if (!stack.quantity) state.physicalItemStacks = state.physicalItemStacks.filter((entry) => entry.id !== stack.id);
       if (action === "consume") state.wildernessSurvival = WildernessSurvival.consume(survival, task.data.itemKey);
-      else { survival.radios[task.data.radioId] = { stackId: task.data.radioId, charge: WildernessSurvival.RADIO_SECONDS, powered: false }; }
+      else {
+        survival.radios[task.data.radioId] = { stackId: task.data.radioId, charge: WildernessSurvival.RADIO_SECONDS, powered: false };
+        if (action === 'caretakerRadioBattery') residentCaretakerOwner().resident.radioLoan.lastAt = state.clock;
+      }
       syncPhysicalReadModels();
     }
     surveyEvent(`${task.label} complete at the scientist's physical location.`); return true;
@@ -94970,7 +95124,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!target || target.z !== scientistMapCell().z) return false;
     const foreignGround = foreignSurveyAtField();
     if (task.type === 'surveyExpeditionWork' && task.data.action === 'foreignSurveyTravel') return true;
-    if (foreignGround && (task.type === 'scientistMove' || task.type === 'surveyExpeditionWork' && ['pack', 'consume', 'radioBattery', 'walkWilderness', 'deployShelter', 'packShelter', 'foreignEscortRepair', 'foreignEscortScope', 'fieldEmployeeShelter', 'surfaceStone', 'fallenTimber', 'fieldStation', 'fieldStationPut', 'fieldStationService', 'fieldWater'].includes(task.data.action)
+    if (foreignGround && (task.type === 'scientistMove' || task.type === 'surveyExpeditionWork' && ['pack', 'consume', 'radioBattery', 'caretakerRadioBattery', 'walkWilderness', 'deployShelter', 'packShelter', 'foreignEscortRepair', 'foreignEscortScope', 'fieldEmployeeShelter', 'surfaceStone', 'fallenTimber', 'fieldStation', 'fieldStationPut', 'fieldStationService', 'fieldWater'].includes(task.data.action)
       || task.type === 'physicalDiagnostic' && task.data.workflowId === 'resourceSurvey')) return true;
     if (annexAway()) return annexAtProperty() && (task.type === "scientistMove" || task.type === "injuryTreatment" && task.data.targetActorId === "scientist"
       || task.type === "surveyExpeditionWork" && ["pack", "consume", "radioBattery"].includes(task.data.action)
@@ -95335,7 +95489,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       { key: 'masonryHammer', amount: 1 }, { key: 'stoneChisel', amount: 1 }, { key: 'handSaw', amount: 1 }].find((entry) => entry.key === itemKey);
     if (!def || expedition.phase !== "home" || restrictedOffsiteStay() || currentDetentionRaid()) return false;
     const carried = surveyCarriedStacks().filter((entry) => entry.key === itemKey).reduce((n, entry) => n + entry.quantity, 0);
-    if (carried >= def.amount) return false;
+    const targetAmount = itemKey === 'satelliteCommunicator' ? 2 : def.amount;
+    if (carried >= targetAmount) return false;
     const candidates = ensurePhysicalItemStacks().filter((entry) => entry.key === itemKey && !entry.carriedBy && !entry.reservedTaskId && entry.quantity > 0)
       .filter(entry => itemKey !== 'handSaw' || fieldStationHomeSupply(entry))
       .filter((entry) => !entry.fixtureId || storageFixtureScientistAccessible(fixtureById(entry.fixtureId)))
@@ -95344,7 +95499,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const isInstrument = ["environmentalSurveyKit", "thaumometer", "masonryHammer", "stoneChisel", "handSaw"].includes(itemKey);
       const tool = isInstrument ? toolInstancesForItem(itemKey).find((entry) => entry.roomId === stack.roomId && !entry.carriedBy && !entry.reservedTaskId && entry.current > 0 && (!stack.toolInstanceId || entry.id === stack.toolInstanceId)) : null;
       if (isInstrument && !tool) continue;
-      const amount = Math.min(def.amount - carried, stack.quantity);
+      const amount = Math.min(targetAmount - carried, stack.quantity, itemKey === 'satelliteCommunicator' ? 1 : Infinity);
       if (!actorInventoryCanCarry("scientist", stack, amount)) continue;
       const cell = stockpileHaulAccessCell(stack);
       if (cell && queueSurveyWork("pack", cell, { stackId: stack.id, itemKey, amount, toolInstanceId: tool?.id || "" })) return true;

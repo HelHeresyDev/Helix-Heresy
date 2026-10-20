@@ -1156,6 +1156,20 @@ Accepted duties continue while the scientist is absent or imprisoned. **Receive 
 
 Focused coverage: `tests/resident-caretaker.unit.test.js`, Canvas/DOM `tests/resident-caretaker-browser.spec.js`, and existing worker-recovery and refuge/station models. Full-suite testing is not automatic under repository policy.
 
+### Paired caretaker communications
+
+The existing resident caretaker can separately accept a narrow satellite-magical link. Before departure, buy and physically **Pack Satellite-magical Communicator** twice: each pickup carries one distinct device, with a maximum of two on the scientist. Personally meet the original recognized caretaker, **Personally give spare communicator to caretaker**, then **Pair communicators and enable caretaker reception**. This records the original people, resident agreement, recognized body and exact device identities without a fee, employment renewal or reset. Equipment is an actual loan: collect it in person rather than silently returning it at settlement.
+
+The scientist's paired radio has its own local power toggle. Each device has four powered carried hours of battery life, retained through transfer, travel and saves. The caretaker's reception can only be switched in person. **Personally replace caretaker radio battery (30 seconds)** uses an actual carried Relay Battery and attended work beside that original worker/device; interruption and reload preserve the task and unused battery. Replacement leaves reception off. No remote charging, replacement device, grid connection or free batteries are supplied.
+
+Two requests are supported: **Queue caretaker report request** and **Queue end-residence and physical-withdrawal request**. Both expire after one hour. The lifecycle separately records local queueing, upload, recipient delivery, handling, reply transmission and receipt. Uploaded is not acknowledged; reconnection alone is not a fresh report. Power loss or an actual regional service outage can delay either direction. Off-duty, busy, unsafe or incapacitated workers may not handle a request before expiry. The normal caretaker duties, finite wages, provisions and safety rules continue offline.
+
+Only a received reply reveals the recipient's outcome. If an uploaded request expires without a reply, its outcome remains unknown to the player; an unsent locally expired request is known not to have uploaded. Saved message identities prevent automatic retransmission from executing twice. Reports contain the worker's own dated condition, work log and last personally checked heater/supply observations—not current remote crate inventories, unseen beasts, maps or another worker's private delivery state. Observation and receipt dates are separate. An accepted withdrawal invokes the existing physical return, with real obstructions, needs and retained property; it neither guarantees arrival nor settles wages remotely.
+
+Generated orbital-arcane capability supplies the service baseline; legacy worlds retain their established portable service. No distance-based failure roll or new global authority is invented. Pairing can be renewed only in person and revokes outstanding old-link instructions. A replacement body still requires the existing personal reaffirmation followed by pairing; possessing a device is not recognition. Irreversible death freezes messages and work, and independent same-world runs inherit neither link nor reports.
+
+Focused coverage: `tests/caretaker-communications.unit.test.js`, Canvas/DOM `tests/caretaker-communications-browser.spec.js`, existing caretaker units and the named powered-carried-radio survival test. Full-suite testing is not automatic under repository policy.
+
 ### Finite local drinking-water chain
 
 The Visits field-station panel supports one manually operated purifier beside the original second refuge. Generated surface water is finite and not guaranteed: approach and inspect it first. Only filterable feedwater is supported; the cartridge cannot fix chemical or magical contamination. Time and reload never refill sources.
