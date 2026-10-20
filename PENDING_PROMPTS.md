@@ -305,8 +305,8 @@ Already available: the named finite geodesic world and historical political/ecol
 
 ### Scope and ownership rules
 
-- The recommended next core discussion is **3.17, the first supplied field force**; the civic-foothold assessment, run-owned installation conditions, knowledge-limited Expansion Atlas, bounded local patch graph, measured overland leg, playable stopping sites, shared regional encounters, bounded two-person transport charter, single-casualty recovery, second supplied refuge, first resident caretaker duty, finite local drinking-water chain, first physical supply round trip and powered caretaker communications are completed. **3.5, adjoining porter retrieval**, is an optional near-term logistics branch, not the gateway to the rest of this roadmap.
-- Remaining core workstreams are locally supported operations (3.17–3.18), regional power and counterpowers (3.19–3.28), and global reach plus assessment (3.29–3.35). Optional branches are porter retrieval (3.5), caches (3.6), city founding (3.31) and creation field operations (3.36), with 3.32 providing an alternate nonmilitary route. These are planned alternatives or conveniences, not required systems in every domination playthrough. Dependencies are mechanical, not a prescribed story order; 3.36 can precede any consumer that actually uses it.
+- The recommended next core discussion is **3.19, one contested armed installation objective**; the civic-foothold assessment, run-owned installation conditions, knowledge-limited Expansion Atlas, bounded local patch graph, measured overland leg, playable stopping sites, shared regional encounters, bounded two-person transport charter, single-casualty recovery, second supplied refuge, first resident caretaker duty, finite local drinking-water chain, first physical supply round trip, powered caretaker communications, first supplied two-person field force and consequential physical outpost defense are completed. **3.5, adjoining porter retrieval**, is an optional near-term logistics branch, not the gateway to the rest of this roadmap.
+- Remaining core workstreams are regional power and counterpowers (3.19–3.28), and global reach plus assessment (3.29–3.35). Optional branches are porter retrieval (3.5), caches (3.6), city founding (3.31) and creation field operations (3.36), with 3.32 providing an alternate nonmilitary route. These are planned alternatives or conveniences, not required systems in every domination playthrough. Dependencies are mechanical, not a prescribed story order; 3.36 can precede any consumer that actually uses it.
 - **#1 owns additional civic appointment procedures. #2 owns additional local opposition, armed enforcement, occupation and continuing city-rule procedures.** #3 consumes their supported outcomes; 3.20 is the explicit integration checkpoint, not permission to duplicate those systems here or require every optional #1/#2 branch. Expand #1/#2 into concrete prompts only when an identified campaign consumer requires them.
 - **#4 owns divine submission, god-killing and divine-supremacy completion.** World domination must account for divine capacity to overturn terrestrial rule but need not require subjugating or killing every god, personal ascension or completion of #4. Likewise, earlier ambitions are not mandatory achievement gates.
 - Every implementation slice needs a player-visible action or meaningful consumed outcome, deterministic focused tests, interruption and real save/load coverage, documentation and queue updates. Select only relevant tests under `AGENTS.md`; an integration entry below is not permission to run the full suite. New behavior must remain renderer-neutral with Canvas and DOM coverage where physical maps change.
@@ -334,21 +334,13 @@ Let the scientist physically transport and install one appropriately constructed
 
 Dependencies: persistent site identity; reuse existing storage. Completion: supplies left on an expedition can be retrieved or genuinely lost on a later visit without a remote inventory view or duplication.
 
-### Locally supported operations
-
-#### 3.18 One defended outpost and a consequential beast attack
-
-Supply actual barriers, detection and one supported defensive capability through finite operators, power, ammunition/mana, maintenance and physical access. Play one causally supported regional attack against it using existing encounters and ordinary wounds/damage. No mandatory attack timer, guaranteed safe zone, replenished wave or attacker spawn solely to demonstrate the mechanic. Retain breach, casualties, consumed stock and evacuation outcomes.
-
-Dependencies: completed regional encounters, local refuge/supply support and the first supplied field force; an appropriately capable existing defender may supply an alternative to a new force. Larger forces still need a feasible actual manifest and transport rather than extra charter seats. Completion: defense can materially succeed, fail or evacuate and the outpost remains in its resulting physical state.
-
 ### Regional power, agreements and counterpowers
 
 #### 3.19 One contested armed installation objective
 
 Use an actual capable force or sufficiently powerful scientist/creation to contest one installation with identified occupants, real access, defenses, retreat and a concrete objective. Reuse shared combat rather than resolving a battle from payment or reputation. Occupying ground, defeating a defender, taking custody of goods and obtaining lawful command are separate outcomes. Where local compulsory enforcement is involved, obtain the explicit scope owned by #2; hostile conquest does not acquire that lawful scope automatically. Do not bundle a full city siege into this first operation.
 
-Dependencies: 3.17–3.18 or a supported personal-power alternative; #2 only for the relevant local procedure. Completion: the installation changes actual access/possession or successfully resists, with persistent losses and no automatic city surrender.
+Dependencies: completed supplied field force and consequential outpost defense, or a supported personal-power alternative; #2 only for the relevant local procedure. Defensive refuge employment grants no assault consent. Completion: the installation changes actual access/possession or successfully resists, with persistent losses and no automatic city surrender.
 
 #### 3.20 First sustainable city-power outcome — integration with #1/#2
 

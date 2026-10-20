@@ -6,8 +6,8 @@
   "use strict";
   const ROOM = "wildernessSurveySector";
   const PROFILES = Object.freeze({
-    "beast:rimefang-pack": { name: "Rimefang", disposition: "predator", health: 48, damage: 6, damageTypes: ["physical", "cold"], stepSeconds: 1.5, recovery: 8, sight: 8, track: "Frost-rimmed paw prints", sound: "Distant growling" },
-    "beast:gravebloom-elk": { name: "Gravebloom Elk", disposition: "territorial", health: 60, damage: 8, damageTypes: ["physical"], stepSeconds: 2, recovery: 10, sight: 7, track: "Hoof prints among luminous flowers", sound: "Heavy rustling and a low call" }
+    "beast:rimefang-pack": { name: "Rimefang", disposition: "predator", health: 48, damage: 6, barrierKinds: ["door"], damageTypes: ["physical", "cold"], stepSeconds: 1.5, recovery: 8, sight: 8, track: "Frost-rimmed paw prints", sound: "Distant growling" },
+    "beast:gravebloom-elk": { name: "Gravebloom Elk", disposition: "territorial", health: 60, damage: 8, barrierKinds: ["door", "constructedWall"], damageTypes: ["physical"], stepSeconds: 2, recovery: 10, sight: 7, track: "Hoof prints among luminous flowers", sound: "Heavy rustling and a low call" }
   });
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const key = (cell) => `${cell.x},${cell.y},${cell.z}`;
@@ -64,9 +64,27 @@
     if (beast.lastTarget && at < beast.rememberedUntil && (!territorial || at < beast.provokedUntil)) return { behavior: sees ? "pursue" : "investigate", goal: beast.lastTarget };
     return { behavior: distance(beast.mapCell, beast.homeCell) > 2 ? "return" : "roam", goal: beast.homeCell };
   }
+  // This is capability, not a command to attack. The caller must first find
+  // an obstructed route to the perceived/remembered goal, trying open routes
+  // first. These ordinary animals cannot siege masonry, metal or wards.
+  function canBreach(beast, decision, barrier, at) {
+    const p = PROFILES[beast?.speciesId], c = barrier?.composition;
+    return Boolean(p && beast.status !== 'dead' && beast.health >= beast.maxHealth * .3
+      && ['pursue', 'investigate'].includes(decision?.behavior) && decision.goal && beast.lastTarget
+      && key(decision.goal) === key(beast.lastTarget) && at < beast.rememberedUntil
+      && (beast.effortSeconds == null || beast.effortSeconds > 0)
+      && p.barrierKinds.includes(barrier?.kind) && barrier.closed && barrier.condition > 0
+      && c?.primary === 'wood' && !c.reinforcement && !c.lining && !c.coating && !c.seal && !barrier.warded);
+  }
+  function barrierStrike(beast, decision, barrier, at) {
+    if (!canBreach(beast, decision, barrier, at) || at < beast.nextAttackAt
+      || beast.mapCell.z !== barrier.cell?.z
+      || Math.abs(beast.mapCell.x - barrier.cell.x) + Math.abs(beast.mapCell.y - barrier.cell.y) !== 1) return null;
+    return { damage: PROFILES[beast.speciesId].damage, damageTypes: ['physical'], recovery: PROFILES[beast.speciesId].recovery };
+  }
   function publicKnowledge(state, visibleIds = []) {
     const visible = new Set(visibleIds);
     return { sightings: Object.values(state.sightings).map((entry) => ({ ...clone(entry), current: visible.has(entry.id) })), tracks: state.tracks.filter((track) => track.observedAt != null).map(clone), heard: state.heard ? clone(state.heard) : null };
   }
-  return { ROOM, PROFILES, defaultState, normalizeState, actor, materialize, nextStep, neighbors, decide, publicKnowledge, distance, key };
+  return { ROOM, PROFILES, defaultState, normalizeState, actor, materialize, nextStep, neighbors, decide, canBreach, barrierStrike, publicKnowledge, distance, key };
 });

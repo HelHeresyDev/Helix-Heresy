@@ -17287,6 +17287,20 @@
         }
         syncActorInventories(); syncPhysicalReadModels(); persist(); if (!quiet) render(); return state.clock;
       },
+      outpostDefenseProgressForTest: () => clonePlainObject({ clock: state.clock, cell: scientistMapCell(), room: scientistRoomId(),
+        tasks: scientistQueueTasks().map(t => ({ id: t.id, label: t.label, reason: taskBlockReason(t) })) }),
+      advanceOutpostDefenseForTest: (seconds, quiet = false) => {
+        // The focused defense fixture already contains inspected, materialized
+        // ground. Reconcile actual absence once, not discovery of that same
+        // thousand-cell patch on every second of an ordinary known-route walk.
+        updateForeignWilderness(foreignSurveyAtField());
+        for (let left = Math.max(0, seconds); left > 0 && !scientistIsDead();) {
+          const step = Math.min(1, left); state.clock += step; left -= step;
+          updateScientistMovementTask(); completeDueTasks(); updateWildernessNeeds(); progressInjuries();
+          updateWildernessBeasts(step); updateAllFieldForces(step);
+        }
+        syncActorInventories(); syncPhysicalReadModels(); persist(); if (!quiet) render(); return state.clock;
+      },
       caretakerCommunicationsAction,
       caretakerCommunicationsSnapshot: () => { const s = residentCaretakerOwner(); return clonePlainObject({
         public: CaretakerCommunications.publicView(s, state.clock), private: s?.resident?.communications,
@@ -26317,14 +26331,14 @@
     return true;
   }
 
-  function applyStructuralDamage(cell, amount, damageTypeIds = ["physical"], source = "an attack") {
+  function applyStructuralDamage(cell, amount, damageTypeIds = ["physical"], source = "an attack", options = {}) {
     const map = ensureLabMap();
     const target = structuralTargetAtCell(cell, map);
     if (!target) return { ok: false, reason: "No damageable structure occupies that tile." };
     const before = structuralTargetCondition(target, map);
     if (target.kind === "door" && before <= 0) {
       destroyStructuralTarget(target, source, map);
-      addEvent(`${doorTypeLabel(target.value?.typeId)} at ${cell.x},${cell.y} was destroyed by ${source}.`);
+      if (!options.hideFeedback) addEvent(`${doorTypeLabel(target.value?.typeId)} at ${cell.x},${cell.y} was destroyed by ${source}.`);
       return { ok: true, destroyed: true, damage: 0, before, after: 0, targetKind: target.kind };
     }
     const damage = structuralDamageAmount(target, amount, damageTypeIds, map);
@@ -26352,7 +26366,7 @@
     evaluateStructuralSupport(state.labMap);
     if (destroyed) applyGravityAfterTopologyChange(state.labMap);
     const stateLabel = destroyed ? "Destroyed" : structureConditionBand(after);
-    addEvent(`${titleCase(target.kind.replace(/([A-Z])/g, " $1"))} at ${cell.x},${cell.y} took ${formatNumber(damage)} ${damageTypeListText(damageTypeIds.map(damageTypeDef).filter(Boolean)).toLowerCase()} damage from ${source}; ${stateLabel.toLowerCase()}.`);
+    if (!options.hideFeedback) addEvent(`${titleCase(target.kind.replace(/([A-Z])/g, " $1"))} at ${cell.x},${cell.y} took ${formatNumber(damage)} ${damageTypeListText(damageTypeIds.map(damageTypeDef).filter(Boolean)).toLowerCase()} damage from ${source}; ${stateLabel.toLowerCase()}.`);
     return { ok: true, destroyed, damage, before, after, state: stateLabel, targetKind: target.kind, attackTransmission: !destroyed && wallAllowsAttackTransmission(cell, state.labMap) };
   }
 
@@ -41295,9 +41309,9 @@
     if (!range.inRange) return { ok: false, reason: range.reason, blockedAt: target.lastKnownCell || combatTargetCurrentCell(target) };
     if (target.kind === "structure") {
       if (!action.targetKinds.includes("structure")) return { ok: false, reason: `${action.label} cannot affect a structure.` };
-      const result = applyStructuralDamage(target.cell, action.baseDamage, action.damageTypes, `${actorId === "scientist" ? "the scientist's" : "a creature's"} ${action.label.toLowerCase()}`);
+      const result = applyStructuralDamage(target.cell, action.baseDamage, action.damageTypes, `${actorId === "scientist" ? "the scientist's" : "a creature's"} ${action.label.toLowerCase()}`, options);
       if (result.ok && actorId === 'scientist') observeDefenderCoverAggression(target.cell, labMapCellRoomId(target.cell));
-      if (result.ok) {
+      if (result.ok && !options.hideFeedback) {
         emitMapFeedback("feedbackImpact", target.cell, {
           label: action.label + " struck structure",
           intensityBand: "high",
@@ -89756,11 +89770,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     return s || null;
   }
-  function fieldForcePlanValid(p) {
+  function fieldForcePlanValid(p, allowUnseenDoorLoss = false) {
     const site = state.fieldRefuge?.site;
     return Boolean(p && site && ['id', 'siteId', 'worldId', 'cityId', 'roomId', 'doorId'].every(k => p[k] === site[k])
       && fieldStationSheltered(site.layout.rest)
-      && state.doors[p.doorId]?.condition > 0 && p.posts.every(c => mapCellDistance(c, site.layout.apron) === 1
+      && (allowUnseenDoorLoss || state.doors[p.doorId]?.condition > 0 && !doorIsBreached(state.doors[p.doorId])) && p.posts.every(c => mapCellDistance(c, site.layout.apron) === 1
         && labMapCellHasFloor(c) && !constructedWallAtCell(c) && !fixturesAtCell(c).some(f => fixtureDef(f)?.collision === 'blocking'))
       && site.layout.roofs.every(c => constructedFloorAtCell(c)?.condition >= 50));
   }
@@ -89892,7 +89906,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         if (e?.wilderness?.beasts?.lastAt !== state.clock) updateWildernessBeasts(elapsed);
         changed += FieldForce.advance(s, state.clock, { alive: !scientistIsDead(),
           current: () => FieldForce.current(s, { source: fieldForceSource(e) }) && !FieldForce.restriction(fieldForceSource(e)),
-          refugeValid: () => fieldForcePlanValid(s.operation.plan),
+          refugeValid: () => fieldForcePlanValid(s.operation.plan)
+            // New door-loss awareness is personal, not a remote structural
+            // sensor. At their posts the original guards can inspect it; an
+            // outward/stranded member behind cover cannot know a hidden breach.
+            || fieldForcePlanValid(s.operation.plan, true) && !s.members.some(m => m.actor.status !== 'dead' && !actorIsIncapacitated(m.actor)
+              && m.actor.roomId === s.operation.plan.roomId && mapCellDistance(m.actor.mapCell, state.fieldRefuge.site.layout.door) <= 7
+              && sensoryLineOfSight(m.actor.mapCell, state.fieldRefuge.site.layout.door)),
           context: m => {
             const a = m.actor, inv = actorInventoryStacks(a.id);
             return { incapacitated: actorIsIncapacitated(a), threatCount: fieldForceThreats(m).length,
@@ -89911,9 +89931,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           defend: m => withEscortState(m, () => {
             const a = m.actor, threats = fieldForceThreats(m); if (actorIsIncapacitated(a) || a.status === 'dead') return;
             state.combat.guarding[a.id] = { startedAt: state.clock };
-            for (const b of threats) a.observed[b.id] = { at: state.clock, name: b.name, cell: cleanMapCell(b.mapCell) };
-            const attacker = threats.find(b => mapCellDistance(a.mapCell, b.mapCell) <= 1 && b.behavior === 'pursue'
-              && (b.targetId === a.id || combatActor(b.targetId) && mapCellDistance(combatActorCell(combatActor(b.targetId)), a.mapCell) <= 3));
+            for (const b of threats) a.observed[b.id] = { ...a.observed[b.id], at: state.clock, name: b.name, cell: cleanMapCell(b.mapCell) };
+            const attacker = threats.find(b => mapCellDistance(a.mapCell, b.mapCell) <= 1
+              && (b.behavior === 'pursue' && (b.targetId === a.id || combatActor(b.targetId)
+                && mapCellDistance(combatActorCell(combatActor(b.targetId)), a.mapCell) <= 3)
+                || b.barrierContact?.at === state.clock && (sameMapCell(b.barrierContact.cell, state.fieldRefuge?.site?.layout.door)
+                  || state.fieldRefuge?.site?.layout.walls.some(c => sameMapCell(c, b.barrierContact.cell)))));
             if (attacker && state.clock >= a.nextAttackAt) {
               cancelEscortCare(); const weapon = escortGear('escortBaton');
               resolveSharedCombatAction(a.id, 'strike', { kind: 'creature', id: attacker.id },
@@ -89992,6 +90015,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       button(`End off-duty rest for ${m.actor.name}`, 'endRest', !ForeignEscortRecovery.active(m) || !fieldPorterObserved(m.actor), { actorId: m.actor.id });
     }
     if (s.report) panel.append(textEl('p', `${formatClock(s.report.at)} — personal report: ${s.report.phase}; ${s.report.reason} ${s.report.members.map(m => `${m.name}: ${m.phase}, ${m.health}/100 health, earned ${formatMoney(m.earned)}; carried ${(m.supplies || []).map(i => `${i.quantity} ${i.key}`).join(', ') || 'not reported'}.`).join(' ')} ${s.report.partial ? 'Individual account only; other members are not present to report.' : ''} Dated, not a remote status feed.`));
+    for (const m of s.report?.members || []) for (const sight of Object.values(m.observations || {})) {
+      panel.append(textEl('p', `${m.name} personally saw ${sight.name} at ${sight.cell.x},${sight.cell.y} (${formatClock(sight.at)}).${sight.barrier ? ` Witnessed barrier attack at ${sight.barrier.cell.x},${sight.barrier.cell.y} (${formatClock(sight.barrier.at)}): ${sight.barrier.breached ? 'breached' : 'damaged, still obstructing'}.` : ''} Dated account; present conditions unknown without observation.`));
+    }
     return panel;
   }
   function foreignEscortStates() { return (state.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.escort).filter(Boolean); }
@@ -90865,6 +90891,39 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     observeWildernessBeasts();
     return true;
   }
+  function wildernessBarrierAtCell(cell, map = ensureLabMap()) {
+    // The original municipal boundary is a defended ward, never a new
+    // breachable wooden obstacle just because it has a door representation.
+    if (sameMapCell(cell, WildernessSurvival.GATE) || sameMapCell(cell, foreignWildernessLocal()?.gate)
+      || sameMapCell(cell, porterSimulationExcursion?.wilderness?.gate)) return null;
+    const target = structuralTargetAtCell(cell, map);
+    if (!target || !['door', 'constructedWall'].includes(target.kind)) return null;
+    return { kind: target.kind, cell: cleanMapCell(cell), composition: structuralTargetComposition(target, map),
+      condition: structuralTargetCondition(target, map), warded: normalizeContainerWardIds(target.value?.wardIds).length > 0,
+      closed: target.kind === 'constructedWall' || !doorFixtureAllowsPassage(target.mapDoor) };
+  }
+  function strikeWildernessBarrier(beast, decision, barrier) {
+    const strike = WildernessBeasts.barrierStrike(beast, decision, barrier, state.clock); if (!strike) return false;
+    const barrierObserved = scientistInWilderness() && mapCellDistance(scientistMapCell(), barrier.cell) <= 8
+      && sensoryLineOfSight(scientistMapCell(), barrier.cell);
+    // Seeing the inside of an opaque door is not seeing the animal outside.
+    // In particular, impact arrows must not reveal that hidden source cell.
+    const observed = barrierObserved && wildernessBeastVisible(beast);
+    const witnesses = fieldForceMembers().filter(m => m.actor.status !== 'dead' && !actorIsIncapacitated(m.actor)
+      && m.actor.roomId === beast.roomId && mapCellDistance(m.actor.mapCell, beast.mapCell) <= 7
+      && sensoryLineOfSight(m.actor.mapCell, beast.mapCell) && sensoryLineOfSight(m.actor.mapCell, barrier.cell));
+    const result = resolveSharedCombatAction(beast.id, 'strike', { kind: 'structure', cell: barrier.cell },
+      { baseDamage: strike.damage, damageTypes: strike.damageTypes, hideFeedback: !observed });
+    beast.nextAttackAt = state.clock + strike.recovery;
+    if (!result.ok) return false;
+    const after = wildernessBarrierAtCell(barrier.cell);
+    beast.barrierContact = { at: state.clock, cell: cleanMapCell(barrier.cell), kind: barrier.kind, breached: !after?.closed };
+    for (const m of witnesses) m.actor.observed[beast.id] = { at: state.clock, name: beast.name,
+      cell: cleanMapCell(beast.mapCell), barrier: clonePlainObject(beast.barrierContact) };
+    if (observed) pauseForWildernessThreat(`${beast.name} struck the ${barrier.kind === 'door' ? 'door' : 'wooden wall'}${after?.closed ? '; it still obstructs passage' : ' and breached the barrier'}. Damage persists; shelter is not a safe zone.`);
+    else if (barrierObserved) pauseForWildernessThreat(`An impact struck the ${barrier.kind === 'door' ? 'door' : 'wooden wall'}${after?.closed ? '; it still obstructs passage' : ' and breached the barrier'}. The source was not seen; no identity or position is supplied.`);
+    return true;
+  }
   function updateWildernessBeasts(elapsed = 0) {
     const saved = ensureWildernessBeasts();
     if (!saved.materialized || scientistIsDead()) return 0;
@@ -90879,7 +90938,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       for (const beast of saved.actors) { beast.nextMoveAt += Math.max(0, elapsed); beast.nextAttackAt += Math.max(0, elapsed); }
       saved.lastAt = state.clock; return 0;
     }
-    const map = ensureLabMap(), working = Boolean(firstScientistQueueTask() && firstScientistQueueTask().type !== "rest");
+    const map = ensureLabMap(), working = Boolean(scientistInWilderness() && firstScientistQueueTask() && firstScientistQueueTask().type !== "rest");
     const sector = new Set(map.rooms[activeWildernessRoom()].cells.map(mapCellKey));
     let changed = observeWildernessBeasts();
     for (const beast of saved.actors) {
@@ -90889,16 +90948,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       // Navigation may normalize actor records, so target identity must not depend on object equality.
       const driver = currentFieldCharter()?.driver;
       const targets = [...(scientistInWilderness() ? [{ id: "scientist", actor: state.scientist }] : []), ...(escort ? [{ id: escort.id, actor: escort }] : []), ...(medic ? [{ id: medic.id, actor: medic }] : []), ...porters.map(actor => ({ id: actor.id, actor })), ...(driver?.status === 'alive' && driver.roomId === activeWildernessRoom() ? [{ id: driver.id, actor: driver }] : []), ...(state.penalFlights?.actors || []).filter(a => a.roomId === activeWildernessRoom() && a.status !== "dead").map(actor => ({ id: actor.id, actor }))];
-      const seenTargets = targets.filter((target) => WildernessBeasts.distance(beast.mapCell, combatActorCell(target.actor)) <= profile.sight && sensoryLineOfSight(beast.mapCell, combatActorCell(target.actor)));
+      const seenTargets = targets.filter((target) => target.actor.status !== 'dead' && WildernessBeasts.distance(beast.mapCell, combatActorCell(target.actor)) <= profile.sight && sensoryLineOfSight(beast.mapCell, combatActorCell(target.actor)));
       const target = seenTargets.find((entry) => entry.id === beast.targetId && state.clock < beast.provokedUntil)
         || seenTargets.sort((a, b) => WildernessBeasts.distance(beast.mapCell, combatActorCell(a.actor)) - WildernessBeasts.distance(beast.mapCell, combatActorCell(b.actor)))[0]
-        || targets.find((entry) => entry.id === beast.targetId) || targets[0];
+        || null;
       const scientist = target ? combatActorCell(target.actor) : beast.lastTarget;
       const targetId = target?.id;
       const range = WildernessBeasts.distance(beast.mapCell, scientist);
-      const sees = range <= profile.sight && sensoryLineOfSight(beast.mapCell, scientist);
+      const sees = Boolean(target && range <= profile.sight && sensoryLineOfSight(beast.mapCell, scientist));
       if (sees) beast.targetId = targetId;
-      let decision = WildernessBeasts.decide(beast, scientist, state.clock, sees, working && range <= 5);
+      // No current coordinates of an unseen target may steer navigation or
+      // renew memory through an opaque barrier. Local work noise is only
+      // localized on an unobstructed sensory line in this bounded consumer.
+      let decision = WildernessBeasts.decide(beast, scientist, state.clock, sees,
+        working && targetId === 'scientist' && range <= 5 && sensoryLineOfSight(beast.mapCell, scientist));
       if (beast.regionalPhase && beast.effortSeconds <= 0 && range > 1) decision = { behavior: 'return', goal: beast.homeCell };
       beast.behavior = decision.behavior;
       if (scientistInWilderness() && !wildernessBeastVisible(beast) && WildernessBeasts.distance(beast.mapCell, scientistMapCell()) <= 10 && (!saved.heard || state.clock - saved.heard.at >= 30)) saved.heard = { at: state.clock, label: `${profile.sound}; source not located or identified` };
@@ -90909,9 +90972,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         beast.nextAttackAt = state.clock + profile.recovery;
         if (result.ok) { if (observed) pauseForWildernessThreat(`${beast.name} ${result.hit ? "struck" : "attacked and missed"} ${targetId === "scientist" ? "the scientist" : target.actor.name} at close range.`); changed++; }
       } else if (state.clock >= beast.nextMoveAt) {
-        const canEnter = (cell) => sector.has(mapCellKey(cell)) && mapCellKey(cell) !== mapCellKey(scientist)
+        const blocked = labMapBlockingCellKeys(map, { skipPlacement: true }), excavated = labMapExcavatedCellKeys(map);
+        const canEnter = (cell) => sector.has(mapCellKey(cell)) && (!target || mapCellKey(cell) !== mapCellKey(scientist))
           && !saved.actors.some((other) => other.id !== beast.id && mapCellKey(other.mapCell) === mapCellKey(cell))
-          && labMapCellIsWalkable(cell, map) && !labMapCellIsPathBlocked(cell, { map, actor: beast })
+          && labMapCellIsWalkable(cell, map, excavated) && !labMapCellIsPathBlocked(cell, { map, actor: beast, blockedCellKeys: blocked })
           && (!labMapDoorAtCell(cell, map) || doorFixtureAllowsPassage(labMapDoorAtCell(cell, map)));
         let next = null;
         if (decision.behavior === "flee") next = WildernessBeasts.neighbors(beast.mapCell).filter(canEnter).sort((a, b) => WildernessBeasts.distance(b, decision.goal) - WildernessBeasts.distance(a, decision.goal))[0];
@@ -90919,9 +90983,31 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           const options = WildernessBeasts.neighbors(beast.mapCell).filter((cell) => canEnter(cell) && WildernessBeasts.distance(cell, beast.homeCell) <= 2);
           next = options.length ? options[beast.patrolIndex++ % options.length] : null;
         } else {
-          const goal = decision.goal && mapCellKey(decision.goal) === mapCellKey(scientist)
-            ? WildernessBeasts.neighbors(scientist).filter(canEnter).sort((a, b) => WildernessBeasts.distance(a, beast.mapCell) - WildernessBeasts.distance(b, beast.mapCell))[0] : decision.goal;
-          next = WildernessBeasts.nextStep(beast.mapCell, goal, canEnter);
+          const goals = decision.behavior === 'pursue' && sees ? WildernessBeasts.neighbors(scientist).filter(canEnter)
+            .sort((a, b) => WildernessBeasts.distance(a, beast.mapCell) - WildernessBeasts.distance(b, beast.mapCell)) : [decision.goal];
+          for (const goal of goals) {
+            // Already adjacent to a perceived target: wait for the normal
+            // attack clock, rather than walking away or attacking cover.
+            if (sameMapCell(beast.mapCell, goal)) break;
+            next = WildernessBeasts.nextStep(beast.mapCell, goal, canEnter); if (next) break;
+          }
+          if (!next && ['pursue', 'investigate'].includes(decision.behavior) && !(sees && range <= 1)) {
+            const barriers = new Map();
+            const canPlan = cell => {
+              if (!sector.has(mapCellKey(cell))) return false;
+              if (canEnter(cell)) return true;
+              const barrier = wildernessBarrierAtCell(cell, map);
+              if (WildernessBeasts.canBreach(beast, decision, barrier, state.clock)) { barriers.set(mapCellKey(cell), barrier); return true; }
+              // Plan up to the remembered occupied destination, never through
+              // a body. Actual movement below still uses ordinary occupancy.
+              return sameMapCell(cell, decision.goal) && labMapCellIsWalkable(cell, map, excavated)
+                && !constructedWallAtCell(cell, map) && (!labMapDoorAtCell(cell, map) || doorFixtureAllowsPassage(labMapDoorAtCell(cell, map)));
+            };
+            const planned = WildernessBeasts.nextStep(beast.mapCell, decision.goal, canPlan);
+            const barrier = planned && barriers.get(mapCellKey(planned));
+            if (barrier) changed += Number(strikeWildernessBarrier(beast, decision, barrier));
+            else if (planned && canEnter(planned)) next = planned;
+          }
         }
         if (next) { const from = beast.mapCell; beast.mapCell = cleanMapCell(next); if (wildernessBeastVisible(beast)) emitMapFeedback("feedbackMove", next, { label: beast.name, fromCell: from }); changed++; }
         beast.nextMoveAt = state.clock + profile.stepSeconds * (1 + injuryEffectTotals(beast).movement) * map.tileSizeM;
@@ -90935,7 +91021,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function renderWildernessBeastsPanel() {
     const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.wildernessBeasts = "true";
-    panel.append(textEl("strong", "Local Beast Encounters"), textEl("p", `Only Rimefang and Gravebloom Elk encounters are implemented. Other regional beasts, flying, burrowing, and colossal encounters are not simulated; absence of an encounter is not a safety assessment. ${unsupportedActive() || overlandStopSite() ? "There is no warded entrance or defended refuge here." : "The warded entrance excludes beasts and blocks attacks across it."} Shelter offers no concealment.`));
+    panel.append(textEl("strong", "Local Beast Encounters"), textEl("p", `Only Rimefang and Gravebloom Elk encounters are implemented. Other regional beasts, flying, burrowing, and colossal encounters are not simulated; absence of an encounter is not a safety assessment. ${unsupportedActive() || overlandStopSite() ? "There is no warded entrance here." : "The municipal warded entrance excludes beasts and blocks attacks across it; wilderness refuges do not inherit that ward."} Temporary shelter offers no concealment. Actual opaque walls and closed doors obstruct sight and attacks. Pursuing animals may attempt a physically reachable unreinforced wooden barrier while they retain target memory; masonry, metal and wards exceed these species' breach capability. An outpost has no automatic attack timer or guaranteed safety.`));
     const knowledge = wildernessBeastKnowledge();
     const button = (label, run, disabled = false) => { const el = document.createElement("button"); el.textContent = label; el.disabled = disabled; el.addEventListener("click", run); panel.append(el); };
     button(scientistGuarding() ? "Stop Guarding" : "Guard", startScientistGuard, !scientistInWilderness() || scientistIsDead());
@@ -101913,7 +101999,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         typeId,
         ...(Number.isFinite(raw.builtAt) ? { builtAt: raw.builtAt } : {}),
         materialId: String(raw.materialId || fallback.materialId || DOOR_BASE_TYPE_BY_ID[typeId]?.material || "unknown"),
-        materialComposition: normalizeMaterialComposition(raw.materialComposition, fallback.materialComposition || DOOR_MATERIAL_COMPOSITIONS[typeId]),
+        // Defaults must match the selected type. A rough door built from one
+        // lumber must not acquire the room's default door's iron reinforcement
+        // during normalization. Explicit saved materials remain authoritative.
+        materialComposition: normalizeMaterialComposition(raw.materialComposition, DOOR_MATERIAL_COMPOSITIONS[typeId] || fallback.materialComposition),
         condition,
         wardIds: normalizeContainerWardIds(raw.wardIds || fallback.wardIds),
         accessRuleId: DOOR_ACCESS_RULE_BY_ID[raw.accessRuleId] ? raw.accessRuleId : fallback.accessRuleId || DEFAULT_DOOR_ACCESS_RULE_ID,
