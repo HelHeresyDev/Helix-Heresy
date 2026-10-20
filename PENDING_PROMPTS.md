@@ -336,17 +336,11 @@ Dependencies: persistent site identity; reuse existing storage. Completion: supp
 
 ### Locally supported operations
 
-#### 3.17 First supplied field force
-
-Organize a small actual consenting force for one disclosed defensive or expedition objective, using supported recruitment/population allocations rather than promoting porters or civic clerks into soldiers. Bind original members, command limits, personal skill, finite pay/duty, equipment, provisions, rest, withdrawal and medical needs. Differentiate an ordinary escort from people who agree to hold a post or conduct an assault. Unlawful player action remains possible with actual consequences; lawful authority, employment and willingness are distinct.
-
-Dependencies: completed bounded party transport/casualty recovery and 3.12–3.16 as required by its actual location and supply; larger forces still need their own feasible actual manifest and transport. Completion: a named small force can muster, carry out one order and stand down or refuse without spawning replacements or becoming an abstract strength bonus.
-
 #### 3.18 One defended outpost and a consequential beast attack
 
 Supply actual barriers, detection and one supported defensive capability through finite operators, power, ammunition/mana, maintenance and physical access. Play one causally supported regional attack against it using existing encounters and ordinary wounds/damage. No mandatory attack timer, guaranteed safe zone, replenished wave or attacker spawn solely to demonstrate the mechanic. Retain breach, casualties, consumed stock and evacuation outcomes.
 
-Dependencies: completed regional encounters and 3.12–3.17; an appropriately capable existing defender may supply an alternative to a new force. Completion: defense can materially succeed, fail or evacuate and the outpost remains in its resulting physical state.
+Dependencies: completed regional encounters, local refuge/supply support and the first supplied field force; an appropriately capable existing defender may supply an alternative to a new force. Larger forces still need a feasible actual manifest and transport rather than extra charter seats. Completion: defense can materially succeed, fail or evacuate and the outpost remains in its resulting physical state.
 
 ### Regional power, agreements and counterpowers
 
