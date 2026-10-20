@@ -139,6 +139,7 @@
   const ForeignCivicBargains = window.HelixForeignCivicBargains;
   const DefenderChallenges = window.HelixDefenderChallenges;
   const CityConfrontations = window.HelixCityConfrontations;
+  const InstallationSeizure = window.HelixInstallationSeizure;
   const IncumbentResistance = window.HelixIncumbentResistance;
   const CharterRecognition = window.HelixCharterRecognition;
   const PublicWorksRecognition = window.HelixPublicWorksRecognition;
@@ -5531,6 +5532,8 @@
       defenderChallengeKnowledge: null,
       cityConfrontation: null,
       cityConfrontationKnowledge: null,
+      installationSeizure: null,
+      installationSeizureKnowledge: null,
       incumbentResistance: null,
       incumbentResistanceKnowledge: null,
       charterRecognition: null,
@@ -14613,6 +14616,18 @@
       sovereignBargainAction: (action, expected) => sovereignBargainAction(action, expected),
       defenderChallengeAction: (action, expected) => defenderChallengeAction(action, expected),
       cityConfrontationAction: action => cityConfrontationAction(action),
+      installationSeizureAction,
+      installationSeizureSnapshot: () => clonePlainObject({ saved: state.installationSeizure, known: state.installationSeizureKnowledge,
+        context: installationSeizureContext(), office: scientistCivicOffice(), bargain: state.sovereignBargains,
+        succession: state.citySuccession, stacks: ensurePhysicalItemStacks(), injuries: state.injuries, campaign: state.campaign,
+        clock: state.clock, scientist: { cell: scientistMapCell(), room: scientistRoomId(), health: scientistVital('health').current, mana: scientistVital('mana').current } }),
+      advanceInstallationSeizureForTest: (seconds, quiet = false) => {
+        for (let left = Math.max(0, seconds); left > 0 && !scientistIsDead();) {
+          const step = Math.min(1, left); state.clock += step; left -= step;
+          updateScientistMovementTask(); completeDueTasks(); progressInjuries(); updateInstallationSeizure();
+        }
+        syncActorInventories(); syncPhysicalReadModels(); persist(); if (!quiet) render(); return state.clock;
+      },
       incumbentResistanceAction: (action, terms) => incumbentResistanceAction(action, terms),
       charterRecognitionAction: (action, terms) => charterRecognitionAction(action, terms),
       charterRecognitionSnapshot: () => clonePlainObject({ recognition: state.charterRecognition, known: state.charterRecognitionKnowledge,
@@ -22943,6 +22958,8 @@
       return { time: state.clock + Math.max(1, state.religiousRecognition.job.seconds - state.religiousRecognition.job.progress), label: 'Attended patron petition', type: 'company' };
     if (CityConfrontations.active(state.cityConfrontation) && cityConfrontationObserved())
       return { time: state.clock + 1, label: 'Dangerous political confrontation', type: 'combat' };
+    if (InstallationSeizure.running(state.installationSeizure))
+      return { time: state.clock + 1, label: 'Physical counter seizure and withdrawal', type: 'combat' };
     const gateEvent = nextGateEnforcementEvent();
     if (gateEvent) {
       const task = scientistQueueTasks().find(t => !taskBlockReason(t) && t.dueAt >= state.clock);
@@ -23533,6 +23550,7 @@
     changes.scientistMovementChanged += livingUpdate(() => updateCitySuccession());
     changes.combatChanged += livingUpdate(() => updateDefenderChallenge());
     changes.combatChanged += livingUpdate(() => updateCityConfrontation());
+    changes.combatChanged += livingUpdate(() => updateInstallationSeizure());
     changes.combatChanged += livingUpdate(() => updateIncumbentResistance());
     changes.scientistMovementChanged += livingUpdate(() => updateCharterRecognition());
     changes.scientistMovementChanged += livingUpdate(() => updatePublicWorksRecognition());
@@ -23690,6 +23708,17 @@
         const step = Math.min(remaining, s.job ? Math.min(60, Math.max(1, s.job.seconds - s.job.progress)) : 1);
         changed += advanceTime(step, { ...options, incumbentStep: true }); remaining -= state.clock - before;
         if (state.clock <= before || phase !== s.phase || s.pendingPulse?.releaseAt && s.pendingPulse.releaseAt !== pulse
+          || scientistVital('health').current < health) break;
+      }
+      return changed;
+    }
+    if (!options.seizureStep && elapsed > 1 && InstallationSeizure.running(state.installationSeizure)) {
+      let remaining = elapsed, changed = 0;
+      while (remaining > 0 && !scientistIsDead()) {
+        const s = state.installationSeizure, phase = s.attempt.phase, pulse = s.combat.pendingPulse?.releaseAt,
+          health = scientistVital('health').current, before = state.clock;
+        changed += advanceTime(Math.min(remaining, 1), { ...options, seizureStep: true }); remaining -= state.clock - before;
+        if (state.clock <= before || phase !== s.attempt.phase || s.combat.pendingPulse?.releaseAt && s.combat.pendingPulse.releaseAt !== pulse
           || scientistVital('health').current < health) break;
       }
       return changed;
@@ -33810,6 +33839,7 @@
       reservedTaskId: String(candidate.reservedTaskId || ""),
       cityOwnerId: String(candidate.cityOwnerId || ''),
       civicCustody: candidate.civicCustody ? clonePlainObject(candidate.civicCustody) : null,
+      seizureCustody: candidate.seizureCustody ? clonePlainObject(candidate.seizureCustody) : null,
       carriedBy: normalizeActorInventoryOwnerId(candidate.carriedBy),
       carryTaskId: String(candidate.carryTaskId || ""),
       carryLegIndex: Number.isFinite(Number(candidate.carryLegIndex)) ? Math.floor(Number(candidate.carryLegIndex)) : -1,
@@ -40936,6 +40966,8 @@
     if (opposing?.memberIds.includes(actorId)) return state.citySuccession.leaders.find(a => a.id === actorId) || null;
     if (state.citySuccession?.ruler?.id === actorId && state.citySuccession.ruler.actorKind === 'cityIncumbent') return state.citySuccession.ruler;
     if (state.sovereignBargains?.defender?.id === actorId && state.sovereignBargains.defender.actorKind === 'cityDefender') return state.sovereignBargains.defender;
+    const seizurePerson = installationSeizureStaff().find(a => a.id === actorId && a.actorKind === 'civicOfficeholder');
+    if (seizurePerson) return seizurePerson;
     const homunculus = state.homunculi?.individuals.find(a => a.id === actorId);
     if (homunculus) return homunculus;
     if (state.surfaceWorkers?.actor?.id === actorId) return state.surfaceWorkers.actor;
@@ -41307,6 +41339,15 @@
     if (!actor || !action || !target) return { ok: false, reason: "The combat action no longer has a valid actor or target." };
     const range = combatActionRangeInfo(actor, action, target);
     if (!range.inRange) return { ok: false, reason: range.reason, blockedAt: target.lastKnownCell || combatTargetCurrentCell(target) };
+    if (actorId === 'scientist' && state.installationSeizure?.attempt) {
+      const c = installationSeizureContext(), site = state.installationSeizure.site;
+      const targetId = target.kind === 'structure' && target.cell?.z === site.counter.z
+        && [site.counter, site.receiving].some(cell => WildernessBeasts.distance(cell, target.cell) <= 2)
+        ? site.installationId : target.id;
+      InstallationSeizure.attack(state.installationSeizure, state.sovereignBargains, c, ensurePhysicalItemStacks(), state.clock,
+        targetId, actionId);
+      flushInstallationSeizureEvidence();
+    }
     if (target.kind === "structure") {
       if (!action.targetKinds.includes("structure")) return { ok: false, reason: `${action.label} cannot affect a structure.` };
       const result = applyStructuralDamage(target.cell, action.baseDamage, action.damageTypes, `${actorId === "scientist" ? "the scientist's" : "a creature's"} ${action.label.toLowerCase()}`, options);
@@ -41340,6 +41381,7 @@
     if (actorId === 'scientist' && targetActor.actorKind === 'cityDefender') {
       const s = state.defenderChallenge, b = state.sovereignBargains, c = defenderChallengeContext();
       if (DefenderChallenges.authorized(s, b, c, actionId, state.clock)) s.bout.actions++;
+      else if (CityConfrontations.active(state.installationSeizure?.combat)) { /* Original defender's installation encounter already observed above. */ }
       else if (CityConfrontations.attack(state.cityConfrontation, b, cityConfrontationContext(), state.clock, actionId)) flushCityConfrontationEvidence();
       else recordUnsanctionedDefenderAttack(actionId);
     }
@@ -41619,7 +41661,7 @@
     const opposition = state.citySuccession?.appointments?.opposition;
     const localResistance = opposition?.defense?.phase === 'active' && scientistRoomId() === SurveyExpeditions.FIELD_ROOM
       && WildernessBeasts.distance(scientistMapCell(), LocalOpposition.POSTS[0]) <= LocalOpposition.DEFENSE.radius;
-    return localResistance || IncumbentResistance.dangerous(state.incumbentResistance) || state.cityConfrontation?.phase === 'fighting' || state.defenderChallenge?.phase === 'active' || activeCombatRecords().some((record) => scientistAwareOfCombat(record));
+    return localResistance || InstallationSeizure.dangerous(state.installationSeizure) || IncumbentResistance.dangerous(state.incumbentResistance) || state.cityConfrontation?.phase === 'fighting' || state.defenderChallenge?.phase === 'active' || activeCombatRecords().some((record) => scientistAwareOfCombat(record));
   }
 
   function stopScientistGuard(options = {}) {
@@ -41752,7 +41794,7 @@
       : `Scientist used ${action.label} on ${slime.name} for ${result.damage} ${damageTypeListText(action.damageTypes.map(damageTypeDef).filter(Boolean))} damage.`);
     expireSlimes();
     syncAllSlimeAi({ force: true });
-    if (slime.actorKind === 'cityDefender') { updateDefenderChallenge(); updateCityConfrontation(); }
+    if (slime.actorKind === 'cityDefender') { updateDefenderChallenge(); updateCityConfrontation(); updateInstallationSeizure(); }
     if (slime.actorKind === 'cityIncumbent') { updateIncumbentResistance(); updateCityConfrontation(); }
     updateCombat(0);
     refreshIncidentAlerts();
@@ -68152,7 +68194,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         const marked = new Map();
         for (const [name, pulse, observed] of [
           ['Incumbent', state.incumbentResistance?.pendingPulse, incumbentObserved()],
-          ['Defender', state.cityConfrontation?.pendingPulse || state.defenderChallenge?.pendingPulse, cityDefenderObserved()]
+          ['Defender', state.installationSeizure?.combat?.pendingPulse || state.cityConfrontation?.pendingPulse || state.defenderChallenge?.pendingPulse, cityDefenderObserved()]
         ]) if (pulse && observed) {
           const key = mapCellKey(pulse.targetCell), group = marked.get(key) || { cell: pulse.targetCell, warnings: [] };
           group.warnings.push(`${name} releases ${formatClock(pulse.releaseAt)}`); marked.set(key, group);
@@ -84868,7 +84910,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       defenseAvailable: Boolean(source && s?.defenseAvailable !== false),
       participantsPresent: observers.length === 2 && observers.every(a => a.roomId === scientistRoomId() && a.mapCell
         && WildernessBeasts.distance(a.mapCell, SovereignBargains.COUNTER) <= 3 && sensoryLineOfSight(scientistMapCell(), a.mapCell)),
-      busy: scientistInClinicCare() || rescueMissionActive() || Boolean(state.scientistIdentity?.job || state.surveyExpeditions?.mapService?.job
+      busy: Boolean(installationSeizureServiceReason(office)) || scientistInClinicCare() || rescueMissionActive() || Boolean(state.scientistIdentity?.job || state.surveyExpeditions?.mapService?.job
         || state.surveyExpeditions?.carrier?.briefingState?.job) || Boolean(state.combat?.routineSuspension && state.combat.routineSuspension.reason !== 'sovereign audience')
         || (!s?.job && surveyBusy()) };
   }
@@ -85689,7 +85731,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ? { id: source.institutions.find(i => i.role === 'publicWorksAndProvisioning').id,
           roles: clonePlainObject(source.institutions.find(i => i.role === 'publicWorksAndProvisioning').officeRoles || []),
           appointmentMethod: source.institutions.find(i => i.role === 'publicWorksAndProvisioning').appointmentMethod } : null,
-      activeViolence: state.cityConfrontation?.phase === 'fighting' || IncumbentResistance.dangerous(state.incumbentResistance)
+      activeViolence: InstallationSeizure.dangerous(state.installationSeizure) || state.cityConfrontation?.phase === 'fighting' || IncumbentResistance.dangerous(state.incumbentResistance)
         || state.citySuccession?.appointments?.opposition?.defense?.phase === 'active',
       visitPermission: state.surveyExpeditions?.discovery?.access.active === true,
       charterCurrent: Boolean(source && source.charterId === s?.charterId && source.cityId === s.cityId),
@@ -85953,6 +85995,183 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     state.defenderChallenge = DefenderChallenges.create(b, activeWorldRecord?.worldTheme || 'madcap', state.seed);
     return state.defenderChallenge;
   }
+  function installationSeizureStaff(context = state) {
+    const id = context.installationSeizure?.officeId || context.sovereignBargains?.officeId;
+    const office = context.economy?.intercitySmuggling?.identityOffices?.find(o => o.id === id);
+    return [office?.clerk, context.sovereignBargains?.representative,
+      context.citySuccession?.leaders?.find(a => a.id === context.cityAdministration?.workerId)].filter(Boolean);
+  }
+  function prepareInstallationStaff(office) {
+    for (const a of installationSeizureStaff()) {
+      a.roomId ||= office.civicCounter.roomId;
+      // Elaborate the existing person once; never restore health, duty or
+      // physical endurance when a threat, reload or later attempt occurs.
+      a.workSeconds ??= 3600;
+      if (!a.physicalControl) a.physicalControl = { strength: 20, stamina: Math.min(80, a.workSeconds), staminaCapacity: 80 };
+      a.actorKind ||= 'civicOfficeholder'; a.maxHealth ||= 100;
+      a.skills ||= { striking: 1, guarding: 5, evasion: 5, perception: 10 };
+    }
+  }
+  function ensureInstallationSeizure() {
+    if (state.installationSeizure || scientistIsDead()) return state.installationSeizure;
+    const b = ensureSovereignBargains(), succession = ensureCitySuccession(), office = scientistCivicOffice();
+    if (!b || !succession || !office?.civicCounter) return null;
+    DefenderChallenges.prepareDefender(b); prepareInstallationStaff(office);
+    state.installationSeizure = InstallationSeizure.create(succession, b, office, installationSeizureStaff(), {
+      installationId: `${office.id}:service-channel`, roomId: office.civicCounter.roomId,
+      counter: cleanMapCell(office.civicCounter.cell), receiving: { ...CityAdministration.RECEIVING } });
+    return state.installationSeizure;
+  }
+  function installationSeizureServiceReason(office) {
+    const s = state.installationSeizure, cell = state.scientist?.mapCell;
+    if (!s?.attempt || office?.id !== s.officeId || state.scientist?.roomId !== s.site.roomId) return '';
+    const present = InstallationSeizure.claiming(s) && !scientistIsDead() && !actorIsIncapacitated('scientist')
+      && WildernessBeasts.distance(cell, s.site.counter) <= 5 && WildernessBeasts.distance(cell, s.site.receiving) <= 5;
+    return present || InstallationSeizure.dangerous(s) ? 'Actual hostile occupation or combat prevents voluntary counter service; possession supplies no clerical consent.' : '';
+  }
+  function installationSeizureContext(lot = null) {
+    const s = state.installationSeizure, b = state.sovereignBargains, office = scientistCivicOffice(), cell = scientistMapCell();
+    const local = Boolean(s && scientistRoomId() === s.site.roomId && state.surveyExpeditions?.destination?.cityId === s.cityId);
+    const capable = !scientistIsDead() && !actorIsIncapacitated('scientist') && !scientistInClinicCare() && !localPrisonRestricted();
+    const sees = (from, to, range = 8) => Boolean(from && to && WildernessBeasts.distance(from, to) <= range && sensoryLineOfSight(from, to));
+    const persons = [b?.defender, ...installationSeizureStaff(), ...citySuccessionPeople()].filter(Boolean);
+    const unique = [...new Map(persons.map(a => [a.id, a])).values()];
+    const actual = a => a.status === 'alive' && a.health > 0 && a.roomId === s?.site.roomId && !actorIsIncapacitated(a);
+    const witnesses = unique.filter(a => actual(a) && local && sees(a.mapCell, cell, 6));
+    const defender = b?.defender, sameGround = local && defender?.roomId === s?.site.roomId;
+    const r = s && InstallationSeizure.inspection(s);
+    const item = lot || ensurePhysicalItemStacks().find(i => i.id === r?.stackId);
+    const source = citySuccessionSource();
+    const inHoldingArea = Boolean(local && WildernessBeasts.distance(cell, s.site.counter) <= 5 && WildernessBeasts.distance(cell, s.site.receiving) <= 5);
+    const siteObserved = Boolean(local && sees(cell, s.site.counter) && sees(cell, s.site.receiving));
+    const defenderCanContest = Boolean(sameGround && actual(defender) && sees(defender.mapCell, s.site.counter, 6)
+      && ((defender.stamina || 0) >= 6 || (defender.wardMana || 0) >= 12
+        || [s.site.counter, s.site.receiving].some(c => sameMapCell(c, defender.mapCell))));
+    const accessClear = Boolean(s && [s.site.counter, s.site.receiving].every(c => labMapCellIsWalkable(c)
+      && !labMapCellIsPathBlocked(c, { actor: state.scientist, skipPlacement: true })));
+    return { alive: !scientistIsDead(), capable, local, cell, bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      atCounter: Boolean(local && sameMapCell(cell, s.site.counter)), sourceCurrent: Boolean(source && s
+        && source.cityId === s.cityId && source.charterId === s.charterId && office?.id === s.officeId),
+      free: !scientistQueueTasks().length && !state.scientistIdentity?.job && !b?.job && !state.citySuccession?.job
+        && !state.cityAdministration?.job && !state.cityAdministration?.cargoRecovery?.job && !state.cityAdministration?.temporaryMaintenance?.job
+        && !state.citySuccession?.appointments?.job && !state.charterRecognition?.job && !state.publicWorksRecognition?.job
+        && !state.watchRecognition?.job && !state.defenseRecognition?.job && !state.religiousRecognition?.job
+        && !state.surveyExpeditions?.mapService?.job && !state.surveyExpeditions?.carrier?.briefingState?.job,
+      stockReservations: [state.citySuccession && `${state.citySuccession.id}:city-maintenance-reserve`,
+        state.cityAdministration && CityAdministration.reserveKey(state.cityAdministration, state.citySuccession)].filter(Boolean),
+      otherDefense: CityConfrontations.active(state.cityConfrontation) || DefenderChallenges.reserved(state.defenderChallenge)
+        || IncumbentResistance.active(state.incumbentResistance),
+      lawfulControl: state.citySuccession?.control?.recognizedAuthorityId === 'scientist',
+      inHoldingArea, siteObserved, canHold: Boolean(capable && inHoldingArea && siteObserved && accessClear && !defenderCanContest),
+      hearingStaffIds: witnesses.filter(a => installationSeizureStaff().some(p => p.id === a.id)).map(a => a.id),
+      witnessIds: witnesses.map(a => a.id), visibleWitnessIds: witnesses.filter(a => sees(cell, a.mapCell)).map(a => a.id),
+      sameGround, siteDistance: s ? WildernessBeasts.distance(cell, s.site.counter) : Infinity,
+      defenderObserved: cityDefenderObserved(), defenderIncapacitated: Boolean(defender && actorIsIncapacitated(defender)),
+      defenderTracksScientist: Boolean(sameGround && sees(defender.mapCell, cell)),
+      defenderCanHear: Boolean(sameGround && sees(defender.mapCell, cell, 6)),
+      distanceM: sameGround ? combatFootprintDistanceMeters(state.scientist, defender) : Infinity,
+      lineOfEffect: Boolean(sameGround && directedLineOfEffect(defender.mapCell, cell)),
+      defenseAvailable: Boolean(b && b.defenseAvailable !== false),
+      nearLot: Boolean(local && item?.roomId === scientistRoomId() && WildernessBeasts.distance(cell, item.cell) <= 1),
+      lotVisible: Boolean(local && item && sees(cell, item.cell)), carryOk: Boolean(item && actorInventoryCanCarry('scientist', item, 1)) };
+  }
+  function installationCombatEffects(s, b) {
+    const move = (a, target) => moveDefenderParticipant(a, target, {
+      blockedCellKeys: labMapBlockingCellKeys(ensureLabMap(), { actor: a, skipPlacement: true }), skipPlacement: true, ignoreDoors: false });
+    return { alive: () => !scientistIsDead(), person: id => installationSeizureStaff().find(a => a.id === id), incapacitated: actorIsIncapacitated,
+      move: (a, target) => {
+        if (!sameMapCell(target, scientistMapCell())) return move(a, target);
+        return WildernessBeasts.neighbors(target).filter(c => labMapCellRoomId(c) === a.roomId && canActorOccupyTile(a, c))
+          .sort((left, right) => mapCellDistance(a.mapCell, left) - mapCellDistance(a.mapCell, right))
+          .some(c => !sameMapCell(c, a.mapCell) && move(a, c));
+      },
+      pulse: amount => {
+        damageScientistCombat(Math.max(1, Math.round(amount * combatGuardDamageMultiplier('scientist'))), 'Installation defender force pulse', { damageTypes: ['physical', 'force'], directCombat: true });
+        emitMapFeedback('feedbackImpact', scientistMapCell(), { label: 'Hostile installation-defense pulse', intensityBand: 'high', damageTags: ['force'] });
+      },
+      strike: () => resolveSharedCombatAction(b.defender.id, 'strike', { kind: 'creature', id: 'scientist', lastKnownCell: scientistMapCell(), observedAt: state.clock }),
+      telegraph: pulse => {
+        if (!cityDefenderObserved()) return;
+        emitMapFeedback('feedbackImpact', pulse.targetCell, { label: 'Installation defense pulse — move or guard', intensityBand: 'high' });
+        addEvent('Installation defender marked your tile; two seconds to move or guard.'); state.paused = true;
+      },
+      carry: (i, j) => {
+        const carried = carryPhysicalStack('scientist', i.id, 1, { allowReserved: true }); if (!carried) return null;
+        // Splitting preserves legal title and the original custodian. Release
+        // the original reservation only after the real carried unit exists.
+        if (i.reservedTaskId === j.id) i.reservedTaskId = j.inspection.reservation || '';
+        carried.reservedTaskId = ''; carried.seizureCustody = { receiptId: j.id, cityId: s.cityId, at: state.clock,
+          sourceStackId: j.stackId, originalCustody: clonePlainObject(j.inspection.civicCustody) };
+        carried.sourceLabels = [...new Set([...(carried.sourceLabels || []), `Seized physical custody only; legal owner ${s.cityId}; original lot ${j.stackId}`])];
+        return carried;
+      } };
+  }
+  function flushInstallationSeizureEvidence() {
+    const s = state.installationSeizure;
+    for (const r of s?.reports || []) if (r.evidenceAt == null) {
+      recordInvestigativeEvidence('hostileInstallationConduct', { category: 'documentary', label: r.detail, significance: 'serious',
+        origin: { kind: 'witness', id: r.witnessId, label: 'Actual municipal witness' }, subject: { kind: 'scientist', id: 'scientist' },
+        locus: { kind: 'mapCell', roomId: s.site.roomId, cell: r.cell, label: 'Original municipal installation' }, traits: [r.kind, r.finding],
+        persistence: { kind: 'permanent' }, knowledge: { state: r.communicated ? 'known' : 'unknown', learnedAt: r.at,
+          source: 'installationSeizure', sourceIdentityKnown: r.communicated } });
+      r.evidenceAt = state.clock;
+    }
+  }
+  function updateInstallationSeizure() {
+    const s = state.installationSeizure, b = state.sovereignBargains; if (!s?.attempt || !b || scientistIsDead()) return 0;
+    const changed = InstallationSeizure.advance(s, b, scientistCivicOffice(), installationSeizureContext(), ensurePhysicalItemStacks(), state.clock, installationCombatEffects(s, b));
+    if ((InstallationSeizure.dangerous(s) || s.handling?.status === 'working') && !state.combat?.routineSuspension) suspendScientistRoutineWork('installation seizure');
+    if (!InstallationSeizure.dangerous(s) && s.handling?.status !== 'working' && state.combat?.routineSuspension?.reason === 'installation seizure') resumeScientistRoutineWork();
+    const known = InstallationSeizure.publicView(s, installationSeizureContext(), state.clock);
+    if (known) state.installationSeizureKnowledge = known;
+    flushInstallationSeizureEvidence(); return changed ? 1 : 0;
+  }
+  function installationSeizureAction(action, options = {}) {
+    if (scientistIsDead()) return false;
+    if (action === 'walk') return scientistIdentityAction('walk');
+    const s = ensureInstallationSeizure(), b = state.sovereignBargains; if (!s) return false;
+    const i = ensurePhysicalItemStacks().find(i => i.id === options.stackId), c = installationSeizureContext(i); let ok = false;
+    if (action === 'begin') ok = InstallationSeizure.begin(s, b, scientistCivicOffice(), c, state.clock);
+    if (action === 'withdraw') ok = InstallationSeizure.withdraw(s, b, c, ensurePhysicalItemStacks(), state.clock);
+    if (action === 'inspect') ok = InstallationSeizure.inspect(s, c, i, state.clock);
+    if (action === 'take') ok = InstallationSeizure.take(s, c, ensurePhysicalItemStacks(), state.clock);
+    if (action === 'cancel') ok = InstallationSeizure.cancelHandling(s, ensurePhysicalItemStacks());
+    if (action === 'guard' && InstallationSeizure.dangerous(s)) return startScientistGuard();
+    if (['strike', 'soulLash'].includes(action) && c.defenderObserved) return beginScientistCombatAction(action, b.defender.id);
+    if (!ok) addEvent('This physical seizure action is not currently supported; no person, supply, title or authority changed.');
+    updateInstallationSeizure(); syncActorInventories(); syncPhysicalReadModels(); persist(); render(); return ok;
+  }
+  function renderInstallationSeizure() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.installationSeizure = 'true';
+    panel.append(textEl('h3', 'Hostile municipal-counter seizure'), textEl('p', InstallationSeizure.LIMITS));
+    const s = ensureInstallationSeizure(), c = installationSeizureContext(), v = state.installationSeizureKnowledge;
+    const button = (label, action, disabled = false, options = {}) => { const el = storesActionButton(label, label, () => installationSeizureAction(action, options));
+      el.dataset.seizureAction = action; el.disabled = Boolean(disabled); panel.append(el); };
+    button('Walk to original municipal counter', 'walk', InstallationSeizure.dangerous(s));
+    if (!s) { panel.append(textEl('p', 'Personally reach the supported original sovereign counter. No replacement staff, defender, installation or maintenance stock is created for an assault.')); return panel; }
+    button('Declare hostile seizure of counter and receiving position', 'begin', !c.capable || !c.atCounter || !c.free || c.otherDefense || InstallationSeizure.claiming(s));
+    button('Abandon seizure and request physical withdrawal', 'withdraw', !c.capable || !c.local || !InstallationSeizure.claiming(s));
+    if (InstallationSeizure.dangerous(s)) button('Guard against installation defender', 'guard', !c.capable);
+    for (const action of ['strike', 'soulLash']) button(`${action === 'strike' ? 'Strike' : 'Soul Lash'} installation defender`, action,
+      !s.attempt || !c.defenderObserved || Boolean(scientistCombatActionBlockReason(action, state.sovereignBargains.defender)));
+    if (c.siteObserved && InstallationSeizure.claiming(s)) {
+      const lots = ensurePhysicalItemStacks().filter(i => i.key === 'metalParts' && i.cityOwnerId === s.cityId && i.roomId === s.site.roomId
+        && sameMapCell(i.cell, s.site.receiving) && !i.carriedBy && i.quantity > 0 && !i.fixtureId && !i.containerId
+        && sensoryLineOfSight(scientistMapCell(), i.cell));
+      for (const i of lots) button(`Inspect actual municipal maintenance lot ${i.id}`, 'inspect', !c.free || Boolean(i.reservedTaskId && !c.stockReservations.includes(i.reservedTaskId)), { stackId: i.id });
+      if (!lots.length) panel.append(textEl('p', 'No existing accessible city-owned maintenance lot observed here; seizure awards no supplies.'));
+      button('Physically take one inspected maintenance unit (10 seconds)', 'take', InstallationSeizure.dangerous(s) || !c.canHold || !c.nearLot || !c.carryOk || !c.free || s.handling?.status === 'working');
+      if (s.handling?.status === 'working') button('Stop handling and release unused stock', 'cancel');
+    }
+    if (v) {
+      panel.append(textEl('p', `${formatClock(v.at)} — personally observed ${v.phase}: ${v.reason} Dated account, not remote control or live telemetry.`));
+      if (v.pendingPulse) panel.append(textEl('p', `Installation pulse marked ${v.pendingPulse.targetCell.x},${v.pendingPulse.targetCell.y}; release ${formatClock(v.pendingPulse.releaseAt)}.`));
+      if (v.handling) panel.append(textEl('p', `Last observed handling: ${v.handling.status}, ${v.handling.progress}/${v.handling.required} attended seconds.`));
+      for (const r of v.receipts) panel.append(textEl('p', `${formatClock(r.at)} — physically carried ${r.quantity} unit from ${r.sourceStackId}; original legal owner ${r.legalOwnerId}.`));
+      for (const r of v.reports.slice(-4)) panel.append(textEl('p', `${formatClock(r.at)} — ${r.detail} ${r.finding}`));
+    } else panel.append(textEl('p', 'No personally observed seizure outcome. Declaring an objective is not possession or city control.'));
+    return panel;
+  }
   function ensureCityConfrontation() {
     if (state.cityConfrontation) return state.cityConfrontation;
     const b = ensureSovereignBargains(), s = ensureCitySuccession();
@@ -86110,7 +86329,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       rulerDistanceM: r ? combatFootprintDistanceMeters(state.scientist, r) : Infinity,
       rulerLineOfEffect: Boolean(local && directedLineOfEffect(r.mapCell, cell)),
       rulerTracksScientist: Boolean(local && WildernessBeasts.distance(r.mapCell, cell) <= 8 && sensoryLineOfSight(r.mapCell, cell)),
-      escapeReachable, activeViolence: state.cityConfrontation?.phase === 'fighting',
+      escapeReachable, activeViolence: InstallationSeizure.dangerous(state.installationSeizure) || state.cityConfrontation?.phase === 'fighting',
       recordWitnesses: [office?.clerk, state.sovereignBargains?.representative].filter(a => nearby(a)
         && r?.status === 'alive' && sensoryLineOfSight(a.mapCell, r.mapCell)).map(a => a.id),
       witnessIds: [office?.clerk, state.sovereignBargains?.representative].filter(a => nearby(a) && r
@@ -86229,7 +86448,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       charterCurrent: Boolean(source && source.charterId === state.citySuccession?.source.charterId
         && (!s || source.institutions.find(i => i.role === 'centralAdministration')?.id === s.administrationId
           && source.institutions.find(i => i.role === 'civicReview')?.id === s.reviewInstitutionId)),
-      activeViolence: state.cityConfrontation?.phase === 'fighting' || IncumbentResistance.dangerous(state.incumbentResistance),
+      activeViolence: InstallationSeizure.dangerous(state.installationSeizure) || state.cityConfrontation?.phase === 'fighting' || IncumbentResistance.dangerous(state.incumbentResistance),
       administrationAvailable: Boolean(s && home?.offices[s.administrationId]?.available),
       reviewAvailable: Boolean(s && home?.offices[s.reviewInstitutionId]?.available),
       rule: source?.designationReview || null, authorizationIds: ReligiousRecognition.authorizationIds(state.religiousRecognition, office, religiousRecognitionContext()),
@@ -86601,7 +86820,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       branchAvailable: Boolean(branch?.publicPhysicalPresence && ['active', 'strained', 'reestablished', 'reconciled'].includes(branch.operationalStatus)
         && ['authenticated', 'reconciled'].includes(branch.divineRelationship) && branch.currentStanding !== 'proscribed'),
       channelAvailable: Boolean(office?.channelPowered && (state.sovereignBargains?.testFixture ? s?.testChannelAvailable !== false : sourceCurrent)),
-      activeViolence: state.cityConfrontation?.phase === 'fighting' || IncumbentResistance.dangerous(state.incumbentResistance),
+      activeViolence: InstallationSeizure.dangerous(state.installationSeizure) || state.cityConfrontation?.phase === 'fighting' || IncumbentResistance.dangerous(state.incumbentResistance),
       busy: base.busy || Boolean(state.scientistIdentity?.job || state.sovereignBargains?.job || state.citySuccession?.job
         || state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job
         || state.cityAdministration?.job || state.cityAdministration?.resistance?.job || DefenderChallenges.reserved(state.defenderChallenge)
@@ -86713,7 +86932,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       && labMapCellRoomId(office.civicCounter.cell) === SurveyExpeditions.FIELD_ROOM);
     return { ...publicWorksRecognitionContext(true), watchInstitutionId: id,
       safeguardWatchWithdrawn: MunicipalSafeguards.withdrawn(state.citySuccession?.appointments?.opposition, s?.personId),
-      activeViolence: state.cityConfrontation?.phase === 'fighting' || IncumbentResistance.dangerous(state.incumbentResistance)
+      activeViolence: InstallationSeizure.dangerous(state.installationSeizure) || state.cityConfrontation?.phase === 'fighting' || IncumbentResistance.dangerous(state.incumbentResistance)
         || state.citySuccession?.appointments?.opposition?.defense?.phase === 'active',
       watchAvailable: Boolean(id && home?.offices[id]?.available), watchConditions: [], geometryAvailable: geometry,
       postReachable: Boolean(inspectPaths && geometry && a?.mapCell && labNavigationPlanBetweenCells(a.mapCell, WatchRecognition.POST,
@@ -86850,7 +87069,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function defenderChallengeContext() {
     const b = state.sovereignBargains, office = scientistCivicOffice(), c = sovereignBargainContext(office), cell = scientistMapCell();
     const local = c.cityId === b?.source.cityId && c.visitPermission && c.alive;
-    const otherBusy = scientistInClinicCare() || rescueMissionActive() || Boolean(state.scientistIdentity?.job || b?.job
+    const otherBusy = Boolean(installationSeizureServiceReason(office)) || CityConfrontations.active(state.installationSeizure?.combat)
+      || scientistInClinicCare() || rescueMissionActive() || Boolean(state.scientistIdentity?.job || b?.job
       || state.surveyExpeditions?.mapService?.job || state.surveyExpeditions?.carrier?.briefingState?.job)
       || scientistQueueTasks().some(t => t.type !== 'scientistMove' && !taskBlockReason(t));
     const present = a => Boolean(local && a?.status === 'alive' && a.roomId === scientistRoomId() && a.mapCell
@@ -86880,9 +87100,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function moveDefenderParticipant(actor, destination, options = {}) {
     if (actorIsIncapacitated(actor)) return false;
-    const path = labMapPathBetweenCells(actor.mapCell, destination, { ...options, map: ensureLabMap(), actor, ignoreDoors: true });
+    const path = labMapPathBetweenCells(actor.mapCell, destination, { ...options, map: ensureLabMap(), actor, ignoreDoors: options.ignoreDoors ?? true });
     const next = path.find(p => !sameMapCell(p, actor.mapCell));
-    if (!next || labMapCellIsPathBlocked(next, { map: ensureLabMap(), actor })) return false;
+    if (!next || labMapCellIsPathBlocked(next, { map: ensureLabMap(), actor, skipPlacement: options.skipPlacement })) return false;
     actor.mapCell = cleanMapCell(next); actor.roomId = labMapCellRoomId(next); return true;
   }
   function refreshDefenderChallengeKnowledge() {
@@ -86905,13 +87125,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     });
     if (['preparing', 'petitioning', 'active'].includes(s.phase) && !state.combat?.routineSuspension) suspendScientistRoutineWork('defender challenge');
     if (!['preparing', 'petitioning', 'active'].includes(s.phase) && state.combat?.routineSuspension?.reason === 'defender challenge') resumeScientistRoutineWork();
-    if (s.phase !== 'active' && s.receipt && !CityConfrontations.active(state.cityConfrontation) && state.combat?.guarding?.scientist) stopScientistGuard({ quiet: true });
+    if (s.phase !== 'active' && s.receipt && !CityConfrontations.active(state.cityConfrontation)
+      && !CityConfrontations.active(state.installationSeizure?.combat) && state.combat?.guarding?.scientist) stopScientistGuard({ quiet: true });
     refreshDefenderChallengeKnowledge(); return changed ? 1 : 0;
   }
   function damageCityDefender(amount, options = {}) {
     const b = state.sovereignBargains, actor = b?.defender;
     if (!actor || actor.status === 'dead' || amount <= 0) return false;
-    const result = options.injuryProgress ? { damage: amount, absorbed: 0 } : CityConfrontations.active(state.cityConfrontation)
+    const result = options.injuryProgress ? { damage: amount, absorbed: 0 } : CityConfrontations.active(state.installationSeizure?.combat)
+      ? CityConfrontations.absorb(state.installationSeizure.combat, b, amount, actorIsIncapacitated(actor)) : CityConfrontations.active(state.cityConfrontation)
       ? CityConfrontations.absorb(state.cityConfrontation, b, amount, actorIsIncapacitated(actor)) : DefenderChallenges.absorb(state.defenderChallenge, b, amount);
     actor.health = Math.max(0, actor.health - result.damage);
     if (result.absorbed && cityDefenderObserved()) addEvent(`${actor.name}'s projection ward absorbed ${result.absorbed}; personal energy was spent.`, { sourceKind: 'cityDefender', sourceId: actor.id });
@@ -87096,12 +87318,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const cell = scientistMapCell(), clerk = office?.clerk, local = state.surveyExpeditions?.phase === "field" && scientistRoomId() === SurveyExpeditions.FIELD_ROOM && !unsupportedActive();
     const facialInjury = actorInjuries("scientist").some(i => i.status !== "healed" && /head|face|eye/i.test(String(i.location || "")));
     return { alive: !scientistIsDead(), capable: !actorIsIncapacitated("scientist"),
-      serviceAvailable: !RunStrategicConditions.serviceReason(state.runStrategicConditions, strategicCounterBinding(office)),
+      serviceAvailable: !installationSeizureServiceReason(office) && !RunStrategicConditions.serviceReason(state.runStrategicConditions, strategicCounterBinding(office)),
       cityId: local ? state.surveyExpeditions.destination?.cityId : null,
       atCounter: local && mapCellKey(cell) === mapCellKey(office?.civicCounter?.cell),
-      clerkPresent: Boolean(office?.civicCounter && clerk.mapCell && WildernessBeasts.distance(clerk.mapCell, ScientistIdentity.COUNTER) <= 1),
+      clerkPresent: Boolean(office?.civicCounter && clerk.status === 'alive' && !actorIsIncapacitated(clerk) && clerk.mapCell && WildernessBeasts.distance(clerk.mapCell, ScientistIdentity.COUNTER) <= 1),
       lineOfSight: Boolean(local && clerk?.mapCell && sensoryLineOfSight(cell, clerk.mapCell)), visibility: facialInjury ? "obscured" : "clear",
-      busy: scientistInClinicCare() || rescueMissionActive() || (!state.scientistIdentity?.job && surveyBusy()) };
+      busy: Boolean(installationSeizureServiceReason(office)) || scientistInClinicCare() || rescueMissionActive() || (!state.scientistIdentity?.job && surveyBusy()) };
   }
   function updateScientistIdentity() {
     const profile = state.scientistIdentity; if (!profile?.job) return 0;
@@ -95526,7 +95748,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         || overlandStopSite() && task.data?.action === 'pack' && task.data?.roadsideStopId === overlandStopSite().id));
     if (passengerReceptionGate()?.researchInquiry?.job) return false;
     if (passengerReceptionGate()?.visitorAdmission?.job) return false;
-    if ((CityConfrontations.active(state.cityConfrontation) || IncumbentResistance.active(state.incumbentResistance)) && task.type !== 'scientistMove'
+    if ((CityConfrontations.active(state.installationSeizure?.combat) || state.installationSeizure?.handling?.status === 'working'
+      || CityConfrontations.active(state.cityConfrontation) || IncumbentResistance.active(state.incumbentResistance)) && task.type !== 'scientistMove'
       && !(task.type === 'surveyExpeditionWork' && task.data?.action === 'board')) return false;
     if (state.citySuccession?.job || state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job || state.religiousRecognition?.job || state.cityAdministration?.resistance?.job) return false;
     if (['preparing', 'petitioning'].includes(state.defenderChallenge?.phase)) return false;
@@ -96261,6 +96484,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(renderSovereignBargains());
     panel.append(renderDefenderChallenge());
     panel.append(renderCityConfrontation());
+    panel.append(renderInstallationSeizure());
     panel.append(renderIncumbentResistance());
     panel.append(renderCharterRecognition());
     panel.append(renderPublicWorksRecognition());
@@ -103379,6 +103603,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.defenderChallengeKnowledge = candidate?.defenderChallengeKnowledge ? clonePlainObject(candidate.defenderChallengeKnowledge) : null;
     next.cityConfrontation = CityConfrontations.normalize(candidate?.cityConfrontation);
     next.cityConfrontationKnowledge = candidate?.cityConfrontationKnowledge ? clonePlainObject(candidate.cityConfrontationKnowledge) : null;
+    next.installationSeizure = InstallationSeizure.normalize(candidate?.installationSeizure);
+    next.installationSeizureKnowledge = candidate?.installationSeizureKnowledge ? clonePlainObject(candidate.installationSeizureKnowledge) : null;
     next.incumbentResistance = IncumbentResistance.normalize(candidate?.incumbentResistance);
     next.incumbentResistanceKnowledge = candidate?.incumbentResistanceKnowledge ? clonePlainObject(candidate.incumbentResistanceKnowledge) : null;
     next.charterRecognition = CharterRecognition.normalize(candidate?.charterRecognition);

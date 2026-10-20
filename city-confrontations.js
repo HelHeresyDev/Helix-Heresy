@@ -46,10 +46,14 @@
   function ceasefire(s, b, c, at, by = 'scientist') {
     if (s?.phase !== 'fighting' || !c.alive || !c.capable || !c.local || !c.defenderCanHear || !mobile(b?.defender) || c.defenderIncapacitated) return false;
     s.phase = 'ceasefire'; s.pendingPulse = null;
-    s.encounter.ceasefire = { at, by, terms: 'Stop attacks and abandon the demand; each person may physically withdraw. No obedience or political agreement.' };
+    const installation = s.encounter.objective === 'installationSeizure';
+    s.encounter.ceasefire = { at, by, terms: installation
+      ? 'Stop attacks and abandon the installation claim; physical withdrawal only. No property title, staff obedience, pardon or political agreement.'
+      : 'Stop attacks and abandon the demand; each person may physically withdraw. No obedience or political agreement.' };
     note(s, at, 'ceasefire', by === 'incumbent' ? 'The defender personally heard the incumbent request a ceasefire for recording life-preserving terms. No command was transferred.'
       : by === 'scientist' ? 'The defender accepts abandonment of the demand and a personal ceasefire. Walk away; injuries, evidence and sovereignty remain.'
       : 'The defender stops attacking and offers a personal ceasefire to preserve their own life or remaining reserves. This is not the ruler surrendering.');
+    if (installation) note(s, at, 'ceasefire', 'Personal stand-down permits physical withdrawal only; it does not recognize possession, legal ownership or immunity.');
     return true;
   }
   function renewedThreat(s, b, c, at) {
@@ -87,7 +91,7 @@
   }
   function advance(s, succession, b, c, at, effects = {}) {
     if (!active(s) || !c.alive || !s.encounter) return false;
-    const d = b.defender, e = s.encounter;
+    const d = b.defender, e = s.encounter, installation = e.objective === 'installationSeizure';
     if (s.phase === 'returning') {
       if (!mobile(d) || c.defenderIncapacitated || d.assignment !== e.id || d.roomId !== e.roomId || (d.stamina || 0) < 1 || same(d.mapCell, e.defenderPost)) {
         if (d.assignment === e.id) d.assignment = null;
@@ -97,11 +101,12 @@
       return true;
     }
     if (!mobile(d) || c.defenderIncapacitated) return finish(s, b, at, d.status === 'dead' ? 'defenderDead' : 'defenderIncapacitated');
-    if (c.bodyEpoch !== e.bodyEpoch || !c.sameGround || c.rulerDistance > 4 && c.distanceM > 6)
+    if (c.bodyEpoch !== e.bodyEpoch || !c.sameGround || (installation ? c.siteDistance > 6 : c.rulerDistance > 4) && c.distanceM > 6)
       return finish(s, b, at, 'scientistPhysicallyWithdrew');
     if (!c.capable) return finish(s, b, at, 'scientistIncapacitated'); // No custody is manufactured.
-    if (!c.charterCurrent || c.authorityId !== s.rulerId || !c.defenseAvailable || succession.handover || d.assignment !== e.id
-      || d.id !== s.defenderId || succession.ruler.id !== s.rulerId || b.source.charterId !== s.charterId || succession.ruler.officeStatus?.status === 'abdicatedUnderCoercion')
+    if ((installation ? !c.installationCurrent : !c.charterCurrent || c.authorityId !== s.rulerId || succession?.handover
+      || succession?.ruler.id !== s.rulerId || succession?.ruler.officeStatus?.status === 'abdicatedUnderCoercion')
+      || !c.defenseAvailable || d.assignment !== e.id || d.id !== s.defenderId || b.source.charterId !== s.charterId)
       return finish(s, b, at, 'interventionDutyUnavailable');
     if (s.phase === 'ceasefire') return false;
     if (d.health <= 20 || (d.wardMana || 0) < 12 && (d.stamina || 0) < 6) {
