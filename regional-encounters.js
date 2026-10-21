@@ -9,10 +9,11 @@
   const time = n => Number.isFinite(n) && n >= 0;
   const CAP = 4; // Supported encounter representatives, NOT a regional census.
   function hash(s) { let n = 2166136261; for (const c of s) n = Math.imul(n ^ c.charCodeAt(0), 16777619); return (n >>> 0) / 4294967296; }
-  function create(binding) { return { ...binding, members: [], decisions: [], routes: [], losses: [], beasts: Wild.defaultState() }; }
+  function create(binding) { return { ...binding, members: [], managedPopulationIds: [], decisions: [], routes: [], losses: [], beasts: Wild.defaultState() }; }
   function normalize(value) {
     if (!valid(value?.worldId) || !valid(value.runId)) return null;
     const s = create({ worldId: value.worldId, runId: value.runId });
+    s.managedPopulationIds = [...new Set((Array.isArray(value.managedPopulationIds) ? value.managedPopulationIds : []).filter(valid))];
     for (const m of value.members || []) if (valid(m?.actorId) && valid(m.populationId) && valid(m.source)
       && Wild.PROFILES[m.speciesId] && !s.members.some(r => r.actorId === m.actorId)) s.members.push({ actorId: m.actorId, populationId: m.populationId, speciesId: m.speciesId, source: m.source });
     s.decisions = [...new Set((value.decisions || []).filter(valid))];
@@ -25,14 +26,15 @@
     return s;
   }
   function adopt(s, actors, source, at) {
+    const members = new Set(s.members.map(m => m.actorId)), losses = new Set(s.losses.map(r => r.actorId));
     for (const a of actors || []) {
       if (!valid(a?.id) || !valid(a.populationId) || !Wild.PROFILES[a.speciesId]) continue;
-      if (!s.members.some(m => m.actorId === a.id)) s.members.push({ actorId: a.id, populationId: a.populationId, speciesId: a.speciesId, source });
-      if ((a.status === 'dead' || a.health <= 0) && !s.losses.some(r => r.actorId === a.id)) s.losses.push({ actorId: a.id, populationId: a.populationId, at: time(a.diedAt) ? a.diedAt : at });
+      if (!members.has(a.id)) { s.members.push({ actorId: a.id, populationId: a.populationId, speciesId: a.speciesId, source }); members.add(a.id); }
+      if ((a.status === 'dead' || a.health <= 0) && !losses.has(a.id)) { s.losses.push({ actorId: a.id, populationId: a.populationId, at: time(a.diedAt) ? a.diedAt : at }); losses.add(a.id); }
     }
     return s;
   }
-  const remaining = (s, populationId) => Math.max(0, CAP - s.members.filter(m => m.populationId === populationId).length);
+  const remaining = (s, populationId) => s.managedPopulationIds?.includes(populationId) ? 0 : Math.max(0, CAP - s.members.filter(m => m.populationId === populationId).length);
   function claim(s, actor, source, at) {
     // Existing individuals enter via adopt, never through a fresh candidate.
     // A lost materialization flag must not recreate a healthy copy of a claim.
@@ -59,11 +61,11 @@
     }
     return s;
   }
-  const positions = (s, routeId) => s.beasts.actors.filter(a => a.routeId === routeId && a.regionalPhase === 'reserve').map(a => a.positionKm);
+  const positions = (s, routeId) => s.beasts.actors.filter(a => a.routeId === routeId && a.regionalPhase === 'reserve' && !(a.campaignTravelRemainingKm > 0)).map(a => a.positionKm);
   function place(s, site, at, canEnter) {
     let count = 0;
     for (const a of s.beasts.actors) {
-      if (a.routeId !== site.routeId || a.regionalPhase === 'local') continue;
+      if (a.routeId !== site.routeId || a.regionalPhase === 'local' || a.campaignTravelRemainingKm > 0) continue;
       const x = site.entry.x + Math.round((a.positionKm - site.positionKm) * 1000), y = site.entry.y + Math.round(a.offsetM);
       const projected = { x, y, z: site.entry.z };
       // At most one metre of grid discretization. Never move a blocked animal

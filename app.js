@@ -161,6 +161,7 @@
   const JointTransit = window.HelixJointTransit;
   const CorridorWorks = window.HelixCorridorWorks;
   const BeastPowers = window.HelixRegionalBeastPowers;
+  const Suppression = window.HelixRegionalSuppression;
   const OuterApproach = window.HelixOuterApproach;
   const CampaignSettlement = window.HelixCampaignSettlement;
   const RoadsideStops = window.HelixRoadsideStops;
@@ -5571,6 +5572,7 @@
       jointTransit: null,
       corridorWorks: null,
       regionalBeastPowers: null,
+      regionalSuppression: null,
       outerApproachVisit: null,
       overlandApproach: null,
       roadsideStops: null,
@@ -13704,6 +13706,13 @@
       expansionAtlasSnapshot: () => clonePlainObject(currentExpansionAtlas()),
       expansionAtlasAction,
       beastPowerAction,
+      suppressionAction,
+      suppressionSnapshot: () => clonePlainObject({ saved: state.regionalSuppression, public: Suppression.publicView(currentSuppression()),
+        assessments: currentSuppression()?.populations.map(p => Suppression.assess(p, suppressionActors(), state.clock, a => 1 + injuryEffectTotals(a).movement)),
+        regional: currentRegionalEncounters(), site: overlandStopSite(), clock: state.clock,
+        tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) }),
+      setSuppressionTestSources: sources => { if (!sources.every(Suppression.validSource)) return false;
+        suppressionTestSources = { worldId: activeWorldRecord.id, runId: activeRunRecord.id, sources: clonePlainObject(sources) }; return true; },
       beastPowerSnapshot: () => clonePlainObject({ saved: state.regionalBeastPowers, public: BeastPowers.publicView(currentBeastPowers()),
         office: scientistCivicOffice(), context: beastPowerContext(scientistCivicOffice()), clock: state.clock }),
       setBeastPowerTestSource: map => { const cityId = state.surveyExpeditions?.destination?.cityId;
@@ -20083,6 +20092,8 @@
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.regionalBeastPowers = BeastPowers.rebind(importedState.regionalBeastPowers,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.regionalSuppression = Suppression.rebind(importedState.regionalSuppression,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.overlandExpedition = OverlandExpedition.rebind(importedState.overlandExpedition,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.intercityMarch = IntercityMarch.rebind(importedState.intercityMarch,
@@ -23735,6 +23746,7 @@
     changes.scientistMovementChanged += livingUpdate(() => updateScientistIdentity());
     changes.scientistMovementChanged += livingUpdate(() => updateMunicipalMapService());
     changes.scientistMovementChanged += livingUpdate(() => updateBeastPowers());
+    changes.scientistMovementChanged += livingUpdate(() => updateSuppression());
     changes.scientistMovementChanged += livingUpdate(() => updateSovereignBargains());
     changes.scientistMovementChanged += livingUpdate(() => updateCitySuccession());
     changes.combatChanged += livingUpdate(() => updateDefenderChallenge());
@@ -79717,6 +79729,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       id: d.report.id, category: 'operations', subject: 'reported regional beast pressure', sourceId: d.report.id,
       source: d.report.source, sourceAt: d.report.sourceAt, receivedAt: d.receivedAt,
       text: `${d.report.speciesName}: ${d.report.significance} ${BeastPowers.LIMITS}`, coverage: 'Narrow city approach threat account; no detailed terrain or onward route' });
+    for (const r of Suppression.publicView(currentSuppression()).reports) {
+      const d = currentBeastPowers()?.dossiers.find(d => d.report.id === r.dossierId); if (!d) continue;
+      add(citySite(d.report.cityId), { id: `${r.dossierId}:contact:${r.siteId}:${r.at}`, category: 'operations', subject: 'personally witnessed corridor pressure',
+        sourceId: r.siteId, source: 'Personal frost-trail and hunting-contact inspection', sourceAt: r.observedAt, receivedAt: r.at,
+        text: `${r.text} ${r.observations.map(o => o.condition).join('; ')}`, coverage: 'Reached ground only; no unseen population census, permanent safety or control inferred' });
+    }
     const home = state.startingSite?.strategicLocation || state.startingSite;
     if (home?.strategicCellId) add({ id: `home:${activeRunRecord.site?.candidateId || home.id || 'laboratory'}`, kind: 'home', label: 'Laboratory departure site',
       cityId: home.nearestSettlement?.cityId || '', globeCellId: home.strategicCellId }, { id: 'starting-place', category: 'listing', subject: 'own starting location',
@@ -79896,6 +79914,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     updateExpansionAtlas();
     dom.visitsList?.prepend(renderExpansionAtlas());
     dom.visitsList?.prepend(renderBeastPowers());
+    dom.visitsList?.prepend(renderSuppression());
   }
   function renderSiteVisitsContent() {
     const localStay = localPrisonRecord();
@@ -87984,6 +88003,115 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (v?.objective) { const d = v.dossiers.find(d => d.report.id === v.objective.id);
       panel.append(textEl('p', `Selected investigation: ${d.report.speciesName} pressure on ${d.report.cityName}. Planning only; no travel, force, rights or resolution awarded.`));
       button('Clear beast investigation', 'clear'); }
+    return panel;
+  }
+  let suppressionTestSources = null;
+  function currentSuppression() {
+    const s = state.regionalSuppression;
+    return s?.worldId === activeWorldRecord?.id && s?.runId === activeRunRecord?.id ? s : null;
+  }
+  function suppressionActors() {
+    const pools = [state.regionalEncounters?.beasts?.actors, state.wildernessBeasts?.actors,
+      state.unsupportedExcursions?.boundary?.beasts?.actors, state.unsupportedExcursions?.remote?.beasts?.actors,
+      ...(state.economy?.intercitySmuggling?.corridorBeasts || []).map(b => b.actors),
+      ...(state.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.wilderness?.beasts?.actors)];
+    const seen = new Set();
+    return pools.flatMap(p => p || []).filter(a => { if (seen.has(a.id)) return false; seen.add(a.id); return true; });
+  }
+  function prepareSuppressionPopulations(plan) {
+    if (!intercityMarchActive() || plan.worksiteId || scientistIsDead()) return;
+    const region = currentRegionalEncounters(), map = activeWorldRecord?.generatedData?.strategicMap;
+    const route = state.strategicJourneys?.routes.find(r => r.id === state.intercityMarch.operation.plan.corridorId);
+    if (!region || !route || !map) return;
+    const topology = StrategicWorld.topologyForMap(map);
+    const geometry = { cellCount: map.topology.cellCount,
+      distance: (a, b) => StrategicWorld.greatCircleDistanceKm(map, StrategicWorld.cellIndex(a), StrategicWorld.cellIndex(b)),
+      land: id => map.surface.classes[StrategicWorld.cellIndex(id)] === 'L',
+      neighbors: id => topology.neighbors[StrategicWorld.cellIndex(id)].map(StrategicWorld.cellId) };
+    const sources = suppressionTestSources?.worldId === activeWorldRecord.id && suppressionTestSources.runId === activeRunRecord.id
+      ? suppressionTestSources.sources.filter(s => s.corridorId === route.id)
+      : Suppression.sourceFromWorld(map, route, state.intercityMarch.operation.plan.homeCityId, geometry);
+    if (!sources.length) return;
+    state.regionalSuppression ||= Suppression.create({ worldId: activeWorldRecord.id, runId: activeRunRecord.id });
+    const ledger = currentSuppression(); if (!ledger) return;
+    for (const source of sources) Suppression.register(ledger, source, region, suppressionActors(), activeWorldRecord.worldSeed, state.clock);
+    updateSuppression();
+  }
+  function updateSuppression() {
+    const s = currentSuppression(); if (!s || scientistIsDead()) return false;
+    return Suppression.advance(s, currentRegionalEncounters(), suppressionActors(), state.clock, true, a => 1 + injuryEffectTotals(a).movement);
+  }
+  function suppressionDossier() {
+    const powers = currentBeastPowers();
+    return powers?.dossiers.find(d => d.report.id === powers.objective?.id && d.report.speciesId === Suppression.SPECIES);
+  }
+  function suppressionWitnesses() {
+    const region = currentRegionalEncounters(), site = overlandStopSite(); if (!region || !site) return [];
+    return region.beasts.actors.filter(a => a.roomId === site.roomId && wildernessBeastVisible(a)
+      && region.beasts.tracks.some(t => t.id === `track:${a.id}` && t.observedAt != null));
+  }
+  function suppressionReconReason(task) {
+    const site = overlandStopSite(), d = task.data;
+    if (!site || site.id !== d.siteId || site.routeId !== d.routeId || d.bodyEpoch !== ensureScientistIdentity().bodyEpoch
+      || scientistIsDead() || actorIsIncapacitated('scientist')) return 'The original living body must attend the reached corridor ground.';
+    const dossier = suppressionDossier();
+    if (!dossier || dossier.report.id !== d.dossierId) return 'Retain the original selected regional investigation.';
+    if (!currentSuppression()?.populations.some(p => p.source.routeId === d.routeId && dossier.populationIds.includes(p.source.populationId)
+      && p.source.profileIds.some(id => dossier.profileIds.includes(id)))) return 'No supported population-backed campaign source for this report and reached corridor; ordinary encounter representatives alone are insufficient.';
+    if (d.witnesses) {
+      const tracks = currentRegionalEncounters()?.beasts.tracks || [];
+      if (!d.witnesses.length || !d.trailIds?.some(id => tracks.some(t => t.id === id && t.observedAt != null
+        && WildernessBeasts.distance(scientistMapCell(), t.cell) <= 3 && sensoryLineOfSight(scientistMapCell(), t.cell))))
+        return 'Remain at an original perceived frost trail while recording the captured observations.';
+    } else if (!suppressionWitnesses().some(a => dossier.populationIds.includes(a.populationId))) return 'Personally observe an original hunting-group contact and its physical frost trail; same-species reports alone are insufficient.';
+    return '';
+  }
+  function suppressionAction(action, id = '') {
+    if (scientistIsDead() || actorIsIncapacitated('scientist')) return false;
+    if (action === 'march') {
+      if (!suppressionDossier() || !intercityMarchPlans().some(p => p.id === id && !p.worksiteId)) return false;
+      return intercityMarchAction('depart', id, 'reconnoitre');
+    }
+    const site = overlandStopSite(), dossier = suppressionDossier();
+    if (action !== 'recon' || !site || !dossier || surveyBusy()) return false;
+    const data = { siteId: site.id, routeId: site.routeId, dossierId: dossier.report.id, bodyEpoch: ensureScientistIdentity().bodyEpoch };
+    if (suppressionReconReason({ data })) return false;
+    data.witnesses = suppressionWitnesses().filter(a => dossier.populationIds.includes(a.populationId)).map(a => ({
+      id: a.id, speciesId: a.speciesId, populationId: a.populationId, health: a.health, maxHealth: a.maxHealth, status: a.status,
+      campaignTravelRemainingKm: a.campaignTravelRemainingKm || 0 }));
+    data.observedAt = state.clock;
+    data.trailIds = currentRegionalEncounters().beasts.tracks.filter(t => t.observedAt != null && WildernessBeasts.distance(scientistMapCell(), t.cell) <= 3
+      && sensoryLineOfSight(scientistMapCell(), t.cell) && data.witnesses.some(a => t.id === `track:${a.id}`)).map(t => t.id);
+    if (suppressionReconReason({ data })) return false;
+    return queueSurveyWork('suppressionRecon', scientistMapCell(), { ...data, workSeconds: 60,
+      label: 'Inspect original hunting-group contacts and frost trail; record dated corridor pressure' });
+  }
+  function completeSuppressionRecon(task) {
+    if (suppressionReconReason(task) || !sameMapCell(scientistMapCell(), task.data.toCell)) return;
+    const s = currentSuppression(); if (!s) return;
+    updateSuppression();
+    Suppression.record(s, suppressionDossier(), task.data.routeId, task.data.siteId, task.data.witnesses, state.clock, true, task.data.observedAt);
+    state.paused = true; markStateDirty();
+  }
+  function renderSuppression() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.regionalSuppression = 'true';
+    panel.append(textEl('h3', 'Rimefang Corridor Campaign'), textEl('p', Suppression.SCOPE));
+    const dossier = suppressionDossier(), capable = !scientistIsDead() && !actorIsIncapacitated('scientist');
+    if (!dossier) panel.append(textEl('p', 'Select a received Rimefang investigation to plan a known corridor expedition. Other species are not replaced with convenient wolves. No attack is created by selecting an objective.'));
+    else {
+      panel.append(textEl('p', `Investigation: ${dossier.report.speciesName} pressure on ${dossier.report.cityName}. Personally follow original hunting contacts and frost trails on reached roadside ground. Ordinary combat, injuries, movement, provisions and retreat apply; existing guards have no new offensive assignment.`));
+      for (const p of intercityMarchPlans().filter(p => !p.worksiteId)) {
+        const b = document.createElement('button'); b.textContent = `Investigate known corridor: ${p.label}`; b.dataset.suppressionAction = 'march';
+        b.disabled = !capable || Boolean(intercityMarchReason()); b.onclick = () => suppressionAction('march', p.id); panel.append(b);
+      }
+      panel.append(textEl('p', 'Only corridors with supported population and ground data qualify. A regional campaign counts the original population-backed individuals, not the four representative encounter allowance. Hunting groups can reach the corridor through their real ground approach even without a scientist nearby. No unseen combat, healing, reproduction or replacement is simulated. A broken local group does not prove the absence of another capable group.'));
+      const b = document.createElement('button'); b.textContent = 'Inspect original pressure contacts and frost trail'; b.dataset.suppressionAction = 'recon';
+      b.disabled = !capable || !overlandStopSite() || surveyBusy(); b.onclick = () => suppressionAction('recon'); panel.append(b);
+    }
+    for (const r of Suppression.publicView(currentSuppression()).reports) {
+      panel.append(textEl('p', `Received ${formatClock(r.at)}; witnessed ${formatClock(r.observedAt)} — ${r.text}`));
+      for (const o of r.observations) panel.append(textEl('p', `${o.condition}. Dated personal observation, not live remote tracking.`));
+    }
     return panel;
   }
   function municipalMapContext(office) {
@@ -97084,10 +97212,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       : [n?.destinations.find(d => d.id === plan.homeId)?.cellId, state.surveyExpeditions?.destination?.cellId];
     const indices = ids.filter(Boolean).map(id => StrategicWorld.cellIndex(id)).filter(i => i >= 0);
     const populations = (map?.beastEcology?.populations || []).filter(p => indices.some(i => StrategicBeastEcology.maskIncludes(p.territory.rangeMask, i)));
-    RegionalEncounters.route(s, plan, populations, activeWorldRecord.worldSeed, state.clock);
+    prepareSuppressionPopulations(plan);
+    const managed = new Set(currentSuppression()?.populations.map(p => p.source.populationId) || []);
+    RegionalEncounters.route(s, plan, populations.filter(p => !managed.has(p.id)), activeWorldRecord.worldSeed, state.clock);
   }
   function placeRegionalBeasts(site) {
     const s = ensureRegionalEncounters(); if (!s || scientistIsDead()) return 0;
+    updateSuppression();
     const map = ensureLabMap();
     // A scoped works approach ends on the canonical fort patch, while its
     // encounter allocation still belongs to this actual measured expedition.
@@ -97490,7 +97621,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       || task.type === 'scientistMove' && overlandStopSite() && task.data?.toRoomId === scientistRoomId()
       || task.type === 'injuryTreatment' && task.data?.targetActorId === 'scientist'
       || task.type === 'surveyExpeditionWork' && (['consume', 'radioBattery'].includes(task.data?.action)
-        || overlandStopSite() && ['overlandResume', 'outerApproachTravel', 'deployShelter', 'packShelter'].includes(task.data?.action)
+        || overlandStopSite() && ['overlandResume', 'outerApproachTravel', 'deployShelter', 'packShelter', 'suppressionRecon'].includes(task.data?.action)
         || overlandStopSite() && task.data?.action === 'pack' && task.data?.roadsideStopId === overlandStopSite().id));
     if (passengerReceptionGate()?.researchInquiry?.job) return false;
     if (passengerReceptionGate()?.visitorAdmission?.job) return false;
@@ -97925,6 +98056,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function surveyWorkBlockReason(task) {
+    if (task.data?.action === 'suppressionRecon') return suppressionReconReason(task);
     if (task.data?.action?.startsWith('corridor')) return corridorWorksTaskReason(task);
     if (['jointTransitTransfer', 'jointTransitSupply'].includes(task.data?.action)) return jointTransitWorkReason(task);
     if (task.data?.action === 'outerApproachTravel') return outerApproachTravelReason(task.data, true);
@@ -98055,6 +98187,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function completeSurveyWork(task) {
+    if (task.data?.action === 'suppressionRecon') { completeSuppressionRecon(task); return; }
     if (task.data?.action?.startsWith('corridor')) { completeCorridorWorksTask(task); return; }
     if (['jointTransitTransfer', 'jointTransitSupply'].includes(task.data?.action)) { completeJointTransitWork(task); return; }
     if (task.data?.action === 'outerApproachTravel') { completeOuterApproachTravel(task); return; }
@@ -105400,6 +105533,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.corridorWorks = CorridorWorks.normalize(candidate?.corridorWorks);
     next.expansionAtlas = ExpansionAtlas.normalize(candidate?.expansionAtlas);
     next.regionalBeastPowers = BeastPowers.normalize(candidate?.regionalBeastPowers);
+    next.regionalSuppression = Suppression.normalize(candidate?.regionalSuppression);
     next.overlandExpedition = OverlandExpedition.normalize(candidate?.overlandExpedition);
     next.intercityMarch = IntercityMarch.normalize(candidate?.intercityMarch);
     next.overlandApproach = candidate?.overlandApproach ? clonePlainObject(candidate.overlandApproach) : null;
