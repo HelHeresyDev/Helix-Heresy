@@ -281,6 +281,7 @@ The smoke command is a quick cross-system check, but routine changes should run 
 - `corridor-works.js` - Causally damaged original corridor roadbed, scoped near-side work approaches, joint repair authorization and run-only physical support-component projection; construction reuses the field-station engine.
 - `roadside-stops.js` - Run-owned route-distance stopping-site identity, deterministic bounded ground, original shelter records and continued-save rebinding.
 - `regional-encounters.js` - Shared run-owned encounter allocation, persistent route individuals and distance-based pursuit between physical roadside maps.
+- `regional-beast-powers.js` - Population-backed regional pressure identification, finite original-clerk account work, private provenance and separately received dated dossiers with free investigation planning.
 - `field-charter.js` - Finite two-passenger utility charter, exact original-person/cargo manifest, collection, interrupted route travel and physical return.
 - `charter-recognition.js` - Original independent designation review, bounded administrative consent and records duty, separately queued reconsideration, and explicit records-only reaffirmation with one linked register addendum.
 - `public-works-recognition.js` - Separate original public-works decision and exact attended continuation after authentic charter review and central-administration recognition; no fabricated handover or defense reserve.
@@ -934,6 +935,18 @@ Travel interrupts at the actual allocated distance and opens persistent roadside
 Ordinary records disclose only received dated sightings, tracks and sounds, never hidden population identities, allocation totals or live remote positions. Saves retain the original individuals, wounds, pursuit, remains and once-only losses. Validated continued imports rebind their own copy; fresh same-world runs inherit none, and irreversible scientist death freezes encounter activity.
 
 Focused checks: `tests/regional-encounters.spec.js`, `tests/regional-encounters-browser.spec.js`, the directly affected roadside, overland, wilderness and corridor models, and named local-combat, adjoining-pursuit, convoy-knowledge and Canvas roadside regressions. The full suite is not run under repository policy.
+
+### Regional beast investigations
+
+Visits → **Regional Beast Investigations** records one justified regional objective without awarding regional control. Walk to the existing municipal civic clerk with current sampling-visit permission and request a narrow beast-pressure account. The original available clerk needs three attended minutes of finite office work and one power unit; no fee, new employee or private survey is supplied. Other office assignments exclude this work. Cancellation, leaving, incapacity or a changed body ends unfinished work without refunding spent capacity; outages pause the original clerk without backfilling absence. Partial work survives actual saves and reloads.
+
+An account is offered only when the city's existing public warning has actual canonical backing: a living population abundance, territorial reach and a physically routed dangerous or catastrophic settlement-scale wave capability. Ordinary sightings, a species' danger rating or migration alone cannot manufacture a regional power. Worlds/localities without eligible released accounts receive no invented substitute. This first consumer covers population-backed wave pressure; exceptional-individual and other ecological powers are not automatically certified.
+
+Received dossiers describe the species' authored capabilities, broad social pattern, reported cause, warning signs, confidence, affected city and narrowly identified adjoining support. Their source date is unknown and receipt is dated. Potential pressure does not establish an attack underway, hostile intent, inevitable defeat of current defenses or control of a city. Maps, exact populations, private identities, lairs, full routes and surveys remain withheld. The Expansion Atlas indexes only the acquired narrow account. Personally witnessed same-species sightings can supplement it, explicitly without proving membership in the reported population; a dead local animal proves no regional defeat or extinction. Slimes cannot communicate or cooperate.
+
+**Investigate this reported regional power** and **Clear beast investigation** are free saved planning actions. They create no journey, party, equipment, travel rights, diplomatic terms, battle, resolution credit or domination progress. Received knowledge remains dated away from the site. Continued imports rebind their own ledger; independent same-world runs inherit none and irreversible scientist death freezes it. Resolving a regional objective is separate work.
+
+Focused checks: `tests/regional-beast-powers.unit.test.js` and `tests/regional-beast-powers-browser.spec.js`, plus directly related named municipal-map/Atlas/encounter regressions. The full suite is not run under repository policy.
 
 ### Neighboring expedition: reach and stage
 

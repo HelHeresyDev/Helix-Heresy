@@ -160,6 +160,7 @@
   const IntercityMarch = window.HelixIntercityMarch;
   const JointTransit = window.HelixJointTransit;
   const CorridorWorks = window.HelixCorridorWorks;
+  const BeastPowers = window.HelixRegionalBeastPowers;
   const OuterApproach = window.HelixOuterApproach;
   const CampaignSettlement = window.HelixCampaignSettlement;
   const RoadsideStops = window.HelixRoadsideStops;
@@ -5569,6 +5570,7 @@
       intercityMarch: null,
       jointTransit: null,
       corridorWorks: null,
+      regionalBeastPowers: null,
       outerApproachVisit: null,
       overlandApproach: null,
       roadsideStops: null,
@@ -13701,6 +13703,12 @@
         serviceReason: RunStrategicConditions.serviceReason(state.runStrategicConditions, strategicCounterBinding()), clock: state.clock }),
       expansionAtlasSnapshot: () => clonePlainObject(currentExpansionAtlas()),
       expansionAtlasAction,
+      beastPowerAction,
+      beastPowerSnapshot: () => clonePlainObject({ saved: state.regionalBeastPowers, public: BeastPowers.publicView(currentBeastPowers()),
+        office: scientistCivicOffice(), context: beastPowerContext(scientistCivicOffice()), clock: state.clock }),
+      setBeastPowerTestSource: map => { const cityId = state.surveyExpeditions?.destination?.cityId;
+        const source = BeastPowers.sourceFromWorld(map, cityId); if (!source) return false;
+        beastPowerTestSource = { worldId: activeWorldRecord.id, runId: activeRunRecord.id, source }; return true; },
       overlandAction,
       intercityMarchAction,
       outerApproachAction,
@@ -20073,6 +20081,8 @@
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.expansionAtlas = ExpansionAtlas.rebind(importedState.expansionAtlas,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.regionalBeastPowers = BeastPowers.rebind(importedState.regionalBeastPowers,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.overlandExpedition = OverlandExpedition.rebind(importedState.overlandExpedition,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.intercityMarch = IntercityMarch.rebind(importedState.intercityMarch,
@@ -23724,6 +23734,7 @@
     changes.scientistMovementChanged += livingUpdate(() => updateCityAdministration());
     changes.scientistMovementChanged += livingUpdate(() => updateScientistIdentity());
     changes.scientistMovementChanged += livingUpdate(() => updateMunicipalMapService());
+    changes.scientistMovementChanged += livingUpdate(() => updateBeastPowers());
     changes.scientistMovementChanged += livingUpdate(() => updateSovereignBargains());
     changes.scientistMovementChanged += livingUpdate(() => updateCitySuccession());
     changes.combatChanged += livingUpdate(() => updateDefenderChallenge());
@@ -79702,6 +79713,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return { id: `city:${cityId}`, kind: 'city', cityId, label: d?.label || cityId, globeCellId: d?.cellId || '' };
     };
     const add = (site, f) => rows.push({ site, fact: f });
+    for (const d of BeastPowers.publicView(currentBeastPowers())?.dossiers || []) add(citySite(d.report.cityId), {
+      id: d.report.id, category: 'operations', subject: 'reported regional beast pressure', sourceId: d.report.id,
+      source: d.report.source, sourceAt: d.report.sourceAt, receivedAt: d.receivedAt,
+      text: `${d.report.speciesName}: ${d.report.significance} ${BeastPowers.LIMITS}`, coverage: 'Narrow city approach threat account; no detailed terrain or onward route' });
     const home = state.startingSite?.strategicLocation || state.startingSite;
     if (home?.strategicCellId) add({ id: `home:${activeRunRecord.site?.candidateId || home.id || 'laboratory'}`, kind: 'home', label: 'Laboratory departure site',
       cityId: home.nearestSettlement?.cityId || '', globeCellId: home.strategicCellId }, { id: 'starting-place', category: 'listing', subject: 'own starting location',
@@ -79880,6 +79895,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     renderSiteVisitsContent();
     updateExpansionAtlas();
     dom.visitsList?.prepend(renderExpansionAtlas());
+    dom.visitsList?.prepend(renderBeastPowers());
   }
   function renderSiteVisitsContent() {
     const localStay = localPrisonRecord();
@@ -87892,6 +87908,84 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (v.petition) panel.append(textEl('p', `${v.petition.status}: ${v.petition.scope}`));
     panel.append(textEl('p', v.message), textEl('p', v.limitations)); return panel;
   }
+  let beastPowerTestSource = null;
+  function currentBeastPowers() {
+    const s = state.regionalBeastPowers;
+    return s?.worldId === activeWorldRecord?.id && s?.runId === activeRunRecord?.id ? s : null;
+  }
+  function beastPowerContext(office) {
+    const c = scientistCivicContext(office), e = state.surveyExpeditions;
+    return { ...c, bodyEpoch: ensureScientistIdentity().bodyEpoch, placeId: e?.destination?.id,
+      visitPermission: e?.discovery?.access.active === true,
+      busy: scientistInClinicCare() || rescueMissionActive() || Boolean(state.scientistIdentity?.job || e?.mapService?.job
+        || state.sovereignBargains?.job || state.combat?.routineSuspension && state.combat.routineSuspension.reason !== 'regional beast account')
+        || !currentBeastPowers()?.job && surveyBusy() };
+  }
+  function collectBeastPowerObservations() {
+    const s = currentBeastPowers(); if (!s || scientistIsDead()) return;
+    const pools = [state.wildernessBeasts, state.regionalEncounters?.beasts, state.unsupportedExcursions?.boundary?.beasts,
+      state.unsupportedExcursions?.remote?.beasts, ...(state.economy?.intercitySmuggling?.corridorBeasts || []).map(b => b.beasts),
+      ...(state.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.wilderness?.beasts)];
+    for (const pool of pools) for (const sighting of Object.values(pool?.sightings || {}))
+      BeastPowers.observe(s, sighting, pool.siteId || 'Personally observed regional ground');
+  }
+  function updateBeastPowers() {
+    const s = currentBeastPowers(); if (!s?.job || scientistIsDead()) return 0;
+    const office = state.economy?.intercitySmuggling?.identityOffices?.find(o => o.id === s.job.officeId);
+    const changed = BeastPowers.advance(s, office, beastPowerContext(office), state.clock);
+    if (!s.job) {
+      collectBeastPowerObservations();
+      if (state.combat?.routineSuspension?.reason === 'regional beast account') resumeScientistRoutineWork();
+    }
+    return changed ? 1 : 0;
+  }
+  function beastPowerAction(action, id = '') {
+    if (scientistIsDead() || actorIsIncapacitated('scientist') || !activeWorldRecord || !activeRunRecord) return false;
+    updateBeastPowers();
+    state.regionalBeastPowers ||= BeastPowers.create({ worldId: activeWorldRecord.id, runId: activeRunRecord.id });
+    const s = currentBeastPowers(); if (!s) return false;
+    const office = scientistCivicOffice(); let ok = false;
+    if (action === 'walk') return municipalMapAction('walk');
+    if (action === 'request') {
+      const source = beastPowerTestSource?.worldId === activeWorldRecord.id && beastPowerTestSource.runId === activeRunRecord.id
+        ? beastPowerTestSource.source : BeastPowers.sourceFromWorld(activeWorldRecord.generatedData?.strategicMap, office?.cityId);
+      ok = BeastPowers.request(s, source, office, beastPowerContext(office), state.clock);
+      if (ok) suspendScientistRoutineWork('regional beast account');
+      else s.message = 'No new account received. Attend the original available civic clerk with current visit permission and finite office capacity. A releasable regional account may be absent or already held; this does not establish safety.';
+    }
+    if (action === 'cancel') ok = BeastPowers.cancel(s, office, state.clock);
+    if (action === 'select' || action === 'clear') ok = BeastPowers.select(s, action === 'clear' ? null : id, state.clock);
+    if (!s.job && state.combat?.routineSuspension?.reason === 'regional beast account') resumeScientistRoutineWork();
+    persist(); render(); return ok;
+  }
+  function renderBeastPowers() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.beastPowers = 'true';
+    panel.append(textEl('h3', 'Regional Beast Investigations'), textEl('p', BeastPowers.LIMITS));
+    const v = BeastPowers.publicView(currentBeastPowers()), capable = !scientistIsDead() && !actorIsIncapacitated('scientist');
+    const button = (label, action, id = '', disabled = false) => { const b = document.createElement('button'); b.textContent = label;
+      b.dataset.beastPowerAction = action; b.disabled = !capable || disabled; b.onclick = () => beastPowerAction(action, id); panel.append(b); };
+    panel.append(textEl('p', 'Ask the existing municipal records clerk for one narrow beast-pressure account: three attended minutes and one office power unit, no fee. Wider maps and material surveys remain withheld. No eligible account is guaranteed.'));
+    button('Walk to existing civic clerk', 'walk', '', Boolean(v?.working));
+    button('Request narrow beast-pressure account', 'request', '', Boolean(v?.working));
+    if (v?.working) button('Cancel unfinished beast account', 'cancel');
+    if (v?.message) panel.append(textEl('p', v.message));
+    if (!v?.dossiers.length) panel.append(textEl('p', 'No regional power dossier received. An ordinary sighting alone does not establish regional capability.'));
+    for (const d of v?.dossiers || []) {
+      const r = d.report, card = document.createElement('section'); card.dataset.beastDossier = r.id;
+      card.append(textEl('h4', `${r.speciesName} — reported pressure on ${r.cityName}`),
+        textEl('p', `${r.source}; source date unknown; received ${formatClock(d.receivedAt)}. Reported severity: ${r.severity}; confidence: ${r.confidence}.`),
+        textEl('p', r.significance), textEl('p', `Species capability: ${r.capability} Natural social pattern: ${r.socialPattern}; this grants no language, willingness or political organization.`),
+        textEl('p', `Reported cause: ${r.reportedCause || 'unconfirmed'}; recurrence: ${r.recurrence || 'unconfirmed'}. Warning signs: ${r.warningSigns.join('; ') || 'not supplied'}.`),
+        textEl('p', `Unresolved: present pressure, effective defenses, full population, exact range and whether local sightings belong to this power. Slimes cannot communicate or cooperate.`));
+      if (r.corridorLabels.length) card.append(textEl('p', `Reported affected support: ${r.corridorLabels.join('; ')}. No itinerary or detailed corridor map supplied.`));
+      for (const o of d.observations) card.append(textEl('p', `Personally witnessed ${formatClock(o.observedAt)} at ${o.siteId}: ${o.name}, ${o.condition}. ${o.association} No regional defeat or extinction inferred.`));
+      panel.append(card); button('Investigate this reported regional power', 'select', r.id);
+    }
+    if (v?.objective) { const d = v.dossiers.find(d => d.report.id === v.objective.id);
+      panel.append(textEl('p', `Selected investigation: ${d.report.speciesName} pressure on ${d.report.cityName}. Planning only; no travel, force, rights or resolution awarded.`));
+      button('Clear beast investigation', 'clear'); }
+    return panel;
+  }
   function municipalMapContext(office) {
     const expedition = ensureSurveyExpeditions(), service = expedition.mapService;
     const ctx = scientistCivicContext(office);
@@ -91768,6 +91862,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (threat && !previous?.threatVisible) pauseForWildernessThreat(`${beast.name} is an immediate visible threat. Guard, fight, or withdraw${unsupportedActive() || state.penalFlights?.fieldActive ? " to safer local ground; there is no defended gate here" : " through the secured entrance"}.`);
       else if (!previous) surveyEvent(`Sighted ${beast.name} on the wilderness trail.`);
       saved.sightings[beast.id] = { id: beast.id, name: beast.name, speciesId: beast.speciesId, cell: cleanMapCell(beast.mapCell), observedAt: state.clock, status: beast.status, condition: beast.status === "dead" ? "Dead; physical remains" : beast.health < beast.maxHealth * .3 ? "Severely wounded" : beast.health < beast.maxHealth ? "Visibly wounded" : "No visible wounds", threatVisible: threat };
+      BeastPowers.observe(currentBeastPowers(), saved.sightings[beast.id], saved.siteId || scientistRoomId(), !scientistIsDead());
       changed++;
     }
     for (const track of saved.tracks) if (track.observedAt == null && WildernessBeasts.distance(scientistMapCell(), track.cell) <= 3 && sensoryLineOfSight(scientistMapCell(), track.cell)) {
@@ -97405,7 +97500,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (state.citySuccession?.job || state.charterRecognition?.job || state.publicWorksRecognition?.job || state.watchRecognition?.job || state.defenseRecognition?.job || state.religiousRecognition?.job || state.cityAdministration?.resistance?.job) return false;
     if (['preparing', 'petitioning'].includes(state.defenderChallenge?.phase)) return false;
     if (state.defenderChallenge?.phase === 'active' && task.type !== 'scientistMove') return false;
-    if (state.scientistIdentity?.job || state.sovereignBargains?.job || state.surveyExpeditions?.mapService?.job || state.surveyExpeditions?.carrier?.briefingState?.job) return false;
+    if (state.scientistIdentity?.job || state.sovereignBargains?.job || state.surveyExpeditions?.mapService?.job || state.regionalBeastPowers?.job || state.surveyExpeditions?.carrier?.briefingState?.job) return false;
     if (state.penalLegion?.serviceEndedAt != null && task.type === 'scientistMove' && task.data?.toCell?.z === scientistMapCell().z) return true;
     if (currentPenalFlight() && currentPenalFlight().stage !== "released") return false;
     if (!surveyScientistAway()) return true;
@@ -105304,6 +105399,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.jointTransit = JointTransit.normalizeState(candidate?.jointTransit);
     next.corridorWorks = CorridorWorks.normalize(candidate?.corridorWorks);
     next.expansionAtlas = ExpansionAtlas.normalize(candidate?.expansionAtlas);
+    next.regionalBeastPowers = BeastPowers.normalize(candidate?.regionalBeastPowers);
     next.overlandExpedition = OverlandExpedition.normalize(candidate?.overlandExpedition);
     next.intercityMarch = IntercityMarch.normalize(candidate?.intercityMarch);
     next.overlandApproach = candidate?.overlandApproach ? clonePlainObject(candidate.overlandApproach) : null;
