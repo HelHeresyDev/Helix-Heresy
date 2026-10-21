@@ -157,6 +157,7 @@
   const ExpansionAtlas = window.HelixExpansionAtlas;
   const LocalPatchGraph = window.HelixLocalPatchGraph;
   const OverlandExpedition = window.HelixOverlandExpedition;
+  const IntercityMarch = window.HelixIntercityMarch;
   const RoadsideStops = window.HelixRoadsideStops;
   const RegionalEncounters = window.HelixRegionalEncounters;
   const FieldCharter = window.HelixFieldCharter;
@@ -5561,6 +5562,7 @@
       runStrategicConditions: null,
       expansionAtlas: null,
       overlandExpedition: null,
+      intercityMarch: null,
       overlandApproach: null,
       roadsideStops: null,
       regionalEncounters: null,
@@ -13692,6 +13694,8 @@
       expansionAtlasSnapshot: () => clonePlainObject(currentExpansionAtlas()),
       expansionAtlasAction,
       overlandAction,
+      intercityMarchAction,
+      intercityMarchSnapshot: () => clonePlainObject({ saved: state.intercityMarch, plans: intercityMarchPlans(), reason: intercityMarchReason(), clock: state.clock }),
       roadsideAction,
       fieldCharterAction,
       fieldCharterSnapshot: () => clonePlainObject({ saved: currentFieldCharter(), escort: state.expeditionEscorts,
@@ -18119,6 +18123,9 @@
       if (raid.custody && ['restrained', 'extracting', 'booked'].includes(raid.custody.status)) raid.custody.status = 'deceased';
     }
     if (state.scientistIdentity) ScientistIdentity.replaceBody(state.scientistIdentity, state.economy?.intercitySmuggling?.identityOffices || [], state.scientistIdentity.description, state.clock);
+    if (intercityMarchActive()) state.intercityMarch.operation.walk = clonePlainObject(state.overlandExpedition);
+    const formerMarch = IntercityMarch.bodyEnded(state.intercityMarch, state.clock);
+    if (formerMarch) { state.overlandExpedition = formerMarch.walk; state.overlandApproach = formerMarch.approach; }
     if (state.intercityPassenger && (IntercityPassenger.away(state.intercityPassenger) || state.intercityPassenger.originOuter)) {
       state.intercityPassenger.phase = 'bodyLost';
       state.intercityPassenger.hold = 'The original passenger body was lost; its journey and waiting carriers remain archived, not inherited.';
@@ -19989,6 +19996,8 @@
     importedState.expansionAtlas = ExpansionAtlas.rebind(importedState.expansionAtlas,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.overlandExpedition = OverlandExpedition.rebind(importedState.overlandExpedition,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.intercityMarch = IntercityMarch.rebind(importedState.intercityMarch,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.roadsideStops = RoadsideStops.rebind(importedState.roadsideStops,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
@@ -79607,8 +79616,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (foothold?.worldId === activeWorldRecord?.id) for (const r of foothold.recognition) add(citySite(foothold.cityId), {
       id: r.id, category: 'rights', subject: 'received civic claim', sourceId: r.sourceId, source: r.source, sourceAt: r.at, receivedAt: r.at,
       text: r.text, coverage: 'Historical scoped civic recognition only; no land ownership or enforceable city control inferred' });
-    const walk = OverlandExpedition.normalize(state.overlandExpedition);
-    if (walk?.worldId === activeWorldRecord?.id && walk.runId === activeRunRecord?.id) for (const r of walk.history.filter(r => r.endpoint !== 'interrupted')) {
+    const walk = OverlandExpedition.normalize(state.overlandExpedition), march = state.intercityMarch;
+    if (march?.worldId === activeWorldRecord?.id && march.runId === activeRunRecord?.id) {
+      const o = march.operation;
+      if (o?.stagedAt != null) add(citySite(o.plan.cityId), { id: `${o.id}:staging`, category: 'route', subject: 'personally reached exterior staging ground',
+        sourceId: o.id, source: 'Personal intercity expedition', sourceAt: o.stagedAt, receivedAt: o.stagedAt,
+        text: 'Reached exterior roadside ground on foot. No gate admission, defensive assessment or political concession was obtained.',
+        coverage: 'This original roadside patch only; not city interior, a mineral survey or current remote safety' });
+    }
+    if (!intercityMarchActive() && walk?.worldId === activeWorldRecord?.id && walk.runId === activeRunRecord?.id) for (const r of walk.history.filter(r => r.endpoint !== 'interrupted')) {
       const site = r.endpoint === 'home' ? rows.find(r => r.site.kind === 'home')?.site
         : localSite({ ...e?.destination, id: walk.route.groundId }, 'survey');
       if (site) add(site, { id: `${r.id}:arrival`, category: 'route', subject: 'personally completed measured walk',
@@ -95439,6 +95455,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const oldPhase = s.phase, oldHold = s.hold;
     const changed = IntercityPassenger.advance(s, ensureStrategicJourneys(), state.clock);
+    ensureIntercityMarch();
     const waitingChanged = IntercityPassenger.advance(state.passengerConnection?.otherCarrier, ensureStrategicJourneys(), state.clock);
     if (intercityLocal()) {
       s.observation = { at: state.clock, view: IntercityPassenger.publicView(s) };
@@ -96012,10 +96029,85 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const s = state?.roadsideStops;
     return s?.worldId === activeWorldRecord?.id && s?.runId === activeRunRecord?.id ? s.sites : [];
   }
+  function ensureIntercityMarch() {
+    if (!activeWorldRecord || !activeRunRecord) return null;
+    if (!state.intercityMarch) state.intercityMarch = IntercityMarch.create({ worldId: activeWorldRecord.id, runId: activeRunRecord.id });
+    if (state.intercityMarch.worldId !== activeWorldRecord.id || state.intercityMarch.runId !== activeRunRecord.id) return null;
+    if (!scientistIsDead()) IntercityMarch.learn(state.intercityMarch, state.intercityPassenger, state.clock);
+    return state.intercityMarch;
+  }
+  function intercityMarchActive() {
+    return state.intercityMarch?.worldId === activeWorldRecord?.id && state.intercityMarch?.runId === activeRunRecord?.id
+      && IntercityMarch.active(state.intercityMarch);
+  }
+  function intercityMarchPlans() {
+    return IntercityMarch.plans(ensureIntercityMarch(), state.strategicJourneys, state.surveyExpeditions?.destination?.cityId);
+  }
+  function intercityMarchReason(working = false) {
+    if (!annexCapable() || !activeWorldRecord || !activeRunRecord) return 'The scientist must be alive, capable and free.';
+    if (intercityMarchActive() || overlandOnRoad()) return 'Finish or physically return from the original expedition first.';
+    if (state.surveyExpeditions?.phase !== 'field' || scientistRoomId() !== SurveyExpeditions.FIELD_ROOM || passengerAway())
+      return 'Physically attend the original home municipal ground before departing on foot.';
+    if (!working && surveyBusy() || escortContractActive() || state.intercityPassenger?.booking || FieldCharter.active(currentFieldCharter())
+      || state.scientistIdentity?.job || state.sovereignBargains?.job || state.citySuccession?.job || state.surveyExpeditions?.mapService?.job)
+      return 'Finish conflicting work or transport and settle accompanied escort work first. No extra service scope is supplied.';
+    return '';
+  }
+  function intercityMarchAction(action, routeId = '', objective = 'reconnoitre') {
+    if (action !== 'depart' || intercityMarchReason()) return false;
+    const plan = intercityMarchPlans().find(p => p.id === routeId);
+    if (!plan || !['reconnoitre', 'prepareTerms'].includes(objective)) return false;
+    if (!window.confirm(`Walk ${formatDecimal(plan.distanceKm, 2)} km to ${plan.label}? Objective: ${objective === 'reconnoitre' ? 'exterior reconnaissance' : 'stage for future limited terms'}.\n${IntercityMarch.LIMITS}\n${WildernessSurvival.warnings(surveyCarriedStacks()).join('\n')}`)) return false;
+    return Boolean(queueSurveyWork('intercityMarchDepart', SurveyExpeditions.RENDEZVOUS, {
+      plan: clonePlainObject(plan), objective, bodyEpoch: ensureScientistIdentity().bodyEpoch, workSeconds: 1, label: 'Walk to the intercity march departure point' }));
+  }
+  function intercityMarchDepartureReason(task) {
+    if (task.data.bodyEpoch !== ensureScientistIdentity().bodyEpoch) return 'The original departure body changed.';
+    return intercityMarchReason(true) || (intercityMarchPlans().some(p => JSON.stringify(p) === JSON.stringify(task.data.plan))
+      ? '' : 'Original learned route changed or closed; no substituted itinerary.');
+  }
+  function completeIntercityMarchDeparture(task) {
+    if (intercityMarchDepartureReason(task) || !sameMapCell(scientistMapCell(), SurveyExpeditions.RENDEZVOUS)) return;
+    const s = ensureIntercityMarch(), origin = { roomId: SurveyExpeditions.FIELD_ROOM, cell: SurveyExpeditions.RENDEZVOUS };
+    const prior = { walk: state.overlandExpedition, approach: state.overlandApproach };
+    const walk = IntercityMarch.begin(s, task.data.plan, task.data.objective, origin, prior, state.clock, task.data.bodyEpoch);
+    if (!walk) return;
+    state.overlandExpedition = walk;
+    const env = state.localSiteContext?.environment;
+    state.overlandApproach = { home: clonePlainObject(origin), homeContext: clonePlainObject(state.surveyExpeditions.fieldContext),
+      weather: { temperatureC: Number.isFinite(env?.meanTemperatureC) ? env.meanTemperatureC : 18, precipitationMm: env?.precipitationMm || 0 } };
+    materializeOverlandRoad(); prepareRegionalWalkingRoute(task.data.plan);
+    state.surveyExpeditions.phase = 'outbound';
+    moveSurveyScientist(state.overlandApproach.road.roomId, state.overlandApproach.road.cell);
+    surveyEvent('Departed on foot toward neighboring exterior ground with the original body and carried goods. No guards, vehicle, supplies or admission were granted.');
+    state.paused = true; markStateDirty();
+  }
+  function renderIntercityMarch() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.intercityMarch = 'true';
+    panel.append(textEl('h3', 'Neighboring Expedition — Reach and Stage'), textEl('p', IntercityMarch.LIMITS));
+    const plans = intercityMarchPlans(), reason = intercityMarchReason();
+    if (reason) panel.append(textEl('p', reason));
+    if (!plans.length) panel.append(textEl('p', 'No usable personally learned neighboring itinerary. A completed commercial passenger journey retains its measured corridor only—not a map, resource survey or military permission. No extra chart purchase is required.'));
+    const objective = document.createElement('select'); objective.setAttribute('aria-label', 'Intercity expedition objective');
+    for (const [id, label] of [['reconnoitre', 'Reconnoitre exterior ground'], ['prepareTerms', 'Stage for a future limited settlement']]) {
+      const option = document.createElement('option'); option.value = id; option.textContent = label; objective.append(option);
+    }
+    panel.append(objective);
+    for (const p of plans) {
+      const weighted = p.legs.reduce((n, l) => n + l.distanceKm * l.factor, 0);
+      panel.append(textEl('p', `${p.label}: ${formatDecimal(p.distanceKm, 2)} km each way; current-load one-way estimate ${formatDuration(weighted / Math.max(.01, scientistMoveSpeedMps() * 3.6) * 3600)} before rests or interruptions. Itinerary observed ${formatClock(p.sourceAt)}. Carry and consume real food/water; no mandatory equipment checklist.`));
+      const b = document.createElement('button'); b.textContent = `March to ${p.label}`; b.disabled = Boolean(reason);
+      b.onclick = () => intercityMarchAction('depart', p.id, objective.value); panel.append(b);
+    }
+    for (const h of state.intercityMarch?.history || []) panel.append(textEl('p', `Dated expedition ${h.id}: ${h.returnedAt == null ? `original body lost ${formatClock(h.bodyEndedAt)}; no return` : `returned ${formatClock(h.returnedAt)}`}, ${formatDecimal(h.walkedKm, 3)} km actually walked; ${h.stagedAt == null ? 'did not reach staging' : `exterior ground reached ${formatClock(h.stagedAt)}`}. No political outcome.`));
+    return panel;
+  }
   function prepareRegionalWalkingRoute(plan) {
     const s = ensureRegionalEncounters(); if (!s || !plan) return;
     const map = activeWorldRecord.generatedData?.strategicMap, n = state.strategicJourneys;
-    const ids = [n?.destinations.find(d => d.id === plan.homeId)?.cellId, state.surveyExpeditions?.destination?.cellId];
+    const ids = intercityMarchActive() ? [n?.destinations.find(d => d.id === plan.homeId)?.cellId,
+      n?.destinations.find(d => d.cityId === state.intercityMarch.operation.plan.cityId)?.cellId, ...state.intercityMarch.operation.plan.cellPath]
+      : [n?.destinations.find(d => d.id === plan.homeId)?.cellId, state.surveyExpeditions?.destination?.cellId];
     const indices = ids.filter(Boolean).map(id => StrategicWorld.cellIndex(id)).filter(i => i >= 0);
     const populations = (map?.beastEcology?.populations || []).filter(p => indices.some(i => StrategicBeastEcology.maskIncludes(p.territory.rangeMask, i)));
     RegionalEncounters.route(s, plan, populations, activeWorldRecord.worldSeed, state.clock);
@@ -96125,6 +96217,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         || FieldCharter.active(currentFieldCharter()) && scientistRoomId() === currentFieldCharter().cabin?.roomId && currentFieldCharter().boarded.includes('scientist'));
   }
   function overlandRoute() {
+    if (intercityMarchActive()) return intercityMarchPlans().find(p => p.id === state.intercityMarch.operation.plan.id) || null;
     const e = state.surveyExpeditions, n = state.strategicJourneys;
     return OverlandExpedition.routePlan(n?.destinations.find(d => d.id === n.homeDestinationId), e?.destination, e?.discovery);
   }
@@ -96137,6 +96230,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return Boolean(c?.contract && !c.contract.returnToBase && !c.journeyId && c.location === (e.phase === 'field' ? 'field' : 'laboratory'));
   }
   function overlandArrivalReason(endpoint) {
+    if (intercityMarchActive()) {
+      if (endpoint === 'ground') return 'Reached exterior staging distance. No city admission, protection or political outcome; continue on actual roadside ground.';
+      const point = state.intercityMarch.operation.origin;
+      if (!state.surveyExpeditions?.discovery?.access.active) return 'Original municipal entry permission is withdrawn; remain outside.';
+      if (!roomById(point.roomId) || !labMapCellHasFloor(point.cell) || !labMapCellIsWalkable(point.cell)
+        || !canActorOccupyTile(state.scientist, point.cell)) return 'Original municipal receiving point is physically unavailable; remain outside.';
+      return actorAccessCellBlockReason(state.scientist, point.cell) || '';
+    }
     const e = state.surveyExpeditions, point = endpoint === 'home' ? state.overlandApproach?.home || overlandHomePoint()
       : { roomId: SurveyExpeditions.FIELD_ROOM, cell: SurveyExpeditions.RENDEZVOUS };
     if (endpoint === 'ground' && !e?.discovery?.access.active) return 'Municipal access is withdrawn. Stop outside the ground; no entry or replacement permission.';
@@ -96154,6 +96255,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const e = state.surveyExpeditions;
     if (!activeWorldRecord || !activeRunRecord || !annexCapable()) return 'The original scientist must be alive, capable and free to depart.';
     if (overlandOnRoad()) return 'Already on the measured route; stop, resume or reverse from the actual saved position.';
+    if (intercityMarchActive()) return 'An unfinished intercity expedition cannot be replaced by a local approach journey.';
     if (!overlandRoute()) return 'A known local approach, recorded distances and received municipal visit directions are required; a city listing supplies no route.';
     if (passengerAway() || annexAway() || unsupportedActive() || currentPenalFlight() || state.penalFlights?.fieldActive
       || !['home', 'field'].includes(e?.phase) || e.phase === 'field' && scientistRoomId() !== SurveyExpeditions.FIELD_ROOM)
@@ -96169,6 +96271,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (a.road && roomById(a.road.roomId) && ensureLabMap().rooms[a.road.roomId]) return;
     const z = Math.max(20, ...Object.keys(ensureLabMap().layers).map(Number).filter(Number.isFinite)) + 1;
     const roomId = 'overlandApproachPosition', cell = { x: 10, y: 10, z };
+    if (roomById(roomId) && ensureLabMap().rooms[roomId]) {
+      a.road = { roomId, cell: labMapRoomAnchor(roomId) }; return;
+    }
     const room = normalizeRoom({ id: roomId, name: 'Actual Overland Route Position', facilityClass: 'overlandApproach', purposeId: 'corridor', connections: [],
       description: 'A saved position on the measured walking route, not a camp, shelter, terrain survey, vehicle or endpoint. See Visits for actual distance and controls.',
       geometry: { lengthM: 1, widthM: 1, heightM: 3, floorAreaM2: 1, volumeM3: 3 } });
@@ -96234,6 +96339,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       arrivalReasons: { home: overlandArrivalReason('home'), ground: overlandArrivalReason('ground') },
       weather: state.overlandApproach.weather, carriedRadioIds: surveyCarriedStacks().map(s => s.id), health: scientistVital('health').current });
     state.overlandExpedition = result.state;
+    if (intercityMarchActive()) {
+      state.intercityMarch.operation.walk = clonePlainObject(result.state);
+      if (result.state.trip.direction < 0) state.intercityMarch.operation.phase = 'returning';
+    }
     const region = currentRegionalEncounters();
     if (region) {
       const site = overlandStopSite(), position = result.state.trip.positionKm + (site ? (scientistMapCell().x - site.entry.x) / 1000 : 0);
@@ -96252,16 +96361,26 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
     }
     if (!result.arrived && state.overlandExpedition.trip.status === 'stopped') enterOverlandStop();
+    if (intercityMarchActive() && overlandStopSite()) IntercityMarch.stage(state.intercityMarch, state.overlandExpedition, overlandStopSite(), state.clock);
     if (result.arrived) {
       for (const a of region?.beasts.actors || []) if (a.regionalPhase === 'following') { a.regionalPhase = 'reserve'; a.regionalAt = state.clock; a.behavior = 'roam'; }
-      if (result.state.trip.direction > 0) {
+      if (intercityMarchActive()) {
+        const origin = state.intercityMarch.operation.origin, prior = IntercityMarch.finish(state.intercityMarch, result.state, state.clock);
+        if (prior) {
+          moveSurveyScientist(origin.roomId, origin.cell); e.phase = 'field';
+          state.overlandExpedition = prior.walk; state.overlandApproach = prior.approach;
+          surveyEvent('Physically returned from the intercity expedition. Wounds, carried supplies, exterior ground and abandoned property persist; no political concession was awarded.');
+          state.paused = true; markStateDirty();
+        }
+      } else if (result.state.trip.direction > 0) {
         materializeSurveySpaces({ groundOnly: true }); e.phase = 'field'; e.visits++; e.fieldArrivedAt = result.state.trip.arrivedAt;
         useSurveyContext(e.fieldContext); moveSurveyScientist(SurveyExpeditions.FIELD_ROOM, SurveyExpeditions.RENDEZVOUS);
       } else {
         e.phase = 'home'; e.returnedAt = result.state.trip.arrivedAt;
         useSurveyContext(state.overlandApproach.homeContext); moveSurveyScientist(state.overlandApproach.home.roomId, state.overlandApproach.home.cell);
       }
-      surveyEvent('Physically completed the measured walk with the original body and remaining carried goods. Existing ground, people, permissions and carrier assignments are unchanged.');
+      if (!state.intercityMarch?.operation || state.intercityMarch.operation.returnedAt !== state.clock)
+        surveyEvent('Physically completed the measured walk with the original body and remaining carried goods. Existing ground, people, permissions and carrier assignments are unchanged.');
       state.paused = true; markStateDirty();
     }
     return { state: result.needs, damage: result.damage, warning: result.warning };
@@ -96290,15 +96409,25 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         else ok = Boolean(queueSurvivalConsumption(action === 'water' ? 'drinkingWater' : 'trailMeal'));
       }
     }
-    if (ok) { persist(); render(); } return ok;
+    if (ok) {
+      if (intercityMarchActive()) {
+        const o = state.intercityMarch.operation;
+        o.walk = clonePlainObject(state.overlandExpedition);
+        o.phase = o.walk.trip.direction < 0 ? 'returning' : o.stagedAt != null && o.walk.trip.positionKm === o.walk.route.distanceKm ? 'staging' : 'outward';
+      }
+      persist(); render();
+    }
+    return ok;
   }
   function renderOverlandExpedition() {
     const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.overlandExpedition = 'true';
     panel.append(textEl('h3', 'Measured Overland Walk'));
+    if (intercityMarchActive()) panel.append(textEl('h4', 'Intercity Expedition — Exterior Staging'), textEl('p', IntercityMarch.LIMITS),
+      textEl('p', `Objective: ${state.intercityMarch.operation.objective === 'reconnoitre' ? 'Reconnoitre exterior ground' : 'Stage for a future limited settlement'}. Reaching this position completes no confrontation or negotiation.`));
     const road = overlandOnRoad(), route = road ? state.overlandExpedition.route : overlandRoute(), t = state.overlandExpedition?.trip;
     const button = (label, action, disabled = false) => { const b = document.createElement('button'); b.textContent = label;
       b.disabled = Boolean(disabled || scientistIsDead() || !annexCapable()); b.onclick = () => overlandAction(action); panel.append(b); };
-    panel.append(textEl('p', 'Solo on-foot travel over the existing local approach, not a planet-scale hex crossing or a safe camp. Regional encounters can interrupt the actual journey; only Rimefang and Gravebloom Elk are simulated. Silence is not proof of safety.'));
+    panel.append(textEl('p', intercityMarchActive() ? 'Solo walking over one personally learned neighboring corridor, not military transit or a safe camp. Actual roadside encounters and needs can interrupt travel.' : 'Solo on-foot travel over the existing local approach, not a planet-scale hex crossing or a safe camp. Regional encounters can interrupt the actual journey; only Rimefang and Gravebloom Elk are simulated. Silence is not proof of safety.'));
     if (!route) { panel.append(textEl('p', 'No usable received approach directions and published local distances. A city listing alone supplies no walking route.')); return panel; }
     panel.append(textEl('p', `${route.label}: ${formatDecimal(route.distanceKm, 2)} km. Source: ${route.source} (${route.sourceId}), received ${formatClock(route.sourceAt)}. ${route.directions} No detailed surrounding map or mineral survey follows.`));
     const pace = scientistMoveSpeedMps() * 3.6, weighted = route.legs.reduce((n, l) => n + l.distanceKm * l.factor, 0);
@@ -96308,7 +96437,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       button('Walk the known approach on foot', 'depart', reason);
       return panel;
     }
-    panel.append(textEl('p', `${t.status}: ${formatDecimal(t.positionKm, 3)} / ${formatDecimal(route.distanceKm, 2)} km from home; walking ${t.direction > 0 ? 'toward municipal ground' : 'toward home'}. Actual distance walked this trip ${formatDecimal(t.walkedKm, 3)} km, ${formatDuration(t.walkingSeconds)} on foot. ${t.reason}`));
+    panel.append(textEl('p', `${t.status}: ${formatDecimal(t.positionKm, 3)} / ${formatDecimal(route.distanceKm, 2)} km from origin; walking ${t.direction > 0 ? intercityMarchActive() ? 'toward neighboring exterior ground' : 'toward municipal ground' : 'toward origin'}. Actual distance walked this trip ${formatDecimal(t.walkedKm, 3)} km, ${formatDuration(t.walkingSeconds)} on foot. ${t.reason}`));
     panel.append(textEl('p', 'Stop opens actual roadside ground at this exact distance. Reverse stops first; resuming requires its physical route entry. Passing previously visited stopping ground pauses for a possible revisit. No remote stock, free shelter, vehicle relay or automatic rescue.'));
     const busy = surveyBusy();
     button('Stop walking here', 'stop', busy || t.status !== 'walking'); button('Resume walking', 'resume', busy || t.status !== 'stopped'); button('Reverse direction and stop', 'reverse', busy);
@@ -96785,6 +96914,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function surveyWorkBlockReason(task) {
+    if (task.data?.action === 'intercityMarchDepart') return intercityMarchDepartureReason(task);
     if (task.data?.roadsideSiteId && (overlandStopSite()?.id !== task.data.roadsideSiteId
       || task.data.roadsideBodyEpoch !== ensureScientistIdentity().bodyEpoch)) return 'The original roadside work body or location changed.';
     if (task.data?.action === 'overlandResume') return roadsideResumeReason(task);
@@ -96915,6 +97045,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (task.data?.fieldStationService) { completeFieldRefugeService(task); return; }
     if (task.data?.action === 'overlandResume') { if (!roadsideResumeReason(task) && sameMapCell(scientistMapCell(), overlandStopSite().entry)) resumeFromRoadside(task); return; }
     if (task.data?.action === 'overlandDepart') { completeOverlandDeparture(task); return; }
+    if (task.data?.action === 'intercityMarchDepart') { completeIntercityMarchDeparture(task); return; }
     if (task.data?.fieldStationWork) { finishFieldStationPart(task); return; }
     if (task.data?.fieldStationTransfer?.kind === 'put') {
       if (fieldStationTransferReason(task) || !sameMapCell(scientistMapCell(), task.data.toCell)) return;
@@ -97065,6 +97196,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.surveyExpeditions = "true";
     panel.append(textEl("strong", "Supported Survey Excursions"));
     panel.append(renderOverlandExpedition());
+    panel.append(renderIntercityMarch());
     panel.append(renderFieldCharter());
     panel.append(renderIntercityPassenger());
     const discovery = LocalDiscovery.publicView(expedition.discovery);
@@ -104242,6 +104374,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.runStrategicConditions = RunStrategicConditions.normalize(candidate?.runStrategicConditions);
     next.expansionAtlas = ExpansionAtlas.normalize(candidate?.expansionAtlas);
     next.overlandExpedition = OverlandExpedition.normalize(candidate?.overlandExpedition);
+    next.intercityMarch = IntercityMarch.normalize(candidate?.intercityMarch);
     next.overlandApproach = candidate?.overlandApproach ? clonePlainObject(candidate.overlandApproach) : null;
     next.roadsideStops = RoadsideStops.normalize(candidate?.roadsideStops);
     next.regionalEncounters = RegionalEncounters.normalize(candidate?.regionalEncounters);

@@ -274,6 +274,7 @@ The smoke command is a quick cross-system check, but routine changes should run 
 - `expansion-atlas.js` - Run-owned index of legitimately known places and source-dated facts, with a free saved investigation objective and no simulation, access or ownership grants.
 - `local-patch-graph.js` - Stable bounded same-hex connections and dated physically reached edge/crossing records, separate from terrain and private resource/encounter state.
 - `overland-expedition.js` - Received kilometre-scale local approach, original-body walking progress, survival integration, stopping/reversal and physical-arrival receipts.
+- `intercity-march.js` - Personally learned direct-neighbor itineraries, solo measured expeditions, persistent exterior staging and physical-return history; no admission or political victory.
 - `roadside-stops.js` - Run-owned route-distance stopping-site identity, deterministic bounded ground, original shelter records and continued-save rebinding.
 - `regional-encounters.js` - Shared run-owned encounter allocation, persistent route individuals and distance-based pursuit between physical roadside maps.
 - `field-charter.js` - Finite two-passenger utility charter, exact original-person/cargo manifest, collection, interrupted route travel and physical return.
@@ -929,6 +930,20 @@ Travel interrupts at the actual allocated distance and opens persistent roadside
 Ordinary records disclose only received dated sightings, tracks and sounds, never hidden population identities, allocation totals or live remote positions. Saves retain the original individuals, wounds, pursuit, remains and once-only losses. Validated continued imports rebind their own copy; fresh same-world runs inherit none, and irreversible scientist death freezes encounter activity.
 
 Focused checks: `tests/regional-encounters.spec.js`, `tests/regional-encounters-browser.spec.js`, the directly affected roadside, overland, wilderness and corridor models, and named local-combat, adjoining-pursuit, convoy-knowledge and Canvas roadside regressions. The full suite is not run under repository policy.
+
+### Neighboring expedition: reach and stage
+
+Visits → **Neighboring Expedition — Reach and Stage** extends the measured walking system to one directly connected neighboring city. First personally complete an existing paid passenger journey along that corridor: a listing, quotation, booking or unfinished ride teaches no marching itinerary. The dated completed itinerary remains known after returning; it releases no surrounding map, mineral survey, defenses or military permission. No city-power achievement, supply compact or additional chart purchase is required.
+
+Physically attend the original home municipal ground, choose **Reconnoitre exterior ground** or **Stage for a future limited settlement**, and confirm the actual route and carried load. Walk to the departure point before leaving. The scientist travels alone: existing refuge guards retain defensive contracts, and neither commercial vehicles nor city defenders become an assault force. Actual distance, terrain, load, wounds, fatigue, food, water, weather and supported regional encounters use the existing walking/survival system, not passenger speed or a strategic victory roll. Supplies are warnings, not a mandatory equipment checklist. No replenishment, shelter, rescue or safe zone is granted.
+
+Stop at the actual traveled distance, consume real carried supplies, rest, deploy a carried shelter, leave property or reverse direction. Reached roadside ground and original goods persist. Closure or incapacity holds the actual position while needs continue. At the neighboring endpoint, travel stops on a persistent **unprotected exterior roadside patch**, not a city interior or a passenger stand; there is no gate admission, defender victory, title or political concession. Only the existing supported regional encounter species are simulated; absence of an encounter proves no safety.
+
+Reverse and physically return over the actual distance traveled. Previously reached stops remain revisit points; an obstructed or unauthorized original receiving point leaves the living scientist outside. A completed return restores the suspended local approach journey and records dated distance/staging history, without resetting bodily needs, injuries, equipment, money or abandoned property. The Expansion Atlas can retain the dated exterior arrival, not a current defensive assessment or remote inventory. Saves preserve partial departure, march position, original body, staging and property; irreversible death freezes movement, replacement bodies do not inherit the walk, and independent same-world starts inherit none. Confrontation and an exercised settlement remain separate pending work.
+
+Supported soul-beacon recovery archives the original body's unfinished march without recording a return or moving its possessions. It releases the expedition commitment so a recovered scientist can undertake a new journey rather than inheriting the old body's position or getting permanently blocked by it.
+
+Focused coverage: `node tests/intercity-march.unit.test.js`, DOM/Canvas `tests/intercity-march-browser.spec.js`, directly relevant walking/stopping/encounter cases, and the named soul-beacon return check. Full-suite testing remains opt-in under `AGENTS.md`.
 
 ### Two-person roadside field charter
 
