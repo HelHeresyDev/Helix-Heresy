@@ -157,8 +157,8 @@
     const amount = Math.max(0, Number(hit.amount) || 0);
     if (!s || !c.alive || !working(s, c) || !hit.hostile || !hit.lineOfEffect
       || !hit.damageTypes?.length || hit.damageTypes.some(t => !['physical', 'force'].includes(t))
-      || ![...COVERAGE, GATE].some(cell => same(cell, hit.cell))) return { damage: amount, absorbed: 0 };
-    const active = s.duty?.phase === 'watch' && a?.assignment === s.duty.id && same(a.mapCell, POST)
+      || ![...(s.layout?.coverage || COVERAGE), s.layout?.gate || GATE].some(cell => same(cell, hit.cell))) return { damage: amount, absorbed: 0 };
+    const active = s.duty?.phase === 'watch' && a?.assignment === s.duty.id && same(a.mapCell, s.layout?.post || POST)
       && able(a) && !c.incapacitated && !c.suppressed && !c.obligation && !s.refusal && a.workSeconds > 0 && a.stamina > 0;
     const absorbed = Math.min(amount, active ? 20 : 5, s.energy / 60);
     s.energy -= absorbed * 60; s.combatSpent += absorbed * 60;

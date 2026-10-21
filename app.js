@@ -158,6 +158,7 @@
   const LocalPatchGraph = window.HelixLocalPatchGraph;
   const OverlandExpedition = window.HelixOverlandExpedition;
   const IntercityMarch = window.HelixIntercityMarch;
+  const OuterApproach = window.HelixOuterApproach;
   const RoadsideStops = window.HelixRoadsideStops;
   const RegionalEncounters = window.HelixRegionalEncounters;
   const FieldCharter = window.HelixFieldCharter;
@@ -5563,6 +5564,7 @@
       expansionAtlas: null,
       overlandExpedition: null,
       intercityMarch: null,
+      outerApproachVisit: null,
       overlandApproach: null,
       roadsideStops: null,
       regionalEncounters: null,
@@ -13695,6 +13697,22 @@
       expansionAtlasAction,
       overlandAction,
       intercityMarchAction,
+      outerApproachAction,
+      outerApproachSnapshot: () => { const g = outerApproachGate(); return clonePlainObject({ saved: g?.outerApproach, visit: state.outerApproachVisit,
+        context: g?.outerApproach && outerApproachContext(g), defender: g?.foreignCivic?.bargain.defender, clock: state.clock,
+        innerBoundary: g && { roomId: g.annexRoomId, door: state.doors[g.doorId] },
+        roomId: scientistRoomId(), cell: scientistMapCell(), health: scientistVital('health').current, campaign: state.campaign,
+        tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) }); },
+      setOuterApproachTestSource: (cityId, source) => { const g = passengerReceptionGate(cityId);
+        if (!g?.preparedReceptionTestSource || g.outerApproach || !CityDefense.validSource(source) || source.cityId !== cityId) return false;
+        g.preparedOuterApproachTestSource = clonePlainObject(source); persist(); return true; },
+      advanceOuterApproachForTest: seconds => {
+        for (let n = 0; n < seconds && !scientistIsDead(); n++) {
+          state.clock++; updateScientistMovementTask(); completeDueTasks(); updateWildernessNeeds(); updateOuterApproaches();
+          updatePendingCombatActions(); progressInjuries();
+        }
+        updateOuterApproaches(); syncActorInventories(); syncPhysicalReadModels(); persist(); render();
+      },
       intercityMarchSnapshot: () => clonePlainObject({ saved: state.intercityMarch, plans: intercityMarchPlans(), reason: intercityMarchReason(), clock: state.clock }),
       roadsideAction,
       fieldCharterAction,
@@ -18126,6 +18144,8 @@
     if (intercityMarchActive()) state.intercityMarch.operation.walk = clonePlainObject(state.overlandExpedition);
     const formerMarch = IntercityMarch.bodyEnded(state.intercityMarch, state.clock);
     if (formerMarch) { state.overlandExpedition = formerMarch.walk; state.overlandApproach = formerMarch.approach; }
+    for (const g of outerApproachGates()) OuterApproach.bodyEnded(g.outerApproach, state.clock);
+    state.outerApproachVisit = null;
     if (state.intercityPassenger && (IntercityPassenger.away(state.intercityPassenger) || state.intercityPassenger.originOuter)) {
       state.intercityPassenger.phase = 'bodyLost';
       state.intercityPassenger.hold = 'The original passenger body was lost; its journey and waiting carriers remain archived, not inherited.';
@@ -19998,6 +20018,8 @@
     importedState.overlandExpedition = OverlandExpedition.rebind(importedState.overlandExpedition,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.intercityMarch = IntercityMarch.rebind(importedState.intercityMarch,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    for (const g of importedState.penalFlights?.assistance?.cityApproach?.gates || []) g.outerApproach = OuterApproach.rebind(g.outerApproach,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.roadsideStops = RoadsideStops.rebind(importedState.roadsideStops,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
@@ -23639,6 +23661,7 @@
     changes.combatChanged += livingUpdate(() => updateDefenderChallenge());
     changes.combatChanged += livingUpdate(() => updateCityConfrontation());
     changes.combatChanged += livingUpdate(() => updateInstallationSeizure());
+    changes.combatChanged += livingUpdate(() => updateOuterApproaches());
     changes.scientistMovementChanged += livingUpdate(() => updateCityProvisioning());
     changes.scientistMovementChanged += livingUpdate(() => updateCityDefense());
     changes.scientistMovementChanged += livingUpdate(() => updateCityRule());
@@ -23837,6 +23860,17 @@
         const before = state.clock;
         changed += advanceTime(Math.min(remaining, 1), { ...options, cityDefenseStep: true }); remaining -= state.clock - before;
         if (state.clock <= before) break;
+      }
+      return changed;
+    }
+    if (!options.outerApproachStep && elapsed > 1 && outerApproachLocal()) {
+      let left = elapsed, changed = 0;
+      while (left > 0 && !scientistIsDead()) {
+        const g = outerApproachGate(), s = g.outerApproach, before = state.clock, pulse = s.pendingPulse?.releaseAt,
+          health = scientistVital('health').current, phase = s.phase;
+        changed += advanceTime(Math.min(1, left), { ...options, outerApproachStep: true }); left -= state.clock - before;
+        if (state.clock <= before || phase !== s.phase || s.pendingPulse?.releaseAt && pulse !== s.pendingPulse.releaseAt
+          || scientistVital('health').current < health) break;
       }
       return changed;
     }
@@ -26490,6 +26524,13 @@
 
   function applyStructuralDamage(cell, amount, damageTypeIds = ["physical"], source = "an attack", options = {}) {
     const map = ensureLabMap();
+    const outer = outerApproachGates().find(g => sameMapCell(g.outerApproach.layout.structure, cell));
+    if (outer && options.attackerId) {
+      const before = constructedWallAtCell(cell, map)?.condition || 0;
+      const cover = outerApproachCover(options.attackerId, cell, amount, damageTypeIds);
+      amount = cover.damage;
+      if (cover.absorbed && amount <= 0) return { ok: true, destroyed: false, damage: 0, before, after: before, targetKind: 'constructedWall' };
+    }
     // Resolve interception before taking the mutable door reference. Sensory
     // checks normalize door records; taking it earlier would damage a stale
     // object instead of the original persistent installation.
@@ -41208,7 +41249,7 @@
 
   function scientistHasExactCombatTarget(slime) {
     if (!slime || slime.status === "dead") return false;
-    if (slime.actorKind === 'cityDefender') return cityDefenderObserved();
+    if (slime.actorKind === 'cityDefender') return cityDefenderObserved(slime);
     if (slime.actorKind === 'cityIncumbent') return incumbentObserved();
     if (slime.actorKind === 'civicOfficeholder') return Boolean(slime.mapCell && slime.mapCell.z === scientistMapCell()?.z && sensoryLineOfSight(scientistMapCell(), slime.mapCell));
     if (slime.actorKind === "wildernessBeast") return wildernessBeastVisible(slime);
@@ -41446,7 +41487,7 @@
       else if (actor.actorKind === "surfaceWorker") damageSurfaceWorker(damage, { injuryProgress: true }, actor);
       else if (actor.actorKind === "laboratoryAssistant") damageSurfaceWorker(damage, { injuryProgress: true }, actor);
       else if (actor.actorKind === "homunculus") damageHomunculus(actor, damage, { injuryProgress: true });
-      else if (actor.actorKind === 'cityDefender') damageCityDefender(damage, { injuryProgress: true });
+      else if (actor.actorKind === 'cityDefender') damageCityDefender(damage, { injuryProgress: true }, actor);
       else if (actor.actorKind === 'cityIncumbent') damageIncumbent(damage, { injuryProgress: true });
       else if (actor.actorKind === 'civicOfficeholder') damageCivilOfficeholder(actor, damage, { injuryProgress: true });
       else {
@@ -41493,6 +41534,8 @@
     }
     if (target.kind === "structure") {
       if (!action.targetKinds.includes("structure")) return { ok: false, reason: `${action.label} cannot affect a structure.` };
+      const g = outerApproachGates().find(g => sameMapCell(g.outerApproach.layout.structure, target.cell));
+      if (actorId === 'scientist' && g) OuterApproach.attack(g.outerApproach, g.foreignCivic.bargain, outerApproachContext(g), state.clock, g.outerApproach.id);
       const result = applyStructuralDamage(target.cell, action.baseDamage, action.damageTypes, `${actorId === "scientist" ? "the scientist's" : "a creature's"} ${action.label.toLowerCase()}`, { ...options, attackerId: actorId });
       if (result.ok && actorId === 'scientist' && sameMapCell(target.cell, CityDefense.GATE)) observeCityDefenseAggression();
       if (result.ok && actorId === 'scientist') observeDefenderCoverAggression(target.cell, labMapCellRoomId(target.cell));
@@ -41526,7 +41569,9 @@
     }
     if (actorId === 'scientist' && targetActor.actorKind === 'cityDefender') {
       const s = state.defenderChallenge, b = state.sovereignBargains, c = defenderChallengeContext();
-      if (DefenderChallenges.authorized(s, b, c, actionId, state.clock)) s.bout.actions++;
+      const foreign = outerApproachForDefender(targetActor);
+      if (foreign) OuterApproach.attack(foreign.outerApproach, foreign.foreignCivic.bargain, outerApproachContext(foreign), state.clock, targetActor.id);
+      else if (DefenderChallenges.authorized(s, b, c, actionId, state.clock)) s.bout.actions++;
       else if (CityConfrontations.active(state.installationSeizure?.combat)) { /* Original defender's installation encounter already observed above. */ }
       else if (CityConfrontations.attack(state.cityConfrontation, b, cityConfrontationContext(), state.clock, actionId)) flushCityConfrontationEvidence();
       else recordUnsanctionedDefenderAttack(actionId);
@@ -41561,7 +41606,7 @@
       : targetActor.actorKind === "surfaceWorker" ? damageSurfaceWorker(guardedDamage, { damageTypes: action.damageTypes }, targetActor)
       : targetActor.actorKind === "laboratoryAssistant" ? damageSurfaceWorker(guardedDamage, { damageTypes: action.damageTypes }, targetActor)
       : targetActor.actorKind === "homunculus" ? damageHomunculus(targetActor, guardedDamage, { damageTypes: action.damageTypes, observed: actor === state.scientist })
-      : targetActor.actorKind === 'cityDefender' ? damageCityDefender(guardedDamage, { damageTypes: action.damageTypes })
+      : targetActor.actorKind === 'cityDefender' ? damageCityDefender(guardedDamage, { damageTypes: action.damageTypes }, targetActor)
       : targetActor.actorKind === 'cityIncumbent' ? damageIncumbent(guardedDamage, { damageTypes: action.damageTypes })
       : targetActor.actorKind === 'civicOfficeholder' ? damageCivilOfficeholder(targetActor, guardedDamage, { damageTypes: action.damageTypes })
       : applySlimeCombatDamage(targetActor, guardedDamage, actorId, action.label, { damageTypes: action.damageTypes, observed: actor === state.scientist });
@@ -41810,7 +41855,8 @@
     const opposition = state.citySuccession?.appointments?.opposition;
     const localResistance = opposition?.defense?.phase === 'active' && scientistRoomId() === SurveyExpeditions.FIELD_ROOM
       && WildernessBeasts.distance(scientistMapCell(), LocalOpposition.POSTS[0]) <= LocalOpposition.DEFENSE.radius;
-    return localResistance || InstallationSeizure.dangerous(state.installationSeizure) || IncumbentResistance.dangerous(state.incumbentResistance) || state.cityConfrontation?.phase === 'fighting' || state.defenderChallenge?.phase === 'active' || activeCombatRecords().some((record) => scientistAwareOfCombat(record));
+    return outerApproachLocal() && (OuterApproach.claiming(outerApproachGate().outerApproach) || outerApproachGate().outerApproach.hostileUntil > state.clock)
+      || localResistance || InstallationSeizure.dangerous(state.installationSeizure) || IncumbentResistance.dangerous(state.incumbentResistance) || state.cityConfrontation?.phase === 'fighting' || state.defenderChallenge?.phase === 'active' || activeCombatRecords().some((record) => scientistAwareOfCombat(record));
   }
 
   function stopScientistGuard(options = {}) {
@@ -42767,6 +42813,8 @@
 
   function strikeStructure(cell) {
     const clean = cleanMapCell(cell);
+    const frontage = outerApproachGates().some(g => sameMapCell(g.outerApproach.layout.structure, clean));
+    if (frontage && ((state.combat?.actorRecoveryUntil.scientist || 0) > state.clock || state.combat?.pendingActions.scientist)) return false;
     const target = clean ? structuralTargetAtCell(clean) : null;
     if (!target) {
       addEvent("No damageable structure occupies that tile.");
@@ -42791,6 +42839,7 @@
       return false;
     }
     const result = resolveSharedCombatAction("scientist", "strike", { kind: "structure", cell: clean });
+    if (frontage) state.combat.actorRecoveryUntil.scientist = state.clock + combatActionDef('strike').recoverySeconds;
     if (!result.ok) addEvent(result.reason || "The strike did not damage the structure.");
     else awardXp("striking", 2, "Strike structure", { physical: true });
     refreshIncidentAlerts();
@@ -55810,6 +55859,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function scientistMoveBlockReason(toRoomId, options = {}) {
+    if (outerApproachLocal() && !outerApproachRooms(outerApproachGate()).includes(toRoomId)) return 'This exterior encounter grants no onward city admission.';
     if (overlandOnRoad() && (!overlandStopSite() || state.overlandExpedition.trip.status !== 'stopped' || toRoomId !== scientistRoomId()))
       return 'Local walking is confined to the actual stopped roadside patch; resume the measured journey through its route entry.';
     if (annexAway() && state.leasedAnnex.trip) return "Remain on the municipal walking route; use its pause, resume or turn-back controls.";
@@ -68240,6 +68290,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function labMapOverlayAssignments(overlayId, map, context = {}) {
     const assignments = baseLabMapOverlayAssignments(overlayId, map, context);
+    const front = outerApproachGate();
+    if (front?.outerApproach && outerApproachLocal(front)) {
+      const s = front.outerApproach, d = front.foreignCivic.bargain.defender;
+      const marker = (cell, label, value) => { if (cell?.z === scientistMapCell().z && WildernessBeasts.distance(cell, scientistMapCell()) <= 8 && sensoryLineOfSight(scientistMapCell(), cell))
+        setLabMapOverlayEntry(assignments, cell, { overlayId, classNames: ['map-overlay-resources'], label, title: label, value,
+          source: 'Direct exterior observation', target: { kind: 'tile', tile: cell } }, map); };
+      marker(d.mapCell, d.status === 'dead' ? `Remains of ${d.name}` : d.name, d.status === 'dead' ? '†' : 'D');
+      marker(s.layout.receiving, 'Original outer receiving position', 'R'); marker(s.layout.service, 'Original ward-service access', 'S');
+      if (s.pendingPulse) marker(s.pendingPulse.targetCell, `Observed approach pulse releases ${formatClock(s.pendingPulse.releaseAt)}`, '!');
+    }
     const localPrison = localPrisonRecord();
     for (const provider of localPrison?.g.rescueServices || []) for (const [kind, actor] of [['Driver', provider.driver], ['Vehicle', provider.vehicle]]) if (actor.mapCell && cityApproachNear('scientist', actor.mapCell, 8) && sensoryLineOfSight(scientistMapCell(), actor.mapCell)) setLabMapOverlayEntry(assignments, actor.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: actor.name || actor.id, title: `Local rescue ${kind}`, value: kind === 'Driver' ? 'D' : 'V', source: 'Direct observation', target: { kind: 'tile', tile: actor.mapCell } }, map);
     if (localPrison) for (const actor of [...localPrison.r.crew, ...(localPrison.p.staff || [])]) if (actor.mapCell && cityApproachNear('scientist', actor.mapCell, 8)) setLabMapOverlayEntry(assignments, actor.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: actor.name, title: `Local corrections ${actor.role}`, value: actor.role === 'clinician' ? 'M' : 'G', source: 'Direct observation', target: { kind: 'tile', tile: actor.mapCell } }, map);
@@ -86323,6 +86383,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }) ? 1 : 0;
   }
   function cityDefenseAbsorb(actorId, cell, amount, damageTypes) {
+    const outer = outerApproachCover(actorId, cell, amount, damageTypes);
+    if (outer.absorbed) return outer;
     const s = state.cityDefense, actor = s && combatActor(actorId);
     if (!s || scientistIsDead() || ![CityDefense.GATE, ...CityDefense.COVERAGE].some(c => sameMapCell(c, cell))) return { damage: amount, absorbed: 0 };
     updateCityDefense(); const a = state.sovereignBargains.defender, c = cityDefenseContext();
@@ -86687,8 +86749,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     state.cityConfrontation = CityConfrontations.create(s, b, activeWorldRecord?.worldTheme || 'madcap');
     return state.cityConfrontation;
   }
-  function cityDefenderObserved() {
-    const d = state.sovereignBargains?.defender;
+  function cityDefenderObserved(d = state.sovereignBargains?.defender) {
+    if (outerApproachForDefender(d)) return Boolean(!scientistIsDead() && d.mapCell?.z === scientistMapCell()?.z
+      && WildernessBeasts.distance(scientistMapCell(), d.mapCell) <= 8 && sensoryLineOfSight(scientistMapCell(), d.mapCell));
     return Boolean(d && !scientistIsDead() && state.surveyExpeditions?.destination?.cityId === state.sovereignBargains.source.cityId
       && d.roomId === scientistRoomId() && WildernessBeasts.distance(scientistMapCell(), d.mapCell) <= 8
       && sensoryLineOfSight(scientistMapCell(), d.mapCell));
@@ -87633,18 +87696,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (['preparing', 'petitioning', 'active'].includes(s.phase) && !state.combat?.routineSuspension) suspendScientistRoutineWork('defender challenge');
     if (!['preparing', 'petitioning', 'active'].includes(s.phase) && state.combat?.routineSuspension?.reason === 'defender challenge') resumeScientistRoutineWork();
     if (s.phase !== 'active' && s.receipt && !CityConfrontations.active(state.cityConfrontation)
-      && !CityConfrontations.active(state.installationSeizure?.combat) && state.combat?.guarding?.scientist) stopScientistGuard({ quiet: true });
+      && !CityConfrontations.active(state.installationSeizure?.combat) && !outerApproachLocal() && state.combat?.guarding?.scientist) stopScientistGuard({ quiet: true });
     refreshDefenderChallengeKnowledge(); return changed ? 1 : 0;
   }
-  function damageCityDefender(amount, options = {}) {
-    const b = state.sovereignBargains, actor = b?.defender;
+  function damageCityDefender(amount, options = {}, actor = state.sovereignBargains?.defender) {
+    const foreign = outerApproachForDefender(actor), b = foreign?.foreignCivic?.bargain || state.sovereignBargains;
     if (!actor || actor.status === 'dead' || amount <= 0) return false;
-    const result = options.injuryProgress ? { damage: amount, absorbed: 0 } : CityConfrontations.active(state.installationSeizure?.combat)
+    const result = options.injuryProgress ? { damage: amount, absorbed: 0 } : foreign
+      ? OuterApproach.personalAbsorb(foreign.outerApproach, actor, amount, actorIsIncapacitated(actor) || actor.magicSuppressed || actor.suppressionActive) : CityConfrontations.active(state.installationSeizure?.combat)
       ? CityConfrontations.absorb(state.installationSeizure.combat, b, amount, actorIsIncapacitated(actor)) : CityConfrontations.active(state.cityConfrontation)
       ? CityConfrontations.absorb(state.cityConfrontation, b, amount, actorIsIncapacitated(actor)) : DefenderChallenges.absorb(state.defenderChallenge, b, amount);
     actor.health = Math.max(0, actor.health - result.damage);
-    if (result.absorbed && cityDefenderObserved()) addEvent(`${actor.name}'s projection ward absorbed ${result.absorbed}; personal energy was spent.`, { sourceKind: 'cityDefender', sourceId: actor.id });
-    if (result.damage && !options.injuryProgress) recordCombatInjury(actor, result.damage, options.damageTypes || ['physical'], 'City defender combat trauma', { observed: cityDefenderObserved() });
+    if (result.absorbed && cityDefenderObserved(actor)) addEvent(`${actor.name}'s projection ward absorbed ${result.absorbed}; personal energy was spent.`, { sourceKind: 'cityDefender', sourceId: actor.id });
+    if (result.damage && !options.injuryProgress) recordCombatInjury(actor, result.damage, options.damageTypes || ['physical'], 'City defender combat trauma', { observed: cityDefenderObserved(actor) });
     if (!actor.health) { actor.status = 'dead'; actor.diedAt = state.clock; }
     return true;
   }
@@ -91994,7 +92058,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const working = Boolean(walking || task && task.type !== "rest" && !taskBlockReason(task));
     const result = fieldCharterOwnsRoad() ? WildernessSurvival.advance(before, state.clock, { working, resting: task?.type === 'rest',
       destination: state.overlandApproach?.weather, sheltered: false, carriedRadioIds: surveyCarriedStacks().map(i => i.id) }) : overlandOnRoad() ? advanceOverlandWithNeeds(before)
-      : WildernessSurvival.advance(before, state.clock, { working, resting: scientistInClinicCare() || task?.type === "rest", destination: scientistInWilderness() ? activeWildernessSite().destination : null, sheltered: wildernessSheltered(), temperatureAt: fieldRefugeOccupant() && refugeTemperatures ? at => refugeTemperatures.values[Math.floor(at - refugeTemperatures.fromAt)] : null, carriedRadioIds: surveyCarriedStacks().map((stack) => stack.id) });
+      : WildernessSurvival.advance(before, state.clock, { working, resting: scientistInClinicCare() || task?.type === "rest", destination: outerApproachLocal() ? outerApproachGate() : scientistInWilderness() ? activeWildernessSite().destination : null, sheltered: wildernessSheltered(), temperatureAt: fieldRefugeOccupant() && refugeTemperatures ? at => refugeTemperatures.values[Math.floor(at - refugeTemperatures.fromAt)] : null, carriedRadioIds: surveyCarriedStacks().map((stack) => stack.id) });
     state.wildernessSurvival = result.state;
     if (result.warning) { surveyEvent("Field Survival warning: thirst, hunger, exertion, or exposure is worsening. Reach supplies, rest, shelter, or withdraw before the condition becomes critical."); state.paused = true; }
     if (result.damage) {
@@ -93950,7 +94014,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       visitorPermit: Boolean(g && foreignVisitorPermission(g)), routeOpen: Boolean(routeOpen),
       reagentAsk: ask('assayReagent'), partsAsk: ask('metalParts'),
       depotAvailable: Boolean(g?.materialized && g.clerk?.status === 'alive' && g.clerk.health >= 50
-        && labMapCellIsWalkable({ x: 10, y: 8, z: g.z })) };
+        && !OuterApproach.depotBlocked(g.outerApproach, g.intercityCompact?.source.depotId) && labMapCellIsWalkable({ x: 10, y: 8, z: g.z })) };
   }
   function ensureIntercityCompact(g = passengerReceptionGate()) {
     if (!g || scientistIsDead() || g.intercityCompact) return g?.intercityCompact || null;
@@ -93971,7 +94035,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { stacks: ensurePhysicalItemStacks,
       stage: (r, receipt) => {
         const cell = { x: 10, y: 8, z: g.z };
-        if (!labMapCellIsWalkable(cell)) return null;
+        if (OuterApproach.depotBlocked(g.outerApproach, s.source.depotId) || !labMapCellIsWalkable(cell)) return null;
         return createPhysicalItemStack('resources', 'assayReagent', 1, { roomId: g.checkpointRoomId, cell },
           { known: false, suppressEvidence: true, tags: ['legalfreight', 'compact-earned'], sourceLabels: [s.id, r.id, g.cityId, receipt.destination.propertyId, 'Original earned compact depot freight; scientist-owned'] });
       },
@@ -96025,6 +96089,183 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
 
+  function outerApproachGates() { return (state.penalFlights?.assistance?.cityApproach?.gates || []).filter(g => g.outerApproach); }
+  function outerApproachGate() {
+    return passengerReceptionGate(state.outerApproachVisit?.cityId || (intercityMarchActive() ? state.intercityMarch.operation.plan.cityId : ''));
+  }
+  function outerApproachRooms(g) { return g?.outerApproach ? [g.outerApproach.layout.roomId, g.checkpointRoomId] : []; }
+  function outerApproachLocal(g = outerApproachGate()) {
+    return Boolean(g?.outerApproach && state.outerApproachVisit?.cityId === g.cityId
+      && state.outerApproachVisit.bodyEpoch === ensureScientistIdentity().bodyEpoch && outerApproachRooms(g).includes(scientistRoomId()));
+  }
+  function outerApproachForDefender(a) { return a && outerApproachGates().find(g => g.outerApproach.defenderId === a.id); }
+  function outerApproachSource(g) {
+    return g?.preparedOuterApproachTestSource || (g && CityDefense.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, g.cityId));
+  }
+  function ensureOuterApproach() {
+    const g = outerApproachGate(), site = overlandStopSite(), o = state.intercityMarch?.operation;
+    if (!g || !site || !intercityMarchActive() || o.stagedAt == null || state.overlandExpedition.trip.positionKm !== state.overlandExpedition.route.distanceKm
+      || scientistIsDead() || !g.materialized || state.cityDefense?.source.cityId === g.cityId || state.sovereignBargains?.source.cityId === g.cityId) return null;
+    if (g.outerApproach) return g.outerApproach;
+    const source = outerApproachSource(g), civicSource = g.preparedForeignCivicTestSource || ForeignCivicBargains.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, g);
+    if (!source || !civicSource) return null;
+    if (!g.foreignCivic) g.foreignCivic = ForeignCivicBargains.create(g, civicSource, { theme: state.worldTheme, seed: state.seed });
+    const b = g.foreignCivic?.bargain; if (!b) return null;
+    DefenderChallenges.prepareDefender(b);
+    const point = (x, y) => ({ x, y, z: g.z }), layout = { roomId: cleanRoomId(`${g.id}-outer-ward-frontage`),
+      entry: point(6, 16), post: point(11, 12), service: point(10, 13), receiving: point(10, 14), structure: point(10, 12),
+      stagingSiteId: site.id, stagingRoomId: site.roomId, stagingEntry: clonePlainObject(site.entry), linkMeters: 20 };
+    const s = OuterApproach.create(source, b, layout, { worldId: activeWorldRecord.id, runId: activeRunRecord.id }, state.clock);
+    if (!s) return null;
+    const room = normalizeRoom({ id: layout.roomId, name: `${source.cityName} Outer Ward-Service Frontage`, facilityClass: 'roadsideStop', purposeId: 'corridor',
+      connections: [g.checkpointRoomId], description: 'Original city fortification frontage. No inner admission, construction title or ownership.',
+      geometry: { lengthM: 8, widthM: 7, heightM: 3, floorAreaM2: 56, volumeM3: 168 } });
+    const rect = { roomId: room.id, x: 5, y: 11, z: g.z, width: 8, height: 7 }, cells = rectangularRoomCells(rect), map = ensureLabMap();
+    if (cells.some(c => Object.values(map.rooms).some(r => r.cells?.some(p => sameMapCell(p, c))))) return null;
+    state.rooms = normalizeRooms([...state.rooms, room].map(r => r.id === g.checkpointRoomId ? { ...r, connections: [...new Set([...r.connections, room.id])] } : r));
+    map.rooms[room.id] = normalizeLabMapRoom({ ...rect, cells, anchor: layout.entry }, room);
+    map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...cells]);
+    map.terrain.surfaceGround = [...(map.terrain.surfaceGround || []), ...cells.map(cell => ({ cell, terrainId: 'gravel' }))];
+    map.terrain.constructedWalls = normalizeConstructedSurfaces([...map.terrain.constructedWalls,
+      { cell: layout.structure, materialId: 'stoneBlocks', purpose: 'wall', condition: source.condition, builtAt: 0 }]);
+    state.roomStockpiles[room.id] = emptyRoomStockpile(); g.outerApproach = s; bumpNavigationRevision('topology'); return s;
+  }
+  function outerApproachContext(g) {
+    const s = g.outerApproach, b = g.foreignCivic.bargain, a = b.defender, cell = scientistMapCell(),
+      local = outerApproachLocal(g) || Boolean(passengerLanded() && state.intercityPassenger?.location === g.cityId && outerApproachRooms(g).includes(scientistRoomId()));
+    const sees = (from, to, range = 8) => Boolean(from && to && from.z === to.z && WildernessBeasts.distance(from, to) <= range && sensoryLineOfSight(from, to));
+    const wall = constructedWallAtCell(s.layout.structure), visible = local && sees(cell, s.layout.structure);
+    const task = scientistQueueTasks().find(t => t.data?.action === 'outerApproachTravel');
+    const transitProgress = task?.data.returning && task.data.movement?.completed
+      ? clamp((state.clock - (task.dueAt - task.data.linkSeconds)) / task.data.linkSeconds, 0, 1) : 0;
+    const people = [a, b.representative, g.clerk, g.guard].filter(p => p?.mapCell);
+    const witnesses = people.filter(p => p.status === 'alive' && !actorIsIncapacitated(p) && local && sees(p.mapCell, cell, 6));
+    const atBoth = local && [s.layout.receiving, s.layout.service].every(p => WildernessBeasts.distance(cell, p) <= 1 && sees(cell, p));
+    const clearAccess = [s.layout.receiving, s.layout.service].every(p => labMapCellIsWalkable(p)
+      && !labMapCellIsPathBlocked(p, { actor: state.scientist, skipPlacement: true })
+      && !people.some(a => a.status === 'alive' && sameMapCell(a.mapCell, p)));
+    const contest = [s.layout.receiving, s.layout.service].some(p => sees(a.mapCell, p, a.wardMana >= 12 ? 6 : 1)
+      && directedLineOfEffect(a.mapCell, p)) && (a.wardMana >= 12 || a.stamina >= 6);
+    return { source: outerApproachSource(g), worldId: activeWorldRecord?.id, runId: activeRunRecord?.id,
+      alive: !scientistIsDead(), capable: annexCapable(), free: annexCapable(), local, bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      cell, busy: scientistQueueTasks().length > 0 || Boolean(state.combat?.pendingActions.scientist), departing: Boolean(task?.data.returning), transitProgress,
+      structurePresent: Boolean(wall), condition: wall?.condition || 0, structureVisible: visible,
+      observed: local && sees(cell, s.layout.receiving) && sees(cell, s.layout.service),
+      defenderObserved: cityDefenderObserved(a), defenderIncapacitated: actorIsIncapacitated(a), suppressed: Boolean(a.magicSuppressed || a.suppressionActive),
+      otherDuty: Boolean(a.assignment && a.assignment !== s.station.duty.id), defenderCanContest: contest,
+      defenderSeesScientist: local && sees(a.mapCell, cell, 8) && transitProgress * s.layout.linkMeters <= 6,
+      pulseVisible: local && (cityDefenderObserved(a) || s.pendingPulse && sees(cell, s.pendingPulse.targetCell)),
+      distanceM: local && a.mapCell?.z === cell.z ? WildernessBeasts.distance(cell, a.mapCell) + transitProgress * s.layout.linkMeters : Infinity,
+      attackLine: local && directedLineOfEffect(a.mapCell, cell), atBoth, clearAccess,
+      witnessIds: witnesses.map(p => p.id), observedWitnessIds: witnesses.filter(p => sees(cell, p.mapCell)).map(p => p.id) };
+  }
+  function updateOuterApproaches() {
+    if (scientistIsDead()) return 0;
+    let changed = 0;
+    for (const g of outerApproachGates()) {
+      const s = g.outerApproach, b = g.foreignCivic?.bargain; if (!b) continue;
+      changed += Number(OuterApproach.advance(s, b, state.clock, () => outerApproachContext(g), {
+        move: (a, to) => moveDefenderParticipant(a, to, { ignoreDoors: false, skipPlacement: true,
+          blockedCellKeys: labMapBlockingCellKeys(ensureLabMap(), { actor: a, skipPlacement: true }) }),
+        strike: () => resolveSharedCombatAction(b.defender.id, 'strike', { kind: 'creature', id: 'scientist', lastKnownCell: scientistMapCell() }),
+        pulse: n => { damageScientistCombat(Math.max(1, Math.round(n * combatGuardDamageMultiplier('scientist'))), 'Outer approach defender force pulse', { damageTypes: ['physical', 'force'], directCombat: true });
+          emitMapFeedback('feedbackImpact', scientistMapCell(), { label: 'Outer approach pulse', damageTags: ['force'], intensityBand: 'high' }); },
+        telegraph: pulse => { if (outerApproachContext(g).pulseVisible) { emitMapFeedback('feedbackImpact', pulse.targetCell, { label: 'Outer approach pulse — move or guard', intensityBand: 'high' }); state.paused = true; } }
+      }));
+      for (const r of s.reports) if (r.evidenceAt == null) {
+        r.evidenceAt = state.clock;
+        recordInvestigativeEvidence('outerApproachConduct', { category: 'documentary', label: `${r.kind}; witnessed conduct, not a conviction`, significance: 'serious',
+          origin: { kind: 'witness', id: r.witnessId, label: 'Original receiving-approach witness' }, subject: { kind: 'scientist', id: 'scientist' },
+          locus: { kind: 'mapCell', roomId: s.layout.roomId, cell: r.cell, label: 'Outer receiving approach' },
+          traits: [r.kind, 'no automatic guilt or arrest'], persistence: { kind: 'permanent' },
+          knowledge: { state: r.communicated ? 'known' : 'unknown', learnedAt: r.communicated ? r.at : null, source: 'outerApproach', sourceIdentityKnown: r.communicated } });
+      }
+      OuterApproach.observe(s, b, outerApproachContext(g), state.clock);
+    }
+    return changed;
+  }
+  function outerApproachCover(actorId, cell, amount, damageTypes) {
+    const g = outerApproachGates().find(g => g.outerApproach.defenderId !== actorId && [g.outerApproach.layout.structure,
+      ...g.outerApproach.station.layout.coverage].some(p => sameMapCell(p, cell)));
+    const actor = actorId && combatActor(actorId);
+    if (!g || !actor || scientistIsDead() || actorId !== 'scientist' && actor.actorKind !== 'wildernessBeast') return { damage: amount, absorbed: 0 };
+    const c = outerApproachContext(g); c.attackLine = Boolean(directedLineOfEffect(combatActorCell(actor), cell));
+    return OuterApproach.absorb(g.outerApproach, g.foreignCivic.bargain, c, amount, damageTypes, cell, state.clock);
+  }
+  function outerApproachTravelReason(data, working = false) {
+    const g = passengerReceptionGate(data.cityId), s = g?.outerApproach, o = state.intercityMarch?.operation;
+    if (!s || !intercityMarchActive() || o.plan.cityId !== g.cityId || data.bodyEpoch !== ensureScientistIdentity().bodyEpoch || !annexCapable())
+      return 'The original living free expedition body, city and staging site are required.';
+    if (!working && surveyBusy()) return 'Finish current physical work first.';
+    const point = data.returning ? s.layout.stagingEntry : s.layout.entry;
+    if (!labMapCellHasFloor(point) || !labMapCellIsWalkable(point) || !canActorOccupyTile(state.scientist, point)) return 'Original receiving entry is obstructed; no substituted destination.';
+    if (!data.returning) {
+      if (!overlandStopSite() || scientistRoomId() !== s.layout.stagingRoomId) return 'Personally reach the original exterior staging ground first.';
+      const threats = currentRegionalEncounters()?.beasts.actors || [];
+      if (threats.some(a => a.status !== 'dead' && a.routeId === state.overlandExpedition.route.id
+        && (a.regionalPhase === 'following' && Math.abs(a.positionKm - state.overlandExpedition.trip.positionKm) <= .03
+          || a.roomId === scientistRoomId() && ['pursue', 'investigate'].includes(a.behavior))))
+        return 'Resolve immediate pursuit on actual staging ground before aggregating this short approach; no escape teleport is supplied.';
+    } else if (!outerApproachLocal(g)) return 'Physically attend the original frontage before returning to staging.';
+    return '';
+  }
+  function outerApproachAction(action) {
+    if (!annexCapable()) return false;
+    let g = outerApproachGate(), s = g?.outerApproach;
+    if (action === 'approach') { s ||= ensureOuterApproach(); g = outerApproachGate(); }
+    if (!s) return false;
+    if (['approach', 'return'].includes(action)) {
+      const returning = action === 'return', data = { cityId: g.cityId, returning, bodyEpoch: ensureScientistIdentity().bodyEpoch };
+      if (outerApproachTravelReason(data)) return false;
+      const seconds = s.layout.linkMeters / Math.max(.01, scientistMoveSpeedMps());
+      const ok = queueSurveyWork('outerApproachTravel', returning ? s.layout.entry : s.layout.stagingEntry,
+        { ...data, workSeconds: seconds, linkSeconds: seconds * WildernessSurvival.fatigueMultiplier(state.wildernessSurvival), label: returning ? 'Walk twenty metres back to original staging ground' : 'Walk twenty metres to original receiving frontage' });
+      if (ok && returning) OuterApproach.end(s, state.clock, 'Abandoned approach claim; actual withdrawal remains necessary.');
+      return Boolean(ok);
+    }
+    const c = outerApproachContext(g); let ok = false;
+    if (action === 'claim') ok = OuterApproach.begin(s, g.foreignCivic.bargain, c, state.clock);
+    if (action === 'abandon') ok = OuterApproach.end(s, state.clock, 'Personally abandoned the claim; no ownership, pardon or agreement follows.');
+    if (action === 'guard' && c.local) return startScientistGuard();
+    if (['strike', 'soulLash'].includes(action) && c.defenderObserved) return beginScientistCombatAction(action, g.foreignCivic.bargain.defender.id);
+    if (action === 'structure' && c.structureVisible) return strikeStructure(s.layout.structure);
+    if (ok) { updateOuterApproaches(); persist(); render(); } return ok;
+  }
+  function completeOuterApproachTravel(task) {
+    if (outerApproachTravelReason(task.data, true) || !sameMapCell(scientistMapCell(), task.data.toCell)) return;
+    const g = passengerReceptionGate(task.data.cityId), s = g.outerApproach;
+    s.travelReceipts ||= []; s.travelReceipts.push({ id: task.id, at: state.clock, meters: s.layout.linkMeters, returning: task.data.returning, bodyEpoch: task.data.bodyEpoch });
+    if (task.data.returning) { state.outerApproachVisit = null; moveSurveyScientist(s.layout.stagingRoomId, s.layout.stagingEntry); }
+    else { state.outerApproachVisit = { cityId: g.cityId, bodyEpoch: task.data.bodyEpoch, siteId: s.layout.stagingSiteId };
+      moveSurveyScientist(s.layout.roomId, s.layout.entry); }
+    state.paused = true; markStateDirty();
+  }
+  function renderOuterApproach() {
+    const panel = document.createElement('section'); panel.dataset.outerApproach = 'true'; panel.className = 'subpanel';
+    panel.append(textEl('h3', 'Contested Outer Receiving Approach'), textEl('p', OuterApproach.LIMITS));
+    const g = outerApproachGate(), s = g?.outerApproach, local = outerApproachLocal(g), v = s?.observations;
+    const button = (label, action, disabled = false) => { const b = document.createElement('button'); b.textContent = label; b.dataset.outerApproachAction = action;
+      b.disabled = Boolean(disabled || scientistIsDead() || !annexCapable()); b.onclick = () => outerApproachAction(action); panel.append(b); };
+    if (!local) {
+      panel.append(textEl('p', 'The existing receiving frontage is twenty metres from reached exterior staging ground. Walk there physically; no inner admission or safe passage is promised. Missing supported city defenses or original people cannot be replaced by this action.'));
+      button('Approach original receiving frontage on foot', 'approach', !overlandStopSite() || surveyBusy());
+    } else {
+      panel.append(textEl('p', 'Use normal map walking, cover and shared combat. Hold clear access within one metre of both receiving and service points for ten uninterrupted seconds against actual capable resistance. A maintained claim can hold up original depot freight; it does not disable the inner city.'));
+      button('Declare contested control of receiving approach', 'claim', surveyBusy() || OuterApproach.claiming(s));
+      button('Abandon receiving-approach claim', 'abandon', !OuterApproach.claiming(s));
+      button('Walk back to original staging ground', 'return', surveyBusy());
+      button('Guard against approach defender', 'guard');
+      for (const a of ['strike', 'soulLash']) button(a === 'strike' ? 'Strike approach defender' : 'Soul Lash approach defender', a,
+        !outerApproachContext(g).defenderObserved || Boolean(scientistCombatActionBlockReason(a, g.foreignCivic.bargain.defender)));
+      button('Strike original ward-service structure', 'structure', !outerApproachContext(g).structureVisible);
+      for (const key of ['drinkingWater', 'trailMeal']) { const b = document.createElement('button'); b.textContent = `Use carried ${inventoryItemLabel(key)}`;
+        b.disabled = surveyBusy() || !survivalSupply(key, true); b.onclick = () => queueSurvivalConsumption(key); panel.append(b); }
+    }
+    if (v) { panel.append(textEl('p', `Personally observed ${formatClock(v.at)}: ${v.phase}; maintained clear access ${v.progress}/10 seconds. ${v.condition == null ? 'Structure not inspected.' : `Visible original structure condition ${v.condition}.`} This record does not refresh while away.`));
+      if (v.pendingPulse) panel.append(textEl('p', `Approach pulse marked ${v.pendingPulse.targetCell.x},${v.pendingPulse.targetCell.y}; release ${formatClock(v.pendingPulse.releaseAt)}. Move or guard.`)); }
+    for (const task of scientistQueueTasks()) { const b = document.createElement('button'); b.textContent = `Cancel ${task.label}`; b.onclick = () => cancelTask(task.id); panel.append(b); }
+    return panel;
+  }
   function overlandKnownStops() {
     const s = state?.roadsideStops;
     return s?.worldId === activeWorldRecord?.id && s?.runId === activeRunRecord?.id ? s.sites : [];
@@ -96153,6 +96394,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     moveSurveyScientist(site.roomId, site.entry); placeRegionalBeasts(site); observeWildernessBeasts(); state.paused = true; markStateDirty(); return true;
   }
   function roadsideResumeReason(task = null) {
+    if (outerApproachLocal()) return 'Physically walk back to original staging ground before resuming the intercity route.';
     const s = overlandStopSite(), t = state.overlandExpedition;
     if (!s || t.trip.status !== 'stopped') return 'The original stopped route position is required.';
     if (!overlandRoute()) return 'The received approach is no longer traversable; no invented replacement route or directions.';
@@ -96444,7 +96686,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     button('Stop and drink carried water', 'water', busy || !survivalSupply('drinkingWater', true));
     button('Stop and eat carried meal', 'meal', busy || !survivalSupply('trailMeal', true)); button('Rest here for 15 minutes', 'rest', busy);
     const needs = ensureWildernessSurvival(), sheltered = Boolean(overlandStopSite() && wildernessSheltered()); panel.append(textEl('p', `Thirst ${Math.round(needs.thirst)}/100; hunger ${Math.round(needs.hunger)}/100; exertion ${Math.round(needs.exertion)}/100; exposure ${Math.round(needs.exposure)}/100. ${WildernessSurvival.conditions(state.overlandApproach.weather, state.clock, sheltered).label}; ${sheltered ? 'occupying the original deployed shelter' : 'not sheltered'}.`));
-    if (overlandStopSite()) { panel.append(renderRoadsideStop()); panel.append(renderWildernessBeastsPanel()); }
+    if (overlandStopSite()) { panel.append(renderRoadsideStop()); panel.append(renderWildernessBeastsPanel());
+      if (intercityMarchActive() && state.overlandExpedition.trip.positionKm === state.overlandExpedition.route.distanceKm) panel.append(renderOuterApproach()); }
     if (currentFieldCharter()?.scientistReleased && fieldCharterLocalSite()) panel.append(renderFieldCharter());
     for (const task of scientistQueueTasks()) { const b = document.createElement('button'); b.textContent = `Cancel ${task.label}`; b.disabled = scientistIsDead(); b.onclick = () => cancelTask(task.id); panel.append(b); }
     for (const injury of actorInjuries('scientist').filter(i => i.status !== 'healed')) {
@@ -96475,11 +96718,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function surveyScientistAway() { return passengerAway() || Boolean(state?.surveyExpeditions && state.surveyExpeditions.phase !== "home"); }
   function surveyScientistReserved() { return surveyScientistAway() || Boolean(state?.surveyExpeditions?.preparing); }
   function surveyTaskAllowed(task) {
+    if (outerApproachLocal()) return task.type === 'scientistMove' && outerApproachRooms(outerApproachGate()).includes(task.data?.toRoomId)
+      || task.type === 'rest' || task.type === 'injuryTreatment' && task.data?.targetActorId === 'scientist'
+      || task.type === 'surveyExpeditionWork' && ['consume', 'radioBattery', 'outerApproachTravel'].includes(task.data?.action);
     if (overlandOnRoad()) return state.overlandExpedition.trip.status === 'stopped' && (task.type === 'rest'
       || task.type === 'scientistMove' && overlandStopSite() && task.data?.toRoomId === scientistRoomId()
       || task.type === 'injuryTreatment' && task.data?.targetActorId === 'scientist'
       || task.type === 'surveyExpeditionWork' && (['consume', 'radioBattery'].includes(task.data?.action)
-        || overlandStopSite() && ['overlandResume', 'deployShelter', 'packShelter'].includes(task.data?.action)
+        || overlandStopSite() && ['overlandResume', 'outerApproachTravel', 'deployShelter', 'packShelter'].includes(task.data?.action)
         || overlandStopSite() && task.data?.action === 'pack' && task.data?.roadsideStopId === overlandStopSite().id));
     if (passengerReceptionGate()?.researchInquiry?.job) return false;
     if (passengerReceptionGate()?.visitorAdmission?.job) return false;
@@ -96914,6 +97160,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function surveyWorkBlockReason(task) {
+    if (task.data?.action === 'outerApproachTravel') return outerApproachTravelReason(task.data, true);
     if (task.data?.action === 'intercityMarchDepart') return intercityMarchDepartureReason(task);
     if (task.data?.roadsideSiteId && (overlandStopSite()?.id !== task.data.roadsideSiteId
       || task.data.roadsideBodyEpoch !== ensureScientistIdentity().bodyEpoch)) return 'The original roadside work body or location changed.';
@@ -97041,6 +97288,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function completeSurveyWork(task) {
+    if (task.data?.action === 'outerApproachTravel') { completeOuterApproachTravel(task); return; }
     if (task.data?.fieldWaterWork) { completeFieldWaterWork(task); return; }
     if (task.data?.fieldStationService) { completeFieldRefugeService(task); return; }
     if (task.data?.action === 'overlandResume') { if (!roadsideResumeReason(task) && sameMapCell(scientistMapCell(), overlandStopSite().entry)) resumeFromRoadside(task); return; }
@@ -97188,6 +97436,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function renderSurveyExpeditions() {
+    if (outerApproachLocal()) return renderOuterApproach();
     if (fieldCharterOwnsRoad() || currentFieldCharter()?.boarded.includes('scientist')) return renderFieldCharter();
     if (overlandOnRoad()) return renderOverlandExpedition();
     if (passengerAway()) return renderIntercityPassenger();
@@ -104266,7 +104515,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.unsupportedExcursions = UnsupportedExcursions.normalizeState(candidate?.unsupportedExcursions);
     next.medicalExtraction = MedicalExtraction.normalizeState(candidate?.medicalExtraction);
     next.penalFlights = PenalFlights.normalizeState(candidate?.penalFlights);
-    for (const g of next.penalFlights.assistance?.cityApproach?.gates || []) g.intercityCompact = IntercityCompact.normalize(g.intercityCompact);
+    for (const g of next.penalFlights.assistance?.cityApproach?.gates || []) {
+      g.intercityCompact = IntercityCompact.normalize(g.intercityCompact); g.outerApproach = OuterApproach.normalize(g.outerApproach);
+    }
+    next.outerApproachVisit = candidate?.outerApproachVisit ? clonePlainObject(candidate.outerApproachVisit) : null;
     next.wildernessBeasts = WildernessBeasts.normalizeState(candidate?.wildernessBeasts);
     next.expeditionEscorts = ExpeditionEscorts.normalizeState(candidate?.expeditionEscorts);
     const opening = candidate?.themeContent?.opening;
