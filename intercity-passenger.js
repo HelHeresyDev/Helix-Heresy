@@ -82,7 +82,7 @@
       delayRevealed: false, manifest: clone(manifest), arrivalWindow: { start: at + b.seconds, end: at + b.seconds + 900 } };
     s.booking = null; s.phase = b.outbound ? 'outbound' : 'inbound'; s.lastAt = at; return true;
   }
-  function advance(s, network, at, alive = true) {
+  function advance(s, network, at, alive = true, checkpoint = null) {
     if (!s || !alive) return false;
     const dt = Math.max(0, at - s.lastAt); s.lastAt = at;
     if (!dt) return false;
@@ -95,6 +95,7 @@
     if (!moving(s)) return supplied > 0;
     const t = s.trip, route = neighbors(network, s.homeCityId).find(e => e.route.id === t.routeId && e.destination.id === t.destinationId);
     s.hold = !route ? 'The booked corridor is closed or no longer supported.' : s.driver.health < 50 || s.vehicle.condition < 50 ? 'Original crew or vehicle incapacitated.' : '';
+    if (t.checkpoint && !t.checkpoint.cleared) s.hold = 'Reached the original joint stronghold receiving ground. Inspection service is required; wait or physically turn back. No safe passage, resupply or sovereignty is granted.';
     if (s.hold) { t.arrivalWindow.start += dt; t.arrivalWindow.end += dt; return true; }
     let work = Math.min(supplied, Math.max(0, (80 - s.driver.fatigue) / 3 * 3600));
     const speed = t.km / t.seconds;
@@ -103,8 +104,14 @@
       t.delayRevealed = true; const delay = Math.min(work, t.delaySeconds); t.delaySeconds -= delay; work -= delay;
     }
     work = Math.min(work, t.seconds - t.progressSeconds);
+    if (checkpoint && !t.returningEarly && !t.checkpoint?.cleared && checkpoint.km >= t.distanceKm - 1e-9 && checkpoint.km < t.km)
+      work = Math.min(work, Math.max(0, checkpoint.km - t.distanceKm) / speed);
     t.progressSeconds += work; const km = work * speed; t.distanceKm += km;
     s.vehicle.fuelKm = Math.max(0, s.vehicle.fuelKm - km); s.vehicle.condition -= km * .02; s.driver.fatigue += work / 3600 * 3;
+    if (checkpoint && !t.returningEarly && !t.checkpoint?.cleared && Math.abs(t.distanceKm - checkpoint.km) < 1e-8) {
+      t.distanceKm = checkpoint.km; t.checkpoint = { id: checkpoint.id, km: checkpoint.km, arrivedAt: at, cleared: false };
+      s.hold = 'Reached the original joint stronghold receiving ground. Inspection service is required; wait or physically turn back.'; return true;
+    }
     if (t.progressSeconds >= t.seconds - .000001) {
       s.location = t.outbound ? t.destinationCityId : s.homeCityId; s.phase = 'arrival';
       t.arrivedAt = at; s.receipts.push({ id: t.id, at, fee: t.fee, destination: s.location }); return true;
@@ -116,6 +123,15 @@
   function disembark(s) {
     if (s?.phase !== 'arrival') return false;
     s.phase = s.location === s.homeCityId ? 'home' : 'foreign'; return true;
+  }
+  function turnBack(s, at) {
+    const t = s?.trip;
+    if (!moving(s) || !t?.checkpoint || t.checkpoint.cleared || t.returningEarly || t.distanceKm <= 0) return false;
+    const secondsPerKm = t.seconds / t.km;
+    t.returningEarly = { at, originalKm: t.km, originalSeconds: t.seconds, originalOutbound: t.outbound, fromKm: t.distanceKm };
+    t.km = t.distanceKm; t.seconds = t.km * secondsPerKm; t.progressSeconds = 0; t.distanceKm = 0;
+    t.outbound = !t.outbound; t.checkpoint = null; t.delaySeconds = 0;
+    s.phase = t.outbound ? 'outbound' : 'inbound'; s.hold = ''; s.lastAt = at; return true;
   }
   function rest(s) {
     if (!s || moving(s) || s.booking || s.rest || s.provisionsSeconds < 8 * 3600 || s.driver.health < 50) return false;
@@ -192,7 +208,7 @@
     c.otherCarrier = selected;
     return other;
   }
-  return { create, neighbors, load, quote, reason, book, cancel, boardingReason, board, advance, disembark, rest, publicView, away, moving,
+  return { create, neighbors, load, quote, reason, book, cancel, boardingReason, board, advance, disembark, rest, publicView, away, moving, turnBack,
     connection, connectionDestinations, selectConnection, PROVISION_SECONDS, PROVISION_CAP, HANDOFF_SECONDS,
     provisionPlan, advanceProvisionWork, receiveProvisions };
 });

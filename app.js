@@ -158,6 +158,7 @@
   const LocalPatchGraph = window.HelixLocalPatchGraph;
   const OverlandExpedition = window.HelixOverlandExpedition;
   const IntercityMarch = window.HelixIntercityMarch;
+  const JointTransit = window.HelixJointTransit;
   const OuterApproach = window.HelixOuterApproach;
   const CampaignSettlement = window.HelixCampaignSettlement;
   const RoadsideStops = window.HelixRoadsideStops;
@@ -5565,6 +5566,7 @@
       expansionAtlas: null,
       overlandExpedition: null,
       intercityMarch: null,
+      jointTransit: null,
       outerApproachVisit: null,
       overlandApproach: null,
       roadsideStops: null,
@@ -13699,6 +13701,25 @@
       overlandAction,
       intercityMarchAction,
       outerApproachAction,
+      jointTransitAction,
+      jointTransitSnapshot: () => clonePlainObject({ ledger: state.jointTransit, localId: jointTransitLocal()?.id,
+        contexts: (state.jointTransit?.stations || []).map(s => ({ id: s.id, ...jointTransitContext(s) })), clock: state.clock,
+        passenger: state.intercityPassenger, roomId: scientistRoomId(), cell: scientistMapCell(),
+        stacks: ensurePhysicalItemStacks().filter(i => state.jointTransit?.stations.some(s => s.stockIds.includes(i.id))),
+        tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) }),
+      setJointTransitTestSource: source => { const ledger = ensureJointTransit();
+        if (!ledger || !JointTransit.validSource(source) || ledger.stations.some(s => s.id === source.id)) return false;
+        ledger.preparedSources = [...ledger.preparedSources.filter(s => s.corridorId !== source.corridorId), clonePlainObject(source)]; persist(); return true; },
+      advanceJointTransitForTest: (seconds, bulk = false) => {
+        if (bulk && !scientistQueueTasks().length && !(state.jointTransit?.stations || []).some(s => s.job)) {
+          state.clock += seconds; updateJointTransit(); updateIntercityPassenger(); updateWildernessNeeds();
+          syncActorInventories(); syncPhysicalReadModels(); persist(); render(); return;
+        }
+        for (let n = 0; n < seconds && !scientistIsDead(); n++) {
+          state.clock++; updateJointTransit(); updateIntercityPassenger(); updateScientistMovementTask(); completeDueTasks(); updateWildernessNeeds();
+        }
+        syncActorInventories(); syncPhysicalReadModels(); persist(); render();
+      },
       campaignSettlementAction,
       campaignSettlementSnapshot: () => { const g = outerApproachGate(); return clonePlainObject({
         saved: g?.outerApproach?.settlement, context: g?.outerApproach?.settlement && campaignSettlementContext(g),
@@ -18157,6 +18178,10 @@
       CampaignSettlement.bodyEnded(g.outerApproach.settlement, g, foreignSupplierMarket(g), state.clock);
     }
     state.outerApproachVisit = null;
+    if (state.jointTransit) {
+      state.jointTransit.visit = null;
+      for (const station of state.jointTransit.stations) JointTransit.cancel(station, state.clock, 'The original attending scientist body was lost; no journey or inspection is inherited.');
+    }
     if (state.intercityPassenger && (IntercityPassenger.away(state.intercityPassenger) || state.intercityPassenger.originOuter)) {
       state.intercityPassenger.phase = 'bodyLost';
       state.intercityPassenger.hold = 'The original passenger body was lost; its journey and waiting carriers remain archived, not inherited.';
@@ -20029,6 +20054,8 @@
     importedState.overlandExpedition = OverlandExpedition.rebind(importedState.overlandExpedition,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.intercityMarch = IntercityMarch.rebind(importedState.intercityMarch,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.jointTransit = JointTransit.rebindState(importedState.jointTransit,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     for (const g of importedState.penalFlights?.assistance?.cityApproach?.gates || []) g.outerApproach = OuterApproach.rebind(g.outerApproach,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
@@ -23597,6 +23624,7 @@
       return;
     }
     if (id === "administration") {
+      changes.strategicJourneyChanged += updateJointTransit();
       changes.propertyPresentationChanged += updatePropertyPresentationWeather();
       changes.strategicJourneyChanged += updateStrategicJourneys();
       changes.strategicJourneyChanged += updateIntercityPassenger();
@@ -34106,6 +34134,8 @@
     if (municipalSampleOfficer) return municipalSampleOfficer;
     const foreignCivicActor = context?.penalFlights?.assistance?.cityApproach?.gates.flatMap(g => [g.foreignCivic?.bargain.representative, g.foreignCivic?.bargain.defender]).find(a => a?.id === id);
     if (foreignCivicActor) return foreignCivicActor;
+    const transitOfficer = context?.jointTransit?.stations.flatMap(s => s.members).find(a => a.id === id);
+    if (transitOfficer) return transitOfficer;
     const foreignSurveyDriver = context?.penalFlights?.assistance?.cityApproach?.gates.map(g => g.foreignSurvey?.carrier.driver).find(a => a?.id === id);
     if (foreignSurveyDriver) return foreignSurveyDriver;
     if (supplier) return supplier;
@@ -34141,6 +34171,7 @@
     if (!context?.scientist || !Array.isArray(context.physicalItemStacks)) return false;
     const actors = [
       { id: "scientist", actor: context.scientist },
+      ...(context.jointTransit?.stations || []).flatMap(s => s.members).map(actor => ({ id: actor.id, actor })),
       ...(context.expeditionEscorts?.actor ? [{ id: context.expeditionEscorts.actor.id, actor: context.expeditionEscorts.actor }] : []),
       ...fieldForceMembers(context).map(m => ({ id: m.actor.id, actor: m.actor })),
       ...(context.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.escort?.actor).filter(Boolean).map(actor => ({ id: actor.id, actor })),
@@ -37610,6 +37641,8 @@
     if (clinician && clinician.id !== excludeActor?.id && mapCellKey(clinician.mapCell) === key) occupied += .6;
     for (const office of state.economy?.intercitySmuggling?.identityOffices || []) if (office.civicCounter && office.clerk.id !== excludeActor?.id && mapCellKey(office.clerk.mapCell) === key) occupied += .6;
     const provision = state.cityProvisioning;
+    for (const actor of state.jointTransit?.stations.flatMap(s => s.members) || [])
+      if (actor.id !== excludeActor?.id && mapCellKey(actor.mapCell) === key) occupied += .6;
     if (provision?.driver.mapCell && provision.driver.id !== excludeActor?.id && mapCellKey(provision.driver.mapCell) === key) occupied += .6;
     if (provision?.vehicle.mapCell && mapCellKey(provision.vehicle.mapCell) === key) occupied += 1;
     for (const actor of [state.sovereignBargains?.representative, state.sovereignBargains?.defender, state.religiousRecognition?.actor, ...citySuccessionPeople(), state.citySuccession?.appointments?.candidate])
@@ -41155,6 +41188,8 @@
   }
 
   function combatActor(actorId) {
+    const transitOfficer = state.jointTransit?.stations.flatMap(s => s.members).find(a => a.id === actorId);
+    if (transitOfficer) return transitOfficer;
     if (state.cityProvisioning?.driver.id === actorId) return state.cityProvisioning.driver;
     if (state.fieldCharter?.driver.id === actorId) return state.fieldCharter.driver;
     const porter = fieldEmployeeStates().find(s => s.actor.id === actorId)?.actor;
@@ -55878,6 +55913,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function scientistMoveBlockReason(toRoomId, options = {}) {
+    const transit = jointTransitLocal();
+    if (transit && toRoomId !== transit.layout.roomId) return 'The joint checkpoint grants no access beyond its actual receiving ground; use the original vehicle or route entry.';
     if (outerApproachLocal() && !outerApproachRooms(outerApproachGate()).includes(toRoomId)) return 'This exterior encounter grants no onward city admission.';
     if (overlandOnRoad() && (!overlandStopSite() || state.overlandExpedition.trip.status !== 'stopped' || toRoomId !== scientistRoomId()))
       return 'Local walking is confined to the actual stopped roadside patch; resume the measured journey through its route entry.';
@@ -68309,6 +68346,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function labMapOverlayAssignments(overlayId, map, context = {}) {
     const assignments = baseLabMapOverlayAssignments(overlayId, map, context);
+    for (const station of state.jointTransit?.stations || []) for (const actor of station.members) if (actor.mapCell?.z === scientistMapCell().z
+      && WildernessBeasts.distance(actor.mapCell, scientistMapCell()) <= 8 && sensoryLineOfSight(scientistMapCell(), actor.mapCell))
+      setLabMapOverlayEntry(assignments, actor.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: actor.name,
+        title: actor.status === 'dead' ? `Remains of ${actor.name}` : actor.name, value: actor.status === 'dead' ? '†' : 'J', source: 'Direct joint-checkpoint observation',
+        target: { kind: 'tile', tile: actor.mapCell } }, map);
     const front = outerApproachGate();
     if (front?.outerApproach && (outerApproachLocal(front) || front.outerApproach.settlement?.witnessAtStaging)) {
       const s = front.outerApproach, d = front.foreignCivic.bargain.defender;
@@ -95078,7 +95120,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function intercityLocal() {
     const s = state.intercityPassenger;
-    return atIntercityHomeStand() && (!s || s.location === s.homeCityId)
+    return Boolean(jointTransitLocal() && state.jointTransit.visit?.journeyId === s?.trip?.id)
+      || atIntercityHomeStand() && (!s || s.location === s.homeCityId)
       || s?.spaces && [s.spaces.outer.roomId, s.spaces.cabin?.roomId, passengerReceptionGate()?.annexRoomId].includes(scientistRoomId()) && passengerAway();
   }
   function selectIntercityConnection() {
@@ -95541,7 +95584,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return 1;
     }
     const oldPhase = s.phase, oldHold = s.hold;
-    const changed = IntercityPassenger.advance(s, ensureStrategicJourneys(), state.clock);
+    const checkpoint = passengerJointCheckpoint(s);
+    const changed = IntercityPassenger.advance(s, ensureStrategicJourneys(), state.clock, true, checkpoint);
+    if (s.trip?.checkpoint && !s.trip.checkpoint.cleared && checkpoint?.source) ensureJointStation(checkpoint.source, state.clock);
+    updateJointTransit();
     ensureIntercityMarch();
     const waitingChanged = IntercityPassenger.advance(state.passengerConnection?.otherCarrier, ensureStrategicJourneys(), state.clock);
     if (intercityLocal()) {
@@ -95554,6 +95600,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function renderIntercityPassenger() {
     const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.intercityPassenger = 'true';
     panel.append(textEl('strong', 'Direct-Neighbor and Second-Hop Passenger Travel'));
+    const heldStation = state.jointTransit?.stations.find(s => s.id === state.intercityPassenger?.trip?.checkpoint?.id);
+    if (heldStation && !state.intercityPassenger.trip.checkpoint.cleared) panel.append(renderJointTransit(heldStation));
     panel.append(renderTradeTripPreparation());
     panel.append(renderForeignResearchInquiry());
     panel.append(renderForeignSurvey());
@@ -96112,6 +96160,226 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
 
+  const jointTransitSources = new WeakMap();
+  function ensureJointTransit() {
+    if (!activeWorldRecord || !activeRunRecord) return null;
+    state.jointTransit ||= { worldId: activeWorldRecord.id, runId: activeRunRecord.id, stations: [], preparedSources: [], visit: null };
+    return state.jointTransit.worldId === activeWorldRecord.id && state.jointTransit.runId === activeRunRecord.id ? state.jointTransit : null;
+  }
+  function jointTransitSource(routeId) {
+    const ledger = ensureJointTransit(), route = state.strategicJourneys?.routes.find(r => r.id === routeId);
+    if (!ledger || !route) return null;
+    const prepared = ledger.preparedSources.find(s => s.corridorId === routeId);
+    if (prepared) return prepared;
+    const map = activeWorldRecord.generatedData?.strategicMap; if (!map) return null;
+    let cache = jointTransitSources.get(map); if (!cache) { cache = new Map(); jointTransitSources.set(map, cache); }
+    const key = `${route.id}:${route.distanceKm}:${route.endpointCityIds.join(':')}`;
+    if (!cache.has(key)) cache.set(key, JointTransit.sourceFromWorld(map, route,
+      (a, b) => StrategicWorld.greatCircleDistanceKm(map, StrategicWorld.cellIndex(a), StrategicWorld.cellIndex(b))));
+    return cache.get(key);
+  }
+  function passengerJointCheckpoint(carrier = state.intercityPassenger) {
+    const t = carrier?.trip; if (!IntercityPassenger.moving(carrier) || t.returningEarly) return null;
+    const source = jointTransitSource(t.routeId); if (!source) return null;
+    const fromHome = JointTransit.position(source, carrier.homeCityId);
+    return { id: source.id, km: t.outbound ? fromHome : source.distanceKm - fromHome, source };
+  }
+  function ensureJointStation(source, at, suppliedSite = null) {
+    const ledger = ensureJointTransit(); if (!ledger || !JointTransit.validSource(source)) return null;
+    let s = ledger.stations.find(s => s.id === source.id); if (s) return s;
+    const homeId = state.surveyExpeditions?.destination?.cityId;
+    if (!source.endpointCityIds.includes(homeId)) return null;
+    const z = Math.max(20, ...Object.keys(ensureLabMap().layers).map(Number).filter(Number.isFinite)) + 1;
+    const result = suppliedSite ? { state: state.roadsideStops, site: suppliedSite } : RoadsideStops.ensure(state.roadsideStops,
+      { worldId: ledger.worldId, runId: ledger.runId }, `intercity-march:${source.corridorId}`, JointTransit.position(source, homeId), at, z,
+      { temperatureC: 18, precipitationMm: 0 });
+    if (!result) return null;
+    state.roadsideStops = result.state; const site = result.site, point = (x, y) => ({ x, y, z: site.entry.z });
+    if (!state.rooms.some(r => r.id === site.roomId)) {
+      const room = normalizeRoom({ id: site.roomId, name: `${source.name || source.id} Receiving Ground`, facilityClass: 'roadsideStop', purposeId: 'corridor', connections: [],
+        description: 'One original joint-stronghold receiving station, not unrestricted fort access or a new settlement.',
+        geometry: { lengthM: 12, widthM: 10, heightM: 3, floorAreaM2: 120, volumeM3: 360 } });
+      state.rooms = normalizeRooms([...state.rooms, room]); const map = ensureLabMap(), cells = site.baseline.map(t => t.cell);
+      map.layers[String(site.entry.z)] = { id: site.roomId, kind: 'surface', label: room.name };
+      map.rooms[site.roomId] = normalizeLabMapRoom({ roomId: site.roomId, x: 8, y: 6, z: site.entry.z, width: 12, height: 10, cells, anchor: site.entry }, room);
+      map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...cells]);
+      map.terrain.surfaceGround = [...(map.terrain.surfaceGround || []), ...site.baseline]; state.roomStockpiles[site.roomId] = emptyRoomStockpile();
+    }
+    const layout = { roomId: site.roomId, siteId: site.id, entry: site.entry, desk: point(14, 10), post: point(14, 9), structure: point(15, 9),
+      homes: [point(13, 8), point(16, 8)], bins: [point(12, 9), point(17, 9)] };
+    s = JointTransit.create(source, { worldId: ledger.worldId, runId: ledger.runId }, layout, at); if (!s) return null;
+    ledger.stations.push(s);
+    const map = ensureLabMap(); map.terrain.constructedWalls = normalizeConstructedSurfaces([...map.terrain.constructedWalls,
+      { cell: layout.structure, materialId: 'stoneBlocks', purpose: 'wall', condition: source.physicalCondition === 'intact' ? 100 : source.physicalCondition === 'worn' ? 80 : 50, builtAt: 0 }]);
+    // One finite, explicitly recorded slice of the existing stronghold's stores.
+    // It is allocated once, never per visit, request, carrier or copied label.
+    for (const [i, sponsor] of source.sponsors.entries()) for (const key of JointTransit.KEYS) {
+      const quantity = ['functional', 'strong'].includes(source.services?.provisioning) ? JointTransit.TOTAL * sponsor.upkeepPercent / 100 : 0;
+      if (quantity) {
+        const item = createPhysicalItemStack(key === 'metalParts' ? 'resources' : 'inventory', key, quantity,
+          { roomId: layout.roomId, cell: layout.bins[i] }, { known: false, suppressEvidence: true,
+            sourceLabels: [source.id, source.populationId, sponsor.cityId, 'Original finite posted checkpoint allocation; not the entire stronghold inventory'] });
+        item.cityOwnerId = sponsor.cityId; item.civicCustody = s.id; s.stockIds.push(item.id);
+      }
+    }
+    s.initialStockAllocatedAt = at; bumpNavigationRevision('topology'); return s;
+  }
+  function jointTransitLocal() {
+    const ledger = state.jointTransit; if (!ledger || ledger.worldId !== activeWorldRecord?.id || ledger.runId !== activeRunRecord?.id) return null;
+    return ledger.stations.find(s => s.layout.roomId === scientistRoomId()
+      && (overlandStopSite()?.id === s.layout.siteId || ledger.visit?.id === s.id && ledger.visit.bodyEpoch === ensureScientistIdentity().bodyEpoch)) || null;
+  }
+  function jointTransitContext(s) {
+    const source = jointTransitSource(s.source.corridorId), route = state.strategicJourneys?.routes.find(r => r.id === s.source.corridorId);
+    const local = jointTransitLocal()?.id === s.id, cell = scientistMapCell(), p = state.intercityPassenger, t = p?.trip;
+    const atCarrier = t?.checkpoint?.id === s.id && !t.checkpoint.cleared && p.spaces?.cabin.roomId === scientistRoomId();
+    const onFoot = local && overlandStopSite()?.id === s.layout.siteId;
+    const handover = state.citySuccession?.handover, control = state.citySuccession?.control;
+    const sponsor = source?.sponsors.find(a => a.cityId === handover?.cityId && a.charterId === handover.charterId);
+    const near = local && sameMapCell(cell, s.layout.desk) && s.members.some(a => JointTransit.able(a) && !actorIsIncapacitated(a)
+      && WildernessBeasts.distance(a.mapCell, cell) <= 3 && sensoryLineOfSight(cell, a.mapCell));
+    return { source, worldId: activeWorldRecord?.id, runId: activeRunRecord?.id, alive: !scientistIsDead(), current: Boolean(source),
+      capable: annexCapable(), free: annexCapable(), local, near, busy: scientistQueueTasks().length > 0 || Boolean(state.combat?.pendingActions.scientist), bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      operational: Boolean(constructedWallAtCell(s.layout.structure)?.condition >= 25 && source?.services?.utilities !== 'failed'),
+      passageAllowed: Boolean(route?.supportCapable && !['closed', 'none'].includes(route.continuity)
+        && !(state.penalFlights?.banishments || []).some(b => b.strongholdId === s.id && b.status === 'active' && b.personId === 'scientist')),
+      incapacitatedIds: s.members.filter(a => actorIsIncapacitated(a)).map(a => a.id),
+      journeyId: onFoot ? `${state.overlandExpedition.trip.id}:foot` : (local || atCarrier) && t?.checkpoint?.id === s.id ? t.id : null,
+      carrierId: onFoot ? 'independent-walker-no-carrier-clearance' : (local || atCarrier) && t?.checkpoint?.id === s.id ? p.vehicle.id : null,
+      coverAuthorization: sponsor && handover.recognizedAuthorityId === 'scientist' && control?.recognizedAuthorityId === 'scientist'
+        && handover.bodyEpoch === ensureScientistIdentity().bodyEpoch && control.sourceReceiptId === handover.id
+        && CitySuccession.operative(state.citySuccession, state.sovereignBargains, citySuccessionContext())
+        ? { cityId: sponsor.cityId, charterId: sponsor.charterId, receiptId: handover.id, bodyEpoch: handover.bodyEpoch } : null };
+  }
+  function updateJointTransit() {
+    if (scientistIsDead()) return 0;
+    let changed = 0;
+    for (const s of state.jointTransit?.stations || []) changed += Number(JointTransit.advance(s, state.clock, () => jointTransitContext(s), {
+      items: ensurePhysicalItemStacks,
+      move: (a, goal) => moveDefenderParticipant(a, goal, { ignoreDoors: false, skipPlacement: true,
+        blockedCellKeys: labMapBlockingCellKeys(ensureLabMap(), { actor: a, skipPlacement: true }) }),
+      pass: r => { const t = state.intercityPassenger?.trip;
+        if (t?.id === r.journeyId && state.intercityPassenger.vehicle.id === r.carrierId && t.checkpoint?.id === s.id) t.checkpoint.receiptId = r.id;
+        if (jointTransitLocal()?.id === s.id) state.paused = true;
+      }
+    }));
+    return changed;
+  }
+  function jointTransitAction(action, index = 0, stackId = '') {
+    if (!annexCapable()) return false;
+    const p = state.intercityPassenger, t = p?.trip, ledger = ensureJointTransit();
+    const s = jointTransitLocal() || ledger.stations.find(s => s.id === t?.checkpoint?.id); if (!s) return false;
+    const c = jointTransitContext(s); let ok = false;
+    if (['exit', 'board', 'turnBack'].includes(action)) {
+      const outside = Boolean(jointTransitLocal()), cabin = p.spaces?.cabin;
+      if (!t?.checkpoint || t.checkpoint.id !== s.id || !passengerBodyCurrent() || surveyBusy()
+        || !outside && scientistRoomId() !== cabin?.roomId || action === 'exit' && outside || action === 'board' && !outside) return false;
+      const point = outside ? s.layout.entry : cabin.cell;
+      return Boolean(queueSurveyWork('jointTransitTransfer', point, { strongholdId: s.id, journeyId: t.id,
+        bodyEpoch: c.bodyEpoch, transfer: action === 'turnBack' ? 'retreat' : outside ? 'board' : 'exit', workSeconds: 5, label: 'Physically use the original passenger vehicle at joint receiving' }));
+    }
+    if (action === 'walk') return Boolean(jointTransitLocal() && startScientistMove(s.layout.roomId, { toCell: s.layout.desk, urgent: true }));
+    if (action === 'request') ok = JointTransit.request(s, c, ensurePhysicalItemStacks(), state.clock);
+    if (action === 'report') ok = JointTransit.observe(s, c, ensurePhysicalItemStacks(), state.clock);
+    if (action === 'cancel' && c.local) ok = JointTransit.cancel(s, state.clock);
+    if (action === 'cover') ok = JointTransit.cover(s, c, index, state.clock);
+    if (action === 'supply' && jointTransitLocal() && !surveyBusy() && [0, 1].includes(index)) {
+      const item = surveyCarriedStacks().find(i => i.id === stackId && JointTransit.KEYS.includes(i.key)
+        && !i.reservedTaskId && !i.cityOwnerId && !i.civicCustody && !i.containerId && !i.tags?.some(t => /contaminated|stolen/i.test(t)));
+      if (item) {
+        const amount = Math.min(Math.floor(item.quantity), JointTransit.TOTAL), to = { ...s.layout.bins[index], x: s.layout.bins[index].x - 1 };
+        const task = amount > 0 && queueSurveyWork('jointTransitSupply', to, { strongholdId: s.id, sponsor: index, stackId: item.id,
+          quantity: amount, bodyEpoch: c.bodyEpoch, workSeconds: 30, label: 'Hand actual owned supplies into the named sponsor bin' });
+        if (task) ok = true; // queueSurveyWork already reserved the exact original stack with its real task ID.
+      }
+    }
+    if (!ok) surveyEvent(JointTransit.openingReason(s, c, ensurePhysicalItemStacks()) || 'Original physical attendance, scoped permission or exact available sources are required. No rights or resources transferred.');
+    JointTransit.observe(s, c, ensurePhysicalItemStacks(), state.clock); persist(); render(); return Boolean(ok);
+  }
+  function jointTransitWorkReason(task) {
+    const d = task.data, s = state.jointTransit?.stations.find(s => s.id === d.strongholdId);
+    if (!s || !annexCapable() || d.bodyEpoch !== ensureScientistIdentity().bodyEpoch) return 'Original living body and joint receiving ground are required.';
+    if (d.action === 'jointTransitSupply') {
+      const item = ensurePhysicalItemStacks().find(i => i.id === d.stackId);
+      return jointTransitLocal()?.id !== s.id || !item || item.carriedBy !== 'scientist' || item.reservedTaskId !== task.id
+        || item.quantity < d.quantity || item.cityOwnerId || item.civicCustody || item.containerId || !JointTransit.KEYS.includes(item.key)
+        || item.tags?.some(t => /contaminated|stolen/i.test(t)) ? 'The original owned carried supply or its exact reservation changed.' : '';
+    }
+    const p = state.intercityPassenger, t = p?.trip;
+    if (t?.id !== d.journeyId || t.checkpoint?.id !== s.id || t.checkpoint.cleared || !passengerBodyCurrent()) return 'The original held passenger journey changed.';
+    const outside = jointTransitLocal()?.id === s.id;
+    if (d.transfer === 'exit') return !outside && scientistRoomId() === p.spaces.cabin.roomId ? '' : 'Exit requires the actual occupied cabin.';
+    if (!outside && scientistRoomId() !== p.spaces.cabin.roomId) return 'The actual receiving ground or original cabin is required.';
+    if (d.transfer === 'retreat') return '';
+    const receipt = s.receipts.find(r => r.id === t.checkpoint.receiptId && r.journeyId === t.id && r.carrierId === p.vehicle.id && r.bodyEpoch === d.bodyEpoch && r.operationId === s.operation?.id);
+    return receipt && JointTransit.service(s, jointTransitContext(s), state.clock) ? '' : 'Actual current joint receiving service and the original inspection receipt are required to depart onward.';
+  }
+  function completeJointTransitWork(task) {
+    if (jointTransitWorkReason(task) || !sameMapCell(scientistMapCell(), task.data.toCell)) return;
+    const d = task.data, ledger = state.jointTransit, s = ledger.stations.find(s => s.id === d.strongholdId);
+    if (d.action === 'jointTransitSupply') {
+      if (s.receipts.some(r => r.id === task.id)) return;
+      const original = ensurePhysicalItemStacks().find(i => i.id === d.stackId), bin = s.layout.bins[d.sponsor];
+      if (WildernessBeasts.distance(scientistMapCell(), bin) > 1 || !sensoryLineOfSight(scientistMapCell(), bin)) return;
+      const item = createPhysicalItemStack(original.section, original.key, d.quantity, { roomId: s.layout.roomId, cell: bin },
+        { known: true, suppressEvidence: true, sourceLabels: [...(original.sourceLabels || []), original.id, task.id, 'Explicit owned upkeep gift; no staffing or political authority transferred'] });
+      item.cityOwnerId = s.source.sponsors[d.sponsor].cityId; item.civicCustody = s.id; s.stockIds.push(item.id);
+      original.quantity -= d.quantity; original.reservedTaskId = '';
+      s.receipts.push({ id: task.id, at: state.clock, kind: 'supplied', sourceStackId: original.id, destinationStackId: item.id, sponsorCityId: item.cityOwnerId, quantity: d.quantity, key: item.key });
+    } else {
+      const p = state.intercityPassenger;
+      if (d.transfer === 'exit') {
+        if (!canActorOccupyTile(state.scientist, s.layout.entry)) return;
+        ledger.visit = { id: s.id, bodyEpoch: d.bodyEpoch, journeyId: d.journeyId };
+        moveSurveyScientist(s.layout.roomId, s.layout.entry);
+      } else {
+        if (!canActorOccupyTile(state.scientist, p.spaces.cabin.cell)) return;
+        moveSurveyScientist(p.spaces.cabin.roomId, p.spaces.cabin.cell); ledger.visit = null;
+        if (d.transfer === 'retreat') IntercityPassenger.turnBack(p, state.clock);
+        else p.trip.checkpoint.cleared = true;
+      }
+    }
+    state.paused = true; markStateDirty();
+  }
+  function renderJointTransit(s = jointTransitLocal()) {
+    const panel = document.createElement('section'); panel.dataset.jointTransit = 'true'; panel.className = 'subpanel';
+    if (!s) return panel;
+    const c = jointTransitContext(s), local = jointTransitLocal()?.id === s.id, p = state.intercityPassenger;
+    panel.append(textEl('h3', s.source.name || 'Joint Stronghold Receiving'), textEl('p', JointTransit.SCOPE));
+    const button = (label, action, disabled = false, index = 0, stackId = '') => { const b = document.createElement('button'); b.textContent = label;
+      b.dataset.jointTransitAction = action; b.disabled = Boolean(disabled || !annexCapable()); b.onclick = () => jointTransitAction(action, index, stackId); panel.append(b); };
+    if (local) {
+      panel.append(textEl('p', 'Only this original receiving ground is open. A watch uses twenty metal parts and twenty water packs, divided by the recorded upkeep shares, plus the original officers’ proportionate finite duty. No automatic replenishment.'));
+      button('Walk to joint receiving desk', 'walk', surveyBusy());
+      button('Request supported passage under the joint compact', 'request', !c.near || c.busy || s.job);
+      button('Receive dated joint-service statement', 'report', !c.near || c.busy);
+      button('Cancel unfinished joint inspection', 'cancel', !s.job);
+      if (s.job) panel.append(textEl('p', `${s.job.phase}: ${Math.floor(s.job.progress)}/${s.job.seconds} attended seconds. Movement, injury, other work and changed sources can interrupt.`));
+      for (const [i, sponsor] of s.source.sponsors.entries()) {
+        panel.append(textEl('p', `${sponsor.cityId}: staffing ${sponsor.staffingPercent}%, upkeep ${sponsor.upkeepPercent}%. Responsibility is unchanged by donations or control of the other sponsor.`));
+        if (c.coverAuthorization?.cityId === sponsor.cityId) button(`Explicitly cover one window from ${sponsor.cityId}'s own stocks and posted volunteer`, 'cover', !c.near || c.busy || s.job || JointTransit.active(s, state.clock), i);
+        for (const item of surveyCarriedStacks().filter(i => JointTransit.KEYS.includes(i.key) && !i.reservedTaskId && !i.cityOwnerId && !i.civicCustody))
+          button(`Hand up to twenty carried ${inventoryItemLabel(item.key)} to ${sponsor.cityId}`, 'supply', surveyBusy(), i, item.id);
+      }
+      if (state.jointTransit.visit?.id === s.id) {
+        button('Board original carrier and continue after inspection', 'board', surveyBusy());
+        button('Board original carrier and physically turn back', 'turnBack', surveyBusy());
+      } else panel.append(textEl('p', 'Independent walking needs no commercial inspection receipt. Resume from the real roadside entry, subject to actual access and survival conditions.'));
+    } else if (p?.trip?.checkpoint?.id === s.id && !p.trip.checkpoint.cleared && scientistRoomId() === p.spaces.cabin.roomId) {
+      panel.append(textEl('p', 'The original vehicle is physically held at this receiving point. Waiting consumes its original provisions; no progress or arrival is earned.'));
+      button('Walk to cabin exit and enter joint receiving ground', 'exit', surveyBusy());
+      button('Physically turn the original carrier back', 'turnBack', surveyBusy());
+    }
+    if (s.report) {
+      const r = s.report; panel.append(textEl('p', `${formatClock(r.at)} — ${r.reason} This is dated received knowledge, not remote readiness or a defensive roster.`));
+      for (const bin of r.bins) panel.append(textEl('p', `Inspected ${bin.cityId} bin: ${bin.items.metalParts} metal parts, ${bin.items.drinkingWater} water packs.`));
+      for (const record of r.history.slice(-4)) panel.append(textEl('p', `${formatClock(record.at)} — ${record.text}`));
+    }
+    for (const key of ['drinkingWater', 'trailMeal']) { const b = document.createElement('button'); b.textContent = `Use carried ${inventoryItemLabel(key)}`;
+      b.disabled = surveyBusy() || !survivalSupply(key, true); b.onclick = () => queueSurvivalConsumption(key); panel.append(b); }
+    for (const task of scientistQueueTasks()) { const b = document.createElement('button'); b.textContent = `Cancel ${task.label}`; b.onclick = () => cancelTask(task.id); panel.append(b); }
+    return panel;
+  }
   function outerApproachGates() { return (state.penalFlights?.assistance?.cityApproach?.gates || []).filter(g => g.outerApproach); }
   function outerApproachGate() {
     return passengerReceptionGate(state.outerApproachVisit?.cityId || (intercityMarchActive() ? state.intercityMarch.operation.plan.cityId : ''));
@@ -96507,7 +96775,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       || !canActorOccupyTile(state.scientist, site.entry)) {
       t.trip.reason = 'The original stopping-site entry is obstructed or unavailable; remain at its actual route position.'; return false;
     }
-    moveSurveyScientist(site.roomId, site.entry); placeRegionalBeasts(site); observeWildernessBeasts(); state.paused = true; markStateDirty(); return true;
+    moveSurveyScientist(site.roomId, site.entry); placeRegionalBeasts(site); observeWildernessBeasts();
+    if (intercityMarchActive()) {
+      const source = jointTransitSource(state.intercityMarch.operation.plan.corridorId);
+      if (source && Math.abs(site.positionKm - JointTransit.position(source, state.intercityMarch.operation.plan.homeCityId)) < 1e-8) ensureJointStation(source, state.clock, site);
+    }
+    state.paused = true; markStateDirty(); return true;
   }
   function roadsideResumeReason(task = null) {
     if (outerApproachLocal()) return 'Physically walk back to original staging ground before resuming the intercity route.';
@@ -96670,6 +96943,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const s = state.overlandExpedition, t = s?.trip, needs = state.wildernessSurvival;
     if (!t) return Math.min(remaining, 1);
     let distance = t.direction > 0 ? s.route.distanceKm - t.positionKm : t.positionKm;
+    const source = intercityMarchActive() && jointTransitSource(state.intercityMarch.operation.plan.corridorId);
+    if (source) { const km = JointTransit.position(source, state.intercityMarch.operation.plan.homeCityId);
+      if ((km - t.positionKm) * t.direction > 1e-9) distance = Math.min(distance, Math.abs(km - t.positionKm)); }
     for (const p of overlandKnownStops()) if (p.routeId === s.route.id && (p.positionKm - t.positionKm) * t.direction > 1e-9)
       distance = Math.min(distance, Math.abs(p.positionKm - t.positionKm));
     const region = currentRegionalEncounters();
@@ -96687,11 +96963,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function advanceOverlandWithNeeds(needs) {
     const e = state.surveyExpeditions, n = state.strategicJourneys, route = overlandRoute(), task = firstScientistQueueTask();
+    const source = intercityMarchActive() && jointTransitSource(state.intercityMarch.operation.plan.corridorId);
     const result = OverlandExpedition.advance(state.overlandExpedition, needs, state.clock, {
       alive: !scientistIsDead(), capable: annexCapable(), atRoad: overlandOnRoad(), bodyEpoch: ensureScientistIdentity().bodyEpoch,
       busy: Boolean(task && !taskBlockReason(task)), resting: task?.type === 'rest' && !taskBlockReason(task), speedKph: scientistMoveSpeedMps() * 3.6 * WildernessSurvival.fatigueMultiplier(needs),
       routeOpen: Boolean(route && route.id === state.overlandExpedition.route.id && n?.destinations.find(d => d.id === n.homeDestinationId)),
       playableStops: true, stopPositions: [...overlandKnownStops().filter(s => s.routeId === state.overlandExpedition.route.id).map(s => s.positionKm),
+        ...(source ? [JointTransit.position(source, state.intercityMarch.operation.plan.homeCityId)] : []),
         ...(currentRegionalEncounters() ? RegionalEncounters.positions(currentRegionalEncounters(), state.overlandExpedition.route.id) : [])],
       sheltered: Boolean(overlandStopSite() && wildernessSheltered()),
       arrivalReasons: { home: overlandArrivalReason('home'), ground: overlandArrivalReason('ground') },
@@ -96803,6 +97081,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     button('Stop and eat carried meal', 'meal', busy || !survivalSupply('trailMeal', true)); button('Rest here for 15 minutes', 'rest', busy);
     const needs = ensureWildernessSurvival(), sheltered = Boolean(overlandStopSite() && wildernessSheltered()); panel.append(textEl('p', `Thirst ${Math.round(needs.thirst)}/100; hunger ${Math.round(needs.hunger)}/100; exertion ${Math.round(needs.exertion)}/100; exposure ${Math.round(needs.exposure)}/100. ${WildernessSurvival.conditions(state.overlandApproach.weather, state.clock, sheltered).label}; ${sheltered ? 'occupying the original deployed shelter' : 'not sheltered'}.`));
     if (overlandStopSite()) { panel.append(renderRoadsideStop()); panel.append(renderWildernessBeastsPanel());
+      if (jointTransitLocal()) panel.append(renderJointTransit());
       if (intercityMarchActive() && state.overlandExpedition.trip.positionKm === state.overlandExpedition.route.distanceKm) panel.append(renderOuterApproach()); }
     if (currentFieldCharter()?.scientistReleased && fieldCharterLocalSite()) panel.append(renderFieldCharter());
     for (const task of scientistQueueTasks()) { const b = document.createElement('button'); b.textContent = `Cancel ${task.label}`; b.disabled = scientistIsDead(); b.onclick = () => cancelTask(task.id); panel.append(b); }
@@ -96834,6 +97113,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function surveyScientistAway() { return passengerAway() || Boolean(state?.surveyExpeditions && state.surveyExpeditions.phase !== "home"); }
   function surveyScientistReserved() { return surveyScientistAway() || Boolean(state?.surveyExpeditions?.preparing); }
   function surveyTaskAllowed(task) {
+    const transit = jointTransitLocal(), inHeldCabin = state.intercityPassenger?.trip?.checkpoint && !state.intercityPassenger.trip.checkpoint.cleared
+      && scientistRoomId() === state.intercityPassenger.spaces?.cabin.roomId;
+    if (transit || inHeldCabin) return task.type === 'scientistMove' && task.data?.toRoomId === scientistRoomId()
+      || task.type === 'rest' || task.type === 'injuryTreatment' && task.data?.targetActorId === 'scientist'
+      || task.type === 'surveyExpeditionWork' && ['consume', 'radioBattery', 'jointTransitTransfer', 'jointTransitSupply', 'overlandResume', 'deployShelter', 'packShelter'].includes(task.data?.action);
     if (outerApproachLocal()) return task.type === 'scientistMove' && outerApproachRooms(outerApproachGate()).includes(task.data?.toRoomId)
       || task.type === 'rest' || task.type === 'injuryTreatment' && task.data?.targetActorId === 'scientist'
       || task.type === 'surveyExpeditionWork' && ['consume', 'radioBattery', 'outerApproachTravel'].includes(task.data?.action);
@@ -97276,6 +97560,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function surveyWorkBlockReason(task) {
+    if (['jointTransitTransfer', 'jointTransitSupply'].includes(task.data?.action)) return jointTransitWorkReason(task);
     if (task.data?.action === 'outerApproachTravel') return outerApproachTravelReason(task.data, true);
     if (task.data?.action === 'intercityMarchDepart') return intercityMarchDepartureReason(task);
     if (task.data?.roadsideSiteId && (overlandStopSite()?.id !== task.data.roadsideSiteId
@@ -97404,6 +97689,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function completeSurveyWork(task) {
+    if (['jointTransitTransfer', 'jointTransitSupply'].includes(task.data?.action)) { completeJointTransitWork(task); return; }
     if (task.data?.action === 'outerApproachTravel') { completeOuterApproachTravel(task); return; }
     if (task.data?.fieldWaterWork) { completeFieldWaterWork(task); return; }
     if (task.data?.fieldStationService) { completeFieldRefugeService(task); return; }
@@ -97552,6 +97838,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function renderSurveyExpeditions() {
+    if (jointTransitLocal() && state.jointTransit?.visit?.id === jointTransitLocal().id) return renderJointTransit();
     if (outerApproachLocal()) return renderOuterApproach();
     if (fieldCharterOwnsRoad() || currentFieldCharter()?.boarded.includes('scientist')) return renderFieldCharter();
     if (overlandOnRoad()) return renderOverlandExpedition();
@@ -104741,6 +105028,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.cityAdministrationKnowledge = candidate?.cityAdministrationKnowledge ? clonePlainObject(candidate.cityAdministrationKnowledge) : null;
     next.civicFoothold = CivicFoothold.normalize(candidate?.civicFoothold);
     next.runStrategicConditions = RunStrategicConditions.normalize(candidate?.runStrategicConditions);
+    next.jointTransit = JointTransit.normalizeState(candidate?.jointTransit);
     next.expansionAtlas = ExpansionAtlas.normalize(candidate?.expansionAtlas);
     next.overlandExpedition = OverlandExpedition.normalize(candidate?.overlandExpedition);
     next.intercityMarch = IntercityMarch.normalize(candidate?.intercityMarch);

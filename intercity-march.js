@@ -27,7 +27,7 @@
   }
   function learn(s, passenger, now) {
     const t = passenger?.trip;
-    if (!s || !id(t?.id) || !time(t.arrivedAt) || !time(now) || t.arrivedAt > now || !Number.isFinite(t.km) || t.km <= 0
+    if (!s || !id(t?.id) || t.returningEarly || !time(t.arrivedAt) || !time(now) || t.arrivedAt > now || !Number.isFinite(t.km) || t.km <= 0
       || !id(t.routeId) || !id(t.destinationId) || !id(t.destinationCityId) || !id(passenger.homeCityId) || passenger.homeCityId === t.destinationCityId
       || !passenger.receipts?.some(r => r.id === t.id && r.at === t.arrivedAt
         && r.destination === (t.outbound ? t.destinationCityId : passenger.homeCityId))) return false;
