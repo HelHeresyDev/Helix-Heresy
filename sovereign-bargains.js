@@ -103,7 +103,7 @@
       representativeId: s.representative.id, defenderId: s.defender.id };
     office.power--; office.assignment = id; return true;
   }
-  const canRequest = s => Boolean(s && !s.job && s.depot.stock < s.depot.required && !s.copies.length
+  const canRequest = s => Boolean(s && !s.job && !s.depot.compactCommitted && !s.depot.compactReservedBy && s.depot.stock < s.depot.required && !s.copies.length
     && (!s.audience || s.audience.status === 'expired' || ['declined', 'expired'].includes(s.terms?.status)));
   function request(s, office, c, at, readyAt) {
     const reason = localReason(s, office, c);

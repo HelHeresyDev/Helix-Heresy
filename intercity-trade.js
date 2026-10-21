@@ -267,5 +267,5 @@
       permits: copy(op.permit.approvals), reportedAt: op.reportedAt, reason: op.reason, vehicleId: op.vehicleId, crew: op.crew.map(c => c.name), location: op.location,
       advertisement: copy(op.advertisement), shipment: op.shipment ? (() => { const s = state.shipments.find(s => s.id === op.shipment); return { id: s.id, kind: s.kind || '', waitingCargo: Boolean(s.waitingCargo), owner: s.owner || 'npc', good: s.good, quantity: s.quantity, sourceId: s.sourceId, destinationId: s.destinationId, delivered: s.delivered, pickedUp: s.pickedUp, remainingHours: Math.max(0, s.deliveryHour - s.elapsedHours) }; })() : null })) };
   }
-  return { create, permit, advance, publicView, quote, importOffer, bookImport, exportLot, exportOffer, bookExport, failExport, receiveExport, settleExport };
+  return { create, permit, access, advance, publicView, quote, importOffer, bookImport, exportLot, exportOffer, bookExport, failExport, receiveExport, settleExport };
 });

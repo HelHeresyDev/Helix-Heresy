@@ -105,6 +105,7 @@
         destination: copy(shipment.destination), serviceJobId: shipment.serviceJobId, sampleAt: shipment.sampleAt,
         serviceReservationId: shipment.serviceReservationId
       });
+      if (shipment.compactId) Object.assign(state.serviceDepot[shipment.id], { compactId: shipment.compactId, compactCycleId: shipment.compactCycleId });
     }
     else if (shipment.target === 'workshops') state.inputs[shipment.cargo] = (state.inputs[shipment.cargo] || 0) + shipment.quantity;
     else if (shipment.target === 'exchange') {

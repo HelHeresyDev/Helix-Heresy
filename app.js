@@ -143,6 +143,7 @@
   const CityProvisioning = window.HelixCityProvisioning;
   const CityDefense = window.HelixCityDefense;
   const CityRule = window.HelixCityRule;
+  const IntercityCompact = window.HelixIntercityCompact;
   const IncumbentResistance = window.HelixIncumbentResistance;
   const CharterRecognition = window.HelixCharterRecognition;
   const PublicWorksRecognition = window.HelixPublicWorksRecognition;
@@ -12486,7 +12487,7 @@
     if (!market.localProduction) return 0;
     const previous = market.localProduction.lastAt;
     const support = LocalExchangeCarrier.support(exchangeCarrier(), state.clock);
-    for (const g of state.penalFlights?.assistance?.cityApproach?.gates || []) prepareForeignCommissionDeliveries(g);
+    for (const g of state.penalFlights?.assistance?.cityApproach?.gates || []) { prepareForeignCommissionDeliveries(g); prepareIntercityCompactDeliveries(g); }
     // Advance producer and supplier events together, preserving causality on long waits.
     while (market.localProduction.lastAt + LocalMarketProduction.HOUR <= now) {
       const at = market.localProduction.lastAt + LocalMarketProduction.HOUR;
@@ -17133,6 +17134,18 @@
         syncActorInventories(); persist(); render();
       },
       foreignCivicBargainAction,
+      intercityCompactAction,
+      intercityCompactSnapshot: () => {
+        const g = passengerReceptionGate();
+        return clonePlainObject({ saved: g?.intercityCompact, context: intercityCompactContext(g),
+          market: g && foreignSupplierMarket(g), clock: state.clock, stacks: ensurePhysicalItemStacks(), campaign: state.campaign });
+      },
+      setIntercityCompactTestSource: ({ source, route }) => {
+        const g = passengerReceptionGate();
+        if (!g?.preparedReceptionTestSource || !g.preparedForeignCivicTestSource || g.intercityCompact) return false;
+        g.preparedCompactTestSource = clonePlainObject(source); g.preparedCompactTestRoute = clonePlainObject(route);
+        ensureIntercityCompact(g); persist(); render(); return Boolean(g.intercityCompact);
+      },
       foreignCivicBargainSnapshot: () => {
         const g = passengerReceptionGate(); updateForeignCivicBargain(g);
         const c = foreignCivicBargainContext(g);
@@ -23694,6 +23707,16 @@
     if (scientistIsDead()) return 0;
     const advanceStartedAt = performance.now();
     const elapsed = Math.max(0, Number(seconds) || 0);
+    if (!options.compactStep && elapsed > 60 && (state.penalFlights?.assistance?.cityApproach?.gates || []).some(g => g.intercityCompact
+      && (g.intercityCompact.job || ['active', 'cure'].includes(g.intercityCompact.status)
+        || g.intercityCompact.cycles.some(r => r.fulfilledAt != null && !r.stackId)))) {
+      let left = elapsed, changed = 0;
+      while (left > 0 && !scientistIsDead()) {
+        const before = state.clock; changed += advanceTime(Math.min(left, 60), { ...options, compactStep: true });
+        const spent = state.clock - before; if (spent <= 0) break; left -= spent;
+      }
+      return changed;
+    }
     if (!options.cityRuleStep && elapsed > 60 && state.cityRule) {
       let left = elapsed, changed = 0;
       while (left > 0 && !scientistIsDead()) {
@@ -93549,8 +93572,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const inquiryJob = g.researchInquiry?.job;
       changed = ForeignResearchInquiry.advance(g, inquiryContext, state.clock) || changed;
       ForeignResearchInquiry.observe(g, inquiryContext, state.clock);
+      prepareIntercityCompactDeliveries(g);
       changed = updateForeignWorkspace(g) || changed;
       changed = updateForeignCivicBargain(g) || changed;
+      changed = updateIntercityCompact(g) || changed;
       changed = updateForeignSurvey(g) || changed;
       if (inquiryJob && !g.researchInquiry.job && inquiryContext.local) { surveyEvent(g.researchInquiry.message); state.paused = true; }
     }
@@ -93891,7 +93916,119 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const r of ensureResourceSurveys().observations.filter(r => [s.context.siteId, s.wilderness?.context.siteId].includes(r.siteId)).slice(-5)) panel.append(textEl('p', `${formatClock(r.recordedAt)} — ${r.coverage}: ${r.findings.map(f => f.summary).join('; ')}`));
     return panel;
   }
-  function foreignCivicWork(g) { return Boolean(g?.foreignCivic?.accessJob || g?.foreignCivic?.bargain.job); }
+  function foreignCivicWork(g) { return Boolean(g?.foreignCivic?.accessJob || g?.foreignCivic?.bargain.job || g?.intercityCompact?.job); }
+  function intercityCompactContext(g = passengerReceptionGate()) {
+    const c = foreignCivicBargainContext(g), trade = ensureEconomy().commodityMarket?.intercityTrade;
+    const homeId = trade?.homeId || state.intercityPassenger?.homeCityId;
+    const source = g?.preparedCompactTestSource || IntercityCompact.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, g, homeId);
+    const market = g && foreignSupplierMarket(g);
+    const op = trade?.operators?.find(o => o.route.id === source?.routeId && o.route.endpointCityIds.includes(g.cityId)
+      && o.route.endpointCityIds.includes(source.homeId));
+    const route = g?.preparedCompactTestRoute;
+    const routeOpen = route ? route.id === source?.routeId && route.endpointCityIds?.includes(source?.homeId)
+      && route.endpointCityIds.includes(g.cityId) && route.supportCapable && !['closed', 'none'].includes(route.continuity)
+      : op && IntercityTrade.access(op);
+    const ask = id => market?.listings[id] && COMMODITY_MARKET_LISTING_BY_ID[id]
+      ? Math.ceil(IntercityTrade.quote(COMMODITY_MARKET_LISTING_BY_ID[id], market.listings[id]).ask) : null;
+    return { ...c, source, worldId: activeWorldRecord?.id, runId: activeRunRecord?.id,
+      visitorPermit: Boolean(g && foreignVisitorPermission(g)), routeOpen: Boolean(routeOpen),
+      reagentAsk: ask('assayReagent'), partsAsk: ask('metalParts'),
+      depotAvailable: Boolean(g?.materialized && g.clerk?.status === 'alive' && g.clerk.health >= 50
+        && labMapCellIsWalkable({ x: 10, y: 8, z: g.z })) };
+  }
+  function ensureIntercityCompact(g = passengerReceptionGate()) {
+    if (!g || scientistIsDead() || g.intercityCompact) return g?.intercityCompact || null;
+    ensureForeignCivicBargain(g);
+    const c = intercityCompactContext(g);
+    if (!c.local || !c.atDesk || !c.originalBody || !c.alive || !c.capable || !c.authorityCurrent) return null;
+    g.intercityCompact = IntercityCompact.create(c.source, g, { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id }, state.clock);
+    return g.intercityCompact;
+  }
+  function prepareIntercityCompactDeliveries(g) {
+    const s = g?.intercityCompact; if (!s || scientistIsDead()) return;
+    const p = foreignSupplierMarket(g)?.production, c = intercityCompactContext(g);
+    for (const sh of p?.shipments || []) if (sh.compactId === s.id && sh.destination?.propertyId === s.source.depotId)
+      sh.destination.closed = !c.depotAvailable;
+  }
+  function intercityCompactHooks(g) {
+    const s = g.intercityCompact;
+    return { stacks: ensurePhysicalItemStacks,
+      stage: (r, receipt) => {
+        const cell = { x: 10, y: 8, z: g.z };
+        if (!labMapCellIsWalkable(cell)) return null;
+        return createPhysicalItemStack('resources', 'assayReagent', 1, { roomId: g.checkpointRoomId, cell },
+          { known: false, suppressEvidence: true, tags: ['legalfreight', 'compact-earned'], sourceLabels: [s.id, r.id, g.cityId, receipt.destination.propertyId, 'Original earned compact depot freight; scientist-owned'] });
+      },
+      collect: r => {
+        const item = ensurePhysicalItemStacks().find(i => i.id === r.stackId);
+        if (!item || item.key !== 'assayReagent' || item.quantity !== 1 || !item.sourceLabels.includes(r.id)
+          || item.reservedTaskId || item.cityOwnerId || item.civicCustody || item.containerId) return false;
+        if (item.carriedBy === 'scientist') return true;
+        if (item.carriedBy || item.roomId !== scientistRoomId() || mapCellDistance(item.cell, scientistMapCell()) > 1
+          || !sensoryLineOfSight(scientistMapCell(), item.cell) || !actorInventoryCanCarry('scientist', item, 1)) return false;
+        item.knownQuantity = 1; return Boolean(carryPhysicalStack('scientist', item.id, 1));
+      } };
+  }
+  function updateIntercityCompact(g) {
+    const s = g?.intercityCompact; if (!s || scientistIsDead()) return false;
+    const market = foreignSupplierMarket(g); if (!market?.production) return false;
+    prepareIntercityCompactDeliveries(g);
+    const support = LocalExchangeCarrier.support(market.carrier, state.clock);
+    LocalMarketProduction.advance(market.production, state.clock, market.listings, support.supplier);
+    return IntercityCompact.advance(s, g, market, () => intercityCompactContext(g), state.clock, intercityCompactHooks(g));
+  }
+  function intercityCompactAction(action, expected = null) {
+    const g = passengerReceptionGate(); if (!g || scientistIsDead()) return false;
+    if (action === 'walk') return foreignReceptionAction('walk');
+    const s = ensureIntercityCompact(g), market = foreignSupplierMarket(g); if (!s || !market) return false;
+    updateIntercityCompact(g); const c = intercityCompactContext(g); let ok = false;
+    if (action === 'negotiate') ok = IntercityCompact.propose(s, g, market, c, state.clock);
+    if (action === 'sign') ok = IntercityCompact.sign(s, g, market, c, expected, state.clock);
+    if (action === 'supply') ok = IntercityCompact.supply(s, g, c, ensurePhysicalItemStacks(), state.clock);
+    if (action === 'collect') ok = IntercityCompact.collect(s, g, c, expected, state.clock);
+    if (action === 'report') ok = IntercityCompact.receive(s, g, c, state.clock);
+    if (action === 'terminate') ok = IntercityCompact.terminate(s, g, market, c, state.clock);
+    if (action === 'cancel' && s.job && s.job.bodyEpoch === c.bodyEpoch) { IntercityCompact.release(s, g, ensurePhysicalItemStacks()); ok = true; }
+    if (s.job) suspendScientistRoutineWork('foreign civic audience');
+    else if (!foreignCivicWork(g) && state.combat?.routineSuspension?.reason === 'foreign civic audience') resumeScientistRoutineWork();
+    surveyEvent(ok ? s.message || 'Original compact work started; no unearned delivery or political authority follows.'
+      : s.refusal?.reason || 'Original compact authority, exact terms, actual attendance, finite source stock, duty or owned cargo unavailable.');
+    syncActorInventories(); syncPhysicalReadModels(); persist(); render(); return Boolean(ok);
+  }
+  function renderIntercityCompact() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.intercityCompact = 'true';
+    panel.append(textEl('h3', 'Intercity Supply-and-Access Compact'), textEl('p', IntercityCompact.SCOPE));
+    const g = passengerReceptionGate(), s = ensureIntercityCompact(g), c = intercityCompactContext(g);
+    const button = (label, action, disabled, expected = null) => { const b = storesActionButton(label, label, () => intercityCompactAction(action, expected));
+      b.dataset.compactAction = action; b.disabled = Boolean(disabled || scientistIsDead()); panel.append(b); };
+    if (g && c.local) button('Walk to named municipal depot desk', 'walk', surveyBusy() || c.atDesk);
+    if (!s) { panel.append(textEl('p', 'Requires a distinct directly connected sovereign city, its original authorized civic representative, an existing worn-fortification maintenance requisition and a supported municipal depot. No shortage, replacement official or connection is invented.')); return panel; }
+    const contact = IntercityCompact.contact(s, g, c), market = foreignSupplierMarket(g);
+    button('Negotiate two-installment compact (two attended minutes)', 'negotiate', !contact || Boolean(s.terms || s.job));
+    if (s.offer && !s.terms) {
+      panel.append(textEl('p', `${s.offer.authorityName || s.offer.authorityId}, through ${s.offer.representativeName || s.offer.representativeId}; charter ${s.offer.charterId || s.source.charterId}. Personally received exact terms, not a clerk's sovereign pledge.`));
+      panel.append(textEl('p', `Received ${formatClock(s.offer.issuedAt)}: three privately owned carried metal parts per installment for one reagent. Two daily deadlines, six-hour remedy window, three-day term. City pays ${formatMoney(s.offer.purchasePrice * 2)} to the original factory plus sixteen freight marks; factory retains at least two reagent units. Offer ends ${formatClock(s.offer.expiresAt)}. No public or home-city goods may be pledged as personal cargo.`));
+      button('Sign exact compact (one attended minute)', 'sign', !contact || Boolean(s.job), clonePlainObject(s.offer));
+    }
+    if (s.terms) {
+      button('Prepare next maintenance fitting from three carried parts (two minutes)', 'supply', !contact || Boolean(s.job) || !['active', 'cure'].includes(s.status));
+      button('Terminate future compact installments', 'terminate', !contact || Boolean(s.job) || !['active', 'cure'].includes(s.status));
+    }
+    button('Receive dated compact account', 'report', !IntercityCompact.contact(s, g, c, false, true));
+    if (s.job) button('Cancel unfinished compact attendance', 'cancel', false);
+    if (s.refusal && c.local && c.atDesk) panel.append(textEl('p', `${formatClock(s.refusal.at)} — received refusal: ${s.refusal.reason}`));
+    if (s.report) {
+      const r = s.report;
+      panel.append(textEl('p', `${formatClock(r.at)} — personally received ${r.status}. This is a cross-city service/access arrangement, not tribute, client rule, voluntary submission or domination.`));
+      for (const cycle of r.cycles) {
+        panel.append(textEl('p', `${cycle.id}: due ${formatClock(cycle.dueAt)}; ${cycle.fulfilledAt == null ? 'no received performance record' : `fitting prepared ${formatClock(cycle.fulfilledAt)}`}; ${cycle.receivedAt ? `original reagent at depot ${formatClock(cycle.receivedAt)}` : 'depot receipt not reported'}.`));
+        if (cycle.stackId && !cycle.collectedAt) button('Collect original earned depot reagent (thirty seconds)', 'collect', !IntercityCompact.contact(s, g, c, false, true) || Boolean(s.job), cycle.id);
+      }
+      for (const h of r.history.slice(-8)) panel.append(textEl('p', `${formatClock(h.at)} — ${h.text}`));
+    } else panel.append(textEl('p', 'No compact account received. Reopening the panel does not reveal remote freight, stocks or political motives.'));
+    panel.append(textEl('p', 'The city may refuse if it has adequate local parts or cannot fund/spare output. Original private factory stock is bought, not commandeered. The original fleet and crew retain fuel, fatigue, capacity and other assignments. Named-depot collection of earned goods survives termination and visitor-hall expiry; general city access and onward transport do not.'));
+    return panel;
+  }
   function foreignCivicBargainContext(g = passengerReceptionGate()) {
     const c = foreignReceptionContext(g, false, true), b = g?.foreignCivic?.bargain;
     const m = g?.foreignWorkspace?.municipalAssay, job = m?.bodyEpoch === c.bodyEpoch && m.jobs.find(j => j.status === 'completed' && j.paidAt != null
@@ -95317,6 +95454,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(renderForeignResearchInquiry());
     panel.append(renderForeignSurvey());
     panel.append(renderForeignCivicBargain());
+    panel.append(renderIntercityCompact());
     panel.append(renderForeignWorkspace());
     const s = ensureIntercityPassenger(), local = intercityLocal();
     if (!local) { panel.append(textEl('p', 'Reach the existing home municipal survey-ground rendezvous first; city control is not required. Carrier records while away are dated, not live intelligence.')); return panel; }
@@ -96495,6 +96633,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function foreignLabInputReceipt(item) {
     if (!item || (ensureSurveyExpeditions().foreignLabReceipts || []).some(r => r.stackId === item.id)) return null;
+    for (const g of state.penalFlights?.assistance?.cityApproach?.gates || []) {
+      const receipt = IntercityCompact.inputReceipt(g.intercityCompact, item); if (receipt) return receipt;
+    }
     for (const r of ForeignReagentImports.allocations(state)) {
       const receipt = ForeignReagentImports.receiptFor(r, item); if (receipt) return receipt;
     }
@@ -103993,6 +104134,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.unsupportedExcursions = UnsupportedExcursions.normalizeState(candidate?.unsupportedExcursions);
     next.medicalExtraction = MedicalExtraction.normalizeState(candidate?.medicalExtraction);
     next.penalFlights = PenalFlights.normalizeState(candidate?.penalFlights);
+    for (const g of next.penalFlights.assistance?.cityApproach?.gates || []) g.intercityCompact = IntercityCompact.normalize(g.intercityCompact);
     next.wildernessBeasts = WildernessBeasts.normalizeState(candidate?.wildernessBeasts);
     next.expeditionEscorts = ExpeditionEscorts.normalizeState(candidate?.expeditionEscorts);
     const opening = candidate?.themeContent?.opening;
