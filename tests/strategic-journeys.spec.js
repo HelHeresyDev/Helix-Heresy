@@ -107,7 +107,10 @@ test('destination directories preserve canonical corridor distance and never mod
       currentSupportComponents: [{ id: 'component:one', cityIds: ['a', 'b'] }],
       routeRows: [{ corridorId: 'ab', endpointCityIds: ['a', 'b'], continuity: 'operational', supportCapable: true }]
     },
-    routeGraph: { routes: [{ id: 'ab', lengthKm: 137, cellPath: ['cell:a', 'cell:between', 'cell:b'] }] }
+    // Real validated route graphs strip length metadata; the generated human
+    // corridor directory owns this independently measured value.
+    humanGeography: { corridors: [{ id: 'ab', lengthKm: 137 }] },
+    routeGraph: { routes: [{ id: 'ab', cellPath: ['cell:a', 'cell:between', 'cell:b'] }] }
   };
   const before = JSON.stringify(map);
   const state = Journeys.defaultState({ strategicMap: map, startingSite: { strategicLocation: { id: 'lab', nearestSettlement: { cityId: 'a' }, distance: { practicalTravelKm: 19 }, access: { routeContinuity: 'localApproach' } } } });

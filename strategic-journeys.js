@@ -76,6 +76,9 @@
     });
     const routes = (directory.routeRows || []).map((row) => {
       const canonical = (strategicMap.routeGraph?.routes || []).find((entry) => entry.id === row.corridorId);
+      // The validated graph owns topology/identity, not length metadata.
+      const measured = strategicMap.humanGeography?.corridors?.find(r => r.id === row.corridorId)
+        || strategicMap.cityExpansionHistory?.corridorRows?.find(r => r.id === row.corridorId);
       return {
         id: `corridor:${row.corridorId}`,
         corridorId: row.corridorId,
@@ -83,7 +86,7 @@
         continuity: row.continuity,
         supportCapable: Boolean(row.supportCapable),
         cellPath: clone(canonical?.cellPath || []),
-        distanceKm: Math.max(1, finite(canonical?.lengthKm, finite(canonical?.distanceKm, 0)))
+        distanceKm: Math.max(1, finite(measured?.lengthKm, finite(canonical?.lengthKm, finite(canonical?.distanceKm, 0))))
       };
     });
     return { destinations, routes, homeDestinationId, nearestSettlementDestinationId: `city:${nearestCityId}` };

@@ -21,7 +21,8 @@
       && Number.isFinite(s.positionKm) && s.positionKm > 0 && s.positionKm < s.distanceKm);
   }
   function sourceFromWorld(map, route, distance) {
-    const r = map?.routeGraph?.routes?.find(r => r.id === route?.id), history = map?.cityExpansionHistory;
+    const canonicalId = route?.corridorId || route?.id;
+    const r = map?.routeGraph?.routes?.find(r => r.id === canonicalId), history = map?.cityExpansionHistory;
     if (!r?.cellPath?.length || route.endpointCityIds?.length !== 2 || JSON.stringify(r.endpointIds) !== JSON.stringify(route.endpointCityIds)
       || !Number.isFinite(route.distanceKm) || route.distanceKm <= 0) return null;
     const h = history?.strongholdRows.filter(h => h.corridorId === r.id && ['groundConvoy', 'mixedFleet'].includes(h.serviceMode)).sort((a, b) => a.ordinal - b.ordinal)[0];
@@ -39,7 +40,7 @@
       return { cityId, charterId: g.charter.id, authorityId: p.authority.id, institutionId, populationId: c.assetId, staffingPercent, upkeepPercent };
     });
     if (sponsors.some(s => !s)) return null;
-    const source = { id: h.id, name: row.name, corridorId: r.id, cellId: h.cellId, populationId: row.assetId, population: row.currentPopulation,
+    const source = { id: h.id, name: row.name, corridorId: route.id, canonicalCorridorId: r.id, cellId: h.cellId, populationId: row.assetId, population: row.currentPopulation,
       endpointCityIds: copy(r.endpointIds), sponsors, administration: h.administration, serviceMode: h.serviceMode,
       independentlySovereign: false, independentDiplomacy: false, physicalCondition: row.physicalCondition, services: copy(row.services),
       distanceKm: route.distanceKm, positionKm: route.distanceKm * lengths.slice(0, index).reduce((a, b) => a + b, 0) / lengths.reduce((a, b) => a + b, 0) };

@@ -35,9 +35,9 @@
     s.routes.push({ sourceId: t.id, sourceAt: t.arrivedAt, routeId: t.routeId, homeCityId: passenger.homeCityId,
       cityId: t.destinationCityId, destinationId: t.destinationId, label: t.destinationLabel, distanceKm: t.km }); return true;
   }
-  function plans(s, network, homeCityId) {
+  function plans(s, network, homeCityId, worksNotices = []) {
     const factors = { continuous: 1, operational: 1, degraded: 1.25, intermittent: 1.55 };
-    return (s?.routes || []).filter(r => r.homeCityId === homeCityId).flatMap(r => {
+    const personal = (s?.routes || []).filter(r => r.homeCityId === homeCityId).flatMap(r => {
       const route = network?.routes?.find(e => e.id === r.routeId && e.endpointCityIds?.length === 2
         && e.endpointCityIds.includes(r.homeCityId) && e.endpointCityIds.includes(r.cityId));
       const destination = network?.destinations?.find(d => d.id === r.destinationId && d.cityId === r.cityId && d.known && d.kind === 'fortifiedCity');
@@ -49,11 +49,18 @@
         directions: 'Retrace this measured corridor on foot, stopping on exterior roadside ground before city admission. Current hazards and military access remain unverified.',
         distanceKm: r.distanceKm, legs: [{ distanceKm: r.distanceKm, factor: factors[route.continuity] }] }];
     }).filter((r, i, all) => all.findIndex(p => p.id === r.id) === i);
+    const works = worksNotices.filter(n => n.homeCityId === homeCityId && n.source?.joint?.endpointCityIds.includes(homeCityId)
+      && n.plan?.sourceId === n.id && n.plan.worksiteId === n.source.id && n.plan.sourceAt === n.at
+      && network?.routes?.some(r => r.id === n.source.routeId && r.distanceKm === n.plan.fullDistanceKm
+        && JSON.stringify(r.endpointCityIds) === JSON.stringify(n.source.joint.endpointCityIds)))
+      .map(n => copy(n.plan));
+    return [...personal, ...works];
   }
-  function begin(s, plan, objective, origin, prior, now, bodyEpoch) {
+  function begin(s, plan, objective, origin, prior, now, bodyEpoch, worksNotices = []) {
     if (!s || active(s) || !plan || !time(now) || plan.sourceAt > now || !['reconnoitre', 'prepareTerms'].includes(objective) || !origin?.roomId || !cell(origin.cell) || !prior
-      || !s.routes.some(r => r.sourceId === plan.sourceId && r.routeId === plan.corridorId && r.cityId === plan.cityId
-        && r.homeCityId === plan.homeCityId && r.distanceKm === plan.distanceKm)) return null;
+      || !(plan.worksiteId ? worksNotices.some(n => n.id === plan.sourceId && n.at <= now && JSON.stringify(n.plan) === JSON.stringify(plan))
+        : s.routes.some(r => r.sourceId === plan.sourceId && r.routeId === plan.corridorId && r.cityId === plan.cityId
+          && r.homeCityId === plan.homeCityId && r.distanceKm === plan.distanceKm))) return null;
     const walk = Walk.begin(null, plan, { worldId: s.worldId, runId: s.runId }, 'home', now, bodyEpoch);
     if (!walk) return null;
     s.operation = { id: `${plan.id}:expedition:${s.history.length + 1}`, phase: 'outward', objective, plan: copy(plan), origin: copy(origin),
@@ -64,7 +71,8 @@
     const o = s?.operation;
     if (!active(s) || !site || walk.trip.direction !== 1 || walk.trip.bodyEpoch !== o.walk.trip.bodyEpoch || walk.trip.status !== 'stopped'
       || walk.route.id !== o.walk.route.id || walk.trip.positionKm !== walk.route.distanceKm
-      || site.routeId !== walk.route.id || site.positionKm !== walk.trip.positionKm) return false;
+      || !(site.routeId === walk.route.id || o.plan.worksiteId && site.routeId === `intercity-march:${o.plan.corridorId}`)
+      || site.positionKm !== walk.trip.positionKm) return false;
     o.phase = 'staging'; o.walk = copy(walk); o.stagingSiteId = site.id;
     if (o.stagedAt == null) o.stagedAt = now;
     return true;
@@ -75,6 +83,7 @@
       || walk.trip.status !== 'arrived' || walk.trip.direction !== -1 || walk.trip.positionKm !== 0) return null;
     o.walk = copy(walk); o.phase = 'returned'; o.returnedAt = now;
     s.history.push({ id: o.id, cityId: o.plan.cityId, objective: o.objective, startedAt: o.startedAt,
+      ...(o.plan.worksiteId ? { worksiteId: o.plan.worksiteId } : {}),
       stagedAt: o.stagedAt, returnedAt: now, stagingSiteId: o.stagingSiteId, walkedKm: walk.trip.walkedKm });
     return copy(o.prior);
   }
@@ -94,6 +103,7 @@
     o.phase = 'bodyLost'; o.bodyEndedAt = at; o.walk.trip.status = 'interrupted';
     o.walk.trip.reason = 'The original body died; a recovered scientist inherits neither this walk nor its physical possessions.';
     s.history.push({ id: o.id, cityId: o.plan.cityId, objective: o.objective, startedAt: o.startedAt,
+      ...(o.plan.worksiteId ? { worksiteId: o.plan.worksiteId } : {}),
       stagedAt: o.stagedAt, returnedAt: null, bodyEndedAt: at, stagingSiteId: o.stagingSiteId, walkedKm: o.walk.trip.walkedKm });
     return copy(o.prior);
   }

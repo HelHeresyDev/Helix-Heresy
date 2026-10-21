@@ -159,6 +159,7 @@
   const OverlandExpedition = window.HelixOverlandExpedition;
   const IntercityMarch = window.HelixIntercityMarch;
   const JointTransit = window.HelixJointTransit;
+  const CorridorWorks = window.HelixCorridorWorks;
   const OuterApproach = window.HelixOuterApproach;
   const CampaignSettlement = window.HelixCampaignSettlement;
   const RoadsideStops = window.HelixRoadsideStops;
@@ -5567,6 +5568,7 @@
       overlandExpedition: null,
       intercityMarch: null,
       jointTransit: null,
+      corridorWorks: null,
       outerApproachVisit: null,
       overlandApproach: null,
       roadsideStops: null,
@@ -8098,6 +8100,7 @@
     if (!target.strategicJourneys.destinations.length && options.strategicMap && options.startingSite) {
       target.strategicJourneys = StrategicJourneys.defaultState(options);
     }
+    if (target === state) updateCorridorSupport();
     return target.strategicJourneys;
   }
 
@@ -13702,6 +13705,25 @@
       intercityMarchAction,
       outerApproachAction,
       jointTransitAction,
+      corridorWorksAction,
+      corridorWorksSnapshot: () => clonePlainObject({ saved: state.corridorWorks, localId: corridorWorksLocal()?.id, clock: state.clock,
+        sources: corridorWorksSources(), network: ensureStrategicJourneys(), roomId: scientistRoomId(), cell: scientistMapCell(),
+        tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })),
+        stacks: ensurePhysicalItemStacks(), tools: fieldStationTools(), march: state.intercityMarch }),
+      setCorridorWorksTestSource: source => { const s = ensureCorridorWorks();
+        if (!s || !CorridorWorks.validSource(source) || s.sites.some(w => w.id === source.id)) return false;
+        s.preparedSources = [clonePlainObject(source)]; const joint = ensureJointTransit();
+        joint.preparedSources = [...joint.preparedSources.filter(j => j.corridorId !== source.routeId), clonePlainObject(source.joint)]; markStateDirty(); persist(); render(); return true; },
+      advanceCorridorWorksForTest: seconds => {
+        for (let remaining = Math.max(0, seconds); remaining > 0 && !scientistIsDead();) {
+          const task = firstScientistQueueTask(), movement = task?.data?.movement;
+          const step = movement?.steps?.length > 1 && !movement.completed ? Math.min(remaining, 1)
+            : overlandOnRoad() && state.overlandExpedition.trip.status === 'walking' ? overlandClockStep(remaining, 30)
+              : Math.min(remaining, 10, Math.max(1, (task?.dueAt ?? Infinity) - state.clock));
+          state.clock += step; remaining -= step; updateScientistMovementTask(); completeDueTasks(); updateWildernessNeeds(); updateJointTransit(); updateIntercityPassenger();
+        }
+        syncActorInventories(); syncPhysicalReadModels(); persist(); render();
+      },
       jointTransitSnapshot: () => clonePlainObject({ ledger: state.jointTransit, localId: jointTransitLocal()?.id,
         contexts: (state.jointTransit?.stations || []).map(s => ({ id: s.id, ...jointTransitContext(s) })), clock: state.clock,
         passenger: state.intercityPassenger, roomId: scientistRoomId(), cell: scientistMapCell(),
@@ -20057,6 +20079,9 @@
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.jointTransit = JointTransit.rebindState(importedState.jointTransit,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.corridorWorks = CorridorWorks.rebind(importedState.corridorWorks,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    for (const task of importedState.tasks || []) if (task.data?.corridorWork) task.data.corridorWork.worldId = world.id;
     for (const g of importedState.penalFlights?.assistance?.cityApproach?.gates || []) g.outerApproach = OuterApproach.rebind(g.outerApproach,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     for (const g of importedState.penalFlights?.assistance?.cityApproach?.gates || []) if (g.outerApproach?.settlement) {
@@ -24114,6 +24139,7 @@
   }
 
   function completeDueTasks() {
+    updateCorridorWork();
     updateCaretakerRadioBatteryWork();
     updateFieldToolCare();
     updateForeignSelfCareTasks();
@@ -24141,6 +24167,12 @@
         .sort((a, b) => a.dueAt - b.dueAt);
       for (const task of due) {
         if (scientistIsDead()) return changeCount;
+        const corridorProgress = task.data?.corridorWork || task.data?.grantWork;
+        if (task.type === 'surveyExpeditionWork' && task.data?.action?.startsWith('corridor') && corridorProgress
+          && corridorProgress.progress < corridorProgress.required) {
+          task.dueAt = state.clock + Math.max(1, corridorProgress.required - corridorProgress.progress);
+          continue;
+        }
         if (task.type === 'surveyExpeditionWork' && task.data?.action === 'passengerProvisions' && task.data.provisionWork.progress < IntercityPassenger.HANDOFF_SECONDS) {
           task.dueAt = state.clock + Math.max(1, IntercityPassenger.HANDOFF_SECONDS - task.data.provisionWork.progress);
           continue;
@@ -68346,6 +68378,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function labMapOverlayAssignments(overlayId, map, context = {}) {
     const assignments = baseLabMapOverlayAssignments(overlayId, map, context);
+    for (const w of state.corridorWorks?.sites || []) for (const p of w.site.layout.parts)
+      if (scientistPerceivesMapCell(p.cell))
+        setLabMapOverlayEntry(assignments, p.cell, { overlayId, classNames: ['map-overlay-resources'],
+          label: 'Original joint roadbed', title: corridorPartCondition(p, w) >= 50 ? 'Visibly reconstructed stone roadbed' : 'Original breached roadbed course; narrow foot approach is not vehicle support',
+          value: corridorPartCondition(p, w) >= 50 ? 'R' : '×', source: 'Direct roadbed observation', target: { kind: 'tile', tile: p.cell } }, map);
     for (const station of state.jointTransit?.stations || []) for (const actor of station.members) if (actor.mapCell?.z === scientistMapCell().z
       && WildernessBeasts.distance(actor.mapCell, scientistMapCell()) <= 8 && sensoryLineOfSight(scientistMapCell(), actor.mapCell))
       setLabMapOverlayEntry(assignments, actor.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: actor.name,
@@ -70180,6 +70217,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (stack?.reservedTaskId === task.id) stack.reservedTaskId = "";
     }
     if (task.type === "surveyExpeditionWork") {
+      if (task.data?.corridorWork) FieldStation.cancel(state.corridorWorks?.sites.find(w => w.id === task.data.worksId), task.data.corridorWork, fieldStationTools(), ensurePhysicalItemStacks(), state.clock);
       if (task.data?.fieldWaterWork) {
         releaseProductionMaterialReservations(task);
         const tool = toolInstanceById(task.data.toolInstanceId)?.instance; if (tool?.reservedTaskId === task.id) tool.reservedTaskId = '';
@@ -79743,7 +79781,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const walk = OverlandExpedition.normalize(state.overlandExpedition), march = state.intercityMarch;
     if (march?.worldId === activeWorldRecord?.id && march.runId === activeRunRecord?.id) {
       const o = march.operation;
-      if (o?.stagedAt != null) add(citySite(o.plan.cityId), { id: `${o.id}:staging`, category: 'route', subject: 'personally reached exterior staging ground',
+      if (o?.stagedAt != null && o.plan.worksiteId) {
+        const w = state.corridorWorks?.sites.find(w => w.id === o.plan.worksiteId);
+        if (w) add({ id: w.id, kind: 'survey', label: 'Original joint roadworks ground', globeCellId: w.source.joint.cellId }, {
+          id: `${o.id}:works-ground`, category: 'route', subject: 'personally reached joint works ground', sourceId: o.id,
+          source: 'Personal near-side roadworks approach', sourceAt: o.stagedAt, receivedAt: o.stagedAt,
+          text: 'Reached the original near-side joint receiving apron, not the neighboring city exterior.',
+          coverage: 'This original works patch only; no completed intercity itinerary, surrounding map or onward admission' });
+      } else if (o?.stagedAt != null) add(citySite(o.plan.cityId), { id: `${o.id}:staging`, category: 'route', subject: 'personally reached exterior staging ground',
         sourceId: o.id, source: 'Personal intercity expedition', sourceAt: o.stagedAt, receivedAt: o.stagedAt,
         text: 'Reached exterior roadside ground on foot. No gate admission, defensive assessment or political concession was obtained.',
         coverage: 'This original roadside patch only; not city interior, a mineral survey or current remote safety' });
@@ -96160,6 +96205,214 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
 
+  const corridorWorkSources = new WeakMap();
+  function ensureCorridorWorks() {
+    if (!activeWorldRecord || !activeRunRecord) return null;
+    state.corridorWorks ||= { worldId: activeWorldRecord.id, runId: activeRunRecord.id, sites: [], notices: [], preparedSources: [] };
+    return state.corridorWorks.worldId === activeWorldRecord.id && state.corridorWorks.runId === activeRunRecord.id ? state.corridorWorks : null;
+  }
+  function corridorWorksSources() {
+    const ledger = ensureCorridorWorks(), network = state.strategicJourneys, map = activeWorldRecord?.generatedData?.strategicMap;
+    if (!ledger || !network || !map) return [];
+    let cache = corridorWorkSources.get(map); if (!cache) { cache = new Map(); corridorWorkSources.set(map, cache); }
+    const home = state.surveyExpeditions?.destination?.cityId;
+    return network.routes.filter(r => r.endpointCityIds.includes(home)).flatMap(route => {
+      const prepared = ledger.preparedSources.find(s => s.routeId === route.id); if (prepared) return [prepared];
+      const key = `${route.id}:${route.distanceKm}`;
+      if (!cache.has(key)) cache.set(key, CorridorWorks.sourceFromWorld(map, route,
+        (a, b) => StrategicWorld.greatCircleDistanceKm(map, StrategicWorld.cellIndex(a), StrategicWorld.cellIndex(b))));
+      return cache.get(key) ? [cache.get(key)] : [];
+    });
+  }
+  function corridorWorksLocal() {
+    const ledger = state.corridorWorks, station = jointTransitLocal();
+    return station && ledger?.worldId === activeWorldRecord?.id && ledger.runId === activeRunRecord?.id
+      ? ledger.sites.find(w => w.stationId === station.id && w.site.roomId === scientistRoomId()) || null : null;
+  }
+  function ensureCorridorWorksite(id) {
+    const ledger = ensureCorridorWorks(), source = corridorWorksSources().find(s => s.id === id), station = jointTransitLocal();
+    if (!ledger || !source || station?.id !== source.joint.id) return null;
+    let w = ledger.sites.find(w => w.id === id);
+    if (!w) { w = CorridorWorks.create(source, { worldId: ledger.worldId, runId: ledger.runId }, station, state.clock); if (w) ledger.sites.push(w); }
+    return w;
+  }
+  function corridorSourceCurrent(w) {
+    const source = corridorWorksSources().find(s => s.id === w.id);
+    return Boolean(source && JSON.stringify(source.joint.sponsors) === JSON.stringify(w.source.joint.sponsors)
+      && JSON.stringify(source.joint.endpointCityIds) === JSON.stringify(w.source.joint.endpointCityIds));
+  }
+  function corridorPartCondition(p, w) {
+    const physical = constructedFloorAtCell(p.cell), receipt = w.site.parts[p.id];
+    return physical && receipt && physical.builtAt === receipt.at && physical.materialId === 'stoneBlocks' ? physical.condition : 0;
+  }
+  function updateCorridorSupport() {
+    if (!state?.corridorWorks?.sites.length || !state.strategicJourneys || scientistIsDead()
+      || state.corridorWorks.worldId !== activeWorldRecord?.id || state.corridorWorks.runId !== activeRunRecord?.id) return false;
+    return CorridorWorks.project(state.corridorWorks, state.strategicJourneys, corridorPartCondition, corridorSourceCurrent, state.clock);
+  }
+  function corridorWorkContext(w, part, task = null, operation = 'build') {
+    const j = task?.data.corridorWork, cell = scientistMapCell(), position = j?.workCell || { ...part.cell, y: part.cell.y - 1 };
+    const physical = constructedFloorAtCell(part.cell), record = w.site.parts[part.id];
+    const local = corridorWorksLocal()?.id === w.id;
+    const target = { id: mapCellKey(part.cell), visible: Boolean(local && scientistPerceivesMapCell(part.cell)),
+      present: Boolean(physical), original: Boolean(record && (!physical || physical.builtAt === record.at && physical.materialId === 'stoneBlocks')),
+      condition: physical?.condition, stamp: physical?.builtAt,
+      installationKey: FieldStation.installationKey(w, part.id), footprintKey: mapCellKey(part.cell) };
+    const from = FieldStation.effort(w, part.id, operation, { target });
+    const grant = w.grant && w.grant.bodyEpoch === ensureScientistIdentity().bodyEpoch && corridorSourceCurrent(w)
+      && JSON.stringify(w.grant.sponsorCityIds) === JSON.stringify(w.source.joint.endpointCityIds);
+    return { local: Boolean(local && grant), constructionGrant: grant ? 'jointCorridorRepair' : '', wilderness: false,
+      alive: !scientistIsDead(), capable: annexCapable(), free: annexCapable(), actorId: 'scientist',
+      siteId: w.id, worldId: activeWorldRecord?.id, roomId: scientistRoomId(), cell, bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      tripId: undefined, visitId: undefined, target, busy: !task && scientistQueueTasks().length > 0,
+      geometryOkay: Boolean(labMapCellIsWalkable(position) && !labMapCellIsPathBlocked(position, { actor: state.scientist })
+        && !constructedWallAtCell(part.cell) && !labMapDoorAtCell(part.cell) && !fixturesAtCell(part.cell).length
+        && (operation === 'repair' ? target.original : !physical && (operation === 'reconstruct' ? Boolean(record) : !record))
+        && !ensurePhysicalItemStacks().some(i => !i.carriedBy && i.quantity > 0 && sameMapCell(i.cell, part.cell))),
+      reachable: Boolean(labMapPathBetweenCells(cell, position, { actor: state.scientist, ignoreDoors: true }).length), workCell: position,
+      materialsLocal: !j || j.inputs.every(i => mapCellDistance(i.cell, position) <= 1 && sensoryLineOfSight(i.cell, position)),
+      floorsIntact: true, wallsIntact: true, roofsIntact: true, doorPresent: true,
+      seconds: adjustedActionDuration(part.seconds * (1 - from), 'fabrication') * WildernessSurvival.fatigueMultiplier(state.wildernessSurvival),
+      stamina: scientistVital('stamina').current, staminaCost: adjustedStaminaCost(3 * (1 - from), ['fabrication']),
+      atHead: Boolean(task && firstScientistQueueTask()?.id === task.id && surveyTaskAllowed(task) && !state.combat?.routineSuspension),
+      threatened: Boolean(state.combat?.pendingActions?.scientist || state.combat?.routineSuspension
+        || currentRegionalEncounters()?.beasts.actors.some(a => a.status !== 'dead' && a.roomId === scientistRoomId()
+          && mapCellDistance(a.mapCell, cell) <= 5 && sensoryLineOfSight(cell, a.mapCell))) };
+  }
+  function corridorWorksTaskReason(task) {
+    const d = task.data;
+    if (!annexCapable() || d.bodyEpoch !== ensureScientistIdentity().bodyEpoch) return 'The original living free working body is required.';
+    const source = corridorWorksSources().find(s => s.id === d.worksId);
+    if (!source) return 'The original causal road damage and existing joint compact are unavailable.';
+    if (d.action === 'corridorNotice') return state.surveyExpeditions?.phase === 'field' && scientistRoomId() === SurveyExpeditions.FIELD_ROOM
+      && source.joint.endpointCityIds.includes(state.surveyExpeditions.destination.cityId) ? '' : 'Receive the released approach notice on the original municipal ground.';
+    const w = state.corridorWorks?.sites.find(w => w.id === d.worksId), station = jointTransitLocal();
+    if (!w || corridorWorksLocal()?.id !== w.id || !corridorSourceCurrent(w)) return 'Physically attend the original reached roadworks ground.';
+    if (d.action === 'corridorInspect') return w.site.layout.parts.every(p => mapCellDistance(p.cell, d.toCell) <= 3 && scientistExactPerceptionAtCell(p.cell, { origin: d.toCell }))
+      ? '' : 'The original roadbed footprint must be physically visible.';
+    if (d.action === 'corridorGrant') return w.inspectedAt != null && station?.id === w.stationId && !station.job && !JointTransit.active(station, state.clock)
+      && station.members.every(a => JointTransit.able(a) && !actorIsIncapacitated(a) && a.willing && !a.assignment && a.workSeconds >= 60 - (d.grantWork?.progress || 0)
+        && mapCellDistance(a.mapCell, d.toCell) <= 3 && sensoryLineOfSight(a.mapCell, d.toCell))
+      ? '' : 'The inspected proposal needs the original two willing capable posted officers at their local desk, with actual remaining duty.';
+    if (d.corridorWork) {
+      const part = FieldStation.workPart(w, d.partId, d.operation), c = part && corridorWorkContext(w, part, task, d.operation);
+      if (!part || skillLevel('fabrication') < 101) return 'Adept Fabrication and the exact original roadbed component are required.';
+      if (d.corridorWork.inputs.some(i => ensurePhysicalItemStacks().find(s => s.id === i.stackId)?.tags?.some(t => /contaminated|stolen/i.test(t))))
+        return 'Contaminated or stolen supplies cannot fund authorized road works.';
+      if (d.corridorWork.tools.some(t => { const stack = ensurePhysicalItemStacks().find(i => i.id === t.stackId);
+        return !stack || stack.cityOwnerId || stack.civicCustody || stack.tags?.some(tag => /contaminated|stolen/i.test(tag)); }))
+        return 'The original owned construction tools and their unchanged custody are required.';
+      return FieldStation.reason(w, d.corridorWork, c, fieldStationTools(), ensurePhysicalItemStacks());
+    }
+    return 'Unsupported roadworks action.';
+  }
+  function corridorWorksAction(action, worksId = '', partId = '') {
+    if (!annexCapable() || surveyBusy()) return false;
+    const source = corridorWorksSources().find(s => s.id === worksId) || corridorWorksLocal()?.source;
+    if (!source) return false;
+    const bodyEpoch = ensureScientistIdentity().bodyEpoch, data = { worksId: source.id, bodyEpoch };
+    if (action === 'notice') return Boolean(queueSurveyWork('corridorNotice', SurveyExpeditions.RENDEZVOUS,
+      { ...data, workSeconds: 60, label: 'Read released joint-compact roadworks approach directions' }));
+    const w = corridorWorksLocal(); if (!w || w.id !== source.id) return false;
+    if (action === 'inspect') return Boolean(queueSurveyWork('corridorInspect', { ...w.site.layout.parts[1].cell, y: 12 },
+      { ...data, workSeconds: 60, label: 'Inspect the original three-metre roadbed breach' }));
+    if (action === 'authorize') return Boolean(queueSurveyWork('corridorGrant', { ...jointTransitLocal().layout.desk, y: jointTransitLocal().layout.desk.y - 2 },
+      { ...data, workSeconds: 60, grantWork: { required: 60, progress: 0, lastAt: state.clock, attended: false },
+        label: 'Agree exact voluntary roadbed repairs under the existing joint compact' }));
+    if (action === 'report') { observeCorridorWorks(w); persist(); render(); return true; }
+    if (!['build', 'repair', 'reconstruct'].includes(action) || w.inspectedAt == null || skillLevel('fabrication') < 101) return false;
+    const part = FieldStation.workPart(w, partId, action); if (!part) return false;
+    const c = corridorWorkContext(w, part, null, action), inputs = fieldStationInputs(part, c.workCell);
+    if (inputs?.some(i => ensurePhysicalItemStacks().find(s => s.id === i.stackId)?.tags?.some(t => /contaminated|stolen/i.test(t)))) return false;
+    const tools = fieldStationTools().filter(t => !t.stack.cityOwnerId && !t.stack.civicCustody && !t.stack.tags?.some(tag => /contaminated|stolen/i.test(tag)));
+    const plan = FieldStation.plan(w, partId, c, tools, inputs, action);
+    if (!plan || !queueSurveyWork('corridorBuild', c.workCell, { ...data, partId, operation: action,
+      workSeconds: plan.required, label: `${action === 'repair' ? 'Repair' : 'Reconstruct'} original joint roadbed course` }, { deferRender: true })) return false;
+    const task = state.tasks.at(-1), reserved = reserveProductionMaterialSlices(inputs, task.id);
+    task.data.reservedStackIds = reserved || [];
+    if (!reserved || !spendStamina(plan.staminaCost)) { releaseProductionMaterialReservations(task); cancelTask(task.id, { quiet: true }); return false; }
+    plan.inputs = inputs; task.data.corridorWork = FieldStation.begin(plan, task.id, state.clock, fieldStationTools());
+    w.startedAt ??= state.clock; updateCorridorSupport(); syncActorInventories(); persist(); render(); return true;
+  }
+  function updateCorridorWork() {
+    if (scientistIsDead()) return;
+    for (const task of state.tasks.filter(t => t.data?.action === 'corridorGrant' && t.data.grantWork)) {
+      const d = task.data, station = jointTransitLocal();
+      const attended = !taskBlockReason(task) && firstScientistQueueTask()?.id === task.id && !state.combat?.routineSuspension
+        && sameMapCell(scientistMapCell(), d.toCell);
+      const used = FieldStation.advanceService(d.grantWork, state.clock, attended);
+      if (used && station) station.members.forEach(a => { a.workSeconds = Math.max(0, a.workSeconds - used); });
+      const remaining = Math.max(0, 60 - d.grantWork.progress);
+      task.dueAt = state.clock + (remaining > 0 ? Math.max(.001, remaining) : 0);
+    }
+    for (const task of state.tasks.filter(t => t.data?.corridorWork)) {
+      const d = task.data, w = state.corridorWorks?.sites.find(w => w.id === d.worksId);
+      const part = w && FieldStation.workPart(w, d.partId, d.operation); if (!part) continue;
+      const c = corridorWorkContext(w, part, task, d.operation); if (taskBlockReason(task)) c.atHead = false;
+      FieldStation.advance(w, d.corridorWork, c, fieldStationTools(), ensurePhysicalItemStacks(), state.clock);
+      const remaining = Math.max(0, d.corridorWork.required - d.corridorWork.progress);
+      task.dueAt = state.clock + (remaining > 0 ? Math.max(.001, remaining) : 0);
+    }
+    updateCorridorSupport(); const w = corridorWorksLocal(); if (w) observeCorridorWorks(w);
+  }
+  function completeCorridorWorksTask(task) {
+    if (corridorWorksTaskReason(task) || !sameMapCell(scientistMapCell(), task.data.toCell)) return;
+    const d = task.data, s = ensureCorridorWorks(), source = corridorWorksSources().find(s => s.id === d.worksId);
+    if (d.action === 'corridorNotice') {
+      if (!s.notices.some(n => n.source.id === source.id)) s.notices.push(CorridorWorks.notice(source, state.surveyExpeditions.destination.cityId, state.clock));
+    } else {
+      const w = s.sites.find(w => w.id === d.worksId);
+      if (d.action === 'corridorInspect') { w.inspectedAt = state.clock; w.history.push({ at: state.clock, kind: 'inspected', bodyEpoch: d.bodyEpoch }); }
+      if (d.action === 'corridorGrant' && d.grantWork?.progress >= 60) CorridorWorks.authorize(w, jointTransitLocal(), d.bodyEpoch, state.clock, 60);
+      if (d.corridorWork) {
+        const part = FieldStation.workPart(w, d.partId, d.operation), c = corridorWorkContext(w, part, task, d.operation);
+        // The shared task dispatcher has already removed the finishing head.
+        // Completion still rechecks its actual body, place, claims and attendance.
+        c.atHead = surveyTaskAllowed(task) && !state.combat?.routineSuspension;
+        const physicalId = mapCellKey(part.cell);
+        if (!FieldStation.finish(w, d.corridorWork, c, fieldStationTools(), ensurePhysicalItemStacks(), state.clock, physicalId)) return;
+        if (d.operation === 'repair') constructedFloorAtCell(part.cell).condition = Math.min(100, constructedFloorAtCell(part.cell).condition + 45);
+        else ensureLabMap().terrain.constructedFloors = normalizeConstructedSurfaces([...ensureLabMap().terrain.constructedFloors,
+          { cell: part.cell, materialId: 'stoneBlocks', purpose: 'floor', condition: 100, builtAt: state.clock }]);
+        consumeProductionMaterialReservations(task); bumpNavigationRevision('topology'); awardXp('fabrication', 3, task.label, { physical: true });
+        updateCorridorSupport();
+      }
+      observeCorridorWorks(w);
+    }
+    state.paused = true; markStateDirty();
+  }
+  function observeCorridorWorks(w) {
+    if (corridorWorksLocal()?.id !== w.id || w.inspectedAt == null || !w.site.layout.parts.every(p => scientistPerceivesMapCell(p.cell))) return;
+    w.observations = { at: state.clock, parts: w.site.layout.parts.map(p => ({ id: p.id, condition: corridorPartCondition(p, w), effort: w.site.effort[p.id] || 0 })),
+      roadbedRestored: CorridorWorks.intact(w, corridorPartCondition), scope: CorridorWorks.SCOPE };
+  }
+  function renderCorridorWorks() {
+    const panel = document.createElement('section'); panel.dataset.corridorWorks = 'true'; panel.className = 'subpanel';
+    panel.append(textEl('h3', 'Joint Corridor Roadbed Repairs'), textEl('p', CorridorWorks.SCOPE));
+    const w = corridorWorksLocal(), ledger = ensureCorridorWorks();
+    const button = (label, action, id, part = '', disabled = false) => { const b = document.createElement('button'); b.textContent = label;
+      b.dataset.corridorWorksAction = action; b.disabled = Boolean(disabled || !annexCapable() || surveyBusy()); b.onclick = () => corridorWorksAction(action, id, part); panel.append(b); };
+    if (!w) {
+      if (scientistRoomId() === SurveyExpeditions.FIELD_ROOM && state.surveyExpeditions?.phase === 'field') for (const source of corridorWorksSources()) {
+        panel.append(textEl('p', 'An existing joint compact releases directions only to its original near-side works receiving ground. This is no engineering survey, safe route or vehicle passage.'));
+        button('Receive released roadworks approach directions', 'notice', source.id, '', ledger.notices.some(n => n.source.id === source.id));
+      }
+      return panel;
+    }
+    button('Inspect original damaged roadbed', 'inspect', w.id);
+    button('Agree scoped roadbed repairs at original joint desk', 'authorize', w.id, '', w.inspectedAt == null);
+    if (w.inspectedAt != null) {
+      panel.append(textEl('p', 'Three one-metre stone roadbed courses: each needs four staged owned Stone Blocks and one Metal Part, a carried original Masonry hammer and Stone chisel, Adept Fabrication (101), and fifteen base work minutes. Total: twelve stone, three parts, forty-five base minutes. Starting works closes the vehicle lane until every original course is usable. Unused materials remain yours; incorporated courses become joint infrastructure, not private property.'));
+      for (const p of w.site.layout.parts) {
+        button(`Reconstruct roadbed course ${p.cell.x}`, 'build', w.id, p.id, Boolean(w.site.parts[p.id]));
+        button(`Repair surviving roadbed course ${p.cell.x}`, 'repair', w.id, p.id, !w.site.parts[p.id]);
+        button(`Replace missing original roadbed course ${p.cell.x}`, 'reconstruct', w.id, p.id, !w.site.parts[p.id]);
+      }
+      button('Receive dated roadbed inspection report', 'report', w.id);
+      if (w.observations) panel.append(textEl('p', `${formatClock(w.observations.at)} — inspected roadbed ${w.observations.roadbedRestored ? 'usable' : 'not restored'}; ${w.observations.parts.map(p => `${p.id}: ${p.condition}%`).join('; ')}. This certifies no unseen links, live remote stocks, checkpoint watch or city admission.`));
+    }
+    return panel;
+  }
   const jointTransitSources = new WeakMap();
   function ensureJointTransit() {
     if (!activeWorldRecord || !activeRunRecord) return null;
@@ -96395,7 +96648,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function ensureOuterApproach() {
     const g = outerApproachGate(), site = overlandStopSite(), o = state.intercityMarch?.operation;
-    if (!g || !site || !intercityMarchActive() || o.stagedAt == null || state.overlandExpedition.trip.positionKm !== state.overlandExpedition.route.distanceKm
+    if (!g || !site || !intercityMarchActive() || o.plan.worksiteId || o.stagedAt == null || state.overlandExpedition.trip.positionKm !== state.overlandExpedition.route.distanceKm
       || scientistIsDead() || !g.materialized || state.cityDefense?.source.cityId === g.cityId || state.sovereignBargains?.source.cityId === g.cityId) return null;
     if (g.outerApproach) return g.outerApproach;
     const source = outerApproachSource(g), civicSource = g.preparedForeignCivicTestSource || ForeignCivicBargains.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, g);
@@ -96666,7 +96919,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       && IntercityMarch.active(state.intercityMarch);
   }
   function intercityMarchPlans() {
-    return IntercityMarch.plans(ensureIntercityMarch(), state.strategicJourneys, state.surveyExpeditions?.destination?.cityId);
+    return IntercityMarch.plans(ensureIntercityMarch(), ensureStrategicJourneys(), state.surveyExpeditions?.destination?.cityId,
+      state.corridorWorks?.notices || []);
   }
   function intercityMarchReason(working = false) {
     if (!annexCapable() || !activeWorldRecord || !activeRunRecord) return 'The scientist must be alive, capable and free.';
@@ -96695,7 +96949,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (intercityMarchDepartureReason(task) || !sameMapCell(scientistMapCell(), SurveyExpeditions.RENDEZVOUS)) return;
     const s = ensureIntercityMarch(), origin = { roomId: SurveyExpeditions.FIELD_ROOM, cell: SurveyExpeditions.RENDEZVOUS };
     const prior = { walk: state.overlandExpedition, approach: state.overlandApproach };
-    const walk = IntercityMarch.begin(s, task.data.plan, task.data.objective, origin, prior, state.clock, task.data.bodyEpoch);
+    const walk = IntercityMarch.begin(s, task.data.plan, task.data.objective, origin, prior, state.clock, task.data.bodyEpoch, state.corridorWorks?.notices || []);
     if (!walk) return;
     state.overlandExpedition = walk;
     const env = state.localSiteContext?.environment;
@@ -96724,7 +96978,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const b = document.createElement('button'); b.textContent = `March to ${p.label}`; b.disabled = Boolean(reason);
       b.onclick = () => intercityMarchAction('depart', p.id, objective.value); panel.append(b);
     }
-    for (const h of state.intercityMarch?.history || []) panel.append(textEl('p', `Dated expedition ${h.id}: ${h.returnedAt == null ? `original body lost ${formatClock(h.bodyEndedAt)}; no return` : `returned ${formatClock(h.returnedAt)}`}, ${formatDecimal(h.walkedKm, 3)} km actually walked; ${h.stagedAt == null ? 'did not reach staging' : `exterior ground reached ${formatClock(h.stagedAt)}`}. No political outcome.`));
+    for (const h of state.intercityMarch?.history || []) panel.append(textEl('p', `Dated expedition ${h.id}: ${h.returnedAt == null ? `original body lost ${formatClock(h.bodyEndedAt)}; no return` : `returned ${formatClock(h.returnedAt)}`}, ${formatDecimal(h.walkedKm, 3)} km actually walked; ${h.stagedAt == null ? 'did not reach staging' : `${h.worksiteId ? 'joint works ground' : 'exterior ground'} reached ${formatClock(h.stagedAt)}`}. No political outcome.`));
     return panel;
   }
   function prepareRegionalWalkingRoute(plan) {
@@ -96740,23 +96994,32 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function placeRegionalBeasts(site) {
     const s = ensureRegionalEncounters(); if (!s || scientistIsDead()) return 0;
     const map = ensureLabMap();
-    return RegionalEncounters.place(s, site, state.clock, (cell, actor) => !sameMapCell(cell, scientistMapCell())
+    // A scoped works approach ends on the canonical fort patch, while its
+    // encounter allocation still belongs to this actual measured expedition.
+    const reached = intercityMarchActive() && state.intercityMarch.operation.plan.worksiteId
+      ? { ...site, routeId: state.overlandExpedition.route.id } : site;
+    return RegionalEncounters.place(s, reached, state.clock, (cell, actor) => !sameMapCell(cell, scientistMapCell())
       && !allWildernessBeasts().some(a => a.id !== actor.id && sameMapCell(a.mapCell, cell))
       && labMapCellIsWalkable(cell, map) && !labMapCellIsPathBlocked(cell, { map, actor, skipPlacement: true })
       && canActorOccupyTile(actor, cell));
   }
   function overlandStopSite() {
     const t = state?.overlandExpedition;
+    const worksPlan = intercityMarchActive() && state.intercityMarch.operation.plan.worksiteId && state.intercityMarch.operation.plan;
     return OverlandExpedition.active(t)
-      ? overlandKnownStops().find(p => p.roomId === scientistRoomId() && p.routeId === t.route.id && Math.abs(p.positionKm - t.trip.positionKm) < 1e-9) || null : null;
+      ? overlandKnownStops().find(p => p.roomId === scientistRoomId()
+        && (p.routeId === t.route.id || worksPlan && p.routeId === `intercity-march:${worksPlan.corridorId}` && Math.abs(t.trip.positionKm - worksPlan.distanceKm) < 1e-9)
+        && Math.abs(p.positionKm - t.trip.positionKm) < 1e-9) || null : null;
   }
   function enterOverlandStop() {
     if (scientistIsDead() || !overlandOnRoad() || state.overlandExpedition.trip.status !== 'stopped') return false;
     if (overlandStopSite()) return true;
     const t = state.overlandExpedition, map = ensureLabMap();
+    const plan = intercityMarchActive() && state.intercityMarch.operation.plan;
+    const physicalRouteId = plan?.worksiteId && Math.abs(t.trip.positionKm - plan.distanceKm) < 1e-9 ? `intercity-march:${plan.corridorId}` : t.route.id;
     const z = Math.max(20, ...Object.keys(map.layers).map(Number).filter(Number.isFinite)) + 1;
     const result = RoadsideStops.ensure(state.roadsideStops, { worldId: activeWorldRecord.id, runId: activeRunRecord.id },
-      t.route.id, t.trip.positionKm, state.clock, z, state.overlandApproach.weather);
+      physicalRouteId, t.trip.positionKm, state.clock, z, state.overlandApproach.weather);
     if (!result) return false;
     state.roadsideStops = result.state; const site = result.site;
     if (!state.rooms.some(r => r.id === site.roomId)) {
@@ -96779,6 +97042,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (intercityMarchActive()) {
       const source = jointTransitSource(state.intercityMarch.operation.plan.corridorId);
       if (source && Math.abs(site.positionKm - JointTransit.position(source, state.intercityMarch.operation.plan.homeCityId)) < 1e-8) ensureJointStation(source, state.clock, site);
+      const worksiteId = state.intercityMarch.operation.plan.worksiteId;
+      if (worksiteId) ensureCorridorWorksite(worksiteId);
     }
     state.paused = true; markStateDirty(); return true;
   }
@@ -96862,7 +97127,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function overlandArrivalReason(endpoint) {
     if (intercityMarchActive()) {
-      if (endpoint === 'ground') return 'Reached exterior staging distance. No city admission, protection or political outcome; continue on actual roadside ground.';
+      if (endpoint === 'ground') return state.intercityMarch.operation.plan.worksiteId
+        ? 'Reached original roadworks receiving apron. Stop here; no onward road or city admission is certified.'
+        : 'Reached exterior staging distance. No city admission, protection or political outcome; continue on actual roadside ground.';
       const point = state.intercityMarch.operation.origin;
       if (!state.surveyExpeditions?.discovery?.access.active) return 'Original municipal entry permission is withdrawn; remain outside.';
       if (!roomById(point.roomId) || !labMapCellHasFloor(point.cell) || !labMapCellIsWalkable(point.cell)
@@ -97058,7 +97325,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function renderOverlandExpedition() {
     const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.overlandExpedition = 'true';
     panel.append(textEl('h3', 'Measured Overland Walk'));
-    if (intercityMarchActive()) panel.append(textEl('h4', 'Intercity Expedition — Exterior Staging'), textEl('p', IntercityMarch.LIMITS),
+    if (intercityMarchActive() && state.intercityMarch.operation.plan.worksiteId) panel.append(textEl('h4', 'Joint Roadworks — Measured Near-Side Approach'), textEl('p', CorridorWorks.SCOPE));
+    else if (intercityMarchActive()) panel.append(textEl('h4', 'Intercity Expedition — Exterior Staging'), textEl('p', IntercityMarch.LIMITS),
       textEl('p', `Objective: ${state.intercityMarch.operation.objective === 'reconnoitre' ? 'Reconnoitre exterior ground' : 'Stage for a future limited settlement'}. Reaching this position completes no confrontation or negotiation.`));
     const road = overlandOnRoad(), route = road ? state.overlandExpedition.route : overlandRoute(), t = state.overlandExpedition?.trip;
     const button = (label, action, disabled = false) => { const b = document.createElement('button'); b.textContent = label;
@@ -97082,7 +97350,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const needs = ensureWildernessSurvival(), sheltered = Boolean(overlandStopSite() && wildernessSheltered()); panel.append(textEl('p', `Thirst ${Math.round(needs.thirst)}/100; hunger ${Math.round(needs.hunger)}/100; exertion ${Math.round(needs.exertion)}/100; exposure ${Math.round(needs.exposure)}/100. ${WildernessSurvival.conditions(state.overlandApproach.weather, state.clock, sheltered).label}; ${sheltered ? 'occupying the original deployed shelter' : 'not sheltered'}.`));
     if (overlandStopSite()) { panel.append(renderRoadsideStop()); panel.append(renderWildernessBeastsPanel());
       if (jointTransitLocal()) panel.append(renderJointTransit());
-      if (intercityMarchActive() && state.overlandExpedition.trip.positionKm === state.overlandExpedition.route.distanceKm) panel.append(renderOuterApproach()); }
+      if (corridorWorksLocal()) panel.append(renderCorridorWorks());
+      if (intercityMarchActive() && !state.intercityMarch.operation.plan.worksiteId && state.overlandExpedition.trip.positionKm === state.overlandExpedition.route.distanceKm) panel.append(renderOuterApproach()); }
     if (currentFieldCharter()?.scientistReleased && fieldCharterLocalSite()) panel.append(renderFieldCharter());
     for (const task of scientistQueueTasks()) { const b = document.createElement('button'); b.textContent = `Cancel ${task.label}`; b.disabled = scientistIsDead(); b.onclick = () => cancelTask(task.id); panel.append(b); }
     for (const injury of actorInjuries('scientist').filter(i => i.status !== 'healed')) {
@@ -97117,7 +97386,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       && scientistRoomId() === state.intercityPassenger.spaces?.cabin.roomId;
     if (transit || inHeldCabin) return task.type === 'scientistMove' && task.data?.toRoomId === scientistRoomId()
       || task.type === 'rest' || task.type === 'injuryTreatment' && task.data?.targetActorId === 'scientist'
-      || task.type === 'surveyExpeditionWork' && ['consume', 'radioBattery', 'jointTransitTransfer', 'jointTransitSupply', 'overlandResume', 'deployShelter', 'packShelter'].includes(task.data?.action);
+      || task.type === 'surveyExpeditionWork' && (['consume', 'radioBattery', 'jointTransitTransfer', 'jointTransitSupply', 'overlandResume', 'deployShelter', 'packShelter', 'corridorInspect', 'corridorGrant', 'corridorBuild'].includes(task.data?.action)
+        || task.data?.action === 'pack' && task.data?.roadsideStopId === overlandStopSite()?.id);
     if (outerApproachLocal()) return task.type === 'scientistMove' && outerApproachRooms(outerApproachGate()).includes(task.data?.toRoomId)
       || task.type === 'rest' || task.type === 'injuryTreatment' && task.data?.targetActorId === 'scientist'
       || task.type === 'surveyExpeditionWork' && ['consume', 'radioBattery', 'outerApproachTravel'].includes(task.data?.action);
@@ -97560,6 +97830,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function surveyWorkBlockReason(task) {
+    if (task.data?.action?.startsWith('corridor')) return corridorWorksTaskReason(task);
     if (['jointTransitTransfer', 'jointTransitSupply'].includes(task.data?.action)) return jointTransitWorkReason(task);
     if (task.data?.action === 'outerApproachTravel') return outerApproachTravelReason(task.data, true);
     if (task.data?.action === 'intercityMarchDepart') return intercityMarchDepartureReason(task);
@@ -97689,6 +97960,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function completeSurveyWork(task) {
+    if (task.data?.action?.startsWith('corridor')) { completeCorridorWorksTask(task); return; }
     if (['jointTransitTransfer', 'jointTransitSupply'].includes(task.data?.action)) { completeJointTransitWork(task); return; }
     if (task.data?.action === 'outerApproachTravel') { completeOuterApproachTravel(task); return; }
     if (task.data?.fieldWaterWork) { completeFieldWaterWork(task); return; }
@@ -97849,6 +98121,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(textEl("strong", "Supported Survey Excursions"));
     panel.append(renderOverlandExpedition());
     panel.append(renderIntercityMarch());
+    panel.append(renderCorridorWorks());
     panel.append(renderFieldCharter());
     panel.append(renderIntercityPassenger());
     const discovery = LocalDiscovery.publicView(expedition.discovery);
@@ -105029,6 +105302,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.civicFoothold = CivicFoothold.normalize(candidate?.civicFoothold);
     next.runStrategicConditions = RunStrategicConditions.normalize(candidate?.runStrategicConditions);
     next.jointTransit = JointTransit.normalizeState(candidate?.jointTransit);
+    next.corridorWorks = CorridorWorks.normalize(candidate?.corridorWorks);
     next.expansionAtlas = ExpansionAtlas.normalize(candidate?.expansionAtlas);
     next.overlandExpedition = OverlandExpedition.normalize(candidate?.overlandExpedition);
     next.intercityMarch = IntercityMarch.normalize(candidate?.intercityMarch);

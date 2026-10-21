@@ -41,7 +41,7 @@
     return { origin: copy(origin), purpose, footprint, ground: [...footprint, apron], floors, walls, roofs, door, rest, cache, apron, heater, parts };
   }
   function accessReason(c) {
-    return !c.local || !c.wilderness ? 'Personally attend the original foreign wilderness sector; municipal sampling ground is not a construction grant.'
+    return !c.local || !c.wilderness && c.constructionGrant !== 'jointCorridorRepair' ? 'Personally attend authorized construction ground; municipal sampling ground is not a construction grant.'
       : !c.alive || !c.capable || !c.free ? 'A living free capable scientist must personally attend.'
         : c.actorId && c.actorId !== 'scientist' && !c.employmentAuthorized ? 'The original worker needs an explicit current construction commission.' : '';
   }
