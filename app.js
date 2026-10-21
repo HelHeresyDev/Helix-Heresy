@@ -150,6 +150,7 @@
   const WatchRecognition = window.HelixWatchRecognition;
   const DefenseRecognition = window.HelixDefenseRecognition;
   const ReligiousRecognition = window.HelixReligiousRecognition;
+  const DivineIntervention = window.HelixDivineIntervention;
   const CitySuccession = window.HelixCitySuccession;
   const CityAdministration = window.HelixCityAdministration;
   const CivicFoothold = window.HelixCivicFoothold;
@@ -5557,6 +5558,7 @@
       defenseRecognitionKnowledge: null,
       religiousRecognition: null,
       religiousRecognitionKnowledge: null,
+      divineIntervention: null,
       citySuccession: null,
       citySuccessionKnowledge: null,
       cityAdministration: null,
@@ -14833,6 +14835,10 @@
       watchRecognitionAction: (action, terms) => watchRecognitionAction(action, terms),
       defenseRecognitionAction: (action, terms) => defenseRecognitionAction(action, terms),
       religiousRecognitionAction: (action, terms) => religiousRecognitionAction(action, terms),
+      divineInterventionAction: action => divineInterventionAction(action),
+      divineInterventionSnapshot: () => clonePlainObject({ saved: currentDivineIntervention(), known: DivineIntervention.publicView(currentDivineIntervention()),
+        religion: state.religiousRecognition, context: divineInterventionContext(), office: scientistCivicOffice(), clock: state.clock,
+        injuries: state.injuries, health: scientistVital('health').current }),
       religiousRecognitionSnapshot: () => clonePlainObject({ petition: state.religiousRecognition, known: state.religiousRecognitionKnowledge,
         context: religiousRecognitionContext(), office: scientistCivicOffice(), charter: state.charterRecognition, clock: state.clock }),
       configureReligiousRecognitionTest: (options = {}) => {
@@ -20094,6 +20100,8 @@
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.regionalSuppression = Suppression.rebind(importedState.regionalSuppression,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.divineIntervention = DivineIntervention.rebind(importedState.divineIntervention,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.overlandExpedition = OverlandExpedition.rebind(importedState.overlandExpedition,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.intercityMarch = IntercityMarch.rebind(importedState.intercityMarch,
@@ -23762,6 +23770,7 @@
     changes.scientistMovementChanged += livingUpdate(() => updateWatchRecognition());
     changes.scientistMovementChanged += livingUpdate(() => updateDefenseRecognition());
     changes.scientistMovementChanged += livingUpdate(() => updateReligiousRecognition());
+    changes.combatChanged += livingUpdate(() => updateDivineIntervention());
     changes.scientistMovementChanged += livingUpdate(() => updateCarrierBriefing());
     changes.scientistMovementChanged += livingUpdate(() => updatePenalFlights(elapsed));
     changes.scientistMovementChanged += livingUpdate(() => updatePenalLegion(elapsed));
@@ -23889,6 +23898,19 @@
         const before = state.clock;
         changed += advanceTime(step, { ...options, passengerStep: true }); remaining -= state.clock - before;
         if (state.clock <= before || s.phase !== phase || (s.hold || '') !== hold || ensureWildernessSurvival().warningBand > band) break;
+      }
+      return changed;
+    }
+    if (!options.divineStep && elapsed > 1 && (currentDivineIntervention()?.job || DivineIntervention.present(DivineIntervention.actor(currentDivineIntervention())))) {
+      let remaining = elapsed, changed = 0;
+      while (remaining > 0 && !scientistIsDead()) {
+        const s = currentDivineIntervention(), a = DivineIntervention.actor(s), c = divineInterventionContext(),
+          phase = Boolean(a?.pending), health = scientistVital('health').current, before = state.clock;
+        const physical = DivineIntervention.present(a) && (c.avatarAway || a.hostile && c.sameGround && c.tracksScientist && c.scientistNearAnchor);
+        const boundary = Math.min(s?.job ? Math.max(1, DivineIntervention.REPORT_SECONDS - s.job.progress) : Infinity,
+          a?.manifested && a.expiresAt > before ? a.expiresAt - before : Infinity);
+        changed += advanceTime(Math.min(remaining, physical ? 1 : 60, boundary), { ...options, divineStep: true }); remaining -= state.clock - before;
+        if (state.clock <= before || !phase && DivineIntervention.actor(s)?.pending || scientistVital('health').current < health) break;
       }
       return changed;
     }
@@ -37663,7 +37685,7 @@
   function actorFloorLoadM2(actor) {
     if (actor?.actorKind === 'fieldDriver') return .6;
     if (!actor) return 0;
-    if (['civicOfficeholder', 'cityIncumbent', 'municipalTechnician'].includes(actor.actorKind)) return .6;
+    if (['civicOfficeholder', 'cityIncumbent', 'municipalTechnician', 'divineAvatar'].includes(actor.actorKind)) return .6;
     if (["surfaceWorker", "laboratoryAssistant", "homunculus", "foreignSupplier"].includes(actor.actorKind)) return .6;
     if (["expeditionEscort", "rescueMedic", "municipalClinician", "penalPrisoner"].includes(actor.actorKind)) return .6;
     if (actor.actorKind === "wildernessBeast") return 1;
@@ -37700,8 +37722,10 @@
       if (actor.id !== excludeActor?.id && mapCellKey(actor.mapCell) === key) occupied += .6;
     if (provision?.driver.mapCell && provision.driver.id !== excludeActor?.id && mapCellKey(provision.driver.mapCell) === key) occupied += .6;
     if (provision?.vehicle.mapCell && mapCellKey(provision.vehicle.mapCell) === key) occupied += 1;
-    for (const actor of [state.sovereignBargains?.representative, state.sovereignBargains?.defender, state.religiousRecognition?.actor, ...citySuccessionPeople(), state.citySuccession?.appointments?.candidate])
+    for (const actor of [state.sovereignBargains?.representative, state.sovereignBargains?.defender, state.religiousRecognition?.actor,
+      ...localDivineAvatars(), ...citySuccessionPeople(), state.citySuccession?.appointments?.candidate])
       if ((actor?.status === 'alive' || actor?.status === 'dead' && (actor.id === state.citySuccession?.appointments?.incumbentId
+        || actor.actorKind === 'divineAvatar' || actor.id === state.religiousRecognition?.actor.id
         || actor.id === state.citySuccession?.appointments?.candidate?.id || state.citySuccession?.appointments?.opposition?.memberIds.includes(actor.id)))
         && actor.id !== excludeActor?.id && mapCellKey(actor.mapCell) === key) occupied += .6;
     for (const actor of state.penalFlights?.actors || []) if (actor.id !== excludeActor?.id && mapCellKey(actor.mapCell) === key) occupied += .6;
@@ -37807,7 +37831,7 @@
 
   function navigationFootprintForActor(actor) {
     if (actor?.actorKind === 'fieldDriver') return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
-    if (['civicOfficeholder', 'cityIncumbent', 'municipalTechnician'].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
+    if (['civicOfficeholder', 'cityIncumbent', 'municipalTechnician', 'divineAvatar'].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (["surfaceWorker", "laboratoryAssistant", "homunculus", "foreignSupplier"].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (["expeditionEscort", "rescueMedic", "penalPrisoner"].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (actor?.actorKind === "wildernessBeast") return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: 1, exclusive: true });
@@ -41243,6 +41267,9 @@
   }
 
   function combatActor(actorId) {
+    const avatar = currentDivineIntervention()?.avatars.find(a => a.id === actorId && a.manifested);
+    if (avatar) return avatar;
+    if (state.religiousRecognition?.actor.id === actorId) return state.religiousRecognition.actor;
     const transitOfficer = state.jointTransit?.stations.flatMap(s => s.members).find(a => a.id === actorId);
     if (transitOfficer) return transitOfficer;
     if (state.cityProvisioning?.driver.id === actorId) return state.cityProvisioning.driver;
@@ -41275,7 +41302,7 @@
   function combatActorSkillLevel(actor, skillId) {
     if (actor?.actorKind === 'fieldDriver') return actor.skills[skillId] || 1;
     if (actor?.actorKind === 'cityIncumbent') return actor.personalDefense.skills[skillId] || 1;
-    if (['cityDefender', 'civicOfficeholder'].includes(actor?.actorKind)) return actor.skills?.[skillId] || 1;
+    if (['cityDefender', 'civicOfficeholder', 'divineAvatar'].includes(actor?.actorKind)) return actor.skills?.[skillId] || 1;
     if (actor?.actorKind === "homunculus") return actor.skills[skillId] || 0;
     if (["surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor?.actorKind)) return actor.skills[skillId] || 1;
     if (["expeditionEscort", "rescueMedic", "penalPrisoner"].includes(actor?.actorKind)) return actor.skills[skillId] || 1;
@@ -41287,7 +41314,7 @@
 
   function combatActorVitalPercent(actor, key) {
     if (actor?.actorKind === 'fieldDriver') return actor.health / actor.maxHealth * 100;
-    if (['civicOfficeholder', 'cityIncumbent'].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
+    if (['civicOfficeholder', 'cityIncumbent', 'divineAvatar'].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
     if (actor?.actorKind === 'cityDefender') return actor.health / actor.maxHealth * 100;
     if (["surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
     if (["expeditionEscort", "rescueMedic", "penalPrisoner"].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
@@ -41341,7 +41368,7 @@
 
   function scientistCombatTargetForSlime(slime) {
     if (!slime) return null;
-    if (['cityDefender', 'cityIncumbent', 'civicOfficeholder'].includes(slime.actorKind)) return normalizeCombatTarget({ kind: 'creature', id: slime.id, lastKnownCell: slime.mapCell, observedAt: state.clock });
+    if (['cityDefender', 'cityIncumbent', 'civicOfficeholder', 'divineAvatar'].includes(slime.actorKind)) return normalizeCombatTarget({ kind: 'creature', id: slime.id, lastKnownCell: slime.mapCell, observedAt: state.clock });
     if (slime.actorKind === "wildernessBeast") return normalizeCombatTarget({ kind: "creature", id: slime.id, lastKnownCell: ensureWildernessBeasts().sightings[slime.id]?.cell, observedAt: ensureWildernessBeasts().sightings[slime.id]?.observedAt });
     const record = creatureRecordForSlime(slime);
     return normalizeCombatTarget({
@@ -41354,6 +41381,7 @@
 
   function scientistHasExactCombatTarget(slime) {
     if (!slime || slime.status === "dead") return false;
+    if (slime.actorKind === 'divineAvatar') return divineAvatarVisible(slime);
     if (slime.actorKind === 'cityDefender') return cityDefenderObserved(slime);
     if (slime.actorKind === 'cityIncumbent') return incumbentObserved();
     if (slime.actorKind === 'civicOfficeholder') return Boolean(slime.mapCell && slime.mapCell.z === scientistMapCell()?.z && sensoryLineOfSight(scientistMapCell(), slime.mapCell));
@@ -41430,7 +41458,7 @@
 
   function normalizeInjury(candidate, index = 0) {
     if (!candidate || typeof candidate !== "object") return null;
-    const actorKind = ["fieldDriver", "scientist", "wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent", "civicOfficeholder"].includes(candidate.actorKind) ? candidate.actorKind : "slime";
+    const actorKind = ["fieldDriver", "scientist", "wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent", "civicOfficeholder", "divineAvatar"].includes(candidate.actorKind) ? candidate.actorKind : "slime";
     const actorId = actorKind === "scientist" ? "scientist" : String(candidate.actorId || "");
     const typeId = INJURY_TYPE_DEFS[candidate.typeId] ? candidate.typeId : "bruising";
     const severityId = INJURY_SEVERITY_DEFS[candidate.severityId] ? candidate.severityId : "minor";
@@ -41487,7 +41515,7 @@
     if (tags.has("heat") || tags.has("cold") || tags.has("radiant")) return "burn";
     if (tags.has("electrical")) return "electricalTrauma";
     if (tags.has("arcane") || tags.has("shadow")) return "arcaneTrauma";
-    if (['cityDefender', 'cityIncumbent', 'civicOfficeholder'].includes(actor?.actorKind)) return amount >= 8 ? 'bleeding' : 'bruising';
+    if (['cityDefender', 'cityIncumbent', 'civicOfficeholder', 'divineAvatar'].includes(actor?.actorKind)) return amount >= 8 ? 'bleeding' : 'bruising';
     if (["fieldDriver", "wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor?.actorKind)) return amount >= 8 ? "bleeding" : "bruising";
     if (actor !== state.scientist && location === "core") return "coreTrauma";
     if (actor !== state.scientist && (location === "membrane" || amount >= 10)) return "membraneTear";
@@ -41501,7 +41529,7 @@
     state.injuries = normalizeInjuries(state.injuries);
     const scientist = actor === state.scientist || actor?.physicalPresence;
     const actorId = scientist ? "scientist" : actor.id;
-    const locations = scientist || ["fieldDriver", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent", "civicOfficeholder"].includes(actor.actorKind) ? SCIENTIST_INJURY_LOCATIONS : actor.actorKind === "wildernessBeast" ? ["head", "torso", "left leg", "right leg"] : slimeInjuryLocations(actor);
+    const locations = scientist || ["fieldDriver", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent", "civicOfficeholder", "divineAvatar"].includes(actor.actorKind) ? SCIENTIST_INJURY_LOCATIONS : actor.actorKind === "wildernessBeast" ? ["head", "torso", "left leg", "right leg"] : slimeInjuryLocations(actor);
     const rng = seedRng(`${state.seed}:injury:${actorId}:${state.combat?.nextActionNumber || 0}:${Math.round(state.clock)}:${damageTypes.join(":")}`);
     const location = options.location || locations[Math.floor(rng() * locations.length)] || (scientist ? "torso" : "body mass");
     const typeId = injuryTypeForDamage(actor, damageTypes, amount, location);
@@ -41520,7 +41548,7 @@
     const porter = fieldEmployeeStates().some(s => s.actor.id === actorId);
     const observed = porter ? fieldPorterObserved(actor) : scientist || visible || options.observed;
     const injury = normalizeInjury({
-      id: `injury-${state.nextInjuryNumber++}`, actorKind: scientist ? "scientist" : ["fieldDriver", "wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent", "civicOfficeholder"].includes(actor.actorKind) ? actor.actorKind : "slime", actorId,
+      id: `injury-${state.nextInjuryNumber++}`, actorKind: scientist ? "scientist" : ["fieldDriver", "wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent", "civicOfficeholder", "divineAvatar"].includes(actor.actorKind) ? actor.actorKind : "slime", actorId,
       typeId, severityId, location, status: "active", cause, damageTypes,
       createdAt: state.clock, updatedAt: state.clock, observedAt: observed ? state.clock : null
     }, state.nextInjuryNumber);
@@ -41594,7 +41622,7 @@
       else if (actor.actorKind === "homunculus") damageHomunculus(actor, damage, { injuryProgress: true });
       else if (actor.actorKind === 'cityDefender') damageCityDefender(damage, { injuryProgress: true }, actor);
       else if (actor.actorKind === 'cityIncumbent') damageIncumbent(damage, { injuryProgress: true });
-      else if (actor.actorKind === 'civicOfficeholder') damageCivilOfficeholder(actor, damage, { injuryProgress: true });
+      else if (['civicOfficeholder', 'divineAvatar'].includes(actor.actorKind)) damageCivilOfficeholder(actor, damage, { injuryProgress: true });
       else {
         applySlimeCombatDamage(actor, damage, "injury", `${INJURY_TYPE_DEFS[injury.typeId].label} progression`, { injuryProgress: true });
         if (injury.typeId === "membraneTear") adjustRoomAttribute(slimeEffectiveRoomId(actor), "contamination", damage * 0.25);
@@ -41605,7 +41633,7 @@
   }
 
   function awardCombatActionXp(actor, skillId, amount, reason, outcome) {
-    if (['cityDefender', 'cityIncumbent', 'civicOfficeholder'].includes(actor?.actorKind)) return;
+    if (['cityDefender', 'cityIncumbent', 'civicOfficeholder', 'divineAvatar'].includes(actor?.actorKind)) return;
     if (["wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor?.actorKind)) return;
     if (actor === state.scientist || actor?.physicalPresence) {
       awardXp(skillId, amount * skillXpOutcomeMultiplier(outcome), reason, { physical: true });
@@ -41660,6 +41688,7 @@
     }
     const targetActor = combatActor(target.id);
     if (!targetActor) return { ok: false, reason: "The target is no longer present." };
+    if (actorId === 'scientist') observeDivineAggression(target.id, actionId);
     if (actorId === 'scientist' && (targetActor.id === state.cityDefense?.defenderId || citySuccessionPeople().some(a => a.id === targetActor.id))
       && !(targetActor.id === state.cityDefense?.defenderId && state.defenderChallenge?.phase === 'active')) observeCityDefenseAggression(combatActorCell(targetActor));
     const targetIsScientist = target.id === 'scientist';
@@ -41696,7 +41725,7 @@
         coalesceKey: "miss:" + actorId + ":" + target.id
       });
       awardCombatActionXp(actor, action.skillId, options.xp || 4, action.label, "failure");
-      if (!targetIsScientist && !["fieldDriver", "wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent", "civicOfficeholder"].includes(targetActor.actorKind)) awardCreatureSkillXp(targetActor, "evasion", 3, `evading ${action.label.toLowerCase()}`);
+      if (!targetIsScientist && !["fieldDriver", "wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent", "civicOfficeholder", "divineAvatar"].includes(targetActor.actorKind)) awardCreatureSkillXp(targetActor, "evasion", 3, `evading ${action.label.toLowerCase()}`);
       return { ok: true, hit: false, damage: 0, accuracy };
     }
     const targetId = targetIsScientist ? "scientist" : targetActor.id;
@@ -41717,10 +41746,10 @@
       : targetActor.actorKind === "homunculus" ? damageHomunculus(targetActor, guardedDamage, { damageTypes: action.damageTypes, observed: actor === state.scientist })
       : targetActor.actorKind === 'cityDefender' ? damageCityDefender(guardedDamage, { damageTypes: action.damageTypes }, targetActor)
       : targetActor.actorKind === 'cityIncumbent' ? damageIncumbent(guardedDamage, { damageTypes: action.damageTypes })
-      : targetActor.actorKind === 'civicOfficeholder' ? damageCivilOfficeholder(targetActor, guardedDamage, { damageTypes: action.damageTypes })
+      : ['civicOfficeholder', 'divineAvatar'].includes(targetActor.actorKind) ? damageCivilOfficeholder(targetActor, guardedDamage, { damageTypes: action.damageTypes })
       : applySlimeCombatDamage(targetActor, guardedDamage, actorId, action.label, { damageTypes: action.damageTypes, observed: actor === state.scientist });
     const actualDamage = targetIsScientist ? targetHealthBefore - scientistVital('health').current
-      : ['cityDefender', 'cityIncumbent', 'civicOfficeholder'].includes(targetActor.actorKind) ? targetHealthBefore - targetActor.health : changed ? guardedDamage : 0;
+      : ['cityDefender', 'cityIncumbent', 'civicOfficeholder', 'divineAvatar'].includes(targetActor.actorKind) ? targetHealthBefore - targetActor.health : changed ? guardedDamage : 0;
     if (changed && !options.hideFeedback) {
       emitMapFeedback("feedbackImpact", combatActorCell(targetActor), {
         label: action.label + " hit for " + actualDamage,
@@ -41965,7 +41994,7 @@
     const localResistance = opposition?.defense?.phase === 'active' && scientistRoomId() === SurveyExpeditions.FIELD_ROOM
       && WildernessBeasts.distance(scientistMapCell(), LocalOpposition.POSTS[0]) <= LocalOpposition.DEFENSE.radius;
     return outerApproachLocal() && (OuterApproach.claiming(outerApproachGate().outerApproach) || outerApproachGate().outerApproach.hostileUntil > state.clock)
-      || localResistance || InstallationSeizure.dangerous(state.installationSeizure) || IncumbentResistance.dangerous(state.incumbentResistance) || state.cityConfrontation?.phase === 'fighting' || state.defenderChallenge?.phase === 'active' || activeCombatRecords().some((record) => scientistAwareOfCombat(record));
+      || localResistance || divineAvatarThreat() || InstallationSeizure.dangerous(state.installationSeizure) || IncumbentResistance.dangerous(state.incumbentResistance) || state.cityConfrontation?.phase === 'fighting' || state.defenderChallenge?.phase === 'active' || activeCombatRecords().some((record) => scientistAwareOfCombat(record));
   }
 
   function stopScientistGuard(options = {}) {
@@ -42036,6 +42065,7 @@
       const container = containerById(slime.containerId);
       if (!container || !containerAccessOpen(container)) return `${container?.name || "The container"} is closed. Open it before striking the contained creature.`;
     }
+    if (action.requiresSoul && slime.actorKind === 'divineAvatar') return 'This constructed protecting manifestation has no separate mortal soul to lash; its body is not the god’s true individual.';
     if (action.requiresSoul && slime.status === "dead") return "Soul Lash requires a living, souled target.";
     const range = combatActionRangeInfo(state.scientist, action, scientistCombatTargetForSlime(slime));
     if (!range.inRange) return range.reason;
@@ -42100,6 +42130,7 @@
     syncAllSlimeAi({ force: true });
     if (slime.actorKind === 'cityDefender') { updateDefenderChallenge(); updateCityConfrontation(); updateInstallationSeizure(); }
     if (slime.actorKind === 'cityIncumbent') { updateIncumbentResistance(); updateCityConfrontation(); }
+    if (slime.actorKind === 'divineAvatar' || slime.id === state.religiousRecognition?.actor.id) updateDivineIntervention();
     updateCombat(0);
     refreshIncidentAlerts();
     persist();
@@ -68524,12 +68555,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           setLabMapOverlayEntry(assignments, office.civicCounter.cell, { overlayId, classNames: ["map-overlay-resources"], label: "Public civic registration counter", title: "Walk here for a voluntary paid registration or document check; no automatic historical identity or immunity", value: "R", source: "Municipal registry notice", target: { kind: "tile", tile: office.civicCounter.cell } }, map);
           if (office.clerk.mapCell && sensoryLineOfSight(scientistMapCell(), office.clerk.mapCell)) setLabMapOverlayEntry(assignments, office.clerk.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: "Civic records clerk", title: office.contact.label, value: "C", source: "Direct observation", target: { kind: "tile", tile: office.clerk.mapCell } }, map);
         }
-        if (state.surveyExpeditions.phase === 'field') for (const actor of [state.sovereignBargains?.representative, state.sovereignBargains?.defender, state.religiousRecognition?.actor, ...citySuccessionPeople(), state.citySuccession?.appointments?.candidate])
+        if (state.surveyExpeditions.phase === 'field') for (const actor of [state.sovereignBargains?.representative, state.sovereignBargains?.defender, state.religiousRecognition?.actor,
+          ...localDivineAvatars(), ...citySuccessionPeople(), state.citySuccession?.appointments?.candidate])
           if ((actor?.status === 'alive' || actor?.status === 'dead' && (actor.id === state.citySuccession?.appointments?.incumbentId
+            || actor.actorKind === 'divineAvatar' || actor.id === state.religiousRecognition?.actor.id
             || actor.id === state.citySuccession?.appointments?.candidate?.id || state.citySuccession?.appointments?.opposition?.memberIds.includes(actor.id)))
             && actor.mapCell && sensoryLineOfSight(scientistMapCell(), actor.mapCell))
             setLabMapOverlayEntry(assignments, actor.mapCell, { overlayId, classNames: ['map-overlay-resources'], label: actor.status === 'dead' ? `Remains of ${actor.name}` : actor.name,
-              title: actor.status === 'dead' ? `Actual bodily remains of ${actor.name}; not cleared, moved or revived by the encounter.` : `${actor.role}; ${actor === state.religiousRecognition?.actor ? 'faithful petition representative, not divine or civic command' : state.defenderChallenge ? 'optional supervised challenge participant' : 'physical civic-counter participant'}, not a controllable soldier`, value: actor.status === 'dead' ? '†' : actor === state.religiousRecognition?.actor ? 'P' : actor === state.sovereignBargains.defender ? 'D' : 'A',
+              title: actor.actorKind === 'divineAvatar' ? 'Constructed protecting avatar, not the god’s true individual. Local finite manifestation, not a controllable soldier.' : actor.status === 'dead' ? `Actual bodily remains of ${actor.name}; not cleared, moved or revived by the encounter.` : `${actor.role}; ${actor === state.religiousRecognition?.actor ? 'faithful petition representative, not divine or civic command' : state.defenderChallenge ? 'optional supervised challenge participant' : 'physical civic-counter participant'}, not a controllable soldier`, value: actor.status === 'dead' ? '†' : actor.actorKind === 'divineAvatar' ? 'V' : actor === state.religiousRecognition?.actor ? 'P' : actor === state.sovereignBargains.defender ? 'D' : 'A',
               source: 'Direct observation', target: { kind: 'tile', tile: actor.mapCell } }, map);
         if (state.defenderChallengeKnowledge?.terms && sensoryLineOfSight(scientistMapCell(), DefenderChallenges.START))
           setLabMapOverlayEntry(assignments, DefenderChallenges.START, { overlayId, classNames: ['map-overlay-resources'],
@@ -79725,6 +79758,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return { id: `city:${cityId}`, kind: 'city', cityId, label: d?.label || cityId, globeCellId: d?.cellId || '' };
     };
     const add = (site, f) => rows.push({ site, fact: f });
+    const intervention = DivineIntervention.publicView(currentDivineIntervention());
+    if (intervention) add(citySite(currentDivineIntervention().cityId), {
+      id: 'divine-intervention-account', category: 'operations', subject: 'received local divine intervention account',
+      sourceId: currentDivineIntervention().id, source: 'Personally witnessed manifestation or original faithful representative',
+      sourceAt: intervention.at, receivedAt: intervention.at,
+      text: `${intervention.godName}: ${intervention.avatar?.condition || 'No personally witnessed body in this account'}. ${intervention.message} ${intervention.limitations}`,
+      coverage: 'Named local protection only; no current remote status, divine death, submission or permanent deterrence established' });
     for (const d of BeastPowers.publicView(currentBeastPowers())?.dossiers || []) add(citySite(d.report.cityId), {
       id: d.report.id, category: 'operations', subject: 'reported regional beast pressure', sourceId: d.report.id,
       source: d.report.source, sourceAt: d.report.sourceAt, receivedAt: d.receivedAt,
@@ -85717,8 +85757,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function damageCivilOfficeholder(actor, amount, options = {}) {
     if (!actor?.physicalControl || actor.status === 'dead' || amount <= 0) return false;
+    if (!options.injuryProgress) amount = DivineIntervention.absorb(currentDivineIntervention(), divineInterventionContext(), actor.id, amount, options.damageTypes || ['physical']);
+    if (amount <= 0) return true;
     actor.health = Math.max(0, actor.health - amount);
-    if (!options.injuryProgress) recordCombatInjury(actor, amount, options.damageTypes || ['physical'], options.cause || 'Civic officeholder combat trauma', { observed: scientistHasExactCombatTarget(actor) });
+    if (!options.injuryProgress) recordCombatInjury(actor, amount, options.damageTypes || ['physical'], options.cause || 'Physical counter encounter trauma', { observed: scientistHasExactCombatTarget(actor) });
     if (actor.health <= 0) { actor.status = 'dead'; actor.diedAt = state.clock; }
     return true;
   }
@@ -87483,6 +87525,143 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const r of v.completions) panel.append(textEl('p', `${formatClock(r.at)}: ${r.status}; ${r.absorbed} damage absorbed, physical return recorded. ${r.reason || ''}`));
     panel.append(textEl('p', v.message)); return panel;
   }
+  function currentDivineIntervention() {
+    const s = state.divineIntervention;
+    return s?.worldId === activeWorldRecord?.id && s?.runId === activeRunRecord?.id ? s : null;
+  }
+  function divineInterventionOffice() {
+    const s = currentDivineIntervention();
+    return s ? state.economy?.intercitySmuggling?.identityOffices?.find(o => o.id === s.officeId) || null : null;
+  }
+  function localDivineAvatars() {
+    const s = currentDivineIntervention();
+    return s && state.surveyExpeditions?.destination?.cityId === s.cityId ? s.avatars.filter(a => a.manifested) : [];
+  }
+  function ensureDivineIntervention() {
+    if (scientistIsDead()) return currentDivineIntervention();
+    const r = state.religiousRecognition;
+    if (!r) return null;
+    // Prepare the original representative, not a new defender or healed body.
+    r.actor.physicalControl ||= { strength: 20, stamina: 40, staminaCapacity: 40 };
+    r.actor.skills ||= { striking: 1, guarding: 4, evasion: 5, perception: 10 };
+    if (!state.divineIntervention && religiousRecognitionContext().sourceCurrent)
+      state.divineIntervention = DivineIntervention.create(r, { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id }, state.clock);
+    return currentDivineIntervention();
+  }
+  function divineAvatarVisible(a = DivineIntervention.actor(currentDivineIntervention())) {
+    return Boolean(a?.manifested && !scientistIsDead() && a.roomId === scientistRoomId()
+      && state.surveyExpeditions?.destination?.cityId === currentDivineIntervention()?.cityId
+      && WildernessBeasts.distance(scientistMapCell(), a.mapCell) <= 8 && sensoryLineOfSight(scientistMapCell(), a.mapCell));
+  }
+  function divineAvatarThreat() {
+    const s = currentDivineIntervention(), a = DivineIntervention.actor(s);
+    return Boolean(DivineIntervention.present(a) && a.hostile && a.stamina >= 6 && !actorIsIncapacitated(a)
+      && divineAvatarVisible(a) && WildernessBeasts.distance(scientistMapCell(), s.anchor) <= 4);
+  }
+  function divineInterventionContext() {
+    const s = currentDivineIntervention(), r = state.religiousRecognition, office = divineInterventionOffice();
+    if (!s || !r) return { alive: !scientistIsDead() };
+    const base = religiousRecognitionContext(), a = DivineIntervention.actor(s), cell = scientistMapCell();
+    const sameGround = Boolean(state.surveyExpeditions?.phase === 'field' && scientistRoomId() === s.roomId
+      && state.surveyExpeditions.destination?.cityId === s.cityId);
+    const witness = Boolean(sameGround && r.actor.status === 'alive' && !actorIsIncapacitated(r.actor)
+      && r.actor.roomId === s.roomId && WildernessBeasts.distance(cell, r.actor.mapCell) <= 4
+      && sensoryLineOfSight(r.actor.mapCell, cell));
+    const protects = Boolean(a?.manifested && a.roomId === r.actor.roomId && WildernessBeasts.distance(a.mapCell, r.actor.mapCell) <= 2
+      && directedLineOfEffect(a.mapCell, r.actor.mapCell));
+    return { ...base, cell, sameGround,
+      channelAvailable: Boolean(office?.channelPowered && base.sourceCurrent && (state.sovereignBargains?.testFixture ? r.testChannelAvailable !== false : true)),
+      expansionActive: Boolean(state.incumbentResistance?.receipt?.origin === 'coerced' || IncumbentResistance.dangerous(state.incumbentResistance)
+        || state.cityConfrontation?.phase === 'fighting' || state.installationSeizure?.attempt),
+      representativeWitness: witness, representativeAble: r.actor.status === 'alive' && r.actor.health >= 50 && !actorIsIncapacitated(r.actor),
+      representativeAtChannel: r.actor.roomId === s.roomId && sameMapCell(r.actor.mapCell, s.anchor),
+      clerkAtChannel: Boolean(office?.clerk.locationId === office?.id && office?.clerk.mapCell && !actorIsIncapacitated(office.clerk)
+        && office.civicCounter?.roomId === s.roomId && WildernessBeasts.distance(office.clerk.mapCell, r.actor.mapCell) <= 4
+        && directedLineOfEffect(office.clerk.mapCell, r.actor.mapCell)),
+      avatarIncapacitated: Boolean(a && actorIsIncapacitated(a)), avatarSuppressed: Boolean(a?.magicSuppressed || a?.suppressionActive),
+      avatarVisible: divineAvatarVisible(a), avatarAway: Boolean(a && WildernessBeasts.distance(a.mapCell, s.anchor) > 1),
+      protectsRepresentative: protects,
+      distanceM: a ? combatFootprintDistanceMeters(a, state.scientist) : Infinity,
+      tracksScientist: Boolean(sameGround && a?.mapCell && WildernessBeasts.distance(a.mapCell, cell) <= 6 && sensoryLineOfSight(a.mapCell, cell)),
+      avatarWitness: Boolean(sameGround && DivineIntervention.present(a) && !actorIsIncapacitated(a)
+        && WildernessBeasts.distance(a.mapCell, cell) <= 6 && sensoryLineOfSight(a.mapCell, cell)),
+      scientistNearAnchor: Boolean(sameGround && WildernessBeasts.distance(s.anchor, cell) <= 4),
+      lineOfEffect: Boolean(sameGround && a?.mapCell && directedLineOfEffect(a.mapCell, cell)),
+      moveSeconds: a ? 1 / Math.max(.1, 1 - injuryEffectTotals(a).movement) : 1,
+      canHear: Boolean(sameGround && a?.mapCell && WildernessBeasts.distance(a.mapCell, cell) <= 3 && directedLineOfEffect(a.mapCell, cell)),
+      free: !activeScientistTravelTask() && !base.busy && !state.combat.pendingActions.scientist,
+      receiveAtCounter: Boolean(base.alive && base.capable && sameGround && base.atCounter && base.clerkPresent
+        && base.representativePresent && base.lineOfSight) };
+  }
+  function observeDivineAggression(targetId, actionId) {
+    if (targetId !== state.religiousRecognition?.actor.id && targetId !== DivineIntervention.actor(currentDivineIntervention())?.id) return false;
+    const s = ensureDivineIntervention();
+    return DivineIntervention.observe(s, state.religiousRecognition, {
+      id: `scientist:${state.clock}:${state.combat.nextActionNumber}`, actorId: 'scientist', targetId, actionId
+    }, divineInterventionContext(), state.clock);
+  }
+  function updateDivineIntervention() {
+    const s = currentDivineIntervention(), r = state.religiousRecognition;
+    if (!s || !r || scientistIsDead()) return 0;
+    const adjacent = target => [-1, 0, 1].flatMap(dx => [-1, 0, 1].filter(dy => dx || dy)
+      .map(dy => mapCellAtOffset(target, dx, dy, 0)));
+    const localMove = (actor, goal) => {
+      const map = ensureLabMap(), blockedCellKeys = labMapBlockingCellKeys(map, { actor });
+      for (const p of map.rooms[s.roomId]?.cells || [])
+        if (!canActorOccupyTile(actor, p) || WildernessBeasts.distance(p, s.anchor) > 3) blockedCellKeys.add(mapCellKey(p));
+      return moveDefenderParticipant(actor, goal, { blockedCellKeys });
+    };
+    const changed = DivineIntervention.advance(s, r, divineInterventionOffice(), divineInterventionContext, state.clock, {
+      receivingCell: (actor, anchor) => adjacent(anchor).find(p => labMapCellRoomId(p) === s.roomId && canActorOccupyTile(actor, p)),
+      approach: (actor, target, anchor) => adjacent(target).filter(p => WildernessBeasts.distance(p, anchor) <= 3)
+        .sort((a, b) => WildernessBeasts.distance(actor.mapCell, a) - WildernessBeasts.distance(actor.mapCell, b))
+        .some(p => !sameMapCell(p, actor.mapCell) && localMove(actor, p)),
+      returnToPost: (actor, anchor) => adjacent(anchor).some(p => !sameMapCell(p, actor.mapCell) && localMove(actor, p)),
+      strike: actor => resolveSharedCombatAction(actor.id, 'strike', { kind: 'creature', id: 'scientist', lastKnownCell: scientistMapCell() },
+        { baseDamage: 10, damageTypes: ['physical', 'force'] }),
+      telegraph: actor => { if (divineAvatarVisible(actor)) {
+        emitMapFeedback('feedbackImpact', actor.mapCell, { label: 'Avatar preparing a close strike — withdraw or guard', intensityBand: 'high' });
+        addEvent('The protecting avatar prepares a close strike. It will not pursue beyond its local guard area.'); state.paused = true;
+      } }
+    });
+    if (divineInterventionContext().avatarVisible) DivineIntervention.receive(s, r, divineInterventionContext(), state.clock);
+    return changed ? 1 : 0;
+  }
+  function divineInterventionAction(action) {
+    if (scientistIsDead()) return false;
+    const s = currentDivineIntervention(), r = state.religiousRecognition, c = divineInterventionContext();
+    if (!s || !r) return false;
+    let ok = false;
+    if (action === 'receive') ok = DivineIntervention.receive(s, r, c, state.clock);
+    if (action === 'agree') ok = DivineIntervention.agree(s, c, DivineIntervention.TERMS, state.clock);
+    if (action === 'strike' && c.avatarVisible) return beginScientistCombatAction('strike', DivineIntervention.actor(s).id);
+    if (action === 'attackRepresentative' && c.expansionActive && c.representativeWitness) return beginScientistCombatAction('strike', r.actor.id);
+    if (ok && (c.avatarVisible || c.receiveAtCounter)) DivineIntervention.receive(s, r, c, state.clock);
+    persist(); render(); return ok;
+  }
+  function renderDivineIntervention() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.divineIntervention = 'true';
+    panel.append(textEl('strong', 'Divine terrestrial intervention'));
+    const s = ensureDivineIntervention(), v = DivineIntervention.publicView(s), c = divineInterventionContext();
+    if (!s) { panel.append(textEl('p', 'No received local intervention account. Divine disapproval alone creates no avatar, attack or civic veto.')); return panel; }
+    const button = (label, action, disabled) => { const el = storesActionButton(label, label, () => divineInterventionAction(action));
+      el.dataset.divineInterventionAction = action; el.disabled = Boolean(disabled); panel.append(el); };
+    button('Hear original representative’s intervention account', 'receive', !c.receiveAtCounter && !c.avatarVisible);
+    if (v) {
+      panel.append(textEl('p', `Received ${formatClock(v.at)} — ${v.godName}; protected person: ${v.protectedName}. ${v.motive.reason}`));
+      if (v.avatar) panel.append(textEl('p', `${v.avatar.name}: ${v.avatar.condition}. This is a dated observation, not remote status.`));
+      for (const report of v.receivedReports) panel.append(textEl('p', `Aggression witnessed ${formatClock(report.at)}; report received by the god ${formatClock(report.receivedAt)}.`));
+      panel.append(textEl('p', v.terms), textEl('p', v.message), textEl('p', v.limitations));
+    } else panel.append(textEl('p', 'Unreceived reports and private divine capacity are not visible here.'));
+    if (c.avatarVisible) {
+      button('Agree to local nonaggression — no worship', 'agree', !c.canHear || !c.free || !DivineIntervention.capable(s, c) || Boolean(DivineIntervention.actor(s)?.truce));
+      button('Strike protecting avatar — actual physical combat', 'strike', Boolean(scientistCombatActionBlockReason('strike', DivineIntervention.actor(s))));
+      panel.append(textEl('p', 'The constructed humanoid avatar can ward physical/force impacts nearby, but has finite bodily endurance. Close strikes are visibly prepared; distance, obstacles, guarding and ordinary injury rules apply. Soul Lash cannot reach a god through its soulless manifestation.'));
+    }
+    if (c.expansionActive && c.representativeWitness)
+      button('Strike faithful representative — actual aggression', 'attackRepresentative', Boolean(scientistCombatActionBlockReason('strike', state.religiousRecognition.actor)));
+    return panel;
+  }
   function receivedSuccessionConduct() {
     return [...(state.incumbentResistance?.reports || []), ...(state.cityConfrontation?.reports || []), ...(state.defenderChallenge?.conduct || []),
       ...(state.watchRecognition?.reports || []).filter(r => r.communicatedAt != null && r.actorId === 'scientist'),
@@ -87492,7 +87671,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (state.religiousRecognition) return state.religiousRecognition;
     if (scientistIsDead()) return null;
     const office = scientistCivicOffice(), source = citySuccessionSource(), b = state.sovereignBargains;
-    if (!office || !source || !state.incumbentResistance?.receipt || !state.surveyExpeditions?.materialized) return null;
+    if (!office || !source || !state.surveyExpeditions?.materialized) return null;
     const origin = b?.testFixture ? b.testReligiousSource : ReligiousRecognition.sourceFromWorld(
       activeWorldRecord?.generatedData?.strategicMap, source.cityId, source.charterId);
     const petition = ReligiousRecognition.create(origin, office, activeWorldRecord?.worldTheme || 'madcap');
@@ -98385,6 +98564,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(renderWatchRecognition());
     panel.append(renderDefenseRecognition());
     panel.append(renderReligiousRecognition());
+    panel.append(renderDivineIntervention());
     panel.append(renderCitySuccession());
     panel.append(renderCityAdministration());
     panel.append(renderCityProvisioning());
@@ -105518,6 +105698,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.defenseRecognition = DefenseRecognition.normalize(candidate?.defenseRecognition);
     next.defenseRecognitionKnowledge = candidate?.defenseRecognitionKnowledge ? clonePlainObject(candidate.defenseRecognitionKnowledge) : null;
     next.religiousRecognition = ReligiousRecognition.normalize(candidate?.religiousRecognition);
+    next.divineIntervention = DivineIntervention.normalize(candidate?.divineIntervention);
     next.religiousRecognitionKnowledge = candidate?.religiousRecognitionKnowledge ? clonePlainObject(candidate.religiousRecognitionKnowledge) : null;
     next.citySuccession = CitySuccession.normalize(candidate?.citySuccession);
     if (next.citySuccession?.appointments) next.citySuccession.appointments = PublicWorksAppointments.normalize(next.citySuccession.appointments);
