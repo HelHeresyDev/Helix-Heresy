@@ -159,6 +159,7 @@
   const OverlandExpedition = window.HelixOverlandExpedition;
   const IntercityMarch = window.HelixIntercityMarch;
   const OuterApproach = window.HelixOuterApproach;
+  const CampaignSettlement = window.HelixCampaignSettlement;
   const RoadsideStops = window.HelixRoadsideStops;
   const RegionalEncounters = window.HelixRegionalEncounters;
   const FieldCharter = window.HelixFieldCharter;
@@ -13698,6 +13699,13 @@
       overlandAction,
       intercityMarchAction,
       outerApproachAction,
+      campaignSettlementAction,
+      campaignSettlementSnapshot: () => { const g = outerApproachGate(); return clonePlainObject({
+        saved: g?.outerApproach?.settlement, context: g?.outerApproach?.settlement && campaignSettlementContext(g),
+        reason: g?.outerApproach?.settlement && CampaignSettlement.reason(g.outerApproach.settlement, g.outerApproach, g, foreignSupplierMarket(g), campaignSettlementContext(g)),
+        representative: g?.foreignCivic?.bargain.representative, clerk: g?.clerk, clock: state.clock,
+        treasury: g && foreignSupplierMarket(g)?.treasury, money: ensureEconomy().money,
+        work: g?.receptionWorkSeconds, power: g?.powerSeconds, assignment: g?.receptionAssignment }); },
       outerApproachSnapshot: () => { const g = outerApproachGate(); return clonePlainObject({ saved: g?.outerApproach, visit: state.outerApproachVisit,
         context: g?.outerApproach && outerApproachContext(g), defender: g?.foreignCivic?.bargain.defender, clock: state.clock,
         innerBoundary: g && { roomId: g.annexRoomId, door: state.doors[g.doorId] },
@@ -18144,7 +18152,10 @@
     if (intercityMarchActive()) state.intercityMarch.operation.walk = clonePlainObject(state.overlandExpedition);
     const formerMarch = IntercityMarch.bodyEnded(state.intercityMarch, state.clock);
     if (formerMarch) { state.overlandExpedition = formerMarch.walk; state.overlandApproach = formerMarch.approach; }
-    for (const g of outerApproachGates()) OuterApproach.bodyEnded(g.outerApproach, state.clock);
+    for (const g of outerApproachGates()) {
+      OuterApproach.bodyEnded(g.outerApproach, state.clock);
+      CampaignSettlement.bodyEnded(g.outerApproach.settlement, g, foreignSupplierMarket(g), state.clock);
+    }
     state.outerApproachVisit = null;
     if (state.intercityPassenger && (IntercityPassenger.away(state.intercityPassenger) || state.intercityPassenger.originOuter)) {
       state.intercityPassenger.phase = 'bodyLost';
@@ -20021,6 +20032,10 @@
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     for (const g of importedState.penalFlights?.assistance?.cityApproach?.gates || []) g.outerApproach = OuterApproach.rebind(g.outerApproach,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    for (const g of importedState.penalFlights?.assistance?.cityApproach?.gates || []) if (g.outerApproach?.settlement) {
+      g.outerApproach.settlement = CampaignSettlement.rebind(g.outerApproach.settlement,
+        { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    }
     importedState.roadsideStops = RoadsideStops.rebind(importedState.roadsideStops,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.regionalEncounters = RegionalEncounters.rebind(importedState.regionalEncounters,
@@ -23867,9 +23882,9 @@
       let left = elapsed, changed = 0;
       while (left > 0 && !scientistIsDead()) {
         const g = outerApproachGate(), s = g.outerApproach, before = state.clock, pulse = s.pendingPulse?.releaseAt,
-          health = scientistVital('health').current, phase = s.phase;
+          health = scientistVital('health').current, phase = s.phase, settlementPhase = s.settlement?.phase;
         changed += advanceTime(Math.min(1, left), { ...options, outerApproachStep: true }); left -= state.clock - before;
-        if (state.clock <= before || phase !== s.phase || s.pendingPulse?.releaseAt && pulse !== s.pendingPulse.releaseAt
+        if (state.clock <= before || phase !== s.phase || settlementPhase !== s.settlement?.phase || s.pendingPulse?.releaseAt && pulse !== s.pendingPulse.releaseAt
           || scientistVital('health').current < health) break;
       }
       return changed;
@@ -41523,6 +41538,10 @@
     if (!actor || !action || !target) return { ok: false, reason: "The combat action no longer has a valid actor or target." };
     const range = combatActionRangeInfo(actor, action, target);
     if (!range.inRange) return { ok: false, reason: range.reason, blockedAt: target.lastKnownCell || combatTargetCurrentCell(target) };
+    if (actorId === 'scientist' && outerApproachLocal() && action.targetKinds.includes(target.kind)) {
+      const g = outerApproachGate();
+      CampaignSettlement.aggression(g.outerApproach.settlement, g, foreignSupplierMarket(g), state.clock);
+    }
     if (actorId === 'scientist' && state.installationSeizure?.attempt) {
       const c = installationSeizureContext(), site = state.installationSeizure.site;
       const targetId = target.kind === 'structure' && target.cell?.z === site.counter.z
@@ -68291,12 +68310,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function labMapOverlayAssignments(overlayId, map, context = {}) {
     const assignments = baseLabMapOverlayAssignments(overlayId, map, context);
     const front = outerApproachGate();
-    if (front?.outerApproach && outerApproachLocal(front)) {
+    if (front?.outerApproach && (outerApproachLocal(front) || front.outerApproach.settlement?.witnessAtStaging)) {
       const s = front.outerApproach, d = front.foreignCivic.bargain.defender;
       const marker = (cell, label, value) => { if (cell?.z === scientistMapCell().z && WildernessBeasts.distance(cell, scientistMapCell()) <= 8 && sensoryLineOfSight(scientistMapCell(), cell))
         setLabMapOverlayEntry(assignments, cell, { overlayId, classNames: ['map-overlay-resources'], label, title: label, value,
           source: 'Direct exterior observation', target: { kind: 'tile', tile: cell } }, map); };
       marker(d.mapCell, d.status === 'dead' ? `Remains of ${d.name}` : d.name, d.status === 'dead' ? '†' : 'D');
+      const representative = front.foreignCivic.bargain.representative;
+      marker(representative.mapCell, representative.status === 'dead' ? `Remains of ${representative.name}` : representative.name,
+        representative.status === 'dead' ? '†' : 'R');
       marker(s.layout.receiving, 'Original outer receiving position', 'R'); marker(s.layout.service, 'Original ward-service access', 'S');
       if (s.pendingPulse) marker(s.pendingPulse.targetCell, `Observed approach pulse releases ${formatClock(s.pendingPulse.releaseAt)}`, '!');
     }
@@ -93996,7 +94018,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const r of ensureResourceSurveys().observations.filter(r => [s.context.siteId, s.wilderness?.context.siteId].includes(r.siteId)).slice(-5)) panel.append(textEl('p', `${formatClock(r.recordedAt)} — ${r.coverage}: ${r.findings.map(f => f.summary).join('; ')}`));
     return panel;
   }
-  function foreignCivicWork(g) { return Boolean(g?.foreignCivic?.accessJob || g?.foreignCivic?.bargain.job || g?.intercityCompact?.job); }
+  function foreignCivicWork(g) { return Boolean(g?.foreignCivic?.accessJob || g?.foreignCivic?.bargain.job || g?.intercityCompact?.job
+    || g?.outerApproach?.settlement?.job); }
   function intercityCompactContext(g = passengerReceptionGate()) {
     const c = foreignCivicBargainContext(g), trade = ensureEconomy().commodityMarket?.intercityTrade;
     const homeId = trade?.homeId || state.intercityPassenger?.homeCityId;
@@ -96181,6 +96204,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           knowledge: { state: r.communicated ? 'known' : 'unknown', learnedAt: r.communicated ? r.at : null, source: 'outerApproach', sourceIdentityKnown: r.communicated } });
       }
       OuterApproach.observe(s, b, outerApproachContext(g), state.clock);
+      changed += Number(updateCampaignSettlement(g));
     }
     return changed;
   }
@@ -96224,7 +96248,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return Boolean(ok);
     }
     const c = outerApproachContext(g); let ok = false;
-    if (action === 'claim') ok = OuterApproach.begin(s, g.foreignCivic.bargain, c, state.clock);
+    if (action === 'claim') {
+      ok = OuterApproach.begin(s, g.foreignCivic.bargain, c, state.clock);
+      if (ok) CampaignSettlement.aggression(s.settlement, g, foreignSupplierMarket(g), state.clock);
+    }
     if (action === 'abandon') ok = OuterApproach.end(s, state.clock, 'Personally abandoned the claim; no ownership, pardon or agreement follows.');
     if (action === 'guard' && c.local) return startScientistGuard();
     if (['strike', 'soulLash'].includes(action) && c.defenderObserved) return beginScientistCombatAction(action, g.foreignCivic.bargain.defender.id);
@@ -96264,6 +96291,95 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (v) { panel.append(textEl('p', `Personally observed ${formatClock(v.at)}: ${v.phase}; maintained clear access ${v.progress}/10 seconds. ${v.condition == null ? 'Structure not inspected.' : `Visible original structure condition ${v.condition}.`} This record does not refresh while away.`));
       if (v.pendingPulse) panel.append(textEl('p', `Approach pulse marked ${v.pendingPulse.targetCell.x},${v.pendingPulse.targetCell.y}; release ${formatClock(v.pendingPulse.releaseAt)}. Move or guard.`)); }
     for (const task of scientistQueueTasks()) { const b = document.createElement('button'); b.textContent = `Cancel ${task.label}`; b.onclick = () => cancelTask(task.id); panel.append(b); }
+    panel.append(renderCampaignSettlement(g));
+    return panel;
+  }
+  function campaignSettlementContext(g) {
+    const o = g.outerApproach, s = o.settlement, b = g.foreignCivic.bargain, a = b.representative, c = outerApproachContext(g);
+    const civicSource = g.preparedForeignCivicTestSource || ForeignCivicBargains.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, g);
+    const authority = g.preparedReceptionTestSource || passengerReceptionSource(g.cityId);
+    const political = activeWorldRecord?.generatedData?.strategicMap?.strategicPoliticalHistory?.currentControlRows?.find(r => r.cityId === g.cityId);
+    const distance = (a, b) => a && b && a.z === b.z ? WildernessBeasts.distance(a, b) : Infinity;
+    const sees = (from, to, range = 8) => distance(from, to) <= range && sensoryLineOfSight(from, to);
+    const present = s && a.assignment === s.id && !actorIsIncapacitated(a);
+    const task = scientistQueueTasks().find(t => t.data?.action === 'outerApproachTravel' && t.data.returning);
+    const receipt = o.travelReceipts?.filter(r => r.returning && r.bodyEpoch === c.bodyEpoch && r.at >= (s?.terms?.acceptedAt ?? Infinity)).at(-1);
+    const atStaging = s?.witnessAtStaging && a.roomId === o.layout.stagingRoomId;
+    const pendingFreight = foreignSupplierMarket(g)?.production?.shipments?.filter(sh => sh.compactId === g.intercityCompact?.id
+      && sh.destination?.propertyId === o.depotId && !sh.receipt && !['delivered', 'cancelled', 'failed'].includes(sh.status)).map(sh => sh.id) || [];
+    const maintenance = Math.max(0, b.depot.required - b.depot.stock - (g.intercityCompact?.preparedFittings || 0) * 3);
+    return { ...c, civicSource,
+      authorityCurrent: Boolean(authority?.currentAuthority && authority.administrationId === g.institutionId
+        && (g.preparedReceptionTestSource || political?.controlStatus === 'sovereign' && political.recognizedAuthorityId === civicSource?.authority.id)),
+      held: o.phase === 'held', obstructed: o.phase === 'held',
+      need: pendingFreight.length ? `Original depot freight: ${pendingFreight.join(', ')}`
+        : maintenance > 0 && o.source.condition <= 80 && c.condition >= 25 ? `${o.depotId}:unfilled-maintenance:${maintenance}` : null,
+      canRestore: b.defender.status === 'alive' && !c.defenderIncapacitated && o.defenderPhase !== 'retreating' && c.defenderCanContest,
+      unsafe: Boolean(o.pendingPulse || state.combat?.pendingActions.scientist),
+      representativeIncapacitated: actorIsIncapacitated(a),
+      conflictingWork: Boolean(b.job || g.foreignCivic.accessJob || g.intercityCompact?.job || g.visitorAdmission?.job || g.researchInquiry?.job
+        || state.scientistIdentity?.job || g.receptionAssignment && g.receptionAssignment !== s?.id),
+      channel: Boolean(a.mapCell && g.clerk?.mapCell && labMapCellRoomId(g.clerk.mapCell) === g.checkpointRoomId
+        && distance(g.clerk.mapCell, { x: 10, y: 6, z: g.z }) <= 1 && sees(a.mapCell, g.clerk.mapCell, 10)),
+      meeting: Boolean(s && sameMapCell(a.mapCell, s.meeting)),
+      attendance: Boolean(c.local && sees(a.mapCell, c.cell, 2)),
+      departureObserved: Boolean(present && task?.data.movement?.completed && task.data.bodyEpoch === s.terms?.bodyEpoch
+        && sameMapCell(a.mapCell, s.watching) && sees(a.mapCell, c.cell)),
+      withdrawalWitness: Boolean(present && atStaging && receipt && scientistRoomId() === o.layout.stagingRoomId
+        && sameMapCell(scientistMapCell(), o.layout.stagingEntry) && sees(a.mapCell, scientistMapCell())),
+      withdrawalReceiptId: receipt?.id,
+      reportContact: Boolean(c.local && sees(a.mapCell, c.cell, 2) || atStaging && sees(a.mapCell, scientistMapCell(), 2)) };
+  }
+  function updateCampaignSettlement(g) {
+    const o = g.outerApproach, s = o.settlement; if (!s || scientistIsDead()) return false;
+    const phase = s.phase;
+    const changed = CampaignSettlement.advance(s, o, g, foreignSupplierMarket(g), ensureEconomy(), state.clock, () => campaignSettlementContext(g), {
+      move: (a, goal) => moveDefenderParticipant(a, goal, { ignoreDoors: false, skipPlacement: true,
+        blockedCellKeys: labMapBlockingCellKeys(ensureLabMap(), { actor: a, skipPlacement: true }) }),
+      accepted: at => OuterApproach.end(o, at, 'Accepted finite payment-for-withdrawal terms; no sovereign authority transferred.'),
+      crossLink: (a, outward) => {
+        const cell = outward ? { ...o.layout.stagingEntry, x: o.layout.stagingEntry.x + 1 } : s.watching;
+        if (!labMapCellHasFloor(cell) || !labMapCellIsWalkable(cell) || !canActorOccupyTile(a, cell)) return false;
+        a.mapCell = cleanMapCell(cell); a.roomId = outward ? o.layout.stagingRoomId : o.layout.roomId; return true;
+      }
+    });
+    if (phase !== s.phase && (outerApproachLocal(g) || campaignSettlementContext(g).reportContact)) state.paused = true;
+    return changed;
+  }
+  function campaignSettlementAction(action, expected = null) {
+    const g = outerApproachGate(), o = g?.outerApproach; if (!o || !annexCapable()) return false;
+    o.settlement ||= CampaignSettlement.create(o, g, state.clock);
+    const s = o.settlement; if (!s) return false;
+    updateOuterApproaches(); const c = campaignSettlementContext(g), market = foreignSupplierMarket(g);
+    const ok = action === 'demand' ? CampaignSettlement.request(s, o, g, market, c, state.clock)
+      : action === 'accept' ? CampaignSettlement.accept(s, o, g, market, c, expected, state.clock)
+        : action === 'cancel' && c.local ? CampaignSettlement.cancel(s, g, state.clock)
+          : action === 'report' ? CampaignSettlement.observe(s, c, state.clock) : false;
+    if (!ok) surveyEvent(CampaignSettlement.reason(s, o, g, market, c) || 'No current unchanged offer or available original participants; nothing transferred.');
+    CampaignSettlement.observe(s, c, state.clock); persist(); render(); return Boolean(ok);
+  }
+  function renderCampaignSettlement(g) {
+    const panel = document.createElement('section'); panel.dataset.campaignSettlement = 'true';
+    panel.append(textEl('h4', 'Limited tribute and withdrawal'), textEl('p', CampaignSettlement.SCOPE));
+    const s = g?.outerApproach?.settlement, c = s && campaignSettlementContext(g), report = s?.report;
+    const button = (label, action, disabled, expected = null) => { const b = document.createElement('button'); b.textContent = label;
+      b.dataset.campaignSettlementAction = action; b.disabled = Boolean(disabled || !annexCapable());
+      b.onclick = () => campaignSettlementAction(action, expected); panel.append(b); };
+    button('Demand $250 for local withdrawal', 'demand', !outerApproachLocal(g) || g.outerApproach?.phase !== 'held' || s?.job || s?.terms || s?.returnPending);
+    if (c?.reportContact && s.job) panel.append(textEl('p', `Original representative attending ${s.job.kind}: ${Math.floor(s.job.progress)}/${s.job.seconds} seconds. Movement, safety, finite work and the original powered channel are required.`));
+    if (report) {
+      panel.append(textEl('p', `Received ${formatClock(report.at)}: ${report.phase}; paid ${formatMoney(report.paid)}; earned unpaid balance ${formatMoney(report.balanceDue)}. This is dated received knowledge, not a remote treasury or roster.`));
+      if (report.offer && !report.terms) {
+        panel.append(textEl('p', `Specific sovereign offer: ${formatMoney(report.offer.amount)} total, half now and half after witnessed withdrawal; 24 hours without renewed frontage attacks or obstruction. Expires ${formatClock(report.offer.expiresAt)}.`));
+        button('Accept exact limited withdrawal terms (one attended minute)', 'accept', !c?.reportContact || s?.job, report.offer);
+      }
+      for (const r of report.history.slice(-5)) panel.append(textEl('p', `${formatClock(r.at)} — ${r.text}`));
+    }
+    if (s?.terms && outerApproachLocal(g)) panel.append(textEl('p', 'Wait until the original representative reaches the frontage exit before returning. They must observe your departure, spend real walking time following the twenty-metre link, witness you at staging, then physically return to the original desk to process the balance. Leaving before they can witness it does not earn a remote payment.'));
+    if (s?.terms && outerApproachLocal(g) && sameMapCell(g.foreignCivic.bargain.representative.mapCell, s.watching)
+      && sensoryLineOfSight(scientistMapCell(), s.watching)) panel.append(textEl('p', 'You can see the original representative waiting at the frontage exit, ready to observe departure.'));
+    button('End unsigned parley', 'cancel', !c?.local || !s?.job && s?.phase !== 'offered');
+    button('Receive local settlement statement', 'report', !c?.reportContact);
     return panel;
   }
   function overlandKnownStops() {
@@ -104517,6 +104633,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.penalFlights = PenalFlights.normalizeState(candidate?.penalFlights);
     for (const g of next.penalFlights.assistance?.cityApproach?.gates || []) {
       g.intercityCompact = IntercityCompact.normalize(g.intercityCompact); g.outerApproach = OuterApproach.normalize(g.outerApproach);
+      if (g.outerApproach?.settlement) g.outerApproach.settlement = CampaignSettlement.normalize(g.outerApproach.settlement);
     }
     next.outerApproachVisit = candidate?.outerApproachVisit ? clonePlainObject(candidate.outerApproachVisit) : null;
     next.wildernessBeasts = WildernessBeasts.normalizeState(candidate?.wildernessBeasts);
