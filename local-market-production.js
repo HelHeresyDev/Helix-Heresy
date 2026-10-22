@@ -166,7 +166,12 @@
     // Receipts at this hour boundary cannot retroactively feed the preceding
     // hour's production work. They become inputs for the next hour.
     for (const truck of state.trucks.filter(t => t.shipment)) {
-      const sh = state.shipments.find(s => s.id === truck.shipment), source = state.sources.find(s => s.id === sh.sourceId);
+      const sh = state.shipments.find(s => s.id === truck.shipment);
+      // The same truck may be reserved by a physical intercity relief consumer.
+      // Only that consumer can unload/return it; local hourly service must not
+      // refuel, duplicate, deliver or release its original vehicle and driver.
+      if (!sh || sh.externallyManaged) continue;
+      const source = state.sources.find(s => s.id === sh.sourceId);
       if (!capable(truck) || !sh.route.open || (!sh.delivered && sh.destination && (sh.destination.closed || at >= sh.destination.endsAt)) || (source && !source.route.open) || (sh.procurement && !inputRouteOpen(state, sh.cargo)) || (sh.facilityIds || []).some(id => state.facilities.find(f => f.id === id)?.routeOpen === false) || (sh.target === 'supplier' && !supplier.routeOpen)) {
         if (sh.pickupAt > at - HOUR) sh.pickupAt += HOUR;
         sh.arriveAt += HOUR; sh.returnAt += HOUR; sh.reason = 'Shipment delayed: saved route, vehicle or driver unavailable.'; continue;

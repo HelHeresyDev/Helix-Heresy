@@ -39,7 +39,7 @@
   const operating = (s, c) => c.structurePresent && c.condition >= 25 && s.station.energy > 0;
   function witness(s, c, at, kind, targetId) {
     for (const witnessId of c.witnessIds || []) s.reports.push({ id: `${s.id}:conduct:${s.reports.length + 1}`,
-      at, kind, targetId, witnessId, actorId: 'scientist', cityId: s.source.cityId, cell: copy(c.cell), communicated: c.observedWitnessIds?.includes(witnessId) || false });
+      at, kind, targetId, witnessId, claimId: s.claim?.id || null, actorId: 'scientist', cityId: s.source.cityId, cell: copy(c.cell), communicated: c.observedWitnessIds?.includes(witnessId) || false });
   }
   function begin(s, b, c, at) {
     if (!current(s, b, c) || !c.alive || !c.capable || !c.local || !c.free || !c.observed || c.busy || claiming(s)) return false;

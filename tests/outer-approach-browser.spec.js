@@ -52,7 +52,8 @@ async function setup(page, renderer, wounded = false) {
     // Explicit initial original personnel, not a victory, assignment or claim.
     g.foreignCivic = window.HelixForeignCivicBargains.create(g, source, { theme: state.worldTheme, seed: state.seed });
     window.HelixDefenderChallenges.prepareDefender(g.foreignCivic.bargain);
-    if (wounded) Object.assign(g.foreignCivic.bargain.defender, { health: 12, wardMana: 0, stamina: 0 });
+    if (wounded) Object.assign(g.foreignCivic.bargain.defender, { health: wounded === 'exhausted' ? 70 : 12, wardMana: 0, stamina: 0,
+      ...(wounded === 'exhausted' ? { workSeconds: 0 } : {}) });
     for (const id of ['striking', 'animancy', 'perception', 'evasion']) { state.scientist.skills[id] ||= { xp: 0 }; state.scientist.skills[id].xp = 100000; }
     d.importSurveyExpeditionTestState(state);
     if (!d.setOuterApproachTestSource('b', { cityId: 'b', cityName: 'City B', charterId: 'charter:b', institutionId: 'defense:b', populationSourceId: 'population:b', population: 100,
@@ -116,6 +117,88 @@ test('Canvas shared lethal combat, ten-second physical holding, interruptions, o
   expect(s.campaign).toEqual(original.campaign);
   const frozen = s.saved; await page.evaluate(() => window.helixHeresyDebug.inflictTestScientistDamage());
   await advance(page, 100); expect((await snap(page)).saved).toEqual(frozen);
+  expect(await page.evaluate(() => localStorage.getItem('helix-heresy-v2-world:lifecycle-world'))).toBe(original.world); expect(errors).toEqual([]);
+});
+
+const relief = page => page.evaluate(() => window.helixHeresyDebug.countercoalitionReliefSnapshot());
+async function prepareRelief(page, renderer) {
+  const original = await setup(page, renderer, 'exhausted');
+  console.info(`${renderer}: original receiving approach reached`);
+  await page.evaluate(() => {
+    const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState(), m = s.economy.commodityMarket; s.paused = true;
+    const g = s.penalFlights.assistance.cityApproach.gates.find(g => g.cityId === 'b');
+    const definitions = ['fieldRation', 'drinkingWater', 'metalParts', 'preparedManaCrystals'].map(id => ({ id, label: id, basePrice: 10, supply: 20 }));
+    const profile = { cityId: 'a', cityName: 'City A', workshopCapacity: 1, productionSources: [], manufacturingFacilities: [], commodityDefinitions: definitions,
+      listings: Object.fromEntries(definitions.map(d => [d.id, { targetSupply: 20, targetDemand: 1, reasons: ['Explicit original municipal merchant stock.'] }])) };
+    // Original independent municipal funds, merchant stores and producer fleet,
+    // before any claim/report/decision. No completed relief outcome is injected.
+    m.cityContext = profile; m.localProduction = window.HelixLocalMarketProduction.create(profile, s.clock);
+    m.intercityTrade = window.HelixIntercityTrade.create(profile, [{ ...profile, cityId: 'b' }], s.strategicJourneys.routes, [], definitions, s.clock);
+    for (const listing of Object.values(m.listings)) { listing.supply = 20; listing.demand = 1; }
+    g.preparedCountercoalitionSources = [{ cityId: 'b', partnerId: 'a', routeId: 'route:ab', interest: 'Restore the original shared receiving corridor.',
+      cities: ['a', 'b'].map(cityId => ({ cityId, polityId: `polity:${cityId}`, authorityId: `ruler:${cityId}`, charterId: `charter:${cityId}`, populationSourceId: `population:${cityId}` })),
+      relation: { basis: 'corridorNeighbors', posture: 'pragmatic', cooperationReadiness: 'high', communicationCompatibility: 'clear', standingObligations: ['corridorStatusExchange'], grievances: [], permanentAlliance: false } }];
+    d.importSurveyExpeditionTestState(s);
+  });
+  let s = await snap(page);
+  // The wall really hides the frontage from the rear counter. Make an actual
+  // witnessed close attack, rather than injecting an omniscient claim report.
+  await walk(page, s.saved.home.roomId, { ...s.saved.home.cell, x: s.saved.home.cell.x + 1 });
+  expect(await page.evaluate(id => window.helixHeresyDebug.startScientistCombatAction('shove', id), s.defender.id)).toBe(true);
+  await advance(page, 4); s = await snap(page); expect(s.defender.health).toBeGreaterThanOrEqual(50);
+  expect(s.saved.reports.length).toBeGreaterThan(0);
+  await walk(page, s.saved.layout.roomId, s.saved.layout.service);
+  await advance(page, 11); s = await snap(page);
+  expect(s.saved.phase).toBe('held'); expect(s.saved.relief?.job, JSON.stringify(await relief(page))).toBeTruthy();
+  const before = await relief(page); await advance(page, 20); const partial = await relief(page); expect(partial.saved.job.progress).toBeGreaterThan(0);
+  await reload(page); expect((await relief(page)).saved.job.claimId).toBe(before.saved.job.claimId);
+  await advance(page, 120 - partial.saved.job.progress); const sent = await relief(page);
+  expect(sent.saved.phase, JSON.stringify(sent)).toBe('outbound'); expect(sent.saved.attempts[0].receivedAt).toBeTruthy();
+  expect(sent.market.treasury).toBeLessThan(10000); expect(sent.market.production.trucks.filter(t => t.shipment === sent.saved.mission.id)).toHaveLength(1);
+  expect(sent.saved.mission.progress).toBeLessThan(sent.saved.mission.legSeconds); expect(sent.saved.mission.driverId).toBe('a:producer-driver-1');
+  sent.defenderHealth = (await snap(page)).defender.health;
+  console.info(`${renderer}: original truck dispatched after actual witnessed reporting`);
+  return { original, before, sent };
+}
+test('DOM countercoalition relief uses received cause, existing municipal funds/truck, physical unloading and saved supplied recovery', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message)); const { original, sent } = await prepareRelief(page, 'dom');
+  await advance(page, 239); let r = await relief(page); expect(r.saved.mission.deliveredAt).toBeNull();
+  await advance(page, 40); r = await relief(page); expect(r.driver.id).toBe(sent.saved.mission.driverId); expect(r.driver.mapCell).toBeTruthy();
+  expect(r.items.filter(i => i.quantity > 0)).toHaveLength(0); await reload(page);
+  await advance(page, 40); r = await relief(page); expect(r.saved.mission.deliveredAt, JSON.stringify(r)).toBeTruthy();
+  expect(r.saved.phase).toBe('recovering'); expect(r.saved.recovery.progress).toBeGreaterThan(0);
+  expect(r.items.find(i => i.key === 'metalParts').quantity).toBe(2); expect(r.items.find(i => i.key === 'preparedManaCrystals').quantity).toBe(1);
+  const items = r.items.map(i => ({ ...i, civicCustody: i.civicCustody ?? null, seizureCustody: i.seizureCustody ?? null }));
+  await reload(page); expect((await relief(page)).items).toEqual(items);
+  await advance(page, 260); r = await relief(page); expect(r.saved.mission.phase).toBe('returned');
+  expect(r.market.production.trucks.find(t => t.id === r.saved.mission.truckId).shipment).toBeNull();
+  const outer = await snap(page); expect(outer.defender.id).toBe(original.defender.id); expect(outer.defender.health).toBe(sent.defenderHealth); expect(outer.defender.wardMana).toBe(0);
+  expect(outer.defender.stamina).toBe(0); expect(outer.campaign).toEqual(original.campaign); expect(outer.innerBoundary.door.lockState).toBe('locked');
+  expect(JSON.stringify(r.saved.observed)).not.toMatch(/"(?:treasury|fuelKm|health|driverId|workSeconds|cargo|trucks)"\s*:/);
+  expect(await page.locator('[data-countercoalition-relief="account"]').count()).toBe(1);
+  expect(await page.evaluate(() => localStorage.getItem('helix-heresy-v2-world:lifecycle-world'))).toBe(original.world);
+  expect(await page.evaluate(() => window.helixHeresyDebug.validateMapScene())).toEqual([]); expect(errors).toEqual([]);
+});
+test('Canvas countercoalition relief can be physically resisted: original driver death retains allocated cargo and vehicle without a replacement wave', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message)); const { original, sent } = await prepareRelief(page, 'canvas');
+  // Leave the receiving tiles, not the local encounter. The specific seizure
+  // remains contested while the scientist intercepts at real municipal ground.
+  const s = await snap(page); await walk(page, s.saved.home.roomId, { x: 7, y: 8, z: s.saved.home.cell.z });
+  await advance(page, 240); let r = await relief(page);
+  expect(r.driver.mapCell).toBeTruthy(); expect(r.saved.mission.deliveredAt).toBeNull();
+  // Follow the actual person; no remote hit or injected casualty.
+  await walk(page, s.saved.home.roomId, { ...r.driver.mapCell, x: r.driver.mapCell.x + 1 });
+  for (let n = 0; n < 8 && (await relief(page)).driver.status !== 'dead'; n++) {
+    expect(await page.evaluate(id => window.helixHeresyDebug.startScientistCombatAction('strike', id), r.driver.id)).toBe(true);
+    await advance(page, 2);
+  }
+  r = await relief(page); expect(r.driver.status).toBe('dead'); expect(r.driver.health).toBe(0); const remains = r.driver.mapCell;
+  expect(r.saved.mission.deliveredAt).toBeNull(); expect(r.items.filter(i => i.quantity > 0)).toHaveLength(0);
+  await reload(page); await advance(page, 300); r = await relief(page);
+  expect(r.driver.id).toBe(sent.saved.mission.driverId); expect(r.driver.mapCell).toEqual(remains); expect(r.driver.status).toBe('dead');
+  expect(r.saved.attempts).toHaveLength(1); expect(r.market.production.trucks).toHaveLength(2);
+  expect(r.market.production.trucks.find(t => t.id === r.saved.mission.truckId).shipment).toBe(r.saved.mission.id);
+  expect(r.saved.mission.cargo.reduce((n, i) => n + i.quantity, 0)).toBe(5); expect((await snap(page)).campaign).toEqual(original.campaign);
   expect(await page.evaluate(() => localStorage.getItem('helix-heresy-v2-world:lifecycle-world'))).toBe(original.world); expect(errors).toEqual([]);
 });
 

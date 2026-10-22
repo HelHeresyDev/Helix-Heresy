@@ -1570,6 +1570,24 @@ Witnessing the manifestation or explicitly hearing the original representative s
 
 Focused checks: `node --test --test-isolation=none tests/divine-intervention.unit.test.js tests/religious-recognition.unit.test.js tests/religious-covenants.unit.test.js`; `npx playwright test tests/divine-intervention-browser.spec.js --project=chromium --workers=2`. Full-suite runs are not required under repository policy.
 
+## Neighboring Municipal Relief
+
+An interrupted report has a one-hour channel allocation. A completed supplied rest can also release the original defender directly into resistance when they personally perceive obstruction of station service: uninstalled goods remain carried and no repair or charge is invented. Round-trip fuel is reserved; actual travelled distance determines wear and fatigue, and a physically returned truck recovers only its genuinely unused fuel allocation once.
+
+A genuinely held foreign receiving approach can prompt one practical **two-city relief operation**. An original surviving witness must communicate through the threatened city's original clerk and representative, spending 120 seconds of their shared duty and terminal power. The partner must remain an independent sovereign city with a real shared corridor, clear communications, receptive relations and an existing corridor-status obligation. Proximity, heresy, suspicion or opening Visits does not raise an army.
+
+The partner buys one field ration, one drinking water, two metal parts and one prepared mana crystal for ward feedstock from its actual merchant stock, leaving its protected stock reserve and at least 1,000 treasury funds. Purchase funds reach the exchange and paid freight reaches the original producer. One available producer truck and its original healthy driver must support the complete trip: continuous supported road, at most 100 km each way, actual round-trip fuel, wear, fatigue and five cargo units. Other customers' reservations remain exclusive. Hourly production cannot service, duplicate, unload or release this externally managed truck.
+
+After actual road travel, the original driver appears on municipal receiving ground, walks to the rear service point and needs sixty unobstructed seconds to unload real city-owned stacks. Nearby obstruction or ordinary shared combat can stop delivery. Original wounds, death, retained cargo and the unavailable vehicle persist; no replacement wave appears. The driver physically returns to the truck and completes the actual road journey before it is released.
+
+The same original defender consumes the delivered meal and water for **eight safe off-duty hours**. Recovery restores bounded duty and bodily endurance, not health, injuries or personal ward mana. The defender then physically carries the supplied parts/feedstock to the original station, within carrying capacity, and spends two minutes of work there. Two parts can repair the surviving installation by 25 condition; one prepared mana crystal can add 21,600 station energy only when that fits the original reserve ceiling. A destroyed structure is not rebuilt. Ordinary movement, barriers, station interception and shared lethal combat determine the renewed contest. A signed report alone never restores access or grants sovereignty.
+
+Actual withdrawal, honored existing settlement, lost original authority/person or the two-day commitment limit ends this specific purpose. Earned withdrawal payments are untouched. Goods already bought remain physical property and freight already earned remains paid; there is no invented refundable balance or automatic sale-back. A failed/declined attempt cannot reroll from waiting or reopening. A genuinely new witnessed claim needs a fresh transmission and available resources; a stranded truck remains unavailable. Original joint-fort sponsorship and all earlier obligations remain independent.
+
+Visits and the Expansion Atlas show only dated received accounts from actual contact or an observed convoy, never hidden treasury, cargo inventories, vehicle reserves or a live coalition roster. Save/load and continued-run imports retain original identities, purchases, partial work, cargo, injuries and return reservations. Irreversible death freezes updates; a new run in the same world inherits none of them.
+
+Focused checks: `node --test --test-isolation=none tests/countercoalition-relief.unit.test.js tests/outer-approach.unit.test.js tests/campaign-settlement.unit.test.js`; `npx playwright test tests/outer-approach-browser.spec.js --project=chromium --workers=2 --grep 'countercoalition relief'`. Full-suite runs are not required under repository policy.
+
 ## Development Notes
 
 - Keep the game runtime dependency-free unless a feature clearly needs a library.
