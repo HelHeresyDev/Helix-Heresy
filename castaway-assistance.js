@@ -23,6 +23,8 @@
     if (p.status !== "alive" || p.health < 50 || p.location !== "receivingPad") return "The named pilot is not fit and available at the receiving pad.";
     if (a.condition < 50 || a.reservedBy || a.readyAt > now) return "The aircraft is damaged, occupied, reserved, or still turning around.";
     if (!Number.isFinite(distance) || distance <= 0 || distance > a.rangeKm || a.fuelKm < distance * 2 + 50) return "The actual aircraft cannot make this round trip with its fuel reserve.";
+    if (provider.dutySeconds != null && (!Number.isFinite(provider.dutySeconds) || provider.dutySeconds < Math.ceil(distance / 210 * 7200) + 1230
+      || !Number.isFinite(provider.provisionsSeconds) || provider.provisionsSeconds < Math.ceil(distance / 210 * 7200) + 1230)) return 'The original pilot lacks the finite duty or provisions for this pickup, wait and return.';
     return "";
   }
   function request(s, contact, provider, message, now) {
@@ -42,6 +44,8 @@
   }
   function accept(s, r, provider, now, payment, money, passengers) {
     if (r.status !== "offered" || now >= r.offer.expiresAt || provider.aircraft.reservedBy || passengers.length > r.offer.seats || new Set(passengers).size !== passengers.length || !passengers.includes("scientist")) return false;
+    if (provider.dutySeconds != null && (!Number.isFinite(provider.dutySeconds) || !Number.isFinite(provider.provisionsSeconds)
+      || Math.min(provider.dutySeconds, provider.provisionsSeconds) < 2 * r.offer.flightSeconds + 1230)) return false;
     if (payment !== "cash" && payment !== "debt" || payment === "debt" && !r.offer.debtAvailable || payment === "cash" && money < r.offer.fee) return false;
     r.payment = { kind: payment, amount: payment === "debt" ? Math.ceil(r.offer.fee * 1.25) : r.offer.fee, refunded: false };
     r.passengers = [...passengers]; provider.aircraft.reservedBy = r.id;

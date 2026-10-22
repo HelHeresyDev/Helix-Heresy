@@ -189,6 +189,7 @@
   const CastawayCamp = window.HelixCastawayCamp;
   const CastawayAssistance = window.HelixCastawayAssistance;
   const CityApproach = window.HelixCityApproach;
+  const ComponentExpedition = window.HelixComponentExpedition;
   const GateEnforcement = window.HelixGateEnforcement;
   const CityPretrial = window.HelixCityPretrial;
   const CityTrial = window.HelixCityTrial;
@@ -17704,6 +17705,49 @@
       cityApproachSnapshot: () => clonePlainObject({ ...ensureCityApproach(), clock: state.clock, roomId: scientistRoomId(), cell: scientistMapCell(), money: ensureEconomy().money,
         provider: cityApproachProvider(), actors: ensurePenalFlights().actors, banishments: ensurePenalFlights().banishments, cases: ensureTrialSentencing().cases,
         health: scientistVital("health").current, stacks: ensurePhysicalItemStacks(), tasks: state.tasks.map(t => ({ id: t.id, dueAt: t.dueAt, action: t.data?.kind, reason: taskBlockReason(t) })) }),
+      requestComponentExpedition,
+      configureComponentExpeditionTest: (facts = {}) => {
+        if (!activeWorldRecord || !activeRunRecord) return false;
+        if (facts.source) {
+          componentPreparedSource = clonePlainObject(facts.source);
+          state.seed = activeRunRecord.runSeed;
+          let contact = ensureEconomy().contacts.find(c => c.archetype === 'industrialSmuggler');
+          if (!contact) {
+            contact = normalizeBlackMarketContact({ id: 'expedition-source-contact', name: 'Mara Fen', archetype: 'industrialSmuggler', trust: 60, discoveredAt: state.clock });
+            ensureEconomy().contacts.push(contact);
+          }
+          contact.discoveredAt = state.clock; contact.trust = 60; contact.unavailableUntil = 0;
+          contact.homeCityId = facts.source.originCityId;
+          for (const cargo of facts.source.cargo || []) {
+            const stack = createPhysicalItemStack(cargo.section, cargo.key, cargo.quantity, { roomId: scientistRoomId(), cell: scientistMapCell() },
+              { sourceLabels: ['Explicit original expedition-departure test cargo'] });
+            carryPhysicalStack('scientist', stack.id, cargo.quantity);
+          }
+          componentProviders();
+        }
+        const p = cityApproachProvider() || componentProviders()[0], g = cityApproachGate();
+        if (p) {
+          for (const k of ['dutySeconds', 'provisionsSeconds', 'radioSeconds']) if (facts[k] != null) p[k] = facts[k];
+          for (const k of ['condition', 'fuelKm', 'reservedBy', 'readyAt']) if (facts[k] !== undefined) p.aircraft[k] = facts[k];
+          if (facts.pilotHealth != null) p.pilot.health = facts.pilotHealth;
+        }
+        if (g) {
+          if (facts.clerkHealth != null) g.clerk.health = facts.clerkHealth;
+          if (facts.powerSeconds != null) g.powerSeconds = facts.powerSeconds;
+          if (facts.receptionWorkSeconds != null) g.receptionWorkSeconds = facts.receptionWorkSeconds;
+          if (facts.weather != null) g.temperatureC = facts.weather;
+        }
+        if (facts.killScientist) damageScientistCombat(1000, 'Explicit expedition death fault');
+        persist(); render(); return true;
+      },
+      componentExpeditionSnapshot: () => {
+        const t = currentCityApproach(), g = cityApproachGate(), p = cityApproachProvider();
+        return clonePlainObject({ binding: componentBinding(), clock: state.clock, roomId: scientistRoomId(), cell: scientistMapCell(),
+          trip: t, gate: g, provider: p, providers: ensureCastawayAssistance().services, public: ComponentExpedition.publicView(t),
+          landed: componentLanded(), context: t?.component && componentContext(t, g, p), money: ensureEconomy().money,
+          health: scientistVital('health').current, runEnded: state.runEnded, fieldContext: state.surveyExpeditions?.fieldContext,
+          carried: actorInventoryStacks('scientist'), maps: ensureLabMap(), tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) });
+      },
       prepareCityApproachForTest: (options = {}) => {
         const flight = currentPenalFlight(), saved = ensureCastawayAssistance(), p = saved.services[0]; if (!flight || !p) return false;
         const r = { id: "city-arrival-fixture", serviceId: p.id, status: "complete", boardedIds: flight.roster.map(r => r.personId), reason: "Previously completed physical rescue fixture.",
@@ -17738,8 +17782,9 @@
         while (remaining > 0 && !scientistIsDead()) {
           const trip = currentCityApproach(), task = firstScientistQueueTask();
           const movementStep = task ? sameMapCell(scientistMapCell(), task.data?.toCell) ? Math.max(1, task.dueAt - state.clock + 1) : 1 : 60;
-          const step = Math.min(remaining, movementStep, Math.max(1, (trip?.nextAt ?? state.clock + 60) - state.clock), Math.max(1, (nextGateEnforcementEvent() ?? state.clock + 60) - state.clock));
-          state.clock += step; remaining -= step; updateScientistMovementTask(); updateCityApproach(step); updateGateEnforcement(step); completeDueTasks(); updateSurveyExpedition();
+          const step = Math.min(remaining, movementStep, Math.max(1, (trip?.nextAt ?? state.clock + 60) - state.clock), Math.max(1, (nextGateEnforcementEvent() ?? state.clock + 60) - state.clock),
+            trip?.component?.returnDeadline > state.clock ? trip.component.returnDeadline - state.clock : Infinity);
+          state.clock += step; remaining -= step; updateScientistMovementTask(); updateCityApproach(step); updateGateEnforcement(step); completeDueTasks(); updateForeignReception(); updateForeignLodging(); updateSurveyExpedition();
           if (++iterations > 2000) throw new Error("City approach fixture failed to make bounded progress");
         }
         updateWildernessNeeds(); syncActorInventories(); persist(); if (options.render) render();
@@ -20101,6 +20146,15 @@
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.expansionAtlas = ExpansionAtlas.rebind(importedState.expansionAtlas,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    for (const t of importedState.penalFlights?.assistance?.cityApproach?.trips || []) if (t.component) {
+      const rebound = ComponentExpedition.rebind(t.component, { worldId: candidate.run.worldId, runId: candidate.run.id },
+        { worldId: world.id, runId: importedRunId });
+      if (rebound) {
+        t.component = rebound;
+        if (t.context?.worldId === candidate.run.worldId) t.context.worldId = world.id;
+      }
+      else { t.status = t.departedAt == null ? 'failed' : 'flightInterrupted'; t.nextAt = null; }
+    }
     importedState.regionalBeastPowers = BeastPowers.rebind(importedState.regionalBeastPowers,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.regionalSuppression = Suppression.rebind(importedState.regionalSuppression,
@@ -23182,6 +23236,8 @@
       return { time: gateEvent, label: "Local gate enforcement or applicability review", type: "travel" };
     }
     const approach = currentCityApproach();
+    if (approach?.component?.returnDeadline > state.clock && ['checkpoint', 'checking', 'decided'].includes(approach.status))
+      return { time: Math.min(approach.nextAt ?? Infinity, approach.component.returnDeadline), label: 'Finite expedition return deadline', type: 'travel' };
     if (CityApproach.ongoing(approach) && approach.nextAt != null) return { time: Math.max(state.clock + 1, approach.nextAt), label: "City receiving checkpoint", type: "travel" };
     const assistance = currentCastawayRequest();
     if (CastawayAssistance.ongoing(assistance)) return { time: Math.max(state.clock + 1, assistance.nextAt), label: "Negotiated pickup checkpoint", type: "travel" };
@@ -24090,7 +24146,8 @@
       let remaining = elapsed, changed = 0;
       while (remaining > 0 && !scientistIsDead()) {
         const trip = currentCityApproach(), previous = trip.status;
-        const step = Math.min(remaining, 60, Math.max(1, (trip.nextAt ?? state.clock + 60) - state.clock));
+        const step = Math.min(remaining, 60, Math.max(1, (trip.nextAt ?? state.clock + 60) - state.clock),
+          trip.component?.returnDeadline > state.clock ? trip.component.returnDeadline - state.clock : Infinity);
         changed += advanceTime(step, { ...options, cityApproachStep: true }); remaining -= step;
         if (trip.status !== previous) break;
       }
@@ -56025,7 +56082,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (localPrisonRestricted()) return "Use the local prison's routed routine or discharge actions.";
     if (GateEnforcement.custodyActive(currentGateEnforcement())) return "The scientist is physically in receiving-city custody; use the local jail's actions.";
     const reception = state.penalFlights?.assistance?.cityApproach?.gates.find(g => g.annexRoomId === toRoomId);
-    if (reception && passengerAway()) {
+    if (reception && (passengerAway() || componentLanded(reception))) {
       if (!foreignAnnexPermission(reception)) return 'No current visitor-hall or guest-berth permission; the outer stand remains accessible for departure.';
     } else {
       if (reception && currentCityApproach()?.decisions.find(d => d.personId === "scientist")?.expiresAt <= state.clock) return "Temporary annex permission has expired; the checkpoint remains available for departure.";
@@ -79775,6 +79832,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return { id: `city:${cityId}`, kind: 'city', cityId, label: d?.label || cityId, globeCellId: d?.cellId || '' };
     };
     const add = (site, f) => rows.push({ site, fact: f });
+    for (const t of state.penalFlights?.assistance?.cityApproach?.trips || []) {
+      const v = ComponentExpedition.publicView(t); if (!v) continue;
+      add(citySite(v.cityId), { id: `${t.id}:component-expedition`, category: 'operations', subject: 'received cross-network expedition account',
+        sourceId: t.id, source: v.source, sourceAt: v.at, receivedAt: v.at,
+        text: `${v.status}: ${v.reason}`, coverage: v.limits });
+    }
     for (const g of outerApproachGates()) {
       const v = CountercoalitionRelief.publicView(g.outerApproach?.relief); if (!v) continue;
       add(citySite(g.cityId), { id: `${g.outerApproach.id}:relief-account`, category: 'operations', subject: 'received neighboring relief account',
@@ -79989,6 +80052,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       dom.visitsSummary.textContent = state.penalLegion.phase === 'deserted' ? 'Escaped military prisoner — unsupported wilderness' : state.penalLegion.serviceEndedAt == null ? "Penal-legion service — city-local military custody" : "Penal service completed — discharge and civilian receiving";
       dom.visitsList.replaceChildren(renderPenalLegion()); return;
     }
+    if (currentCityApproach()?.component && (componentLanded() || scientistRoomId() === CastawayAssistance.CABIN || CityApproach.ongoing(currentCityApproach()) && scientistRoomId() === cityApproachOriginRoom())) {
+      dom.visitsSummary.textContent = 'Cross-network expedition — finite original aircraft, separate local acceptance';
+      dom.visitsList.replaceChildren(renderComponentExpedition()); return;
+    }
     if (!passengerAway() && currentCityApproach() && [CastawayAssistance.PAD, CastawayAssistance.CABIN, ...cityReceptionRoomIds()].includes(scientistRoomId())) {
       dom.visitsSummary.textContent = "City approach · receiving permission is not admission";
       dom.visitsList.replaceChildren(renderCityApproach()); return;
@@ -80004,7 +80071,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!dom.visitsList || !dom.visitsSummary) return;
     if (surveyScientistAway()) {
       dom.visitsSummary.textContent = "Scientist off site — laboratory activity is not directly observed";
-      dom.visitsList.replaceChildren(renderSurveyExpeditions()); return;
+      dom.visitsList.replaceChildren(renderSurveyExpeditions());
+      if (atIntercityHomeStand()) dom.visitsList.append(renderComponentExpedition());
+      return;
     }
     const disclosedVisitIds = new Set(ensureSiteVisits().visits.filter((visit) => visit.noticeAt <= state.clock).map((visit) => visit.id));
     const journeys = [...ensureStrategicJourneys().journeys].filter((journey) => journey.subject.kind !== "siteVisit" || disclosedVisitIds.has(journey.subject.id)).sort((left, right) => left.arrivalWindow.start - right.arrivalWindow.start);
@@ -83833,7 +83902,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function materializeCastawayReceiving(provider) {
     if (provider.materialized) return;
-    for (const spec of [{ id: CastawayAssistance.CABIN, name: "Negotiated Pickup Aircraft", z: 14 }, { id: CastawayAssistance.PAD, name: provider.pad.label, z: 15 }]) {
+    for (const spec of [{ id: CastawayAssistance.CABIN, name: "Negotiated Pickup Aircraft", z: 14 }, ...(!provider.departure ? [{ id: CastawayAssistance.PAD, name: provider.pad.label, z: 15 }] : [])]) {
       if (state.rooms.some(room => room.id === spec.id)) continue;
       const room = normalizeRoom({ ...spec, purposeId: "corridor", facilityClass: "surveyExpedition", connections: [], description: provider.pad.description, geometry: { lengthM: 10, widthM: 8, heightM: 3, floorAreaM2: 80, volumeM3: 240 }, purposeSource: "castawayAssistance" });
       state.rooms = normalizeRooms([...state.rooms, room]); const map = ensureLabMap(), rect = { x: 5, y: 5, width: 10, height: 8, z: spec.z, roomId: spec.id }, cells = rectangularRoomCells(rect);
@@ -83887,6 +83956,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const saved = ensureCastawayAssistance(), terminal = currentPenalFlight()?.camp?.terminal;
     if (terminal) { const used = Math.max(0, state.clock - terminal.lastAt); terminal.lastAt = state.clock; if (terminal.online) terminal.remainingSeconds = Math.max(0, terminal.remainingSeconds - used); if (!terminal.remainingSeconds) terminal.online = false; }
     const r = currentCastawayRequest(), p = castawayProvider(); if (!r || scientistIsDead()) return 0;
+    if (p?.dutySeconds != null && CastawayAssistance.ongoing(r)) {
+      const dt = Math.max(0, state.clock - (r.lastDutyAt ?? r.requestedAt)); r.lastDutyAt = state.clock;
+      if (['assessing', 'preparing', 'outbound', 'waiting', 'inbound', 'unloading', 'returningEmpty'].includes(r.status)) {
+        p.dutySeconds = Math.max(0, p.dutySeconds - dt); p.provisionsSeconds = Math.max(0, p.provisionsSeconds - dt);
+        if (p.dutySeconds <= 0 || p.provisionsSeconds <= 0) {
+          ensureEconomy().money += CastawayAssistance.refund(ensureCastawayAssistance(), r);
+          if (r.departedAt == null && p.aircraft.reservedBy === r.id) p.aircraft.reservedBy = null;
+          CastawayAssistance.stage(r, 'failed', state.clock, 0, 'The original pilot exhausted actual duty or provisions. Living people and aircraft remain at their real positions; no arrival or replacement is invented.'); return 1;
+        }
+      }
+    }
     if (p && ["outbound", "waiting", "inbound", "returningEmpty"].includes(r.status)) p.radioSeconds = Math.max(0, (p.radioSeconds ?? 14400) - elapsed);
     if (["inbound", "unloading", "complete"].includes(r.status)) for (const id of r.boardedIds || []) { const a = ensurePenalFlights().actors.find(a => a.id === id); if (a && a.status !== "dead") { const result = WildernessSurvival.advance(a.needs, state.clock, { resting: true, sheltered: true, destination: null }); a.needs = result.state; if (result.damage) damagePenalPrisoner(a, result.damage, { injuryProgress: true }); } }
     if (!CastawayAssistance.ongoing(r)) return 0;
@@ -83910,8 +83990,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     } else if (r.status === "inbound") {
       CastawayAssistance.stage(r, "unloading", state.clock, 30, "The occupied aircraft arrived at its private pad. Physical unloading is underway.");
     } else if (r.status === "unloading") {
-      for (const [i,id] of r.boardedIds.entries()) { const cell = { x: 6+i, y: 6, z: 15 }; if (id === "scientist") moveSurveyScientist(CastawayAssistance.PAD, cell); else { const a = ensurePenalFlights().actors.find(a => a.id === id); a.roomId = CastawayAssistance.PAD; a.mapCell = cell; } }
-      p.pilot.location = "receivingPad"; p.pilot.cell = { x: 5, y: 6, z: 15 }; p.aircraft.reservedBy = null; p.aircraft.readyAt = state.clock + 7200;
+      for (const [i,id] of r.boardedIds.entries()) { const cell = p.departure ? { ...p.departure.cell, x: p.departure.cell.x + i } : { x: 6+i, y: 6, z: 15 }; const room = p.departure?.roomId || CastawayAssistance.PAD; if (id === "scientist") moveSurveyScientist(room, cell); else { const a = ensurePenalFlights().actors.find(a => a.id === id); a.roomId = room; a.mapCell = cell; } }
+      p.pilot.location = "receivingPad"; p.pilot.cell = p.departure ? clonePlainObject(p.departure.pilotCell) : { x: 5, y: 6, z: 15 }; p.aircraft.reservedBy = null; p.aircraft.readyAt = state.clock + 7200;
       ensurePenalFlights().fieldActive = false; state.surveyExpeditions.phase = "field"; r.receivedAt = state.clock;
       r.receivingContext ||= resourceSurveyContext(activeWorldRecord, { strategicLocation: { id: p.pad.id, strategicCellId: p.pad.cellId } }, state.seed);
       if (r.receivingContext) { state.surveyExpeditions.fieldContext = clonePlainObject(r.receivingContext); useSurveyContext(r.receivingContext); }
@@ -83950,6 +84030,77 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function currentCityApproach() { return CityApproach.active(state.penalFlights?.assistance?.cityApproach); }
   function cityApproachGate(t = currentCityApproach()) { return ensureCityApproach().gates.find(g => g.id === t?.gateId); }
   function cityApproachProvider(t = currentCityApproach()) { return ensureCastawayAssistance().services.find(p => p.id === (t?.providerId || currentCastawayRequest()?.serviceId)); }
+  function cityApproachOriginRoom(t = currentCityApproach()) { return t?.component?.origin.roomId || CastawayAssistance.PAD; }
+  function componentBinding() { return { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id, bodyEpoch: ensureScientistIdentity().bodyEpoch }; }
+  function componentLanded(g = cityApproachGate()) {
+    const t = currentCityApproach(), s = t?.component;
+    return Boolean(s && s.worldId === activeWorldRecord?.id && s.runId === activeRunRecord?.id && s.bodyEpoch === ensureScientistIdentity().bodyEpoch
+      && s.arrivedAt != null && g?.id === t.gateId && [g.checkpointRoomId, g.annexRoomId].includes(scientistRoomId()));
+  }
+  function componentContext(t, g, p) {
+    const source = g?.preparedReceptionTestSource || (g && passengerReceptionSource(g.cityId));
+    const contact = p && blackMarketContactById(p.contactId), s = t?.component;
+    return { ...componentBinding(), alive: !scientistIsDead(), capable: cityApproachAble('scientist'),
+      free: !restrictedOffsiteStay() && !currentDetentionRaid() && !GateEnforcement.custodyActive(currentGateEnforcement()) && !localPrisonRestricted(),
+      atOrigin: scientistRoomId() === cityApproachOriginRoom(t), pilotPresent: Boolean(p?.pilot.cell && cityApproachNear('scientist', p.pilot.cell, 2)),
+      local: componentLanded(g), onBoard: scientistRoomId() === CastawayAssistance.CABIN && t?.boardedIds.includes('scientist'),
+      localPilot: Boolean(p?.pilot.location === 'cityCheckpoint' && p.pilot.cell?.z === scientistMapCell().z && cityApproachNear('scientist', p.pilot.cell, 10)),
+      authorityCurrent: Boolean(source?.currentAuthority && source.currentPopulation >= 2 && source.physicalCondition !== 'ruined' && source.administrationId === g?.institutionId),
+      sourceCurrent: Boolean(s && ComponentExpedition.source(ensureStrategicJourneys(), s.source.originCityId, s.source.destinationCityId)),
+      channel: Boolean(p?.radioSeconds > 0 && contact && contact.discoveredAt <= state.clock && contact.trust >= 25 && contact.available !== false && !(contact.unavailableUntil > state.clock)),
+      clerkIncapacitated: Boolean(g?.clerk.incapacitated),
+      weatherReason: p && g ? UnsupportedExcursions.weatherReason(p.pad, state.clock) || UnsupportedExcursions.weatherReason(g, state.clock + (t?.offer?.flightSeconds || Math.ceil((t?.distanceKm || 0) / 210 * 3600))) : '',
+      returnWeatherReason: p && g ? UnsupportedExcursions.weatherReason(g, state.clock) || UnsupportedExcursions.weatherReason(p.pad, state.clock + (t?.offer?.flightSeconds || 0)) : '',
+      emptyDepartureClear: Boolean(p?.pilot.location === 'cityCheckpoint' && p.aircraft.reservedBy === t?.id) };
+  }
+  function componentProviders() {
+    if (!activeRunRecord || !activeWorldRecord || scientistIsDead() || !atIntercityHomeStand()) return [];
+    const cityId = state.surveyExpeditions.destination?.cityId, map = activeWorldRecord.generatedData.strategicMap;
+    const city = ensureStrategicJourneys().destinations.find(d => d.cityId === cityId && d.kind === 'fortifiedCity' && d.known);
+    if (!city || !(StrategicCapabilityHistory.cityHasCapability(map, cityId, 'poweredAircraft') || componentPreparedSource?.originCityId === cityId)) return [];
+    const source = passengerReceptionSource(cityId);
+    if (componentPreparedSource?.originCityId !== cityId && (!source?.currentAuthority || source.currentPopulation < 2 || source.physicalCondition === 'ruined')) return [];
+    const saved = ensureCastawayAssistance();
+    for (const contact of ensureEconomy().contacts.filter(c => c.archetype === 'industrialSmuggler' && c.discoveredAt <= state.clock && c.trust >= 25
+      && ((c.homeCityId || ensureIntercitySmuggling().homeId) === cityId || c.serviceCityIds?.includes(cityId)))) {
+      if (saved.initializedContacts.includes(contact.id) || saved.services.some(p => p.contactId === contact.id)) continue;
+      saved.initializedContacts.push(contact.id);
+      const environment = ClimateHydrologyBiomes.cellEnvironmentSnapshot(map, StrategicWorld.cellIndex(city.cellId));
+      const pad = { id: `municipal-air-apron:${contact.id}`, ownerId: contact.id, cityId, cellId: city.cellId, label: `${city.label} charter apron`, temperatureC: environment.temperatureC, precipitationMm: environment.precipitationMm };
+      const rng = seedRng(`${state.seed}:castaway-service:${contact.id}`);
+      const pilotName = `${BLACK_MARKET_FIRST_NAMES[Math.floor(rng() * BLACK_MARKET_FIRST_NAMES.length)]} ${BLACK_MARKET_LAST_NAMES[Math.floor(rng() * BLACK_MARKET_LAST_NAMES.length)]}`;
+      const p = CastawayAssistance.service(contact, pad, pilotName, state.clock);
+      p.departure = { roomId: SurveyExpeditions.FIELD_ROOM, cell: { ...SurveyExpeditions.RENDEZVOUS }, pilotCell: { ...SurveyExpeditions.RENDEZVOUS, x: SurveyExpeditions.RENDEZVOUS.x - 1 }, siteId: pad.id, cityId };
+      p.pilot.cell = clonePlainObject(p.departure.pilotCell); p.dutySeconds = 28800; p.provisionsSeconds = 43200; p.radioSeconds = 14400;
+      saved.services.push(p);
+    }
+    return saved.services.filter(p => p.pad.cityId === cityId && p.departure?.roomId === scientistRoomId()
+      && p.pilot.location === 'receivingPad' && p.pilot.cell?.z === scientistMapCell().z && cityApproachNear('scientist', p.pilot.cell, 10));
+  }
+  let componentPreparedSource = null; // Initial source facts only; never a completed booking, flight or receipt.
+  function componentDestinations(p) {
+    if (!p) return [];
+    return ensureStrategicJourneys().destinations.filter(d => ComponentExpedition.source(ensureStrategicJourneys(), p.pad.cityId, d.cityId)
+      && (StrategicCapabilityHistory.cityHasCapability(activeWorldRecord.generatedData.strategicMap, d.cityId, 'poweredAircraft') || componentPreparedSource?.destinationCityId === d.cityId));
+  }
+  function requestComponentExpedition(providerId, destinationId) {
+    const p = componentProviders().find(p => p.id === providerId), d = componentDestinations(p).find(d => d.id === destinationId);
+    if (!p || !d || surveyBusy() || !cityApproachNear('scientist', p.pilot.cell, 2) || (p.radioSeconds || 0) < 120) return false;
+    const source = ComponentExpedition.source(ensureStrategicJourneys(), p.pad.cityId, d.cityId);
+    const test = componentPreparedSource?.destinationCityId === d.cityId ? componentPreparedSource.reception : null;
+    const highest = Math.max(CityApproach.Z - 1, ...Object.keys(ensureLabMap().layers).map(Number).filter(Number.isFinite), ...ensureCityApproach().gates.map(g => g.z));
+    const g = preparePassengerReception(d.cityId, d.label, highest + 1, test);
+    if (!g || g.receptionAssignment || g.berthReservedBy || !source) return false;
+    g.cellId ||= d.cellId;
+    const km = cityApproachDistance(g, p);
+    if (CityApproach.transportReason(p, km, state.clock)) return false;
+    const t = CityApproach.request(ensureCityApproach(), g.id, p.id, [{ id: 'scientist', name: 'Scientist' }], km, state.clock); if (!t) return false;
+    ComponentExpedition.attach(t, g, p, source, componentBinding(), { ...p.departure, context: clonePlainObject(state.surveyExpeditions.fieldContext) }, state.clock);
+    const reason = ComponentExpedition.reason(t, g, p, componentContext(t, g, p), state.clock);
+    if (reason) { ComponentExpedition.fail(t, g, p, state.clock, reason); persist(); render(); return false; }
+    g.receptionAssignment = t.id; g.clerk.assignment = t.id; p.radioSeconds -= 120;
+    ComponentExpedition.receive(t, componentContext(t, g, p), state.clock); persist(); render(); return true;
+  }
   function cityApproachActor(id) { return id === "scientist" ? state.scientist : ensurePenalFlights().actors.find(a => a.id === id); }
   function cityApproachCell(id) { return id === "scientist" ? scientistMapCell() : cityApproachActor(id)?.mapCell; }
   function cityApproachRoom(id) { return id === "scientist" ? scientistRoomId() : cityApproachActor(id)?.roomId; }
@@ -83988,6 +84139,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { id, name: id === "scientist" ? "Scientist" : cityApproachActor(id)?.name || "Unknown passenger", sourceCityId: flight?.cityId, sourceOrderId: row?.orderId || null };
   }
   function cityApproachDispatchReason(t, g, p, now = state.clock) {
+    if (t?.component) return ['preparing', 'boarding'].includes(t.status)
+      ? ComponentExpedition.dispatchReason(t, g, p, componentContext(t, g, p), now)
+      : ComponentExpedition.reason(t, g, p, componentContext(t, g, p), now);
     if (!g || g.powerSeconds < 120 || g.clerk.status !== "alive" || g.clerk.health < 50 || g.guard.status !== "alive" || g.guard.health < 50) return "The named receiving staff or powered communications are unavailable.";
     if ((p?.radioSeconds || 0) < 120) return "The pilot's actual communicator has insufficient power for the receiving arrangement.";
     return CityApproach.transportReason(p, t.distanceKm, now, t.id)
@@ -84006,15 +84160,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function acceptCityApproach(options = {}) {
     const t = currentCityApproach(), g = cityApproachGate(), p = cityApproachProvider();
-    if (!t || scientistRoomId() !== CastawayAssistance.PAD || !cityApproachNear("scientist", p?.pilot.cell) || cityApproachDispatchReason(t, g, p)) return false;
+    if (!t || scientistRoomId() !== cityApproachOriginRoom(t) || !cityApproachNear("scientist", p?.pilot.cell, 2) || cityApproachDispatchReason(t, g, p)) return false;
+    if (t.component && ComponentExpedition.acceptReason(t, g, p, componentContext(t, g, p), state.clock)) return false;
     if (!options.confirmed && !window.confirm(`Authorize ${formatMoney(t.offer?.fee)} round-trip escrow in the scientist's name? ${t.offer?.returnTerms} ${g.policyText} Every passenger is assessed separately.`)) return false;
     if (!CityApproach.accept(t, g, p, ensureEconomy().money, state.clock)) return false;
+    if (t.component) ComponentExpedition.accepted(t, state.clock);
     ensureEconomy().money -= t.payment.amount; recordBlackMarketLedger("cityApproach", `Reserved round trip to ${g.label}; no admission purchased.`, { amount: t.payment.amount, contactId: p.contactId });
     persist(); if (!options.deferRender) render(); return true;
   }
   function cancelCityApproach(options = {}) {
     const t = currentCityApproach(), g = cityApproachGate(), p = cityApproachProvider();
-    if (!t || !["requested", "offered", "preparing", "boarding"].includes(t.status) || scientistRoomId() !== CastawayAssistance.PAD) return false;
+    if (!t || !["requested", "offered", "preparing", "boarding"].includes(t.status) || scientistRoomId() !== cityApproachOriginRoom(t)) return false;
+    if (t.component) ComponentExpedition.releaseReport(t, g);
     ensureEconomy().money += CityApproach.refund(t); if (p.aircraft.reservedBy === t.id) p.aircraft.reservedBy = null; if (g.berthReservedBy === t.id) g.berthReservedBy = null;
     if (t.permit) t.permit.status = "cancelled"; CityApproach.stage(t, "cancelled", state.clock, null, "Cancelled before departure; escrow refunded once. No city entry occurred."); persist(); if (!options.deferRender) render(); return true;
   }
@@ -84053,7 +84210,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function cityApproachBoarders(t, returning = false) {
     const p = cityApproachProvider(t), source = returning ? t.boardedIds : t.manifest.map(p => p.id);
-    return source.filter(id => cityApproachAble(id) && cityApproachRoom(id) === (returning ? cityApproachGate()?.checkpointRoomId : CastawayAssistance.PAD) && cityApproachNear(id, p.pilot.cell, 2)
+    return source.filter(id => cityApproachAble(id) && cityApproachRoom(id) === (returning ? cityApproachGate()?.checkpointRoomId : cityApproachOriginRoom(t)) && cityApproachNear(id, p.pilot.cell, 2)
       && (id === "scientist" || !CastawayCamp.willingness(cityApproachActor(id), "pickup")));
   }
   function cityApproachWorkReason(d) {
@@ -84067,11 +84224,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return scientistRoomId() !== CastawayAssistance.PAD || !actor || !cityApproachAble(d.personId) || cityApproachRoom(d.personId) !== CastawayAssistance.PAD || WildernessBeasts.distance(actor.mapCell, d.toCell) > 1 ? "The companion is not physically available at the pad." : CastawayCamp.willingness(actor, "pickup");
     }
     if (!t || d.tripId !== t.id || !p || !g) return "This city approach is no longer active.";
+    if (t.component && ['inspect', 'enter', 'companionEnter'].includes(d.kind)) return 'Use this city’s ordinary foreign visitor reception and actual identity records; no penal-flight record is required.';
+    if (t.component && d.kind === 'returnBoard') {
+      const reason = ComponentExpedition.returnReason(t, p, componentContext(t, g, p), state.clock);
+      if (reason) return reason;
+    }
     if (d.kind === "companionEnter") {
       const a = cityApproachActor(d.personId), decision = t.decisions.find(x => x.personId === d.personId);
       return !a || !cityApproachAble(d.personId) || cityApproachRoom(d.personId) !== g.checkpointRoomId || !cityApproachNear(d.personId, d.toCell, 2) || !CityApproach.canEnter(decision, true) ? "The companion must be present, able, and individually offered admission." : CastawayCamp.willingness(a, "pickup") || (g.guard.health < 50 || g.guard.status !== "alive" ? "The gate guard is unavailable." : "");
     }
-    if (d.kind === "outboundBoard") return t.status !== "boarding" || scientistRoomId() !== CastawayAssistance.PAD ? "The reserved aircraft is not ready for this departure." : cityApproachDispatchReason(t, g, p) || cityApproachCargoReason(cityApproachBoarders(t), t);
+    if (d.kind === "outboundBoard") return t.status !== "boarding" || scientistRoomId() !== cityApproachOriginRoom(t) ? "The reserved aircraft is not ready for this departure." : cityApproachDispatchReason(t, g, p) || cityApproachCargoReason(cityApproachBoarders(t), t);
     if (d.kind === "inspect") return !["checkpoint", "decided"].includes(t.status) || scientistRoomId() !== cityApproachGate()?.checkpointRoomId || !CityApproach.checkpointAuthorized(t, "scientist") ? "Reach the permitted checkpoint before presenting identity records." : g.clerk.health < 50 || g.clerk.status !== "alive" ? "The named clerk is unavailable." : "";
     if (d.kind === "enter") return !CityApproach.canEnter(t.decisions.find(d => d.personId === "scientist"), t.acceptedConditions) ? "No accepted admission authorizes passage." : g.guard.health < 50 || g.guard.status !== "alive" ? "The named gate guard cannot escort entry." : "";
     if (d.kind === "returnBoard") return !["checkpoint", "decided"].includes(t.status) || p.pilot.location !== "cityCheckpoint" || scientistRoomId() !== cityApproachGate()?.checkpointRoomId ? "The return aircraft is not accessible at the checkpoint." : !cityApproachAble("scientist") || p.pilot.health < 50 || p.pilot.status !== "alive" || p.aircraft.condition < 50 || p.aircraft.fuelKm < t.distanceKm ? "The actual aircraft or passengers cannot make the return; no transport or death is invented." : UnsupportedExcursions.weatherReason(g, state.clock) || UnsupportedExcursions.weatherReason(p.pad, state.clock + t.offer.flightSeconds) || cityApproachCargoReason(cityApproachBoarders(t, true), t);
@@ -84103,6 +84265,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (d.kind === "invite") { saved.consents = saved.consents.filter(c => c.personId !== d.personId); saved.consents.push({ personId: d.personId, gateId: d.gateId, until: state.clock + 86400, scope: "namedCityTripAndVoluntaryReturn" }); surveyEvent(`${cityApproachActor(d.personId).name} agrees to this openly identified city trip and an optional return, not recruitment, debt, or surrender.`); return true; }
     if (d.kind === "outboundBoard" || d.kind === "returnBoard") {
       const returning = d.kind === "returnBoard", ids = cityApproachBoarders(t, returning); if (!ids.includes("scientist")) return true;
+      if (t.component) { materializeCastawayReceiving(p); p.aircraft.condition -= t.distanceKm * .01; }
       if (returning) t.returningIds = ids; else { t.boardedIds = ids; t.permit.personIds = [...ids]; t.departedAt = state.clock; }
       cityApproachMove(ids, CastawayAssistance.CABIN, { x: 6, y: 6, z: 14 });
       p.aircraft.fuelKm -= t.distanceKm; p.pilot.location = returning ? "cityReturning" : "cityOutbound"; p.pilot.cell = { x: 5, y: 6, z: 14 }; state.surveyExpeditions.phase = "inbound";
@@ -84127,15 +84290,23 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function releaseCityAircraft(options = {}) {
     const t = currentCityApproach(), p = cityApproachProvider(), g = cityApproachGate();
-    if (!t || t.status !== "decided" || scientistRoomId() !== g.annexRoomId || !t.enteredIds.includes("scientist") || p.pilot.location !== "cityCheckpoint" || p.aircraft.fuelKm < t.distanceKm || p.aircraft.condition < 50 || p.pilot.health < 50 || p.pilot.status !== "alive" || UnsupportedExcursions.weatherReason(g, state.clock) || UnsupportedExcursions.weatherReason(p.pad, state.clock + t.offer.flightSeconds)) return false;
+    if (!t || (t.component ? !componentLanded(g) || Boolean(ComponentExpedition.returnReason(t, p, componentContext(t, g, p), state.clock))
+      : t.status !== "decided" || scientistRoomId() !== g.annexRoomId || !t.enteredIds.includes("scientist")) || p.pilot.location !== "cityCheckpoint" || p.aircraft.fuelKm < t.distanceKm || p.aircraft.condition < 50 || p.pilot.health < 50 || p.pilot.status !== "alive" || UnsupportedExcursions.weatherReason(g, state.clock) || UnsupportedExcursions.weatherReason(p.pad, state.clock + t.offer.flightSeconds)) return false;
     if (!options.confirmed && !window.confirm("Give up your reserved return and send the aircraft back EMPTY? You and all companions remain at this city. There is no free replacement aircraft, onward journey, or laboratory return. You may keep the aircraft reserved and return instead.")) return false;
     p.pilot.location = "cityReturningEmpty"; p.pilot.cell = null; p.aircraft.fuelKm -= t.distanceKm;
+    if (t.component) { p.aircraft.condition -= t.distanceKm * .01; t.component.releasedAt = state.clock; }
     CityApproach.stage(t, "departingEmpty", state.clock, t.offer.flightSeconds, "The scientist explicitly released the reserved return. The named pilot is flying home empty; all passengers remain at their actual city locations."); persist(); if (!options.deferRender) render(); return true;
   }
   function updateCityApproach(elapsed = 0) {
-    const saved = state.penalFlights?.assistance?.cityApproach; if (!saved) return 0;
+    const saved = state.penalFlights?.assistance?.cityApproach; if (!saved || scientistIsDead()) return 0;
     for (const g of saved.gates) { g.powerSeconds = Math.max(0, g.powerSeconds - Math.max(0, state.clock - g.lastAt)); g.lastAt = state.clock; }
     const t = currentCityApproach(), g = cityApproachGate(), p = cityApproachProvider(); if (!t || !g || !p || !CityApproach.ongoing(t) || scientistIsDead()) return 0;
+    if (t.component) {
+      const previous = t.status, context = componentContext(t, g, p);
+      ensureEconomy().money += ComponentExpedition.advance(t, g, p, context, state.clock).refund;
+      ComponentExpedition.receive(t, { ...componentContext(t, g, p), departureVisible: context.localPilot }, state.clock);
+      if (previous !== t.status) { state.paused = true; return 1; }
+    }
     if (["outbound", "inbound", "departingEmpty"].includes(t.status) && (p.aircraft.condition <= 0 || p.pilot.status !== "alive" || p.pilot.health <= 0)) { CityApproach.stage(t, "flightInterrupted", state.clock, null, "The transport cannot complete its current course. No landing, teleportation, or automatic passenger death is invented."); return 1; }
     // Consenting companions use the same physical local map, not a remote roster teleport.
     for (const id of t.boardedIds.filter(id => id !== "scientist")) {
@@ -84158,15 +84329,30 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       bumpNavigationRevision("door");
     }
     if (t.nextAt == null || state.clock < t.nextAt) return 0;
-    if (t.status === "requested") CityApproach.offer(t, g, p, state.clock, cityApproachDispatchReason(t, g, p));
+    if (t.status === "requested") {
+      if (t.component) {
+        if (t.component.reportProgress < ComponentExpedition.REPORT) return 0;
+        const ok = ComponentExpedition.offer(t, g, p, componentContext(t, g, p), state.clock);
+        ComponentExpedition.releaseReport(t, g);
+        if (!ok) ComponentExpedition.fail(t, g, p, state.clock, 'The actual original aircraft, staff, return allowance or receiving conditions cannot support this expedition. No permission or payment was invented.');
+      } else CityApproach.offer(t, g, p, state.clock, cityApproachDispatchReason(t, g, p));
+    }
     else if (t.status === "offered") CityApproach.stage(t, "expired", state.clock, null, "Unaccepted offer expired. No payment, entry, or dispatch occurred.");
     else if (t.status === "preparing") {
       const reason = cityApproachDispatchReason(t, g, p);
       if (reason) { ensureEconomy().money += CityApproach.refund(t); p.aircraft.reservedBy = null; g.berthReservedBy = null; t.permit.status = "cancelled"; CityApproach.stage(t, "failed", state.clock, null, reason); }
       else CityApproach.stage(t, "boarding", state.clock, null, "Preparation finished. Walk to the actual aircraft at the private pad to board. Return fuel and the receiving berth are reserved.");
     } else if (t.status === "outbound") {
-      const reason = UnsupportedExcursions.weatherReason(g, state.clock);
-      if (reason) { t.returningIds = [...t.boardedIds]; p.aircraft.fuelKm -= t.distanceKm; p.pilot.location = "cityReturning"; CityApproach.stage(t, "inbound", state.clock, t.offer.flightSeconds, "Unsafe receiving weather: the occupied aircraft is returning to the original pad without landing or admitting anyone."); }
+      const reason = UnsupportedExcursions.weatherReason(g, state.clock) || (t.component && (!componentContext(t, g, p).authorityCurrent || g.guard.status !== 'alive' || g.guard.health < 50) ? 'Original receiving authority or guard unavailable.' : '');
+      if (reason) {
+        if (t.component && (p.aircraft.fuelKm < t.distanceKm + ComponentExpedition.RESERVE || p.dutySeconds < t.offer.flightSeconds + 30 || p.provisionsSeconds < t.offer.flightSeconds + 30
+          || p.aircraft.condition - t.distanceKm * .01 < 50 || UnsupportedExcursions.weatherReason(p.pad, state.clock + t.offer.flightSeconds))) {
+          CityApproach.stage(t, 'flightInterrupted', state.clock, null, 'Receiving capacity failed and actual return resources are unavailable. The living occupants remain aboard; no safe landing or rescue is invented.');
+          return 1;
+        }
+        if (t.component) p.aircraft.condition -= t.distanceKm * .01;
+        t.returningIds = [...t.boardedIds]; p.aircraft.fuelKm -= t.distanceKm; p.pilot.location = "cityReturning"; CityApproach.stage(t, "inbound", state.clock, t.offer.flightSeconds, "Unsafe receiving conditions: the occupied aircraft is returning to the original pad without landing or admitting anyone.");
+      }
       else CityApproach.stage(t, "unloading", state.clock, 30, "The aircraft reached its authorized receiving berth. Passengers remain aboard until unloading completes.");
     } else if (t.status === "unloading") {
       materializeCityReception(g); cityApproachMove(t.boardedIds, cityApproachGate()?.checkpointRoomId, cityApproachPoint("landing"));
@@ -84174,6 +84360,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       t.context ||= resourceSurveyContext(activeWorldRecord, { strategicLocation: { id: g.id, strategicCellId: g.cellId } }, state.seed);
       state.surveyExpeditions.fieldContext = t.context || { worldId: activeWorldRecord?.id, siteId: g.id, strategicCellId: g.cellId, seed: state.seed, publicProspects: {}, truth: {} }; useSurveyContext(state.surveyExpeditions.fieldContext);
       CityApproach.stage(t, "checkpoint", state.clock, null, "Physically at the permitted checkpoint. Present identity records at the desk; the inner gate is closed. The reserved aircraft can return you to the private pad.");
+      if (t.component) ComponentExpedition.arrived(t, state.clock);
     } else if (t.status === "checking") {
       if (!cityApproachNear("scientist", g.clerk.mapCell, 2) || !cityApproachAble("scientist") || g.clerk.status !== "alive" || g.clerk.health < 50) { CityApproach.stage(t, "checkpoint", state.clock, null, "The physical identity inspection was interrupted; no decision was issued."); return 1; }
       t.decisions = t.manifest.filter(person => t.boardedIds.includes(person.id)).map(person => {
@@ -84182,19 +84369,53 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         return cityAdmissionDecision(person, g, evidence);
       });
       CityApproach.stage(t, "decided", state.clock, null, "Individual reception decisions recorded. Refusal or pending review leaves the limited waiting-and-return permit intact. No detention or new offense was created.");
+    } else if (t.component && ['inbound', 'departingEmpty'].includes(t.status) && UnsupportedExcursions.weatherReason(p.pad, state.clock)) {
+      CityApproach.stage(t, 'flightInterrupted', state.clock, null, 'Actual return landing weather is unsafe. No arrival, replacement flight or passenger death is invented.');
     } else if (t.status === "inbound") CityApproach.stage(t, "returnUnloading", state.clock, 30, "The occupied return flight reached the original private pad. Unloading is underway.");
     else if (t.status === "returnUnloading") {
-      cityApproachMove(t.returningIds, CastawayAssistance.PAD, { x: 6, y: 6, z: 15 });
+      cityApproachMove(t.returningIds, cityApproachOriginRoom(t), t.component?.origin.cell || { x: 6, y: 6, z: 15 });
       t.permit.departedIds = [...t.returningIds];
-      p.pilot.location = "receivingPad"; p.pilot.cell = { x: 5, y: 6, z: 15 }; p.aircraft.reservedBy = null; p.aircraft.readyAt = state.clock + 7200;
+      p.pilot.location = "receivingPad"; p.pilot.cell = t.component ? clonePlainObject(t.component.origin.pilotCell) : { x: 5, y: 6, z: 15 }; p.aircraft.reservedBy = null; p.aircraft.readyAt = state.clock + 7200;
       g.berthReservedBy = null; state.surveyExpeditions.phase = "field";
-      const context = currentCastawayRequest()?.receivingContext; if (context) { state.surveyExpeditions.fieldContext = clonePlainObject(context); useSurveyContext(context); }
+      const context = t.component?.origin.context || currentCastawayRequest()?.receivingContext; if (context) { state.surveyExpeditions.fieldContext = clonePlainObject(context); useSurveyContext(context); }
       CityApproach.stage(t, "returned", state.clock, null, "Returned physically to the private pad. The aircraft needs turnaround; fuel, injuries, possessions and city-specific banishment persist.");
     } else if (t.status === "departingEmpty") {
-      p.pilot.location = "receivingPad"; p.pilot.cell = { x: 5, y: 6, z: 15 }; p.aircraft.reservedBy = null; p.aircraft.readyAt = state.clock + 7200; g.berthReservedBy = null;
+      p.pilot.location = "receivingPad"; p.pilot.cell = t.component ? clonePlainObject(t.component.origin.pilotCell) : { x: 5, y: 6, z: 15 }; p.aircraft.reservedBy = null; p.aircraft.readyAt = state.clock + 7200; g.berthReservedBy = null;
       CityApproach.stage(t, "settled", state.clock, null, "The aircraft returned empty to its original pad. The scientist remains in the admitted city reception area; onward travel and legal relief are separate work.");
     }
+    if (t.component) ComponentExpedition.receive(t, componentContext(t, g, p), state.clock);
     syncActorInventories(); state.paused = true; return 1;
+  }
+  function renderComponentExpedition() {
+    const panel = document.createElement('section'); panel.dataset.componentExpedition = 'true'; panel.className = 'subpanel';
+    panel.append(textEl('h3', 'Cross-Network Expedition'), textEl('p', ComponentExpedition.LIMITS), textEl('p', 'Only known city receiving sites with original powered-aircraft capacity are offered. Organizations disclose landing instructions, not their hoarded terrain maps, expensive mineral surveys or onward charts. Bring your own food and water.'));
+    const button = (label, fn, disabled = false) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = disabled; b.onclick = fn; panel.append(b); };
+    const t = currentCityApproach(), g = cityApproachGate(), p = cityApproachProvider();
+    if (t?.component) {
+      ComponentExpedition.receive(t, componentContext(t, g, p), state.clock);
+      const v = ComponentExpedition.publicView(t);
+      if (v) {
+        panel.append(textEl('p', `${formatClock(v.at)} — received ${v.label}: ${v.status}. ${v.reason}`));
+        if (v.offer) panel.append(textEl('p', `${v.offer.aircraftId}; original pilot ${v.offer.pilotName}; ${formatNumber(t.distanceKm)} km each way, ${v.offer.seats} passenger seats, ${v.offer.cargoKg} kg / ${v.offer.cargoL} L total carried cargo. ${formatMoney(v.offer.fee)} round trip. ${v.offer.returnTerms}`));
+        if (v.returnDeadline != null) panel.append(textEl('p', `Return boarding must finish before ${formatClock(v.returnDeadline)}. Landing permission is separate from city admission.`));
+      }
+      if (t.status === 'offered') button('Accept Cross-Network Round Trip', () => acceptCityApproach());
+      if (['requested', 'offered', 'preparing', 'boarding'].includes(t.status)) button('Cancel Unlaunched Expedition', () => cancelCityApproach());
+      if (t.status === 'boarding') button('Walk to Original Aircraft and Board Expedition', () => queueCityApproachWork('outboundBoard'), surveyBusy());
+      if (componentLanded(g)) {
+        button('Walk to Aircraft and Return to Departure Apron', () => queueCityApproachWork('returnBoard'), surveyBusy() || Boolean(ComponentExpedition.returnReason(t, p, componentContext(t, g, p), state.clock)) || scientistRoomId() !== g.checkpointRoomId || !['checkpoint', 'decided'].includes(t.status));
+        if (['checkpoint', 'decided'].includes(t.status)) button('Give Up Expedition Return — Send Aircraft Empty', () => releaseCityAircraft(), surveyBusy());
+        panel.append(renderForeignReception(), renderForeignSupplies(g));
+      }
+    }
+    if (!CityApproach.ongoing(t)) for (const provider of componentProviders()) for (const d of componentDestinations(provider)) {
+      const km = StrategicWorld.greatCircleDistanceKm(activeWorldRecord.generatedData.strategicMap, StrategicWorld.cellIndex(provider.pad.cellId), StrategicWorld.cellIndex(d.cellId));
+      panel.append(textEl('p', `${provider.pad.label} → ${d.label}: ${formatNumber(km)} km; ${provider.pilot.name}, ${provider.aircraft.id}. Aircraft has ${formatNumber(provider.aircraft.fuelKm)} km fuel, ${formatNumber(provider.aircraft.rangeKm)} km range and ${formatNumber(provider.aircraft.condition)}% condition. Pilot duty ${formatDuration(provider.dutySeconds)}, provisions ${formatDuration(provider.provisionsSeconds)}. Original capacity is shared with other bookings.`));
+      button(`Request Receiving Instructions: ${d.label}`, () => requestComponentExpedition(provider.id, d.id), surveyBusy() || Boolean(CityApproach.transportReason(provider, km, state.clock)) || !cityApproachNear('scientist', provider.pilot.cell, 2));
+    }
+    for (const key of ['drinkingWater', 'trailMeal']) button(`Use Carried ${inventoryItemLabel(key)}`, () => queueSurvivalConsumption(key), surveyBusy());
+    button('Rest Here (15 minutes)', () => createRestTask(15), surveyBusy());
+    return panel;
   }
   function renderCityApproach() {
     initializeCityReception(); const panel = document.createElement("section"), saved = ensureCityApproach(), t = currentCityApproach(); panel.dataset.cityApproach = "true";
@@ -93987,12 +94208,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return IntercityPassenger.away(s)
       || Boolean(state.passengerConnection && state.intercityPassenger?.homeCityId === state.passengerConnection.intermediateCityId);
   }
-  function passengerVisitId() { return state.passengerConnection?.visitId || state.intercityPassenger?.trip?.id; }
+  function passengerVisitId() { return componentLanded() ? currentCityApproach().id : state.passengerConnection?.visitId || state.intercityPassenger?.trip?.id; }
   function passengerLanded() { return passengerAway() && ['home', 'foreign'].includes(state.intercityPassenger?.phase); }
   function passengerBodyCurrent() {
     return !passengerAway() || (state.passengerConnection?.bodyEpoch ?? state.intercityPassenger?.trip?.bodyEpoch) === ensureScientistIdentity().bodyEpoch;
   }
-  function passengerReceptionGate(cityId = state.intercityPassenger?.spaces?.cityId) {
+  function passengerReceptionGate(cityId = componentLanded() ? cityApproachGate()?.cityId : state.intercityPassenger?.spaces?.cityId) {
     return state.penalFlights?.assistance?.cityApproach?.gates.find(g => g.cityId === cityId) || null;
   }
   function passengerReceptionSource(cityId) {
@@ -94043,7 +94264,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function foreignVisitorPermission(g = passengerReceptionGate()) {
     const p = state.intercityPassenger;
-    return passengerLanded() && p.location === g?.cityId
+    return componentLanded(g) || passengerLanded() && p.location === g?.cityId
       ? ForeignReception.permission(g, ensureScientistIdentity().bodyEpoch, passengerVisitId(), state.clock) : null;
   }
   function ensureForeignLodging(g) {
@@ -94056,7 +94277,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const cell = scientistMapCell(), map = ensureLabMap();
     const floor = b && map.terrain.constructedFloors?.find(s => sameMapCell(s.cell, b.cell));
     return { alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist'), bodyEpoch: profile.bodyEpoch, visitId: passengerVisitId(),
-      local: Boolean(g && passengerLanded() && p.location === g.cityId && [g.checkpointRoomId, g.annexRoomId].includes(scientistRoomId())),
+      local: Boolean(componentLanded(g) || g && passengerLanded() && p.location === g.cityId && [g.checkpointRoomId, g.annexRoomId].includes(scientistRoomId())),
       atBerth: Boolean(b && scientistRoomId() === b.roomId && sameMapCell(cell, b.cell)),
       authorityCurrent: Boolean(source?.currentAuthority && source.administrationId === g?.institutionId && source.lawId === g?.visitorLodging?.rule.lawId),
       sourceCurrent: Boolean(source && source.cityId === g?.cityId && source.currentPopulation >= 2 && source.physicalCondition !== 'ruined'
@@ -94128,7 +94349,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function foreignReceptionContext(g = passengerReceptionGate(), ignoreInquiry = false, ignoreCivic = false, ignoreTasks = false) {
     const p = state.intercityPassenger, profile = ensureScientistIdentity(), cell = scientistMapCell();
-    const local = Boolean(g && passengerLanded() && p.location === g.cityId && [g.checkpointRoomId, g.annexRoomId].includes(scientistRoomId()));
+    const local = Boolean(componentLanded(g) || g && passengerLanded() && p.location === g.cityId && [g.checkpointRoomId, g.annexRoomId].includes(scientistRoomId()));
     const document = profile.documents.find(d => d.number === g?.visitorAdmission?.selectedDocument) || (!g?.visitorAdmission?.selectedDocument ? profile.documents.at(-1) : null);
     const offices = state.economy?.intercitySmuggling?.identityOffices || [];
     const issuer = document && offices.find(o => o.cityId === document.cityId && o.contact.handle === document.issuer?.handle);
@@ -95411,7 +95632,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function foreignSelfCareReason(injury, mode) {
     const g = passengerReceptionGate();
     if (!['examine', 'stabilize', 'treat'].includes(mode)) return 'Unsupported self-care action.';
-    if (!passengerLanded() || !passengerBodyCurrent() || !g || ![g.checkpointRoomId, g.annexRoomId, g.foreignWorkspace?.roomId].includes(scientistRoomId()))
+    if (!(componentLanded(g) || passengerLanded() && passengerBodyCurrent()) || !g || ![g.checkpointRoomId, g.annexRoomId, g.foreignWorkspace?.roomId].includes(scientistRoomId()))
       return 'Physically reach the foreign receiving stand, visitor annex or leased workspace with the original traveling body.';
     if (scientistIsDead() || actorIsIncapacitated('scientist')) return 'A living capable scientist is required; professional care and rescue are separate.';
     if (!injury || injury.actorId !== 'scientist') return 'This service supports only the scientist’s own injuries.';
@@ -105754,6 +105975,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.unsupportedExcursions = UnsupportedExcursions.normalizeState(candidate?.unsupportedExcursions);
     next.medicalExtraction = MedicalExtraction.normalizeState(candidate?.medicalExtraction);
     next.penalFlights = PenalFlights.normalizeState(candidate?.penalFlights);
+    for (const t of next.penalFlights.assistance?.cityApproach?.trips || []) if (t.component) {
+      const normalized = ComponentExpedition.normalize(t.component);
+      if (normalized) t.component = normalized;
+      else { t.status = t.departedAt == null ? 'failed' : 'flightInterrupted'; t.nextAt = null; }
+    }
     for (const g of next.penalFlights.assistance?.cityApproach?.gates || []) {
       g.intercityCompact = IntercityCompact.normalize(g.intercityCompact); g.outerApproach = OuterApproach.normalize(g.outerApproach);
       if (g.outerApproach?.relief) g.outerApproach.relief = CountercoalitionRelief.normalize(g.outerApproach.relief);

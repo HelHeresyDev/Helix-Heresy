@@ -4,8 +4,7 @@ const path = require('path');
 const Library = require('../../world-run-library');
 const { lifecycleWorld } = require('./lifecycle-world');
 
-async function startLifecycleRun(page, seed = 'focused-lifecycle-run') {
-  const world = lifecycleWorld();
+async function startLifecycleRun(page, seed = 'focused-lifecycle-run', world = lifecycleWorld()) {
   await page.goto(pathToFileURL(path.resolve(__dirname, '../..', 'index.html')).href);
   await page.evaluate(({ id, payload }) => {
     localStorage.clear();

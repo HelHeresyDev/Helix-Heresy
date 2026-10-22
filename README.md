@@ -1588,6 +1588,18 @@ Visits and the Expansion Atlas show only dated received accounts from actual con
 
 Focused checks: `node --test --test-isolation=none tests/countercoalition-relief.unit.test.js tests/outer-approach.unit.test.js tests/campaign-settlement.unit.test.js`; `npx playwright test tests/outer-approach-browser.spec.js --project=chromium --workers=2 --grep 'countercoalition relief'`. Full-suite runs are not required under repository policy.
 
+## Cross-network expedition
+
+At municipal survey ground, Visits offers **Cross-Network Expedition** when a known industrial transport contact has an established relationship and the departure city actually operates powered aircraft. The service elaborates one original finite pilot and aircraft per eligible contact, sharing the same saved service identity and reservations with outside assistance. It never replaces a missing or damaged original. Walk to the municipal rendezvous; ask for receiving instructions for a known city in a different physical support component. No complete terrain map, mineral survey or onward chart is released.
+
+Two minutes of the original receiving clerk’s finite shared work precede the quote. Review the named aircraft/pilot, actual spherical distance, passenger seats, carried cargo mass/volume, round-trip price and waiting terms. Range, fuel for both legs plus reserve, condition, weather, duty and provisions constrain departure; paying does not replenish any resource. The same aircraft prepares, physically boards the scientist, flies, and unloads at a persistent checkpoint. This first civilian consumer carries the scientist and their actual pack, not an invented expedition staff. City admission requires the separate ordinary visitor review and acceptance. Paid local lodging remains separate; unsupported commercial stock is never generated. Bring food and water.
+
+Return boarding must **finish before the quoted deadline**, at most four hours after actual unloading and bounded by remaining original pilot duty/provisions. Walk back from the annex before boarding. The scientist can explicitly release the aircraft empty. At expiry, that same aircraft attempts to return empty; weather, damage, exhausted duty or missing fuel can strand it instead. A living stranded scientist stays on the actual foreign map with their belongings. There is no replacement pickup, automatic death, laboratory teleport, global supply line, city ownership or second self-sufficient base. Occupied returns reach the original departure apron and require two hours’ aircraft turnaround; spent fuel, wear and staff resources persist.
+
+Visits and the Expansion Atlas retain dated personally received/witnessed reports, not unseen homeward arrival updates. Saves and continued-run imports preserve original identities, partial work, physical cargo and return terms. Irreversible death freezes expedition updates; a fresh run in the same immutable world inherits none of them.
+
+Focused checks: `node --test --test-isolation=none tests/component-expedition.unit.test.js`; `npx playwright test tests/component-expedition-browser.spec.js --project=chromium --workers=1`. These do not run the full suite.
+
 ## Development Notes
 
 - Keep the game runtime dependency-free unless a feature clearly needs a library.
