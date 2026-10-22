@@ -96,8 +96,14 @@
         const earned = Math.min(RESERVE, r.earned + 24 / 3600); a.money = (a.money || 0) + earned - r.earned; r.earned = earned;
       }
       const resting = c.atSleep && c.sleepUsable && r.deployed && !c.threatened && (!shift || s.dutySeconds <= 300);
+      // Paid standby at the actual supplied sleeping place is availability,
+      // not eight continuous hours of hard labour. It still spends scheduled
+      // duty and wages; only bodily activity changes, with no health/stock reset.
+      const standby = r.phase === 'resident' && shift && c.atSleep && c.sleepUsable && c.supported && r.deployed
+        && !c.threatened && !r.service && !c.doorOpen && c.fuelUsable && c.enabled && c.fuel >= .1
+        && a.needs.thirst < 45 && a.needs.hunger < 45 && h.available('drinkingWater') && h.available('trailMeal');
       const n = Survival.advance(a.needs, at, { destination: c.destination, sheltered: c.sheltered, resting,
-        working: !resting && !['awaitingSettlement'].includes(r.phase), temperatureAt: c.temperatureAt }); a.needs = n.state; damage += n.damage;
+        working: !resting && !standby && !['awaitingSettlement'].includes(r.phase), temperatureAt: c.temperatureAt }); a.needs = n.state; damage += n.damage;
       if (r.phase === 'resident' && !resting) s.dutySeconds = Math.max(0, s.dutySeconds - 1);
       if (r.arrivedAt != null && at >= r.endsAt) withdraw(s, at, 'Three-day resident agreement ended; no automatic renewal.');
       if (c.threatened || a.health - damage < 35 || c.providerRefusal) withdraw(s, at, c.providerRefusal || 'Danger or serious injury requires withdrawal.');

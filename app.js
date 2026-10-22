@@ -129,6 +129,7 @@
   const FieldBuilder = window.HelixFieldBuilder;
   const FieldEmployeeRecovery = window.HelixFieldEmployeeRecovery;
   const ResidentCaretaker = window.HelixResidentCaretaker;
+  const AwayOperation = window.HelixAwayOperation;
   const FieldForce = window.HelixFieldForce;
   const CaretakerCommunications = window.HelixCaretakerCommunications;
   const FieldWater = window.HelixFieldWater;
@@ -13709,6 +13710,24 @@
         serviceReason: RunStrategicConditions.serviceReason(state.runStrategicConditions, strategicCounterBinding()), clock: state.clock }),
       expansionAtlasSnapshot: () => clonePlainObject(currentExpansionAtlas()),
       expansionAtlasAction,
+      awayOperationAction,
+      awayOperationSnapshot: () => { const g = awayOperationGate(), m = g && foreignSupplierMarket(g); return clonePlainObject({
+        saved: state.awayOperation, context: state.awayOperation && { ...awayOperationContext(), allowedKeys: undefined },
+        market: m, provider: g?.visitorSupplies, driver: state.awayOperation && AwayOperation.truck(state.awayOperation, m)?.driver,
+        clock: state.clock, money: ensureEconomy().money, cell: scientistMapCell(), roomId: scientistRoomId(), resident: residentCaretakerOwner(),
+        items: ensurePhysicalItemStacks().filter(i => i.awayOperationId), tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) }); },
+      advanceAwayOperationForTest: (seconds, options = {}) => {
+        let left = Math.max(0, seconds), iterations = 0;
+        while (left > 0 && !scientistIsDead()) {
+          const phase = state.awayOperation?.mission?.phase, task = firstScientistQueueTask();
+          const step = Math.min(left, task || ['unload', 'walk', 'deposit', 'returnWalk'].includes(phase) ? 1 : 60);
+          state.clock += step; left -= step; updateScientistMovementTask(); completeDueTasks(); updateWildernessNeeds();
+          updateAllFieldPorters(step); updateAwayOperation();
+          if (options.stopOnIdle && !firstScientistQueueTask()) break;
+          if (++iterations > 100000) throw new Error('Local operation failed to make bounded progress');
+        }
+        syncActorInventories(); syncPhysicalReadModels(); persist(); if (options.render !== false) render(); return state.clock;
+      },
       beastPowerAction,
       suppressionAction,
       suppressionSnapshot: () => clonePlainObject({ saved: state.regionalSuppression, public: Suppression.publicView(currentSuppression()),
@@ -20146,6 +20165,8 @@
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.expansionAtlas = ExpansionAtlas.rebind(importedState.expansionAtlas,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.awayOperation = AwayOperation.rebind(importedState.awayOperation,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     for (const t of importedState.penalFlights?.assistance?.cityApproach?.trips || []) if (t.component) {
       const rebound = ComponentExpedition.rebind(t.component, { worldId: candidate.run.worldId, runId: candidate.run.id },
         { worldId: world.id, runId: importedRunId });
@@ -23805,6 +23826,7 @@
     changes.combatChanged += livingUpdate(() => updateAllExpeditionEscorts(elapsed));
     changes.combatChanged += livingUpdate(() => updateAllFieldForces(elapsed));
     changes.combatChanged += livingUpdate(() => updateAllFieldPorters(elapsed));
+    changes.scientistMovementChanged += livingUpdate(() => updateAwayOperation());
     changes.scientistMovementChanged += livingUpdate(() => updateSurfaceWorkers());
     changes.scientistMovementChanged += livingUpdate(() => updateLaboratoryAssistant());
     changes.scientistMovementChanged += livingUpdate(() => updateHomunculi());
@@ -23942,7 +23964,7 @@
       }
       return changed;
     }
-    if (!options.porterStep && elapsed > 1 && (fieldForceStates().some(FieldForce.active) || fieldEmployeeStates().some(s => ResidentCaretaker.active(s) || ['arriving', 'onSite', 'returning'].includes(s.phase)))) {
+    if (!options.porterStep && elapsed > 1 && (AwayOperation.ongoing(state.awayOperation?.mission) || fieldForceStates().some(FieldForce.active) || fieldEmployeeStates().some(s => ResidentCaretaker.active(s) || ['arriving', 'onSite', 'returning'].includes(s.phase)))) {
       let left = elapsed, changed = 0;
       while (left > 0 && !scientistIsDead()) {
         const step = Math.min(1, left), before = state.clock, paused = state.paused;
@@ -34205,6 +34227,8 @@
       reservedTaskId: String(candidate.reservedTaskId || ""),
       cityOwnerId: String(candidate.cityOwnerId || ''),
       reliefMissionId: String(candidate.reliefMissionId || ''),
+      awayOperationId: String(candidate.awayOperationId || ''),
+      awayMissionId: String(candidate.awayMissionId || ''),
       civicCustody: candidate.civicCustody ? clonePlainObject(candidate.civicCustody) : null,
       seizureCustody: candidate.seizureCustody ? clonePlainObject(candidate.seizureCustody) : null,
       carriedBy: normalizeActorInventoryOwnerId(candidate.carriedBy),
@@ -34257,6 +34281,7 @@
 
   function actorInventoryOwner(actorId, context = state) {
     const id = normalizeActorInventoryOwnerId(actorId);
+    const producer = producerDriverActors(context).find(a => a.id === id); if (producer) return producer;
     if (context.fieldCharter?.driver.id === id) return context.fieldCharter.driver;
     if (id === "scientist") return context?.scientist || null;
     if (context?.expeditionEscorts?.actor?.id === id) return context.expeditionEscorts.actor;
@@ -34315,6 +34340,7 @@
     if (!context?.scientist || !Array.isArray(context.physicalItemStacks)) return false;
     const actors = [
       { id: "scientist", actor: context.scientist },
+      ...producerDriverActors(context).map(actor => ({ id: actor.id, actor })),
       ...(context.jointTransit?.stations || []).flatMap(s => s.members).map(actor => ({ id: actor.id, actor })),
       ...(context.expeditionEscorts?.actor ? [{ id: context.expeditionEscorts.actor.id, actor: context.expeditionEscorts.actor }] : []),
       ...fieldForceMembers(context).map(m => ({ id: m.actor.id, actor: m.actor })),
@@ -68621,7 +68647,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const assignments = new Map();
       for (const a of reliefDrivers()) if (reliefDriverVisible(a)) setLabMapOverlayEntry(assignments, a.mapCell, {
         overlayId, classNames: ['map-overlay-resources'], label: a.status === 'dead' ? `Remains of ${a.name}` : a.name,
-        title: 'Original producer driver on one finite municipal relief trip; actual wounds and death persist. Not a new soldier.',
+        title: 'Original producer driver on one finite logistics contract; actual wounds and death persist. Not a new soldier.',
         value: a.status === 'dead' ? '†' : 'R', source: 'Direct observation', target: { kind: 'tile', tile: a.mapCell } }, map);
       if (unsupportedActive()) setLabMapOverlayEntry(assignments, UnsupportedExcursions.LANDING, { overlayId, classNames: ["map-overlay-resources"], label: "Scheduled remote pickup point", title: "Unprotected landing point; scheduled pickup only, no waiting guarantee", value: "P", source: "Agreed charter rendezvous", target: { kind: "tile", tile: UnsupportedExcursions.LANDING } }, map);
       if (state.surveyExpeditions?.materialized && !unsupportedActive()) {
@@ -79832,6 +79858,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return { id: `city:${cityId}`, kind: 'city', cityId, label: d?.label || cityId, globeCellId: d?.cellId || '' };
     };
     const add = (site, f) => rows.push({ site, fact: f });
+    const away = AwayOperation.publicView(state.awayOperation);
+    if (away) add({ id: `away:${away.siteId}`, kind: 'adjoining', label: away.label, cityId: away.cityId, globeCellId: state.fieldRefuge?.site?.strategicCellId || '' }, {
+      id: `${away.siteId}:local-operation`, category: 'operations', subject: 'received local refuge operation account',
+      sourceId: state.awayOperation.id, source: 'Personal inspection or original local supplier', sourceAt: away.at, receivedAt: away.at,
+      text: `${away.reason} ${away.viableAt != null ? 'One supported day recorded.' : 'No received full-day viability account.'}`, coverage: away.limits });
     for (const t of state.penalFlights?.assistance?.cityApproach?.trips || []) {
       const v = ComponentExpedition.publicView(t); if (!v) continue;
       add(citySite(v.cityId), { id: `${t.id}:component-expedition`, category: 'operations', subject: 'received cross-network expedition account',
@@ -90326,6 +90357,183 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function fieldPorterStates() { return (state?.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.porter).filter(Boolean); }
+  function awayOperationGate() { return passengerReceptionGate(state.awayOperation?.plan.cityId || state.fieldRefuge?.site?.cityId); }
+  function awayOperationContext() {
+    const s = state.awayOperation, g = awayOperationGate(), e = g?.foreignSurvey, b = e?.builder, r = b?.resident;
+    const rc = b && r ? residentCaretakerContext(b) : null, site = state.fieldRefuge?.site, crate = fieldSupplyCrate(state.fieldRefuge);
+    const supplier = g?.visitorSupplies, market = g && foreignSupplierMarket(g), t = s && AwayOperation.truck(s, market), d = t?.driver;
+    const source = g?.preparedForeignSurveyTestSource?.source || (g && ForeignSurveyExcursion.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, g));
+    const route = s?.plan.route || [], keys = new Set(route.map(mapCellKey));
+    const current = Boolean(s && site && s.plan.refugeId === site.id && s.plan.siteId === site.siteId && s.plan.worldId === site.worldId
+      && s.plan.cacheId === crate.mark?.fixtureId && s.plan.installedAt === crate.mark?.installedAt && r?.id === s.plan.residentId && b.actor.id === s.plan.residentActorId);
+    const sourceCurrent = Boolean(source && e && ['cityId', 'worksId', 'administrationId', 'charterId', 'populationSourceId', 'cellId', 'placeId'].every(k => source[k] === e.source[k])
+      && market?.id === e.source.cityId && market.production?.cityId === e.source.cityId && supplier?.source?.branchId
+      && (!s?.supplierId || s.supplierId === supplier.actor.id && s.branchId === supplier.source.branchId));
+    const local = Boolean(g && e && [g.checkpointRoomId, g.annexRoomId, e.roomId, e.wilderness?.roomId].includes(scientistRoomId()));
+    const nearSupplier = Boolean(local && supplier?.actor.roomId === scientistRoomId() && cityApproachNear('scientist', supplier.actor.mapCell, 2));
+    const clean = i => i.quantity > 0 && !i.reservedTaskId && !i.cityOwnerId && !i.civicCustody && !i.containerId && !i.chemicalBatch
+      && !(i.tags || []).some(t => /toxic|hazard|contaminat|volatile/i.test(t));
+    const goods = key => b && (actorInventoryStacks(b.actor.id).some(i => i.key === key && clean(i))
+      || crate.open && ensurePhysicalItemStacks().some(i => i.key === key && i.fixtureId === site?.cacheId && !i.carriedBy && clean(i)));
+    const walked = route.length > 1 && route.every(c => labMapCellHasFloor(c) && !constructedWallAtCell(c)
+      && (!labMapDoorAtCell(c) || state.doors[labMapDoorAtCell(c).id]?.condition > 0 && state.doors[labMapDoorAtCell(c).id]?.lockState !== DOOR_LOCK_LOCKED));
+    const threatened = Boolean(rc?.threatened || d?.mapCell && e?.wilderness?.beasts?.actors.some(a => a.status !== 'dead' && a.mapCell?.z === d.mapCell.z
+      && mapCellDistance(a.mapCell, d.mapCell) <= 8 && sensoryLineOfSight(a.mapCell, d.mapCell)));
+    const profile = g?.preparedSupplierTestSource || (g && foreignWorkspaceSource(g)), entry = profile?.standings?.find(n => n.branch.id === supplier?.source.branchId);
+    const restricted = Boolean(rc?.providerRefusal || !entry || !['licensed', 'chartered'].includes(entry.standing)
+      || entry.network.category !== 'commercial' || !entry.network.roles?.includes('procurement')
+      || (entry.branch.currentCityId || entry.branch.cityId) !== g.cityId || entry.branch.publicPhysicalPresence === false
+      || entry.branch.physicalCondition === 'ruined' || !['functional', 'strong', 'regionalHub'].includes(entry.branch.capacityBand)
+      || !profile.city || profile.city.currentPopulation < 3 || ['abandoned', 'destroyed'].includes(profile.city.habitationStatus)
+      || profile.city.physicalCondition === 'ruined' || profile.city.services?.provisioning === 'failed'
+      || entry.branch.operationalStatus && entry.branch.operationalStatus !== 'active'
+      || entry.network.prohibitions?.some(p => p.refusesDeclaredOpposition || p.forbidsWildernessWork || p.forbidsHauling));
+    return { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id, bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist'), free: !restrictedOffsiteStay() && !GateEnforcement.custodyActive(currentGateEnforcement()) && !localPrisonRestricted(),
+      planCurrent: current, sourceCurrent: sourceCurrent && !restricted, local, atProvider: nearSupplier,
+      supplierId: supplier?.actor.id, branchId: supplier?.source.branchId,
+      providerReady: Boolean(supplier && supplier.actor.status === 'alive' && supplier.actor.health >= 50 && !actorIsIncapacitated(supplier.actor)
+        && supplier.workSeconds >= 60 && supplier.provisionsSeconds >= 60 && supplier.powerSeconds >= 1 && !ForeignSupplies.active(supplier)),
+      residentReady: Boolean(r?.phase === 'resident' && r.endsAt > state.clock && r.deployed && b.actor.status === 'alive' && b.actor.health >= 35 && !rc?.incapacitated),
+      supported: Boolean(rc?.supported && rc.sleepUsable && !rc.providerRefusal && ['hunger', 'thirst', 'exertion', 'exposure'].every(k => b.actor.needs[k] < 80)),
+      provisionsAvailable: Boolean(goods('trailMeal') && (goods('drinkingWater') || residentWaterPoint(b))),
+      heatAvailable: Boolean(rc?.fuelUsable && (rc.fuel > 0 || (site?.climate?.temperatureC ?? (site?.weather ? WildernessSurvival.conditions(site.weather, state.clock).temperatureC : -Infinity)) >= 10)),
+      threatened, routeOpen: sourceCurrent,
+      walkable: walked, routeKnown: Boolean(route.length && route.every(c => state.mapCellObservations?.[mapCellKey(c)] || scientistPerceivedMapCellKeys().has(mapCellKey(c)))),
+      distanceKm: ForeignSurveyExcursion.DISTANCE, definitions: COMMODITY_MARKET_LISTING_DEFS,
+      metrics: Object.fromEntries(['drinkingWater', 'trailMeal'].map(k => [k, (() => { const def = COMMODITY_MARKET_LISTING_BY_ID[k]; return physicalItemUnitMetrics(def.section, def.key); })()])),
+      storageRemaining: crate.capacity || { massKg: 0, volumeL: 0 }, storageOpen: crate.open,
+      atTruck: Boolean(d?.mapCell && sameMapCell(d.mapCell, t.mapCell)), atCrate: Boolean(d?.mapCell && sameMapCell(d.mapCell, s?.plan.port)),
+      driverIncapacitated: Boolean(d && actorIsIncapacitated(d)), groundSafe: !threatened,
+      personalInspection: Boolean(current && fieldStationLocal(state.fieldRefuge) && crate.open && sameMapCell(scientistMapCell(), site.layout.rest)),
+      scientistAway: Boolean(site && scientistRoomId() !== site.roomId),
+      allowedKeys: keys };
+  }
+  function awayOperationAction(action, options = {}) {
+    if (scientistIsDead() || actorIsIncapacitated('scientist') || surveyBusy()) return false;
+    let s = state.awayOperation, g = awayOperationGate(), e = g?.foreignSurvey, ok = false;
+    if (action === 'inspect') {
+      const site = state.fieldRefuge?.site, b = residentCaretakerOwner(), r = b?.resident, crate = fieldSupplyCrate(state.fieldRefuge);
+      if (!s && activeRunRecord && site && r?.phase === 'resident' && r.recognizedBodyEpoch === ensureScientistIdentity().bodyEpoch
+        && residentCaretakerPlanValid(r.plan) && fieldStationLocal(state.fieldRefuge) && crate.open && sameMapCell(scientistMapCell(), site.layout.rest)) {
+        const route = labMapPathBetweenCells(r.plan.home, site.layout.rest, { actor: state.scientist, ignoreDoors: true, ignoreActorOccupancy: true });
+        if (route.length && route.every(c => state.mapCellObservations?.[mapCellKey(c)] || scientistPerceivedMapCellKeys().has(mapCellKey(c)))) {
+          s = state.awayOperation = AwayOperation.create({ worldId: site.worldId, siteId: site.siteId, refugeId: site.id, cityId: site.cityId,
+            label: site.label, cacheId: site.cacheId, installedAt: crate.mark.installedAt, port: clonePlainObject(site.layout.rest),
+            residentId: r.id, residentActorId: b.actor.id, residentPlan: clonePlainObject(r.plan), route: clonePlainObject(route) }, componentBinding(), state.clock);
+          ok = Boolean(s);
+        }
+      } else ok = Boolean(s && awayOperationContext().personalInspection);
+    }
+    if (!s) return false;
+    g = awayOperationGate(); const market = foreignSupplierMarket(g), c = awayOperationContext();
+    if (action === 'review') ok = Boolean(AwayOperation.quote(s, market, c, state.clock));
+    if (action === 'accept') {
+      ok = AwayOperation.accept(s, market, c, options.expected, Number(options.deposit), ensureEconomy(), state.clock);
+      if (ok) { g.visitorSupplies.workSeconds -= 60; g.visitorSupplies.provisionsSeconds -= 60; g.visitorSupplies.powerSeconds--; }
+    }
+    if (action === 'refund') ok = AwayOperation.refund(s, c, ensureEconomy(), state.clock);
+    if (action === 'report' || ok) {
+      AwayOperation.audit(s, awayOperationContext(), state.clock);
+      const received = AwayOperation.receive(s, awayOperationContext(), state.clock);
+      if (action === 'report') ok = received;
+    }
+    surveyEvent(ok ? `Local refuge operation: ${action}. No remote laboratory stock, staff or funds were used.` : 'Actual local provider, original assets, approved allowance, inspected route or supported refuge unavailable. No delivery or permission invented.');
+    persist(); render(); return ok;
+  }
+  function awayOperationHooks(s) {
+    const p = s.plan;
+    const item = id => ensurePhysicalItemStacks().find(i => i.id === id);
+    return {
+      arrive: (d, t) => {
+        d.actorKind = 'reliefDriver'; d.logisticsRole = 'awaySupply'; d.kind = 'visitor'; d.role = 'Original local provisions driver'; d.maxHealth ||= 100;
+        d.physicalControl ||= { strength: 25, stamina: 40, staminaCapacity: 40 }; d.skills ||= { striking: 1, guarding: 1, evasion: 1, perception: 1 };
+        if (!canActorOccupyTile(d, p.route[0])) return false;
+        d.inventory ||= { maxMassKg: 18, maxVolumeL: 24 }; d.needs ||= WildernessSurvival.defaultState(state.clock);
+        d.mapCell = clonePlainObject(p.route[0]); d.roomId = labMapCellRoomId(d.mapCell); t.mapCell = clonePlainObject(d.mapCell); t.roomId = d.roomId; return true;
+      },
+      loadPack: (d, m) => {
+        if (m.loadedAt) return true;
+        const remaining = actorInventorySnapshot(d.id)?.remaining;
+        if (!remaining) return false;
+        m.stackIds ||= [];
+        if (!m.stackIds.length && (m.cargo.reduce((n, r) => n + r.quantity * r.massKg, 0) > remaining.massKg
+          || m.cargo.reduce((n, r) => n + r.quantity * r.volumeL, 0) > remaining.volumeL)) return false;
+        if (!m.stackIds.length) for (const row of m.cargo) {
+          const def = COMMODITY_MARKET_LISTING_BY_ID[row.key];
+          const i = createPhysicalItemStack(def.section, def.key, row.cargoQuantity, { roomId: d.roomId, cell: d.mapCell },
+            { sourceLabels: [`Paid original ${p.cityId} exchange stock; ${m.id}`] });
+          i.awayOperationId = s.id; i.awayMissionId = m.id; i.reservedTaskId = m.id; m.stackIds.push(i.id);
+        }
+        for (const id of m.stackIds) {
+          const i = item(id); if (!i || i.carriedBy && i.carriedBy !== d.id || i.reservedTaskId && i.reservedTaskId !== m.id) return false;
+          if (i.carriedBy !== d.id && !carryPhysicalStack(d.id, id, i.quantity, { allowReserved: true })) return false;
+          i.reservedTaskId = m.id;
+        }
+        // The disclosed sixty-second loading stop includes the driver's paid
+        // meal/water break. These two allocated units are consumed, never cargo.
+        d.needs = WildernessSurvival.consume(WildernessSurvival.consume(d.needs, 'drinkingWater'), 'trailMeal');
+        m.personalProvisionsConsumedAt = m.loadedAt = state.clock; return true;
+      },
+      move: (d, goal, at) => {
+        if (at < (d.nextMoveAt || 0) || sameMapCell(d.mapCell, goal)) return true;
+        const index = p.route.findIndex(c => sameMapCell(c, d.mapCell)), end = p.route.findIndex(c => sameMapCell(c, goal));
+        const next = index >= 0 && end >= 0 && p.route[index + Math.sign(end - index)];
+        if (!next || !labMapCellHasFloor(next) || constructedWallAtCell(next) || labMapCellIsPathBlocked(next, { actor: d })
+          || labMapDoorAtCell(next) && state.doors[labMapDoorAtCell(next).id]?.lockState === DOOR_LOCK_LOCKED) return false;
+        const door = labMapDoorAtCell(next); if (door && state.doors[door.id].state !== DOOR_STATE_OPEN) { state.doors[door.id].state = DOOR_STATE_OPEN; bumpNavigationRevision('door'); }
+        if (!canActorOccupyTile(d, next)) return false;
+        d.mapCell = cleanMapCell(next); d.roomId = labMapCellRoomId(next); d.nextMoveAt = at + 2 * WildernessSurvival.fatigueMultiplier(d.needs) / actorEncumbranceInfo(d.id).speedMultiplier;
+        d.fatigue = Math.min(100, d.fatigue + .02); d.needs.exertion = Math.min(100, d.needs.exertion + .05);
+        for (const i of actorInventoryStacks(d.id)) { i.cell = clonePlainObject(d.mapCell); i.roomId = d.roomId; } return true;
+      },
+      deposit: (d, m) => {
+        const c = awayOperationContext(), items = (m.stackIds || []).map(item);
+        if (!c.atCrate || !c.storageOpen || items.some(i => !i || i.carriedBy !== d.id || i.awayMissionId !== m.id
+          || i.reservedTaskId && i.reservedTaskId !== m.id)) return false;
+        if (items.reduce((n, i) => n + i.quantity * i.unitMassKg, 0) > c.storageRemaining.massKg || items.reduce((n, i) => n + i.quantity * i.unitVolumeL, 0) > c.storageRemaining.volumeL) return false;
+        const f = fixtureById(p.cacheId);
+        for (const i of items) { i.carriedBy = ''; i.reservedTaskId = ''; i.fixtureId = f.id; i.cell = clonePlainObject(f.origin); i.roomId = p.residentPlan.roomId; }
+        syncActorInventories(); syncPhysicalReadModels(); return true;
+      },
+      board: (d, m) => { for (const id of m.stackIds || []) { const i = item(id); if (i?.carriedBy === d.id) {
+        // Retained goods stay with this same truck; settlement never turns them
+        // into a cash refund or silently deposits them in the refuge.
+        i.carriedBy = ''; i.containerId = m.id; i.reservedTaskId = m.id;
+      } } return true; }
+    };
+  }
+  function updateAwayOperation() {
+    const s = state.awayOperation; if (!s || scientistIsDead()) return 0;
+    const market = foreignSupplierMarket(awayOperationGate()), d = AwayOperation.truck(s, market)?.driver;
+    if (d?.mapCell && d.needs) {
+      const n = WildernessSurvival.advance(d.needs, state.clock, { sheltered: fieldStationSheltered(d.mapCell), resting: false,
+        working: true, destination: state.fieldRefuge?.site?.weather }); d.needs = n.state;
+      if (n.damage) damageSurfaceWorker(n.damage, { injuryProgress: true }, d);
+    }
+    const changed = AwayOperation.advance(s, market, awayOperationContext(), state.clock, awayOperationHooks(s));
+    AwayOperation.audit(s, awayOperationContext(), state.clock); return Number(changed);
+  }
+  function renderAwayOperation() {
+    const panel = document.createElement('section'); panel.dataset.awayOperation = 'true'; panel.className = 'subpanel';
+    panel.append(textEl('h4', 'Locally supplied away operation'), textEl('p', AwayOperation.LIMITS));
+    const button = (label, action, disabled = false, data = {}) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = disabled || scientistIsDead(); b.onclick = () => awayOperationAction(action, data); panel.append(b); };
+    const s = state.awayOperation;
+    button('Inspect staffed refuge for local operation', 'inspect', !fieldStationLocal(state.fieldRefuge));
+    if (!s) { panel.append(textEl('p', 'Use an existing intact supplied refuge with its original resident. Inspect the original open crate and known walking route personally; registration grants no goods or staff.')); return panel; }
+    const c = awayOperationContext(); AwayOperation.receive(s, c, state.clock); const v = AwayOperation.publicView(s);
+    panel.append(textEl('p', 'One consented local consignment: six drinking water and three trail meals, plus the original driver’s one meal and water. A separate local supplier agreement, not delegated personal visitor trading. Physical loading, walking, sixty-second crate deposit and the same driver’s return are required. No automatic repeat or fuel manufacture; heat still needs actual stored fuel or safe ambient conditions.'));
+    button('Review local refuge supply terms', 'review', !c.atProvider || !c.providerReady);
+    if (s.quote && c.atProvider) {
+      const q = clonePlainObject(s.quote), input = document.createElement('input'); input.type = 'number'; input.min = '0'; input.max = '10000'; input.value = String(Math.max(0, q.total - s.balance)); input.setAttribute('aria-label', 'Local operating allowance deposit'); panel.append(input);
+      panel.append(textEl('p', `${q.driverId}, ${q.truckId}; actual local road ${q.distanceKm} km each way and inspected foot route. Goods ${formatMoney(q.goodsCost)}, earned freight ${formatMoney(q.freight)}. Quote expires ${formatClock(q.expiresAt)}. Deposit is local committed money, not access to your home account.`));
+      const b = document.createElement('button'); b.textContent = 'Accept exact local supply order and commit allowance'; b.onclick = () => awayOperationAction('accept', { expected: q, deposit: Number(input.value) }); panel.append(b);
+    }
+    button('Receive local operation account', 'report', !(c.personalInspection || c.atProvider));
+    button('Personally settle unused local allowance', 'refund', !c.atProvider || !s.balance || AwayOperation.ongoing(s.mission));
+    if (v) panel.append(textEl('p', `${formatClock(v.at)} — received: ${v.reason} ${v.viableAt != null ? `One full day of supported local operation witnessed/reported at ${formatClock(v.viableAt)}.` : 'No full-day local viability demonstrated in this account.'} ${v.allowance ? `Local ledger: ${formatMoney(v.allowance.balance)} unspent; ${formatMoney(v.allowance.spent)} spent.` : ''} Dated information, not remote inventory or current staff telemetry.`));
+    return panel;
+  }
   function fieldBuilderStates() { return (state?.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.builder).filter(Boolean); }
   function fieldEmployeeStates() { return [...fieldPorterStates(), ...fieldBuilderStates()]; }
   function residentCaretakerOwner() {
@@ -90557,6 +90765,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function residentCaretakerHooks(s) {
     const a = s.actor, r = s.resident, p = r.plan;
+    // One synchronous model advance cannot receive outside geometry/actor
+    // changes. Reuse idle context at the same physical position within this
+    // call only; movement, door changes and every attended service recheck it.
+    // Needs, supply lookup, consumption and the one-second work clock stay live.
+    const idleContexts = new Map();
+    const context = () => {
+      if (r.phase !== 'resident' || r.service || !r.deployed) { idleContexts.clear(); return residentCaretakerContext(s); }
+      const key = `${mapCellKey(a.mapCell)}:${a.roomId}:${state.doors[p.doorId]?.state}`;
+      if (!idleContexts.has(key)) idleContexts.set(key, residentCaretakerContext(s));
+      return idleContexts.get(key);
+    };
     const clean = i => i && i.quantity > 0 && !i.reservedTaskId && !i.cityOwnerId && !i.civicCustody && !i.containerId && !i.chemicalBatch
       && (i.key === 'fuelReagent' || !(i.tags || []).some(t => /toxic|hazard|contaminat|volatile/i.test(t)));
     const carried = key => actorInventoryStacks(a.id).find(i => i.key === key && !i.fixtureId && clean(i));
@@ -90567,8 +90786,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
     const spend = id => { const i = ensurePhysicalItemStacks().find(i => i.id === id && i.carriedBy === a.id && clean(i));
       if (!i) return false; i.quantity--; i.knownQuantity = Math.min(i.knownQuantity, i.quantity);
+      if (i.awayOperationId === state.awayOperation?.id) AwayOperation.recordConsumption(state.awayOperation, a.id, i.key, state.clock);
       state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0); syncActorInventories(); return true; };
-    return { alive: !scientistIsDead(), context: () => residentCaretakerContext(s), carried, supply,
+    return { alive: !scientistIsDead(), context, carried, supply,
       communications: (at, c, shift) => advanceCaretakerCommunications(s, at, c, shift),
       available: key => carried(key) || supply(key) || key === 'drinkingWater' && residentWaterPoint(s),
       waterPoint: () => residentWaterPoint(s),
@@ -92481,7 +92701,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const actor = ensureExpeditionEscorts().actor;
     const escort = escortContractActive() && actor?.status !== "dead" && actor?.roomId === activeWildernessRoom() ? actor : null;
     const medic = state.medicalExtraction?.medic?.status !== "dead" && state.medicalExtraction?.medic?.roomId === activeWildernessRoom() ? state.medicalExtraction.medic : null;
-    const porters = [...fieldEmployeeStates(), ...fieldForceMembers()].map(s => s.actor).filter(a => a.status !== 'dead' && a.roomId === activeWildernessRoom());
+    const porters = [...fieldEmployeeStates(), ...fieldForceMembers()].map(s => s.actor).concat(producerDriverActors().filter(a => a.logisticsRole === 'awaySupply'))
+      .filter(a => a.status !== 'dead' && a.roomId === activeWildernessRoom());
     if ((!scientistInWilderness() && !escort && !medic && !porters.length && currentFieldCharter()?.driver.roomId !== activeWildernessRoom()) || scientistIsDead()) {
       for (const beast of saved.actors) { beast.nextMoveAt += Math.max(0, elapsed); beast.nextAttackAt += Math.max(0, elapsed); }
       saved.lastAt = state.clock; return 0;
@@ -93516,6 +93737,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.fieldStation = 'true';
     panel.append(renderFieldToolCarePanel());
     panel.append(renderResidentCaretakerPanel());
+    panel.append(renderAwayOperation());
     panel.append(renderFieldForcePanel());
     panel.append(renderFieldWaterPanel());
     const refuge = fieldStationState() === state.fieldRefuge;
@@ -95598,6 +95820,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function renderForeignSupplies(g) {
     const panel = document.createElement('section'); panel.dataset.foreignSupplies = 'true'; panel.className = 'subpanel';
     panel.append(textEl('h3', 'Foreign Personal Provisions'));
+    if (state.awayOperation?.plan.cityId === g?.cityId) panel.append(renderAwayOperation());
     const s = ensureForeignSupplier(g);
     if (!s) { panel.append(textEl('p', 'No supported local commercial supplier and existing city stock are available. Reception is not a market allocation; return remains separate.')); return panel; }
     const c = foreignSupplyContext(g), market = foreignSupplierMarket(g), v = ForeignSupplies.observe(s, c, market, COMMODITY_MARKET_LISTING_DEFS, state.clock);
@@ -97477,14 +97700,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       || CountercoalitionRelief.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, g.cityId, partnerId, route);
   }
   function countercoalitionMarket(g) { return countercoalitionMarkets().find(n => n.id === g.outerApproach?.relief?.source.partnerId) || null; }
-  function producerDriverActors() {
-    const m = state.economy?.commodityMarket;
+  function producerDriverActors(context = state) {
+    const m = context.economy?.commodityMarket;
     return [m?.localProduction, ...(m?.intercityTrade?.neighbors || []).map(n => n.production)].filter(Boolean)
       .flatMap(p => p.trucks || []).map(t => t.driver).filter(a => a?.actorKind === 'reliefDriver');
   }
   function reliefDrivers() { return producerDriverActors().filter(a => a.mapCell); }
   function reliefDriverVisible(a) {
-    return Boolean(a?.mapCell && outerApproachGates().some(g => outerApproachLocal(g) && g.z === a.mapCell.z)
+    return Boolean(a?.mapCell && (a.logisticsRole === 'awaySupply' ? a.roomId === scientistRoomId() : outerApproachGates().some(g => outerApproachLocal(g) && g.z === a.mapCell.z))
       && WildernessBeasts.distance(scientistMapCell(), a.mapCell) <= 8 && sensoryLineOfSight(scientistMapCell(), a.mapCell));
   }
   function countercoalitionContext(g) {
@@ -105969,6 +106192,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.fallenTimber = clonePlainObject(candidate?.fallenTimber || { sites: {} });
     next.fieldStation = candidate?.fieldStation ? clonePlainObject(candidate.fieldStation) : null;
     next.fieldRefuge = candidate?.fieldRefuge ? clonePlainObject(candidate.fieldRefuge) : null;
+    next.awayOperation = AwayOperation.normalize(candidate?.awayOperation);
     next.fieldWater = candidate?.fieldWater ? clonePlainObject(candidate.fieldWater) : FieldWater.create();
     next.surveyExpeditions = SurveyExpeditions.normalizeState(candidate?.surveyExpeditions);
     next.wildernessSurvival = WildernessSurvival.normalizeState(candidate?.wildernessSurvival, next.clock);

@@ -1600,6 +1600,20 @@ Visits and the Expansion Atlas retain dated personally received/witnessed report
 
 Focused checks: `node --test --test-isolation=none tests/component-expedition.unit.test.js`; `npx playwright test tests/component-expedition-browser.spec.js --project=chromium --workers=1`. These do not run the full suite.
 
+## Locally supplied away operation
+
+This first regional-operations slice supports **one existing staffed wilderness refuge**, not multiple commandable bases. At its original open crate/rest tile, **Inspect staffed refuge for local operation** binds the original resident agreement, installations and personally known walking route. The foreign airport checkpoint alone does not qualify. Safe supplied caretaker standby is idle bodily activity, not continuous hard labor; scheduled duty and paid hours still count normally.
+
+Personally meet the original local commercial supplier and **Review local refuge supply terms**. This is a separate noncombat provisions contract, not delegation of the scientist's personal visitor permit. The consignment buys six drinking water and three trail meals, plus one water and meal consumed by the original driver during the sixty-second loading stop. Actual local exchange stock above protected municipal reserves, the original available producer truck/driver, round-trip fuel, wear, finite duty, carrying capacity, local permission and the original route constrain the exact priced offer. It creates no supplier, staff, vehicle, fuel, guard, map or production source.
+
+Explicitly commit a local allowance when accepting. Only that deposit leaves the scientist's funds; purchases and earned freight debit the committed allowance and credit the actual exchange/producer. No remote account can be drawn later. Remaining allowance is returned only on personal settlement after the same driver's actual return. Paid goods and earned freight are not refundable.
+
+The truck drives the existing local road to municipal ground. Its original driver unloads, physically carries the actual consignment along the inspected foot route, spends sixty unobstructed seconds at the original open crate, walks back and drives home before releasing the truck. Closed storage, obstructions, danger, lost support, exhaustion, wounds and death remain real. Undelivered goods stay with the original carrier; this service does not supply a replacement or automatic recovery. It is one finite consignment, not a repeating purchase schedule or perpetual self-sufficiency. Fuel and other existing caretaker requirements still need their own real supplies.
+
+One full supported day requires the same original resident, valid shelter and agreement, safe heat, actual food/water, a completed local delivery and actual consumption of delivered provisions while the scientist is elsewhere. Interruptions reset the current continuous interval; a previously recorded day remains historical, not proof of permanent readiness. The three-day caretaker agreement still expires normally. Local inspection and personal supplier contact provide different dated accounts; neither supplies remote staff telemetry. The Expansion Atlas indexes received knowledge only. Save/load and continued-run imports preserve original assets, cargo, finances and work; death freezes updates and fresh runs inherit no operation. Independently addressable multiple regional nodes remain pending.
+
+Focused checks: `node --test --test-isolation=none tests/away-operation.unit.test.js`; `npx playwright test tests/away-operation-browser.spec.js --project=chromium --workers=1`. The full suite is not run under repository policy.
+
 ## Development Notes
 
 - Keep the game runtime dependency-free unless a feature clearly needs a library.

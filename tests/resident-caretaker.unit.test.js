@@ -95,6 +95,16 @@ test('supplied standby parks at the original sleeping place and does not close a
   f.flags.doorwayBusy = false; f.flags.atDoorControls = true;
   Caretaker.advance(f.s, 300, h); assert(closes > 0);
 });
+test('safe paid standby is idle bodily activity, while actual scheduled duty, wages and fuel remain metered', () => {
+  const f = fixture(); hire(f); advance(f, 250);
+  const duty = f.s.dutySeconds, earned = f.s.resident.earned, health = f.s.actor.health, fuel = f.fuel;
+  advance(f, 250 + 4 * 3600);
+  assert.equal(f.pos, 3); assert(f.s.actor.needs.exertion < 5);
+  assert.equal(duty - f.s.dutySeconds, 4 * 3600);
+  assert(Math.abs(f.s.resident.earned - earned - 96) < .001);
+  assert.equal(f.s.actor.health, health); assert(f.fuel < fuel);
+  assert.equal(f.loaded, 1); assert.equal(f.supplies.fuelReagent, 19);
+});
 test('displacement and changed source discard attended progress without paying with absent goods', () => {
   const f = fixture(); hire(f); advance(f, 170); const before = f.s.resident.service.progress;
   assert(before > 0); f.pos = 1; advance(f, 171); assert.equal(f.s.resident.service, null);
