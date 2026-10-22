@@ -130,6 +130,7 @@
   const FieldEmployeeRecovery = window.HelixFieldEmployeeRecovery;
   const ResidentCaretaker = window.HelixResidentCaretaker;
   const AwayOperation = window.HelixAwayOperation;
+  const RegionalOperations = window.HelixRegionalOperations;
   const FieldForce = window.HelixFieldForce;
   const CaretakerCommunications = window.HelixCaretakerCommunications;
   const FieldWater = window.HelixFieldWater;
@@ -13710,6 +13711,9 @@
         serviceReason: RunStrategicConditions.serviceReason(state.runStrategicConditions, strategicCounterBinding()), clock: state.clock }),
       expansionAtlasSnapshot: () => clonePlainObject(currentExpansionAtlas()),
       expansionAtlasAction,
+      regionalOperationAction,
+      regionalOperationsSnapshot: () => clonePlainObject({ saved: ensureRegionalOperations(), view: RegionalOperations.publicView(state.regionalOperations),
+        clock: state.clock, cell: scientistMapCell(), roomId: scientistRoomId(), money: ensureEconomy().money }),
       awayOperationAction,
       awayOperationSnapshot: () => { const g = awayOperationGate(), m = g && foreignSupplierMarket(g); return clonePlainObject({
         saved: state.awayOperation, context: state.awayOperation && { ...awayOperationContext(), allowedKeys: undefined },
@@ -13722,7 +13726,7 @@
           const phase = state.awayOperation?.mission?.phase, task = firstScientistQueueTask();
           const step = Math.min(left, task || ['unload', 'walk', 'deposit', 'returnWalk'].includes(phase) ? 1 : 60);
           state.clock += step; left -= step; updateScientistMovementTask(); completeDueTasks(); updateWildernessNeeds();
-          updateAllFieldPorters(step); updateAwayOperation();
+          updateAllFieldPorters(step); updateRegionalOperations();
           if (options.stopOnIdle && !firstScientistQueueTask()) break;
           if (++iterations > 100000) throw new Error('Local operation failed to make bounded progress');
         }
@@ -20167,6 +20171,8 @@
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.awayOperation = AwayOperation.rebind(importedState.awayOperation,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.regionalOperations = RegionalOperations.rebind(importedState.regionalOperations,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     for (const t of importedState.penalFlights?.assistance?.cityApproach?.trips || []) if (t.component) {
       const rebound = ComponentExpedition.rebind(t.component, { worldId: candidate.run.worldId, runId: candidate.run.id },
         { worldId: world.id, runId: importedRunId });
@@ -23826,9 +23832,8 @@
     changes.combatChanged += livingUpdate(() => updateAllExpeditionEscorts(elapsed));
     changes.combatChanged += livingUpdate(() => updateAllFieldForces(elapsed));
     changes.combatChanged += livingUpdate(() => updateAllFieldPorters(elapsed));
-    changes.scientistMovementChanged += livingUpdate(() => updateAwayOperation());
+    changes.scientistMovementChanged += livingUpdate(() => updateRegionalOperations());
     changes.scientistMovementChanged += livingUpdate(() => updateSurfaceWorkers());
-    changes.scientistMovementChanged += livingUpdate(() => updateLaboratoryAssistant());
     changes.scientistMovementChanged += livingUpdate(() => updateHomunculi());
     changes.scientistMovementChanged += livingUpdate(() => updateSoulBeacons());
     changes.scientistMovementChanged += livingUpdate(() => updateHiddenWorkshop());
@@ -67341,7 +67346,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function updateLaboratoryAssistant() {
     if (!state.laboratoryAssistant || scientistIsDead()) return 0;
-    const changes = LaboratoryAssistant.advance(state.laboratoryAssistant, laboratoryAssistantRoute(), ensureEconomy(), state.clock, laboratoryAssistantHooks());
+    const home = state.laboratoryAssistant.contract?.disclosure?.underground === true;
+    const account = home ? laboratoryOperation() : ensureEconomy();
+    if (!account) return 0; // Mismatched run/site never falls through to a global wallet.
+    const changes = LaboratoryAssistant.advance(state.laboratoryAssistant, laboratoryAssistantRoute(), account, state.clock, laboratoryAssistantHooks());
     if (changes) { syncActorInventories(); syncPhysicalReadModels(); markStateDirty(); }
     return changes;
   }
@@ -80072,6 +80080,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.visitsList?.prepend(renderExpansionAtlas());
     dom.visitsList?.prepend(renderBeastPowers());
     dom.visitsList?.prepend(renderSuppression());
+    dom.visitsList?.prepend(renderRegionalOperations());
   }
   function renderSiteVisitsContent() {
     const localStay = localPrisonRecord();
@@ -90357,10 +90366,138 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function fieldPorterStates() { return (state?.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.porter).filter(Boolean); }
-  function awayOperationGate() { return passengerReceptionGate(state.awayOperation?.plan.cityId || state.fieldRefuge?.site?.cityId); }
-  function awayOperationContext() {
-    const s = state.awayOperation, g = awayOperationGate(), e = g?.foreignSurvey, b = e?.builder, r = b?.resident;
-    const rc = b && r ? residentCaretakerContext(b) : null, site = state.fieldRefuge?.site, crate = fieldSupplyCrate(state.fieldRefuge);
+  function regionalOperationSources() {
+    const sources = [], siteId = state.localSiteContext?.candidateId || 'original-laboratory';
+    if (siteId) sources.push({ id: `laboratory:${siteId}`, kind: 'laboratory', sourceId: siteId, siteId, label: 'Original laboratory' });
+    const s = state.awayOperation;
+    if (s && s.worldId === activeWorldRecord?.id && s.runId === activeRunRecord?.id) sources.push({
+      id: s.id, kind: 'refuge', sourceId: s.id, siteId: s.plan.siteId, label: s.plan.label || 'Staffed wilderness refuge' });
+    return sources;
+  }
+  function ensureRegionalOperations() {
+    const b = componentBinding();
+    if (!b.worldId || !b.runId) return null;
+    state.regionalOperations ||= RegionalOperations.create(b);
+    if (!RegionalOperations.bound(state.regionalOperations, b)) return null;
+    for (const source of regionalOperationSources()) RegionalOperations.register(state.regionalOperations, b, source, state.clock);
+    return state.regionalOperations;
+  }
+  function regionalOperation(id) {
+    return RegionalOperations.resolve(ensureRegionalOperations(), componentBinding(), id, regionalOperationSources());
+  }
+  function laboratoryOperation() {
+    const source = regionalOperationSources().find(n => n.kind === 'laboratory');
+    return source && regionalOperation(source.id)?.node;
+  }
+  function regionalHomeContact() {
+    // A personal settlement at the original premises, never a remote city account.
+    return !scientistIsDead() && annexCapable() && !surveyScientistAway()
+      && [MAIN_ROOM_ID, SURFACE_LOADING_ROOM_ID, SURFACE_RECEPTION_ROOM_ID].includes(scientistRoomId());
+  }
+  function operationRefuge(s = state.awayOperation) {
+    return [state.fieldStation, state.fieldRefuge].find(f => f?.site && s && f.site.id === s.plan.refugeId
+      && f.site.siteId === s.plan.siteId && f.site.worldId === s.plan.worldId) || null;
+  }
+  function operationCaretaker(s = state.awayOperation) {
+    return s && fieldBuilderStates().find(b => b.actor.id === s.plan.residentActorId && b.resident?.id === s.plan.residentId
+      && b.resident.plan?.siteId === s.plan.siteId && b.resident.plan?.worldId === s.plan.worldId) || null;
+  }
+  function updateRegionalOperations() {
+    if (scientistIsDead()) return 0;
+    const registry = ensureRegionalOperations(); if (!registry) return 0;
+    let changes = 0;
+    // One chronological heartbeat, canonical consumers and disjoint accounts.
+    // Selection is deliberately absent from this execution path.
+    for (const node of registry.nodes) if (regionalOperation(node.id)) {
+      if (node.kind === 'laboratory' && state.laboratoryAssistant?.contract?.disclosure?.underground === true) changes += updateLaboratoryAssistant();
+      if (node.kind === 'refuge' && state.awayOperation?.id === node.sourceId) changes += updateAwayOperation(state.awayOperation);
+    }
+    if (state.laboratoryAssistant?.contract?.disclosure?.underground !== true) changes += updateLaboratoryAssistant();
+    return changes;
+  }
+  function regionalOperationAction(action, id, options = {}) {
+    const resolved = regionalOperation(id); if (!resolved) return false;
+    const { node } = resolved;
+    if (action === 'select') { const ok = RegionalOperations.select(state.regionalOperations, componentBinding(), id); persist(); render(); return ok; }
+    if (scientistIsDead() || !annexCapable() || surveyBusy()) return false;
+    if (node.kind === 'refuge') {
+      if (['report', 'withdraw'].includes(action)) return caretakerCommunicationsAction(action, { operationId: id });
+      if (['inspect', 'review', 'accept', 'refund', 'localReport'].includes(action))
+        return awayOperationAction(action === 'localReport' ? 'report' : action, { ...options, operationId: id });
+      return false;
+    }
+    if (!regionalHomeContact()) return false;
+    let ok = false;
+    if (action === 'settle') ok = RegionalOperations.settle(node, ensureEconomy(), true);
+    if (action === 'inspect' || ok) {
+      // Only personally visible fixtures and already received technician knowledge.
+      // Unread assays and remote rooms are never incorporated into this account.
+      receiveLaboratoryAssistantReport();
+      const known = state.laboratoryAssistantKnowledge, disclosure = known?.contract?.disclosure;
+      ok = RegionalOperations.receive(state.regionalOperations, componentBinding(), id, { operationId: id, observedAt: state.clock,
+        source: 'Personal visit to the original laboratory', money: node.money,
+        technician: disclosure?.underground === true ? { observedAt: known.reportedAt, actorId: known.applicant.id,
+          condition: known.applicant.condition, contractId: known.contract.id, status: known.contract.status,
+          orders: known.orders.map(o => ({ id: o.id, status: o.status, receivedAt: o.receivedAt })) } : null,
+        fixtures: state.fixtures.filter(f => labMapCellRoomId(f.origin) === scientistRoomId()
+          && mapCellDistance(f.origin, scientistMapCell()) <= 8 && sensoryLineOfSight(scientistMapCell(), f.origin))
+          .map(f => ({ id: f.id, condition: f.condition, observedAt: state.clock })) }, state.clock);
+    }
+    if (ok) { persist(); render(); } return ok;
+  }
+  function renderRegionalOperations() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.regionalOperations = 'true';
+    panel.append(textEl('h3', 'Regional operations'), textEl('p', RegionalOperations.LIMITS));
+    const view = RegionalOperations.publicView(ensureRegionalOperations()); if (!view) return panel;
+    const button = (label, action, id) => { const b = document.createElement('button'); b.textContent = label;
+      b.disabled = action !== 'select' && (scientistIsDead() || !annexCapable());
+      b.onclick = () => regionalOperationAction(action, id); panel.append(b); };
+    for (const n of view.nodes) button(`View operation: ${n.label}`, 'select', n.id);
+    const n = view.nodes.find(n => n.id === view.selectedId); if (!n) return panel;
+    panel.dataset.operationId = n.id;
+    panel.append(textEl('h4', n.label), textEl('p', `Operation ${n.id}. Selection is not travel, ownership, current readiness or permission to use another site's resources.`));
+    if (n.report) {
+      const r = n.report;
+      panel.append(textEl('p', `${r.source}. Observed ${formatClock(r.observedAt)}, received ${formatClock(r.receivedAt)}. Historical observations, not live telemetry.`));
+      if (n.kind === 'laboratory') {
+        panel.append(textEl('p', `Last personally inspected returned-wage balance: ${formatMoney(r.money)}.`));
+        if (r.technician) panel.append(textEl('p', `Technician ${r.technician.actorId}: ${r.technician.condition}; engagement ${r.technician.contractId}, ${r.technician.status}. Technician account dated ${formatClock(r.technician.observedAt)}; ${r.technician.orders.length} received order entries. Unread results are not disclosed.`));
+        for (const f of r.fixtures || []) panel.append(textEl('p', `Personally visible ${f.id}: condition ${formatNumber(f.condition)}; observed ${formatClock(f.observedAt)}.`));
+      } else if (r.account) {
+        panel.append(textEl('p', r.account.reason));
+        if (r.account.allowance) panel.append(textEl('p', `Local supplier ledger: ${formatMoney(r.account.allowance.balance)} unspent; ${formatMoney(r.account.allowance.spent)} spent. Personal settlement still required.`));
+        if (r.account.viableAt != null) panel.append(textEl('p', `Historical supported day completed ${formatClock(r.account.viableAt)}; not proof of current readiness.`));
+      }
+    } else panel.append(textEl('p', 'No operation account received. Visit personally or use an existing supported communication link.'));
+    if (n.kind === 'laboratory') {
+      button('Personally inspect laboratory operation', 'inspect', n.id);
+      button('Personally collect returned technician wage escrow', 'settle', n.id);
+      panel.append(textEl('p', 'Original authorized assays use the original technician, reserved samples, equipment, personal provisions and prepaid wage reserve. Unused wages remain in this local account after actual return until personally collected. No new work, replenishment or remote technician orders.'));
+    } else {
+      button('Receive local refuge operation account', 'localReport', n.id);
+      button('Request paired report for this operation', 'report', n.id);
+      button('Request paired withdrawal from this operation', 'withdraw', n.id);
+      const worker = operationCaretaker(state.awayOperation), t = worker && CaretakerCommunications.publicView(worker, state.clock);
+      if (t) {
+        for (const m of t.issued.slice(-5)) panel.append(textEl('p', `${m.id}: ${m.kind} — ${m.status}`));
+        for (const r of t.received.slice(-3)) {
+          panel.append(textEl('p', `${r.kind}: ${r.outcome}; observed ${formatClock(r.observedAt)}, received ${formatClock(r.receivedAt)}. Dated worker observations only.`));
+          if (r.account) {
+            const a = r.account;
+            panel.append(textEl('p', `Original worker ${a.actorId}, agreement ${a.agreementId}: ${a.phase}; health ${formatNumber(a.health)}, ${formatDuration(a.dutySeconds)} duty, ${formatMoney(a.earned)} earned. ${a.reason || ''}`));
+            const supplies = a.observations?.supplies, heater = a.observations?.heater;
+            if (supplies) panel.append(textEl('p', `Crate observed ${formatClock(supplies.observedAt)}: ${Object.entries(supplies.goods).map(([key, amount]) => `${inventoryItemLabel(key)} ${formatNumber(amount)}`).join(', ')}.`));
+            if (heater) panel.append(textEl('p', `Heater observed ${formatClock(heater.observedAt)}: ${heater.enabled ? 'enabled' : 'disabled'}, fuel ${formatNumber(heater.fuel)}.`));
+          }
+        }
+      }
+    }
+    return panel;
+  }
+  function awayOperationGate(s = state.awayOperation) { return passengerReceptionGate(s?.plan.cityId || state.fieldRefuge?.site?.cityId); }
+  function awayOperationContext(s = state.awayOperation) {
+    const g = awayOperationGate(s), e = g?.foreignSurvey, b = operationCaretaker(s), r = b?.resident;
+    const refuge = operationRefuge(s), rc = b && r ? residentCaretakerContext(b) : null, site = refuge?.site, crate = fieldSupplyCrate(refuge);
     const supplier = g?.visitorSupplies, market = g && foreignSupplierMarket(g), t = s && AwayOperation.truck(s, market), d = t?.driver;
     const source = g?.preparedForeignSurveyTestSource?.source || (g && ForeignSurveyExcursion.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, g));
     const route = s?.plan.route || [], keys = new Set(route.map(mapCellKey));
@@ -90405,13 +90542,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       storageRemaining: crate.capacity || { massKg: 0, volumeL: 0 }, storageOpen: crate.open,
       atTruck: Boolean(d?.mapCell && sameMapCell(d.mapCell, t.mapCell)), atCrate: Boolean(d?.mapCell && sameMapCell(d.mapCell, s?.plan.port)),
       driverIncapacitated: Boolean(d && actorIsIncapacitated(d)), groundSafe: !threatened,
-      personalInspection: Boolean(current && fieldStationLocal(state.fieldRefuge) && crate.open && sameMapCell(scientistMapCell(), site.layout.rest)),
+      // Damage can invalidate readiness without erasing the address. A personal
+      // visit may witness that loss; it never authorizes delivery into a broken crate.
+      personalInspection: Boolean(s && site && site.worldId === activeWorldRecord?.id
+        && fieldStationLocal(refuge) && sameMapCell(scientistMapCell(), site.layout.rest)),
       scientistAway: Boolean(site && scientistRoomId() !== site.roomId),
       allowedKeys: keys };
   }
   function awayOperationAction(action, options = {}) {
     if (scientistIsDead() || actorIsIncapacitated('scientist') || surveyBusy()) return false;
     let s = state.awayOperation, g = awayOperationGate(), e = g?.foreignSurvey, ok = false;
+    if (options.operationId && (regionalOperation(options.operationId)?.node.kind !== 'refuge' || s?.id !== options.operationId)) return false;
     if (action === 'inspect') {
       const site = state.fieldRefuge?.site, b = residentCaretakerOwner(), r = b?.resident, crate = fieldSupplyCrate(state.fieldRefuge);
       if (!s && activeRunRecord && site && r?.phase === 'resident' && r.recognizedBodyEpoch === ensureScientistIdentity().bodyEpoch
@@ -90423,10 +90564,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
             residentId: r.id, residentActorId: b.actor.id, residentPlan: clonePlainObject(r.plan), route: clonePlainObject(route) }, componentBinding(), state.clock);
           ok = Boolean(s);
         }
-      } else ok = Boolean(s && awayOperationContext().personalInspection);
+      } else ok = Boolean(s && awayOperationContext(s).personalInspection);
     }
     if (!s) return false;
-    g = awayOperationGate(); const market = foreignSupplierMarket(g), c = awayOperationContext();
+    ensureRegionalOperations();
+    g = awayOperationGate(s); const market = foreignSupplierMarket(g), c = awayOperationContext(s);
     if (action === 'review') ok = Boolean(AwayOperation.quote(s, market, c, state.clock));
     if (action === 'accept') {
       ok = AwayOperation.accept(s, market, c, options.expected, Number(options.deposit), ensureEconomy(), state.clock);
@@ -90434,8 +90576,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (action === 'refund') ok = AwayOperation.refund(s, c, ensureEconomy(), state.clock);
     if (action === 'report' || ok) {
-      AwayOperation.audit(s, awayOperationContext(), state.clock);
-      const received = AwayOperation.receive(s, awayOperationContext(), state.clock);
+      AwayOperation.audit(s, awayOperationContext(s), state.clock);
+      const received = AwayOperation.receive(s, awayOperationContext(s), state.clock);
+      if (received) receiveRegionalAwayAccount(s);
       if (action === 'report') ok = received;
     }
     surveyEvent(ok ? `Local refuge operation: ${action}. No remote laboratory stock, staff or funds were used.` : 'Actual local provider, original assets, approved allowance, inspected route or supported refuge unavailable. No delivery or permission invented.');
@@ -90488,7 +90631,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         for (const i of actorInventoryStacks(d.id)) { i.cell = clonePlainObject(d.mapCell); i.roomId = d.roomId; } return true;
       },
       deposit: (d, m) => {
-        const c = awayOperationContext(), items = (m.stackIds || []).map(item);
+        const c = awayOperationContext(s), items = (m.stackIds || []).map(item);
         if (!c.atCrate || !c.storageOpen || items.some(i => !i || i.carriedBy !== d.id || i.awayMissionId !== m.id
           || i.reservedTaskId && i.reservedTaskId !== m.id)) return false;
         if (items.reduce((n, i) => n + i.quantity * i.unitMassKg, 0) > c.storageRemaining.massKg || items.reduce((n, i) => n + i.quantity * i.unitVolumeL, 0) > c.storageRemaining.volumeL) return false;
@@ -90503,31 +90646,37 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       } } return true; }
     };
   }
-  function updateAwayOperation() {
-    const s = state.awayOperation; if (!s || scientistIsDead()) return 0;
-    const market = foreignSupplierMarket(awayOperationGate()), d = AwayOperation.truck(s, market)?.driver;
+  function receiveRegionalAwayAccount(s) {
+    const v = AwayOperation.publicView(s); if (!v) return false;
+    return RegionalOperations.receive(ensureRegionalOperations(), componentBinding(), s.id,
+      { operationId: s.id, observedAt: v.at, source: 'Personal refuge inspection or original local supplier ledger', account: v }, state.clock);
+  }
+  function updateAwayOperation(s = state.awayOperation) {
+    if (!s || scientistIsDead() || regionalOperation(s.id)?.node.kind !== 'refuge') return 0;
+    const market = foreignSupplierMarket(awayOperationGate(s)), d = AwayOperation.truck(s, market)?.driver;
     if (d?.mapCell && d.needs) {
       const n = WildernessSurvival.advance(d.needs, state.clock, { sheltered: fieldStationSheltered(d.mapCell), resting: false,
-        working: true, destination: state.fieldRefuge?.site?.weather }); d.needs = n.state;
+        working: true, destination: operationRefuge(s)?.site?.weather }); d.needs = n.state;
       if (n.damage) damageSurfaceWorker(n.damage, { injuryProgress: true }, d);
     }
-    const changed = AwayOperation.advance(s, market, awayOperationContext(), state.clock, awayOperationHooks(s));
-    AwayOperation.audit(s, awayOperationContext(), state.clock); return Number(changed);
+    const changed = AwayOperation.advance(s, market, awayOperationContext(s), state.clock, awayOperationHooks(s));
+    AwayOperation.audit(s, awayOperationContext(s), state.clock); return Number(changed);
   }
   function renderAwayOperation() {
     const panel = document.createElement('section'); panel.dataset.awayOperation = 'true'; panel.className = 'subpanel';
     panel.append(textEl('h4', 'Locally supplied away operation'), textEl('p', AwayOperation.LIMITS));
-    const button = (label, action, disabled = false, data = {}) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = disabled || scientistIsDead(); b.onclick = () => awayOperationAction(action, data); panel.append(b); };
+    const button = (label, action, disabled = false, data = {}) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = disabled || scientistIsDead(); b.onclick = () => awayOperationAction(action, { ...data, ...(s ? { operationId: s.id } : {}) }); panel.append(b); };
     const s = state.awayOperation;
     button('Inspect staffed refuge for local operation', 'inspect', !fieldStationLocal(state.fieldRefuge));
     if (!s) { panel.append(textEl('p', 'Use an existing intact supplied refuge with its original resident. Inspect the original open crate and known walking route personally; registration grants no goods or staff.')); return panel; }
-    const c = awayOperationContext(); AwayOperation.receive(s, c, state.clock); const v = AwayOperation.publicView(s);
+    const c = awayOperationContext(s); if (!scientistIsDead() && AwayOperation.receive(s, c, state.clock)) receiveRegionalAwayAccount(s);
+    const v = AwayOperation.publicView(s);
     panel.append(textEl('p', 'One consented local consignment: six drinking water and three trail meals, plus the original driver’s one meal and water. A separate local supplier agreement, not delegated personal visitor trading. Physical loading, walking, sixty-second crate deposit and the same driver’s return are required. No automatic repeat or fuel manufacture; heat still needs actual stored fuel or safe ambient conditions.'));
     button('Review local refuge supply terms', 'review', !c.atProvider || !c.providerReady);
     if (s.quote && c.atProvider) {
       const q = clonePlainObject(s.quote), input = document.createElement('input'); input.type = 'number'; input.min = '0'; input.max = '10000'; input.value = String(Math.max(0, q.total - s.balance)); input.setAttribute('aria-label', 'Local operating allowance deposit'); panel.append(input);
       panel.append(textEl('p', `${q.driverId}, ${q.truckId}; actual local road ${q.distanceKm} km each way and inspected foot route. Goods ${formatMoney(q.goodsCost)}, earned freight ${formatMoney(q.freight)}. Quote expires ${formatClock(q.expiresAt)}. Deposit is local committed money, not access to your home account.`));
-      const b = document.createElement('button'); b.textContent = 'Accept exact local supply order and commit allowance'; b.onclick = () => awayOperationAction('accept', { expected: q, deposit: Number(input.value) }); panel.append(b);
+      const b = document.createElement('button'); b.textContent = 'Accept exact local supply order and commit allowance'; b.onclick = () => awayOperationAction('accept', { operationId: s.id, expected: q, deposit: Number(input.value) }); panel.append(b);
     }
     button('Receive local operation account', 'report', !(c.personalInspection || c.atProvider));
     button('Personally settle unused local allowance', 'refund', !c.atProvider || !s.balance || AwayOperation.ongoing(s.mission));
@@ -90536,12 +90685,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function fieldBuilderStates() { return (state?.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.builder).filter(Boolean); }
   function fieldEmployeeStates() { return [...fieldPorterStates(), ...fieldBuilderStates()]; }
-  function residentCaretakerOwner() {
-    return fieldBuilderStates().find(s => ResidentCaretaker.active(s)) || foreignSurveyAtField()?.builder
-      || fieldBuilderStates().find(s => s.source.cityId === state.fieldRefuge?.site?.cityId) || null;
+  function residentCaretakerOwner(siteId = state.fieldRefuge?.site?.siteId) {
+    const workers = fieldBuilderStates(), site = [state.fieldStation, state.fieldRefuge].find(f => f?.site?.siteId === siteId)?.site;
+    if (!site) return null;
+    const matches = s => s.resident?.plan?.siteId === site.siteId && s.resident.plan.worldId === site.worldId;
+    return workers.find(s => matches(s) && ResidentCaretaker.active(s)) || workers.find(matches)
+      || workers.find(s => s.source.cityId === site.cityId && !ResidentCaretaker.active(s)) || null;
   }
   function residentCaretakerPlanValid(p) {
-    const site = state.fieldRefuge?.site, f = site && fixtureById(site.cacheId), heater = site && fixtureById(site.heaterId);
+    const site = [state.fieldStation, state.fieldRefuge].find(s => p && s?.site?.siteId === p.siteId && s.site.worldId === p.worldId)?.site;
+    const f = site && fixtureById(site.cacheId), heater = site && fixtureById(site.heaterId);
     return Boolean(p && site && ['id', 'siteId', 'worldId', 'roomId', 'cacheId', 'heaterId', 'doorId'].every(k => p[k] === site[k])
       && f?.condition > 0 && !['broken', 'unfinished'].includes(f.operationalState)
       && f.installedAt === p.cacheInstalledAt && sameMapCell(f.origin, site.layout.cache)
@@ -90623,8 +90776,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         log: clonePlainObject(r.log.slice(-5)), observations: clonePlainObject(t.observations) })
     }, at);
   }
-  function caretakerCommunicationsAction(action) {
-    const s = residentCaretakerOwner(); if (!s?.resident || scientistIsDead() || !annexCapable() || surveyBusy()) return false;
+  function caretakerCommunicationsAction(action, options = {}) {
+    const addressed = options.operationId && regionalOperation(options.operationId);
+    if (options.operationId && (addressed?.node.kind !== 'refuge' || state.awayOperation?.id !== options.operationId)) return false;
+    const s = options.operationId ? operationCaretaker(state.awayOperation)
+      : options.actorId ? fieldBuilderStates().find(b => b.actor.id === options.actorId && b.resident?.id === options.agreementId) : residentCaretakerOwner();
+    if (!s?.resident || scientistIsDead() || !annexCapable() || surveyBusy()) return false;
     const r = s.resident, c = residentCaretakerContext(s, true), contact = ResidentCaretaker.authorized(s, c) && !c.incapacitated && s.actor.status !== 'dead';
     const own = actorInventoryStacks('scientist').filter(i => caretakerRadioStack(i.id, 'scientist'));
     let ok = false;
@@ -90686,7 +90843,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(textEl('h5', 'Paired caretaker communications'), textEl('p', CaretakerCommunications.SCOPE),
       textEl('p', 'Pack two separate communicators before departure. Personally give the spare, then pair and enable reception. Batteries last four powered hours, not four hours per visit. Reception can only be switched or supplied in person; ordinary local work continues offline.'));
     const button = (label, action, disabled) => { const b = document.createElement('button'); b.textContent = label;
-      b.disabled = disabled || surveyBusy() || !annexCapable(); b.onclick = () => caretakerCommunicationsAction(action); panel.append(b); };
+      b.disabled = disabled || surveyBusy() || !annexCapable(); b.onclick = () => caretakerCommunicationsAction(action, { actorId: s.actor.id, agreementId: s.resident.id }); panel.append(b); };
     const contact = ResidentCaretaker.authorized(s, c), own = view.link && caretakerRadioStack(view.link.senderId, 'scientist');
     button('Personally give spare communicator to caretaker', 'giveRadio', !contact);
     button('Pair communicators and enable caretaker reception', 'pair', !contact);
@@ -90706,7 +90863,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function residentCaretakerContext(s, contact = false, checkingTask = false) {
     const e = s && fieldPorterExcursion(s), g = e && passengerReceptionGate(e.source.cityId), a = s?.actor;
     const resident = ResidentCaretaker.active(s) ? s.resident : null;
-    const p = resident?.plan || state.fieldRefuge?.staffPlan, site = state.fieldRefuge?.site;
+    const p = resident?.plan || (s?.source.cityId === state.fieldRefuge?.site?.cityId ? state.fieldRefuge?.staffPlan : null);
+    const site = [state.fieldStation, state.fieldRefuge].find(f => p && f?.site?.siteId === p.siteId && f.site.worldId === p.worldId)?.site;
     const kitId = resident?.kitId || actorInventoryStacks(a?.id).find(i => i.key === 'fieldShelter' && !i.reservedTaskId && !i.cityOwnerId && !i.civicCustody)?.id;
     const kit = ensurePhysicalItemStacks().find(i => i.id === kitId);
     const source = e && fieldBuilderSource(g, e);
@@ -90807,7 +90965,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           if (index >= 0) target = route[Math.max(0, Math.min(route.length - 1, index + (atHome ? -1 : 1)))];
           else { target = [...route].sort((b, c) => mapCellDistance(a.mapCell, b) - mapCellDistance(a.mapCell, c))[0]; }
         }
-        const layout = state.fieldRefuge?.site?.layout;
+        const layout = [state.fieldStation, state.fieldRefuge].find(f => f?.site?.siteId === p.siteId && f.site.worldId === p.worldId)?.site.layout;
         const allowed = new Set([...route, ...(layout?.floors || []), ...(layout?.apron ? [layout.apron] : []), ...(r.waterAccess?.route || [])].map(mapCellKey));
         const canEnter = cell => allowed.has(mapCellKey(cell)) && labMapCellHasFloor(cell) && !constructedWallAtCell(cell)
           && !(fieldPorterExcursion(s).wilderness.beasts?.actors || []).some(b => b.status !== 'dead' && sameMapCell(b.mapCell, cell))
@@ -106193,6 +106351,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.fieldStation = candidate?.fieldStation ? clonePlainObject(candidate.fieldStation) : null;
     next.fieldRefuge = candidate?.fieldRefuge ? clonePlainObject(candidate.fieldRefuge) : null;
     next.awayOperation = AwayOperation.normalize(candidate?.awayOperation);
+    next.regionalOperations = RegionalOperations.normalize(candidate?.regionalOperations);
     next.fieldWater = candidate?.fieldWater ? clonePlainObject(candidate.fieldWater) : FieldWater.create();
     next.surveyExpeditions = SurveyExpeditions.normalizeState(candidate?.surveyExpeditions);
     next.wildernessSurvival = WildernessSurvival.normalizeState(candidate?.wildernessSurvival, next.clock);

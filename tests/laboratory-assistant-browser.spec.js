@@ -86,7 +86,14 @@ test('informed technician employment reserves and physically carries supplies, r
   await openWorkers(page);
   await page.getByRole('button', { name: 'End technician shift', exact: true }).click();
   await page.evaluate(() => window.helixHeresyDebug.advanceLaboratoryAssistantForTest(2200));
-  s = await snapshot(page); expect(s.saved.contract.status).toBe('completed'); expect(s.money + s.saved.actor.money).toBeCloseTo(1000);
+  s = await snapshot(page); expect(s.saved.contract.status).toBe('completed');
+  const operations = await page.evaluate(() => window.helixHeresyDebug.regionalOperationsSnapshot());
+  const home = operations.saved.nodes.find(n => n.kind === 'laboratory');
+  expect(home.money).toBeGreaterThan(0);
+  expect(s.money + s.saved.actor.money + home.money).toBeCloseTo(1000);
+  expect(await page.evaluate(id => window.helixHeresyDebug.regionalOperationAction('settle', id), home.id)).toBe(true);
+  expect((await snapshot(page)).money + s.saved.actor.money).toBeCloseTo(1000);
+  expect(await page.evaluate(id => window.helixHeresyDebug.regionalOperationAction('settle', id), home.id)).toBe(false);
   expect(errors).toEqual([]);
 });
 

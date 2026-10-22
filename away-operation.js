@@ -9,7 +9,7 @@
   const copy = x => x == null ? null : JSON.parse(JSON.stringify(x));
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const able = a => a?.status === 'alive' && a.health >= 50 && (a.fatigue || 0) < 75;
-  const LIMITS = 'One locally supplied refuge, not a second regional command system. Separate explicitly committed allowance; original local commercial provider, producer truck and driver, finite stock and inspected ground route. Noncombat provisions delivery only; no visitor-permit delegation, free staff, replenishment, health, maps, sovereignty or resurrection. Reports are dated. Loss or isolation never ends a living run.';
+  const LIMITS = 'One locally supplied refuge; its regional address grants no additional command authority. Separate explicitly committed allowance; original local commercial provider, producer truck and driver, finite stock and inspected ground route. Noncombat provisions delivery only; no visitor-permit delegation, free staff, replenishment, health, maps, sovereignty or resurrection. Reports are dated. Loss or isolation never ends a living run.';
   function create(plan, binding, at) {
     if (!plan?.siteId || !plan.cityId || !plan.cacheId || !plan.route?.length || !binding?.worldId || !binding.runId || !Number.isFinite(at)) return null;
     return { id: `${plan.siteId}:local-operation`, ...copy(binding), plan: copy(plan), balance: 0, deposited: 0, spent: 0, refunded: 0,
