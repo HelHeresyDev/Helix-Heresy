@@ -132,6 +132,7 @@
   const AwayOperation = window.HelixAwayOperation;
   const RegionalOperations = window.HelixRegionalOperations;
   const FoundingExpedition = window.HelixFoundingExpedition;
+  const FoundingWorks = window.HelixFoundingWorks;
   const FieldForce = window.HelixFieldForce;
   const CaretakerCommunications = window.HelixCaretakerCommunications;
   const FieldWater = window.HelixFieldWater;
@@ -13713,6 +13714,19 @@
       expansionAtlasSnapshot: () => clonePlainObject(currentExpansionAtlas()),
       expansionAtlasAction,
       foundingExpeditionAction,
+      foundingWorksAction,
+      foundingWorksRouteReview: actorId => {
+        const s = state.foundingWorks, p = s?.people.find(p => p.actor.id === actorId); if (!p) return null;
+        const goal = p.phase === 'returning' ? p.actor.home : s.layout.beds[s.people.indexOf(p)], route = foundingWorksRoute(s, p.actor, goal);
+        const blocked = labMapBlockingCellKeys(ensureLabMap(), { skipPlacement: true });
+        return clonePlainObject({ actorId, cell: p.actor.mapCell, goal, route, plan: route.navigationPlan,
+          neighbors: cardinalMapCells(p.actor.mapCell).map(cell => ({ cell, floor: labMapCellHasFloor(cell),
+            blocked: blocked.has(mapCellKey(cell)), load: tileOccupiedAreaM2(cell, { excludeActor: p.actor }),
+            access: actorAccessCellBlockReason(p.actor, cell), fits: canActorOccupyTile(p.actor, cell), known: Boolean(state.mapCellObservations?.[mapCellKey(cell)]) })) });
+      },
+      foundingWorksSnapshot: () => clonePlainObject({ saved: ensureFoundingWorks(), context: state.foundingWorks && foundingWorksContext(),
+        protector: foundingProtector(), clock: state.clock, cell: scientistMapCell(), money: ensureEconomy().money,
+        items: ensurePhysicalItemStacks(), tools: fieldStationTools(), survival: ensureWildernessSurvival(), vitals: state.scientist.vitals }),
       foundingCandidate: () => { const p = foundingCandidate({ ...scientistMapCell(), y: scientistMapCell().y - 1 }); return p ? clonePlainObject(p) : null; },
       foundingPlotReview: () => clonePlainObject(foundingCandidate({ ...scientistMapCell(), y: scientistMapCell().y - 1 }, true)),
       foundingExpeditionSnapshot: () => clonePlainObject({ saved: ensureFoundingExpedition(), context: foundingContext(),
@@ -13735,6 +13749,7 @@
           if (mapCellKey(scientistMapCell()) !== beforeCell) observeScientistMapCells({ force: true, source: 'direct walking observation' });
           if (state.wildernessBeasts?.actors.length || state.wildernessBeasts?.tracks.length) updateWildernessBeasts(step);
           updateFoundingExpedition();
+          updateFoundingWorks();
           if (options.stopOnIdle && !firstScientistQueueTask()) break;
         }
         syncActorInventories(); syncPhysicalReadModels(); persist(); if (options.render !== false) render(); return state.clock;
@@ -14011,7 +14026,7 @@
         }
         const ids = [];
         for (const [key, amount] of Object.entries(options.supplies || {})) {
-          const section = ['stoneBlocks', 'lumber', 'steelPanels', 'metalParts', 'cloth', 'rubber', 'glass', 'arcaneFeedstock', 'fuelReagent'].includes(key) ? 'resources' : 'inventory';
+          const section = ['stoneBlocks', 'lumber', 'steelPanels', 'metalParts', 'cloth', 'rubber', 'glass', 'arcaneFeedstock', 'fuelReagent', 'preparedManaCrystals', 'assayReagent'].includes(key) ? 'resources' : 'inventory';
           ids.push(createPhysicalItemStack(section, key, amount, { roomId, cell })?.id);
         }
         for (const key of options.carryTools || []) {
@@ -20203,6 +20218,8 @@
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.foundingExpedition = FoundingExpedition.rebind(importedState.foundingExpedition,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.foundingWorks = FoundingWorks.rebind(importedState.foundingWorks,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     // A canonical-ID collision imports this same continued camp into its own
     // world copy. Rebind its original source/evidence, never regenerate terrain.
     const foundingSiteId = importedState.foundingExpedition?.plan?.siteId;
@@ -23876,6 +23893,7 @@
     changes.combatChanged += livingUpdate(() => updateAllFieldPorters(elapsed));
     changes.scientistMovementChanged += livingUpdate(() => updateRegionalOperations());
     changes.scientistMovementChanged += livingUpdate(() => updateFoundingExpedition());
+    changes.scientistMovementChanged += livingUpdate(() => updateFoundingWorks());
     changes.scientistMovementChanged += livingUpdate(() => updateSurfaceWorkers());
     changes.scientistMovementChanged += livingUpdate(() => updateHomunculi());
     changes.scientistMovementChanged += livingUpdate(() => updateSoulBeacons());
@@ -24012,7 +24030,7 @@
       }
       return changed;
     }
-    if (!options.porterStep && elapsed > 1 && (FoundingExpedition.active(state.foundingExpedition) || AwayOperation.ongoing(state.awayOperation?.mission) || fieldForceStates().some(FieldForce.active) || fieldEmployeeStates().some(s => ResidentCaretaker.active(s) || ['arriving', 'onSite', 'returning'].includes(s.phase)))) {
+    if (!options.porterStep && elapsed > 1 && (state.foundingWorks?.job || FoundingWorks.active(state.foundingWorks) || FoundingExpedition.active(state.foundingExpedition) || AwayOperation.ongoing(state.awayOperation?.mission) || fieldForceStates().some(FieldForce.active) || fieldEmployeeStates().some(s => ResidentCaretaker.active(s) || ['arriving', 'onSite', 'returning'].includes(s.phase)))) {
       let left = elapsed, changed = 0;
       while (left > 0 && !scientistIsDead()) {
         const step = Math.min(1, left), before = state.clock, paused = state.paused;
@@ -34329,6 +34347,7 @@
 
   function actorInventoryOwner(actorId, context = state) {
     const id = normalizeActorInventoryOwnerId(actorId);
+    const foundingResident = context.foundingWorks?.people.find(p => p.actor.id === id)?.actor; if (foundingResident) return foundingResident;
     if (context.sovereignBargains?.defender.id === id) return context.sovereignBargains.defender;
     const producer = producerDriverActors(context).find(a => a.id === id); if (producer) return producer;
     if (context.fieldCharter?.driver.id === id) return context.fieldCharter.driver;
@@ -34389,6 +34408,7 @@
     if (!context?.scientist || !Array.isArray(context.physicalItemStacks)) return false;
     const actors = [
       { id: "scientist", actor: context.scientist },
+      ...(context.foundingWorks?.people || []).map(p => ({ id: p.actor.id, actor: p.actor })),
       ...(context.sovereignBargains?.defender ? [{ id: context.sovereignBargains.defender.id, actor: context.sovereignBargains.defender }] : []),
       ...producerDriverActors(context).map(actor => ({ id: actor.id, actor })),
       ...(context.jointTransit?.stations || []).flatMap(s => s.members).map(actor => ({ id: actor.id, actor })),
@@ -37850,6 +37870,7 @@
     if (charter?.vehicle.mapCell && mapCellKey(charter.vehicle.mapCell) === key) occupied += 1;
     for (const porter of fieldEmployeeStates().map(s => s.actor))
       if (porter.id !== excludeActor?.id && mapCellKey(porter.mapCell) === key) occupied += .6;
+    for (const a of foundingWorksActors()) if (a.id !== excludeActor?.id && mapCellKey(a.mapCell) === key) occupied += .6;
     const worker = state.surfaceWorkers?.actor;
     if (worker?.present && worker.id !== excludeActor?.id && mapCellKey(worker.mapCell) === key) occupied += .6;
     const assistant = state.laboratoryAssistant?.actor;
@@ -41412,6 +41433,7 @@
   }
 
   function combatActor(actorId) {
+    const foundingResident = foundingWorksActors().find(a => a.id === actorId); if (foundingResident) return foundingResident;
     const relief = producerDriverActors().find(a => a.id === actorId); if (relief) return relief;
     const avatar = currentDivineIntervention()?.avatars.find(a => a.id === actorId && a.manifested);
     if (avatar) return avatar;
@@ -41692,7 +41714,7 @@
       return existing;
     }
     const visible = INJURY_TYPE_DEFS[typeId].visible;
-    const porter = fieldEmployeeStates().some(s => s.actor.id === actorId);
+    const porter = fieldEmployeeStates().some(s => s.actor.id === actorId) || foundingWorksActors().some(a => a.id === actorId);
     const observed = porter ? fieldPorterObserved(actor) : scientist || visible || options.observed;
     const injury = normalizeInjury({
       id: `injury-${state.nextInjuryNumber++}`, actorKind: scientist ? "scientist" : ["fieldDriver", "wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent", "civicOfficeholder", "divineAvatar", "reliefDriver"].includes(actor.actorKind) ? actor.actorKind : "slime", actorId,
@@ -41877,7 +41899,7 @@
     }
     const targetId = targetIsScientist ? "scientist" : targetActor.id;
     let guardedDamage = Math.max(1, Math.round(action.baseDamage * combatGuardDamageMultiplier(targetId)));
-    const stationCover = cityDefenseAbsorb(actorId, combatActorCell(targetActor), guardedDamage, action.damageTypes);
+    const stationCover = cityDefenseAbsorb(actorId, combatActorCell(targetActor), guardedDamage, action.damageTypes, targetId);
     guardedDamage = stationCover.damage;
     if (stationCover.absorbed && guardedDamage <= 0) return { ok: true, hit: true, damage: 0, absorbed: stationCover.absorbed, accuracy };
     const targetHealthBefore = targetIsScientist ? scientistVital('health').current : targetActor.health;
@@ -66908,7 +66930,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!actor?.present || actor.status === "dead" || amount <= 0) return false;
     const damage = Math.max(1, Math.round(amount));
     actor.health = Math.max(0, actor.health - damage);
-    const fieldEmployee = fieldEmployeeStates().some(s => s.actor.id === actor.id);
+    const fieldEmployee = fieldEmployeeStates().some(s => s.actor.id === actor.id) || foundingWorksActors().some(a => a.id === actor.id);
     if (!options.injuryProgress) recordCombatInjury(actor, damage, options.damageTypes || ["physical"], "Employee trauma", { observed: fieldEmployee ? fieldPorterObserved(actor) : actor.actorKind === "laboratoryAssistant" ? laboratoryAssistantNearby(true) : surfaceWorkerObserved() });
     if (fieldEmployee) actor.lastHarmedAt = state.clock;
     if (!actor.health) { actor.status = "dead"; actor.diedAt = state.clock; }
@@ -68586,6 +68608,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (founder && foundingNear(founder, 8)) setLabMapOverlayEntry(assignments, founder.mapCell, { overlayId,
       classNames: ['map-overlay-resources'], label: founder.name, title: 'Original founding-expedition protector; directly observed',
       value: founder.status === 'dead' ? '†' : 'D', source: 'Direct observation', target: { kind: 'tile', tile: founder.mapCell } }, map);
+    for (const a of foundingWorksActors()) if (foundingNear(a, 8)) setLabMapOverlayEntry(assignments, a.mapCell, { overlayId,
+      classNames: ['map-overlay-resources'], label: a.name, title: `${a.name}: directly observed founding resident`,
+      value: a.status === 'dead' ? '†' : 'F', source: 'Direct observation', target: { kind: 'tile', tile: a.mapCell } }, map);
     for (const w of state.corridorWorks?.sites || []) for (const p of w.site.layout.parts)
       if (scientistPerceivesMapCell(p.cell))
         setLabMapOverlayEntry(assignments, p.cell, { overlayId, classNames: ['map-overlay-resources'],
@@ -80132,6 +80157,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.visitsList?.prepend(renderSuppression());
     dom.visitsList?.prepend(renderRegionalOperations());
     dom.visitsList?.prepend(renderFoundingExpedition());
+    dom.visitsList?.prepend(renderFoundingWorks());
   }
   function renderSiteVisitsContent() {
     const localStay = localPrisonRecord();
@@ -86776,6 +86802,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         && state.doors?.[CityDefense.DOOR]?.condition >= 25),
       defenseAvailable: Boolean(a?.exceptionalCapabilities?.includes('city-scale ward defense') && CityDefense.able(a)
         && !actorIsIncapacitated(a) && !a.magicSuppressed && !a.suppressionActive && a.stamina > 0
+        && !(state.foundingWorks && a.assignment === state.foundingWorks.id) && !(state.foundingExpedition && a.assignment === state.foundingExpedition.id)
         && state.sovereignBargains.defenseAvailable !== false && !incumbentThreat && !defenderThreat) };
   }
   function ensureCityRule() {
@@ -86903,7 +86930,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
     }) ? 1 : 0;
   }
-  function cityDefenseAbsorb(actorId, cell, amount, damageTypes) {
+  function cityDefenseAbsorb(actorId, cell, amount, damageTypes, targetId = null) {
+    const founding = foundingWorksAbsorb(actorId, targetId, cell, amount, damageTypes);
+    if (founding.absorbed) return founding;
     const outer = outerApproachCover(actorId, cell, amount, damageTypes);
     if (outer.absorbed) return outer;
     const s = state.cityDefense, actor = s && combatActor(actorId);
@@ -90720,6 +90749,482 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     return panel;
   }
+  function foundingWorksActors(context = state) { return (context.foundingWorks?.people || []).map(p => p.actor); }
+  function foundingWorksSource() {
+    const b = state.sovereignBargains, map = activeWorldRecord?.generatedData?.strategicMap;
+    const row = map?.strategicPlayableSettlementState?.cityRows.find(r => r.cityId === b?.source.cityId && r.assetId === b.source.populationSourceId);
+    // Existing aggregate population is elaborated once, never added to the world.
+    // The named fixture supplies a finite prior source, not a project outcome.
+    const population = b?.testFixture ? b.source.population : row?.currentPopulation;
+    if (!b || !Number.isFinite(population) || population < 12) return null;
+    const current = FoundingWorks.population(state.foundingWorks, b.source.cityId, population);
+    return { cityId: b.source.cityId, populationSourceId: b.source.populationSourceId, population: current.residents,
+      availableLabor: current.availableLabor, sourceKey: foundingSourceKey() };
+  }
+  function ensureFoundingWorks() {
+    const b = componentBinding(), expedition = state.foundingExpedition;
+    if (!state.foundingWorks) state.foundingWorks = FoundingWorks.create(b, expedition, foundingWorksSource());
+    return FoundingWorks.bound(state.foundingWorks, b) ? state.foundingWorks : null;
+  }
+  function foundingWorksPartValue(p, s = state.foundingWorks) {
+    const r = s?.parts[p?.id]; if (!r) return null;
+    const value = p.kind === 'wall' ? constructedWallAtCell(p.cell) : ['floor', 'roof'].includes(p.kind) ? constructedFloorAtCell(p.cell)
+      : p.kind === 'gate' ? state.doors[r.physicalId] : fixtureById(r.physicalId);
+    const original = value && (['wall', 'floor', 'roof'].includes(p.kind) ? value.builtAt === r.startedAt && value.materialId === (p.kind === 'roof' ? 'lumber' : 'stoneBlocks')
+      : p.kind === 'gate' ? value.builtAt === r.startedAt && sameMapCell(ensureLabMap().doors[r.physicalId]?.cell, p.cell)
+      : value.installedAt === r.startedAt && sameMapCell(value.origin, p.cell));
+    return original ? value : null;
+  }
+  function foundingWorksRoute(s, actor, goal) {
+    if (!goal || !actor?.mapCell) return [];
+    const known = new Set([...Object.keys(state.mapCellObservations || {}), ...s.plan.route.map(mapCellKey)]);
+    const blocked = labMapBlockingCellKeys(ensureLabMap(), { skipPlacement: true });
+    for (const id of [s.plan.roomId, s.plan.home.roomId]) for (const cell of ensureLabMap().rooms[id]?.cells || [])
+      if (!known.has(mapCellKey(cell)) || tileOccupiedAreaM2(cell, { excludeActor: actor }) + actorFloorLoadM2(actor) > MAP_TILE_AREA_M2 + TILE_OCCUPANCY_EPSILON) blocked.add(mapCellKey(cell));
+    return labMapPathBetweenCells(actor.mapCell, goal, { actor, ignoreDoors: true, blockedCellKeys: blocked });
+  }
+  function foundingWorksSupportPath(s) {
+    if (!s?.layout) return [];
+    const actor = foundingProtector(); if (!actor) return [];
+    const blocked = labMapBlockingCellKeys(ensureLabMap(), { skipPlacement: true });
+    for (const p of s.layout.parts) if (p.kind === 'wall') blocked.add(mapCellKey(p.cell));
+    const known = new Set([...Object.keys(state.mapCellObservations || {}), ...s.plan.route.map(mapCellKey)]);
+    for (const id of [s.plan.roomId, s.plan.home.roomId]) for (const cell of ensureLabMap().rooms[id]?.cells || [])
+      if (!known.has(mapCellKey(cell))) blocked.add(mapCellKey(cell));
+    const path = labMapPathBetweenCells(s.plan.home.cell, s.plan.post, { actor, ignoreDoors: true, ignoreActorOccupancy: true, blockedCellKeys: blocked });
+    return path.length && sameMapCell(path.at(-1), s.plan.post) && !pathAccessViolations(actor, path).length
+      && path.every(c => !labMapDoorAtCell(c) || doorFixtureAllowsPassage(labMapDoorAtCell(c), { ignoreDoors: true })) ? path : [];
+  }
+  function foundingWorksSupportRoute(s) {
+    const actor = foundingProtector(), path = s?.supportPath;
+    if (!actor || !path?.length || !sameMapCell(path[0], s.plan.home.cell) || !sameMapCell(path.at(-1), s.plan.post)) return false;
+    const map = ensureLabMap(), excavated = labMapExcavatedCellKeys(map);
+    const blocked = labMapBlockingCellKeys(map, { skipPlacement: true });
+    return !pathAccessViolations(actor, path).length && path.every(cell => labMapCellIsWalkable(cell, map, excavated) && !wildernessObstacleAtCell(cell)
+      && !labMapCellIsPathBlocked(cell, { actor, ignoreActorOccupancy: true, skipPlacement: true, blockedCellKeys: blocked })
+      && (!labMapDoorAtCell(cell) || doorFixtureAllowsPassage(labMapDoorAtCell(cell), { ignoreDoors: true })));
+  }
+  function foundingWorksMusterReachable(s, cell) {
+    const actor = { id: `${s.id}:prospective-resident`, actorKind: 'surfaceWorker', roomId: s.plan.home.roomId, mapCell: cell };
+    const blocked = labMapBlockingCellKeys(ensureLabMap(), { skipPlacement: true });
+    const known = new Set([...Object.keys(state.mapCellObservations || {}), ...s.plan.route.map(mapCellKey)]);
+    for (const id of [s.plan.home.roomId, s.plan.roomId]) for (const c of ensureLabMap().rooms[id]?.cells || []) {
+      // Both departure AND later reception must work with the protector back
+      // on the original civic position. Do not allocate a muster pocket behind
+      // a person who would seal its only return approach.
+      if (!known.has(mapCellKey(c)) || tileOccupiedAreaM2(c) + .6 > MAP_TILE_AREA_M2 + TILE_OCCUPANCY_EPSILON) blocked.add(mapCellKey(c));
+    }
+    const path = labMapPathBetweenCells(cell, s.plan.post, { actor, ignoreDoors: true, ignoreActorOccupancy: true, blockedCellKeys: blocked });
+    return path.length > 0 && !pathAccessViolations(actor, path).length;
+  }
+  function foundingWorksLocalStock(cell, key) {
+    return ensurePhysicalItemStacks().filter(i => i.key === key && i.quantity > 0 && !i.reservedTaskId && !i.cityOwnerId && !i.civicCustody
+      && !i.containerId && !i.chemicalBatch && !(i.tags || []).some(t => /toxic|hazard|contaminat|volatile/i.test(t))
+      && (i.carriedBy === 'scientist' && mapCellDistance(scientistMapCell(), cell) <= 1 || !i.carriedBy && i.roomId === state.foundingWorks?.plan.roomId
+        && mapCellDistance(i.cell, cell) <= 1 && sensoryLineOfSight(i.cell, cell)
+        && (!i.fixtureId || fixtureById(i.fixtureId)?.accessState === 'open' && fixtureById(i.fixtureId)?.condition > 0)));
+  }
+  function foundingWorksSpend(cell, costs) {
+    const inputs = Object.entries(costs).map(([key, count]) => ({ key, count, stocks: foundingWorksLocalStock(cell, key) }));
+    if (inputs.some(t => t.stocks.reduce((n, i) => n + i.quantity, 0) < t.count)) return false;
+    for (const t of inputs) { let left = t.count;
+      for (const i of t.stocks) { const n = Math.min(left, i.quantity); i.quantity -= n; i.knownQuantity = Math.min(i.quantity, i.knownQuantity); left -= n; } }
+    return true;
+  }
+  function foundingWorksTool(key, claim = '') {
+    return ensurePhysicalItemStacks().filter(i => i.key === key && i.toolInstanceId)
+      .map(stack => ({ key, stack, tool: toolInstanceById(stack.toolInstanceId)?.instance }))
+      .find(t => t.stack.quantity === 1 && t.stack.carriedBy === 'scientist'
+      && t.tool?.carriedBy === 'scientist' && t.stack.reservedTaskId === claim && t.tool.reservedTaskId === claim && t.tool.current >= 2);
+  }
+  function foundingWorksRelease(s = state.foundingWorks) {
+    if (!s?.job) return;
+    const i = foundingItem(s.job.claims.stackId), t = toolInstanceById(s.job.claims.toolId)?.instance;
+    if (i?.reservedTaskId === s.id) i.reservedTaskId = '';
+    if (t?.reservedTaskId === s.id) t.reservedTaskId = '';
+  }
+  function foundingWorksContext(part = null, runtime = false) {
+    const s = state.foundingWorks, a = foundingProtector(), source = foundingWorksSource();
+    // The heartbeat needs current institutional identity, not a fresh civic
+    // audience, private account, inventory inspection and old camp route scan.
+    // Keep every original authority/administration/defense check authoritative.
+    let base;
+    if (runtime) {
+      const b = state.sovereignBargains, office = ensureIntercitySmuggling().identityOffices?.find(o => o.id === b?.officeId);
+      const current = b && (b.testFixture ? b.source : SovereignBargains.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, b.source.cityId, office));
+      const home = ensureHomeInstitutionContext();
+      const authorityId = current && state.citySuccession?.control?.cityId === current.cityId ? state.citySuccession.control.recognizedAuthorityId : current?.authority.id;
+      base = { returnReserve: a ? s.plan.route.length * 2 * (1 + injuryEffectTotals(a).movement) + 5 : 0,
+        sourceCurrent: Boolean(b && current && foundingSourceKey({ officeId: b.officeId, source: current }) === foundingSourceKey(b)
+        && authorityId === b.source.authority.id && home?.cityId === current.cityId && home.offices[current.administrationId]?.available
+        && b.defenseAvailable !== false && foundingSourceKey() === s.plan.sourceKey
+        && b.representative.status !== 'dead' && b.representative.health > 0 && !actorIsIncapacitated(b.representative)) };
+    } else base = foundingContext();
+    const layout = s?.layout || s && FoundingWorks.layout(s.plan.origin), people = s?.people || [];
+    const safe = !allWildernessBeasts().some(v => v.status !== 'dead' && !actorIsIncapacitated(v)
+      && [scientistMapCell(), a?.mapCell, ...people.map(p => p.actor.mapCell)].filter(Boolean).some(c => c.z === v.mapCell.z
+        && mapCellDistance(c, v.mapCell) <= 5 && sensoryLineOfSight(c, v.mapCell)));
+    const kit = p => foundingItem(p.kitId);
+    const atBed = (p, n) => sameMapCell(p.actor.mapCell, layout?.beds[n]) && p.actor.roomId === s.plan.roomId;
+    const suppliedPerson = p => p.actor.status === 'alive' && !actorIsIncapacitated(p.actor) && FoundingWorks.able(p.actor)
+      && ['drinkingWater', 'trailMeal'].every(key => foundingCarried(p.actor.id, key).length
+        || foundingWorksLocalStock(p.actor.mapCell, key).some(i => !i.carriedBy));
+    const musterCells = people.map(p => p.actor.home);
+    if (!people.length && !runtime) {
+      const candidates = (ensureLabMap().rooms[s?.plan.home.roomId]?.cells || [])
+        .filter(cell => mapCellDistance(cell, SovereignBargains.COUNTER) <= 8 && !sameMapCell(cell, scientistMapCell())
+          && scientistPerceivesMapCell(cell) && labMapCellHasFloor(cell) && !labMapCellIsPathBlocked(cell, { actor: a, skipPlacement: true })
+          && !sameMapCell(cell, a?.mapCell))
+        .sort((x, y) => mapCellDistance(x, SovereignBargains.COUNTER) - mapCellDistance(y, SovereignBargains.COUNTER) || x.y - y.y || x.x - y.x);
+      for (const cell of candidates) if (foundingWorksMusterReachable(s, cell)) {
+        musterCells.push(cell); if (musterCells.length === 4) break;
+      }
+    }
+    const clear = c => labMapCellRoomId(c) === s?.plan.roomId && labMapCellHasFloor(c) && !constructedWallAtCell(c) && !wildernessObstacleAtCell(c)
+      && !fixturesAtCell(c).length && !labMapDoorAtCell(c) && scientistPerceivesMapCell(c);
+    const layoutClear = Boolean(!runtime && layout && layout.parts.every(p => p.kind === 'roof' ? !constructedFloorAtCell(p.cell) : clear(p.cell))
+      && layout.beds.every(clear) && layout.parts.every(p => labMapCellRoomId(p.work) === s.plan.roomId
+        && labMapCellHasFloor(p.work) && !constructedWallAtCell(p.work) && !wildernessObstacleAtCell(p.work)
+        && !fixturesAtCell(p.work).length && scientistPerceivesMapCell(p.work)));
+    const j = s?.job, tool = j && toolInstanceById(j.claims.toolId)?.instance, stack = j && foundingItem(j.claims.stackId);
+    const sourceCurrent = Boolean(source && s && base.sourceCurrent && source.sourceKey === s.source.sourceKey
+      && source.populationSourceId === s.source.populationSourceId);
+    const proposedSupportPath = !runtime && layout && !s?.supportPath?.length ? foundingWorksSupportPath({ ...s, layout }) : [];
+    const supportRoute = Boolean(s?.supportPath?.length ? foundingWorksSupportRoute(s) : proposedSupportPath.length);
+    const c = { ...componentBinding(), alive: !scientistIsDead(), free: annexCapable(), capable: !actorIsIncapacitated('scientist'),
+      bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      workFit: ['hunger', 'thirst', 'exertion', 'exposure'].every(key => (state.wildernessSurvival?.[key] || 0) < 80),
+      busy: Boolean(state.foundingExpedition?.job || state.foundingExpedition?.mealJob || state.foundingExpedition?.care
+        || scientistQueueTasks().some(t => !taskBlockReason(t)) || state.combat?.pendingActions?.scientist || state.combat?.routineSuspension),
+      sourceCurrent, atCamp: Boolean(s && scientistRoomId() === s.plan.roomId && state.wildernessSurvival?.context?.siteId === s.siteId
+        && state.wildernessSurvival.context.worldId === s.worldId && mapCellDistance(scientistMapCell(), s.plan.work) <= 8), atCounter: Boolean(s && scientistRoomId() === s.plan.home.roomId
+          && sameMapCell(scientistMapCell(), SovereignBargains.COUNTER) && foundingNear(state.sovereignBargains?.representative, 3)),
+      safe, campIntact: foundingCampIntact(), representativePresent: base.representativePresent, advanceReturned: state.foundingExpedition?.phase === 'returned',
+      protectorWilling: base.protectorWilling, protectorIncapacitated: Boolean(a && actorIsIncapacitated(a)), competingDuty: base.competingDuty, returnReserve: base.returnReserve,
+      protectorAtHome: base.atHome, protectorPresent: Boolean(a?.status === 'alive' && a.assignment === s?.id && !actorIsIncapacitated(a)
+        && a.roomId === s.plan.roomId && sameMapCell(a.mapCell, s.plan.post) && a.stamina >= 15 && a.wardMana >= 12
+        && a.workSeconds > (base.returnReserve || 0) + 1 && a.exceptionalCapabilities?.includes('city-scale ward defense')),
+      routeOpen: supportRoute, supportRoute, proposedSupportPath, layoutClear,
+      availablePopulation: source?.availableLabor ?? null,
+      musterCells, musterClear: musterCells.length === 4 && musterCells.every(cell => labMapCellHasFloor(cell) && !labMapCellIsPathBlocked(cell, { actor: a, skipPlacement: true })),
+      returnAdmission: sourceCurrent ? { cityId: source.cityId, populationSourceId: source.populationSourceId, sourceKey: source.sourceKey, scope: 'Original named residents return to their original municipal muster only; no foreign admission or city title.' } : null,
+      partySupplied: Boolean(a && people.length === 4 && [a, ...people.map(p => p.actor)].every(a =>
+        foundingCarried(a.id, 'drinkingWater').reduce((n, i) => n + i.quantity, 0) >= 2 && foundingCarried(a.id, 'trailMeal').length)
+        && people.every(p => foundingCarried(p.actor.id, 'fieldShelter').some(i => i.quantity === 1))),
+      supplied: Boolean(people.length === 4 && people.every((p, n) => suppliedPerson(p)
+        && kit(p)?.reservedTaskId === s.id && !kit(p).carriedBy && sameMapCell(kit(p).cell, layout.beds[n])) && a && suppliedPerson({ actor: a })),
+      jobAttendance: !j || (j.kind === 'investigation' ? sameMapCell(scientistMapCell(), j.claims.cell || s.plan.work) : (() => {
+        const part = layout?.parts.find(p => p.id === j.partId);
+        return part && mapCellDistance(scientistMapCell(), part.work) <= 1 && sensoryLineOfSight(scientistMapCell(), part.work);
+      })()),
+      toolCurrent: Boolean(tool && stack?.toolInstanceId === tool.id && stack.carriedBy === 'scientist' && tool.carriedBy === 'scientist'
+        && stack.reservedTaskId === s.id && tool.reservedTaskId === s.id && tool.current >= Math.max(.01, 2 - j.wear)),
+      targetClear: Boolean(part && (part.kind === 'roof' ? !constructedFloorAtCell(part.cell) && constructedFloorAtCell(part.work)?.purpose === 'floor'
+        && constructedFloorAtCell(part.work)?.condition >= 50 && labMapCellIsWalkable(part.work)
+        : clear(part.cell) && (!['wall', 'gate', 'store'].includes(part.kind) || tileOccupiedAreaM2(part.cell) <= TILE_OCCUPANCY_EPSILON))
+        && mapCellDistance(scientistMapCell(), part.work) <= 1 && sensoryLineOfSight(scientistMapCell(), part.work)),
+      originalPart: Boolean(j?.kind === 'construction' && (() => {
+        const part = layout?.parts.find(p => p.id === j.partId);
+        return foundingWorksPartValue(part) && labMapCellHasFloor(part.work) && !constructedWallAtCell(part.work)
+          && (part.kind !== 'roof' || constructedFloorAtCell(part.work)?.purpose === 'floor' && constructedFloorAtCell(part.work)?.condition >= 50);
+      })()),
+      observedIds: runtime ? [] : [a, ...people.map(p => p.actor)].filter(a => foundingNear(a, 8)).map(a => a.id),
+      observedParts: runtime ? [] : layout?.parts.filter(p => scientistPerceivesMapCell(p.kind === 'roof' ? p.work : p.cell))
+        .map(p => ({ id: p.id, condition: foundingWorksPartValue(p)?.condition ?? 0, progress: s?.parts[p.id]?.progress || 0 })) || [],
+      physicalWorksIntact: Boolean(!runtime && layout && layout.parts.every(p => foundingWorksPartValue(p)?.condition >= 50)),
+      arrived: () => Boolean(a && sameMapCell(a.mapCell, s.plan.post) && people.every((p, n) => atBed(p, n)
+        && kit(p)?.reservedTaskId === s.id && !kit(p).carriedBy && sameMapCell(kit(p).cell, layout.beds[n]))),
+      returned: () => Boolean((!a || a.status === 'dead' || sameMapCell(a.mapCell, s.plan.home.cell))
+        && people.every(p => p.actor.status === 'dead' || p.phase === 'returned')) };
+    return c;
+  }
+  function foundingWorksInstall(part, receipt, fraction, at) {
+    const s = state.foundingWorks, map = ensureLabMap(); let value = foundingWorksPartValue(part);
+    if (!receipt.physicalId) {
+      if (['wall', 'floor', 'roof'].includes(part.kind)) {
+        const key = part.kind === 'wall' ? 'constructedWalls' : 'constructedFloors';
+        map.terrain[key] = normalizeConstructedSurfaces([...map.terrain[key], { cell: part.cell,
+          materialId: part.kind === 'roof' ? 'lumber' : 'stoneBlocks',
+          ...(part.kind === 'wall' ? { materialComposition: { primary: 'stone', reinforcement: 'steel' } } : { purpose: part.kind, supportSpanM: 3 }),
+          condition: 1, builtAt: receipt.startedAt }]); receipt.physicalId = mapCellKey(part.cell);
+      } else if (part.kind === 'gate') {
+        createConstructedDoor(part.cell, CONSTRUCTION_BUILD_DEFS.find(d => d.id === 'roughWoodDoor'), map);
+        receipt.physicalId = labMapDoorAtCell(part.cell, map).id;
+        Object.assign(state.doors[receipt.physicalId], { condition: 1, builtAt: receipt.startedAt, state: DOOR_STATE_OPEN,
+          materialComposition: { primary: 'wood', reinforcement: 'steel' } });
+        Object.assign(map.doors[receipt.physicalId], { frameAxis: 'northSouth', passageAxis: 'eastWest' });
+      } else {
+        receipt.physicalId = `${s.id}:supply-store`;
+        state.fixtures.push(defaultFixtureInstance(receipt.physicalId, 'storageCrate', part.cell, 0,
+          { name: 'Founding works supply store', materialPolicy: 'wood', condition: 1, operationalState: 'unfinished', accessState: 'open', installedAt: receipt.startedAt }));
+      }
+      value = foundingWorksPartValue(part); bumpNavigationRevision('topology');
+    }
+    if (value && fraction > 0) value.condition = Math.min(100, value.condition + fraction * 99);
+    if (part.kind === 'store' && receipt.progress >= part.seconds && value) value.operationalState = 'operational';
+  }
+  function foundingWorksAbsorb(attackerId, targetId, cell, amount, damageTypes) {
+    const s = state.foundingWorks, a = foundingProtector(), attacker = s && combatActor(attackerId);
+    if (!s || !a || !cell || !FoundingWorks.active(s)) return { damage: amount, absorbed: 0 };
+    const c = { ...componentBinding(), alive: !scientistIsDead(), sourceCurrent: Boolean(foundingWorksSource()?.sourceKey === s.source.sourceKey),
+      protectorPresent: a.status === 'alive' && a.assignment === s.id && a.roomId === s.plan.roomId && sameMapCell(a.mapCell, s.plan.post)
+        && a.stamina >= 15 && !actorIsIncapacitated(a), incapacitated: actorIsIncapacitated(a),
+      lineOfEffect: a.mapCell.z === cell.z && mapCellDistance(a.mapCell, cell) <= 5 && sensoryLineOfSight(a.mapCell, cell)
+        && attacker?.mapCell && sensoryLineOfSight(a.mapCell, attacker.mapCell),
+      hostileBeast: attacker?.actorKind === 'wildernessBeast' && attacker.status === 'alive', returnReserve: s.plan.route.length * 2 + 5 };
+    const result = FoundingWorks.absorb(s, a, c, { targetId, amount, damageTypes }, state.clock);
+    if (result.absorbed && foundingNear(a, 8) && sensoryLineOfSight(scientistMapCell(), cell)) emitMapFeedback('feedbackImpact', cell, { label: `Founding protector intercepted ${formatNumber(result.absorbed)}`, intensityBand: 'medium', damageTags: ['force'] });
+    return result;
+  }
+  function foundingWorksAction(action, options = {}) {
+    const s = ensureFoundingWorks(); if (!s || scientistIsDead()) return false;
+    const a = foundingProtector(), part = s.layout?.parts.find(p => p.id === options.partId), c = foundingWorksContext(part); let ok = false, refusal = '';
+    if (action === 'investigate') {
+      const t = foundingWorksTool('environmentalSurveyKit'), rec = t && diagnosticInstrumentRecord(t.tool.id);
+      const context = ensureResourceSurveys().sites[s.siteId];
+      const known = new Set(Object.keys(state.mapCellObservations || {}));
+      const cells = (ensureLabMap().rooms[s.plan.roomId]?.cells || []).filter(cell => known.has(mapCellKey(cell))
+        && mapCellDistance(cell, s.plan.work) <= 8 && !constructedFloorAtCell(cell) && !constructedWallAtCell(cell) && !wildernessObstacleAtCell(cell));
+      const captured = FoundingWorks.measurement(options.kind, context, cells.length, state.clock);
+      if (t && rec.calibration >= 65 && skillLevel('materialsScience') >= 20 && skillLevel('analysis') >= 20)
+        ok = FoundingWorks.beginInvestigation(s, c, options.kind, { toolId: t.tool.id, stackId: t.stack.id, cell: cleanMapCell(scientistMapCell()) }, captured,
+          () => foundingWorksSpend(scientistMapCell(), { preparedManaCrystals: 1, assayReagent: 1 }), state.clock);
+      if (!ok) refusal = !t ? 'Carry an unclaimed original usable environmental survey kit.' : rec.calibration < 65 ? 'The carried survey kit needs calibration of at least 65.'
+        : skillLevel('materialsScience') < 20 || skillLevel('analysis') < 20 ? 'Both actual materials-science and analysis execution skills must reach 20; retained knowledge alone does not replace bodily instrument practice.'
+        : !captured ? 'The original local resource context is unavailable.' : 'Attend the intact original camp with safe access, no other work, and one actual prepared mana crystal and assay reagent beside the scientist. Each investigation can be completed only once.';
+      if (ok) { t.stack.reservedTaskId = t.tool.reservedTaskId = s.id; }
+    } else if (action === 'layout') {
+      ok = FoundingWorks.registerLayout(s, c, FoundingWorks.layout(s.plan.origin), state.clock);
+      if (ok) s.supportPath = c.proposedSupportPath.map(cleanMapCell);
+    } else if (action === 'route' && c.atCamp && c.safe && c.capable && c.free && !c.busy && s.layout && !s.job?.running) {
+      const path = foundingWorksSupportPath(s);
+      if (path.length) { s.supportPath = path.map(cleanMapCell); ok = true; }
+    } else if (action === 'review') ok = Boolean(FoundingWorks.review(s, a, c, state.clock));
+    else if (action === 'accept') ok = FoundingWorks.accept(s, a, c, options.expected, ensureEconomy(), state.clock);
+    else if (action === 'give') {
+      const target = [a, ...foundingWorksActors()].find(a => a?.id === options.actorId);
+      if (c.free && c.capable && !c.busy && target?.status === 'alive' && foundingNear(target)
+        && ['drinkingWater', 'trailMeal', 'fieldShelter'].includes(options.key)) ok = foundingTransfer('scientist', target.id, options.key);
+    } else if (action === 'depart') {
+      const ids = s.people.map(p => foundingCarried(p.actor.id, 'fieldShelter').find(i => i.quantity === 1)?.id);
+      ok = FoundingWorks.depart(s, a, c, ids, state.clock);
+      if (ok) for (const id of ids) foundingItem(id).reservedTaskId = s.id;
+    } else if (action === 'build' && part) {
+      const t = foundingWorksTool('masonryHammer');
+      if (t) ok = FoundingWorks.beginPart(s, c, part.id, { toolId: t.tool.id, stackId: t.stack.id, cell: cleanMapCell(scientistMapCell()) },
+        () => foundingWorksSpend(part.work, part.costs), state.clock);
+      if (ok) { t.stack.reservedTaskId = t.tool.reservedTaskId = s.id; foundingWorksInstall(part, s.parts[part.id], 0, state.clock); }
+    } else if (action === 'pause' && s.job && c.capable && !c.busy) {
+      s.job.running = false; s.job.attended = false; foundingWorksRelease(s); ok = true;
+    } else if (action === 'resume' && s.job && c.free && c.capable && !c.busy && c.atCamp && c.safe && c.campIntact && c.sourceCurrent
+      && c.jobAttendance && c.bodyEpoch === s.job.bodyEpoch && (!s.agreement || s.phase === 'works' && c.originalPart && state.clock < s.agreement.endsAt)) {
+      const t = foundingWorksTool(s.job.kind === 'investigation' ? 'environmentalSurveyKit' : 'masonryHammer');
+      if (t?.tool.id === s.job.claims.toolId && t.stack.id === s.job.claims.stackId) {
+        t.stack.reservedTaskId = t.tool.reservedTaskId = s.id; s.job.running = true; s.job.attended = false; s.job.lastAt = state.clock; ok = true;
+      }
+    } else if (action === 'withdraw' && c.free && c.capable && !c.busy && (c.atCamp || c.atCounter) && foundingNear(a)) {
+      ok = FoundingWorks.interrupt(s, state.clock, 'Personally withdrew from founding work. Same survivors must return physically; materials, protection fee and earned wages are not refunded.');
+      if (ok) foundingWorksRelease(s);
+    } else if (action === 'releaseProperty' && ['abandoned', 'closed'].includes(s.phase) && c.atCamp && c.free && c.capable && !c.busy) {
+      // Abandonment does not teleport or refund deployed property. A capable
+      // personal visit can release only the original, physically nearby kits.
+      for (const p of s.people) {
+        const kit = foundingItem(p.kitId);
+        if (kit && !kit.carriedBy && kit.reservedTaskId === s.id && mapCellDistance(kit.cell, scientistMapCell()) <= 1
+          && sensoryLineOfSight(scientistMapCell(), kit.cell)) { kit.reservedTaskId = ''; ok = true; }
+      }
+    } else if (action === 'milestone') ok = FoundingWorks.milestone(s, c, state.clock);
+    else if (action === 'settle') ok = FoundingWorks.settle(s, c, ensureEconomy());
+    else if (action === 'report') ok = FoundingWorks.receive(s, c, a, state.clock);
+    s.notice = { at: state.clock, text: ok ? `${action}: personally issued founding action.` : refusal || (action === 'review' ? s.reason
+      : 'No action taken. Attend physically with the exact original people, measured site, tools, finite local supplies and clear authorized ground. No inputs, people or progress are invented.') };
+    syncActorInventories(); syncPhysicalReadModels(); persist(); render(); return ok;
+  }
+  function foundingWorksSpendDuty(person, seconds) {
+    const used = Math.max(0, Math.min(person.duty, seconds));
+    person.duty = Math.max(0, person.duty - used);
+    const earned = Math.min(FoundingWorks.DUTY * FoundingWorks.WAGE, (FoundingWorks.DUTY - person.duty) * FoundingWorks.WAGE);
+    person.actor.money = (person.actor.money || 0) + earned - person.earned; person.earned = earned;
+    return used;
+  }
+  function foundingWorksMove(s, actor, destination, at, person = null) {
+    if (!actor || actor.status === 'dead' || actorIsIncapacitated(actor) || !FoundingWorks.able(actor) || at < (actor.foundingMoveAt || 0)) return false;
+    const stepCost = 2 * (1 + injuryEffectTotals(actor).movement), budget = person ? person.duty : actor.workSeconds;
+    if (budget < stepCost) return false;
+    const path = foundingWorksRoute(s, actor, destination), next = path[1]; if (!next || pathAccessViolations(actor, [actor.mapCell, next]).length) return false;
+    const door = labMapDoorAtCell(next);
+    if (door && !doorFixtureAllowsPassage(door)) {
+      if (!doorFixtureAllowsPassage(door, { ignoreDoors: true })) return false;
+      state.doors[door.id].state = DOOR_STATE_OPEN; bumpNavigationRevision('door');
+    } else {
+      if (labMapCellIsPathBlocked(next, { actor, skipPlacement: true })
+        || allWildernessBeasts().some(v => v.status !== 'dead' && sameMapCell(v.mapCell, next))) return false;
+      fieldCharterMoveActor(actor, labMapCellRoomId(next) || actor.roomId, next);
+    }
+    if (person) foundingWorksSpendDuty(person, stepCost);
+    else { actor.workSeconds -= stepCost; actor.stamina = Math.max(0, actor.stamina - .05); }
+    actor.foundingMoveAt = at + stepCost; actor.foundingWalkedAt = at; return true;
+  }
+  function foundingWorksCare(s, actor, at, working = false) {
+    if (actor.status === 'dead') return;
+    actor.needs ||= WildernessSurvival.defaultState(at);
+    const dt = Math.max(0, at - actor.needs.lastAt);
+    if (dt > 2) { actor.needs.lastAt = at; actor.foundingCare = null; return; }
+    const person = s.people.find(p => p.actor.id === actor.id), bed = person && s.layout.beds[s.people.indexOf(person)];
+    const kit = person && foundingItem(person.kitId);
+    const sheltered = person ? kit?.reservedTaskId === s.id && !kit.carriedBy && sameMapCell(kit.cell, bed) && sameMapCell(actor.mapCell, bed)
+      : foundingShelteredAt(actor.mapCell);
+    const result = WildernessSurvival.advance(actor.needs, at, { working, resting: !working, sheltered,
+      destination: actor.roomId === s.plan.roomId ? state.wildernessSurvival?.destination : null });
+    actor.needs = result.state; actor.fatigue = actor.needs.exertion;
+    if (result.damage) actor === foundingProtector() ? damageCityDefender(result.damage, { injuryProgress: true }, actor)
+      : damageSurfaceWorker(result.damage, { injuryProgress: true }, actor);
+    const key = actor.needs.thirst >= 40 ? 'drinkingWater' : actor.needs.hunger >= 50 ? 'trailMeal' : '';
+    if (!key || actorIsIncapacitated(actor)) { actor.foundingCare = null; return; }
+    const goods = [...foundingCarried(actor.id, key), ...foundingWorksLocalStock(actor.mapCell, key).filter(i => !i.carriedBy)];
+    const care = actor.foundingCare, item = care && goods.find(i => i.id === care.stackId);
+    if (!care) { if (goods.length) actor.foundingCare = { key, stackId: goods[0].id, beganAt: at, lastAt: at }; }
+    else if (!item || at - care.lastAt > 2) actor.foundingCare = null;
+    else { care.lastAt = at; if (at - care.beganAt >= 20) { item.quantity--; item.knownQuantity = Math.min(item.quantity, item.knownQuantity);
+      actor.needs = WildernessSurvival.consume(actor.needs, care.key); actor.foundingCare = null; } }
+  }
+  function updateFoundingWorks() {
+    const s = state.foundingWorks, a = foundingProtector(), at = state.clock;
+    if (!FoundingWorks.bound(s, componentBinding()) || scientistIsDead() || (!s.job && !FoundingWorks.active(s))) return 0;
+    const c = foundingWorksContext(null, true), dt = at - s.lastAt;
+    if (s.agreement && dt > 0 && dt <= 2) {
+      for (const p of s.people) {
+        const attended = s.job?.running && s.job.attended && c.atCamp && c.safe && c.toolCurrent && c.supplied && !c.busy;
+        foundingWorksCare(s, p.actor, at, ['outward', 'returning'].includes(p.phase) || Boolean(attended && p.working) || at - (p.actor.foundingWalkedAt ?? -Infinity) <= 2);
+        p.working = false;
+      }
+      if (a?.assignment === s.id) {
+        foundingWorksCare(s, a, at, ['outward', 'returning'].includes(s.phase));
+        if (a.status === 'alive') {
+          const beast = allWildernessBeasts().find(v => v.status !== 'dead' && v.mapCell.z === a.mapCell.z
+            && mapCellDistance(v.mapCell, a.mapCell) <= 1 && sensoryLineOfSight(a.mapCell, v.mapCell));
+          if (beast && a.stamina >= 6 && a.workSeconds >= 5 && !actorIsIncapacitated(a) && at >= (s.nextAttackAt || 0)) {
+            a.stamina -= 6; a.workSeconds -= 5; s.nextAttackAt = at + 5;
+            resolveSharedCombatAction(a.id, 'strike', { kind: 'creature', id: beast.id }, { hideFeedback: !foundingNear(a, 8) });
+          }
+          // Finite vigilance, not an all-encompassing city ward or refill.
+          if (s.phase === 'works') a.wardMana = Math.max(0, a.wardMana - dt / 3600);
+        }
+      }
+    }
+    const hooks = {
+      travel: returning => {
+        if (a && a.assignment === s.id && a.status !== 'dead') foundingWorksMove(s, a, returning ? s.plan.home.cell : s.plan.post, at);
+        for (const [n, p] of s.people.entries()) {
+          if (p.actor.status === 'dead' || p.phase === 'returned') continue;
+          if (!returning && !c.safe) continue;
+          const destination = returning ? p.actor.home : s.layout.beds[n];
+          if (!sameMapCell(p.actor.mapCell, destination)) foundingWorksMove(s, p.actor, destination, at, p);
+          if (sameMapCell(p.actor.mapCell, destination)) {
+            const kit = foundingItem(p.kitId);
+            if (!returning && kit?.carriedBy === p.actor.id && kit.reservedTaskId === s.id) {
+              const work = Math.min(1, p.duty, 120 - (p.deployProgress || 0));
+              p.deployProgress = (p.deployProgress || 0) + work;
+              foundingWorksSpendDuty(p, work);
+              if (p.deployProgress >= 120) { kit.carriedBy = ''; kit.cell = cleanMapCell(destination); kit.roomId = s.plan.roomId; }
+            }
+            if (returning) {
+              p.phase = 'returned'; if (s.ledger.departed.includes(p.actor.id) && !s.ledger.returned.includes(p.actor.id)) s.ledger.returned.push(p.actor.id);
+              p.actor.assignment = null;
+            }
+          }
+        }
+      },
+      labor: seconds => {
+        const part = s.layout.parts.find(p => p.id === s.job?.partId); let work = 0;
+        const maxDuty = Math.max(...s.people.filter(p => p.phase === 'resident' && p.willing && FoundingWorks.able(p.actor)).map(p => p.duty), 0);
+        for (const p of [...s.people].sort((a, b) => b.duty - a.duty || a.actor.id.localeCompare(b.actor.id))) {
+          p.working = false;
+          if (p.phase !== 'resident' || !p.willing || p.actor.foundingCare || !FoundingWorks.able(p.actor) || actorIsIncapacitated(p.actor) || p.duty <= 0) continue;
+          const reserve = ((s.supportPath?.length || s.plan.route.length) + 24) * 2 * (1 + injuryEffectTotals(p.actor).movement);
+          if (p.duty < maxDuty - 1800 || p.duty <= reserve) {
+            // Narrow workfaces must not always exhaust the same three people
+            // while a fourth never gets a position. Rotation is physical and
+            // paid; neither rest nor waiting restores the finite work budget.
+            const ownBed = s.layout.beds[s.people.indexOf(p)];
+            const restCells = [ownBed, ...s.layout.beds,
+              ...[-1, 0, 1, 2, 3].flatMap(x => [-1, 0, 1, 2, 3].map(y => ({ x: s.plan.origin.x + x, y: s.plan.origin.y + y, z: s.plan.origin.z })))];
+            const rest = restCells.find(cell => mapCellDistance(cell, part.work) > 1 && labMapCellHasFloor(cell)
+              && !labMapCellIsPathBlocked(cell, { actor: p.actor, skipPlacement: true }));
+            if (rest && !sameMapCell(p.actor.mapCell, rest)) foundingWorksMove(s, p.actor, rest, at, p);
+            continue;
+          }
+          if (mapCellDistance(p.actor.mapCell, part.work) > 1 || !sensoryLineOfSight(p.actor.mapCell, part.work)) {
+            // Move to a real adjacent free work position, not through the work itself.
+            const choices = [part.work, ...cardinalMapCells(part.work)].filter(cell => labMapCellRoomId(cell) === s.plan.roomId
+              && !sameMapCell(cell, part.cell) && !s.layout.parts.some(p => ['wall', 'gate', 'store'].includes(p.kind) && sameMapCell(p.cell, cell))
+              && !labMapCellIsPathBlocked(cell, { actor: p.actor, skipPlacement: true }));
+            const goal = choices.sort((x, y) => mapCellDistance(x, p.actor.mapCell) - mapCellDistance(y, p.actor.mapCell))[0];
+            if (goal) foundingWorksMove(s, p.actor, goal, at, p); continue;
+          }
+          const impairment = 1 + injuryEffectTotals(p.actor).work;
+          const n = Math.min(seconds, p.duty - reserve, (s.job.seconds - s.job.progress - work) * impairment); if (n <= 0) continue;
+          foundingWorksSpendDuty(p, n); work += n / impairment; p.working = true;
+        }
+        return work;
+      },
+      effort: amount => spendStamina(amount),
+      wear: amount => { const t = toolInstanceById(s.job.claims.toolId)?.instance; if (t) t.current = Math.max(0, t.current - amount); },
+      install: foundingWorksInstall,
+      release: () => foundingWorksRelease(s)
+    };
+    const changed = FoundingWorks.advance(s, a, c, hooks, at);
+    if (s.phase === 'returning') foundingWorksRelease(s);
+    return changed ? 1 : 0;
+  }
+  function renderFoundingWorks() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.foundingWorks = 'true';
+    panel.append(textEl('h3', 'Prospective city: works and settlers'), textEl('p', FoundingWorks.LIMITS));
+    const s = ensureFoundingWorks();
+    if (!s) { panel.append(textEl('p', 'First demonstrate the original advance camp. A real populated municipal source is required; no replacement camp, guardian or residents are supplied.')); return panel; }
+    const c = foundingWorksContext();
+    if (s.notice) panel.append(textEl('p', `${formatClock(s.notice.at)} — ${s.notice.text}`));
+    const button = (label, action, options = {}) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
+      b.disabled = scientistIsDead() || !annexCapable(); b.onclick = () => foundingWorksAction(action, options); panel.append(b); };
+    panel.append(textEl('p', 'At the original camp: use an actually carried calibrated environmental survey kit (65+), materials science and analysis (20+). Each assessment spends one prepared mana crystal and one assay reagent. Ground coverage includes only personally explored local tiles; a short flow test is not drinking water.'));
+    for (const kind of ['stone', 'water', 'ground']) button(`Investigate founding ${kind} here`, 'investigate', { kind });
+    button('Lay out original founding defensive compound', 'layout');
+    button('Reinspect personally known founding gate support path', 'route');
+    panel.append(textEl('p', 'Clear and personally inspect a 7 × 7 construction footprint around the original camp: offset −2 to +4 in each axis, west gate at offset −2,+1. Keep a known authorized walking connection through that gate. This is a supplied construction foothold, not an independent isolated-refuge exemption.'));
+    button('Discuss original three-day founding commitment', 'review');
+    if (s.quote) { panel.append(textEl('p', `${formatClock(s.quote.at)} — expires ${formatClock(s.quote.expiresAt)}. ${formatMoney(s.quote.fee)} nonrefundable protector fee; ${formatMoney(s.quote.wageEscrow)} separate construction wage escrow. ${s.quote.scope}`));
+      button('Accept exactly this founding works agreement', 'accept', { expected: clonePlainObject(s.quote) }); }
+    if (s.agreement) {
+      panel.append(textEl('p', `Signed ${formatClock(s.agreement.acceptedAt)}, ends ${formatClock(s.agreement.endsAt)}. Four original source residents and the original protector only. No duty, health, personal energy or inventory reset. Wages accrue for actual travel/labor. Local growing ground cannot feed a city; import provisions physically.`));
+      for (const actor of [foundingProtector(), ...foundingWorksActors()].filter(a => foundingNear(a, 8))) {
+        panel.append(textEl('h5', actor.name));
+        for (const key of ['fieldShelter', 'drinkingWater', 'trailMeal']) button(`Give ${actor.name} one ${inventoryItemLabel(key)}`, 'give', { actorId: actor.id, key });
+      }
+    }
+    button('Depart with original supplied founding party', 'depart');
+    if (s.layout) {
+      panel.append(textEl('p', `Planned compound inputs: ${Object.entries(FoundingWorks.totals(s.layout.parts)).map(([k, n]) => `${n} ${inventoryItemLabel(k)}`).join(', ')}. Stage each part's actual owned inputs within one tile of its work position; no remote draw, bulk carrying bypass or free freight.`));
+      for (const p of s.layout.parts) if (c.atCamp) {
+        panel.append(textEl('p', `${p.id}: target ${p.cell.x},${p.cell.y},${p.cell.z}; work/staging position ${p.work.x},${p.work.y},${p.work.z}. ${Object.entries(p.costs).map(([key, n]) => `${n} ${inventoryItemLabel(key)}`).join(', ')}; ${formatDuration(p.seconds)} person-work. Corner courses use adjacent exterior access, not construction through completed walls.`));
+        button(`Construct founding ${p.id} (${p.cell.x},${p.cell.y},${p.cell.z})`, 'build', { partId: p.id });
+      }
+    }
+    button('Pause founding works and release tool', 'pause'); button('Resume same original founding work', 'resume');
+    button('Inspect supplied founding construction milestone', 'milestone'); button('Withdraw original founding party', 'withdraw');
+    button('Collect unused founding wages after actual return', 'settle'); button('Receive personal founding works account', 'report');
+    button('Release nearby abandoned migrant kit claims here', 'releaseProperty');
+    if (s.job && c.atCamp) panel.append(textEl('p', `Attended ${s.job.kind}: ${Math.floor(s.job.progress)} / ${s.job.seconds} person-seconds. ${s.job.running ? 'Working only with real support' : 'Paused'}; original inputs and damage persist.`));
+    if (s.report) {
+      const r = s.report; panel.append(textEl('p', `${formatClock(r.at)} — ${r.location}. Dated received evidence, not live remote readiness.`));
+      for (const [kind, v] of Object.entries(r.investigations)) panel.append(textEl('p', `${kind}, measured ${formatClock(v.at)}: ${kind === 'stone' ? `${v.estimatedStoneTonnes} tonnes estimated`
+        : kind === 'water' ? `${v.testLitresPerDay} litres/day short-test flow` : `${v.cultivableSquareMetres} m² cultivable within ${v.testedSquareMetres} m² observed local ground`}. ${v.qualification}`));
+      for (const p of r.people) panel.append(textEl('p', `${p.name}: ${p.phase}, health ${formatNumber(p.health)}, ${formatDuration(p.duty)} paid work remaining, ${formatMoney(p.earned)} earned.`));
+      if (r.population) panel.append(textEl('p', `Original city ledger at receipt: ${r.population.allocated} identified residents, ${r.population.departed} departures and ${r.population.receivedReturns} received returns. Departed residents cannot also supply source labor.`));
+      if (r.parts) panel.append(textEl('p', `Personally visible works: ${r.parts.filter(p => p.condition >= 50).length} usable of ${r.parts.length} inspected components. Unseen parts remain unverified.`));
+      if (r.milestoneAt != null) panel.append(textEl('p', `Historical construction milestone ${formatClock(r.milestoneAt)}. Operational city assessment and independent civic integration remain separate.`));
+    }
+    return panel;
+  }
   function regionalOperationSources() {
     const sources = [], siteId = state.localSiteContext?.candidateId || 'original-laboratory';
     if (siteId) sources.push({ id: `laboratory:${siteId}`, kind: 'laboratory', sourceId: siteId, siteId, label: 'Original laboratory' });
@@ -93214,7 +93719,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const escort = escortContractActive() && actor?.status !== "dead" && actor?.roomId === activeWildernessRoom() ? actor : null;
     const medic = state.medicalExtraction?.medic?.status !== "dead" && state.medicalExtraction?.medic?.roomId === activeWildernessRoom() ? state.medicalExtraction.medic : null;
     const porters = [...fieldEmployeeStates(), ...fieldForceMembers()].map(s => s.actor).concat(producerDriverActors().filter(a => a.logisticsRole === 'awaySupply'))
-      .concat(FoundingExpedition.active(state.foundingExpedition) && foundingProtector() || [])
+      .concat((FoundingExpedition.active(state.foundingExpedition) || FoundingWorks.active(state.foundingWorks)) && foundingProtector() || [], foundingWorksActors())
       .filter(a => a.status !== 'dead' && a.roomId === activeWildernessRoom());
     if ((!scientistInWilderness() && !escort && !medic && !porters.length && currentFieldCharter()?.driver.roomId !== activeWildernessRoom()) || scientistIsDead()) {
       for (const beast of saved.actors) { beast.nextMoveAt += Math.max(0, elapsed); beast.nextAttackAt += Math.max(0, elapsed); }
@@ -93545,7 +94050,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const before = ensureWildernessSurvival();
     const task = firstScientistQueueTask(), trip = state.leasedAnnex?.trip;
     const walking = trip && !trip.paused && !trip.reason && !surveyBusy() && annexCapable();
-    const working = Boolean(state.foundingExpedition?.job?.running || walking || task && task.type !== "rest" && !taskBlockReason(task));
+    const working = Boolean(state.foundingWorks?.job?.running && state.foundingWorks.job.attended || state.foundingExpedition?.job?.running || walking || task && task.type !== "rest" && !taskBlockReason(task));
     const result = fieldCharterOwnsRoad() ? WildernessSurvival.advance(before, state.clock, { working, resting: task?.type === 'rest',
       destination: state.overlandApproach?.weather, sheltered: false, carriedRadioIds: surveyCarriedStacks().map(i => i.id) }) : overlandOnRoad() ? advanceOverlandWithNeeds(before)
       : WildernessSurvival.advance(before, state.clock, { working, resting: scientistInClinicCare() || task?.type === "rest", destination: outerApproachLocal() ? outerApproachGate() : scientistInWilderness() ? activeWildernessSite().destination : null, sheltered: wildernessSheltered(), temperatureAt: fieldRefugeOccupant() && refugeTemperatures ? at => refugeTemperatures.values[Math.floor(at - refugeTemperatures.fromAt)] : null, carriedRadioIds: surveyCarriedStacks().map((stack) => stack.id) });
@@ -94958,7 +95463,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     // Generated worlds are immutable. Avoid expanding every city's legal/civic directory each simulation tick.
     let cache = passengerReceptionSourceCache.get(map);
     if (!cache) { cache = new Map(); passengerReceptionSourceCache.set(map, cache); }
-    if (cache.has(cityId)) return cache.get(cityId);
+    if (cache.has(cityId)) { const cached = cache.get(cityId);
+      return cached ? { ...cached, currentPopulation: FoundingWorks.population(state.foundingWorks, cityId, cached.currentPopulation).residents } : null; }
     const row = map?.strategicPlayableSettlementState?.cityRows.find(c => c.cityId === cityId);
     const government = map?.cityGovernments?.governments.find(g => g.cityId === cityId);
     const administration = government?.institutions.find(i => i.id === government.roleAssignments.centralAdministration);
@@ -94975,7 +95481,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       researchRecords: ForeignResearchInquiry.recordsFrom(administration, law, current?.institutionId || administration.id),
       localRules: law.offenseRules.filter(r => ['geneticEngineering', 'animancy', 'contrabandCommerce', 'obstructionOfLawfulProcess'].includes(r.offenseId))
         .map(r => ({ offenseId: r.offenseId, legalStatus: r.legalStatus, summary: r.summary || r.label || r.offenseId })) };
-    cache.set(cityId, source); return source;
+    cache.set(cityId, source); return { ...source, currentPopulation: FoundingWorks.population(state.foundingWorks, cityId, source.currentPopulation).residents };
   }
   function preparePassengerReception(cityId, label, z, testSource = null) {
     const source = testSource || passengerReceptionSource(cityId), saved = ensureCityApproach();
@@ -98952,7 +99458,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return ["scientistMove", "surveyExpeditionWork", "physicalDiagnostic", "hiddenWorkshopWork"].includes(task.type)
       || task.type === 'soulBeaconWork' && hiddenWorkshopLocal() && labMapCellRoomId(target) === state.hiddenWorkshop?.site?.roomId;
   }
-  function surveyBusy(ignoreInquiry = false, ignoreCivic = false) { return Boolean(state.foundingExpedition?.job?.running) || (!ignoreInquiry && Boolean(passengerReceptionGate()?.researchInquiry?.job)) || (!ignoreCivic && foreignCivicWork(passengerReceptionGate())) || scientistQueueTasks().some((task) => !taskBlockReason(task)); }
+  function surveyBusy(ignoreInquiry = false, ignoreCivic = false) { return Boolean(state.foundingWorks?.job?.running || state.foundingExpedition?.job?.running) || (!ignoreInquiry && Boolean(passengerReceptionGate()?.researchInquiry?.job)) || (!ignoreCivic && foreignCivicWork(passengerReceptionGate())) || scientistQueueTasks().some((task) => !taskBlockReason(task)); }
   function surveyEvent(message) { addEvent(message, { sourceKind: "surveyExpedition" }); }
   function surveyCarriedStacks() { return ensurePhysicalItemStacks().filter((entry) => entry.carriedBy === "scientist"); }
   function surveyQuote() {
@@ -106709,6 +107215,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.awayOperation = AwayOperation.normalize(candidate?.awayOperation);
     next.regionalOperations = RegionalOperations.normalize(candidate?.regionalOperations);
     next.foundingExpedition = FoundingExpedition.normalize(candidate?.foundingExpedition);
+    next.foundingWorks = FoundingWorks.normalize(candidate?.foundingWorks);
     next.fieldWater = candidate?.fieldWater ? clonePlainObject(candidate.fieldWater) : FieldWater.create();
     next.surveyExpeditions = SurveyExpeditions.normalizeState(candidate?.surveyExpeditions);
     next.wildernessSurvival = WildernessSurvival.normalizeState(candidate?.wildernessSurvival, next.clock);
@@ -107079,7 +107586,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           && timberTools.get(tool.reservedTaskId) !== tool.id
           && !stationTools.get(tool.reservedTaskId)?.has(tool.id) && !builderTools.get(tool.reservedTaskId)?.has(tool.id)
           && stationTransferTools.get(tool.reservedTaskId) !== tool.id
-          && !(next.foundingExpedition?.id === tool.reservedTaskId && next.foundingExpedition.job?.claims?.toolId === tool.id)) tool.reservedTaskId = "";
+          && !(next.foundingExpedition?.id === tool.reservedTaskId && next.foundingExpedition.job?.claims?.toolId === tool.id)
+          && !(next.foundingWorks?.id === tool.reservedTaskId && next.foundingWorks.job?.claims?.toolId === tool.id)) tool.reservedTaskId = "";
       }
     }
     for (const order of next.construction.orders || []) {
