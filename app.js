@@ -24030,7 +24030,7 @@
       }
       return changed;
     }
-    if (!options.porterStep && elapsed > 1 && (state.foundingWorks?.job || FoundingWorks.active(state.foundingWorks) || FoundingExpedition.active(state.foundingExpedition) || AwayOperation.ongoing(state.awayOperation?.mission) || fieldForceStates().some(FieldForce.active) || fieldEmployeeStates().some(s => ResidentCaretaker.active(s) || ['arriving', 'onSite', 'returning'].includes(s.phase)))) {
+    if (!options.porterStep && elapsed > 1 && (state.foundingWorks?.foundation?.job?.running || state.foundingWorks?.job || FoundingWorks.active(state.foundingWorks) || FoundingExpedition.active(state.foundingExpedition) || AwayOperation.ongoing(state.awayOperation?.mission) || fieldForceStates().some(FieldForce.active) || fieldEmployeeStates().some(s => ResidentCaretaker.active(s) || ['arriving', 'onSite', 'returning'].includes(s.phase)))) {
       let left = elapsed, changed = 0;
       while (left > 0 && !scientistIsDead()) {
         const step = Math.min(1, left), before = state.clock, paused = state.paused;
@@ -90893,6 +90893,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const supportRoute = Boolean(s?.supportPath?.length ? foundingWorksSupportRoute(s) : proposedSupportPath.length);
     const c = { ...componentBinding(), alive: !scientistIsDead(), free: annexCapable(), capable: !actorIsIncapacitated('scientist'),
       bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      cell: cleanMapCell(scientistMapCell()), withdrawContact: !runtime && foundingNear(a),
       workFit: ['hunger', 'thirst', 'exertion', 'exposure'].every(key => (state.wildernessSurvival?.[key] || 0) < 80),
       busy: Boolean(state.foundingExpedition?.job || state.foundingExpedition?.mealJob || state.foundingExpedition?.care
         || scientistQueueTasks().some(t => !taskBlockReason(t)) || state.combat?.pendingActions?.scientist || state.combat?.routineSuspension),
@@ -90979,7 +90980,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function foundingWorksAction(action, options = {}) {
     const s = ensureFoundingWorks(); if (!s || scientistIsDead()) return false;
     const a = foundingProtector(), part = s.layout?.parts.find(p => p.id === options.partId), c = foundingWorksContext(part); let ok = false, refusal = '';
-    if (action === 'investigate') {
+    if (s.foundation?.job?.running && action !== 'pauseFoundation') refusal = 'Pause the attended founding assessment before issuing other founding actions.';
+    else if (action === 'assessFoundation') ok = FoundingWorks.beginFoundationAssessment(s, c, scientistMapCell(), state.clock);
+    else if (action === 'pauseFoundation' || action === 'resumeFoundation') ok = FoundingWorks.controlFoundationAssessment(s, c, action === 'pauseFoundation' ? 'pause' : 'resume');
+    else if (action === 'deferFoundation' || action === 'abandonFoundation') {
+      ok = FoundingWorks.decideFoundation(s, a, c, action === 'deferFoundation' ? 'defer' : 'abandon', options.expected, state.clock);
+      if (ok && action === 'abandonFoundation') foundingWorksRelease(s);
+    } else if (action === 'investigate') {
       const t = foundingWorksTool('environmentalSurveyKit'), rec = t && diagnosticInstrumentRecord(t.tool.id);
       const context = ensureResourceSurveys().sites[s.siteId];
       const known = new Set(Object.keys(state.mapCellObservations || {}));
@@ -90995,10 +91002,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (ok) { t.stack.reservedTaskId = t.tool.reservedTaskId = s.id; }
     } else if (action === 'layout') {
       ok = FoundingWorks.registerLayout(s, c, FoundingWorks.layout(s.plan.origin), state.clock);
-      if (ok) s.supportPath = c.proposedSupportPath.map(cleanMapCell);
+      if (ok) { s.supportPath = c.proposedSupportPath.map(cleanMapCell); s.supportInspectedAt = state.clock; }
     } else if (action === 'route' && c.atCamp && c.safe && c.capable && c.free && !c.busy && s.layout && !s.job?.running) {
       const path = foundingWorksSupportPath(s);
-      if (path.length) { s.supportPath = path.map(cleanMapCell); ok = true; }
+      if (path.length) { s.supportPath = path.map(cleanMapCell); s.supportInspectedAt = state.clock; ok = true; }
     } else if (action === 'review') ok = Boolean(FoundingWorks.review(s, a, c, state.clock));
     else if (action === 'accept') ok = FoundingWorks.accept(s, a, c, options.expected, ensureEconomy(), state.clock);
     else if (action === 'give') {
@@ -91016,7 +91023,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (ok) { t.stack.reservedTaskId = t.tool.reservedTaskId = s.id; foundingWorksInstall(part, s.parts[part.id], 0, state.clock); }
     } else if (action === 'pause' && s.job && c.capable && !c.busy) {
       s.job.running = false; s.job.attended = false; foundingWorksRelease(s); ok = true;
-    } else if (action === 'resume' && s.job && c.free && c.capable && !c.busy && c.atCamp && c.safe && c.campIntact && c.sourceCurrent
+    } else if (action === 'resume' && !FoundingWorks.foundationAbandoned(s) && s.job && c.free && c.capable && !c.busy && c.atCamp && c.safe && c.campIntact && c.sourceCurrent
       && c.jobAttendance && c.bodyEpoch === s.job.bodyEpoch && (!s.agreement || s.phase === 'works' && c.originalPart && state.clock < s.agreement.endsAt)) {
       const t = foundingWorksTool(s.job.kind === 'investigation' ? 'environmentalSurveyKit' : 'masonryHammer');
       if (t?.tool.id === s.job.claims.toolId && t.stack.id === s.job.claims.stackId) {
@@ -91090,7 +91097,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function updateFoundingWorks() {
     const s = state.foundingWorks, a = foundingProtector(), at = state.clock;
-    if (!FoundingWorks.bound(s, componentBinding()) || scientistIsDead() || (!s.job && !FoundingWorks.active(s))) return 0;
+    if (!FoundingWorks.bound(s, componentBinding()) || scientistIsDead() || (!s.foundation?.job?.running && !s.job && !FoundingWorks.active(s))) return 0;
     const c = foundingWorksContext(null, true), dt = at - s.lastAt;
     if (s.agreement && dt > 0 && dt <= 2) {
       for (const p of s.people) {
@@ -91174,8 +91181,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       release: () => foundingWorksRelease(s)
     };
     const changed = FoundingWorks.advance(s, a, c, hooks, at);
+    const assessed = FoundingWorks.advanceFoundationAssessment(s, c, {
+      effort: amount => spendStamina(amount), observe: () => foundingWorksContext()
+    }, at);
     if (s.phase === 'returning') foundingWorksRelease(s);
-    return changed ? 1 : 0;
+    return changed || assessed ? 1 : 0;
   }
   function renderFoundingWorks() {
     const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.foundingWorks = 'true';
@@ -91213,6 +91223,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     button('Inspect supplied founding construction milestone', 'milestone'); button('Withdraw original founding party', 'withdraw');
     button('Collect unused founding wages after actual return', 'settle'); button('Receive personal founding works account', 'report');
     button('Release nearby abandoned migrant kit claims here', 'releaseProperty');
+    panel.append(textEl('h4', 'Founding assessment and consequences'), textEl('p', FoundingWorks.FOUNDATION_LIMITS));
+    panel.append(textEl('p', 'Pause construction first. Spend one attended minute at the original site assessing received evidence and personally visible works/people. Missing support remains unverified. Assessment can inspect a failed or damaged site without restoring it.'));
+    button('Assess this founding attempt here', 'assessFoundation');
+    button('Pause founding assessment', 'pauseFoundation'); button('Resume same founding assessment here', 'resumeFoundation');
+    const foundation = s.foundation;
+    if (foundation?.job && c.atCamp) panel.append(textEl('p', `Personal assessment: ${Math.floor(foundation.job.progress)} / ${FoundingWorks.ASSESSMENT_SECONDS} attended seconds. ${foundation.job.running ? 'Attendance required' : 'Paused'}; no clock-gap credit.`));
+    if (foundation?.report) {
+      const r = foundation.report;
+      panel.append(textEl('p', `${formatClock(r.at)} — Foundation not viable on demonstrated support; ${r.constructionMilestoneAt != null ? 'construction milestone recorded, city not established' : 'worksite only, not a city'}. Dated personal evidence, not remote readiness.`));
+      for (const f of r.findings) panel.append(textEl('p', `${f.id}: ${f.status}. ${f.text}${f.observedAt != null ? ` Evidence: ${formatClock(f.observedAt)}.` : ''}`));
+      panel.append(textEl('p', `${r.observedParts.length} components personally observed; ${r.observedPeople.length} original residents personally observed. Unseen people and structures remain unverified.`));
+      button('Defer city founding without renewing commitments', 'deferFoundation', { expected: clonePlainObject(r) });
+      button('Abandon this founding attempt and request physical withdrawal', 'abandonFoundation', { expected: clonePlainObject(r) });
+    }
+    if (foundation?.decision) panel.append(textEl('p', `${formatClock(foundation.decision.at)} — Personally ${foundation.decision.kind === 'defer' ? 'deferred city founding; existing finite duties and needs continue' : 'abandoned this founding attempt; no physical return, casualty count or recovery is inferred'}. Use personal founding accounts, actual survivor return, local kit recovery and once-only wage settlement. No city, replacement or game over is awarded.`));
     if (s.job && c.atCamp) panel.append(textEl('p', `Attended ${s.job.kind}: ${Math.floor(s.job.progress)} / ${s.job.seconds} person-seconds. ${s.job.running ? 'Working only with real support' : 'Paused'}; original inputs and damage persist.`));
     if (s.report) {
       const r = s.report; panel.append(textEl('p', `${formatClock(r.at)} — ${r.location}. Dated received evidence, not live remote readiness.`));
@@ -94050,7 +94075,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const before = ensureWildernessSurvival();
     const task = firstScientistQueueTask(), trip = state.leasedAnnex?.trip;
     const walking = trip && !trip.paused && !trip.reason && !surveyBusy() && annexCapable();
-    const working = Boolean(state.foundingWorks?.job?.running && state.foundingWorks.job.attended || state.foundingExpedition?.job?.running || walking || task && task.type !== "rest" && !taskBlockReason(task));
+    const working = Boolean(state.foundingWorks?.foundation?.job?.running && state.foundingWorks.foundation.job.attended || state.foundingWorks?.job?.running && state.foundingWorks.job.attended || state.foundingExpedition?.job?.running || walking || task && task.type !== "rest" && !taskBlockReason(task));
     const result = fieldCharterOwnsRoad() ? WildernessSurvival.advance(before, state.clock, { working, resting: task?.type === 'rest',
       destination: state.overlandApproach?.weather, sheltered: false, carriedRadioIds: surveyCarriedStacks().map(i => i.id) }) : overlandOnRoad() ? advanceOverlandWithNeeds(before)
       : WildernessSurvival.advance(before, state.clock, { working, resting: scientistInClinicCare() || task?.type === "rest", destination: outerApproachLocal() ? outerApproachGate() : scientistInWilderness() ? activeWildernessSite().destination : null, sheltered: wildernessSheltered(), temperatureAt: fieldRefugeOccupant() && refugeTemperatures ? at => refugeTemperatures.values[Math.floor(at - refugeTemperatures.fromAt)] : null, carriedRadioIds: surveyCarriedStacks().map((stack) => stack.id) });
@@ -99458,7 +99483,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return ["scientistMove", "surveyExpeditionWork", "physicalDiagnostic", "hiddenWorkshopWork"].includes(task.type)
       || task.type === 'soulBeaconWork' && hiddenWorkshopLocal() && labMapCellRoomId(target) === state.hiddenWorkshop?.site?.roomId;
   }
-  function surveyBusy(ignoreInquiry = false, ignoreCivic = false) { return Boolean(state.foundingWorks?.job?.running || state.foundingExpedition?.job?.running) || (!ignoreInquiry && Boolean(passengerReceptionGate()?.researchInquiry?.job)) || (!ignoreCivic && foreignCivicWork(passengerReceptionGate())) || scientistQueueTasks().some((task) => !taskBlockReason(task)); }
+  function surveyBusy(ignoreInquiry = false, ignoreCivic = false) { return Boolean(state.foundingWorks?.foundation?.job?.running || state.foundingWorks?.job?.running || state.foundingExpedition?.job?.running) || (!ignoreInquiry && Boolean(passengerReceptionGate()?.researchInquiry?.job)) || (!ignoreCivic && foreignCivicWork(passengerReceptionGate())) || scientistQueueTasks().some((task) => !taskBlockReason(task)); }
   function surveyEvent(message) { addEvent(message, { sourceKind: "surveyExpedition" }); }
   function surveyCarriedStacks() { return ensurePhysicalItemStacks().filter((entry) => entry.carriedBy === "scientist"); }
   function surveyQuote() {

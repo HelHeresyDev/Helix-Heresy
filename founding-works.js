@@ -8,6 +8,22 @@
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const TERM = 72 * 3600, FEE = 1200, DUTY = 8 * 3600, WAGE = 6 / 3600, COUNT = 4;
   const INVESTIGATIONS = Object.freeze({ stone: 1800, water: 1800, ground: 900 });
+  const ASSESSMENT_SECONDS = 60;
+  const FOUNDATION_LIMITS = 'A dated founding assessment, not a city charter, sovereign title, producing industry, divine endorsement or domination credit. Source consent concerns its own people/property, not permission for a new polity to exist. Successful city-scale founding remains unimplemented.';
+  const foundationAbandoned = s => s?.foundation?.decision?.kind === 'abandon';
+  const emptyFoundation = () => ({ job: null, report: null, decision: null });
+  function normalizeFoundation(value) {
+    const out = emptyFoundation();
+    if (!value || typeof value !== 'object') return out;
+    const j = value.job, r = value.report, d = value.decision;
+    if (j && Number.isFinite(j.progress) && j.progress >= 0 && j.progress < ASSESSMENT_SECONDS
+      && Number.isFinite(j.lastAt) && j.bodyEpoch != null && ['x', 'y', 'z'].every(k => Number.isFinite(j.cell?.[k]))) out.job = copy(j);
+    if (r && r.projectId && r.siteId && r.bodyEpoch != null && Number.isFinite(r.at)
+      && r.verdict === 'notViable' && Array.isArray(r.findings) && Array.isArray(r.observedPeople)
+      && Array.isArray(r.observedParts)) out.report = copy(r);
+    if (d && ['defer', 'abandon'].includes(d.kind) && Number.isFinite(d.at) && Number.isFinite(d.basedOn)) out.decision = copy(d);
+    return out;
+  }
   const LIMITS = 'One original founding construction compound, not an operational city, sovereignty, a producing quarry/farm/spring, divine endorsement or permanent safety. Actual people, freight, materials, wages, partial works and losses persist. City founding is optional.';
   function hash(id) { let n = 2166136261; for (const c of String(id)) n = Math.imul(n ^ c.charCodeAt(0), 16777619); return n >>> 0; }
   // Stronger consent than the advance loan; neither payment nor repeated review rerolls it.
@@ -41,7 +57,7 @@
     return { ...copy(binding), id: `${expedition.id}:works`, projectId: expedition.id, siteId: expedition.plan.siteId,
       source: copy(source), plan: copy(expedition.plan), layout: null, phase: 'assessment', investigations: {},
       job: null, quote: null, agreement: null, people: [], ledger: { allocated: 0, departed: [], returned: [], deaths: [] },
-      parts: {}, lastAt: 0, milestoneAt: null, report: null, reason: '', history: [] };
+      parts: {}, lastAt: 0, milestoneAt: null, report: null, foundation: emptyFoundation(), reason: '', history: [] };
   }
   function normalize(s) { return s?.id && s.worldId && s.runId && s.source?.populationSourceId && s.plan?.route?.length
     && Array.isArray(s.people) && new Set(s.people.map(p => p.actor?.id)).size === s.people.length
@@ -53,7 +69,7 @@
     && (!s.layout || same(s.layout, layout(s.plan.origin)))
     && (!s.agreement || s.layout && s.people.length === COUNT && Number.isFinite(s.agreement.endsAt))
     && (!s.job || s.job.claims?.toolId && Number.isFinite(s.job.progress) && s.job.progress >= 0
-      && Number.isFinite(s.job.seconds) && s.job.seconds > 0 && s.job.progress <= s.job.seconds) ? copy(s) : null; }
+      && Number.isFinite(s.job.seconds) && s.job.seconds > 0 && s.job.progress <= s.job.seconds) ? { ...copy(s), foundation: normalizeFoundation(s.foundation) } : null; }
   const bound = (s, c) => Boolean(s && c && s.worldId === c.worldId && s.runId === c.runId);
   const active = s => Boolean(s?.agreement && !['closed', 'abandoned'].includes(s.phase));
   const able = a => Boolean(a?.status === 'alive' && a.health >= 35 && (a.needs?.exertion || 0) < 80 && (a.needs?.thirst || 0) < 70 && (a.needs?.hunger || 0) < 85);
@@ -87,7 +103,7 @@
     return null;
   }
   function beginInvestigation(s, c, kind, claims, captured, pay, at) {
-    if (!local(s, c) || c.workFit === false || !c.atCamp || !c.safe || !c.campIntact || !c.sourceCurrent || s.job || s.agreement || s.investigations[kind]
+    if (foundationAbandoned(s) || s.foundation?.job?.running || !local(s, c) || c.workFit === false || !c.atCamp || !c.safe || !c.campIntact || !c.sourceCurrent || s.job || s.agreement || s.investigations[kind]
       || !INVESTIGATIONS[kind] || captured?.kind !== kind || captured.siteId !== s.siteId || !claims?.toolId || !pay()) return false;
     s.job = { kind: 'investigation', investigation: kind, seconds: INVESTIGATIONS[kind], progress: 0, lastAt: at,
       attended: false, running: true, claims: copy(claims), captured: copy(captured), bodyEpoch: c.bodyEpoch, wear: 0 };
@@ -95,12 +111,13 @@
     note(s, at, 'investigation', `Started ${kind} assessment with original equipment and spent test energy. Pausing does not refund inputs.`); return true;
   }
   function registerLayout(s, c, proposed, at) {
-    if (!local(s, c) || !c.atCamp || !c.safe || !c.layoutClear || !c.supportRoute || !c.campIntact || s.layout || s.job || s.agreement
+    if (foundationAbandoned(s) || s.foundation?.job?.running || !local(s, c) || !c.atCamp || !c.safe || !c.layoutClear || !c.supportRoute || !c.campIntact || s.layout || s.job || s.agreement
       || !same(proposed, layout(s.plan.origin))) return false;
     s.layout = copy(proposed); note(s, at, 'layout', 'Personally laid out original defensive construction compound and retained a known walking/support gate. This is not city ownership.'); return true;
   }
   function reviewReason(s, a, c) {
-    if (!local(s, c) || !c.atCounter || !c.protectorAtHome || !c.sourceCurrent || !c.representativePresent || !c.advanceReturned || !c.routeOpen
+    if (foundationAbandoned(s)) return 'This founding attempt was personally abandoned. Original losses and property remain; it cannot be restarted as a replacement project.';
+    if (s.foundation?.job?.running || !local(s, c) || !c.atCounter || !c.protectorAtHome || !c.sourceCurrent || !c.representativePresent || !c.advanceReturned || !c.routeOpen
       || !c.campIntact || !s.layout || s.job || s.agreement || s.people.length) return 'Meet the original people after physical advance return, with an intact original camp, measured site, clear works layout and practical support route.';
     if (!s.investigations.stone || !s.investigations.water || !s.investigations.ground) return 'Complete and receive all three actual site assessments first.';
     if (s.investigations.stone.estimatedStoneTonnes < 6000 || s.investigations.water.testLitresPerDay < 6000
@@ -135,7 +152,7 @@
     note(s, at, 'agreement', 'Original protector committed for three days; same person unavailable to civic defense. Four identified source residents agreed to migrate, not yet departed or available at the works.'); return true;
   }
   function depart(s, a, c, provisions, at) {
-    if (!active(s) || s.phase !== 'muster' || !local(s, c) || at >= s.agreement.endsAt || c.bodyEpoch !== s.agreement.bodyEpoch
+    if (foundationAbandoned(s) || s.foundation?.job?.running || !active(s) || s.phase !== 'muster' || !local(s, c) || at >= s.agreement.endsAt || c.bodyEpoch !== s.agreement.bodyEpoch
       || !c.atCounter || !c.sourceCurrent || !c.routeOpen || !c.protectorAtHome
       || a.assignment !== s.id || !able(a) || !c.partySupplied || !Array.isArray(provisions) || provisions.length !== COUNT
       || new Set(provisions).size !== COUNT || s.people.some(p => !able(p.actor) || !p.willing)) return false;
@@ -144,7 +161,7 @@
   }
   function beginPart(s, c, id, claims, pay, at) {
     const p = s.layout?.parts.find(p => p.id === id);
-    if (!local(s, c) || c.workFit === false || !active(s) || at >= s.agreement.endsAt || c.bodyEpoch !== s.agreement.bodyEpoch
+    if (foundationAbandoned(s) || s.foundation?.job?.running || !local(s, c) || c.workFit === false || !active(s) || at >= s.agreement.endsAt || c.bodyEpoch !== s.agreement.bodyEpoch
       || s.phase !== 'works' || s.job || !p || s.parts[id] || !c.atCamp || !c.safe || !c.campIntact
       || !c.protectorPresent || !c.targetClear || !c.routeOpen || !c.supplied || !claims?.toolId || !pay()) return false;
     s.parts[id] = { startedAt: at, progress: 0, completeAt: null, physicalId: null };
@@ -207,7 +224,7 @@
     return true;
   }
   function milestone(s, c, at) {
-    if (!local(s, c) || s.phase !== 'works' || at >= s.agreement.endsAt || c.bodyEpoch !== s.agreement.bodyEpoch
+    if (foundationAbandoned(s) || s.foundation?.job?.running || !local(s, c) || s.phase !== 'works' || at >= s.agreement.endsAt || c.bodyEpoch !== s.agreement.bodyEpoch
       || !c.atCamp || !c.safe || !c.protectorPresent || !c.supplied || !c.routeOpen
       || !c.physicalWorksIntact || s.job || s.people.some(p => p.phase !== 'resident' || !able(p.actor))
       || s.layout.parts.some(p => s.parts[p.id]?.completeAt == null)) return false;
@@ -245,8 +262,92 @@
       limits: LIMITS };
     return true;
   }
+  // Inspection consumes only owned historical knowledge and directly observed
+  // local facts supplied by the bridge. It never queries private remote fates,
+  // city reserves or a global readiness score to fabricate a city outcome.
+  function foundationReport(s, c, at) {
+    const findings = [], add = (id, status, text, observedAt = null) => findings.push({ id, status, text, observedAt });
+    const stone = s.investigations.stone, water = s.investigations.water, ground = s.investigations.ground;
+    add('resourcePurpose', 'unverified', stone
+      ? `The original stone assessment estimates ${stone.estimatedStoneTonnes} tonnes. Recoverable city-scale reserves, extraction rights and sustained production have not been demonstrated.`
+      : 'No completed stone assessment has been received for this project; its resource purpose remains unverified.', stone?.at ?? null);
+    add('water', 'unverified', water
+      ? `The original short flow test recorded ${water.testLitresPerDay} litres/day. A treated, seasonally reliable urban water supply has not been demonstrated.`
+      : 'No completed local flow test has been received. City-scale drinking-water support remains unverified.', water?.at ?? null);
+    add('food', 'unverified', ground
+      ? `Only ${ground.cultivableSquareMetres} m² of cultivable ground within ${ground.testedSquareMetres} m² personally observed was assessed. This does not establish an urban food chain; carried provisions are finite.`
+      : 'Growing-ground capacity and continuing food supply have not been demonstrated. Unseen farmland is not assumed.', ground?.at ?? null);
+    add('settlement', 'insufficient', s.agreement
+      ? 'The agreement covers four consenting temporary construction workers, not permanent urban settlement consent, an urban workforce or civic administration.'
+      : 'No permanent urban settlement agreement or civic administration has been established by this project.');
+    add('defenses', 'insufficient', s.milestoneAt != null
+      ? 'The recorded construction milestone establishes a small supplied compound, not city-scale fortifications or permanent safety.'
+      : 'The planned small construction compound is not a completed city defense system. Unseen or unfinished components remain unverified.', s.milestoneAt);
+    add('protection', s.agreement && at < s.agreement.endsAt ? 'temporary' : 'unverified', s.agreement
+      ? `The original three-day protection agreement ${at < s.agreement.endsAt ? 'is still time-limited' : 'has passed its recorded expiry'}. It provides neither lasting city protection nor implied divine endorsement.`
+      : 'No lasting exceptional protecting commitment has been established. A prior short expedition release is not permanent service.', s.agreement?.acceptedAt ?? null);
+    add('support', 'unverified', s.supportPath?.length
+      ? 'A local walking support path was inspected. This dated knowledge does not certify current remote access, continuing city freight, evacuation capacity or a new intercity corridor.'
+      : 'A practical city-scale support chain has not been demonstrated. No isolated-refuge exception is inferred.', s.supportInspectedAt ?? null);
+    add('independence', 'notEstablished', 'No city polity or independent institutions have been established. Source-city consent covers its allocated people and property, not sovereignty. Founding lineage creates neither allegiance nor alliance.');
+    return { at, projectId: s.id, siteId: s.siteId, bodyEpoch: c.bodyEpoch, verdict: 'notViable',
+      constructionMilestoneAt: s.milestoneAt, findings,
+      observedPeople: s.people.filter(p => (c.observedIds || []).includes(p.actor.id))
+        .map(p => ({ id: p.actor.id, name: p.actor.name, phase: p.phase, health: p.actor.health })),
+      observedParts: copy(c.observedParts || []), limits: FOUNDATION_LIMITS };
+  }
+  function beginFoundationAssessment(s, c, cell, at) {
+    if (!local(s, c) || !c.atCamp || !c.safe || c.workFit === false || s.job?.running || s.foundation?.job
+      || !Number.isFinite(at) || !same(cell, c.cell) || !['x', 'y', 'z'].every(k => Number.isFinite(cell?.[k]))) return false;
+    s.foundation ||= emptyFoundation();
+    s.foundation.job = { progress: 0, lastAt: at, bodyEpoch: c.bodyEpoch, cell: copy(cell), running: true, attended: false };
+    return true;
+  }
+  function advanceFoundationAssessment(s, c, h, at) {
+    const f = s?.foundation, j = f?.job;
+    if (!j || !bound(s, c) || !c.alive || !Number.isFinite(at) || at <= j.lastAt) return false;
+    const dt = at - j.lastAt; j.lastAt = at;
+    const ready = dt <= 2 && local(s, c) && c.atCamp && c.safe && c.workFit !== false && !s.job?.running
+      && c.bodyEpoch === j.bodyEpoch && same(c.cell, j.cell) && j.running;
+    if (!ready || !j.attended) { j.attended = Boolean(ready); return false; }
+    if (!h.effort(dt / 600)) { j.attended = false; return false; }
+    j.progress = Math.min(ASSESSMENT_SECONDS, j.progress + dt);
+    if (j.progress === ASSESSMENT_SECONDS) {
+      f.report = foundationReport(s, h.observe(), at); f.job = null;
+      note(s, at, 'foundationAssessment', 'Personally assessed the original project: city founding is not viable on demonstrated support. The existing worksite and obligations remain.');
+    }
+    return true;
+  }
+  function controlFoundationAssessment(s, c, action) {
+    const j = s?.foundation?.job;
+    if (!j || !local(s, c) || c.bodyEpoch !== j.bodyEpoch) return false;
+    if (action === 'pause') { j.running = false; j.attended = false; return true; }
+    if (action !== 'resume' || s.job?.running || !c.atCamp || !c.safe || c.workFit === false || !same(c.cell, j.cell)) return false;
+    j.running = true; j.attended = false; return true;
+  }
+  function decideFoundation(s, a, c, kind, expected, at) {
+    const f = s?.foundation, r = f?.report;
+    if (!local(s, c) || !(c.atCamp || c.atCounter) || s.job?.running || f?.job || foundationAbandoned(s)
+      || !r || !same(r, expected) || r.projectId !== s.id || r.siteId !== s.siteId || r.bodyEpoch !== c.bodyEpoch
+      || !Number.isFinite(at) || at < r.at || !['defer', 'abandon'].includes(kind)) return false;
+    if (kind === 'abandon' && active(s) && s.phase !== 'returning'
+      && (!c.withdrawContact || a?.id !== s.agreement.actorId || a.assignment !== s.id || a.status !== 'alive')) return false;
+    if (kind === 'abandon') {
+      if (active(s)) interrupt(s, at, 'Personally abandoned this founding attempt after assessment. Original survivors must withdraw physically; property, losses and obligations remain.');
+      else if (!s.agreement) s.phase = 'closed';
+      if (s.job) { s.job.running = false; s.job.attended = false; }
+      s.quote = null;
+    }
+    if (f.decision?.kind === kind && f.decision.basedOn === r.at) return false;
+    f.decision = { kind, at, basedOn: r.at };
+    note(s, at, kind === 'defer' ? 'foundationDeferred' : 'foundationAbandoned', kind === 'defer'
+      ? 'Deferred the city decision. No agreement, duty, wages, provisions, protection or construction progress was renewed.'
+      : 'Abandoned the founding attempt, not the living run. Original physical return, recovery and personal wage settlement remain separate.');
+    return true;
+  }
   function rebind(s, from, to) { s = normalize(s); if (!bound(s, from)) return null;
     Object.assign(s, copy(to)); s.plan.worldId = to.worldId; return s; }
   return { TERM, FEE, DUTY, WAGE, COUNT, INVESTIGATIONS, LIMITS, willing, layout, totals, create, normalize, bound, active, able, population, absorb,
-    measurement, beginInvestigation, registerLayout, reviewReason, review, accept, depart, beginPart, interrupt, advance, milestone, settle, receive, rebind };
+    measurement, beginInvestigation, registerLayout, reviewReason, review, accept, depart, beginPart, interrupt, advance, milestone, settle, receive, rebind,
+    ASSESSMENT_SECONDS, FOUNDATION_LIMITS, foundationAbandoned, beginFoundationAssessment, advanceFoundationAssessment, controlFoundationAssessment, decideFoundation };
 });
