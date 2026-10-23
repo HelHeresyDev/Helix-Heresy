@@ -24,7 +24,7 @@
   }
   function normalize(s) {
     return Defense.validSource(s?.source) && s.worldId && s.runId && s.defenderId && s.layout?.roomId
-      && Number.isFinite(s.station?.energy) && s.station.energy >= 0 && s.station.energy <= s.source.baselineEnergy
+      && Number.isFinite(s.station?.energy) && s.station.energy >= 0 && s.station.energy <= Defense.CAPACITY
       && Number.isFinite(s.lastAt) && Array.isArray(s.history) && Array.isArray(s.reports) ? copy(s) : null;
   }
   function rebind(value, from, to) {
@@ -90,7 +90,8 @@
       const bodilyDuty = alive(b.defender) && b.defender.workSeconds > 0 && b.defender.stamina > 1 && !b.job;
       const dt = Math.min(claiming(s) || s.pendingPulse || bodilyDuty ? 1 : at - s.lastAt, at - s.lastAt), now = s.lastAt + dt; s.lastAt = now;
       const c = context(), a = b.defender, valid = current(s, b, c), mobile = alive(a) && !c.defenderIncapacitated;
-      if (operating(s, c)) { const used = Math.min(dt, s.station.energy); s.station.energy -= used; s.station.standbySpent += used; }
+      if (operating(s, c)) Defense.standby(s.station, a, { installationPresent: c.structurePresent, condition: c.condition,
+        incapacitated: c.defenderIncapacitated, suppressed: c.suppressed, obligation: b.job || c.otherDuty }, dt);
       if (claiming(s) && (!valid || !c.local || !c.capable || !c.free || s.claim.bodyEpoch !== c.bodyEpoch || c.departing))
         end(s, now, 'Actual presence, body, capability or original source no longer maintains the claim; no garrison remains.');
       const own = a.assignment === s.station.duty.id;

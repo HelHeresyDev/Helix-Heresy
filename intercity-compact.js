@@ -8,6 +8,11 @@
   'use strict';
   const DAY = 86400, CURE = 21600, WORK = 120, FREIGHT = 8;
   const copy = x => JSON.parse(JSON.stringify(x));
+  // Shared finite-obligation consumer: no reputation or domination score.
+  function installmentState(cycles, at, cure = CURE) {
+    const pending = cycles.find(r => r.fulfilledAt == null);
+    return !pending ? 'completed' : at >= pending.dueAt + cure ? 'breached' : at >= pending.dueAt ? 'cure' : 'active';
+  }
   const able = a => a?.status === 'alive' && a.health >= 50 && (a.fatigue || 0) < 80;
   const SCOPE = 'Two finite installments: three personally owned metal parts prepared into one city-owned ward-maintenance fitting, for one city-procured assay reagent each. Named municipal depot only; no map, residence, general trading, immunity, religious assent, political submission or domination. The scientist opposes the gods and promises no worship.';
   function sourceFromWorld(map, g, homeId) {
@@ -215,7 +220,7 @@
       const pending = s.cycles.find(r => r.fulfilledAt == null);
       if (!current(s, g, c)) end(s, g, market, to, 'terminated', 'Original sovereign authority no longer supports new compact access. Earned cargo and ownership remain.');
       else if (!pending) end(s, g, market, to, 'completed', 'Both maintenance installments performed. Earned freight, collection and historical receipts remain; no continuing allegiance.');
-      else if (to >= pending.dueAt + CURE) end(s, g, market, pending.dueAt + CURE, 'breached',
+      else if (installmentState(s.cycles, to) === 'breached') end(s, g, market, pending.dueAt + CURE, 'breached',
         c.routeOpen ? 'An installment remained unfulfilled after its disclosed six-hour remedy window; future access ended. Cause and deliberate refusal are not inferred.'
           : 'Material route obstruction outlasted the remedy window; future access ended without a finding of deliberate refusal.');
       else if (to >= pending.dueAt) { if (s.status !== 'cure') note(s, pending.dueAt, 'remedy', 'Outstanding installment: six-hour remedy window. Physical obstruction is distinct from a declared refusal; no guilt is inferred.'); s.status = 'cure'; }
@@ -251,6 +256,6 @@
     return { kind: 'compactReagent', orderId: r.id, cityId: s.source.cityId, facilityId: s.procurement.facilityId,
       shipmentId: r.shipmentId, receivedAt: r.collectedAt };
   }
-  return { DAY, CURE, WORK, FREIGHT, SCOPE, validSource, sourceFromWorld, create, normalize, current, contact, offerReason, propose,
+  return { DAY, CURE, WORK, FREIGHT, SCOPE, installmentState, validSource, sourceFromWorld, create, normalize, current, contact, offerReason, propose,
     sign, supply, advance, terminate, collect, receive, release, inputReceipt };
 });

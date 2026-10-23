@@ -17,8 +17,9 @@ function identity() {
   Civic.begin(identity, office, Civic.preview(identity, office, 'Mira Vale'), { money: 100 }, c, -1800); Civic.advance(identity, m.identityOffices, c, 0);
   return { identity, offices: m.identityOffices };
 }
-async function openForeignWorkspace(page, seed = 'foreign-industrial-commission', renderer = 'dom', carrySample = false, viaMunicipal = false, carriedMetalParts = 0, fieldKit = false, repairKit = false) {
+async function openForeignWorkspace(page, seed = 'foreign-industrial-commission', renderer = 'dom', carrySample = false, viaMunicipal = false, carriedMetalParts = 0, fieldKit = false, repairKit = false, beforeDeparture = null) {
   page.setDefaultTimeout(30000); await startLifecycleRun(page, seed);
+  if (beforeDeparture) await beforeDeparture(page);
   await page.evaluate(({ identity, renderer, carrySample, viaMunicipal, carriedMetalParts, fieldKit, repairKit }) => {
     const d = window.helixHeresyDebug, network = { homeDestinationId: 'site:lab', nearestSettlementDestinationId: 'city:a', destinations: [
       { id: 'site:lab', kind: 'laboratorySite', cityId: 'a', known: true, supportComponentId: 'one', localDistanceKm: 2, routeContinuity: 'municipal', cellId: 'planet-cell:00009' },

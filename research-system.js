@@ -103,6 +103,15 @@
       unlocks: [{ id: "procedure:perfectedSoulTransfer", label: "Physical neural preparation and perfected-pair validation" }]
     }),
     Object.freeze({
+      id: "wardEfficiencyCoupling", label: "Field-Efficient Ward Coupling",
+      description: "Develop a testable reserve-conserving fitting, not a proven defense or political entitlement. A real installation still requires an original operator, paired measurements and separate civilian consent.",
+      skillId: "materialsScience", minimumSkills: { materialsScience: 101, animancy: 101, fabrication: 101 },
+      workSeconds: 3600, prerequisites: ["reinforcedObservationVessels"],
+      evidence: [{ label: "Elemental observations from two specimens", methods: ["element"], count: 2, uniqueSpecimens: 2 }],
+      inputs: { resources: { metalParts: 2, glass: 2, arcaneFeedstock: 2 }, specimenAmount: 0 },
+      unlocks: [{ id: "procedure:wardEfficiencyTrial", label: "Civilian ward-coupling prototype trial" }]
+    }),
+    Object.freeze({
       id: "reinforcedObservationVessels", label: "Reinforced Observation Vessels",
       description: "Translate observed containment loads into a visible, sealed vessel with a reinforced frame.",
       skillId: "materialsScience", workSeconds: 150, prerequisites: [],

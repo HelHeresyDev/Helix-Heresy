@@ -148,6 +148,7 @@
   const CityDefense = window.HelixCityDefense;
   const CityRule = window.HelixCityRule;
   const IntercityCompact = window.HelixIntercityCompact;
+  const WardResearch = window.HelixWardResearchCompact;
   const IncumbentResistance = window.HelixIncumbentResistance;
   const CharterRecognition = window.HelixCharterRecognition;
   const PublicWorksRecognition = window.HelixPublicWorksRecognition;
@@ -13791,6 +13792,41 @@
       overlandAction,
       intercityMarchAction,
       outerApproachAction,
+      wardResearchAction,
+      wardResearchSnapshot: () => { const g = outerApproachGate(); return clonePlainObject({ saved: g?.outerApproach?.scientificCompact,
+        front: g?.outerApproach, context: g?.outerApproach ? wardResearchContext(g) : { ...foreignReceptionContext(g, false, true),
+          researched: researchUnlockKnown('procedure:wardEfficiencyTrial'), visitorPermit: Boolean(foreignVisitorPermission(g)), busy: surveyBusy() }, clock: state.clock,
+        stacks: ensurePhysicalItemStacks(), tools: fieldStationTools(), money: ensureEconomy().money,
+        treasury: g && foreignSupplierMarket(g)?.treasury, campaign: state.campaign,
+        defender: g?.foreignCivic?.bargain.defender, tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) }); },
+      advanceWardResearchForTest: seconds => {
+        let left = Math.max(0, seconds);
+        while (left > 0 && !scientistIsDead()) {
+          const front = outerApproachGate()?.outerApproach, s = front?.scientificCompact;
+          const physical = s?.job || scientistQueueTasks().some(t => !taskBlockReason(t)) || front?.pendingPulse || OuterApproach.claiming(front)
+            || front?.hostileUntil > state.clock;
+          const dates = s?.terms && !['completed', 'terminated', 'expired', 'breached'].includes(s.status)
+            ? [s.terms.endsAt, ...s.cycles.filter(r => r.fulfilledAt == null).flatMap(r => [r.dueAt, r.dueAt + WardResearch.CURE])]
+              .map(at => at - state.clock).filter(dt => dt > 1e-7) : [];
+          // Existing ward movement/energy still integrates each actual second
+          // inside its consumer. Idle waiting needs no repeated unrelated assay
+          // workspace/reception updates; stop at exact compact boundaries.
+          const step = Math.min(left, physical ? 1 : 60, ...dates); state.clock += step; left -= step;
+          updateScientistMovementTask(); completeDueTasks(); updateIntercityPassenger();
+          updateOuterApproaches(); updateWildernessNeeds(); updatePendingCombatActions(); progressInjuries();
+        }
+        syncActorInventories(); syncPhysicalReadModels(); persist(); render(); return state.clock;
+      },
+      advanceWardTheoryForTest: seconds => {
+        // Focused bench heartbeat: actual movement, material consumption,
+        // research progress/completion and infrastructure, not an unlock fixture.
+        let left = Math.max(0, seconds);
+        while (left > 0 && !scientistIsDead()) {
+          const before = state.clock, step = Math.min(left, 60); state.clock += step; left -= step;
+          updateScientistMovementTask(); updateResearchWorkProgress(before, state.clock); completeDueTasks(); updateInfrastructure(step);
+        }
+        syncActorInventories(); syncPhysicalReadModels(); persist(); render(); return state.clock;
+      },
       jointTransitAction,
       corridorWorksAction,
       corridorWorksSnapshot: () => clonePlainObject({ saved: state.corridorWorks, localId: corridorWorksLocal()?.id, clock: state.clock,
@@ -20258,6 +20294,10 @@
     for (const task of importedState.tasks || []) if (task.data?.corridorWork) task.data.corridorWork.worldId = world.id;
     for (const g of importedState.penalFlights?.assistance?.cityApproach?.gates || []) g.outerApproach = OuterApproach.rebind(g.outerApproach,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    for (const g of importedState.penalFlights?.assistance?.cityApproach?.gates || []) if (g.outerApproach?.scientificCompact) {
+      g.outerApproach.scientificCompact = WardResearch.rebind(g.outerApproach.scientificCompact,
+        { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    }
     for (const g of importedState.penalFlights?.assistance?.cityApproach?.gates || []) if (g.outerApproach?.settlement) {
       g.outerApproach.settlement = CampaignSettlement.rebind(g.outerApproach.settlement,
         { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
@@ -23992,6 +24032,14 @@
     if (scientistIsDead()) return 0;
     const advanceStartedAt = performance.now();
     const elapsed = Math.max(0, Number(seconds) || 0);
+    if (!options.wardResearchStep && elapsed > 1 && outerApproachGates().some(g => g.outerApproach.scientificCompact?.job)) {
+      let left = elapsed, changed = 0;
+      while (left > 0 && !scientistIsDead()) {
+        const before = state.clock; changed += advanceTime(Math.min(left, 1), { ...options, wardResearchStep: true });
+        const spent = state.clock - before; if (spent <= 0) break; left -= spent;
+      }
+      return changed;
+    }
     if (!options.compactStep && elapsed > 60 && (state.penalFlights?.assistance?.cityApproach?.gates || []).some(g => g.intercityCompact
       && (g.intercityCompact.job || ['active', 'cure'].includes(g.intercityCompact.status)
         || g.intercityCompact.cycles.some(r => r.fulfilledAt != null && !r.stackId)))) {
@@ -68622,7 +68670,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         title: actor.status === 'dead' ? `Remains of ${actor.name}` : actor.name, value: actor.status === 'dead' ? '†' : 'J', source: 'Direct joint-checkpoint observation',
         target: { kind: 'tile', tile: actor.mapCell } }, map);
     const front = outerApproachGate();
-    if (front?.outerApproach && (outerApproachLocal(front) || front.outerApproach.settlement?.witnessAtStaging)) {
+    const civilianFront = front?.outerApproach?.scientificCompact
+      && (componentLanded(front) || passengerLanded() && state.intercityPassenger.location === front.cityId)
+      && outerApproachRooms(front).includes(scientistRoomId());
+    if (front?.outerApproach && (outerApproachLocal(front) || civilianFront || front.outerApproach.settlement?.witnessAtStaging)) {
       const s = front.outerApproach, d = front.foreignCivic.bargain.defender;
       const marker = (cell, label, value) => { if (cell?.z === scientistMapCell().z && WildernessBeasts.distance(cell, scientistMapCell()) <= 8 && sensoryLineOfSight(scientistMapCell(), cell))
         setLabMapOverlayEntry(assignments, cell, { overlayId, classNames: ['map-overlay-resources'], label, title: label, value,
@@ -79953,6 +80004,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         text: `${v.status}: ${v.reason}`, coverage: v.limits });
     }
     for (const g of outerApproachGates()) {
+      const scientific = g.outerApproach.scientificCompact?.report;
+      if (scientific) add(citySite(g.cityId), { id: `${scientific.sourceId}:received-account`, category: 'operations',
+        subject: 'received scientific technical compact', sourceId: scientific.sourceId,
+        source: 'Personal ward inspection or original civic representative', sourceAt: scientific.at, receivedAt: scientific.at,
+        text: `${scientific.status}. ${scientific.demonstration ? `${(scientific.demonstration.saving * 100).toFixed(1)}% demonstrated reserve saving.` : 'No received demonstrated benefit.'} Technical authority only, not sovereignty.`, coverage: WardResearch.SCOPE });
       const v = CountercoalitionRelief.publicView(g.outerApproach?.relief); if (!v) continue;
       add(citySite(g.cityId), { id: `${g.outerApproach.id}:relief-account`, category: 'operations', subject: 'received neighboring relief account',
         sourceId: g.outerApproach.relief.id, source: 'Original municipal representative or personally observed convoy', sourceAt: v.at, receivedAt: v.at,
@@ -94075,7 +94131,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const before = ensureWildernessSurvival();
     const task = firstScientistQueueTask(), trip = state.leasedAnnex?.trip;
     const walking = trip && !trip.paused && !trip.reason && !surveyBusy() && annexCapable();
-    const working = Boolean(state.foundingWorks?.foundation?.job?.running && state.foundingWorks.foundation.job.attended || state.foundingWorks?.job?.running && state.foundingWorks.job.attended || state.foundingExpedition?.job?.running || walking || task && task.type !== "rest" && !taskBlockReason(task));
+    const working = Boolean(outerApproachGates().some(g => g.outerApproach.scientificCompact?.job) || state.foundingWorks?.foundation?.job?.running && state.foundingWorks.foundation.job.attended || state.foundingWorks?.job?.running && state.foundingWorks.job.attended || state.foundingExpedition?.job?.running || walking || task && task.type !== "rest" && !taskBlockReason(task));
     const result = fieldCharterOwnsRoad() ? WildernessSurvival.advance(before, state.clock, { working, resting: task?.type === 'rest',
       destination: state.overlandApproach?.weather, sheltered: false, carriedRadioIds: surveyCarriedStacks().map(i => i.id) }) : overlandOnRoad() ? advanceOverlandWithNeeds(before)
       : WildernessSurvival.advance(before, state.clock, { working, resting: scientistInClinicCare() || task?.type === "rest", destination: outerApproachLocal() ? outerApproachGate() : scientistInWilderness() ? activeWildernessSite().destination : null, sheltered: wildernessSheltered(), temperatureAt: fieldRefugeOccupant() && refugeTemperatures ? at => refugeTemperatures.values[Math.floor(at - refugeTemperatures.fromAt)] : null, carriedRadioIds: surveyCarriedStacks().map((stack) => stack.id) });
@@ -96019,7 +96075,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
   function foreignCivicWork(g) { return Boolean(g?.foreignCivic?.accessJob || g?.foreignCivic?.bargain.job || g?.intercityCompact?.job
-    || g?.outerApproach?.settlement?.job); }
+    || g?.outerApproach?.settlement?.job || g?.outerApproach?.scientificCompact?.job); }
   function intercityCompactContext(g = passengerReceptionGate()) {
     const c = foreignCivicBargainContext(g), trade = ensureEconomy().commodityMarket?.intercityTrade;
     const homeId = trade?.homeId || state.intercityPassenger?.homeCityId;
@@ -97566,6 +97622,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(renderForeignSurvey());
     panel.append(renderForeignCivicBargain());
     panel.append(renderIntercityCompact());
+    panel.append(renderWardResearch());
     panel.append(renderForeignWorkspace());
     const s = ensureIntercityPassenger(), local = intercityLocal();
     if (!local) { panel.append(textEl('p', 'Reach the existing home municipal survey-ground rendezvous first; city control is not required. Carrier records while away are dated, not live intelligence.')); return panel; }
@@ -98547,9 +98604,142 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const task of scientistQueueTasks()) { const b = document.createElement('button'); b.textContent = `Cancel ${task.label}`; b.onclick = () => cancelTask(task.id); panel.append(b); }
     return panel;
   }
+  function wardResearchContext(g) {
+    const front = g?.outerApproach, b = g?.foreignCivic?.bargain;
+    if (!front || !b) return {};
+    const base = foreignReceptionContext(g, false, true), physical = outerApproachContext(g), cell = scientistMapCell(), a = b.defender;
+    const civicSource = g.preparedForeignCivicTestSource || ForeignCivicBargains.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, g);
+    const government = activeWorldRecord?.generatedData?.strategicMap?.cityGovernments?.governments.find(r => r.cityId === g.cityId);
+    // Only explicit source-backed client restrictions apply. No invented faith,
+    // anti-heretic oath, hidden experiment disclosure or ordinary god endorsement.
+    const restrictions = [...(civicSource?.authority?.clientRestrictions || []),
+      ...(government?.institutions?.find(i => i.id === b.source.defenseId)?.clientRestrictions || [])].filter(r => r.id && r.text);
+    const local = Boolean(base.local || physical.local), near = (target, range) => Boolean(local && target?.z === cell.z
+      && mapCellDistance(cell, target) <= range && sensoryLineOfSight(cell, target));
+    return { ...base, ...physical, source: outerApproachSource(g), local,
+      free: annexCapable() && (outerApproachLocal(g) || passengerBodyCurrent()), capable: annexCapable(),
+      busy: surveyBusy(false, true) || Boolean(state.combat?.pendingActions.scientist),
+      authorityCurrent: Boolean(base.authorityCurrent && civicSource?.authority.id === b.source.authority.id
+        && civicSource.charterId === b.source.charterId && civicSource.defenseId === b.source.defenseId),
+      atDesk: base.atDesk, clerkPresent: base.clerkPresent, lineOfSight: base.lineOfSight,
+      representativePresent: Boolean(b.representative.present !== false && b.representative.roomId === g.checkpointRoomId && near(b.representative.mapCell, 3)
+        && !actorIsIncapacitated(b.representative)),
+      defenderPresent: Boolean(a.present !== false && near(a.mapCell, 8) && !actorIsIncapacitated(a)),
+      operatorContact: Boolean(a.present !== false && near(a.mapCell, 3) && !actorIsIncapacitated(a)),
+      operatorIncapacitated: physical.defenderIncapacitated,
+      atStation: Boolean(scientistRoomId() === front.layout.roomId && sameMapCell(cell, front.layout.service) && physical.structureVisible),
+      workAccessible: Boolean(labMapCellIsWalkable(front.layout.service) && !labMapCellIsPathBlocked(front.layout.service, { actor: state.scientist, skipPlacement: true })),
+      visitorPermit: Boolean(foreignVisitorPermission(g)), excluded: Boolean(base.bans?.length), restrictions,
+      violence: OuterApproach.claiming(front) || front.hostileUntil > state.clock || Boolean(front.pendingPulse),
+      researched: researchUnlockKnown('procedure:wardEfficiencyTrial') };
+  }
+  function updateWardResearch(g) {
+    const front = g?.outerApproach, s = front?.scientificCompact;
+    if (!s || scientistIsDead()) return false;
+    const changed = WardResearch.advance(s, front, g, foreignSupplierMarket(g), wardResearchContext(g), state.clock,
+      ensurePhysicalItemStacks(), fieldStationTools(), { spend: amount => spendStamina(amount) });
+    if (!s.job && state.combat?.routineSuspension?.reason === 'ward research compact') resumeScientistRoutineWork();
+    return changed;
+  }
+  function wardResearchAction(action, expected = null) {
+    const g = outerApproachGate(); if (!g || scientistIsDead()) return false;
+    if (action === 'authorize') {
+      if (foreignSupplierMarket(g)?.id !== g.cityId) {
+        surveyEvent('This city has no supported original local treasury/exchange account for a technical compact. No public funds or substitute account are generated.');
+        persist(); render(); return false;
+      }
+      ensureForeignCivicBargain(g);
+      if (!ensureOuterApproach(true)) {
+        surveyEvent('The original independent ward, civic authority, lawful civilian contact or clear frontage is unavailable. Existing rooms, people and property cannot be replaced by this trial.');
+        persist(); render(); return false;
+      }
+    }
+    const front = g.outerApproach; if (!front) return false;
+    let s = front.scientificCompact;
+    if (!s && action === 'authorize') {
+      s = front.scientificCompact = WardResearch.create(front, g.foreignCivic.bargain, g.clerk.id,
+        { worldId: activeWorldRecord.id, runId: activeRunRecord.id }, state.clock);
+    }
+    if (!s) return false;
+    updateOuterApproaches(); const c = wardResearchContext(g); let ok = false;
+    if (action === 'walkStation') {
+      const authorized = WardResearch.access(s, c.bodyEpoch, state.clock);
+      ok = Boolean(c.local && c.free && !c.busy && !c.violence && authorized
+        && startScientistMove(front.layout.roomId, { toCell: front.layout.service, allowMultiRoom: true, urgent: true }));
+    } else if (action === 'desk') {
+      if (c.local && c.free && !c.busy && !c.violence) {
+        const exiting = scientistRoomId() === front.layout.roomId;
+        const task = startScientistMove(g.checkpointRoomId,
+          { toCell: { x: 10, y: 7, z: g.z }, allowMultiRoom: true, urgent: true, deferRender: true });
+        if (task && exiting) task.data.wardResearchExit = { compactId: s.id, authorizationId: s.authorization?.id, bodyEpoch: c.bodyEpoch };
+        ok = Boolean(task);
+      }
+    } else ok = WardResearch.action(s, front, g, foreignSupplierMarket(g), c, action, expected, state.clock,
+      ensurePhysicalItemStacks(), fieldStationTools(), ensureEconomy());
+    if (s.job) suspendScientistRoutineWork('ward research compact');
+    else if (state.combat?.routineSuspension?.reason === 'ward research compact') resumeScientistRoutineWork();
+    surveyEvent(ok ? s.message || 'Original civilian ward work started; actual attendance and finite supplies remain necessary.'
+      : s.refusal?.reason || 'Original consent, physical attendance, researched prototype, carried supplies/tool, exact terms or remaining capacity unavailable.');
+    syncActorInventories(); syncPhysicalReadModels(); persist(); render(); return Boolean(ok);
+  }
+  function renderWardResearch(g = outerApproachGate()) {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.wardResearch = 'true';
+    panel.append(textEl('h3', 'Scientific Expansion — Ward-Efficiency Compact'), textEl('p', WardResearch.SCOPE));
+    const s = g?.outerApproach?.scientificCompact, c = s ? wardResearchContext(g) : foreignReceptionContext(g, false, true);
+    const button = (label, action, disabled = false, expected = null) => { const b = storesActionButton(label, label, () => wardResearchAction(action, expected));
+      b.dataset.wardResearchAction = action; b.disabled = Boolean(disabled || scientistIsDead()); panel.append(b); };
+    if (!s) {
+      panel.append(textEl('p', 'Research Field-Efficient Ward Coupling at an actual research bench: Adept Materials Science, Animancy and Fabrication knowledge, Reinforced Observation Vessels and elemental observations from two specimens. One hour base work, two metal parts, two glass and two arcane feedstock develop a hypothesis, not a proven installation.'));
+      const fundedSource = g && foreignSupplierMarket(g)?.id === g.cityId;
+      if (g && !fundedSource) panel.append(textEl('p', 'No supported original local treasury/exchange account is available. The trial cannot generate public funds or a substitute city account.'));
+      button('Agree civilian trial at original civic desk (two attended minutes)', 'authorize', !g || !c.atDesk || surveyBusy()
+        || !researchUnlockKnown('procedure:wardEfficiencyTrial') || !foreignVisitorPermission(g) || !fundedSource);
+      return panel;
+    }
+    button('Walk to original ward-service workface', 'walkStation', !c.local || c.busy || c.atStation);
+    button('Walk back to original civic desk', 'desk', !c.local || c.busy || c.atDesk);
+    if (s.authorization) panel.append(textEl('p', `Personally accepted trial ${formatClock(s.authorization.at)}; its original window ends ${formatClock(s.authorization.endsAt)}. A signed compact has its own finite term; neither waiting nor an interrupted installation renews consent or operator duty.`));
+    if (!s.authorization) button('Agree civilian trial (two attended minutes)', 'authorize', !c.atDesk || c.busy);
+    if (s.authorization && !s.terms) {
+      button('Measure original reserve draw (two attended minutes)', 'baseline', !c.atStation || c.busy || Boolean(s.baseline));
+      button('Install prototype fitting (three attended minutes)', 'install', !c.atStation || c.busy || !s.baseline || Boolean(g.outerApproach.station.efficiency));
+      button('Measure fitted reserve draw (two attended minutes)', 'improved', !c.atStation || c.busy || !g.outerApproach.station.efficiency || Boolean(s.demonstration));
+      button('Negotiate technical compact (two attended minutes)', 'negotiate', !c.atDesk || c.busy || !s.demonstration);
+      if (s.offer) {
+        panel.append(textEl('p', `Personally received ${formatClock(s.offer.at)}; offer expires ${formatClock(s.offer.expiresAt)}. One-hour term, two services due fifteen and thirty minutes after signing, each with six minutes to remedy. Each service incorporates one carried metal part and one rubber, uses a carried masonry hammer and two attended minutes, and earns sixty marks at the original desk. City reserves 120 marks, retaining its protected treasury. No automatic renewal.`));
+        button('Sign exact technical compact (one attended minute)', 'sign', !c.atDesk || c.busy, clonePlainObject(s.offer));
+      }
+    }
+    if (s.terms) {
+      panel.append(textEl('p', `Exact signed terms received ${formatClock(s.terms.signedAt)}; outside limit ${formatClock(s.terms.endsAt)}. Actual performance or safe handback can end privileges sooner. This receipt is not a live remote status report.`));
+      button('Perform next material-backed upkeep (two minutes)', 'maintain', !c.atStation || c.busy);
+      button('Tune economical reserve consumption', 'economical', !c.atStation || c.busy);
+      button('Tune conservative reserve consumption', 'conservative', !c.atStation || c.busy);
+      button('Safely hand technical responsibility back to the city', 'terminate', !c.atDesk || c.busy);
+      button('Collect original earned local service pay', 'collect', !c.atDesk || c.busy);
+    }
+    button('Charge original station from one carried arcane feedstock (one minute)', 'charge', !c.atStation || c.busy);
+    button('Receive dated scientific-compact account', 'report', !c.local || c.busy || !(c.atDesk || c.atStation));
+    if (s.job) {
+      if (c.local) panel.append(textEl('p', `Attended ${s.job.kind}: ${formatDuration(s.job.progress)} / ${formatDuration(s.job.seconds)}. Movement or unsafe conditions interrupt; exact partial fitting work survives.`));
+      button('Interrupt current scientific attendance', 'cancel', false);
+    }
+    if (s.refusal && c.atDesk) panel.append(textEl('p', `${formatClock(s.refusal.at)} — received refusal: ${s.refusal.reason}`));
+    if (s.report) {
+      const r = s.report; panel.append(textEl('p', `${formatClock(r.at)} — received ${r.status}; earned locally ${formatMoney(r.earned)}, personally collected ${formatMoney(r.paid)}. Dated account, not live remote readiness.`));
+      if (r.baseline) panel.append(textEl('p', `Baseline: ${r.baseline.energySpent.toFixed(2)} reserve / ${r.baseline.seconds} seconds, observed ${formatClock(r.baseline.at)}.`));
+      if (r.demonstration) panel.append(textEl('p', `Fitted: ${r.demonstration.energySpent.toFixed(2)} reserve / ${r.demonstration.seconds} seconds; ${(r.demonstration.saving * 100).toFixed(1)}% demonstrated standby saving. The fitting also reduces an actually tuned interception's reserve cost, not its strength or coverage.`));
+      if (r.installation) panel.append(textEl('p', `Personally inspected station: ${r.installation.energy.toFixed(2)} finite reserve; original structure condition ${r.installation.condition}. Fitting service life ${r.installation.fitting ? formatDuration(r.installation.fitting.remainingSeconds) : 'not installed'}.`));
+      for (const row of r.cycles) panel.append(textEl('p', `Service due ${formatClock(row.dueAt)}; ${row.fulfilledAt == null ? 'performance not reported' : `performed ${formatClock(row.fulfilledAt)}`}.`));
+      for (const row of r.history.slice(-5)) panel.append(textEl('p', `${formatClock(row.at)} — ${row.text}`));
+    } else panel.append(textEl('p', 'No scientific compact account received. Opening Visits reveals no remote operator condition, reserve, local pay or contract status.'));
+    panel.append(textEl('p', 'Prototype: two carried metal parts, one glass, one rubber and one prepared mana crystal; an owned carried masonry hammer loses one condition. Paired tests require the same original operator and structural condition, with no combat draw. Operational savings are 25% only with that capable unsuppressed operator at the original post. Six supplied operating hours exhaust fitting service life; damage or unavailable tuning falls back safely to ordinary consumption. Installed property remains city-owned after handback.'));
+    return panel;
+  }
   function outerApproachGates() { return (state.penalFlights?.assistance?.cityApproach?.gates || []).filter(g => g.outerApproach); }
   function outerApproachGate() {
-    return passengerReceptionGate(state.outerApproachVisit?.cityId || (intercityMarchActive() ? state.intercityMarch.operation.plan.cityId : ''));
+    const cityId = state.outerApproachVisit?.cityId || (intercityMarchActive() ? state.intercityMarch.operation.plan.cityId : null);
+    return cityId ? passengerReceptionGate(cityId) : passengerReceptionGate();
   }
   function outerApproachRooms(g) { return g?.outerApproach ? [g.outerApproach.layout.roomId, g.checkpointRoomId] : []; }
   function outerApproachLocal(g = outerApproachGate()) {
@@ -98560,25 +98750,37 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function outerApproachSource(g) {
     return g?.preparedOuterApproachTestSource || (g && CityDefense.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, g.cityId));
   }
-  function ensureOuterApproach() {
+  function ensureOuterApproach(civilian = false) {
     const g = outerApproachGate(), site = overlandStopSite(), o = state.intercityMarch?.operation;
-    if (!g || !site || !intercityMarchActive() || o.plan.worksiteId || o.stagedAt == null || state.overlandExpedition.trip.positionKm !== state.overlandExpedition.route.distanceKm
+    const civil = civilian && g && foreignReceptionContext(g, false, true).atDesk && foreignVisitorPermission(g) && passengerBodyCurrent();
+    if (!g || !civil && (!site || !intercityMarchActive() || o.plan.worksiteId || o.stagedAt == null || state.overlandExpedition.trip.positionKm !== state.overlandExpedition.route.distanceKm)
       || scientistIsDead() || !g.materialized || state.cityDefense?.source.cityId === g.cityId || state.sovereignBargains?.source.cityId === g.cityId) return null;
-    if (g.outerApproach) return g.outerApproach;
+    if (g.outerApproach) {
+      if (!civil && !g.outerApproach.layout.stagingSiteId) Object.assign(g.outerApproach.layout,
+        { stagingSiteId: site.id, stagingRoomId: site.roomId, stagingEntry: clonePlainObject(site.entry) });
+      return g.outerApproach;
+    }
     const source = outerApproachSource(g), civicSource = g.preparedForeignCivicTestSource || ForeignCivicBargains.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, g);
     if (!source || !civicSource) return null;
     if (!g.foreignCivic) g.foreignCivic = ForeignCivicBargains.create(g, civicSource, { theme: state.worldTheme, seed: state.seed });
     const b = g.foreignCivic?.bargain; if (!b) return null;
     DefenderChallenges.prepareDefender(b);
-    const point = (x, y) => ({ x, y, z: g.z }), layout = { roomId: cleanRoomId(`${g.id}-outer-ward-frontage`),
-      entry: point(6, 16), post: point(11, 12), service: point(10, 13), receiving: point(10, 14), structure: point(10, 12),
-      stagingSiteId: site.id, stagingRoomId: site.roomId, stagingEntry: clonePlainObject(site.entry), linkMeters: 20 };
+    // Civilian reception may already have the original leased workspace south
+    // of the checkpoint. Elaborate the ward on the clear western frontage,
+    // never overwrite that laboratory, its approach, staff or property.
+    const west = Boolean(civil || g.foreignWorkspace), point = (x, y) => ({ x, y, z: g.z });
+    const layout = { roomId: cleanRoomId(`${g.id}-outer-ward-frontage`),
+      entry: west ? point(0, 9) : point(6, 16), post: west ? point(4, 8) : point(11, 12),
+      service: west ? point(3, 9) : point(10, 13), receiving: west ? point(3, 10) : point(10, 14),
+      structure: west ? point(3, 8) : point(10, 12),
+      stagingSiteId: civil ? null : site.id, stagingRoomId: civil ? null : site.roomId,
+      stagingEntry: civil ? null : clonePlainObject(site.entry), linkMeters: 20 };
     const s = OuterApproach.create(source, b, layout, { worldId: activeWorldRecord.id, runId: activeRunRecord.id }, state.clock);
     if (!s) return null;
     const room = normalizeRoom({ id: layout.roomId, name: `${source.cityName} Outer Ward-Service Frontage`, facilityClass: 'roadsideStop', purposeId: 'corridor',
       connections: [g.checkpointRoomId], description: 'Original city fortification frontage. No inner admission, construction title or ownership.',
-      geometry: { lengthM: 8, widthM: 7, heightM: 3, floorAreaM2: 56, volumeM3: 168 } });
-    const rect = { roomId: room.id, x: 5, y: 11, z: g.z, width: 8, height: 7 }, cells = rectangularRoomCells(rect), map = ensureLabMap();
+      geometry: { lengthM: west ? 5 : 8, widthM: 7, heightM: 3, floorAreaM2: west ? 35 : 56, volumeM3: west ? 105 : 168 } });
+    const rect = { roomId: room.id, x: west ? 0 : 5, y: west ? 4 : 11, z: g.z, width: west ? 5 : 8, height: 7 }, cells = rectangularRoomCells(rect), map = ensureLabMap();
     if (cells.some(c => Object.values(map.rooms).some(r => r.cells?.some(p => sameMapCell(p, c))))) return null;
     state.rooms = normalizeRooms([...state.rooms, room].map(r => r.id === g.checkpointRoomId ? { ...r, connections: [...new Set([...r.connections, room.id])] } : r));
     map.rooms[room.id] = normalizeLabMapRoom({ ...rect, cells, anchor: layout.entry }, room);
@@ -98623,8 +98825,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const g of outerApproachGates()) {
       const s = g.outerApproach, b = g.foreignCivic?.bargain; if (!b) continue;
       changed += Number(OuterApproach.advance(s, b, state.clock, () => outerApproachContext(g), {
-        move: (a, to) => moveDefenderParticipant(a, to, { ignoreDoors: false, skipPlacement: true,
-          blockedCellKeys: labMapBlockingCellKeys(ensureLabMap(), { actor: a, skipPlacement: true }) }),
+        move: (a, to) => {
+          const blocked = new Set(labMapBlockingCellKeys(ensureLabMap(), { actor: a, skipPlacement: true }));
+          // The civilian western approach passes the original staffed desk.
+          // Replan around actual occupants instead of repeatedly selecting a
+          // shortest step through the stationary representative's body.
+          for (const person of [b.representative, g.clerk, g.guard, state.scientist]) {
+            const cell = person === state.scientist ? scientistMapCell() : person.mapCell;
+            if (cell?.z === a.mapCell?.z && !canActorOccupyTile(a, cell)) blocked.add(mapCellKey(cell));
+          }
+          return moveDefenderParticipant(a, to, { ignoreDoors: false, skipPlacement: true, blockedCellKeys: blocked });
+        },
         strike: () => resolveSharedCombatAction(b.defender.id, 'strike', { kind: 'creature', id: 'scientist', lastKnownCell: scientistMapCell() }),
         pulse: n => { damageScientistCombat(Math.max(1, Math.round(n * combatGuardDamageMultiplier('scientist'))), 'Outer approach defender force pulse', { damageTypes: ['physical', 'force'], directCombat: true });
           emitMapFeedback('feedbackImpact', scientistMapCell(), { label: 'Outer approach pulse', damageTags: ['force'], intensityBand: 'high' }); },
@@ -98639,6 +98850,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           knowledge: { state: r.communicated ? 'known' : 'unknown', learnedAt: r.communicated ? r.at : null, source: 'outerApproach', sourceIdentityKnown: r.communicated } });
       }
       OuterApproach.observe(s, b, outerApproachContext(g), state.clock);
+      changed += Number(updateWardResearch(g));
       changed += Number(updateCampaignSettlement(g));
       changed += Number(updateCountercoalitionRelief(g));
     }
@@ -98729,6 +98941,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const task of scientistQueueTasks()) { const b = document.createElement('button'); b.textContent = `Cancel ${task.label}`; b.onclick = () => cancelTask(task.id); panel.append(b); }
     panel.append(renderCampaignSettlement(g));
     panel.append(renderCountercoalitionRelief(g));
+    panel.append(renderWardResearch(g));
     return panel;
   }
   function countercoalitionMarkets() {
@@ -105610,6 +105823,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const clean = cleanMapCell(cell);
     if (!clean) return { key: "access:invalid", reason: "No valid access tile was provided." };
     if (actor === state.scientist) {
+      const ward = outerApproachGates().find(g => labMapCellRoomId(clean) === g.outerApproach.layout.roomId && g.outerApproach.scientificCompact);
+      if (ward && (componentLanded(ward) || passengerLanded() && state.intercityPassenger.location === ward.cityId) && !outerApproachLocal(ward)) {
+        const s = ward.outerApproach.scientificCompact;
+        const access = WardResearch.access(s, ensureScientistIdentity().bodyEpoch, state.clock);
+        // Expiry never traps a present occupant or grants inner-city admission.
+        const exiting = scientistQueueTasks().some(t => WardResearch.egress(s, ward.outerApproach, ward, t,
+          ensureScientistIdentity().bodyEpoch, labMapCellRoomId));
+        if (!access && scientistRoomId() !== ward.outerApproach.layout.roomId && !exiting)
+          return { key: `civilian-ward:${ward.cityId}`, reason: 'This civilian frontage requires its original scoped trial or technical compact; ordinary visitor trading is insufficient.' };
+      }
       const g = (state.penalFlights?.assistance?.cityApproach?.gates || []).find(g => g.foreignWorkspace && [g.foreignWorkspace.roomId, g.foreignWorkspace.approachRoomId].includes(labMapCellRoomId(clean)));
       if (g && !g.foreignWorkspace.permission && labMapCellRoomId(clean) === g.foreignWorkspace.roomId && !sameMapCell(clean, g.foreignWorkspace.site.entry))
         return { key: `foreign-inspection-desk:${g.cityId}`, reason: 'The inspection invitation covers the named desk and approach only, not the whole workspace.' };
@@ -107603,6 +107826,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       && t.data.toolInstanceId && [next.fieldStation, next.fieldRefuge].some(s => t.data.fieldStationTransfer.cacheId === s?.site?.cacheId)
       && next.physicalItemStacks.some(s => s.id === t.data.stackId && s.toolInstanceId === t.data.toolInstanceId && s.reservedTaskId === t.id))
       .map(t => [t.id, t.data.toolInstanceId]));
+    const wardResearchTools = new Map((next.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => {
+      const claim = WardResearch.savedToolClaim(g.outerApproach, g, next.physicalItemStacks);
+      return claim ? [[claim.jobId, claim.toolId]] : [];
+    }));
     for (const instances of Object.values(next.toolDurability || {})) {
       for (const tool of instances) {
         if (tool.reservedTaskId && !toolTaskIds.has(tool.reservedTaskId) && escortRepairTools.get(tool.reservedTaskId) !== tool.id
@@ -107611,6 +107838,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           && timberTools.get(tool.reservedTaskId) !== tool.id
           && !stationTools.get(tool.reservedTaskId)?.has(tool.id) && !builderTools.get(tool.reservedTaskId)?.has(tool.id)
           && stationTransferTools.get(tool.reservedTaskId) !== tool.id
+          && wardResearchTools.get(tool.reservedTaskId) !== tool.id
           && !(next.foundingExpedition?.id === tool.reservedTaskId && next.foundingExpedition.job?.claims?.toolId === tool.id)
           && !(next.foundingWorks?.id === tool.reservedTaskId && next.foundingWorks.job?.claims?.toolId === tool.id)) tool.reservedTaskId = "";
       }

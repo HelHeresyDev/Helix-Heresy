@@ -57,6 +57,23 @@
   }
   const contact = c => c.alive && c.capable && c.local && c.free && !c.violence && c.defenderPresent;
   const working = (s, c) => c.installationPresent && c.condition >= 25 && s.energy > 0;
+  // A real local fitting conserves reserve, never creates it or expands coverage.
+  // Original capable tuning is essential; unattended/suppressed wards fall back
+  // to their existing conservative consumption and interception rules.
+  function efficiencyRate(s, a, c) {
+    const f = s?.efficiency, post = s?.layout?.post || POST;
+    return f?.installationId === s?.id && f.cityOwnerId === s.source?.cityId && f.enabled && f.remainingSeconds > 0
+      && c.condition >= 50 && able(a) && !c.incapacitated && !c.suppressed && !c.obligation
+      && a.assignment === s.duty?.id && same(a.mapCell, post) && a.workSeconds > 0 && a.stamina > 1 ? .75 : 1;
+  }
+  function standby(s, a, c, seconds) {
+    if (!working(s, c) || seconds <= 0) return 0;
+    const rate = efficiencyRate(s, a, c), efficient = rate < 1 ? Math.min(seconds, s.efficiency.remainingSeconds) : 0;
+    const used = Math.min(s.energy, efficient * rate + seconds - efficient);
+    s.energy -= used; s.standbySpent += used;
+    if (efficient) s.efficiency.remainingSeconds = Math.max(0, s.efficiency.remainingSeconds - efficient);
+    return used;
+  }
   function inspect(s, succession, a, c, at) {
     if (!contact(c) || !c.atStation || !authority(s, succession, a, c)) return false;
     s.quote = { id: `${s.id}:inspection:${s.nextNumber++}`, at, expiresAt: at + 3600, bodyEpoch: c.bodyEpoch,
@@ -109,7 +126,7 @@
     while (s.lastAt < to) {
       const dt = Math.min(s.duty || s.job ? 1 : to - s.lastAt, to - s.lastAt), at = s.lastAt + dt; s.lastAt = at;
       const c = context(), operable = working(s, c);
-      if (operable) { const used = Math.min(dt, s.energy); s.energy -= used; s.standbySpent += used; }
+      if (operable) standby(s, a, c, dt);
       const j = s.job;
       if (j) {
         const stacks = h.stacks?.() || [], i = stacks.find(i => i.id === j.stackId);
@@ -160,8 +177,9 @@
       || ![...(s.layout?.coverage || COVERAGE), s.layout?.gate || GATE].some(cell => same(cell, hit.cell))) return { damage: amount, absorbed: 0 };
     const active = s.duty?.phase === 'watch' && a?.assignment === s.duty.id && same(a.mapCell, s.layout?.post || POST)
       && able(a) && !c.incapacitated && !c.suppressed && !c.obligation && !s.refusal && a.workSeconds > 0 && a.stamina > 0;
-    const absorbed = Math.min(amount, active ? 20 : 5, s.energy / 60);
-    s.energy -= absorbed * 60; s.combatSpent += absorbed * 60;
+    const cost = 60 * efficiencyRate(s, a, c);
+    const absorbed = Math.min(amount, active ? 20 : 5, s.energy / cost);
+    s.energy -= absorbed * cost; s.combatSpent += absorbed * cost;
     // Only the actual attending defender can later communicate this contact.
     if (active && c.defenderWitness) { s.contacts.push({ at, absorbed, targetCell: copy(hit.cell), source: 'Original defender witnessed a station interception' }); s.contacts = s.contacts.slice(-80); }
     return { damage: amount - absorbed, absorbed };
@@ -180,5 +198,5 @@
       refusal: s.refusal, receipts: s.receipts, contacts: s.contacts, limits: LIMITS }); return true;
   }
   return { ROLE, DOOR, POST, SERVICE, GATE, COVERAGE, CAPACITY, SHIFT, LIMITS, same, able, sourceFromWorld, validSource,
-    create, normalize, authority, contact, working, inspect, order, release, beginService, cancelService, advance, absorb, aggression, receive };
+    create, normalize, authority, contact, working, efficiencyRate, standby, inspect, order, release, beginService, cancelService, advance, absorb, aggression, receive };
 });
