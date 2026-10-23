@@ -61,11 +61,13 @@
     }
     return s;
   }
-  const positions = (s, routeId) => s.beasts.actors.filter(a => a.routeId === routeId && a.regionalPhase === 'reserve' && !(a.campaignTravelRemainingKm > 0)).map(a => a.positionKm);
+  const positions = (s, routeId) => s.beasts.actors.filter(a => a.routeId === routeId && a.regionalPhase === 'reserve'
+    && !['withdrawing', 'sheltered'].includes(a.campaignLeg) && !(a.campaignTravelRemainingKm > 0)).map(a => a.positionKm);
   function place(s, site, at, canEnter) {
     let count = 0;
     for (const a of s.beasts.actors) {
-      if (a.routeId !== site.routeId || a.regionalPhase === 'local' || a.campaignTravelRemainingKm > 0) continue;
+      if (a.routeId !== site.routeId || a.regionalPhase === 'local' || a.campaignTravelRemainingKm > 0
+        || ['withdrawing', 'sheltered'].includes(a.campaignLeg)) continue;
       const x = site.entry.x + Math.round((a.positionKm - site.positionKm) * 1000), y = site.entry.y + Math.round(a.offsetM);
       const projected = { x, y, z: site.entry.z };
       // At most one metre of grid discretization. Never move a blocked animal

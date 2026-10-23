@@ -2,8 +2,9 @@ const { test, expect } = require('@playwright/test');
 const { startLifecycleRun } = require('./helpers/start-lifecycle-run');
 const { fixture } = require('./helpers/regional-suppression-source');
 const Suppression = require('../regional-suppression');
-test.setTimeout(600000);
+test.setTimeout(900000);
 const snap = p => p.evaluate(() => window.helixHeresyDebug.suppressionSnapshot());
+const changes = p => p.evaluate(() => window.helixHeresyDebug.regionalChangeSnapshot());
 const walk = p => p.evaluate(() => window.helixHeresyDebug.overlandSnapshot());
 const tick = (p, n) => p.evaluate(n => window.helixHeresyDebug.advanceOverlandForTest(n), n);
 async function visits(p) { const tab = p.locator('[data-workspace-tab="visits"]'); if (await tab.getAttribute('aria-current') !== 'page') await tab.click(); }
@@ -22,10 +23,12 @@ async function journey(p) {
   await p.evaluate(() => window.helixHeresyDebug.advanceForeignReceptionTestTime(1600));
   expect(await p.evaluate(() => window.helixHeresyDebug.queueIntercityPassenger('passengerDisembark'))).toBe(true); await finish(p, true);
 }
-for (const renderer of ['dom', 'canvas']) test(`${renderer} population-backed corridor expedition, actual combat suppression, original survivors, saved partial recon and physical withdrawal`, async ({ page }) => {
+for (const renderer of ['dom', 'canvas']) test(`${renderer} original-population combat, unseen regional renewal, dated rediscovery and saved partial field notes`, async ({ page }) => {
   page.setDefaultTimeout(20000); const errors = []; page.on('pageerror', e => errors.push(e.message)); page.on('dialog', d => d.accept());
   await startLifecycleRun(page, `suppression-${renderer}`);
-  const f = fixture(6); f.map.beastEcology.populations[0].territory = { rangeMask: Buffer.from([4]).toString('base64'), rangeCellCount: 1 };
+  // Original world-backed groups: five near, five sixty ground kilometres
+  // away. The latter are existing individuals, not generated reinforcements.
+  const f = fixture(10, 60);
   const source = Suppression.sourceFromWorld(f.map, f.route, 'a', f.geometry)[0];
   await page.evaluate(({ renderer, route, map, source }) => {
     const d = window.helixHeresyDebug; d.setMapRenderer(renderer);
@@ -40,7 +43,7 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer} population-backed co
     if (!d.setBeastPowerTestSource(map) || !d.setSuppressionTestSources([source])) throw new Error('Original source refused');
     // A prepared late-game scientist is an input, not an awarded campaign outcome.
     const s = d.exportSurveyExpeditionTestState();
-    s.scientist.vitals.mana = { current: 1000, max: 1000 }; s.scientist.vitals.health = { current: 1000, max: 1000 };
+    s.scientist.vitals.mana = { current: 10000, max: 10000 }; s.scientist.vitals.health = { current: 10000, max: 10000 };
     d.importSurveyExpeditionTestState(s);
   }, { renderer, route: f.route, map: f.map, source });
   await visits(page); expect((await snap(page)).saved).toBeNull();
@@ -57,7 +60,8 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer} population-backed co
     world: localStorage.getItem('helix-heresy-v2-world:lifecycle-world'), mana: s.scientist.vitals.mana.current }; });
   const plans = await page.evaluate(() => window.helixHeresyDebug.intercityMarchSnapshot().plans); expect(plans).toHaveLength(1);
   expect(await page.evaluate(id => window.helixHeresyDebug.suppressionAction('march', id), plans[0].id)).toBe(true); await finish(page);
-  let s = await snap(page); expect(s.saved.populations[0].members).toHaveLength(6); expect(s.regional.beasts.actors).toHaveLength(6);
+  let s = await snap(page); expect(s.saved.populations[0].members).toHaveLength(10); expect(s.regional.beasts.actors).toHaveLength(10);
+  const distantIds = s.regional.beasts.actors.filter(a => a.campaignTravelRemainingKm > 0).map(a => a.id); expect(distantIds).toHaveLength(5);
   const identities = s.regional.beasts.actors.map(a => a.id); expect(s.assessments[0].status).toBe('capable');
   for (let stop = 0; stop < 12; stop++) {
     await tick(page, 8000); s = await snap(page); const w = await walk(page);
@@ -92,6 +96,7 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer} population-backed co
   expect((await snap(page)).public.reports).toEqual([]);
   expect(await page.evaluate(() => window.helixHeresyDebug.suppressionAction('recon'))).toBe(true); await finish(page);
   const report = (await snap(page)).public; expect(report.reports.length).toBe(1); expect(report.reports[0].text).toContain('broken for now');
+  const firstAccount = (await changes(page)).public; expect(firstAccount.reports).toHaveLength(1);
   await expect(page.locator('[data-regional-suppression]')).toContainText('Unseen replacements');
   expect(await page.evaluate(() => window.helixHeresyDebug.overlandAction('reverse'))).toBe(true);
   expect(await page.evaluate(() => window.helixHeresyDebug.overlandAction('resume'))).toBe(true); await finish(page);
@@ -106,13 +111,49 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer} population-backed co
   expect(result.money).toBe(before.money); expect(result.mana).toBeLessThan(before.mana); expect(result.campaign).toEqual(before.campaign);
   expect(result.guards).toEqual(before.guards); expect(result.world).toBe(before.world); expect(result.valid).toEqual([]);
   await reload(page); expect((await snap(page)).regional.beasts.actors.map(a => a.id)).toEqual(identities);
-  const frozen = (await snap(page)).saved; await page.evaluate(() => window.helixHeresyDebug.inflictTestScientistDamage()); await tick(page, 100);
-  expect((await snap(page)).saved).toEqual(frozen); expect(errors).toEqual([]);
+  // Normal gameplay heartbeat, then isolated finite movement catch-up while
+  // the scientist remains elsewhere. No outcome or received report is seeded.
+  await page.evaluate(() => window.helixHeresyDebug.advanceSimulation(12));
+  let far = (await snap(page)).regional.beasts.actors.find(a => distantIds.includes(a.id));
+  await page.evaluate(n => window.helixHeresyDebug.advanceRegionalChangeForTest(n), Math.ceil(far.campaignTravelRemainingKm * 1500 / 2));
+  const partialMovement = (await snap(page)).regional.beasts.actors.find(a => a.id === far.id);
+  expect(partialMovement.campaignTravelRemainingKm).toBeGreaterThan(0);
+  await reload(page); far = (await snap(page)).regional.beasts.actors.find(a => a.id === far.id);
+  expect(far.campaignTravelRemainingKm).toBe(partialMovement.campaignTravelRemainingKm);
+  expect((await changes(page)).public).toEqual(firstAccount);
+  await page.evaluate(n => window.helixHeresyDebug.advanceRegionalChangeForTest(n), Math.ceil(far.campaignTravelRemainingKm * 1500 + 1));
+  s = await snap(page); expect(s.assessments[0].status).toBe('capable');
+  expect(s.regional.beasts.actors.map(a => a.id)).toEqual(identities);
+  expect(s.regional.beasts.actors.filter(a => distantIds.includes(a.id)).every(a => a.campaignTravelRemainingKm === 0 && !a.roomId)).toBe(true);
+  expect((await changes(page)).saved.events.some(e => e.kind === 'pressure' && e.from === 'suppressed' && e.to === 'capable')).toBe(true);
+  expect((await changes(page)).public).toEqual(firstAccount); expect(s.public).toEqual(report);
+  await expect(page.locator('[data-regional-changes]')).not.toContainText('Capable pressure personally encountered after');
+  expect(await page.evaluate(id => window.helixHeresyDebug.suppressionAction('march', id), plans[0].id)).toBe(true); await finish(page);
+  for (let n = 0; n < 12; n++) {
+    await tick(page, 8000); s = await snap(page);
+    const known = await page.evaluate(() => window.helixHeresyDebug.regionalEncounterSnapshot().knowledge);
+    if (known.sightings.some(o => o.current && distantIds.includes(o.id))) break;
+    expect(await page.evaluate(() => window.helixHeresyDebug.overlandAction('resume'))).toBe(true); await finish(page);
+  }
+  s = await snap(page); expect(s.regional.beasts.actors.some(a => distantIds.includes(a.id) && a.roomId === s.site?.roomId)).toBe(true);
+  expect(await page.evaluate(() => window.helixHeresyDebug.suppressionAction('recon'))).toBe(true); await tick(page, 20);
+  const renewedWork = (await snap(page)).tasks[0]; expect(renewedWork).toBeTruthy(); await reload(page);
+  expect((await snap(page)).tasks[0].id).toBe(renewedWork.id); expect((await changes(page)).public).toEqual(firstAccount);
+  await finish(page);
+  await expect(page.locator('[data-regional-changes]')).toContainText('Capable pressure personally encountered after');
+  expect((await changes(page)).public.reports).toHaveLength(2);
+  expect(await page.evaluate(() => window.helixHeresyDebug.validateMapScene())).toEqual([]);
+  expect(await page.evaluate(() => localStorage.getItem('helix-heresy-v2-world:lifecycle-world'))).toBe(before.world);
+  const frozen = (await snap(page)).saved, frozenChanges = (await changes(page)).saved;
+  await page.evaluate(() => window.helixHeresyDebug.inflictTestScientistDamage()); await tick(page, 100);
+  await page.evaluate(() => window.helixHeresyDebug.advanceRegionalChangeForTest(100));
+  expect((await snap(page)).saved).toEqual(frozen); expect((await changes(page)).saved).toEqual(frozenChanges); expect(errors).toEqual([]);
   if (renderer === 'dom') {
     await page.reload(); await page.locator('#titleWorldLibraryBtn').click(); await page.locator('[data-library-action="review-run"]').click();
     await page.locator('#runOutcomeRestartBtn').click(); await page.locator('[data-starting-site-input]').first().check(); await page.locator('#startRunSubmitBtn').click();
     await expect(page.locator('#setupOverlay')).toHaveClass(/hidden/);
     expect((await snap(page)).saved).toBeNull(); expect((await snap(page)).public.reports).toEqual([]);
     expect((await snap(page)).regional).toBeNull();
+    expect((await changes(page)).saved).toBeNull(); expect((await changes(page)).public.reports).toEqual([]);
   }
 });

@@ -3,15 +3,17 @@
   const api = factory(node ? require('./wilderness-beasts') : root.HelixWildernessBeasts,
     node ? require('./regional-encounters') : root.HelixRegionalEncounters,
     node ? require('./strategic-beast-ecology') : root.HelixStrategicBeastEcology,
-    node ? require('./strategic-world') : root.HelixStrategicWorld);
+    node ? require('./strategic-world') : root.HelixStrategicWorld,
+    node ? require('./regional-change') : root.HelixRegionalChange);
   if (node) module.exports = api;
   if (root) root.HelixRegionalSuppression = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Wild, Regional, Ecology, World) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Wild, Regional, Ecology, World, Changes) {
   'use strict';
   const SPECIES = 'beast:rimefang-pack', WINDOW = 6 * 3600, PACK = 5;
   const copy = x => JSON.parse(JSON.stringify(x));
   const valid = s => typeof s === 'string' && s.length > 0;
   const time = n => Number.isFinite(n) && n >= 0;
+  const stamp = n => Math.round(n * 1e6) / 1e6; // Stable microsecond event identity across catch-up chunk sizes.
   const SCOPE = 'One source-backed Rimefang population and one measured land corridor. Existing contracts are unchanged. Wounded survivors and displaced hunting groups remain real. Local observations are not a hidden census, permanent safety, extermination or world-domination credit.';
   function hash(s) { let n = 2166136261; for (const ch of s) n = Math.imul(n ^ ch.charCodeAt(0), 16777619); return n >>> 0; }
   function sourceFromWorld(map, route, homeCityId, geometry) {
@@ -79,7 +81,9 @@
         || !time(p.createdAt)) continue;
       s.populations.push({ source: copy(p.source), members: copy(p.members), createdAt: p.createdAt,
         suppressedSince: time(p.suppressedSince) ? p.suppressedSince : null,
-        displacements: Array.isArray(p.displacements) ? copy(p.displacements) : [] });
+        displacements: Array.isArray(p.displacements) ? copy(p.displacements) : [],
+        lastAssessment: p.lastAssessment && time(p.lastAssessment.at) && ['capable', 'suppressed', 'unverified'].includes(p.lastAssessment.status)
+          ? { at: p.lastAssessment.at, status: p.lastAssessment.status } : null });
     }
     s.reports = (Array.isArray(value.reports) ? value.reports : []).filter(r => valid(r?.dossierId) && valid(r.routeId) && valid(r.siteId)
       && time(r.at) && Array.isArray(r.observations)).map(r => ({ dossierId: r.dossierId, routeId: r.routeId, siteId: r.siteId, at: r.at,
@@ -94,7 +98,7 @@
     const claims = regional.members.filter(m => m.populationId === source.populationId), known = new Map(knownActors.map(a => [a.id, a]));
     if (claims.length > source.individualCount) return null;
     const members = claims.map(m => ({ id: m.actorId, native: false })), allocated = [];
-    const p = { source: copy(source), members, createdAt: at, suppressedSince: null, displacements: [] };
+    const p = { source: copy(source), members, createdAt: at, suppressedSince: null, displacements: [], lastAssessment: null };
     for (let ordinal = claims.length; ordinal < source.individualCount; ordinal++) {
       const group = Math.floor((ordinal - claims.length) / PACK), homeIndex = hash(`${seed}:${source.populationId}:home:${group}`) % source.homes.length;
       const home = source.homes[homeIndex], id = `population-beast:${hash(`${seed}:${source.populationId}:${ordinal}`).toString(16)}`;
@@ -106,7 +110,8 @@
       const a = { ...Wild.actor(SPECIES, id, { x: 0, y: 0, z: -9999 }, source.populationId, at), name: 'Rimefang', roomId: '', mapCell: null, homeCell: null,
         routeId: source.routeId, positionKm, offsetM: 2 + ordinal % 3, homePositionKm: positionKm, regionalPhase: 'reserve', effortSeconds: 120,
         regionalAt: at, regionalTargetKm: null, regionalMemoryUntil: 0, regionalSiteId: '',
-        campaignTravelRemainingKm: home.distanceKm, campaignTravelAt: at, campaignGroupId: `hunting-group:${hash(`${seed}:${source.populationId}:${group}`).toString(16)}` };
+        campaignTravelRemainingKm: home.distanceKm, campaignTravelAt: at, campaignLeg: home.distanceKm > 0 ? 'approaching' : 'arrived',
+        campaignGroupId: `hunting-group:${hash(`${seed}:${source.populationId}:${group}`).toString(16)}` };
       allocated.push(a);
     }
     regional.beasts.actors.push(...allocated);
@@ -116,20 +121,68 @@
     s.populations.push(p); regional.beasts.materialized = true; return p;
   }
   const capable = a => a && a.status !== 'dead' && a.health > 0 && a.health >= a.maxHealth * .3;
-  function advance(s, regional, actors, at, alive = true, speedFactor = () => 1) {
+  function advance(s, regional, actors, at, alive = true, speedFactor = () => 1, journal = null, canMove = () => true) {
     if (!s || !alive || !time(at) || at < s.lastAt) return false;
     const byId = new Map(actors.map(a => [a.id, a])); let changed = false;
     for (const p of s.populations) {
+      const before = assess(p, actors, s.lastAt, speedFactor), previous = p.lastAssessment;
+      const edges = [];
+      const emit = (kind, id, when, from, to, actorIds, causeId = p.source.id) => { changed = Changes.record(journal, s, {
+        id: `${p.source.id}:${kind}:${id}`, sourceId: p.source.id, siteId: p.source.canonicalCorridorId,
+        causeId, kind, from, to, actorIds, at: stamp(when) }, at + 1e-6, alive) || changed; };
       for (const m of p.members.filter(m => m.native)) {
         const a = byId.get(m.id); if (!a || !time(a.campaignTravelRemainingKm) || !time(a.campaignTravelAt)) continue;
-        const dt = Math.max(0, at - a.campaignTravelAt); a.campaignTravelAt = at;
-        if (a.campaignTravelRemainingKm <= 0 || !capable(a) || a.regionalPhase !== 'reserve') continue;
-        const travel = dt / Wild.PROFILES[SPECIES].stepSeconds / Math.max(1, speedFactor(a)) / 1000;
-        a.campaignTravelRemainingKm = Math.max(0, a.campaignTravelRemainingKm - travel); changed ||= travel > 0;
-        if (!a.campaignTravelRemainingKm && !p.displacements.some(d => d.groupId === a.campaignGroupId)) p.displacements.push({ groupId: a.campaignGroupId,
-          fromCellId: p.source.homes[m.homeIndex].cellId, at, cause: 'Original hunting group reached its source-backed corridor approach; danger displaced, not erased.' });
+        const start = Math.max(p.createdAt, a.campaignTravelAt), dt = Math.max(0, at - start), home = p.source.homes[m.homeIndex];
+        a.campaignTravelAt = at;
+        // Local bodies stay on their physical ground. Neither leaving the UI
+        // nor an injury teleports one out of an occupied tactical patch.
+        if (a.status === 'dead' || a.health <= 0 || a.regionalPhase !== 'reserve' || a.roomId || a.mapCell || !canMove(a)) continue;
+        const factor = speedFactor(a); if (!Number.isFinite(factor) || factor < 0) continue;
+        const pace = 1 / Wild.PROFILES[SPECIES].stepSeconds / Math.max(1, factor) / 1000;
+        a.campaignLeg ||= a.campaignTravelRemainingKm > 0 ? 'approaching' : 'arrived';
+        // A surviving wounded animal already travelling off-ground can turn
+        // back along its OWN travelled habitat path. There is no free healing,
+        // new lair, replacement group, or response to unseen player progress.
+        if (a.campaignLeg === 'approaching' && !capable(a) && home.distanceKm > 0) {
+          a.campaignLeg = 'withdrawing'; changed = true;
+          emit('beastWithdrawal', a.id, at, 'approaching', 'withdrawing', [a.id], `${a.id}:existing-wounds`);
+          continue; // The wound is known now, not retroactively at the last tick.
+        }
+        if (['sheltered', 'arrived'].includes(a.campaignLeg)) continue;
+        if (a.campaignLeg === 'withdrawing') {
+          const left = Math.max(0, home.distanceKm - a.campaignTravelRemainingKm), work = Math.min(left, dt * pace);
+          a.campaignTravelRemainingKm += work; changed ||= work > 0;
+          if (left <= dt * pace) {
+            a.campaignTravelRemainingKm = home.distanceKm; a.campaignLeg = 'sheltered'; changed = true;
+            emit('beastSheltered', a.id, start + left / pace, 'withdrawing', 'sheltered', [a.id], `${a.id}:existing-wounds`);
+          }
+          continue;
+        }
+        if (!capable(a)) continue;
+        const remaining = a.campaignTravelRemainingKm;
+        if (remaining > 0) emit('beastDeparture', a.id, start, 'habitatApproach', 'travelling', [a.id]);
+        const threshold = start + Math.max(0, remaining / pace - WINDOW);
+        if (remaining > 0 && threshold <= at) edges.push(threshold);
+        const travel = Math.min(remaining, dt * pace);
+        a.campaignTravelRemainingKm = Math.max(0, remaining - travel); changed ||= travel > 0;
+        if (remaining > 0 && !a.campaignTravelRemainingKm) {
+          const arrivalAt = stamp(start + remaining / pace);
+          a.campaignLeg = 'arrived';
+          emit('beastArrival', a.id, arrivalAt, 'travelling', 'corridorApproach', [a.id]);
+          if (!p.displacements.some(d => d.groupId === a.campaignGroupId)) p.displacements.push({ groupId: a.campaignGroupId,
+            fromCellId: home.cellId, at: arrivalAt, cause: 'Original hunting group reached its source-backed corridor approach; danger displaced, not erased.' });
+        }
       }
       const result = assess(p, actors, at, speedFactor);
+      // Physical travel boundaries are exact even during coarse catch-up.
+      // Externally supplied wounds/missing identities are first known at this
+      // consumer tick, so never backdate them into an unseen fight.
+      const travelTransition = previous?.status === 'suppressed' && before.status === 'suppressed'
+        && result.status === 'capable' && edges.length;
+      const transitionAt = stamp(travelTransition ? Math.min(...edges) : at);
+      if (!previous || previous.status !== result.status) emit('pressure', `${transitionAt}:${result.status}`, transitionAt,
+        previous?.status || null, result.status, [], p.source.id);
+      p.lastAssessment = { at, status: result.status };
       if (result.status === 'suppressed') { if (p.suppressedSince == null) p.suppressedSince = at; }
       else p.suppressedSince = null;
     }
@@ -147,9 +200,11 @@
       consequence ||= (a.status === 'dead' || a.health < a.maxHealth) && a.routeId === p.source.routeId
         && time(a.campaignTravelRemainingKm ?? 0) && (a.campaignTravelRemainingKm || 0) * 1000 * Wild.PROFILES[SPECIES].stepSeconds <= WINDOW;
       if (!capable(a)) continue;
+      if (['withdrawing', 'sheltered'].includes(a.campaignLeg)) continue;
       if (a.routeId !== p.source.routeId || !time(a.campaignTravelRemainingKm ?? 0)) return { status: 'unverified' };
       const remaining = a.campaignTravelRemainingKm || 0;
-      if (remaining * 1000 * Wild.PROFILES[SPECIES].stepSeconds * Math.max(1, speedFactor(a)) <= WINDOW) threatening++;
+      const factor = speedFactor(a); if (!Number.isFinite(factor) || factor < 0) return { status: 'unverified' };
+      if (remaining * 1000 * Wild.PROFILES[SPECIES].stepSeconds * Math.max(1, factor) <= WINDOW) threatening++;
     }
     return { status: threatening ? 'capable' : consequence ? 'suppressed' : 'unverified', windowSeconds: WINDOW };
   }

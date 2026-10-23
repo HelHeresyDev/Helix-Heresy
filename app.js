@@ -168,6 +168,7 @@
   const CorridorWorks = window.HelixCorridorWorks;
   const BeastPowers = window.HelixRegionalBeastPowers;
   const Suppression = window.HelixRegionalSuppression;
+  const RegionalChange = window.HelixRegionalChange;
   const OuterApproach = window.HelixOuterApproach;
   const CountercoalitionRelief = window.HelixCountercoalitionRelief;
   const CampaignSettlement = window.HelixCampaignSettlement;
@@ -5582,6 +5583,7 @@
       corridorWorks: null,
       regionalBeastPowers: null,
       regionalSuppression: null,
+      regionalChange: null,
       outerApproachVisit: null,
       overlandApproach: null,
       roadsideStops: null,
@@ -13782,6 +13784,20 @@
         assessments: currentSuppression()?.populations.map(p => Suppression.assess(p, suppressionActors(), state.clock, a => 1 + injuryEffectTotals(a).movement)),
         regional: currentRegionalEncounters(), site: overlandStopSite(), clock: state.clock,
         tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) }),
+      regionalChangeSnapshot: () => clonePlainObject({ saved: state.regionalChange,
+        public: RegionalChange.publicView(state.regionalChange), clock: state.clock }),
+      advanceRegionalChangeForTest: seconds => {
+        // Focused off-ground catch-up isolates this consumer's real movement
+        // from unrelated laboratory physiology. It awards no report or result.
+        if (!scientistIsDead()) {
+          state.clock += Math.max(0, seconds);
+          // Do not leave a hidden personal-survival debt for the next physical
+          // test step after this explicitly isolated regional clock jump.
+          ensureWildernessSurvival().lastAt = state.clock;
+          updateSuppression(); updateRegionalChanges();
+        }
+        persist(); render();
+      },
       setSuppressionTestSources: sources => { if (!sources.every(Suppression.validSource)) return false;
         suppressionTestSources = { worldId: activeWorldRecord.id, runId: activeRunRecord.id, sources: clonePlainObject(sources) }; return true; },
       beastPowerSnapshot: () => clonePlainObject({ saved: state.regionalBeastPowers, public: BeastPowers.publicView(currentBeastPowers()),
@@ -20281,6 +20297,8 @@
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.regionalSuppression = Suppression.rebind(importedState.regionalSuppression,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.regionalChange = RegionalChange.rebind(importedState.regionalChange,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.divineIntervention = DivineIntervention.rebind(importedState.divineIntervention,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.overlandExpedition = OverlandExpedition.rebind(importedState.overlandExpedition,
@@ -23970,6 +23988,7 @@
     changes.scientistMovementChanged += livingUpdate(() => updateCastawayAssistance(elapsed));
     changes.scientistMovementChanged += livingUpdate(() => updateCityApproach(elapsed));
     changes.scientistMovementChanged += livingUpdate(() => updateGateEnforcement(elapsed));
+    changes.scientistMovementChanged += livingUpdate(() => updateRegionalChanges());
     return changes;
   }
 
@@ -80031,6 +80050,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         sourceId: r.siteId, source: 'Personal frost-trail and hunting-contact inspection', sourceAt: r.observedAt, receivedAt: r.at,
         text: `${r.text} ${r.observations.map(o => o.condition).join('; ')}`, coverage: 'Reached ground only; no unseen population census, permanent safety or control inferred' });
     }
+    for (const r of RegionalChange.publicView(state.regionalChange).reports) {
+      const d = currentBeastPowers()?.dossiers.find(d => d.report.id === r.sourceId); if (!d) continue;
+      add(citySite(d.report.cityId), { id: r.id, category: 'operations', subject: 'received regional change observation',
+        sourceId: r.siteId, source: 'Completed personal hunting-contact inspection', sourceAt: r.observedAt, receivedAt: r.receivedAt,
+        text: r.text, coverage: RegionalChange.SCOPE });
+    }
     const home = state.startingSite?.strategicLocation || state.startingSite;
     if (home?.strategicCellId) add({ id: `home:${activeRunRecord.site?.candidateId || home.id || 'laboratory'}`, kind: 'home', label: 'Laboratory departure site',
       cityId: home.nearestSettlement?.cityId || '', globeCellId: home.strategicCellId }, { id: 'starting-place', category: 'listing', subject: 'own starting location',
@@ -88638,7 +88663,25 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function updateSuppression() {
     const s = currentSuppression(); if (!s || scientistIsDead()) return false;
-    return Suppression.advance(s, currentRegionalEncounters(), suppressionActors(), state.clock, true, a => 1 + injuryEffectTotals(a).movement);
+    const journal = ensureRegionalChange();
+    const changed = Suppression.advance(s, currentRegionalEncounters(), suppressionActors(), state.clock, true,
+      a => 1 + injuryEffectTotals(a).movement, journal, a => !actorIsIncapacitated(a));
+    return updateRegionalChanges() || changed;
+  }
+  function ensureRegionalChange() {
+    if (scientistIsDead() || !activeWorldRecord || !activeRunRecord) return null;
+    const binding = { worldId: activeWorldRecord.id, runId: activeRunRecord.id };
+    if (!state.regionalChange) state.regionalChange = RegionalChange.create(binding);
+    return RegionalChange.bound(state.regionalChange, binding) ? state.regionalChange : null;
+  }
+  function updateRegionalChanges() {
+    if (scientistIsDead() || !(state.regionalSuppression || state.corridorWorks?.sites?.length
+      || state.runStrategicConditions?.installations?.length || state.cityRule || state.citySuccession?.handover
+      || state.divineIntervention?.avatars?.length || state.foundingWorks)) return false;
+    const s = ensureRegionalChange(); if (!s) return false;
+    return RegionalChange.collect(s, s, { corridorWorks: state.corridorWorks, conditions: state.runStrategicConditions,
+      cityRule: state.cityRule, succession: state.citySuccession, divineIntervention: state.divineIntervention,
+      foundingWorks: state.foundingWorks }, state.clock, true);
   }
   function suppressionDossier() {
     const powers = currentBeastPowers();
@@ -88689,7 +88732,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (suppressionReconReason(task) || !sameMapCell(scientistMapCell(), task.data.toCell)) return;
     const s = currentSuppression(); if (!s) return;
     updateSuppression();
-    Suppression.record(s, suppressionDossier(), task.data.routeId, task.data.siteId, task.data.witnesses, state.clock, true, task.data.observedAt);
+    if (Suppression.record(s, suppressionDossier(), task.data.routeId, task.data.siteId, task.data.witnesses, state.clock, true, task.data.observedAt))
+      RegionalChange.receivePressure(ensureRegionalChange(), s, task.data.dossierId, s.reports.at(-1));
     state.paused = true; markStateDirty();
   }
   function renderSuppression() {
@@ -88711,6 +88755,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       panel.append(textEl('p', `Received ${formatClock(r.at)}; witnessed ${formatClock(r.observedAt)} — ${r.text}`));
       for (const o of r.observations) panel.append(textEl('p', `${o.condition}. Dated personal observation, not live remote tracking.`));
     }
+    const changes = document.createElement('section'); changes.dataset.regionalChanges = 'true';
+    changes.append(textEl('h3', 'Regional change accounts'), textEl('p', RegionalChange.SCOPE));
+    const received = RegionalChange.publicView(state.regionalChange).reports;
+    if (!received.length) changes.append(textEl('p', 'No regional change observation received. Earlier accounts remain dated; no current safety or hidden opposition count is established.'));
+    for (const r of received) changes.append(textEl('p', `Witnessed ${formatClock(r.observedAt)}; received ${formatClock(r.receivedAt)} — ${r.text}`));
+    panel.append(changes);
     return panel;
   }
   function municipalMapContext(office) {
@@ -107592,6 +107642,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.expansionAtlas = ExpansionAtlas.normalize(candidate?.expansionAtlas);
     next.regionalBeastPowers = BeastPowers.normalize(candidate?.regionalBeastPowers);
     next.regionalSuppression = Suppression.normalize(candidate?.regionalSuppression);
+    next.regionalChange = RegionalChange.normalize(candidate?.regionalChange);
     next.overlandExpedition = OverlandExpedition.normalize(candidate?.overlandExpedition);
     next.intercityMarch = IntercityMarch.normalize(candidate?.intercityMarch);
     next.overlandApproach = candidate?.overlandApproach ? clonePlainObject(candidate.overlandApproach) : null;
