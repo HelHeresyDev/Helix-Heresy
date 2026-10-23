@@ -169,6 +169,7 @@
   const BeastPowers = window.HelixRegionalBeastPowers;
   const Suppression = window.HelixRegionalSuppression;
   const RegionalChange = window.HelixRegionalChange;
+  const Supremacy = window.HelixDurableSupremacy;
   const OuterApproach = window.HelixOuterApproach;
   const CountercoalitionRelief = window.HelixCountercoalitionRelief;
   const CampaignSettlement = window.HelixCampaignSettlement;
@@ -5584,6 +5585,7 @@
       regionalBeastPowers: null,
       regionalSuppression: null,
       regionalChange: null,
+      durableSupremacy: null,
       outerApproachVisit: null,
       overlandApproach: null,
       roadsideStops: null,
@@ -13786,6 +13788,9 @@
         tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) }),
       regionalChangeSnapshot: () => clonePlainObject({ saved: state.regionalChange,
         public: RegionalChange.publicView(state.regionalChange), clock: state.clock }),
+      supremacySnapshot: () => clonePlainObject({ saved: state.durableSupremacy,
+        public: Supremacy.publicView(state.durableSupremacy), clock: state.clock }),
+      supremacyAction,
       advanceRegionalChangeForTest: seconds => {
         // Focused off-ground catch-up isolates this consumer's real movement
         // from unrelated laboratory physiology. It awards no report or result.
@@ -14855,7 +14860,7 @@
           const physical = activeScientistTravelTask() || state.cityDefense?.duty || state.cityDefense?.job
             || ['approaching', 'returningToPost'].includes(state.cityProvisioning?.order?.phase);
           const step = Math.min(left, physical ? 1 : 60); state.clock += step; left -= step;
-          updateScientistMovementTask(); completeDueTasks(); progressInjuries(); updateCityProvisioning(); updateCityDefense(); updateCityRule();
+          updateScientistMovementTask(); completeDueTasks(); progressInjuries(); updateCityProvisioning(); updateCityDefense(); updateCityRule(); updateSupremacy();
         }
         persist(); if (!quiet) render(); return state.clock;
       },
@@ -20299,6 +20304,8 @@
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.regionalChange = RegionalChange.rebind(importedState.regionalChange,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.durableSupremacy = Supremacy.rebind(importedState.durableSupremacy,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.divineIntervention = DivineIntervention.rebind(importedState.divineIntervention,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.overlandExpedition = OverlandExpedition.rebind(importedState.overlandExpedition,
@@ -23989,6 +23996,7 @@
     changes.scientistMovementChanged += livingUpdate(() => updateCityApproach(elapsed));
     changes.scientistMovementChanged += livingUpdate(() => updateGateEnforcement(elapsed));
     changes.scientistMovementChanged += livingUpdate(() => updateRegionalChanges());
+    changes.scientistMovementChanged += livingUpdate(() => updateSupremacy());
     return changes;
   }
 
@@ -80239,6 +80247,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.visitsList?.prepend(renderRegionalOperations());
     dom.visitsList?.prepend(renderFoundingExpedition());
     dom.visitsList?.prepend(renderFoundingWorks());
+    if (!workspaceTabVisible('journal')) dom.visitsList?.prepend(renderSupremacy());
   }
   function renderSiteVisitsContent() {
     const localStay = localPrisonRecord();
@@ -80786,6 +80795,79 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       content.append(textEl("p", "Guidance is hidden; successful actions still record accomplishments."));
     }
     content.append(renderCivicFoothold(false));
+    if (workspaceTabVisible('journal')) content.append(renderSupremacy());
+  }
+
+  let supremacyBaselineCache = null;
+  function currentSupremacy() {
+    return Supremacy.bound(state.durableSupremacy, { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id }) ? state.durableSupremacy : null;
+  }
+  function ensureSupremacy() {
+    if (!activeWorldRecord || !activeRunRecord || scientistIsDead()) return null;
+    const binding = { worldId: activeWorldRecord.id, runId: activeRunRecord.id };
+    const map = activeWorldRecord.generatedData?.strategicMap;
+    if (!supremacyBaselineCache || supremacyBaselineCache.map !== map)
+      supremacyBaselineCache = { map, base: Supremacy.baseline(map) };
+    const base = supremacyBaselineCache.base;
+    if (!state.durableSupremacy) state.durableSupremacy = Supremacy.create(binding, base, state.clock);
+    const s = state.durableSupremacy;
+    if (!Supremacy.bound(s, binding)) return null;
+    Supremacy.syncBaseline(s, base); return s;
+  }
+  function updateSupremacy() {
+    const s = ensureSupremacy(); if (!s) return false;
+    const facts = [];
+    const city = state.cityRule && Supremacy.cityAccount(s, state.cityRule, state.citySuccession,
+      cityRulePeople(), cityRuleContext(), state.clock);
+    if (city) facts.push(city);
+    // Other original cities stay in the registry. Tactical wolf pressure,
+    // withdrawn avatars, trade/service compacts and local withdrawals provide
+    // no strategic or sovereign resolution fact. No convenient defaults.
+    return Supremacy.advance(s, s, { complete: s.complete, facts }, state.clock, true);
+  }
+  function supremacyEvidence() {
+    const binding = { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id };
+    const evidence = [], r = Supremacy.bound(state.cityRule, binding) && state.cityRule.report;
+    if (r) evidence.push({ id: `city-rule:${r.sourceId}:${r.at}`, sourceId: r.sourceId,
+      label: `Received city operating account — ${r.cityId}`,
+      status: r.status === 'established' && r.foodKg > 0 && r.waterLiters > 0 && r.energy > 0 ? 'control'
+        : r.status === 'contested' ? 'challenge' : 'unverified', observedAt: r.at, receivedAt: r.at });
+    for (const d of state.strategicJourneys?.destinations || []) if (d.known && d.kind === 'fortifiedCity' && d.cityId !== r?.cityId)
+      evidence.push({ id: `own-records:${d.id}`, sourceId: 'own-held-records',
+        label: `Own records lack a received control account for known ${d.label || d.cityId}`,
+        status: 'unverified', observedAt: state.clock, receivedAt: state.clock });
+    for (const g of outerApproachGates()) {
+      if (!Supremacy.bound(g.outerApproach, binding)) continue;
+      const r = g.outerApproach?.scientificCompact?.report;
+      if (r) evidence.push({ id: `ward-compact:${r.sourceId}:${r.at}`, sourceId: r.sourceId,
+        label: 'Received ward technical compact — influence only, not sovereignty', status: 'influence', observedAt: r.at, receivedAt: r.at });
+    }
+    for (const r of RegionalChange.publicView(Supremacy.bound(state.regionalChange, binding) ? state.regionalChange : null).reports) evidence.push({
+      id: `pressure:${r.id}`, sourceId: r.sourceId, label: 'Received local hunting-pressure account — strategic reach unverified',
+      status: 'unverified', observedAt: r.observedAt, receivedAt: r.receivedAt });
+    return evidence;
+  }
+  function supremacyAction(action) {
+    if (action !== 'review' || scientistIsDead() || actorIsIncapacitated('scientist')) return false;
+    const s = ensureSupremacy();
+    if (!s || !Supremacy.review(s, s, supremacyEvidence(), state.clock, true, true)) return false;
+    // Free review of documents already held, not remote inspection, a clerk's
+    // new attestation, a news purchase or refreshed civic authorization.
+    markStateDirty(); persist(); render(); return true;
+  }
+  function renderSupremacy() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.durableSupremacy = 'true';
+    const v = Supremacy.publicView(currentSupremacy());
+    panel.append(textEl('h4', 'Durable supremacy — received evidence'), textEl('p', v.scope), textEl('p', v.label));
+    const b = document.createElement('button'); b.textContent = 'Review received supremacy evidence'; b.dataset.supremacyAction = 'review';
+    b.disabled = scientistIsDead() || actorIsIncapacitated('scientist'); b.onclick = () => supremacyAction('review'); panel.append(b);
+    if (v.review) {
+      panel.append(textEl('p', `Own document review ${formatClock(v.review.at)}. Source dates below are not refreshed.`));
+      if (!v.review.evidence.some(e => ['control', 'influence', 'challenge'].includes(e.status)))
+        panel.append(textEl('p', 'No relevant received control or regional-resolution evidence recorded.'));
+      for (const e of v.review.evidence) panel.append(textEl('p', `${e.label}: ${e.status}. Observed ${formatClock(e.observedAt)}; received ${formatClock(e.receivedAt)}.`));
+    }
+    panel.append(textEl('p', v.limits)); return panel;
   }
 
   function renderJournal() {
@@ -107643,6 +107725,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.regionalBeastPowers = BeastPowers.normalize(candidate?.regionalBeastPowers);
     next.regionalSuppression = Suppression.normalize(candidate?.regionalSuppression);
     next.regionalChange = RegionalChange.normalize(candidate?.regionalChange);
+    next.durableSupremacy = Supremacy.normalize(candidate?.durableSupremacy);
     next.overlandExpedition = OverlandExpedition.normalize(candidate?.overlandExpedition);
     next.intercityMarch = IntercityMarch.normalize(candidate?.intercityMarch);
     next.overlandApproach = candidate?.overlandApproach ? clonePlainObject(candidate.overlandApproach) : null;

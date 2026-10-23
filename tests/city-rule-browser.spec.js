@@ -52,6 +52,11 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: actual succession, 
   await panel.locator('[data-city-rule-action="operate"]').click(); await tick(page, 1800);
   s = await snap(page); expect(s.saved.command.progress).toBe(1800); expect(s.saved.since).toBeNull();
   await panel.locator('[data-city-rule-action="report"]').click(); const dated = (await snap(page)).saved.report;
+  const supremacy = page.locator('[data-durable-supremacy]');
+  await supremacy.locator('[data-supremacy-action="review"]').click();
+  const knownSupremacy = await page.evaluate(() => window.helixHeresyDebug.supremacySnapshot().public);
+  expect(knownSupremacy.review.evidence).toHaveLength(1); expect(knownSupremacy.review.evidence[0].observedAt).toBe(dated.at);
+  expect(knownSupremacy.review.evidence[0].status).toBe('unverified');
   await tick(page, 0); await page.reload(); await page.locator('#loadLastSaveBtn').click();
   await page.locator('[data-workspace-tab="visits"]').click();
   expect((await snap(page)).saved.command.progress).toBe(1800); await tick(page, 1800);
@@ -61,10 +66,16 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: actual succession, 
   expect(s.saved.status).toBe('contested'); expect(s.saved.since).toBeNull(); expect(s.saved.accomplishment).toBeNull();
   expect(s.saved.farms[0].deliveredKg).toBeGreaterThan(0); expect(s.saved.report).toEqual(dated);
   expect(s.campaign.cityPower.rule).toBeNull();
+  expect(await page.evaluate(() => window.helixHeresyDebug.supremacySnapshot().public)).toEqual(knownSupremacy);
   await tick(page, 0); await panel.locator('[data-city-rule-action="report"]').click();
   s = await snap(page); await expect(panel).toContainText('Contested / no longer sustained'); expect(s.saved.report.at).toBe(s.clock);
   const final = s.saved; await page.reload(); await page.locator('#loadLastSaveBtn').click();
   await page.locator('[data-workspace-tab="visits"]').click(); expect((await snap(page)).saved).toEqual(final);
+  await supremacy.locator('[data-supremacy-action="review"]').click();
+  const reviewed = await page.evaluate(() => window.helixHeresyDebug.supremacySnapshot());
+  expect(reviewed.public.review.evidence[0].status).toBe('challenge'); expect(reviewed.saved.phase).not.toBe('qualified');
+  expect(reviewed.public.review.evidence[0].observedAt).toBe(final.report.at);
+  expect(await page.evaluate(() => window.helixHeresyDebug.validateMapScene())).toEqual([]);
   expect(await page.evaluate(() => localStorage.getItem('helix-heresy-v2-world:lifecycle-world'))).toBe(world);
   expect(errors).toEqual([]);
 });
