@@ -1629,6 +1629,20 @@ Saved selection, original contracts, partial work, physical cargo, local money a
 
 Focused checks: `node --test --test-isolation=none tests/regional-operations.unit.test.js tests/away-operation.unit.test.js tests/caretaker-communications.unit.test.js tests/resident-caretaker.unit.test.js`; `npx playwright test tests/regional-operations-browser.spec.js --project=chromium --workers=2`. Technician model coverage is `tests/laboratory-assistant.spec.js`; native personal escrow collection is the named `informed technician employment` case in `tests/laboratory-assistant-browser.spec.js`. Run only relevant files/cases, not the full suite.
 
+## Prospective city: advance camp
+
+City founding begins with an optional **temporary two-person prospecting camp**, not a settlement unlock. In Visits, personally register a clear natural 2 × 3 plot in the already reached home boundary wilderness. Stand on its southern work tile (one tile south of the northwestern crate tile). First inspect a nearby actual workable exposed stone face through the existing stone-work controls, and obtain Resource Reconnaissance findings for nearby water and growing-ground indicators. Those observations establish neither city-scale reserves, producing water nor arable acreage. The full walking route back to the original municipal protector must be personally known and unobstructed.
+
+At the original civic counter, personally supply that same allocated defender and discuss a bounded voluntary release with the original representative. Most original protectors decline an independent heretical foundation; no replacement recruit or god endorsement appears. The exact accepted offer pays **240 marks**, earned on departure, for at most **six hours**. The same person becomes unavailable for other civic duties. Their wounds, finite work, stamina, personal magic and money persist. Give them their own original shelter kit, two drinking waters and one trail meal; the scientist needs separate kit and provisions. Carrying limits apply.
+
+Personally accompany the protector along the inspected route; they walk tile by tile and wait if left behind or blocked. At the plot, carry **three lumber, one metal part and an original usable masonry hammer**. Eleven attended minutes with the same protector build one real crate and deploy both original kits. Materials are incorporated at the start, partial work and hammer wear persist, and pausing releases the hammer without refunding inputs. Resume uses the same unfinished work, kits and hammer. Loss, obstruction, another task, incapacity or absence cannot backfill construction.
+
+Share actual carried meal and water for each person through twenty attended seconds, then remain together for ten supported minutes to demonstrate the advance camp. This is a historical local result, not a city, permanent protection, producing farm/spring, immigration permit, land title, independent regional base or domination accomplishment. The protector can fight nearby beasts through shared physical combat with finite personal stamina; there is no new magical safe bubble. Ordinary needs and actual carried provisions still matter.
+
+Personal withdrawal, lost source/commitment or exhausted reserves requires the same person's physical return along the original route. Incapacity can strand them; death does not produce a replacement or refund. Original camp property remains where built. Personally received accounts are dated, not live remote tracking. Saves and continued-run imports preserve originals and partial work; fresh games in the same world inherit none. City-scale construction/migration and operational city integration remain the separate 3.31b and 3.31c passes.
+
+Focused checks: `node --test --test-isolation=none tests/founding-expedition.unit.test.js`; `npx playwright test tests/founding-expedition-browser.spec.js --project=chromium --workers=1`. These do not run the full suite.
+
 ## Development Notes
 
 - Keep the game runtime dependency-free unless a feature clearly needs a library.
