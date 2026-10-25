@@ -1,7 +1,7 @@
 // An actual home handover followed by real finite municipal work and renewals.
 // Debug setup supplies prior civic records/source inputs only, not city control.
-async function prepareHome(page, renderer) {
-  await page.evaluate(renderer => {
+async function prepareHome(page, renderer, options = {}) {
+  await page.evaluate(({ renderer, options }) => {
     const d = window.helixHeresyDebug; d.setMapRenderer(renderer);
     d.setSurveyExpeditionTestContext({ network: { homeDestinationId: 'site:lab', nearestSettlementDestinationId: 'city:a', routes: [], destinations: [
       { id: 'site:lab', kind: 'laboratorySite', cityId: 'a', label: 'Lab', cellId: 'planet-cell:00009', supportComponentId: 'one', known: true, reachable: true, localDistanceKm: 2, routeContinuity: 'municipal', dangerBand: 'veryLow' },
@@ -27,13 +27,14 @@ async function prepareHome(page, renderer) {
       cityPopulation: 3000, satelliteId: 'original-farm:a', satelliteName: 'Original farm', satellitePopulation: 600,
       institutionId: source.institutions.find(i => i.role === 'publicWorksAndProvisioning').id,
       cityCellId: 'planet-cell:00001', satelliteCellId: 'planet-cell:00002', arableLandBand: 'productive', storageDays: 3,
-      distanceKm: 2, routeCellIds: ['planet-cell:00002', 'planet-cell:00001'], routeUsable: true };
+      distanceKm: 2, routeCellIds: ['planet-cell:00002', 'planet-cell:00001'], routeUsable: true, ...options.farm };
     if (!d.configureCityProvisioningTest(farm) || !d.configureCityDefenseTest({ cityId: 'a', cityName: 'Aster', charterId: source.charterId,
       populationSourceId: source.populationSourceId, population: 3000, institutionId: after.bargain.defender.institutionId,
       installationId: 'original-approach:a', condition: 80, baselineEnergy: 69120 }) || !d.configureCityRuleTest({
       cityId: 'a', cityName: 'Aster', charterId: source.charterId, populationSourceId: source.populationSourceId, population: 3000,
       institutions: source.institutions.map(i => ({ role: i.role, id: i.id })), worksId: 'original-water-walls:a', powerId: 'original-power:a', reserveDays: 5, farms: [farm] }))
       throw new Error('Original city source unavailable');
+    if (options.sustain === false) return;
     const doAction = (family, action, quantity) => { if (!d[family](action, quantity)) throw new Error(`Original ${family} refused ${action}`); };
     doAction('cityProvisioningAction', 'standing'); doAction('cityRuleAction', 'distribution'); doAction('cityRuleAction', 'operate');
     console.log(`multi-city: ${renderer} home handover complete; running original three-day support`);
@@ -48,6 +49,6 @@ async function prepareHome(page, renderer) {
       doAction('cityRuleAction', 'recharge', 7); d.advanceCityRuleForTest(420, true);
     }
     console.log(`multi-city: ${renderer} home three-day account received and actual power fuel processed`);
-  }, renderer);
+  }, { renderer, options });
 }
 module.exports = { prepareHome };

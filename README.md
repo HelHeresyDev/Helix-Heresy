@@ -1408,6 +1408,20 @@ At the actual depot, hand over one real clean carried fuel reagent for 200 km of
 
 Focused coverage: `tests/city-provisioning.unit.test.js` and Canvas/DOM `tests/city-provisioning-browser.spec.js`, with the directly relevant shared journey and succession checks. Full-suite testing remains opt-in under `AGENTS.md`.
 
+### Municipal supply and original beast contacts
+
+An original grain pickup can now meet an existing Rimefang population where the measured farm road genuinely shares an interior crossing with its source-backed corridor. The same conserved individuals must have actually reached that ground. Unrelated routes, distant groups, absent source evidence and city endpoints do not generate a replacement pack or a scripted city attack.
+
+The original shared journey stops at the physical contact. Its same driver, truck and cargo occupy persistent roadside ground; finite driver provisions/duty and city grain consumption continue while it is held. Animals perceive, approach and attack through shared combat, actual range, sight, movement, injury and recovery rules. Exposed rubber running gear can be damaged without granting wolves the ability to siege steel, masonry or wards. The intact cab blocks ordinary physical strikes on the driver; a wreck exposes the original person, and subsequent impacts can spoil actual carried grain. Spoiled grain is accounted for, never credited to the city or turned into player loot. No replacement driver, truck, pack or automated rescue appears.
+
+Existing personally learned itineraries, walking and separately consenting expedition companions remain the response; this does not conscript the exceptional municipal protector. An operable carrier can resume its same original journey after thirty actual seconds without a perceived active threat. Damage, wounds, exhausted support and inaccessible ground can instead leave those assets stranded. Clearing an encounter does not repair a wreck, heal the driver, refill anything or promise later safety.
+
+At the reached site, **Record visible municipal carrier condition** in Visits records only personally visible qualitative conditions. The original returning driver can carry a dated contact account back through the ordinary delivery and personally received municipal report. Until then, city records show an outstanding instruction and actual dock receipts—not unseen casualties, live cargo or animal coordinates. Unvisited offscreen contact sites are not free map discoveries. Atlas and supremacy review use only those dated acquired records.
+
+A safe shipment or a defeated local group is not strategic population resolution. Private assessment can substantiate incapacity only when every conserved original body is accounted for and actually dead or severely wounded; a capable survivor, missing identity or unexplained extra body leaves it unverified. Recovery interrupts that continuous fact. Population identities remain in the strategic roster, and wider organizational/divine capabilities and world-domination certification remain pending. This is the beast/traffic deliverable of 3.35b, not its organizational deliverable or a worldwide accomplishment.
+
+Focused checks: `tests/municipal-supply-threats.unit.test.js` (source eligibility, body/cargo conservation, real shortage, knowledge, strategic proof and coarse/fine/reload continuity) and `tests/municipal-supply-threats-browser.spec.js` (native Canvas/DOM interception, saves, personal travel, observation and shared combat). No full-suite run is implied.
+
 ### Hostile seizure of the original municipal counter
 
 The Visits panel now offers **Hostile municipal-counter seizure** at the existing supported sovereign counter. Personally reach that counter and declare the objective. This is a scientist-led hostile operation, not a lawful civil-access order: the refuge guards retain their defensive employment and do not become an assault force. The objective covers the original counter and its receiving position, not a city siege.

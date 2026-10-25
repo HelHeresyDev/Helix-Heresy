@@ -168,6 +168,8 @@
     const o = s.order;
     s.receipts.push({ id: o.id, at, requestedKg: o.requestedKg, loadedKg: o.loadedKg, deliveredKg: o.deliveredKg,
       retainedCargoKg: s.vehicle.cargoKg, ownerId: s.source.cityId, sourceId: s.stores.sourceId, reason });
+    s.receipts.at(-1).encounterReports = copy(o.encounterReports || []);
+    s.receipts.at(-1).spoiledKg = o.spoiledKg || 0;
     s.driver.assignment = null; s.order = null; note(s, at, reason);
   }
   function cancel(s, succession, office, c, at) {
@@ -194,7 +196,13 @@
         if (issue(s, c.standingWorker, c, kg, s.lastAt)) directive.lastDispatchAt = s.lastAt;
       }
       const moving = ['approaching', 'returningToPost'].includes(s.order?.phase);
-      let dt = Math.min(moving ? 1 : 30, to - s.lastAt);
+      let dt = Math.min(moving || h.roadBoundary && ['outbound', 'inbound'].includes(s.order?.phase) ? 1 : 30, to - s.lastAt);
+      // A fractional road crossing must not shift subsequent physical AI
+      // pulses according to the caller's catch-up chunk size.
+      if (moving || h.roadBoundary && ['outbound', 'inbound'].includes(s.order?.phase))
+        dt = Math.min(dt, Math.floor(s.lastAt + 1e-7) + 1 - s.lastAt);
+      const boundary = h.roadBoundary?.(s, s.lastAt, dt);
+      if (Number.isFinite(boundary) && boundary > 1e-7) dt = Math.min(dt, boundary);
       if (s.rest) dt = Math.min(dt, Math.max(.001, 28800 - s.rest.progress));
       if (['boarding', 'loading', 'unloading'].includes(s.order?.phase)) dt = Math.min(dt, Math.max(.001, HANDLE - s.order.handling));
       const activeJourney = s.network.journeys.find(j => j.id === s.order?.journeyId);
@@ -206,6 +214,7 @@
         for (const boundary of boundaries) if (Number.isFinite(boundary) && boundary > s.lastAt) dt = Math.min(dt, boundary - s.lastAt);
       }
       const at = s.lastAt + dt; s.lastAt = at;
+      h.roadTick?.(s, at);
       const p = s.stores, d = s.driver, v = s.vehicle;
       const harvest = c.productionAvailable ? Math.min(p.standingCropKg, s.demand.kgPerDay * dt / DAY, Math.max(0, p.farmCapacityKg - p.farmKg)) : 0;
       p.standingCropKg -= harvest; p.farmKg += harvest; p.harvestedKg += harvest;
@@ -224,6 +233,7 @@
         : v.condition < 50 ? 'Original vehicle condition prevents operation.' : d.workSeconds < dt ? 'Original driver duty exhausted.'
         : d.foodSeconds < dt || d.waterSeconds < dt ? 'Original driver provisions exhausted.' : '';
       if (['outbound', 'inbound'].includes(o.phase) && j?.status !== 'arrived' && (!c.routeUsable || v.fuelKm <= 0)) reason ||= 'Actual route or finite fuel prevents movement.';
+      if (h.roadHeld?.(s)) reason ||= 'Original carrier halted at a physical road contact; no remote cargo credit or automatic rescue.';
       if (['approaching', 'boarding', 'unloading', 'returningToPost'].includes(o.phase) && !c.depotAvailable) reason ||= 'Original depot access is blocked.';
       // Waiting on a blocked road/depot does not freeze a living assigned
       // person's finite provisions or duty. No ration creates health or fuel.
@@ -241,6 +251,7 @@
         }
         s.network = advanced;
         v.fuelKm = Math.max(0, v.fuelKm - delta); v.condition = Math.max(0, v.condition - delta * .02); o.meterKm = km;
+        h.roadArrived?.(s, at);
         if (travel.status === 'stranded') { o.reason = 'Original carrier stranded at the saved road position; no unseen battle or automatic rescue.'; continue; }
         if (travel.status !== 'arrived') continue;
         if (o.phase === 'inbound' && !c.depotAvailable) { o.reason = 'Original carrier reached the city but cannot enter the occupied or blocked dock.'; continue; }
