@@ -80,7 +80,11 @@
       actor.oppositionDefensePolicy = ['defendSelf', 'coverRetreat', 'flee'][hash(`${actor.id}:personal-defense`) % 3];
       actor.oppositionRenewalPolicy = hash(`${actor.id}:safeguard-renewal`) % 3 === 0 ? 'retainWithdrawal' : 'considerAcknowledgedSafeguards';
     }
+    if (options.layout?.homes?.length === leaders.length + 1 && options.layout.meeting?.length === leaders.length + 1) {
+      [ruler, ...leaders].forEach((a, i) => { a.mapCell = copy(options.layout.homes[i]); a.roomId = options.layout.roomId; });
+    }
     return { definitionId: selected.definitionId, sourceTheme: selected.sourceTheme, source: copy(source), officeId: office.id,
+      ...(options.layout ? { meeting: copy(options.layout.meeting) } : {}),
       ruler, leaders, allocation: { populationSourceId: source.populationSourceId, people: leaders.length + 1 },
       phase: 'idle', job: null, petitionId: null, decision: null, terms: null, provision: { key: 'metalParts', stock: 0, receipts: [] },
       agreements: [], control: null, handover: null, directive: null, opposition: [], history: [], message: '', nextNumber: 1 };
@@ -152,9 +156,26 @@
     if (s?.phase !== 'ready') return false;
     return begin(s, b, office, c, at, 'hearing', 180);
   }
+  function governingEvidence(e, targetCity, bodyEpoch, at) {
+    return Boolean(e && e.cityId !== targetCity && e.sourceId && e.proofId && e.worldId && e.runId
+      && e.bodyEpoch === bodyEpoch && Number.isFinite(e.since) && e.since >= 0 && Number.isFinite(e.establishedAt)
+      && e.establishedAt >= e.since + 259200 && Number.isFinite(e.reportAt) && e.reportAt >= e.establishedAt && e.reportAt <= at);
+  }
+  function requestDesignation(s, b, office, c, at) {
+    if (!s || !['idle', 'refused', 'withdrawn'].includes(s.phase) || working(s) || s.handover
+      || !governingEvidence(c.governingEvidence, s.source.cityId, c.bodyEpoch, at)
+      || s.source.designationReview?.requiredAuthorizationIds?.length || !c.positionDisclosed
+      || localReason(s, b, office, c) || office.workSeconds < 240 || people(s, b).some(a => a.workSeconds < 240)
+      || s.decision?.governingProofId === c.governingEvidence.proofId) return false;
+    s.id ||= `${s.source.cityId}:negotiated-succession`;
+    s.petitionId = `${s.id}:governing-petition:${s.nextNumber++}`; s.phase = 'approaching'; s.lastWalkAt = at;
+    s.governingEvidence = copy(c.governingEvidence); s.terms = null; s.agreements = [];
+    for (const a of people(s, b)) a.assignment = s.id;
+    note(s, at, 'governingPetition', 'The original incumbent accepted a hearing request supported by a personally received governing record from another city. The scientist\'s opposition to the gods was disclosed. This is not designation, compulsory retirement or divine approval.'); return true;
+  }
   function sign(s, b, office, expected, c, at) {
     if (localReason(s, b, office, c) || s.phase !== 'offered' || !same(s.terms, expected)
-      || at >= s.terms.expiresAt || s.terms.bodyEpoch !== c.bodyEpoch || !s.terms.serviceIds.every(id => c.serviceIds.includes(id))) return false;
+      || at >= s.terms.expiresAt || s.terms.bodyEpoch !== c.bodyEpoch || !proofPresent(s, c)) return false;
     s.phase = 'signed'; s.terms.signedAt = at;
     note(s, at, 'signature', 'Accepted the exact conditional designation, disclosed civic receipts and retained obligations. No office or goods have changed hands.'); return true;
   }
@@ -172,7 +193,8 @@
     note(s, at, 'receipt', `${amount} actual carried metal parts entered the existing defense branch's conditional maintenance reserve. They remain in city custody even if transfer fails.`); return true;
   }
   function agreementActors(s, b) { return [...s.leaders, b.defender]; }
-  const proofPresent = (s, c) => s.terms.serviceIds.every(id => c.serviceIds.includes(id));
+  const proofPresent = (s, c) => s.terms.serviceIds.every(id => c.serviceIds.includes(id)) && (!s.terms.governingEvidence
+    || same(s.terms.governingEvidence, c.governingEvidence));
   function agree(s, b, office, id, c, at) {
     if (s?.phase !== 'signed' || at >= s.terms.expiresAt || s.terms.bodyEpoch !== c.bodyEpoch
       || s.provision.stock !== s.terms.quantity || s.agreements.some(r => r.personId === id)
@@ -223,10 +245,10 @@
       if (!valid) { cancel(s, b, office, at); return true; }
       const steps = Math.min(60, Math.max(0, Math.floor(at - s.lastWalkAt))); s.lastWalkAt = at;
       for (let n = 0; n < steps; n++) for (const [i, a] of [s.ruler, ...s.leaders].entries()) {
-        const destination = MEETING[i];
+        const destination = (s.meeting || MEETING)[i];
         if (capable(a) && a.workSeconds > 0 && !same(a.mapCell, destination) && effects.move?.(a, destination)) a.workSeconds--;
       }
-      if ([s.ruler, ...s.leaders].every((a, i) => same(a.mapCell, MEETING[i]))) {
+      if ([s.ruler, ...s.leaders].every((a, i) => same(a.mapCell, (s.meeting || MEETING)[i]))) {
         release(s, b, office, at); s.phase = 'ready'; note(s, at, 'arrival', 'The named ruler and institutional officeholders arrived physically. Attend the hearing; designation is still undecided.'); return true;
       }
     }
@@ -262,14 +284,17 @@
     const completedAt = start + work;
     if (j.kind === 'hearing') {
       const reason = s.ruler.retirementPolicy === 'retainOffice' ? 'The incumbent declines retirement; the witnessed bout cannot compel abdication.'
-        : c.serviceIds.length < 3 ? 'Three actually received, paid, charter-reviewed civic dispositions are required; an appointment or ordinary supply sale is not governing experience.'
-        : office.workSeconds >= 1800 && !c.administrationBacklogged ? 'No demonstrated outstanding administrative duty queue or finite-work bottleneck presently justifies this retirement proposal.' : '';
+        : c.serviceIds.length < 3 && !(same(s.governingEvidence, c.governingEvidence)
+          && governingEvidence(c.governingEvidence, s.source.cityId, c.bodyEpoch, at)) ? 'Three actually received, paid, charter-reviewed civic dispositions or an authentic received three-day governing record are required; a service signature or supply sale is not governing experience.'
+        : !s.governingEvidence && office.workSeconds >= 1800 && !c.administrationBacklogged ? 'No demonstrated outstanding administrative duty queue or finite-work bottleneck presently justifies this retirement proposal.' : '';
       s.decision = { at: completedAt, decisionMakerId: s.ruler.id, petitionId: s.petitionId, serviceIds: copy(c.serviceIds),
-        outcome: reason ? 'refused' : 'conditionalDesignation', reason: reason || `${c.administrationBacklogged ? 'The existing administration has outstanding scheduled civic duties.' : 'The actual counter duty allocation is depleted.'} The incumbent will relinquish administrative rule to a demonstrated administrator while retaining personal independence, property and no automatic military command.` };
+        ...(s.governingEvidence ? { governingProofId: s.governingEvidence.proofId } : {}),
+        outcome: reason ? 'refused' : 'conditionalDesignation', reason: reason || `${s.governingEvidence ? 'The incumbent freely prefers administrative retirement after reviewing the received governing record.' : c.administrationBacklogged ? 'The existing administration has outstanding scheduled civic duties.' : 'The actual counter duty allocation is depleted.'} The incumbent will relinquish administrative rule to a demonstrated administrator while retaining personal independence, property and no automatic military command.` };
       s.phase = reason ? 'refused' : 'offered';
       if (!reason) s.terms = { id: `${s.id}:terms:${s.nextNumber++}`, offeredAt: completedAt, expiresAt: completedAt + 86400,
         cityId: s.source.cityId, charterId: s.source.charterId, succession: s.source.succession, rulerId: s.ruler.id,
         bodyEpoch: j.bodyEpoch, serviceIds: copy(c.serviceIds), quantity: 18, key: 'metalParts',
+        ...(s.governingEvidence ? { governingEvidence: copy(s.governingEvidence) } : {}),
         procedure: 'Incumbent designation, explicit individual continuation agreements, then an attended recorded handover. No hereditary or collective shortcut.',
         duties: 'Honor the charter and independent judiciary, preserve existing staffing and defense duties, maintain the supplied branch reserve; wider administration requires further supported work.',
         retainedRights: 'Outgoing ruler remains a living private individual with property and faith; no confiscation, arrest, obedience or unearned pardon.', limitations: LIMITS };
@@ -314,5 +339,5 @@
       history: copy(s.history), limitations: LIMITS };
   }
   return { CHARTERS, ROLES, MEETING, RECEIVING, LIMITS, sourceFromWorld, create, normalize, people, working, serviceEvidence,
-    localReason, request, hear, sign, deliver, agree, handover, cancel, operative, directive, advance, publicView };
+    localReason, request, requestDesignation, governingEvidence, hear, sign, deliver, agree, handover, cancel, operative, directive, advance, publicView };
 });

@@ -51,10 +51,14 @@
   function syncBaseline(s, base) {
     if (!s || !base || !Array.isArray(base.targets)) return false;
     let changed = s.complete !== (base.complete === true); s.complete = base.complete === true;
+    // Multi-city updates revisit this immutable original roster each heartbeat.
+    // Index it without skipping reconciliation: deleted identities must still
+    // return, and conflicting sources must still prevent qualification.
+    const originals = new Map(s.targets.map(t => [t.id, t]));
     for (const row of base.targets) {
       const t = target(row); if (!t) { s.conflict = true; continue; }
-      const old = s.targets.find(x => x.id === t.id);
-      if (!old) { s.targets.push(t); changed = true; }
+      const old = originals.get(t.id);
+      if (!old) { s.targets.push(t); originals.set(t.id, t); changed = true; }
       else if (old.sourceId !== t.sourceId || old.kind !== t.kind) s.conflict = true;
     }
     return changed;

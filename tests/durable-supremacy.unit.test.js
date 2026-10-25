@@ -18,6 +18,14 @@ function fact(t, at, since = 0) {
   return f;
 }
 function setup() { return S.create(b, { complete: true, targets }, 0); }
+test('indexed original-roster reconciliation still restores deleted identities and rejects source conflicts without copying current control', () => {
+  const s = setup(); s.targets.splice(1, 1);
+  assert.equal(S.syncBaseline(s, { complete: true, targets }), true);
+  assert.equal(s.targets.filter(t => t.id === 'city:b').length, 1);
+  const before = copy(s.targets); S.syncBaseline(s, { complete: true, targets }); assert.deepEqual(s.targets, before);
+  S.syncBaseline(s, { complete: true, targets: [{ ...targets[0], sourceId: 'replacement-population' }] });
+  assert.equal(s.conflict, true); tick(s, S.INTERVAL); assert.equal(s.phase, 'unverified');
+});
 function tick(s, at, change = () => {}) { const frame = { complete: true, facts: s.targets.map(t => fact(t, at)) }; change(frame); S.advance(s, b, frame, at); return frame; }
 function city(cityId) {
   const institutions = Rule.ROLES.map(role => ({ role, id: `${cityId}:${role}` }));

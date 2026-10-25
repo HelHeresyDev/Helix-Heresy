@@ -119,19 +119,30 @@
     receive(s, c, at); return true;
   }
   function dispatch(s, succession, office, worker, c, expected, at) {
-    const q = s?.quote, d = s?.driver, v = s?.vehicle;
-    if (!contact(c) || !authority(s, succession, office, c) || !q || JSON.stringify(q) !== JSON.stringify(expected) || at >= q.expiresAt
-      || s.order || s.rest || !c.routeUsable || !able(d) || c.driverIncapacitated || !c.depotAvailable || v.location !== 'city'
+    const q = s?.quote;
+    if (!contact(c) || !authority(s, succession, office, c) || !q || JSON.stringify(q) !== JSON.stringify(expected) || at >= q.expiresAt) return false;
+    const ok = issue(s, worker, c, q.kg, at);
+    if (ok) receive(s, c, at); return ok;
+  }
+  function standing(s, succession, office, c, enabled, at) {
+    if (!contact(c) || !authority(s, succession, office, c)) return false;
+    s.standing = enabled ? { handoverId: s.handoverId, bodyEpoch: s.bodyEpoch, sourceId: s.stores.sourceId, at, lastDispatchAt: null } : null;
+    note(s, at, enabled ? 'Standing municipal pickup priority authorized. The same original driver, truck, finite quota and duty must make every delivery; no remote receipt or replenishment.' : 'Future standing pickups revoked; any departed original carrier must still return.');
+    return true;
+  }
+  function issue(s, worker, c, kg, at) {
+    const d = s.driver, v = s.vehicle;
+    if (s.order || s.rest || !c.routeUsable || !able(d) || c.driverIncapacitated || !c.depotAvailable || v.location !== 'city'
       || !same(d.mapCell, HOME) || d.assignment || v.condition < 50 || v.fuelKm < 2 * s.source.distanceKm
-      || d.workSeconds < 2 * s.source.distanceKm / 38 * 3600 + q.kg / CRATE_KG * 2 * HANDLE + 60
-      || d.foodSeconds < 1 || d.waterSeconds < 1 || q.kg < CRATE_KG || q.kg > s.stores.farmKg
+      || d.workSeconds < 2 * s.source.distanceKm / 38 * 3600 + kg / CRATE_KG * 2 * HANDLE + 60
+      || d.foodSeconds < 1 || d.waterSeconds < 1 || kg < CRATE_KG || kg > s.stores.farmKg
       || worker?.id !== s.workerId || !able(worker) || worker.assignment || worker.workSeconds < 30) return false;
     const id = `${s.id}:delivery:${s.nextNumber++}`;
-    s.order = { id, issuedAt: at, originalBodyEpoch: c.bodyEpoch, phase: 'approaching', requestedKg: q.kg, reservedKg: q.kg,
+    s.order = { id, issuedAt: at, originalBodyEpoch: s.bodyEpoch, phase: 'approaching', requestedKg: kg, reservedKg: kg,
       loadedKg: 0, deliveredKg: 0, handling: 0, journeyId: null, meterKm: 0, lastAt: at, reason: '', cancelRequested: false };
     d.assignment = id; worker.workSeconds -= 30; s.quote = null;
     note(s, at, 'Existing public-works priority exercised. Original driver must approach, board, collect and return the municipal quota. No cargo moved on instruction.');
-    receive(s, c, at); return true;
+    return true;
   }
   function pauseJourney(j, dt) {
     if (!j) return;
@@ -173,6 +184,15 @@
     // Small chronological slices keep finite food, handling, route positions
     // and new leg start dates honest even when accelerated by several days.
     while (s.lastAt < to) {
+      const directive = s.standing;
+      if (directive && c.standingAuthorized && directive.handoverId === s.handoverId && directive.bodyEpoch === s.bodyEpoch
+        && directive.sourceId === s.stores.sourceId && c.standingWorkerAvailable && !s.order
+        && (directive.lastDispatchAt == null || s.lastAt - directive.lastDispatchAt >= DAY)
+        && s.stores.cityKg < s.demand.kgPerDay * 2) {
+        const kg = Math.floor(Math.min(s.stores.farmKg, s.vehicle.capacityKg,
+          s.stores.cityCapacityKg - s.stores.cityKg) / CRATE_KG) * CRATE_KG;
+        if (issue(s, c.standingWorker, c, kg, s.lastAt)) directive.lastDispatchAt = s.lastAt;
+      }
       const moving = ['approaching', 'returningToPost'].includes(s.order?.phase);
       let dt = Math.min(moving ? 1 : 30, to - s.lastAt);
       if (s.rest) dt = Math.min(dt, Math.max(.001, 28800 - s.rest.progress));
@@ -300,5 +320,5 @@
     note(s, at, `One real carried ${key} transferred to the existing municipal allocation; no fuel, work or supplies refunded.`); return true;
   }
   return { DAY, CRATE_KG, HANDLE, HOME, DOCK, TRUCK, LIMITS, able, sourceFromWorld, validSource, create, normalize, authority,
-    inspect, dispatch, advance, cancel, recover, rest, receive, replenish };
+    inspect, dispatch, standing, advance, cancel, recover, rest, receive, replenish };
 });

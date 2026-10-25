@@ -227,3 +227,52 @@ test('campaign records only received three-day city evidence once, independently
   assert.equal(campaign.accomplishedAt, null); assert.equal(campaign.worldDomination, undefined); assert.equal(campaign.divineRule, undefined);
   assert.match(Campaign.accomplishments(campaign)[0].label, /subsequently losable/);
 });
+test('standing original grain pickup, delivered batch fuel and conserved municipal distribution support a second three-day window while absent', () => {
+  const f = fixture(), office = { id: 'office:a', cityId: 'a' }, defender = f.people.at(-1), worker = f.succession.leaders.at(-1);
+  f.source.reserveDays = 5;
+  f.s = Rule.create(f.source, f.succession, f.p, f.d, { worldId: 'w', runId: 'r' }, 0);
+  const pc = { ...f.c, workerPresent: true, worksCurrent: true, depotAvailable: true, routeUsable: true, productionAvailable: true,
+    reportAllowed: true, standingAuthorized: true, standingWorkerAvailable: true, standingWorker: worker };
+  const dc = { ...f.c, installationPresent: true, condition: 80 };
+  f.c.defenseAccount = f.d; f.c.defenseStationPresent = true;
+  assert.equal(Provisioning.standing(f.p, f.succession, office, pc, true, 0), true);
+  assert.equal(Rule.distribution(f.s, f.succession, f.people, f.c, true, 0), true); order(f);
+  function to(at) {
+    while (f.at < at) {
+      f.at += Math.min(30, at - f.at);
+      Provisioning.advance(f.p, pc, f.at, { move: (a, cell) => { a.mapCell = copy(cell); return true; } });
+      Defense.advance(f.d, f.succession, defender, () => dc, f.at);
+      f.c.pilotSupplied = f.p.stores.cityKg > 0; f.c.pilotDefended = f.d.energy > 0;
+      Rule.advance(f.s, f.succession, f.people, () => f.c, f.at);
+    }
+  }
+  to(3600 + Rule.INTERVAL); assert.equal(f.s.status, 'established');
+  const fuel = { id: 'original-owned-fuel', key: 'arcaneFeedstock', quantity: 40, carriedBy: 'scientist', ownerId: 'scientist' };
+  assert.equal(Rule.recharge(f.s, f.succession, f.people, f.c, [fuel], f.at, 40), true); assert.equal(fuel.quantity, 0);
+  const driverId = f.p.driver.id, truckId = f.p.vehicle.id, dated = copy(f.s.report);
+  f.c.local = false; f.c.atCounter = false; f.c.reportersPresent = false; pc.local = false; pc.atCounter = false; pc.workerPresent = false;
+  to(7200 + 2 * Rule.INTERVAL);
+  assert.equal(f.s.status, 'established'); assert.equal(f.p.demand.unmetKg, 0);
+  assert.equal(f.p.driver.id, driverId); assert.equal(f.p.vehicle.id, truckId); assert.deepEqual(f.s.report, dated);
+  assert.ok(f.p.receipts.length >= 2); assert.ok(f.p.vehicle.fuelKm < 600); assert.ok(worker.workSeconds < 3600);
+  assert.equal(f.s.chargedEnergy, 40 * 21600);
+  assert.ok(Math.abs(f.s.energy + f.s.spentEnergy + f.s.transferredEnergy - f.s.initialEnergy - f.s.chargedEnergy) < 1e-5);
+  assert.ok(Math.abs(f.d.energy + f.d.standbySpent + f.d.combatSpent - f.d.initialEnergy - f.d.municipalEnergyReceived) < 1e-5);
+  assert.ok(f.s.operatorWorkSeconds < 28800 - 3600 - 2160); assert.equal(f.p.driver.health, 100);
+  f.c.defenseStationPresent = false; const received = f.d.municipalEnergyReceived; to(f.at + 86400);
+  assert.equal(f.d.municipalEnergyReceived, received); assert.equal(f.s.status, 'contested');
+});
+test('municipal fuel and distribution require real ownership, headroom, duty, continuing original station and local authorization', () => {
+  for (const mutate of [f => f.c.local = false, f => f.c.atCounter = false, f => f.s.operatorWorkSeconds = 0,
+    f => f.c.bodyEpoch++, f => f.c.sourceCurrent = false]) {
+    const f = fixture(); tick(f, 86400); const item = { id: 'fuel', key: 'arcaneFeedstock', quantity: 10, carriedBy: 'scientist' }; mutate(f);
+    assert.equal(Rule.recharge(f.s, f.succession, f.people, f.c, [item], f.at), false); assert.equal(item.quantity, 10);
+  }
+  const f = fixture(); tick(f, 86400);
+  for (const patch of [{ carriedBy: null }, { cityOwnerId: 'a' }, { legalOwnerId: 'other' }, { reservedTaskId: 'other' }]) {
+    const item = { id: 'fuel', key: 'arcaneFeedstock', quantity: 1, carriedBy: 'scientist', ...patch };
+    assert.equal(Rule.recharge(f.s, f.succession, f.people, f.c, [item], f.at), false); assert.equal(item.quantity, 1);
+  }
+  f.c.defenseAccount = f.d; f.c.defenseStationPresent = true;
+  f.d.handoverId = 'other'; assert.equal(Rule.distribution(f.s, f.succession, f.people, f.c, true, f.at), false);
+});

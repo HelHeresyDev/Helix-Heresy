@@ -56,9 +56,19 @@
         || s.source.cityId !== source.cityId || s.handoverId !== succession.handover.id)
       || provision.source.cityPopulation !== source.population || provision.demand.population > source.population
       || !source.farms.some(f => f.satelliteId === provision.source.satelliteId)) return null;
-    const population = source.population - provision.demand.population, dailyKg = population * .5;
+    return allocate(source, succession, run, at, provision, defense.initialEnergy, defense.id);
+  }
+  function createAggregate(source, succession, run, at, reservedDefense) {
+    if (!validSource(source) || !run?.worldId || !run.runId || !succession?.handover
+      || succession.source.cityId !== source.cityId || succession.source.charterId !== source.charterId
+      || source.baselineAuthorityId && source.baselineAuthorityId !== succession.source.authority?.id
+      || !reservedDefense?.id || !finite(reservedDefense.initialEnergy)) return null;
+    return allocate(source, succession, run, at, null, reservedDefense.initialEnergy, reservedDefense.id);
+  }
+  function allocate(source, succession, run, at, provision, excludedEnergy, defenseId) {
+    const population = source.population - (provision?.demand.population || 0), dailyKg = population * .5;
     const farms = source.farms.map(f => {
-      const pilot = f.satelliteId === provision.source.satelliteId ? provision : null;
+      const pilot = f.satelliteId === provision?.source.satelliteId ? provision : null;
       // Farm residents feed themselves first. The detailed pilot's entire
       // allocated quota/crop/driver/truck is removed, not copied into this pool.
       const output = f.satellitePopulation * .5 * ({ marginal: 4, limited: 6, productive: 8, abundant: 10 })[f.arableLandBand];
@@ -72,20 +82,21 @@
         excludedPilotId: pilot?.id || null, storageDays: f.storageDays };
     });
     const rate = Math.max(1, source.population / 1000);
-    const energy = Math.max(0, source.reserveDays * DAY * rate - defense.initialEnergy);
-    return { id: `${source.cityId}:city-operating-account`, ...copy(run), source: copy(source),
+    const energy = Math.max(0, source.reserveDays * DAY * rate - excludedEnergy);
+    return { id: `${source.cityId}:city-operating-account`, worldId: run.worldId, runId: run.runId, source: copy(source),
       handoverId: succession.handover.id, officeId: succession.officeId, bodyEpoch: succession.handover.bodyEpoch,
-      pilotProvisionId: provision.id, pilotDefenseId: defense.id, allocatedAt: at, lastAt: at,
+      allocationMode: provision ? 'detailedPilot' : 'aggregate',
+      pilotProvisionId: provision?.id || null, pilotDefenseId: defenseId, allocatedAt: at, lastAt: at,
       population, dailyKg, foodKg: dailyKg * 2, initialFoodKg: dailyKg * 2, eatenKg: 0, unmetKg: 0,
       waterLiters: source.population * 4, initialWaterLiters: source.population * 4, drankLiters: 0,
       rawWaterLiters: source.population * 12, initialRawWaterLiters: source.population * 12, pumpedLiters: 0, unmetLiters: 0,
-      energy, initialEnergy: energy, spentEnergy: 0, energyRate: rate, excludedDefenseEnergy: defense.initialEnergy, farms,
+      energy, initialEnergy: energy, chargedEnergy: 0, recharge: null, spentEnergy: 0, energyRate: rate, excludedDefenseEnergy: excludedEnergy, farms,
       operatorWorkSeconds: 8 * 3600,
       plan: null, command: null, receipts: [], since: null, establishedAt: null, accomplishment: null,
       status: 'recognized', failureAt: null, report: null, nextNumber: 1 };
   }
   function normalize(s) {
-    if (!validSource(s?.source) || !s.worldId || !s.runId || !s.handoverId || !s.pilotProvisionId || !s.pilotDefenseId
+    if (!validSource(s?.source) || !s.worldId || !s.runId || !s.handoverId || (!s.pilotProvisionId && s.allocationMode !== 'aggregate') || !s.pilotDefenseId
       || !['lastAt', 'foodKg', 'waterLiters', 'rawWaterLiters', 'energy', 'eatenKg', 'drankLiters', 'spentEnergy'].every(k => finite(s[k]))
       || !Array.isArray(s.farms) || !Array.isArray(s.receipts) || s.farms.length !== s.source.farms.length
       || s.farms.some(f => !['stockKg', 'cropKg', 'cargoKg', 'fuelKm', 'dutySeconds'].every(k => finite(f[k])))) return null;
@@ -107,8 +118,32 @@
   }
   const contact = c => c.alive && c.capable && c.atCounter && c.local && c.free && !c.violence && c.reportersPresent;
   function order(s, succession, people, c, at) {
-    if (!contact(c) || !authority(s, succession, people, c) || s.plan || s.command || s.operatorWorkSeconds < 3600 || c.institutionsAvailable !== true) return false;
+    if (!contact(c) || !authority(s, succession, people, c) || s.plan || s.command || s.recharge || s.operatorWorkSeconds < 3600 || c.institutionsAvailable !== true) return false;
     s.command = { id: `${s.id}:operating-priority:${s.nextNumber++}`, at, progress: 0 };
+    return true;
+  }
+  const owned = i => !i.cityOwnerId && !i.civicCustody && (!i.ownerId || i.ownerId === 'scientist') && (!i.legalOwnerId || i.legalOwnerId === 'scientist');
+  function recharge(s, succession, people, c, stacks, at, quantity = 1) {
+    if (!contact(c) || !authority(s, succession, people, c) || !c.institutionsAvailable || s.command || s.recharge
+      || !Number.isInteger(quantity) || quantity < 1 || s.operatorWorkSeconds < 60 * quantity
+      || s.initialEnergy - s.energy < 21600 * quantity) return false;
+    const item = stacks.find(i => i.key === 'arcaneFeedstock' && i.quantity >= quantity && i.carriedBy === 'scientist'
+      && !i.reservedTaskId && !i.fixtureId && !i.containerId && !i.tags?.includes('contaminated') && owned(i));
+    if (!item) return false;
+    item.quantity -= quantity; item.knownQuantity = Math.min(item.knownQuantity ?? item.quantity, item.quantity);
+    s.recharge = { id: `${s.id}:power-fuel:${s.nextNumber++}`, at, progress: 0, stackId: item.id, quantity,
+      powerWorksId: s.source.powerId, handoverId: s.handoverId };
+    return true;
+  }
+  function stationCurrent(s, c) {
+    const d = c.defenseAccount;
+    return Boolean(s.allocationMode !== 'aggregate' && c.defenseStationPresent && d && d.id === s.pilotDefenseId
+      && d.worldId === s.worldId && d.runId === s.runId && d.handoverId === s.handoverId
+      && d.source.cityId === s.source.cityId && finite(d.energy) && finite(d.initialEnergy) && !d.refusal);
+  }
+  function distribution(s, succession, people, c, enabled, at) {
+    if (!contact(c) || !authority(s, succession, people, c) || !stationCurrent(s, c)) return false;
+    s.distribution = enabled ? { at, handoverId: s.handoverId, stationId: s.pilotDefenseId, powerId: s.source.powerId, progress: 0 } : null;
     return true;
   }
   function condition(s, succession, people, c) {
@@ -117,8 +152,8 @@
     if (!['noEstablishedChallenge', 'capableOpposition'].includes(c.counterpower)) return 'unverified';
     if (c.counterpower === 'capableOpposition') return 'contested';
     if (!s.plan || !s.receipts.length) return 'commands';
-    if ((s.foodKg <= 1e-7 && s.dailyKg > 0) || s.waterLiters <= 1e-7 || !c.pilotSupplied) return 'supply';
-    if (s.energy <= 1e-7 || !c.defenseAvailable || !c.pilotDefended) return 'defense';
+    if ((s.foodKg <= 1e-7 && s.dailyKg > 0) || s.waterLiters <= 1e-7 || s.allocationMode !== 'aggregate' && !c.pilotSupplied) return 'supply';
+    if (s.energy <= 1e-7 || !c.defenseAvailable || s.allocationMode !== 'aggregate' && !c.pilotDefended) return 'defense';
     return null;
   }
   function assess(s, succession, people, c, at) {
@@ -152,11 +187,13 @@
         s.waterLiters > 1e-7 ? s.waterLiters / waterRate : Infinity,
         s.energy > 1e-7 ? s.energy / s.energyRate : Infinity,
         s.command ? 3600 - s.command.progress : Infinity,
+        s.recharge ? 60 * s.recharge.quantity - s.recharge.progress : Infinity,
         s.since != null && start < s.since + INTERVAL ? s.since + INTERVAL - start : Infinity,
         ...s.farms.flatMap(f => [f.trip ? f.trip.dueAt - start : Infinity,
           f.lastDepartureAt != null ? f.lastDepartureAt + DAY - start : Infinity])]) if (t > 1e-7) dt = Math.min(dt, t);
       const end = start + dt, operative = authority(s, succession, people, c) && c.institutionsAvailable;
       const operatingAtStart = Boolean(s.plan);
+      let workUsed = 0;
       // Existing wards consume a finite original municipal power allocation.
       // It excludes every unit already assigned to the detailed outer station.
       const spent = Math.min(s.energy, dt * s.energyRate); s.energy -= spent; s.spentEnergy += spent;
@@ -166,11 +203,38 @@
       s.drankLiters += water; s.unmetLiters += dt * waterRate - water;
       if (s.command && operative) {
         const work = Math.min(dt, s.operatorWorkSeconds); s.operatorWorkSeconds -= work; s.command.progress += work;
+        workUsed += work;
         if (s.command.progress >= 3600) {
           s.plan = { at: end, sourceId: s.command.id };
           s.receipts.push({ id: s.command.id, at: end, kind: 'operatingPriority', workSeconds: 3600 }); s.command = null;
         }
       } else if (s.command) s.command = null; // No refund or signature-only completion.
+      if (s.recharge && operative && s.recharge.handoverId === s.handoverId && s.recharge.powerWorksId === s.source.powerId) {
+        const work = Math.min(dt - workUsed, s.operatorWorkSeconds); s.operatorWorkSeconds -= work; s.recharge.progress += work;
+        workUsed += work;
+        if (s.recharge.progress >= 60 * s.recharge.quantity) {
+          const amount = Math.min(21600 * s.recharge.quantity, Math.max(0, s.initialEnergy - s.energy)); s.energy += amount;
+          s.chargedEnergy = (s.chargedEnergy || 0) + amount;
+          s.receipts.push({ id: s.recharge.id, at: end, kind: 'existingPowerWorksFuel', stackId: s.recharge.stackId,
+            quantity: s.recharge.quantity, energy: amount, workSeconds: 60 * s.recharge.quantity, powerWorksId: s.source.powerId }); s.recharge = null;
+        }
+      }
+      const distribution = s.distribution;
+      if (distribution && operative && stationCurrent(s, c) && distribution.handoverId === s.handoverId
+        && distribution.powerId === s.source.powerId && distribution.stationId === s.pilotDefenseId
+        && !s.command && !s.recharge && c.defenseAccount.energy < 21600 && s.energy >= 21600) {
+        const work = Math.min(dt - workUsed, s.operatorWorkSeconds, 60 - distribution.progress);
+        s.operatorWorkSeconds -= work; distribution.progress += work;
+        if (distribution.progress >= 60) {
+          const amount = Math.min(21600, c.defenseAccount.initialEnergy - c.defenseAccount.energy);
+          s.energy -= amount; s.transferredEnergy = (s.transferredEnergy || 0) + amount;
+          c.defenseAccount.energy += amount;
+          c.defenseAccount.municipalEnergyReceived = (c.defenseAccount.municipalEnergyReceived || 0) + amount;
+          s.receipts.push({ id: `${s.id}:distribution:${s.nextNumber++}`, at: end, kind: 'existingStationTransfer',
+            stationId: s.pilotDefenseId, powerWorksId: s.source.powerId, energy: amount, workSeconds: 60 });
+          distribution.progress = 0;
+        }
+      }
       if (operatingAtStart && operative && s.energy > 0) {
         const pumped = Math.min(s.rawWaterLiters, Math.max(0, s.source.population * 4 - s.waterLiters), dt * waterRate * 2);
         s.rawWaterLiters -= pumped; s.pumpedLiters += pumped; s.waterLiters += pumped;
@@ -206,7 +270,7 @@
         if (!f.trip && s.foodKg > 0 && s.waterLiters > 0 && f.lastDepartureAt != null
           && end - f.lastDepartureAt >= DAY) f.dutySeconds = Math.min(f.drivers * 8 * 3600, f.dutySeconds + dt * f.drivers / 2);
       }
-      s.lastAt = end; assess(s, succession, people, c, end);
+      s.lastAt = end; assess(s, succession, people, context(), end);
     }
     s.receipts = s.receipts.slice(-100);
     return true;
@@ -225,5 +289,5 @@
           : 'No established capable challenge within this operating account; not proof of universal loyalty or divine acquiescence.' };
     return true;
   }
-  return { DAY, INTERVAL, ROLES, LIMITS, sourceFromWorld, validSource, create, normalize, authority, contact, condition, order, advance, receive };
+  return { DAY, INTERVAL, ROLES, LIMITS, sourceFromWorld, validSource, create, createAggregate, normalize, authority, contact, condition, order, recharge, distribution, advance, receive };
 });

@@ -32,6 +32,27 @@ function complete(f) {
   assert.equal(f.s.order, null);
 }
 const total = s => s.stores.cityKg + s.stores.farmKg + s.vehicle.cargoKg + s.demand.suppliedKg;
+test('standing priority requires original local authority; later pickups use the same finite worker, driver, truck and quota without a remote report', () => {
+  for (const mutate of [f => f.c.local = false, f => f.c.atCounter = false, f => f.c.workerPresent = false, f => f.c.bodyEpoch++]) {
+    const f = fixture(); mutate(f); assert.equal(P.standing(f.s, f.succession, f.office, f.c, true, 0), false);
+  }
+  const f = fixture(); assert.equal(P.standing(f.s, f.succession, f.office, f.c, true, 0), true);
+  inspect(f); const dated = copy(f.s.report), driver = f.s.driver.id, truck = f.s.vehicle.id;
+  Object.assign(f.c, { local: false, atCounter: false, workerPresent: false, standingAuthorized: true, standingWorkerAvailable: true, standingWorker: f.worker });
+  step(f, 3000); assert.ok(f.s.order || f.s.receipts.length); assert.equal(f.worker.workSeconds, 1770);
+  assert.equal(f.s.driver.id, driver); assert.equal(f.s.vehicle.id, truck); assert.deepEqual(f.s.report, dated);
+  assert.ok(Math.abs(total(f.s) - f.s.stores.initialKg - f.s.stores.harvestedKg) < 1e-7);
+});
+test('standing dispatch cannot bypass withdrawn authority, a blocked depot/route, occupied or exhausted original worker or vehicle', () => {
+  for (const mutate of [f => f.c.standingAuthorized = false, f => f.c.standingWorkerAvailable = false,
+    f => f.c.depotAvailable = false, f => f.c.routeUsable = false, f => f.worker.workSeconds = 0,
+    f => f.worker.assignment = 'other-original-job', f => f.s.vehicle.fuelKm = 0, f => f.s.driver.status = 'dead',
+    f => f.s.stores.farmKg = 0, f => f.s.standing.handoverId = 'other']) {
+    const f = fixture(); P.standing(f.s, f.succession, f.office, f.c, true, 0);
+    Object.assign(f.c, { standingAuthorized: true, standingWorkerAvailable: true, standingWorker: f.worker, productionAvailable: false });
+    mutate(f); step(f, 60); assert.equal(f.s.order, null); assert.equal(f.s.receipts.length, 0);
+  }
+});
 function sourceMap() {
   const map = World.createStrategicMap('quota-source', { refinementLevel: 1, radiusKm: 100 });
   const cityIndex = 0, farmIndex = World.topologyForMap(map).neighbors[cityIndex][0];
