@@ -174,6 +174,7 @@
   const Supremacy = window.HelixDurableSupremacy;
   const OuterApproach = window.HelixOuterApproach;
   const CountercoalitionRelief = window.HelixCountercoalitionRelief;
+  const ChapterProtection = window.HelixChapterProtection;
   const CampaignSettlement = window.HelixCampaignSettlement;
   const RoadsideStops = window.HelixRoadsideStops;
   const RegionalEncounters = window.HelixRegionalEncounters;
@@ -13815,6 +13816,19 @@
       overlandAction,
       intercityMarchAction,
       outerApproachAction,
+      chapterProtectionAction,
+      chapterProtectionSnapshot: () => {
+        const g = outerApproachGate(), s = g?.outerApproach?.chapterProtection;
+        return clonePlainObject({ saved: s, context: s && chapterProtectionContext(g), client: g?.foreignCivic?.bargain.representative,
+          public: ChapterProtection.publicView(s), treasury: g && chapterProtectionMarket(g)?.treasury,
+          attackReason: s && scientistCombatActionBlockReason('soulLash', s.actor),
+          clock: state.clock, injuries: state.injuries, cell: scientistMapCell(), roomId: scientistRoomId(), campaign: state.campaign });
+      },
+      setChapterProtectionTestSource: (cityId, source) => {
+        const g = passengerReceptionGate(cityId);
+        if (!g?.preparedReceptionTestSource || !ChapterProtection.validSource(source) || source.cityId !== cityId || g.outerApproach?.chapterProtection) return false;
+        g.preparedChapterProtectionSource = clonePlainObject(source); if (g.outerApproach) ensureChapterProtection(g); persist(); render(); return true;
+      },
       wardResearchAction,
       wardResearchSnapshot: () => { const g = outerApproachGate(); return clonePlainObject({ saved: g?.outerApproach?.scientificCompact,
         front: g?.outerApproach, context: g?.outerApproach ? wardResearchContext(g) : { ...foreignReceptionContext(g, false, true),
@@ -20370,6 +20384,9 @@
       g.outerApproach.relief = CountercoalitionRelief.rebind(g.outerApproach.relief,
         { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     }
+    for (const g of importedState.penalFlights?.assistance?.cityApproach?.gates || []) if (g.outerApproach?.chapterProtection)
+      g.outerApproach.chapterProtection = ChapterProtection.rebind(g.outerApproach.chapterProtection,
+        { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.roadsideStops = RoadsideStops.rebind(importedState.roadsideStops,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.regionalEncounters = RegionalEncounters.rebind(importedState.regionalEncounters,
@@ -24241,6 +24258,15 @@
         const before = state.clock;
         changed += advanceTime(Math.min(remaining, 1), { ...options, cityDefenseStep: true }); remaining -= state.clock - before;
         if (state.clock <= before) break;
+      }
+      return changed;
+    }
+    if (!options.chapterStep && elapsed > 1 && outerApproachGates().some(g => g.outerApproach.chapterProtection?.job || ChapterProtection.assigned(g.outerApproach.chapterProtection))) {
+      let left = elapsed, changed = 0;
+      while (left > 0 && !scientistIsDead()) {
+        const before = state.clock, health = scientistVital('health').current;
+        changed += advanceTime(Math.min(left, 1), { ...options, chapterStep: true }); left -= state.clock - before;
+        if (state.clock <= before || scientistVital('health').current < health) break;
       }
       return changed;
     }
@@ -34471,6 +34497,7 @@
 
   function actorInventoryOwner(actorId, context = state) {
     const id = normalizeActorInventoryOwnerId(actorId);
+    const chapter = chapterProtectionActors(context).find(a => a.id === id); if (chapter) return chapter;
     const foundingResident = context.foundingWorks?.people.find(p => p.actor.id === id)?.actor; if (foundingResident) return foundingResident;
     if (context.sovereignBargains?.defender.id === id) return context.sovereignBargains.defender;
     const producer = producerDriverActors(context).find(a => a.id === id); if (producer) return producer;
@@ -34537,6 +34564,7 @@
       ...(context.foundingWorks?.people || []).map(p => ({ id: p.actor.id, actor: p.actor })),
       ...(context.sovereignBargains?.defender ? [{ id: context.sovereignBargains.defender.id, actor: context.sovereignBargains.defender }] : []),
       ...producerDriverActors(context).map(actor => ({ id: actor.id, actor })),
+      ...chapterProtectionActors(context).map(actor => ({ id: actor.id, actor })),
       ...(context.jointTransit?.stations || []).flatMap(s => s.members).map(actor => ({ id: actor.id, actor })),
       ...(context.expeditionEscorts?.actor ? [{ id: context.expeditionEscorts.actor.id, actor: context.expeditionEscorts.actor }] : []),
       ...fieldForceMembers(context).map(m => ({ id: m.actor.id, actor: m.actor })),
@@ -37990,6 +38018,7 @@
     const excludeActor = options.excludeActor || null;
     const excludeCorpse = options.excludeCorpse || null;
     let occupied = 0;
+    for (const a of chapterProtectionActors()) if (a.id !== excludeActor?.id && mapCellKey(a.mapCell) === key) occupied += .6;
     for (const escort of allEscortStates().map(s => s.actor).filter(Boolean))
       if (escort.id !== excludeActor?.id && mapCellKey(escort.mapCell) === key) occupied += .6;
     const charter = currentFieldCharter();
@@ -41560,6 +41589,7 @@
   }
 
   function combatActor(actorId) {
+    const chapter = chapterProtectionActors().find(a => a.id === actorId); if (chapter) return chapter;
     const foundingResident = foundingWorksActors().find(a => a.id === actorId); if (foundingResident) return foundingResident;
     const relief = producerDriverActors().find(a => a.id === actorId); if (relief) return relief;
     const avatar = currentDivineIntervention()?.avatars.find(a => a.id === actorId && a.manifested);
@@ -41846,13 +41876,15 @@
     const visible = INJURY_TYPE_DEFS[typeId].visible;
     const porter = fieldEmployeeStates().some(s => s.actor.id === actorId) || foundingWorksActors().some(a => a.id === actorId);
     const trafficActor = municipalSupplySiteForActor(actor);
-    const observed = scientist ? true : trafficActor ? municipalSupplyVisible(actor.mapCell) : porter ? fieldPorterObserved(actor) : visible || options.observed;
+    const chapterActor = chapterProtectionActors().some(a => a.id === actorId);
+    const observed = scientist ? true : chapterActor ? chapterPersonVisible(actor) : trafficActor ? municipalSupplyVisible(actor.mapCell) : porter ? fieldPorterObserved(actor) : visible || options.observed;
     const injury = normalizeInjury({
       id: `injury-${state.nextInjuryNumber++}`, actorKind: scientist ? "scientist" : ["fieldDriver", "wildernessBeast", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent", "civicOfficeholder", "divineAvatar", "reliefDriver"].includes(actor.actorKind) ? actor.actorKind : "slime", actorId,
       typeId, severityId, location, status: "active", cause, damageTypes,
       createdAt: state.clock, updatedAt: state.clock, observedAt: observed ? state.clock : null
     }, state.nextInjuryNumber);
     state.injuries.push(injury);
+    if (chapterActor && !observed) return injury;
     if (trafficActor && !observed) return injury;
     if (actor.actorKind === "expeditionEscort" && !escortObserved()) return injury;
     if (actor.actorKind === "rescueMedic" && !rescueMedicObserved()) return injury;
@@ -41957,6 +41989,7 @@
     if (!actor || !action || !target) return { ok: false, reason: "The combat action no longer has a valid actor or target." };
     const range = combatActionRangeInfo(actor, action, target);
     if (!range.inRange) return { ok: false, reason: range.reason, blockedAt: target.lastKnownCell || combatTargetCurrentCell(target) };
+    if (actorId === 'scientist') witnessChapterAggression(target);
     if (actorId === 'scientist' && outerApproachLocal() && action.targetKinds.includes(target.kind)) {
       const g = outerApproachGate();
       CampaignSettlement.aggression(g.outerApproach.settlement, g, foreignSupplierMarket(g), state.clock);
@@ -42527,6 +42560,11 @@
     const records = wildernessCombatRecords();
     for (const actorId of Object.keys(state.combat.guarding || {})) {
       if (actorId !== "scientist") delete state.combat.guarding[actorId];
+    }
+    for (const g of outerApproachGates()) {
+      const s = g.outerApproach.chapterProtection;
+      if (ChapterProtection.assigned(s) && s.actor.status === 'alive' && !actorIsIncapacitated(s.actor)
+        && s.kit.vestCondition > 0 && s.actor.physicalControl.stamina > 1) state.combat.guarding[s.actor.id] = { startedAt: state.clock };
     }
     const escort = ensureExpeditionEscorts().actor;
     if (escortContractActive() && escort?.status !== "dead" && !actorIsIncapacitated(escort)) {
@@ -68829,6 +68867,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       { overlayId, classNames: ['map-overlay-resources'], label: 'Original city approach ward station', title: 'Physical boundary installation; outer coverage and finite reserve require personal inspection',
         source: 'Direct observation', value: 'W', target: { kind: 'tile', tile: CityDefense.GATE } }, map);
     const grain = state.cityProvisioning;
+    for (const actor of chapterProtectionActors()) if (chapterPersonVisible(actor)) setLabMapOverlayEntry(assignments, actor.mapCell,
+      { overlayId, classNames: ['map-overlay-resources'], label: actor.name, title: actor.status === 'dead' ? 'Original chapter professional remains' : actor.affiliation,
+        value: actor.status === 'dead' ? '†' : 'P', source: 'Direct observation', target: { kind: 'tile', tile: actor.mapCell } }, map);
     for (const [a, symbol, label] of [[grain?.driver, 'G', 'Original municipal grain driver'], [grain?.vehicle, 'V', 'Municipal grain truck — no passenger service']]) {
       if (!a?.mapCell || a.roomId !== scientistRoomId() || scientistIsDead() || WildernessBeasts.distance(scientistMapCell(), a.mapCell) > 8
         || !sensoryLineOfSight(scientistMapCell(), a.mapCell)) continue;
@@ -80106,6 +80147,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     for (const g of outerApproachGates()) {
       const scientific = g.outerApproach.scientificCompact?.report;
+      const protection = ChapterProtection.publicView(g.outerApproach.chapterProtection);
+      if (protection) add(citySite(g.cityId), { id: `${g.outerApproach.chapterProtection.id}:received-protection`, category: 'operations',
+        subject: 'received local chapter protective commitment', sourceId: g.outerApproach.chapterProtection.id,
+        source: 'Personal observation and attended chapter/client discussion', sourceAt: protection.at, receivedAt: protection.at,
+        text: `${protection.branch}: ${protection.phase}. Other branches and network-wide nonintervention remain unverified.`, coverage: ChapterProtection.SCOPE });
       if (scientific) add(citySite(g.cityId), { id: `${scientific.sourceId}:received-account`, category: 'operations',
         subject: 'received scientific technical compact', sourceId: scientific.sourceId,
         source: 'Personal ward inspection or original civic representative', sourceAt: scientific.at, receivedAt: scientific.at,
@@ -80894,6 +80940,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const facts = [];
     const q = state.cityProvisioning;
     if (q?.supplyTraffic) facts.push(...MunicipalSupplyThreats.fact(q.supplyTraffic, q, currentSuppression(), suppressionActors(), state.clock));
+    const chapters = new Map();
+    for (const g of outerApproachGates()) {
+      const p = g.outerApproach.chapterProtection; if (!p) continue;
+      const fact = ChapterProtection.fact(p, chapterProtectionContext(g), state.clock), old = chapters.get(p.source.networkId);
+      if (!old || fact.state === 'notQualifying') chapters.set(p.source.networkId, fact);
+    }
+    facts.push(...chapters.values());
     const city = state.cityRule && Supremacy.cityAccount(s, state.cityRule, state.citySuccession,
       cityRulePeople(), cityRuleContext(), state.clock);
     if (city) facts.push(city);
@@ -80911,6 +80964,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function supremacyEvidence() {
     const binding = { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id };
     const evidence = [], r = Supremacy.bound(state.cityRule, binding) && state.cityRule.report;
+    for (const g of outerApproachGates()) {
+      const p = g.outerApproach.chapterProtection, v = ChapterProtection.publicView(p); if (!v) continue;
+      evidence.push({ id: `${p.id}:received:${v.at}`, sourceId: p.source.branchId,
+        label: 'Received local protective commitment — network-wide capability unverified', status: 'unverified', observedAt: v.at, receivedAt: v.at });
+    }
     for (const r of municipalSupplyRecords()) evidence.push({ id: r.id, sourceId: state.cityProvisioning.id,
       label: r.label + ' — regional capability remains unverified', status: 'unverified', observedAt: r.at, receivedAt: r.receivedAt });
     if (r) evidence.push({ id: `city-rule:${r.sourceId}:${r.at}`, sourceId: r.sourceId,
@@ -86378,6 +86436,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!actor?.physicalControl || actor.status === 'dead' || amount <= 0) return false;
     if (!options.injuryProgress) amount = DivineIntervention.absorb(currentDivineIntervention(), divineInterventionContext(), actor.id, amount, options.damageTypes || ['physical']);
     if (amount <= 0) return true;
+    const chapter = outerApproachGates().map(g => g.outerApproach.chapterProtection).find(s => s?.actor.id === actor.id);
+    if (chapter && !options.injuryProgress && options.damageTypes?.includes('physical')) {
+      chapter.kit.vestCondition = Math.max(0, chapter.kit.vestCondition - amount * .1);
+      actor.physicalControl.stamina = Math.max(0, actor.physicalControl.stamina - amount * .1);
+    }
     actor.health = Math.max(0, actor.health - amount);
     if (!options.injuryProgress) recordCombatInjury(actor, amount, options.damageTypes || ['physical'], options.cause || 'Physical counter encounter trauma', { observed: scientistHasExactCombatTarget(actor) });
     if (actor.health <= 0) { actor.status = 'dead'; actor.diedAt = state.clock; }
@@ -87059,7 +87122,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       institutionsAvailable: Boolean(current && n.succession.leaders.every(a => a.status === 'alive' && a.health >= 50 && !actorIsIncapacitated(a))),
       defenseAvailable: Boolean(current && b?.defender?.exceptionalCapabilities?.includes('city-scale ward defense') && CityDefense.able(b.defender)
         && !actorIsIncapacitated(b.defender) && !b.defender.magicSuppressed && !b.defender.suppressionActive && b.defender.stamina > 0),
-      actualOpposition: Boolean(n?.opposition?.some(r => r.witnessed) || b?.defender.hostile || OuterApproach.claiming(g?.outerApproach)),
+      actualOpposition: Boolean(n?.opposition?.some(r => r.witnessed) || b?.defender.hostile || OuterApproach.claiming(g?.outerApproach)
+        || g?.outerApproach?.chapterProtection && chapterProtectionContext(g).effectiveChallenge),
       incapacitatedIds: [...leaders, b?.defender].filter(a => a && actorIsIncapacitated(a)).map(a => a.id) };
   }
   function updateRegionalGovernments() {
@@ -96707,7 +96771,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { ...c, source: g?.preparedForeignCivicTestSource || (g && ForeignCivicBargains.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, g)),
       introduction: job ? { cityId: g.cityId, bodyEpoch: c.bodyEpoch, reportId: job.reportReceipt.reportId, officerId: m.actor.id, receivedAt: job.reportReceipt.at } : null,
       originalBody: passengerBodyCurrent(), custodyActive: GateEnforcement.custodyActive(currentGateEnforcement()) || localPrisonRestricted(),
-      participantsPresent: Boolean(b && [b.representative, b.defender].every(a => a.present !== false && !actorIsIncapacitated(a)
+      participantsPresent: Boolean(b && !ChapterProtection.assigned(g.outerApproach?.chapterProtection)
+        && g.outerApproach?.chapterProtection?.job?.kind !== 'report'
+        && [b.representative, b.defender].every(a => a.present !== false && !actorIsIncapacitated(a)
         && a.roomId === g.checkpointRoomId && mapCellDistance(a.mapCell, { x: 10, y: 7, z: g.z }) <= 2
         && sensoryLineOfSight(scientistMapCell(), a.mapCell))) };
   }
@@ -99364,6 +99430,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       changed += Number(updateWardResearch(g));
       changed += Number(updateCampaignSettlement(g));
       changed += Number(updateCountercoalitionRelief(g));
+      changed += Number(updateChapterProtection(g));
     }
     return changed;
   }
@@ -99452,7 +99519,164 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const task of scientistQueueTasks()) { const b = document.createElement('button'); b.textContent = `Cancel ${task.label}`; b.onclick = () => cancelTask(task.id); panel.append(b); }
     panel.append(renderCampaignSettlement(g));
     panel.append(renderCountercoalitionRelief(g));
+    panel.append(renderChapterProtection(g));
     panel.append(renderWardResearch(g));
+    return panel;
+  }
+  const chapterSourceCache = new WeakMap();
+  function chapterProtectionActors(context = state) {
+    return (context?.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.outerApproach?.chapterProtection?.actor).filter(Boolean);
+  }
+  function chapterPersonVisible(a) {
+    return Boolean(a?.mapCell && !scientistIsDead() && a.roomId === scientistRoomId()
+      && WildernessBeasts.distance(a.mapCell, scientistMapCell()) <= 8 && sensoryLineOfSight(scientistMapCell(), a.mapCell));
+  }
+  function chapterProtectionSource(g) {
+    if (g?.preparedReceptionTestSource && g.preparedChapterProtectionSource) return g.preparedChapterProtectionSource;
+    const map = activeWorldRecord?.generatedData?.strategicMap; if (!map) return null;
+    let cache = chapterSourceCache.get(map); if (!cache) { cache = new Map(); chapterSourceCache.set(map, cache); }
+    if (!cache.has(g.cityId)) {
+      const city = map.strategicPlayableSettlementState?.cityRows?.find(r => r.cityId === g.cityId);
+      const profile = map.publicNonStateNetworkHistoryDirectory ? StrategicNonStateNetworkHistory.cityCurrentNetworkProfile(map, g.cityId)
+        : map.publicNonStateNetworkDirectory ? StrategicNonStateNetworks.cityNetworkProfile(map, g.cityId) : null;
+      const rows = (profile?.standings || []).filter(e => {
+        const actual = map.strategicNonStateNetworkHistory?.networkRows?.find(n => n.networkId === e.network.id);
+        return actual && !['defunct', 'dormant'].includes(actual.lifecycleStatus)
+          && ['established', 'strong', 'exceptional'].includes(actual.actualCapacityBand);
+      });
+      cache.set(g.cityId, ChapterProtection.source(city, rows));
+    }
+    return cache.get(g.cityId);
+  }
+  function ensureChapterProtection(g) {
+    const o = g?.outerApproach, b = g?.foreignCivic?.bargain;
+    if (!o || !b || scientistIsDead()) return null;
+    if (o.chapterProtection) return o.chapterProtection;
+    const source = chapterProtectionSource(g);
+    if (!source || source.populationSourceId !== o.source.populationSourceId) return null;
+    const layout = { roomId: g.checkpointRoomId, roomIds: [g.checkpointRoomId, o.layout.roomId],
+      home: { x: 12, y: 6, z: g.z }, refuge: { x: 5, y: 5, z: g.z } };
+    const s = ChapterProtection.create(source, { worldId: activeWorldRecord.id, runId: activeRunRecord.id }, layout,
+      b.representative, g.clerk, activeWorldRecord.worldSeed, state.clock);
+    if (!s || ![layout.home, layout.refuge].every(cell => labMapCellIsWalkable(cell))
+      || !canActorOccupyTile(s.actor, layout.home)) return null;
+    b.representative.workSeconds ??= 1800;
+    b.representative.actorKind ||= 'civicOfficeholder'; b.representative.maxHealth ||= 100;
+    b.representative.physicalControl ||= { strength: 20, stamina: Math.min(50, b.representative.workSeconds), staminaCapacity: 50 };
+    b.representative.skills ||= { striking: 1, guarding: 1, evasion: 1, perception: 10 };
+    o.chapterProtection = s; return s;
+  }
+  function chapterProtectionMarket(g) {
+    return state.economy?.commodityMarket?.intercityTrade?.neighbors?.find(n => n.id === g.cityId) || null;
+  }
+  function chapterProtectionContext(g) {
+    const s = g?.outerApproach?.chapterProtection, client = g?.foreignCivic?.bargain.representative, a = s?.actor;
+    const sees = (from, to, range = 8) => Boolean(from && to && WildernessBeasts.distance(from, to) <= range && sensoryLineOfSight(from, to));
+    const cell = scientistMapCell(), local = Boolean(s && s.layout.roomIds.includes(scientistRoomId()));
+    const otherBusy = surveyBusy(false, true) || Boolean(g.foreignCivic?.bargain.job || g.foreignCivic?.accessJob
+      || g.intercityCompact?.job || g.outerApproach?.settlement?.job || g.outerApproach?.scientificCompact?.job
+      || g.regionalGovernment?.succession.job);
+    const essential = g.regionalGovernment?.succession.leaders.some(p => p.id === s?.clientId && p.roles.includes('centralAdministration'));
+    return { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id, source: chapterProtectionSource(g), gate: g, client, clerk: g.clerk,
+      alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist') && annexCapable(), bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      local, cell, busy: otherBusy || Boolean(state.combat?.pendingActions.scientist), otherBusy,
+      actorIncapacitated: Boolean(a && actorIsIncapacitated(a)), clientIncapacitated: Boolean(client && actorIsIncapacitated(client)),
+      clientConsent: client?.status === 'alive' && !actorIsIncapacitated(client),
+      canCommission: !g.regionalGovernment?.succession.handover && g.foreignCivic?.bargain.source.authority?.id,
+      authorityId: g.foreignCivic?.bargain.source.authority?.id, charterId: g.foreignCivic?.bargain.source.charterId,
+      channel: Boolean(client?.status === 'alive' && g.clerk.status === 'alive' && !actorIsIncapacitated(g.clerk)
+        && client.roomId === g.checkpointRoomId && sees(client.mapCell, g.clerk.mapCell, 6)),
+      near: Boolean(local && a && sees(cell, a.mapCell, 2)), clientNear: Boolean(local && sees(cell, client?.mapCell, 3)),
+      actorVisible: chapterPersonVisible(a), clientVisible: chapterPersonVisible(client), observed: chapterPersonVisible(a) || chapterPersonVisible(client),
+      seesAggressor: Boolean(local && a && sees(a.mapCell, cell)), aggressorCell: local ? cell : null, aggressorRoom: scientistRoomId(),
+      clientSeesAggressor: Boolean(local && sees(client?.mapCell, cell, 6)),
+      distanceToAggressor: WildernessBeasts.distance(a?.mapCell, cell), aggressorDistanceToClient: WildernessBeasts.distance(client?.mapCell, cell),
+      escortNear: Boolean(a && WildernessBeasts.distance(a.mapCell, client?.mapCell) <= 2 && sees(a.mapCell, client.mapCell)),
+      effectiveChallenge: Boolean(essential && ChapterProtection.assigned(s) && !s.contract.returning
+        && s.phase !== 'settled' && (!s.promise || s.promise.breachedAt) && client?.assignment === s.contract.id
+        && !sameMapCell(client.mapCell, s.clientHome.cell) && g.regionalGovernment?.rule?.status === 'contested'),
+      blockedByScientist: (person, goal) => {
+        if (!s || !local || WildernessBeasts.distance(person.mapCell, cell) > 1) return false;
+        const map = ensureLabMap(), blockedCellKeys = labMapBlockingCellKeys(map, { skipPlacement: true });
+        const next = WildernessBeasts.nextStep(person.mapCell, goal, p => {
+          if (!s.layout.roomIds.includes(labMapCellRoomId(p)) || !labMapCellIsWalkable(p, map)) return false;
+          const occupiedByScientist = sameMapCell(p, cell);
+          if (occupiedByScientist && tileOccupiedAreaM2(p, { excludeActor: person }) - actorFloorLoadM2(state.scientist)
+            + actorFloorLoadM2(person) > MAP_TILE_AREA_M2 + 1e-6) return false;
+          return !labMapCellIsPathBlocked(p, { map, actor: person, skipPlacement: true, blockedCellKeys, ignoreActorOccupancy: occupiedByScientist });
+        });
+        return Boolean(next && sameMapCell(next, cell));
+      } };
+  }
+  function witnessChapterAggression(target) {
+    for (const g of outerApproachGates()) {
+      const s = g.outerApproach.chapterProtection; if (!s) continue;
+      const c = chapterProtectionContext(g); if (!c.local || !c.clientSeesAggressor) continue;
+      const involved = target.id === s.actor.id || target.id === s.clientId || target.kind === 'structure'
+        && sameMapCell(target.cell, g.outerApproach.layout.structure);
+      if (!involved) continue;
+      const report = { id: `${s.id}:witness:${++s.serial}`, at: state.clock, kind: 'namedPersonAttack', actorId: 'scientist',
+        witnessId: s.clientId, clientId: s.clientId, cityId: s.source.cityId, targetId: target.id };
+      ChapterProtection.aggression(s, c, report, state.clock);
+    }
+  }
+  function updateChapterProtection(g) {
+    const s = ensureChapterProtection(g); if (!s || scientistIsDead()) return false;
+    const market = chapterProtectionMarket(g);
+    for (const r of g.outerApproach.reports || []) if (r.kind === 'outerApproachAttack'
+      && !s.attempts.some(a => a.causeId === r.id) && !s.seenReports?.includes(r.id)) {
+      s.seenReports ||= []; s.seenReports.push(r.id);
+      ChapterProtection.aggression(s, chapterProtectionContext(g), r, state.clock);
+    }
+    const map = ensureLabMap();
+    const adjacent = (a, goal) => WildernessBeasts.neighbors(goal).filter(cell => s.layout.roomIds.includes(labMapCellRoomId(cell))
+      && labMapCellIsWalkable(cell) && canActorOccupyTile(a, cell))
+      .sort((x, y) => WildernessBeasts.distance(a.mapCell, x) - WildernessBeasts.distance(a.mapCell, y))[0];
+    return ChapterProtection.advance(s, () => chapterProtectionContext(g), market, state.clock, {
+      adjacent,
+      move: (a, goal) => {
+        if (!s.layout.roomIds.includes(labMapCellRoomId(goal))) return false;
+        const blocked = new Set(labMapBlockingCellKeys(map, { actor: a, skipPlacement: true }));
+        for (const room of Object.values(map.rooms)) for (const cell of room.cells || [])
+          if (!s.layout.roomIds.includes(room.roomId) || !canActorOccupyTile(a, cell)) blocked.add(mapCellKey(cell));
+        return moveDefenderParticipant(a, goal, { blockedCellKeys: blocked, skipPlacement: true, ignoreDoors: false });
+      },
+      strike: a => {
+        const result = resolveSharedCombatAction(a.id, 'strike', { kind: 'creature', id: 'scientist' },
+          { baseDamage: 8, damageTypes: ['physical'], hideFeedback: !chapterPersonVisible(a) });
+        if (result.ok && chapterPersonVisible(a)) { state.paused = true; addEvent('The original chapter professional attempted a close protective strike.'); }
+        return result.ok;
+      }
+    });
+  }
+  function chapterProtectionAction(action, expected = null) {
+    const g = outerApproachGate(), s = g?.outerApproach?.chapterProtection;
+    if (!s || scientistIsDead()) return false;
+    updateChapterProtection(g); const c = chapterProtectionContext(g); let ok = false;
+    if (action === 'report') ok = ChapterProtection.observe(s, c, state.clock);
+    if (action === 'parley') ok = ChapterProtection.parley(s, c, state.clock);
+    if (action === 'accept') ok = ChapterProtection.accept(s, c, expected, state.clock);
+    if (action === 'strike' && c.actorVisible) ok = beginScientistCombatAction('strike', s.actor.id);
+    if (action === 'soulLash' && c.actorVisible) ok = beginScientistCombatAction('soulLash', s.actor.id);
+    if (ok) { if (action !== 'report') ChapterProtection.observe(s, chapterProtectionContext(g), state.clock); persist(); render(); }
+    return Boolean(ok);
+  }
+  function renderChapterProtection(g) {
+    const panel = document.createElement('section'), s = g?.outerApproach?.chapterProtection;
+    if (!s) return panel;
+    const c = chapterProtectionContext(g), v = ChapterProtection.publicView(s);
+    if (!c.observed && !v) return panel;
+    panel.dataset.chapterProtection = 'true'; panel.append(textEl('h3', 'Local chapter protective commitment'), textEl('p', ChapterProtection.SCOPE));
+    const button = (label, action, disabled, expected = null) => { const b = document.createElement('button'); b.textContent = label;
+      b.dataset.chapterAction = action; b.disabled = Boolean(disabled); b.onclick = () => chapterProtectionAction(action, expected); panel.append(b); };
+    button('Record personally visible chapter and client condition', 'report', !c.observed || !c.capable);
+    button('Discuss protected voluntary withdrawal (one minute)', 'parley', !ChapterProtection.contact(s, c) || !ChapterProtection.assigned(s) || Boolean(s.job));
+    if (c.near && c.clientNear && s.quote) {
+      panel.append(textEl('p', s.quote.terms)); button('Accept exact local nonaggression terms', 'accept', !ChapterProtection.contact(s, c), clonePlainObject(s.quote));
+    }
+    if (v) panel.append(textEl('p', `Received ${formatClock(v.at)}: ${v.branch}; ${v.phase}. Other branches, private reserves and network-wide intentions remain unverified.`));
+    if (c.actorVisible && s.actor.status === 'alive') for (const action of ['strike', 'soulLash'])
+      button(`${action === 'strike' ? 'Strike' : 'Soul Lash'} original chapter professional`, action, Boolean(scientistCombatActionBlockReason(action, s.actor)));
     return panel;
   }
   function countercoalitionMarkets() {
@@ -107997,6 +108221,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       g.regionalGovernment = RegionalGovernment.normalize(g.regionalGovernment);
       g.intercityCompact = IntercityCompact.normalize(g.intercityCompact); g.outerApproach = OuterApproach.normalize(g.outerApproach);
       if (g.outerApproach?.relief) g.outerApproach.relief = CountercoalitionRelief.normalize(g.outerApproach.relief);
+      if (g.outerApproach?.chapterProtection) g.outerApproach.chapterProtection = ChapterProtection.normalize(g.outerApproach.chapterProtection);
       if (g.outerApproach?.settlement) g.outerApproach.settlement = CampaignSettlement.normalize(g.outerApproach.settlement);
     }
     next.outerApproachVisit = candidate?.outerApproachVisit ? clonePlainObject(candidate.outerApproachVisit) : null;
