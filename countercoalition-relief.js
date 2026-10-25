@@ -84,17 +84,26 @@
       && t.condition - km * .04 >= 50 && t.driver.fatigue + km * .08 <= 75);
     if (!cargo || !t || !c.routeOpen || !Number.isFinite(km) || km <= 0 || km > 100) return false;
     const cost = cargo.reduce((n, r) => n + r.unitPrice * r.quantity, 0), freight = Math.ceil(10 + km * 2);
-    if (!Number.isFinite(market.treasury) || market.treasury - cost - freight < RESERVE) return false;
+    // A named organization may pay only the military service equipment. It
+    // neither owns this municipal carrier nor finances away civilian reserves.
+    // Quote after all stock/route/body checks, commit only at actual dispatch.
+    const equipmentCost = cargo.filter(r => ['metalParts', 'preparedManaCrystals'].includes(r.key))
+      .reduce((n, r) => n + r.unitPrice * r.quantity, 0);
+    const sponsorship = c.equipmentSponsor?.quote?.(equipmentCost);
+    const subsidy = sponsorship ? equipmentCost : 0;
+    if (!Number.isFinite(market.treasury) || market.treasury - cost - freight + subsidy < RESERVE) return false;
     const id = `${s.id}:trip:${++s.serial}`, seconds = Math.ceil(km / 30 * 3600);
+    if (subsidy && !c.equipmentSponsor.pay(sponsorship, equipmentCost, id, at)) return false;
     // Exact market inventory becomes city-owned cargo. The same municipal
     // exchange receives the purchase; the original producer receives freight.
-    market.treasury -= cost + freight; p.finance.exchangeMoney += cost; p.finance.money += freight; p.finance.earned += freight;
+    market.treasury -= cost + freight - subsidy; p.finance.exchangeMoney += cost; p.finance.money += freight; p.finance.earned += freight;
     p.finance.ledger.push({ at, kind: 'neighborReliefFreight', amount: freight, missionId: id });
     for (const r of cargo) market.listings[r.key].supply -= r.quantity;
     t.fuelKm -= km * 2; t.shipment = id;
     p.shipments.push({ id, externallyManaged: 'countercoalitionRelief', truckId: t.id, cargo: 'reliefBundle', quantity: 5,
       route: copy(c.route), departedAt: at, delivered: false, returned: false, returnAt: null });
     s.mission = { id, claimId: o.claim.id, truckId: t.id, driverId: t.driver.id, cargo, cost, freight, departedAt: at,
+      equipmentSponsor: subsidy ? { branchId: sponsorship, amount: subsidy, at } : null,
       distanceKm: km, positionKm: 0, travelledKm: 0, allocatedFuelKm: km * 2,
       legSeconds: seconds, deadline: at + 172800, progress: 0, phase: 'outbound', deliveredAt: null, returnedAt: null, wasReady: true, visibleOnGround: false };
     s.phase = 'outbound'; s.message = 'One original truck and driver departed with purchased, allocated cargo. No additional troops were raised.';

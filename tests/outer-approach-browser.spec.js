@@ -97,7 +97,8 @@ test('DOM countercoalition relief uses received cause, existing municipal funds/
   await advance(page, 40); r = await relief(page); expect(r.saved.mission.deliveredAt, JSON.stringify(r)).toBeTruthy();
   expect(r.saved.phase).toBe('recovering'); expect(r.saved.recovery.progress).toBeGreaterThan(0);
   expect(r.items.find(i => i.key === 'metalParts').quantity).toBe(2); expect(r.items.find(i => i.key === 'preparedManaCrystals').quantity).toBe(1);
-  const items = r.items.map(i => ({ ...i, civicCustody: i.civicCustody ?? null, seizureCustody: i.seizureCustody ?? null }));
+  const items = r.items.map(i => ({ ...i, civicCustody: i.civicCustody ?? null, seizureCustody: i.seizureCustody ?? null,
+    awayOperationId: i.awayOperationId ?? '', awayMissionId: i.awayMissionId ?? '' }));
   await reload(page); expect((await relief(page)).items).toEqual(items);
   await advance(page, 260); r = await relief(page); expect(r.saved.mission.phase).toBe('returned');
   expect(r.market.production.trucks.find(t => t.id === r.saved.mission.truckId).shipment).toBeNull();

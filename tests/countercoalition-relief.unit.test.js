@@ -4,6 +4,8 @@ const Relief = require('../countercoalition-relief');
 const Production = require('../local-market-production');
 const Outer = require('../outer-approach');
 const copy = x => JSON.parse(JSON.stringify(x));
+const Network = require('../network-operations');
+const { source: networkSource } = require('./helpers/network-operating-source');
 const cell = (x, y) => ({ x, y, z: 25 });
 function fixture() {
   const source = { cityId: 'b', partnerId: 'a', routeId: 'ab', interest: 'Original shared receiving corridor',
@@ -49,6 +51,61 @@ function fixture() {
 function tick(f, n = 1) { f.at += n; return Relief.advance(f.s, f.o, f.g, f.market, f.context, f.at, f.h); }
 function dispatch(f) { tick(f, 0); assert.equal(f.s.phase, 'reporting'); tick(f, 120); assert.equal(f.s.phase, 'outbound'); }
 function unload(f) { dispatch(f); tick(f, 240); for (let n = 0; n < 100 && !f.s.mission.deliveredAt; n++) tick(f); assert.ok(f.s.mission.deliveredAt); }
+function sponsored(f, managed = false) {
+  const source = networkSource();
+  // Explicit alternative original charter, not changing a live refusal.
+  if (managed) source.branches[0].charter = { ...source.branches[0].charter, mode: 'delegatedManagement', controllerId: 'original-network' };
+  f.network = Network.create(source, { worldId: 'w', runId: 'r' }, 0);
+  f.g.id = 'original-b';
+  const contact = { worldId: 'w', runId: 'r', alive: true, capable: true, local: true, near: true, channel: true,
+    cityId: 'b', bodyEpoch: 0, cell: { x: 1 }, gate: f.g, clerk: f.g.clerk };
+  assert.equal(Network.begin(f.network, contact, 'original-network', 'branch:b', 0), true);
+  Network.advance(f.network, () => contact, 181);
+  f.at = f.s.lastAt = 181;
+  f.c.equipmentSponsor = {
+    quote: cost => Network.candidates(f.network, 'a').find(id => Network.host(f.network, id).money >= cost),
+    pay: (branchId, cost, id, at) => Network.sponsor(f.network, branchId, cost,
+      { id, cityId: 'b', payerCityId: 'a', routeId: 'ab', purpose: 'armedReceivingContest' }, at)
+  };
+  return f;
+}
+test('autonomous organizational refusal can fund actual conserved equipment on the original supported relief trip', () => {
+  const f = sponsored(fixture()); f.market.treasury = 1040;
+  const total = () => f.market.treasury + f.market.production.finance.money + f.market.production.finance.exchangeMoney
+    + f.network.accounts.reduce((n, a) => n + a.money, 0);
+  const before = total(); unload(f);
+  assert.equal(Network.host(f.network, 'branch:a').reply.accepts, false);
+  assert.equal(f.s.mission.equipmentSponsor.branchId, 'branch:a'); assert.equal(f.s.mission.equipmentSponsor.amount, 33);
+  assert.equal(Network.host(f.network, 'branch:a').money, 207); assert.equal(f.market.treasury, 1004);
+  assert.equal(f.s.mission.driverId, 'a:producer-driver-1'); assert.equal(f.market.production.trucks.length, 2);
+  assert.ok(f.s.mission.deliveredAt); assert.equal(total(), before);
+  assert.equal(f.stacks.find(i => i.key === 'metalParts').quantity, 2);
+  f.network = Network.normalize(f.network); tick(f, 300);
+  assert.equal(Network.host(f.network, 'branch:a').payments.length, 1); assert.equal(total(), before);
+});
+test('delegated accession prevents new discretionary network financing, not humanitarian action or independent municipal payment', () => {
+  const f = sponsored(fixture(), true); f.market.treasury = 1040;
+  assert.ok(Network.host(f.network, 'branch:a').mandate); tick(f, 0); tick(f, 120);
+  assert.equal(f.s.phase, 'declined'); assert.equal(f.s.mission, null); assert.equal(f.market.treasury, 1040);
+  assert.equal(Network.host(f.network, 'branch:a').money, 240);
+  assert.equal(Network.permitted(f.network, 'branch:a', 'humanitarianProtection'), true);
+  const own = sponsored(fixture(), true); dispatch(own);
+  assert.equal(own.s.mission.equipmentSponsor, null); assert.equal(Network.host(own.network, 'branch:a').money, 240);
+});
+test('no branch money is spent when original stock, road, truck, driver, civilian funds or commission is unavailable', () => {
+  for (const change of [f => f.c.routeOpen = false, f => f.market.listings.metalParts.supply = 12,
+    f => f.market.production.trucks.forEach(t => t.shipment = 'existing-obligation'),
+    f => f.market.production.trucks.forEach(t => t.driver.status = 'dead'), f => f.market.treasury = 1000,
+    f => f.c.sourceCurrent = false]) {
+    const f = sponsored(fixture()); change(f); tick(f, 0); tick(f, 120);
+    assert.equal(f.s.mission, null); assert.equal(Network.host(f.network, 'branch:a').money, 240);
+    assert.deepEqual(Network.host(f.network, 'branch:a').payments, []);
+  }
+  const offline = sponsored(fixture()); offline.market.treasury = 1040;
+  Network.host(offline.network, 'branch:a').terminal.powerSeconds = 0;
+  tick(offline, 0); tick(offline, 120); assert.equal(offline.s.mission, null);
+  assert.equal(Network.host(offline.network, 'branch:a').money, 240);
+});
 test('source requires actual independent city authorities, common corridor interest and receptive relations, not proximity or heresy', () => {
   const f = fixture(); assert.ok(Relief.eligible(f.source));
   for (const change of [s => s.partnerId = 'b', s => s.cities[0].authorityId = '', s => s.relation.posture = 'hostile',

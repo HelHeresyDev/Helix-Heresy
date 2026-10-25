@@ -175,6 +175,7 @@
   const OuterApproach = window.HelixOuterApproach;
   const CountercoalitionRelief = window.HelixCountercoalitionRelief;
   const ChapterProtection = window.HelixChapterProtection;
+  const NetworkOperations = window.HelixNetworkOperations;
   const CampaignSettlement = window.HelixCampaignSettlement;
   const RoadsideStops = window.HelixRoadsideStops;
   const RegionalEncounters = window.HelixRegionalEncounters;
@@ -13817,6 +13818,17 @@
       intercityMarchAction,
       outerApproachAction,
       chapterProtectionAction,
+      networkOperationsAction,
+      networkOperationsSnapshot: () => clonePlainObject({ saved: state.networkOperations, clock: state.clock,
+        public: NetworkOperations.publicView(state.networkOperations), context: networkOperationsContext(),
+        campaign: state.campaign }),
+      setNetworkOperationsTestSource: source => {
+        const g = outerApproachGate();
+        if (!g?.preparedReceptionTestSource || state.networkOperations?.requests?.length || !source?.branches || !source.networks) return false;
+        const created = NetworkOperations.create(source, { worldId: activeWorldRecord.id, runId: activeRunRecord.id }, state.clock);
+        if (!created) return false; state.networkOperations = created;
+        state.networkOperations.preparedTestSource = true; persist(); render(); return true;
+      },
       chapterProtectionSnapshot: () => {
         const g = outerApproachGate(), s = g?.outerApproach?.chapterProtection;
         return clonePlainObject({ saved: s, context: s && chapterProtectionContext(g), client: g?.foreignCivic?.bargain.representative,
@@ -20387,6 +20399,8 @@
     for (const g of importedState.penalFlights?.assistance?.cityApproach?.gates || []) if (g.outerApproach?.chapterProtection)
       g.outerApproach.chapterProtection = ChapterProtection.rebind(g.outerApproach.chapterProtection,
         { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.networkOperations = NetworkOperations.rebind(importedState.networkOperations,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.roadsideStops = RoadsideStops.rebind(importedState.roadsideStops,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.regionalEncounters = RegionalEncounters.rebind(importedState.regionalEncounters,
@@ -24261,7 +24275,7 @@
       }
       return changed;
     }
-    if (!options.chapterStep && elapsed > 1 && outerApproachGates().some(g => g.outerApproach.chapterProtection?.job || ChapterProtection.assigned(g.outerApproach.chapterProtection))) {
+    if (!options.chapterStep && elapsed > 1 && (state.networkOperations?.job || outerApproachGates().some(g => g.outerApproach.chapterProtection?.job || ChapterProtection.assigned(g.outerApproach.chapterProtection)))) {
       let left = elapsed, changed = 0;
       while (left > 0 && !scientistIsDead()) {
         const before = state.clock, health = scientistVital('health').current;
@@ -80946,6 +80960,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const fact = ChapterProtection.fact(p, chapterProtectionContext(g), state.clock), old = chapters.get(p.source.networkId);
       if (!old || fact.state === 'notQualifying') chapters.set(p.source.networkId, fact);
     }
+    const operations = ensureNetworkOperations();
+    if (operations) for (const n of operations.source.networks) {
+      const old = chapters.get(n.id);
+      chapters.set(n.id, NetworkOperations.fact(operations, n.id, old?.state === 'notQualifying', state.clock));
+    }
     facts.push(...chapters.values());
     const city = state.cityRule && Supremacy.cityAccount(s, state.cityRule, state.citySuccession,
       cityRulePeople(), cityRuleContext(), state.clock);
@@ -80964,6 +80983,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function supremacyEvidence() {
     const binding = { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id };
     const evidence = [], r = Supremacy.bound(state.cityRule, binding) && state.cityRule.report;
+    if (NetworkOperations.bound(state.networkOperations, binding)) for (const r of NetworkOperations.publicView(state.networkOperations))
+      evidence.push({ id: r.id, sourceId: r.networkId, label: 'Received scoped network accessions/refusals — other capacities unverified',
+        status: 'unverified', observedAt: r.at, receivedAt: r.at });
     for (const g of outerApproachGates()) {
       const p = g.outerApproach.chapterProtection, v = ChapterProtection.publicView(p); if (!v) continue;
       evidence.push({ id: `${p.id}:received:${v.at}`, sourceId: p.source.branchId,
@@ -99398,7 +99420,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function updateOuterApproaches() {
     if (scientistIsDead()) return 0;
-    let changed = 0;
+    let changed = Number(updateNetworkOperations());
     for (const g of outerApproachGates()) {
       const s = g.outerApproach, b = g.foreignCivic?.bargain; if (!b) continue;
       changed += Number(OuterApproach.advance(s, b, state.clock, () => outerApproachContext(g), {
@@ -99520,10 +99542,80 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(renderCampaignSettlement(g));
     panel.append(renderCountercoalitionRelief(g));
     panel.append(renderChapterProtection(g));
+    panel.append(renderNetworkOperations(g));
     panel.append(renderWardResearch(g));
     return panel;
   }
   const chapterSourceCache = new WeakMap();
+  const networkSourceCache = new WeakMap();
+  function ensureNetworkOperations() {
+    if (!activeWorldRecord || !activeRunRecord || scientistIsDead()) return null;
+    const map = activeWorldRecord.generatedData?.strategicMap;
+    let source = map && networkSourceCache.get(map);
+    if (!source && map) { source = NetworkOperations.sources(map, activeWorldRecord.worldSeed); if (source) networkSourceCache.set(map, source); }
+    const binding = { worldId: activeWorldRecord.id, runId: activeRunRecord.id };
+    if (!state.networkOperations && source) state.networkOperations = NetworkOperations.create(source, binding, state.clock);
+    const s = state.networkOperations; if (!NetworkOperations.bound(s, binding) || s.invalid) return null;
+    NetworkOperations.sync(s, s.preparedTestSource ? s.source : source);
+    for (const g of outerApproachGates()) NetworkOperations.attach(s, g.outerApproach.chapterProtection);
+    return s;
+  }
+  function networkOperationsContext() {
+    const j = state.networkOperations?.job;
+    const g = j ? outerApproachGates().find(g => g.cityId === j.cityId) : outerApproachGate();
+    const cell = scientistMapCell(), clerk = g?.clerk;
+    const local = Boolean(g && scientistRoomId() === g.checkpointRoomId);
+    const otherBusy = surveyBusy(false, true, true) || Boolean(g?.foreignCivic?.bargain.job || g?.foreignCivic?.accessJob
+      || g?.intercityCompact?.job || g?.outerApproach?.settlement?.job || g?.outerApproach?.scientificCompact?.job
+      || g?.regionalGovernment?.succession.job || state.combat?.pendingActions.scientist);
+    return { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id, alive: !scientistIsDead(), capable: annexCapable() && !actorIsIncapacitated('scientist'),
+      cityId: g?.cityId, gate: g, clerk, local, cell, bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      near: Boolean(local && clerk?.mapCell && WildernessBeasts.distance(cell, clerk.mapCell) <= 2 && sensoryLineOfSight(cell, clerk.mapCell)),
+      channel: Boolean(clerk && !actorIsIncapacitated(clerk) && g.powerSeconds > 1), otherBusy, busy: otherBusy || Boolean(j) };
+  }
+  function updateNetworkOperations() {
+    const s = ensureNetworkOperations(); if (!s) return false;
+    return NetworkOperations.advance(s, networkOperationsContext, state.clock);
+  }
+  function networkOperationsAction(action, networkId = null, entryId = null) {
+    const s = ensureNetworkOperations(); if (!s) return false;
+    updateNetworkOperations(); const c = networkOperationsContext();
+    const ok = action === 'cancel' ? NetworkOperations.cancel(s, c)
+      : ['send', 'receive'].includes(action) && NetworkOperations.begin(s, c, networkId, entryId, state.clock, action);
+    if (!ok && c.alive) s.contactNotice = { at: state.clock, text: 'This attended office could not authenticate and staff the requested transmission. No new agreement or receipt was issued.' };
+    if (c.alive) { persist(); render(); } return Boolean(ok);
+  }
+  function networkEquipmentSponsor(g, market) {
+    const s = ensureNetworkOperations(); if (!s || !market) return null;
+    return { quote: cost => NetworkOperations.candidates(s, market.id).find(id => NetworkOperations.host(s, id).money >= cost) || null,
+      pay: (branchId, cost, operationId, at) => NetworkOperations.sponsor(s, branchId, cost, {
+        id: operationId, cityId: g.cityId, payerCityId: market.id, routeId: g.outerApproach.relief.source.routeId,
+        purpose: 'armedReceivingContest' }, at) };
+  }
+  function renderNetworkOperations(g) {
+    const panel = document.createElement('section'), s = state.networkOperations;
+    if (!s || s.invalid || !NetworkOperations.bound(s, { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id })) return panel;
+    const entries = s.source.branches.filter(b => b.public && b.cityId === g.cityId);
+    if (!entries.length) return panel;
+    panel.dataset.networkOperations = 'true'; panel.append(textEl('h3', 'Network nonintervention requests'), textEl('p', NetworkOperations.TERMS),
+      textEl('p', 'Attend the original receiving clerk within two metres to transmit and sign the request. Authenticated internet replies can reach other offices without a personal tour. Each independent office must reply for itself; shared branding is not command authority. Return to the clerk for a dated receipt.'));
+    const c = networkOperationsContext();
+    if (s.contactNotice) panel.append(textEl('p', `${formatClock(s.contactNotice.at)}: ${s.contactNotice.text}`));
+    for (const e of entries) {
+      const r = s.requests.find(r => r.networkId === e.networkId), b = document.createElement('button');
+      b.textContent = r ? `Receive dated replies through ${e.label}` : `Sign and send scoped request through ${e.label}`;
+      b.dataset.networkAction = r ? 'receive' : 'send'; b.dataset.networkEntry = e.id;
+      b.disabled = Boolean(s.job || !c.local || !c.near || !c.channel || !c.capable || c.busy);
+      b.onclick = () => networkOperationsAction(r ? 'receive' : 'send', e.networkId, e.id); panel.append(b);
+    }
+    if (s.job) { panel.append(textEl('p', `Attended ${s.job.kind} transmission: ${Math.floor(s.job.progress)} seconds of work completed.`));
+      const b = document.createElement('button'); b.textContent = 'Cancel attended transmission'; b.onclick = () => networkOperationsAction('cancel'); panel.append(b); }
+    for (const r of NetworkOperations.publicView(s)) {
+      panel.append(textEl('p', `Receipt ${formatClock(r.at)}: ${r.limits}`));
+      for (const p of r.replies) panel.append(textEl('p', `${p.label}: ${p.accepts ? 'Scoped accession' : 'Independent refusal'} (${formatClock(p.at)}). ${p.reason}`));
+    }
+    return panel;
+  }
   function chapterProtectionActors(context = state) {
     return (context?.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.outerApproach?.chapterProtection?.actor).filter(Boolean);
   }
@@ -99722,7 +99814,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       || g.outerApproach.settlement?.job || state.scientistIdentity?.job);
     const scientistNear = cell => c.local && sees(scientistMapCell(), cell, 2);
     return { ...c, route, sourceCurrent: Boolean(source && JSON.stringify(source) === JSON.stringify(s.source)), independent: !localControl,
-      definitions: COMMODITY_MARKET_LISTING_DEFS,
+      definitions: COMMODITY_MARKET_LISTING_DEFS, equipmentSponsor: networkEquipmentSponsor(g, countercoalitionMarket(g)),
       routeOpen: Boolean(route?.supportCapable && route.continuity === 'continuous' && !blocked),
       channel: sees(b.representative.mapCell, g.clerk.mapCell, 10) && !actorIsIncapacitated(g.clerk) && !actorIsIncapacitated(b.representative),
       witnessAtChannel: witnesses.length > 0, reportingWitnessIds: witnesses.map(a => a.id), conflictingWork: conflicting,
@@ -100438,7 +100530,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return ["scientistMove", "surveyExpeditionWork", "physicalDiagnostic", "hiddenWorkshopWork"].includes(task.type)
       || task.type === 'soulBeaconWork' && hiddenWorkshopLocal() && labMapCellRoomId(target) === state.hiddenWorkshop?.site?.roomId;
   }
-  function surveyBusy(ignoreInquiry = false, ignoreCivic = false) { return Boolean(state.foundingWorks?.foundation?.job?.running || state.foundingWorks?.job?.running || state.foundingExpedition?.job?.running) || (!ignoreInquiry && Boolean(passengerReceptionGate()?.researchInquiry?.job)) || (!ignoreCivic && foreignCivicWork(passengerReceptionGate())) || scientistQueueTasks().some((task) => !taskBlockReason(task)); }
+  function surveyBusy(ignoreInquiry = false, ignoreCivic = false, ignoreNetwork = false) { return !ignoreNetwork && Boolean(state.networkOperations?.job) || Boolean(state.foundingWorks?.foundation?.job?.running || state.foundingWorks?.job?.running || state.foundingExpedition?.job?.running) || (!ignoreInquiry && Boolean(passengerReceptionGate()?.researchInquiry?.job)) || (!ignoreCivic && foreignCivicWork(passengerReceptionGate())) || scientistQueueTasks().some((task) => !taskBlockReason(task)); }
   function surveyEvent(message) { addEvent(message, { sourceKind: "surveyExpedition" }); }
   function surveyCarriedStacks() { return ensurePhysicalItemStacks().filter((entry) => entry.carriedBy === "scientist"); }
   function surveyQuote() {
@@ -108224,6 +108316,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (g.outerApproach?.chapterProtection) g.outerApproach.chapterProtection = ChapterProtection.normalize(g.outerApproach.chapterProtection);
       if (g.outerApproach?.settlement) g.outerApproach.settlement = CampaignSettlement.normalize(g.outerApproach.settlement);
     }
+    next.networkOperations = NetworkOperations.normalize(candidate?.networkOperations);
     next.outerApproachVisit = candidate?.outerApproachVisit ? clonePlainObject(candidate.outerApproachVisit) : null;
     next.wildernessBeasts = WildernessBeasts.normalizeState(candidate?.wildernessBeasts);
     next.expeditionEscorts = ExpeditionEscorts.normalizeState(candidate?.expeditionEscorts);
