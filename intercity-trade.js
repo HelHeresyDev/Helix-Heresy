@@ -111,9 +111,12 @@
     ledger(state, at, `${id}: exact cargo at home depot, outside public stock; local freight settled.`);
     return paid;
   }
-  function settleExport(state, id) {
+  function settleExport(state, id, assignmentId = null) {
     const sh = state.shipments.find(s => s.id === id);
     if (!sh || sh.kind !== 'export' || !sh.delivered || sh.settled) return 0;
+    // An accepted assignment belongs to its original beneficiary. Missing
+    // finance accounting must not pay that same receivable to the seller.
+    if (sh.receivableReservation || sh.receivableAssignment && sh.receivableAssignment.id !== assignmentId) return 0;
     const paid = sh.playerEscrow; sh.playerEscrow = 0; sh.settled = true;
     return paid;
   }

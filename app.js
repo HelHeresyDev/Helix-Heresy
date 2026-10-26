@@ -34,6 +34,7 @@
   const MunicipalFuelService = window.HelixMunicipalFuelService;
   const PowerworksMaintenance = window.HelixPowerworksMaintenance;
   const CivicCommunications = window.HelixCivicCommunications;
+  const ReceivableFinance = window.HelixReceivableFinance;
   const LocalExchangeCarrier = window.HelixLocalExchangeCarrier;
   const IntercityTrade = window.HelixIntercityTrade;
   const LocalCovertMarket = window.HelixLocalCovertMarket;
@@ -5589,6 +5590,8 @@
       powerworksMaintenance: null,
       civicCommunications: null,
       civicCommunicationsInitialized: false,
+      receivableFinance: null,
+      receivableFinanceInitialized: false,
       civicFoothold: null,
       runStrategicConditions: null,
       expansionAtlas: null,
@@ -12416,6 +12419,25 @@
     return true;
   }
 
+  function settleCommissionedExport(consignment, shipment) {
+    if (!shipment?.delivered || shipment.settled || scientistIsDead()) return false;
+    const economy = ensureEconomy(), trade = economy.commodityMarket.intercityTrade;
+    const known = state.receivableFinance?.claims?.some(c => c.shipmentId === shipment.id);
+    let split;
+    if (shipment.receivableReservation) { consignment.delay = 'Original receivable acceptance remains unfinished; no proceeds paid twice.'; return false; }
+    if (shipment.receivableAssignment || known) {
+      split = ReceivableFinance.settle(state.receivableFinance, state.networkOperations, trade, shipment.id, state.clock);
+      if (!split) { consignment.delay = 'Assigned proceeds retained pending reconciliation with the original finance account.'; return false; }
+    } else { const total = IntercityTrade.settleExport(trade, shipment.id); split = { total, seller: total, assigned: 0 }; }
+    economy.money += split.seller;
+    consignment.status = 'sold'; consignment.completedAt = shipment.deliveredAt; consignment.delay = 'Foreign receipt confirmed; original convoy returns.';
+    recordLegalLedger('exportSale', `Foreign receipt settled ${formatMoney(split.total)} net for ${consignment.quantity} ${consignment.listingId}; ${formatMoney(split.seller)} paid now to the seller.`,
+      { listingId: consignment.listingId, consignmentId: consignment.id, amount: split.total });
+    if (split.assigned) recordLegalLedger('receivableSettlement', `${formatMoney(split.assigned)} assigned to the original financier: ${formatMoney(split.advance)} previously advanced and ${formatMoney(split.discount)} discount. This is not another sale or personal debt.`,
+      { consignmentId: consignment.id, amount: -split.assigned });
+    return true;
+  }
+
   function updateCommodityMarket() {
     const economy = ensureEconomy();
     bindCityCommodityMarket(economy);
@@ -12467,11 +12489,7 @@
         const trade = economy.commodityMarket.intercityTrade, shipment = trade.shipments.find(s => s.id === consignment.exportShipmentId);
         const op = trade.operators.find(o => o.id === shipment?.operatorId);
         consignment.delay = op?.reason || "Exact cargo aboard reserved convoy; proceeds held until foreign receipt.";
-        if (shipment?.delivered) {
-          const paid = IntercityTrade.settleExport(trade, shipment.id); economy.money += paid;
-          consignment.status = "sold"; consignment.completedAt = shipment.deliveredAt; consignment.delay = "Foreign buyer received cargo; convoy returns empty.";
-          recordLegalLedger("exportSale", `Foreign receipt settled ${formatMoney(paid)} net for ${consignment.quantity} ${consignment.listingId}.`, { listingId: consignment.listingId, consignmentId: consignment.id, amount: paid }); changes += 1;
-        }
+        if (shipment?.delivered) changes += Number(settleCommissionedExport(consignment, shipment));
       }
       if (consignment.carrierBusy && (returning?.status === "arrived" || ["sold", "awaitingExport"].includes(consignment.status))) {
         LocalExchangeCarrier.release(exchangeCarrier(), consignment.id);
@@ -14912,6 +14930,64 @@
       municipalFuelServiceAction,
       powerworksMaintenanceAction,
       civicCommunicationsAction,
+      receivableFinanceAction,
+      receivableFinanceSnapshot: () => clonePlainObject({ saved: state.receivableFinance, context: receivableFinanceContext(),
+        networks: state.networkOperations, trade: state.economy.commodityMarket.intercityTrade,
+        consignments: state.economy.commodityConsignments, ledger: state.economy.legalLedger, money: state.economy.money,
+        counter: scientistCivicOffice(), public: ReceivableFinance.publicView(state.receivableFinance), clock: state.clock }),
+      configureReceivableFinanceTest: map => {
+        const economy = ensureEconomy(), market = economy.commodityMarket, n = state.networkOperations, f = state.receivableFinance;
+        if (!state.sovereignBargains?.testFixture || !state.cityRule || f?.invalid || f?.job || f?.claims.length || f?.refunds.length
+          || economy.commodityConsignments.length || n?.job || n?.requests.length
+          || n?.accounts.some(a => a.money !== a.initialMoney || a.operator.assignment || a.operator.workSeconds !== a.source.operatorSeconds
+            || a.terminal.powerSeconds !== a.source.terminalSeconds)) return false;
+        const cityId = state.cityRule.source.cityId, rows = ReceivableFinance.sources(map, cityId, StrategicNonStateNetworks.NETWORK_DEFINITIONS);
+        const stack = ensurePhysicalItemStacks().find(i => i.key === 'steelPanels' && i.quantity >= 12 && !i.carriedBy && !i.reservedTaskId);
+        if (!rows.length || !stack) return false;
+        const profile = id => ({ cityId: id, cityName: id, productionSources: [], workshopCapacity: 1,
+          listings: Object.fromEntries(COMMODITY_MARKET_LISTING_DEFS.map(d => [d.id, { targetSupply: d.supply, targetDemand: 1 }])) });
+        const route = { id: 'original-export-route', endpointCityIds: [cityId, 'original-export-buyer'], distanceKm: 38, supportCapable: true, continuity: 'operational' };
+        const trade = IntercityTrade.create(profile(cityId), [profile('original-export-buyer')], [route],
+          [{ corridorId: route.id, approvals: route.endpointCityIds.map(cityId => ({ cityId, allowed: true })) }], COMMODITY_MARKET_LISTING_DEFS, state.clock);
+        const q = IntercityTrade.exportOffer(trade, `wholesaler:${route.id}`, 'steelPanels', stack, 12, COMMODITY_MARKET_LISTING_DEFS, state.clock, 2);
+        if (!q.ok || q.net * .6 < 100) return false;
+        const sh = IntercityTrade.bookExport(trade, q, stack, COMMODITY_MARKET_LISTING_DEFS, state.clock, 2).shipment;
+        // Explicit prior loaded-cargo input, not a finance outcome or another
+        // copy of lab stock. Original owner APIs fund/book/handoff the exact
+        // conserved lot. Native tests still perform all finance and delivery.
+        const manifest = clonePlainObject({ ...stack, quantity: sh.quantity });
+        stack.quantity -= sh.quantity; state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0); syncPhysicalReadModels();
+        sh.collected = true; IntercityTrade.receiveExport(trade, sh.id, manifest, state.clock);
+        sh.consignmentId = 'original-export-consignment';
+        economy.commodityConsignments.push({ id: sh.consignmentId, exportShipmentId: sh.id, direction: 'outbound', listingId: sh.good,
+          quantity: sh.quantity, total: q.net, status: 'awaitingExport', cargoManifest: manifest });
+        market.intercityTrade = trade;
+        state.networkOperations = NetworkOperations.create(NetworkOperations.sources(map, 'original-finance'),
+          { worldId: activeWorldRecord.id, runId: activeRunRecord.id }, state.clock);
+        state.networkOperations.preparedTestSource = true; state.preparedReceivableFinanceSources = rows;
+        state.receivableFinance = ReceivableFinance.create(rows, { worldId: activeWorldRecord.id, runId: activeRunRecord.id }, cityId, state.clock);
+        state.receivableFinanceInitialized = true; ensureReceivableFinance(); persist(); render(); return true;
+      },
+      setReceivableFinanceTestRoute: open => {
+        if (!state.sovereignBargains?.testFixture || typeof open !== 'boolean') return false;
+        const op = state.economy.commodityMarket.intercityTrade?.operators.find(o => o.route.id === 'original-export-route');
+        if (!op) return false; op.route.supportCapable = open; persist(); render(); return true;
+      },
+      advanceReceivableFinanceForTest: seconds => {
+        for (let left = Math.max(0, seconds); left > 0 && !scientistIsDead();) {
+          const step = Math.min(left, ReceivableFinance.active(state.receivableFinance) ? 1 : 3600); state.clock += step; left -= step;
+          updateScientistIdentity(); updatePendingCombatActions(); progressInjuries(); updateReceivableFinance();
+          const e = ensureEconomy(), t = e.commodityMarket.intercityTrade;
+          if (t) {
+            IntercityTrade.advance(t, state.clock, e.commodityMarket.listings, LocalExchangeCarrier.support(exchangeCarrier(), state.clock).supplier, COMMODITY_MARKET_LISTING_DEFS);
+            for (const con of e.commodityConsignments.filter(c => c.exportShipmentId)) settleCommissionedExport(con, t.shipments.find(sh => sh.id === con.exportShipmentId));
+          }
+        }
+        // Like the focused civic clock, omit unrelated laboratory/survival
+        // work and prevent a later lethal backfill of the omitted consumer.
+        if (state.wildernessSurvival) state.wildernessSurvival.lastAt = state.clock;
+        persist(); render(); return state.clock;
+      },
       civicCommunicationsSnapshot: () => clonePlainObject({ saved: state.civicCommunications, context: civicCommunicationsContext(),
         rule: state.cityRule, networks: state.networkOperations, public: CivicCommunications.publicView(state.civicCommunications), clock: state.clock }),
       configureCivicCommunicationsTest: map => {
@@ -20525,6 +20601,8 @@
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.civicCommunications = CivicCommunications.rebind(importedState.civicCommunications,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.receivableFinance = ReceivableFinance.rebind(importedState.receivableFinance,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     // These are the same continued municipal accounts, not newly allocated
     // plants, stores or officials. Keep in-flight fuel ownership source-bound.
     for (const key of ['cityRule', 'cityDefense']) {
@@ -24172,6 +24250,7 @@
     changes.scientistMovementChanged += livingUpdate(() => updateMunicipalClinic());
     changes.scientistMovementChanged += livingUpdate(() => updateCityAdministration());
     changes.scientistMovementChanged += livingUpdate(() => updateScientistIdentity());
+    changes.scientistMovementChanged += livingUpdate(() => updateReceivableFinance());
     changes.scientistMovementChanged += livingUpdate(() => updateMunicipalMapService());
     changes.scientistMovementChanged += livingUpdate(() => updateBeastPowers());
     changes.scientistMovementChanged += livingUpdate(() => updateSuppression());
@@ -24407,7 +24486,7 @@
       }
       return changed;
     }
-    if (!options.chapterStep && elapsed > 1 && (CivicCommunications.active(state.civicCommunications) || PowerworksMaintenance.active(state.powerworksMaintenance) || MunicipalFuelService.active(state.municipalFuelService) || state.networkOperations?.job || networkInterdictionActive() || outerApproachGates().some(g => g.outerApproach.chapterProtection?.job || ChapterProtection.assigned(g.outerApproach.chapterProtection)))) {
+    if (!options.chapterStep && elapsed > 1 && (ReceivableFinance.active(state.receivableFinance) || CivicCommunications.active(state.civicCommunications) || PowerworksMaintenance.active(state.powerworksMaintenance) || MunicipalFuelService.active(state.municipalFuelService) || state.networkOperations?.job || networkInterdictionActive() || outerApproachGates().some(g => g.outerApproach.chapterProtection?.job || ChapterProtection.assigned(g.outerApproach.chapterProtection)))) {
       let left = elapsed, changed = 0;
       while (left > 0 && !scientistIsDead()) {
         const before = state.clock, health = scientistVital('health').current;
@@ -66106,6 +66185,88 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.economyExchangeList.append(section);
   }
 
+  function receivableFinanceContext() {
+    const office = scientistCivicOffice(), c = scientistCivicContext(office, false, false, false, true), j = state.receivableFinance?.job;
+    return { ...c, worldId: activeWorldRecord?.id, runId: activeRunRecord?.id, cell: scientistMapCell(), bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      local: c.cityId === state.economy.commodityMarket.intercityTrade?.homeId && scientistRoomId() === SurveyExpeditions.FIELD_ROOM,
+      authorizedSeller: ensureCompany().enabled === true, officeId: office?.id, counterWork: office?.workSeconds || 0,
+      counterPower: office?.power || 0, counterAssignment: office?.assignment || null, counterClerkAssignment: office?.clerk?.assignment || null,
+      channel: Boolean(c.serviceAvailable && office?.active && office.channelPowered && office.maintenanceReady !== false),
+      otherBusy: c.busy || Boolean(state.scientistIdentity?.job) || Boolean(office?.assignment && office.assignment !== j?.id),
+      violence: scientistInKnownCombat(), wallet: ensureEconomy(), communicate: civicMessage };
+  }
+  function ensureReceivableFinance() {
+    const trade = state.economy?.commodityMarket?.intercityTrade;
+    if (!trade || !activeWorldRecord || !activeRunRecord || scientistIsDead()) return null;
+    if (!state.receivableFinance && !state.receivableFinanceInitialized) {
+      const rows = state.preparedReceivableFinanceSources || ReceivableFinance.sources(activeWorldRecord.generatedData?.strategicMap, trade.homeId, StrategicNonStateNetworks.NETWORK_DEFINITIONS);
+      state.receivableFinance = ReceivableFinance.create(rows, { worldId: activeWorldRecord.id, runId: activeRunRecord.id }, trade.homeId, state.clock);
+      state.receivableFinanceInitialized = true;
+    }
+    const s = state.receivableFinance;
+    if (!s || s.invalid || s.cityId !== trade.homeId) return null;
+    ReceivableFinance.register(s, ensureNetworkOperations()); return s;
+  }
+  function releaseReceivableCounter(id) {
+    for (const o of state.economy?.intercitySmuggling?.identityOffices || []) {
+      if (o.assignment === id) o.assignment = null;
+      if (o.clerk?.assignment === id) o.clerk.assignment = null;
+    }
+  }
+  function updateReceivableFinance() {
+    const s = state.receivableFinance, trade = state.economy?.commodityMarket?.intercityTrade;
+    if (!s || s.invalid || !trade || scientistIsDead()) return false;
+    const changed = ReceivableFinance.advance(s, state.networkOperations, trade, state.economy.commodityConsignments,
+      COMMODITY_MARKET_LISTING_DEFS, receivableFinanceContext, state.clock, {
+        alive: () => !scientistIsDead(), releaseCounter: releaseReceivableCounter,
+        counterWork: (dt, id, activate) => { const o = scientistCivicOffice(); o.workSeconds -= dt; if (activate) o.power--; o.assignment = o.clerk.assignment = id; },
+        advanced: cl => recordLegalLedger('receivableAdvance', `${formatMoney(cl.advance)} advanced from the original financier for a ${formatMoney(cl.claimAmount)} nonrecourse claim on ${cl.shipmentId}. Financing, not delivered sales income.`,
+          { consignmentId: cl.consignmentId, amount: cl.advance })
+      });
+    if (!s.job && state.combat?.routineSuspension?.reason === 'receivable finance') resumeScientistRoutineWork();
+    return changed;
+  }
+  function receivableFinanceAction(action, values = {}) {
+    if (scientistIsDead()) return false;
+    updateReceivableFinance(); const s = ensureReceivableFinance(); if (!s) return false;
+    const economy = ensureEconomy(), trade = economy.commodityMarket.intercityTrade, c = receivableFinanceContext(); let ok = false;
+    if (action === 'quote') ok = Boolean(ReceivableFinance.quote(s, state.networkOperations, trade, economy.commodityConsignments, COMMODITY_MARKET_LISTING_DEFS, c, values.sourceId, values.shipmentId, values.advance, state.clock));
+    if (action === 'accept') ok = ReceivableFinance.begin(s, state.networkOperations, trade, economy.commodityConsignments, COMMODITY_MARKET_LISTING_DEFS, c, values.offer, state.clock);
+    if (action === 'cancel' && s.job) { const id = s.job.id; ok = ReceivableFinance.release(s, state.networkOperations, trade, state.clock); releaseReceivableCounter(id); }
+    if (action === 'report') ok = ReceivableFinance.receive(s, c, state.clock);
+    if (s.job) { const o = scientistCivicOffice(); o.assignment = o.clerk.assignment = s.job.id; suspendScientistRoutineWork('receivable finance'); }
+    else if (state.combat?.routineSuspension?.reason === 'receivable finance') resumeScientistRoutineWork();
+    if (!ok) addEvent('No finance agreement completed: attend the original local counter with the private seller authority, exact funded carrier-held export, available original financier and unchanged terms. No money or claim was created.');
+    persist(); render(); return Boolean(ok);
+  }
+  function renderReceivableFinance() {
+    const section = document.createElement('section'); section.className = 'subpanel'; section.dataset.receivableFinance = 'true';
+    section.append(textEl('h3', 'Shipment-backed working capital'), textEl('p', ReceivableFinance.TERMS));
+    const s = ensureReceivableFinance(); if (!s) { section.append(textEl('p', 'No supported original export finance account; ordinary sales remain unchanged.')); return section; }
+    const financier = document.createElement('select'); financier.setAttribute('aria-label', 'Original export financier');
+    for (const r of s.sources) { const o = document.createElement('option'); o.value = r.id; o.textContent = r.label; financier.append(o); }
+    const shipment = document.createElement('select'); shipment.setAttribute('aria-label', 'Recorded funded export');
+    for (const con of state.economy.commodityConsignments.filter(c => c.exportShipmentId)) {
+      const o = document.createElement('option'); o.value = con.exportShipmentId; o.textContent = `${con.exportShipmentId} — own recorded ${con.quantity} ${con.listingId}`; shipment.append(o);
+    }
+    const amount = document.createElement('input'); amount.type = 'number'; amount.min = '1'; amount.step = '1'; amount.value = '100'; amount.setAttribute('aria-label', 'Requested receivable advance');
+    section.append(financier, shipment, amount);
+    const button = (label, action, values = {}) => { const b = storesActionButton(label, label, () => receivableFinanceAction(action, typeof values === 'function' ? values() : values));
+      b.dataset.receivableFinanceAction = action; b.disabled = Boolean(s.job) && action !== 'cancel'; section.append(b); };
+    button('Request exact shipment-backed terms', 'quote', () => ({ sourceId: financier.value, shipmentId: shipment.value, advance: Number(amount.value) }));
+    if (s.offer) {
+      section.append(textEl('p', `Offered ${formatClock(s.offer.at)}: ${formatMoney(s.offer.advance)} now for the first ${formatMoney(s.offer.claimAmount)} of ${s.offer.shipmentId}'s actual proceeds; fixed discount ${formatMoney(s.offer.discount)}. One minute of real verification and acceptance. No interest, new sale or payment before completion.`));
+      button('Accept exact nonrecourse assignment (one minute)', 'accept', { offer: s.offer });
+    }
+    if (s.job) { section.append(textEl('p', `Your attended acceptance: ${Math.floor(s.job.progress)} / 60 seconds. Financier funds are reserved, not paid to you. ${s.job.hold || ''}`)); button('Stop acceptance; release original financier reservation', 'cancel'); }
+    button('Receive dated finance statement', 'report');
+    const r = ReceivableFinance.publicView(s);
+    if (r) for (const cl of r.claims) section.append(textEl('p', `${formatClock(r.at)} statement — ${cl.financier}: ${cl.shipmentId}, advance ${formatMoney(cl.advance)}, assigned claim ${formatMoney(cl.claimAmount)}; ${cl.status === 'settled' ? `collected ${formatMoney(cl.collected)} at ${formatClock(cl.settledAt)}` : 'awaiting actual proceeds; no personal repayment demand or accumulating interest'}.`));
+    else section.append(textEl('p', 'No finance statement received. Private balances and current unseen convoy conditions are not disclosed.'));
+    section.append(textEl('p', 'Only an already collected exact legal export with buyer-funded net proceeds qualifies. Advance is capped at 60% of those proceeds and actual available office capital; the fixed discount is 10% rounded up. One claim per receivable. This small office budget is not total institutional wealth. Refusal changes no unrelated funds, delivery obligation or civic authority.'));
+    return section;
+  }
+
   function renderCommissionedExports(economy) {
     const market = economy.commodityMarket, trade = market.intercityTrade;
     if (!trade?.operators.length) return;
@@ -66125,6 +66286,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const quantity = commodityNumberInput("Export quantity", q?.requested || 1, 1, 1);
     section.append(operator, lot, quantity.wrapper, storesActionButton("Request Export Quote", "No reservation until explicit confirmation. Chemical packages are indivisible.", () => requestCommissionedExport(operator.value, lot.selectedOptions[0]?.dataset.good, lot.value, Number(quantity.input.value))));
     section.append(textEl("p", "Timing includes local collection, depot departure checks and intercity transit. Holds preserve cargo and escrow; no automatic rescue after provisions run out. No cancellation after collection. Certified chemical packages travel whole.", "journal-meta"));
+    section.append(textEl('p', 'Optional shipment-backed working capital is available through Visits at the original local civic counter, after the exact funded lot enters carrier custody.'));
     if (market.exportMessage) section.append(textEl("p", market.exportMessage, "journal-meta"));
     if (q?.ok) section.append(storesRowEl(`${q.quantity} ${COMMODITY_MARKET_LISTING_BY_ID[q.good]?.label} · exact lot ${q.stackId}`, `${formatMoney(q.net)} net proceeds`, {
       subtitle: `Buyer ${q.destinationId}; quoted ${formatClock(q.at)}, expires ${formatClock(q.expiresAt)}. Gross ${formatMoney(q.gross)}; local freight ${formatMoney(q.localFreight)}; intercity freight ${formatMoney(q.intercityFreight)}. ${q.legHours + 1} travel/handling hours to foreign receipt after depot departure, if unobstructed; ${q.totalHours} hours for convoy round trip.`,
@@ -89912,7 +90074,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     return office || null;
   }
-  function scientistCivicContext(office, ignoreFuelJob = false, ignoreMaintenanceJob = false, ignoreCommunicationsJob = false) {
+  function scientistCivicContext(office, ignoreFuelJob = false, ignoreMaintenanceJob = false, ignoreCommunicationsJob = false, ignoreFinanceJob = false) {
     const cell = scientistMapCell(), clerk = office?.clerk, local = state.surveyExpeditions?.phase === "field" && scientistRoomId() === SurveyExpeditions.FIELD_ROOM && !unsupportedActive();
     const facialInjury = actorInjuries("scientist").some(i => i.status !== "healed" && /head|face|eye/i.test(String(i.location || "")));
     return { alive: !scientistIsDead(), capable: !actorIsIncapacitated("scientist"),
@@ -89921,7 +90083,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       atCounter: local && mapCellKey(cell) === mapCellKey(office?.civicCounter?.cell),
       clerkPresent: Boolean(office?.civicCounter && clerk.status === 'alive' && !actorIsIncapacitated(clerk) && clerk.mapCell && WildernessBeasts.distance(clerk.mapCell, ScientistIdentity.COUNTER) <= 1),
       lineOfSight: Boolean(local && clerk?.mapCell && sensoryLineOfSight(cell, clerk.mapCell)), visibility: facialInjury ? "obscured" : "clear",
-      busy: Boolean(installationSeizureServiceReason(office)) || scientistInClinicCare() || rescueMissionActive() || (!state.scientistIdentity?.job && surveyBusy(false, false, false, ignoreFuelJob, ignoreMaintenanceJob, ignoreCommunicationsJob)) };
+      busy: Boolean(installationSeizureServiceReason(office)) || scientistInClinicCare() || rescueMissionActive() || (!state.scientistIdentity?.job && surveyBusy(false, false, false, ignoreFuelJob, ignoreMaintenanceJob, ignoreCommunicationsJob, ignoreFinanceJob)) };
   }
   function updateScientistIdentity() {
     const profile = state.scientistIdentity; if (!profile?.job) return 0;
@@ -101244,7 +101406,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return ["scientistMove", "surveyExpeditionWork", "physicalDiagnostic", "hiddenWorkshopWork"].includes(task.type)
       || task.type === 'soulBeaconWork' && hiddenWorkshopLocal() && labMapCellRoomId(target) === state.hiddenWorkshop?.site?.roomId;
   }
-  function surveyBusy(ignoreInquiry = false, ignoreCivic = false, ignoreNetwork = false, ignoreFuel = false, ignoreMaintenance = false, ignoreCommunications = false) { return !ignoreCommunications && CivicCommunications.active(state.civicCommunications) || !ignoreMaintenance && PowerworksMaintenance.active(state.powerworksMaintenance) || !ignoreFuel && Boolean(state.municipalFuelService?.job) || !ignoreNetwork && Boolean(state.networkOperations?.job || state.networkInterdiction?.repair) || Boolean(state.foundingWorks?.foundation?.job?.running || state.foundingWorks?.job?.running || state.foundingExpedition?.job?.running) || (!ignoreInquiry && Boolean(passengerReceptionGate()?.researchInquiry?.job)) || (!ignoreCivic && foreignCivicWork(passengerReceptionGate())) || scientistQueueTasks().some((task) => !taskBlockReason(task)); }
+  function surveyBusy(ignoreInquiry = false, ignoreCivic = false, ignoreNetwork = false, ignoreFuel = false, ignoreMaintenance = false, ignoreCommunications = false, ignoreFinance = false) { return !ignoreFinance && ReceivableFinance.active(state.receivableFinance) || !ignoreCommunications && CivicCommunications.active(state.civicCommunications) || !ignoreMaintenance && PowerworksMaintenance.active(state.powerworksMaintenance) || !ignoreFuel && Boolean(state.municipalFuelService?.job) || !ignoreNetwork && Boolean(state.networkOperations?.job || state.networkInterdiction?.repair) || Boolean(state.foundingWorks?.foundation?.job?.running || state.foundingWorks?.job?.running || state.foundingExpedition?.job?.running) || (!ignoreInquiry && Boolean(passengerReceptionGate()?.researchInquiry?.job)) || (!ignoreCivic && foreignCivicWork(passengerReceptionGate())) || scientistQueueTasks().some((task) => !taskBlockReason(task)); }
   function surveyEvent(message) { addEvent(message, { sourceKind: "surveyExpedition" }); }
   function surveyCarriedStacks() { return ensurePhysicalItemStacks().filter((entry) => entry.carriedBy === "scientist"); }
   function surveyQuote() {
@@ -101975,6 +102137,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(renderCityProvisioning());
     panel.append(renderCityDefense());
     panel.append(renderCityRule());
+    panel.append(renderReceivableFinance());
     panel.append(renderRunStrategicConditions());
     panel.append(renderCivicFoothold());
     panel.append(renderCarrierBriefings());
@@ -109141,6 +109304,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.powerworksMaintenance = PowerworksMaintenance.normalize(candidate?.powerworksMaintenance);
     next.civicCommunications = CivicCommunications.normalize(candidate?.civicCommunications);
     next.civicCommunicationsInitialized = candidate?.civicCommunicationsInitialized === true || Boolean(next.civicCommunications);
+    next.receivableFinance = ReceivableFinance.normalize(candidate?.receivableFinance);
+    next.receivableFinanceInitialized = candidate?.receivableFinanceInitialized === true || Boolean(next.receivableFinance);
     next.cityAdministrationKnowledge = candidate?.cityAdministrationKnowledge ? clonePlainObject(candidate.cityAdministrationKnowledge) : null;
     next.civicFoothold = CivicFoothold.normalize(candidate?.civicFoothold);
     next.runStrategicConditions = RunStrategicConditions.normalize(candidate?.runStrategicConditions);
