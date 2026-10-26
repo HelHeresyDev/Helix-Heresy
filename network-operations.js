@@ -1,8 +1,10 @@
 (function (root, factory) {
-  const api = factory(typeof module === 'object' && module.exports ? require('./network-capabilities') : root.HelixNetworkCapabilities);
+  const node = typeof module === 'object' && module.exports;
+  const api = factory(node ? require('./network-capabilities') : root.HelixNetworkCapabilities,
+    node ? require('./network-inventories') : root.HelixNetworkInventories);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixNetworkOperations = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Capabilities) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Capabilities, Inventories) {
   'use strict';
   const copy = x => x == null ? null : JSON.parse(JSON.stringify(x));
   const SEND = 60, REPLY = 60, RECEIVE = 30;
@@ -57,13 +59,15 @@
     });
     for (const b of branches) b.disclosurePolicy = ['concealOwnership', 'collectIntelligence'].includes(h.networkRows.find(n => n.networkId === b.networkId)?.privatePriority)
       ? 'withholdInternalAccounts' : 'limitedOfficeAccount';
-    return { capabilityBaseline: Capabilities.baseline(map), networks: h.networkRows.map(n => ({ id: n.networkId, label: n.name,
+    const result = { capabilityBaseline: Capabilities.baseline(map), networks: h.networkRows.map(n => ({ id: n.networkId, label: n.name,
       headBranchId: branches.find(b => b.networkId === n.networkId && b.cityId === n.originCityId
         && b.allocated && b.hostId === b.id && b.charter.controllerId === n.networkId)?.id || null })), branches,
       // Retain original concealed identities privately. No public reply from an
       // office establishes that these other capacities ceased to exist.
       concealed: [...(h.covertRows || []), ...(h.affiliateRows || [])].map(r => ({ id: r.id,
         networkId: r.networkId || r.actualParentNetworkId, status: r.status || r.lifecycleStatus })) };
+    result.inventoryPlan = Inventories.plan(map, result);
+    return result;
   }
   function account(source) {
     return { id: source.id, source: copy(source), money: source.capital, initialMoney: source.capital,
@@ -75,16 +79,18 @@
   function validSource(source) {
     return source && ['networks', 'branches', 'concealed'].every(k => Array.isArray(source[k]))
       && (!source.capabilityBaseline || Capabilities.validBaseline(source.capabilityBaseline))
+      && (!source.inventoryPlan || Inventories.validPlan(source.inventoryPlan, source.capabilityBaseline))
       && source.networks.every(n => typeof n.id === 'string')
       && source.branches.every(b => typeof b.id === 'string' && typeof b.hostId === 'string'
         && source.networks.some(n => n.id === b.networkId) && b.charter?.id && b.charter.controllerId
         && ['delegatedManagement', 'autonomousAccession'].includes(b.charter.mode) && Array.isArray(b.charter.scope)
         && [b.capital, b.operatorSeconds, b.terminalSeconds].every(n => Number.isFinite(n) && n >= 0));
   }
-  function create(source, binding, at) {
+  function create(source, binding, at, options = {}) {
     if (!validSource(source) || !binding?.worldId || !binding.runId || !Number.isFinite(at)) return null;
     return { ...binding, source: copy(source), accounts: source.branches.map(account), requests: [], job: null,
       capabilityAccountingInitialized: true, capabilityAccounting: source.capabilityBaseline ? Capabilities.create(source.capabilityBaseline, binding, at) : null,
+      inventoriesInitialized: true, inventories: Inventories.create(source, binding, options.originalInventory === true),
       reports: [], serial: 0, lastAt: at };
   }
   function normalize(s) {
@@ -96,12 +102,18 @@
     // Corrupt pre-existing accounting must not become "not initialized" and
     // silently recreate every original cash balance on the next update.
     if (!valid) return { worldId: s.worldId || '', runId: s.runId || '', invalid: true, lastAt: Number(s.lastAt) || 0 };
-    const next = copy(s); next.capabilityAccounting = Capabilities.normalize(s.capabilityAccounting); return next;
+    const next = copy(s); next.capabilityAccounting = Capabilities.normalize(s.capabilityAccounting);
+    if (s.inventoriesInitialized || s.inventories) next.inventories = Inventories.normalize(s.inventories, s.source.inventoryPlan);
+    return next;
   }
   function rebind(s, from, to) { s = normalize(s); if (!bound(s, from)) return null;
-    s.capabilityAccounting = Capabilities.rebind(s.capabilityAccounting, from, to); return { ...s, ...to }; }
+    s.capabilityAccounting = Capabilities.rebind(s.capabilityAccounting, from, to);
+    if (s.inventoriesInitialized || s.inventories) s.inventories = Inventories.rebind(s.inventories, from, to, s.source.inventoryPlan);
+    return { ...s, ...to }; }
   function sync(s, expected = s?.source) {
     if (!s || s.invalid) return;
+    if (!s.source.inventoryPlan && expected?.inventoryPlan) s.source.inventoryPlan = copy(expected.inventoryPlan);
+    Inventories.sync(s);
     if (expected?.capabilityBaseline && !s.source.capabilityBaseline) s.source.capabilityBaseline = copy(expected.capabilityBaseline);
     const base = expected?.capabilityBaseline || s.source.capabilityBaseline;
     if (base) {

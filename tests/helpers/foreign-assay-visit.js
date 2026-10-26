@@ -17,10 +17,10 @@ function identity() {
   Civic.begin(identity, office, Civic.preview(identity, office, 'Mira Vale'), { money: 100 }, c, -1800); Civic.advance(identity, m.identityOffices, c, 0);
   return { identity, offices: m.identityOffices };
 }
-async function openForeignWorkspace(page, seed = 'foreign-industrial-commission', renderer = 'dom', carrySample = false, viaMunicipal = false, carriedMetalParts = 0, fieldKit = false, repairKit = false, beforeDeparture = null) {
+async function openForeignWorkspace(page, seed = 'foreign-industrial-commission', renderer = 'dom', carrySample = false, viaMunicipal = false, carriedMetalParts = 0, fieldKit = false, repairKit = false, beforeDeparture = null, originalSources = null) {
   page.setDefaultTimeout(30000); await startLifecycleRun(page, seed);
   if (beforeDeparture) await beforeDeparture(page);
-  await page.evaluate(({ identity, renderer, carrySample, viaMunicipal, carriedMetalParts, fieldKit, repairKit }) => {
+  await page.evaluate(({ identity, renderer, carrySample, viaMunicipal, carriedMetalParts, fieldKit, repairKit, originalSources }) => {
     const d = window.helixHeresyDebug, network = { homeDestinationId: 'site:lab', nearestSettlementDestinationId: 'city:a', destinations: [
       { id: 'site:lab', kind: 'laboratorySite', cityId: 'a', known: true, supportComponentId: 'one', localDistanceKm: 2, routeContinuity: 'municipal', cellId: 'planet-cell:00009' },
       ...['a', 'b'].map(id => ({ id: `city:${id}`, kind: 'fortifiedCity', cityId: id, label: `City ${id}`, known: true, supportComponentId: 'one', jurisdiction: { kind: 'city', cityId: id }, cellId: 'planet-cell:00001' }))
@@ -40,7 +40,8 @@ async function openForeignWorkspace(page, seed = 'foreign-industrial-commission'
       const quantities = repairKit ? new Map(d.exportSurveyExpeditionTestState().physicalItemStacks.filter(i => ids.includes(i.id)).map(i => [i.id, i.quantity])) : null;
       for (const id of ids) if (!d.carryActorStack('scientist', id, quantities?.get(id) || 1)) throw new Error('Finite original survey cargo unavailable');
     }
-    const city = { cityId: 'a', currentPopulation: 100, physicalCondition: 'intact', services: { transport: 'functional', provisioning: 'functional' } };
+    const city = { cityId: 'a', ...(originalSources ? { assetId: originalSources.homePopulationId } : {}),
+      currentPopulation: 100, physicalCondition: 'intact', services: { transport: 'functional', provisioning: 'functional' } };
     const standings = [{ network: { category: 'transport' }, standing: 'licensed', branch: { id: 'branch:a', publicName: 'Aster Transport', capacityBand: 'functional', operationalStatus: 'active' } }];
     if (viaMunicipal) d.setSurveyExpeditionTestContext({ network,
       context: { worldId: 'factory-import-test', siteId: 'parcel', strategicCellId: 'planet-cell:00009', seed: 'factory-import' },
@@ -52,7 +53,7 @@ async function openForeignWorkspace(page, seed = 'foreign-industrial-commission'
       capacityBand: 'functional', watchId: 'watch:b', lawId: 'law:b', currentAuthority: true, recognition: 'verified', localRules: [] }, ...identity });
     if (carriedMetalParts) d.setForeignSuppliesTestContext({ city: { cityId: 'b', currentPopulation: 100, physicalCondition: 'intact' }, standings: [], carriedMetalParts });
     if (!viaMunicipal && (!d.bookIntercityPassenger('city:b') || !d.queueIntercityPassenger('passengerBoard'))) throw new Error('Unable to board');
-  }, { identity: identity(), renderer, carrySample, viaMunicipal, carriedMetalParts, fieldKit, repairKit });
+  }, { identity: identity(), renderer, carrySample, viaMunicipal, carriedMetalParts, fieldKit, repairKit, originalSources });
   if (viaMunicipal) {
     for (const key of ['environmentalSurveyKit', 'sealedReagentBottle', 'medicalBandage', 'fieldRation']) {
       expect(await page.evaluate(key => window.helixHeresyDebug.packSurveyItem(key), key)).toBe(true); await finishHome(page);
@@ -74,9 +75,10 @@ async function openForeignWorkspace(page, seed = 'foreign-industrial-commission'
   }
   await finish(page); await advance(page, 1600);
   expect(await page.evaluate(() => window.helixHeresyDebug.queueIntercityPassenger('passengerDisembark'))).toBe(true); await finish(page);
-  await page.evaluate(() => window.helixHeresyDebug.setForeignWorkspaceTestSource({ city: { cityId: 'b', currentPopulation: 100, physicalCondition: 'intact' },
+  await page.evaluate(originalSources => window.helixHeresyDebug.setForeignWorkspaceTestSource({ city: { cityId: 'b',
+    ...(originalSources ? { assetId: originalSources.foreignPopulationId } : {}), currentPopulation: 100, physicalCondition: 'intact' },
     standings: [{ standing: 'licensed', network: { id: 'research', category: 'research' }, branch: { id: 'research:b', publicName: 'B Research', organizationForm: 'localLaboratory',
-      currentCityId: 'b', publicPhysicalPresence: true, operationalStatus: 'active', capacityBand: 'functional' } }] }));
+      currentCityId: 'b', publicPhysicalPresence: true, operationalStatus: 'active', capacityBand: 'functional' } }] }), originalSources);
   expect(await page.evaluate(() => window.helixHeresyDebug.foreignReceptionAction('walk'))).toBe(true); await finish(page);
   expect(await page.evaluate(() => { const d = window.helixHeresyDebug; return d.foreignReceptionAction('review', d.foreignReceptionSnapshot().quote); })).toBe(true); await advance(page, 180);
   expect(await page.evaluate(() => { const d = window.helixHeresyDebug; return d.foreignReceptionAction('accept', d.foreignReceptionSnapshot().gate.visitorAdmission.offers[0]); })).toBe(true); await advance(page, 60);

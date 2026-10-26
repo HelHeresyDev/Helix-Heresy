@@ -1,8 +1,10 @@
 (function (root, factory) {
-  const api = factory(typeof module === 'object' && module.exports ? require('./network-owner-reconciliation') : root.HelixNetworkOwnerReconciliation);
+  const node = typeof module === 'object' && module.exports;
+  const api = factory(node ? require('./network-owner-reconciliation') : root.HelixNetworkOwnerReconciliation,
+    node ? require('./network-inventories') : root.HelixNetworkInventories);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixNetworkCapabilities = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Owners) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Owners, Inventories) {
   'use strict';
   const FAMILIES = Object.freeze(['finance', 'research', 'transport', 'armedForce', 'mediaReach', 'certification', 'covertAccess']);
   const PURPOSE = 'institutionalCapabilityAccount';
@@ -126,6 +128,7 @@
       return { catalogComplete: false, strategicComplete: false, state: 'unverified', sources: [], references: [], families: [] };
     const sources = s.originals.filter(r => r.networkId === networkId), refs = references(operations, networkId);
     const ownerAccount = Owners.view(s, operations, networkId);
+    const inventory = Inventories.assess(operations, networkId, refs);
     const records = new Map(s.records.map(r => [r.id, r]));
     const branchAccounts = sources.filter(r => r.kind === 'branch').map(r => {
       const branch = operations.source.branches.find(b => b.id === r.sourceId);
@@ -151,7 +154,7 @@
           families: FAMILIES.map(family => ({ family,
             state: refs.some(a => a.family === family && (a.branchIds ? a.branchIds.includes(r.sourceId)
               : accountId && a.accountId === accountId)) ? 'partiallyAccounted' : 'unallocated' })) };
-      }), branchAccounts, commitments: commitments.concat(ownerAccount.commitments), ownerAccount,
+      }), branchAccounts, commitments: commitments.concat(ownerAccount.commitments), ownerAccount, inventory,
       references: refs, families: FAMILIES.map(family => ({ family, state: refs.some(r => r.family === family) ? 'partiallyAccounted' : 'unallocated',
         requires: 'Actual owner assets, authority, commitments, necessary-government dependency, feasible reach, intent and supported outcomes.' })) };
   }

@@ -183,6 +183,7 @@
   const NetworkOperations = window.HelixNetworkOperations;
   const NetworkCapabilities = window.HelixNetworkCapabilities;
   const NetworkOwnerReconciliation = window.HelixNetworkOwnerReconciliation;
+  const NetworkInventories = window.HelixNetworkInventories;
   const NetworkInterdiction = window.HelixNetworkInterdiction;
   const CampaignSettlement = window.HelixCampaignSettlement;
   const RoadsideStops = window.HelixRoadsideStops;
@@ -13875,6 +13876,17 @@
         capabilityAssessments: state.networkOperations?.source?.networks.map(n => ({ networkId: n.id,
           ...NetworkCapabilities.assess(state.networkOperations.capabilityAccounting, state.networkOperations, n.id) })),
         campaign: state.campaign }),
+      setOriginalInstitutionalInventoryTestSource: source => {
+        if (!activeWorldRecord || !activeRunRecord || scientistIsDead() || state.clock !== 0 || state.intercityPassenger
+          || state.networkOperations?.requests?.length || state.networkOperations?.preparedOriginalInventories
+          || state.networkOperations?.inventories?.assets?.some(a => a.ledger === 'service')
+          || state.powerworksMaintenance || state.powerworksStandards || state.civicCommunications || state.networkInterdiction) return false;
+        const s = NetworkOperations.create(source, { worldId: activeWorldRecord.id, runId: activeRunRecord.id }, state.clock,
+          { originalInventory: true });
+        if (!s || s.inventories?.mode !== 'original') return false;
+        s.preparedTestSource = true; s.preparedOriginalInventories = true;
+        state.networkOperations = s; persist(); render(); return true;
+      },
       setNetworkOperationsTestSource: source => {
         const g = outerApproachGate();
         if (!g?.preparedReceptionTestSource || state.networkOperations?.requests?.length || !source?.branches || !source.networks) return false;
@@ -17757,7 +17769,7 @@
         state.surveyExpeditions.departure = { roomId: scientistRoomId(), cell: scientistMapCell() };
         ensureSurveyExpeditions(); materializeSurveySpaces();
         state.surveyExpeditions.phase = 'field'; state.surveyExpeditions.departedAt = state.clock;
-        state.intercityPassenger = IntercityPassenger.create(city, standings, state.clock);
+        state.intercityPassenger = adoptOriginalInstitutionalService('passenger', IntercityPassenger.create(city, standings, state.clock));
         state.passengerConnection = null;
         if (connectionSource && state.intercityPassenger) state.intercityPassenger.preparedConnectionTestSource = clonePlainObject(connectionSource);
         moveSurveyScientist(SurveyExpeditions.FIELD_ROOM, SurveyExpeditions.RENDEZVOUS);
@@ -17777,7 +17789,7 @@
         state.surveyExpeditions = SurveyExpeditions.defaultState();
         state.surveyExpeditions.destination = SurveyExpeditions.destinationFor(network);
         if (carrierSource) state.surveyExpeditions.carrier = MunicipalCarrier.fromWorld(carrierSource, state.surveyExpeditions.destination.cityId, state.clock);
-        if (passengerSource) state.intercityPassenger = IntercityPassenger.create(passengerSource.city, passengerSource.standings, state.clock);
+        if (passengerSource) state.intercityPassenger = adoptOriginalInstitutionalService('passenger', IntercityPassenger.create(passengerSource.city, passengerSource.standings, state.clock));
         state.passengerConnection = null;
         if (connectionSource && state.intercityPassenger) state.intercityPassenger.preparedConnectionTestSource = clonePlainObject(connectionSource);
         state.surveyExpeditions.homeContext = clonePlainObject(context);
@@ -20421,6 +20433,9 @@
     next.complexity = dom.complexitySelect.value;
     next.economy = defaultEconomyState(next.seed);
     next.currentGenome = randomGenome(seedRng(`${next.seed}:starter`));
+    const originalNetworkSource = NetworkOperations.sources(worldMap, world.worldSeed);
+    if (originalNetworkSource) next.networkOperations = NetworkOperations.create(originalNetworkSource,
+      { worldId: world.id, runId }, next.clock, { originalInventory: true });
     state = next;
     activeWorldRecord = world;
     activeRunRecord = WorldRunLibrary.createRun({
@@ -87686,9 +87701,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!state.civicCommunications && !state.civicCommunicationsInitialized) {
       const c = civicCommunicationsContext();
       if (!CityRule.contact(c) || !c.authority || state.sovereignBargains?.testFixture && !state.cityRule.preparedCommunicationsSources) return null;
-      state.civicCommunications = CivicCommunications.create(state.cityRule.preparedCommunicationsSources
-        || CivicCommunications.sources(activeWorldRecord.generatedData?.strategicMap, StrategicNonStateNetworks.NETWORK_DEFINITIONS),
-      { worldId: activeWorldRecord.id, runId: activeRunRecord.id }, state.clock);
+      const rows = state.cityRule.preparedCommunicationsSources
+        || CivicCommunications.sources(activeWorldRecord.generatedData?.strategicMap, StrategicNonStateNetworks.NETWORK_DEFINITIONS);
+      state.civicCommunications = adoptOriginalInstitutionalService('communications', CivicCommunications.create(
+        NetworkInventories.eligibleSources(state.networkOperations, 'communications', rows),
+        { worldId: activeWorldRecord.id, runId: activeRunRecord.id }, state.clock));
       state.civicCommunicationsInitialized = true;
     }
     const s = state.civicCommunications;
@@ -87760,7 +87777,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (!c.local || !c.sourceCurrent || !CityRule.authority(rule, state.citySuccession, cityRulePeople(), c)
         || state.sovereignBargains?.testFixture && !rule.preparedMaintenanceSources) return null;
       const rows = rule.preparedMaintenanceSources || PowerworksMaintenance.sources(activeWorldRecord.generatedData?.strategicMap, rule.source, StrategicNonStateNetworks.NETWORK_DEFINITIONS);
-      state.powerworksMaintenance = PowerworksMaintenance.create(rows, rule, state.clock);
+      state.powerworksMaintenance = adoptOriginalInstitutionalService('maintenance', PowerworksMaintenance.create(
+        NetworkInventories.eligibleSources(state.networkOperations, 'maintenance', rows), rule, state.clock));
       rule.technicalMaintenanceInitialized = true;
     }
     const s = state.powerworksMaintenance;
@@ -87837,7 +87855,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const c = powerworksStandardsContext();
       if (!c.local || !c.authority || !c.sourceCurrent || state.sovereignBargains?.testFixture && !rule.preparedStandardsSources) return null;
       const rows = rule.preparedStandardsSources || PowerworksStandards.sources(activeWorldRecord.generatedData?.strategicMap, rule.source, StrategicNonStateNetworks.NETWORK_DEFINITIONS);
-      state.powerworksStandards = PowerworksStandards.create(rows, rule, state.clock); rule.partsStandardsInitialized = true;
+      state.powerworksStandards = adoptOriginalInstitutionalService('standards', PowerworksStandards.create(
+        NetworkInventories.eligibleSources(state.networkOperations, 'standards', rows), rule, state.clock)); rule.partsStandardsInitialized = true;
     }
     const s = state.powerworksStandards;
     if (!PowerworksStandards.target(s, rule)) return null;
@@ -93443,11 +93462,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!e?.wilderness || scientistIsDead()) return null;
     // One depot employee already posted at this actual defended ground. This
     // allocation supplies neither an intercity journey nor a new passenger seat.
-    if (!e.porter && scientistRoomId() === e.roomId && !actorIsIncapacitated('scientist')) e.porter = FieldPorter.create(fieldPorterSource(g, e), e, state.clock);
+    if (!e.porter && scientistRoomId() === e.roomId && !actorIsIncapacitated('scientist'))
+      e.porter = adoptOriginalInstitutionalService('porter', FieldPorter.create(fieldPorterSource(g, e), e, state.clock));
     const s = e.porter;
     if (s && !s.actor.initializedKit) {
       s.actor.initializedKit = true;
-      for (const [key, n] of [['drinkingWater', 3], ['trailMeal', 2]]) createPhysicalItemStack('inventory', key, n,
+      for (const [key, n] of NetworkInventories.takeSupplies(s, ['drinkingWater', 'trailMeal'], [['drinkingWater', 3], ['trailMeal', 2]])) createPhysicalItemStack('inventory', key, n,
         { roomId: s.actor.roomId, cell: s.actor.mapCell }, { carriedBy: s.actor.id, suppressEvidence: true, sourceLabels: [`Original ${s.source.branchId} finite porter provisions`] });
       syncActorInventories();
     }
@@ -94305,7 +94325,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!s || !s.wilderness || scientistIsDead()) return s?.escort?.actor || null;
     if (!s.escort && scientistRoomId() === s.roomId && !actorIsIncapacitated('scientist')) {
       const source = foreignEscortSource(g, s);
-      s.escort = ForeignExpeditionEscort.create(source, s, state.seed, state.clock);
+      s.escort = adoptOriginalInstitutionalService('escort', ForeignExpeditionEscort.create(source, s, state.seed, state.clock));
       if (s.escort) s.escort.actor.needs = WildernessSurvival.defaultState(state.clock);
     }
     return s.escort?.actor || null;
@@ -94326,14 +94346,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (saved.source && actor && !actor.restPlaceAllocated && !scientistIsDead()) {
       actor.restPlaceAllocated = true;
       const cell = cleanMapCell(escortMeeting()), id = `${saved.source.branchId}:survey-rest-place`;
-      const shelter = createPhysicalItemStack('inventory', 'fieldShelter', 1, { roomId: escortGroundRoom(), cell }, {
+      const shelterCount = NetworkInventories.takeSupplies(saved, ['fieldShelter'], [['fieldShelter', 1]])[0]?.[1] || 0;
+      const shelter = shelterCount && createPhysicalItemStack('inventory', 'fieldShelter', shelterCount, { roomId: escortGroundRoom(), cell }, {
         suppressEvidence: true, sourceLabels: [`Original ${saved.source.branchId} one-place field-rest allocation`] });
-      shelter.reservedTaskId = id;
-      saved.restPlace = { id, branchId: saved.source.branchId, actorId: actor.id, stackId: shelter.id, roomId: escortGroundRoom(), cell, condition: 100 };
+      if (shelter) {
+        shelter.reservedTaskId = id;
+        saved.restPlace = { id, branchId: saved.source.branchId, actorId: actor.id, stackId: shelter.id, roomId: escortGroundRoom(), cell, condition: 100 };
+      }
     }
     if (actor && !actor.initializedKit) {
       actor.initializedKit = true;
-      for (const [key, amount] of [["escortBaton", 1], ["escortVest", 1], ["drinkingWater", 4], ["trailMeal", 3], ["medicalBandage", 3], ["neutralizingWash", 1]]) {
+      const originalKit = [["escortBaton", 1], ["escortVest", 1], ["drinkingWater", 4], ["trailMeal", 3], ["medicalBandage", 3], ["neutralizingWash", 1]];
+      for (const [key, amount] of NetworkInventories.takeSupplies(saved, originalKit.map(([key]) => key), originalKit)) {
         const stack = createPhysicalItemStack("inventory", key, amount, { roomId: actor.roomId, cell: actor.mapCell }, { carriedBy: actor.id, suppressEvidence: true, sourceLabels: [saved.source ? `Original ${saved.source.branchId} finite professional allocation` : "Escort-owned starting equipment"] });
         if (key.startsWith("escort")) saved.gearCondition[stack.id] = 100;
       }
@@ -97757,8 +97781,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const s = ForeignAssayWorkspace.create(source.city, source.standings, source.authority,
       { cityName: g.label, representativeCell: { x: 9, y: 13, z: g.z } }, state.seed, state.clock, state.worldTheme);
     if (!s) return null;
-    g.foreignWorkspace = s;
     s.site = { z: g.z, entry: { x: 10, y: 13, z: g.z }, benchCell: { x: 11, y: 15, z: g.z } };
+    const originalBench = defaultFixtureInstance(s.benchId, 'basicWorkbench', s.site.benchCell, 0,
+      { name: 'Branch-owned Manual Assay Bench', materialPolicy: 'wood', installedAt: state.clock });
+    if (!adoptOriginalInstitutionalService('workspace', s, originalBench)) return null;
+    g.foreignWorkspace = s;
     const map = ensureLabMap();
     for (const spec of [{ id: s.approachRoomId, name: 'Named Research Workspace Approach', x: 9, y: 11, width: 2, height: 2, purposeId: 'corridor', connections: [g.checkpointRoomId, s.roomId] },
       { id: s.roomId, name: s.property.name, x: 5, y: 13, width: 8, height: 6, purposeId: 'laboratory', connections: [s.approachRoomId] }]) {
@@ -97773,8 +97800,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       state.roomStockpiles[spec.id] = emptyRoomStockpile();
     }
     roomById(g.checkpointRoomId).connections.push(s.approachRoomId);
-    state.fixtures.push(defaultFixtureInstance(s.benchId, 'basicWorkbench', s.site.benchCell, 0,
-      { name: 'Branch-owned Manual Assay Bench', materialPolicy: 'wood', installedAt: state.clock }));
+    state.fixtures.push(originalBench);
     state.fixtures = normalizeFixtures(state.fixtures); bumpNavigationRevision('topology');
     return s;
   }
@@ -98504,7 +98530,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const city = map?.strategicPlayableSettlementState?.cityRows.find(c => c.cityId === cityId);
     const profile = map?.publicNonStateNetworkHistoryDirectory ? StrategicNonStateNetworkHistory.cityCurrentNetworkProfile(map, cityId)
       : map?.publicNonStateNetworkDirectory ? StrategicNonStateNetworks.cityNetworkProfile(map, cityId) : null;
-    state.intercityPassenger = IntercityPassenger.create(city, profile?.standings, state.clock);
+    state.intercityPassenger = adoptOriginalInstitutionalService('passenger', IntercityPassenger.create(city, profile?.standings, state.clock));
     return state.intercityPassenger;
   }
   function intercityStand() {
@@ -98532,6 +98558,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         : map?.publicNonStateNetworkDirectory ? StrategicNonStateNetworks.cityNetworkProfile(map, cityId) : null);
       state.passengerConnection = IntercityPassenger.connection(s, city, prepared?.standings || profile?.standings, state.clock, ensureScientistIdentity().bodyEpoch);
       const other = state.passengerConnection?.otherCarrier;
+      if (other && !adoptOriginalInstitutionalService('passenger', other)) { state.passengerConnection = null; return false; }
       if (other) { other.originOuter = clonePlainObject(s.spaces.outer); other.spaces = { cityId, outer: clonePlainObject(s.spaces.outer) }; }
     }
     const c = state.passengerConnection, next = IntercityPassenger.selectConnection(c, s, ensureScientistIdentity().bodyEpoch);
@@ -98668,7 +98695,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (support.passengerMaintenance) return support.passengerMaintenance;
     if (scientistIsDead()) return null;
     const source = passengerMaintenanceSource(fleet, cityId);
-    const m = PassengerMaintenance.create(source.city, source.standings, state.clock);
+    const m = adoptOriginalInstitutionalService('mechanic', PassengerMaintenance.create(source.city, source.standings, state.clock));
     if (m) support.passengerMaintenance = m;
     return m;
   }
@@ -100341,7 +100368,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     NetworkOperations.sync(s, s.preparedTestSource ? s.source : source);
     for (const g of outerApproachGates()) NetworkOperations.attach(s, g.outerApproach.chapterProtection);
     NetworkOwnerReconciliation.reconcile(s.capabilityAccounting, s, state, binding);
+    NetworkInventories.observe(s, state, binding);
     return s;
+  }
+  function adoptOriginalInstitutionalService(kind, model, fixture = null) {
+    if (scientistIsDead()) return null;
+    return NetworkInventories.adopt(state.networkOperations, kind, model,
+      { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id }, fixture);
   }
   function networkOperationsContext() {
     const j = state.networkOperations?.job;
@@ -100444,9 +100477,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const map = activeWorldRecord?.generatedData?.strategicMap;
     let sources = map && interdictionSourceCache.get(map);
     if (!sources && map) { sources = NetworkInterdiction.sources(map); interdictionSourceCache.set(map, sources); }
-    state.networkInterdiction ||= NetworkInterdiction.create(sources || [], { worldId: networks.worldId, runId: networks.runId }, activeWorldRecord.worldSeed, state.clock);
+    state.networkInterdiction ||= adoptOriginalInstitutionalService('interdiction', NetworkInterdiction.create(
+      NetworkInventories.eligibleSources(networks, 'interdiction', sources || []),
+      { worldId: networks.worldId, runId: networks.runId }, activeWorldRecord.worldSeed, state.clock));
     const s = state.networkInterdiction;
-    if (s.invalid || !NetworkOperations.bound(s, networks)) return null;
+    if (!s || s.invalid || !NetworkOperations.bound(s, networks)) return null;
     NetworkInterdiction.sync(s, s.preparedTestSource ? s.sourceRegistry : sources);
     for (const u of s.units) {
       const d = u.deployment, site = d && state.roadsideStops?.sites.find(p => p.id === d.siteId);
@@ -100634,6 +100669,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       b.representative, g.clerk, activeWorldRecord.worldSeed, state.clock);
     if (!s || ![layout.home, layout.refuge].every(cell => labMapCellIsWalkable(cell))
       || !canActorOccupyTile(s.actor, layout.home)) return null;
+    if (!adoptOriginalInstitutionalService('protection', s)) return null;
     b.representative.workSeconds ??= 1800;
     b.representative.actorKind ||= 'civicOfficeholder'; b.representative.maxHealth ||= 100;
     b.representative.physicalControl ||= { strength: 20, stamina: Math.min(50, b.representative.workSeconds), staminaCapacity: 50 };

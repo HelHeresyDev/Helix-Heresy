@@ -2,6 +2,7 @@ const { test, expect } = require('@playwright/test');
 const { startLifecycleRun } = require('./helpers/start-lifecycle-run');
 const { world } = require('./helpers/network-operating-source');
 const N = require('../network-operations');
+const Definitions = require('../strategic-non-state-networks').NETWORK_DEFINITIONS;
 const C = require('../network-capabilities');
 test.setTimeout(480000);
 const snap = page => page.evaluate(() => window.helixHeresyDebug.networkOperationsSnapshot());
@@ -17,6 +18,12 @@ async function finish(page) {
 async function reload(page) { await page.reload(); await page.locator('#loadLastSaveBtn').click(); await page.locator('[data-workspace-tab="visits"]').click(); }
 async function arrive(page, renderer) {
   page.on('dialog', d => d.accept()); await startLifecycleRun(page, `capability-account-${renderer}`);
+  const map = world(), n = map.strategicNonStateNetworkHistory.networkRows[0];
+  n.category = 'transport'; n.sourceDefinitionId = Definitions.find(d => d.category === 'transport').id;
+  map.strategicNonStateNetworkHistory.branchRows.forEach(b => { b.organizationForm = 'contractDepot'; b.currentStanding = 'licensed'; });
+  const original = N.sources(map, 'original:5'); original.branches[0].disclosurePolicy = 'withholdInternalAccounts';
+  // Original inventories are fixed before any journey, spending or request.
+  expect(await page.evaluate(s => window.helixHeresyDebug.setOriginalInstitutionalInventoryTestSource(s), original)).toBe(true);
   await page.evaluate(renderer => {
     const d = window.helixHeresyDebug; d.setMapRenderer(renderer);
     d.setIntercityPassengerTestContext({ city: { cityId: 'a', assetId: 'population:a', currentPopulation: 100, physicalCondition: 'intact', services: { transport: 'functional' } },
@@ -33,11 +40,6 @@ async function arrive(page, renderer) {
   await finish(page); await page.evaluate(() => window.helixHeresyDebug.advanceForeignReceptionTestTime(1600));
   expect(await page.evaluate(() => window.helixHeresyDebug.queueIntercityPassenger('passengerDisembark'))).toBe(true); await finish(page);
   expect(await page.evaluate(() => window.helixHeresyDebug.foreignReceptionAction('walk'))).toBe(true); await finish(page);
-  const map = world(); map.strategicNonStateNetworkHistory.networkRows[0].category = 'transport';
-  const original = N.sources(map, 'original:5'); original.branches[0].disclosurePolicy = 'withholdInternalAccounts';
-  // Only original source allocations and stable information policy. No
-  // request, response, acquired account, mandate or qualification is staged.
-  expect(await page.evaluate(s => window.helixHeresyDebug.setNetworkOperationsTestSource(s), original)).toBe(true);
   // Source fixtures allocate no reconciled outcome. Let the ordinary update
   // discover existing owners; rendering/snapshotting must remain read-only.
   await advance(page, 1);
@@ -53,6 +55,9 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: actual clerk reques
   expect(owner.assets.find(a => a.assetId === car.vehicle.id)).toMatchObject({ state: 'linked', owner: { branchId: 'branch:a', cityId: 'a' } });
   expect(car.vehicle.fuelKm).toBeLessThan(2400); // Actual journey spent it before reconciliation.
   expect(owner.references.filter(r => r.assetId === car.vehicle.id)).toHaveLength(1);
+  expect(before.saved.inventories.mode).toBe('original');
+  expect(before.saved.inventories.assets.find(a => a.id === car.vehicle.id)).toMatchObject({ ledger: 'service', state: null, lost: false });
+  expect(before.capabilityAssessments[0].inventory.sources.every(s => s.families.length === 7)).toBe(true);
   const selector = `[data-network-entry="branch:b"][data-network-purpose="${C.PURPOSE}"]`;
   await page.locator(`${selector}[data-network-action="send"]`).click(); await advance(page, 20);
   let s = await snap(page); expect(s.saved.job, JSON.stringify(s.context)).toBeTruthy(); expect(s.saved.job.progress).toBe(20); expect(s.public).toEqual([]);

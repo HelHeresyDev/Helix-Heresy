@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const F = require('../receivable-finance');
 const T = require('../intercity-trade');
 const N = require('../network-operations');
+const Inventories = require('../network-inventories');
 const C = require('../network-capabilities');
 const Carrier = require('../local-exchange-carrier');
 const { inputs } = require('./helpers/municipal-fuel-source');
@@ -35,6 +36,22 @@ function fixture(collect = true) {
   f.deliver = () => { T.advance(f.trade, 3 * 3600, f.home, f.supplier, defs); assert.equal(sh.delivered, true); };
   return f;
 }
+test('an actual funded claim remains a single original-owner inventory reference, not another reserve or replayed advance', () => {
+  const f = fixture();
+  f.networks = N.create(N.sources(f.map, 'original-finance'), { worldId: 'w', runId: 'r' }, 0, { originalInventory: true });
+  const reserve = f.networks.inventories.assets.find(a => a.id === 'branch:a:non-office-reserve').state.money;
+  assert.equal(f.begin(), true); f.tick(60); assert.equal(f.s.claims.length, 1); F.register(f.s, f.networks);
+  const original = copy([f.wallet, f.a(), f.s]);
+  Inventories.observe(f.networks, { receivableFinance: f.s }, f.networks);
+  const view = C.assess(f.networks.capabilityAccounting, f.networks, f.a().source.networkId).inventory;
+  assert.equal(view.assets.filter(a => a.id === f.s.claims[0].id).length, 1);
+  assert.equal(view.assets.find(a => a.id === f.s.claims[0].id).lost, false);
+  assert.equal(f.networks.inventories.assets.find(a => a.id === 'branch:a:non-office-reserve').state.money, reserve);
+  assert.deepEqual([f.wallet, f.a(), f.s], original);
+  Inventories.observe(f.networks, {}, f.networks);
+  const lost = C.assess(f.networks.capabilityAccounting, f.networks, f.a().source.networkId).inventory;
+  assert.equal(lost.assets.find(a => a.id === f.s.claims[0].id).lost, true); assert.equal(lost.complete, false);
+});
 test('financiers require actual original finance functions, lawful original premises and owned conserved accounts, not commercial labels or a city treasury', () => {
   const f = fixture(); assert.equal(f.s.sources.length, 1);
   for (const change of [m => m.strategicNonStateNetworkHistory.networkRows[0].sourceDefinitionId = 'non-state-network.grim.continuity-combine',
