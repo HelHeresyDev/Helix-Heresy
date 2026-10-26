@@ -1,8 +1,8 @@
 (function (root, factory) {
-  const api = factory();
+  const api = factory(typeof module === 'object' && module.exports ? require('./network-capabilities') : root.HelixNetworkCapabilities);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixNetworkOperations = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Capabilities) {
   'use strict';
   const copy = x => x == null ? null : JSON.parse(JSON.stringify(x));
   const SEND = 60, REPLY = 60, RECEIVE = 30;
@@ -55,7 +55,9 @@
         terminalSeconds: allocated && host === b.id && city?.services?.communications !== 'failed' ? 14400 : 0,
         category: n?.category, lifecycle: b.operationalStatus, networkContinuity: Boolean(n?.organizationalContinuity) };
     });
-    return { networks: h.networkRows.map(n => ({ id: n.networkId, label: n.name,
+    for (const b of branches) b.disclosurePolicy = ['concealOwnership', 'collectIntelligence'].includes(h.networkRows.find(n => n.networkId === b.networkId)?.privatePriority)
+      ? 'withholdInternalAccounts' : 'limitedOfficeAccount';
+    return { capabilityBaseline: Capabilities.baseline(map), networks: h.networkRows.map(n => ({ id: n.networkId, label: n.name,
       headBranchId: branches.find(b => b.networkId === n.networkId && b.cityId === n.originCityId
         && b.allocated && b.hostId === b.id && b.charter.controllerId === n.networkId)?.id || null })), branches,
       // Retain original concealed identities privately. No public reply from an
@@ -72,6 +74,7 @@
   }
   function validSource(source) {
     return source && ['networks', 'branches', 'concealed'].every(k => Array.isArray(source[k]))
+      && (!source.capabilityBaseline || Capabilities.validBaseline(source.capabilityBaseline))
       && source.networks.every(n => typeof n.id === 'string')
       && source.branches.every(b => typeof b.id === 'string' && typeof b.hostId === 'string'
         && source.networks.some(n => n.id === b.networkId) && b.charter?.id && b.charter.controllerId
@@ -81,6 +84,7 @@
   function create(source, binding, at) {
     if (!validSource(source) || !binding?.worldId || !binding.runId || !Number.isFinite(at)) return null;
     return { ...binding, source: copy(source), accounts: source.branches.map(account), requests: [], job: null,
+      capabilityAccountingInitialized: true, capabilityAccounting: source.capabilityBaseline ? Capabilities.create(source.capabilityBaseline, binding, at) : null,
       reports: [], serial: 0, lastAt: at };
   }
   function normalize(s) {
@@ -91,11 +95,20 @@
       && Array.isArray(s.requests) && Array.isArray(s.reports) && Number.isFinite(s.lastAt);
     // Corrupt pre-existing accounting must not become "not initialized" and
     // silently recreate every original cash balance on the next update.
-    return valid ? copy(s) : { worldId: s.worldId || '', runId: s.runId || '', invalid: true, lastAt: Number(s.lastAt) || 0 };
+    if (!valid) return { worldId: s.worldId || '', runId: s.runId || '', invalid: true, lastAt: Number(s.lastAt) || 0 };
+    const next = copy(s); next.capabilityAccounting = Capabilities.normalize(s.capabilityAccounting); return next;
   }
-  function rebind(s, from, to) { s = normalize(s); return bound(s, from) ? { ...s, ...to } : null; }
+  function rebind(s, from, to) { s = normalize(s); if (!bound(s, from)) return null;
+    s.capabilityAccounting = Capabilities.rebind(s.capabilityAccounting, from, to); return { ...s, ...to }; }
   function sync(s, expected = s?.source) {
     if (!s || s.invalid) return;
+    if (expected?.capabilityBaseline && !s.source.capabilityBaseline) s.source.capabilityBaseline = copy(expected.capabilityBaseline);
+    const base = expected?.capabilityBaseline || s.source.capabilityBaseline;
+    if (base) {
+      if (!s.capabilityAccounting) s.capabilityAccounting = Capabilities.create(base, s, s.lastAt, s.capabilityAccountingInitialized === true);
+      if (Capabilities.bound(s.capabilityAccounting, s)) Capabilities.sync(s.capabilityAccounting, base);
+      s.capabilityAccountingInitialized = true;
+    }
     for (const a of s.accounts) if (a.reply && !a.responses?.some(r => r.requestId === a.reply.requestId)) {
       a.responses ||= []; a.responses.push(copy(a.reply));
     }
@@ -103,6 +116,10 @@
     // missing. A changed public directory never erases a concealed original.
     for (const key of ['networks', 'branches', 'concealed']) for (const original of expected?.[key] || [])
       if (!s.source[key].some(r => r.id === original.id)) s.source[key].push(copy(original));
+    for (const b of s.source.branches) if (!b.disclosurePolicy) {
+      const original = expected?.branches?.find(r => r.id === b.id && r.networkId === b.networkId);
+      b.disclosurePolicy = original?.disclosurePolicy || 'limitedOfficeAccount';
+    }
     for (const source of s.source.branches) if (!s.accounts.some(a => a.id === source.id)) {
       const a = account(source); a.lost = true; a.money = 0; a.operator.workSeconds = 0; a.terminal.powerSeconds = 0;
       s.accounts.push(a); // Lost accounting is never a fresh initial allocation.
@@ -138,7 +155,7 @@
     s.job = null;
   }
   function begin(s, c, networkId, entryId, at, kind = 'send', purpose = 'armedReceivingContest') {
-    if (!['armedReceivingContest', SUPPLY_PURPOSE].includes(purpose)) return false;
+    if (!['armedReceivingContest', SUPPLY_PURPOSE, Capabilities.PURPOSE].includes(purpose)) return false;
     if (!['send', 'receive'].includes(kind) || !contact(s, c) || s.job || c.gate.receptionAssignment || c.clerk.assignment) return false;
     const required = kind === 'send' ? SEND : RECEIVE;
     const entry = s.source.branches.find(b => b.id === entryId && b.public && b.networkId === networkId && b.cityId === c.cityId);
@@ -154,6 +171,8 @@
     return true;
   }
   function decision(a, purpose) {
+    if (purpose === Capabilities.PURPOSE) { const statement = Capabilities.statement(null, a);
+      return { accepts: statement.disclosure === 'limited', statement, reason: statement.text }; }
     if (a.source.charter.mode === 'delegatedManagement') return { accepts: true, reason: 'Binding instruction within the explicit discretionary-finance/new-contract charter.' };
     return a.source.interest === 'retainCorridorDiscretion'
       ? { accepts: false, reason: purpose === SUPPLY_PURPOSE
@@ -189,7 +208,8 @@
           c.gate.receptionWorkSeconds -= dt; c.gate.powerSeconds -= dt;
           if (j.progress >= (j.kind === 'send' ? SEND : RECEIVE)) {
             if (j.kind === 'send') s.requests.push({ id: j.id, purpose: purposeOf(j), networkId: j.networkId, entryId: j.entryId, at,
-              terms: purposeOf(j) === SUPPLY_PURPOSE ? SUPPLY_TERMS : TERMS, deliveredAt: at, replies: [], receivedAt: null });
+              terms: purposeOf(j) === SUPPLY_PURPOSE ? SUPPLY_TERMS : purposeOf(j) === Capabilities.PURPOSE ? Capabilities.TERMS : TERMS,
+              deliveredAt: at, replies: [], receivedAt: null });
             else receive(s, s.requests.find(r => r.networkId === j.networkId && purposeOf(r) === purposeOf(j)), at);
             a.operator.assignment = null; release(s, c);
           }
@@ -199,7 +219,8 @@
         for (const b of s.source.branches.filter(b => b.networkId === r.networkId && b.public && b.hostId === b.id)) {
           const peer = host(s, b.id); if (!peer || answered(peer, r) || peer.operator.assignment || worked.has(peer.id)) continue;
           const principal = s.source.networks.find(n => n.id === r.networkId)?.headBranchId;
-          if (b.charter.mode === 'delegatedManagement' && b.id !== principal && (!r.delegation || at <= r.delegation.at)) continue;
+          const disclosure = purposeOf(r) === Capabilities.PURPOSE;
+          if (!disclosure && b.charter.mode === 'delegatedManagement' && b.id !== principal && (!r.delegation || at <= r.delegation.at)) continue;
           if (peer.operator.status !== 'alive' || peer.operator.workSeconds < dt || peer.terminal.powerSeconds < dt) continue;
           if (peer.pending && peer.pending.requestId !== r.id) continue;
           peer.pending ||= { requestId: r.id, progress: 0 }; worked.add(peer.id);
@@ -207,13 +228,13 @@
           peer.operator.lastOperatingWorkAt = at;
           if (peer.pending.progress >= REPLY) {
             const d = decision(peer, purposeOf(r));
-            if (d.accepts && b.id === principal && b.charter.mode === 'delegatedManagement'
+            if (!disclosure && d.accepts && b.id === principal && b.charter.mode === 'delegatedManagement'
               && b.charter.controllerId === r.networkId) r.delegation = { id: `${r.id}:controller-authorization`, at,
               controllerId: r.networkId, principalBranchId: b.id, operatorId: peer.operator.id,
               scope: ['ownDiscretionaryFinance', 'ownNewContracts'] };
             peer.reply = { requestId: r.id, at, branchId: b.id, ...d };
             peer.responses ||= []; peer.responses.push(copy(peer.reply));
-            if (d.accepts) {
+            if (!disclosure && d.accepts) {
               const mandate = { id: `${r.id}:${b.id}:accession`, requestId: r.id, purpose: purposeOf(r), at,
               charterId: b.charter.id, controllerId: b.charter.controllerId, delegationId: b.charter.mode === 'delegatedManagement' ? r.delegation?.id : null,
               scope: copy(b.charter.scope), terms: r.terms };
@@ -234,9 +255,10 @@
   function receive(s, r, at) {
     if (!r) return;
     r.receivedAt = at;
-    s.reports.push({ id: `${r.id}:received:${at}`, networkId: r.networkId, purpose: purposeOf(r), at, terms: r.terms,
+    s.reports.push({ id: `${r.id}:received:${at}`, networkId: r.networkId, purpose: purposeOf(r), at,
+      observedAt: r.replies.length ? Math.max(...r.replies.map(x => x.at)) : r.deliveredAt, terms: r.terms,
       replies: r.replies.map(x => ({ branchId: x.branchId, label: s.source.branches.find(b => b.id === x.branchId)?.label,
-        at: x.at, accepts: x.accepts, reason: x.reason })),
+        at: x.at, accepts: x.accepts, reason: x.reason, ...(x.statement ? { statement: copy(x.statement) } : {}) })),
       limits: 'Only the specifically replying offices and their chartered assets. Silence, consolidated lineages, undisclosed affiliates and other capabilities are not certified. No map or complete branch/resource count is supplied.' });
   }
   function permitted(s, branchId, purpose, obligationAt) {

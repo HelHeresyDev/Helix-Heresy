@@ -1078,6 +1078,18 @@ The owner account retains original branch and concealed-continuity identities. M
 
 Focused coverage: `tests/network-operations.unit.test.js`, the financing cases in `tests/countercoalition-relief.unit.test.js`, and DOM/Canvas `tests/network-operations-browser.spec.js`, plus named adjacent chapter/relief/supremacy checks. No full suite is required by this feature.
 
+### Institutional capability accounts
+
+At an existing foreign reception clerk, **Request limited capability accounts** uses the original network request system: sixty attended seconds to transmit, sixty seconds of each available office's finite operator/power to answer, then thirty attended seconds to receive dated replies. The same controls remain available at the outer receiving approach and through an existing willing field representative's radio. No new fee, office, identity permit or compulsory branch tour is added.
+
+Some offices withhold their internal accounts. A limited reply describes only its stated local functions; it is not accession, a nonintervention agreement, inspection rights, property transfer or an account of the whole institution. Earlier mandates and independently held assets are unchanged. No hidden branch/affiliate count, personnel total, reserve balance, map, beneficial owner or live deployment is disclosed. Old statements remain dated even when collected again. Supremacy review explicitly treats these accounts as incomplete evidence.
+
+Privately, a run-owned source book preserves every original network, branch lineage, covert cell and affiliate across seven capability families: finance, research, transport, armed force, media reach, certification and covert access. Existing office capital, desk/terminal work, original protective professional and original field employees/kit are references to their existing owners, not new assets or claims over municipal property. Consolidated lineages share their host; missing records remain unknown and old saves do not refresh spent resources. Canonical worlds are unchanged; continued copies rebind the same book to the copied run.
+
+Source inventory is **not complete strategic coverage**. Institutional reserves, actual service dependencies, armed/covert reach and their supported outcomes still require the remaining four explicit 3.35b deliverables. Neither a low rating, absent public premises, friendly letter, independent refusal nor an exhausted small office budget proves that all institutional power is resolved. These accounts grant no world-domination accomplishment.
+
+Focused checks: `tests/network-capabilities.unit.test.js`, `tests/network-capabilities-browser.spec.js`, and named operating-account, interdiction and supremacy regressions. Full-suite testing remains opt-in.
+
 ### Organizational supply interdiction
 
 A supported licensed military chapter can reserve two original field employees independently of its protective professional, survey employee and municipal defender. Sources require actual institutional backing, surviving original premises and population; the total field allocation is bounded within each source city. The team starts in its own branch, with finite work, provisions, ordinary equipment and a powered radio. It owns no municipal truck and receives no threat-scaled replacements. Its original identities remain through injury, death, return and missing-account gaps.

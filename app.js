@@ -176,6 +176,7 @@
   const CountercoalitionRelief = window.HelixCountercoalitionRelief;
   const ChapterProtection = window.HelixChapterProtection;
   const NetworkOperations = window.HelixNetworkOperations;
+  const NetworkCapabilities = window.HelixNetworkCapabilities;
   const NetworkInterdiction = window.HelixNetworkInterdiction;
   const CampaignSettlement = window.HelixCampaignSettlement;
   const RoadsideStops = window.HelixRoadsideStops;
@@ -13842,6 +13843,8 @@
       },
       networkOperationsSnapshot: () => clonePlainObject({ saved: state.networkOperations, clock: state.clock,
         public: NetworkOperations.publicView(state.networkOperations), context: networkOperationsContext(),
+        capabilityAssessments: state.networkOperations?.source?.networks.map(n => ({ networkId: n.id,
+          ...NetworkCapabilities.assess(state.networkOperations.capabilityAccounting, state.networkOperations, n.id) })),
         campaign: state.campaign }),
       setNetworkOperationsTestSource: source => {
         const g = outerApproachGate();
@@ -81020,8 +81023,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const binding = { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id };
     const evidence = [], r = Supremacy.bound(state.cityRule, binding) && state.cityRule.report;
     if (NetworkOperations.bound(state.networkOperations, binding)) for (const r of NetworkOperations.publicView(state.networkOperations))
-      evidence.push({ id: r.id, sourceId: r.networkId, label: 'Received scoped network accessions/refusals — other capacities unverified',
-        status: 'unverified', observedAt: r.at, receivedAt: r.at });
+      evidence.push({ id: r.id, sourceId: r.networkId, label: r.purpose === NetworkCapabilities.PURPOSE
+        ? 'Received limited institutional capability accounts — wider powers unverified'
+        : 'Received scoped network accessions/refusals — other capacities unverified',
+        status: 'unverified', observedAt: r.observedAt ?? r.at, receivedAt: r.at });
     for (const g of outerApproachGates()) {
       const p = g.outerApproach.chapterProtection, v = ChapterProtection.publicView(p); if (!v) continue;
       evidence.push({ id: `${p.id}:received:${v.at}`, sourceId: p.source.branchId,
@@ -97801,6 +97806,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (foreignVisitorPermission(g)) button('Walk Through Gate to Visitor Hall', 'enter', busy);
     }
     for (const d of v.decisions.slice(-3)) panel.append(textEl('p', `${formatClock(d.at)} — ${d.status}: ${d.reason} No criminal guilt or custody follows.`));
+    if (!outerApproachLocal(g)) panel.append(renderNetworkOperations(g));
     return panel;
   }
   function ensureIntercityPassenger() {
@@ -99650,7 +99656,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function networkOperationsContext() {
     const j = state.networkOperations?.job;
     const radio = fieldNetworkRadioContext(j); if (radio) return radio;
-    const g = j ? outerApproachGates().find(g => g.cityId === j.cityId) : outerApproachGate();
+    const g = j ? passengerReceptionGate(j.cityId) : outerApproachGate();
     const cell = scientistMapCell(), clerk = g?.clerk;
     const local = Boolean(g && scientistRoomId() === g.checkpointRoomId);
     const otherBusy = surveyBusy(false, true, true) || Boolean(g?.foreignCivic?.bargain.job || g?.foreignCivic?.accessJob
@@ -99683,19 +99689,22 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function renderNetworkOperations(g) {
     const panel = document.createElement('section'), s = state.networkOperations;
-    if (!s || s.invalid || !NetworkOperations.bound(s, { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id })) return panel;
+    if (!g || !s || s.invalid || !NetworkOperations.bound(s, { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id })) return panel;
     const entries = s.source.branches.filter(b => b.public && b.cityId === g.cityId && (!g.radioBranchId || b.id === g.radioBranchId));
     if (!entries.length) return panel;
-    panel.dataset.networkOperations = 'true'; panel.append(textEl('h3', 'Network nonintervention requests'), textEl('p', NetworkOperations.TERMS),
+    panel.dataset.networkOperations = 'true'; panel.append(textEl('h3', 'Network requests and limited accounts'), textEl('p', NetworkOperations.TERMS),
       textEl('p', g.radioBranchId ? 'Attend the willing original field representative within two metres to use their finite powered radio. The representative cannot fight or withdraw while attending the transmission. Orders need authenticated receipt before ceasefire and physical return; this is not immediate safe passage.'
         : 'Attend the original receiving clerk within two metres to transmit and sign the request. Authenticated internet replies can reach other offices without a personal tour. Each independent office must reply for itself; shared branding is not command authority. Return to the clerk for a dated receipt.'));
     panel.append(textEl('p', `Separate supply-route terms: ${NetworkOperations.SUPPLY_TERMS}`));
+    panel.append(textEl('p', `Limited capability-account request: ${NetworkCapabilities.TERMS} ${NetworkCapabilities.LIMITS}`));
     const c = networkOperationsContext();
     if (s.contactNotice) panel.append(textEl('p', `${formatClock(s.contactNotice.at)}: ${s.contactNotice.text}`));
-    for (const e of entries) for (const purpose of ['armedReceivingContest', NetworkInterdiction.PURPOSE]) {
+    for (const e of entries) for (const purpose of ['armedReceivingContest', NetworkInterdiction.PURPOSE, NetworkCapabilities.PURPOSE]) {
       const r = s.requests.find(r => r.networkId === e.networkId && NetworkOperations.purposeOf(r) === purpose), b = document.createElement('button');
       b.textContent = (r ? `Receive dated replies through ${e.label}` : `Sign and send scoped request through ${e.label}`)
         + (purpose === NetworkInterdiction.PURPOSE ? ' — municipal supply routes' : '');
+      if (purpose === NetworkCapabilities.PURPOSE) b.textContent = r ? `Receive dated capability accounts through ${e.label}`
+        : `Request limited capability accounts through ${e.label}`;
       b.dataset.networkAction = r ? 'receive' : 'send'; b.dataset.networkEntry = e.id;
       b.dataset.networkPurpose = purpose;
       b.disabled = Boolean(s.job || !c.local || !c.near || !c.channel || !c.capable || c.busy);
@@ -99705,7 +99714,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const b = document.createElement('button'); b.textContent = 'Cancel attended transmission'; b.onclick = () => networkOperationsAction('cancel'); panel.append(b); }
     for (const r of NetworkOperations.publicView(s)) {
       panel.append(textEl('p', `Receipt ${formatClock(r.at)}: ${r.terms} ${r.limits}`));
-      for (const p of r.replies) panel.append(textEl('p', `${p.label}: ${p.accepts ? 'Scoped accession' : 'Independent refusal'} (${formatClock(p.at)}). ${p.reason}`));
+      for (const p of r.replies) {
+        const status = p.statement ? p.statement.disclosure === 'limited' ? 'Limited office account' : 'Internal account withheld'
+          : p.accepts ? 'Scoped accession' : 'Independent refusal';
+        panel.append(textEl('p', `${p.label}: ${status} (${formatClock(p.at)}). ${p.reason}`));
+        if (p.statement) panel.append(textEl('p', `${p.statement.functions.join('; ')}. ${p.statement.limits}`));
+      }
     }
     return panel;
   }
