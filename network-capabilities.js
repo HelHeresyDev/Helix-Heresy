@@ -89,6 +89,9 @@
             add(a.id, actorId, 'armedForce', 'networkInterdiction', 'originalLimitedFieldDuty');
             add(a.id, `${actorId}:kit`, 'armedForce', 'networkInterdiction.fieldKit', 'sameWornKit');
           }
+        } else if (allocation.kind === 'powerworksTechnicalService') {
+          add(a.id, allocation.technicianId, 'research', 'powerworksMaintenance.providers.technician', 'oneQualifiedOriginalRegulatorSpecialist');
+          add(a.id, allocation.benchId, 'research', 'powerworksMaintenance.providers.bench', 'finiteOriginalDiagnosticBench');
         } else if (allocation.kind === 'essentialFuelService') {
           // Brokers reference, but do not own, the SAME producer assets.
           // Shared-vendor references must never count as extra assets.

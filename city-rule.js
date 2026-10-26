@@ -36,13 +36,15 @@
     const farms = Provisioning.sourceFromWorld(map, cityId, true);
     if (!reserveDays || !farms.length) return null;
     return { cityId, cityName: row.name, charterId: g.charter.id, populationSourceId: row.assetId,
-      population: row.currentPopulation, institutions, worksId: works.id, powerId: power.id, reserveDays, farms,
+      population: row.currentPopulation, institutions, worksId: works.id, powerId: power.id,
+      powerCondition: ({ fragile: 65, strained: 75, serviceable: 85, robust: 100 })[power.hiddenConditionBand], reserveDays, farms,
       politicalSourceId: `${cityId}:playable-political-control`, baselineAuthorityId: control.recognizedAuthorityId,
       provenance: 'Existing populated city, original institutions, water/wall works, power works and measured direct agricultural routes; finite run-owned elaboration.' };
   }
   function validSource(s) {
     return Boolean(s && ['cityId', 'charterId', 'populationSourceId', 'worksId', 'powerId'].every(k => typeof s[k] === 'string' && s[k])
       && Number.isInteger(s.population) && s.population >= 8 && finite(s.reserveDays) && s.reserveDays >= 1 && s.reserveDays <= 5
+      && (s.powerCondition == null || finite(s.powerCondition) && s.powerCondition <= 100)
       && ROLES.every(role => s.institutions?.some(i => i.role === role && i.id)) && Array.isArray(s.farms) && s.farms.length
       && new Set(s.farms.map(f => f.satelliteId)).size === s.farms.length
       && s.farms.every(f => Provisioning.validSource(f) && f.cityId === s.cityId && f.cityPopulation === s.population
@@ -92,6 +94,8 @@
       rawWaterLiters: source.population * 12, initialRawWaterLiters: source.population * 12, pumpedLiters: 0, unmetLiters: 0,
       energy, initialEnergy: energy, chargedEnergy: 0, recharge: null, spentEnergy: 0, energyRate: rate, excludedDefenseEnergy: excludedEnergy, farms,
       operatorWorkSeconds: 8 * 3600, powerFuel: { stock: 0, capacity: 24, received: 0, processed: 0, enabled: false, progress: null },
+      powerMaintenanceInitialized: true,
+      powerMaintenance: { condition: source.powerCondition ?? 100, initialCondition: source.powerCondition ?? 100, operatedSeconds: 0, wear: 0, repaired: 0, initializedAt: at },
       plan: null, command: null, receipts: [], since: null, establishedAt: null, accomplishment: null,
       status: 'recognized', failureAt: null, report: null, nextNumber: 1 };
   }
@@ -102,6 +106,18 @@
       || s.farms.some(f => !['stockKg', 'cropKg', 'cargoKg', 'fuelKm', 'dutySeconds'].every(k => finite(f[k])))) return null;
     const next = copy(s);
     next.chargedEnergy ??= 0;
+    // Legacy plants start from their surviving operational baseline NOW, not
+    // from an invented overdue maintenance date or retroactive wear.
+    if (!next.powerMaintenance) {
+      const lost = next.powerMaintenanceInitialized === true, baseline = lost ? 50 : 100;
+      next.powerMaintenance = { condition: baseline, initialCondition: baseline, operatedSeconds: 0, wear: 0, repaired: 0,
+        initializedAt: next.lastAt, ...(lost ? { accountLost: true } : {}) };
+    }
+    next.powerMaintenanceInitialized = true;
+    const maintenance = next.powerMaintenance;
+    if (!['condition', 'initialCondition', 'operatedSeconds', 'wear', 'repaired', 'initializedAt'].every(k => finite(maintenance[k]))
+      || maintenance.condition > 100 || maintenance.initialCondition > 100
+      || Math.abs(maintenance.initialCondition - maintenance.wear + maintenance.repaired - maintenance.condition) > 1e-5) return null;
     next.powerFuel ||= { stock: 0, capacity: 24, received: 0, processed: 0, enabled: false, progress: null };
     const fuel = next.powerFuel;
     if (fuel.capacity !== 24 || !['stock', 'received', 'processed'].every(k => Number.isInteger(fuel[k]) && finite(fuel[k]))
@@ -124,6 +140,7 @@
       }));
   }
   const contact = c => c.alive && c.capable && c.atCounter && c.local && c.free && !c.violence && c.reportersPresent;
+  const plantWorking = s => !s.powerMaintenance || !s.powerMaintenance.accountLost && !s.powerMaintenance.repairAssignment && s.powerMaintenance.condition > 50 + 1e-7;
   function order(s, succession, people, c, at) {
     if (!contact(c) || !authority(s, succession, people, c) || s.plan || s.command || s.recharge || s.operatorServiceAssignment || s.operatorWorkSeconds < 3600 || c.institutionsAvailable !== true) return false;
     s.command = { id: `${s.id}:operating-priority:${s.nextNumber++}`, at, progress: 0 };
@@ -131,7 +148,7 @@
   }
   const owned = i => !i.cityOwnerId && !i.civicCustody && (!i.ownerId || i.ownerId === 'scientist') && (!i.legalOwnerId || i.legalOwnerId === 'scientist');
   function recharge(s, succession, people, c, stacks, at, quantity = 1) {
-    if (!contact(c) || !authority(s, succession, people, c) || !c.institutionsAvailable || s.command || s.recharge || s.operatorServiceAssignment
+    if (!contact(c) || !authority(s, succession, people, c) || !c.institutionsAvailable || !plantWorking(s) || s.command || s.recharge || s.operatorServiceAssignment
       || !Number.isInteger(quantity) || quantity < 1 || s.operatorWorkSeconds < 60 * quantity
       || s.initialEnergy - s.energy < 21600 * quantity) return false;
     const item = stacks.find(i => i.key === 'arcaneFeedstock' && i.quantity >= quantity && i.carriedBy === 'scientist'
@@ -190,6 +207,9 @@
       c = context(); if (!c.alive) break;
       const start = s.lastAt, foodRate = s.dailyKg / DAY, waterRate = s.source.population * 2 / DAY;
       let dt = Math.min(60, at - start);
+      const plantAtStart = plantWorking(s);
+      if (s.powerMaintenance && plantAtStart && s.plan && s.energy > 0)
+        dt = Math.min(dt, (s.powerMaintenance.condition - 50) * 21600);
       // Stored fuel is an actual sixty-second workpiece. Preserve its exact
       // start/completion and energy-depletion ordering on large catch-up too.
       if (s.powerFuel?.enabled && (s.powerFuel.stock || s.powerFuel.progress)) dt = Math.min(dt, 1);
@@ -204,6 +224,10 @@
       const end = start + dt, operative = authority(s, succession, people, c) && c.institutionsAvailable;
       const operatingAtStart = Boolean(s.plan);
       let workUsed = 0;
+      if (s.powerMaintenance && plantAtStart && operatingAtStart && operative && s.energy > 0) {
+        const wear = dt / 21600; s.powerMaintenance.operatedSeconds += dt;
+        s.powerMaintenance.condition -= wear; s.powerMaintenance.wear += wear;
+      }
       // Existing wards consume a finite original municipal power allocation.
       // It excludes every unit already assigned to the detailed outer station.
       const spent = Math.min(s.energy, dt * s.energyRate); s.energy -= spent; s.spentEnergy += spent;
@@ -219,7 +243,7 @@
           s.receipts.push({ id: s.command.id, at: end, kind: 'operatingPriority', workSeconds: 3600 }); s.command = null;
         }
       } else if (s.command && !operative) s.command = null; // No refund or signature-only completion.
-      if (s.recharge && operative && !s.operatorServiceAssignment && s.recharge.handoverId === s.handoverId && s.recharge.powerWorksId === s.source.powerId) {
+      if (s.recharge && operative && plantAtStart && !s.operatorServiceAssignment && s.recharge.handoverId === s.handoverId && s.recharge.powerWorksId === s.source.powerId) {
         const work = Math.min(dt - workUsed, s.operatorWorkSeconds); s.operatorWorkSeconds -= work; s.recharge.progress += work;
         workUsed += work;
         if (s.recharge.progress >= 60 * s.recharge.quantity) {
@@ -230,7 +254,7 @@
         }
       }
       const distribution = s.distribution;
-      if (distribution && operative && stationCurrent(s, c) && distribution.handoverId === s.handoverId
+      if (distribution && operative && plantAtStart && stationCurrent(s, c) && distribution.handoverId === s.handoverId
         && distribution.powerId === s.source.powerId && distribution.stationId === s.pilotDefenseId
         && !s.command && !s.recharge && !s.operatorServiceAssignment && c.defenseAccount.energy < 21600 && s.energy >= 21600) {
         const work = Math.min(dt - workUsed, s.operatorWorkSeconds, 60 - distribution.progress);
@@ -246,7 +270,7 @@
         }
       }
       const fuel = s.powerFuel;
-      if (fuel?.enabled && fuel.handoverId === s.handoverId && operative && s.plan && !s.operatorServiceAssignment && !s.command && !s.recharge) {
+      if (fuel?.enabled && fuel.handoverId === s.handoverId && operative && plantAtStart && s.plan && !s.operatorServiceAssignment && !s.command && !s.recharge) {
         if (!fuel.progress && fuel.stock >= 1 && s.initialEnergy - s.energy >= 21600) {
           fuel.stock--; fuel.progress = { work: 0, handoverId: s.handoverId, at: end };
         }
@@ -262,7 +286,7 @@
         }
       }
       if (workUsed > 0) s.operatorWorkedUntil = end;
-      if (operatingAtStart && operative && s.energy > 0) {
+      if (operatingAtStart && operative && plantAtStart && s.energy > 0) {
         const pumped = Math.min(s.rawWaterLiters, Math.max(0, s.source.population * 4 - s.waterLiters), dt * waterRate * 2);
         s.rawWaterLiters -= pumped; s.pumpedLiters += pumped; s.waterLiters += pumped;
       }
@@ -315,7 +339,8 @@
         : c.counterpower !== 'noEstablishedChallenge' ? 'Unverified: current coverage is incomplete.'
           : 'No established capable challenge within this operating account; not proof of universal loyalty or divine acquiescence.' };
     if (s.powerFuel) s.report.powerFuel = copy(s.powerFuel);
+    if (s.powerMaintenance) s.report.powerMaintenance = copy(s.powerMaintenance);
     return true;
   }
-  return { DAY, INTERVAL, ROLES, LIMITS, sourceFromWorld, validSource, create, createAggregate, normalize, authority, contact, condition, order, recharge, distribution, advance, receive };
+  return { DAY, INTERVAL, ROLES, LIMITS, sourceFromWorld, validSource, create, createAggregate, normalize, authority, contact, plantWorking, condition, order, recharge, distribution, advance, receive };
 });

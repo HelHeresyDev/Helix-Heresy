@@ -32,6 +32,7 @@
   const CityCommodityMarket = window.HelixCityCommodityMarket;
   const LocalMarketProduction = window.HelixLocalMarketProduction;
   const MunicipalFuelService = window.HelixMunicipalFuelService;
+  const PowerworksMaintenance = window.HelixPowerworksMaintenance;
   const LocalExchangeCarrier = window.HelixLocalExchangeCarrier;
   const IntercityTrade = window.HelixIntercityTrade;
   const LocalCovertMarket = window.HelixLocalCovertMarket;
@@ -5584,6 +5585,7 @@
       cityDefense: null,
       cityRule: null,
       municipalFuelService: null,
+      powerworksMaintenance: null,
       civicFoothold: null,
       runStrategicConditions: null,
       expansionAtlas: null,
@@ -14905,6 +14907,37 @@
       cityDefenseAction,
       cityRuleAction,
       municipalFuelServiceAction,
+      powerworksMaintenanceAction,
+      powerworksMaintenanceSnapshot: () => clonePlainObject({ saved: state.powerworksMaintenance, rule: state.cityRule,
+        context: powerworksContext(), networks: state.networkOperations, money: state.economy.money,
+        stacks: ensurePhysicalItemStacks().filter(i => i.carriedBy === 'scientist'), tools: powerworksTools(), clock: state.clock,
+        public: PowerworksMaintenance.publicView(state.powerworksMaintenance) }),
+      configurePowerworksMaintenanceTest: ({ map, skilled = false }) => {
+        const rule = state.cityRule;
+        // Prior original sources and existing carried equipment/experience
+        // only. Never supplies an inspection, method, repair or paid outcome.
+        if (!state.sovereignBargains?.testFixture || !rule || state.powerworksMaintenance || rule.technicalMaintenanceInitialized
+          || state.networkOperations?.requests?.length || state.networkOperations?.job || state.municipalFuelService?.contract) return false;
+        const rows = PowerworksMaintenance.sources(map, rule.source, StrategicNonStateNetworks.NETWORK_DEFINITIONS);
+        if (!rows.length) return false;
+        state.networkOperations = NetworkOperations.create(NetworkOperations.sources(map, 'original-powerworks'),
+          { worldId: activeWorldRecord.id, runId: activeRunRecord.id }, state.clock);
+        state.networkOperations.preparedTestSource = true; rule.preparedMaintenanceSources = rows;
+        if (skilled) for (const key of ['materialsScience', 'analysis']) {
+          const skill = scientistSkill(key, { create: true }); skill.xp = totalXpForLevel(40);
+          if (skill.embodiment) skill.embodiment.xp = skill.xp;
+        }
+        for (const key of ['masonryHammer', 'environmentalSurveyKit', 'thaumometer']) {
+          const t = toolInstancesForItem(key).find(t => t.current > 0 && !t.reservedTaskId);
+          const i = ensurePhysicalItemStacks().find(i => i.toolInstanceId === t?.id && !i.reservedTaskId)
+            || ensurePhysicalItemStacks().find(i => i.key === key && !i.toolInstanceId && !i.reservedTaskId);
+          if (!t || !i) return { missingOriginalTool: key };
+          i.toolInstanceId = t.id;
+          i.roomId = t.roomId = scientistRoomId(); i.cell = scientistMapCell(); i.containerId = i.fixtureId = i.stockpileId = '';
+          i.carriedBy = t.carriedBy = 'scientist'; diagnosticInstrumentRecord(t.id).calibration = 90;
+        }
+        ensurePowerworksMaintenance(); syncActorInventories(); persist(); render(); return true;
+      },
       municipalFuelServiceSnapshot: () => clonePlainObject({ saved: state.municipalFuelService, rule: state.cityRule,
         context: municipalFuelContext(), production: state.economy.commodityMarket.localProduction,
         listings: state.economy.commodityMarket.listings, money: state.economy.money, networks: state.networkOperations,
@@ -14947,11 +14980,11 @@
         // Run the actual dependent contributions too; no outcome injection or
         // replenishment is provided by this clock helper.
         for (let left = Math.max(0, seconds); left > 0 && !scientistIsDead();) {
-          const physical = MunicipalFuelService.active(state.municipalFuelService) || municipalSupplyPhysical() || activeScientistTravelTask() || state.cityDefense?.duty || state.cityDefense?.job
+          const physical = PowerworksMaintenance.active(state.powerworksMaintenance) || MunicipalFuelService.active(state.municipalFuelService) || municipalSupplyPhysical() || activeScientistTravelTask() || state.cityDefense?.duty || state.cityDefense?.job
             || ['approaching', 'returningToPost'].includes(state.cityProvisioning?.order?.phase);
           const step = Math.min(left, physical ? 1 : 60); state.clock += step; left -= step;
           updateIntercityPassenger(); updateForeignReception(); updateScientistMovementTask(); completeDueTasks(); updateScientistIdentity(); updatePendingCombatActions(); progressInjuries();
-          if (MunicipalFuelService.active(state.municipalFuelService)) updateNetworkOperations();
+          if (PowerworksMaintenance.active(state.powerworksMaintenance) || MunicipalFuelService.active(state.municipalFuelService)) updateNetworkOperations();
           if (MunicipalFuelService.active(state.municipalFuelService)) advanceLocalMarketProduction(state.clock);
           updateCityProvisioning(); updateCityDefense(); updateCityRule(); updateRegionalGovernments(); updateSupremacy();
         }
@@ -20458,6 +20491,8 @@
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.municipalFuelService = MunicipalFuelService.rebind(importedState.municipalFuelService,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.powerworksMaintenance = PowerworksMaintenance.rebind(importedState.powerworksMaintenance,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     // These are the same continued municipal accounts, not newly allocated
     // plants, stores or officials. Keep in-flight fuel ownership source-bound.
     for (const key of ['cityRule', 'cityDefense']) {
@@ -24340,7 +24375,7 @@
       }
       return changed;
     }
-    if (!options.chapterStep && elapsed > 1 && (MunicipalFuelService.active(state.municipalFuelService) || state.networkOperations?.job || networkInterdictionActive() || outerApproachGates().some(g => g.outerApproach.chapterProtection?.job || ChapterProtection.assigned(g.outerApproach.chapterProtection)))) {
+    if (!options.chapterStep && elapsed > 1 && (PowerworksMaintenance.active(state.powerworksMaintenance) || MunicipalFuelService.active(state.municipalFuelService) || state.networkOperations?.job || networkInterdictionActive() || outerApproachGates().some(g => g.outerApproach.chapterProtection?.job || ChapterProtection.assigned(g.outerApproach.chapterProtection)))) {
       let left = elapsed, changed = 0;
       while (left > 0 && !scientistIsDead()) {
         const before = state.clock, health = scientistVital('health').current;
@@ -87353,8 +87388,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       : CityRule.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, b?.source.cityId);
   }
   function cityRulePeople() { return [...(state.citySuccession?.leaders || []), state.sovereignBargains?.defender].filter(Boolean); }
-  function cityRuleContext(ignoreFuelJob = false) {
-    const s = state.cityRule, source = cityRuleSource(), office = scientistCivicOffice(), base = scientistCivicContext(office, ignoreFuelJob);
+  function cityRuleContext(ignoreFuelJob = false, ignoreMaintenanceJob = false) {
+    const s = state.cityRule, source = cityRuleSource(), office = scientistCivicOffice(), base = scientistCivicContext(office, ignoreFuelJob, ignoreMaintenanceJob);
     const home = ensureHomeInstitutionContext(), a = state.sovereignBargains?.defender, p = state.cityProvisioning, d = state.cityDefense;
     const sourceCurrent = Boolean(s && source && s.worldId === activeWorldRecord?.id && s.runId === activeRunRecord?.id
       && ['cityId', 'charterId', 'populationSourceId', 'population', 'worksId', 'powerId'].every(k => source[k] === s.source[k]));
@@ -87404,7 +87439,97 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function updateCityRule() {
     if (!state.cityRule || scientistIsDead()) return 0;
     const changed = Number(CityRule.advance(state.cityRule, state.citySuccession, cityRulePeople(), cityRuleContext, state.clock));
-    return changed + Number(updateMunicipalFuelService());
+    return changed + Number(updateMunicipalFuelService()) + Number(updatePowerworksMaintenance());
+  }
+  function powerworksTools() {
+    return ensurePhysicalItemStacks().filter(i => ['masonryHammer', 'environmentalSurveyKit', 'thaumometer'].includes(i.key) && i.toolInstanceId)
+      .map(stack => ({ key: stack.key, stack, tool: toolInstanceById(stack.toolInstanceId)?.instance }));
+  }
+  function powerworksContext() {
+    const c = cityRuleContext(false, true), rule = state.cityRule, cell = scientistMapCell();
+    return { ...c, at: state.clock, cell, authority: CityRule.authority(rule, state.citySuccession, cityRulePeople(), c),
+      atWorkface: sameMapCell(cell, PowerworksMaintenance.WORKFACE),
+      workAccessible: labMapCellIsWalkable(PowerworksMaintenance.WORKFACE)
+        && tileOccupiedAreaM2(PowerworksMaintenance.WORKFACE, { excludeActor: state.scientist }) + .6 <= MAP_TILE_AREA_M2,
+      otherBusy: !c.free || Boolean(state.scientistIdentity?.job || state.cityDefense?.job || state.networkOperations?.job),
+      channelAvailable: c.serviceAvailable && ensureHomeInstitutionContext()?.offices?.[rule?.source.institutions.find(i => i.role === 'publicWorksAndProvisioning')?.id]?.available === true,
+      wallet: ensureEconomy(), stamina: scientistVital('stamina').current,
+      skills: { analysis: skillLevel('analysis'), materialsScience: skillLevel('materialsScience') },
+      calibrations: Object.fromEntries(powerworksTools().filter(t => t.tool && t.key !== 'masonryHammer')
+        .map(t => [t.tool.id, diagnosticInstrumentRecord(t.tool.id).calibration])) };
+  }
+  function ensurePowerworksMaintenance() {
+    const rule = state.cityRule;
+    if (!rule || scientistIsDead()) return null;
+    if (!state.powerworksMaintenance && !rule.technicalMaintenanceInitialized) {
+      const c = cityRuleContext();
+      if (!c.local || !c.sourceCurrent || !CityRule.authority(rule, state.citySuccession, cityRulePeople(), c)
+        || state.sovereignBargains?.testFixture && !rule.preparedMaintenanceSources) return null;
+      const rows = rule.preparedMaintenanceSources || PowerworksMaintenance.sources(activeWorldRecord.generatedData?.strategicMap, rule.source, StrategicNonStateNetworks.NETWORK_DEFINITIONS);
+      state.powerworksMaintenance = PowerworksMaintenance.create(rows, rule, state.clock);
+      rule.technicalMaintenanceInitialized = true;
+    }
+    const s = state.powerworksMaintenance;
+    if (!PowerworksMaintenance.target(s, rule)) return null;
+    PowerworksMaintenance.register(s, ensureNetworkOperations()); return s;
+  }
+  function updatePowerworksMaintenance() {
+    const s = state.powerworksMaintenance;
+    if (!s || s.invalid || scientistIsDead()) return false;
+    const changed = PowerworksMaintenance.advance(s, state.cityRule, state.networkOperations, powerworksContext, state.clock, {
+      alive: () => !scientistIsDead(), stacks: ensurePhysicalItemStacks, tools: powerworksTools,
+      work: amount => { const stamina = scientistVital('stamina'); stamina.current = Math.max(0, stamina.current - amount); },
+      completed: (kind, tools) => {
+        for (const t of tools.filter(t => t.key !== 'masonryHammer')) {
+          const r = diagnosticInstrumentRecord(t.id); r.calibration = Math.max(0, r.calibration - 2); r.usesSinceCalibration++; r.lastUsedAt = state.clock;
+        }
+        awardXp('materialsScience', kind === 'investigate' ? 12 : 4, 'Original powerworks technical work', { physical: true });
+      }
+    });
+    if (!s.job && state.combat?.routineSuspension?.reason === 'powerworks technical work') resumeScientistRoutineWork();
+    return changed;
+  }
+  function powerworksMaintenanceAction(action, providerId = '') {
+    if (scientistIsDead()) return false;
+    updateCityRule();
+    if (action === 'walk') return Boolean(startScientistMove(SurveyExpeditions.FIELD_ROOM, { toCell: PowerworksMaintenance.WORKFACE, allowMultiRoom: true }));
+    const s = ensurePowerworksMaintenance(); if (!s) return false;
+    const rule = state.cityRule, c = powerworksContext(); let ok;
+    if (action === 'cancel') ok = PowerworksMaintenance.cancel(s, rule, state.networkOperations, ensurePhysicalItemStacks(), powerworksTools(), state.clock);
+    else if (action === 'report') ok = PowerworksMaintenance.receive(s, rule, c, state.clock);
+    else ok = PowerworksMaintenance.begin(s, rule, state.networkOperations, c, action, providerId, ensurePhysicalItemStacks(), powerworksTools(), ensureEconomy(), state.clock);
+    if (s.job) suspendScientistRoutineWork('powerworks technical work');
+    else if (state.combat?.routineSuspension?.reason === 'powerworks technical work') resumeScientistRoutineWork();
+    if (!ok) addEvent('Technical work requires authentic local authority, an accessible original workface, a current inspection, actual qualified workers/instruments, clean carried parts, finite duty and an available paid channel. Nothing was repaired or certified.');
+    syncActorInventories(); syncPhysicalReadModels(); persist(); render(); return Boolean(ok);
+  }
+  function renderPowerworksMaintenance() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.powerworksMaintenance = 'true';
+    panel.append(textEl('h3', 'Original powerworks: technical maintenance and independence'), textEl('p', PowerworksMaintenance.SCOPE));
+    const s = ensurePowerworksMaintenance();
+    const button = (label, action, providerId = '') => {
+      const b = storesActionButton(label, label, () => powerworksMaintenanceAction(action, providerId));
+      b.dataset.powerworksAction = action; if (providerId) b.dataset.providerId = providerId;
+      b.disabled = action !== 'walk' && (!s || Boolean(s.job) && action !== 'cancel'); panel.append(b);
+    };
+    button('Walk to the original powerworks service dock', 'walk');
+    if (!s) { panel.append(textEl('p', 'Original technical account unavailable or unverified; no replacement specialist, overdue obligation or certification is invented.')); return panel; }
+    for (const r of s.sources) {
+      panel.append(textEl('p', `${r.label}: original local regulator diagnostic service. Municipal personnel do the hands-on work; the specialist remains at their own finite laboratory bench.`));
+      button('Paid guided inspection — 2 minutes, 12 marks', 'inspect', r.id);
+      button('Paid guided repair — 10 minutes, 60 marks, 2 carried metal parts and 1 rubber', 'repair', r.id);
+      if (r.methodPolicy === 'paidTransfer') button('Acquire transferable local method — 20 minutes, 120 marks', 'learn', r.id);
+      else panel.append(textEl('p', 'This restricted archive offers guided work, not transferable methods. Qualified independent investigation remains available; withholding a method does not damage the plant.'));
+    }
+    button('Personally inspect with carried calibrated instruments — 2 minutes', 'inspect');
+    button('Investigate an independent local method — 30 minutes, 1 prepared crystal and 1 assay reagent', 'investigate');
+    button('Personally repair with retained method — 10 minutes, 2 metal parts and 1 rubber', 'repair');
+    button('Read dated local technical records', 'report');
+    if (s.job) { panel.append(textEl('p', `Your attended ${s.job.kind}: ${Math.floor(s.job.progress)} / ${PowerworksMaintenance.SECONDS[s.job.kind]} seconds. Movement interrupts; spent work and earned commencement fees remain spent.`)); button('Stop attended technical work; release uninstalled parts', 'cancel'); }
+    const r = PowerworksMaintenance.publicView(s);
+    panel.append(textEl('p', r ? `${formatClock(r.at)} — received technical record. ${r.condition == null ? 'No measured regulator condition.' : `Condition ${formatNumber(r.condition)} measured ${formatClock(r.measuredAt)}; not live telemetry.`} ${r.method ? 'Transferable local method retained; bodily skills and actual equipment are still required.' : 'No independent local method established.'}` : 'No technical record received. Provider resources and current unseen condition are not public telemetry.'));
+    panel.append(textEl('p', 'Actual operation wears the regulator by one condition point per six powered hours. At 50, the plant stops processing fuel, pumping and distributing new ward power; existing water and ward-energy buffers remain. A completed repair restores up to 25 condition, not fuel, energy or health. Personal inspection/repair requires Analysis and Materials Science 20, a carried hammer, electrical survey kit and thaumometer calibrated to at least 65. Independent investigation requires both skills 40 and a current real inspection. Certification, criticism and refusing a new contract do not break machinery.'));
+    return panel;
   }
   function municipalFuelTruck() {
     const s = state?.municipalFuelService, p = state?.economy?.commodityMarket?.localProduction;
@@ -87588,6 +87713,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (r.accomplishment) panel.append(textEl('p', `Historical three-day accomplishment: ${formatClock(r.accomplishment.at)}. Later losses do not erase it or end a living run.`));
     }
     panel.append(renderMunicipalFuelService());
+    panel.append(renderPowerworksMaintenance());
     return panel;
   }
   function cityDefenseSource() {
@@ -89690,7 +89816,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     return office || null;
   }
-  function scientistCivicContext(office, ignoreFuelJob = false) {
+  function scientistCivicContext(office, ignoreFuelJob = false, ignoreMaintenanceJob = false) {
     const cell = scientistMapCell(), clerk = office?.clerk, local = state.surveyExpeditions?.phase === "field" && scientistRoomId() === SurveyExpeditions.FIELD_ROOM && !unsupportedActive();
     const facialInjury = actorInjuries("scientist").some(i => i.status !== "healed" && /head|face|eye/i.test(String(i.location || "")));
     return { alive: !scientistIsDead(), capable: !actorIsIncapacitated("scientist"),
@@ -89699,7 +89825,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       atCounter: local && mapCellKey(cell) === mapCellKey(office?.civicCounter?.cell),
       clerkPresent: Boolean(office?.civicCounter && clerk.status === 'alive' && !actorIsIncapacitated(clerk) && clerk.mapCell && WildernessBeasts.distance(clerk.mapCell, ScientistIdentity.COUNTER) <= 1),
       lineOfSight: Boolean(local && clerk?.mapCell && sensoryLineOfSight(cell, clerk.mapCell)), visibility: facialInjury ? "obscured" : "clear",
-      busy: Boolean(installationSeizureServiceReason(office)) || scientistInClinicCare() || rescueMissionActive() || (!state.scientistIdentity?.job && surveyBusy(false, false, false, ignoreFuelJob)) };
+      busy: Boolean(installationSeizureServiceReason(office)) || scientistInClinicCare() || rescueMissionActive() || (!state.scientistIdentity?.job && surveyBusy(false, false, false, ignoreFuelJob, ignoreMaintenanceJob)) };
   }
   function updateScientistIdentity() {
     const profile = state.scientistIdentity; if (!profile?.job) return 0;
@@ -101022,7 +101148,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return ["scientistMove", "surveyExpeditionWork", "physicalDiagnostic", "hiddenWorkshopWork"].includes(task.type)
       || task.type === 'soulBeaconWork' && hiddenWorkshopLocal() && labMapCellRoomId(target) === state.hiddenWorkshop?.site?.roomId;
   }
-  function surveyBusy(ignoreInquiry = false, ignoreCivic = false, ignoreNetwork = false, ignoreFuel = false) { return !ignoreFuel && Boolean(state.municipalFuelService?.job) || !ignoreNetwork && Boolean(state.networkOperations?.job || state.networkInterdiction?.repair) || Boolean(state.foundingWorks?.foundation?.job?.running || state.foundingWorks?.job?.running || state.foundingExpedition?.job?.running) || (!ignoreInquiry && Boolean(passengerReceptionGate()?.researchInquiry?.job)) || (!ignoreCivic && foreignCivicWork(passengerReceptionGate())) || scientistQueueTasks().some((task) => !taskBlockReason(task)); }
+  function surveyBusy(ignoreInquiry = false, ignoreCivic = false, ignoreNetwork = false, ignoreFuel = false, ignoreMaintenance = false) { return !ignoreMaintenance && PowerworksMaintenance.active(state.powerworksMaintenance) || !ignoreFuel && Boolean(state.municipalFuelService?.job) || !ignoreNetwork && Boolean(state.networkOperations?.job || state.networkInterdiction?.repair) || Boolean(state.foundingWorks?.foundation?.job?.running || state.foundingWorks?.job?.running || state.foundingExpedition?.job?.running) || (!ignoreInquiry && Boolean(passengerReceptionGate()?.researchInquiry?.job)) || (!ignoreCivic && foreignCivicWork(passengerReceptionGate())) || scientistQueueTasks().some((task) => !taskBlockReason(task)); }
   function surveyEvent(message) { addEvent(message, { sourceKind: "surveyExpedition" }); }
   function surveyCarriedStacks() { return ensurePhysicalItemStacks().filter((entry) => entry.carriedBy === "scientist"); }
   function surveyQuote() {
@@ -108916,6 +109042,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.cityDefense = CityDefense.normalize(candidate?.cityDefense);
     next.cityRule = CityRule.normalize(candidate?.cityRule);
     next.municipalFuelService = MunicipalFuelService.normalize(candidate?.municipalFuelService);
+    next.powerworksMaintenance = PowerworksMaintenance.normalize(candidate?.powerworksMaintenance);
     next.cityAdministrationKnowledge = candidate?.cityAdministrationKnowledge ? clonePlainObject(candidate.cityAdministrationKnowledge) : null;
     next.civicFoothold = CivicFoothold.normalize(candidate?.civicFoothold);
     next.runStrategicConditions = RunStrategicConditions.normalize(candidate?.runStrategicConditions);
@@ -109164,6 +109291,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const claim = WardResearch.savedToolClaim(g.outerApproach, g, next.physicalItemStacks);
       return claim ? [[claim.jobId, claim.toolId]] : [];
     }));
+    const powerworksTools = new Set(PowerworksMaintenance.savedTools(next.powerworksMaintenance, next.cityRule, next.physicalItemStacks));
     for (const instances of Object.values(next.toolDurability || {})) {
       for (const tool of instances) {
         if (tool.reservedTaskId && !toolTaskIds.has(tool.reservedTaskId) && escortRepairTools.get(tool.reservedTaskId) !== tool.id
@@ -109173,6 +109301,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           && !stationTools.get(tool.reservedTaskId)?.has(tool.id) && !builderTools.get(tool.reservedTaskId)?.has(tool.id)
           && stationTransferTools.get(tool.reservedTaskId) !== tool.id
           && wardResearchTools.get(tool.reservedTaskId) !== tool.id
+          && !(next.powerworksMaintenance?.job?.id === tool.reservedTaskId && powerworksTools.has(tool.id))
           && !(next.foundingExpedition?.id === tool.reservedTaskId && next.foundingExpedition.job?.claims?.toolId === tool.id)
           && !(next.foundingWorks?.id === tool.reservedTaskId && next.foundingWorks.job?.claims?.toolId === tool.id)) tool.reservedTaskId = "";
       }

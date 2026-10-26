@@ -32,7 +32,8 @@ async function prepareHome(page, renderer, options = {}) {
       populationSourceId: source.populationSourceId, population: 3000, institutionId: after.bargain.defender.institutionId,
       installationId: 'original-approach:a', condition: 80, baselineEnergy: 69120 }) || !d.configureCityRuleTest({
       cityId: 'a', cityName: 'Aster', charterId: source.charterId, populationSourceId: source.populationSourceId, population: 3000,
-      institutions: source.institutions.map(i => ({ role: i.role, id: i.id })), worksId: 'original-water-walls:a', powerId: 'original-power:a', reserveDays: 5, farms: [farm] }))
+      institutions: source.institutions.map(i => ({ role: i.role, id: i.id })), worksId: 'original-water-walls:a', powerId: 'original-power:a', reserveDays: 5, farms: [farm],
+      ...(options.powerCondition == null ? {} : { powerCondition: options.powerCondition }) }))
       throw new Error('Original city source unavailable');
     if (options.sustain === false) return;
     const doAction = (family, action, quantity) => { if (!d[family](action, quantity)) throw new Error(`Original ${family} refused ${action}`); };
