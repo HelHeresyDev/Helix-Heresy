@@ -176,9 +176,14 @@
     cost = Math.ceil(cost);
     if (cargo[0].unitPrice > contract.limits.maxUnitPrice || cost > contract.limits.maxTripSpend) return 'Current market price or landed cost exceeds the agreed ceiling.';
     if (s.balance < cost) return 'Prepaid service allowance cannot fund this actual purchase and trip.';
+    if (c.communicate && !c.communicate({ purpose: 'fuelProcurement', sessionId: `${contract.id}:purchases`,
+      sequence: (s.purchaseSequence || 0) + 1, fromCityId: rule.source.cityId, toCityId: src.cityId, civicCityIds: [rule.source.cityId], signer: 'city',
+      charterId: rule.source.charterId, handoverId: rule.handoverId, bodyEpoch: c.bodyEpoch }, at))
+      return 'The selected civic path could not deliver this authenticated purchase instruction. No new purchase or payment was made.';
     // The existing service booking reserves exactly the same original carrier.
     const sh = Production.bookServiceCargo(p, src.facilityId, KEY, quantity, at, null, t.id);
     if (!sh || sh.truckId !== t.id) return 'Original shared carrier became unavailable.';
+    s.purchaseSequence = (s.purchaseSequence || 0) + 1;
     // A standing instruction is not a replacement operator or an unpowered
     // payment channel. Settlement shares this same second with other users.
     a.operator.workSeconds--; a.terminal.powerSeconds--; a.operator.lastOperatingWorkAt = at;
@@ -209,7 +214,10 @@
           || !a || a.operator.assignment !== j.id || rule.operatorServiceAssignment !== j.id || a.operator.status !== 'alive'
           || j.kind === 'sign' && j.quote.charterId !== a.source.charter.id
           || a.operator.workSeconds < dt || a.terminal.powerSeconds < dt || rule.operatorWorkSeconds < dt) release(s, rule, networks);
-        else if (!(a.operator.lastOperatingWorkAt >= at) && !(rule.operatorWorkedUntil >= at)) {
+        else if (!(a.operator.lastOperatingWorkAt >= at) && !(rule.operatorWorkedUntil >= at)
+          && (!c.communicate || c.communicate({ purpose: 'fuelProcurement', sessionId: j.id,
+            sequence: Math.ceil(j.progress + dt), fromCityId: rule.source.cityId, toCityId: a.source.cityId, civicCityIds: [rule.source.cityId], signer: 'city',
+            charterId: rule.source.charterId, handoverId: rule.handoverId, bodyEpoch: c.bodyEpoch }, at))) {
           a.operator.workSeconds -= dt; a.terminal.powerSeconds -= dt; a.operator.lastOperatingWorkAt = at;
           rule.operatorWorkSeconds -= dt; rule.operatorWorkedUntil = at; j.progress += dt;
           if (j.progress >= j.seconds) {

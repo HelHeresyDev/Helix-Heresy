@@ -180,6 +180,12 @@
         cancel(s, rule, networks, stacks, tools, at); continue;
       }
       if (ch && (ch.a.operator.lastOperatingWorkAt >= at || rule.operatorWorkedUntil >= at)) continue;
+      if (ch && c.communicate && !c.communicate({ purpose: 'technicalGuidance', sessionId: j.id,
+        sequence: Math.ceil(j.progress + dt), fromCityId: rule.source.cityId, toCityId: ch.r.cityId, civicCityIds: [rule.source.cityId], signer: 'city',
+        charterId: rule.source.charterId, handoverId: rule.handoverId, bodyEpoch: c.bodyEpoch }, at)) {
+        j.hold = 'Awaiting supported authenticated communication; no remote work was performed.'; continue;
+      }
+      delete j.hold;
       if (!j.paid) {
         c.wallet.money -= j.fee; if (ch) {
           ch.a.money += j.fee; ch.p.receipts.push({ at, jobId: j.id, amount: j.fee });

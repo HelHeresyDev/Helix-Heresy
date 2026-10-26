@@ -4,6 +4,8 @@ const N = require('../network-operations');
 const P = require('../chapter-protection');
 const { world, source } = require('./helpers/network-operating-source');
 const copy = x => JSON.parse(JSON.stringify(x));
+const Communications = require('../civic-communications');
+const { addCommunications } = require('./helpers/civic-communication-source');
 function fixture() {
   const bind = { worldId: 'world', runId: 'run' }, s = N.create(source(), bind, 0);
   const c = { ...bind, alive: true, capable: true, cityId: 'b', local: true, near: true, busy: false, otherBusy: false,
@@ -16,6 +18,25 @@ function fixture() {
   return f;
 }
 function replies(f = fixture()) { assert.equal(f.send(), true); f.tick(181); return f; }
+test('an adopted original civic relay pauses dependent received replies, not private branch connections, and resumes the same authenticated work without rewriting mandates', () => {
+  const f = fixture(), city = { cityId: 'b', populationSourceId: 'population:b', charterId: 'charter:b', institutions: [{ role: 'publicWorksAndProvisioning', id: 'works:b' }] };
+  const map = addCommunications(world(), city); f.s = N.create(N.sources(map, 'original:5'), f.s, 0);
+  const s = Communications.create(Communications.sources(map, require('../strategic-non-state-networks').NETWORK_DEFINITIONS), f.s, 0);
+  const rule = { worldId: f.s.worldId, runId: f.s.runId, source: city, handoverId: 'handover:b', operatorWorkSeconds: 3600 };
+  const c = { alive: true, capable: true, local: true, atCounter: true, authority: true, sourceCurrent: true,
+    reportersPresent: true, institutionsAvailable: true, bodyEpoch: 0, cell: { x: 17, y: 8, z: 6 } };
+  const path = s.sources.find(r => r.kind === 'provider').id;
+  assert.equal(Communications.begin(s, rule, f.s, c, path, ['networkCorrespondence'], false, 0), true);
+  Communications.advance(s, rule, f.s, () => c, 60);
+  f.tick(60);
+  f.c.communicate = (data, at) => Communications.transfer(s, f.s, Communications.packet(s, f.s, data), at);
+  assert.equal(f.send(), true); f.tick(80); assert.equal(f.op('a').pending.progress, 20);
+  const originalWork = f.op('a').operator.workSeconds; s.ports.find(p => p.id === path).condition = 0;
+  f.tick(150); assert.equal(f.op('a').pending.progress, 20); assert.equal(f.op('a').operator.workSeconds, originalWork);
+  assert.equal(f.op('c').reply, null); assert.equal(f.op('a').mandate, null);
+  s.ports.find(p => p.id === path).condition = 100; f.tick(40);
+  assert.equal(f.op('a').reply.accepts, false); assert.equal(f.op('a').operator.workSeconds, originalWork - 40);
+});
 test('source elaboration is fixed, finite, original-population bound and independent of threats/branding/ownership', () => {
   const m = world(), src = source(); assert.deepEqual(N.sources(m, 'original:5'), src);
   assert.equal(src.branches.find(b => b.id === 'branch:a').charter.mode, 'autonomousAccession');

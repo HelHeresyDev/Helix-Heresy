@@ -89,6 +89,8 @@
             add(a.id, actorId, 'armedForce', 'networkInterdiction', 'originalLimitedFieldDuty');
             add(a.id, `${actorId}:kit`, 'armedForce', 'networkInterdiction.fieldKit', 'sameWornKit');
           }
+        } else if (allocation.kind === 'civicRelayAccess') {
+          add(a.id, allocation.interfaceId, 'mediaReach', 'civicCommunications.ports', 'oneOriginalAccessInterfaceNotConstellationOwnership');
         } else if (allocation.kind === 'powerworksTechnicalService') {
           add(a.id, allocation.technicianId, 'research', 'powerworksMaintenance.providers.technician', 'oneQualifiedOriginalRegulatorSpecialist');
           add(a.id, allocation.benchId, 'research', 'powerworksMaintenance.providers.bench', 'finiteOriginalDiagnosticBench');

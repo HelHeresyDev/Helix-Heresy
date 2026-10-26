@@ -9,6 +9,8 @@ const Carrier = require('../local-exchange-carrier');
 const Definitions = require('../strategic-non-state-networks').NETWORK_DEFINITIONS;
 const { inputs } = require('./helpers/municipal-fuel-source');
 const copy = x => JSON.parse(JSON.stringify(x));
+const Communications = require('../civic-communications');
+const { addCommunications } = require('./helpers/civic-communication-source');
 const limits = { threshold: 6, quantity: 6, maxUnitPrice: 100, maxTripSpend: 1000 };
 function fixture(options = {}) {
   const { map, profile } = inputs(), run = { worldId: 'w', runId: 'r' };
@@ -53,6 +55,23 @@ function fixture(options = {}) {
   };
   return f;
 }
+test('a real selected relay can hold new procurement without money/stock movement; municipal failover resumes and paid physical cargo ignores a later outage', () => {
+  const f = fixture(), map = addCommunications(f.map, f.rule.source);
+  f.networks = N.create(N.sources(map, 'original-local-fuel'), f.rule, f.at);
+  const s = Communications.create(Communications.sources(map, Definitions), f.rule, f.at), path = s.sources.find(r => r.kind === 'provider').id;
+  assert.equal(Communications.begin(s, f.rule, f.networks, f.c, path, Communications.PURPOSES, false, f.at), true);
+  f.tick(60); Communications.advance(s, f.rule, f.networks, () => f.c, f.at);
+  f.c.communicate = (data, at) => Communications.transfer(s, f.networks, Communications.packet(s, f.rule, data), at);
+  f.sign(); s.ports.find(p => p.id === path).condition = 0;
+  const before = copy([f.listings, f.state.balance, f.production.trucks]); f.tick(61);
+  assert.equal(f.state.mission, null); assert.deepEqual([f.listings, f.state.balance, f.production.trucks], before);
+  const municipal = s.sources.find(r => r.kind === 'municipal').id;
+  assert.equal(Communications.begin(s, f.rule, f.networks, f.c, municipal, Communications.PURPOSES, false, f.at), true);
+  f.tick(60); Communications.advance(s, f.rule, f.networks, () => f.c, f.at); f.tick(61);
+  assert.ok(f.state.mission); const paid = f.state.spent;
+  s.ports.find(p => p.id === municipal).condition = 0; f.tick(4000);
+  assert.equal(f.rule.powerFuel.received, 6); assert.equal(f.state.spent, paid); assert.equal(f.state.mission.remaining, 0);
+});
 test('eligible original producer and procurement office only; no military label, dead source, missing specialty or shared host becomes a supplier', () => {
   const f = fixture(), before = copy(f.map); assert.equal(f.state.sources.length, 1); assert.deepEqual(f.map, before);
   for (const mutate of [x => x.map.strategicNonStateNetworkHistory.networkRows[0].category = 'military',

@@ -33,6 +33,7 @@
   const LocalMarketProduction = window.HelixLocalMarketProduction;
   const MunicipalFuelService = window.HelixMunicipalFuelService;
   const PowerworksMaintenance = window.HelixPowerworksMaintenance;
+  const CivicCommunications = window.HelixCivicCommunications;
   const LocalExchangeCarrier = window.HelixLocalExchangeCarrier;
   const IntercityTrade = window.HelixIntercityTrade;
   const LocalCovertMarket = window.HelixLocalCovertMarket;
@@ -5586,6 +5587,8 @@
       cityRule: null,
       municipalFuelService: null,
       powerworksMaintenance: null,
+      civicCommunications: null,
+      civicCommunicationsInitialized: false,
       civicFoothold: null,
       runStrategicConditions: null,
       expansionAtlas: null,
@@ -14908,6 +14911,33 @@
       cityRuleAction,
       municipalFuelServiceAction,
       powerworksMaintenanceAction,
+      civicCommunicationsAction,
+      civicCommunicationsSnapshot: () => clonePlainObject({ saved: state.civicCommunications, context: civicCommunicationsContext(),
+        rule: state.cityRule, networks: state.networkOperations, public: CivicCommunications.publicView(state.civicCommunications), clock: state.clock }),
+      configureCivicCommunicationsTest: map => {
+        const rule = state.cityRule, n = state.networkOperations;
+        if (!state.sovereignBargains?.testFixture || !rule || state.civicCommunicationsInitialized || n?.job || n?.requests.length
+          || n?.accounts.some(a => a.money !== a.initialMoney || a.operator.workSeconds !== a.source.operatorSeconds
+            || a.terminal.powerSeconds !== a.source.terminalSeconds)) return false;
+        const rows = CivicCommunications.sources(map, StrategicNonStateNetworks.NETWORK_DEFINITIONS);
+        if (!rows.some(r => r.cityId === rule.source.cityId && r.kind === 'provider')) return false;
+        // Prior source records only, before any institutional spending. No
+        // selected route, key, message, delivery or repaired asset is staged.
+        state.networkOperations = NetworkOperations.create(NetworkOperations.sources(map, 'original-communications'),
+          { worldId: activeWorldRecord.id, runId: activeRunRecord.id }, state.clock);
+        state.networkOperations.preparedTestSource = true; rule.preparedCommunicationsSources = rows;
+        ensureCivicCommunications(); persist(); render(); return true;
+      },
+      setCivicCommunicationsTestCondition: (pathId, condition) => {
+        const p = state.civicCommunications?.ports.find(p => p.id === pathId);
+        if (!state.sovereignBargains?.testFixture || !p || !Number.isFinite(condition) || condition < 0 || condition > 100) return false;
+        p.condition = condition; persist(); render(); return true;
+      },
+      setCivicCommunicationsTestOutage: (pathId, outage) => {
+        const p = state.civicCommunications?.ports.find(p => p.id === pathId);
+        if (!state.sovereignBargains?.testFixture || !p || typeof outage !== 'boolean') return false;
+        p.outage = outage; persist(); render(); return true;
+      },
       powerworksMaintenanceSnapshot: () => clonePlainObject({ saved: state.powerworksMaintenance, rule: state.cityRule,
         context: powerworksContext(), networks: state.networkOperations, money: state.economy.money,
         stacks: ensurePhysicalItemStacks().filter(i => i.carriedBy === 'scientist'), tools: powerworksTools(), clock: state.clock,
@@ -14980,11 +15010,11 @@
         // Run the actual dependent contributions too; no outcome injection or
         // replenishment is provided by this clock helper.
         for (let left = Math.max(0, seconds); left > 0 && !scientistIsDead();) {
-          const physical = PowerworksMaintenance.active(state.powerworksMaintenance) || MunicipalFuelService.active(state.municipalFuelService) || municipalSupplyPhysical() || activeScientistTravelTask() || state.cityDefense?.duty || state.cityDefense?.job
+          const physical = CivicCommunications.active(state.civicCommunications) || PowerworksMaintenance.active(state.powerworksMaintenance) || MunicipalFuelService.active(state.municipalFuelService) || municipalSupplyPhysical() || activeScientistTravelTask() || state.cityDefense?.duty || state.cityDefense?.job
             || ['approaching', 'returningToPost'].includes(state.cityProvisioning?.order?.phase);
           const step = Math.min(left, physical ? 1 : 60); state.clock += step; left -= step;
           updateIntercityPassenger(); updateForeignReception(); updateScientistMovementTask(); completeDueTasks(); updateScientistIdentity(); updatePendingCombatActions(); progressInjuries();
-          if (PowerworksMaintenance.active(state.powerworksMaintenance) || MunicipalFuelService.active(state.municipalFuelService)) updateNetworkOperations();
+          if (CivicCommunications.active(state.civicCommunications) || PowerworksMaintenance.active(state.powerworksMaintenance) || MunicipalFuelService.active(state.municipalFuelService)) updateNetworkOperations();
           if (MunicipalFuelService.active(state.municipalFuelService)) advanceLocalMarketProduction(state.clock);
           updateCityProvisioning(); updateCityDefense(); updateCityRule(); updateRegionalGovernments(); updateSupremacy();
         }
@@ -20493,6 +20523,8 @@
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.powerworksMaintenance = PowerworksMaintenance.rebind(importedState.powerworksMaintenance,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.civicCommunications = CivicCommunications.rebind(importedState.civicCommunications,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     // These are the same continued municipal accounts, not newly allocated
     // plants, stores or officials. Keep in-flight fuel ownership source-bound.
     for (const key of ['cityRule', 'cityDefense']) {
@@ -24375,7 +24407,7 @@
       }
       return changed;
     }
-    if (!options.chapterStep && elapsed > 1 && (PowerworksMaintenance.active(state.powerworksMaintenance) || MunicipalFuelService.active(state.municipalFuelService) || state.networkOperations?.job || networkInterdictionActive() || outerApproachGates().some(g => g.outerApproach.chapterProtection?.job || ChapterProtection.assigned(g.outerApproach.chapterProtection)))) {
+    if (!options.chapterStep && elapsed > 1 && (CivicCommunications.active(state.civicCommunications) || PowerworksMaintenance.active(state.powerworksMaintenance) || MunicipalFuelService.active(state.municipalFuelService) || state.networkOperations?.job || networkInterdictionActive() || outerApproachGates().some(g => g.outerApproach.chapterProtection?.job || ChapterProtection.assigned(g.outerApproach.chapterProtection)))) {
       let left = elapsed, changed = 0;
       while (left > 0 && !scientistIsDead()) {
         const before = state.clock, health = scientistVital('health').current;
@@ -87388,8 +87420,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       : CityRule.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, b?.source.cityId);
   }
   function cityRulePeople() { return [...(state.citySuccession?.leaders || []), state.sovereignBargains?.defender].filter(Boolean); }
-  function cityRuleContext(ignoreFuelJob = false, ignoreMaintenanceJob = false) {
-    const s = state.cityRule, source = cityRuleSource(), office = scientistCivicOffice(), base = scientistCivicContext(office, ignoreFuelJob, ignoreMaintenanceJob);
+  function cityRuleContext(ignoreFuelJob = false, ignoreMaintenanceJob = false, ignoreCommunicationsJob = false) {
+    const s = state.cityRule, source = cityRuleSource(), office = scientistCivicOffice(), base = scientistCivicContext(office, ignoreFuelJob, ignoreMaintenanceJob, ignoreCommunicationsJob);
     const home = ensureHomeInstitutionContext(), a = state.sovereignBargains?.defender, p = state.cityProvisioning, d = state.cityDefense;
     const sourceCurrent = Boolean(s && source && s.worldId === activeWorldRecord?.id && s.runId === activeRunRecord?.id
       && ['cityId', 'charterId', 'populationSourceId', 'population', 'worksId', 'powerId'].every(k => source[k] === s.source[k]));
@@ -87439,7 +87471,70 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function updateCityRule() {
     if (!state.cityRule || scientistIsDead()) return 0;
     const changed = Number(CityRule.advance(state.cityRule, state.citySuccession, cityRulePeople(), cityRuleContext, state.clock));
-    return changed + Number(updateMunicipalFuelService()) + Number(updatePowerworksMaintenance());
+    return changed + Number(updateCivicCommunications()) + Number(updateMunicipalFuelService()) + Number(updatePowerworksMaintenance());
+  }
+  function civicMessage(data, at) {
+    const s = state.civicCommunications;
+    if (!s) return !state.civicCommunicationsInitialized;
+    return CivicCommunications.transfer(s, state.networkOperations, CivicCommunications.packet(s,
+      { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id }, data), at);
+  }
+  function civicCommunicationsContext() {
+    const c = cityRuleContext(false, false, true);
+    return { ...c, cell: scientistMapCell(), authority: CityRule.authority(state.cityRule, state.citySuccession, cityRulePeople(), c),
+      otherBusy: !c.free || Boolean(state.scientistIdentity?.job || state.cityDefense?.job || state.networkOperations?.job) };
+  }
+  function ensureCivicCommunications() {
+    if (!state.cityRule || scientistIsDead()) return null;
+    if (!state.civicCommunications && !state.civicCommunicationsInitialized) {
+      const c = civicCommunicationsContext();
+      if (!CityRule.contact(c) || !c.authority || state.sovereignBargains?.testFixture && !state.cityRule.preparedCommunicationsSources) return null;
+      state.civicCommunications = CivicCommunications.create(state.cityRule.preparedCommunicationsSources
+        || CivicCommunications.sources(activeWorldRecord.generatedData?.strategicMap, StrategicNonStateNetworks.NETWORK_DEFINITIONS),
+      { worldId: activeWorldRecord.id, runId: activeRunRecord.id }, state.clock);
+      state.civicCommunicationsInitialized = true;
+    }
+    const s = state.civicCommunications;
+    if (!s || s.invalid) return null;
+    CivicCommunications.register(s, ensureNetworkOperations()); return s;
+  }
+  function updateCivicCommunications() {
+    const changed = CivicCommunications.advance(state.civicCommunications, state.cityRule, state.networkOperations, civicCommunicationsContext, state.clock);
+    if (!state.civicCommunications?.job && state.combat?.routineSuspension?.reason === 'civic communications') resumeScientistRoutineWork();
+    return changed;
+  }
+  function civicCommunicationsAction(action, pathId = '', purposes = CivicCommunications.PURPOSES) {
+    if (scientistIsDead()) return false;
+    updateCityRule(); const s = ensureCivicCommunications(); if (!s) return false;
+    const c = civicCommunicationsContext(), rule = state.cityRule, networks = state.networkOperations;
+    const ok = action === 'cancel' ? CivicCommunications.release(s, rule, networks)
+      : action === 'report' ? CivicCommunications.receive(s, rule, c, state.clock)
+      : ['adopt', 'rotate'].includes(action) && CivicCommunications.begin(s, rule, networks, c, pathId, purposes, action === 'rotate', state.clock);
+    if (s.job) suspendScientistRoutineWork('civic communications');
+    else if (state.combat?.routineSuspension?.reason === 'civic communications') resumeScientistRoutineWork();
+    if (!ok) addEvent('The original local parties, authentic authority, selected interface and finite configuration work must support this narrow routing instruction. No key, equipment or agreement was created.');
+    persist(); render(); return Boolean(ok);
+  }
+  function renderCivicCommunications() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.civicCommunications = 'true';
+    panel.append(textEl('h3', 'Civic communications and scoped authentication'), textEl('p', CivicCommunications.TERMS));
+    const s = ensureCivicCommunications(), rule = state.cityRule;
+    if (!s) { panel.append(textEl('p', 'Original path accounting is unavailable or unverified. Existing documents and accepted obligations are unchanged.')); return panel; }
+    const paths = s.sources.filter(r => r.cityId === rule.source.cityId), select = document.createElement('select'); select.setAttribute('aria-label', 'Original civic communication path');
+    for (const r of paths) { const o = document.createElement('option'); o.value = r.id; o.textContent = r.label; select.append(o); } panel.append(select);
+    const choices = CivicCommunications.PURPOSES.map(purpose => {
+      const l = document.createElement('label'), i = document.createElement('input'); i.type = 'checkbox'; i.checked = true; i.value = purpose; i.setAttribute('aria-label', `Route ${purpose}`);
+      l.append(i, document.createTextNode(purpose)); panel.append(l); return i;
+    });
+    for (const [action, label] of [['adopt', 'Use selected original path (one minute)'], ['rotate', 'Use selected path and rotate scoped service key (one minute)'], ['report', 'Receive dated path and delivery acknowledgements'], ['cancel', 'Stop attended path configuration']]) {
+      const b = storesActionButton(label, label, () => civicCommunicationsAction(action, select.value, choices.filter(i => i.checked).map(i => i.value)));
+      b.dataset.civicCommunicationAction = action; b.disabled = action === 'cancel' ? !s.job : Boolean(s.job) || action !== 'report' && !paths.length; panel.append(b);
+    }
+    if (s.job) panel.append(textEl('p', `Your attended path configuration: ${Math.floor(s.job.progress)} / 60 seconds. No new routing or credential exists before completion.`));
+    const r = CivicCommunications.publicView(s);
+    panel.append(textEl('p', r ? `${formatClock(r.at)} — received routing record: ${r.pathLabel}. Scope: ${r.purposes.join(', ') || 'none adopted'}. ${r.acknowledgements.length} dated delivery-session acknowledgements; no live equipment or provider inventory.` : 'No routing account received. Existing links retain their original constraints until a specific path is actually adopted.'));
+    panel.append(textEl('p', 'Only original interfaces with supported gateway infrastructure are offered. A configured provider controls its access interface, not the internet, the city or old obligations. A supported original municipal uplink or another original provider can replace that dependency without replacing hardware or refilling batteries. Unselected message classes retain their prior paths. Local work, acquired methods, valid documents and already accepted deliveries remain independent.'));
+    return panel;
   }
   function powerworksTools() {
     return ensurePhysicalItemStacks().filter(i => ['masonryHammer', 'environmentalSurveyKit', 'thaumometer'].includes(i.key) && i.toolInstanceId)
@@ -87447,7 +87542,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function powerworksContext() {
     const c = cityRuleContext(false, true), rule = state.cityRule, cell = scientistMapCell();
-    return { ...c, at: state.clock, cell, authority: CityRule.authority(rule, state.citySuccession, cityRulePeople(), c),
+    return { ...c, at: state.clock, cell, communicate: civicMessage, authority: CityRule.authority(rule, state.citySuccession, cityRulePeople(), c),
       atWorkface: sameMapCell(cell, PowerworksMaintenance.WORKFACE),
       workAccessible: labMapCellIsWalkable(PowerworksMaintenance.WORKFACE)
         && tileOccupiedAreaM2(PowerworksMaintenance.WORKFACE, { excludeActor: state.scientist }) + .6 <= MAP_TILE_AREA_M2,
@@ -87537,7 +87632,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function municipalFuelContext() {
     const c = cityRuleContext(true), s = state.cityRule, production = state.economy?.commodityMarket?.localProduction;
-    return { ...c, at: state.clock, cell: scientistMapCell(), wallet: ensureEconomy(),
+    return { ...c, at: state.clock, cell: scientistMapCell(), wallet: ensureEconomy(), communicate: civicMessage,
       authority: CityRule.authority(s, state.citySuccession, cityRulePeople(), c),
       otherBusy: !c.free || Boolean(state.scientistIdentity?.job || state.cityDefense?.job || state.networkOperations?.job),
       targetExists: Boolean(c.sourceCurrent && c.institutionsAvailable && labMapCellIsWalkable(MunicipalFuelService.DOCK)),
@@ -87714,6 +87809,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     panel.append(renderMunicipalFuelService());
     panel.append(renderPowerworksMaintenance());
+    panel.append(renderCivicCommunications());
     return panel;
   }
   function cityDefenseSource() {
@@ -89816,7 +89912,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     return office || null;
   }
-  function scientistCivicContext(office, ignoreFuelJob = false, ignoreMaintenanceJob = false) {
+  function scientistCivicContext(office, ignoreFuelJob = false, ignoreMaintenanceJob = false, ignoreCommunicationsJob = false) {
     const cell = scientistMapCell(), clerk = office?.clerk, local = state.surveyExpeditions?.phase === "field" && scientistRoomId() === SurveyExpeditions.FIELD_ROOM && !unsupportedActive();
     const facialInjury = actorInjuries("scientist").some(i => i.status !== "healed" && /head|face|eye/i.test(String(i.location || "")));
     return { alive: !scientistIsDead(), capable: !actorIsIncapacitated("scientist"),
@@ -89825,7 +89921,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       atCounter: local && mapCellKey(cell) === mapCellKey(office?.civicCounter?.cell),
       clerkPresent: Boolean(office?.civicCounter && clerk.status === 'alive' && !actorIsIncapacitated(clerk) && clerk.mapCell && WildernessBeasts.distance(clerk.mapCell, ScientistIdentity.COUNTER) <= 1),
       lineOfSight: Boolean(local && clerk?.mapCell && sensoryLineOfSight(cell, clerk.mapCell)), visibility: facialInjury ? "obscured" : "clear",
-      busy: Boolean(installationSeizureServiceReason(office)) || scientistInClinicCare() || rescueMissionActive() || (!state.scientistIdentity?.job && surveyBusy(false, false, false, ignoreFuelJob, ignoreMaintenanceJob)) };
+      busy: Boolean(installationSeizureServiceReason(office)) || scientistInClinicCare() || rescueMissionActive() || (!state.scientistIdentity?.job && surveyBusy(false, false, false, ignoreFuelJob, ignoreMaintenanceJob, ignoreCommunicationsJob)) };
   }
   function updateScientistIdentity() {
     const profile = state.scientistIdentity; if (!profile?.job) return 0;
@@ -99982,7 +100078,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id, alive: !scientistIsDead(), capable: annexCapable() && !actorIsIncapacitated('scientist'),
       cityId: g?.cityId, gate: g, clerk, local, cell, bodyEpoch: ensureScientistIdentity().bodyEpoch,
       near: Boolean(local && clerk?.mapCell && WildernessBeasts.distance(cell, clerk.mapCell) <= 2 && sensoryLineOfSight(cell, clerk.mapCell)),
-      channel: Boolean(clerk && !actorIsIncapacitated(clerk) && g.powerSeconds > 1), otherBusy, busy: otherBusy || Boolean(j) };
+      channel: Boolean(clerk && !actorIsIncapacitated(clerk) && g.powerSeconds > 1), communicate: civicMessage, otherBusy, busy: otherBusy || Boolean(j) };
   }
   function updateNetworkOperations() {
     const s = ensureNetworkOperations(); if (!s) return false;
@@ -101148,7 +101244,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return ["scientistMove", "surveyExpeditionWork", "physicalDiagnostic", "hiddenWorkshopWork"].includes(task.type)
       || task.type === 'soulBeaconWork' && hiddenWorkshopLocal() && labMapCellRoomId(target) === state.hiddenWorkshop?.site?.roomId;
   }
-  function surveyBusy(ignoreInquiry = false, ignoreCivic = false, ignoreNetwork = false, ignoreFuel = false, ignoreMaintenance = false) { return !ignoreMaintenance && PowerworksMaintenance.active(state.powerworksMaintenance) || !ignoreFuel && Boolean(state.municipalFuelService?.job) || !ignoreNetwork && Boolean(state.networkOperations?.job || state.networkInterdiction?.repair) || Boolean(state.foundingWorks?.foundation?.job?.running || state.foundingWorks?.job?.running || state.foundingExpedition?.job?.running) || (!ignoreInquiry && Boolean(passengerReceptionGate()?.researchInquiry?.job)) || (!ignoreCivic && foreignCivicWork(passengerReceptionGate())) || scientistQueueTasks().some((task) => !taskBlockReason(task)); }
+  function surveyBusy(ignoreInquiry = false, ignoreCivic = false, ignoreNetwork = false, ignoreFuel = false, ignoreMaintenance = false, ignoreCommunications = false) { return !ignoreCommunications && CivicCommunications.active(state.civicCommunications) || !ignoreMaintenance && PowerworksMaintenance.active(state.powerworksMaintenance) || !ignoreFuel && Boolean(state.municipalFuelService?.job) || !ignoreNetwork && Boolean(state.networkOperations?.job || state.networkInterdiction?.repair) || Boolean(state.foundingWorks?.foundation?.job?.running || state.foundingWorks?.job?.running || state.foundingExpedition?.job?.running) || (!ignoreInquiry && Boolean(passengerReceptionGate()?.researchInquiry?.job)) || (!ignoreCivic && foreignCivicWork(passengerReceptionGate())) || scientistQueueTasks().some((task) => !taskBlockReason(task)); }
   function surveyEvent(message) { addEvent(message, { sourceKind: "surveyExpedition" }); }
   function surveyCarriedStacks() { return ensurePhysicalItemStacks().filter((entry) => entry.carriedBy === "scientist"); }
   function surveyQuote() {
@@ -109043,6 +109139,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.cityRule = CityRule.normalize(candidate?.cityRule);
     next.municipalFuelService = MunicipalFuelService.normalize(candidate?.municipalFuelService);
     next.powerworksMaintenance = PowerworksMaintenance.normalize(candidate?.powerworksMaintenance);
+    next.civicCommunications = CivicCommunications.normalize(candidate?.civicCommunications);
+    next.civicCommunicationsInitialized = candidate?.civicCommunicationsInitialized === true || Boolean(next.civicCommunications);
     next.cityAdministrationKnowledge = candidate?.cityAdministrationKnowledge ? clonePlainObject(candidate.cityAdministrationKnowledge) : null;
     next.civicFoothold = CivicFoothold.normalize(candidate?.civicFoothold);
     next.runStrategicConditions = RunStrategicConditions.normalize(candidate?.runStrategicConditions);

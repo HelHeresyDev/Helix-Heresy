@@ -202,7 +202,9 @@
           && !worked.has(a.id)
           && a.terminal.powerSeconds >= dt && c.gate.receptionWorkSeconds >= dt && c.gate.powerSeconds >= dt + 1;
         if (!valid) { if (a?.operator.assignment === j.id) a.operator.assignment = null; release(s, c); }
-        else {
+        else if (!c.communicate || c.communicate({ purpose: 'networkCorrespondence', sessionId: `${j.id}:${j.kind}`,
+          sequence: Math.ceil(j.progress + dt), fromCityId: j.cityId, toCityId: a.source.cityId, civicCityIds: [j.cityId],
+          signer: 'branch', senderId: a.id, charterId: a.source.charter.id }, at)) {
           j.progress += dt; a.operator.workSeconds -= dt; a.terminal.powerSeconds -= dt; worked.add(a.id);
           a.operator.lastOperatingWorkAt = at;
           c.gate.receptionWorkSeconds -= dt; c.gate.powerSeconds -= dt;
@@ -223,6 +225,11 @@
           if (!disclosure && b.charter.mode === 'delegatedManagement' && b.id !== principal && (!r.delegation || at <= r.delegation.at)) continue;
           if (peer.operator.status !== 'alive' || peer.operator.workSeconds < dt || peer.terminal.powerSeconds < dt) continue;
           if (peer.pending && peer.pending.requestId !== r.id) continue;
+          if (c.communicate && !c.communicate({ purpose: 'networkCorrespondence', sessionId: `${r.id}:${b.id}:reply`,
+            sequence: Math.ceil((peer.pending?.progress || 0) + dt), fromCityId: b.cityId,
+            toCityId: s.source.branches.find(b => b.id === r.entryId).cityId,
+            civicCityIds: [s.source.branches.find(b => b.id === r.entryId).cityId],
+            signer: 'branch', senderId: peer.id, charterId: peer.source.charter.id }, at)) continue;
           peer.pending ||= { requestId: r.id, progress: 0 }; worked.add(peer.id);
           peer.pending.progress += dt; peer.operator.workSeconds -= dt; peer.terminal.powerSeconds -= dt;
           peer.operator.lastOperatingWorkAt = at;

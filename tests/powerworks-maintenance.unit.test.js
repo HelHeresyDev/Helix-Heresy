@@ -81,6 +81,17 @@ test('guided inspection and repair share original desk, technician, bench, power
   assert.equal(f.stacks.find(i => i.key === 'metalParts').quantity, 8); assert.equal(f.stacks.find(i => i.key === 'rubber').quantity, 4);
   assert.equal(f.state.history.filter(h => h.kind === 'repair').length, 1); assert.equal(R.plantWorking(f.rule), true);
 });
+test('lost message delivery pauses the same remote attendance and all spending; supported offline investigation and repair need no relay', () => {
+  const f = fixture(); let connected = true;
+  f.c.communicate = () => connected;
+  assert.equal(f.begin('inspect'), true); f.tick(43); connected = false;
+  const cost = copy([f.wallet, f.networks, f.state.providers, f.c.stamina, f.tools.map(t => t.tool.current)]);
+  f.tick(120); assert.equal(f.state.job.progress, 43); assert.ok(f.state.job.hold);
+  assert.deepEqual([f.wallet, f.networks, f.state.providers, f.c.stamina, f.tools.map(t => t.tool.current)], cost);
+  connected = true; f.tick(77); assert.ok(f.state.inspection); assert.equal(f.wallet.money, 988);
+  connected = false; assert.equal(f.begin('investigate', false), true); f.tick(1800); assert.ok(f.state.method);
+  assert.equal(f.begin('repair', false), true); f.tick(600); assert.equal(f.rule.powerMaintenance.condition, 100);
+});
 test('partial work and exact claims survive normalization; interruptions retain earned fees/work but release only uninstalled original supplies', () => {
   const f = fixture(); f.begin('inspect'); f.tick(120); f.begin('repair'); f.tick(173);
   const id = f.state.job.id; f.state = M.normalize(f.state); f.rule = R.normalize(f.rule); f.networks = N.normalize(f.networks);
