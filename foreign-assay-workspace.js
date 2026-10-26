@@ -28,7 +28,8 @@
     const e = supportingBranch(city, standings, authority); if (!e) return null;
     const s = Lease.create(seed, { id: city.cityId, name: location.cityName }, route({ property: { cityId: city.cityId } }), now, theme);
     if (!s) return null;
-    s.source = { branchId: e.branch.id, networkId: e.network.id, administrationId: authority.administrationId, people: 1 };
+    s.source = { branchId: e.branch.id, networkId: e.network.id, cityId: city.cityId, populationId: city.assetId || null,
+      administrationId: authority.administrationId, people: 1 };
     s.roomId = `foreign-assay-${String(city.cityId).replace(/[^a-zA-Z0-9_-]/g, '-')}`; s.approachRoomId = `${s.roomId}-approach`; s.benchId = `${s.roomId}-bench`;
     s.property.id = s.roomId; s.property.name = `${e.branch.publicName} Manual Assay Workspace`;
     s.property.fixtureIds = [s.benchId]; s.property.distanceKm = .003; s.property.tenantStaffAuthorized = false; s.property.purpose = PURPOSE;
@@ -87,7 +88,8 @@
   }
   function publicView(s, now) {
     if (!s) return null;
-    return copy({ property: s.property, source: s.source, quote: s.quote, lease: s.lease, permission: s.permission,
+    return copy({ property: s.property, source: { branchId: s.source.branchId, networkId: s.source.networkId,
+      administrationId: s.source.administrationId, people: s.source.people }, quote: s.quote, lease: s.lease, permission: s.permission,
       invitation: s.invitation, observation: s.observation, history: s.history, workAccess: Lease.usable(s, now) });
   }
   return { PURPOSE, diagnosticScopeReason, supportingBranch, create, current, body, access, invite, request, sign, workReason, handBack, publicView };

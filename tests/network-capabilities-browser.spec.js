@@ -1,6 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const { startLifecycleRun } = require('./helpers/start-lifecycle-run');
-const { source } = require('./helpers/network-operating-source');
+const { world } = require('./helpers/network-operating-source');
+const N = require('../network-operations');
 const C = require('../network-capabilities');
 test.setTimeout(480000);
 const snap = page => page.evaluate(() => window.helixHeresyDebug.networkOperationsSnapshot());
@@ -18,8 +19,8 @@ async function arrive(page, renderer) {
   page.on('dialog', d => d.accept()); await startLifecycleRun(page, `capability-account-${renderer}`);
   await page.evaluate(renderer => {
     const d = window.helixHeresyDebug; d.setMapRenderer(renderer);
-    d.setIntercityPassengerTestContext({ city: { cityId: 'a', currentPopulation: 100, physicalCondition: 'intact', services: { transport: 'functional' } },
-      standings: [{ network: { category: 'transport' }, standing: 'licensed', branch: { id: 'original-carrier:a', publicName: 'Original Carrier', capacityBand: 'functional', operationalStatus: 'active' } }],
+    d.setIntercityPassengerTestContext({ city: { cityId: 'a', assetId: 'population:a', currentPopulation: 100, physicalCondition: 'intact', services: { transport: 'functional' } },
+      standings: [{ network: { category: 'transport' }, standing: 'licensed', branch: { id: 'branch:a', publicName: 'Original Carrier', capacityBand: 'functional', operationalStatus: 'active' } }],
       network: { homeDestinationId: 'site:lab', nearestSettlementDestinationId: 'city:a', destinations: [
         { id: 'site:lab', kind: 'laboratorySite', cityId: 'a', known: true, supportComponentId: 'one', localDistanceKm: 1, routeContinuity: 'municipal', cellId: 'planet-cell:00001' },
         ...['a', 'b'].map(cityId => ({ id: `city:${cityId}`, kind: 'fortifiedCity', cityId, label: `City ${cityId}`, known: true,
@@ -32,20 +33,32 @@ async function arrive(page, renderer) {
   await finish(page); await page.evaluate(() => window.helixHeresyDebug.advanceForeignReceptionTestTime(1600));
   expect(await page.evaluate(() => window.helixHeresyDebug.queueIntercityPassenger('passengerDisembark'))).toBe(true); await finish(page);
   expect(await page.evaluate(() => window.helixHeresyDebug.foreignReceptionAction('walk'))).toBe(true); await finish(page);
-  const original = source(); original.branches[0].disclosurePolicy = 'withholdInternalAccounts';
+  const map = world(); map.strategicNonStateNetworkHistory.networkRows[0].category = 'transport';
+  const original = N.sources(map, 'original:5'); original.branches[0].disclosurePolicy = 'withholdInternalAccounts';
   // Only original source allocations and stable information policy. No
   // request, response, acquired account, mandate or qualification is staged.
   expect(await page.evaluate(s => window.helixHeresyDebug.setNetworkOperationsTestSource(s), original)).toBe(true);
+  // Source fixtures allocate no reconciled outcome. Let the ordinary update
+  // discover existing owners; rendering/snapshotting must remain read-only.
+  await advance(page, 1);
   await page.locator('[data-workspace-tab="visits"]').click();
   return page.evaluate(() => ({ world: localStorage.getItem('helix-heresy-v2-world:lifecycle-world'), campaign: window.helixHeresyDebug.campaignSnapshot() }));
 }
 for (const renderer of ['dom', 'canvas']) test(`${renderer}: actual clerk request acquires only dated limited capability accounts, preserves original assets and cannot certify the network`, async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message)); const original = await arrive(page, renderer);
   const before = await snap(page); expect(before.context.near).toBe(true); expect(before.capabilityAssessments[0].sources).toHaveLength(6);
+  const car = await page.evaluate(() => window.helixHeresyDebug.intercityPassengerSnapshot().carrier);
+  const owner = before.capabilityAssessments[0].ownerAccount;
+  expect(owner.assets.filter(a => a.assetId === car.vehicle.id)).toHaveLength(1);
+  expect(owner.assets.find(a => a.assetId === car.vehicle.id)).toMatchObject({ state: 'linked', owner: { branchId: 'branch:a', cityId: 'a' } });
+  expect(car.vehicle.fuelKm).toBeLessThan(2400); // Actual journey spent it before reconciliation.
+  expect(owner.references.filter(r => r.assetId === car.vehicle.id)).toHaveLength(1);
   const selector = `[data-network-entry="branch:b"][data-network-purpose="${C.PURPOSE}"]`;
   await page.locator(`${selector}[data-network-action="send"]`).click(); await advance(page, 20);
   let s = await snap(page); expect(s.saved.job, JSON.stringify(s.context)).toBeTruthy(); expect(s.saved.job.progress).toBe(20); expect(s.public).toEqual([]);
   const work = s.context.gate.receptionWorkSeconds; await reload(page); s = await snap(page);
+  expect(s.capabilityAssessments[0].ownerAccount.assets).toEqual(owner.assets);
+  expect(await page.evaluate(() => window.helixHeresyDebug.intercityPassengerSnapshot().carrier.vehicle)).toEqual(car.vehicle);
   expect(s.saved.job.progress).toBe(20); expect(s.context.gate.receptionWorkSeconds).toBe(work);
   await advance(page, 100); s = await snap(page); expect(s.saved.requests[0].replies).toHaveLength(3); expect(s.public).toEqual([]);
   expect(s.saved.accounts.every(a => !a.mandate && !a.mandates)).toBe(true);

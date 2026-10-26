@@ -1,8 +1,8 @@
 (function (root, factory) {
-  const api = factory();
+  const api = factory(typeof module === 'object' && module.exports ? require('./network-owner-reconciliation') : root.HelixNetworkOwnerReconciliation);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixNetworkCapabilities = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Owners) {
   'use strict';
   const FAMILIES = Object.freeze(['finance', 'research', 'transport', 'armedForce', 'mediaReach', 'certification', 'covertAccess']);
   const PURPOSE = 'institutionalCapabilityAccount';
@@ -47,7 +47,9 @@
       || !s.records.every(r => id(r.id) && id(r.networkId) && typeof r.lost === 'boolean')
       || new Set(s.records.map(r => r.id)).size !== s.records.length)
       return { worldId: s.worldId || '', runId: s.runId || '', invalid: true };
-    return copy(s);
+    const next = copy(s);
+    if (s.ownerReconciliationInitialized) next.ownerReconciliation = Owners.normalize(s.ownerReconciliation);
+    return next;
   }
   function sync(s, base) {
     if (!s || s.invalid || !validBaseline(base)) return false;
@@ -67,7 +69,11 @@
     s.catalogComplete = base.complete;
     return !s.conflict;
   }
-  function rebind(s, from, to) { s = normalize(s); return bound(s, from) ? { ...s, worldId: to.worldId, runId: to.runId } : null; }
+  function rebind(s, from, to) {
+    s = normalize(s); if (!bound(s, from)) return null;
+    if (s.ownerReconciliationInitialized) s.ownerReconciliation = Owners.rebind(s.ownerReconciliation, from, to);
+    return { ...s, worldId: to.worldId, runId: to.runId };
+  }
   function references(operations, networkId) {
     const refs = [], seen = new Set();
     const add = (accountId, assetId, family, owner, scope) => {
@@ -100,6 +106,9 @@
           add(a.id, allocation.technicianId, 'research', 'powerworksMaintenance.providers.technician', 'oneQualifiedOriginalRegulatorSpecialist');
           add(a.id, allocation.benchId, 'research', 'powerworksMaintenance.providers.bench', 'finiteOriginalDiagnosticBench');
         } else if (allocation.kind === 'essentialFuelService') {
+          // Once reconciled, only an actual surviving supplier object can back
+          // this reference. The old allocation IDs alone cannot recreate it.
+          if (operations.capabilityAccounting?.ownerReconciliationInitialized) continue;
           // Brokers reference, but do not own, the SAME producer assets.
           // Shared-vendor references must never count as extra assets.
           const vendor = allocation.facilityId;
@@ -110,12 +119,13 @@
         }
       }
     }
-    return refs;
+    return refs.concat(Owners.view(operations?.capabilityAccounting, operations, networkId).references);
   }
   function assess(s, operations, networkId) {
     if (!s || s.invalid || !bound(s, operations) || !s.originals.some(r => r.kind === 'network' && r.networkId === networkId))
       return { catalogComplete: false, strategicComplete: false, state: 'unverified', sources: [], references: [], families: [] };
     const sources = s.originals.filter(r => r.networkId === networkId), refs = references(operations, networkId);
+    const ownerAccount = Owners.view(s, operations, networkId);
     const records = new Map(s.records.map(r => [r.id, r]));
     const branchAccounts = sources.filter(r => r.kind === 'branch').map(r => {
       const branch = operations.source.branches.find(b => b.id === r.sourceId);
@@ -139,8 +149,9 @@
       sources: sources.map(r => { const accountId = branchAccounts.find(b => b.sourceId === r.id)?.accountId;
         return { id: r.id, kind: r.kind, lost: records.get(r.id)?.lost !== false,
           families: FAMILIES.map(family => ({ family,
-            state: accountId && refs.some(a => a.accountId === accountId && a.family === family) ? 'partiallyAccounted' : 'unallocated' })) };
-      }), branchAccounts, commitments,
+            state: refs.some(a => a.family === family && (a.branchIds ? a.branchIds.includes(r.sourceId)
+              : accountId && a.accountId === accountId)) ? 'partiallyAccounted' : 'unallocated' })) };
+      }), branchAccounts, commitments: commitments.concat(ownerAccount.commitments), ownerAccount,
       references: refs, families: FAMILIES.map(family => ({ family, state: refs.some(r => r.family === family) ? 'partiallyAccounted' : 'unallocated',
         requires: 'Actual owner assets, authority, commitments, necessary-government dependency, feasible reach, intent and supported outcomes.' })) };
   }

@@ -182,6 +182,7 @@
   const ChapterProtection = window.HelixChapterProtection;
   const NetworkOperations = window.HelixNetworkOperations;
   const NetworkCapabilities = window.HelixNetworkCapabilities;
+  const NetworkOwnerReconciliation = window.HelixNetworkOwnerReconciliation;
   const NetworkInterdiction = window.HelixNetworkInterdiction;
   const CampaignSettlement = window.HelixCampaignSettlement;
   const RoadsideStops = window.HelixRoadsideStops;
@@ -100339,6 +100340,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const s = state.networkOperations; if (!NetworkOperations.bound(s, binding) || s.invalid) return null;
     NetworkOperations.sync(s, s.preparedTestSource ? s.source : source);
     for (const g of outerApproachGates()) NetworkOperations.attach(s, g.outerApproach.chapterProtection);
+    NetworkOwnerReconciliation.reconcile(s.capabilityAccounting, s, state, binding);
     return s;
   }
   function networkOperationsContext() {
