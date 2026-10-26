@@ -31,6 +31,7 @@
   const StrategicSettlements = window.HelixStrategicSettlements;
   const CityCommodityMarket = window.HelixCityCommodityMarket;
   const LocalMarketProduction = window.HelixLocalMarketProduction;
+  const MunicipalFuelService = window.HelixMunicipalFuelService;
   const LocalExchangeCarrier = window.HelixLocalExchangeCarrier;
   const IntercityTrade = window.HelixIntercityTrade;
   const LocalCovertMarket = window.HelixLocalCovertMarket;
@@ -3495,6 +3496,7 @@
     { id: "metalParts", section: "resources", key: "metalParts", label: "Metal Parts", basePrice: 19, supply: 60, liquidity: 28, buyable: true, sellable: true },
     { id: "refinedConductors", section: "resources", key: "refinedConductors", label: "Refined Conductors", basePrice: 10, supply: 45, liquidity: 18, buyable: true, sellable: true },
     { id: "preparedManaCrystals", section: "resources", key: "preparedManaCrystals", label: "Prepared Mana Crystals", basePrice: 16, supply: 30, liquidity: 12, buyable: true, sellable: true },
+    { ...LocalMarketProduction.FUEL_DEFINITION },
     { id: "relayAssembly", section: "resources", key: "relayAssembly", label: "Calibrated Relay Assembly", basePrice: 58, supply: 16, liquidity: 6, buyable: true, sellable: true },
     { id: "bricks", section: "resources", key: "bricks", label: "Bricks", basePrice: 6, supply: 130, liquidity: 55, buyable: true, sellable: true },
     { id: "glass", section: "resources", key: "glass", label: "Glass", basePrice: 14, supply: 70, liquidity: 30, buyable: true, sellable: true },
@@ -5581,6 +5583,7 @@
       cityProvisioning: null,
       cityDefense: null,
       cityRule: null,
+      municipalFuelService: null,
       civicFoothold: null,
       runStrategicConditions: null,
       expansionAtlas: null,
@@ -11777,7 +11780,7 @@
     const listings = {};
     for (const def of COMMODITY_MARKET_LISTING_DEFS) {
       const rng = seedRng(`${seed}:commodity:${def.id}`);
-      const supply = Math.max(1, Math.round(def.supply * (0.82 + rng() * 0.36)));
+      const supply = def.id === 'arcaneFeedstock' ? 0 : Math.max(1, Math.round(def.supply * (0.82 + rng() * 0.36)));
       const demand = roundOutputValue(0.88 + rng() * 0.24);
       const mid = commodityMidPrice(def, supply, demand);
       listings[def.id] = {
@@ -11793,7 +11796,7 @@
 
   function bindCityCommodityMarket(economy, suppliedProfile = null) {
     const market = economy.commodityMarket;
-    if (market.cityContext) return market.cityContext;
+    if (market.cityContext) { if (market.localProduction) LocalMarketProduction.ensureFuelRecipe(market.localProduction, state.clock); return market.cityContext; }
     const map = activeWorldRecord?.generatedData?.strategicMap;
     const network = state.strategicJourneys || (map ? ensureStrategicJourneys() : null);
     const cityId = network?.destinations.find(d => d.id === network.homeDestinationId)?.cityId || state.startingSite?.nearestSettlement?.cityId;
@@ -14901,6 +14904,29 @@
       cityProvisioningAction,
       cityDefenseAction,
       cityRuleAction,
+      municipalFuelServiceAction,
+      municipalFuelServiceSnapshot: () => clonePlainObject({ saved: state.municipalFuelService, rule: state.cityRule,
+        context: municipalFuelContext(), production: state.economy.commodityMarket.localProduction,
+        listings: state.economy.commodityMarket.listings, money: state.economy.money, networks: state.networkOperations,
+        public: MunicipalFuelService.publicView(state.municipalFuelService), clock: state.clock }),
+      configureMunicipalFuelServiceTest: ({ map, profile, stocks = {} }) => {
+        const rule = state.cityRule, economy = ensureEconomy(), market = economy.commodityMarket;
+        // Prior original sources only, before any service/account commitments.
+        // The native scenario must still sign, buy, drive, unload and process.
+        if (!state.sovereignBargains?.testFixture || !rule || rule.fuelServiceInitialized || state.municipalFuelService
+          || profile?.cityId !== rule.source.cityId || economy.commodityOrders.length || economy.commodityConsignments.length
+          || state.networkOperations?.requests?.length || market.localProduction?.shipments.length) return false;
+        const p = LocalMarketProduction.create({ ...clonePlainObject(profile), commodityDefinitions: COMMODITY_MARKET_LISTING_DEFS }, state.clock);
+        const rows = MunicipalFuelService.sources(map, rule.source, p, StrategicNonStateNetworks.NETWORK_DEFINITIONS);
+        const src = NetworkOperations.sources(map, 'original-local-fuel');
+        const networks = src && NetworkOperations.create(src, { worldId: activeWorldRecord.id, runId: activeRunRecord.id }, state.clock);
+        if (!rows.length || !networks) return false;
+        for (const [id, quantity] of Object.entries(stocks)) if (!market.listings[id] || !Number.isFinite(quantity) || quantity < 0) return false;
+        market.cityContext = clonePlainObject(profile); market.localProduction = p; market.intercityTrade = null;
+        for (const [id, quantity] of Object.entries(stocks)) market.listings[id].supply = quantity;
+        state.networkOperations = networks; networks.preparedTestSource = true;
+        rule.preparedFuelSources = rows; ensureMunicipalFuelService(); persist(); render(); return true;
+      },
       regionalGovernmentAction,
       regionalGovernmentSnapshot: () => clonePlainObject({ clock: state.clock, roomId: scientistRoomId(), cell: scientistMapCell(),
         gates: regionalGovernmentGates().map(g => ({ id: g.id, saved: g.regionalGovernment, context: regionalGovernmentContext(g),
@@ -14921,10 +14947,12 @@
         // Run the actual dependent contributions too; no outcome injection or
         // replenishment is provided by this clock helper.
         for (let left = Math.max(0, seconds); left > 0 && !scientistIsDead();) {
-          const physical = municipalSupplyPhysical() || activeScientistTravelTask() || state.cityDefense?.duty || state.cityDefense?.job
+          const physical = MunicipalFuelService.active(state.municipalFuelService) || municipalSupplyPhysical() || activeScientistTravelTask() || state.cityDefense?.duty || state.cityDefense?.job
             || ['approaching', 'returningToPost'].includes(state.cityProvisioning?.order?.phase);
           const step = Math.min(left, physical ? 1 : 60); state.clock += step; left -= step;
-          updateIntercityPassenger(); updateForeignReception(); updateScientistMovementTask(); completeDueTasks(); updateScientistIdentity(); progressInjuries();
+          updateIntercityPassenger(); updateForeignReception(); updateScientistMovementTask(); completeDueTasks(); updateScientistIdentity(); updatePendingCombatActions(); progressInjuries();
+          if (MunicipalFuelService.active(state.municipalFuelService)) updateNetworkOperations();
+          if (MunicipalFuelService.active(state.municipalFuelService)) advanceLocalMarketProduction(state.clock);
           updateCityProvisioning(); updateCityDefense(); updateCityRule(); updateRegionalGovernments(); updateSupremacy();
         }
         // This focused civic clock deliberately omits survival (as it omits
@@ -20428,6 +20456,16 @@
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.networkInterdiction = NetworkInterdiction.rebind(importedState.networkInterdiction,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.municipalFuelService = MunicipalFuelService.rebind(importedState.municipalFuelService,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    // These are the same continued municipal accounts, not newly allocated
+    // plants, stores or officials. Keep in-flight fuel ownership source-bound.
+    for (const key of ['cityRule', 'cityDefense']) {
+      const account = importedState[key];
+      if (account?.worldId === candidate.run.worldId && account.runId === candidate.run.id) {
+        account.worldId = world.id; account.runId = importedRunId;
+      }
+    }
     importedState.roadsideStops = RoadsideStops.rebind(importedState.roadsideStops,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.regionalEncounters = RegionalEncounters.rebind(importedState.regionalEncounters,
@@ -24302,7 +24340,7 @@
       }
       return changed;
     }
-    if (!options.chapterStep && elapsed > 1 && (state.networkOperations?.job || networkInterdictionActive() || outerApproachGates().some(g => g.outerApproach.chapterProtection?.job || ChapterProtection.assigned(g.outerApproach.chapterProtection)))) {
+    if (!options.chapterStep && elapsed > 1 && (MunicipalFuelService.active(state.municipalFuelService) || state.networkOperations?.job || networkInterdictionActive() || outerApproachGates().some(g => g.outerApproach.chapterProtection?.job || ChapterProtection.assigned(g.outerApproach.chapterProtection)))) {
       let left = elapsed, changed = 0;
       while (left > 0 && !scientistIsDead()) {
         const before = state.clock, health = scientistVital('health').current;
@@ -26875,6 +26913,8 @@
     const carrier = state.cityProvisioning;
     if (carrier?.roadContactId && sameMapCell(carrier.vehicle.mapCell, clean))
       return { kind: 'municipalVehicle', cell: clean, value: carrier.vehicle };
+    const fuelTruck = municipalFuelTruck();
+    if (fuelTruck?.mapCell && sameMapCell(fuelTruck.mapCell, clean)) return { kind: 'municipalFuelVehicle', cell: clean, value: fuelTruck };
     const mapDoor = labMapDoorAtCell(clean, map);
     if (mapDoor) return { kind: "door", cell: clean, mapDoor, value: doorFixtureState(mapDoor) };
     const fixture = fixtureAtCell(clean);
@@ -26892,7 +26932,7 @@
   function structuralTargetComposition(target, map = ensureLabMap()) {
     if (!target) return normalizeMaterialComposition({ primary: "stone" });
     // Vulnerable running gear, not permission for wolves to breach steel cabs.
-    if (target.kind === 'municipalVehicle') return normalizeMaterialComposition({ primary: 'rubber' });
+    if (['municipalVehicle', 'municipalFuelVehicle'].includes(target.kind)) return normalizeMaterialComposition({ primary: 'rubber' });
     if (target.kind === "door") return doorMaterialComposition(target.value);
     if (target.kind === "naturalWall") return normalizeMaterialComposition({ primary: naturalWallMaterialId(target.cell, map) });
     return normalizeMaterialComposition(target.value?.materialComposition, { primary: normalizeMaterialId(target.value?.materialId || "stone") });
@@ -27014,6 +27054,12 @@
     const damage = structuralDamageAmount(target, amount, damageTypeIds, map);
     if (target.kind === 'municipalVehicle') {
       MunicipalSupplyThreats.vehicleImpact(state.cityProvisioning, damage, state.clock);
+      return { ok: true, destroyed: target.value.condition <= 0, damage, before, after: target.value.condition, targetKind: target.kind };
+    }
+    if (target.kind === 'municipalFuelVehicle') {
+      target.value.condition = Math.max(0, before - damage);
+      // Damage holds the original paid truck/cargo; no replacement, free
+      // salvage, municipal ownership transfer or refund is generated.
       return { ok: true, destroyed: target.value.condition <= 0, damage, before, after: target.value.condition, targetKind: target.kind };
     }
     const after = clamp(before - damage, 0, 100);
@@ -37984,6 +38030,8 @@
     // same impassable tile until the scientist's walking queue stalls.
     const carrier = state?.cityProvisioning;
     if (carrier?.roadContactId && carrier.vehicle.mapCell) blocked.add(mapCellKey(carrier.vehicle.mapCell));
+    const fuelTruck = municipalFuelTruck();
+    if (fuelTruck?.mapCell) blocked.add(mapCellKey(fuelTruck.mapCell));
     return blocked;
   }
 
@@ -38064,6 +38112,8 @@
     const excludeActor = options.excludeActor || null;
     const excludeCorpse = options.excludeCorpse || null;
     let occupied = 0;
+    const fuelTruck = municipalFuelTruck();
+    if (fuelTruck?.mapCell && mapCellKey(fuelTruck.mapCell) === key) occupied += MAP_TILE_AREA_M2;
     for (const a of chapterProtectionActors()) if (a.id !== excludeActor?.id && mapCellKey(a.mapCell) === key) occupied += .6;
     for (const escort of allEscortStates().map(s => s.actor).filter(Boolean))
       if (escort.id !== excludeActor?.id && mapCellKey(escort.mapCell) === key) occupied += .6;
@@ -68915,6 +68965,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       { overlayId, classNames: ['map-overlay-resources'], label: 'Original city approach ward station', title: 'Physical boundary installation; outer coverage and finite reserve require personal inspection',
         source: 'Direct observation', value: 'W', target: { kind: 'tile', tile: CityDefense.GATE } }, map);
     const grain = state.cityProvisioning;
+    const fuelTruck = municipalFuelTruck();
+    if (fuelTruck?.mapCell && fuelTruck.roomId === scientistRoomId() && !scientistIsDead()
+      && mapCellDistance(scientistMapCell(), fuelTruck.mapCell) <= 8 && sensoryLineOfSight(scientistMapCell(), fuelTruck.mapCell))
+      setLabMapOverlayEntry(assignments, fuelTruck.mapCell, { overlayId, classNames: ['map-overlay-resources'],
+        label: 'Original producer fuel truck', title: 'Independent producer truck delivering paid municipal fuel; no passenger service',
+        value: 'V', source: 'Direct observation', target: { kind: 'tile', tile: fuelTruck.mapCell } }, map);
     for (const actor of chapterProtectionActors()) if (chapterPersonVisible(actor)) setLabMapOverlayEntry(assignments, actor.mapCell,
       { overlayId, classNames: ['map-overlay-resources'], label: actor.name, title: actor.status === 'dead' ? 'Original chapter professional remains' : actor.affiliation,
         value: actor.status === 'dead' ? '†' : 'P', source: 'Direct observation', target: { kind: 'tile', tile: actor.mapCell } }, map);
@@ -86505,6 +86561,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       actor.physicalControl.stamina = Math.max(0, actor.physicalControl.stamina - amount * .1);
     }
     actor.health = Math.max(0, actor.health - amount);
+    const fuelMission = state.municipalFuelService?.mission;
+    if (!options.injuryProgress && options.attackerId === 'scientist' && actor.logisticsRole === 'municipalFuel'
+      && fuelMission?.driverId === actor.id && !fuelMission.returnedAt && actor.mapCell
+      && actor.roomId === scientistRoomId() && sensoryLineOfSight(actor.mapCell, scientistMapCell())) {
+      if (actor.fuelServiceAttack?.missionId !== fuelMission.id)
+        actor.fuelServiceAttack = { id: `${fuelMission.id}:witnessed-scientist-attack:${state.clock}`, missionId: fuelMission.id, at: state.clock };
+    }
     if (!options.injuryProgress) recordCombatInjury(actor, amount, options.damageTypes || ['physical'], options.cause || 'Physical counter encounter trauma', { observed: scientistHasExactCombatTarget(actor) });
     if (actor.health <= 0) { actor.status = 'dead'; actor.diedAt = state.clock; }
     if (actor.fieldKit && !options.injuryProgress) {
@@ -87290,8 +87353,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       : CityRule.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, b?.source.cityId);
   }
   function cityRulePeople() { return [...(state.citySuccession?.leaders || []), state.sovereignBargains?.defender].filter(Boolean); }
-  function cityRuleContext() {
-    const s = state.cityRule, source = cityRuleSource(), office = scientistCivicOffice(), base = scientistCivicContext(office);
+  function cityRuleContext(ignoreFuelJob = false) {
+    const s = state.cityRule, source = cityRuleSource(), office = scientistCivicOffice(), base = scientistCivicContext(office, ignoreFuelJob);
     const home = ensureHomeInstitutionContext(), a = state.sovereignBargains?.defender, p = state.cityProvisioning, d = state.cityDefense;
     const sourceCurrent = Boolean(s && source && s.worldId === activeWorldRecord?.id && s.runId === activeRunRecord?.id
       && ['cityId', 'charterId', 'populationSourceId', 'population', 'worksId', 'powerId'].every(k => source[k] === s.source[k]));
@@ -87340,7 +87403,134 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function updateCityRule() {
     if (!state.cityRule || scientistIsDead()) return 0;
-    return CityRule.advance(state.cityRule, state.citySuccession, cityRulePeople(), cityRuleContext, state.clock) ? 1 : 0;
+    const changed = Number(CityRule.advance(state.cityRule, state.citySuccession, cityRulePeople(), cityRuleContext, state.clock));
+    return changed + Number(updateMunicipalFuelService());
+  }
+  function municipalFuelTruck() {
+    const s = state?.municipalFuelService, p = state?.economy?.commodityMarket?.localProduction;
+    return s && !s.invalid && s.mission && !s.mission.returnedAt ? p?.trucks.find(t => t.id === s.mission.truckId) || null : null;
+  }
+  function municipalFuelContext() {
+    const c = cityRuleContext(true), s = state.cityRule, production = state.economy?.commodityMarket?.localProduction;
+    return { ...c, at: state.clock, cell: scientistMapCell(), wallet: ensureEconomy(),
+      authority: CityRule.authority(s, state.citySuccession, cityRulePeople(), c),
+      otherBusy: !c.free || Boolean(state.scientistIdentity?.job || state.cityDefense?.job || state.networkOperations?.job),
+      targetExists: Boolean(c.sourceCurrent && c.institutionsAvailable && labMapCellIsWalkable(MunicipalFuelService.DOCK)),
+      routeOpen: Boolean(production?.facilities.some(f => f.id === state.municipalFuelService?.sources.find(r => r.id === state.municipalFuelService?.contract?.sourceId)?.facilityId && f.routeOpen)
+        && labMapCellIsWalkable(MunicipalFuelService.ENTRY) && labMapCellIsWalkable(MunicipalFuelService.TRUCK)),
+      // Same exchange scarcity, spread and fee calculation, with this
+      // independent firm's ordinary terms. Its own shared truck carries it;
+      // do not also bill the unrelated laboratory delivery carrier.
+      marketPrice: id => {
+        const def = COMMODITY_MARKET_LISTING_BY_ID[id], listing = state.economy.commodityMarket.listings[id];
+        return def && listing ? commodityQuoteValues(def, commodityMidPrice(def, listing.supply, listing.demand), 0).ask : null;
+      } };
+  }
+  function ensureMunicipalFuelService() {
+    const rule = state.cityRule;
+    if (!rule || scientistIsDead()) return null;
+    const networks = ensureNetworkOperations(), market = ensureEconomy().commodityMarket;
+    bindCityCommodityMarket(ensureEconomy());
+    const p = market.localProduction;
+    if (!state.municipalFuelService && !rule.fuelServiceInitialized && p && networks && CityRule.contact(cityRuleContext())) {
+      const rows = state.sovereignBargains?.testFixture && rule.preparedFuelSources
+        || MunicipalFuelService.sources(activeWorldRecord.generatedData?.strategicMap, rule.source, p, StrategicNonStateNetworks.NETWORK_DEFINITIONS);
+      const created = MunicipalFuelService.create(rows, rule, state.clock, p);
+      if (created) { state.municipalFuelService = created; rule.fuelServiceInitialized = true; }
+    }
+    const s = state.municipalFuelService;
+    if (!s || s.invalid || !p || !networks || !MunicipalFuelService.target(s, rule) || !MunicipalFuelService.bound(s, networks)) return null;
+    MunicipalFuelService.prepareDrivers(s, p); MunicipalFuelService.register(s, networks, p); return s;
+  }
+  function updateMunicipalFuelService() {
+    const s = state.municipalFuelService, rule = state.cityRule, networks = state.networkOperations, p = state.economy?.commodityMarket?.localProduction;
+    if (!s || s.invalid || !rule || !p || !networks || scientistIsDead()) return false;
+    return MunicipalFuelService.advance(s, rule, networks, p, state.economy.commodityMarket.listings, municipalFuelContext, state.clock, {
+      alive: () => !scientistIsDead(), incapacitated: actorIsIncapacitated,
+      depart: () => bumpNavigationRevision('object'),
+      radioPath: (driver, truck) => !driver.mapCell && !truck.mapCell || Boolean(driver.mapCell && truck.mapCell
+        && mapCellDistance(driver.mapCell, truck.mapCell) <= 4 && sensoryLineOfSight(driver.mapCell, truck.mapCell)),
+      arrive: (driver, truck) => {
+        if (!labMapCellIsWalkable(MunicipalFuelService.ENTRY) || !labMapCellIsWalkable(MunicipalFuelService.TRUCK)
+          || tileOccupiedAreaM2(MunicipalFuelService.ENTRY, { excludeActor: driver }) + .6 > MAP_TILE_AREA_M2
+          || tileOccupiedAreaM2(MunicipalFuelService.TRUCK) > TILE_OCCUPANCY_EPSILON) return false;
+        driver.actorKind = 'reliefDriver'; driver.logisticsRole = 'municipalFuel'; driver.maxHealth ||= 100;
+        driver.physicalControl ||= { strength: 25, stamina: 40, staminaCapacity: 40 };
+        driver.skills ||= { striking: 1, guarding: 1, evasion: 1, perception: 1 };
+        driver.mapCell = { ...MunicipalFuelService.ENTRY }; driver.roomId = SurveyExpeditions.FIELD_ROOM;
+        truck.mapCell = { ...MunicipalFuelService.TRUCK }; truck.roomId = driver.roomId; bumpNavigationRevision('object'); return true;
+      },
+      move: (driver, cell) => {
+        const blocked = labMapBlockingCellKeys(ensureLabMap(), { actor: driver, skipPlacement: true });
+        // Shared pathfinding must route around bodies as well as structures;
+        // repeatedly walking into the same occupied shortest step is not work.
+        for (const c of ensureLabMap().rooms[SurveyExpeditions.FIELD_ROOM]?.cells || [])
+          if (c.z === driver.mapCell.z && tileOccupiedAreaM2(c, { excludeActor: driver }) + .6 > MAP_TILE_AREA_M2) blocked.add(mapCellKey(c));
+        return moveDefenderParticipant(driver, cell, { skipPlacement: true, ignoreDoors: false, blockedCellKeys: blocked });
+      },
+      safe: driver => !actorIsIncapacitated(driver) && !driver.grappledBy && driver.status === 'alive'
+        && !state.combat?.pendingActions?.[driver.id]
+    });
+  }
+  function municipalFuelServiceAction(action, values = {}) {
+    if (scientistIsDead()) return false;
+    updateCityRule(); const s = ensureMunicipalFuelService(); if (!s) return false;
+    const rule = state.cityRule, networks = state.networkOperations, p = ensureEconomy().commodityMarket.localProduction, c = municipalFuelContext(); let ok = false;
+    if (action === 'cancelAttendance' && s.job) { MunicipalFuelService.release(s, rule, networks); ok = true; }
+    else if (action === 'quote') ok = Boolean(MunicipalFuelService.offer(s, rule, networks, p, c, values.sourceId, values.limits, state.clock));
+    else if (['sign', 'report'].includes(action)) ok = MunicipalFuelService.begin(s, rule, networks, p, c, action, values.quote, values.deposit, ensureEconomy(), state.clock);
+    else if (action === 'stopProcessing' || action === 'process') {
+      ok = CityRule.contact(c) && c.authority && !s.job;
+      if (ok) { rule.powerFuel.enabled = action === 'process'; rule.powerFuel.handoverId = rule.handoverId; }
+    } else ok = MunicipalFuelService.action(s, rule, networks, c, ensureEconomy(), action, values.amount);
+    if (!ok) addEvent('Fuel service requires the original local parties, unchanged terms, available staff and funds. No fuel, authority or report was created.');
+    persist(); render(); return Boolean(ok);
+  }
+  function renderMunicipalFuelService() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.municipalFuelService = 'true';
+    panel.append(textEl('h3', 'Standing local powerworks fuel service'), textEl('p', MunicipalFuelService.TERMS));
+    const s = ensureMunicipalFuelService(), c = s && municipalFuelContext();
+    if (!s) { panel.append(textEl('p', 'No supported original local procurement office and crystal works available. Manual delivery remains available; no provider or replacement fleet is invented.')); return panel; }
+    const contact = CityRule.contact(c) && c.authority && !c.otherBusy;
+    const add = (label, action, value, disabled = false) => {
+      const b = storesActionButton(label, label, () => municipalFuelServiceAction(action, typeof value === 'function' ? value() : value));
+      b.dataset.fuelServiceAction = action; b.disabled = !contact || Boolean(s.job) || disabled; panel.append(b); return b;
+    };
+    const input = (label, value, min, max) => {
+      const i = document.createElement('input'); i.type = 'number'; i.value = String(value); i.min = String(min); i.max = String(max); i.step = '1'; i.setAttribute('aria-label', label);
+      const l = document.createElement('label'); l.append(document.createTextNode(label + ' '), i); panel.append(l); return i;
+    };
+    const provider = document.createElement('select'); provider.setAttribute('aria-label', 'Local fuel provider');
+    for (const src of s.sources) { const o = document.createElement('option'); o.value = src.id; o.textContent = src.label; provider.append(o); } panel.append(provider);
+    const threshold = input('Fuel replenishment threshold', 6, 1, 24), quantity = input('Fuel units per trip', 6, 1, 12);
+    const unit = input('Maximum fuel unit price', 80, 1, 10000), trip = input('Maximum landed trip expenditure', 600, 1, 10000);
+    const deposit = input('Prepaid service amount', 500, 1, 1000000);
+    add('Review exact standing service terms', 'quote', () => ({ sourceId: provider.value, limits: {
+      threshold: Number(threshold.value), quantity: Number(quantity.value), maxUnitPrice: Number(unit.value), maxTripSpend: Number(trip.value) } }), Boolean(s.contract && !s.contract.cancelledAt));
+    if (s.quote && contact) {
+      const q = s.quote;
+      panel.append(textEl('p', `Quoted: replenish below ${q.limits.threshold}; ${q.limits.quantity} units per trip; maximum ${formatNumber(q.limits.maxUnitPrice)} per fuel unit and ${formatNumber(q.limits.maxTripSpend)} per trip, including actual crew provisions, ${q.brokerFee} procurement fee and ${q.freight} freight. Two minutes of original parties' work to sign. No fuel or shipment promised before actual purchase.`));
+      add('Sign reviewed service terms and prepay', 'sign', () => ({ quote: q, deposit: Number(deposit.value) }));
+    }
+    if (s.job) {
+      panel.append(textEl('p', `Your attended ${s.job.kind} work: ${Math.floor(s.job.progress)} / ${s.job.seconds} seconds. Movement or other work interrupts; unfinished signatures transfer no money.`));
+      const cancel = storesActionButton('Stop this attended service work', 'Spent work is not refunded; no unfinished signature transfers funds.', () => municipalFuelServiceAction('cancelAttendance'));
+      cancel.dataset.fuelServiceAction = 'cancelAttendance'; panel.append(cancel);
+    }
+    if (s.contract) {
+      add('Receive dated fuel-service account (one minute)', 'report', {});
+      add('Add prepaid allowance', 'deposit', () => ({ amount: Number(deposit.value) }), Boolean(s.contract.cancelledAt));
+      add('Cancel future procurement; preserve paid cargo', 'cancel', {}, Boolean(s.contract.cancelledAt));
+      add('Refund unspent cancelled-service allowance', 'refund', {}, !s.contract.cancelledAt);
+      add('Authorize processing of city-owned delivered fuel', 'process', {});
+      add('Pause future city-owned fuel processing', 'stopProcessing', {});
+    }
+    const r = MunicipalFuelService.publicView(s);
+    if (r) panel.append(textEl('p', `${formatClock(r.at)} — received from ${r.sourceLabel}: ${r.cancelledAt ? 'future procurement cancelled' : 'standing service agreed'}; prepaid balance ${formatNumber(r.balance)}, expenditure ${formatNumber(r.spent)}, refunded ${formatNumber(r.refunded)}. ${r.deliveries.length} individually unloaded units; ${r.cityOwnedFuel} stored, ${r.processed} processed at that date.`),
+      textEl('p', r.notices.map(n => `${formatClock(n.at)} — ${n.text}`).join(' ') || 'No provider breach notice in this received account.'),
+      textEl('p', r.procurementHold ? `Last reported procurement check ${formatClock(r.procurementCheckedAt)}: ${r.procurementHold}` : 'No procurement hold in this dated account.'));
+    else panel.append(textEl('p', 'No fuel-service account received. Private provider work, whereabouts and current stock are not a live feed.'));
+    panel.append(textEl('p', MunicipalFuelService.LIMITS)); return panel;
   }
   function cityRuleAction(action, quantity = 1) {
     if (scientistIsDead()) return false;
@@ -87397,6 +87587,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         textEl('p', r.counterpower));
       if (r.accomplishment) panel.append(textEl('p', `Historical three-day accomplishment: ${formatClock(r.accomplishment.at)}. Later losses do not erase it or end a living run.`));
     }
+    panel.append(renderMunicipalFuelService());
     return panel;
   }
   function cityDefenseSource() {
@@ -89499,7 +89690,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     return office || null;
   }
-  function scientistCivicContext(office) {
+  function scientistCivicContext(office, ignoreFuelJob = false) {
     const cell = scientistMapCell(), clerk = office?.clerk, local = state.surveyExpeditions?.phase === "field" && scientistRoomId() === SurveyExpeditions.FIELD_ROOM && !unsupportedActive();
     const facialInjury = actorInjuries("scientist").some(i => i.status !== "healed" && /head|face|eye/i.test(String(i.location || "")));
     return { alive: !scientistIsDead(), capable: !actorIsIncapacitated("scientist"),
@@ -89508,7 +89699,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       atCounter: local && mapCellKey(cell) === mapCellKey(office?.civicCounter?.cell),
       clerkPresent: Boolean(office?.civicCounter && clerk.status === 'alive' && !actorIsIncapacitated(clerk) && clerk.mapCell && WildernessBeasts.distance(clerk.mapCell, ScientistIdentity.COUNTER) <= 1),
       lineOfSight: Boolean(local && clerk?.mapCell && sensoryLineOfSight(cell, clerk.mapCell)), visibility: facialInjury ? "obscured" : "clear",
-      busy: Boolean(installationSeizureServiceReason(office)) || scientistInClinicCare() || rescueMissionActive() || (!state.scientistIdentity?.job && surveyBusy()) };
+      busy: Boolean(installationSeizureServiceReason(office)) || scientistInClinicCare() || rescueMissionActive() || (!state.scientistIdentity?.job && surveyBusy(false, false, false, ignoreFuelJob)) };
   }
   function updateScientistIdentity() {
     const profile = state.scientistIdentity; if (!profile?.job) return 0;
@@ -100092,7 +100283,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function reliefDrivers() { return producerDriverActors().filter(a => a.mapCell); }
   function reliefDriverVisible(a) {
-    return Boolean(a?.mapCell && (a.logisticsRole === 'awaySupply' ? a.roomId === scientistRoomId() : outerApproachGates().some(g => outerApproachLocal(g) && g.z === a.mapCell.z))
+    return Boolean(a?.mapCell && (['awaySupply', 'municipalFuel'].includes(a.logisticsRole) ? a.roomId === scientistRoomId() : outerApproachGates().some(g => outerApproachLocal(g) && g.z === a.mapCell.z))
       && WildernessBeasts.distance(scientistMapCell(), a.mapCell) <= 8 && sensoryLineOfSight(scientistMapCell(), a.mapCell));
   }
   function countercoalitionContext(g) {
@@ -100831,7 +101022,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return ["scientistMove", "surveyExpeditionWork", "physicalDiagnostic", "hiddenWorkshopWork"].includes(task.type)
       || task.type === 'soulBeaconWork' && hiddenWorkshopLocal() && labMapCellRoomId(target) === state.hiddenWorkshop?.site?.roomId;
   }
-  function surveyBusy(ignoreInquiry = false, ignoreCivic = false, ignoreNetwork = false) { return !ignoreNetwork && Boolean(state.networkOperations?.job || state.networkInterdiction?.repair) || Boolean(state.foundingWorks?.foundation?.job?.running || state.foundingWorks?.job?.running || state.foundingExpedition?.job?.running) || (!ignoreInquiry && Boolean(passengerReceptionGate()?.researchInquiry?.job)) || (!ignoreCivic && foreignCivicWork(passengerReceptionGate())) || scientistQueueTasks().some((task) => !taskBlockReason(task)); }
+  function surveyBusy(ignoreInquiry = false, ignoreCivic = false, ignoreNetwork = false, ignoreFuel = false) { return !ignoreFuel && Boolean(state.municipalFuelService?.job) || !ignoreNetwork && Boolean(state.networkOperations?.job || state.networkInterdiction?.repair) || Boolean(state.foundingWorks?.foundation?.job?.running || state.foundingWorks?.job?.running || state.foundingExpedition?.job?.running) || (!ignoreInquiry && Boolean(passengerReceptionGate()?.researchInquiry?.job)) || (!ignoreCivic && foreignCivicWork(passengerReceptionGate())) || scientistQueueTasks().some((task) => !taskBlockReason(task)); }
   function surveyEvent(message) { addEvent(message, { sourceKind: "surveyExpedition" }); }
   function surveyCarriedStacks() { return ensurePhysicalItemStacks().filter((entry) => entry.carriedBy === "scientist"); }
   function surveyQuote() {
@@ -108724,6 +108915,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (next.cityProvisioning) next.cityProvisioning.supplyTraffic = MunicipalSupplyThreats.normalize(next.cityProvisioning.supplyTraffic, next.cityProvisioning);
     next.cityDefense = CityDefense.normalize(candidate?.cityDefense);
     next.cityRule = CityRule.normalize(candidate?.cityRule);
+    next.municipalFuelService = MunicipalFuelService.normalize(candidate?.municipalFuelService);
     next.cityAdministrationKnowledge = candidate?.cityAdministrationKnowledge ? clonePlainObject(candidate.cityAdministrationKnowledge) : null;
     next.civicFoothold = CivicFoothold.normalize(candidate?.civicFoothold);
     next.runStrategicConditions = RunStrategicConditions.normalize(candidate?.runStrategicConditions);

@@ -5,6 +5,8 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
   const HOUR = 3600;
+  const FUEL_DEFINITION = Object.freeze({ id: 'arcaneFeedstock', section: 'resources', key: 'arcaneFeedstock', label: 'Arcane Feedstock',
+    basePrice: 18, supply: 36, liquidity: 12, buyable: true, sellable: true });
   const RECIPES = [
     { id: 'biomass', family: 'biologicalProductivity', input: 1, output: 1, target: 'exchange' },
     { id: 'fieldRation', family: 'biologicalProductivity', input: 2, output: 1, target: 'exchange' },
@@ -32,6 +34,7 @@
   const PRECISION_RECIPES = [
     { id: 'refinedConductors', facility: 'metalRefinery', expertise: 'conductorRefining', inputs: { baseMetalOre: 2 }, output: 3, hours: 3 },
     { id: 'preparedManaCrystals', facility: 'crystalWorks', expertise: 'crystalPreparation', inputs: { manaCrystals: 2 }, output: 2, hours: 3 },
+    { id: 'arcaneFeedstock', facility: 'crystalWorks', expertise: 'crystalPreparation', inputs: { manaCrystals: 2 }, output: 2, hours: 2 },
     { id: 'relayAssembly', facility: 'electronicsWorks', expertise: 'relayFabrication', inputs: { refinedConductors: 1, preparedManaCrystals: 1, glass: 1, metalParts: 1 }, output: 1, hours: 4 },
     { id: 'relayBattery', facility: 'batteryWorks', expertise: 'batteryFabrication', inputs: { refinedConductors: 1, chemicalFeedstock: 1, rubber: 1 }, output: 2, hours: 3 },
     // The consumed battery is installed, accounting for the existing four-hour
@@ -44,12 +47,29 @@
     const sources = (context?.productionSources || []).filter(s => RECIPES.some(r => r.family === s.family) || industrial.some(r => r.inputs[s.family])).map(s => ({ ...copy(s), stock: 0, condition: 100, labour: s.capacity, utilities: context.workshopCapacity,
       // A bounded run-owned extraction allocation, not disclosure of geological reserves.
       remaining: ['biologicalProductivity', 'timberFiber'].includes(s.family) ? null : Math.ceil(2000 * s.capacity), produced: 0 }));
-    return { cityId: context?.cityId || '', lastAt: now, sources, inputs: {}, facilities,
+    const state = { cityId: context?.cityId || '', lastAt: now, sources, inputs: {}, facilities,
       finance: { money: 1500, exchangeMoney: 6000, spent: 0, earned: 0, ledger: [] }, definitions: copy(context?.commodityDefinitions || []),
       workshops: [...RECIPES.filter(r => sources.some(s => s.family === r.family)).map(r => ({ ...r, stock: 0, condition: 100, labour: 1, utilities: context.workshopCapacity, progress: 0, produced: 0 })), ...industrial],
-      trucks: ['Oren Pike', 'Lina Ash'].map((name, i) => ({ id: `${context?.cityId || 'unbound'}:producer-truck-${i + 1}`, capacity: 24, fuelKm: 240, condition: 100, driver: { id: `${context?.cityId || 'unbound'}:producer-driver-${i + 1}`, name, health: 100, status: 'alive', fatigue: 0 }, shipment: null, repairAt: null })),
+      trucks: ['Oren Pike', 'Lina Ash'].map((name, i) => ({ id: `${context?.cityId || 'unbound'}:producer-truck-${i + 1}`, capacity: 24, fuelKm: 240, condition: 100,
+        driver: { id: `${context?.cityId || 'unbound'}:producer-driver-${i + 1}`, name, health: 100, status: 'alive', fatigue: 0,
+          cabRadio: { id: `${context?.cityId || 'unbound'}:producer-cab-radio-${i + 1}`, condition: 100, chargeSeconds: 3600 } },
+        shipment: null, repairAt: null })),
       warehouseCaps: Object.fromEntries(Object.entries(context?.listings || {}).map(([id, listing]) => [id, Math.max(192, listing.targetSupply * 4)])),
       depotFuelKm: 1200, depotParts: 8, shipments: [], nextNumber: 1, cursor: 0, receipts: [], reason: '' };
+    ensureFuelRecipe(state, now); return state;
+  }
+  function ensureFuelRecipe(state, at) {
+    const f = state?.facilities?.find(f => f.kind === 'crystalWorks' && f.expertise.includes('crystalPreparation'));
+    if (!f) return;
+    let w = state.workshops.find(w => w.id === FUEL_DEFINITION.id && w.facilityId === f.id);
+    if (!w) { const lost = state.fuelRecipeInitialized === true;
+      w = { ...copy(PRECISION_RECIPES.find(r => r.id === FUEL_DEFINITION.id)), facilityId: f.id, target: 'exchange',
+        stock: 0, progress: 0, produced: 0, availableFrom: at, accountLost: lost };
+      state.workshops.push(w);
+    }
+    w.availableFrom ??= state.lastAt;
+    if (!state.definitions.some(d => d.id === FUEL_DEFINITION.id)) state.definitions.push(copy(FUEL_DEFINITION));
+    state.warehouseCaps[FUEL_DEFINITION.id] ??= 192; state.fuelRecipeInitialized = true;
   }
   const capable = truck => truck.condition >= 50 && truck.driver.health >= 50 && truck.driver.status === 'alive';
   const facilityFor = (state, w) => state.facilities?.find(f => f.id === w.facilityId);
@@ -153,13 +173,13 @@
       if (!f.activeRecipe) {
         for (let i = 0; i < lines.length; i++) {
           const w = lines[((f.cursor || 0) + i) % lines.length];
-          if (!working(f, w) || w.stock + w.output > 96 || !Object.entries(w.inputs).every(([id, n]) => (state.inputs[id] || 0) >= n)) continue;
+          if (!working(f, w) || w.accountLost || w.availableFrom >= at || w.stock + w.output > 96 || !Object.entries(w.inputs).every(([id, n]) => (state.inputs[id] || 0) >= n)) continue;
           for (const [id, n] of Object.entries(w.inputs)) state.inputs[id] -= n;
           f.activeRecipe = w.id; f.cursor = ((f.cursor || 0) + i + 1) % lines.length; break;
         }
       }
       const w = lines.find(w => w.id === f.activeRecipe);
-      if (!w || !working(f, w)) continue;
+      if (!w || w.accountLost || w.availableFrom >= at || !working(f, w)) continue;
       w.progress += Math.min(1, f.labour) * Math.min(1, f.utilities) * f.condition / 100;
       if (w.progress >= w.hours) { w.stock += w.output; w.produced += w.output; w.progress = 0; f.activeRecipe = null; }
     }
@@ -221,6 +241,7 @@
     state.shipments = state.shipments.filter(s => !s.returned || s.returnAt >= at - 24 * HOUR);
   }
   function advance(state, now, listings, supplier) {
+    ensureFuelRecipe(state, now);
     while (state.lastAt + HOUR <= now) { state.lastAt += HOUR; tick(state, listings, supplier, state.lastAt); }
     return state;
   }
@@ -250,9 +271,9 @@
   function serviceTruck(state, quantity = 1) {
     return state?.trucks?.find(t => Number.isFinite(t.capacity) && t.capacity >= quantity && !t.shipment && !t.repairAt && capable(t) && t.fuelKm >= 8 && t.condition - 0.16 >= 50 && t.driver.fatigue + 0.32 <= 80);
   }
-  function bookServiceCargo(state, facilityId, cargo, quantity, at, destination = null) {
+  function bookServiceCargo(state, facilityId, cargo, quantity, at, destination = null, requestedTruckId = null) {
     const f = state?.facilities?.find(entry => entry.id === facilityId);
-    const truck = serviceTruck(state, quantity);
+    const truck = serviceTruck(requestedTruckId ? { ...state, trucks: state.trucks.filter(t => t.id === requestedTruckId) } : state, quantity);
     if (!f?.routeOpen || !truck || !Number.isFinite(quantity) || quantity <= 0 || quantity > truck.capacity) return null;
     if (destination && (destination.cityId !== state.cityId || !destination.propertyId || !Number.isFinite(destination.endsAt) || destination.endsAt <= at)) return null;
     truck.fuelKm -= 8; truck.condition -= 0.16; truck.driver.fatigue += 0.32;
@@ -262,5 +283,5 @@
     if (destination) { sh.target = 'foreignWorkspace'; sh.destination = copy(destination); }
     state.shipments.push(sh); truck.shipment = sh.id; return sh;
   }
-  return { HOUR, RECIPES, INDUSTRIAL_RECIPES, PRECISION_RECIPES, create, advance, status, serviceTruck, bookServiceCargo };
+  return { HOUR, FUEL_DEFINITION, RECIPES, INDUSTRIAL_RECIPES, PRECISION_RECIPES, create, advance, status, price, ensureFuelRecipe, serviceTruck, bookServiceCargo };
 });

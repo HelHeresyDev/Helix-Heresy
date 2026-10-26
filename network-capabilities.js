@@ -89,6 +89,14 @@
             add(a.id, actorId, 'armedForce', 'networkInterdiction', 'originalLimitedFieldDuty');
             add(a.id, `${actorId}:kit`, 'armedForce', 'networkInterdiction.fieldKit', 'sameWornKit');
           }
+        } else if (allocation.kind === 'essentialFuelService') {
+          // Brokers reference, but do not own, the SAME producer assets.
+          // Shared-vendor references must never count as extra assets.
+          const vendor = allocation.facilityId;
+          add(vendor, vendor, 'research', 'localMarketProduction.facilities', 'independentVendorTechnicalServiceOnly');
+          for (const id of allocation.truckIds || []) add(vendor, id, 'transport', 'localMarketProduction.trucks', 'sharedIndependentVendor');
+          for (const id of allocation.actorIds || []) add(vendor, id, 'transport', 'localMarketProduction.trucks.driver', 'sameOriginalDriver');
+          for (const id of allocation.radioIds || []) add(vendor, id, 'mediaReach', 'localMarketProduction.trucks.driver.cabRadio', 'finiteCabCommunicationsOnly');
         }
       }
     }

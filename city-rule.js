@@ -91,7 +91,7 @@
       waterLiters: source.population * 4, initialWaterLiters: source.population * 4, drankLiters: 0,
       rawWaterLiters: source.population * 12, initialRawWaterLiters: source.population * 12, pumpedLiters: 0, unmetLiters: 0,
       energy, initialEnergy: energy, chargedEnergy: 0, recharge: null, spentEnergy: 0, energyRate: rate, excludedDefenseEnergy: excludedEnergy, farms,
-      operatorWorkSeconds: 8 * 3600,
+      operatorWorkSeconds: 8 * 3600, powerFuel: { stock: 0, capacity: 24, received: 0, processed: 0, enabled: false, progress: null },
       plan: null, command: null, receipts: [], since: null, establishedAt: null, accomplishment: null,
       status: 'recognized', failureAt: null, report: null, nextNumber: 1 };
   }
@@ -100,7 +100,14 @@
       || !['lastAt', 'foodKg', 'waterLiters', 'rawWaterLiters', 'energy', 'eatenKg', 'drankLiters', 'spentEnergy'].every(k => finite(s[k]))
       || !Array.isArray(s.farms) || !Array.isArray(s.receipts) || s.farms.length !== s.source.farms.length
       || s.farms.some(f => !['stockKg', 'cropKg', 'cargoKg', 'fuelKm', 'dutySeconds'].every(k => finite(f[k])))) return null;
-    return copy(s);
+    const next = copy(s);
+    next.chargedEnergy ??= 0;
+    next.powerFuel ||= { stock: 0, capacity: 24, received: 0, processed: 0, enabled: false, progress: null };
+    const fuel = next.powerFuel;
+    if (fuel.capacity !== 24 || !['stock', 'received', 'processed'].every(k => Number.isInteger(fuel[k]) && finite(fuel[k]))
+      || fuel.stock + (fuel.progress ? 1 : 0) > fuel.capacity
+      || fuel.progress && (!finite(fuel.progress.work) || fuel.progress.work > 60 || !fuel.progress.handoverId)) return null;
+    return next;
   }
   function authority(s, succession, people, c) {
     return Boolean(s && c.sourceCurrent && c.bodyEpoch === s.bodyEpoch && succession?.handover?.id === s.handoverId
@@ -118,13 +125,13 @@
   }
   const contact = c => c.alive && c.capable && c.atCounter && c.local && c.free && !c.violence && c.reportersPresent;
   function order(s, succession, people, c, at) {
-    if (!contact(c) || !authority(s, succession, people, c) || s.plan || s.command || s.recharge || s.operatorWorkSeconds < 3600 || c.institutionsAvailable !== true) return false;
+    if (!contact(c) || !authority(s, succession, people, c) || s.plan || s.command || s.recharge || s.operatorServiceAssignment || s.operatorWorkSeconds < 3600 || c.institutionsAvailable !== true) return false;
     s.command = { id: `${s.id}:operating-priority:${s.nextNumber++}`, at, progress: 0 };
     return true;
   }
   const owned = i => !i.cityOwnerId && !i.civicCustody && (!i.ownerId || i.ownerId === 'scientist') && (!i.legalOwnerId || i.legalOwnerId === 'scientist');
   function recharge(s, succession, people, c, stacks, at, quantity = 1) {
-    if (!contact(c) || !authority(s, succession, people, c) || !c.institutionsAvailable || s.command || s.recharge
+    if (!contact(c) || !authority(s, succession, people, c) || !c.institutionsAvailable || s.command || s.recharge || s.operatorServiceAssignment
       || !Number.isInteger(quantity) || quantity < 1 || s.operatorWorkSeconds < 60 * quantity
       || s.initialEnergy - s.energy < 21600 * quantity) return false;
     const item = stacks.find(i => i.key === 'arcaneFeedstock' && i.quantity >= quantity && i.carriedBy === 'scientist'
@@ -183,6 +190,9 @@
       c = context(); if (!c.alive) break;
       const start = s.lastAt, foodRate = s.dailyKg / DAY, waterRate = s.source.population * 2 / DAY;
       let dt = Math.min(60, at - start);
+      // Stored fuel is an actual sixty-second workpiece. Preserve its exact
+      // start/completion and energy-depletion ordering on large catch-up too.
+      if (s.powerFuel?.enabled && (s.powerFuel.stock || s.powerFuel.progress)) dt = Math.min(dt, 1);
       for (const t of [s.foodKg > 1e-7 && foodRate ? s.foodKg / foodRate : Infinity,
         s.waterLiters > 1e-7 ? s.waterLiters / waterRate : Infinity,
         s.energy > 1e-7 ? s.energy / s.energyRate : Infinity,
@@ -201,15 +211,15 @@
       s.eatenKg += food; s.unmetKg += dt * foodRate - food;
       const water = Math.min(s.waterLiters, dt * waterRate); s.waterLiters = Math.max(0, s.waterLiters - water);
       s.drankLiters += water; s.unmetLiters += dt * waterRate - water;
-      if (s.command && operative) {
+      if (s.command && operative && !s.operatorServiceAssignment) {
         const work = Math.min(dt, s.operatorWorkSeconds); s.operatorWorkSeconds -= work; s.command.progress += work;
         workUsed += work;
         if (s.command.progress >= 3600) {
           s.plan = { at: end, sourceId: s.command.id };
           s.receipts.push({ id: s.command.id, at: end, kind: 'operatingPriority', workSeconds: 3600 }); s.command = null;
         }
-      } else if (s.command) s.command = null; // No refund or signature-only completion.
-      if (s.recharge && operative && s.recharge.handoverId === s.handoverId && s.recharge.powerWorksId === s.source.powerId) {
+      } else if (s.command && !operative) s.command = null; // No refund or signature-only completion.
+      if (s.recharge && operative && !s.operatorServiceAssignment && s.recharge.handoverId === s.handoverId && s.recharge.powerWorksId === s.source.powerId) {
         const work = Math.min(dt - workUsed, s.operatorWorkSeconds); s.operatorWorkSeconds -= work; s.recharge.progress += work;
         workUsed += work;
         if (s.recharge.progress >= 60 * s.recharge.quantity) {
@@ -222,9 +232,9 @@
       const distribution = s.distribution;
       if (distribution && operative && stationCurrent(s, c) && distribution.handoverId === s.handoverId
         && distribution.powerId === s.source.powerId && distribution.stationId === s.pilotDefenseId
-        && !s.command && !s.recharge && c.defenseAccount.energy < 21600 && s.energy >= 21600) {
+        && !s.command && !s.recharge && !s.operatorServiceAssignment && c.defenseAccount.energy < 21600 && s.energy >= 21600) {
         const work = Math.min(dt - workUsed, s.operatorWorkSeconds, 60 - distribution.progress);
-        s.operatorWorkSeconds -= work; distribution.progress += work;
+        s.operatorWorkSeconds -= work; distribution.progress += work; workUsed += work;
         if (distribution.progress >= 60) {
           const amount = Math.min(21600, c.defenseAccount.initialEnergy - c.defenseAccount.energy);
           s.energy -= amount; s.transferredEnergy = (s.transferredEnergy || 0) + amount;
@@ -235,6 +245,23 @@
           distribution.progress = 0;
         }
       }
+      const fuel = s.powerFuel;
+      if (fuel?.enabled && fuel.handoverId === s.handoverId && operative && s.plan && !s.operatorServiceAssignment && !s.command && !s.recharge) {
+        if (!fuel.progress && fuel.stock >= 1 && s.initialEnergy - s.energy >= 21600) {
+          fuel.stock--; fuel.progress = { work: 0, handoverId: s.handoverId, at: end };
+        }
+        if (fuel.progress && fuel.progress.handoverId === s.handoverId && fuel.progress.at < end) {
+          const work = Math.min(dt - workUsed, s.operatorWorkSeconds, 60 - fuel.progress.work);
+          s.operatorWorkSeconds -= work; workUsed += work; fuel.progress.work += work;
+          if (fuel.progress.work >= 60) {
+            const energy = Math.min(21600, Math.max(0, s.initialEnergy - s.energy));
+            s.energy += energy; s.chargedEnergy += energy; fuel.processed++;
+            s.receipts.push({ id: `${s.id}:stored-fuel:${s.nextNumber++}`, at: end, kind: 'municipalStoredPowerFuel', quantity: 1,
+              energy, powerWorksId: s.source.powerId, workSeconds: 60 }); fuel.progress = null;
+          }
+        }
+      }
+      if (workUsed > 0) s.operatorWorkedUntil = end;
       if (operatingAtStart && operative && s.energy > 0) {
         const pumped = Math.min(s.rawWaterLiters, Math.max(0, s.source.population * 4 - s.waterLiters), dt * waterRate * 2);
         s.rawWaterLiters -= pumped; s.pumpedLiters += pumped; s.waterLiters += pumped;
@@ -287,6 +314,7 @@
       receipts: copy(s.receipts), counterpower: c.counterpower === 'capableOpposition' ? 'An established effective challenge prevents verification.'
         : c.counterpower !== 'noEstablishedChallenge' ? 'Unverified: current coverage is incomplete.'
           : 'No established capable challenge within this operating account; not proof of universal loyalty or divine acquiescence.' };
+    if (s.powerFuel) s.report.powerFuel = copy(s.powerFuel);
     return true;
   }
   return { DAY, INTERVAL, ROLES, LIMITS, sourceFromWorld, validSource, create, createAggregate, normalize, authority, contact, condition, order, recharge, distribution, advance, receive };
