@@ -1,7 +1,6 @@
 // @ts-check
 const { test, expect } = require('@playwright/test');
-const path = require('path');
-const { pathToFileURL } = require('url');
+const { startLifecycleRun } = require('./helpers/start-lifecycle-run');
 const {
   NavigationService,
   ReservationTable,
@@ -9,18 +8,8 @@ const {
   footprintCells,
 } = require('../navigation.js');
 
-const projectRoot = path.resolve(__dirname, '..');
-const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
-
 async function startRun(page) {
-  await page.goto(appUrl);
-  await page.evaluate(() => {
-    window.localStorage.clear();
-    window.localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: 'dom' }));
-  });
-  await page.reload();
-  await page.locator('#titleNewRunBtn').click();
-  await page.locator('#setupForm button[type="submit"]').click();
+  await startLifecycleRun(page, 'focused-navigation');
 }
 
 test('@smoke weighted A star chooses a longer but cheaper route', () => {
@@ -157,6 +146,7 @@ test('large-grid planning exposes bounded search diagnostics', () => {
 });
 
 test('scientist movement occupies intermediate tiles before arrival', async ({ page }) => {
+  test.setTimeout(180000);
   await startRun(page);
   const started = await page.evaluate(() => {
     const before = window.helixHeresyDebug.navigationSnapshot().actors.find((actor) => actor.id === 'scientist').cell;

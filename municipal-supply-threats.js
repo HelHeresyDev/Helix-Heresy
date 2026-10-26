@@ -91,7 +91,7 @@
   }
   function active(s, quota) { return s?.encounters.find(e => e.id === quota?.roadContactId && e.endedAt == null) || null; }
   function step(s, quota, site, actors, at, h) {
-    const e = active(s, quota); if (!e || !site || at <= e.lastAt || h.alive?.() === false) return false;
+    const e = h.encounter || active(s, quota); if (!e || !site || at <= e.lastAt || h.alive?.() === false) return false;
     const dt = at - e.lastAt; e.lastAt = at; s.lastAt = at;
     const v = quota.vehicle, d = quota.driver;
     const local = actors.filter(a => a.roomId === site.roomId && a.regionalPhase === 'local');
@@ -100,7 +100,7 @@
       if (h.alive?.() === false) break;
       if (a.status === 'dead' || a.health <= 0 || h.incapacitated?.(a)) continue;
       const profile = Wild.PROFILES[a.speciesId];
-      const targets = [...(h.targets || []), ...(v.condition > 0 ? [{ kind: 'structure', cell: v.mapCell, id: v.id }]
+      const targets = [...(h.targets || []), ...(v.roomId !== site.roomId ? [] : v.condition > 0 ? [{ kind: 'structure', cell: v.mapCell, id: v.id }]
         : d.status === 'alive' ? [{ kind: 'creature', cell: d.mapCell, id: d.id }] : v.cargoKg > 0 ? [{ kind: 'structure', cell: v.mapCell, id: v.id }] : [])];
       const seen = targets.filter(t => Wild.distance(a.mapCell, t.cell) <= profile.sight && h.sight(a.mapCell, t.cell))
         .sort((aTarget, bTarget) => Wild.distance(a.mapCell, aTarget.cell) - Wild.distance(a.mapCell, bTarget.cell));
@@ -136,7 +136,8 @@
       }
     }
     if (h.alive?.() === false) return true;
-    e.clearSeconds = threat ? 0 : e.clearSeconds + dt;
+    if (h.campOnly) return true; // Field-party ecology does not hold or release a distant carrier.
+    e.clearSeconds = threat || h.extraThreat?.() ? 0 : e.clearSeconds + dt;
     if (e.clearSeconds >= 30 && d.status === 'alive' && d.health >= 50 && !h.incapacitated?.(d) && v.condition >= 50) {
       e.endedAt = at; quota.roadContactId = null;
       quota.order.encounterReports ||= [];

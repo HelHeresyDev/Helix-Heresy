@@ -111,6 +111,29 @@ test('actual neutralization permits an operable original carrier to leave, witho
   assert.equal(M.fact(f.s, f.q, f.population, f.actors, 30)[0].state, 'unverified');
   assert.equal(f.q.receipts.length, 0); // The report has not returned to the city.
 });
+test('shared human opposition prevents premature wildlife-contact clearance without replacing the original encounter', () => {
+  const f = fixture(); open(f);
+  f.actors.forEach(a => { a.health = 0; a.status = 'dead'; });
+  const encounter = f.q.roadContactId, h = { ...hooks(f), extraThreat: () => true };
+  for (let at = 1; at <= 40; at++) M.step(f.s, f.q, f.site, f.actors, at, h);
+  assert.equal(f.q.roadContactId, encounter); assert.equal(f.s.encounters[0].clearSeconds, 0);
+  h.extraThreat = () => false;
+  for (let at = 41; at <= 70; at++) M.step(f.s, f.q, f.site, f.actors, at, h);
+  assert.equal(f.q.roadContactId, null); assert.equal(f.s.encounters[0].endedAt, 70);
+});
+test('field-party ecology acts on real local targets without damaging or releasing a distant carrier', () => {
+  const f = fixture(); open(f);
+  f.q.vehicle.roomId = f.q.driver.roomId = 'distant-original-depot';
+  const before = copy(f.q), local = f.actors[0].mapCell;
+  const encounter = { lastAt: 0, contacts: [], clearSeconds: 0 };
+  let hits = 0;
+  for (let at = 1; at <= 45; at++) M.step(f.s, f.q, f.site, f.actors, at, {
+    ...hooks(f), encounter, campOnly: true,
+    targets: [{ id: 'original-local-field-employee', kind: 'creature', cell: { ...local, x: local.x + 1 } }],
+    strike: (_, target) => { assert.equal(target.id, 'original-local-field-employee'); hits++; return { ok: true }; }
+  });
+  assert.ok(hits > 0); assert.deepEqual(f.q, before); assert.equal(encounter.clearSeconds, 0);
+});
 test('wounded animals flee rather than communicate, cooperate, attack or become a new healthy pack', () => {
   const f = fixture(); open(f); f.actors.forEach(a => a.health = 10);
   const start = f.actors.map(a => copy(a.mapCell));

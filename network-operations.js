@@ -7,6 +7,10 @@
   const copy = x => x == null ? null : JSON.parse(JSON.stringify(x));
   const SEND = 60, REPLY = 60, RECEIVE = 30;
   const TERMS = 'No new discretionary financing or acceptance of armed receiving-approach contests against the scientist. Existing obligations, civilian protection, humanitarian supplies, property, criticism and beliefs remain protected. No sovereignty, maps or divine endorsement is transferred.';
+  const SUPPLY_PURPOSE = 'municipalSupplyInterdiction';
+  const SUPPLY_TERMS = 'No new municipal supply-interdiction deployments against the scientist\'s administrations. Transmit authenticated stand-down orders to original employed field teams; they must receive the order and physically return. Existing civilian protection, property claims, criticism and beliefs remain protected. No map, sovereignty or divine endorsement is transferred.';
+  const purposeOf = r => r?.purpose || 'armedReceivingContest';
+  const answered = (a, r) => a?.responses?.some(x => x.requestId === r.id) || a?.reply?.requestId === r.id;
   const bound = (s, c) => s && c && s.worldId === c.worldId && s.runId === c.runId;
   function hash(x) { let n = 2166136261; for (const c of String(x)) n = Math.imul(n ^ c.charCodeAt(0), 16777619); return n >>> 0; }
   // These are bounded initial operating allocations, elaborated once from
@@ -92,6 +96,9 @@
   function rebind(s, from, to) { s = normalize(s); return bound(s, from) ? { ...s, ...to } : null; }
   function sync(s, expected = s?.source) {
     if (!s || s.invalid) return;
+    for (const a of s.accounts) if (a.reply && !a.responses?.some(r => r.requestId === a.reply.requestId)) {
+      a.responses ||= []; a.responses.push(copy(a.reply));
+    }
     // Original IDs are restored as gaps, not re-funded, if saved accounting is
     // missing. A changed public directory never erases a concealed original.
     for (const key of ['networks', 'branches', 'concealed']) for (const original of expected?.[key] || [])
@@ -130,25 +137,28 @@
     if (c.clerk?.assignment === s.job?.id) c.clerk.assignment = null;
     s.job = null;
   }
-  function begin(s, c, networkId, entryId, at, kind = 'send') {
+  function begin(s, c, networkId, entryId, at, kind = 'send', purpose = 'armedReceivingContest') {
+    if (!['armedReceivingContest', SUPPLY_PURPOSE].includes(purpose)) return false;
     if (!['send', 'receive'].includes(kind) || !contact(s, c) || s.job || c.gate.receptionAssignment || c.clerk.assignment) return false;
     const required = kind === 'send' ? SEND : RECEIVE;
     const entry = s.source.branches.find(b => b.id === entryId && b.public && b.networkId === networkId && b.cityId === c.cityId);
     const a = entry && host(s, entryId);
     if (!a || a.operator.status !== 'alive' || a.operator.assignment || a.operator.workSeconds < required || a.terminal.powerSeconds < required) return false;
-    const request = s.requests.find(r => r.networkId === networkId);
+    const request = s.requests.find(r => r.networkId === networkId && purposeOf(r) === purpose);
     if (kind === 'send' && request || kind === 'receive' && (!request || !request.deliveredAt)) return false;
     if (c.gate.receptionWorkSeconds < required || c.gate.powerSeconds < required + 1) return false;
     const jobId = `network-contact:${++s.serial}`;
-    s.job = { id: jobId, kind, networkId, entryId, cityId: c.cityId, gateId: c.gate.id, clerkId: c.clerk.id,
-      at, progress: 0, bodyEpoch: c.bodyEpoch, cell: copy(c.cell) };
+    s.job = { id: jobId, kind, purpose, networkId, entryId, cityId: c.cityId, gateId: c.gate.id, clerkId: c.clerk.id,
+      radioUnitId: c.radioUnitId || null, at, progress: 0, bodyEpoch: c.bodyEpoch, cell: copy(c.cell) };
     c.gate.receptionAssignment = c.clerk.assignment = a.operator.assignment = jobId;
     return true;
   }
-  function decision(a) {
+  function decision(a, purpose) {
     if (a.source.charter.mode === 'delegatedManagement') return { accepts: true, reason: 'Binding instruction within the explicit discretionary-finance/new-contract charter.' };
     return a.source.interest === 'retainCorridorDiscretion'
-      ? { accepts: false, reason: 'Autonomous branch retains discretion to finance restoration of receiving access. No other representative can sign that right away.' }
+      ? { accepts: false, reason: purpose === SUPPLY_PURPOSE
+        ? 'Autonomous branch retains discretion over its own field contracts after reported breaches. No other representative can waive those rights.'
+        : 'Autonomous branch retains discretion to finance restoration of receiving access. No other representative can sign that right away.' }
       : { accepts: true, reason: 'Autonomous accession; existing obligations and protected civilian work remain outside the restriction.' };
   }
   function advance(s, context, to) {
@@ -163,49 +173,59 @@
       if (s.job) dt = Math.min(dt, (s.job.kind === 'send' ? SEND : RECEIVE) - s.job.progress);
       for (const a of s.accounts) if (a.pending) dt = Math.min(dt, REPLY - a.pending.progress);
       const at = s.lastAt + dt; s.lastAt = at;
-      const j = s.job, a = j && host(s, j.entryId);
+      const j = s.job, a = j && host(s, j.entryId),
+        worked = new Set(s.accounts.filter(a => a.operator.lastOperatingWorkAt >= at).map(a => a.id));
       if (j) {
         const valid = contact(s, { ...c, busy: c.otherBusy }) && c.cityId === j.cityId && c.gate.id === j.gateId
           && c.clerk.id === j.clerkId && c.bodyEpoch === j.bodyEpoch && JSON.stringify(c.cell) === JSON.stringify(j.cell)
           && c.gate.receptionAssignment === j.id && c.clerk.assignment === j.id
           && a?.operator.assignment === j.id && a.operator.status === 'alive' && a.operator.workSeconds >= dt
+          && !worked.has(a.id)
           && a.terminal.powerSeconds >= dt && c.gate.receptionWorkSeconds >= dt && c.gate.powerSeconds >= dt + 1;
         if (!valid) { if (a?.operator.assignment === j.id) a.operator.assignment = null; release(s, c); }
         else {
-          j.progress += dt; a.operator.workSeconds -= dt; a.terminal.powerSeconds -= dt;
+          j.progress += dt; a.operator.workSeconds -= dt; a.terminal.powerSeconds -= dt; worked.add(a.id);
+          a.operator.lastOperatingWorkAt = at;
           c.gate.receptionWorkSeconds -= dt; c.gate.powerSeconds -= dt;
           if (j.progress >= (j.kind === 'send' ? SEND : RECEIVE)) {
-            if (j.kind === 'send') s.requests.push({ id: j.id, networkId: j.networkId, entryId: j.entryId, at,
-              terms: TERMS, deliveredAt: at, replies: [], receivedAt: null });
-            else receive(s, s.requests.find(r => r.networkId === j.networkId), at);
+            if (j.kind === 'send') s.requests.push({ id: j.id, purpose: purposeOf(j), networkId: j.networkId, entryId: j.entryId, at,
+              terms: purposeOf(j) === SUPPLY_PURPOSE ? SUPPLY_TERMS : TERMS, deliveredAt: at, replies: [], receivedAt: null });
+            else receive(s, s.requests.find(r => r.networkId === j.networkId && purposeOf(r) === purposeOf(j)), at);
             a.operator.assignment = null; release(s, c);
           }
         }
       }
       for (const r of s.requests) if (at > r.deliveredAt) {
         for (const b of s.source.branches.filter(b => b.networkId === r.networkId && b.public && b.hostId === b.id)) {
-          const peer = host(s, b.id); if (!peer || peer.reply?.requestId === r.id || peer.operator.assignment) continue;
+          const peer = host(s, b.id); if (!peer || answered(peer, r) || peer.operator.assignment || worked.has(peer.id)) continue;
           const principal = s.source.networks.find(n => n.id === r.networkId)?.headBranchId;
           if (b.charter.mode === 'delegatedManagement' && b.id !== principal && (!r.delegation || at <= r.delegation.at)) continue;
           if (peer.operator.status !== 'alive' || peer.operator.workSeconds < dt || peer.terminal.powerSeconds < dt) continue;
-          peer.pending ||= { requestId: r.id, progress: 0 };
+          if (peer.pending && peer.pending.requestId !== r.id) continue;
+          peer.pending ||= { requestId: r.id, progress: 0 }; worked.add(peer.id);
           peer.pending.progress += dt; peer.operator.workSeconds -= dt; peer.terminal.powerSeconds -= dt;
+          peer.operator.lastOperatingWorkAt = at;
           if (peer.pending.progress >= REPLY) {
-            const d = decision(peer);
+            const d = decision(peer, purposeOf(r));
             if (d.accepts && b.id === principal && b.charter.mode === 'delegatedManagement'
               && b.charter.controllerId === r.networkId) r.delegation = { id: `${r.id}:controller-authorization`, at,
               controllerId: r.networkId, principalBranchId: b.id, operatorId: peer.operator.id,
               scope: ['ownDiscretionaryFinance', 'ownNewContracts'] };
             peer.reply = { requestId: r.id, at, branchId: b.id, ...d };
-            if (d.accepts) peer.mandate = { id: `${r.id}:${b.id}:accession`, requestId: r.id, at,
+            peer.responses ||= []; peer.responses.push(copy(peer.reply));
+            if (d.accepts) {
+              const mandate = { id: `${r.id}:${b.id}:accession`, requestId: r.id, purpose: purposeOf(r), at,
               charterId: b.charter.id, controllerId: b.charter.controllerId, delegationId: b.charter.mode === 'delegatedManagement' ? r.delegation?.id : null,
-              scope: copy(b.charter.scope), terms: TERMS };
+              scope: copy(b.charter.scope), terms: r.terms };
+              peer.mandates ||= {}; peer.mandates[purposeOf(r)] = mandate;
+              if (purposeOf(r) === 'armedReceivingContest') peer.mandate = mandate;
+            }
             r.replies.push(copy(peer.reply)); peer.pending = null;
           }
         }
       }
       if (!s.job && !s.requests.some(r => s.source.branches.some(b => b.networkId === r.networkId && b.public && b.hostId === b.id
-        && host(s, b.id)?.reply?.requestId !== r.id && host(s, b.id)?.operator.workSeconds > 0 && host(s, b.id)?.terminal.powerSeconds > 0))) {
+        && !answered(host(s, b.id), r) && host(s, b.id)?.operator.workSeconds > 0 && host(s, b.id)?.terminal.powerSeconds > 0))) {
         s.lastAt = to; break;
       }
     }
@@ -214,7 +234,7 @@
   function receive(s, r, at) {
     if (!r) return;
     r.receivedAt = at;
-    s.reports.push({ id: `${r.id}:received:${at}`, networkId: r.networkId, at, terms: r.terms,
+    s.reports.push({ id: `${r.id}:received:${at}`, networkId: r.networkId, purpose: purposeOf(r), at, terms: r.terms,
       replies: r.replies.map(x => ({ branchId: x.branchId, label: s.source.branches.find(b => b.id === x.branchId)?.label,
         at: x.at, accepts: x.accepts, reason: x.reason })),
       limits: 'Only the specifically replying offices and their chartered assets. Silence, consolidated lineages, undisclosed affiliates and other capabilities are not certified. No map or complete branch/resource count is supplied.' });
@@ -222,7 +242,8 @@
   function permitted(s, branchId, purpose, obligationAt) {
     const a = host(s, branchId);
     if (!a || a.lost) return false;
-    if (purpose !== 'armedReceivingContest' || !a.mandate || Number.isFinite(obligationAt) && obligationAt <= a.mandate.at) return true;
+    const mandate = a.mandates?.[purpose] || (purpose === 'armedReceivingContest' ? a.mandate : null);
+    if (!mandate || Number.isFinite(obligationAt) && obligationAt <= mandate.at) return true;
     return false;
   }
   function sponsor(s, branchId, cost, operation, at) {
@@ -258,6 +279,6 @@
         canOverturn: Boolean(challenge), willing: Boolean(challenge), responseSupported: false } };
   }
   function cancel(s, c) { if (!s?.job || !bound(s, c) || !c.alive) return false; release(s, c); return true; }
-  return { SEND, REPLY, RECEIVE, TERMS, sources, create, normalize, rebind, bound, sync, host, attach, begin, advance, cancel,
+  return { SEND, REPLY, RECEIVE, TERMS, SUPPLY_PURPOSE, SUPPLY_TERMS, purposeOf, sources, create, normalize, rebind, bound, sync, host, attach, begin, advance, cancel,
     permitted, sponsor, candidates, fact, publicView: s => copy(s?.reports || []) };
 });

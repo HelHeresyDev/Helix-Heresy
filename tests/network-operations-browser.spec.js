@@ -28,7 +28,7 @@ async function prepare(page, renderer, managed) {
   const front = await outer(page), c = (await snap(page)).context.clerk.mapCell;
   await walk(page, front.saved.home.roomId, { x: c.x - 1, y: c.y + 1, z: c.z });
   let s = await snap(page); expect(s.context.near).toBe(true); expect(s.saved.requests).toEqual([]);
-  await page.locator('[data-network-action="send"][data-network-entry="branch:b"]').click();
+  await page.locator('[data-network-action="send"][data-network-entry="branch:b"][data-network-purpose="armedReceivingContest"]').click();
   await advance(page, 20); s = await snap(page); expect(s.saved.job.progress).toBe(20); expect(s.saved.requests).toHaveLength(0);
   const spent = s.context.gate.powerSeconds; await reload(page);
   s = await snap(page); expect(s.saved.job.progress).toBe(20); expect(s.context.gate.powerSeconds).toBe(spent);
@@ -37,7 +37,7 @@ async function prepare(page, renderer, managed) {
   expect(a.reply.accepts).toBe(managed); expect(cBranch.reply.accepts).toBe(true);
   expect(cBranch.mandate.controllerId).toBe('original-network'); expect(a.operator.workSeconds).toBe(14340);
   expect(s.public).toEqual([]); expect(s.saved.requests).toHaveLength(1);
-  await page.locator('[data-network-action="receive"][data-network-entry="branch:b"]').click();
+  await page.locator('[data-network-action="receive"][data-network-entry="branch:b"][data-network-purpose="armedReceivingContest"]').click();
   await advance(page, 30); s = await snap(page); expect(s.public).toHaveLength(1); expect(s.public[0].replies).toHaveLength(3);
   expect(JSON.stringify(s.public)).not.toMatch(/original-undisclosed|original-opaque|capital|workSeconds|money|latitude/);
   const text = await page.locator('[data-network-operations]').innerText(); expect(text).toContain('Original C Chapter: Scoped accession');

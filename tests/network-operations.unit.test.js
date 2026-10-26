@@ -167,3 +167,32 @@ test('refusal, silence, an ordinary armed professional and local mandates never 
   assert.equal(N.fact(f.s, 'original-network', true, f.at).state, 'notQualifying');
   assert.equal(N.fact(f.s, 'not-original', false, f.at), null);
 });
+test('separate supply scope preserves old signatures, independent replies and legacy reply accounting without duplicate work', () => {
+  const f = replies(); assert.equal(N.permitted(f.s, 'branch:b', N.SUPPLY_PURPOSE), true);
+  const old = copy(f.op('b').mandate), work = f.op('b').operator.workSeconds;
+  // A saved receiving-only account from before multi-scope support.
+  f.s.accounts.forEach(a => { delete a.responses; delete a.mandates; });
+  assert.equal(N.begin(f.s, f.c, 'original-network', 'branch:b', f.at, 'send', N.SUPPLY_PURPOSE), true);
+  f.tick(181);
+  assert.deepEqual(f.op('b').mandate, old); assert.equal(f.op('b').operator.workSeconds, work - 120);
+  assert.equal(N.permitted(f.s, 'branch:b', N.SUPPLY_PURPOSE), false);
+  assert.equal(N.permitted(f.s, 'branch:a', N.SUPPLY_PURPOSE), true);
+  assert.equal(f.op('b').responses.length, 2); assert.equal(f.op('c').responses.length, 2);
+  const spent = f.op('b').operator.workSeconds; f.tick(500); assert.equal(f.op('b').operator.workSeconds, spent);
+  assert.match(f.op('b').mandates[N.SUPPLY_PURPOSE].terms, /physically return/);
+});
+test('an attended receipt and remote reply cannot spend the same operator second on the completion boundary', () => {
+  const f = fixture(); f.send(); f.tick(60);
+  const work = f.op('b').operator.workSeconds;
+  assert.equal(N.begin(f.s, f.c, 'original-network', 'branch:b', f.at, 'receive'), true);
+  f.tick(30);
+  assert.equal(f.s.job, null); assert.equal(f.op('b').operator.workSeconds, work - 30);
+  assert.equal(f.op('b').pending, undefined);
+  f.tick(1); assert.equal(f.op('b').pending.progress, 1);
+});
+test('a remote reply waits if the same original operator has just completed another network consumer', () => {
+  const f = fixture(); f.send(); f.tick(60); const work = f.op('b').operator.workSeconds;
+  f.op('b').operator.lastOperatingWorkAt = 61;
+  f.tick(1); assert.equal(f.op('b').pending, undefined); assert.equal(f.op('b').operator.workSeconds, work);
+  f.tick(1); assert.equal(f.op('b').pending.progress, 1); assert.equal(f.op('b').operator.workSeconds, work - 1);
+});

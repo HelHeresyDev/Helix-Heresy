@@ -22,8 +22,9 @@ async function walk(page, roomId, cell) {
   const result = await page.evaluate(({ roomId, cell }) => Boolean(window.helixHeresyDebug.startScientistMove(roomId, { toCell: cell, allowMultiRoom: true, urgent: true })), { roomId, cell });
   expect(result).toBe(true); await finish(page);
 }
-async function setup(page, renderer, wounded = false) {
-  page.setDefaultTimeout(20000); page.on('dialog', d => d.accept()); await startLifecycleRun(page, `outer-approach-${renderer}`);
+async function setup(page, renderer, wounded = false, existing = false) {
+  page.setDefaultTimeout(20000); if (!existing) page.on('dialog', d => d.accept());
+  if (!existing) await startLifecycleRun(page, `outer-approach-${renderer}`);
   await page.evaluate(renderer => {
     const d = window.helixHeresyDebug; d.setMapRenderer(renderer);
     d.setIntercityPassengerTestContext({ city: { cityId: 'a', assetId: 'original-a', currentPopulation: 100, physicalCondition: 'intact', services: { transport: 'functional' } },
