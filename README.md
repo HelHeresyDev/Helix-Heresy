@@ -1088,6 +1088,8 @@ Privately, a run-owned source book preserves every original network, branch line
 
 Source inventory is **not complete strategic coverage**. Institutional reserves, actual service dependencies, armed/covert reach and their supported outcomes still require the remaining four explicit 3.35b deliverables. Neither a low rating, absent public premises, friendly letter, independent refusal nor an exhausted small office budget proves that all institutional power is resolved. These accounts grant no world-domination accomplishment.
 
+Developer planning: [Institutional owner-coverage audit](INSTITUTIONAL_COVERAGE_AUDIT.md) traces all seven capability families and 21 source definitions to actual implementations, missing owner links and remaining inventories/outcomes. It credits existing branch-backed passenger transport, mechanics, porters, survey escorts and assay workspaces without recreating services or appropriating independent/municipal assets. [Pending prompts](PENDING_PROMPTS.md) now carries eight bounded packages inside the existing four deliverables, beginning with existing-owner reconciliation. The report is not player intelligence or a change to runtime qualification.
+
 Focused checks: `tests/network-capabilities.unit.test.js`, `tests/network-capabilities-browser.spec.js`, and named operating-account, interdiction and supremacy regressions. Full-suite testing remains opt-in.
 
 ### Standing local powerworks fuel service
