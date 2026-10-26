@@ -163,7 +163,7 @@ test('restricted original archives can refuse transfer without breaking machiner
 test('missing equipment, changed duty/charters and concurrent original work cannot supply a second worker or certification', () => {
   for (const mutate of [f => f.state.providers[0].bench.condition = 49, f => f.state.providers[0].technician.workSeconds = 1,
     f => f.networks.accounts[0].operator.assignment = 'other', f => f.rule.operatorServiceAssignment = 'other',
-    f => f.networks.accounts[0].source.charter.scope = [], f => f.c.stamina = 0, f => f.wallet.money = 0]) {
+    f => f.networks.accounts[0].source.charter.scope = [], f => f.c.stamina = 0, f => f.wallet.money = 0, f => f.networks.accounts = []]) {
     const f = fixture(); mutate(f); const ok = f.begin('inspect'); if (ok) f.tick(1);
     assert.equal(f.state.inspection, null); assert.equal(f.rule.powerMaintenance.condition, 80);
   }

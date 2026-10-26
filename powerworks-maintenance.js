@@ -70,7 +70,7 @@
   const source = (s, id) => s.sources.find(r => r.id === id);
   function channel(s, networks, id) {
     const r = source(s, id), p = s.providers.find(p => p.sourceId === id), a = networks?.accounts?.find(a => a.id === r?.branchId && !a.lost);
-    return bound(s, networks) && p && a?.source.hostId === a.id && a.source.networkId === r.networkId
+    return bound(s, networks) && p && a && a.source.hostId === a.id && a.source.networkId === r.networkId
       && a.source.populationSourceId === r.populationSourceId && a.source.cityId === r.cityId ? { r, p, a } : null;
   }
   function local(s, rule, c) {
@@ -109,13 +109,15 @@
     if (kit.some(t => !t)) return false;
     const inputs = [];
     for (const [key, quantity] of Object.entries(COSTS[kind] || {})) {
-      const i = stacks.find(i => i.key === key && i.section === 'resources' && own(i) && i.quantity >= quantity);
+      const i = stacks.find(i => i.key === key && i.section === 'resources' && own(i) && i.quantity >= quantity
+        && (kind !== 'repair' || key !== 'metalParts' || !c.acceptParts || c.acceptParts(i, c.partsPolicy)));
       if (!i) return false; inputs.push({ id: i.id, key, quantity });
     }
     const id = `${s.id}:work:${++s.serial}`;
     s.job = { id, kind, providerId: providerId || null, charterId: ch?.a.source.charter.id || null,
       handoverId: rule.handoverId, bodyEpoch: c.bodyEpoch, at, progress: 0, toolWearBlocks: 0, fee: remote ? FEES[kind] : 0, paid: false,
       inputs, tools: kit.map(t => ({ id: t.tool.id, stackId: t.stack.id, key: t.key })), cell: copy(c.cell) };
+    if (kind === 'repair' && c.acceptParts) s.job.partsPolicy = copy(c.partsPolicy);
     for (const i of inputs) stacks.find(s => s.id === i.id).reservedTaskId = id;
     for (const t of kit) { t.stack.reservedTaskId = id; t.tool.reservedTaskId = id; }
     if (kind === 'repair') rule.powerMaintenance.repairAssignment = id;
@@ -166,7 +168,8 @@
       const j = s.job; if (!j) { s.lastAt = to; break; }
       const c = context(), stacks = h.stacks(), tools = h.tools(), ch = j.providerId && channel(s, networks, j.providerId);
       const actualTools = j.tools.map(r => tools.find(t => t.stack.id === r.stackId && t.tool?.id === r.id)).filter(Boolean);
-      const inputs = j.inputs.every(r => stacks.some(i => i.id === r.id && i.key === r.key && own(i, j.id) && i.reservedTaskId === j.id && i.quantity >= r.quantity));
+      const inputs = j.inputs.every(r => stacks.some(i => i.id === r.id && i.key === r.key && own(i, j.id) && i.reservedTaskId === j.id && i.quantity >= r.quantity
+        && (r.key !== 'metalParts' || !Object.prototype.hasOwnProperty.call(j, 'partsPolicy') || c.acceptParts?.(i, j.partsPolicy))));
       const remoteReady = !j.providerId || ch && ch.p.accepting && able(ch.p.technician) && ch.p.technician.assignment === j.id
         && ch.p.bench.condition >= 50 && ch.p.bench.workSeconds >= dt && ch.a.operator.status === 'alive'
         && ch.a.operator.assignment === j.id && ch.a.operator.workSeconds >= dt && ch.a.terminal.powerSeconds >= dt
@@ -209,6 +212,7 @@
         const i = stacks.find(i => i.id === r.id); i.quantity -= r.quantity;
         i.knownQuantity = Math.min(i.knownQuantity ?? i.quantity, i.quantity);
       }
+      if (j.kind === 'repair') h.partsInstalled?.(stacks, j.inputs);
       if (j.kind === 'inspect') s.inspection = { at, powerId: s.powerId, condition: rule.powerMaintenance.condition,
         repaired: rule.powerMaintenance.repaired, fault: 'Regulator alignment and worn conductor seals', providerId: j.providerId };
       if (j.kind === 'repair') {
@@ -227,5 +231,5 @@
     s.history = s.history.slice(-100); register(s, networks); return true;
   }
   return { WORKFACE, SECONDS, FEES, COSTS, SCOPE, bound, sources, validSource, create, normalize, rebind, target, channel,
-    begin, cancel, receive, register, savedTools, advance, active: s => Boolean(s && !s.invalid && s.job), publicView: s => copy(s?.report) };
+    instruments, begin, cancel, receive, register, savedTools, advance, active: s => Boolean(s && !s.invalid && s.job), publicView: s => copy(s?.report) };
 });

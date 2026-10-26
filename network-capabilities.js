@@ -93,6 +93,9 @@
           for (const id of allocation.claimIds || []) add(a.id, id, 'finance', 'receivableFinance.claims', 'oneAssignedExportReceivableNotNewCashOrTotalWealth');
         } else if (allocation.kind === 'civicRelayAccess') {
           add(a.id, allocation.interfaceId, 'mediaReach', 'civicCommunications.ports', 'oneOriginalAccessInterfaceNotConstellationOwnership');
+        } else if (allocation.kind === 'powerworksPartsAssessment') {
+          add(a.id, allocation.reviewerId, 'certification', 'powerworksStandards.providers.reviewer', 'finiteOriginalMaterialAssessmentNotSovereignty');
+          add(a.id, allocation.benchId, 'certification', 'powerworksStandards.providers.bench', 'originalReviewApparatusNotMunicipalTestJig');
         } else if (allocation.kind === 'powerworksTechnicalService') {
           add(a.id, allocation.technicianId, 'research', 'powerworksMaintenance.providers.technician', 'oneQualifiedOriginalRegulatorSpecialist');
           add(a.id, allocation.benchId, 'research', 'powerworksMaintenance.providers.bench', 'finiteOriginalDiagnosticBench');

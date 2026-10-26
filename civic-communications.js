@@ -5,7 +5,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
   const copy = x => x == null ? null : JSON.parse(JSON.stringify(x));
-  const PURPOSES = Object.freeze(['fuelProcurement', 'technicalGuidance', 'networkCorrespondence', 'receivableFinance']);
+  const PURPOSES = Object.freeze(['fuelProcurement', 'technicalGuidance', 'networkCorrespondence', 'receivableFinance', 'partsAssessment']);
   const TERMS = 'Route only the selected civic-service message classes through an original access interface. Authentication identifies the actual issuer and its narrow existing authority; it grants no sovereignty, worship, certification monopoly or power over old documents. Accepted obligations and local work survive outages. No map, remote inventory or hidden-resource report is supplied.';
   const bound = (a, b) => Boolean(a && b && a.worldId === b.worldId && a.runId === b.runId);
   const finite = n => Number.isFinite(n) && n >= 0;
