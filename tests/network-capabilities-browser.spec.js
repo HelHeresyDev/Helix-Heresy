@@ -87,6 +87,10 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: actual clerk reques
   expect(await page.evaluate(() => window.helixHeresyDebug.supremacyAction('review'))).toBe(true);
   const evidence = await page.evaluate(() => window.helixHeresyDebug.supremacySnapshot().public.review.evidence);
   const account = evidence.find(e => e.id === receipt.id); expect(account.status).toBe('unverified');
+  const office = evidence.find(e => e.id === `${receipt.id}:office:branch:b`);
+  expect(office.account.scope).toBe('Own-office function disclosure'); expect(office.account.findings).toContain('This office supplied a limited account of its own functions.');
+  expect(office.observedAt).toBe(receipt.replies.find(r => r.branchId === 'branch:b').at);
+  expect(office.receivedAt).toBe(receipt.at); expect(office.account.limits).toContain('hidden ownership');
   expect(account.observedAt).toBe(receipt.observedAt); expect(account.receivedAt).toBe(receipt.at);
   expect(JSON.stringify(evidence)).not.toMatch(/original-undisclosed|original-opaque|catalogComplete|strategicComplete/);
   expect(await page.evaluate(() => window.helixHeresyDebug.campaignSnapshot())).toEqual(original.campaign);

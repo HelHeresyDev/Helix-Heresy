@@ -183,6 +183,7 @@
   const NetworkOperations = window.HelixNetworkOperations;
   const NetworkCapabilities = window.HelixNetworkCapabilities;
   const InstitutionalOutcomes = window.HelixInstitutionalOutcomes;
+  const InstitutionalEvidence = window.HelixInstitutionalEvidence;
   const NetworkOwnerReconciliation = window.HelixNetworkOwnerReconciliation;
   const NetworkInventories = window.HelixNetworkInventories;
   const CityServices = window.HelixCityServices;
@@ -81419,52 +81420,37 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const binding = { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id };
     const evidence = [], r = Supremacy.bound(state.cityRule, binding) && state.cityRule.report;
     if (NetworkOperations.bound(state.networkOperations, binding)) for (const r of NetworkOperations.publicView(state.networkOperations))
-      evidence.push({ id: r.id, sourceId: r.networkId, label: r.purpose === NetworkCapabilities.PURPOSE
-        ? 'Received limited institutional capability accounts — wider powers unverified'
-        : 'Received scoped network accessions/refusals — other capacities unverified',
-        status: 'unverified', observedAt: r.observedAt ?? r.at, receivedAt: r.at });
+      evidence.push(...InstitutionalEvidence.network(r));
     if (TerrestrialForces.bound(state.terrestrialForces, binding)) for (const r of TerrestrialForces.publicView(state.terrestrialForces))
-      evidence.push({ id: r.id, sourceId: r.branchId, label: `${r.text} Wider organizational capability remains unverified.`,
-        status: 'unverified', observedAt: r.at, receivedAt: r.at });
+      evidence.push(...InstitutionalEvidence.ground(r));
     if (CovertFunctions.bound(state.covertFunctions, binding)) for (const r of CovertFunctions.publicView(state.covertFunctions))
-      evidence.push({ id: r.id, sourceId: r.ownerId, label: `Received prospective collection introduction from ${r.label}; no wider access or governing leverage established.`,
-        status: 'unverified', observedAt: r.observedAt, receivedAt: r.at });
+      evidence.push(...InstitutionalEvidence.covert(r));
     for (const t of state.penalFlights?.assistance?.cityApproach?.trips || []) {
       if (!Supremacy.bound(t.component, binding)) continue;
       const r = ComponentExpedition.publicView(t); if (!r?.charter) continue;
-      evidence.push({ id: `flight-scope:${t.id}:${r.at}`, sourceId: r.charter.ownerId,
-        label: 'Received named independent aircraft charter — civilian round trip only; no military or orbital command',
-        status: 'unverified', observedAt: r.at, receivedAt: r.at });
+      evidence.push(...InstitutionalEvidence.charter(r));
     }
     for (const g of outerApproachGates()) {
-      const p = g.outerApproach.chapterProtection, v = ChapterProtection.publicView(p); if (!v) continue;
-      evidence.push({ id: `${p.id}:received:${v.at}`, sourceId: p.source.branchId,
-        label: 'Received local protective commitment — network-wide capability unverified', status: 'unverified', observedAt: v.at, receivedAt: v.at });
+      const p = g.outerApproach.chapterProtection, v = Supremacy.bound(p, binding) && ChapterProtection.publicView(p); if (!v) continue;
+      evidence.push(...InstitutionalEvidence.protection(v));
     }
     for (const r of municipalSupplyRecords()) evidence.push({ id: r.id, sourceId: state.cityProvisioning.id,
       label: r.label + ' — regional capability remains unverified', status: 'unverified', observedAt: r.at, receivedAt: r.receivedAt });
-    if (r) evidence.push({ id: `city-rule:${r.sourceId}:${r.at}`, sourceId: r.sourceId,
-      label: `Received city operating account — ${r.cityId}`,
-      status: r.status === 'established' && r.foodKg > 0 && r.waterLiters > 0 && r.energy > 0 ? 'control'
-        : r.status === 'contested' ? 'challenge' : 'unverified', observedAt: r.at, receivedAt: r.at });
+    if (r) evidence.push(...InstitutionalEvidence.city(r));
     // Only legitimately received dated service records enter player review.
     for (const e of CityServices.entries(state)) for (const [kind, report] of [
-      ['technical', PowerworksMaintenance.publicView(e.owner.powerworksMaintenance)],
-      ['parts', PowerworksStandards.publicView(e.owner.powerworksStandards)],
-      ['fuel', MunicipalFuelService.publicView(e.owner.municipalFuelService)],
-      ['communications', CivicCommunications.publicView(state.civicCommunications, e.rule.source.cityId)]
-    ]) if (report) evidence.push({ id: `city-service:${e.rule.id}:${kind}:${report.at}`, sourceId: e.rule.id,
-      label: `Received ${kind} service account — ${e.rule.source.cityId}; scoped, not whole-network resolution`,
-      status: 'unverified', observedAt: report.measuredAt ?? report.at, receivedAt: report.at });
-    const cityReports = new Set(r ? [r.cityId] : []);
+      ['technical', Supremacy.bound(e.owner.powerworksMaintenance, binding) && e.owner.powerworksMaintenance.ruleId === e.rule.id && PowerworksMaintenance.publicView(e.owner.powerworksMaintenance)],
+      ['parts', Supremacy.bound(e.owner.powerworksStandards, binding) && e.owner.powerworksStandards.ruleId === e.rule.id && PowerworksStandards.publicView(e.owner.powerworksStandards)],
+      ['fuel', Supremacy.bound(e.owner.municipalFuelService, binding) && e.owner.municipalFuelService.ruleId === e.rule.id && MunicipalFuelService.publicView(e.owner.municipalFuelService)],
+      ['communications', Supremacy.bound(state.civicCommunications, binding) && CivicCommunications.publicView(state.civicCommunications, e.rule.source.cityId)]
+    ]) if (report && Supremacy.bound(e.rule, binding)) evidence.push(...InstitutionalEvidence.service(kind, report, e.rule.source.cityId, e.rule.id));
+    const cityReports = new Set([...evidence, ...(state.durableSupremacy?.review?.evidence || [])]
+      .filter(e => e.seriesId?.startsWith('city-control:')).map(e => e.seriesId.slice('city-control:'.length)));
     for (const g of regionalGovernmentGates()) {
       const report = RegionalGovernment.publicView(g.regionalGovernment).knowledge?.report;
-      if (!report) continue;
+      if (!report || !Supremacy.bound(g.regionalGovernment, binding)) continue;
       cityReports.add(report.cityId);
-      evidence.push({ id: `city-rule:${report.sourceId}:${report.at}`, sourceId: report.sourceId,
-        label: `Received city operating account — ${report.cityId}`, status: report.status === 'established'
-          && report.foodKg > 0 && report.waterLiters > 0 && report.energy > 0 ? 'control' : report.status === 'contested' ? 'challenge' : 'unverified',
-        observedAt: report.at, receivedAt: report.at });
+      evidence.push(...InstitutionalEvidence.city(report));
     }
     for (const d of state.strategicJourneys?.destinations || []) if (d.known && d.kind === 'fortifiedCity' && !cityReports.has(d.cityId))
       evidence.push({ id: `own-records:${d.id}`, sourceId: 'own-held-records',
@@ -81499,7 +81485,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       panel.append(textEl('p', `Own document review ${formatClock(v.review.at)}. Source dates below are not refreshed.`));
       if (!v.review.evidence.some(e => ['control', 'influence', 'challenge'].includes(e.status)))
         panel.append(textEl('p', 'No relevant received control or regional-resolution evidence recorded.'));
-      for (const e of v.review.evidence) panel.append(textEl('p', `${e.label}: ${e.status}. Observed ${formatClock(e.observedAt)}; received ${formatClock(e.receivedAt)}.`));
+      for (const e of v.review.evidence) {
+        const record = document.createElement('section'); record.dataset.supremacyEvidence = e.id;
+        record.append(textEl('p', `${e.label}: ${e.account ? 'Wider strategic effect: ' : ''}${e.status}. Observed ${formatClock(e.observedAt)}; received ${formatClock(e.receivedAt)}.`));
+        if (e.account) {
+          record.append(textEl('p', `Source: ${e.account.issuer}. Scope: ${e.account.scope}.`));
+          for (const finding of e.account.findings) record.append(textEl('p', `Establishes: ${finding}`));
+          record.append(textEl('p', `Limits: ${e.account.limits}`));
+        }
+        if (e.supersededBy) record.append(textEl('p', 'Historical account — a newer received observation covers this same source and scope; the original dates are retained.'));
+        panel.append(record);
+      }
     }
     panel.append(textEl('p', v.limits)); return panel;
   }

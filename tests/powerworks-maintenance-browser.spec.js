@@ -59,6 +59,12 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: original powerworks
     expect(s.stacks.find(i => i.key === 'assayReagent')?.quantity ?? 0).toBe(0);
   }
   const money = (await snap(page)).money;
+  expect(await page.evaluate(() => window.helixHeresyDebug.supremacyAction('review'))).toBe(true);
+  const acquired = await page.evaluate(() => window.helixHeresyDebug.supremacySnapshot().public.review.evidence);
+  const learned = acquired.find(e => e.account?.scope === 'Retained original-plant regulator method');
+  expect(learned.observedAt).toBe((await snap(page)).saved.method.at);
+  expect(acquired.find(e => e.account?.scope === 'Original plant regulator inspection').observedAt).toBe(dated.measuredAt);
+  expect(learned.account.limits).toContain('another plant'); expect(learned.status).toBe('unverified');
   // Actual independent work uses the retained method and original carried
   // instruments; no provider/municipal technician is created or charged.
   await panel.locator('[data-powerworks-action="repair"]:not([data-provider-id])').click(); await tick(page, 173);
@@ -75,6 +81,7 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: original powerworks
   } else {
     await page.reload(); await page.locator('#loadLastSaveBtn').click(); await page.locator('[data-workspace-tab="visits"]').click();
   }
+  expect(await page.evaluate(id => window.helixHeresyDebug.supremacySnapshot().public.review.evidence.find(e => e.id === id), learned.id)).toEqual(learned);
   expect((await snap(page)).saved.job.progress).toBe(173); await tick(page, 427); s = await snap(page);
   expect(s.saved.job).toBeNull(); expect(s.rule.powerMaintenance.condition).toBe(100); expect(s.rule.powerMaintenance.repairAssignment).toBeUndefined();
   expect(s.rule.powerMaintenance.repaired).toBeGreaterThan(1); expect(s.money).toBe(money);
@@ -83,6 +90,13 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: original powerworks
   expect(s.tools.find(t => t.key === 'masonryHammer').tool.current).toBeLessThan(before.tools.find(t => t.key === 'masonryHammer').tool.current);
   expect(s.saved.providers).toEqual(partial.saved.providers); expect(s.networks.accounts.every(a => !a.mandate)).toBe(true);
   await expect(panel).toContainText('Transferable local method retained');
+  expect(await page.evaluate(() => window.helixHeresyDebug.supremacyAction('review'))).toBe(true);
+  const updated = await page.evaluate(() => window.helixHeresyDebug.supremacySnapshot().public.review.evidence);
+  expect(updated.find(e => e.id === learned.id)).toEqual(learned);
+  const oldInspection = acquired.find(e => e.account?.scope === 'Original plant regulator inspection');
+  expect(updated.find(e => e.id === oldInspection.id).supersededBy).toBeTruthy();
+  const knownReview = await page.evaluate(() => window.helixHeresyDebug.supremacySnapshot().public);
+  await tick(page, 2); expect(await page.evaluate(() => window.helixHeresyDebug.supremacySnapshot().public)).toEqual(knownReview);
   expect(await page.evaluate(() => window.helixHeresyDebug.validateMapScene())).toEqual([]);
   expect(await page.evaluate(() => localStorage.getItem('helix-heresy-v2-world:lifecycle-world'))).toBe(world);
   if (renderer === 'canvas') {

@@ -75,6 +75,10 @@ test('DOM: actual spherical cross-network flight, independent visitor review, pe
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await setup(page, 'dom'); const worldBefore = await page.evaluate(() => localStorage.getItem('helix-heresy-v2-world:lifecycle-world'));
   const { initial, provider, cargo } = await launch(page);
+  expect(await page.evaluate(() => window.helixHeresyDebug.supremacyAction('review'))).toBe(true);
+  const receivedCharter = await page.evaluate(() => window.helixHeresyDebug.supremacySnapshot().public.review.evidence.find(e => e.account?.scope === 'The named independent aircraft, pilot and civilian round trip'));
+  expect(receivedCharter).toBeTruthy(); expect(receivedCharter.account.limits).toContain('No military passage');
+  expect(receivedCharter.status).toBe('unverified');
   await expect(page.locator('[data-foreign-reception]')).toBeVisible();
   expect(await page.evaluate(() => window.helixHeresyDebug.foreignReceptionAction('enter'))).toBe(false);
   expect(await page.evaluate(() => window.helixHeresyDebug.boardSurveyVehicle())).toBe(false);
@@ -94,6 +98,7 @@ test('DOM: actual spherical cross-network flight, independent visitor review, pe
   expect(imported.trip.component.worldId).toBe(imported.binding.worldId); expect(imported.provider).toEqual(beforeImport.provider);
   expect(imported.gate.visitorAdmission.decisions).toEqual(visitor.gate.visitorAdmission.decisions);
   expect(imported.trip.component.charter).toEqual(beforeImport.trip.component.charter);
+  expect(await page.evaluate(id => window.helixHeresyDebug.supremacySnapshot().public.review.evidence.find(e => e.id === id), receivedCharter.id)).toEqual(receivedCharter);
   await page.reload(); await page.locator('#loadLastSaveBtn').click(); await page.locator('[data-workspace-tab="visits"]').click();
   let s = await snap(page); expect(s.roomId).toBe(s.gate.checkpointRoomId); expect(s.carried.map(s => s.id)).toEqual(cargo);
   await page.getByRole('button', { name: 'Walk to Aircraft and Return to Departure Apron', exact: true }).click();

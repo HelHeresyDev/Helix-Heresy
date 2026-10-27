@@ -146,20 +146,53 @@
     return s.phase !== oldPhase || s.reason !== oldReason;
   }
   function normalizeEvidence(v) {
-    return v && ['id', 'sourceId', 'label'].every(k => id(v[k])) && ['control', 'influence', 'unverified', 'challenge'].includes(v.status)
+    if (!(v && ['id', 'sourceId', 'label'].every(k => id(v[k])) && ['control', 'influence', 'unverified', 'challenge'].includes(v.status)
       && time(v.observedAt) && time(v.receivedAt) && v.observedAt <= v.receivedAt
-      ? { id: v.id, sourceId: v.sourceId, label: v.label, status: v.status, observedAt: v.observedAt, receivedAt: v.receivedAt } : null;
+    )) return null;
+    const result = { id: v.id, sourceId: v.sourceId, label: v.label, status: v.status, observedAt: v.observedAt, receivedAt: v.receivedAt };
+    const a = v.account;
+    if (a && ['issuer', 'scope', 'limits'].every(k => id(a[k])) && Array.isArray(a.findings) && a.findings.length <= 8 && a.findings.every(id)) {
+      result.account = { issuer: a.issuer, scope: a.scope, findings: [...a.findings], limits: a.limits };
+      if (id(v.seriesId)) result.seriesId = v.seriesId;
+    }
+    return result;
   }
   function normalizeReview(v) {
     if (!time(v?.at) || !Array.isArray(v.evidence)) return null;
-    const evidence = v.evidence.map(normalizeEvidence).filter(e => e && e.receivedAt <= v.at);
-    return { at: v.at, evidence, apparent: evidence.some(e => e.status === 'control') && !evidence.some(e => ['challenge', 'unverified'].includes(e.status)) };
+    const seen = new Set(), evidence = v.evidence.map(normalizeEvidence)
+      .filter(e => e && e.receivedAt <= v.at && !seen.has(e.id) && seen.add(e.id));
+    // Only a newer observation from the SAME issuer/source and exact claim
+    // series supersedes an older one. A later receipt of an old observation,
+    // another office, or a narrower/unrelated account cannot clear it.
+    const newest = new Map();
+    for (const e of evidence.filter(e => e.seriesId)) {
+      const key = JSON.stringify([e.sourceId, e.account.issuer, e.account.scope, e.seriesId]);
+      if (!newest.has(key) || newest.get(key).observedAt < e.observedAt) newest.set(key, e);
+    }
+    for (const e of evidence.filter(e => e.seriesId)) {
+      const newer = newest.get(JSON.stringify([e.sourceId, e.account.issuer, e.account.scope, e.seriesId]));
+      if (newer.observedAt > e.observedAt) e.supersededBy = newer.id;
+    }
+    const relevant = evidence.filter(e => !e.supersededBy);
+    return { at: v.at, evidence, apparent: relevant.some(e => e.status === 'control') && !relevant.some(e => ['challenge', 'unverified'].includes(e.status)) };
   }
   function review(s, b, evidence, at, alive = true, capable = true) {
     if (!alive || !capable || !bound(s, b) || !time(at) || s.review?.at > at) return false;
     // This path must NEVER inspect the roster, private phase or holding clock.
     const seen = new Set();
-    s.review = normalizeReview({ at, evidence: (evidence || []).map(normalizeEvidence)
+    // An own-records gap is a fresh analysis of held knowledge, not a received
+    // historical document. Receiving the missing account can resolve that gap.
+    const incoming = (evidence || []).map(normalizeEvidence).filter(e => e && e.receivedAt <= at);
+    const received = new Map(incoming.map(e => [e.id, e]));
+    const held = (s.review?.evidence || []).filter(e => e.sourceId !== 'own-held-records').map(e => {
+      const same = received.get(e.id);
+      // An old save may have omitted presentation details. They can be
+      // projected from the SAME still-held document, never a changed date,
+      // status or live institutional truth. Already detailed records freeze.
+      return !e.account && same?.account && ['sourceId', 'status', 'observedAt', 'receivedAt'].every(k => e[k] === same[k])
+        ? { ...e, account: same.account, ...(same.seriesId ? { seriesId: same.seriesId } : {}) } : e;
+    });
+    s.review = normalizeReview({ at, evidence: [...held, ...incoming].map(normalizeEvidence)
       .filter(e => e && e.receivedAt <= at && !seen.has(e.id) && seen.add(e.id)) }); return true;
   }
   function publicView(s) {

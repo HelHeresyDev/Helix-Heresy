@@ -74,6 +74,11 @@ test('DOM original broker introduces only an actual independent collection contr
   expect(await page.evaluate(id => window.helixHeresyDebug.confidentialServiceSnapshot().local.collections.find(j => j.id === id), collection.id)).toEqual(delivered.local.collections.find(j => j.id === collection.id));
   expect(await page.evaluate(() => window.helixHeresyDebug.supremacyAction('review'))).toBe(true);
   expect(await page.evaluate(id => window.helixHeresyDebug.supremacySnapshot().public.review.evidence.find(e => e.id === id).status, report[0].id)).toBe('unverified');
+  const evidence = await page.evaluate(id => window.helixHeresyDebug.supremacySnapshot().public.review.evidence.find(e => e.id === id), report[0].id);
+  expect(evidence.account.scope).toBe('The exact nonliving collection request and dated quote');
+  expect(evidence.account.findings[0]).toContain('no carrier or cargo was reserved');
+  expect(evidence.observedAt).toBe(report[0].observedAt); expect(evidence.receivedAt).toBe(report[0].at);
+  expect(evidence.account.limits).toContain('No government credential');
   const frozen = await snap(page); await page.evaluate(() => window.helixHeresyDebug.inflictTestScientistDamage()); await tick(page, 30);
   expect((await snap(page)).saved).toEqual(frozen.saved); expect((await snap(page)).networks).toEqual(frozen.networks);
   expect(await page.evaluate(() => window.helixHeresyDebug.validateMapScene())).toEqual([]); expect(errors).toEqual([]);
