@@ -312,15 +312,17 @@
       && a.source.interest === 'retainCorridorDiscretion' && a.source.financePolicy?.purpose === 'armedReceivingContest'
       && a.terminal.powerSeconds >= 1 && permitted(s, a.id, 'armedReceivingContest')).map(a => a.id).sort();
   }
-  function fact(s, networkId, challenge, at) {
+  function fact(s, networkId, challenge, at, frame) {
     if (!s?.source?.networks?.some(n => n.id === networkId)) return null;
-    // This consumer accounts for office capital and specific local allocations,
-    // NOT all armed/covert/certification/research capacity of an organization.
+    const outcome = Capabilities.assess(s.capabilityAccounting, s, networkId, frame, at).outcome;
+    const failed = challenge || outcome?.state === 'notQualifying';
+    // Legacy office-only callers stay unverified. A limited accession never
+    // manufactures the absent source-bound strategic owner outcomes.
     return { worldId: s.worldId, runId: s.runId, targetId: `counterpower:${networkId}`, sourceId: networkId,
-      kind: 'counterpower', at, since: at, state: challenge ? 'notQualifying' : 'unverified',
+      kind: 'counterpower', at, since: outcome?.since ?? at, state: failed ? 'notQualifying' : outcome?.state || 'unverified',
       proofId: `network-operations:${networkId}`, basis: 'supportedNonintervention', strategic: {
         scope: 'terrestrialRule', consumerId: 'networkOperations', sourceId: networkId, at,
-        canOverturn: Boolean(challenge), willing: Boolean(challenge), responseSupported: false } };
+        canOverturn: Boolean(failed), willing: Boolean(failed), responseSupported: false } };
   }
   function cancel(s, c) { if (!s?.job || !bound(s, c) || !c.alive) return false; release(s, c); return true; }
   return { SEND, REPLY, RECEIVE, TERMS, SUPPLY_PURPOSE, SUPPLY_TERMS, purposeOf, sources, create, normalize, rebind, bound, sync, host, attach, begin, advance, cancel,

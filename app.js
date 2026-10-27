@@ -182,6 +182,7 @@
   const ChapterProtection = window.HelixChapterProtection;
   const NetworkOperations = window.HelixNetworkOperations;
   const NetworkCapabilities = window.HelixNetworkCapabilities;
+  const InstitutionalOutcomes = window.HelixInstitutionalOutcomes;
   const NetworkOwnerReconciliation = window.HelixNetworkOwnerReconciliation;
   const NetworkInventories = window.HelixNetworkInventories;
   const CityServices = window.HelixCityServices;
@@ -13880,6 +13881,15 @@
         capabilityAssessments: state.networkOperations?.source?.networks.map(n => ({ networkId: n.id,
           ...NetworkCapabilities.assess(state.networkOperations.capabilityAccounting, state.networkOperations, n.id) })),
         campaign: state.campaign }),
+      institutionalOutcomesSnapshot: () => {
+        const n = state.networkOperations;
+        if (!n) return null;
+        const frame = InstitutionalOutcomes.frame(n, state, state.clock, {
+          alive: !scientistIsDead(), chapter: chapterProtectionContext, field: networkInterdictionContext, incapacitated: actorIsIncapacitated });
+        return clonePlainObject({ clock: state.clock, continuity: n.capabilityAccounting?.institutionalContinuity,
+          assessments: n.source.networks.map(v => InstitutionalOutcomes.read(frame, n, v.id, state.clock)),
+          public: NetworkOperations.publicView(n) });
+      },
       setOriginalInstitutionalInventoryTestSource: source => {
         if (!activeWorldRecord || !activeRunRecord || scientistIsDead() || state.clock !== 0 || state.intercityPassenger
           || state.networkOperations?.requests?.length || state.networkOperations?.preparedOriginalInventories
@@ -15175,7 +15185,7 @@
             || ['approaching', 'returningToPost'].includes(state.cityProvisioning?.order?.phase);
           const step = Math.min(left, physical ? 1 : 60); state.clock += step; left -= step;
           updateIntercityPassenger(); updateForeignReception(); updateScientistMovementTask(); completeDueTasks(); updateScientistIdentity(); updatePendingCombatActions(); progressInjuries();
-          if (CityServices.active(state) || state.terrestrialForces?.posts?.length) updateNetworkOperations();
+          updateNetworkOperations();
           if (CityServices.entries(state).some(e => MunicipalFuelService.active(e.owner.municipalFuelService))) advanceLocalMarketProduction(state.clock);
           updateCityProvisioning(); updateCityDefense(); updateCityRule(); updateRegionalGovernments(); updateSupremacy();
         }
@@ -81383,14 +81393,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (!old || fact.state === 'notQualifying') chapters.set(p.source.networkId, fact);
     }
     const operations = ensureNetworkOperations();
-    if (operations) for (const n of operations.source.networks) {
-      const old = chapters.get(n.id);
-      const q = state.cityProvisioning;
-      const supplyChallenge = state.cityRule?.status === 'contested' && q?.stores.cityKg <= 0 && q.demand.unmetKg > 0
-        && state.networkInterdiction?.units?.some(u => u.source.networkId === n.id && u.phase === 'deployed' && !u.deployment?.ceasefire
-          && u.actors.some(a => NetworkInterdiction.able(a) && !actorIsIncapacitated(a)) && u.deployment?.carrier?.id === q.roadContactId
-          && !u.deployment.carrier.endedAt && u.deployment.contacts.some(c => c.targetId === q.vehicle.id && c.vehicleDamage > 0));
-      chapters.set(n.id, NetworkOperations.fact(operations, n.id, old?.state === 'notQualifying' || supplyChallenge, state.clock));
+    if (operations) {
+      const frame = InstitutionalOutcomes.frame(operations, state, state.clock, {
+        alive: !scientistIsDead(), chapter: chapterProtectionContext, field: networkInterdictionContext, incapacitated: actorIsIncapacitated });
+      InstitutionalOutcomes.advance(operations, state, frame, state.clock);
+      for (const n of operations.source.networks) chapters.set(n.id,
+        NetworkOperations.fact(operations, n.id, chapters.get(n.id)?.state === 'notQualifying', state.clock, frame));
     }
     facts.push(...chapters.values());
     const city = state.cityRule && Supremacy.cityAccount(s, state.cityRule, state.citySuccession,

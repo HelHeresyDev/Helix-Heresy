@@ -1,10 +1,11 @@
 (function (root, factory) {
   const node = typeof module === 'object' && module.exports;
   const api = factory(node ? require('./network-owner-reconciliation') : root.HelixNetworkOwnerReconciliation,
-    node ? require('./network-inventories') : root.HelixNetworkInventories);
+    node ? require('./network-inventories') : root.HelixNetworkInventories,
+    node ? require('./institutional-outcomes') : root.HelixInstitutionalOutcomes);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixNetworkCapabilities = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Owners, Inventories) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Owners, Inventories, Outcomes) {
   'use strict';
   const FAMILIES = Object.freeze(['finance', 'research', 'transport', 'armedForce', 'mediaReach', 'certification', 'covertAccess']);
   const PURPOSE = 'institutionalCapabilityAccount';
@@ -74,6 +75,8 @@
   function rebind(s, from, to) {
     s = normalize(s); if (!bound(s, from)) return null;
     if (s.ownerReconciliationInitialized) s.ownerReconciliation = Owners.rebind(s.ownerReconciliation, from, to);
+    if (s.institutionalContinuity) s.institutionalContinuity = bound(s.institutionalContinuity, from)
+      ? { ...s.institutionalContinuity, worldId: to.worldId, runId: to.runId } : null;
     return { ...s, worldId: to.worldId, runId: to.runId };
   }
   function references(operations, networkId) {
@@ -123,7 +126,7 @@
     }
     return refs.concat(Owners.view(operations?.capabilityAccounting, operations, networkId).references);
   }
-  function assess(s, operations, networkId) {
+  function assess(s, operations, networkId, frame, at) {
     if (!s || s.invalid || !bound(s, operations) || !s.originals.some(r => r.kind === 'network' && r.networkId === networkId))
       return { catalogComplete: false, strategicComplete: false, state: 'unverified', sources: [], references: [], families: [] };
     const sources = s.originals.filter(r => r.networkId === networkId), refs = references(operations, networkId);
@@ -146,16 +149,19 @@
       for (const r of a.allocations) if (r.contractId || r.assignment) commitments.push({ id: r.contractId || r.assignment,
         branchId: a.id, kind: 'existingAllocationCommitment', allocationId: r.id });
     }
+    const outcome = s === operations.capabilityAccounting ? Outcomes.read(frame, operations, networkId, at) : null;
     return { catalogComplete: s.catalogComplete && !s.conflict && sources.every(r => records.get(r.id)?.networkId === r.networkId && !records.get(r.id).lost),
-      // This foundation cannot certify the unimplemented strategic consumers.
-      strategicComplete: false, state: 'unverified',
+      // Only a current read of the actual original consumers can resolve this.
+      strategicComplete: outcome?.strategicComplete === true, state: outcome?.state || 'unverified', outcome,
       sources: sources.map(r => { const accountId = branchAccounts.find(b => b.sourceId === r.id)?.accountId;
         return { id: r.id, kind: r.kind, lost: records.get(r.id)?.lost !== false,
-          families: FAMILIES.map(family => ({ family,
+          families: outcome?.sources.find(s => s.id === r.id)?.families || FAMILIES.map(family => ({ family,
             state: refs.some(a => a.family === family && (a.branchIds ? a.branchIds.includes(r.sourceId)
               : accountId && a.accountId === accountId)) ? 'partiallyAccounted' : 'unallocated' })) };
       }), branchAccounts, commitments: commitments.concat(ownerAccount.commitments), ownerAccount, inventory,
-      references: refs, families: FAMILIES.map(family => ({ family, state: refs.some(r => r.family === family) ? 'partiallyAccounted' : 'unallocated',
+      references: refs, families: FAMILIES.map(family => outcome ? { family, state: outcome.state,
+        assetIds: [...new Set(outcome.sources.flatMap(s => s.families.find(f => f.family === family)?.assetIds || []))] }
+        : ({ family, state: refs.some(r => r.family === family) ? 'partiallyAccounted' : 'unallocated',
         requires: 'Actual owner assets, authority, commitments, necessary-government dependency, feasible reach, intent and supported outcomes.' })) };
   }
   function statement(operations, a) {
