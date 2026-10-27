@@ -35,6 +35,19 @@
   }
   function validSource(s) { return s?.id === `${s?.branchId}:original-field-team` && s.people === 2
     && ['branchId', 'networkId', 'cityId', 'populationSourceId', 'label'].every(k => typeof s[k] === 'string' && s[k]); }
+  function originalSources(networks) {
+    const inv = networks?.inventories, plan = networks?.source.inventoryPlan;
+    if (!inv || inv.invalid || inv.mode !== 'original' || !bound(inv, networks) || !plan) return [];
+    // Original allocated people outrank historical capacity ratings. Preserve
+    // lost IDs too: sync turns losses into gaps, never fresh employees.
+    return networks.source.branches.flatMap(b => {
+      const id = `${b.id}:original-field-team`, ids = [id, `${id}:1`, `${id}:2`];
+      return ids.every(id => plan.assets.some(a => a.id === id && a.ownerId === `branch:${b.id}` && a.service === 'interdiction'
+        && a.cityId === b.cityId && a.populationSourceId === b.populationSourceId))
+        ? [{ id, branchId: b.id, networkId: b.networkId, cityId: b.cityId, populationSourceId: b.populationSourceId,
+          people: 2, label: b.label, provenance: 'The exact original inventory-owned field employees, equipment and radio; no rating-derived force.' }] : [];
+    });
+  }
   function links(map, quota, geometry, routes = []) {
     if (!quota?.routeCellIds?.length || !geometry) return [];
     const farm = [...quota.routeCellIds].reverse(), km = [0], result = [];
@@ -69,6 +82,15 @@
     // This first foot consumer has no third-party stronghold inspection or
     // passage contract. Affiliation and a continuous road are not admission.
     return !(link.strongholds || []).some(h => !Number.isFinite(h.corridorKm) || h.corridorKm >= low && h.corridorKm <= high);
+  }
+  function crossings(s, cityId, farmId, handoverId, binding = null) {
+    return s && !s.invalid && handoverId && (!binding || bound(s, binding)) ? s.units.filter(u => u.phase === 'deployed' && u.deployment?.link.cityId === cityId
+      && u.deployment.link.satelliteId === farmId && u.deployment.charterReceiptId === handoverId && !u.deployment.ceasefire
+      && u.actors.some(a => able(a) && a.mapCell && a.assignment === u.deployment.id && a.fieldKit.toolCondition > 0))
+      .map(u => u.deployment.link.farmKm).filter(km => Number.isFinite(km) && km > 0) : [];
+  }
+  function blocks(s, cityId, farmId, handoverId, binding = null) {
+    return crossings(s, cityId, farmId, handoverId, binding).length > 0;
   }
   const physicalRouteId = link => link?.routeId?.startsWith('intercity-march:') ? link.routeId : `intercity-march:${link?.routeId}`;
   function create(sourceRows, binding, seed, at) {
@@ -186,6 +208,11 @@
           continue;
         }
         if (u.phase === 'returned') continue;
+        // A prior scientist's title/body, lost source or changed government is
+        // not a fresh target licence. Original bodies must still withdraw.
+        if ((!c.sourceCurrent || !c.targetControlled || d.charterReceiptId !== c.targetReceiptId)
+          && !['withdrawing', 'returning', 'stranded', 'losses'].includes(u.phase))
+          u.phase = u.actors.some(x => x.mapCell) ? 'withdrawing' : 'returning';
         for (const x of u.actors.filter(x => x.status === 'alive')) {
           const credit = Math.min(dt, x.fieldRadioWorkCredit || 0); x.fieldRadioWorkCredit = Math.max(0, (x.fieldRadioWorkCredit || 0) - credit);
           if (x.assignment === d.id) x.workSeconds = Math.max(0, x.workSeconds - dt + credit);
@@ -296,6 +323,6 @@
     if (!s || s.invalid || !alive || !s.repair) return false;
     s.repair.cancelledAt = at; s.repairs.push(copy(s.repair)); s.repair = null; return true;
   }
-  return { PURPOSE, REPORT, RADIO, COST, SPEED, SCOPE, sources, links, routeClear, physicalRouteId, validSource, create, normalize, rebind, sync, reserve,
+  return { PURPOSE, REPORT, RADIO, COST, SPEED, SCOPE, sources, originalSources, links, routeClear, crossings, blocks, physicalRouteId, validSource, create, normalize, rebind, sync, reserve,
     advance, crossing, contact, tickCarrier, observe, beginRepair, cancelRepair, able, publicView: s => copy(s?.reports || []) };
 });

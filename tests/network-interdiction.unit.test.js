@@ -142,6 +142,16 @@ test('new stand-down needs actual operator/terminal/radio time; outage does not 
   assert.equal(f.u.radioSeconds, 3540); assert.ok(['withdrawing', 'returning'].includes(f.u.phase));
   f.tick(200); assert.equal(f.u.phase, 'returned'); assert.equal(f.c.account.money, 120);
 });
+test('lost source, target or exact original handover ends deployment without teleporting survivors or replenishing their resources', () => {
+  for (const change of [f => f.c.sourceCurrent = false, f => f.c.targetControlled = false, f => f.c.targetReceiptId = 'later-unrelated-handover']) {
+    const f = deployed(), a = f.u.actors[0], original = copy(a.mapCell), money = f.c.account.money, work = a.workSeconds;
+    change(f); f.tick(1);
+    assert.equal(f.u.phase, 'withdrawing'); assert.ok(a.mapCell); assert.ok(W.distance(original, a.mapCell) <= 1);
+    assert.equal(f.c.account.money, money); assert.equal(a.workSeconds, work - 1);
+    f.tick(200); assert.equal(f.u.phase, 'returned'); assert.equal(a.mapCell, null);
+    assert.equal(f.c.account.money, money); assert.ok(a.workSeconds < work); assert.equal(f.s.units.length, 1);
+  }
+});
 test('a ceasefire alone cannot repair a disabled carrier; actual materials and attended work restore only that vehicle', () => {
   const f = contact(); f.tick(80); assert.ok(f.q.vehicle.condition < 50);
   f.c.account.mandates = { [I.PURPOSE]: { id: 'supply-specific', at: f.at } }; f.tick(90);

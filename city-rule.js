@@ -292,20 +292,26 @@
       }
       for (const f of s.farms) {
         const source = s.source.farms.find(a => a.satelliteId === f.id), route = c.routes?.[f.id];
-        if (operatingAtStart && operative && source.productionAvailable !== false && route !== false) {
+        const crossings = (c.armedRouteCrossings?.[f.id] || []).filter(km => km > 0 && km < f.distanceKm);
+        if (operatingAtStart && operative && source.productionAvailable !== false && (route !== false || c.armedRouteHolds?.includes(f.id))) {
           const harvest = Math.min(f.cropKg, dt * f.exportKg / DAY, Math.max(0, f.exportKg * f.storageDays - f.stockKg));
           f.cropKg -= harvest; f.harvestedKg += harvest; f.stockKg += harvest;
         }
-        if (f.trip && route !== false) {
-          // Obstruction pauses the same loaded convoy; never credits cargo remotely.
-          f.trip.progress += dt;
+        if (f.trip && (route !== false || crossings.length)) {
+          // The same aggregate convoy travels to the actual occupied crossing.
+          // A team arriving behind it cannot stop it remotely; inbound passage
+          // is a separate encounter after the original farm handling time.
+          const handling = Math.ceil(f.cargoKg / (50 * f.drivers)) * 30;
+          const stop = crossings.flatMap(km => [km / 40 * 3600, (2 * f.distanceKm - km) / 40 * 3600 + handling])
+            .filter(t => t >= f.trip.progress - 1e-7).sort((a, b) => a - b)[0] ?? Infinity;
+          f.trip.progress = Math.min(f.trip.progress + dt, stop);
           if (f.trip.progress + 1e-7 >= f.trip.seconds) {
             s.foodKg += f.cargoKg; f.deliveredKg += f.cargoKg;
             s.receipts.push({ id: `${s.id}:delivery:${s.nextNumber++}`, at: end, kind: 'grainDelivered', farmId: f.id, kg: f.cargoKg });
             f.cargoKg = 0; f.trip = null;
           } else f.trip.dueAt = end + f.trip.seconds - f.trip.progress;
         } else if (f.trip) f.trip.dueAt = end + f.trip.seconds - f.trip.progress;
-        if (!f.trip && s.plan && operative && route !== false && f.drivers && s.foodKg > 0 && s.waterLiters > 0
+        if (!f.trip && s.plan && operative && (route !== false || crossings.length) && f.drivers && s.foodKg > 0 && s.waterLiters > 0
           && (f.lastDepartureAt == null || end - f.lastDepartureAt >= DAY)) {
           const kg = Math.floor((Math.min(f.stockKg, f.capacityKg, Math.max(0, s.dailyKg * 3 - s.foodKg)) + 1e-7) / 50) * 50;
           const seconds = 2 * f.distanceKm / 40 * 3600 + 2 * Math.ceil(kg / (50 * f.drivers)) * 30;
@@ -334,6 +340,10 @@
       status: authority(s, succession, people, c) ? s.status : 'contested', since: s.since,
       establishedAt: s.establishedAt, accomplishment: copy(s.accomplishment),
       foodKg: s.foodKg, waterLiters: s.waterLiters, energy: s.energy,
+      pendingDeliveries: s.farms.filter(f => f.trip).map(f => ({ farmId: f.id, dispatchedAt: f.lastDepartureAt,
+        expectedKg: f.cargoKg, nominalReturnAt: f.lastDepartureAt + f.trip.seconds,
+        overdue: at > f.lastDepartureAt + f.trip.seconds,
+        scope: 'Local dispatch/receipt ledger only; no current carrier position, unseen cause or attacker identity.' })),
       excludedProvisionId: s.pilotProvisionId, excludedDefenseId: s.pilotDefenseId,
       receipts: copy(s.receipts), counterpower: c.counterpower === 'capableOpposition' ? 'An established effective challenge prevents verification.'
         : c.counterpower !== 'noEstablishedChallenge' ? 'Unverified: current coverage is incomplete.'

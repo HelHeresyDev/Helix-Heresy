@@ -186,6 +186,7 @@
   const NetworkInventories = window.HelixNetworkInventories;
   const CityServices = window.HelixCityServices;
   const NetworkInterdiction = window.HelixNetworkInterdiction;
+  const TerrestrialForces = window.HelixTerrestrialForces;
   const CampaignSettlement = window.HelixCampaignSettlement;
   const RoadsideStops = window.HelixRoadsideStops;
   const RegionalEncounters = window.HelixRegionalEncounters;
@@ -15112,6 +15113,12 @@
         rule.preparedFuelSources = rows; ensureMunicipalFuelService(); persist(); render(); return true;
       },
       regionalGovernmentAction,
+      terrestrialForceAction,
+      terrestrialForceSnapshot: () => clonePlainObject({ saved: state.terrestrialForces,
+        actors: TerrestrialForces.actors(state.terrestrialForces, state.networkOperations),
+        outcomes: TerrestrialForces.outcomes(state.networkOperations, state),
+        contexts: state.networkInterdiction?.units.map(u => ({ id: u.id, reach: TerrestrialForces.reach(u, networkInterdictionContext(u)) })),
+        public: TerrestrialForces.publicView(state.terrestrialForces), clock: state.clock }),
       regionalGovernmentSnapshot: () => clonePlainObject({ clock: state.clock, roomId: scientistRoomId(), cell: scientistMapCell(),
         gates: regionalGovernmentGates().map(g => ({ id: g.id, saved: g.regionalGovernment, context: regionalGovernmentContext(g),
           bargain: g.foreignCivic.bargain, work: g.receptionWorkSeconds, power: g.powerSeconds, assignment: g.receptionAssignment })) }),
@@ -15151,11 +15158,11 @@
         // Run the actual dependent contributions too; no outcome injection or
         // replenishment is provided by this clock helper.
         for (let left = Math.max(0, seconds); left > 0 && !scientistIsDead();) {
-          const physical = CityServices.active(state) || municipalSupplyPhysical() || activeScientistTravelTask() || state.cityDefense?.duty || state.cityDefense?.job
+          const physical = CityServices.active(state) || state.terrestrialForces?.posts?.some(p => p.phase === 'onPost') || municipalSupplyPhysical() || activeScientistTravelTask() || state.cityDefense?.duty || state.cityDefense?.job
             || ['approaching', 'returningToPost'].includes(state.cityProvisioning?.order?.phase);
           const step = Math.min(left, physical ? 1 : 60); state.clock += step; left -= step;
           updateIntercityPassenger(); updateForeignReception(); updateScientistMovementTask(); completeDueTasks(); updateScientistIdentity(); updatePendingCombatActions(); progressInjuries();
-          if (CityServices.active(state)) updateNetworkOperations();
+          if (CityServices.active(state) || state.terrestrialForces?.posts?.length) updateNetworkOperations();
           if (CityServices.entries(state).some(e => MunicipalFuelService.active(e.owner.municipalFuelService))) advanceLocalMarketProduction(state.clock);
           updateCityProvisioning(); updateCityDefense(); updateCityRule(); updateRegionalGovernments(); updateSupremacy();
         }
@@ -20666,6 +20673,8 @@
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.networkInterdiction = NetworkInterdiction.rebind(importedState.networkInterdiction,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.terrestrialForces = TerrestrialForces.rebind(importedState.terrestrialForces,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.municipalFuelService = MunicipalFuelService.rebind(importedState.municipalFuelService,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.powerworksMaintenance = PowerworksMaintenance.rebind(importedState.powerworksMaintenance,
@@ -24561,7 +24570,7 @@
       }
       return changed;
     }
-    if (!options.chapterStep && elapsed > 1 && (CityServices.active(state) || ReceivableFinance.active(state.receivableFinance) || state.networkOperations?.job || networkInterdictionActive() || outerApproachGates().some(g => g.outerApproach.chapterProtection?.job || ChapterProtection.assigned(g.outerApproach.chapterProtection)))) {
+    if (!options.chapterStep && elapsed > 1 && (CityServices.active(state) || ReceivableFinance.active(state.receivableFinance) || state.networkOperations?.job || networkInterdictionActive() || state.terrestrialForces?.posts?.some(p => p.phase === 'onPost') || outerApproachGates().some(g => g.outerApproach.chapterProtection?.job || ChapterProtection.assigned(g.outerApproach.chapterProtection)))) {
       let left = elapsed, changed = 0;
       while (left > 0 && !scientistIsDead()) {
         const before = state.clock, health = scientistVital('health').current;
@@ -42885,6 +42894,9 @@
     }
     for (const a of fieldInterdictionActors()) if (a.mapCell && NetworkInterdiction.able(a) && !actorIsIncapacitated(a)
       && a.fieldKit.vestCondition > 0) state.combat.guarding[a.id] = { startedAt: state.clock };
+    for (const a of TerrestrialForces.actors(state.terrestrialForces, state.networkOperations))
+      if (a.mapCell && TerrestrialForces.able(a) && !actorIsIncapacitated(a) && a.fieldKit.vestCondition > 0)
+        state.combat.guarding[a.id] = { startedAt: state.clock };
     const escort = ensureExpeditionEscorts().actor;
     if (escortContractActive() && escort?.status !== "dead" && !actorIsIncapacitated(escort)) {
       state.combat.guarding[escort.id] = { startedAt: state.clock };
@@ -81387,6 +81399,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ? 'Received limited institutional capability accounts — wider powers unverified'
         : 'Received scoped network accessions/refusals — other capacities unverified',
         status: 'unverified', observedAt: r.observedAt ?? r.at, receivedAt: r.at });
+    if (TerrestrialForces.bound(state.terrestrialForces, binding)) for (const r of TerrestrialForces.publicView(state.terrestrialForces))
+      evidence.push({ id: r.id, sourceId: r.branchId, label: `${r.text} Wider organizational capability remains unverified.`,
+        status: 'unverified', observedAt: r.at, receivedAt: r.at });
     for (const g of outerApproachGates()) {
       const p = g.outerApproach.chapterProtection, v = ChapterProtection.publicView(p); if (!v) continue;
       evidence.push({ id: `${p.id}:received:${v.at}`, sourceId: p.source.branchId,
@@ -87570,6 +87585,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         && !actorIsIncapacitated(b.defender) && !b.defender.magicSuppressed && !b.defender.suppressionActive && b.defender.stamina > 0),
       actualOpposition: Boolean(n?.opposition?.some(r => r.witnessed) || b?.defender.hostile || OuterApproach.claiming(g?.outerApproach)
         || g?.outerApproach?.chapterProtection && chapterProtectionContext(g).effectiveChallenge),
+      armedRouteHolds: (n?.source.farms || []).filter(f => NetworkInterdiction.blocks(state.networkInterdiction, g.cityId, f.satelliteId, n?.rule?.handoverId, n)).map(f => f.satelliteId),
+      armedRouteCrossings: Object.fromEntries((n?.source.farms || []).map(f => [f.satelliteId,
+        NetworkInterdiction.crossings(state.networkInterdiction, g.cityId, f.satelliteId, n?.rule?.handoverId, n)])),
+      routes: Object.fromEntries((n?.source.farms || []).map(f => [f.satelliteId, f.routeUsable !== false
+        && !NetworkInterdiction.blocks(state.networkInterdiction, g.cityId, f.satelliteId, n?.rule?.handoverId, n)])),
       incapacitatedIds: [...leaders, b?.defender].filter(a => a && actorIsIncapacitated(a)).map(a => a.id) };
   }
   function updateRegionalGovernments() {
@@ -87659,11 +87679,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     for (const gate of regionalGovernmentGates()) {
       const k = RegionalGovernment.publicView(gate.regionalGovernment).knowledge;
-      if (k) panel.append(textEl('p', `Received ${formatClock(k.at)} — ${k.cityId}: ${k.succession.phase}. ${k.report ? `Operating account ${k.report.status}, observed ${formatClock(k.report.at)}.` : 'No received city operating report.'}`));
+      if (k) {
+        panel.append(textEl('p', `Received ${formatClock(k.at)} — ${k.cityId}: ${k.succession.phase}. ${k.report ? `Operating account ${k.report.status}, observed ${formatClock(k.report.at)}.` : 'No received city operating report.'}`));
+        appendPendingMunicipalDeliveries(panel, k.report);
+      }
     }
     panel.append(textEl('p', 'The home city is not replaced when another account opens. Both consume their own real supplies and may lose support independently. Political recognition is neither global supremacy nor an unlimited renewable resource supply.'));
     if (n?.rule && (c?.local || [n.serviceSite?.roomId, n.serviceSite?.approachId].includes(scientistRoomId()))) panel.append(renderMunicipalFuelService(g.cityId),
       renderPowerworksMaintenance(g.cityId), renderPowerworksStandards(g.cityId), renderCivicCommunications(g.cityId));
+    panel.append(renderTerrestrialForces());
     return panel;
   }
   function cityServiceTarget(cityId = '', create = false) {
@@ -87765,7 +87789,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ? state.sovereignBargains?.defenseAvailable !== false : home?.offices[i.id]?.available === true)),
       coverageVerified: sourceCurrent,
       counterpower: !sourceCurrent ? 'unverified' : incumbentThreat || defenderThreat ? 'capableOpposition' : 'noEstablishedChallenge',
-      routes: Object.fromEntries((source?.farms || []).map(f => [f.satelliteId, f.routeUsable !== false])),
+      armedRouteHolds: (source?.farms || []).filter(f => s && NetworkInterdiction.blocks(state.networkInterdiction, s.source.cityId, f.satelliteId, s.handoverId, s)).map(f => f.satelliteId),
+      armedRouteCrossings: Object.fromEntries((source?.farms || []).map(f => [f.satelliteId,
+        s ? NetworkInterdiction.crossings(state.networkInterdiction, s.source.cityId, f.satelliteId, s.handoverId, s) : []])),
+      routes: Object.fromEntries((source?.farms || []).map(f => [f.satelliteId, f.routeUsable !== false
+        && !(s && NetworkInterdiction.blocks(state.networkInterdiction, s.source.cityId, f.satelliteId, s.handoverId, s))])),
       pilotSupplied: Boolean(p && p.id === s?.pilotProvisionId && p.stores.cityKg > 1e-7),
       defenseAccount: d, defenseStationPresent,
       pilotDefended: Boolean(defenseStationPresent && d.id === s?.pilotDefenseId && !d.refusal && d.energy > 1e-7),
@@ -88197,6 +88225,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (ok && action === 'recharge') { state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0); syncActorInventories(); syncPhysicalReadModels(); }
     persist(); render(); return ok;
   }
+  function appendPendingMunicipalDeliveries(panel, report) {
+    for (const r of report?.pendingDeliveries || []) panel.append(textEl('p',
+      `Dispatch ledger received ${formatClock(report.at)}: ${formatNumber(r.expectedKg)} kg from ${r.farmId}; dispatched ${formatClock(r.dispatchedAt)}, nominal return ${formatClock(r.nominalReturnAt)} — ${r.overdue ? 'overdue at reporting' : 'not yet received'}. ${r.scope}`));
+  }
   function renderCityRule() {
     const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.cityRule = 'true';
     panel.append(textEl('h3', 'Sustained city-power assessment'), textEl('p', CityRule.LIMITS));
@@ -88230,6 +88262,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         textEl('p', r.since == null ? 'No verified contiguous interval in this received account.' : `Supported interval began ${formatClock(r.since)}; three full days are required. Reading does not restart it.`),
         textEl('p', r.counterpower));
       if (r.accomplishment) panel.append(textEl('p', `Historical three-day accomplishment: ${formatClock(r.accomplishment.at)}. Later losses do not erase it or end a living run.`));
+      appendPendingMunicipalDeliveries(panel, r);
     }
     panel.append(renderMunicipalFuelService());
     panel.append(renderPowerworksMaintenance());
@@ -100523,7 +100556,123 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function updateNetworkOperations() {
     const s = ensureNetworkOperations(); if (!s) return false;
     const changed = NetworkOperations.advance(s, networkOperationsContext, state.clock);
-    return updateNetworkInterdiction(s) || changed;
+    const fieldChanged = updateNetworkInterdiction(s), reserveChanged = updateTerrestrialForces();
+    return fieldChanged || reserveChanged || changed;
+  }
+  function ensureTerrestrialForces() {
+    if (scientistIsDead()) return null;
+    if (!state.terrestrialForces && !state.terrestrialForcesInitialized) {
+      state.terrestrialForces = TerrestrialForces.create({ worldId: activeWorldRecord.id, runId: activeRunRecord.id }, state.clock);
+      state.terrestrialForcesInitialized = true;
+    }
+    return state.terrestrialForces && !state.terrestrialForces.invalid ? state.terrestrialForces : null;
+  }
+  function materializeTerrestrialPost(t, b) {
+    const map = ensureLabMap(), z = t.regional ? t.gate.z : SurveyExpeditions.FIELD_Z,
+      startX = Math.max(32, map.width + 2), prefix = cleanRoomId(`${b.id}-original-ground-post`), roomId = `${prefix}-premises`,
+      from = t.regional ? t.gate.checkpointRoomId : SurveyExpeditions.FIELD_ROOM;
+    if (!Number.isFinite(z) || !roomById(from)) return null;
+    const fromCells = map.rooms[from]?.cells || [], north = Math.min(...fromCells.map(c => c.y));
+    const entryX = Math.max(Math.min(...fromCells.map(c => c.x)), Math.min(10, Math.max(...fromCells.map(c => c.x))));
+    if (!fromCells.length) return null;
+    const path = [];
+    for (let y = 0; y < north; y++) path.push({ x: entryX, y, z });
+    for (let x = entryX; x <= startX + 2; x++) path.push({ x, y: 0, z });
+    for (let y = 1; y <= 5; y++) path.push({ x: startX + 2, y, z });
+    const ground = rectangularRoomCells({ x: startX, y: 6, z, width: 7, height: 6 });
+    if (ground.some(c => labMapCellRoomId(c))) return null;
+    const shared = [...new Set(path.map(c => labMapCellRoomId(c)).filter(Boolean))], chunks = new Map();
+    for (const c of path.filter(c => !labMapCellRoomId(c))) {
+      const i = Math.floor((c.x - entryX) / 60); if (!chunks.has(i)) chunks.set(i, []); chunks.get(i).push(c);
+    }
+    const specs = [...chunks].map(([i, cells]) => ({ id: `${prefix}-road-${i}`, cells, name: 'Municipal approach to original chapter premises' }));
+    specs.push({ id: roomId, cells: ground, name: `${b.label} original receiving post` });
+    const ids = specs.map(r => r.id);
+    map.width = Math.max(map.width, startX + 8); map.height = Math.max(map.height, 13);
+    state.rooms = normalizeRooms([...state.rooms, ...specs.map(s => ({ id: s.id, name: s.name, purposeId: 'corridor',
+      connections: [...ids, from, ...shared].filter(id => id !== s.id), description: 'Existing source-owned chapter premises and public approach; no city title or new force.',
+      geometry: { lengthM: s.cells.length, widthM: 1, heightM: 3, floorAreaM2: s.cells.length, volumeM3: s.cells.length * 3 } }))]);
+    for (const s of specs) {
+      const room = roomById(s.id);
+      map.rooms[s.id] = normalizeLabMapRoom({ roomId: s.id, x: Math.min(...s.cells.map(c => c.x)), y: Math.min(...s.cells.map(c => c.y)), z,
+        width: Math.max(...s.cells.map(c => c.x)) - Math.min(...s.cells.map(c => c.x)) + 1,
+        height: Math.max(...s.cells.map(c => c.y)) - Math.min(...s.cells.map(c => c.y)) + 1, cells: s.cells, anchor: s.cells[0] }, room);
+      map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...s.cells]);
+      map.terrain.constructedFloors = normalizeConstructedSurfaces([...(map.terrain.constructedFloors || []), ...s.cells.map(cell => ({ cell,
+        materialId: 'steel', purpose: 'floor', condition: 100, supportSpanM: 24, builtAt: state.clock }))]);
+      state.roomStockpiles[s.id] ||= emptyRoomStockpile();
+    }
+    bumpNavigationRevision('topology');
+    return { roomId, roomIds: ids, home: { x: startX + 4, y: 8, z }, visitor: { x: startX + 2, y: 7, z },
+      returnRoom: from, returnCell: t.regional ? { x: 10, y: 7, z } : clonePlainObject(ScientistIdentity.COUNTER) };
+  }
+  function terrestrialForceContext(p) {
+    const t = cityServiceTarget(p.cityId), b = state.networkOperations?.source.branches.find(b => b.id === p.branchId),
+      a = TerrestrialForces.resolve(state.terrestrialForces, state.networkOperations, p)?.actor;
+    return { alive: !scientistIsDead(), capable: annexCapable(), local: p.layout.roomIds.includes(scientistRoomId()), busy: surveyBusy(),
+      sourceCurrent: Boolean(t && b?.cityId === p.cityId && b.populationSourceId === p.populationSourceId
+        && t.rule.source.populationSourceId === p.populationSourceId
+        && roomById(p.layout.roomId) && labMapCellIsWalkable(p.layout.home)),
+      observed: chapterPersonVisible(a) };
+  }
+  function updateTerrestrialForces() {
+    const s = state.terrestrialForces, n = state.networkOperations; if (!s || scientistIsDead()) return false;
+    return TerrestrialForces.advance(s, n, terrestrialForceContext, state.clock, {
+      alive: () => !scientistIsDead(), incapacitated: actorIsIncapacitated, distance: mapCellDistance,
+      threat: (p, a, at) => {
+        const target = a.fieldAggressorId && combatActor(a.fieldAggressorId), cell = target && combatActorCell(target);
+        return at >= a.fieldProvokedUntil - 30 && at < a.fieldProvokedUntil && target && target.status !== 'dead' && cell && labMapCellRoomId(cell) === p.layout.roomId
+          && (a.fieldAggressorId !== 'scientist' || a.fieldProvokedBodyEpoch === state.scientistIdentity?.bodyEpoch)
+          && mapCellDistance(a.mapCell, cell) <= 8 && sensoryLineOfSight(a.mapCell, cell)
+          ? { id: a.fieldAggressorId, kind: 'creature', cell } : null;
+      },
+      move: (p, a, goal) => {
+        const next = WildernessBeasts.neighbors(goal).filter(c => labMapCellRoomId(c) === p.layout.roomId && canActorOccupyTile(a, c))
+          .sort((x, y) => mapCellDistance(a.mapCell, x) - mapCellDistance(a.mapCell, y))[0];
+        if (next) moveDefenderParticipant(a, next, { skipPlacement: true });
+      },
+      strike: (a, target) => resolveSharedCombatAction(a.id, 'strike', target, { baseDamage: 10, damageTypes: ['physical'], hideFeedback: !chapterPersonVisible(a) })
+    });
+  }
+  function terrestrialForceAction(action, branchId) {
+    if (scientistIsDead()) return false;
+    const s = ensureTerrestrialForces(), n = ensureNetworkOperations(); if (!s || !n) return false;
+    updateTerrestrialForces(); let p = s.posts.find(p => p.branchId === branchId), ok = false;
+    const b = n.source.branches.find(b => b.id === branchId), t = b && cityServiceTarget(b.cityId);
+    if (action === 'walk' && t && !surveyBusy()) {
+      if (!p) {
+        const c = cityServiceBase(t, 'groundForce');
+        if (!c.local || b.populationSourceId !== t.rule.source.populationSourceId || !CityRule.authority(t.rule, t.succession, t.people, c) || !TerrestrialForces.sources(n, b.cityId).some(r => r.id === branchId)) return false;
+        const layout = materializeTerrestrialPost(t, b);
+        if (!layout || !TerrestrialForces.open(s, n, branchId, { ...c, authority: true, cityId: b.cityId,
+          populationSourceId: t.rule.source.populationSourceId, busy: c.otherBusy }, layout, state.seed, state.clock)) return false;
+        p = s.posts.find(p => p.branchId === branchId);
+      }
+      ok = Boolean(startScientistMove(p.layout.roomId, { toCell: p.layout.visitor, allowMultiRoom: true }));
+    } else if (p && action === 'return' && terrestrialForceContext(p).local && !surveyBusy())
+      ok = Boolean(startScientistMove(p.layout.returnRoom, { toCell: p.layout.returnCell, allowMultiRoom: true }));
+    else if (p && action === 'report') ok = TerrestrialForces.receive(s, n, p.id, terrestrialForceContext(p), state.clock);
+    else if (p && action === 'strike' && terrestrialForceContext(p).observed) ok = Boolean(beginScientistCombatAction('strike', p.actorId));
+    persist(); render(); return ok;
+  }
+  function renderTerrestrialForces() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.terrestrialForces = 'true';
+    panel.append(textEl('h3', 'Original terrestrial forces'), textEl('p', TerrestrialForces.SCOPE));
+    const n = state.networkOperations, s = state.terrestrialForces;
+    const local = CityServices.entries(state).find(e => cityServiceBase(cityServiceTarget(e.rule.source.cityId), 'groundForce').local);
+    const current = s?.posts?.find(p => p.layout.roomIds.includes(scientistRoomId()));
+    const rows = current ? n?.source.branches.filter(b => b.id === current.branchId) || []
+      : local ? TerrestrialForces.sources(n, local.rule.source.cityId) : [];
+    for (const b of rows) {
+      panel.append(textEl('p', `${b.label}: original private defensive receiving post. An ordinary guard is not an army or a municipal official; entry conveys no title or command.`));
+      for (const [action, label] of [['walk', 'Walk to original chapter receiving post'], ['report', 'Receive personally observed dated post account'], ['return', 'Walk back to original municipal counter'], ['strike', 'Attack visible original post guard']]) {
+        const button = document.createElement('button'); button.textContent = label; button.dataset.groundForceAction = action; button.dataset.branchId = b.id;
+        button.disabled = scientistIsDead() || surveyBusy() || action !== 'walk' && current?.branchId !== b.id;
+        button.onclick = () => terrestrialForceAction(action, b.id); panel.append(button);
+      }
+    }
+    for (const r of TerrestrialForces.publicView(s)) panel.append(textEl('p', `${formatClock(r.at)} — ${r.text}`));
+    return panel;
   }
   function networkOperationsAction(action, networkId = null, entryId = null, purpose = 'armedReceivingContest') {
     const s = ensureNetworkOperations(); if (!s) return false;
@@ -100607,6 +100756,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const map = activeWorldRecord?.generatedData?.strategicMap;
     let sources = map && interdictionSourceCache.get(map);
     if (!sources && map) { sources = NetworkInterdiction.sources(map); interdictionSourceCache.set(map, sources); }
+    if (networks.inventories?.mode === 'original') sources = NetworkInterdiction.originalSources(networks);
     state.networkInterdiction ||= adoptOriginalInstitutionalService('interdiction', NetworkInterdiction.create(
       NetworkInventories.eligibleSources(networks, 'interdiction', sources || []),
       { worldId: networks.worldId, runId: networks.runId }, activeWorldRecord.worldSeed, state.clock));
@@ -100618,30 +100768,42 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (site && d?.link && site.routeId === d.link.networkRouteId) site.routeId = NetworkInterdiction.physicalRouteId(d.link);
     }
     const q = state.cityProvisioning;
-    if (q && s.quotaId !== q.id && !s.preparedTestSource) {
-      const topology = StrategicWorld.topologyForMap(map);
+    const targets = CityServices.entries(state).map(e => e.rule);
+    const targetKey = [q?.id, ...targets.map(r => `${r.id}:${r.handoverId}`),
+      ...(state.strategicJourneys?.routes || []).map(r => `${r.id}:${r.distanceKm}:${r.continuity}`)].join('|');
+    if ((q || targets.length) && s.targetKey !== targetKey && !s.preparedTestSource) {
       const geometry = { distance: (a, b) => StrategicWorld.greatCircleDistanceKm(map, StrategicWorld.cellIndex(a), StrategicWorld.cellIndex(b)),
         land: id => map.surface.classes[StrategicWorld.cellIndex(id)] === 'L' };
-      s.links = NetworkInterdiction.links(map, q.source, geometry, state.strategicJourneys?.routes || []); s.quotaId = q.id;
+      s.links = [q && { source: q.source, id: state.cityRule?.id }, ...targets.map(r => ({ source: r.source, id: r.id }))].filter(Boolean)
+        .flatMap(t => (t.source.farms || [t.source]).flatMap(f => NetworkInterdiction.links(map, f, geometry, state.strategicJourneys?.routes || [])
+          .map(l => ({ ...l, targetRuleId: t.id }))));
+      s.links = s.links.filter((l, i, all) => all.findIndex(r => r.cityId === l.cityId && r.satelliteId === l.satelliteId && r.cellId === l.cellId) === i);
+      s.quotaId = q?.id; s.targetKey = targetKey;
     }
     NetworkInterdiction.reserve(s, networks); return s;
   }
   function networkInterdictionContext(u) {
     const networks = state.networkOperations, account = NetworkOperations.host(networks, u.source.branchId);
     const g = outerApproachGates().find(g => g.outerApproach.chapterProtection?.source.branchId === u.source.branchId);
-    const p = g?.outerApproach.chapterProtection, q = state.cityProvisioning;
-    const breach = p?.interdictionWitnesses?.find(r => r.clerkId === g.clerk.id && r.bodyEpoch === q?.bodyEpoch
+    const p = g?.outerApproach.chapterProtection;
+    const candidates = state.networkInterdiction?.links.filter(l => l.endpointCityIds.includes(u.source.cityId)) || [];
+    const actualLink = (u.phase !== 'returned' && u.deployment?.link) || candidates.find(l => {
+      const t = cityServiceTarget(l.cityId); return t && CityRule.authority(t.rule, t.succession, t.people, cityServiceBase(t, 'groundForce'));
+    });
+    const target = actualLink && cityServiceTarget(actualLink.cityId);
+    const q = actualLink?.cityId === state.cityProvisioning?.source.cityId && actualLink?.satelliteId === state.cityProvisioning?.source.satelliteId
+      ? state.cityProvisioning : target?.rule;
+    const breach = p?.interdictionWitnesses?.find(r => r.clerkId === g.clerk.id && r.bodyEpoch === target?.rule.bodyEpoch
       && [p.promise, ...(p.promises || [])].some(t => t?.id === r.promiseId && t.breachedAt && t.branchId === u.source.branchId));
-    const link = state.networkInterdiction?.links.find(l => l.cityId === q?.source.cityId && l.endpointCityIds.includes(u.source.cityId));
-    const actualLink = u.deployment?.link || link;
+    const link = actualLink;
     const route = state.strategicJourneys?.routes.find(r => r.id === (actualLink?.networkRouteId || actualLink?.routeId));
     return { account, gate: g, clerk: g?.clerk, quota: q, link, breach,
       sourceCurrent: Boolean(account && account.source.cityId === u.source.cityId && account.source.populationSourceId === u.source.populationSourceId),
       witnessCurrent: Boolean(breach && g?.clerk.status === 'alive'), clerkIncapacitated: Boolean(g && actorIsIncapacitated(g.clerk)),
       channel: Boolean(g?.clerk.mapCell && labMapCellRoomId(g.clerk.mapCell) === g.checkpointRoomId && g.powerSeconds > 1),
-      targetControlled: Boolean(q && state.citySuccession?.handover?.id === q.handoverId
-        && state.citySuccession.control?.recognizedAuthorityId === 'scientist' && state.cityRule?.handoverId === q.handoverId),
+      targetControlled: Boolean(target && CityRule.authority(target.rule, target.succession, target.people, cityServiceBase(target, 'groundForce'))),
       targetReceiptId: q?.handoverId,
+      physicalRouteOpen: Boolean(route?.supportCapable && route.continuity === 'continuous'),
       routeOpen: Boolean(route?.supportCapable && route.continuity === 'continuous' && NetworkInterdiction.routeClear(u.deployment?.link || link, u.source.cityId)
         && !state.jointTransit?.stations.some(t => t.source.corridorId === (route.corridorId || route.id)
           && (!constructedWallAtCell(t.layout.structure) || constructedWallAtCell(t.layout.structure).condition < 25))) };
@@ -100706,10 +100868,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         const before = state.cityProvisioning?.vehicle.condition;
         const result = resolveSharedCombatAction(a.id, 'strike', target, { baseDamage: 12, damageTypes: ['physical'], hideFeedback: !chapterPersonVisible(a) });
         const q = state.cityProvisioning, unit = s.units.find(u => u.actors.some(x => x.id === a.id));
-        if (unit && q.roadContactId && before > q.vehicle.condition && target.id === q.vehicle.id && !unit.deployment.carrier)
+        if (unit && q?.roadContactId && before > q.vehicle.condition && target.id === q.vehicle.id && !unit.deployment.carrier)
           unit.deployment.carrier = { id: q.roadContactId, orderId: q.order.id, phase: q.order.phase, at: state.clock, endedAt: null, sharedEncounter: true };
         if (result.ok && chapterPersonVisible(a)) pauseForWildernessThreat('An original organizational field professional attempted a close strike.');
-        return { ...result, vehicleDamage: Math.max(0, before - state.cityProvisioning.vehicle.condition) };
+        return { ...result, vehicleDamage: q ? Math.max(0, before - q.vehicle.condition) : 0 };
       }
     });
     const q = state.cityProvisioning, region = currentRegionalEncounters(), simulatedSites = new Set();
@@ -100764,7 +100926,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function chapterProtectionActors(context = state) {
     return [...(context?.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.outerApproach?.chapterProtection?.actor).filter(Boolean),
-      ...fieldInterdictionActors(context)];
+      ...fieldInterdictionActors(context), ...TerrestrialForces.actors(context.terrestrialForces, context.networkOperations)];
   }
   function chapterPersonVisible(a) {
     return Boolean(a?.mapCell && !scientistIsDead() && a.roomId === scientistRoomId()
@@ -109498,6 +109660,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     next.networkOperations = NetworkOperations.normalize(candidate?.networkOperations);
     next.networkInterdiction = NetworkInterdiction.normalize(candidate?.networkInterdiction);
+    next.terrestrialForces = TerrestrialForces.normalize(candidate?.terrestrialForces);
+    next.terrestrialForcesInitialized = candidate?.terrestrialForcesInitialized === true || Boolean(next.terrestrialForces);
     next.outerApproachVisit = candidate?.outerApproachVisit ? clonePlainObject(candidate.outerApproachVisit) : null;
     next.wildernessBeasts = WildernessBeasts.normalizeState(candidate?.wildernessBeasts);
     next.expeditionEscorts = ExpeditionEscorts.normalizeState(candidate?.expeditionEscorts);
