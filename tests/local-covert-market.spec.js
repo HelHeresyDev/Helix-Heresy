@@ -26,6 +26,15 @@ test('finite identified assets, full return fuel, containment and crew constrain
     expect(result.ok, change).toBe(false); expect(JSON.stringify(f), change).toBe(before);
   }
 });
+test('a missing initialized local courier cannot be recreated by another referral or a restored market view', () => {
+  const f = fixture(); f.state.couriers = [];
+  const saved = JSON.parse(JSON.stringify(f.state)); Market.bind(saved, f.contact, 100);
+  expect(saved.couriers).toEqual([]); expect(saved.initializedContacts).toEqual([f.contact.id]);
+  expect(Market.book(saved, f.contact, route, 'another-contract', cargo, 100).ok).toBe(false);
+  const missingBook = { ...Market.create('a'), invalid: true };
+  Market.bind(missingBook, f.contact, 100); Market.advance(missingBook, 200, route, { routeOpen: true, fuelStockKm: 100 });
+  expect(missingBook.couriers).toEqual([]); expect(Market.availability(missingBook, f.contact, route, cargo).reason).toContain('accounting is missing');
+});
 test('courier arrival, exact handoff, buyer ownership and loaded return persist without duplicate transfers', () => {
   const f = fixture(), booking = Market.book(f.state, f.contact, route, 'contract-1', cargo, 100);
   expect(booking.ok).toBe(true); expect(Market.handoff(f.state, 'contract-1', {}, 100)).toBe(false);

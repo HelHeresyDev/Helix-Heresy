@@ -187,6 +187,7 @@
   const CityServices = window.HelixCityServices;
   const NetworkInterdiction = window.HelixNetworkInterdiction;
   const TerrestrialForces = window.HelixTerrestrialForces;
+  const CovertFunctions = window.HelixCovertFunctions;
   const CampaignSettlement = window.HelixCampaignSettlement;
   const RoadsideStops = window.HelixRoadsideStops;
   const RegionalEncounters = window.HelixRegionalEncounters;
@@ -15114,6 +15115,16 @@
       },
       regionalGovernmentAction,
       terrestrialForceAction,
+      covertFunctionAction,
+      advanceCovertFunctionsForTest: (seconds = 0) => {
+        if (scientistIsDead()) return false;
+        state.clock += Math.max(0, seconds); const changed = updateCovertFunctions(); persist(); render(); return changed;
+      },
+      covertFunctionSnapshot: () => clonePlainObject({ saved: state.covertFunctions, clock: state.clock,
+        outcomes: CovertFunctions.outcomes(state.networkOperations, state.covertFunctions),
+        public: CovertFunctions.publicView(state.covertFunctions), networks: state.networkOperations,
+        money: state.economy.money, context: (() => { const c = covertFunctionContext();
+          return { alive: c.alive, capable: c.capable, local: c.local, channel: c.channel, busy: c.busy, request: c.request }; })() }),
       terrestrialForceSnapshot: () => clonePlainObject({ saved: state.terrestrialForces,
         actors: TerrestrialForces.actors(state.terrestrialForces, state.networkOperations),
         outcomes: TerrestrialForces.outcomes(state.networkOperations, state),
@@ -20675,6 +20686,8 @@
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.terrestrialForces = TerrestrialForces.rebind(importedState.terrestrialForces,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.covertFunctions = CovertFunctions.rebind(importedState.covertFunctions,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.municipalFuelService = MunicipalFuelService.rebind(importedState.municipalFuelService,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.powerworksMaintenance = PowerworksMaintenance.rebind(importedState.powerworksMaintenance,
@@ -24570,7 +24583,7 @@
       }
       return changed;
     }
-    if (!options.chapterStep && elapsed > 1 && (CityServices.active(state) || ReceivableFinance.active(state.receivableFinance) || state.networkOperations?.job || networkInterdictionActive() || state.terrestrialForces?.posts?.some(p => p.phase === 'onPost') || outerApproachGates().some(g => g.outerApproach.chapterProtection?.job || ChapterProtection.assigned(g.outerApproach.chapterProtection)))) {
+    if (!options.chapterStep && elapsed > 1 && (CityServices.active(state) || ReceivableFinance.active(state.receivableFinance) || state.covertFunctions?.job || state.networkOperations?.job || networkInterdictionActive() || state.terrestrialForces?.posts?.some(p => p.phase === 'onPost') || outerApproachGates().some(g => g.outerApproach.chapterProtection?.job || ChapterProtection.assigned(g.outerApproach.chapterProtection)))) {
       let left = elapsed, changed = 0;
       while (left > 0 && !scientistIsDead()) {
         const before = state.clock, health = scientistVital('health').current;
@@ -66608,6 +66621,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       subtitle: `${job.obligationId}; owner ${blackMarketContactById(job.owner)?.name || job.owner}; ${job.manifest.entries.map(e => e.creature ? `${e.creature.name} (${e.creature.id}), living specimen` : `${e.amount} from ${e.sourceStackId || e.sourceReceptacleId}`).join("; ")}. ${job.handedOffAt != null ? `Handoff ${formatClock(job.handedOffAt)}` : "No laboratory handoff yet"}; not lab inventory or public exchange stock.`,
       dataset: { covertCustody: job.id }
     }));
+    section.append(renderCovertFunctions());
     dom.economyContactsList.append(section);
   }
 
@@ -81402,6 +81416,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (TerrestrialForces.bound(state.terrestrialForces, binding)) for (const r of TerrestrialForces.publicView(state.terrestrialForces))
       evidence.push({ id: r.id, sourceId: r.branchId, label: `${r.text} Wider organizational capability remains unverified.`,
         status: 'unverified', observedAt: r.at, receivedAt: r.at });
+    if (CovertFunctions.bound(state.covertFunctions, binding)) for (const r of CovertFunctions.publicView(state.covertFunctions))
+      evidence.push({ id: r.id, sourceId: r.ownerId, label: `Received prospective collection introduction from ${r.label}; no wider access or governing leverage established.`,
+        status: 'unverified', observedAt: r.observedAt, receivedAt: r.at });
     for (const g of outerApproachGates()) {
       const p = g.outerApproach.chapterProtection, v = ChapterProtection.publicView(p); if (!v) continue;
       evidence.push({ id: `${p.id}:received:${v.at}`, sourceId: p.source.branchId,
@@ -100556,8 +100573,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function updateNetworkOperations() {
     const s = ensureNetworkOperations(); if (!s) return false;
     const changed = NetworkOperations.advance(s, networkOperationsContext, state.clock);
-    const fieldChanged = updateNetworkInterdiction(s), reserveChanged = updateTerrestrialForces();
-    return fieldChanged || reserveChanged || changed;
+    const fieldChanged = updateNetworkInterdiction(s), reserveChanged = updateTerrestrialForces(), covertChanged = updateCovertFunctions();
+    return fieldChanged || reserveChanged || covertChanged || changed;
   }
   function ensureTerrestrialForces() {
     if (scientistIsDead()) return null;
@@ -101853,7 +101870,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return CityServices.entries(state).some(e => !ignoreStandards && PowerworksStandards.active(e.owner.powerworksStandards)
       || !ignoreMaintenance && PowerworksMaintenance.active(e.owner.powerworksMaintenance) || !ignoreFuel && Boolean(e.owner.municipalFuelService?.job))
       || !ignoreFinance && ReceivableFinance.active(state.receivableFinance) || !ignoreCommunications && CivicCommunications.active(state.civicCommunications)
-      || !ignoreNetwork && Boolean(state.networkOperations?.job || state.networkInterdiction?.repair)
+      || !ignoreNetwork && Boolean(state.networkOperations?.job || state.networkInterdiction?.repair || state.covertFunctions?.job)
       || Boolean(state.foundingWorks?.foundation?.job?.running || state.foundingWorks?.job?.running) || Boolean(state.foundingExpedition?.job?.running)
       || (!ignoreInquiry && Boolean(passengerReceptionGate()?.researchInquiry?.job)) || (!ignoreCivic && foreignCivicWork(passengerReceptionGate()))
       || scientistQueueTasks().some((task) => !taskBlockReason(task));
@@ -104397,13 +104414,96 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       beliefs: (map?.publicReligionDirectory?.gods || []).filter(g => deityIds.has(g.id)).flatMap(g => g.prohibitions || []) };
   }
 
+  function ensureCovertFunctions() {
+    if (scientistIsDead()) return null;
+    const n = ensureNetworkOperations(); if (!n) return null;
+    if (!state.covertFunctions && !state.covertFunctionsInitialized) {
+      state.covertFunctions = CovertFunctions.create(n, state.clock); state.covertFunctionsInitialized = true;
+    }
+    const s = state.covertFunctions;
+    return s && !s.invalid && CovertFunctions.bound(s, n) ? s : null;
+  }
+  function covertFunctionContext(contractId = state.covertFunctions?.job?.request.contractId) {
+    const e = ensureEconomy(), market = e.localCovertMarket, route = localCovertRoute(),
+      contract = e.contracts.find(c => c.id === contractId), contact = contract && blackMarketContactById(contract.contactId);
+    const plan = contract?.status === 'active' && !contract.foreignShipmentId && contract.commodityKind !== 'specimen'
+      ? blackMarketContractRoutePlan(contract) : null;
+    const request = market && plan?.ok && route.ok ? { contractId: contract.id, contactId: contract.contactId, cityId: market.cityId,
+      material: contract.material, amount: contract.amount, dueAt: contract.dueAt, cargo: clonePlainObject(plan.cargo),
+      fingerprint: IntercitySmuggling.fingerprint(covertCargoManifest(contract)), distanceKm: route.distanceKm } : null;
+    return { alive: !scientistIsDead(), capable: annexCapable() && !actorIsIncapacitated('scientist'),
+      local: campaignLocalKnowledgeAvailable(), channel: !confidentialServiceChannelReason(),
+      busy: surveyBusy(false, false, true) || Boolean(state.networkOperations?.job || state.networkInterdiction?.repair || state.combat?.pendingActions.scientist),
+      cityId: market?.cityId, wallet: e, market, route, contact, contract, request,
+      contactAvailable: Boolean(contact && blackMarketContactAvailability(contact).available) };
+  }
+  function updateCovertFunctions() {
+    const s = state.covertFunctions;
+    if (!s || scientistIsDead() || !s.job) return false;
+    return CovertFunctions.advance(s, state.networkOperations, covertFunctionContext, state.clock);
+  }
+  function covertFunctionAction(action, ownerId = '', reference = '') {
+    if (scientistIsDead()) return false;
+    const s = ensureCovertFunctions(), n = state.networkOperations; if (!s) return false;
+    updateCovertFunctions(); let ok = false;
+    if (action === 'cancel') ok = CovertFunctions.cancel(s, n, state.clock);
+    else if (action === 'close') ok = CovertFunctions.close(s, n, reference, covertFunctionContext(), state.clock);
+    else if (action === 'introduce') {
+      const c = covertFunctionContext(reference); ok = CovertFunctions.begin(s, n, ownerId, c.request, c, state.clock);
+    } else if (action === 'dispatch') {
+      const report = CovertFunctions.publicView(s).find(r => r.id === reference), c = covertFunctionContext(report?.contractId);
+      if (CovertFunctions.usable(s, n, reference, c, state.clock)) {
+        ok = startBlackMarketContractDelivery(report.contractId);
+        if (ok) {
+          const job = state.economy.localCovertMarket.collections.find(j => j.obligationId === report.contractId);
+          // A prospective referral reference, never title or a cargo command.
+          if (job) job.introductionReference = report.id;
+        }
+      }
+    }
+    if (!ok) addEvent('The exact prospective introduction could not be staffed or used under the current local terms. No new collection was booked.');
+    persist(); render(); return Boolean(ok);
+  }
+  function renderCovertFunctions() {
+    const panel = document.createElement('section'); panel.dataset.covertFunctions = 'true'; panel.className = 'subpanel';
+    panel.append(textEl('h3', 'Original local brokerage'), textEl('p', CovertFunctions.LIMITS));
+    const n = state.networkOperations, s = state.covertFunctions, cityId = state.economy.localCovertMarket?.cityId;
+    for (const b of CovertFunctions.sources(n, cityId)) {
+      panel.append(textEl('p', b.label));
+      for (const contract of state.economy.contracts.filter(c => c.status === 'active' && !c.foreignShipmentId && c.commodityKind !== 'specimen')) {
+        const button = storesActionButton(`Request introduction for ${contract.id} — ${formatMoney(CovertFunctions.FEE)}`,
+          'Three attended minutes of the original broker and terminal. Nonrefundable handling fee; no collection reserved. Direct delivery remains available.',
+          () => covertFunctionAction('introduce', b.ownerId, contract.id));
+        button.dataset.covertFunctionAction = 'introduce'; button.dataset.ownerId = b.ownerId; button.dataset.contractId = contract.id;
+        button.disabled = scientistIsDead() || Boolean(s?.job) || Boolean(confidentialServiceChannelReason()); panel.append(button);
+      }
+    }
+    if (s?.job) {
+      panel.append(textEl('p', `Attended introduction: ${Math.floor(s.job.progress)}/${CovertFunctions.WORK} seconds. Absence, other work and outages pause without backfill.`));
+      const button = storesActionButton('Cancel unfinished introduction', 'Spent fees and work remain; existing cargo is untouched.', () => covertFunctionAction('cancel'));
+      button.dataset.covertFunctionAction = 'cancel'; button.disabled = scientistIsDead(); panel.append(button);
+    }
+    for (const r of CovertFunctions.publicView(s)) {
+      const closed = s.closed.some(x => x.id === r.id);
+      panel.append(textEl('p', `Received ${formatClock(r.at)} — ${r.label}: ${r.contactName}, ${r.contractId}. Handling paid ${formatMoney(r.fee)}. ${r.reason} Quote expires ${formatClock(r.expiresAt)}. ${closed ? 'Prospective use closed; earlier record and paid cargo retained. ' : ''}${r.limits}`));
+      const button = storesActionButton('Dispatch through dated introduction', 'Recheck the original contract, physical cargo route, capacity, crew, fuel, custody and ordinary delivery requirements.',
+        () => covertFunctionAction('dispatch', '', r.id));
+      button.dataset.covertFunctionAction = 'dispatch'; button.dataset.introductionId = r.id;
+      button.disabled = scientistIsDead() || closed || !r.available || r.expiresAt <= state.clock || Boolean(s?.job) || Boolean(confidentialServiceChannelReason()); panel.append(button);
+      const close = storesActionButton('Close prospective introduction', 'No new use of this quote. Existing paid deliveries, custody and the dated record remain.', () => covertFunctionAction('close', '', r.id));
+      close.dataset.covertFunctionAction = 'close'; close.disabled = scientistIsDead() || closed || Boolean(s?.job) || Boolean(confidentialServiceChannelReason()); panel.append(close);
+    }
+    return panel;
+  }
   function ensureLocalCovertMarket() {
     const economy = ensureEconomy();
     if (!economy.localCovertMarket) {
       const context = localCovertContext();
       economy.localCovertMarket = LocalCovertMarket.create(context.cityId, context.cityName);
       economy.localCovertMarket.context = clonePlainObject(context);
+      if (economy.localCovertMarketInitialized) economy.localCovertMarket.invalid = true;
     }
+    economy.localCovertMarketInitialized = true;
     const market = economy.localCovertMarket;
     if (!market.cityId && !market.collections.length) {
       const context = localCovertContext();
@@ -105536,6 +105636,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function blackMarketTradeBusyReason(ignoreTaskId = "") {
+    if (state.covertFunctions?.job) return 'Finish or cancel the attended original-broker introduction before dispatching cargo.';
     const active = scientistQueueTasks().find((task) => task.id !== ignoreTaskId);
     if (!active) {
       return "";
@@ -106664,6 +106765,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       commodityConsignments: normalizeCommodityConsignments(candidate?.commodityConsignments),
       exchangeCarrier: candidate?.exchangeCarrier ? clonePlainObject(candidate.exchangeCarrier) : null,
       localCovertMarket: candidate?.localCovertMarket ? clonePlainObject(candidate.localCovertMarket) : null,
+      localCovertMarketInitialized: candidate?.localCovertMarketInitialized === true || Boolean(candidate?.localCovertMarket),
       intercitySmuggling: candidate?.intercitySmuggling ? clonePlainObject(candidate.intercitySmuggling) : null,
       legalLedger: normalizeLegalLedger(candidate?.legalLedger),
       blackMarketReputation: clamp(Math.round(Number(candidate?.blackMarketReputation ?? fallback.blackMarketReputation) || 0), 0, BLACK_MARKET_REPUTATION_MAX),
@@ -109662,6 +109764,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.networkInterdiction = NetworkInterdiction.normalize(candidate?.networkInterdiction);
     next.terrestrialForces = TerrestrialForces.normalize(candidate?.terrestrialForces);
     next.terrestrialForcesInitialized = candidate?.terrestrialForcesInitialized === true || Boolean(next.terrestrialForces);
+    next.covertFunctions = CovertFunctions.normalize(candidate?.covertFunctions);
+    next.covertFunctionsInitialized = candidate?.covertFunctionsInitialized === true || Boolean(next.covertFunctions);
     next.outerApproachVisit = candidate?.outerApproachVisit ? clonePlainObject(candidate.outerApproachVisit) : null;
     next.wildernessBeasts = WildernessBeasts.normalizeState(candidate?.wildernessBeasts);
     next.expeditionEscorts = ExpeditionEscorts.normalizeState(candidate?.expeditionEscorts);

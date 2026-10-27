@@ -5,12 +5,16 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
   const copy = value => JSON.parse(JSON.stringify(value));
-  function create(cityId, cityName = cityId) { return { cityId, cityName, couriers: [], collections: [], nextNumber: 1 }; }
+  function create(cityId, cityName = cityId) { return { cityId, cityName, couriers: [], initializedContacts: [], collections: [], nextNumber: 1 }; }
   function bind(state, contact, at) {
+    if (state.invalid) return;
     // A referral is a new individual, not a new city-wide transport network.
     if (!contact.homeCityId) { contact.homeCityId = state.cityId; contact.serviceCityIds = [state.cityId]; }
     if (contact.homeCityId !== state.cityId || !contact.serviceCityIds?.includes(state.cityId)) return;
-    if (!state.couriers.some(c => c.contactId === contact.id)) state.couriers.push({
+    state.initializedContacts ||= state.couriers.map(c => c.contactId);
+    if (state.couriers.some(c => c.contactId === contact.id) || state.initializedContacts.includes(contact.id)) return;
+    state.initializedContacts.push(contact.id);
+    state.couriers.push({
       id: `covert-courier:${contact.id}`, contactId: contact.id, cityId: state.cityId,
       name: `${contact.name}'s collector`, vehicleId: `covert-van:${contact.id}`, mode: 'lined secure collection van',
       capacityKg: 120, capacityL: 240, specimenCapable: true, fuelKm: 160, condition: 100, money: 500,
@@ -19,6 +23,7 @@
     });
   }
   function reachable(state, contact, route) {
+    if (state.invalid) return 'Original local courier accounting is missing; no replacement collector or van is created.';
     if (!contact || contact.homeCityId !== state.cityId || !contact.serviceCityIds?.includes(state.cityId)) return 'Remote contact only; no local collection service. Intercity smuggling is not available.';
     if (!route?.ok || route.cityId !== state.cityId || !Number.isFinite(route.distanceKm) || route.distanceKm <= 0) return route?.reason || 'No supported city-local road approach to the Concealed Exit.';
     return '';
@@ -44,6 +49,7 @@
     return { ok: true, collection, travelSeconds: check.travelSeconds };
   }
   function advance(state, now, route, supplier = null) {
+    if (state.invalid) return;
     for (const courier of state.couriers) {
       const elapsed = Math.max(0, now - courier.lastAt); courier.lastAt = Math.max(now, courier.lastAt);
       if (!courier.assignment) {
