@@ -5,6 +5,10 @@ const { inputs } = require('./helpers/powerworks-source');
 test.setTimeout(360000);
 const snap = page => page.evaluate(() => window.helixHeresyDebug.powerworksMaintenanceSnapshot());
 const tick = (page, seconds) => page.evaluate(n => window.helixHeresyDebug.advanceCityRuleForTest(n, false), seconds);
+test.afterEach(async ({ page }, info) => {
+  if (info.status !== info.expectedStatus) await info.attach('continued-run', { contentType: 'application/json', body: Buffer.from(JSON.stringify(
+    await page.evaluate(() => ({ format: 'helix-heresy-run-bundle', version: 2, ...window.helixHeresyDebug.currentWorldRunSnapshot() })))) });
+});
 async function walk(page, action) {
   expect(await page.evaluate(action => window.helixHeresyDebug.powerworksMaintenanceAction(action), action)).toBe(true);
   await page.evaluate(() => {
@@ -58,7 +62,7 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: original powerworks
   // Actual independent work uses the retained method and original carried
   // instruments; no provider/municipal technician is created or charged.
   await panel.locator('[data-powerworks-action="repair"]:not([data-provider-id])').click(); await tick(page, 173);
-  s = await snap(page); expect(s.saved.job.progress).toBe(173); expect(s.rule.powerMaintenance.repairAssignment).toBe(s.saved.job.id);
+  s = await snap(page); expect(s.saved.job, JSON.stringify({ context: { ...s.context, wallet: undefined }, history: s.saved.history, errors })).toBeTruthy(); expect(s.saved.job.progress).toBe(173); expect(s.rule.powerMaintenance.repairAssignment).toBe(s.saved.job.id);
   const partial = s;
   if (renderer === 'dom') {
     const bundle = await page.evaluate(() => ({ format: 'helix-heresy-run-bundle', version: 2, ...window.helixHeresyDebug.currentWorldRunSnapshot() }));

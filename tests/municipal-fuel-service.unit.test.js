@@ -12,6 +12,18 @@ const copy = x => JSON.parse(JSON.stringify(x));
 const Communications = require('../civic-communications');
 const { addCommunications } = require('./helpers/civic-communication-source');
 const limits = { threshold: 6, quantity: 6, maxUnitPrice: 100, maxTripSpend: 1000 };
+test('a bound non-home workface receives the same paid cargo and shared idle driver recovery is charged only once per second', () => {
+  const f = fixture(); f.c.dock = { x: 34, y: 7, z: 20 }; f.c.entry = { x: 36, y: 7, z: 20 };
+  f.hooks.arrive = (d, t) => { d.mapCell = copy(f.c.entry); t.mapCell = { x: 36, y: 8, z: 20 }; return true; };
+  f.sign(); f.tick(4000);
+  assert.equal(f.rule.powerFuel.received, 6); assert.equal(f.state.mission.remaining, 0);
+  const d = f.production.trucks.find(t => !t.shipment).driver;
+  d.fuelDutySeconds = 100; d.fuelProvisionsSeconds = 10;
+  const secondView = F.normalize(f.state); f.tick(1);
+  const before = copy(d);
+  F.advance(secondView, f.rule, f.networks, f.production, f.listings, () => f.c, f.at, f.hooks);
+  assert.deepEqual(d, before);
+});
 function fixture(options = {}) {
   const { map, profile } = inputs(), run = { worldId: 'w', runId: 'r' };
   if (options.alternative) map.strategicNonStateNetworkHistory.branchRows[1].currentCityId = 'a';

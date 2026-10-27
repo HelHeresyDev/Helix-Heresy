@@ -2,6 +2,16 @@
 
 This document is the living design bible for Helix Heresy. It collects story background, design goals, current prototype notes, future systems, and open questions. It is allowed to be longer and more speculative than the main README.
 
+## Concurrent original municipal dependencies
+
+Concrete nonmilitary service consumers now address each actually governed home/regional city without replacing the home-city account. A foreign city needs its actual original handover, independent charter/institutions and continued authority. Physical service ground represents that source's existing plant, not a new factory, operator or energy allocation. Attended policy/routing remains at its own public counter; measurements and repair need the scientist, carried calibrated instruments and actual parts at that city's dock.
+
+Authentic remote guidance can reuse an original qualified laboratory specialist or standards reviewer at their own bench across multiple target cities. Their work, wounds, assignments and apparatus are canonical shared resources, alongside the existing finite desk operator and terminal. Target-specific inspection/method records, adopted prospective standards, destructive samples and municipally owned test jigs remain separate. Providers need not own a second powerworks merely to guide a real distant plant. No internet physical transport or new specialist per target is permitted.
+
+Procurement remains optional and uses the actual target city's deployed production, listings, original producer trucks/drivers/radios and finite payment/work resources. Paid cargo and city property survive new-service refusal, cancellation and absence; physical custody, receiving obstruction, wounds and existing commitments still matter. Acquired methods and local measurements offer supported offline independence. Private receivable finance, criticism, religious disagreement and unrelated withheld knowledge are not mandatory municipal services. An unadopted standard is not a requirement; adoption is prospective, not a way to invalidate old equipment or accepted work.
+
+Each city's actual food/water/energy consumption, regulator wear, buffers and exhausted capacity determine operating consequences while absent. An exhausted necessary service can contest sustained operation, not automatically erase title, summon a coup or end the run. Shared missing/conflicting accounting stays unavailable without healthy replacements, while intact independent knowledge survives provider loss. Received reports remain dated and city-specific; strategic review reads those held records, never private current stock, concealed owners or remote readiness. This closes the bounded nonmilitary dependency package, not the remaining armed/covert/exceptional reach or whole-network aggregation; unsupported possible strategic functions remain gaps.
+
 ## Story
 
 Cosmology

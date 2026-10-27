@@ -347,6 +347,8 @@
       const benches = rowsOf(run.fixtures).filter(f => f.id === g.foreignWorkspace?.benchId);
       for (const bench of benches.length ? benches : [null]) add('workspace', g.foreignWorkspace, bench);
       add('protection', g.outerApproach?.chapterProtection);
+      add('maintenance', g.regionalGovernment?.services?.powerworksMaintenance);
+      add('standards', g.regionalGovernment?.services?.powerworksStandards);
     }
     add('interdiction', run.networkInterdiction); add('maintenance', run.powerworksMaintenance);
     add('standards', run.powerworksStandards); add('communications', run.civicCommunications);
@@ -359,7 +361,12 @@
     const expected = new Map((operations.source.inventoryPlan?.assets || []).map(a => [a.id, a]));
     for (const r of groups) {
       if (!id(r.id)) continue;
-      const prior = observed.get(r.id), signature = stable({ source: r.source, object: r.object });
+      // Target plants do not change the provenance of one shared original
+      // specialist/bench. Their mutable account must nevertheless agree.
+      const provenance = ['maintenance', 'standards'].includes(r.service)
+        ? { branchId: r.source?.branchId, networkId: r.source?.networkId, cityId: r.source?.cityId,
+          populationSourceId: r.source?.populationSourceId } : r.source;
+      const prior = observed.get(r.id), signature = stable({ source: provenance, object: r.object });
       const branch = r.acquired && operations.source.branches.find(b => b.id === r.source?.branchId);
       const p = expected.get(r.id) || (branch && { ownerId: `branch:${branch.id}`, cityId: branch.cityId,
         populationSourceId: branch.populationSourceId, networkId: branch.networkId, kind: 'claim' });
@@ -369,7 +376,7 @@
         || p.kind === 'premises' && r.object?.cityId !== p.cityId);
       if (prior && prior.signature !== signature) prior.conflict = true;
       else if (!prior) observed.set(r.id, { id: r.id, ownerId: `branch:${r.source?.branchId}`, service: r.service,
-        present: Boolean(r.object), signature, acquired: r.acquired === true, conflict: sourceConflict });
+        present: Boolean(r.object) && !r.object.accountLost, signature, acquired: r.acquired === true, conflict: sourceConflict });
     }
     s.observed = [...observed.values()].map(({ signature, ...r }) => r);
     for (const a of s.assets.filter(a => a.ledger === 'service')) {

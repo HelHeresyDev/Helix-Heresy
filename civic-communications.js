@@ -108,7 +108,7 @@
     return true;
   }
   function release(s, rule, networks) {
-    const j = s?.job; if (!j) return false;
+    const j = s?.job; if (!j || j.cityId !== rule?.source.cityId || !bound(s, rule)) return false;
     const p = port(s, j.pathId), a = account(s, networks, row(s, j.pathId));
     if (p?.assignment === j.id) p.assignment = null;
     if (a?.operator.assignment === j.id) a.operator.assignment = null;
@@ -116,7 +116,7 @@
     s.job = null; return true;
   }
   function advance(s, rule, networks, context, to) {
-    if (!s || s.invalid || !bound(s, rule) || !context().alive || to <= s.lastAt) return false;
+    if (!s || s.invalid || !bound(s, rule) || s.job && s.job.cityId !== rule.source.cityId || !context().alive || to <= s.lastAt) return false;
     if (!s.job) { s.lastAt = to; return false; }
     while (s.lastAt < to && s.job) {
       const at = s.lastAt + Math.min(1, to - s.lastAt), dt = at - s.lastAt; s.lastAt = at;
@@ -209,6 +209,7 @@
       adoptedAt: p?.at ?? null, purposes: copy(p?.purposes || []),
       acknowledgements: s.sessions.filter(r => [r.fromCityId, r.toCityId].includes(rule.source.cityId))
         .map(r => ({ purpose: r.purpose, firstAt: r.firstAt, at: r.at, receivedUnits: r.through })), terms: TERMS };
+    s.cityReports ||= {}; s.cityReports[rule.source.cityId] = copy(s.report);
     return true;
   }
   function register(s, networks) {
@@ -223,5 +224,8 @@
     }
   }
   return { PURPOSES, TERMS, bound, sources, create, normalize, rebind, begin, release, advance, packet, transfer, receive, register,
-    active: s => Boolean(s && !s.invalid && s.job), publicView: s => copy(s?.report) };
+    active: s => Boolean(s && !s.invalid && s.job), publicView: (s, cityId) => {
+      const r = cityId ? s?.cityReports?.[cityId] || s?.report : s?.report;
+      return copy(!cityId || r?.cityId === cityId ? r : null);
+    } };
 });

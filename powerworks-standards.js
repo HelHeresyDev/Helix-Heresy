@@ -9,10 +9,21 @@
   const SPEC = 'Regulator metal parts: compatible metal composition, serviceable fabrication and no observed damage or contamination. Destructive one-unit sample; acceptance covers only the unchanged remaining identified lot.';
   const SCOPE = 'Prospective local replacement-part acceptance, not machine ownership, universal certification, political recognition or authority over earlier repairs. Measurements and voluntary organizational endorsement are separate.';
   const SECONDS = Object.freeze({ adopt: 60, withdraw: 60, test: 300, selfTest: 600 });
-  function sources(map, city, definitions) {
+  function sources(map, city, definitions, includeRemote = false, targetPlant = city) {
+    if (includeRemote) {
+      const target = map?.strategicPlayableSettlementState?.cityRows?.find(c => c.cityId === city?.cityId);
+      if (!target?.physicalJurisdictionExists || target.assetId !== city.populationSourceId || target.physicalCondition === 'ruined') return [];
+      const local = sources(map, city, definitions);
+      if (!map?.strategicCapabilityHistory?.milestoneRows?.some(m => m.infrastructureRows?.some(p => p.id === city.powerId
+        && p.cityId === city.cityId && p.function === 'powerWorks' && p.operationalAtPlayableYear))) return [];
+      const other = (map?.strategicPlayableSettlementState?.cityRows || []).filter(c => c.cityId !== city.cityId)
+        .flatMap(c => sources(map, { cityId: c.cityId, populationSourceId: c.assetId }, definitions, false, city));
+      return [...local, ...other.map(r => ({ ...r, id: `${r.branchId}:${city.powerId}:regulator-parts`, powerId: city.powerId,
+        targetCityId: city.cityId, targetPopulationSourceId: city.populationSourceId }))];
+    }
     const h = map?.strategicNonStateNetworkHistory, row = map?.strategicPlayableSettlementState?.cityRows?.find(r => r.cityId === city?.cityId);
-    const power = map?.strategicCapabilityHistory?.milestoneRows?.flatMap(m => m.infrastructureRows || []).find(p => p.id === city?.powerId
-      && p.cityId === city.cityId && p.function === 'powerWorks' && p.operationalAtPlayableYear);
+    const power = map?.strategicCapabilityHistory?.milestoneRows?.flatMap(m => m.infrastructureRows || []).find(p => p.id === targetPlant?.powerId
+      && p.cityId === targetPlant.cityId && p.function === 'powerWorks' && p.operationalAtPlayableYear);
     if (!h || !power || row?.assetId !== city.populationSourceId || !row.physicalJurisdictionExists || row.physicalCondition === 'ruined' || row.currentPopulation < 64) return [];
     return h.branchRows.filter(b => b.currentCityId === city.cityId && b.publicPhysicalPresence && !b.consolidatedIntoBranchId
       && b.organizationForm === 'standardsBureau' && b.operationalStatus === 'active' && ['licensed', 'chartered'].includes(b.currentStanding)
@@ -21,15 +32,15 @@
         return n?.category === 'standards' && n.organizationalContinuity && !['defunct', 'dormant'].includes(n.lifecycleStatus) && d?.roles.includes('technicalStandards'); })
       .sort((a, b) => a.id.localeCompare(b.id)).slice(0, Math.floor(row.currentPopulation / 64))
       .map(b => ({ id: `${b.id}:regulator-parts`, branchId: b.id, networkId: b.networkId, cityId: city.cityId,
-        populationSourceId: city.populationSourceId, powerId: city.powerId, label: b.publicName,
+        populationSourceId: city.populationSourceId, powerId: targetPlant.powerId, label: b.publicName,
         specificationId: `${b.networkId}:regulator-metal-parts`, qualification: 'regulatorMaterialMetrology' }));
   }
   const validSource = r => r?.qualification === 'regulatorMaterialMetrology'
     && ['id', 'branchId', 'networkId', 'cityId', 'populationSourceId', 'powerId', 'label', 'specificationId'].every(k => typeof r[k] === 'string' && r[k]);
   function create(rows, rule, at) {
     if (!rule?.worldId || !rule.runId || !rule.powerMaintenance || !Number.isFinite(at) || at < 0 || !Array.isArray(rows) || !rows.every(validSource)
-      || new Set(rows.map(r => r.id)).size !== rows.length || rows.some(r => r.cityId !== rule.source.cityId || r.powerId !== rule.source.powerId
-        || r.populationSourceId !== rule.source.populationSourceId)) return null;
+      || new Set(rows.map(r => r.id)).size !== rows.length || rows.some(r => (r.targetCityId || r.cityId) !== rule.source.cityId || r.powerId !== rule.source.powerId
+        || (r.targetPopulationSourceId || r.populationSourceId) !== rule.source.populationSourceId)) return null;
     return { worldId: rule.worldId, runId: rule.runId, id: `${rule.id}:parts-standards`, ruleId: rule.id, powerId: rule.source.powerId,
       cityId: rule.source.cityId, sources: copy(rows), providers: rows.map(r => ({ sourceId: r.id, accepting: true,
         reviewer: { id: `${r.branchId}:original-material-metrologist`, qualification: r.qualification, status: 'alive', health: 100, workSeconds: 14400, assignment: null },
@@ -46,7 +57,7 @@
       || !Number.isSafeInteger(s.serial) || s.serial < 0 || !Array.isArray(s.sources) || !s.sources.every(validSource)
       || !Array.isArray(s.providers) || s.providers.length !== s.sources.length || !Array.isArray(s.policies) || !Array.isArray(s.history) || !Array.isArray(s.assessments)
       || new Set(s.sources.map(r => r.id)).size !== s.sources.length || new Set(s.providers.map(p => p?.sourceId)).size !== s.providers.length
-      || s.sources.some(r => r.cityId !== s.cityId || r.powerId !== s.powerId)
+      || s.sources.some(r => (r.targetCityId || r.cityId) !== s.cityId || r.powerId !== s.powerId)
       || s.providers.some(p => !s.sources.some(r => r.id === p?.sourceId) || !p.reviewer?.id || !p.bench?.id
         || ![p.reviewer.health, p.reviewer.workSeconds, p.bench.condition, p.bench.workSeconds].every(n => Number.isFinite(n) && n >= 0)
         || p.reviewer.health > 100 || p.reviewer.workSeconds > 14400 || p.bench.workSeconds > 14400 || p.bench.condition > 100)
@@ -67,7 +78,9 @@
     return copy(s);
   }
   function rebind(s, from, to) { s = normalize(s); return bound(s, from) ? { ...s, worldId: to.worldId, runId: to.runId } : null; }
-  const target = (s, rule) => Boolean(s && !s.invalid && bound(s, rule) && s.ruleId === rule.id && s.powerId === rule.source.powerId && !rule.powerMaintenance?.accountLost);
+  const target = (s, rule) => Boolean(s && !s.invalid && bound(s, rule) && s.ruleId === rule.id && s.powerId === rule.source.powerId && !rule.powerMaintenance?.accountLost
+    && s.cityId === rule.source.cityId && s.sources.every(r => (r.targetCityId || r.cityId) === rule.source.cityId
+      && (r.targetPopulationSourceId || r.populationSourceId) === rule.source.populationSourceId && r.powerId === rule.source.powerId));
   const own = (i, claim = '') => i && i.carriedBy === 'scientist' && i.quantity > 0 && !i.cityOwnerId && !i.civicCustody
     && (!i.ownerId || ['scientist', 'player'].includes(i.ownerId)) && (!i.legalOwnerId || ['scientist', 'player'].includes(i.legalOwnerId))
     && !i.containerId && !i.fixtureId && !i.carryTaskId && !i.chemicalBatch && !i.biology && !i.contents?.length

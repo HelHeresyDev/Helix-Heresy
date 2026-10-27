@@ -208,6 +208,7 @@
     while (s.lastAt < to && h.alive()) {
       const dt = Math.min(1, to - s.lastAt), at = s.lastAt + dt; s.lastAt = at;
       const c = context();
+      const dock = c.dock || DOCK, entry = c.entry || ENTRY;
       if (s.job) {
         const j = s.job, a = account(s, networks, j.sourceId);
         if (!personal(s, rule, c) || !same(j.cell, c.cell) || j.bodyEpoch !== c.bodyEpoch || j.handoverId !== rule.handoverId
@@ -249,8 +250,8 @@
               }
             }
           } else if (m.phase === 'walkingToDock') {
-            if (same(d.mapCell, DOCK)) m.phase = 'unloading'; else h.move(d, DOCK, at);
-          } else if (m.phase === 'unloading' && same(d.mapCell, DOCK) && h.safe(d)) {
+            if (same(d.mapCell, dock)) m.phase = 'unloading'; else h.move(d, dock, at);
+          } else if (m.phase === 'unloading' && same(d.mapCell, dock) && h.safe(d)) {
             m.handling += dt;
             if (m.handling >= 60 && rule.powerFuel.stock + (rule.powerFuel.progress ? 1 : 0) < rule.powerFuel.capacity) {
               m.handling = 0; m.remaining--; sh.remaining = m.remaining; rule.powerFuel.stock++; rule.powerFuel.received++;
@@ -258,8 +259,8 @@
               if (!m.remaining) { m.phase = 'walkingToTruck'; m.deliveredAt = at; sh.delivered = true; sh.deliveredAt = at; }
             }
           } else if (m.phase === 'walkingToTruck') {
-            if (same(d.mapCell, ENTRY)) { d.mapCell = null; d.roomId = null; t.mapCell = null; t.roomId = null; h.depart?.(); m.phase = 'returning'; m.progress = 0; }
-            else h.move(d, ENTRY, at);
+            if (same(d.mapCell, entry)) { d.mapCell = null; d.roomId = null; t.mapCell = null; t.roomId = null; h.depart?.(); m.phase = 'returning'; m.progress = 0; }
+            else h.move(d, entry, at);
           }
         }
         // Only a surviving original witness can send this specific attack account.
@@ -295,6 +296,8 @@
       }
       for (const t of p.trucks.filter(t => !t.shipment && t.driver.status === 'alive')) {
         const d = t.driver, fed = Math.min(dt, d.fuelProvisionsSeconds);
+        if (!fed || d.lastFuelRestAt >= at) continue;
+        d.lastFuelRestAt = at;
         d.fuelProvisionsSeconds -= fed; d.fuelDutySeconds = Math.min(DUTY, d.fuelDutySeconds + fed / 2);
       }
       if (s.contract && !s.contract.cancelledAt && !s.job && (!s.mission || s.mission.returnedAt) && at > s.contract.at && at >= (s.nextCheckAt || 0)) {

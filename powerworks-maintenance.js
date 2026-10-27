@@ -14,10 +14,23 @@
   const validSource = r => r && r.qualification === 'powerworksRegulatorDiagnostics'
     && ['id', 'branchId', 'networkId', 'cityId', 'powerId', 'populationSourceId', 'laboratoryId', 'label'].every(k => typeof r[k] === 'string' && r[k]);
   const able = a => a?.status === 'alive' && a.health >= 50 && a.workSeconds > 0;
-  function sources(map, city, definitions) {
+  function sources(map, city, definitions, includeRemote = false, targetPlant = city) {
+    if (includeRemote) {
+      const target = map?.strategicPlayableSettlementState?.cityRows?.find(c => c.cityId === city?.cityId);
+      if (!target?.physicalJurisdictionExists || target.assetId !== city.populationSourceId || target.physicalCondition === 'ruined'
+        || target.services?.communications === 'failed') return [];
+      const local = sources(map, city, definitions);
+      const other = (map?.strategicPlayableSettlementState?.cityRows || []).filter(c => c.cityId !== city.cityId)
+        .flatMap(c => sources(map, { cityId: c.cityId, populationSourceId: c.assetId }, definitions, false, city));
+      if (!local.length && !map?.strategicCapabilityHistory?.milestoneRows?.some(m => m.infrastructureRows?.some(p => p.id === city.powerId
+        && p.cityId === city.cityId && p.function === 'powerWorks' && p.operationalAtPlayableYear))) return [];
+      return [...local, ...other.map(r => ({ ...r, id: `${r.branchId}:${city.powerId}:original-regulator-service`, powerId: city.powerId,
+        targetCityId: city.cityId, targetPopulationSourceId: city.populationSourceId,
+        provenance: r.provenance + ' Authenticated remote guidance only; original provider remains at its own bench.' }))];
+    }
     const row = map?.strategicPlayableSettlementState?.cityRows?.find(r => r.cityId === city?.cityId), h = map?.strategicNonStateNetworkHistory;
     const power = map?.strategicCapabilityHistory?.milestoneRows?.flatMap(m => m.infrastructureRows || [])
-      .find(r => r.id === city?.powerId && r.cityId === city.cityId && r.function === 'powerWorks' && r.operationalAtPlayableYear);
+      .find(r => r.id === targetPlant?.powerId && r.cityId === targetPlant.cityId && r.function === 'powerWorks' && r.operationalAtPlayableYear);
     if (!h || !power || !row?.physicalJurisdictionExists || row.physicalCondition === 'ruined' || row.currentPopulation < 64
       || row.assetId !== city.populationSourceId || row.services?.communications === 'failed') return [];
     // One bounded ORIGINAL laboratory service allocation, not a technician
@@ -38,7 +51,8 @@
   }
   function create(rows, rule, at) {
     if (!rule?.powerMaintenance || !rule.worldId || !rule.runId || !Array.isArray(rows) || !rows.every(validSource)
-      || rows.some(r => r.cityId !== rule.source.cityId || r.powerId !== rule.source.powerId || r.populationSourceId !== rule.source.populationSourceId)) return null;
+      || rows.some(r => (r.targetCityId || r.cityId) !== rule.source.cityId || r.powerId !== rule.source.powerId
+        || (r.targetPopulationSourceId || r.populationSourceId) !== rule.source.populationSourceId)) return null;
     return { worldId: rule.worldId, runId: rule.runId, id: `${rule.id}:technical-maintenance`, ruleId: rule.id, powerId: rule.source.powerId,
       lastAt: at, serial: 0, sources: copy(rows), providers: rows.map(r => ({ sourceId: r.id, accepting: true,
         technician: { id: `${r.branchId}:original-regulator-specialist`, populationSourceId: r.populationSourceId,
@@ -66,7 +80,8 @@
   }
   function rebind(s, from, to) { s = normalize(s); return bound(s, from) ? { ...s, worldId: to.worldId, runId: to.runId } : null; }
   const target = (s, rule) => Boolean(s && !s.invalid && bound(s, rule) && rule.id === s.ruleId && rule.source.powerId === s.powerId
-    && rule.powerMaintenance && !rule.powerMaintenance.accountLost);
+    && rule.powerMaintenance && !rule.powerMaintenance.accountLost && s.sources.every(r => (r.targetCityId || r.cityId) === rule.source.cityId
+      && (r.targetPopulationSourceId || r.populationSourceId) === rule.source.populationSourceId && r.powerId === rule.source.powerId));
   const source = (s, id) => s.sources.find(r => r.id === id);
   function channel(s, networks, id) {
     const r = source(s, id), p = s.providers.find(p => p.sourceId === id), a = networks?.accounts?.find(a => a.id === r?.branchId && !a.lost);

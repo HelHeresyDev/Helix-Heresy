@@ -7,6 +7,16 @@ const Definitions = require('../strategic-non-state-networks').NETWORK_DEFINITIO
 const { world } = require('./helpers/network-operating-source');
 const { addCommunications } = require('./helpers/civic-communication-source');
 const copy = x => JSON.parse(JSON.stringify(x));
+test('configuration belongs to its actual city and received relay records remain separately dated', () => {
+  const f = fixture(), other = copy(f.rule); other.id = 'rule:b'; other.source.cityId = 'b'; other.source.populationSourceId = 'population:b';
+  assert.equal(C.begin(f.s, f.rule, f.networks, f.c, f.provider, C.PURPOSES, false, 0), true);
+  f.tick(23); const before = copy([f.s, f.rule, other, f.networks]);
+  assert.equal(C.advance(f.s, other, f.networks, () => f.c, 60), false);
+  assert.equal(C.release(f.s, other, f.networks), false); assert.deepEqual([f.s, f.rule, other, f.networks], before);
+  f.tick(37); const dated = C.publicView(f.s, 'a'); assert.ok(dated); assert.equal(C.publicView(f.s, 'b'), null);
+  assert.equal(C.receive(f.s, other, f.c, 75), true); assert.deepEqual(C.publicView(f.s, 'a'), dated);
+  assert.equal(C.publicView(f.s, 'b').at, 75); assert.equal(C.publicView(C.normalize(f.s), 'a').at, 60);
+});
 function fixture() {
   const binding = { worldId: 'w', runId: 'r' }, city = { cityId: 'a', populationSourceId: 'population:a', charterId: 'charter:a',
     institutions: [{ role: 'publicWorksAndProvisioning', id: 'original-works:a' }] };
