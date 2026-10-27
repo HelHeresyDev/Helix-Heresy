@@ -188,6 +188,7 @@
   const NetworkInterdiction = window.HelixNetworkInterdiction;
   const TerrestrialForces = window.HelixTerrestrialForces;
   const CovertFunctions = window.HelixCovertFunctions;
+  const ExceptionalReach = window.HelixExceptionalReach;
   const CampaignSettlement = window.HelixCampaignSettlement;
   const RoadsideStops = window.HelixRoadsideStops;
   const RegionalEncounters = window.HelixRegionalEncounters;
@@ -15116,6 +15117,7 @@
       regionalGovernmentAction,
       terrestrialForceAction,
       covertFunctionAction,
+      exceptionalReachSnapshot: () => clonePlainObject(ExceptionalReach.outcomes(state.networkOperations, state, NetworkInventories.assess)),
       advanceCovertFunctionsForTest: (seconds = 0) => {
         if (scientistIsDead()) return false;
         state.clock += Math.max(0, seconds); const changed = updateCovertFunctions(); persist(); render(); return changed;
@@ -81419,6 +81421,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (CovertFunctions.bound(state.covertFunctions, binding)) for (const r of CovertFunctions.publicView(state.covertFunctions))
       evidence.push({ id: r.id, sourceId: r.ownerId, label: `Received prospective collection introduction from ${r.label}; no wider access or governing leverage established.`,
         status: 'unverified', observedAt: r.observedAt, receivedAt: r.at });
+    for (const t of state.penalFlights?.assistance?.cityApproach?.trips || []) {
+      if (!Supremacy.bound(t.component, binding)) continue;
+      const r = ComponentExpedition.publicView(t); if (!r?.charter) continue;
+      evidence.push({ id: `flight-scope:${t.id}:${r.at}`, sourceId: r.charter.ownerId,
+        label: 'Received named independent aircraft charter — civilian round trip only; no military or orbital command',
+        status: 'unverified', observedAt: r.at, receivedAt: r.at });
+    }
     for (const g of outerApproachGates()) {
       const p = g.outerApproach.chapterProtection, v = ChapterProtection.publicView(p); if (!v) continue;
       evidence.push({ id: `${p.id}:received:${v.at}`, sourceId: p.source.branchId,
@@ -84940,6 +84949,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { ...componentBinding(), alive: !scientistIsDead(), capable: cityApproachAble('scientist'),
       free: !restrictedOffsiteStay() && !currentDetentionRaid() && !GateEnforcement.custodyActive(currentGateEnforcement()) && !localPrisonRestricted(),
       atOrigin: scientistRoomId() === cityApproachOriginRoom(t), pilotPresent: Boolean(p?.pilot.cell && cityApproachNear('scientist', p.pilot.cell, 2)),
+      cargoKg: actorInventoryStacks('scientist').reduce((n, a) => n + a.unitMassKg * a.quantity, 0),
+      cargoL: actorInventoryStacks('scientist').reduce((n, a) => n + a.unitVolumeL * a.quantity, 0),
       local: componentLanded(g), onBoard: scientistRoomId() === CastawayAssistance.CABIN && t?.boardedIds.includes('scientist'),
       localPilot: Boolean(p?.pilot.location === 'cityCheckpoint' && p.pilot.cell?.z === scientistMapCell().z && cityApproachNear('scientist', p.pilot.cell, 10)),
       authorityCurrent: Boolean(source?.currentAuthority && source.currentPopulation >= 2 && source.physicalCondition !== 'ruined' && source.administrationId === g?.institutionId),
@@ -84992,7 +85003,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const km = cityApproachDistance(g, p);
     if (CityApproach.transportReason(p, km, state.clock)) return false;
     const t = CityApproach.request(ensureCityApproach(), g.id, p.id, [{ id: 'scientist', name: 'Scientist' }], km, state.clock); if (!t) return false;
-    ComponentExpedition.attach(t, g, p, source, componentBinding(), { ...p.departure, context: clonePlainObject(state.surveyExpeditions.fieldContext) }, state.clock);
+    if (!ComponentExpedition.attach(t, g, p, source, componentBinding(), { ...p.departure, context: clonePlainObject(state.surveyExpeditions.fieldContext) }, state.clock)) {
+      CityApproach.stage(t, 'failed', state.clock, null, 'Original provider ownership/employment or charter scope is unverified. No aircraft or permission was created.');
+      persist(); render(); return false;
+    }
     const reason = ComponentExpedition.reason(t, g, p, componentContext(t, g, p), state.clock);
     if (reason) { ComponentExpedition.fail(t, g, p, state.clock, reason); persist(); render(); return false; }
     g.receptionAssignment = t.id; g.clerk.assignment = t.id; p.radioSeconds -= 120;
@@ -85293,6 +85307,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const v = ComponentExpedition.publicView(t);
       if (v) {
         panel.append(textEl('p', `${formatClock(v.at)} — received ${v.label}: ${v.status}. ${v.reason}`));
+        if (v.charter) panel.append(textEl('p', `Original charter counterparty: ${blackMarketContactById(v.charter.ownerId)?.name || 'independent provider'}; ${v.charter.aircraftId}, pilot ${v.charter.pilotId}. ${v.charter.limits}`));
         if (v.offer) panel.append(textEl('p', `${v.offer.aircraftId}; original pilot ${v.offer.pilotName}; ${formatNumber(t.distanceKm)} km each way, ${v.offer.seats} passenger seats, ${v.offer.cargoKg} kg / ${v.offer.cargoL} L total carried cargo. ${formatMoney(v.offer.fee)} round trip. ${v.offer.returnTerms}`));
         if (v.returnDeadline != null) panel.append(textEl('p', `Return boarding must finish before ${formatClock(v.returnDeadline)}. Landing permission is separate from city admission.`));
       }
@@ -85307,7 +85322,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (!CityApproach.ongoing(t)) for (const provider of componentProviders()) for (const d of componentDestinations(provider)) {
       const km = StrategicWorld.greatCircleDistanceKm(activeWorldRecord.generatedData.strategicMap, StrategicWorld.cellIndex(provider.pad.cellId), StrategicWorld.cellIndex(d.cellId));
-      panel.append(textEl('p', `${provider.pad.label} → ${d.label}: ${formatNumber(km)} km; ${provider.pilot.name}, ${provider.aircraft.id}. Aircraft has ${formatNumber(provider.aircraft.fuelKm)} km fuel, ${formatNumber(provider.aircraft.rangeKm)} km range and ${formatNumber(provider.aircraft.condition)}% condition. Pilot duty ${formatDuration(provider.dutySeconds)}, provisions ${formatDuration(provider.provisionsSeconds)}. Original capacity is shared with other bookings.`));
+      panel.append(textEl('p', `${provider.pad.label} → ${d.label}: ${formatNumber(km)} km; ${provider.pilot.name}, ${provider.aircraft.id}. Aircraft has ${formatNumber(provider.aircraft.fuelKm)} km fuel, ${formatNumber(provider.aircraft.rangeKm)} km range and ${formatNumber(provider.aircraft.condition)}% condition. Pilot duty ${formatDuration(provider.dutySeconds)}, provisions ${formatDuration(provider.provisionsSeconds)}. Original capacity is shared with other bookings.`), textEl('p', ExceptionalReach.LIMITS));
       button(`Request Receiving Instructions: ${d.label}`, () => requestComponentExpedition(provider.id, d.id), surveyBusy() || Boolean(CityApproach.transportReason(provider, km, state.clock)) || !cityApproachNear('scientist', provider.pilot.cell, 2));
     }
     for (const key of ['drinkingWater', 'trailMeal']) button(`Use Carried ${inventoryItemLabel(key)}`, () => queueSurvivalConsumption(key), surveyBusy());

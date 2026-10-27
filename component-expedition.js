@@ -1,8 +1,9 @@
 (function (root, factory) {
-  const api = factory(typeof module === 'object' && module.exports ? require('./city-approach') : root.HelixCityApproach);
+  const api = factory(typeof module === 'object' && module.exports ? require('./city-approach') : root.HelixCityApproach,
+    typeof module === 'object' && module.exports ? require('./exceptional-reach') : root.HelixExceptionalReach);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixComponentExpedition = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Approach) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Approach, ExceptionalReach) {
   'use strict';
   const copy = x => x == null ? null : JSON.parse(JSON.stringify(x));
   const REPORT = 120, TURNAROUND = 7200, RESERVE = 50;
@@ -22,15 +23,17 @@
   }
   function attach(t, g, p, source, binding, origin, at) {
     if (!t || !source || !binding?.worldId || !binding.runId || !origin?.roomId || !origin.cell || !p?.id || !g?.institutionId
-      || source.destinationCityId !== g.cityId || t.providerId !== p.id || t.gateId !== g.id) return false;
+      || source.destinationCityId !== g.cityId || t.providerId !== p.id || t.gateId !== g.id || !ExceptionalReach.originalProvider(p)) return false;
     t.component = { ...copy(binding), source: copy(source), origin: copy(origin), gateId: g.id, institutionId: g.institutionId,
       clerkId: g.clerk.id, providerId: p.id, aircraftId: p.aircraft.id, pilotId: p.pilot.id,
+      charter: ExceptionalReach.charter(p, t.id),
       lastAt: at, reportProgress: 0, reportReady: true, reportDeadline: at + 3600,
       received: null, arrivedAt: null, returnDeadline: null, departBy: null, releasedAt: null, strandedAt: null };
     return true;
   }
   function normalize(s) {
     return s?.worldId && s.runId && Number.isInteger(s.bodyEpoch) && s.bodyEpoch >= 0 && s.aircraftId && s.pilotId && s.providerId && s.clerkId && s.institutionId
+      && s.charter?.tripId && s.charter.aircraftId === s.aircraftId && s.charter.pilotId === s.pilotId
       && s.origin?.roomId && s.origin.cell && s.source?.originCityId && s.source.destinationCityId && s.source.originComponentId && s.source.destinationComponentId
       && s.source.originComponentId !== s.source.destinationComponentId && Number.isFinite(s.lastAt) ? copy(s) : null;
   }
@@ -43,7 +46,8 @@
     const s = t?.component;
     return Boolean(s && c.worldId === s.worldId && c.runId === s.runId && c.bodyEpoch === s.bodyEpoch
       && g?.id === s.gateId && g.institutionId === s.institutionId && g.clerk?.id === s.clerkId
-      && p?.id === s.providerId && p.aircraft?.id === s.aircraftId && p.pilot?.id === s.pilotId);
+      && p?.id === s.providerId && p.aircraft?.id === s.aircraftId && p.pilot?.id === s.pilotId
+      && ExceptionalReach.current(s.charter, p, t.id));
   }
   function resources(p) {
     return p && Number.isFinite(p.dutySeconds) && Number.isFinite(p.provisionsSeconds) && p.pilot.status === 'alive'
@@ -56,7 +60,12 @@
     const needed = Math.max(0, REPORT - t.component.reportProgress);
     if (g.guard.status !== 'alive' || g.guard.health < 50 || g.clerk.status !== 'alive' || g.clerk.health < 50 || c.clerkIncapacitated || !c.channel || g.powerSeconds <= 0
       || g.receptionWorkSeconds < needed || g.receptionAssignment && g.receptionAssignment !== t.id) return 'Original receiving staff, shared queue or powered communications are unavailable.';
-    return Approach.transportReason(p, t.distanceKm, at, t.id) || c.weatherReason || '';
+    const reach = ExceptionalReach.flightReach(p, t.distanceKm, { ...c, departurePermission: c.atOrigin,
+      receivingPermission: c.authorityCurrent, tripId: t.id, waitSeconds: t.offer?.waitSeconds || 0,
+      overheadSeconds: t.offer ? 120 : 600, passengers: t.manifest.length, cargoKg: c.cargoKg, cargoL: c.cargoL }, at);
+    const limitation = reach.state !== 'supportedCivilianFlight'
+      ? (['preparing', 'boarding'].includes(t.status) ? 'Departure delay or resource loss: ' : '') + reach.reason : '';
+    return Approach.transportReason(p, t.distanceKm, at, t.id) || c.weatherReason || limitation;
   }
   function offer(t, g, p, c, at) {
     if (reason(t, g, p, c, at)) return false;
@@ -82,7 +91,8 @@
   function returnReason(t, p, c, at) {
     const s = t.component;
     if (c.worldId !== s.worldId || c.runId !== s.runId || c.bodyEpoch !== s.bodyEpoch || p?.id !== s.providerId
-      || p.aircraft?.id !== s.aircraftId || p.pilot?.id !== s.pilotId) return 'Only the original run, body, pilot and aircraft own this return.';
+      || p.aircraft?.id !== s.aircraftId || p.pilot?.id !== s.pilotId
+      || !ExceptionalReach.current(s.charter, p, t.id)) return 'Only the original run, body, pilot and aircraft own this return.';
     if (!c.alive || !c.capable || !c.free || !resources(p)) return 'Actual living passengers and the original fit pilot/aircraft are required; no automatic rescue or death.';
     if (s.returnDeadline != null && at >= s.returnDeadline) return 'The agreed waiting window has ended; there is no fresh pickup booking.';
     if (p.aircraft.reservedBy !== t.id || p.dutySeconds < t.offer.flightSeconds + 30 || p.provisionsSeconds < t.offer.flightSeconds + 30
@@ -143,10 +153,12 @@
   function receive(t, c, at) {
     const localWitness = c.local && (c.localPilot && !['departingEmpty', 'settled', 'flightInterrupted'].includes(t?.status)
       || c.departureVisible && t.history.at(-1)?.status === 'departingEmpty' && t.history.at(-1)?.at === at);
-    if (!t?.component || !c.alive || !(c.atOrigin && c.pilotPresent || localWitness || c.onBoard)) return false;
+    if (!t?.component?.charter || !c.alive || !(c.atOrigin && c.pilotPresent || localWitness || c.onBoard)) return false;
     const s = t.component;
     s.received = { at, tripId: t.id, cityId: s.source.destinationCityId, label: s.source.label,
       status: t.status, reason: t.reason, offer: t.offer ? copy(t.offer) : null, returnDeadline: s.returnDeadline,
+      charter: { ownerId: s.charter.ownerId, aircraftId: s.aircraftId, pilotId: s.pilotId, tripId: t.id,
+        scope: s.charter.scope, limits: s.charter.limits },
       source: 'Personally received named pilot/receiving instructions or physically observed expedition', limits: LIMITS };
     return true;
   }

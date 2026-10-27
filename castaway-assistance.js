@@ -10,9 +10,13 @@
   function active(s) { return s.requests.find(r => r.id === s.activeId) || null; }
   function ongoing(r) { return r && !["refused", "expired", "failed", "complete"].includes(r.status); }
   function service(contact, pad, pilotName, now) {
-    return { id: `castaway-service:${contact.id}`, contactId: contact.id, pad: clone(pad),
-      pilot: { id: `castaway-pilot:${contact.id}`, name: pilotName, health: 100, status: "alive", location: "receivingPad", cell: null },
+    const p = { id: `castaway-service:${contact.id}`, contactId: contact.id, pad: { ownerId: contact.id, ...clone(pad) },
+      pilot: { id: `castaway-pilot:${contact.id}`, name: pilotName, employerId: contact.id, health: 100, status: "alive", location: "receivingPad", cell: null },
       aircraft: { id: `castaway-aircraft:${contact.id}`, ownerId: contact.id, condition: 100, fuelKm: 1600, rangeKm: 800, passengerSeats: 2, cargoKg: 40, cargoL: 60, readyAt: now, reservedBy: null } };
+    p.originalOwner = { kind: 'independentContact', ownerId: contact.id, employerId: contact.id, providerId: p.id,
+      aircraftId: p.aircraft.id, pilotId: p.pilot.id, padId: p.pad.id, padOperatorId: p.pad.ownerId,
+      ...(p.pad.cellId != null ? { padCellId: p.pad.cellId } : {}) };
+    return p;
   }
   function reason(contact, provider, distance, now, message = {}) {
     if (!contact || contact.trust < 25) return "The contact is unwilling to risk a pickup without an established working relationship.";

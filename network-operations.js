@@ -1,10 +1,11 @@
 (function (root, factory) {
   const node = typeof module === 'object' && module.exports;
   const api = factory(node ? require('./network-capabilities') : root.HelixNetworkCapabilities,
-    node ? require('./network-inventories') : root.HelixNetworkInventories);
+    node ? require('./network-inventories') : root.HelixNetworkInventories,
+    node ? require('./exceptional-reach') : root.HelixExceptionalReach);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixNetworkOperations = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Capabilities, Inventories) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Capabilities, Inventories, ExceptionalReach) {
   'use strict';
   const copy = x => x == null ? null : JSON.parse(JSON.stringify(x));
   const SEND = 60, REPLY = 60, RECEIVE = 30;
@@ -66,6 +67,7 @@
       // office establishes that these other capacities ceased to exist.
       concealed: [...(h.covertRows || []), ...(h.affiliateRows || [])].map(r => ({ id: r.id,
         networkId: r.networkId || r.actualParentNetworkId, status: r.status || r.lifecycleStatus })) };
+    result.exceptionalSources = ExceptionalReach.sources(map);
     result.inventoryPlan = Inventories.plan(map, result);
     return result;
   }
@@ -80,6 +82,7 @@
     return source && ['networks', 'branches', 'concealed'].every(k => Array.isArray(source[k]))
       && (!source.capabilityBaseline || Capabilities.validBaseline(source.capabilityBaseline))
       && (!source.inventoryPlan || Inventories.validPlan(source.inventoryPlan, source.capabilityBaseline))
+      && (!source.exceptionalSources || ExceptionalReach.validSources(source.exceptionalSources))
       && source.networks.every(n => typeof n.id === 'string')
       && source.branches.every(b => typeof b.id === 'string' && typeof b.hostId === 'string'
         && source.networks.some(n => n.id === b.networkId) && b.charter?.id && b.charter.controllerId

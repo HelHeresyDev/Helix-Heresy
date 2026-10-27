@@ -41,9 +41,14 @@ async function setup(p, renderer) {
 async function launch(p) {
   const initial = await snap(p); const provider = initial.providers.find(p => p.pad.cityId === 'a');
   expect(provider).toBeTruthy(); expect(initial.trip).toBeNull(); expect(initial.carried.some(s => s.key === 'metalParts' && s.quantity === 2)).toBe(true);
+  expect(provider.originalOwner).toMatchObject({ kind: 'independentContact', ownerId: provider.contactId,
+    employerId: provider.contactId, aircraftId: provider.aircraft.id, pilotId: provider.pilot.id });
   await p.getByRole('button', { name: 'Request Receiving Instructions: Beryl', exact: true }).first().click();
   expect((await snap(p)).trip.status).toBe('requested'); await advance(p, 120);
   let s = await snap(p); expect(s.trip.status, s.trip.reason).toBe('offered');
+  expect(s.trip.component.charter.ownerId).toBe(provider.contactId);
+  expect(s.public.charter.scope).toBe('namedCivilianRoundTrip');
+  await expect(p.locator('[data-component-expedition]')).toContainText('not land title, military passage');
   expect(s.trip.distanceKm).toBeCloseTo(physical.km, 7);
   await expect(p.locator('[data-component-expedition]')).toContainText('not their hoarded terrain maps');
   await p.getByRole('button', { name: 'Accept Cross-Network Round Trip', exact: true }).click();
@@ -58,6 +63,10 @@ async function launch(p) {
   expect(s.trip.status).toBe('checkpoint'); expect(s.roomId).toBe(s.gate.checkpointRoomId);
   expect(s.context.local).toBe(true); expect(s.trip.decisions).toEqual([]);
   expect(s.provider.aircraft.fuelKm).toBeCloseTo(provider.aircraft.fuelKm - physical.km);
+  const owners = await p.evaluate(() => window.helixHeresyDebug.exceptionalReachSnapshot());
+  expect(owners.providers.find(v => v.providerId === provider.id)).toMatchObject({ state: 'independentOriginalProvider',
+    originalOwner: { ownerId: provider.contactId } });
+  expect(owners.strategicComplete).toBe(false);
   expect(s.carried.map(s => s.id)).toEqual(cargo);
   expect(s.maps.rooms[s.gate.checkpointRoomId]).toBeTruthy();
   return { initial, provider, cargo };
@@ -84,6 +93,7 @@ test('DOM: actual spherical cross-network flight, independent visitor review, pe
   expect(imported.binding.runId).not.toBe(beforeImport.binding.runId); expect(imported.trip.component.runId).toBe(imported.binding.runId);
   expect(imported.trip.component.worldId).toBe(imported.binding.worldId); expect(imported.provider).toEqual(beforeImport.provider);
   expect(imported.gate.visitorAdmission.decisions).toEqual(visitor.gate.visitorAdmission.decisions);
+  expect(imported.trip.component.charter).toEqual(beforeImport.trip.component.charter);
   await page.reload(); await page.locator('#loadLastSaveBtn').click(); await page.locator('[data-workspace-tab="visits"]').click();
   let s = await snap(page); expect(s.roomId).toBe(s.gate.checkpointRoomId); expect(s.carried.map(s => s.id)).toEqual(cargo);
   await page.getByRole('button', { name: 'Walk to Aircraft and Return to Departure Apron', exact: true }).click();
