@@ -11,7 +11,9 @@ async function finish(page) {
   throw new Error('Original passenger movement did not finish');
 }
 async function visit(page, renderer, options = {}) {
-  page.setDefaultTimeout(30000); await startLifecycleRun(page, `multi-city-${renderer}`); await prepareHome(page, renderer);
+  page.setDefaultTimeout(30000); await startLifecycleRun(page, `multi-city-${renderer}`);
+  if (options.prepareHome) await options.prepareHome(page, renderer);
+  else await prepareHome(page, renderer);
   if (options.beforeDeparture) await options.beforeDeparture(page);
   await page.evaluate(() => {
     const d = window.helixHeresyDebug;

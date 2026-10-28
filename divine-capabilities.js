@@ -30,7 +30,9 @@
     if (!base || !Array.isArray(base.rows) || !id(binding?.worldId) || !id(binding.runId) || !Number.isFinite(at)) return null;
     return { ...binding, allocatedAt: at, lastAt: at, mode: original ? 'original' : 'legacyUnknown', complete: base.complete === true,
       originals: copy(base.rows), records: base.rows.map(r => ({ godId: r.godId, god: original && validGod(r.god) ? copy(r.god) : null,
-        lost: !original || !validGod(r.god), linked: false })), continuity: [], reports: [], incidents: [], job: null, agreements: [], proposals: [], serial: 0, conflict: false };
+        lost: !original || !validGod(r.god), linked: false, contactIds: [], attentionInitialized: original && validGod(r.god),
+        attentionSeconds: original && validGod(r.god) ? Math.min(900, r.god.divineCore.receivingCapacity || 0) : 0, channelAvailableAt: 0 })),
+      contacts: [], continuity: [], reports: [], incidents: [], job: null, agreements: [], proposals: [], serial: 0, conflict: false };
   }
   function normalize(s) {
     if (s == null) return null;
@@ -45,17 +47,27 @@
       || s.job && (!s.job.proposal || !id(s.job.id) || !Number.isFinite(s.job.progress) || !Number.isFinite(s.job.lastAt))
       || new Set(s.originals.map(r => r.godId)).size !== s.originals.length || new Set(s.records.map(r => r.godId)).size !== s.records.length)
       return { worldId: s.worldId || '', runId: s.runId || '', invalid: true };
-    const next = copy(s); next.incidents ||= [];
+    const next = copy(s); next.incidents ||= []; next.contacts ||= [];
+    if (!Array.isArray(next.contacts) || next.contacts.some(c => !c || typeof c !== 'object' || Array.isArray(c)))
+      return { worldId: s.worldId, runId: s.runId, invalid: true };
     if (!Array.isArray(next.incidents) || next.incidents.some(e => !id(e?.id) || !Number.isFinite(e.at))) return { worldId: s.worldId, runId: s.runId, invalid: true };
     for (const original of next.originals) {
       let r = next.records.find(r => r.godId === original.godId);
       if (!r) next.records.push(r = { godId: original.godId, god: null, lost: true, linked: false });
       if (!validGod(r.god) || r.god.id !== original.godId || r.god.divineCore.repeatableSignature !== original.god?.divineCore?.repeatableSignature) r.lost = true;
+      r.contactIds = Array.isArray(r.contactIds) ? [...new Set(r.contactIds.filter(id))] : [];
+      if (r.attentionInitialized && (!Number.isFinite(r.attentionSeconds) || r.attentionSeconds < 0
+        || r.attentionSeconds > Math.min(900, original.god?.divineCore?.receivingCapacity || 0)
+        || !Number.isFinite(r.channelAvailableAt) || r.channelAvailableAt < 0)) { r.attentionSeconds = 0; r.channelAvailableAt = 0; r.attentionLost = true; }
     }
     if (next.records.some(r => !next.originals.some(o => o.godId === r.godId))) next.conflict = true;
     return next;
   }
-  function rebind(s, from, to) { s = normalize(s); return bound(s, from) ? { ...s, ...to } : null; }
+  function rebind(s, from, to) {
+    s = normalize(s); if (!bound(s, from)) return null;
+    for (const c of s.contacts || []) if (bound(c?.religion?.godRef, from)) Object.assign(c.religion.godRef, to);
+    return { ...s, ...to };
+  }
   const unknownGod = godId => ({ id: godId, lifecycle: { lifeState: 'unknown', divinityState: 'unknown' },
     divineCore: { receivingCapacity: 0 }, power: { reserve: 0, reserveCapacity: 0 }, expenditures: {} });
   // Only a pre-existing legacy contact's saved mutable account can migrate.
@@ -68,7 +80,7 @@
     r.god = copy(god); r.lost = false; religion.godRef = { worldId: s.worldId, runId: s.runId, godId: god.id };
     return link(s, religion);
   }
-  function link(s, religion) {
+  function link(s, religion, options = {}) {
     if (!religion) return false;
     const ref = religion.godRef, godId = ref?.godId || religion.source?.god?.id;
     const r = s && !s.invalid && s.records.find(r => r.godId === godId), original = s?.originals?.find(o => o.godId === godId);
@@ -78,10 +90,11 @@
       if (ref || s || !religion.god) Object.defineProperty(religion, 'god', { configurable: true, enumerable: false, value: unknownGod(godId) });
       return false;
     }
-    if (!ref && r.linked) {
+    r.contactIds ||= [];
+    if (!ref && r.linked && !(options.newContact && !r.contactIds.includes(religion.id))) {
       r.lost = true; Object.defineProperty(religion, 'god', { configurable: true, enumerable: false, value: unknownGod(godId) }); return false;
     }
-    if (!ref && religion.god && hash(religion.god) !== hash(religion.source.god)) {
+    if (!ref && !options.newContact && religion.god && hash(religion.god) !== hash(religion.source.god)) {
       // A previously active unlinked contact is not evidence of a second pot.
       // Preserve its actual spending once; never select a healthier copy.
       if (r.god.power.reserve !== original.god.power.reserve || religion.god.power.reserve > r.god.power.reserve) {
@@ -89,8 +102,22 @@
       }
       r.god = copy(religion.god);
     }
-    r.linked = true; religion.godRef = { worldId: s.worldId, runId: s.runId, godId };
+    if (!r.attentionInitialized) {
+      const actual = !options.newContact && Number.isFinite(religion.attentionSeconds) && religion.attentionSeconds >= 0
+        && religion.attentionSeconds <= Math.min(900, r.god.divineCore.receivingCapacity || 0)
+        && Number.isFinite(religion.channelAvailableAt) && religion.channelAvailableAt >= 0;
+      r.attentionSeconds = actual ? religion.attentionSeconds : 0;
+      r.channelAvailableAt = actual ? religion.channelAvailableAt : 0;
+      r.attentionLost = !actual; r.attentionInitialized = true;
+    } else if (!ref && !options.newContact && !r.linked && Number.isFinite(religion.attentionSeconds)) {
+      r.attentionSeconds = Math.min(r.attentionSeconds, religion.attentionSeconds);
+      r.channelAvailableAt = Math.max(r.channelAvailableAt, religion.channelAvailableAt || 0);
+    }
+    r.linked = true; if (!r.contactIds.includes(religion.id)) r.contactIds.push(religion.id);
+    religion.godRef = { worldId: s.worldId, runId: s.runId, godId };
     Object.defineProperty(religion, 'god', { configurable: true, enumerable: false, get: () => r.lost ? unknownGod(godId) : r.god });
+    for (const key of ['attentionSeconds', 'channelAvailableAt']) Object.defineProperty(religion, key, { configurable: true, enumerable: false,
+      get: () => r.attentionLost ? key === 'attentionSeconds' ? 0 : Infinity : r[key], set: value => { r[key] = value; } });
     return true;
   }
   function seal(s, godId, payload) {

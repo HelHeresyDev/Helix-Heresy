@@ -43,11 +43,12 @@
   function observe(s, r, event, c, at) {
     if (!s || s.invalid || !c.alive || !c.sourceCurrent || !c.representativeWitness || event.actorId !== 'scientist'
       || event.targetId !== r?.actor.id || !event.id || !event.actionId
-      || !Owners.currentAgreement(s, r.god.id, c.bodyEpoch, at) || s.incidents.some(e => e.id === event.id)) return false;
+      || !s.agreements.some(a => a.payload.protectedId === r.actor.id && a.payload.bodyEpoch === c.bodyEpoch && a.payload.at <= at
+        && at < a.payload.expiresAt && !a.breachedAt && a.seal === Owners.seal(s, r.god.id, a.payload)) || s.incidents.some(e => e.id === event.id)) return false;
     s.incidents.push({ ...copy(event), godId: r.god.id, witnessId: r.actor.id, at, receivedAt: null }); return true;
   }
   function beginBreach(s, r, office, c, at) {
-    const e = s?.incidents?.find(e => e.godId === r?.god?.id && e.receivedAt == null && !e.allocated);
+    const e = s?.incidents?.find(e => e.godId === r?.god?.id && e.witnessId === r.actor.id && e.receivedAt == null && !e.allocated);
     const cost = Math.max(1, r?.god?.expenditures?.communication || 0);
     if (!e || s.job || !channel(s, r, office, c) || at < r.channelAvailableAt || at < (office.availableAt || 0)
       || office.power < 1 || office.workSeconds < 120 || r.actor.workSeconds < 120 || r.attentionSeconds < 60 || r.god.power.reserve < cost) return false;
@@ -63,10 +64,14 @@
   }
   function propose(s, r, office, c, at) {
     if (!attendance(c) || !channel(s, r, office, c) || s.job) return null;
+    if (r.contactProcedure && r.actor.facilitationPolicy !== 'considerScopedPetition') {
+      s.reply = { at, text: 'The original representative declines to facilitate this political conversation. No divine reply or new obligation was received.' }; return null;
+    }
     if (!motive(r)) { s.reply = { at, text: 'The original representative supplies no compatible motive for this personal restraint proposal. No divine agreement or endorsement was received.' }; return null; }
     const active = Owners.currentAgreement(s, r.god.id, c.bodyEpoch, at);
     if (active && active.payload.expiresAt - at > 86400) { s.reply = { at, text: 'The received personal terms are not yet within their final day. No renewal was communicated.' }; return null; }
-    const existing = s.proposals.findLast(p => p.godId === r.god.id && p.bodyEpoch === c.bodyEpoch && p.startedAt == null && at < p.offerExpiresAt);
+    const existing = s.proposals.findLast(p => p.godId === r.god.id && p.branchId === r.source.branch.id && p.officeId === office.id
+      && p.bodyEpoch === c.bodyEpoch && p.startedAt == null && at < p.offerExpiresAt);
     if (existing) return copy(existing);
     const p = { id: `divine-restraint:${r.god.id}:${++s.serial}`, godId: r.god.id, protectedId: r.actor.id,
       faithId: r.source.faith.id, branchId: r.source.branch.id, bodyEpoch: c.bodyEpoch, officeId: office.id,
@@ -94,9 +99,10 @@
     if (intervention && (!Owners.bound(s, intervention) || intervention.godId !== r.god.id)) intervention = null;
     let changed = false;
     for (const a of s.agreements.filter(a => a.payload.godId === r.god.id && !a.breachedAt)) {
+      const localAvatars = intervention?.protectedId === a.payload.protectedId ? intervention.avatars || [] : [];
       const e = [...(intervention?.reports || []), ...(s.incidents || [])].find(e => e.at >= a.payload.at && e.at < a.payload.expiresAt && e.receivedAt != null && e.receivedAt <= at
-        && [a.payload.protectedId, ...(intervention?.avatars || []).map(a => a.id)].includes(e.targetId));
-      const witnessedByAvatar = (intervention?.avatars || []).find(v => v.renewedAggressionAt >= a.payload.at
+        && [a.payload.protectedId, ...localAvatars.map(a => a.id)].includes(e.targetId));
+      const witnessedByAvatar = localAvatars.find(v => v.renewedAggressionAt >= a.payload.at
         && v.renewedAggressionAt < a.payload.expiresAt && v.renewedAggressionAt <= at);
       if (e || witnessedByAvatar) { a.breachedAt = e?.receivedAt ?? witnessedByAvatar.renewedAggressionAt;
         a.causeId = e?.id || `${witnessedByAvatar.id}:witnessed-renewed-aggression`; changed = true; }
@@ -126,16 +132,17 @@
   }
   function receive(s, r, c, at) {
     if (!s || !c.alive || !c.capable || !c.sameGround || !c.receiveAtCounter) return false;
-    const a = s.agreements.findLast(a => a.payload.godId === r.god.id);
+    const a = s.agreements.findLast(a => a.payload.godId === r.god.id && a.payload.branchId === r.source.branch.id && a.payload.protectedId === r.actor.id);
     if (!a || a.seal !== Owners.seal(s, r.god.id, a.payload)) return false;
     const report = { id: `${a.payload.id}:received:${at}`, godId: a.payload.godId, godName: r.source.godName,
+      branchId: r.source.branch.id, protectedId: r.actor.id, protectedName: r.actor.name,
       observedAt: a.breachedAt || (at >= a.payload.expiresAt ? a.payload.expiresAt : a.payload.at), receivedAt: at, expiresAt: a.payload.expiresAt,
       state: a.breachedAt ? 'receivedBreach' : at >= a.payload.expiresAt ? 'receivedExpiredTerms' : 'receivedConditionalPersonalCommitment',
       terms: a.payload.terms, motive: a.payload.motive, limits: LIMITS };
     s.reports.push(report); return true;
   }
   function evidence(s) {
-    return publicReports(s).map(r => ({ id: r.id, sourceId: r.godId, seriesId: `divine-personal-restraint:${r.godId}`,
+    return publicReports(s).map(r => ({ id: r.id, sourceId: r.godId, seriesId: `divine-personal-restraint:${r.godId}${r.branchId ? ':' + r.branchId : ''}`,
       label: 'Received conditional divine personal commitment', status: 'unverified', observedAt: r.observedAt, receivedAt: r.receivedAt,
       account: { issuer: r.godName, scope: 'Named individual’s conditional personal terrestrial nonintervention',
         findings: [r.state, r.terms, r.motive, `Disclosed deadline: ${r.expiresAt} game seconds.`], limits: r.limits } }));

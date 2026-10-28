@@ -41,6 +41,26 @@
   const divine = g => g?.lifecycle?.lifeState === 'living' && g.lifecycle.divinityState === 'divine'
     && g.divineCore?.identityBound && g.divineCore.receivingCapacity > 0 && g.divineCore.repeatableSignature;
   const able = a => a?.status === 'alive' && a.health >= 50 && (a.fatigue || 0) < 80;
+  // Publicly present confirmed branches, not only the city's founding patron.
+  // This supplies potential original contacts, never access or divine assent.
+  function branchSources(map, cityId) {
+    const population = map?.strategicPlayableSettlementState?.cityRows?.find(r => r.cityId === cityId);
+    const government = map?.cityGovernments?.governments?.find(g => g.cityId === cityId);
+    if (!population?.physicalJurisdictionExists || population.currentPopulation < 12 || !government?.charter?.id) return [];
+    const faiths = Faiths.publicFaithDirectory(map)?.faiths || [];
+    const branches = map?.publicReligiousInstitutionHistoryDirectory?.currentBranchRows || [];
+    return branches.filter(b => b.currentCityId === cityId && b.originalCityId === cityId && usableBranch(b)).flatMap(branch => {
+      const faith = faiths.find(f => f.id === branch.traditionId), god = map?.strategicDivineHistory?.currentGodRows?.find(g => g.id === faith?.godId);
+      const identity = map?.publicReligionDirectory?.gods?.find(g => g.id === god?.id);
+      const confirmation = map?.strategicDivineHistory?.currentFaithRows?.find(f => f.faithId === faith?.id);
+      const tradition = map?.publicReligiousInstitutionHistoryDirectory?.traditionRows?.find(t => t.id === faith?.id && t.kind === 'confirmedDivineFaith');
+      if (!identity || !divine(god) || !tradition || faith?.confirmation?.state !== 'activelyConfirmed'
+        || confirmation?.confirmationState !== 'activelyConfirmed' || !identity.communication?.methods?.length) return [];
+      return [{ cityId, charterId: government.charter.id, populationSourceId: population.assetId,
+        branch: copy(branch), faith: copy(faith), god: copy(god), godName: identity.name,
+        patronInterest: Faiths.patronInterestFor(faith, map.publicDivineHistoryDirectory), communicationMethods: copy(identity.communication.methods) }];
+    });
+  }
   function create(source, office, theme = 'madcap') {
     if (!source?.populationSourceId || !usableBranch(source.branch) || !divine(source.god) || source.faith.godId !== source.god.id
       || source.faith.confirmation?.state !== 'activelyConfirmed' || source.branch.originalCityId !== source.cityId
@@ -361,6 +381,6 @@
         withdrawnAt: v.withdrawnAt ?? null, breach: copy(v.breach) })),
       working: s.job && { kind: s.job.kind, seconds: s.job.seconds, progress: s.job.progress }, message: s.message, limitations: LIMITS }) : null;
   }
-  return { SCOPE, LIMITS, SCIENTIST_POSITION, OATH, sourceFromWorld, create, normalize, meet, petition, submit, cancel, advance,
+  return { SCOPE, LIMITS, SCIENTIST_POSITION, OATH, sourceFromWorld, branchSources, create, normalize, meet, petition, submit, cancel, advance,
     authentic, authorizationIds, acceptCovenant, declineCovenant, confirmCovenant, fileCovenant, withdrawCovenant, publicView };
 });

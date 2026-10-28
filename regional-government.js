@@ -148,5 +148,5 @@
       n.knowledge?.succession?.terms?.governingEvidence]) if (bound(e, from)) Object.assign(e, to);
     return n;
   }
-  return { SCOPE, evidence, layout, create, normalize, office, context, people, action, advance, observe, aggression, publicView, rebind };
+  return { SCOPE, evidence, layout, create, normalize, office, useOffice, context, people, action, advance, observe, aggression, publicView, rebind };
 });
