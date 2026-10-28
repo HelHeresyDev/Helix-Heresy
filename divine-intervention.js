@@ -53,6 +53,7 @@
     if (!c.representativeWitness) {
       if (event.targetId !== current?.id || !present(current) || !c.avatarWitness) return false;
       current.truce = null; current.pending = null; current.hostile = true;
+      current.renewedAggressionAt = at;
       s.message = 'The avatar personally perceived renewed aggression. Its local nonaggression ended; no unobserved representative report or renewed allocation was invented.';
       return true;
     }
@@ -60,7 +61,7 @@
       witnessId: r.actor.id, cityId: s.cityId, cell: copy(c.cell), receivedAt: null };
     s.reports.push(report);
     const a = actor(s);
-    if (present(a)) { a.truce = null; a.pending = null; a.hostile = true; }
+    if (present(a)) { a.truce = null; a.pending = null; a.hostile = true; if (c.avatarWitness) a.renewedAggressionAt = at; }
     s.message = 'The original faithful representative witnessed aggression. The god has not received this untransmitted report.';
     return true;
   }

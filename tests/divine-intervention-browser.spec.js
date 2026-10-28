@@ -128,3 +128,51 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: actual received coe
     expect((await snap(page)).saved).toBeNull();
   }
 });
+
+test('dom: actual separate personal nonintervention, attended work, outages, saved evidence, continued copy and witnessed breach', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await setup(page, 'dom');
+  // Setup's actual civic walk already leaves the scientist at the counter.
+  const book = () => page.evaluate(() => window.helixHeresyDebug.divineCapabilitiesSnapshot());
+  const panel = page.locator('[data-divine-nonintervention]');
+  let s = await book(); expect(s.context.receiveAtCounter, JSON.stringify(s.context)).toBe(true);
+  const originalWorld = await page.evaluate(() => localStorage.getItem('helix-heresy-v2-world:lifecycle-world'));
+  const declaration = await page.evaluate(() => window.helixHeresyDebug.incumbentResistanceSnapshot().resistance.receipt);
+  await panel.locator('[data-divine-nonintervention-action="propose"]').click();
+  await expect(panel).toContainText('For four days'); await expect(panel).toContainText('No worship');
+  await panel.locator('[data-divine-nonintervention-action="accept"]').click();
+  s = await book(); expect(s.saved.job, JSON.stringify(s.context)).toBeTruthy();
+  expect(s.saved.records[0].god.power.reserve).toBe(93); expect(s.known).toHaveLength(0);
+  await tick(page, 25); await reload(page); s = await book(); expect(s.saved.job.progress).toBe(25);
+  await page.evaluate(() => window.helixHeresyDebug.configureReligiousRecognitionTest({ powered: false }));
+  await tick(page, 60); expect((await book()).saved.job.progress).toBe(25);
+  await page.evaluate(() => window.helixHeresyDebug.configureReligiousRecognitionTest({ powered: true }));
+  await tick(page, 1); await tick(page, 155); s = await book();
+  expect(s.saved.job, JSON.stringify(s.context)).toBeNull(); expect(s.saved.agreements).toHaveLength(1);
+  expect(s.known).toHaveLength(1); expect(s.facts[0].fact.state).toBe('qualifying');
+  expect((await snap(page)).saved.avatars).toHaveLength(0);
+  expect(s.evidence.find(e => e.sourceId === 'god:a').account.scope).toContain('personal terrestrial nonintervention');
+  const received = s.known, reserve = s.saved.records[0].god.power.reserve;
+  await walk(page, { x: 9, y: 10, z: 6 }); await tick(page, 60); expect((await book()).known).toEqual(received);
+  const bundle = await page.evaluate(() => ({ format: 'helix-heresy-run-bundle', version: 2, ...window.helixHeresyDebug.currentWorldRunSnapshot() }));
+  const previousRun = (await book()).saved.runId;
+  await page.locator('#newRunBtn').click();
+  await page.locator('#titleImportFileInput').setInputFiles({ name: 'continued-divine-restraint.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(bundle)) });
+  await expect(page.locator('#setupOverlay')).toHaveClass(/hidden/, { timeout: 60000 }); await visits(page);
+  s = await book(); expect(s.saved.runId).not.toBe(previousRun); expect(s.saved.records[0].god.power.reserve).toBe(reserve);
+  expect(s.known).toEqual(received); expect(s.facts[0].fact.state).toBe('qualifying');
+  await walk(page, { x: 18, y: 11, z: 6 }); expect(await act(page, 'attackRepresentative')).toBe(true);
+  await tick(page, 120); s = await book();
+  expect(s.saved.agreements[0].breachedAt).not.toBeNull(); expect(s.facts[0].fact.state).toBe('unverified');
+  // No remote rewrite of the held signed document. Reception is a separate action.
+  expect(s.known).toEqual(received);
+  await walk(page, { x: 17, y: 8, z: 6 });
+  expect(await page.evaluate(() => window.helixHeresyDebug.divineNoninterventionAction('receive'))).toBe(true);
+  expect((await book()).known.at(-1).state).toBe('receivedBreach');
+  expect(await page.evaluate(() => window.helixHeresyDebug.incumbentResistanceSnapshot().resistance.receipt)).toEqual(declaration);
+  expect(await page.evaluate(() => localStorage.getItem('helix-heresy-v2-world:lifecycle-world'))).toBe(originalWorld);
+  expect(await page.evaluate(() => window.helixHeresyDebug.validateMapScene())).toEqual([]);
+  const frozen = (await book()).saved;
+  await page.evaluate(() => { const d = window.helixHeresyDebug; d.inflictTestScientistDamage(); d.advanceSimulation(500); });
+  expect((await book()).saved).toEqual(frozen); expect(errors).toEqual([]);
+});

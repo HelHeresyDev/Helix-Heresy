@@ -163,6 +163,8 @@
   const DefenseRecognition = window.HelixDefenseRecognition;
   const ReligiousRecognition = window.HelixReligiousRecognition;
   const DivineIntervention = window.HelixDivineIntervention;
+  const DivineCapabilities = window.HelixDivineCapabilities;
+  const DivineNonintervention = window.HelixDivineNonintervention;
   const CitySuccession = window.HelixCitySuccession;
   const CityAdministration = window.HelixCityAdministration;
   const CivicFoothold = window.HelixCivicFoothold;
@@ -15309,14 +15311,30 @@
       defenseRecognitionAction: (action, terms) => defenseRecognitionAction(action, terms),
       religiousRecognitionAction: (action, terms) => religiousRecognitionAction(action, terms),
       divineInterventionAction: action => divineInterventionAction(action),
+      divineNoninterventionAction: (action, terms) => divineNoninterventionAction(action, terms),
+      divineCapabilitiesSnapshot: () => clonePlainObject({ saved: currentDivineCapabilities(),
+        known: DivineNonintervention.publicView(currentDivineCapabilities()), context: divineNoninterventionContext(),
+        facts: DivineCapabilities.assessment(currentDivineCapabilities(), state, state.clock, { alive: !scientistIsDead(),
+          bodyEpoch: state.scientistIdentity?.bodyEpoch, incapacitated: actorIsIncapacitated }), evidence: supremacyEvidence(), clock: state.clock }),
       divineInterventionSnapshot: () => clonePlainObject({ saved: currentDivineIntervention(), known: DivineIntervention.publicView(currentDivineIntervention()),
-        religion: state.religiousRecognition, context: divineInterventionContext(), office: scientistCivicOffice(), clock: state.clock,
+        religion: state.religiousRecognition && { ...state.religiousRecognition, god: state.religiousRecognition.god }, context: divineInterventionContext(), office: scientistCivicOffice(), clock: state.clock,
         injuries: state.injuries, health: scientistVital('health').current }),
-      religiousRecognitionSnapshot: () => clonePlainObject({ petition: state.religiousRecognition, known: state.religiousRecognitionKnowledge,
+      religiousRecognitionSnapshot: () => clonePlainObject({ petition: state.religiousRecognition && { ...state.religiousRecognition, god: state.religiousRecognition.god }, known: state.religiousRecognitionKnowledge,
         context: religiousRecognitionContext(), office: scientistCivicOffice(), charter: state.charterRecognition, clock: state.clock }),
       configureReligiousRecognitionTest: (options = {}) => {
         const b = state.sovereignBargains; if (!b?.testFixture) return false;
-        if (options.source) b.testReligiousSource = clonePlainObject(options.source);
+        if (options.source) {
+          if (state.religiousRecognition && JSON.stringify(options.source) !== JSON.stringify(b.testReligiousSource)) return false;
+          b.testReligiousSource = clonePlainObject(options.source);
+          // Prepared original source BEFORE contact/allocation, never a result,
+          // refill, qualification flag or substitute for gameplay work.
+          if (!state.religiousRecognition && DivineCapabilities.validGod(options.source.god)) {
+            state.divineCapabilities = DivineCapabilities.create({ complete: true, rows: [{ godId: options.source.god.id,
+              god: options.source.god, faith: options.source.faith, death: null }] },
+            { worldId: activeWorldRecord.id, runId: activeRunRecord.id }, state.clock, true);
+            state.divineCapabilitiesInitialized = true;
+          }
+        }
         const s = ensureReligiousRecognition(); if (!s) return false;
         if (options.policy) s.actor.facilitationPolicy = options.policy;
         if (options.powered != null) scientistCivicOffice().channelPowered = options.powered;
@@ -20488,6 +20506,8 @@
     const originalNetworkSource = NetworkOperations.sources(worldMap, world.worldSeed);
     if (originalNetworkSource) next.networkOperations = NetworkOperations.create(originalNetworkSource,
       { worldId: world.id, runId }, next.clock, { originalInventory: true });
+    next.divineCapabilities = DivineCapabilities.create(DivineCapabilities.sources(worldMap), { worldId: world.id, runId }, next.clock, true);
+    next.divineCapabilitiesInitialized = true;
     state = next;
     activeWorldRecord = world;
     activeRunRecord = WorldRunLibrary.createRun({
@@ -20665,6 +20685,11 @@
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.divineIntervention = DivineIntervention.rebind(importedState.divineIntervention,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.divineCapabilities = DivineCapabilities.rebind(importedState.divineCapabilities,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    const godRef = importedState.religiousRecognition?.godRef;
+    if (DivineCapabilities.bound(godRef, { worldId: candidate.run.worldId, runId: candidate.run.id }))
+      Object.assign(godRef, { worldId: world.id, runId: importedRunId });
     importedState.overlandExpedition = OverlandExpedition.rebind(importedState.overlandExpedition,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.intercityMarch = IntercityMarch.rebind(importedState.intercityMarch,
@@ -24381,6 +24406,7 @@
     changes.scientistMovementChanged += livingUpdate(() => updateDefenseRecognition());
     changes.scientistMovementChanged += livingUpdate(() => updateReligiousRecognition());
     changes.combatChanged += livingUpdate(() => updateDivineIntervention());
+    changes.scientistMovementChanged += livingUpdate(() => updateDivineNonintervention());
     changes.scientistMovementChanged += livingUpdate(() => updateCarrierBriefing());
     changes.scientistMovementChanged += livingUpdate(() => updatePenalFlights(elapsed));
     changes.scientistMovementChanged += livingUpdate(() => updatePenalLegion(elapsed));
@@ -24521,13 +24547,14 @@
       }
       return changed;
     }
-    if (!options.divineStep && elapsed > 1 && (currentDivineIntervention()?.job || DivineIntervention.present(DivineIntervention.actor(currentDivineIntervention())))) {
+    if (!options.divineStep && elapsed > 1 && (currentDivineCapabilities()?.job || currentDivineIntervention()?.job || DivineIntervention.present(DivineIntervention.actor(currentDivineIntervention())))) {
       let remaining = elapsed, changed = 0;
       while (remaining > 0 && !scientistIsDead()) {
         const s = currentDivineIntervention(), a = DivineIntervention.actor(s), c = divineInterventionContext(),
           phase = Boolean(a?.pending), health = scientistVital('health').current, before = state.clock;
         const physical = DivineIntervention.present(a) && (c.avatarAway || a.hostile && c.sameGround && c.tracksScientist && c.scientistNearAnchor);
         const boundary = Math.min(s?.job ? Math.max(1, DivineIntervention.REPORT_SECONDS - s.job.progress) : Infinity,
+          currentDivineCapabilities()?.job ? Math.max(1, (currentDivineCapabilities().job.kind === 'breach' ? 120 : DivineNonintervention.WORK) - currentDivineCapabilities().job.progress) : Infinity,
           a?.manifested && a.expiresAt > before ? a.expiresAt - before : Infinity);
         changed += advanceTime(Math.min(remaining, physical ? 1 : 60, boundary), { ...options, divineStep: true }); remaining -= state.clock - before;
         if (state.clock <= before || !phase && DivineIntervention.actor(s)?.pending || scientistVital('health').current < health) break;
@@ -81402,6 +81429,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         NetworkOperations.fact(operations, n.id, chapters.get(n.id)?.state === 'notQualifying', state.clock, frame));
     }
     facts.push(...chapters.values());
+    const divine = ensureDivineCapabilities();
+    if (divine) facts.push(...DivineCapabilities.advance(divine, state, state.clock, { alive: !scientistIsDead(),
+      bodyEpoch: state.scientistIdentity?.bodyEpoch, incapacitated: actorIsIncapacitated }));
     const city = state.cityRule && Supremacy.cityAccount(s, state.cityRule, state.citySuccession,
       cityRulePeople(), cityRuleContext(), state.clock);
     if (city) facts.push(city);
@@ -81419,6 +81449,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function supremacyEvidence() {
     const binding = { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id };
     const evidence = [], r = Supremacy.bound(state.cityRule, binding) && state.cityRule.report;
+    if (DivineCapabilities.bound(state.divineCapabilities, binding)) evidence.push(...DivineNonintervention.evidence(state.divineCapabilities));
     if (NetworkOperations.bound(state.networkOperations, binding)) for (const r of NetworkOperations.publicView(state.networkOperations))
       evidence.push(...InstitutionalEvidence.network(r));
     if (TerrestrialForces.bound(state.terrestrialForces, binding)) for (const r of TerrestrialForces.publicView(state.terrestrialForces))
@@ -89512,6 +89543,85 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const s = state.divineIntervention;
     return s?.worldId === activeWorldRecord?.id && s?.runId === activeRunRecord?.id ? s : null;
   }
+  function currentDivineCapabilities() {
+    const s = state.divineCapabilities;
+    return s && !s.invalid && DivineCapabilities.bound(s, { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id }) ? s : null;
+  }
+  function ensureDivineCapabilities() {
+    if (scientistIsDead() || !activeWorldRecord || !activeRunRecord) return currentDivineCapabilities();
+    if (!state.divineCapabilitiesInitialized) {
+      state.divineCapabilities = DivineCapabilities.create(DivineCapabilities.sources(activeWorldRecord.generatedData?.strategicMap),
+        { worldId: activeWorldRecord.id, runId: activeRunRecord.id }, state.clock, false);
+      DivineCapabilities.preserveContact(state.divineCapabilities, state.religiousRecognition);
+      state.divineCapabilitiesInitialized = true;
+    }
+    return currentDivineCapabilities();
+  }
+  function divineNoninterventionContext() {
+    const r = state.religiousRecognition, office = scientistCivicOffice(), base = religiousRecognitionContext();
+    if (!r) return { alive: !scientistIsDead() };
+    const cell = scientistMapCell(), sameGround = Boolean(base.local && state.surveyExpeditions?.destination?.cityId === r.source.cityId
+      && scientistRoomId() === r.actor.roomId);
+    return { ...base, sameGround,
+      representativeAble: r.actor.status === 'alive' && r.actor.health >= 50 && !actorIsIncapacitated(r.actor),
+      representativeWitness: Boolean(sameGround && r.actor.status === 'alive' && !actorIsIncapacitated(r.actor)
+        && WildernessBeasts.distance(cell, r.actor.mapCell) <= 4 && sensoryLineOfSight(r.actor.mapCell, cell)),
+      representativeAtChannel: Boolean(office && r.actor.locationId === office.id && r.actor.roomId === office.civicCounter?.roomId),
+      clerkAtChannel: Boolean(office?.clerk.locationId === office?.id && !actorIsIncapacitated(office.clerk)
+        && office.clerk.mapCell && WildernessBeasts.distance(office.clerk.mapCell, r.actor.mapCell) <= 4
+        && directedLineOfEffect(office.clerk.mapCell, r.actor.mapCell)),
+      free: !activeScientistTravelTask() && !base.busy && !state.combat.pendingActions.scientist,
+      receiveAtCounter: Boolean(base.alive && base.capable && sameGround && base.atCounter && base.clerkPresent
+        && base.representativePresent && base.lineOfSight) };
+  }
+  function updateDivineNonintervention() {
+    if (scientistIsDead()) return 0;
+    const s = currentDivineCapabilities(), r = state.religiousRecognition; if (!s || !r) return 0;
+    const changed = DivineNonintervention.advance(s, r, scientistCivicOffice(), divineNoninterventionContext(), state.clock);
+    const breached = DivineNonintervention.observeBreach(s, currentDivineIntervention(), r, state.clock);
+    if (s.job && !state.combat?.routineSuspension) suspendScientistRoutineWork('divine communication');
+    if (!s.job && state.combat?.routineSuspension?.reason === 'divine communication') resumeScientistRoutineWork();
+    return changed || breached ? 1 : 0;
+  }
+  function divineNoninterventionAction(action, terms = null) {
+    if (scientistIsDead()) return false;
+    const s = ensureDivineCapabilities(), r = ensureReligiousRecognition(), c = divineNoninterventionContext();
+    if (!s || !r) return false;
+    let ok = false;
+    if (action === 'propose') ok = Boolean(DivineNonintervention.propose(s, r, scientistCivicOffice(), c, state.clock));
+    if (action === 'accept') ok = DivineNonintervention.begin(s, r, scientistCivicOffice(), c, terms, state.clock);
+    if (action === 'receive') ok = DivineNonintervention.receive(s, r, c, state.clock);
+    if (action === 'cancel' && s.job && s.job.kind !== 'breach') { DivineNonintervention.release(s, r, scientistCivicOffice()); ok = true; }
+    if (!ok && action === 'accept' && c.receiveAtCounter) s.reply = { at: state.clock,
+      text: 'The unchanged exact proposal, original people, free channel and finite remaining capacity do not support starting this communication. No assent was received.' };
+    updateSupremacy(); persist(); render(); return ok;
+  }
+  function renderDivineNonintervention() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.divineNonintervention = 'true';
+    panel.append(textEl('h4', 'Personal divine nonintervention — separate negotiated terms'));
+    const s = currentDivineCapabilities(), r = state.religiousRecognition, c = divineNoninterventionContext();
+    panel.append(textEl('p', DivineNonintervention.LIMITS));
+    if (!s || !r || !c.receiveAtCounter) {
+      panel.append(textEl('p', 'A new proposal requires an attended original representative and usable original civic channel. Absence or silence is not agreement.'));
+    } else {
+      const button = (label, action, disabled, terms = null) => { const b = storesActionButton(label, label, () => divineNoninterventionAction(action, terms));
+        b.dataset.divineNoninterventionAction = action; b.disabled = Boolean(disabled); panel.append(b); };
+      button('Discuss conditional personal nonintervention', 'propose', Boolean(s.job) || !c.free);
+      if (s.reply) panel.append(textEl('p', `${formatClock(s.reply.at)}: ${s.reply.text}`));
+      const p = s.proposals.findLast(p => p.godId === r.god.id && p.startedAt == null && p.offerExpiresAt > state.clock);
+      if (p) {
+        panel.append(textEl('p', p.terms), textEl('p', p.motive), textEl('p', `Exact proposal expires ${formatClock(p.offerExpiresAt)}. Communication takes three attended minutes and spends original counter power, work, attention and divine reserve.`));
+        button('Accept these exact personal nonintervention terms', 'accept', Boolean(s.job) || !c.free, clonePlainObject(p));
+      }
+      if (s.job) {
+        panel.append(textEl('p', `${s.job.kind === 'breach' ? 'Original witnessed incident transmission' : 'Attended nonintervention communication'}: ${formatDuration(s.job.progress)} of ${formatDuration(s.job.kind === 'breach' ? 120 : DivineNonintervention.WORK)}.`));
+        if (s.job.kind !== 'breach') button('Cancel unfinished communication — no refund', 'cancel', false);
+      }
+      button('Receive dated personal commitment account', 'receive', !c.free);
+    }
+    for (const report of DivineNonintervention.publicView(s)) panel.append(textEl('p', `${report.godName}: ${report.state}. Observed ${formatClock(report.observedAt)}, received ${formatClock(report.receivedAt)}; disclosed deadline ${formatClock(report.expiresAt)}.`), textEl('p', report.terms));
+    return panel;
+  }
   function divineInterventionOffice() {
     const s = currentDivineIntervention();
     return s ? state.economy?.intercitySmuggling?.identityOffices?.find(o => o.id === s.officeId) || null : null;
@@ -89524,6 +89634,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (scientistIsDead()) return currentDivineIntervention();
     const r = state.religiousRecognition;
     if (!r) return null;
+    DivineCapabilities.link(ensureDivineCapabilities(), r);
     // Prepare the original representative, not a new defender or healed body.
     r.actor.physicalControl ||= { strength: 20, stamina: 40, staminaCapacity: 40 };
     r.actor.skills ||= { striking: 1, guarding: 4, evasion: 5, perception: 10 };
@@ -89579,9 +89690,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function observeDivineAggression(targetId, actionId) {
     if (targetId !== state.religiousRecognition?.actor.id && targetId !== DivineIntervention.actor(currentDivineIntervention())?.id) return false;
     const s = ensureDivineIntervention();
-    return DivineIntervention.observe(s, state.religiousRecognition, {
+    const event = {
       id: `scientist:${state.clock}:${state.combat.nextActionNumber}`, actorId: 'scientist', targetId, actionId
-    }, divineInterventionContext(), state.clock);
+    };
+    const observed = DivineIntervention.observe(s, state.religiousRecognition, event, divineInterventionContext(), state.clock);
+    const ownWitness = !observed && DivineNonintervention.observe(currentDivineCapabilities(), state.religiousRecognition, event, divineNoninterventionContext(), state.clock);
+    DivineNonintervention.observeBreach(currentDivineCapabilities(), s, state.religiousRecognition, state.clock);
+    return ownWitness || observed;
   }
   function updateDivineIntervention() {
     const s = currentDivineIntervention(), r = state.religiousRecognition;
@@ -89651,15 +89766,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ...(state.citySuccession?.appointments?.opposition?.safeguards?.received || [])];
   }
   function ensureReligiousRecognition() {
-    if (state.religiousRecognition) return state.religiousRecognition;
+    if (state.religiousRecognition) {
+      if (!scientistIsDead()) DivineCapabilities.link(ensureDivineCapabilities(), state.religiousRecognition);
+      return state.religiousRecognition;
+    }
     if (scientistIsDead()) return null;
     const office = scientistCivicOffice(), source = citySuccessionSource(), b = state.sovereignBargains;
     if (!office || !source || !state.surveyExpeditions?.materialized) return null;
     const origin = b?.testFixture ? b.testReligiousSource : ReligiousRecognition.sourceFromWorld(
       activeWorldRecord?.generatedData?.strategicMap, source.cityId, source.charterId);
     const petition = ReligiousRecognition.create(origin, office, activeWorldRecord?.worldTheme || 'madcap');
-    if (petition && labMapCellRoomId(petition.actor.mapCell) === SurveyExpeditions.FIELD_ROOM && canActorOccupyTile(petition.actor, petition.actor.mapCell))
-      state.religiousRecognition = petition;
+    if (petition && labMapCellRoomId(petition.actor.mapCell) === SurveyExpeditions.FIELD_ROOM && canActorOccupyTile(petition.actor, petition.actor.mapCell)) {
+      state.religiousRecognition = petition; DivineCapabilities.link(ensureDivineCapabilities(), petition);
+    }
     return state.religiousRecognition;
   }
   function religiousRecognitionContext() {
@@ -102619,6 +102738,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(renderDefenseRecognition());
     panel.append(renderReligiousRecognition());
     panel.append(renderDivineIntervention());
+    panel.append(renderDivineNonintervention());
     panel.append(renderCitySuccession());
     panel.append(renderCityAdministration());
     panel.append(renderCityProvisioning());
@@ -109881,6 +110001,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.defenseRecognitionKnowledge = candidate?.defenseRecognitionKnowledge ? clonePlainObject(candidate.defenseRecognitionKnowledge) : null;
     next.religiousRecognition = ReligiousRecognition.normalize(candidate?.religiousRecognition);
     next.divineIntervention = DivineIntervention.normalize(candidate?.divineIntervention);
+    next.divineCapabilities = DivineCapabilities.normalize(candidate?.divineCapabilities);
+    next.divineCapabilitiesInitialized = candidate?.divineCapabilitiesInitialized === true || candidate?.divineCapabilities != null;
+    DivineCapabilities.link(next.divineCapabilities, next.religiousRecognition);
     next.religiousRecognitionKnowledge = candidate?.religiousRecognitionKnowledge ? clonePlainObject(candidate.religiousRecognitionKnowledge) : null;
     next.citySuccession = CitySuccession.normalize(candidate?.citySuccession);
     if (next.citySuccession?.appointments) next.citySuccession.appointments = PublicWorksAppointments.normalize(next.citySuccession.appointments);
