@@ -104,11 +104,12 @@
       const profile = Wild.PROFILES[a.speciesId];
       const targets = [...(h.targets || []), ...(v.roomId !== site.roomId ? [] : v.condition > 0 ? [{ kind: 'structure', cell: v.mapCell, id: v.id }]
         : d.status === 'alive' ? [{ kind: 'creature', cell: d.mapCell, id: d.id }] : v.cargoKg > 0 ? [{ kind: 'structure', cell: v.mapCell, id: v.id }] : [])];
-      const seen = targets.filter(t => Wild.distance(a.mapCell, t.cell) <= profile.sight && h.sight(a.mapCell, t.cell))
+      if (a.targetId && h.protectedTarget?.(a, a.targetId, at)) { a.targetId = null; a.lastTarget = null; a.rememberedUntil = 0; }
+      const seen = targets.filter(t => !h.protectedTarget?.(a, t.id, at) && Wild.distance(a.mapCell, t.cell) <= profile.sight && h.sight(a.mapCell, t.cell))
         .sort((aTarget, bTarget) => Wild.distance(a.mapCell, aTarget.cell) - Wild.distance(a.mapCell, bTarget.cell));
       const t = seen.find(t => t.id === a.targetId && at < a.provokedUntil) || seen[0];
       if (t) a.targetId = t.id;
-      const decision = Wild.decide(a, t?.cell || a.lastTarget, at, Boolean(t), false);
+      const decision = h.intent?.(a) || Wild.decide(a, t?.cell || a.lastTarget, at, Boolean(t), false);
       if (a.effortSeconds <= 0 && ['pursue', 'investigate'].includes(decision.behavior)) {
         decision.behavior = 'return'; decision.goal = a.homeCell;
       }

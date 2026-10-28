@@ -197,6 +197,7 @@
   const CampaignSettlement = window.HelixCampaignSettlement;
   const RoadsideStops = window.HelixRoadsideStops;
   const RegionalEncounters = window.HelixRegionalEncounters;
+  const BeastDiplomacy = window.HelixBeastDiplomacy;
   const FieldCharter = window.HelixFieldCharter;
   const FieldEvacuation = window.HelixFieldEvacuation;
   const MunicipalCargoRecovery = window.HelixMunicipalCargoRecovery;
@@ -5614,6 +5615,7 @@
       corridorWorks: null,
       regionalBeastPowers: null,
       regionalSuppression: null,
+      beastDiplomacy: null,
       regionalChange: null,
       durableSupremacy: null,
       outerApproachVisit: null,
@@ -14075,6 +14077,17 @@
       },
       regionalEncounterSnapshot: () => clonePlainObject({ ledger: state.regionalEncounters, knowledge: wildernessBeastKnowledge(),
         clock: state.clock, stop: overlandStopSite(), cell: scientistMapCell(), injuries: state.injuries }),
+      beastDiplomacySnapshot: () => clonePlainObject({ saved: currentBeastDiplomacy(), public: BeastDiplomacy.publicView(currentBeastDiplomacy()),
+        region: currentRegionalEncounters(), site: overlandStopSite(), clock: state.clock, cell: scientistMapCell(),
+        contexts: (currentRegionalEncounters()?.beasts.actors || []).filter(a => BeastDiplomacy.troop(currentBeastDiplomacy(), a))
+          .map(a => ({ id: a.id, context: beastDialogueContext(a) })) }),
+      beastDiplomacyAction,
+      setBeastDiplomacyTestSources: (sources, seed = 'mirror-contact') => {
+        if (!sources.every(BeastDiplomacy.validSource) || currentBeastDiplomacy()?.troops.length) return false;
+        state.beastDiplomacy ||= BeastDiplomacy.create({ worldId: activeWorldRecord.id, runId: activeRunRecord.id });
+        state.beastDiplomacy.testSources = clonePlainObject(sources); state.beastDiplomacy.testSeed = seed;
+        persist(); return true; // Original source/personality inputs only, before allocation or interaction.
+      },
       configureRegionalEncounterTest: (populations, seed = 'regional-test') => {
         // Explicit source fixture; the real allocator runs without editing the reusable world.
         const ledger = ensureRegionalEncounters(); RegionalEncounters.route(ledger, overlandRoute(), populations, seed, state.clock);
@@ -20767,6 +20780,8 @@
     importedState.roadsideStops = RoadsideStops.rebind(importedState.roadsideStops,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.regionalEncounters = RegionalEncounters.rebind(importedState.regionalEncounters,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.beastDiplomacy = BeastDiplomacy.rebind(importedState.beastDiplomacy,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.fieldCharter = FieldCharter.rebind(importedState.fieldCharter,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
@@ -42391,6 +42406,7 @@
     if (!actor || !action || !target) return { ok: false, reason: "The combat action no longer has a valid actor or target." };
     const range = combatActionRangeInfo(actor, action, target);
     if (!range.inRange) return { ok: false, reason: range.reason, blockedAt: target.lastKnownCell || combatTargetCurrentCell(target) };
+    observeBeastDiplomacyAggression(actorId, target.id, actionId);
     if (actorId === 'scientist') witnessChapterAggression(target);
     if (actorId === 'scientist' && outerApproachLocal() && action.targetKinds.includes(target.kind)) {
       const g = outerApproachGate();
@@ -80867,6 +80883,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.visitsList?.prepend(renderExpansionAtlas());
     dom.visitsList?.prepend(renderBeastPowers());
     dom.visitsList?.prepend(renderSuppression());
+    dom.visitsList?.prepend(renderBeastDiplomacy());
     dom.visitsList?.prepend(renderRegionalOperations());
     dom.visitsList?.prepend(renderFoundingExpedition());
     dom.visitsList?.prepend(renderFoundingWorks());
@@ -81483,6 +81500,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function supremacyEvidence() {
     const binding = { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id };
     const evidence = [], r = Supremacy.bound(state.cityRule, binding) && state.cityRule.report;
+    if (BeastDiplomacy.bound(state.beastDiplomacy, binding)) evidence.push(...BeastDiplomacy.evidence(state.beastDiplomacy));
     if (DivineCapabilities.bound(state.divineCapabilities, binding)) evidence.push(...DivineNonintervention.evidence(state.divineCapabilities));
     if (NetworkOperations.bound(state.networkOperations, binding)) for (const r of NetworkOperations.publicView(state.networkOperations))
       evidence.push(...InstitutionalEvidence.network(r));
@@ -88689,11 +88707,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (escortContractActive() && escort?.status === 'alive' && escort.roomId === site.roomId)
         targets.push({ kind: 'creature', id: escort.id, cell: escort.mapCell });
       MunicipalSupplyThreats.step(q.supplyTraffic, q, site, region.beasts.actors, at, {
+        protectedTarget: beastDialogueProtected, intent: a => BeastDiplomacy.intent(currentBeastDiplomacy(), a, beastDialogueContext(a), at),
         targets, alive: () => !scientistIsDead(), incapacitated: actorIsIncapacitated, speedFactor: a => 1 + injuryEffectTotals(a).movement,
         extraThreat: () => state.networkInterdiction?.units?.some(u => u.phase === 'deployed' && u.actors.some(a => NetworkInterdiction.able(a)
           && a.roomId === site.roomId && WildernessBeasts.distance(a.mapCell, q.vehicle.mapCell) <= 8 && sensoryLineOfSight(a.mapCell, q.vehicle.mapCell))),
         sight: sensoryLineOfSight,
-        canEnter: (a, c) => sector.has(mapCellKey(c)) && labMapCellIsWalkable(c, map, excavated)
+        canEnter: (a, c) => !BeastDiplomacy.forbidden(currentBeastDiplomacy(), a, c) && sector.has(mapCellKey(c)) && labMapCellIsWalkable(c, map, excavated)
           && !region.beasts.actors.some(b => b.id !== a.id && sameMapCell(b.mapCell, c))
           && !labMapCellIsPathBlocked(c, { map, actor: a, skipPlacement: true, blockedCellKeys: blocked }),
         strike: (a, t, p) => {
@@ -90518,6 +90537,123 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (v?.objective) { const d = v.dossiers.find(d => d.report.id === v.objective.id);
       panel.append(textEl('p', `Selected investigation: ${d.report.speciesName} pressure on ${d.report.cityName}. Planning only; no travel, force, rights or resolution awarded.`));
       button('Clear beast investigation', 'clear'); }
+    return panel;
+  }
+  function currentBeastDiplomacy() {
+    const s = state.beastDiplomacy;
+    return s && !s.invalid && BeastDiplomacy.bound(s, { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id }) ? s : null;
+  }
+  function prepareBeastDiplomacy(plan) {
+    if (scientistIsDead() || !plan) return;
+    const region = ensureRegionalEncounters(), map = activeWorldRecord?.generatedData?.strategicMap;
+    if (!region || !map) return;
+    const saved = currentBeastDiplomacy(), route = intercityMarchActive()
+      && state.strategicJourneys?.routes.find(r => r.id === state.intercityMarch.operation.plan.corridorId);
+    const sources = saved?.testSources ? saved.testSources.filter(s => s.routeId === plan.id)
+      : route && !state.intercityMarch.operation.plan.worksiteId ? BeastDiplomacy.sources(map, route,
+        state.intercityMarch.operation.plan.homeCityId, {
+          distance: (a, b) => StrategicWorld.greatCircleDistanceKm(map, StrategicWorld.cellIndex(a), StrategicWorld.cellIndex(b)),
+          land: id => map.surface.classes[StrategicWorld.cellIndex(id)] === 'L'
+        }, plan.id) : [];
+    if (!sources.length || state.beastDiplomacy?.invalid) return;
+    state.beastDiplomacy ||= BeastDiplomacy.create({ worldId: activeWorldRecord.id, runId: activeRunRecord.id });
+    for (const source of sources) BeastDiplomacy.register(currentBeastDiplomacy(), source, region, suppressionActors(),
+      saved?.testSeed || activeWorldRecord.worldSeed, state.clock);
+  }
+  function beastDialogueContext(a) {
+    const s = currentBeastDiplomacy(), troop = BeastDiplomacy.troop(s, a);
+    if (!troop) return { alive: !scientistIsDead(), sourceCurrent: false };
+    const source = troop.source,
+      site = (state.roadsideStops?.sites || []).find(p => p.id === a?.regionalSiteId && p.roomId === a.roomId),
+      local = Boolean(site && scientistRoomId() === site.roomId && a?.mapCell?.z === scientistMapCell().z),
+      population = activeWorldRecord?.generatedData?.strategicMap?.beastEcology?.populations.find(p => p.id === source?.populationId),
+      sourceCurrent = Boolean(source && site?.routeId === source.routeId && (s.testSources?.some(p => JSON.stringify(p) === JSON.stringify(source))
+        || population?.speciesId === BeastDiplomacy.SPECIES && population.devotionalUnitCount === source.originalCount)),
+      visible = Boolean(local && wildernessBeastVisible(a)), cell = scientistMapCell(), home = a?.homeCell,
+      cells = site?.baseline.map(t => t.cell) || [],
+      markers = home ? [-1, 1].map(dx => ({ ...home, x: home.x + dx })) : [],
+      validMarkers = markers.length === 2 && markers.every(p => cells.some(c => sameMapCell(c, p)) && labMapCellIsWalkable(p)
+        && sensoryLineOfSight(cell, p)), q = state.cityProvisioning;
+    return { alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist'), bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      sourceCurrent, siteId: site?.id, routeId: site?.routeId, cityId: source?.cityId,
+      visible, near: Boolean(visible && WildernessBeasts.distance(cell, a.mapCell) <= 6),
+      participantCapable: !actorIsIncapacitated(a),
+      gesture: !actorIsIncapacitated(a) && a.senses?.vision !== false
+        && normalizeSensoryState(state.scientist.sensory, 'scientist').capabilities.vision
+        && [a, 'scientist'].every(person => !actorInjuries(person).some(i => i.status !== 'healed'
+          && /arm|hand/i.test(i.location) && ['severe', 'critical'].includes(i.severityId))),
+      free: !restrictedOffsiteStay() && !currentDetentionRaid() && !state.combat.pendingActions.scientist
+        && !scientistQueueTasks().some(t => !taskBlockReason(t)),
+      scientistCell: local ? cell : null,
+      actorWitness: Boolean(local && a.status === 'alive' && !actorIsIncapacitated(a)
+        && WildernessBeasts.distance(a.mapCell, cell) <= 8 && sensoryLineOfSight(a.mapCell, cell)),
+      trafficIds: q && q.source.cityId === source?.cityId && [q.driver, q.vehicle].some(p => p.roomId === site?.roomId)
+        ? [q.driver.id, q.vehicle.id] : [],
+      markers: validMarkers ? markers : null, noGo: home ? [home] : null,
+      boundary: site && home ? { siteId: site.id, roomId: site.roomId,
+        cells: cells.filter(p => WildernessBeasts.distance(p, home) <= 1) } : null };
+  }
+  function beastDialogueProtected(a, targetId, at = state.clock) {
+    if (!BeastDiplomacy.troop(currentBeastDiplomacy(), a)) return false;
+    return BeastDiplomacy.covered(currentBeastDiplomacy(), a, beastDialogueContext(a), targetId, at);
+  }
+  function updateBeastDiplomacy() {
+    const s = currentBeastDiplomacy(); if (!s || scientistIsDead()) return 0;
+    return BeastDiplomacy.advance(s, suppressionActors(), beastDialogueContext, state.clock, true) ? 1 : 0;
+  }
+  function observeBeastDiplomacyAggression(actorId, targetId, actionId) {
+    const s = currentBeastDiplomacy(); if (!s || scientistIsDead()) return;
+    const involved = actorId === 'scientist' ? wildernessBeast(targetId) : wildernessBeast(actorId);
+    if (!BeastDiplomacy.troop(s, involved)) return;
+    const c = beastDialogueContext(involved), other = actorId === involved.id ? combatActor(targetId) : state.scientist,
+      cell = targetId === state.cityProvisioning?.vehicle.id ? state.cityProvisioning.vehicle.mapCell : other && combatActorCell(other);
+    c.actorWitness = Boolean(involved.status === 'alive' && !actorIsIncapacitated(involved) && cell
+      && WildernessBeasts.distance(involved.mapCell, cell) <= 8 && sensoryLineOfSight(involved.mapCell, cell));
+    BeastDiplomacy.aggression(s, involved, { id: `beast-compact:${state.clock}:${state.combat.nextActionNumber}:${actorId}:${targetId}`,
+      actorId, targetId, actionId }, c, state.clock);
+  }
+  function beastDiplomacyAction(action, actorId, expected = null) {
+    const s = currentBeastDiplomacy(), a = wildernessBeast(actorId); if (!s || !a || scientistIsDead()) return false;
+    const c = beastDialogueContext(a); let ok = false;
+    if (action === 'hear' && c.free) ok = BeastDiplomacy.hear(s, a, c, state.clock);
+    else if (action === 'cancel' && s.job?.actorId === a.id) { s.job = null; ok = true; }
+    else ok = BeastDiplomacy.begin(s, a, action, c, state.clock, expected);
+    persist(); render(); return ok;
+  }
+  function renderBeastDiplomacy() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.beastDiplomacy = 'true';
+    panel.append(textEl('h3', 'Intelligent-beast contact — individual territorial compacts'), textEl('p', BeastDiplomacy.LIMITS));
+    const s = currentBeastDiplomacy();
+    for (const a of allWildernessBeasts()) {
+      if (!BeastDiplomacy.troop(s, a)) continue;
+      const c = beastDialogueContext(a); if (!c.visible || !c.near || a.status !== 'alive') continue;
+      const section = document.createElement('section'); section.dataset.beastContact = a.id;
+      section.append(textEl('strong', a.name), textEl('p', 'This is an independent individual, not an emissary for the troop or its god. Demonstrate signals, then observe an unguided stop-and-boundary check before discussing exact terms. No translator or general fluency is assumed.'));
+      const entry = BeastDiplomacy.contact(s, a), busy = Boolean(s.job), button = (label, action, disabled = false, terms = null) => {
+        const b = storesActionButton(label, label, () => beastDiplomacyAction(action, a.id, terms));
+        b.dataset.beastDialogueAction = action; b.disabled = Boolean(disabled); section.append(b);
+      };
+      button('Demonstrate stop/continue signals — one attended minute', 'greet', busy || !c.free);
+      button('Test novel stop and forbidden-ground signals — two attended minutes', 'check', busy || !c.free || !entry?.demonstrated || !c.markers);
+      button('Discuss exact four-day individual compact', 'discuss', busy || !c.free || !entry?.understood);
+      const p = entry?.proposal;
+      if (p && state.clock < p.offerExpiresAt && p.startedAt == null) {
+        section.append(textEl('p', p.terms), textEl('p', `${p.cityName}; approach ${p.routeId}. Offer deadline ${formatClock(p.offerExpiresAt)}. Quiet ground: ${p.boundary.cells.map(c => `${c.x},${c.y},${c.z}`).join('; ')}.`));
+        button('Accept these exact individual terms — one attended minute', 'accept', busy || !c.free, clonePlainObject(p));
+      }
+      if (s.job?.actorId === a.id) {
+        section.append(textEl('p', `${s.job.kind}: ${formatDuration(s.job.progress)} of ${formatDuration(BeastDiplomacy.WORK[s.job.kind])}; observed stage ${s.job.stage}. Actual presence, movement and continuous stopping are required. Absence pauses without backfill.`));
+        button('Cancel unfinished interaction — no attention refund', 'cancel');
+      }
+      button('Hear a dated individual contact account', 'hear', !c.free);
+      panel.append(section);
+    }
+    const latest = new Map(BeastDiplomacy.publicView(s).map(r => [r.actorId, r]));
+    for (const r of latest.values()) {
+      panel.append(textEl('p', `${r.name} — received ${formatClock(r.at)}: ${r.message}`));
+      if (r.agreement) panel.append(textEl('p', `${r.agreement.state}; ${r.agreement.cityName}; disclosed deadline ${formatClock(r.agreement.expiresAt)}. ${r.agreement.terms}`));
+    }
+    if (!latest.size) panel.append(textEl('p', 'No received intelligent-beast contact account. Find an actual individual on personally reached ground; silence is not consent or regional safety.'));
     return panel;
   }
   let suppressionTestSources = null;
@@ -95744,6 +95880,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!saved.materialized || scientistIsDead()) return 0;
     const roadside = overlandStopSite() || fieldCharterLocalSite();
     if (roadside) placeRegionalBeasts(roadside);
+    updateBeastDiplomacy();
     // Unvisited actors retain their saved state; there are no off-screen encounters or catch-up attacks.
     const actor = ensureExpeditionEscorts().actor;
     const escort = escortContractActive() && actor?.status !== "dead" && actor?.roomId === activeWildernessRoom() ? actor : null;
@@ -95768,7 +95905,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const profile = WildernessBeasts.PROFILES[beast.speciesId];
       // Navigation may normalize actor records, so target identity must not depend on object equality.
       const driver = currentFieldCharter()?.driver;
-      const targets = [...(scientistInWilderness() ? [{ id: "scientist", actor: state.scientist }] : []), ...(escort ? [{ id: escort.id, actor: escort }] : []), ...(medic ? [{ id: medic.id, actor: medic }] : []), ...porters.map(actor => ({ id: actor.id, actor })), ...fieldInterdictionActors().filter(a => a.status === 'alive' && a.roomId === activeWildernessRoom()).map(actor => ({ id: actor.id, actor })), ...(driver?.status === 'alive' && driver.roomId === activeWildernessRoom() ? [{ id: driver.id, actor: driver }] : []), ...(state.penalFlights?.actors || []).filter(a => a.roomId === activeWildernessRoom() && a.status !== "dead").map(actor => ({ id: actor.id, actor }))];
+      const targets = [...(scientistInWilderness() ? [{ id: "scientist", actor: state.scientist }] : []), ...(escort ? [{ id: escort.id, actor: escort }] : []), ...(medic ? [{ id: medic.id, actor: medic }] : []), ...porters.map(actor => ({ id: actor.id, actor })), ...fieldInterdictionActors().filter(a => a.status === 'alive' && a.roomId === activeWildernessRoom()).map(actor => ({ id: actor.id, actor })), ...(driver?.status === 'alive' && driver.roomId === activeWildernessRoom() ? [{ id: driver.id, actor: driver }] : []), ...(state.penalFlights?.actors || []).filter(a => a.roomId === activeWildernessRoom() && a.status !== "dead").map(actor => ({ id: actor.id, actor }))]
+        .filter(t => !beastDialogueProtected(beast, t.id));
+      if (beast.targetId && beastDialogueProtected(beast, beast.targetId)) { beast.targetId = null; beast.lastTarget = null; beast.rememberedUntil = 0; }
       const seenTargets = targets.filter((target) => target.actor.status !== 'dead' && WildernessBeasts.distance(beast.mapCell, combatActorCell(target.actor)) <= profile.sight && sensoryLineOfSight(beast.mapCell, combatActorCell(target.actor)));
       const target = seenTargets.find((entry) => entry.id === beast.targetId && state.clock < beast.provokedUntil)
         || seenTargets.sort((a, b) => WildernessBeasts.distance(beast.mapCell, combatActorCell(a.actor)) - WildernessBeasts.distance(beast.mapCell, combatActorCell(b.actor)))[0]
@@ -95781,7 +95920,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       // No current coordinates of an unseen target may steer navigation or
       // renew memory through an opaque barrier. Local work noise is only
       // localized on an unobstructed sensory line in this bounded consumer.
-      let decision = WildernessBeasts.decide(beast, scientist, state.clock, sees,
+      let decision = BeastDiplomacy.intent(currentBeastDiplomacy(), beast, beastDialogueContext(beast), state.clock) || WildernessBeasts.decide(beast, scientist, state.clock, sees,
         working && targetId === 'scientist' && range <= 5 && sensoryLineOfSight(beast.mapCell, scientist));
       if (beast.regionalPhase && beast.effortSeconds <= 0 && range > 1) decision = { behavior: 'return', goal: beast.homeCell };
       beast.behavior = decision.behavior;
@@ -95794,7 +95933,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         if (result.ok) { if (observed) pauseForWildernessThreat(`${beast.name} ${result.hit ? "struck" : "attacked and missed"} ${targetId === "scientist" ? "the scientist" : target.actor.name} at close range.`); changed++; }
       } else if (state.clock >= beast.nextMoveAt) {
         const blocked = labMapBlockingCellKeys(map, { skipPlacement: true }), excavated = labMapExcavatedCellKeys(map);
-        const canEnter = (cell) => sector.has(mapCellKey(cell)) && (!target || mapCellKey(cell) !== mapCellKey(scientist))
+        const canEnter = (cell) => !BeastDiplomacy.forbidden(currentBeastDiplomacy(), beast, cell) && sector.has(mapCellKey(cell)) && (!target || mapCellKey(cell) !== mapCellKey(scientist))
           && !saved.actors.some((other) => other.id !== beast.id && mapCellKey(other.mapCell) === mapCellKey(cell))
           && labMapCellIsWalkable(cell, map, excavated) && !labMapCellIsPathBlocked(cell, { map, actor: beast, blockedCellKeys: blocked })
           && (!labMapDoorAtCell(cell, map) || doorFixtureAllowsPassage(labMapDoorAtCell(cell, map)));
@@ -95842,7 +95981,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function renderWildernessBeastsPanel() {
     const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.wildernessBeasts = "true";
-    panel.append(textEl("strong", "Local Beast Encounters"), textEl("p", `Only Rimefang and Gravebloom Elk encounters are implemented. Other regional beasts, flying, burrowing, and colossal encounters are not simulated; absence of an encounter is not a safety assessment. ${unsupportedActive() || overlandStopSite() ? "There is no warded entrance here." : "The municipal warded entrance excludes beasts and blocks attacks across it; wilderness refuges do not inherit that ward."} Temporary shelter offers no concealment. Actual opaque walls and closed doors obstruct sight and attacks. Pursuing animals may attempt a physically reachable unreinforced wooden barrier while they retain target memory; masonry, metal and wards exceed these species' breach capability. An outpost has no automatic attack timer or guaranteed safety.`));
+    panel.append(textEl("strong", "Local Beast Encounters"), textEl("p", `Rimefang and Gravebloom Elk ground encounters and source-backed Mirror Ape ground contacts are implemented. Mirror Ape climbing/spell imitation and other flying, burrowing or colossal encounters remain unsupported; absence of an encounter is not a safety assessment. ${unsupportedActive() || overlandStopSite() ? "There is no warded entrance here." : "The municipal warded entrance excludes beasts and blocks attacks across it; wilderness refuges do not inherit that ward."} Temporary shelter offers no concealment. Actual opaque walls and closed doors obstruct sight and attacks. Pursuing animals may attempt a physically reachable unreinforced wooden barrier while they retain target memory; masonry, metal and wards exceed these species' breach capability. An outpost has no automatic attack timer or guaranteed safety.`));
     const knowledge = wildernessBeastKnowledge();
     const button = (label, run, disabled = false) => { const el = document.createElement("button"); el.textContent = label; el.disabled = disabled; el.addEventListener("click", run); panel.append(el); };
     button(scientistGuarding() ? "Stop Guarding" : "Guard", startScientistGuard, !scientistInWilderness() || scientistIsDead());
@@ -101277,10 +101416,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       try {
         s.fieldEcology ||= { lastAt: state.clock };
         MunicipalSupplyThreats.step(s.fieldEcology, q, site, region.beasts.actors, state.clock, {
+          protectedTarget: beastDialogueProtected, intent: a => BeastDiplomacy.intent(currentBeastDiplomacy(), a, beastDialogueContext(a), state.clock),
           encounter: ecology, campOnly: true, alive: () => !scientistIsDead(), incapacitated: actorIsIncapacitated,
           targets: fieldInterdictionActors().filter(a => a.status === 'alive' && a.mapCell && a.roomId === site.roomId)
             .map(a => ({ id: a.id, cell: a.mapCell, kind: 'creature' })),
-          sight: sensoryLineOfSight, canEnter: (a, c) => labMapCellRoomId(c) === site.roomId && labMapCellIsWalkable(c)
+          sight: sensoryLineOfSight, canEnter: (a, c) => !BeastDiplomacy.forbidden(currentBeastDiplomacy(), a, c) && labMapCellRoomId(c) === site.roomId && labMapCellIsWalkable(c)
             && !labMapCellIsPathBlocked(c, { actor: a, skipPlacement: true }),
           strike: (a, t, p) => resolveSharedCombatAction(a.id, 'strike', t, { baseDamage: p.damage,
             damageTypes: t.kind === 'structure' ? ['physical'] : p.damageTypes, hideFeedback: !municipalSupplyVisible(a.mapCell) })
@@ -101786,6 +101926,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const indices = ids.filter(Boolean).map(id => StrategicWorld.cellIndex(id)).filter(i => i >= 0);
     const populations = (map?.beastEcology?.populations || []).filter(p => indices.some(i => StrategicBeastEcology.maskIncludes(p.territory.rangeMask, i)));
     prepareSuppressionPopulations(plan);
+    prepareBeastDiplomacy(plan);
     const managed = new Set(currentSuppression()?.populations.map(p => p.source.populationId) || []);
     RegionalEncounters.route(s, plan, populations.filter(p => !managed.has(p.id)), activeWorldRecord.worldSeed, state.clock);
   }
@@ -110278,6 +110419,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.overlandApproach = candidate?.overlandApproach ? clonePlainObject(candidate.overlandApproach) : null;
     next.roadsideStops = RoadsideStops.normalize(candidate?.roadsideStops);
     next.regionalEncounters = RegionalEncounters.normalize(candidate?.regionalEncounters);
+    next.beastDiplomacy = BeastDiplomacy.normalize(candidate?.beastDiplomacy);
     next.fieldCharter = FieldCharter.normalize(candidate?.fieldCharter);
     next.cityAppointmentsKnowledge = candidate?.cityAppointmentsKnowledge ? clonePlainObject(candidate.cityAppointmentsKnowledge) : null;
     next.confidentialServices = ConfidentialServices.normalize(candidate?.confidentialServices);

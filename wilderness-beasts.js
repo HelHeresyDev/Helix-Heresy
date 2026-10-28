@@ -7,7 +7,8 @@
   const ROOM = "wildernessSurveySector";
   const PROFILES = Object.freeze({
     "beast:rimefang-pack": { name: "Rimefang", disposition: "predator", health: 48, damage: 6, barrierKinds: ["door"], damageTypes: ["physical", "cold"], stepSeconds: 1.5, recovery: 8, sight: 8, track: "Frost-rimmed paw prints", sound: "Distant growling" },
-    "beast:gravebloom-elk": { name: "Gravebloom Elk", disposition: "territorial", health: 60, damage: 8, barrierKinds: ["door", "constructedWall"], damageTypes: ["physical"], stepSeconds: 2, recovery: 10, sight: 7, track: "Hoof prints among luminous flowers", sound: "Heavy rustling and a low call" }
+    "beast:gravebloom-elk": { name: "Gravebloom Elk", disposition: "territorial", health: 60, damage: 8, barrierKinds: ["door", "constructedWall"], damageTypes: ["physical"], stepSeconds: 2, recovery: 10, sight: 7, track: "Hoof prints among luminous flowers", sound: "Heavy rustling and a low call" },
+    "beast:mirror-ape": { name: "Mirror Ape", disposition: "territorial", contactOnly: true, health: 80, damage: 8, barrierKinds: [], damageTypes: ["physical"], stepSeconds: 2, recovery: 8, sight: 8, track: "Handprints and deliberately arranged stones", sound: "Short calls and stone tapping" }
   });
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const key = (cell) => `${cell.x},${cell.y},${cell.z}`;
@@ -23,7 +24,7 @@
     const state = { ...defaultState(), materialized: true, siteId, lastAt: at };
     const available = [...cells].filter((c) => c.x >= 28).sort((a, b) => key(a).localeCompare(key(b)));
     for (const population of [...populations].sort((a, b) => a.id.localeCompare(b.id))) {
-      if (!PROFILES[population.speciesId] || state.actors.length >= 4 || !available.length) continue;
+      if (!PROFILES[population.speciesId] || PROFILES[population.speciesId].contactOnly || state.actors.length >= 4 || !available.length) continue;
       // A regional presence is not a guarantee of an animal in this tiny boundary sector.
       const chance = Math.max(.15, Math.min(.8, population.populationIndex / 1000));
       if (random(`${seed}:${siteId}:${population.id}:presence`) >= chance) continue;

@@ -19,7 +19,7 @@
     if (state.corridorBeasts.some(s => s.routeId === route.id) || !(route.distanceKm > 0)) return;
     const site = { routeId: route.id, lengthKm: route.distanceKm, actors: [], createdAt: at };
     for (const p of [...populations].sort((a, b) => a.id.localeCompare(b.id))) {
-      if (!Wild.PROFILES[p.speciesId] || !Number.isFinite(p.positionKm) || p.positionKm <= 0 || p.positionKm >= route.distanceKm || !(p.populationIndex > 0)) continue;
+      if (!Wild.PROFILES[p.speciesId] || Wild.PROFILES[p.speciesId].contactOnly || !Number.isFinite(p.positionKm) || p.positionKm <= 0 || p.positionKm >= route.distanceKm || !(p.populationIndex > 0)) continue;
       if (hash(`${seed}:${route.id}:${p.id}:presence`) > Math.min(.8, p.populationIndex / 1000)) continue;
       site.actors.push(createActor(`${route.id}:road-beast`, p.speciesId, p.id, p.positionKm, at)); break;
     }

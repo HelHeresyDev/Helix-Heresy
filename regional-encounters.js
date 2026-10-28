@@ -48,7 +48,7 @@
     for (const p of [...populations].sort((a, b) => a.id.localeCompare(b.id))) {
       const key = `walking:${plan.id}:${p.id}`; if (s.decisions.includes(key)) continue;
       s.decisions.push(key);
-      if (!Wild.PROFILES[p.speciesId] || !(p.populationIndex > 0) || !remaining(s, p.id)
+      if (!Wild.PROFILES[p.speciesId] || Wild.PROFILES[p.speciesId].contactOnly || !(p.populationIndex > 0) || !remaining(s, p.id)
         || hash(`${seed}:${key}:presence`) >= Math.min(.8, p.populationIndex / 1000)
         || s.beasts.actors.filter(a => a.routeId === plan.id).length >= 4) continue;
       const km = plan.distanceKm * (.2 + hash(`${seed}:${key}:position`) * .6);
