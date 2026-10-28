@@ -8,10 +8,12 @@ const Stops = require('../roadside-stops');
 const Journeys = require('../strategic-journeys');
 const Carrier = require('../local-exchange-carrier');
 const Supremacy = require('../durable-supremacy');
+const Rule = require('../city-rule');
+const Defense = require('../city-defense');
 const { fixture: ecology } = require('./helpers/regional-suppression-source');
 const copy = x => JSON.parse(JSON.stringify(x));
-function fixture(count = 5, far = .1) {
-  const f = ecology(count, far), binding = { worldId: 'world', runId: 'run' };
+function fixture(count = 5, far = .1, speciesId = Population.SPECIES) {
+  const f = ecology(count, far, speciesId, { crossingOnly: speciesId === Population.ELK }), binding = { worldId: 'world', runId: 'run' };
   const source = { cityId: 'a', cityName: 'Aster', populationSourceId: 'people:a', cityPopulation: 3000,
     charterId: 'charter:a', institutionId: 'works:a', satelliteId: 'farm:a', satelliteName: 'Farm', satellitePopulation: 200,
     cityCellId: 'planet-cell:00001', satelliteCellId: 'planet-cell:00004', arableLandBand: 'productive', storageDays: 4,
@@ -36,7 +38,7 @@ function fixture(count = 5, far = .1) {
   const site = Stops.ensure(null, binding, links[0].population.routeId, candidate.corridorKm, 0, 21, {}).site;
   Regional.place(region, site, 0, cell => ![site.entry.x, site.entry.x + 1].includes(cell.x) || cell.y !== site.entry.y);
   candidate.meterKm = candidate.farmKm;
-  return { ...f, binding, source, q, c, s, region, population, actors, links, site, candidate };
+  return { ...f, binding, source, q, c, s, region, population, actors, links, site, candidate, succession, office, worker };
 }
 function open(f) { assert.ok(M.start(f.s, f.q, f.candidate, f.site, 0)); }
 function hooks(f) {
@@ -49,6 +51,77 @@ function hooks(f) {
       return { ok: true };
     } };
 }
+test('elk habitat overlap supplies original territorial bodies without a migration warning or wolf statistics', () => {
+  const f = fixture(5, .1, Population.ELK);
+  assert.equal(f.map.beastEcology.waveProfiles.length, 0); assert.equal(f.links.length, 1);
+  assert(f.actors.every(a => a.speciesId === Population.ELK && a.health === 60));
+  assert.equal(f.population.populations[0].source.individualCount, 5);
+  const absent = copy(f.map); absent.beastEcology.populations[0].territory.rangeMask = Buffer.from([16]).toString('base64');
+  assert.deepEqual(M.sources(absent, f.source, f.geometry, [f.route]), []);
+});
+test('elk do not path towards a distant visible carrier when their territorial roam is blocked', () => {
+  const f = fixture(5, .1, Population.ELK); open(f);
+  for (const a of f.actors) { a.homeCell = { x: 30, y: 30, z: f.site.entry.z }; a.mapCell = copy(a.homeCell); }
+  f.q.vehicle.mapCell = { x: 36, y: 30, z: f.site.entry.z };
+  const h = hooks(f); h.canEnter = (_, cell) => cell.x > 30 && cell.y === 30;
+  for (let at = 1; at <= 20; at++) M.step(f.s, f.q, f.site, f.actors, at, h);
+  assert(f.actors.every(a => a.mapCell.x <= 32)); assert.equal(f.q.vehicle.condition, 100);
+  assert(f.actors.every(a => a.behavior !== 'pursue')); assert.equal(f.s.encounters[0].contacts.length, 0);
+});
+test('a real territorial incursion can damage the actual carrier; sublethal original wounds resolve capacity without extinction', () => {
+  const f = fixture(5, .1, Population.ELK); open(f);
+  for (let at = 1; at <= 100; at++) M.step(f.s, f.q, f.site, f.actors, at, hooks(f));
+  assert(f.q.vehicle.condition < 100); assert(f.s.encounters[0].contacts.some(c => c.populationId === f.population.populations[0].source.populationId));
+  assert.equal(M.fact(f.s, f.q, f.population, f.actors, 100)[0].state, 'unverified');
+  f.actors.forEach(a => a.health = 12);
+  assert.equal(M.fact(f.s, f.q, f.population, f.actors, 101)[0].state, 'qualifying');
+  assert(f.actors.every(a => a.status === 'alive')); assert.equal(M.fact(f.s, f.q, f.population, f.actors, 102)[0].since, 101);
+  f.actors[0].health = 18; assert.equal(M.fact(f.s, f.q, f.population, f.actors, 103)[0].state, 'unverified');
+});
+test('a quiet elk crossing releases the original journey but its driver report never exposes private population identities', () => {
+  const f = fixture(5, .1, Population.ELK); open(f);
+  const h = { ...hooks(f), sight: () => false };
+  for (let at = 1; at <= 30; at++) M.step(f.s, f.q, f.site, f.actors, at, h);
+  assert.equal(f.q.roadContactId, null); assert.equal(f.q.order.encounterReports.length, 1);
+  assert(!JSON.stringify(f.q.order.encounterReports).includes('SECRET_POPULATION'));
+  assert.equal(M.fact(f.s, f.q, f.population, f.actors, 30)[0].state, 'unverified');
+});
+test('actual damage becomes an adverse strategic fact only when a current genuine city dependency fails', () => {
+  const f = fixture(5, .1, Population.ELK), institutions = Rule.ROLES.map(role => ({ role, id: role === 'publicWorksAndProvisioning' ? 'works:a' : role }));
+  const people = institutions.map(i => i.id === 'works:a' ? f.worker : { id: `${i.id}:original`, institutionId: i.id, roles: [i.role],
+    status: 'alive', health: 100, stamina: 80, workSeconds: 3600, exceptionalCapabilities: ['city-scale ward defense'] });
+  f.succession.handover.termsId = 'original-terms';
+  f.succession.agreements = people.map(p => ({ personId: p.id, institutionId: p.institutionId, roles: p.roles, termsId: 'original-terms' }));
+  f.succession.control.commandRelationships = copy(f.succession.agreements);
+  const defense = Defense.create({ cityId: 'a', charterId: 'charter:a', institutionId: 'militaryDefenseCommand',
+    populationSourceId: f.source.populationSourceId, population: 3000, condition: 80, installationId: 'original-ward', baselineEnergy: 69120 },
+  f.succession, people.at(-1), f.office, f.binding, 0, 80);
+  const rule = Rule.create({ cityId: 'a', cityName: 'Aster', charterId: 'charter:a', populationSourceId: f.source.populationSourceId,
+    population: 3000, institutions, worksId: 'original-water', powerId: 'original-power', reserveDays: 5, farms: [f.source] },
+  f.succession, f.q, defense, f.binding, 0);
+  const civic = { ...f.c, reportersPresent: true, coverageVerified: true, institutionsAvailable: true, pilotSupplied: true,
+    pilotDefended: true, defenseAvailable: true, counterpower: 'noEstablishedChallenge', routes: { 'farm:a': true } };
+  assert(Rule.order(rule, f.succession, people, civic, 0));
+  Rule.advance(rule, f.succession, people, () => civic, 3600); assert(rule.plan);
+  open(f); for (let at = 1; at <= 50; at++) M.step(f.s, f.q, f.site, f.actors, at, hooks(f));
+  assert(f.q.vehicle.condition < 50);
+  const context = { rule, succession: f.succession, people, civic };
+  assert.equal(M.fact(f.s, f.q, f.population, f.actors, 50, context)[0].state, 'unverified');
+  // Actual finite grain consumption with the already damaged carrier held on
+  // its original contact. No casualty, food shortage or challenge flag is set.
+  P.advance(f.q, f.c, 2 * 86400 + 1, { roadHeld: () => Boolean(f.q.roadContactId) });
+  const at = f.q.lastAt; assert.equal(f.q.stores.cityKg, 0); civic.pilotSupplied = f.q.stores.cityKg > 0;
+  Rule.advance(rule, f.succession, people, () => civic, at);
+  assert.equal(Rule.condition(rule, f.succession, people, civic), 'supply');
+  M.step(f.s, f.q, f.site, f.actors, at, hooks(f));
+  const fact = M.fact(f.s, f.q, f.population, f.actors, at, context)[0]; assert.equal(fact.state, 'notQualifying');
+  assert(fact.strategic.canOverturn && fact.strategic.willing);
+  assert.equal(M.fact(f.s, f.q, f.population, f.actors, at, { ...context, incapacitated: () => true })[0].state, 'unverified');
+  const ref = rule.pilotProvisionId; rule.pilotProvisionId = 'independent-other-carrier';
+  assert.equal(M.fact(f.s, f.q, f.population, f.actors, at, context)[0].state, 'unverified'); rule.pilotProvisionId = ref;
+  f.actors.forEach(a => a.health = 12); assert.equal(M.fact(f.s, f.q, f.population, f.actors, at, context)[0].state, 'qualifying');
+  assert.equal(Rule.condition(rule, f.succession, people, civic), 'supply'); // No free truck repair or food follows.
+});
 test('only genuine shared interior crossings and original source-backed populations are eligible', () => {
   const f = fixture(); assert.equal(f.links.length, 1); assert.equal(f.links[0].farmKm, 1);
   assert.deepEqual(M.sources(f.map, { ...f.source, routeCellIds: ['planet-cell:00004', 'planet-cell:00001'] }, f.geometry, [f.route]), []);

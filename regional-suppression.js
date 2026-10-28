@@ -10,11 +10,12 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (Wild, Regional, Ecology, World, Changes) {
   'use strict';
   const SPECIES = 'beast:rimefang-pack', WINDOW = 6 * 3600, PACK = 5;
+  const ELK = 'beast:gravebloom-elk', SUPPORTED_SPECIES = Object.freeze([SPECIES, ELK]);
   const copy = x => JSON.parse(JSON.stringify(x));
   const valid = s => typeof s === 'string' && s.length > 0;
   const time = n => Number.isFinite(n) && n >= 0;
   const stamp = n => Math.round(n * 1e6) / 1e6; // Stable microsecond event identity across catch-up chunk sizes.
-  const SCOPE = 'One source-backed Rimefang population and one measured land corridor. Existing contracts are unchanged. Wounded survivors and displaced hunting groups remain real. Local observations are not a hidden census, permanent safety, extermination or world-domination credit.';
+  const SCOPE = 'Original Rimefang or Gravebloom Elk individuals on a supported measured ground approach. Elk retain territorial behavior, not a wolf hunting mandate. Existing contracts are unchanged. Survivors and losses remain real. Local observations are not a hidden census, permanent safety, extermination or world-domination credit.';
   function hash(s) { let n = 2166136261; for (const ch of s) n = Math.imul(n ^ ch.charCodeAt(0), 16777619); return n >>> 0; }
   function sourceFromWorld(map, route, homeCityId, geometry) {
     const raw = map?.routeGraph?.routes?.find(r => r.id === (route?.corridorId || route?.id));
@@ -24,22 +25,28 @@
     const km = [0]; for (let i = 1; i < cells.length; i++) km.push(km[i - 1] + geometry.distance(cells[i - 1], cells[i]));
     if (!(km.at(-1) > 0)) return [];
     const cities = new Set((map.humanGeography?.cities || []).map(c => c.cellId));
-    const sources = [];
+    const sources = []; let sharedPaths;
     for (const p of map.beastEcology?.populations || []) {
       // These are the existing soul-bearing INDIVIDUAL units for this species,
       // not a conversion of abundance or the four representative encounter cap.
-      if (p.speciesId !== SPECIES || !Number.isSafeInteger(p.devotionalUnitCount) || p.devotionalUnitCount <= 0) continue;
+      if (!SUPPORTED_SPECIES.includes(p.speciesId) || !Number.isSafeInteger(p.devotionalUnitCount) || p.devotionalUnitCount <= 0
+        || !p.territory?.rangeMask) continue;
       const profiles = (map.beastEcology.waveProfiles || []).filter(w => w.populationId === p.id
         && w.threatenedCorridorIds?.includes(raw.id) && w.threatenedCityIds?.some(id => raw.endpointIds.includes(id))
         && ['dangerous', 'catastrophic'].includes(w.severityBand));
-      if (!profiles.length) continue;
+      const territorial = p.speciesId === ELK;
+      // A territorial resident needs real habitat overlap, not an invented
+      // migration/wave. A warning's absence never proves a city unattackable.
+      if (territorial ? !cells.slice(1, -1).some(id => Ecology.maskIncludes(p.territory.rangeMask, World.cellIndex(id))) : !profiles.length) continue;
       const range = Array.from({ length: geometry.cellCount }, (_, i) => i).filter(i => Ecology.maskIncludes(p.territory.rangeMask, i))
         .map(World.cellId).filter(id => geometry.land(id) && !cities.has(id));
       if (!range.length) continue;
-      const allowed = new Set([...range, ...profiles.flatMap(w => w.cellPath || []), ...cells].filter(id => geometry.land(id) && !cities.has(id)));
+      // Habitat describes origins, not an impassable fence. Walkable paths
+      // can leave the range and warning profile; neither is a safety proof.
+      const allowed = new Set(Array.from({ length: geometry.cellCount }, (_, i) => World.cellId(i)).filter(id => geometry.land(id) && !cities.has(id)));
       const goals = cells.filter(id => allowed.has(id)); if (!goals.length) continue;
       // Multi-source shortest physical walking paths from the real corridor.
-      const paths = new Map(goals.map(id => [id, { distance: 0, cells: [id], goal: id }])), pending = [...goals];
+      const paths = sharedPaths || new Map(goals.map(id => [id, { distance: 0, cells: [id], goal: id }])), pending = sharedPaths ? [] : [...goals];
       while (pending.length) {
         pending.sort((a, b) => paths.get(a).distance - paths.get(b).distance || a.localeCompare(b));
         const here = pending.shift(), row = paths.get(here);
@@ -52,6 +59,7 @@
           if (!pending.includes(next)) pending.push(next);
         }
       }
+      sharedPaths = paths;
       const homes = range.filter(id => paths.has(id)).sort().map(id => {
         const path = paths.get(id), index = cells.indexOf(path.goal);
         return { cellId: id, path: path.cells, distanceKm: path.distance,
@@ -59,16 +67,19 @@
       });
       // Unreachable habitat is not silently deleted to make an objective winnable.
       if (!homes.length || homes.length !== range.length || route.distanceKm <= .02) continue;
-      sources.push({ id: `suppression:${p.id}`, populationId: p.id, speciesId: SPECIES, individualCount: p.devotionalUnitCount,
+      sources.push({ id: `suppression:${p.id}`, populationId: p.id, speciesId: p.speciesId, individualCount: p.devotionalUnitCount,
+        ...(territorial ? { reachBasis: 'territorialHabitatCrossing' } : {}),
         profileIds: profiles.map(w => w.id), corridorId: route.id, canonicalCorridorId: raw.id,
         routeId: `intercity-march:${route.id}`, homeCityId, endpointCityIds: [...raw.endpointIds], distanceKm: route.distanceKm, homes });
     }
     return sources;
   }
   function validSource(s) {
-    return s?.speciesId === SPECIES && ['id', 'populationId', 'corridorId', 'canonicalCorridorId', 'routeId', 'homeCityId'].every(k => valid(s[k]))
-      && Number.isSafeInteger(s.individualCount) && s.individualCount > 0 && s.profileIds?.length > 0 && s.distanceKm > .02
-      && s.homes?.length > 0 && s.homes.every(h => valid(h.cellId) && h.path?.length && time(h.distanceKm) && h.entryKm > 0 && h.entryKm < s.distanceKm);
+    return SUPPORTED_SPECIES.includes(s?.speciesId) && ['id', 'populationId', 'corridorId', 'canonicalCorridorId', 'routeId', 'homeCityId'].every(k => valid(s[k]))
+      && Number.isSafeInteger(s.individualCount) && s.individualCount > 0 && Array.isArray(s.profileIds)
+      && (s.speciesId === ELK ? s.reachBasis === 'territorialHabitatCrossing' : s.profileIds.length > 0) && s.distanceKm > .02
+      && s.homes?.length > 0 && s.homes.every(h => valid(h.cellId) && h.path?.length && time(h.distanceKm) && h.entryKm > 0 && h.entryKm < s.distanceKm)
+      && (s.speciesId !== ELK || s.homes.some(h => h.distanceKm === 0 && h.path[0] === h.cellId));
   }
   function create(binding) { return { ...binding, populations: [], reports: [], lastAt: 0 }; }
   function normalize(value) {
@@ -80,6 +91,9 @@
         || !p.members.every(m => valid(m.id) && typeof m.native === 'boolean' && (!m.native || Number.isInteger(m.homeIndex) && p.source.homes[m.homeIndex]))
         || !time(p.createdAt)) continue;
       s.populations.push({ source: copy(p.source), members: copy(p.members), createdAt: p.createdAt,
+        strategicAssessment: p.strategicAssessment && time(p.strategicAssessment.at) && time(p.strategicAssessment.since)
+          && p.strategicAssessment.since <= p.strategicAssessment.at && typeof p.strategicAssessment.incapable === 'boolean'
+          ? copy(p.strategicAssessment) : null,
         suppressedSince: time(p.suppressedSince) ? p.suppressedSince : null,
         displacements: Array.isArray(p.displacements) ? copy(p.displacements) : [],
         lastAssessment: p.lastAssessment && time(p.lastAssessment.at) && ['capable', 'suppressed', 'unverified'].includes(p.lastAssessment.status)
@@ -94,11 +108,13 @@
   }
   function register(s, source, regional, knownActors, seed, at) {
     if (!s || !validSource(source) || !regional || !time(at) || s.worldId !== regional.worldId || s.runId !== regional.runId) return null;
-    const old = s.populations.find(p => p.source.populationId === source.populationId); if (old) return old;
+    const old = s.populations.find(p => p.source.populationId === source.populationId);
+    if (old) return old.source.speciesId === source.speciesId && old.source.individualCount === source.individualCount ? old : null;
     const claims = regional.members.filter(m => m.populationId === source.populationId), known = new Map(knownActors.map(a => [a.id, a]));
-    if (claims.length > source.individualCount) return null;
+    if (claims.length > source.individualCount || claims.some(m => m.speciesId !== source.speciesId)
+      || knownActors.some(a => a.populationId === source.populationId && (a.speciesId !== source.speciesId || !claims.some(m => m.actorId === a.id)))) return null;
     const members = claims.map(m => ({ id: m.actorId, native: false })), allocated = [];
-    const p = { source: copy(source), members, createdAt: at, suppressedSince: null, displacements: [], lastAssessment: null };
+    const p = { source: copy(source), members, createdAt: at, suppressedSince: null, displacements: [], lastAssessment: null, strategicAssessment: null };
     for (let ordinal = claims.length; ordinal < source.individualCount; ordinal++) {
       const group = Math.floor((ordinal - claims.length) / PACK), homeIndex = hash(`${seed}:${source.populationId}:home:${group}`) % source.homes.length;
       const home = source.homes[homeIndex], id = `population-beast:${hash(`${seed}:${source.populationId}:${ordinal}`).toString(16)}`;
@@ -107,10 +123,11 @@
       const positionKm = Math.max(.003, Math.min(source.distanceKm - .003,
         home.entryKm + ((hash(`${seed}:${source.populationId}:crossing:${group}`) % 41) - 20) / 1000 + (ordinal % PACK) / 1000));
       members.push({ id, native: true, homeIndex });
-      const a = { ...Wild.actor(SPECIES, id, { x: 0, y: 0, z: -9999 }, source.populationId, at), name: 'Rimefang', roomId: '', mapCell: null, homeCell: null,
+      const a = { ...Wild.actor(source.speciesId, id, { x: 0, y: 0, z: -9999 }, source.populationId, at), name: Wild.PROFILES[source.speciesId].name, roomId: '', mapCell: null, homeCell: null,
         routeId: source.routeId, positionKm, offsetM: 2 + ordinal % 3, homePositionKm: positionKm, regionalPhase: 'reserve', effortSeconds: 120,
         regionalAt: at, regionalTargetKm: null, regionalMemoryUntil: 0, regionalSiteId: '',
-        campaignTravelRemainingKm: home.distanceKm, campaignTravelAt: at, campaignLeg: home.distanceKm > 0 ? 'approaching' : 'arrived',
+        campaignTravelRemainingKm: home.distanceKm, campaignTravelAt: at,
+        campaignLeg: home.distanceKm > 0 ? source.speciesId === ELK ? 'territoryResident' : 'approaching' : 'arrived',
         campaignGroupId: `hunting-group:${hash(`${seed}:${source.populationId}:${group}`).toString(16)}` };
       allocated.push(a);
     }
@@ -134,11 +151,14 @@
         const a = byId.get(m.id); if (!a || !time(a.campaignTravelRemainingKm) || !time(a.campaignTravelAt)) continue;
         const start = Math.max(p.createdAt, a.campaignTravelAt), dt = Math.max(0, at - start), home = p.source.homes[m.homeIndex];
         a.campaignTravelAt = at;
+        // No received order, migration or predatory motive moves an elk from
+        // its habitat towards a government. Local territorial combat is real.
+        if (p.source.speciesId === ELK) continue;
         // Local bodies stay on their physical ground. Neither leaving the UI
         // nor an injury teleports one out of an occupied tactical patch.
         if (a.status === 'dead' || a.health <= 0 || a.regionalPhase !== 'reserve' || a.roomId || a.mapCell || !canMove(a)) continue;
         const factor = speedFactor(a); if (!Number.isFinite(factor) || factor < 0) continue;
-        const pace = 1 / Wild.PROFILES[SPECIES].stepSeconds / Math.max(1, factor) / 1000;
+        const pace = 1 / Wild.PROFILES[p.source.speciesId].stepSeconds / Math.max(1, factor) / 1000;
         a.campaignLeg ||= a.campaignTravelRemainingKm > 0 ? 'approaching' : 'arrived';
         // A surviving wounded animal already travelling off-ground can turn
         // back along its OWN travelled habitat path. There is no free healing,
@@ -196,20 +216,21 @@
     const originalIds = new Set(p.members.map(m => m.id));
     if (actors.some(a => a.populationId === p.source.populationId && !originalIds.has(a.id))) return { status: 'unverified' };
     for (const m of p.members) {
-      const a = byId.get(m.id); if (!a || a.populationId !== p.source.populationId || a.speciesId !== SPECIES) return { status: 'unverified' };
+      const a = byId.get(m.id); if (!a || a.populationId !== p.source.populationId || a.speciesId !== p.source.speciesId) return { status: 'unverified' };
       consequence ||= (a.status === 'dead' || a.health < a.maxHealth) && a.routeId === p.source.routeId
-        && time(a.campaignTravelRemainingKm ?? 0) && (a.campaignTravelRemainingKm || 0) * 1000 * Wild.PROFILES[SPECIES].stepSeconds <= WINDOW;
+        && time(a.campaignTravelRemainingKm ?? 0) && (a.campaignTravelRemainingKm || 0) * 1000 * Wild.PROFILES[p.source.speciesId].stepSeconds <= WINDOW;
       if (!capable(a)) continue;
+      if (p.source.speciesId === ELK && a.campaignLeg === 'territoryResident') return { status: 'unverified', windowSeconds: WINDOW };
       if (['withdrawing', 'sheltered'].includes(a.campaignLeg)) continue;
       if (a.routeId !== p.source.routeId || !time(a.campaignTravelRemainingKm ?? 0)) return { status: 'unverified' };
       const remaining = a.campaignTravelRemainingKm || 0;
       const factor = speedFactor(a); if (!Number.isFinite(factor) || factor < 0) return { status: 'unverified' };
-      if (remaining * 1000 * Wild.PROFILES[SPECIES].stepSeconds * Math.max(1, factor) <= WINDOW) threatening++;
+      if (remaining * 1000 * Wild.PROFILES[p.source.speciesId].stepSeconds * Math.max(1, factor) <= WINDOW) threatening++;
     }
     return { status: threatening ? 'capable' : consequence ? 'suppressed' : 'unverified', windowSeconds: WINDOW };
   }
   function record(s, dossier, routeId, siteId, visibleActors, at, alive = true, observedAt = at) {
-    if (!s || !alive || !dossier || dossier.report?.speciesId !== SPECIES || !valid(siteId) || !time(at) || !time(observedAt) || observedAt > at) return false;
+    if (!s || !alive || !dossier || !SUPPORTED_SPECIES.includes(dossier.report?.speciesId) || !valid(siteId) || !time(at) || !time(observedAt) || observedAt > at) return false;
     const populations = s.populations.filter(p => p.source.routeId === routeId && dossier.populationIds?.includes(p.source.populationId)
       && p.source.profileIds.some(id => dossier.profileIds?.includes(id)));
     const members = new Set(populations.flatMap(p => p.members.map(m => m.id)));
@@ -217,14 +238,35 @@
     if (!seen.length) return false;
     const observations = seen.map(a => ({ id: a.id, capable: capable(a), condition: a.status === 'dead' ? 'Dead; original remains' : capable(a) ? 'Still capable of local hunting pressure' : 'Severely wounded; withdrew from effective hunting' }));
     s.reports.push({ dossierId: dossier.report.id, routeId, siteId, at, observedAt, observations,
-      text: 'Personally inspected original Rimefang hunting-group contacts on this reported ground approach. This links the encountered pressure to the scoped campaign, not every same-species sighting. ' +
+      text: `Personally inspected original ${Wild.PROFILES[dossier.report.speciesId].name} contacts on this supported ground approach. This links the encountered pressure to the scoped source, not every same-species sighting. ` +
         (observations.some(o => o.capable) ? 'Observed pressure remains capable here.' : 'The observed local pressure has been broken for now; survivors/remains persist.') +
         ' Unseen replacements and wider regional renewal remain unverified. No extinction or permanently safe corridor is certified.' }); return true;
   }
   function publicView(s) { return { reports: copy(normalize(s)?.reports || []), scope: SCOPE }; }
+  function facts(s, actors, at, alive = true) {
+    if (!s || !alive || !time(at) || at < s.lastAt) return [];
+    const byId = new Map(), counts = new Map();
+    for (const a of actors) { byId.set(a.id, a); counts.set(a.populationId, (counts.get(a.populationId) || 0) + 1); }
+    return s.populations.map(p => {
+      const ids = new Set(p.members.map(m => m.id)), bodies = p.members.map(m => byId.get(m.id));
+      const intact = validSource(p.source) && time(p.createdAt) && p.createdAt <= at
+        && ids.size === p.source.individualCount && bodies.length === p.source.individualCount
+        && counts.get(p.source.populationId) === ids.size && bodies.every(a => a
+          && a.populationId === p.source.populationId && a.speciesId === p.source.speciesId && Number.isFinite(a.health) && a.health >= 0
+          && Number.isFinite(a.maxHealth) && a.maxHealth > 0 && (a.status === 'dead' || a.status === 'alive' && a.health > 0));
+      const incapable = intact && bodies.every(a => a.status === 'dead' || a.health < a.maxHealth * .3);
+      const old = p.strategicAssessment;
+      const since = incapable && old?.incapable && old.at <= at && time(old.since) && old.since <= old.at ? old.since : at;
+      p.strategicAssessment = { at, since, incapable };
+      return { worldId: s.worldId, runId: s.runId, targetId: `beast:${p.source.populationId}`, sourceId: p.source.populationId,
+        kind: 'beast', at, since, state: incapable ? 'qualifying' : 'unverified', proofId: `${p.source.id}:original-individuals`, basis: 'strategicIncapacity',
+        strategic: { scope: 'terrestrialRule', consumerId: 'regional-suppression', sourceId: p.source.populationId,
+          at, canOverturn: false, willing: false, responseSupported: false } };
+    });
+  }
   function rebind(value, from, to) {
     const s = normalize(value);
     return s && s.worldId === from?.worldId && s.runId === from?.runId && valid(to?.worldId) && valid(to?.runId) ? normalize({ ...s, ...to }) : null;
   }
-  return { SPECIES, WINDOW, PACK, SCOPE, sourceFromWorld, validSource, create, normalize, register, capable, advance, assess, record, publicView, rebind };
+  return { SPECIES, ELK, SUPPORTED_SPECIES, WINDOW, PACK, SCOPE, sourceFromWorld, validSource, create, normalize, register, capable, advance, assess, record, facts, publicView, rebind };
 });

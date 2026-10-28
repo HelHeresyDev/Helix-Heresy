@@ -81413,7 +81413,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const s = ensureSupremacy(); if (!s) return false;
     const facts = [];
     const q = state.cityProvisioning;
-    if (q?.supplyTraffic) facts.push(...MunicipalSupplyThreats.fact(q.supplyTraffic, q, currentSuppression(), suppressionActors(), state.clock));
+    const population = currentSuppression(), animals = suppressionActors();
+    const beasts = new Map(Suppression.facts(population, animals, state.clock).map(f => [f.sourceId, f]));
+    if (q?.supplyTraffic) for (const f of MunicipalSupplyThreats.fact(q.supplyTraffic, q, population, animals, state.clock, {
+      alive: !scientistIsDead(), rule: state.cityRule, succession: state.citySuccession, people: cityRulePeople(), civic: cityRuleContext(), incapacitated: actorIsIncapacitated
+    })) beasts.set(f.sourceId, f);
+    facts.push(...beasts.values());
     const chapters = new Map();
     for (const g of outerApproachGates()) {
       const p = g.outerApproach.chapterProtection; if (!p) continue;
@@ -88581,17 +88586,25 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function prepareMunicipalSupplyThreats() {
     const q = state.cityProvisioning;
-    if (!q || q.supplyTrafficChecked || scientistIsDead()) return;
+    if (!q || scientistIsDead()) return;
+    const checked = q.supplyTrafficCheckedSpecies || (q.supplyTrafficChecked ? [Suppression.SPECIES] : []);
+    // Extend idle legacy accounts additively. Never replace earlier contacts,
+    // losses or source links, or rewrite an already accepted grain journey.
+    if (Suppression.SUPPORTED_SPECIES.every(id => checked.includes(id)) || q.supplyTrafficChecked && q.order) return;
     const map = activeWorldRecord?.generatedData?.strategicMap; if (!map) return;
     const topology = StrategicWorld.topologyForMap(map);
     const geometry = { cellCount: map.topology.cellCount,
       distance: (a, b) => StrategicWorld.greatCircleDistanceKm(map, StrategicWorld.cellIndex(a), StrategicWorld.cellIndex(b)),
       land: id => map.surface.classes[StrategicWorld.cellIndex(id)] === 'L',
       neighbors: id => topology.neighbors[StrategicWorld.cellIndex(id)].map(StrategicWorld.cellId) };
-    const links = MunicipalSupplyThreats.sources(map, q.source, geometry, state.strategicJourneys?.routes || []);
+    const links = MunicipalSupplyThreats.sources(map, q.source, geometry, state.strategicJourneys?.routes || [])
+      .filter(l => !checked.includes(l.population.speciesId));
     q.supplyTrafficChecked = true;
+    q.supplyTrafficCheckedSpecies = [...Suppression.SUPPORTED_SPECIES];
     if (!links.length) return;
-    q.supplyTraffic = MunicipalSupplyThreats.create(q, q.source, links, state.clock);
+    if (!q.supplyTraffic) q.supplyTraffic = MunicipalSupplyThreats.create(q, q.source, links, state.clock);
+    else for (const l of links) if (!q.supplyTraffic.links.some(old => old.cellId === l.cellId && old.population.populationId === l.population.populationId))
+      q.supplyTraffic.links.push(clonePlainObject(l));
     const region = ensureRegionalEncounters();
     state.regionalSuppression ||= Suppression.create({ worldId: q.worldId, runId: q.runId });
     for (const l of links) Suppression.register(currentSuppression(), l.population, region, suppressionActors(), activeWorldRecord.worldSeed, state.clock);
@@ -88658,7 +88671,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           const visible = municipalSupplyVisible(a.mapCell);
           const result = resolveSharedCombatAction(a.id, 'strike', t,
             { baseDamage: p.damage, damageTypes: t.kind === 'structure' ? ['physical'] : p.damageTypes, hideFeedback: !visible });
-          if (result.ok && visible) pauseForWildernessThreat('An original Rimefang attacked at close range on the municipal supply road.');
+          if (result.ok && visible) pauseForWildernessThreat(`An original ${p.name} attacked at close range on the municipal supply road.`);
           return result;
         }
       });
@@ -90379,7 +90392,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function suppressionDossier() {
     const powers = currentBeastPowers();
-    return powers?.dossiers.find(d => d.report.id === powers.objective?.id && d.report.speciesId === Suppression.SPECIES);
+    return powers?.dossiers.find(d => d.report.id === powers.objective?.id && Suppression.SUPPORTED_SPECIES.includes(d.report.speciesId));
   }
   function suppressionWitnesses() {
     const region = currentRegionalEncounters(), site = overlandStopSite(); if (!region || !site) return [];
@@ -90432,7 +90445,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function renderSuppression() {
     const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.regionalSuppression = 'true';
-    panel.append(textEl('h3', 'Rimefang Corridor Campaign'), textEl('p', Suppression.SCOPE));
+    panel.append(textEl('h3', 'Supported Ground-Population Campaign'), textEl('p', Suppression.SCOPE));
     const dossier = suppressionDossier(), capable = !scientistIsDead() && !actorIsIncapacitated('scientist');
     if (!dossier) panel.append(textEl('p', 'Select a received Rimefang investigation to plan a known corridor expedition. Other species are not replaced with convenient wolves. No attack is created by selecting an objective.'));
     else {

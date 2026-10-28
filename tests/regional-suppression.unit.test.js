@@ -18,6 +18,39 @@ test('source uses finite existing individual units, real habitat paths and a spe
   assert.deepEqual(f.source.homes.map(h => h.distanceKm), [0, 16]); assert.equal(f.source.routeId, 'intercity-march:corridor:ab');
   const before = clone(f.map); S.sourceFromWorld(f.map, f.route, 'a', f.geometry); assert.deepEqual(f.map, before);
 });
+test('elk preserve stationary habitat origins, prior bodies and finite accounting without inheriting predatory corridor travel', () => {
+  const f = fixture(10, 16, S.ELK), binding = { worldId: 'world', runId: 'run' }, s = S.create(binding), r = R.create(binding);
+  assert.deepEqual(f.source.profileIds, []); assert.equal(f.source.reachBasis, 'territorialHabitatCrossing');
+  S.register(s, f.source, r, [], 'seed', 0); const original = clone(r.beasts.actors);
+  S.advance(s, r, r.beasts.actors, 100000);
+  assert.deepEqual(r.beasts.actors.map(a => a.campaignTravelRemainingKm), original.map(a => a.campaignTravelRemainingKm));
+  assert.equal(r.beasts.actors.length, 10); assert(r.beasts.actors.every(a => a.health === 60 && a.speciesId === S.ELK));
+  assert.equal(S.facts(s, r.beasts.actors, 100000)[0].state, 'unverified');
+  assert.equal(S.register(s, { ...f.source, speciesId: S.SPECIES, profileIds: ['unrelated'] }, r, r.beasts.actors, 'seed', 100000), null);
+});
+test('physical habitat paths may leave the territory mask; range boundaries are not artificial impassable fences', () => {
+  const f = fixture(5, 1, S.ELK);
+  const neighbors = { 'planet-cell:00000': ['planet-cell:00002', 'planet-cell:00004'], 'planet-cell:00001': ['planet-cell:00002'],
+    'planet-cell:00002': ['planet-cell:00000', 'planet-cell:00001', 'planet-cell:00003'], 'planet-cell:00003': ['planet-cell:00002'], 'planet-cell:00004': ['planet-cell:00000'] };
+  f.geometry.land = id => Boolean(neighbors[id]); f.geometry.neighbors = id => neighbors[id] || [];
+  const source = S.sourceFromWorld(f.map, f.route, 'a', f.geometry)[0];
+  assert(source.homes.find(h => h.cellId === 'planet-cell:00004').path.includes('planet-cell:00000'));
+});
+test('unlinked original elk incapacity supplies its own saved strategic fact, without a grain-contact prerequisite', () => {
+  const f = fixture(5, 1, S.ELK, { crossingOnly: true }), binding = { worldId: 'world', runId: 'run' }, s = S.create(binding), r = R.create(binding);
+  const corpse = Wild.actor(S.ELK, 'prior-actual-death', { x: 1, y: 2, z: 6 }, f.source.populationId); corpse.status = 'dead'; corpse.health = 0;
+  R.adopt(r, [corpse], 'prior-encounter', 0); S.register(s, f.source, r, [corpse], 'seed', 0);
+  assert.equal(r.beasts.actors.length, 4); r.beasts.actors.forEach(a => a.health = 12);
+  const actors = [...r.beasts.actors, corpse]; assert.equal(S.facts(s, actors, 1)[0].state, 'qualifying');
+  const loaded = S.normalize(clone(s)); assert.equal(S.facts(loaded, actors, 2)[0].since, 1);
+  const before = clone(loaded); assert.deepEqual(S.facts(loaded, actors, 3, false), []); assert.deepEqual(loaded, before);
+  assert.equal(S.facts(loaded, actors.slice(1), 3)[0].state, 'unverified');
+  assert.equal(S.facts(loaded, actors, 4)[0].since, 4);
+  assert.equal(S.facts(loaded, [...actors, { ...actors[0], id: 'extra' }], 5)[0].state, 'unverified');
+  assert.equal(S.facts(loaded, actors, 6)[0].since, 6);
+  assert.equal(S.facts(loaded, [...actors, clone(actors[0])], 7)[0].state, 'unverified');
+  loaded.populations[0].createdAt = 1000; assert.equal(S.facts(loaded, actors, 8)[0].state, 'unverified');
+});
 test('unsupported species, missing units, unthreatened corridors and disconnected habitat cannot create convenient wolves', () => {
   for (const change of [f => f.map.beastEcology.populations[0].speciesId = 'beast:glasswing-roc', f => delete f.map.beastEcology.populations[0].devotionalUnitCount,
     f => f.map.beastEcology.populations[0].devotionalUnitCount = 0, f => f.map.beastEcology.waveProfiles[0].threatenedCorridorIds = [],

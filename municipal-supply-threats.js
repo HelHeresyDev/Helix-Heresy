@@ -1,10 +1,11 @@
 (function (root, factory) {
   const node = typeof module === 'object' && module.exports;
   const api = factory(node ? require('./regional-suppression') : root.HelixRegionalSuppression,
-    node ? require('./wilderness-beasts') : root.HelixWildernessBeasts);
+    node ? require('./wilderness-beasts') : root.HelixWildernessBeasts,
+    node ? require('./city-rule') : root.HelixCityRule);
   if (node) module.exports = api;
   if (root) root.HelixMunicipalSupplyThreats = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Population, Wild) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Population, Wild, Rule) {
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x));
   const SCOPE = 'Original municipal grain traffic on a genuinely shared road crossing. Original animals, driver, truck, cargo and losses only. An overdue carrier is not a casualty report. A safe shipment is not population-wide safety, political submission or world domination.';
@@ -24,6 +25,7 @@
         const j = road.indexOf(path[i]);
         if (j < 1 || j >= road.length - 1 || settlements.has(path[i]) || !geometry.land(path[i])) continue;
         for (const population of Population.sourceFromWorld(map, route, quota.cityId, geometry)) {
+          if (population.speciesId === Population.ELK && !population.homes.some(h => h.distanceKm === 0 && h.cellId === path[i])) continue;
           const row = { quotaId: `${quota.cityId}:agricultural-quota`, cityId: quota.cityId, satelliteId: quota.satelliteId,
             cellId: path[i], farmKm: lengths[i] / lengths.at(-1) * quota.distanceKm,
             corridorKm: km[j] / km.at(-1) * route.distanceKm, population };
@@ -116,7 +118,8 @@
         const before = v.condition, cargo = v.cargoKg, health = d.health;
         const result = h.strike(a, t, profile);
         a.nextAttackAt = at + profile.recovery;
-        if (result.ok) e.contacts.push({ at, name: profile.name, vehicleDamage: Math.max(0, before - v.condition),
+        if (result.ok) e.contacts.push({ at, name: profile.name, actorId: a.id, populationId: a.populationId,
+          vehicleDamage: Math.max(0, before - v.condition),
           spoiledKg: Math.max(0, cargo - v.cargoKg), driverDamage: Math.max(0, health - d.health) });
       } else if (at >= a.nextMoveAt) {
         const canEnter = cell => h.canEnter(a, cell) && !targets.some(t => Wild.key(t.cell) === Wild.key(cell));
@@ -128,7 +131,7 @@
         }
         else next = Wild.nextStep(a.mapCell, decision.goal, canEnter);
         // Plan up to a perceived target's neighboring tile, never through bodies.
-        if (!next && t && Wild.distance(a.mapCell, t.cell) > 1) for (const goal of Wild.neighbors(t.cell).filter(canEnter)) {
+        if (!next && t && ['pursue', 'investigate'].includes(decision.behavior) && Wild.distance(a.mapCell, t.cell) > 1) for (const goal of Wild.neighbors(t.cell).filter(canEnter)) {
           next = Wild.nextStep(a.mapCell, goal, canEnter); if (next) break;
         }
         if (next) a.mapCell = copy(next);
@@ -141,7 +144,8 @@
     if (e.clearSeconds >= 30 && d.status === 'alive' && d.health >= 50 && !h.incapacitated?.(d) && v.condition >= 50) {
       e.endedAt = at; quota.roadContactId = null;
       quota.order.encounterReports ||= [];
-      quota.order.encounterReports.push({ at, contacts: copy(e.contacts), description: 'Original carrier personally encountered animals on the shared road. This is not a regional census or permanent safety.' });
+      quota.order.encounterReports.push({ at, contacts: e.contacts.map(c => ({ at: c.at, name: c.name, vehicleDamage: c.vehicleDamage,
+        spoiledKg: c.spoiledKg, driverDamage: c.driverDamage })), description: 'Original carrier personally encountered animals on the shared road. This is not a regional census or permanent safety.' });
       d.mapCell = null; d.roomId = ''; v.mapCell = null; v.roomId = '';
     }
     return true;
@@ -164,26 +168,28 @@
         condition: a.status === 'dead' ? 'Physical remains' : a.health < a.maxHealth * .3 ? 'Severely wounded' : 'Living contact' })) });
     return true;
   }
-  function fact(s, quota, population, actors, at) {
-    if (!bound(s, quota)) return [];
-    return (population?.populations || []).filter(p => s.links.some(l => l.population.populationId === p.source.populationId)).map(p => {
-      const bodies = p.members.map(m => actors.find(a => a.id === m.id));
-      // Full original population incapacity is stronger than a six-hour corridor
-      // assessment. A safe truck or merely distant/unlocated group is NOT proof.
-      const ids = new Set(p.members.map(m => m.id));
-      const incapable = bodies.length === p.source.individualCount && bodies.length > 0
-        && !actors.some(a => a.populationId === p.source.populationId && !ids.has(a.id)) && bodies.every(a => a
-          && a.populationId === p.source.populationId && a.speciesId === Population.SPECIES
-          && (a.status === 'dead' || a.health > 0 && a.health < a.maxHealth * .3));
-      s.assessments ||= {};
-      const previous = s.assessments[p.source.populationId];
-      const since = incapable && previous?.incapable && previous.at <= at ? previous.since : at;
-      s.assessments[p.source.populationId] = { at, since, incapable };
-      return { worldId: s.worldId, runId: s.runId, targetId: `beast:${p.source.populationId}`, sourceId: p.source.populationId,
-        kind: 'beast', at, since,
-        state: incapable ? 'qualifying' : 'unverified', proofId: `${s.quotaId}:original-population:${p.source.populationId}`, basis: 'strategicIncapacity',
-        strategic: { scope: 'terrestrialRule', consumerId: 'municipal-supply-threats', sourceId: p.source.populationId, at,
-          canOverturn: !incapable, willing: true, responseSupported: false } };
+  function fact(s, quota, population, actors, at, context = {}) {
+    if (!bound(s, quota) || !bound(population, s) || context.alive === false) return [];
+    return Population.facts(population, actors, at).filter(f => s.links.some(l => l.population.populationId === f.sourceId)).map(f => {
+      const { rule, succession, people, civic } = context;
+      const dependent = rule && bound(rule, s) && rule.lastAt === at && quota.lastAt === at && rule.pilotProvisionId === quota.id
+        && rule.source.cityId === quota.source.cityId && rule.handoverId === quota.handoverId && rule.plan
+        && civic?.alive && Rule.authority(rule, succession, people || [], civic)
+        && Rule.condition(rule, succession, people || [], civic) === 'supply' && quota.stores.cityKg <= 1e-7;
+      // Actual damage to this necessary original carrier must still be held
+      // by a capable, physically present aggressor. Presence, hostility labels,
+      // a nearby herd or a mere overdue truck do not establish governing effect.
+      const e = dependent && active(s, quota);
+      const cause = e && e.lastAt === at && (quota.vehicle.condition < 50 || quota.driver.status === 'dead' || quota.driver.health < 50)
+        && e.contacts.find(c => c.populationId === f.sourceId && (c.vehicleDamage > 0 || c.driverDamage > 0)
+          && actors.some(a => a.id === c.actorId && a.populationId === f.sourceId && Population.capable(a) && !context.incapacitated?.(a)
+            && a.regionalPhase === 'local' && a.roomId === quota.vehicle.roomId && a.behavior === 'pursue'
+            && [quota.vehicle.id, quota.driver.id].includes(a.targetId)));
+      if (cause && f.state !== 'qualifying') {
+        f.state = 'notQualifying'; f.since = at; f.proofId = `${e.id}:${cause.actorId}:necessary-supply`;
+        f.strategic.consumerId = 'municipal-supply-threats'; f.strategic.canOverturn = f.strategic.willing = true;
+      }
+      return f;
     });
   }
   function rebind(s, quota, from, to) {
