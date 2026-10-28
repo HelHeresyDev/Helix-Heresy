@@ -1,8 +1,8 @@
 (function (root, factory) {
-  const api = factory();
+  const api = factory(typeof module === 'object' && module.exports ? require('./beast-climbing') : root.HelixBeastClimbing);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixRoadsideStops = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Climbing) {
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x));
   const date = n => Number.isFinite(n) && n >= 0;
@@ -24,12 +24,13 @@
       sites.push({ id: text(s.id), routeId: text(s.routeId), positionKm: s.positionKm, roomId: text(s.roomId), entry: copy(s.entry),
         createdAt: s.createdAt, lastVisitedAt: s.lastVisitedAt, visits: Math.max(1, Math.floor(Number(s.visits) || 1)),
         baseline: s.baseline.map(t => ({ cell: copy(t.cell), terrainId: t.terrainId })), shelter,
+        climbSurfaces: Climbing.normalizeSurfaces(s.climbSurfaces || [], s) || [],
         destination: { temperatureC: Number.isFinite(s.destination?.temperatureC) ? s.destination.temperatureC : 18,
           precipitationMm: Number.isFinite(s.destination?.precipitationMm) ? s.destination.precipitationMm : 0 } });
     }
     return { worldId: text(value.worldId), runId: text(value.runId), sites };
   }
-  function ensure(value, binding, routeId, positionKm, at, z, weather) {
+  function ensure(value, binding, routeId, positionKm, at, z, weather, terrainSource = null) {
     const old = normalize(value);
     if (!text(binding?.worldId) || !text(binding?.runId) || !text(routeId) || !date(positionKm) || !date(at)
       || !Number.isInteger(z) || z < 21 || old && (old.worldId !== binding.worldId || old.runId !== binding.runId)) return null;
@@ -47,6 +48,7 @@
     }
     site = { id, routeId, positionKm, roomId: `roadsideStop-${state.sites.length + 1}`, entry: { x: 10, y: 10, z },
       createdAt: at, lastVisitedAt: at, visits: 1, baseline, shelter: null, destination: { ...weather } };
+    site.climbSurfaces = Climbing.surfaces(site, terrainSource);
     state.sites.push(site); const normalized = normalize(state);
     return { state: normalized, site: normalized.sites.at(-1) };
   }

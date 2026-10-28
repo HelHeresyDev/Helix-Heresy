@@ -10,7 +10,7 @@
   const SPECIES = 'beast:mirror-ape', DURATION = 4 * 86400, OFFER = 600;
   const WORK = { greet: 60, check: 120, discuss: 60, accept: 60 };
   const TERMS = 'For four days this named individual will not attack the scientist or identified municipal delivery traffic for the named city on this measured approach. The scientist will not attack this individual or enter the disclosed quiet-ground cells. Actual witnessed aggression or encroachment ends this compact. Only this individual consents: no troop command, taming, divine agreement, city sovereignty, general travel right or control of independent people follows.';
-  const LIMITS = 'One original individual and one named approach only. A peaceful encounter is not a population census, regional safety, strategic resolution or world domination. Uncontacted individuals, climbing, spell imitation and independent means remain unverified.';
+  const LIMITS = 'One original individual and one named approach only. A peaceful encounter is not a population census, regional safety, strategic resolution or world domination. Uncontacted individuals, unsupported vertical routes, spell imitation and independent means remain unverified.';
   const copy = x => x == null ? null : JSON.parse(JSON.stringify(x));
   const id = x => typeof x === 'string' && x.length > 0;
   const time = x => Number.isFinite(x) && x >= 0;
@@ -89,7 +89,7 @@
   const contact = (s, a) => s?.contacts.find(c => c.actorId === a?.id);
   const able = a => a?.status === 'alive' && a.health >= a.maxHealth * .75;
   const present = c => c?.alive && c.capable && c.visible && c.near && c.sourceCurrent && c.gesture !== false;
-  const ready = (a, c, at) => able(a) && present(c) && c.free && at >= (a.provokedUntil || 0);
+  const ready = (a, c, at) => able(a) && present(c) && c.free && c.groundInteraction !== false && at >= (a.provokedUntil || 0);
   const seal = (s, p) => hash([s.troops.find(t => t.memberIds.includes(p.actorId))?.source, p]);
   function latest(s, actorId, bodyEpoch) {
     return !s?.invalid && s?.agreements.findLast(a => a.payload.actorId === actorId && a.payload.bodyEpoch === bodyEpoch && a.seal === seal(s, a.payload));

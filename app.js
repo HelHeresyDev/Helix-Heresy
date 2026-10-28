@@ -199,6 +199,7 @@
   const RoadsideStops = window.HelixRoadsideStops;
   const RegionalEncounters = window.HelixRegionalEncounters;
   const BeastDiplomacy = window.HelixBeastDiplomacy;
+  const BeastClimbing = window.HelixBeastClimbing;
   const FieldCharter = window.HelixFieldCharter;
   const FieldEvacuation = window.HelixFieldEvacuation;
   const MunicipalCargoRecovery = window.HelixMunicipalCargoRecovery;
@@ -14083,6 +14084,17 @@
         contexts: (currentRegionalEncounters()?.beasts.actors || []).filter(a => BeastDiplomacy.troop(currentBeastDiplomacy(), a))
           .map(a => ({ id: a.id, context: beastDialogueContext(a) })) }),
       beastDiplomacyAction,
+      beastClimbingSnapshot: () => clonePlainObject({ site: overlandStopSite(), clock: state.clock, cell: scientistMapCell(),
+        region: currentRegionalEncounters(), injuries: state.injuries, knowledge: wildernessBeastKnowledge(),
+        actors: allWildernessBeasts().filter(a => a.speciesId === BeastClimbing.SPECIES).map(a => ({ id: a.id,
+          heightM: BeastClimbing.height(a), visible: wildernessBeastVisible(a),
+          strikeReason: scientistCombatActionBlockReason('strike', a), lashReason: scientistCombatActionBlockReason('soulLash', a) })) }),
+      setBeastClimbingTestTerrain: source => {
+        const s = currentBeastDiplomacy();
+        if (!s?.testSources || s.troops.length || !s.testSources.some(t => t.sourceCellId === source?.sourceCellId)
+          || !['B', 'F', 'R', 'Y'].includes(source?.biomeCode) || !Number.isFinite(source.slopePercent)) return false;
+        s.testTerrainSource = clonePlainObject(source); persist(); return true; // Original terrain input before any local geometry or body allocation.
+      },
       setBeastDiplomacyTestSources: (sources, seed = 'mirror-contact') => {
         if (!sources.every(BeastDiplomacy.validSource) || currentBeastDiplomacy()?.troops.length) return false;
         state.beastDiplomacy ||= BeastDiplomacy.create({ worldId: activeWorldRecord.id, runId: activeRunRecord.id });
@@ -33847,6 +33859,7 @@
 
   function labMapCellIsWalkable(cell, map = ensureLabMap(), excavatedKeys = null) {
     return labMapCellHasFloor(cell, map, excavatedKeys)
+      && !beastClimbingSurfaceAt(cell)
       && !constructedWallAtCell(cell, map)
       && labMapCellHasSupport(cell, map, excavatedKeys);
   }
@@ -42121,7 +42134,7 @@
         const horizontalDistance = Math.max(Math.abs(left.x - right.x), Math.abs(left.y - right.y)) * map.tileSizeM;
         distance = Math.min(distance, Math.hypot(
           horizontalDistance,
-          (left.z - right.z) * map.layerHeightM
+          (left.z - right.z) * map.layerHeightM + BeastClimbing.height(leftActor) - BeastClimbing.height(rightActor)
         ));
       }
     }
@@ -42189,14 +42202,16 @@
       if (!actorCell || !targetCell) return { inRange: false, reason: "The target has no physical position." };
       const distanceM = combatFootprintDistanceMeters(actor, targetActor);
       if (distanceM > action.rangeM) return { inRange: false, distanceM, reason: `${targetActor.name || "The target"} is outside ${action.label}'s ${formatDecimal(action.rangeM, 1)} m range.` };
-      if (action.requiresLineOfEffect && !directedLineOfEffect(actorCell, targetCell)) return { inRange: false, distanceM, reason: "No open shaft, ramp, breach, or clear corridor carries line of effect to the target." };
+      if (!beastClimbingLine(actor, targetActor, Boolean(action.requiresLineOfEffect || BeastClimbing.height(actor) || BeastClimbing.height(targetActor)), true))
+        return { inRange: false, distanceM, reason: 'Natural climbing geometry or an opaque barrier blocks line of effect to the target.' };
       return { inRange: true, distanceM, reason: "" };
     }
     const cell = combatTargetCurrentCell(cleanTarget);
     const actorCell = combatActorCell(actor);
     if (!cell || !actorCell) return { inRange: false, reason: "The target has no physical position." };
-    const distanceM = mapCellDistanceMeters3d(actorCell, cell);
-    const clear = !action.requiresLineOfEffect || directedLineOfEffect(actorCell, cell);
+    const distanceM = Math.hypot(Math.hypot(actorCell.x - cell.x, actorCell.y - cell.y) * ensureLabMap().tileSizeM,
+      (actorCell.z - cell.z) * ensureLabMap().layerHeightM + BeastClimbing.height(actor));
+    const clear = beastClimbingLine(actor, { mapCell: cell }, Boolean(action.requiresLineOfEffect || BeastClimbing.height(actor)), true);
     return distanceM <= action.rangeM && clear
       ? { inRange: true, distanceM, reason: "" }
       : { inRange: false, distanceM, reason: distanceM > action.rangeM ? `The target is outside ${action.label}'s ${formatDecimal(action.rangeM, 1)} m range.` : "No clear line of effect reaches the target." };
@@ -42213,7 +42228,8 @@
     const attackerEffects = injuryEffectTotals(attacker);
     const targetEffects = injuryEffectTotals(targetActor);
     const attackScore = 58 + attackSkill * 1.6 + perception * 0.5 + attackerCondition * 0.18 - attackerEffects.attack;
-    const defenseScore = 24 + evasion * 1.8 + (targetMoving ? 14 : 0) - targetEffects.evasion;
+    const defenseScore = 24 + evasion * 1.8 + (targetMoving ? 14 : 0) - targetEffects.evasion
+      + BeastClimbing.cover(targetActor, beastClimbingSite(targetActor)?.climbSurfaces) * 20;
     const rng = seedRng(`${state.seed}:combat-action:${action.id}:${attacker.id || "scientist"}:${targetActor.id || "scientist"}:${sequence}`);
     const contest = attackScore - defenseScore + (rng() * 16 - 8);
     return {
@@ -69448,8 +69464,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const knowledge = wildernessBeastKnowledge();
     const markers = [
       ...knowledge.tracks.map((entry) => ({ cell: entry.cell, value: ":", label: `${entry.label}; tracks do not locate their maker` })),
-      ...knowledge.sightings.map((entry) => ({ cell: entry.cell, value: entry.status === "dead" ? "†" : entry.current ? "B" : "?", label: `${entry.name}: ${entry.current ? entry.condition : "last seen here; current location unknown"}` }))
+      ...knowledge.sightings.map((entry) => ({ cell: entry.cell, value: entry.status === "dead" ? "†" : entry.current ? entry.heightM > 0 ? '↑' : "B" : "?", label: `${entry.name}: ${entry.current ? `${entry.condition}; ${entry.verticalActivity || 'ground'}, ${formatDecimal(entry.heightM || 0, 2)} m above local ground` : "last seen here; current location and height unknown"}` }))
     ];
+    for (const f of overlandStopSite()?.climbSurfaces || []) if (WildernessBeasts.distance(scientistMapCell(), f.cell) <= 8
+      && sensoryLineOfSight(scientistMapCell(), f.cell)) markers.unshift({ cell: f.cell, value: f.kind === 'tree' ? 'T' : '▲',
+        label: `${f.kind === 'tree' ? 'Grippable tree' : 'Rough rock face'}; ${f.heightM} m high; solid ground obstacle, not a new floor or city-wall access` });
     if (foreignWildernessLocal()?.materialized || state.wildernessSurvival?.materialized && !unsupportedActive()) markers.push({ cell: foreignWildernessLocal()?.gate || WildernessSurvival.GATE, value: "W", label: "Secured warded entrance: physically cross on foot; beasts and attacks cannot cross" });
     for (const { cell, value, label } of markers) {
       if (overlandStopSite() && value === 'W') continue;
@@ -88746,6 +88765,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         targets.push({ kind: 'creature', id: escort.id, cell: escort.mapCell });
       MunicipalSupplyThreats.step(q.supplyTraffic, q, site, region.beasts.actors, at, {
         protectedTarget: beastDialogueProtected, intent: a => BeastDiplomacy.intent(currentBeastDiplomacy(), a, beastDialogueContext(a), at),
+        verticalStep: (a, decision, time) => updateBeastClimbing(a, site, decision, time),
+        actorSight: (a, t) => beastClimbingLine(a, { mapCell: t.cell }),
         targets, alive: () => !scientistIsDead(), incapacitated: actorIsIncapacitated, speedFactor: a => 1 + injuryEffectTotals(a).movement,
         extraThreat: () => state.networkInterdiction?.units?.some(u => u.phase === 'deployed' && u.actors.some(a => NetworkInterdiction.able(a)
           && a.roomId === site.roomId && WildernessBeasts.distance(a.mapCell, q.vehicle.mapCell) <= 8 && sensoryLineOfSight(a.mapCell, q.vehicle.mapCell))),
@@ -90736,7 +90757,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         && sensoryLineOfSight(cell, p)), q = state.cityProvisioning;
     return { alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist'), bodyEpoch: ensureScientistIdentity().bodyEpoch,
       sourceCurrent, siteId: site?.id, routeId: site?.routeId, cityId: source?.cityId,
-      visible, near: Boolean(visible && WildernessBeasts.distance(cell, a.mapCell) <= 6),
+      visible, near: Boolean(visible && Math.hypot(WildernessBeasts.distance(cell, a.mapCell), BeastClimbing.height(a)) <= 6),
+      groundInteraction: !a.climbing && !a.climbingInvalid,
       participantCapable: !actorIsIncapacitated(a),
       gesture: !actorIsIncapacitated(a) && a.senses?.vision !== false
         && normalizeSensoryState(state.scientist.sensory, 'scientist').capabilities.vision
@@ -90746,7 +90768,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         && !scientistQueueTasks().some(t => !taskBlockReason(t)),
       scientistCell: local ? cell : null,
       actorWitness: Boolean(local && a.status === 'alive' && !actorIsIncapacitated(a)
-        && WildernessBeasts.distance(a.mapCell, cell) <= 8 && sensoryLineOfSight(a.mapCell, cell)),
+        && WildernessBeasts.distance(a.mapCell, cell) <= 8 && beastClimbingLine(a, state.scientist)),
       trafficIds: q && q.source.cityId === source?.cityId && [q.driver, q.vehicle].some(p => p.roomId === site?.roomId)
         ? [q.driver.id, q.vehicle.id] : [],
       markers: validMarkers ? markers : null, noGo: home ? [home] : null,
@@ -90768,7 +90790,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const c = beastDialogueContext(involved), other = actorId === involved.id ? combatActor(targetId) : state.scientist,
       cell = targetId === state.cityProvisioning?.vehicle.id ? state.cityProvisioning.vehicle.mapCell : other && combatActorCell(other);
     c.actorWitness = Boolean(involved.status === 'alive' && !actorIsIncapacitated(involved) && cell
-      && WildernessBeasts.distance(involved.mapCell, cell) <= 8 && sensoryLineOfSight(involved.mapCell, cell));
+      && WildernessBeasts.distance(involved.mapCell, cell) <= 8 && beastClimbingLine(involved, { mapCell: cell }));
     BeastDiplomacy.aggression(s, involved, { id: `beast-compact:${state.clock}:${state.combat.nextActionNumber}:${actorId}:${targetId}`,
       actorId, targetId, actionId }, c, state.clock);
   }
@@ -95954,7 +95976,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return beasts;
   }
   function wildernessBeastVisible(beast) {
-    return Boolean(beast && scientistInWilderness() && WildernessBeasts.distance(scientistMapCell(), beast.mapCell) <= 8 && sensoryLineOfSight(scientistMapCell(), beast.mapCell));
+    return Boolean(beast && scientistInWilderness() && WildernessBeasts.distance(scientistMapCell(), beast.mapCell) <= 8 && beastClimbingLine(state.scientist, beast));
   }
   function wildernessBeastKnowledge() {
     const saved = ensureWildernessBeasts();
@@ -95975,7 +95997,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const threat = beast.status !== "dead" && (beast.behavior === "pursue" || WildernessBeasts.distance(scientistMapCell(), beast.mapCell) <= 3);
       if (threat && !previous?.threatVisible) pauseForWildernessThreat(`${beast.name} is an immediate visible threat. Guard, fight, or withdraw${unsupportedActive() || state.penalFlights?.fieldActive ? " to safer local ground; there is no defended gate here" : " through the secured entrance"}.`);
       else if (!previous) surveyEvent(`Sighted ${beast.name} on the wilderness trail.`);
-      saved.sightings[beast.id] = { id: beast.id, name: beast.name, speciesId: beast.speciesId, cell: cleanMapCell(beast.mapCell), observedAt: state.clock, status: beast.status, condition: beast.status === "dead" ? "Dead; physical remains" : beast.health < beast.maxHealth * .3 ? "Severely wounded" : beast.health < beast.maxHealth ? "Visibly wounded" : "No visible wounds", threatVisible: threat };
+      saved.sightings[beast.id] = { id: beast.id, name: beast.name, speciesId: beast.speciesId, cell: cleanMapCell(beast.mapCell), observedAt: state.clock, status: beast.status, condition: beast.status === "dead" ? "Dead; physical remains" : beast.health < beast.maxHealth * .3 ? "Severely wounded" : beast.health < beast.maxHealth ? "Visibly wounded" : "No visible wounds", threatVisible: threat,
+        heightM: BeastClimbing.height(beast), verticalActivity: beast.climbing?.mode || 'ground',
+        climbEvent: BeastClimbing.observedEvent(beast, previous, state.clock) };
       BeastPowers.observe(currentBeastPowers(), saved.sightings[beast.id], saved.siteId || scientistRoomId(), !scientistIsDead());
       changed++;
     }
@@ -95996,11 +96020,53 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!beast || beast.status === "dead" || damage <= 0) return false;
     beast.health = Math.max(0, beast.health - damage);
     if (attackerId === "scientist" || escortStateForActor(attackerId) || attackerId === state.medicalExtraction?.medic?.id || attackerId === state.foundingExpedition?.agreement?.actorId) { beast.provokedUntil = state.clock + 30; beast.lastTarget = cleanMapCell(combatActorCell(combatActor(attackerId))); beast.targetId = attackerId; beast.rememberedUntil = state.clock + 12; }
-    if (!options.injuryProgress) recordCombatInjury(beast, damage, options.damageTypes || ["physical"], "Physical field combat", { observed: wildernessBeastVisible(beast) });
+    if (!options.injuryProgress) recordCombatInjury(beast, damage, options.damageTypes || ["physical"], options.cause || "Physical field combat", { observed: wildernessBeastVisible(beast) });
+    const climbSite = beastClimbingSite(beast);
+    if (beast.climbing && climbSite && !options.climbFall) BeastClimbing.interrupt(beast, climbSite, beastClimbingContext(beast, climbSite), state.clock, damage);
     if (!beast.health) { beast.status = "dead"; beast.behavior = "dead"; beast.diedAt = state.clock; beast.deathCause = "Physical trauma"; }
     if (!scientistIsDead()) ensureRegionalEncounters();
     observeWildernessBeasts();
     return true;
+  }
+  function beastClimbingSite(a) {
+    return (state.roadsideStops?.sites || []).find(s => s.id === a?.regionalSiteId && s.roomId === a.roomId) || null;
+  }
+  function beastClimbingSurfaceAt(cell) {
+    return (state?.roadsideStops?.sites || []).find(s => s.entry.z === cell?.z)?.climbSurfaces?.find(f => f.condition > 0 && sameMapCell(f.cell, cell)) || null;
+  }
+  function beastClimbingLine(a, b, checkBase = true, effect = false) {
+    const from = a?.id ? combatActorCell(a) : a?.mapCell || a, to = b?.id ? combatActorCell(b) : b?.mapCell || b;
+    if (!from || !to || checkBase && !(effect ? directedLineOfEffect(from, to) : sensoryLineOfSight(from, to))) return false;
+    const site = (state.roadsideStops?.sites || []).find(s => s.entry.z === from.z);
+    if (!site?.climbSurfaces?.length && !BeastClimbing.height(a) && !BeastClimbing.height(b)) return true;
+    return BeastClimbing.lineClear(from, BeastClimbing.height(a) + 1.5, to, BeastClimbing.height(b) + 1.5, site?.climbSurfaces);
+  }
+  function beastClimbingContext(a, site) {
+    const map = ensureLabMap(), cells = site?.baseline || [];
+    const canEnter = p => cells.some(t => sameMapCell(t.cell, p)) && labMapCellIsWalkable(p, map)
+      && !labMapCellIsPathBlocked(p, { map, actor: a, skipPlacement: true })
+      && !allWildernessBeasts().some(b => b.id !== a.id && b.mapCell && sameMapCell(b.mapCell, p))
+      && !sameMapCell(scientistMapCell(), p) && !BeastDiplomacy.forbidden(currentBeastDiplomacy(), a, p);
+    return { alive: !scientistIsDead(), local: Boolean(site && a.roomId === activeWildernessRoom()),
+      incapacitated: actorIsIncapacitated(a), movementFactor: 1 + injuryEffectTotals(a).movement,
+      gripAble: !actorInjuries(a).some(i => i.status !== 'healed' && /arm|hand/i.test(i.location) && ['severe', 'critical'].includes(i.severityId)),
+      dialogue: Boolean(BeastDiplomacy.intent(currentBeastDiplomacy(), a, beastDialogueContext(a), state.clock)),
+      protectedTarget: id => beastDialogueProtected(a, id), canEnter,
+      topClear: (p, height) => cells.some(t => sameMapCell(t.cell, p)) && !constructedWallAtCell(p, map)
+        && !propertyOpaqueFixtureAtCell(p) && (!labMapDoorAtCell(p, map) || doorFixtureAllowsPassage(labMapDoorAtCell(p, map)))
+        && !allWildernessBeasts().some(b => b.id !== a.id && sameMapCell(b.mapCell, p) && Math.abs(BeastClimbing.height(b) - height) < 2),
+      nextStep: (from, goal) => WildernessBeasts.nextStep(from, goal, canEnter),
+      damage: (damage, cause) => damageWildernessBeast(a, damage, 'gravity', { damageTypes: ['physical'], cause, climbFall: true }) };
+  }
+  function updateBeastClimbing(a, site, decision = null, at = state.clock) {
+    if (a.speciesId !== BeastClimbing.SPECIES || !site) return false;
+    const c = beastClimbingContext(a, site);
+    if (a.climbingInvalid) return true;
+    if (a.climbing) { BeastClimbing.advance(a, site, c, at); return true; }
+    if (!decision || at < a.nextMoveAt) return false;
+    const intent = BeastClimbing.plan(a, site, decision, at, c); if (!intent) return false;
+    if (intent.next) a.mapCell = cleanMapCell(intent.next);
+    a.behavior = intent.behavior; a.nextMoveAt = at + 2 * c.movementFactor; return true;
   }
   function wildernessBarrierAtCell(cell, map = ensureLabMap()) {
     // The original municipal boundary is a defended ward, never a new
@@ -96049,7 +96115,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       .concat((FoundingExpedition.active(state.foundingExpedition) || FoundingWorks.active(state.foundingWorks)) && foundingProtector() || [], foundingWorksActors())
       .filter(a => a.status !== 'dead' && a.roomId === activeWildernessRoom());
     if ((!scientistInWilderness() && !escort && !medic && !porters.length && currentFieldCharter()?.driver.roomId !== activeWildernessRoom()) || scientistIsDead()) {
-      for (const beast of saved.actors) { beast.nextMoveAt += Math.max(0, elapsed); beast.nextAttackAt += Math.max(0, elapsed); }
+      for (const beast of saved.actors) { beast.nextMoveAt += Math.max(0, elapsed); beast.nextAttackAt += Math.max(0, elapsed);
+        if (beast.climbing) { beast.climbing.lastAt = state.clock; beast.climbing.wasReady = false; } }
       saved.lastAt = state.clock; return 0;
     }
     const map = ensureLabMap(), working = Boolean(scientistInWilderness() && firstScientistQueueTask() && firstScientistQueueTask().type !== "rest");
@@ -96060,7 +96127,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (supplySite && (state.cityProvisioning?.supplyTraffic?.encounters.some(e => e.siteId === supplySite.id && e.endedAt == null)
         || state.networkInterdiction?.units?.some(u => u.deployment?.siteId === supplySite.id
           && u.actors.some(a => a.status === 'alive' && a.roomId === supplySite.roomId)))) continue; // Exactly one physical AI owner.
-      if (roadside && beast.roomId !== roadside.roomId) continue;
+      if (roadside && beast.roomId !== roadside.roomId) {
+        if (beast.climbing) { beast.climbing.lastAt = state.clock; beast.climbing.wasReady = false; } continue;
+      }
+      if (elapsed > 0 && updateBeastClimbing(beast, beastClimbingSite(beast))) { changed++; continue; }
       if (beast.status === "dead" || actorIsIncapacitated(beast)) continue;
       const profile = WildernessBeasts.PROFILES[beast.speciesId];
       // Navigation may normalize actor records, so target identity must not depend on object equality.
@@ -96068,14 +96138,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const targets = [...(scientistInWilderness() ? [{ id: "scientist", actor: state.scientist }] : []), ...(escort ? [{ id: escort.id, actor: escort }] : []), ...(medic ? [{ id: medic.id, actor: medic }] : []), ...porters.map(actor => ({ id: actor.id, actor })), ...fieldInterdictionActors().filter(a => a.status === 'alive' && a.roomId === activeWildernessRoom()).map(actor => ({ id: actor.id, actor })), ...(driver?.status === 'alive' && driver.roomId === activeWildernessRoom() ? [{ id: driver.id, actor: driver }] : []), ...(state.penalFlights?.actors || []).filter(a => a.roomId === activeWildernessRoom() && a.status !== "dead").map(actor => ({ id: actor.id, actor }))]
         .filter(t => !beastDialogueProtected(beast, t.id));
       if (beast.targetId && beastDialogueProtected(beast, beast.targetId)) { beast.targetId = null; beast.lastTarget = null; beast.rememberedUntil = 0; }
-      const seenTargets = targets.filter((target) => target.actor.status !== 'dead' && WildernessBeasts.distance(beast.mapCell, combatActorCell(target.actor)) <= profile.sight && sensoryLineOfSight(beast.mapCell, combatActorCell(target.actor)));
+      const seenTargets = targets.filter((target) => target.actor.status !== 'dead' && WildernessBeasts.distance(beast.mapCell, combatActorCell(target.actor)) <= profile.sight && beastClimbingLine(beast, target.actor));
       const target = seenTargets.find((entry) => entry.id === beast.targetId && state.clock < beast.provokedUntil)
         || seenTargets.sort((a, b) => WildernessBeasts.distance(beast.mapCell, combatActorCell(a.actor)) - WildernessBeasts.distance(beast.mapCell, combatActorCell(b.actor)))[0]
         || null;
       const scientist = target ? combatActorCell(target.actor) : beast.lastTarget;
       const targetId = target?.id;
       const range = WildernessBeasts.distance(beast.mapCell, scientist);
-      const sees = Boolean(target && range <= profile.sight && sensoryLineOfSight(beast.mapCell, scientist));
+      const sees = Boolean(target && range <= profile.sight && beastClimbingLine(beast, target.actor));
       if (sees) beast.targetId = targetId;
       // No current coordinates of an unseen target may steer navigation or
       // renew memory through an opaque barrier. Local work noise is only
@@ -96086,6 +96156,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       beast.behavior = decision.behavior;
       if (scientistInWilderness() && !wildernessBeastVisible(beast) && WildernessBeasts.distance(beast.mapCell, scientistMapCell()) <= 10 && (!saved.heard || state.clock - saved.heard.at >= 30)) saved.heard = { at: state.clock, label: `${profile.sound}; source not located or identified` };
       if (elapsed <= 0) continue;
+      if (updateBeastClimbing(beast, beastClimbingSite(beast), decision)) { changed++; continue; }
       if (decision.behavior === "pursue" && sees && range <= 1 && state.clock >= beast.nextAttackAt) {
         const observed = targetId === "scientist" || targetId === medic?.id && rescueMedicObserved() || targetId === escort?.id && escortObserved() || porters.some(a => a.id === targetId && (fieldPorterObserved(a) || a.id === state.foundingExpedition?.agreement?.actorId && foundingNear(a, 8)));
         const result = resolveSharedCombatAction(beast.id, "strike", { kind: "creature", id: targetId }, { baseDamage: profile.damage, damageTypes: profile.damageTypes, hideFeedback: !observed });
@@ -96141,15 +96212,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function renderWildernessBeastsPanel() {
     const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.wildernessBeasts = "true";
-    panel.append(textEl("strong", "Local Beast Encounters"), textEl("p", `Rimefang and Gravebloom Elk ground encounters and source-backed Mirror Ape ground contacts are implemented. Mirror Ape climbing/spell imitation and other flying, burrowing or colossal encounters remain unsupported; absence of an encounter is not a safety assessment. ${unsupportedActive() || overlandStopSite() ? "There is no warded entrance here." : "The municipal warded entrance excludes beasts and blocks attacks across it; wilderness refuges do not inherit that ward."} Temporary shelter offers no concealment. Actual opaque walls and closed doors obstruct sight and attacks. Pursuing animals may attempt a physically reachable unreinforced wooden barrier while they retain target memory; masonry, metal and wards exceed these species' breach capability. An outpost has no automatic attack timer or guaranteed safety.`));
+    panel.append(textEl("strong", "Local Beast Encounters"), textEl("p", `Rimefang and Gravebloom Elk ground encounters, Mirror Ape contact and bounded natural-surface climbing are implemented. Apes can independently climb original grippable trees and rock faces, spending finite stamina and risking real falls. Height affects sight, cover and physical attack reach, not the map's floor number. Ordinary walls, roofs, wards and other floors grant no climbing route. Spell imitation, unsupported vertical routes and other flying, burrowing or colossal encounters remain unverified; absence is not a safety assessment. ${unsupportedActive() || overlandStopSite() ? "There is no warded entrance here." : "The municipal warded entrance excludes beasts and blocks attacks across it; wilderness refuges do not inherit that ward."} Temporary shelter offers no concealment. Actual opaque walls and closed doors obstruct sight and attacks. Pursuing animals may attempt a physically reachable unreinforced wooden barrier while they retain target memory; masonry, metal and wards exceed these species' breach capability. An outpost has no automatic attack timer or guaranteed safety.`));
     const knowledge = wildernessBeastKnowledge();
+    panel.dataset.beastClimbing = 'true';
+    for (const f of overlandStopSite()?.climbSurfaces || []) if (sensoryLineOfSight(scientistMapCell(), f.cell)
+      && WildernessBeasts.distance(scientistMapCell(), f.cell) <= 8)
+      panel.append(textEl('p', `Observed ${f.kind === 'tree' ? 'grippable tree' : 'rough rock face'} at ${f.cell.x},${f.cell.y}: ${f.heightM} m high. Its solid base obstructs ground movement; it grants no access to buildings or another floor.`));
     const button = (label, run, disabled = false) => { const el = document.createElement("button"); el.textContent = label; el.disabled = disabled; el.addEventListener("click", run); panel.append(el); };
     button(scientistGuarding() ? "Stop Guarding" : "Guard", startScientistGuard, !scientistInWilderness() || scientistIsDead());
     button("Cancel Prepared Attack", () => { cancelPendingScientistCombatAction(); persist(); render(); }, !state.combat?.pendingActions?.scientist);
     if (!knowledge.sightings.some((entry) => entry.current)) panel.append(textEl("p", "No beast currently in sight."));
     if (knowledge.heard) panel.append(textEl("p", `Heard at ${formatDuration(knowledge.heard.at)}: ${knowledge.heard.label}. This is a dated sound, not a live location.`));
     for (const entry of knowledge.sightings) {
-      panel.append(textEl("p", `${entry.name}: ${entry.current ? entry.condition : `last seen at ${entry.cell.x},${entry.cell.y}; current position and condition unknown`}. Observed at ${formatDuration(entry.observedAt)}.`));
+      panel.append(textEl("p", `${entry.name}: ${entry.current ? `${entry.condition}; ${entry.verticalActivity || 'ground'}, ${formatDecimal(entry.heightM || 0, 2)} m above local ground` : `last seen at ${entry.cell.x},${entry.cell.y}, height ${formatDecimal(entry.heightM || 0, 2)} m; current position and condition unknown`}. Observed at ${formatDuration(entry.observedAt)}.`));
+      if (entry.climbEvent) panel.append(textEl('p', `Witnessed vertical outcome: ${entry.climbEvent.kind} at ${formatClock(entry.climbEvent.at)}${entry.climbEvent.kind === 'fall' ? ` from ${formatDecimal(entry.climbEvent.heightM, 2)} m; bodily injuries persist` : ''}. This is a dated observation.`));
       const beast = wildernessBeast(entry.id);
       if (entry.current && beast.status !== "dead") for (const actionId of ["strike", "shove", "soulLash"]) button(`${combatActionDef(actionId).label} — ${entry.name}`, () => beginScientistCombatAction(actionId, entry.id), Boolean(scientistCombatActionBlockReason(actionId, beast)));
     }
@@ -101577,6 +101653,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         s.fieldEcology ||= { lastAt: state.clock };
         MunicipalSupplyThreats.step(s.fieldEcology, q, site, region.beasts.actors, state.clock, {
           protectedTarget: beastDialogueProtected, intent: a => BeastDiplomacy.intent(currentBeastDiplomacy(), a, beastDialogueContext(a), state.clock),
+          verticalStep: (a, decision, time) => updateBeastClimbing(a, site, decision, time),
+          actorSight: (a, t) => beastClimbingLine(a, { mapCell: t.cell }),
           encounter: ecology, campOnly: true, alive: () => !scientistIsDead(), incapacitated: actorIsIncapacitated,
           targets: fieldInterdictionActors().filter(a => a.status === 'alive' && a.mapCell && a.roomId === site.roomId)
             .map(a => ({ id: a.id, cell: a.mapCell, kind: 'creature' })),
@@ -102126,6 +102204,26 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     return Boolean(ensureLabMap().rooms[site.roomId]);
   }
+  function roadsideClimbingTerrain(routeId, positionKm) {
+    const prepared = currentBeastDiplomacy()?.testTerrainSource;
+    if (prepared && currentBeastDiplomacy().testSources?.some(s => s.routeId === routeId && Math.abs(s.positionKm - positionKm) < 1e-8)) return prepared;
+    const map = activeWorldRecord?.generatedData?.strategicMap;
+    if (!map?.biomes?.classes) return null;
+    let sourceCellId;
+    const plan = intercityMarchActive() && state.intercityMarch.operation.plan,
+      raw = plan && map.routeGraph?.routes?.find(r => r.id === plan.corridorId);
+    if (raw?.cellPath?.length && plan.distanceKm > 0) {
+      const path = raw.endpointIds[0] === plan.homeCityId ? raw.cellPath : [...raw.cellPath].reverse(), lengths = [0];
+      for (let i = 1; i < path.length; i++) lengths.push(lengths.at(-1) + StrategicWorld.greatCircleDistanceKm(map, StrategicWorld.cellIndex(path[i - 1]), StrategicWorld.cellIndex(path[i])));
+      const km = positionKm / plan.distanceKm * lengths.at(-1);
+      const nearest = lengths.reduce((best, n, i) => Math.abs(n - km) < Math.abs(lengths[best] - km) ? i : best, 0);
+      sourceCellId = path[nearest];
+    } else if (overlandRoute()?.id === routeId) sourceCellId = state.overlandApproach?.homeContext?.strategicCellId
+      || state.surveyExpeditions?.context?.strategicCellId;
+    const index = sourceCellId && StrategicWorld.cellIndex(sourceCellId);
+    if (!Number.isInteger(index) || index < 0 || !map.biomes.classes[index]) return null;
+    return { sourceCellId, biomeCode: map.biomes.classes[index], slopePercent: PlanetaryRelief.cellReliefSnapshot(map, index)?.slopePercent || 0 };
+  }
   function enterOverlandStop() {
     if (scientistIsDead() || !overlandOnRoad() || state.overlandExpedition.trip.status !== 'stopped') return false;
     if (overlandStopSite()) return true;
@@ -102134,7 +102232,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const physicalRouteId = plan?.worksiteId && Math.abs(t.trip.positionKm - plan.distanceKm) < 1e-9 ? `intercity-march:${plan.corridorId}` : t.route.id;
     const z = Math.max(20, ...Object.keys(map.layers).map(Number).filter(Number.isFinite)) + 1;
     const result = RoadsideStops.ensure(state.roadsideStops, { worldId: activeWorldRecord.id, runId: activeRunRecord.id },
-      physicalRouteId, t.trip.positionKm, state.clock, z, state.overlandApproach.weather);
+      physicalRouteId, t.trip.positionKm, state.clock, z, state.overlandApproach.weather, roadsideClimbingTerrain(physicalRouteId, t.trip.positionKm));
     if (!result) return false;
     state.roadsideStops = result.state; const site = result.site;
     materializeRoadsideSite(site);

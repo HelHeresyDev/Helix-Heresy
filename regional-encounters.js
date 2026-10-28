@@ -94,7 +94,7 @@
   function depart(s, site, at) {
     syncLocal(s, site, at);
     for (const a of s.beasts.actors.filter(a => a.regionalPhase === 'local' && a.roomId === site.roomId)) {
-      if (a.status === 'dead' || a.health < a.maxHealth * .3 || !a.effortSeconds || !['pursue', 'investigate'].includes(a.behavior) || a.rememberedUntil < at) continue;
+      if (a.climbing || a.climbingInvalid || a.status === 'dead' || a.health < a.maxHealth * .3 || !a.effortSeconds || !['pursue', 'investigate'].includes(a.behavior) || a.rememberedUntil < at) continue;
       a.regionalPhase = 'following'; a.regionalTargetKm = site.positionKm; a.regionalMemoryUntil = a.rememberedUntil;
       a.roomId = ''; a.mapCell = null; a.regionalAt = at;
     }

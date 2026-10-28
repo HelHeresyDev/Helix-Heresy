@@ -100,12 +100,14 @@
     let threat = false;
     for (const a of local) {
       if (h.alive?.() === false) break;
+      if (h.verticalStep?.(a, null, at)) continue;
       if (a.status === 'dead' || a.health <= 0 || h.incapacitated?.(a)) continue;
       const profile = Wild.PROFILES[a.speciesId];
       const targets = [...(h.targets || []), ...(v.roomId !== site.roomId ? [] : v.condition > 0 ? [{ kind: 'structure', cell: v.mapCell, id: v.id }]
         : d.status === 'alive' ? [{ kind: 'creature', cell: d.mapCell, id: d.id }] : v.cargoKg > 0 ? [{ kind: 'structure', cell: v.mapCell, id: v.id }] : [])];
       if (a.targetId && h.protectedTarget?.(a, a.targetId, at)) { a.targetId = null; a.lastTarget = null; a.rememberedUntil = 0; }
-      const seen = targets.filter(t => !h.protectedTarget?.(a, t.id, at) && Wild.distance(a.mapCell, t.cell) <= profile.sight && h.sight(a.mapCell, t.cell))
+      const seen = targets.filter(t => !h.protectedTarget?.(a, t.id, at) && Wild.distance(a.mapCell, t.cell) <= profile.sight
+        && (h.actorSight ? h.actorSight(a, t) : h.sight(a.mapCell, t.cell)))
         .sort((aTarget, bTarget) => Wild.distance(a.mapCell, aTarget.cell) - Wild.distance(a.mapCell, bTarget.cell));
       const t = seen.find(t => t.id === a.targetId && at < a.provokedUntil) || seen[0];
       if (t) a.targetId = t.id;
@@ -115,6 +117,7 @@
       }
       a.behavior = decision.behavior;
       if (t && decision.behavior === 'pursue') threat = true;
+      if (h.verticalStep?.(a, decision, at)) continue;
       if (decision.behavior === 'pursue' && t && Wild.distance(a.mapCell, t.cell) <= 1 && at >= a.nextAttackAt) {
         const before = v.condition, cargo = v.cargoKg, health = d.health;
         const result = h.strike(a, t, profile);
