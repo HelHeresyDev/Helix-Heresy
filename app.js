@@ -166,6 +166,7 @@
   const DivineCapabilities = window.HelixDivineCapabilities;
   const DivineNonintervention = window.HelixDivineNonintervention;
   const DivineContacts = window.HelixDivineContacts;
+  const DescendedCorrespondence = window.HelixDescendedCorrespondence;
   const CitySuccession = window.HelixCitySuccession;
   const CityAdministration = window.HelixCityAdministration;
   const CivicFoothold = window.HelixCivicFoothold;
@@ -15360,6 +15361,27 @@
         refreshReligiousRecognitionKnowledge(); persist(); render(); return true;
       },
       divineContactAction,
+      ordinaryCorrespondenceAction,
+      ordinaryCorrespondenceSnapshot: () => clonePlainObject({ saved: state.descendedCorrespondence,
+        known: DescendedCorrespondence.publicView(state.descendedCorrespondence), communications: state.civicCommunications,
+        book: currentDivineCapabilities(), location: divineContactLocation(), clock: state.clock,
+        contexts: (state.descendedCorrespondence?.endpoints || []).map(e => ({ id: e.source.id,
+          context: ordinaryCorrespondenceContext(e, e.contact?.ground || divineContactLocation()) })), evidence: supremacyEvidence() }),
+      configureOrdinaryCorrespondenceTest: map => {
+        const b = state.sovereignBargains, book = currentDivineCapabilities();
+        if (!b?.testFixture || state.religiousRecognition || book?.agreements.length || book?.job || DivineContacts.all(book).length
+          || state.descendedCorrespondence?.endpoints.some(e => e.contact) || state.civicCommunications?.ports.some(p => p.spentSeconds > 0)) return false;
+        // Prepared historical identity/branch/backbone records BEFORE contact.
+        // No address receipt, reply, pact, repaired channel or outcome is set.
+        const binding = { worldId: activeWorldRecord.id, runId: activeRunRecord.id },
+          paths = CivicCommunications.create(CivicCommunications.sources(map, StrategicNonStateNetworks.NETWORK_DEFINITIONS), binding, state.clock),
+          owners = DivineCapabilities.create(DivineCapabilities.sources(map), binding, state.clock, true),
+          correspondence = DescendedCorrespondence.create(DescendedCorrespondence.sources(map, paths?.sources), owners, paths, state.clock);
+        if (!correspondence?.endpoints.length || paths.sources.some(p => p.kind !== 'municipal')) return false;
+        b.testOrdinaryCorrespondenceMap = clonePlainObject(map); state.divineCapabilities = owners; state.divineCapabilitiesInitialized = true;
+        state.civicCommunications = paths; state.civicCommunicationsInitialized = true; state.descendedCorrespondence = correspondence;
+        persist(); render(); return true;
+      },
       divineContactsSnapshot: () => clonePlainObject({ book: currentDivineCapabilities(), known: DivineContacts.known(currentDivineCapabilities()),
         available: divineContactSources(divineContactLocation()?.cityId), location: divineContactLocation(),
         contexts: DivineContacts.all(currentDivineCapabilities()).map(c => {
@@ -17622,7 +17644,7 @@
           const fieldThreats = foreignSurveyAtField() && (ensureWildernessBeasts().actors.some(b => b.status !== 'dead') || escortContractActive());
           const step = Math.min(stopOnSupplyReceipt || fieldThreats ? 1 : 60, remaining); state.clock += step; remaining -= step;
           updateIntercityPassenger(); updateForeignReception(); updateForeignSupplies(); updateScientistMovementTask(); completeDueTasks(); updateWildernessNeeds();
-          updateDivineIntervention(); updateDivineNonintervention(); updateDivineContacts();
+          updateDivineIntervention(); updateDivineNonintervention(); updateDivineContacts(); updateDescendedCorrespondence();
           updateCityProvisioning(); updateCityDefense(); updateCityRule(); updateRegionalGovernments(); updateSupremacy();
           if (foreignSurveyAtField()) { updateForeignWilderness(passengerReceptionGate()?.foreignSurvey); collectCombatRecords(); updateWildernessBeasts(step); }
           updateAllExpeditionEscorts(step);
@@ -20539,6 +20561,15 @@
       { worldId: world.id, runId }, next.clock, { originalInventory: true });
     next.divineCapabilities = DivineCapabilities.create(DivineCapabilities.sources(worldMap), { worldId: world.id, runId }, next.clock, true);
     next.divineCapabilitiesInitialized = true;
+    // Allocate original interfaces once, before any contact. Correspondence
+    // and later civic routing spend these SAME ports, never parallel terminals.
+    const communicationRows = CivicCommunications.sources(worldMap, StrategicNonStateNetworks.NETWORK_DEFINITIONS);
+    next.civicCommunications = communicationRows.length ? NetworkInventories.adopt(next.networkOperations, 'communications', CivicCommunications.create(
+      NetworkInventories.eligibleSources(next.networkOperations, 'communications', communicationRows),
+      { worldId: world.id, runId }, next.clock), { worldId: world.id, runId }) : null;
+    next.civicCommunicationsInitialized = Boolean(next.civicCommunications);
+    next.descendedCorrespondence = DescendedCorrespondence.create(DescendedCorrespondence.sources(worldMap, next.civicCommunications?.sources),
+      next.divineCapabilities, next.civicCommunications, next.clock);
     state = next;
     activeWorldRecord = world;
     activeRunRecord = WorldRunLibrary.createRun({
@@ -20764,6 +20795,8 @@
     importedState.powerworksStandards = PowerworksStandards.rebind(importedState.powerworksStandards,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.civicCommunications = CivicCommunications.rebind(importedState.civicCommunications,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.descendedCorrespondence = DescendedCorrespondence.rebind(importedState.descendedCorrespondence,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.receivableFinance = ReceivableFinance.rebind(importedState.receivableFinance,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
@@ -24441,6 +24474,7 @@
     changes.combatChanged += livingUpdate(() => updateDivineIntervention());
     changes.scientistMovementChanged += livingUpdate(() => updateDivineNonintervention());
     changes.scientistMovementChanged += livingUpdate(() => updateDivineContacts());
+    changes.scientistMovementChanged += livingUpdate(() => updateDescendedCorrespondence());
     changes.scientistMovementChanged += livingUpdate(() => updateCarrierBriefing());
     changes.scientistMovementChanged += livingUpdate(() => updatePenalFlights(elapsed));
     changes.scientistMovementChanged += livingUpdate(() => updatePenalLegion(elapsed));
@@ -24581,7 +24615,7 @@
       }
       return changed;
     }
-    if (!options.divineStep && elapsed > 1 && (currentDivineCapabilities()?.job || DivineContacts.jobs(currentDivineCapabilities()).length || currentDivineIntervention()?.job || DivineIntervention.present(DivineIntervention.actor(currentDivineIntervention())))) {
+    if (!options.divineStep && elapsed > 1 && (ordinaryCorrespondenceJobs().length || currentDivineCapabilities()?.job || DivineContacts.jobs(currentDivineCapabilities()).length || currentDivineIntervention()?.job || DivineIntervention.present(DivineIntervention.actor(currentDivineIntervention())))) {
       let remaining = elapsed, changed = 0;
       while (remaining > 0 && !scientistIsDead()) {
         const s = currentDivineIntervention(), a = DivineIntervention.actor(s), c = divineInterventionContext(),
@@ -24590,6 +24624,7 @@
         const boundary = Math.min(s?.job ? Math.max(1, DivineIntervention.REPORT_SECONDS - s.job.progress) : Infinity,
           currentDivineCapabilities()?.job ? Math.max(1, (currentDivineCapabilities().job.kind === 'breach' ? 120 : DivineNonintervention.WORK) - currentDivineCapabilities().job.progress) : Infinity,
           ...DivineContacts.jobs(currentDivineCapabilities()).map(j => Math.max(1, (j.kind === 'breach' ? 120 : DivineNonintervention.WORK) - j.progress)),
+          ...ordinaryCorrespondenceJobs().map(j => Math.max(1, DescendedCorrespondence.duration(j.kind) - j.progress)),
           a?.manifested && a.expiresAt > before ? a.expiresAt - before : Infinity);
         changed += advanceTime(Math.min(remaining, physical ? 1 : 60, boundary), { ...options, divineStep: true }); remaining -= state.clock - before;
         if (state.clock <= before || !phase && DivineIntervention.actor(s)?.pending || scientistVital('health').current < health) break;
@@ -42407,6 +42442,7 @@
     const range = combatActionRangeInfo(actor, action, target);
     if (!range.inRange) return { ok: false, reason: range.reason, blockedAt: target.lastKnownCell || combatTargetCurrentCell(target) };
     observeBeastDiplomacyAggression(actorId, target.id, actionId);
+    observeOrdinaryCorrespondenceAggression(actorId, target.id, actionId);
     if (actorId === 'scientist') witnessChapterAggression(target);
     if (actorId === 'scientist' && outerApproachLocal() && action.targetKinds.includes(target.kind)) {
       const g = outerApproachGate();
@@ -80884,6 +80920,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.visitsList?.prepend(renderBeastPowers());
     dom.visitsList?.prepend(renderSuppression());
     dom.visitsList?.prepend(renderBeastDiplomacy());
+    dom.visitsList?.prepend(renderDescendedCorrespondence());
     dom.visitsList?.prepend(renderRegionalOperations());
     dom.visitsList?.prepend(renderFoundingExpedition());
     dom.visitsList?.prepend(renderFoundingWorks());
@@ -81502,6 +81539,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const evidence = [], r = Supremacy.bound(state.cityRule, binding) && state.cityRule.report;
     if (BeastDiplomacy.bound(state.beastDiplomacy, binding)) evidence.push(...BeastDiplomacy.evidence(state.beastDiplomacy));
     if (DivineCapabilities.bound(state.divineCapabilities, binding)) evidence.push(...DivineNonintervention.evidence(state.divineCapabilities));
+    if (DivineCapabilities.bound(state.descendedCorrespondence, binding)) evidence.push(...DescendedCorrespondence.evidence(state.descendedCorrespondence));
     if (NetworkOperations.bound(state.networkOperations, binding)) for (const r of NetworkOperations.publicView(state.networkOperations))
       evidence.push(...InstitutionalEvidence.network(r));
     if (TerrestrialForces.bound(state.terrestrialForces, binding)) for (const r of TerrestrialForces.publicView(state.terrestrialForces))
@@ -89716,6 +89754,128 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       button('Receive dated personal commitment account', 'receive', !c.free);
     }
     for (const report of DivineNonintervention.publicView(s)) panel.append(textEl('p', `${report.godName}: ${report.state}. Observed ${formatClock(report.observedAt)}, received ${formatClock(report.receivedAt)}; disclosed deadline ${formatClock(report.expiresAt)}.`), textEl('p', report.terms));
+    return panel;
+  }
+  function ordinaryCorrespondenceJobs() {
+    const s = state.descendedCorrespondence;
+    return s && !s.invalid ? s.accounts.map(a => a.job).filter(Boolean) : [];
+  }
+  function ordinaryCorrespondenceContext(endpoint, ground = endpoint.contact?.ground) {
+    const source = endpoint.source, contact = endpoint.contact,
+      g = ground?.gateId ? divineContactGate({ gateId: ground.gateId }) : null,
+      office = g ? RegionalGovernment.office(g) : contact
+        ? state.economy?.intercitySmuggling?.identityOffices?.find(o => o.id === contact.officeId && o.cityId === source.cityId) : scientistCivicOffice(),
+      base = g ? foreignReceptionContext(g, false, true, true) : scientistCivicContext(office, false, false, false, false, false, true),
+      map = state.sovereignBargains?.testFixture && state.sovereignBargains.testOrdinaryCorrespondenceMap
+        || activeWorldRecord?.generatedData?.strategicMap,
+      current = DescendedCorrespondence.sources(map, state.civicCommunications?.sources).find(r => r.id === source.id),
+      cell = scientistMapCell(), local = Boolean(ground && (g ? base.local : !passengerAway() && state.surveyExpeditions?.destination?.cityId === source.cityId)),
+      sameGround = Boolean(local && scientistRoomId() === ground.roomId && cell.z === ground.counter.z),
+      permission = g ? Boolean(foreignVisitorPermission(g) && !base.bans.length && base.authorityCurrent)
+        : state.surveyExpeditions?.discovery?.access.active === true,
+      clerkAtChannel = Boolean(ground && office?.clerk.status === 'alive' && !actorIsIncapacitated(office.clerk)
+        && office.clerk.mapCell?.z === ground.counter.z && WildernessBeasts.distance(office.clerk.mapCell, ground.counter) <= 1),
+      busy = Boolean(g ? base.otherBusy || foreignCivicWork(g) || g.visitorAdmission?.job : base.busy
+        || state.scientistIdentity?.job || state.religiousRecognition?.job || currentDivineCapabilities()?.job
+          || state.sovereignBargains?.job || state.citySuccession?.job || state.charterRecognition?.job || state.publicWorksRecognition?.job
+          || state.watchRecognition?.job || state.defenseRecognition?.job || state.cityAdministration?.job)
+        || Boolean(activeScientistTravelTask() || scientistQueueTasks().some(t => !taskBlockReason(t)));
+    return { alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist'), bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      sourceCurrent: Boolean(current && JSON.stringify(current) === JSON.stringify(source)), sameGround, clerkAtChannel,
+      serviceAvailable: Boolean(office && (!contact || office.id === contact.officeId) && (g ? g.materialized && base.authorityCurrent : true)
+        && !RunStrategicConditions.serviceReason(state.runStrategicConditions, strategicCounterBinding(office))),
+      busy, free: Boolean(permission && !restrictedOffsiteStay() && !currentDetentionRaid() && !state.combat.pendingActions.scientist && !busy),
+      receiveAtCounter: Boolean(sameGround && permission && sameMapCell(cell, ground.counter) && clerkAtChannel && sensoryLineOfSight(cell, office.clerk.mapCell)),
+      witness: Boolean(sameGround && clerkAtChannel && WildernessBeasts.distance(cell, office.clerk.mapCell) <= 4 && sensoryLineOfSight(office.clerk.mapCell, cell)) };
+  }
+  function ordinaryCorrespondenceOffice(endpoint, fn) {
+    const contact = endpoint.contact; if (!contact) return false;
+    const g = divineContactGate(contact);
+    if (g) return RegionalGovernment.useOffice(g, fn);
+    if (contact.gateId) return false;
+    const office = state.economy?.intercitySmuggling?.identityOffices?.find(o => o.id === contact.officeId && o.cityId === endpoint.source.cityId);
+    return office ? fn(office) : false;
+  }
+  function updateDescendedCorrespondence() {
+    const s = state.descendedCorrespondence, book = currentDivineCapabilities();
+    if (!s || s.invalid || !book || scientistIsDead()) return 0;
+    let changed = 0;
+    for (const e of s.endpoints.filter(e => e.contact)) {
+      const c = ordinaryCorrespondenceContext(e);
+      changed += ordinaryCorrespondenceOffice(e, office => {
+        const worked = DescendedCorrespondence.advance(s, book, state.civicCommunications, e.source.id, office, c, state.clock);
+        return DescendedCorrespondence.beginBreach(s, book, state.civicCommunications, e.source.id, office, c, state.clock) || worked;
+      }) ? 1 : 0;
+    }
+    const attended = ordinaryCorrespondenceJobs().some(j => {
+      if (DescendedCorrespondence.remote(j.kind)) return false;
+      const c = ordinaryCorrespondenceContext(DescendedCorrespondence.row(s, j.endpointId));
+      return c.receiveAtCounter && c.free;
+    });
+    if (attended && !state.combat?.routineSuspension) suspendScientistRoutineWork('ordinary personal correspondence');
+    if (!attended && state.combat?.routineSuspension?.reason === 'ordinary personal correspondence') resumeScientistRoutineWork();
+    return changed;
+  }
+  function ordinaryCorrespondenceAction(kind, id, expected = null) {
+    if (scientistIsDead()) return false;
+    const s = state.descendedCorrespondence, book = currentDivineCapabilities(), endpoint = DescendedCorrespondence.row(s, id);
+    if (!endpoint || s.invalid || !book) return false;
+    const ground = endpoint.contact?.ground || divineContactLocation(), c = ordinaryCorrespondenceContext(endpoint, ground),
+      g = ground?.gateId && divineContactGate({ gateId: ground.gateId }), office = g ? RegionalGovernment.office(g) : endpoint.contact
+        ? state.economy?.intercitySmuggling?.identityOffices?.find(o => o.id === endpoint.contact.officeId && o.cityId === endpoint.source.cityId) : scientistCivicOffice();
+    const perform = o => DescendedCorrespondence.begin(s, book, state.civicCommunications, id, o, c, kind, state.clock, expected, ground),
+      ok = g ? RegionalGovernment.useOffice(g, perform) : perform(office);
+    updateDescendedCorrespondence(); updateSupremacy(); persist(); render(); return Boolean(ok);
+  }
+  function observeOrdinaryCorrespondenceAggression(actorId, targetId, actionId) {
+    const s = state.descendedCorrespondence;
+    if (actorId !== 'scientist' || !s || s.invalid) return false;
+    const endpoints = s.endpoints.filter(e => e.contact?.clerkId === targetId); if (!endpoints.length) return false;
+    let changed = false;
+    const id = `ordinary-aggression:${state.clock}:${++s.serial}`;
+    for (const e of endpoints)
+      changed = DescendedCorrespondence.observe(s, currentDivineCapabilities(), { id, endpointId: e.source.id, actorId, targetId, actionId },
+        ordinaryCorrespondenceContext(e), state.clock) || changed;
+    return changed;
+  }
+  function renderDescendedCorrespondence() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.descendedCorrespondence = 'true';
+    panel.append(textEl('h4', 'Ordinary correspondence — retained personal addresses'), textEl('p', DescendedCorrespondence.LIMITS));
+    const s = state.descendedCorrespondence, location = divineContactLocation(), book = currentDivineCapabilities();
+    if (!s || s.invalid || !book) {
+      panel.append(textEl('p', 'No original retained ordinary-contact allocation is available. Historical sites are not present addresses.'));
+      return panel;
+    }
+    const button = (host, label, kind, id, disabled, expected = null) => {
+      const b = storesActionButton(label, label, () => ordinaryCorrespondenceAction(kind, id, expected));
+      b.dataset.ordinaryCorrespondenceAction = kind; b.dataset.endpointId = id; b.disabled = Boolean(disabled); host.append(b);
+    };
+    // Options only at an actually attended source-backed original counter.
+    for (const e of s.endpoints.filter(e => !e.contact && e.source.cityId === location?.cityId)) {
+      const c = ordinaryCorrespondenceContext(e, location);
+      if (c.receiveAtCounter && c.sourceCurrent && c.serviceAvailable) button(panel,
+        `Ask ${e.source.branchName} address custodian about ${e.source.godName} (one minute)`, 'discover', e.source.id, !c.free);
+    }
+    for (const known of DescendedCorrespondence.publicView(s)) {
+      const e = DescendedCorrespondence.row(s, known.id), c = ordinaryCorrespondenceContext(e),
+        section = document.createElement('section'), job = DescendedCorrespondence.account(s, e.source.godId)?.job;
+      section.dataset.ordinaryCorrespondent = known.id;
+      section.append(textEl('strong', `${known.branchName} — ${known.godName}; original custodian in ${known.cityId}.`),
+        textEl('p', `${formatClock(known.reply.at)}: ${known.reply.text}`));
+      if (c.receiveAtCounter && known.address) {
+        button(section, 'Send personal nonintervention inquiry (one minute)', 'request', known.id, !c.free || Boolean(job));
+        if (known.offer) {
+          section.append(textEl('p', known.offer.terms), textEl('p', known.offer.motive),
+            textEl('p', `Exact offer expires ${formatClock(known.offer.offerExpiresAt)}. Original individual’s actual reply and final assent are required. No divine reserve is used.`));
+          button(section, 'Send acceptance of these exact personal terms (one minute)', 'accept', known.id,
+            !c.free || Boolean(job) || state.clock >= known.offer.offerExpiresAt, known.offer);
+        }
+        button(section, 'Receive ordinary reply or dated commitment account (one minute)', 'receive', known.id, !c.free || Boolean(job));
+      } else section.append(textEl('p', 'Only dated received information is held. Return to the original permitted counter for further correspondence.'));
+      panel.append(section);
+    }
+    if (ordinaryCorrespondenceJobs().some(j => !DescendedCorrespondence.remote(j.kind)))
+      panel.append(textEl('p', 'Attended original-counter work is unfinished. Walking away or losing the channel pauses it without backfill or replacement staff.'));
     return panel;
   }
   function divineContactSources(cityId) {
@@ -102389,6 +102549,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       || (!ignoreInquiry && Boolean(passengerReceptionGate()?.researchInquiry?.job)) || (!ignoreCivic && foreignCivicWork(passengerReceptionGate()))
       || (!ignoreDivineContacts && DivineContacts.all(currentDivineCapabilities()).some(c => !c.invalid && c.job && c.job.kind !== 'breach'
         && scientistRoomId() === c.ground.roomId && sameMapCell(scientistMapCell(), c.ground.counter)))
+      || (!ignoreDivineContacts && ordinaryCorrespondenceJobs().some(j => !DescendedCorrespondence.remote(j.kind)
+        && ordinaryCorrespondenceContext(DescendedCorrespondence.row(state.descendedCorrespondence, j.endpointId)).receiveAtCounter))
       || scientistQueueTasks().some((task) => !taskBlockReason(task));
   }
   function surveyEvent(message) { addEvent(message, { sourceKind: "surveyExpedition" }); }
@@ -110402,6 +110564,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     CityServices.restore(next, { worldId: next.worldReference.worldId, runId: next.runIdentity.runId });
     next.civicCommunications = CivicCommunications.normalize(candidate?.civicCommunications);
     next.civicCommunicationsInitialized = candidate?.civicCommunicationsInitialized === true || Boolean(next.civicCommunications);
+    // Missing original ordinary addresses/attention are unknown, never created
+    // on load from historical world coordinates or a remaining god account.
+    next.descendedCorrespondence = DescendedCorrespondence.normalize(candidate?.descendedCorrespondence,
+      next.divineCapabilities, next.civicCommunications);
     next.receivableFinance = ReceivableFinance.normalize(candidate?.receivableFinance);
     next.receivableFinanceInitialized = candidate?.receivableFinanceInitialized === true || Boolean(next.receivableFinance);
     next.cityAdministrationKnowledge = candidate?.cityAdministrationKnowledge ? clonePlainObject(candidate.cityAdministrationKnowledge) : null;

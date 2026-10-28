@@ -17,14 +17,20 @@
     // Reciprocal protection is not political endorsement of the heretic.
     if (Intervention.motive(r) && ['strictSeparationFromChurch', 'cooperationWithoutDivineSovereignty', 'conditionalMoralSupport', 'authorityBoundByPublishedOath'].includes(f.civicTeaching?.position))
       return 'Reciprocal restraint protects the named faithful without conferring church sovereignty or endorsing the scientist.';
-    const p = f.hereticTeaching?.position, interest = r.source.patronInterest;
+    return independentMotive(r.god, f, r.source.patronInterest);
+  }
+  // A historically authenticated teaching can explain a living individual's
+  // ordinary political choice. It is not renewed divine confirmation.
+  function independentMotive(god, f, interest) {
+    if (!god || god.lifecycle?.lifeState !== 'living' || f?.godId !== god.id) return null;
+    const p = f.hereticTeaching?.position;
     if (!['mortalAutonomy', 'nihilism', 'vengeance', 'liberation'].includes(p)) return null;
     const expected = Faiths.hereticTeachingFor(p);
     if (JSON.stringify(expected) !== JSON.stringify(f.hereticTeaching)) return null;
     if (p === 'mortalAutonomy') return 'Explicit mortal-autonomy teaching supports limited personal nonintervention, not allegiance.';
     if (p === 'nihilism') return 'Explicit opposition to the pantheon supports temporary restraint, not agreement about the world that follows.';
-    if (['vengeance', 'liberation'].includes(p) && interest?.kind === p && interest.godId === r.god.id && interest.targetGodId
-      && interest.targetGodId !== r.god.id && (p === 'vengeance' ? interest.basis === 'publishedDivineInjury' && interest.eventId
+    if (['vengeance', 'liberation'].includes(p) && interest?.kind === p && interest.godId === god.id && interest.targetGodId
+      && interest.targetGodId !== god.id && (p === 'vengeance' ? interest.basis === 'publishedDivineInjury' && interest.eventId
         : interest.basis === 'publishedSeizedHolySite' && interest.siteId))
       return `Published ${p === 'vengeance' ? 'injury by a living rival' : 'continuing seizure by a living rival'} supports limited practical restraint; no future killing promise is made.`;
     return null;
@@ -148,6 +154,6 @@
         findings: [r.state, r.terms, r.motive, `Disclosed deadline: ${r.expiresAt} game seconds.`], limits: r.limits } }));
   }
   const publicReports = s => copy(s?.reports || []);
-  return { WORK, DURATION, TERMS, LIMITS, motive, channel, propose, begin, release, observe, observeBreach, advance, receive, evidence,
+  return { WORK, DURATION, TERMS, LIMITS, motive, independentMotive, channel, propose, begin, release, observe, observeBreach, advance, receive, evidence,
     publicView: s => copy(s?.reports || []) };
 });
