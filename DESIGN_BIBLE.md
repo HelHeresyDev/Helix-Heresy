@@ -26,6 +26,10 @@ Private current owner facts feed the existing continuous three-day assessment. A
 
 ## Story
 
+World-domination qualification history and the scientist's recognized accomplishments are distinct. A genuinely supported three-day private interval retains its original identities, scope, owner proofs and confirmation dates after subsequent loss or recovery. New challengers affect present rule rather than rewriting a past scope. Missing legacy history cannot be inferred from a saved `qualified` label. Private archives are never reports, an oracle for the player, or permission to award an accomplishment.
+
+An attended reading/assessment at an existing operational laboratory workbench can compile already received documents without a new expert, institutional blessing, remote inspection, correspondence or refreshed source date. Its findings must be identical for identical held evidence despite different hidden outcomes. Until actual beast/divine coverage and a legitimate historical-interval evidence handoff exist, this assessment remains explicitly incomplete. The final once-only campaign recognition, separate achieved/received dates and theme-selected narration must not be fabricated to close the queue. The current concrete path and outstanding acceptance gate are retained in `DOMINATION_COMPLETION_PATH.md`; #3 and 3.35d remain open, and only final death ends a run.
+
 Cosmology
 
 The gods are real and can physically manifest, grant blessings, perform miracles, and wage war against one another. Most people believe the gods are eternal beings, but this is false. Every god was originally a mortal human, beast, or other creature that accumulated enough worship, belief, and soul influence to ascend beyond mortality. Humans and beasts can still ascend when the necessary conditions align. The gods actively suppress this knowledge because widespread awareness of ascension would create countless cults, prophets, and would-be gods.

@@ -13833,7 +13833,7 @@
       regionalChangeSnapshot: () => clonePlainObject({ saved: state.regionalChange,
         public: RegionalChange.publicView(state.regionalChange), clock: state.clock }),
       supremacySnapshot: () => clonePlainObject({ saved: state.durableSupremacy,
-        public: Supremacy.publicView(state.durableSupremacy), clock: state.clock }),
+        public: Supremacy.publicView(state.durableSupremacy), assessmentContext: supremacyAssessmentContext(), clock: state.clock }),
       supremacyAction,
       advanceRegionalChangeForTest: seconds => {
         // Focused off-ground catch-up isolates this consumer's real movement
@@ -81498,9 +81498,35 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       status: 'unverified', observedAt: r.observedAt, receivedAt: r.receivedAt });
     return evidence;
   }
+  function supremacyAssessmentContext() {
+    const local = campaignLocalKnowledgeAvailable(), cell = scientistMapCell();
+    const desks = (state.fixtures || []).filter(f => fixtureDef(f)?.capabilities?.includes('research') && f.condition > 0
+      && f.operationalState === 'operational' && labMapCellRoomId(f.origin) === MAIN_ROOM_ID);
+    const desk = desks.find(f => fixtureAccessCells(f).some(p => sameMapCell(p.cell, cell))) || desks[0];
+    return { alive: !scientistIsDead(), capable: !actorIsIncapacitated('scientist'), local,
+      deskId: desk?.id || '', deskAvailable: Boolean(desk),
+      atDesk: Boolean(local && desk && scientistRoomId() === MAIN_ROOM_ID && fixtureAccessCells(desk).some(p => sameMapCell(p.cell, cell))),
+      busy: Boolean(activeScientistTravelTask() || surveyBusy() || state.scientistIdentity?.job || state.religiousRecognition?.job
+        || currentDivineCapabilities()?.job) };
+  }
   function supremacyAction(action) {
-    if (action !== 'review' || scientistIsDead() || actorIsIncapacitated('scientist')) return false;
+    if (!['review', 'assessmentWalk', 'assess'].includes(action) || scientistIsDead() || actorIsIncapacitated('scientist')) return false;
+    if (action === 'assessmentWalk') {
+      const c = supremacyAssessmentContext(), desk = fixtureById(c.deskId);
+      if (!c.local || c.busy || !desk || c.atDesk) return false;
+      const port = fixtureAccessCells(desk).find(p => labNavigationPlanBetweenCells(scientistMapCell(), p.cell, { actor: state.scientist }).found);
+      if (!port) return false;
+      const ok = Boolean(startScientistMove(MAIN_ROOM_ID, { toCell: port.cell, allowMultiRoom: true }));
+      persist(); render(); return ok;
+    }
     const s = ensureSupremacy();
+    if (action === 'assess') {
+      const c = supremacyAssessmentContext();
+      if (!c.local || !c.atDesk || !c.deskAvailable || c.busy) return false;
+      updateSupremacy();
+      if (!s || !Supremacy.review(s, s, supremacyEvidence(), state.clock, true, true) || !Supremacy.assess(s, s, c, state.clock)) return false;
+      markStateDirty(); persist(); render(); return true;
+    }
     if (!s || !Supremacy.review(s, s, supremacyEvidence(), state.clock, true, true)) return false;
     // Free review of documents already held, not remote inspection, a clerk's
     // new attestation, a news purchase or refreshed civic authorization.
@@ -81512,6 +81538,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(textEl('h4', 'Durable supremacy — received evidence'), textEl('p', v.scope), textEl('p', v.label));
     const b = document.createElement('button'); b.textContent = 'Review received supremacy evidence'; b.dataset.supremacyAction = 'review';
     b.disabled = scientistIsDead() || actorIsIncapacitated('scientist'); b.onclick = () => supremacyAction('review'); panel.append(b);
+    const c = supremacyAssessmentContext();
+    for (const [action, label, disabled] of [
+      ['assessmentWalk', 'Walk to the laboratory records-assessment desk', !c.alive || !c.capable || !c.local || !c.deskAvailable || c.atDesk || c.busy],
+      ['assess', 'Assess held world-domination records at the desk', !c.alive || !c.capable || !c.local || !c.deskAvailable || !c.atDesk || c.busy]
+    ]) { const button = document.createElement('button'); button.textContent = label; button.dataset.supremacyAction = action;
+      button.disabled = disabled; button.onclick = () => supremacyAction(action); panel.append(button); }
+    if (v.assessment) panel.append(textEl('p', `Attended records assessment ${formatClock(v.assessment.at)}: ${v.assessment.finding}`),
+      textEl('p', `${v.assessment.evidence.length} held records compiled; their observation and receipt dates are unchanged.`), textEl('p', v.assessment.limits));
     if (v.review) {
       panel.append(textEl('p', `Own document review ${formatClock(v.review.at)}. Source dates below are not refreshed.`));
       if (!v.review.evidence.some(e => ['control', 'influence', 'challenge'].includes(e.status)))

@@ -45,7 +45,8 @@
   function create(b, base, at = 0) {
     if (!id(b?.worldId) || !id(b.runId) || !time(at)) return null;
     const s = { worldId: b.worldId, runId: b.runId, complete: false, targets: [], conflict: false,
-      lastAt: at, since: null, qualifiedAt: null, phase: 'unverified', reason: 'coverage', history: [], review: null };
+      lastAt: at, since: null, qualifiedAt: null, phase: 'unverified', reason: 'coverage', history: [], review: null,
+      archiveStartedAt: at, intervals: [], assessment: null };
     syncBaseline(s, base); return s;
   }
   function syncBaseline(s, base) {
@@ -76,7 +77,10 @@
     }
     s.history = (Array.isArray(v.history) ? v.history : []).filter(e => time(e?.at) && e.at <= s.lastAt && phases.includes(e.phase) && id(e.reason))
       .map(e => ({ at: e.at, phase: e.phase, reason: e.reason })).slice(-200);
-    s.review = normalizeReview(v.review); return s;
+    s.archiveStartedAt = time(v.archiveStartedAt) && v.archiveStartedAt <= s.lastAt ? v.archiveStartedAt : s.lastAt;
+    s.intervals = normalizeIntervals(v.intervals, s);
+    s.review = normalizeReview(v.review);
+    s.assessment = normalizeAssessment(v.assessment, s.lastAt); return s;
   }
   // Only existing current city operation can emit this fact. Historical local
   // accomplishments, signatures and technical compacts are deliberately absent.
@@ -141,9 +145,59 @@
       s.qualifiedAt = s.phase === 'qualified' ? s.since + INTERVAL : null;
     }
     s.lastAt = at;
+    const archived = archiveInterval(s, states, at);
     if (s.phase !== oldPhase || s.reason !== oldReason) s.history.push({ at, phase: s.phase, reason: s.reason });
     s.history = s.history.slice(-200);
-    return s.phase !== oldPhase || s.reason !== oldReason;
+    return archived || s.phase !== oldPhase || s.reason !== oldReason;
+  }
+  // Private observation history, NOT a received certificate or accomplishment.
+  // Freeze the original scope at first confirmation. Later births and losses
+  // affect current control without rewriting what actually qualified earlier.
+  function archiveInterval(s, states, at) {
+    const since = Math.max(s.since ?? at, s.archiveStartedAt), qualifiedAt = since + INTERVAL;
+    let changed = false;
+    for (const e of s.intervals) if (e.closedAt == null && (s.phase !== 'qualified' || e.since !== since)) {
+      e.closedAt = at; e.closureReason = s.phase === 'qualified' ? 'continuityChanged' : s.reason; changed = true;
+    }
+    if (s.phase !== 'qualified' || at < qualifiedAt) return changed;
+    let e = s.intervals.find(e => e.since === since && e.closedAt == null);
+    if (e) { e.lastConfirmedAt = at; return changed; }
+    e = { id: `supremacy-interval:${since}:${qualifiedAt}`, since, qualifiedAt, confirmedAt: at, lastConfirmedAt: at,
+      closedAt: null, closureReason: null, targets: copy(s.targets), proofs: states.map(({ f }) => proofSnapshot(f)) };
+    s.intervals.push(e); return true;
+  }
+  function proofSnapshot(f) {
+    return { targetId: f.targetId, sourceId: f.sourceId, kind: f.kind, proofId: f.proofId, basis: f.basis, state: f.state,
+      since: f.since, ...(f.viable != null ? { viable: f.viable } : {}),
+      ...(f.strategic ? { strategic: Object.fromEntries(['scope', 'consumerId', 'sourceId', 'at', 'canOverturn', 'willing', 'responseSupported']
+        .map(k => [k, f.strategic[k]])) } : {}),
+      ...(f.lifecycle ? { lifecycle: Object.fromEntries(['sourceId', 'causeId', 'at', 'kind', 'survivingClaimants', 'population']
+        .filter(k => f.lifecycle[k] != null).map(k => [k, f.lifecycle[k]])) } : {}) };
+  }
+  function normalizeIntervals(rows, s) {
+    const result = [], seen = new Set();
+    for (const e of Array.isArray(rows) ? rows : []) {
+      if (!id(e?.id) || seen.has(e.id) || !time(e.since) || e.since < s.archiveStartedAt
+        || e.qualifiedAt !== e.since + INTERVAL || !time(e.confirmedAt) || e.confirmedAt < e.qualifiedAt
+        || !time(e.lastConfirmedAt) || e.lastConfirmedAt < e.confirmedAt || e.lastConfirmedAt > s.lastAt
+        || e.closedAt != null && (!time(e.closedAt) || e.closedAt < e.lastConfirmedAt || e.closedAt > s.lastAt || !id(e.closureReason))
+        || !Array.isArray(e.targets) || !Array.isArray(e.proofs) || !e.targets.length) continue;
+      const targets = e.targets.map(target);
+      if (targets.some(t => !t || t.createdAt > e.confirmedAt) || new Set(targets.map(t => t.id)).size !== targets.length
+        || e.proofs.length !== targets.length || new Set(e.proofs.map(f => f?.targetId)).size !== e.proofs.length) continue;
+      if (targets.some(t => !s.targets.some(current => current.id === t.id && current.sourceId === t.sourceId && current.kind === t.kind
+        && current.createdAt === t.createdAt)) || s.targets.some(t => t.createdAt <= e.qualifiedAt && !targets.some(old => old.id === t.id))) continue;
+      const states = targets.map(t => {
+        const f = e.proofs.find(f => f?.targetId === t.id);
+        return { t, f, state: factState(t, f && { ...copy(f), worldId: s.worldId, runId: s.runId, at: e.confirmedAt }, s, e.confirmedAt) };
+      });
+      if (states.some(r => !['qualifying', 'retired'].includes(r.state))
+        || !states.some(r => r.t.kind === 'city' && r.state === 'qualifying' && r.f.viable === true)) continue;
+      seen.add(e.id); result.push(copy({ id: e.id, since: e.since, qualifiedAt: e.qualifiedAt, confirmedAt: e.confirmedAt,
+        lastConfirmedAt: e.lastConfirmedAt, closedAt: e.closedAt ?? null, closureReason: e.closedAt == null ? null : e.closureReason,
+        targets, proofs: states.map(r => proofSnapshot(r.f)) }));
+    }
+    return result;
   }
   function normalizeEvidence(v) {
     if (!(v && ['id', 'sourceId', 'label'].every(k => id(v[k])) && ['control', 'influence', 'unverified', 'challenge'].includes(v.status)
@@ -195,9 +249,26 @@
     s.review = normalizeReview({ at, evidence: [...held, ...incoming].map(normalizeEvidence)
       .filter(e => e && e.receivedAt <= at && !seen.has(e.id) && seen.add(e.id)) }); return true;
   }
+  const ASSESSMENT_LIMITS = 'An attended compilation of held records only. No new correspondence, inspection, divine assent, hidden source census or worldwide certificate was obtained. Missing coverage remains unverified; no accomplishment is awarded.';
+  function normalizeAssessment(v, at) {
+    if (!time(v?.at) || v.at > at || !id(v.deskId)) return null;
+    const review = normalizeReview({ at: v.at, evidence: v.evidence });
+    if (!review) return null;
+    return { at: v.at, deskId: v.deskId, evidence: review.evidence,
+      finding: 'Held records do not establish a complete worldwide qualifying interval.', limits: ASSESSMENT_LIMITS };
+  }
+  function assess(s, b, context, at) {
+    if (!bound(s, b) || !time(at) || at !== s.lastAt || !context?.alive || !context.capable || !context.local
+      || !context.atDesk || !context.deskAvailable || context.busy || !id(context.deskId)) return false;
+    // Deliberately does not read targets, private phases, archives or timers.
+    // Current owner reports have no complete-world coverage handoff. Until
+    // that real path exists, compiling them must NOT produce a certificate.
+    s.assessment = normalizeAssessment({ at, deskId: context.deskId, evidence: copy(s.review?.evidence || []) }, at);
+    return Boolean(s.assessment);
+  }
   function publicView(s) {
     const r = normalizeReview(s?.review);
-    return { scope: SCOPE, review: r, label: !r ? 'Not reviewed' : r.apparent ? 'Apparent supremacy in received evidence — worldwide verification incomplete'
+    return { scope: SCOPE, review: r, assessment: normalizeAssessment(s?.assessment, s?.lastAt ?? 0), label: !r ? 'Not reviewed' : r.apparent ? 'Apparent supremacy in received evidence — worldwide verification incomplete'
       : 'Received evidence does not establish supremacy',
       limits: 'This review neither refreshes source observations nor certifies worldwide coverage. Unsupported sovereignty, strategic beast resolution and divine nonintervention remain unverified.' };
   }
@@ -205,5 +276,5 @@
     const s = normalize(v); if (!bound(s, from) || !id(to?.worldId) || !id(to.runId)) return null;
     s.worldId = to.worldId; s.runId = to.runId; return s;
   }
-  return { INTERVAL, SCOPE, bound, baseline, create, normalize, syncBaseline, cityAccount, factState, advance, review, publicView, rebind };
+  return { INTERVAL, SCOPE, bound, baseline, create, normalize, syncBaseline, cityAccount, factState, advance, review, assess, publicView, rebind };
 });

@@ -67,6 +67,7 @@ test('three uninterrupted days qualify at the exact boundary without a chapter r
   const s = setup(); tick(s, 0); assert.equal(s.phase, 'holding'); tick(s, S.INTERVAL - 1); assert.equal(s.phase, 'holding');
   tick(s, S.INTERVAL); assert.equal(s.phase, 'qualified'); assert.equal(s.qualifiedAt, S.INTERVAL);
   assert.equal(s.accomplishment, undefined); assert.equal(s.since, 0);
+  assert.equal(s.intervals.length, 1); assert.equal(s.intervals[0].qualifiedAt, S.INTERVAL);
 });
 test('multiple original city consumers contribute current operational facts and lose qualification through actual food exhaustion', () => {
   const accounts = [city('a'), city('b')], s = S.create(b, { complete: true, targets: targets.slice(0, 2) }, 0);
@@ -88,6 +89,8 @@ test('actual supplied multi-city operation and global holding run concurrently r
   }
   assert(accounts.every(a => a.s.status === 'established' && a.s.foodKg > 0 && a.s.energy > 0));
   assert.equal(s.phase, 'qualified'); assert.equal(s.qualifiedAt, 3600 + S.INTERVAL);
+  assert.equal(s.intervals.length, 1); assert.equal(s.intervals[0].targets.length, 2);
+  assert(s.intervals[0].proofs.every(f => f.kind === 'city' && f.viable));
 });
 test('actual local opposition, lost authority and partial infrastructure stop global holding without silently refreshing received records', () => {
   for (const loss of ['counterpower', 'sourceCurrent', 'defenseAvailable', 'institutionsAvailable']) {
@@ -186,4 +189,55 @@ test('irreversible death freezes private evaluation and received reviews without
   const s = setup(); tick(s, 0); const original = copy(s);
   assert.equal(S.advance(s, b, { complete: true, facts: targets.map(t => fact(t, S.INTERVAL)) }, S.INTERVAL, false), false);
   assert.equal(S.review(s, b, [], S.INTERVAL, false), false); assert.deepEqual(s, original);
+});
+
+test('qualified episodes retain original scope and proof through actual failure, recovery, later births and continued copies', () => {
+  const s = setup(); tick(s, 0); tick(s, S.INTERVAL);
+  const first = copy(s.intervals[0]); tick(s, S.INTERVAL + 20);
+  assert.equal(s.intervals.length, 1); assert.equal(s.intervals[0].lastConfirmedAt, S.INTERVAL + 20);
+  tick(s, S.INTERVAL + 40, f => { f.facts[0].state = 'notQualifying'; f.facts[0].viable = false; });
+  assert.equal(s.phase, 'failed'); assert.equal(s.qualifiedAt, null); assert.equal(s.intervals.length, 1);
+  assert.equal(s.intervals[0].qualifiedAt, first.qualifiedAt); assert.deepEqual(s.intervals[0].proofs, first.proofs);
+  assert.equal(s.intervals[0].closedAt, S.INTERVAL + 40);
+  const closed = copy(s.intervals[0]); tick(s, S.INTERVAL + 60); tick(s, 2 * S.INTERVAL + 60);
+  assert.equal(s.intervals.length, 2); assert.deepEqual(s.intervals[0], closed);
+  const newGod = { id: 'divine:later', sourceId: 'new-ascendant', kind: 'divine', createdAt: s.lastAt + 1 };
+  S.advance(s, b, { complete: true, additions: [{ ...newGod, ...b, causeId: 'actual-later-ascension' }],
+    facts: [...targets.map(t => fact(t, s.lastAt + 1, S.INTERVAL + 60)), fact(newGod, s.lastAt + 1, s.lastAt + 1)] }, s.lastAt + 1);
+  assert(s.targets.some(t => t.id === newGod.id)); assert(!s.intervals[0].targets.some(t => t.id === newGod.id));
+  const loaded = S.normalize(copy(s)); assert.deepEqual(loaded.intervals, s.intervals);
+  const continued = S.rebind(copy(s), b, { worldId: 'copy', runId: 'continued' }); assert.deepEqual(continued.intervals, s.intervals);
+  assert.deepEqual(setup().intervals, []); assert.doesNotMatch(JSON.stringify(S.publicView(s)), /supremacy-interval|lastConfirmedAt|proofs|targets|new-ascendant/);
+});
+
+test('legacy phase/history cannot manufacture an archived interval and corrupt archives are not accepted', () => {
+  const old = setup(); tick(old, 0); tick(old, S.INTERVAL); delete old.intervals; delete old.archiveStartedAt;
+  const restored = S.normalize(old); assert.deepEqual(restored.intervals, []); assert.equal(restored.archiveStartedAt, old.lastAt);
+  tick(restored, old.lastAt + 1); assert.deepEqual(restored.intervals, []);
+  tick(restored, 2 * S.INTERVAL); assert.equal(restored.intervals.length, 1); assert.equal(restored.intervals[0].qualifiedAt, 2 * S.INTERVAL);
+  const invalids = [e => e.qualifiedAt--, e => e.proofs.pop(), e => { e.targets.pop(); e.proofs.pop(); },
+    e => e.targets = [], e => e.proofs[0].viable = false,
+    e => e.proofs[0].proofId = '', e => e.lastConfirmedAt = 10 ** 20,
+    e => Object.assign(e.proofs[2].strategic, { canOverturn: true, willing: true })];
+  for (const change of invalids) {
+    const state = copy(restored); change(state.intervals[0]); assert.deepEqual(S.normalize(state).intervals, []);
+  }
+});
+
+test('attended assessment compiles only held records, is identical across opposite hidden outcomes and creates no recognition', () => {
+  const good = setup(), bad = setup(); tick(good, 0); tick(good, S.INTERVAL); tick(bad, S.INTERVAL);
+  const c = { alive: true, capable: true, local: true, atDesk: true, deskAvailable: true, busy: false, deskId: 'original-workbench' };
+  const evidence = [{ id: 'held-local-account', sourceId: 'original-clerk', label: 'Local account only', status: 'control', observedAt: 5, receivedAt: 10 }];
+  bad.phase = 'failed'; bad.since = bad.qualifiedAt = null;
+  for (const s of [good, bad]) { S.review(s, b, evidence, S.INTERVAL); assert(S.assess(s, b, c, S.INTERVAL)); }
+  assert.deepEqual(S.publicView(good), S.publicView(bad)); assert.equal(good.accomplishment, undefined);
+  assert.deepEqual(good.assessment.evidence, evidence); assert.equal(good.assessment.at, S.INTERVAL);
+  const held = copy(good.assessment); tick(good, S.INTERVAL + 100); assert.deepEqual(good.assessment, held);
+  assert.deepEqual(S.normalize(copy(good)).assessment, held);
+  for (const key of ['alive', 'capable', 'local', 'atDesk', 'deskAvailable']) {
+    assert.equal(S.assess(good, b, { ...c, [key]: false }, good.lastAt), false); assert.deepEqual(good.assessment, held);
+  }
+  assert.equal(S.assess(good, b, { ...c, busy: true }, good.lastAt), false);
+  assert.equal(S.assess(good, b, { ...c, deskId: '' }, good.lastAt), false);
+  assert.equal(S.assess(good, { ...b, runId: 'foreign' }, c, good.lastAt), false);
 });
