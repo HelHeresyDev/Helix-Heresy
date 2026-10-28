@@ -2,6 +2,7 @@ const D = require('../../beast-diplomacy');
 const R = require('../../regional-encounters');
 const E = require('../../strategic-beast-ecology');
 const W = require('../../strategic-world');
+const P = require('../../mirror-ape-populations');
 function sourceFixture(routeId = 'walk:a', distanceKm = .25, count = 5) {
   const route = { id: 'corridor:ab', corridorId: 'ab', distanceKm };
   const map = { humanGeography: { cities: [{ id: 'a', name: 'Aster', cellId: W.cellId(1) }, { id: 'b', name: 'Birch', cellId: W.cellId(3) }] },
@@ -17,6 +18,6 @@ function sourceFixture(routeId = 'walk:a', distanceKm = .25, count = 5) {
     D.register(s, source, r, [], `mirror-${i}`, 0);
     if (new Set(r.beasts.actors.map(a => a.dialoguePolicy)).size === 2) { seed = `mirror-${i}`; break; }
   }
-  return { source, route, map, geometry, seed };
+  return { source, route, map, geometry, seed, habitat: P.habitat(map, source, geometry) };
 }
 module.exports = { sourceFixture };

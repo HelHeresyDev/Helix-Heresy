@@ -2,10 +2,11 @@
   const node = typeof module === 'object' && module.exports;
   const api = factory(node ? require('./wilderness-beasts') : root.HelixWildernessBeasts,
     node ? require('./strategic-world') : root.HelixStrategicWorld,
-    node ? require('./strategic-beast-ecology') : root.HelixStrategicBeastEcology);
+    node ? require('./strategic-beast-ecology') : root.HelixStrategicBeastEcology,
+    node ? require('./mirror-ape-populations') : root.HelixMirrorApePopulations);
   if (node) module.exports = api;
   if (root) root.HelixBeastDiplomacy = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Wild, World, Ecology) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Wild, World, Ecology, Populations) {
   'use strict';
   const SPECIES = 'beast:mirror-ape', DURATION = 4 * 86400, OFFER = 600;
   const WORK = { greet: 60, check: 120, discuss: 60, accept: 60 };
@@ -60,9 +61,9 @@
         || !time(s.job.lastAt) || !id(s.job.actorId)
         || s.job.kind === 'check' && (s.job.markers?.length !== 2 || !s.job.markers.every(cell) || !s.job.noGo?.every(cell))))
       return { worldId: s.worldId, runId: s.runId, invalid: true };
-    return copy(s);
+    const result = copy(s); result.troops.forEach(Populations.normalize); return result;
   }
-  function register(s, source, region, actors, seed, at) {
+  function register(s, source, region, actors, seed, at, habitat = null) {
     if (!s || s.invalid || !validSource(source) || !bound(s, region) || !time(at)) return null;
     const old = s.troops.find(t => t.source.populationId === source.populationId);
     if (old) return same(old.source, source) ? old : null;
@@ -82,7 +83,9 @@
       region.beasts.actors.push(a); ids.push(actorId);
     }
     region.managedPopulationIds.push(source.populationId); region.beasts.materialized = true;
-    const troop = { source: copy(source), memberIds: ids, createdAt: at }; s.troops.push(troop); return troop;
+    const troop = { source: copy(source), memberIds: ids, createdAt: at };
+    const pool = Populations.create(source, ids, seed, at, habitat); if (pool) troop.pool = pool;
+    s.troops.push(troop); return troop;
   }
   const troop = (s, a) => !s?.invalid && s?.troops.find(t => a?.actorKind === 'wildernessBeast' && !a.genome
     && a.speciesId === SPECIES && t.source.populationId === a.populationId && t.memberIds.includes(a.id));

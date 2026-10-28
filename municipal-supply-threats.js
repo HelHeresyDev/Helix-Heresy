@@ -2,10 +2,12 @@
   const node = typeof module === 'object' && module.exports;
   const api = factory(node ? require('./regional-suppression') : root.HelixRegionalSuppression,
     node ? require('./wilderness-beasts') : root.HelixWildernessBeasts,
-    node ? require('./city-rule') : root.HelixCityRule);
+    node ? require('./city-rule') : root.HelixCityRule,
+    node ? require('./beast-diplomacy') : root.HelixBeastDiplomacy,
+    node ? require('./mirror-ape-populations') : root.HelixMirrorApePopulations);
   if (node) module.exports = api;
   if (root) root.HelixMunicipalSupplyThreats = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Population, Wild, Rule) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Population, Wild, Rule, Diplomacy, Apes) {
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x));
   const SCOPE = 'Original municipal grain traffic on a genuinely shared road crossing. Original animals, driver, truck, cargo and losses only. An overdue carrier is not a casualty report. A safe shipment is not population-wide safety, political submission or world domination.';
@@ -21,14 +23,18 @@
       const road = raw.endpointIds[0] === quota.cityId ? raw.cellPath : [...raw.cellPath].reverse();
       const km = [0]; for (let i = 1; i < road.length; i++) km.push(km.at(-1) + geometry.distance(road[i - 1], road[i]));
       const route = routes.find(r => (r.corridorId || r.id) === raw.id) || { id: raw.id, distanceKm: km.at(-1) };
+      const apes = Diplomacy.sources(map, route, quota.cityId, geometry).map(population => ({ population, habitat: Apes.habitat(map, population, geometry) }))
+        .filter(l => l.habitat);
       for (let i = 1; i < path.length - 1; i++) {
         const j = road.indexOf(path[i]);
         if (j < 1 || j >= road.length - 1 || settlements.has(path[i]) || !geometry.land(path[i])) continue;
-        for (const population of Population.sourceFromWorld(map, route, quota.cityId, geometry)) {
+        for (const population of [...Population.sourceFromWorld(map, route, quota.cityId, geometry), ...apes.map(l => l.population)]) {
           if (population.speciesId === Population.ELK && !population.homes.some(h => h.distanceKm === 0 && h.cellId === path[i])) continue;
+          const habitat = apes.find(l => l.population === population)?.habitat;
+          if (habitat && !habitat.spans.some(s => s.cellId === path[i])) continue;
           const row = { quotaId: `${quota.cityId}:agricultural-quota`, cityId: quota.cityId, satelliteId: quota.satelliteId,
             cellId: path[i], farmKm: lengths[i] / lengths.at(-1) * quota.distanceKm,
-            corridorKm: km[j] / km.at(-1) * route.distanceKm, population };
+            corridorKm: km[j] / km.at(-1) * route.distanceKm, population, ...(habitat ? { habitat } : {}) };
           if (validLink(row, quota)) result.push(row);
         }
       }
@@ -36,7 +42,9 @@
     return result;
   }
   function validLink(l, quota) {
-    return Boolean(l && Population.validSource(l.population) && l.cityId === quota.cityId && l.satelliteId === quota.satelliteId
+    return Boolean(l && (Population.validSource(l.population) || Diplomacy.validSource(l.population)
+      && l.population.cityId === quota.cityId && Apes.validHabitat(l.habitat, l.population) && l.habitat.spans.some(s => s.cellId === l.cellId))
+      && l.cityId === quota.cityId && l.satelliteId === quota.satelliteId
       && l.quotaId === `${quota.cityId}:agricultural-quota` && quota.routeCellIds.slice(1, -1).includes(l.cellId)
       && Number.isFinite(l.farmKm) && l.farmKm > 0 && l.farmKm < quota.distanceKm
       && Number.isFinite(l.corridorKm) && l.corridorKm > 0 && l.corridorKm < l.population.distanceKm);
@@ -51,10 +59,18 @@
   }
   // Only an original, actually arrived body at this shared physical crossing
   // can intercept. Another route, unlocated claim or distant group cannot spawn here.
-  function candidates(s, quota, population, actors, sites) {
+  function candidates(s, quota, population, actors, sites, diplomacy = null) {
     if (!bound(s, quota) || !quota.order || !['outbound', 'inbound'].includes(quota.order.phase)) return [];
     const rows = [];
     for (const link of s.links) {
+      if (link.population.speciesId === Apes.SPECIES) {
+        if (!bound(diplomacy, s) || diplomacy.invalid) continue;
+        for (const t of diplomacy.troops) for (const c of Apes.candidates(t, actors, sites, link)) {
+          const farmKm = link.farmKm + c.corridorKm - link.corridorKm;
+          if (farmKm > 0 && farmKm < quota.source.distanceKm) rows.push({ ...c, link, farmKm });
+        }
+        continue;
+      }
       const p = population?.populations.find(p => p.source.populationId === link.population.populationId
         && p.source.routeId === link.population.routeId);
       if (!p) continue;

@@ -201,6 +201,7 @@
   const BeastDiplomacy = window.HelixBeastDiplomacy;
   const BeastClimbing = window.HelixBeastClimbing;
   const BeastSpellImitation = window.HelixBeastSpellImitation;
+  const MirrorApePopulations = window.HelixMirrorApePopulations;
   const FieldCharter = window.HelixFieldCharter;
   const FieldEvacuation = window.HelixFieldEvacuation;
   const MunicipalCargoRecovery = window.HelixMunicipalCargoRecovery;
@@ -14069,7 +14070,7 @@
           if (['outbound', 'inbound'].includes(phase) && !currentRegionalEncounters()?.beasts.actors.some(a => a.regionalPhase === 'following')) {
             const target = phase === 'outbound' ? s.booking.stopKm : s.booking.distanceKm, direction = Math.sign(target - s.positionKm);
             let distance = Math.abs(target - s.positionKm);
-            for (const km of currentRegionalEncounters() ? RegionalEncounters.positions(currentRegionalEncounters(), s.booking.routeId) : [])
+            for (const km of regionalEncounterPositions(s.booking.routeId))
               if ((km - s.positionKm) * direction > 1e-9) distance = Math.min(distance, Math.abs(km - s.positionKm));
             step = Math.min(left, 20, Math.max(1, Math.ceil(distance / .005 - 1e-9)));
           }
@@ -14104,10 +14105,12 @@
           || !['B', 'F', 'R', 'Y'].includes(source?.biomeCode) || !Number.isFinite(source.slopePercent)) return false;
         s.testTerrainSource = clonePlainObject(source); persist(); return true; // Original terrain input before any local geometry or body allocation.
       },
-      setBeastDiplomacyTestSources: (sources, seed = 'mirror-contact') => {
+      setBeastDiplomacyTestSources: (sources, seed = 'mirror-contact', habitats = []) => {
         if (!sources.every(BeastDiplomacy.validSource) || currentBeastDiplomacy()?.troops.length) return false;
+        if (!habitats.every(h => sources.some(s => MirrorApePopulations.validHabitat(h, s)))) return false;
         state.beastDiplomacy ||= BeastDiplomacy.create({ worldId: activeWorldRecord.id, runId: activeRunRecord.id });
         state.beastDiplomacy.testSources = clonePlainObject(sources); state.beastDiplomacy.testSeed = seed;
+        state.beastDiplomacy.testPopulationHabitats = clonePlainObject(habitats);
         persist(); return true; // Original source/personality inputs only, before allocation or interaction.
       },
       configureRegionalEncounterTest: (populations, seed = 'regional-test') => {
@@ -88713,7 +88716,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const checked = q.supplyTrafficCheckedSpecies || (q.supplyTrafficChecked ? [Suppression.SPECIES] : []);
     // Extend idle legacy accounts additively. Never replace earlier contacts,
     // losses or source links, or rewrite an already accepted grain journey.
-    if (Suppression.SUPPORTED_SPECIES.every(id => checked.includes(id)) || q.supplyTrafficChecked && q.order) return;
+    const species = [...Suppression.SUPPORTED_SPECIES, MirrorApePopulations.SPECIES];
+    if (species.every(id => checked.includes(id)) || q.supplyTrafficChecked && q.order) return;
     const map = activeWorldRecord?.generatedData?.strategicMap; if (!map) return;
     const topology = StrategicWorld.topologyForMap(map);
     const geometry = { cellCount: map.topology.cellCount,
@@ -88723,7 +88727,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const links = MunicipalSupplyThreats.sources(map, q.source, geometry, state.strategicJourneys?.routes || [])
       .filter(l => !checked.includes(l.population.speciesId));
     q.supplyTrafficChecked = true;
-    q.supplyTrafficCheckedSpecies = [...Suppression.SUPPORTED_SPECIES];
+    q.supplyTrafficCheckedSpecies = species;
     if (!links.length) return;
     if (!q.supplyTraffic) q.supplyTraffic = MunicipalSupplyThreats.create(q, q.source, links, state.clock);
     else for (const l of links) if (!q.supplyTraffic.links.some(old => old.cellId === l.cellId && old.population.populationId === l.population.populationId))
@@ -88733,7 +88737,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const l of links) Suppression.register(currentSuppression(), l.population, region, suppressionActors(), activeWorldRecord.worldSeed, state.clock);
   }
   function municipalSupplyCandidates(q) {
-    return MunicipalSupplyThreats.candidates(q.supplyTraffic, q, currentSuppression(), suppressionActors(), state.roadsideStops?.sites || []);
+    return MunicipalSupplyThreats.candidates(q.supplyTraffic, q, currentSuppression(), suppressionActors(), state.roadsideStops?.sites || [], currentBeastDiplomacy());
   }
   function municipalSupplyContact(q, at) {
     const interdiction = state.networkInterdiction;
@@ -88758,6 +88762,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!cells.every(c => labMapCellIsWalkable(c) && !labMapCellIsPathBlocked(c, { actor: q.driver, skipPlacement: true }))) return;
     // Place originals only at their measured coordinates; never relocate a
     // local survivor from another patch to accommodate the convoy.
+    materializeMirrorPopulationGroups(site);
     RegionalEncounters.place(region, site, at, (c, a) => !cells.some(t => sameMapCell(t, c))
       && labMapCellIsWalkable(c) && !labMapCellIsPathBlocked(c, { actor: a, skipPlacement: true }));
     if (!region.beasts.actors.some(a => a.id === candidate.actorId && a.roomId === site.roomId)) return;
@@ -90748,18 +90753,40 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (scientistIsDead() || !plan) return;
     const region = ensureRegionalEncounters(), map = activeWorldRecord?.generatedData?.strategicMap;
     if (!region || !map) return;
-    const saved = currentBeastDiplomacy(), route = intercityMarchActive()
+    const saved = currentBeastDiplomacy(), geometry = {
+      distance: (a, b) => StrategicWorld.greatCircleDistanceKm(map, StrategicWorld.cellIndex(a), StrategicWorld.cellIndex(b)),
+      land: id => map.surface.classes[StrategicWorld.cellIndex(id)] === 'L' }, route = intercityMarchActive()
       && state.strategicJourneys?.routes.find(r => r.id === state.intercityMarch.operation.plan.corridorId);
     const sources = saved?.testSources ? saved.testSources.filter(s => s.routeId === plan.id)
       : route && !state.intercityMarch.operation.plan.worksiteId ? BeastDiplomacy.sources(map, route,
-        state.intercityMarch.operation.plan.homeCityId, {
-          distance: (a, b) => StrategicWorld.greatCircleDistanceKm(map, StrategicWorld.cellIndex(a), StrategicWorld.cellIndex(b)),
-          land: id => map.surface.classes[StrategicWorld.cellIndex(id)] === 'L'
-        }, plan.id) : [];
+        state.intercityMarch.operation.plan.homeCityId, geometry, plan.id) : [];
     if (!sources.length || state.beastDiplomacy?.invalid) return;
     state.beastDiplomacy ||= BeastDiplomacy.create({ worldId: activeWorldRecord.id, runId: activeRunRecord.id });
     for (const source of sources) BeastDiplomacy.register(currentBeastDiplomacy(), source, region, suppressionActors(),
-      saved?.testSeed || activeWorldRecord.worldSeed, state.clock);
+      saved?.testSeed || activeWorldRecord.worldSeed, state.clock,
+      saved?.testSources ? saved.testPopulationHabitats?.find(h => h.populationId === source.populationId && h.routeId === source.routeId)
+        : MirrorApePopulations.habitat(map, source, geometry));
+  }
+  function mirrorPopulationTroops() {
+    const s = currentBeastDiplomacy(), populations = activeWorldRecord?.generatedData?.strategicMap?.beastEcology?.populations;
+    return (s?.troops || []).filter(t => s.testSources?.some(p => JSON.stringify(p) === JSON.stringify(t.source))
+      || populations?.some(p => p.id === t.source.populationId && p.speciesId === MirrorApePopulations.SPECIES
+        && p.devotionalUnitCount === t.source.originalCount));
+  }
+  function mirrorPopulationPositions(routeId) {
+    return scientistIsDead() ? [] : mirrorPopulationTroops().flatMap(t => MirrorApePopulations.positions(t, routeId));
+  }
+  function regionalEncounterPositions(routeId) {
+    const region = currentRegionalEncounters();
+    return [...(region ? RegionalEncounters.positions(region, routeId) : []), ...mirrorPopulationPositions(routeId)];
+  }
+  function materializeMirrorPopulationGroups(site) {
+    if (scientistIsDead()) return 0;
+    const region = currentRegionalEncounters(), map = ensureLabMap(); if (!region || !site) return 0;
+    return mirrorPopulationTroops().reduce((n, t) => n + MirrorApePopulations.materialize(t, region, site, state.clock,
+      (cell, actor) => !sameMapCell(cell, scientistMapCell()) && !allWildernessBeasts().some(a => sameMapCell(a.mapCell, cell))
+        && labMapCellIsWalkable(cell, map) && !labMapCellIsPathBlocked(cell, { map, actor, skipPlacement: true })
+        && canActorOccupyTile(actor, cell)), 0);
   }
   function beastDialogueContext(a) {
     const s = currentBeastDiplomacy(), troop = BeastDiplomacy.troop(s, a);
@@ -96301,6 +96328,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const knowledge = wildernessBeastKnowledge();
     panel.dataset.beastClimbing = 'true';
     panel.dataset.beastSpellImitation = 'true';
+    panel.dataset.mirrorApePopulations = 'true';
+    panel.append(textEl('p', 'Other original Mirror Ape groups may occupy source-backed habitat along a measured approach. Actual travel can encounter them; another individual’s compact does not bind them, and they learn spells only from their own observations. Quiet travel or defeating an encountered group is not a population census or strategic safety proof.'));
     for (const f of overlandStopSite()?.climbSurfaces || []) if (sensoryLineOfSight(scientistMapCell(), f.cell)
       && WildernessBeasts.distance(scientistMapCell(), f.cell) <= 8)
       panel.append(textEl('p', `Observed ${f.kind === 'tree' ? 'grippable tree' : 'rough rock face'} at ${f.cell.x},${f.cell.y}: ${f.heightM} m high. Its solid base obstructs ground movement; it grants no access to buildings or another floor.`));
@@ -100150,7 +100179,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       escortSeconds: escort?.contract ? Math.min(escort.fieldDutySeconds ?? 12 * 3600, Math.max(0, escort.contract.startedAt + escort.contract.limitHours * 3600 - state.clock)) : 0,
       bodyEpoch: ensureScientistIdentity().bodyEpoch, route, stop, collectionKm: e?.destination?.localDistanceKm,
       routeOpen: Boolean(route && (!s?.booking || route.id === s.booking.routeId)),
-      interruptPositions: [...municipalSupplyPositions(route?.id), ...(currentRegionalEncounters() ? RegionalEncounters.positions(currentRegionalEncounters(), route?.id) : [])],
+      interruptPositions: [...municipalSupplyPositions(route?.id), ...regionalEncounterPositions(route?.id)],
       manifest: FieldCharter.manifest(ensurePhysicalItemStacks(), actor?.id) };
   }
   function fieldCharterMoveActor(actor, roomId, cell) {
@@ -102265,6 +102294,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     // encounter allocation still belongs to this actual measured expedition.
     const reached = intercityMarchActive() && state.intercityMarch.operation.plan.worksiteId
       ? { ...site, routeId: state.overlandExpedition.route.id } : site;
+    materializeMirrorPopulationGroups(reached);
     return RegionalEncounters.place(s, reached, state.clock, (cell, actor) => !sameMapCell(cell, scientistMapCell())
       && !allWildernessBeasts().some(a => a.id !== actor.id && sameMapCell(a.mapCell, cell))
       && labMapCellIsWalkable(cell, map) && !labMapCellIsPathBlocked(cell, { map, actor, skipPlacement: true })
@@ -102295,7 +102325,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function roadsideClimbingTerrain(routeId, positionKm) {
     const prepared = currentBeastDiplomacy()?.testTerrainSource;
-    if (prepared && currentBeastDiplomacy().testSources?.some(s => s.routeId === routeId && Math.abs(s.positionKm - positionKm) < 1e-8)) return prepared;
+    if (prepared && currentBeastDiplomacy().testSources?.some(s => s.routeId === routeId && (Math.abs(s.positionKm - positionKm) < 1e-8
+      || currentBeastDiplomacy().testPopulationHabitats?.some(h => h.populationId === s.populationId && h.spans.some(span => span.cellId === prepared.sourceCellId
+        && positionKm >= span.startKm && positionKm <= span.endKm))))) return prepared;
     const map = activeWorldRecord?.generatedData?.strategicMap;
     if (!map?.biomes?.classes) return null;
     let sourceCellId;
@@ -102508,7 +102540,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const p of overlandKnownStops()) if (p.routeId === s.route.id && (p.positionKm - t.positionKm) * t.direction > 1e-9)
       distance = Math.min(distance, Math.abs(p.positionKm - t.positionKm));
     const region = currentRegionalEncounters();
-    for (const km of [...municipalSupplyPositions(s.route.id), ...(region ? RegionalEncounters.positions(region, s.route.id) : [])]) if ((km - t.positionKm) * t.direction > 1e-9) distance = Math.min(distance, Math.abs(km - t.positionKm));
+    for (const km of [...municipalSupplyPositions(s.route.id), ...regionalEncounterPositions(s.route.id)]) if ((km - t.positionKm) * t.direction > 1e-9) distance = Math.min(distance, Math.abs(km - t.positionKm));
     if (region?.beasts.actors.some(a => a.status !== 'dead' && (a.regionalPhase === 'following' || a.roomId === overlandStopSite()?.roomId))) maxStep = Math.min(maxStep, 1);
     const pace = scientistMoveSpeedMps() / 1000;
     const critical = Math.max(needs?.thirst || 0, needs?.hunger || 0, needs?.exposure || 0) >= 85;
@@ -102530,7 +102562,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       playableStops: true, stopPositions: [...overlandKnownStops().filter(s => s.routeId === state.overlandExpedition.route.id).map(s => s.positionKm),
         ...municipalSupplyPositions(state.overlandExpedition.route.id),
         ...(source ? [JointTransit.position(source, state.intercityMarch.operation.plan.homeCityId)] : []),
-        ...(currentRegionalEncounters() ? RegionalEncounters.positions(currentRegionalEncounters(), state.overlandExpedition.route.id) : [])],
+        ...regionalEncounterPositions(state.overlandExpedition.route.id)],
       sheltered: Boolean(overlandStopSite() && wildernessSheltered()),
       arrivalReasons: { home: overlandArrivalReason('home'), ground: overlandArrivalReason('ground') },
       weather: state.overlandApproach.weather, carriedRadioIds: surveyCarriedStacks().map(s => s.id), health: scientistVital('health').current });
@@ -102624,7 +102656,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const road = overlandOnRoad(), route = road ? state.overlandExpedition.route : overlandRoute(), t = state.overlandExpedition?.trip;
     const button = (label, action, disabled = false) => { const b = document.createElement('button'); b.textContent = label;
       b.disabled = Boolean(disabled || scientistIsDead() || !annexCapable()); b.onclick = () => overlandAction(action); panel.append(b); };
-    panel.append(textEl('p', intercityMarchActive() ? 'Solo walking over one personally learned neighboring corridor, not military transit or a safe camp. Actual roadside encounters and needs can interrupt travel.' : 'Solo on-foot travel over the existing local approach, not a planet-scale hex crossing or a safe camp. Regional encounters can interrupt the actual journey; only Rimefang and Gravebloom Elk are simulated. Silence is not proof of safety.'));
+    panel.append(textEl('p', intercityMarchActive() ? 'Solo walking over one personally learned neighboring corridor, not military transit or a safe camp. Actual roadside encounters and needs can interrupt travel.' : 'Solo on-foot travel over the existing local approach, not a planet-scale hex crossing or a safe camp. Regional encounters can interrupt the actual journey; supported Rimefang, Gravebloom Elk and original Mirror Ape groups can be encountered. Silence is not proof of safety.'));
     if (!route) { panel.append(textEl('p', 'No usable received approach directions and published local distances. A city listing alone supplies no walking route.')); return panel; }
     panel.append(textEl('p', `${route.label}: ${formatDecimal(route.distanceKm, 2)} km. Source: ${route.source} (${route.sourceId}), received ${formatClock(route.sourceAt)}. ${route.directions} No detailed surrounding map or mineral survey follows.`));
     const pace = scientistMoveSpeedMps() * 3.6, weighted = route.legs.reduce((n, l) => n + l.distanceKm * l.factor, 0);
