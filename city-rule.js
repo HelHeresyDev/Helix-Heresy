@@ -1,9 +1,10 @@
 (function (root, factory) {
   const node = typeof module === 'object' && module.exports;
-  const api = factory(node ? require('./city-provisioning') : root.HelixCityProvisioning);
+  const api = factory(node ? require('./city-provisioning') : root.HelixCityProvisioning,
+    node ? require('./city-rule-history') : root.HelixCityRuleHistory);
   if (node) module.exports = api;
   if (root) root.HelixCityRule = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Provisioning) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Provisioning, History) {
   'use strict';
   const DAY = 86400, INTERVAL = 3 * DAY;
   const ROLES = ['centralAdministration', 'civicReview', 'civilWatch', 'publicWorksAndProvisioning', 'militaryDefenseCommand'];
@@ -350,6 +351,7 @@
           : 'No established capable challenge within this operating account; not proof of universal loyalty or divine acquiescence.' };
     if (s.powerFuel) s.report.powerFuel = copy(s.powerFuel);
     if (s.powerMaintenance) s.report.powerMaintenance = copy(s.powerMaintenance);
+    History.issue(s, s.report);
     return true;
   }
   return { DAY, INTERVAL, ROLES, LIMITS, sourceFromWorld, validSource, create, createAggregate, normalize, authority, contact, plantWorking, condition, order, recharge, distribution, advance, receive };

@@ -1,8 +1,9 @@
 (function (root, factory) {
-  const api = factory(typeof module === 'object' && module.exports ? require('./city-rule') : root.HelixCityRule);
+  const api = factory(typeof module === 'object' && module.exports ? require('./city-rule') : root.HelixCityRule,
+    typeof module === 'object' && module.exports ? require('./city-rule-history') : root.HelixCityRuleHistory);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixDurableSupremacy = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Rule) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Rule, CityHistory) {
   'use strict';
   const INTERVAL = 3 * 86400;
   const id = s => typeof s === 'string' && s.length > 0 && s.length <= 1000;
@@ -46,7 +47,7 @@
     if (!id(b?.worldId) || !id(b.runId) || !time(at)) return null;
     const s = { worldId: b.worldId, runId: b.runId, complete: false, targets: [], conflict: false,
       lastAt: at, since: null, qualifiedAt: null, phase: 'unverified', reason: 'coverage', history: [], review: null,
-      archiveStartedAt: at, intervals: [], assessment: null };
+      archiveStartedAt: at, intervals: [], assessment: null, cityReports: [], cityReportsReceivedAt: at };
     syncBaseline(s, base); return s;
   }
   function syncBaseline(s, base) {
@@ -79,6 +80,10 @@
       .map(e => ({ at: e.at, phase: e.phase, reason: e.reason })).slice(-200);
     s.archiveStartedAt = time(v.archiveStartedAt) && v.archiveStartedAt <= s.lastAt ? v.archiveStartedAt : s.lastAt;
     s.intervals = normalizeIntervals(v.intervals, s);
+    s.cityReportsReceivedAt = time(v.cityReportsReceivedAt) ? v.cityReportsReceivedAt : s.lastAt;
+    const receivedIds = new Set();
+    s.cityReports = (Array.isArray(v.cityReports) ? v.cityReports : []).map(normalizeEvidence)
+      .filter(e => e && e.receivedAt <= s.cityReportsReceivedAt && isCityEvidence(e) && !receivedIds.has(e.id) && receivedIds.add(e.id));
     s.review = normalizeReview(v.review);
     s.assessment = normalizeAssessment(v.assessment, s.lastAt); return s;
   }
@@ -209,7 +214,29 @@
       result.account = { issuer: a.issuer, scope: a.scope, findings: [...a.findings], limits: a.limits };
       if (id(v.seriesId)) result.seriesId = v.seriesId;
     }
+    if (v.cityScope != null) {
+      const scope = CityHistory.scope(v.cityScope, v.sourceId); if (!scope || !result.account) return null;
+      result.cityScope = scope;
+    }
+    if (v.temporal != null || v.period != null) {
+      const period = CityHistory.period(v.period, { ...result, temporal: v.temporal }); if (!period || !result.account) return null;
+      result.temporal = 'historical'; result.period = period;
+    }
     return result;
+  }
+  const isCityEvidence = e => e.seriesId === `city-control:${e.cityScope?.cityId}`
+    || e.temporal === 'historical' && Boolean(CityHistory.period(e.period, e))
+    || e.seriesId?.startsWith('city-control:') && !e.cityScope && e.account?.scope === 'Named city operating control';
+  function receiveCityReport(s, b, report, at, alive = true) {
+    if (!alive || !bound(s, b) || !time(at) || !time(report?.at) || report.at > at) return false;
+    const rows = CityHistory.project(report).map(normalizeEvidence).filter(e => e && isCityEvidence(e));
+    if (!rows.length) return false;
+    s.cityReports ||= [];
+    for (const e of rows) if (!s.cityReports.some(old => old.id === e.id)) s.cityReports.push(e);
+    s.cityReportsReceivedAt = Math.max(s.cityReportsReceivedAt || 0, at);
+    // Receiving a document does not perform a workbench assessment or inspect
+    // targets, hidden history, current owner outcomes or a qualification clock.
+    return true;
   }
   function normalizeReview(v) {
     if (!time(v?.at) || !Array.isArray(v.evidence)) return null;
@@ -219,16 +246,17 @@
     // series supersedes an older one. A later receipt of an old observation,
     // another office, or a narrower/unrelated account cannot clear it.
     const newest = new Map();
-    for (const e of evidence.filter(e => e.seriesId)) {
-      const key = JSON.stringify([e.sourceId, e.account.issuer, e.account.scope, e.seriesId]);
+    for (const e of evidence.filter(e => e.seriesId && e.temporal !== 'historical')) {
+      const key = JSON.stringify([e.sourceId, e.account.issuer, e.account.scope, e.seriesId, e.cityScope || null]);
       if (!newest.has(key) || newest.get(key).observedAt < e.observedAt) newest.set(key, e);
     }
-    for (const e of evidence.filter(e => e.seriesId)) {
-      const newer = newest.get(JSON.stringify([e.sourceId, e.account.issuer, e.account.scope, e.seriesId]));
+    for (const e of evidence.filter(e => e.seriesId && e.temporal !== 'historical')) {
+      const newer = newest.get(JSON.stringify([e.sourceId, e.account.issuer, e.account.scope, e.seriesId, e.cityScope || null]));
       if (newer.observedAt > e.observedAt) e.supersededBy = newer.id;
     }
-    const relevant = evidence.filter(e => !e.supersededBy);
-    return { at: v.at, evidence, apparent: relevant.some(e => e.status === 'control') && !relevant.some(e => ['challenge', 'unverified'].includes(e.status)) };
+    const relevant = evidence.filter(e => !e.supersededBy && e.temporal !== 'historical');
+    return { at: v.at, evidence, reportedCityIntervals: CityHistory.intervals(evidence),
+      apparent: relevant.some(e => e.status === 'control') && !relevant.some(e => ['challenge', 'unverified'].includes(e.status)) };
   }
   function review(s, b, evidence, at, alive = true, capable = true) {
     if (!alive || !capable || !bound(s, b) || !time(at) || s.review?.at > at) return false;
@@ -254,7 +282,7 @@
     if (!time(v?.at) || v.at > at || !id(v.deskId)) return null;
     const review = normalizeReview({ at: v.at, evidence: v.evidence });
     if (!review) return null;
-    return { at: v.at, deskId: v.deskId, evidence: review.evidence,
+    return { at: v.at, deskId: v.deskId, evidence: review.evidence, reportedCityIntervals: review.reportedCityIntervals,
       finding: 'Held records do not establish a complete worldwide qualifying interval.', limits: ASSESSMENT_LIMITS };
   }
   function assess(s, b, context, at) {
@@ -276,5 +304,5 @@
     const s = normalize(v); if (!bound(s, from) || !id(to?.worldId) || !id(to.runId)) return null;
     s.worldId = to.worldId; s.runId = to.runId; return s;
   }
-  return { INTERVAL, SCOPE, bound, baseline, create, normalize, syncBaseline, cityAccount, factState, advance, review, assess, publicView, rebind };
+  return { INTERVAL, SCOPE, bound, baseline, create, normalize, syncBaseline, cityAccount, factState, advance, review, assess, publicView, rebind, receiveCityReport };
 });

@@ -73,8 +73,9 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: actual succession, 
   await page.locator('[data-workspace-tab="visits"]').click(); expect((await snap(page)).saved).toEqual(final);
   await supremacy.locator('[data-supremacy-action="review"]').click();
   const reviewed = await page.evaluate(() => window.helixHeresyDebug.supremacySnapshot());
-  expect(reviewed.public.review.evidence[0].status).toBe('challenge'); expect(reviewed.saved.phase).not.toBe('qualified');
-  expect(reviewed.public.review.evidence[0].observedAt).toBe(final.report.at);
+  const latest = reviewed.public.review.evidence.find(e => e.id === final.report.receiptId);
+  expect(latest.status).toBe('challenge'); expect(reviewed.saved.phase).not.toBe('qualified');
+  expect(latest.observedAt).toBe(final.report.at);
   expect(await page.evaluate(() => window.helixHeresyDebug.validateMapScene())).toEqual([]);
   expect(await page.evaluate(() => localStorage.getItem('helix-heresy-v2-world:lifecycle-world'))).toBe(world);
   expect(errors).toEqual([]);

@@ -1,8 +1,8 @@
 (function (root, factory) {
-  const api = factory();
+  const api = factory(typeof module === 'object' && module.exports ? require('./city-rule-history') : root.HelixCityRuleHistory);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixInstitutionalEvidence = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (CityHistory) {
   'use strict';
   const text = s => typeof s === 'string' && s.length > 0 && s.length <= 1000;
   const date = t => Number.isFinite(t) && t >= 0;
@@ -100,13 +100,7 @@
     return [];
   }
   function city(r) {
-    if (!r) return [];
-    const rows = entry(`city-rule:${r.sourceId}:${r.at}`, r.sourceId, `Received city operating account — ${r.cityId}`, r.at, r.at,
-      `city-control:${r.cityId}`, `Municipal operating account — ${r.cityId}`, 'Named city operating control',
-      [`The dated operating account reports: ${r.status}.`], 'This received account is not a current remote observation, worldwide coverage, institutional submission or divine nonintervention.');
-    if (rows.length) rows[0].status = r.status === 'established' && r.foodKg > 0 && r.waterLiters > 0 && r.energy > 0 ? 'control'
-      : r.status === 'contested' ? 'challenge' : 'unverified';
-    return rows;
+    return CityHistory.project(r);
   }
   return { network, ground, covert, protection, charter, service, city };
 });

@@ -81578,6 +81578,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function supremacyEvidence() {
     const binding = { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id };
     const evidence = [], r = Supremacy.bound(state.cityRule, binding) && state.cityRule.report;
+    evidence.push(...(currentSupremacy()?.cityReports || []));
     if (BeastDiplomacy.bound(state.beastDiplomacy, binding)) evidence.push(...BeastDiplomacy.evidence(state.beastDiplomacy));
     if (DivineCapabilities.bound(state.divineCapabilities, binding)) evidence.push(...DivineNonintervention.evidence(state.divineCapabilities));
     if (DivineCapabilities.bound(state.descendedCorrespondence, binding)) evidence.push(...DescendedCorrespondence.evidence(state.descendedCorrespondence));
@@ -81645,7 +81646,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (action === 'assessmentWalk') {
       const c = supremacyAssessmentContext(), desk = fixtureById(c.deskId);
       if (!c.local || c.busy || !desk || c.atDesk) return false;
-      const port = fixtureAccessCells(desk).find(p => labNavigationPlanBetweenCells(scientistMapCell(), p.cell, { actor: state.scientist }).found);
+      const port = fixtureAccessCells(desk).find(p => !scientistMoveBlockReason(MAIN_ROOM_ID, { toCell: p.cell, allowMultiRoom: true }));
       if (!port) return false;
       const ok = Boolean(startScientistMove(MAIN_ROOM_ID, { toCell: port.cell, allowMultiRoom: true }));
       persist(); render(); return ok;
@@ -81663,6 +81664,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     // new attestation, a news purchase or refreshed civic authorization.
     markStateDirty(); persist(); render(); return true;
   }
+  function retainReceivedCityRuleReports(...reports) {
+    const s = ensureSupremacy(); if (!s || scientistIsDead()) return;
+    for (const report of reports) if (report) Supremacy.receiveCityReport(s, s, report, state.clock, true);
+  }
   function renderSupremacy() {
     const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.durableSupremacy = 'true';
     const v = Supremacy.publicView(currentSupremacy());
@@ -81677,13 +81682,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       button.disabled = disabled; button.onclick = () => supremacyAction(action); panel.append(button); }
     if (v.assessment) panel.append(textEl('p', `Attended records assessment ${formatClock(v.assessment.at)}: ${v.assessment.finding}`),
       textEl('p', `${v.assessment.evidence.length} held records compiled; their observation and receipt dates are unchanged.`), textEl('p', v.assessment.limits));
+    const historical = v.review?.reportedCityIntervals || v.assessment?.reportedCityIntervals || [];
+    if (historical.length) {
+      const history = document.createElement('section'); history.dataset.cityRuleHistory = 'true';
+      history.append(textEl('h4', 'Reported historical local-rule intervals'), textEl('p', 'These received claims concern past local operation, not current control or worldwide coverage. Snapshots and treaty durations do not fill unobserved gaps.'));
+      for (const p of historical) history.append(textEl('p', `${p.cityScope.cityId}: reported period ${formatClock(p.startAt)} to ${formatClock(p.endAt)}. Source ${p.cityScope.sourceId}; charter ${p.cityScope.charterId}; population source ${p.cityScope.populationSourceId}; handover ${p.cityScope.handoverId}; body ${p.cityScope.bodyEpoch}. Issuing institutions: ${p.cityScope.issuerIds.join(', ')}. Observed ${formatClock(p.observedAt)}; received ${formatClock(p.receivedAt)}.${p.conflictingEvidenceIds.length ? ' Conflicting received observations fall within this same reported period; the discrepancy remains unresolved.' : ' No conflicting same-scope observation in the held records; this is not independent corroboration.'}`));
+      panel.append(history);
+    }
     if (v.review) {
       panel.append(textEl('p', `Own document review ${formatClock(v.review.at)}. Source dates below are not refreshed.`));
       if (!v.review.evidence.some(e => ['control', 'influence', 'challenge'].includes(e.status)))
         panel.append(textEl('p', 'No relevant received control or regional-resolution evidence recorded.'));
       for (const e of v.review.evidence) {
         const record = document.createElement('section'); record.dataset.supremacyEvidence = e.id;
-        record.append(textEl('p', `${e.label}: ${e.account ? 'Wider strategic effect: ' : ''}${e.status}. Observed ${formatClock(e.observedAt)}; received ${formatClock(e.receivedAt)}.`));
+        record.append(textEl('p', `${e.label}: ${e.temporal === 'historical' ? 'Historical local claim: ' : e.account ? 'Wider strategic effect: ' : ''}${e.status}. Observed ${formatClock(e.observedAt)}; received ${formatClock(e.receivedAt)}.`));
         if (e.account) {
           record.append(textEl('p', `Source: ${e.account.issuer}. Scope: ${e.account.scope}.`));
           for (const finding of e.account.findings) record.append(textEl('p', `Establishes: ${finding}`));
@@ -87860,7 +87872,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (!n || n.worldId !== activeWorldRecord.id || n.runId !== activeRunRecord.id) return false;
     updateRegionalGovernments();
+    const priorReport = n.rule?.report;
     const ok = RegionalGovernment.action(n, g, regionalGovernmentContext(g), action, expected, state.clock, ensurePhysicalItemStacks());
+    if (ok && action === 'report') retainReceivedCityRuleReports(priorReport, n.rule?.report);
     if (ok && CitySuccession.working(n.succession)) suspendScientistRoutineWork('regional government hearing');
     if (ok && ['deliver', 'recharge'].includes(action)) {
       state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0); syncActorInventories(); syncPhysicalReadModels();
@@ -88446,7 +88460,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (action === 'recharge') ok = CityRule.recharge(s, state.citySuccession, cityRulePeople(), c, ensurePhysicalItemStacks(), state.clock, quantity);
     if (action === 'distribution' || action === 'stopDistribution') ok = CityRule.distribution(s, state.citySuccession, cityRulePeople(), c, action === 'distribution', state.clock);
     if (action === 'report') {
+      const priorReport = s.report;
       ok = CityRule.receive(s, state.citySuccession, cityRulePeople(), c, state.clock);
+      if (ok) retainReceivedCityRuleReports(priorReport, s.report);
       if (ok && s.report.accomplishment) setCampaignState(Campaign.record(state.campaign, {
         kind: 'cityRule', known: true, alive: true, established: true, intervalSeconds: CityRule.INTERVAL,
         cityId: s.report.cityId, sourceId: s.report.accomplishment.sourceId,
