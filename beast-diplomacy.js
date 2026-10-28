@@ -10,7 +10,7 @@
   const SPECIES = 'beast:mirror-ape', DURATION = 4 * 86400, OFFER = 600;
   const WORK = { greet: 60, check: 120, discuss: 60, accept: 60 };
   const TERMS = 'For four days this named individual will not attack the scientist or identified municipal delivery traffic for the named city on this measured approach. The scientist will not attack this individual or enter the disclosed quiet-ground cells. Actual witnessed aggression or encroachment ends this compact. Only this individual consents: no troop command, taming, divine agreement, city sovereignty, general travel right or control of independent people follows.';
-  const LIMITS = 'One original individual and one named approach only. A peaceful encounter is not a population census, regional safety, strategic resolution or world domination. Uncontacted individuals, unsupported vertical routes, spell imitation and independent means remain unverified.';
+  const LIMITS = 'One original individual and one named approach only. A peaceful encounter is not a population census, regional safety, strategic resolution or world domination. Uncontacted individuals, unsupported vertical routes, other spell imitation and independent means remain unverified; observing Soul Lash does not expand this consent.';
   const copy = x => x == null ? null : JSON.parse(JSON.stringify(x));
   const id = x => typeof x === 'string' && x.length > 0;
   const time = x => Number.isFinite(x) && x >= 0;

@@ -1,8 +1,9 @@
 (function attach(root, factory) {
-  const api = factory(typeof module === 'object' && module.exports ? require('./beast-climbing') : root.HelixBeastClimbing);
+  const api = factory(typeof module === 'object' && module.exports ? require('./beast-climbing') : root.HelixBeastClimbing,
+    typeof module === 'object' && module.exports ? require('./beast-spell-imitation') : root.HelixBeastSpellImitation);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixWildernessBeasts = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function (Climbing) {
+})(typeof globalThis !== "undefined" ? globalThis : this, function (Climbing, Imitation) {
   "use strict";
   const ROOM = "wildernessSurveySector";
   const PROFILES = Object.freeze({
@@ -15,11 +16,12 @@
   const distance = (a, b) => !a || !b || a.z !== b.z ? Infinity : Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
   function random(seed) { let n = 2166136261; for (const c of String(seed)) n = Math.imul(n ^ c.charCodeAt(0), 16777619); return (n >>> 0) / 4294967296; }
   function defaultState() { return { materialized: false, siteId: "", actors: [], tracks: [], sightings: {}, heard: null, noticeSerial: 0, lastAt: 0 }; }
-  function normalizeState(candidate) { const s = { ...defaultState(), ...clone(candidate || {}) }; s.actors = s.actors.map(Climbing.normalizeActor); return s; }
+  function normalizeState(candidate) { const s = { ...defaultState(), ...clone(candidate || {}) }; s.actors = s.actors.map(a => Imitation.normalizeActor(Climbing.normalizeActor(a))); return s; }
   function actor(speciesId, id, cell, populationId, at = 0) {
     const profile = PROFILES[speciesId];
     return { id, actorKind: "wildernessBeast", speciesId, populationId, name: `${profile.name} ${id.split(":").pop()}`, roomId: ROOM, mapCell: clone(cell), homeCell: clone(cell), health: profile.health, maxHealth: profile.health, status: "alive", behavior: "roam", lastTarget: null, rememberedUntil: 0, nextMoveAt: at + profile.stepSeconds, nextAttackAt: at + profile.recovery, provokedUntil: 0, patrolIndex: 0,
-      ...(speciesId === Climbing.SPECIES ? { climbStamina: Climbing.STAMINA, climbMassKg: 90, climbing: null, nextClimbAt: 0 } : {}) };
+      ...(speciesId === Climbing.SPECIES ? { climbStamina: Climbing.STAMINA, climbMassKg: 90, climbing: null, nextClimbAt: 0,
+        spellImitation: Imitation.create(id, populationId, at) } : {}) };
   }
   function materialize(seed, siteId, populations, cells, at = 0) {
     const state = { ...defaultState(), materialized: true, siteId, lastAt: at };

@@ -100,8 +100,9 @@
     let threat = false;
     for (const a of local) {
       if (h.alive?.() === false) break;
-      if (h.verticalStep?.(a, null, at)) continue;
-      if (a.status === 'dead' || a.health <= 0 || h.incapacitated?.(a)) continue;
+      const vertical = h.verticalStep?.(a, null, at);
+      if (vertical && a.climbing?.mode !== 'perched') { h.spellStep?.(a, null, null, at); continue; }
+      if (a.status === 'dead' || a.health <= 0 || h.incapacitated?.(a)) { h.spellStep?.(a, null, null, at); continue; }
       const profile = Wild.PROFILES[a.speciesId];
       const targets = [...(h.targets || []), ...(v.roomId !== site.roomId ? [] : v.condition > 0 ? [{ kind: 'structure', cell: v.mapCell, id: v.id }]
         : d.status === 'alive' ? [{ kind: 'creature', cell: d.mapCell, id: d.id }] : v.cargoKg > 0 ? [{ kind: 'structure', cell: v.mapCell, id: v.id }] : [])];
@@ -117,6 +118,8 @@
       }
       a.behavior = decision.behavior;
       if (t && decision.behavior === 'pursue') threat = true;
+      if (h.spellStep?.(a, t, decision, at)) continue;
+      if (vertical) continue;
       if (h.verticalStep?.(a, decision, at)) continue;
       if (decision.behavior === 'pursue' && t && Wild.distance(a.mapCell, t.cell) <= 1 && at >= a.nextAttackAt) {
         const before = v.condition, cargo = v.cargoKg, health = d.health;

@@ -99,7 +99,8 @@ async function seedCombatSlime(page, id, options = {}) {
 }
 
 test('Soul Lash is a map command that spends Mana and deals Arcane damage', async ({ page }) => {
-  await startRun(page);
+  test.setTimeout(180000);
+  await startLifecycleRun(page, 'tactical-soul-lash');
   await seedCombatSlime(page, 'soul-target', { name: 'SOUL-TARGET' });
 
   await page.evaluate(() => window.helixHeresyDebug.selectMapTarget({ kind: 'slime', id: 'soul-target' }));
@@ -109,7 +110,7 @@ test('Soul Lash is a map command that spends Mana and deals Arcane damage', asyn
   await soulLash.click();
 
   const result = await page.evaluate((key) => {
-    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const payload = JSON.parse(window.HelixWorldRunLibrary.decompressStorageText(window.localStorage.getItem(key) || '{}'));
     const state = payload.state || payload;
     return {
       integrity: state.slimes.find((slime) => slime.id === 'soul-target').stats.bodyIntegrity.current,

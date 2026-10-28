@@ -200,6 +200,7 @@
   const RegionalEncounters = window.HelixRegionalEncounters;
   const BeastDiplomacy = window.HelixBeastDiplomacy;
   const BeastClimbing = window.HelixBeastClimbing;
+  const BeastSpellImitation = window.HelixBeastSpellImitation;
   const FieldCharter = window.HelixFieldCharter;
   const FieldEvacuation = window.HelixFieldEvacuation;
   const MunicipalCargoRecovery = window.HelixMunicipalCargoRecovery;
@@ -2032,9 +2033,12 @@
   const COMBAT_STRIKE_STAMINA = 6;
   const COMBAT_SCIENTIST_STRIKE_DAMAGE = 18;
   const COMBAT_SCIENTIST_STRIKE_STRESS = 8;
-  const COMBAT_SOUL_LASH_MANA = 12;
-  const COMBAT_SOUL_LASH_DAMAGE = 14;
-  const COMBAT_SOUL_LASH_RANGE_M = 5;
+  const COMBAT_SOUL_LASH_MANA = BeastSpellImitation.SPELL.manaCost;
+  const COMBAT_SOUL_LASH_DAMAGE = BeastSpellImitation.SPELL.baseDamage;
+  const COMBAT_SOUL_LASH_RANGE_M = BeastSpellImitation.SPELL.rangeM;
+  // Only real paid casting paths mint this short-lived release token. Damage
+  // and reconstructed flags are not observations of an identifiable spell.
+  const paidSpellReleases = new WeakSet();
   const COMBAT_DEFAULT_ATTACK_RECOVERY = 8;
   const COMBAT_CLASH_INTERVAL = 20;
   const COMBAT_AWARE_PAUSE_COOLDOWN = minutesToSeconds(10);
@@ -14084,6 +14088,11 @@
         contexts: (currentRegionalEncounters()?.beasts.actors || []).filter(a => BeastDiplomacy.troop(currentBeastDiplomacy(), a))
           .map(a => ({ id: a.id, context: beastDialogueContext(a) })) }),
       beastDiplomacyAction,
+      beastSpellImitationSnapshot: () => clonePlainObject({ region: currentRegionalEncounters(), clock: state.clock,
+        site: overlandStopSite(), cell: scientistMapCell(), knowledge: wildernessBeastKnowledge(),
+        scientist: { health: scientistVital('health').current, mana: scientistVital('mana').current },
+        contexts: allWildernessBeasts().filter(a => a.speciesId === BeastSpellImitation.SPECIES)
+          .map(a => ({ id: a.id, context: beastSpellContext(a, a.spellImitation?.pending?.targetId || 'scientist', { behavior: 'pursue' }) })) }),
       beastClimbingSnapshot: () => clonePlainObject({ site: overlandStopSite(), clock: state.clock, cell: scientistMapCell(),
         region: currentRegionalEncounters(), injuries: state.injuries, knowledge: wildernessBeastKnowledge(),
         actors: allWildernessBeasts().filter(a => a.speciesId === BeastClimbing.SPECIES).map(a => ({ id: a.id,
@@ -42096,7 +42105,8 @@
     if (actor?.actorKind === "homunculus") return actor.skills[skillId] || 0;
     if (["surfaceWorker", "laboratoryAssistant", "homunculus"].includes(actor?.actorKind)) return actor.skills[skillId] || 1;
     if (["expeditionEscort", "rescueMedic", "penalPrisoner"].includes(actor?.actorKind)) return actor.skills[skillId] || 1;
-    if (actor?.actorKind === "wildernessBeast") return ["evasion", "perception", "brawling"].includes(skillId) ? 5 : 1;
+    if (actor?.actorKind === "wildernessBeast") return skillId === 'animancy' && actor.speciesId === BeastSpellImitation.SPECIES
+      ? BeastSpellImitation.valid(actor) ? actor.spellImitation.animancy : 0 : ["evasion", "perception", "brawling"].includes(skillId) ? 5 : 1;
     return actor === state.scientist || actor?.physicalPresence
       ? skillLevel(skillId)
       : creatureSkillLevel(actor, skillId);
@@ -42326,7 +42336,7 @@
     state.injuries = normalizeInjuries(state.injuries);
     const scientist = actor === state.scientist || actor?.physicalPresence;
     const actorId = scientist ? "scientist" : actor.id;
-    const locations = scientist || ["fieldDriver", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent", "civicOfficeholder", "divineAvatar", "reliefDriver"].includes(actor.actorKind) ? SCIENTIST_INJURY_LOCATIONS : actor.actorKind === "wildernessBeast" ? ["head", "torso", "left leg", "right leg"] : slimeInjuryLocations(actor);
+    const locations = scientist || actor.speciesId === BeastSpellImitation.SPECIES || ["fieldDriver", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent", "civicOfficeholder", "divineAvatar", "reliefDriver"].includes(actor.actorKind) ? SCIENTIST_INJURY_LOCATIONS : actor.actorKind === "wildernessBeast" ? ["head", "torso", "left leg", "right leg"] : slimeInjuryLocations(actor);
     const rng = seedRng(`${state.seed}:injury:${actorId}:${state.combat?.nextActionNumber || 0}:${Math.round(state.clock)}:${damageTypes.join(":")}`);
     const location = options.location || locations[Math.floor(rng() * locations.length)] || (scientist ? "torso" : "body mass");
     const typeId = injuryTypeForDamage(actor, damageTypes, amount, location);
@@ -42455,8 +42465,15 @@
     } : null;
     const target = normalizeCombatTarget(targetCandidate);
     if (!actor || !action || !target) return { ok: false, reason: "The combat action no longer has a valid actor or target." };
+    const release = options.paidSpellRelease, genuineRelease = release && paidSpellReleases.has(release)
+      && release.actorId === actorId && release.spellId === actionId && release.at === state.clock;
+    if (actor.speciesId === BeastSpellImitation.SPECIES && actionId === 'soulLash' && !genuineRelease)
+      return { ok: false, reason: 'No original paid imitated spell release is available.' };
+    if (action.requiresSoul && (target.kind !== 'creature' || combatActor(target.id)?.actorKind === 'divineAvatar' || combatActor(target.id)?.status === 'dead'))
+      return { ok: false, reason: 'Soul Lash requires a living, souled target, not a structure or a constructed avatar.' };
     const range = combatActionRangeInfo(actor, action, target);
     if (!range.inRange) return { ok: false, reason: range.reason, blockedAt: target.lastKnownCell || combatTargetCurrentCell(target) };
+    if (genuineRelease) { paidSpellReleases.delete(release); observeBeastSpellRelease(actor, release); }
     observeBeastDiplomacyAggression(actorId, target.id, actionId);
     observeOrdinaryCorrespondenceAggression(actorId, target.id, actionId);
     if (actorId === 'scientist') witnessChapterAggression(target);
@@ -42693,6 +42710,7 @@
       pendingActions,
       guarding,
       nextActionNumber: Math.max(1, Math.floor(Number(candidate?.nextActionNumber) || 1)),
+      spellSerial: Number.isSafeInteger(candidate?.spellSerial) && candidate.spellSerial >= 0 ? candidate.spellSerial : 0,
       routineSuspension: suspension,
       lastAwareCombatAt: Number.isFinite(lastAware) ? lastAware : null,
       lastAwareCombatKey: String(candidate?.lastAwareCombatKey || "")
@@ -42928,7 +42946,8 @@
       render();
       return true;
     }
-    const result = resolveSharedCombatAction("scientist", actionId, target);
+    const result = resolveSharedCombatAction("scientist", actionId, target,
+      actionId === 'soulLash' ? { paidSpellRelease: paidSpellRelease('scientist', actionId) } : {});
     state.combat.actorRecoveryUntil.scientist = state.clock + action.recoverySeconds;
     if (!result.ok) addEvent(`${action.label} could not resolve: ${result.reason}`);
     else if (!result.hit) addEvent(`Scientist's ${action.label} missed ${slime.name}.`);
@@ -88766,6 +88785,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       MunicipalSupplyThreats.step(q.supplyTraffic, q, site, region.beasts.actors, at, {
         protectedTarget: beastDialogueProtected, intent: a => BeastDiplomacy.intent(currentBeastDiplomacy(), a, beastDialogueContext(a), at),
         verticalStep: (a, decision, time) => updateBeastClimbing(a, site, decision, time),
+        spellStep: (a, target, decision, time) => updateBeastSpellImitation(a, target?.kind === 'creature' ? target.id : null, decision, time),
         actorSight: (a, t) => beastClimbingLine(a, { mapCell: t.cell }),
         targets, alive: () => !scientistIsDead(), incapacitated: actorIsIncapacitated, speedFactor: a => 1 + injuryEffectTotals(a).movement,
         extraThreat: () => state.networkInterdiction?.units?.some(u => u.phase === 'deployed' && u.actors.some(a => NetworkInterdiction.able(a)
@@ -95999,7 +96019,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       else if (!previous) surveyEvent(`Sighted ${beast.name} on the wilderness trail.`);
       saved.sightings[beast.id] = { id: beast.id, name: beast.name, speciesId: beast.speciesId, cell: cleanMapCell(beast.mapCell), observedAt: state.clock, status: beast.status, condition: beast.status === "dead" ? "Dead; physical remains" : beast.health < beast.maxHealth * .3 ? "Severely wounded" : beast.health < beast.maxHealth ? "Visibly wounded" : "No visible wounds", threatVisible: threat,
         heightM: BeastClimbing.height(beast), verticalActivity: beast.climbing?.mode || 'ground',
-        climbEvent: BeastClimbing.observedEvent(beast, previous, state.clock) };
+        climbEvent: BeastClimbing.observedEvent(beast, previous, state.clock),
+        spellEvent: BeastSpellImitation.observedEvent(beast, previous, state.clock),
+        castingActivity: BeastSpellImitation.visiblePreparation(beast) };
       BeastPowers.observe(currentBeastPowers(), saved.sightings[beast.id], saved.siteId || scientistRoomId(), !scientistIsDead());
       changed++;
     }
@@ -96019,6 +96041,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function damageWildernessBeast(beast, damage, attackerId, options = {}) {
     if (!beast || beast.status === "dead" || damage <= 0) return false;
     beast.health = Math.max(0, beast.health - damage);
+    BeastSpellImitation.interrupt(beast, 'Actual bodily damage interrupted preparation', state.clock, !scientistIsDead());
     if (attackerId === "scientist" || escortStateForActor(attackerId) || attackerId === state.medicalExtraction?.medic?.id || attackerId === state.foundingExpedition?.agreement?.actorId) { beast.provokedUntil = state.clock + 30; beast.lastTarget = cleanMapCell(combatActorCell(combatActor(attackerId))); beast.targetId = attackerId; beast.rememberedUntil = state.clock + 12; }
     if (!options.injuryProgress) recordCombatInjury(beast, damage, options.damageTypes || ["physical"], options.cause || "Physical field combat", { observed: wildernessBeastVisible(beast) });
     const climbSite = beastClimbingSite(beast);
@@ -96027,6 +96050,59 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!scientistIsDead()) ensureRegionalEncounters();
     observeWildernessBeasts();
     return true;
+  }
+  function paidSpellRelease(actorId, spellId, originalId = null) {
+    const receipt = { actorId, spellId, at: state.clock,
+      id: originalId || `released-spell:${activeRunRecord?.id || 'legacy-run'}:${++state.combat.spellSerial}` };
+    paidSpellReleases.add(receipt); return receipt;
+  }
+  function beastSpellBody(a) {
+    return { alive: !scientistIsDead(), local: Boolean(a?.mapCell && a.roomId === activeWildernessRoom()),
+      sourceCurrent: Boolean(BeastDiplomacy.troop(currentBeastDiplomacy(), a)),
+      incapacitated: actorIsIncapacitated(a), visual: a?.senses?.vision !== false && a?.sensory?.capabilities?.vision !== false
+        && !actorInjuries(a).some(i => i.status !== 'healed' && /eye/i.test(i.location) && ['severe', 'critical'].includes(i.severityId)),
+      conscious: !actorInjuries(a).some(i => i.status !== 'healed' && /head/i.test(i.location) && i.severityId === 'critical') };
+  }
+  function observeBeastSpellRelease(caster, receipt) {
+    if (scientistIsDead() || receipt.spellId !== BeastSpellImitation.SPELL.id) return;
+    const casterCell = combatActorCell(caster), roomId = labMapCellRoomId(casterCell);
+    for (const a of allWildernessBeasts()) if (a.id !== receipt.actorId && a.speciesId === BeastSpellImitation.SPECIES) {
+      const c = beastSpellBody(a), visible = a.roomId === roomId && WildernessBeasts.distance(a.mapCell, casterCell) <= 8 && beastClimbingLine(a, caster);
+      BeastSpellImitation.observe(a, { id: receipt.id, casterId: receipt.actorId, spellId: receipt.spellId,
+        at: receipt.at, roomId, casterCell, released: true, paid: true }, { ...c, casterVisible: visible, releaseVisible: visible });
+    }
+  }
+  function beastSpellContext(a, targetId, decision) {
+    const target = targetId && combatActor(targetId), targetCell = target && combatActorCell(target),
+      range = target && combatActionRangeInfo(a, combatActionDef('soulLash'), { kind: 'creature', id: targetId }),
+      body = beastSpellBody(a);
+    return { ...body, bodyEpoch: ensureScientistIdentity().bodyEpoch, decision: decision?.behavior, visitAt: beastClimbingSite(a)?.lastVisitedAt,
+      handsFree: !actorInjuries(a).some(i => i.status !== 'healed' && /arm|hand/i.test(i.location) && ['severe', 'critical'].includes(i.severityId)),
+      suppressed: Boolean(a.magicSuppressed || a.suppressionActive),
+      dialogue: Boolean(BeastDiplomacy.intent(currentBeastDiplomacy(), a, beastDialogueContext(a), state.clock)),
+      targetKind: 'creature', targetCell, casterHeightM: BeastClimbing.height(a), targetHeightM: BeastClimbing.height(target),
+      targetAlive: Boolean(target && (targetId === 'scientist' ? !scientistIsDead() : target.status !== 'dead')),
+      targetSouled: Boolean(target && target.actorKind !== 'divineAvatar'),
+      targetVisible: Boolean(targetCell && targetCell.z === a.mapCell?.z && WildernessBeasts.distance(a.mapCell, targetCell) <= 8 && beastClimbingLine(a, target)),
+      lineOfEffect: Boolean(range?.inRange), distanceM: range?.distanceM ?? Infinity,
+      protectedTarget: beastDialogueProtected(a, targetId) };
+  }
+  function updateBeastSpellImitation(a, targetId = null, decision = null, at = state.clock) {
+    if (a.speciesId !== BeastSpellImitation.SPECIES || !BeastSpellImitation.valid(a) || scientistIsDead()
+      || !a.spellImitation.known.length) return false;
+    const pending = a.spellImitation.pending;
+    if (pending) {
+      const c = beastSpellContext(a, pending.targetId, decision), release = BeastSpellImitation.advance(a, c, at);
+      if (release) {
+        const seen = wildernessBeastVisible(a), result = resolveSharedCombatAction(a.id, 'soulLash', { kind: 'creature', id: release.targetId },
+          { paidSpellRelease: paidSpellRelease(a.id, 'soulLash', release.id), hideFeedback: !seen });
+        observeWildernessBeasts();
+        if (seen && result.ok) pauseForWildernessThreat(`${a.name} reproduced Soul Lash${result.hit ? ', striking its target' : ', but missed'}. This observed cast reveals no mana reserve or other learned spells.`);
+      }
+      return true;
+    }
+    const c = beastSpellContext(a, targetId, decision);
+    return BeastSpellImitation.begin(a, targetId, c, at);
   }
   function beastClimbingSite(a) {
     return (state.roadsideStops?.sites || []).find(s => s.id === a?.regionalSiteId && s.roomId === a.roomId) || null;
@@ -96116,6 +96192,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       .filter(a => a.status !== 'dead' && a.roomId === activeWildernessRoom());
     if ((!scientistInWilderness() && !escort && !medic && !porters.length && currentFieldCharter()?.driver.roomId !== activeWildernessRoom()) || scientistIsDead()) {
       for (const beast of saved.actors) { beast.nextMoveAt += Math.max(0, elapsed); beast.nextAttackAt += Math.max(0, elapsed);
+        BeastSpellImitation.interrupt(beast, 'No original local target remains on this physical patch', state.clock);
         if (beast.climbing) { beast.climbing.lastAt = state.clock; beast.climbing.wasReady = false; } }
       saved.lastAt = state.clock; return 0;
     }
@@ -96128,10 +96205,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         || state.networkInterdiction?.units?.some(u => u.deployment?.siteId === supplySite.id
           && u.actors.some(a => a.status === 'alive' && a.roomId === supplySite.roomId)))) continue; // Exactly one physical AI owner.
       if (roadside && beast.roomId !== roadside.roomId) {
+        BeastSpellImitation.interrupt(beast, 'The original local encounter is no longer attended', state.clock);
         if (beast.climbing) { beast.climbing.lastAt = state.clock; beast.climbing.wasReady = false; } continue;
       }
-      if (elapsed > 0 && updateBeastClimbing(beast, beastClimbingSite(beast))) { changed++; continue; }
-      if (beast.status === "dead" || actorIsIncapacitated(beast)) continue;
+      const vertical = elapsed > 0 && updateBeastClimbing(beast, beastClimbingSite(beast));
+      if (vertical && beast.climbing?.mode !== 'perched') {
+        BeastSpellImitation.interrupt(beast, 'Moving climbing limbs cannot prepare a spell', state.clock); changed++; continue;
+      }
+      if (beast.status === "dead" || actorIsIncapacitated(beast)) {
+        BeastSpellImitation.interrupt(beast, 'Bodily incapacity interrupted preparation', state.clock); continue;
+      }
       const profile = WildernessBeasts.PROFILES[beast.speciesId];
       // Navigation may normalize actor records, so target identity must not depend on object equality.
       const driver = currentFieldCharter()?.driver;
@@ -96156,6 +96239,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       beast.behavior = decision.behavior;
       if (scientistInWilderness() && !wildernessBeastVisible(beast) && WildernessBeasts.distance(beast.mapCell, scientistMapCell()) <= 10 && (!saved.heard || state.clock - saved.heard.at >= 30)) saved.heard = { at: state.clock, label: `${profile.sound}; source not located or identified` };
       if (elapsed <= 0) continue;
+      if (updateBeastSpellImitation(beast, targetId, decision)) { changed++; continue; }
+      if (vertical) { changed++; continue; }
       if (updateBeastClimbing(beast, beastClimbingSite(beast), decision)) { changed++; continue; }
       if (decision.behavior === "pursue" && sees && range <= 1 && state.clock >= beast.nextAttackAt) {
         const observed = targetId === "scientist" || targetId === medic?.id && rescueMedicObserved() || targetId === escort?.id && escortObserved() || porters.some(a => a.id === targetId && (fieldPorterObserved(a) || a.id === state.foundingExpedition?.agreement?.actorId && foundingNear(a, 8)));
@@ -96212,9 +96297,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function renderWildernessBeastsPanel() {
     const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.wildernessBeasts = "true";
-    panel.append(textEl("strong", "Local Beast Encounters"), textEl("p", `Rimefang and Gravebloom Elk ground encounters, Mirror Ape contact and bounded natural-surface climbing are implemented. Apes can independently climb original grippable trees and rock faces, spending finite stamina and risking real falls. Height affects sight, cover and physical attack reach, not the map's floor number. Ordinary walls, roofs, wards and other floors grant no climbing route. Spell imitation, unsupported vertical routes and other flying, burrowing or colossal encounters remain unverified; absence is not a safety assessment. ${unsupportedActive() || overlandStopSite() ? "There is no warded entrance here." : "The municipal warded entrance excludes beasts and blocks attacks across it; wilderness refuges do not inherit that ward."} Temporary shelter offers no concealment. Actual opaque walls and closed doors obstruct sight and attacks. Pursuing animals may attempt a physically reachable unreinforced wooden barrier while they retain target memory; masonry, metal and wards exceed these species' breach capability. An outpost has no automatic attack timer or guaranteed safety.`));
+    panel.append(textEl("strong", "Local Beast Encounters"), textEl("p", `Rimefang and Gravebloom Elk ground encounters, Mirror Ape contact, bounded natural-surface climbing and Soul Lash imitation are implemented. Apes can independently climb original grippable trees and rock faces, spending finite stamina and risking real falls. One complete perceived Soul Lash release can teach that technique; hearing or suffering damage alone cannot. Their own finite mana and ability, casting limbs, real range and barriers constrain reproduction. Preparing a cast takes two seconds and spends mana without an interruption refund; moving the target can break preparation. Learning grants neither hostility nor cooperation, and individual compacts still apply. Height affects sight, cover and physical attack reach, not the map's floor number. Ordinary walls, roofs, wards and other floors grant no climbing route. Other spell imitation, unsupported vertical routes and flying, burrowing or colossal encounters remain unverified; absence is not a safety assessment. ${unsupportedActive() || overlandStopSite() ? "There is no warded entrance here." : "The municipal warded entrance excludes beasts and blocks attacks across it; wilderness refuges do not inherit that ward."} Temporary shelter offers no concealment. Actual opaque walls and closed doors obstruct sight and attacks. Pursuing animals may attempt a physically reachable unreinforced wooden barrier while they retain target memory; masonry, metal and wards exceed these species' breach capability. An outpost has no automatic attack timer or guaranteed safety.`));
     const knowledge = wildernessBeastKnowledge();
     panel.dataset.beastClimbing = 'true';
+    panel.dataset.beastSpellImitation = 'true';
     for (const f of overlandStopSite()?.climbSurfaces || []) if (sensoryLineOfSight(scientistMapCell(), f.cell)
       && WildernessBeasts.distance(scientistMapCell(), f.cell) <= 8)
       panel.append(textEl('p', `Observed ${f.kind === 'tree' ? 'grippable tree' : 'rough rock face'} at ${f.cell.x},${f.cell.y}: ${f.heightM} m high. Its solid base obstructs ground movement; it grants no access to buildings or another floor.`));
@@ -96226,6 +96312,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const entry of knowledge.sightings) {
       panel.append(textEl("p", `${entry.name}: ${entry.current ? `${entry.condition}; ${entry.verticalActivity || 'ground'}, ${formatDecimal(entry.heightM || 0, 2)} m above local ground` : `last seen at ${entry.cell.x},${entry.cell.y}, height ${formatDecimal(entry.heightM || 0, 2)} m; current position and condition unknown`}. Observed at ${formatDuration(entry.observedAt)}.`));
       if (entry.climbEvent) panel.append(textEl('p', `Witnessed vertical outcome: ${entry.climbEvent.kind} at ${formatClock(entry.climbEvent.at)}${entry.climbEvent.kind === 'fall' ? ` from ${formatDecimal(entry.climbEvent.heightM, 2)} m; bodily injuries persist` : ''}. This is a dated observation.`));
+      if (entry.current && entry.castingActivity) panel.append(textEl('p', `${entry.name}: ${entry.castingActivity}. A moving target, lost line of effect or bodily interruption can stop preparation.`));
+      if (entry.spellEvent) panel.append(textEl('p', `${entry.name}: witnessed reproduction of ${entry.spellEvent.spell} at ${formatClock(entry.spellEvent.at)}. This dated cast discloses neither remaining mana nor other learned techniques.`));
       const beast = wildernessBeast(entry.id);
       if (entry.current && beast.status !== "dead") for (const actionId of ["strike", "shove", "soulLash"]) button(`${combatActionDef(actionId).label} — ${entry.name}`, () => beginScientistCombatAction(actionId, entry.id), Boolean(scientistCombatActionBlockReason(actionId, beast)));
     }
@@ -101654,6 +101742,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         MunicipalSupplyThreats.step(s.fieldEcology, q, site, region.beasts.actors, state.clock, {
           protectedTarget: beastDialogueProtected, intent: a => BeastDiplomacy.intent(currentBeastDiplomacy(), a, beastDialogueContext(a), state.clock),
           verticalStep: (a, decision, time) => updateBeastClimbing(a, site, decision, time),
+          spellStep: (a, target, decision, time) => updateBeastSpellImitation(a, target?.kind === 'creature' ? target.id : null, decision, time),
           actorSight: (a, t) => beastClimbingLine(a, { mapCell: t.cell }),
           encounter: ecology, campOnly: true, alive: () => !scientistIsDead(), incapacitated: actorIsIncapacitated,
           targets: fieldInterdictionActors().filter(a => a.status === 'alive' && a.mapCell && a.roomId === site.roomId)

@@ -1857,9 +1857,21 @@ Height is measured above the current outdoor patch, **not by changing its floor 
 
 Actual impacts, loss of grip/support or exhaustion can cause a height-based fall with persistent shared-body injuries. No healthy replacement, refunded stamina or remote relocation follows. Blocked receiving ground cannot teleport the animal through another body. Leaving a patch pauses the original climb; revisits never backfill the absence or drag an elevated ape onto the road. Saves and continued imports preserve original height, partial movement, stamina, wounds and identities. Visible accounts and both map renderers show observed height/activity; last sightings stay dated when the body is unseen. Final death freezes further work.
 
-The original individual compact covers protected targets at every height, and quiet-ground cells represent their complete vertical columns. Climbing does not widen consent, exempt aggression or teach new signals. Unsupported vertical routes, spell imitation, uncontacted troop members and wider strategic means remain unverified; this bounded physical consumer does not complete domination.
+The original individual compact covers protected targets at every height, and quiet-ground cells represent their complete vertical columns. Climbing does not widen consent, exempt aggression or teach new signals. Unsupported vertical routes, other spell imitation, uncontacted troop members and wider strategic means remain unverified; this bounded physical consumer does not complete domination.
 
 Focused checks: `node --test --test-isolation=none tests/beast-climbing.unit.test.js tests/beast-diplomacy.unit.test.js tests/municipal-supply-threats.unit.test.js`; named terrain/identity/wilderness files `tests/roadside-stops.spec.js`, `tests/regional-encounters.spec.js`, `tests/wilderness-beasts.spec.js`; DOM/Canvas `tests/beast-climbing-browser.spec.js` and `tests/beast-diplomacy-browser.spec.js`. Full-suite testing remains opt-in.
+
+### Mirror Ape spell imitation
+
+One complete perceived **Soul Lash** release teaches the original observing ape that technique immediately. A genuinely paid, identifiable cast is required; hearing an attack, taking damage, partial gestures or a blocked view does not teach it. Learning copies neither the scientist's skill, mana, equipment nor enhancements. It creates no hostility, fluent understanding, obedience or broader consent. An existing individual compact still protects its exact targets against magical attacks, including from a perch.
+
+Each supported original ape has its own once-allocated 48 mana and Initiate Animancy. Preparing a reproduction spends 12 mana once, with no refund for interruption or a miss and no waiting/reload refill. The ape aims/gestures for two seconds and has an eight-second action interval. Release uses shared Soul Lash combat: five-metre real range, 14 base Arcane damage, actual accuracy, guarding, line of effect and injuries. Healthy casting limbs and unsuppressed magic are necessary. Stable perches allow casting; ascent/descent, target movement, lost sight/local continuity, bodily damage or severe arm/hand wounds can stop preparation. This does not change the scientist's instant spell.
+
+The actual local and carrier AI use the same original spell account and independent targeting decisions. Structures and constructed divine avatars have no eligible soul; learning grants no attack against them. Player sightings can show a visible preparation and dated witnessed reproduction, never private learned observations or remaining mana. Saves/continued imports preserve original memory, spent resources, wounds and partial preparation. Missing legacy budgets are not recreated, fresh runs inherit no learning, and final death freezes work.
+
+Only Soul Lash is supported here. Other spells, resurrection, soul beacons, divine authority, equipment/organ-dependent abilities, uncontacted originals and wider strategic means remain unverified. This completed bounded encounter slice does not settle an entire population or award domination.
+
+Focused checks: `node --test --test-isolation=none tests/beast-spell-imitation.unit.test.js tests/beast-climbing.unit.test.js tests/beast-diplomacy.unit.test.js tests/municipal-supply-threats.unit.test.js`; native DOM/Canvas `tests/beast-spell-imitation-browser.spec.js`, with directly affected climbing, compact and shared-Soul-Lash cases. The full suite is not run automatically under `AGENTS.md`.
 
 ## Divine Terrestrial Intervention
 
