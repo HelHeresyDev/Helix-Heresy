@@ -153,6 +153,7 @@
   const MunicipalSupplyThreats = window.HelixMunicipalSupplyThreats;
   const CityDefense = window.HelixCityDefense;
   const CityRule = window.HelixCityRule;
+  const BulkProvisioning = window.HelixBulkProvisioning;
   const CityAuthority = window.HelixCityAuthority;
   const CityRecovery = window.HelixCityRecovery;
   const RegionalGovernment = window.HelixRegionalGovernment;
@@ -5629,6 +5630,8 @@
       durableSupremacy: null,
       cityAuthority: null,
       cityAuthorityInitialized: false,
+      bulkProvisioning: null,
+      bulkProvisioningInitialized: false,
       outerApproachVisit: null,
       overlandApproach: null,
       roadsideStops: null,
@@ -13852,6 +13855,20 @@
       cityAuthoritySnapshot: () => clonePlainObject({ saved: state.cityAuthority, counter: cityAuthorityCounter(), clock: state.clock,
         recoveries: (state.cityAuthority?.entries || []).filter(e => e.recovery).map(e => ({ cityId: e.source.cityId, context: cityAuthorityRecoveryContext(e) })) }),
       cityAuthorityAction: (action, cityId, expected) => cityAuthorityAction(action, cityId, expected),
+      bulkProvisioningAction,
+      bulkProvisioningSnapshot: () => clonePlainObject({ saved: state.bulkProvisioning, clock: state.clock,
+        counter: bulkProvisioningContact(), entries: bulkCityEntries().map(e => ({ rule: e.rule, context: e.context() })) }),
+      configureBulkProvisioningTest: routes => {
+        if (!state.sovereignBargains?.testFixture || !Array.isArray(routes) || !routes.every(BulkProvisioning.validRoute)) return false;
+        const b = ensureBulkProvisioning(); if (!b || b.contracts.length || b.missions.length || b.job) return false;
+        b.preparedRoutes = clonePlainObject(routes); persist(); render(); return true;
+      },
+      advanceBulkProvisioningForTest: seconds => {
+        if (!state.sovereignBargains?.testFixture || !state.bulkProvisioning || scientistIsDead() || !Number.isFinite(seconds) || seconds < 0) return false;
+        state.clock += seconds; updateBulkProvisioning(); updateSupremacy();
+        if (state.wildernessSurvival) state.wildernessSurvival.lastAt = state.clock;
+        syncActorInventories(); persist(); render(); return state.clock;
+      },
       advanceCityRecoveryForTest: seconds => {
         // Prior-input fixture only: advance the real autonomous paid model,
         // not unrelated civic consumers. No supplies, consent or result flags.
@@ -13871,6 +13888,7 @@
           || book.entries.some(e => e.recovery?.job) || !book.entries.some(e => e.operation)) return false;
         const contexts = book.entries.filter(e => e.operation).map(e => [e, cityAuthorityOperationContext(e)]);
         state.clock += seconds;
+        updateBulkProvisioning();
         for (const [e, c] of contexts) CityRule.advance(e.operation, e, e.staff, () => ({ ...c, at: e.operation.lastAt }), state.clock);
         updateSupremacy(); if (state.wildernessSurvival) state.wildernessSurvival.lastAt = state.clock;
         persist(); render(); return state.clock;
@@ -20865,6 +20883,8 @@
     importedState.receivableFinance = ReceivableFinance.rebind(importedState.receivableFinance,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     CityServices.rebind(importedState,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.bulkProvisioning = BulkProvisioning.rebind(importedState.bulkProvisioning,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     // These are the same continued municipal accounts, not newly allocated
     // plants, stores or officials. Keep in-flight fuel ownership source-bound.
@@ -86959,6 +86979,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       reportedAt: state.clock, operative: CitySuccession.operative(state.citySuccession, state.sovereignBargains, citySuccessionContext()) };
   }
   function updateCitySuccession() {
+    updateBulkProvisioning();
     // Rejoin saved aliases BEFORE any work/release mutates the original
     // people. Hydrating after a completed job would resurrect stale duties.
     if (state.cityAuthority && !scientistIsDead()) ensureCityAuthority();
@@ -88039,6 +88060,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return s?.governmentBinding && !originalGovernment ? cityAuthorityGoverningContext(e, cityAuthoritySuccessor(e), context) : context;
   }
   function updateCityAuthority() {
+    updateBulkProvisioning();
     const book = state.cityAuthority && ensureCityAuthority(); if (!book || scientistIsDead()) return false;
     const counter = cityAuthorityCounter(); let changed = false;
     const target = book.entries.find(e => e.source.cityId === book.job?.cityId);
@@ -88263,6 +88285,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function updateRegionalGovernments() {
     if (scientistIsDead()) return 0;
+    updateBulkProvisioning();
     if (state.cityAuthority) ensureCityAuthority();
     let changed = Number(updateCivicCommunications());
     for (const g of regionalGovernmentGates()) {
@@ -88367,6 +88390,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
     }
     panel.append(textEl('p', 'The home city is not replaced when another account opens. Both consume their own real supplies and may lose support independently. Political recognition is neither global supremacy nor an unlimited renewable resource supply.'));
+    panel.append(renderBulkProvisioning());
     if (n?.rule && (c?.local || [n.serviceSite?.roomId, n.serviceSite?.approachId].includes(scientistRoomId()))) panel.append(renderMunicipalFuelService(g.cityId),
       renderPowerworksMaintenance(g.cityId), renderPowerworksStandards(g.cityId), renderCivicCommunications(g.cityId));
     panel.append(renderTerrestrialForces());
@@ -88496,6 +88520,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return state.cityRule;
   }
   function updateCityRule() {
+    updateBulkProvisioning();
     if (!state.cityRule || scientistIsDead()) return 0;
     reserveCityFoodProduction();
     const changed = Number(CityRule.advance(state.cityRule, state.citySuccession, cityRulePeople(), cityRuleContext, state.clock));
@@ -88755,6 +88780,150 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const market = state.economy?.commodityMarket;
     return market?.localProduction?.cityId === cityId ? { production: market.localProduction, listings: market.listings }
       : market?.intercityTrade?.neighbors.find(n => n.production?.cityId === cityId) || null;
+  }
+  function bulkCityEntries() {
+    const rows = [];
+    if (state.cityRule) rows.push({ rule: state.cityRule, succession: state.citySuccession, people: cityRulePeople(), context: cityRuleContext });
+    for (const g of regionalGovernmentGates()) if (g.regionalGovernment.rule) rows.push({ rule: g.regionalGovernment.rule,
+      succession: g.regionalGovernment.succession, people: RegionalGovernment.people(g.regionalGovernment, g),
+      context: () => RegionalGovernment.context(g.regionalGovernment, g, regionalGovernmentContext(g)) });
+    for (const e of state.cityAuthority?.entries || []) if (e.operation) rows.push({ rule: e.operation, succession: e, people: e.staff,
+      context: () => cityAuthorityOperationContext(e) });
+    // Conflicting copies are unavailable, never an opportunity to choose the
+    // richer account or advance the same original city twice.
+    return rows.filter((e, i) => rows.findIndex(r => r.rule === e.rule) === i
+      && !rows.some(r => r.rule.id === e.rule.id && r.rule !== e.rule));
+  }
+  function ensureBulkProvisioning() {
+    if (scientistIsDead()) return null;
+    if (!state.bulkProvisioning && !state.bulkProvisioningInitialized) {
+      state.bulkProvisioning = BulkProvisioning.create({ worldId: activeWorldRecord?.id, runId: activeRunRecord?.id }, state.clock);
+      state.bulkProvisioningInitialized = true;
+    }
+    const b = state.bulkProvisioning;
+    return b?.worldId === activeWorldRecord?.id && b.runId === activeRunRecord?.id ? b : null;
+  }
+  function bulkProvisioningContact(cityId = cityAuthorityCounter().cityId) {
+    const counter = cityAuthorityCounter(), e = bulkCityEntries().find(e => e.rule.source.cityId === cityId), c = e?.context();
+    if (!c) return { alive: !scientistIsDead(), local: false, cityId: counter.cityId, free: false };
+    return { ...c, cell: scientistMapCell(), cityId: counter.cityId, bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      // Use this account's existing actual counter permission. A legitimate
+      // direct government uses its handover/role bindings, not a second client
+      // political charter or an expired ordinary visitor permit. Client
+      // contexts already include their separate published-counter safeguards.
+      local: counter.cityId === cityId && c.local,
+      atCounter: c.atCounter,
+      free: c.free && c.sourceCurrent && !state.cityAuthority?.job,
+      reportersPresent: c.reportersPresent };
+  }
+  function bulkProvisioningRoutes(cityId) {
+    const b = state.bulkProvisioning, known = bulkCityEntries().filter(e => e.rule.report).map(e => e.rule.source.cityId);
+    if (!known.includes(cityId)) return [];
+    if (b?.preparedRoutes) return b.preparedRoutes.filter(r => r.originId === cityId && known.includes(r.destinationId));
+    const map = activeWorldRecord?.generatedData?.strategicMap;
+    return (map?.routeGraph?.routes || []).filter(r => r.endpointIds.includes(cityId) && r.endpointIds.every(id => known.includes(id)))
+      .map(r => BulkProvisioning.routeFromWorld(map, r.id, cityId)).filter(Boolean);
+  }
+  function bulkProvisioningRoute(original) {
+    const prepared = state.bulkProvisioning?.preparedRoutes?.find(r => r.id === original.id && r.originId === original.originId);
+    if (prepared) return prepared;
+    return BulkProvisioning.routeFromWorld(activeWorldRecord?.generatedData?.strategicMap, original.id, original.originId);
+  }
+  function bulkProvisioningFuel(cityId) {
+    const market = state.economy?.commodityMarket;
+    let carrier = null;
+    if (market?.localProduction?.cityId === cityId) carrier = exchangeCarrier();
+    else carrier = market?.intercityTrade?.neighbors.find(n => n.id === cityId)?.carrier;
+    if (!carrier) return null;
+    const support = LocalExchangeCarrier.support(carrier, state.clock), depot = support.supplier;
+    return { stock: () => depot.routeOpen ? depot.fuelStockKm : 0, price: () => .05,
+      take: (km, paid) => {
+        if (!Number.isFinite(km) || km < 0 || !Number.isFinite(paid) || paid < 0 || !depot.routeOpen || depot.fuelStockKm + 1e-7 < km) return false;
+        depot.fuelStockKm = Math.max(0, depot.fuelStockKm - km); support.money += paid; support.revenue += paid; return true;
+      } };
+  }
+  let bulkProvisioningAdvancing = false;
+  function updateBulkProvisioning() {
+    const b = state.bulkProvisioning;
+    if (!b || scientistIsDead() || bulkProvisioningAdvancing || b.worldId !== activeWorldRecord?.id || b.runId !== activeRunRecord?.id) return false;
+    bulkProvisioningAdvancing = true;
+    try {
+      if (state.cityAuthority) ensureCityAuthority();
+      // Preserve the detailed home account's existing real dependencies.
+      // A bulk clock jump must not treat an unadvanced pilot quota/station as
+      // perpetual support. Their own lastAt guards prevent duplicate spending.
+      if (b.lastAt < state.clock) { updateCityProvisioning(); updateCityDefense(); }
+      reserveCityFoodProduction();
+      const advanced = BulkProvisioning.advance(b, bulkCityEntries(), e => e.context(), {
+        alive: () => !scientistIsDead(), contact: bulkProvisioningContact, route: bulkProvisioningRoute,
+        fuel: bulkProvisioningFuel, wallet: ensureEconomy()
+      }, state.clock);
+      if (!b.job && state.combat?.routineSuspension?.reason === 'bulk provisioning agreement') resumeScientistRoutineWork();
+      return advanced;
+    } finally { bulkProvisioningAdvancing = false; }
+  }
+  function bulkProvisioningAction(action, values = {}) {
+    if (scientistIsDead()) return false;
+    updateCityRule(); updateRegionalGovernments();
+    const c = bulkProvisioningContact(), entries = bulkCityEntries();
+    if (action !== 'cancelAttendance' && !CityRule.contact(c)) return false;
+    const b = ensureBulkProvisioning(); if (!b) return false;
+    let ok = false;
+    if (action === 'quote') {
+      const r = bulkProvisioningRoutes(c.cityId).find(r => r.id === values.routeId);
+      ok = Boolean(BulkProvisioning.offer(b, entries, e => e.context(), r, values.farmId, values.limits, c, state.clock));
+    } else if (action === 'sign') ok = BulkProvisioning.begin(b, entries, e => e.context(), c, values.quote, values.deposit, ensureEconomy(), state.clock);
+    else if (action === 'cancelAttendance') ok = BulkProvisioning.cancelAttendance(b, entries);
+    else if (action === 'report') ok = Boolean(BulkProvisioning.receive(b, c.cityId, c, state.clock));
+    else ok = BulkProvisioning.manage(b, entries, e => e.context(), c, values.contractId, action, values.amount, ensureEconomy(), state.clock);
+    if (ok && action === 'sign') suspendScientistRoutineWork('bulk provisioning agreement');
+    if (!b.job && state.combat?.routineSuspension?.reason === 'bulk provisioning agreement') resumeScientistRoutineWork();
+    if (!ok) addEvent('Bulk food service requires actual original city authority, attended unchanged terms, finite shared fleet/stronghold support and prepaid limits. No cargo, fuel, permission or government was awarded.');
+    persist(); render(); return ok;
+  }
+  function renderBulkProvisioning() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.bulkProvisioning = 'true';
+    panel.append(textEl('h3', 'Staged municipal bulk food service'), textEl('p', BulkProvisioning.TERMS));
+    const c = bulkProvisioningContact(), b = state.bulkProvisioning, source = bulkCityEntries().find(e => e.rule.source.cityId === c.cityId);
+    const add = (label, action, values = {}, disabled = false) => {
+      const button = storesActionButton(label, label, () => bulkProvisioningAction(action, typeof values === 'function' ? values() : values));
+      button.dataset.bulkProvisioningAction = action; button.disabled = !CityRule.contact(c) || Boolean(b?.job) || disabled; panel.append(button); return button;
+    };
+    if (CityRule.contact(c) && source?.rule.report) {
+      const routes = bulkProvisioningRoutes(c.cityId), route = document.createElement('select'); route.setAttribute('aria-label', 'Bulk food destination itinerary');
+      for (const r of routes) { const o = document.createElement('option'); o.value = r.id; o.textContent = `${r.destinationId} — offered civilian supply itinerary`; route.append(o); } panel.append(route);
+      const fleet = document.createElement('select'); fleet.setAttribute('aria-label', 'Original municipal bulk fleet');
+      for (const [i, f] of source.rule.farms.entries()) { const o = document.createElement('option'); o.value = f.id; o.textContent = `Original municipal fleet ${i + 1}`; fleet.append(o); } panel.append(fleet);
+      const input = (label, value, max = 1000000) => { const i = document.createElement('input'); i.type = 'number'; i.min = '.01'; i.max = String(max); i.step = 'any'; i.value = String(value); i.setAttribute('aria-label', label);
+        const l = document.createElement('label'); l.append(document.createTextNode(label + ' '), i); panel.append(l); return i; };
+      const threshold = input('Bulk food reorder threshold (days)', 3, 4), target = input('Bulk food reserve target (days)', 3.5, 4), quantity = input('Maximum grain kg per trip', 1200);
+      const price = input('Maximum grain price per kg', 10), trip = input('Maximum bulk trip expenditure', 100000), deposit = input('Prepaid bulk service allowance', 50000);
+      add('Review exact bulk provisioning terms', 'quote', () => ({ routeId: route.value, farmId: fleet.value, limits: { thresholdDays: Number(threshold.value), targetDays: Number(target.value), quantityKg: Number(quantity.value), maxUnitPrice: Number(price.value), maxTripSpend: Number(trip.value) } }), !routes.length || !source.rule.farms.length);
+      if (b?.quote?.route.originId === c.cityId) {
+        const q = b.quote;
+        panel.append(textEl('p', `Exact offer received ${formatClock(q.at)}, expires ${formatClock(q.expiresAt)}: ${q.route.originId} to ${q.route.destinationId}, itinerary ${q.route.id}, via ${q.route.stops.map(s => s.name || s.id).join(', ')}. Reorder below ${q.limits.thresholdDays} days toward ${q.limits.targetDays} days; at most ${formatNumber(q.limits.quantityKg)} kg per trip, ${formatMoney(q.limits.maxUnitPrice)} per kg and ${formatMoney(q.limits.maxTripSpend)} per trip including fuel and freight. Signing binds these reviewed limits, not subsequent input edits; the entered allowance is paid only when attendance completes.`));
+        add('Sign reviewed bulk terms and prepay (two minutes)', 'sign', () => ({ quote: clonePlainObject(b.quote), deposit: Number(deposit.value) }));
+      }
+      add('Receive this city’s dated bulk provisioning account', 'report');
+      const latest = b?.reports.filter(r => r.cityId === c.cityId).at(-1);
+      for (const q of latest?.contracts || []) {
+        add(`Add prepaid allowance for ${q.destinationId}`, 'deposit', () => ({ contractId: q.id, amount: Number(deposit.value) }), q.cancelledAt != null);
+        add(`Stop future purchases for ${q.destinationId}; retain paid cargo`, 'cancel', { contractId: q.id }, q.cancelledAt != null);
+        add(`Refund unspent cancelled allowance for ${q.destinationId}`, 'refund', { contractId: q.id }, q.cancelledAt == null);
+      }
+    } else panel.append(textEl('p', 'Personally attend a known governed city’s original counter. A received account from each endpoint is required; no global supplier roster, full map or live remote stock is disclosed.'));
+    if (b?.job) {
+      panel.append(textEl('p', 'Unfinished attended bulk agreement; movement, custody or unavailable original officials pause work. No unsigned proposal buys food.'));
+      const stop = storesActionButton('Stop unfinished bulk attendance', 'Spent original operator work is not refunded.', () => bulkProvisioningAction('cancelAttendance'));
+      stop.dataset.bulkProvisioningAction = 'cancelAttendance'; panel.append(stop);
+    }
+    for (const r of b?.reports || []) if (b.reports.filter(s => s.cityId === r.cityId).at(-1) === r) {
+      panel.append(textEl('p', `${r.cityId}: bulk account received ${formatClock(r.at)}. ${r.limits}`));
+      for (const receipt of r.receipts) panel.append(textEl('p', `${formatClock(receipt.at)} — actually received ${formatNumber(receipt.kg)} kg from ${receipt.sourceCityId}.`));
+      for (const m of r.departures) panel.append(textEl('p', `${formatClock(m.createdAt)} — ${formatNumber(m.foodKg)} kg committed at the original dock. ${m.departedAt ? `Departure recorded ${formatClock(m.departedAt)}.` : 'No completed loading/departure recorded in this received account.'} ${m.returnedAt ? `Original crew returned ${formatClock(m.returnedAt)} and reported ${formatNumber(m.deliveredKg)} kg delivered.` : 'No returned crew account in this dated report; current position and delivery remain unreported.'}`));
+      for (const q of r.contracts) panel.append(textEl('p', `${q.destinationId}: reported prepaid balance ${formatMoney(q.balance)}, committed expenditure ${formatMoney(q.spent)}; ${q.cancelledAt != null ? 'future purchases cancelled' : 'standing price-limited instruction'}.`));
+    }
+    return panel;
   }
   function reserveCityFoodProduction(extra = null) {
     if (scientistIsDead()) return;
@@ -111291,6 +111460,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.durableSupremacy = Supremacy.normalize(candidate?.durableSupremacy);
     next.cityAuthority = CityAuthority.normalize(candidate?.cityAuthority);
     next.cityAuthorityInitialized = Boolean(candidate?.cityAuthorityInitialized || candidate?.cityAuthority);
+    next.bulkProvisioning = BulkProvisioning.normalize(candidate?.bulkProvisioning);
+    next.bulkProvisioningInitialized = Boolean(candidate?.bulkProvisioningInitialized || candidate?.bulkProvisioning);
     if (next.cityAuthority) for (const e of next.cityAuthority.entries) {
       e.recoveryInitialized = Boolean(e.recoveryInitialized || e.recovery);
       if (e.recovery) e.recovery = CityRecovery.normalize(e.recovery);
