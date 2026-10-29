@@ -103,7 +103,7 @@
       changed ||= Boolean(n.rule);
     }
     ctx = context(n, g, c);
-    if (n.rule) changed = Rule.advance(n.rule, n.succession, people(n, g), () => ctx, at) || changed;
+    if (n.rule) { effects.reserveFood?.(n.rule); changed = Rule.advance(n.rule, n.succession, people(n, g), () => ctx, at) || changed; }
     n.lastAt = at; return changed;
   }
   function action(n, g, c, action, expected, at, stacks = []) {
@@ -123,6 +123,7 @@
     if (n.rule) {
       if (action === 'operate') ok = Rule.order(n.rule, n.succession, people(n, g), ctx, at);
       if (action === 'recharge') ok = Rule.recharge(n.rule, n.succession, people(n, g), ctx, stacks, at, expected == null ? 1 : expected);
+      if (action.startsWith('food:')) ok = Rule.deliverFood(n.rule, n.succession, people(n, g), ctx, stacks, action.slice(5), at, expected == null ? 1 : expected);
       if (action === 'report') ok = Rule.receive(n.rule, n.succession, people(n, g), ctx, at);
     } else if (action === 'report') ok = observe(n, g, ctx, at);
     if (ok) observe(n, g, ctx, at); return ok;

@@ -33,13 +33,14 @@
       add(f.id, 0.5 * infrastructure, `Published local exploitation: ${f.label || f.id}.`);
       source(`${cityId}:${f.id}`, `${foundation.city.name || cityId} ${f.label || f.id} works`, f.id, infrastructure, { open: true, distanceKm: 4, cellIds: [foundation.city.cellId].filter(Boolean), mode: 'groundConvoy' });
     }
-    add('biologicalProductivity', ({ marginal: 0, limited: 0.1, productive: 0.25, abundant: 0.4 }[foundation.arableLandBand] || 0) * infrastructure, `Nearby arable land: ${foundation.arableLandBand}.`);
-    if (['limited', 'productive', 'abundant'].includes(foundation.arableLandBand) && !(directory.satellites || []).some(s => s.parentId === cityId && s.function === 'agriculture')) source(`${cityId}:farms`, `${foundation.city.name || cityId} nearby farms`, 'biologicalProductivity', infrastructure * ({ limited: 0.25, productive: 0.5, abundant: 1 }[foundation.arableLandBand]), { open: true, distanceKm: 4, cellIds: [foundation.city.cellId].filter(Boolean), mode: 'groundConvoy' });
+    // Arable terrain is not a working farm. Hunting output needs the actual
+    // beast/population consumer, not an outpost label generating free meat.
     // Only directly dependent satellites; joint strongholds and foreign cities are not free imports.
     for (const satellite of directory.satellites || []) {
       if (satellite.parentId !== cityId) continue;
       const status = current?.satelliteRows?.find(r => r.satelliteId === satellite.id || r.assetId === satellite.id);
       if (['abandoned', 'destroyed'].includes(status?.habitationStatus)) continue;
+      if (satellite.function === 'hunting') continue;
       const size = ({ camp: 0.06, hamlet: 0.09, village: 0.12, town: 0.18 }[satellite.sizeBand] ?? 0.06);
       add(satellite.exportResource?.id, size * condition(status?.physicalCondition) * infrastructure, `Local ${satellite.function} settlement: ${satellite.name}.`);
       const cells = satellite.localRouteCellIds || [], mode = satellite.logistics?.vehicleMode || 'unknown';

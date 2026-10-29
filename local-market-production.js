@@ -72,6 +72,33 @@
     state.warehouseCaps[FUEL_DEFINITION.id] ??= 192; state.fuelRecipeInitialized = true;
   }
   const capable = truck => truck.condition >= 50 && truck.driver.health >= 50 && truck.driver.status === 'alive';
+  function reserveMunicipalFood(state, rule = null, quota = null) {
+    if (!state || !rule || rule.source.cityId !== state.cityId) return false;
+    let changed = false;
+    for (const source of state.sources) {
+      if (source.family !== 'biologicalProductivity') continue;
+      const farm = rule.farms.find(f => f.id === source.id);
+      const pilot = quota?.source.cityId === state.cityId && quota.source.satelliteId === source.id ? quota : null;
+      if (!farm || source.municipalFoodAllocation) continue;
+      // One raw biological unit has the existing biomass mass of one kg.
+      // Already extracted goods (including processed, sold and in-transit
+      // portions) stay commercial. Protect the detailed municipal quota too:
+      // only the aggregate remainder supplies this commercial reservation.
+      // Its future share is bounded by six days of existing producer throughput
+      // (the aggregate's existing standing-crop horizon), never a second crop.
+      const available = farm.cropKg + farm.stockKg, commercialKg = Math.max(0, source.produced);
+      const futureKg = Math.min(Math.max(0, available - commercialKg), source.capacity * 2 * 24 * 6,
+        source.remaining ?? Infinity);
+      const excludedKg = Math.min(available, commercialKg + futureKg);
+      let remaining = excludedKg;
+      for (const key of ['cropKg', 'stockKg']) { const kg = Math.min(farm[key], remaining); farm[key] -= kg; remaining -= kg; }
+      source.remaining = futureKg;
+      source.municipalFoodAllocation = { cityId: state.cityId, satelliteId: source.id, accountId: rule.id,
+        commercialKg, futureKg, excludedKg, protectedQuotaId: pilot?.id || null };
+      (rule.commercialFoodExclusions ||= []).push(copy(source.municipalFoodAllocation)); changed = true;
+    }
+    return changed;
+  }
   const facilityFor = (state, w) => state.facilities?.find(f => f.id === w.facilityId);
   const working = (f, w) => f && f.condition >= 50 && f.labour > 0 && f.utilities > 0 && f.expertise.includes(w.expertise);
   const inputRouteOpen = (state, cargo) => state.facilities.some(f => f.routeOpen && state.workshops.some(w => w.facilityId === f.id && w.inputs[cargo]));
@@ -283,5 +310,5 @@
     if (destination) { sh.target = 'foreignWorkspace'; sh.destination = copy(destination); }
     state.shipments.push(sh); truck.shipment = sh.id; return sh;
   }
-  return { HOUR, FUEL_DEFINITION, RECIPES, INDUSTRIAL_RECIPES, PRECISION_RECIPES, create, advance, status, price, ensureFuelRecipe, serviceTruck, bookServiceCargo };
+  return { HOUR, FUEL_DEFINITION, RECIPES, INDUSTRIAL_RECIPES, PRECISION_RECIPES, create, advance, status, price, ensureFuelRecipe, reserveMunicipalFood, serviceTruck, bookServiceCargo };
 });

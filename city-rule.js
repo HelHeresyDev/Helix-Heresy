@@ -38,20 +38,20 @@
     if (institutions.some(i => !i)) return null;
     const reserveDays = Math.min(...[works, power].map(s => ({ fragile: 2, strained: 3, serviceable: 4, robust: 5 })[s.hiddenConditionBand] || 0));
     const farms = Provisioning.sourceFromWorld(map, cityId, true, { aggregateTransport: true });
-    if (!reserveDays || !farms.length) return null;
+    if (!reserveDays) return null;
     return { cityId, cityName: row.name, charterId: g.charter.id, populationSourceId: row.assetId,
       population: row.currentPopulation, institutions, worksId: works.id, powerId: power.id,
       powerCondition: ({ fragile: 65, strained: 75, serviceable: 85, robust: 100 })[power.hiddenConditionBand], reserveDays, farms,
       reservedClaimantEnergy: (map.strategicPlayableSettlementState.claimantContactRows || []).filter(r => r.hostCityId === cityId && r.powerSourceId === power.id).reduce((n, r) => n + r.reservedEnergy, 0),
       politicalSourceId: `${cityId}:playable-political-control`, baselineAuthorityId: control.recognizedAuthorityId,
-      provenance: 'Existing populated city, original institutions, water/wall works, power works and measured direct agricultural routes; finite run-owned elaboration.' };
+      provenance: 'Existing populated city, original institutions, water/wall works, power works and any supported direct agricultural routes. Missing farms supply nothing; further food requires physical delivery.' };
   }
   function validSource(s) {
     return Boolean(s && ['cityId', 'charterId', 'populationSourceId', 'worksId', 'powerId'].every(k => typeof s[k] === 'string' && s[k])
       && Number.isInteger(s.population) && s.population >= 8 && finite(s.reserveDays) && s.reserveDays >= 1 && s.reserveDays <= 5
       && finite(s.reservedClaimantEnergy ?? 0) && (s.reservedClaimantEnergy || 0) <= s.reserveDays * DAY * Math.max(1, s.population / 1000)
       && (s.powerCondition == null || finite(s.powerCondition) && s.powerCondition <= 100)
-      && ROLES.every(role => s.institutions?.some(i => i.role === role && i.id)) && Array.isArray(s.farms) && s.farms.length
+      && ROLES.every(role => s.institutions?.some(i => i.role === role && i.id)) && Array.isArray(s.farms)
       && new Set(s.farms.map(f => f.satelliteId)).size === s.farms.length
       && s.farms.every(f => Provisioning.validSource(f) && f.cityId === s.cityId && f.cityPopulation === s.population
         && f.populationSourceId === s.populationSourceId && f.charterId === s.charterId));
@@ -60,10 +60,12 @@
     if (!validSource(source) || !run?.worldId || !run.runId || !succession?.handover
       || succession.source.cityId !== source.cityId || succession.source.charterId !== source.charterId
       || (source.baselineAuthorityId && source.baselineAuthorityId !== succession.source.authority?.id)
-      || !provision || !defense || [provision, defense].some(s => s.worldId !== run.worldId || s.runId !== run.runId
+      || !defense || (!provision && source.farms.length) || [provision, defense].filter(Boolean).some(s => s.worldId !== run.worldId || s.runId !== run.runId
         || s.source.cityId !== source.cityId || s.handoverId !== succession.handover.id)
-      || provision.source.cityPopulation !== source.population || provision.demand.population > source.population
-      || !source.farms.some(f => f.satelliteId === provision.source.satelliteId)) return null;
+      || !finite(defense.initialEnergy) || defense.source.population !== source.population
+      || defense.source.charterId !== source.charterId || defense.source.populationSourceId !== source.populationSourceId
+      || (provision && (provision.source.cityPopulation !== source.population || provision.demand.population > source.population
+        || !source.farms.some(f => f.satelliteId === provision.source.satelliteId)))) return null;
     return allocate(source, succession, run, at, provision, defense.initialEnergy, defense.id);
   }
   function createAggregate(source, succession, run, at, reservedDefense) {
@@ -116,6 +118,7 @@
       energy, initialEnergy: energy, chargedEnergy: 0, recharge: null, spentEnergy: 0, energyRate: rate, excludedDefenseEnergy: excludedEnergy, farms,
       operatorWorkSeconds: 8 * 3600, powerFuel: { stock: 0, capacity: 24, received: 0, processed: 0, enabled: false, progress: null },
       powerMaintenanceInitialized: true,
+      deliveredFoodKg: 0, foodDelivery: null,
       powerMaintenance: { condition: source.powerCondition ?? 100, initialCondition: source.powerCondition ?? 100, operatedSeconds: 0, wear: 0, repaired: 0, initializedAt: at },
       plan: null, command: null, receipts: [], since: null, establishedAt: null, accomplishment: null,
       status: 'recognized', failureAt: null, report: null, nextNumber: 1 };
@@ -133,6 +136,12 @@
       || next.governmentBinding.populationSourceId !== next.source.populationSourceId || next.governmentBinding.fromProofId !== next.handoverId
       || next.governmentBinding.bodyEpoch !== next.bodyEpoch)) return null;
     next.chargedEnergy ??= 0;
+    next.deliveredFoodKg ??= 0;
+    const delivery = next.foodDelivery;
+    if (!finite(next.deliveredFoodKg) || delivery && (!delivery.id || !delivery.stackId || !Object.hasOwn(FOOD, delivery.key)
+      || !Number.isSafeInteger(delivery.quantity) || delivery.quantity < 1 || delivery.quantity > 10000
+      || !finite(delivery.progress) || delivery.progress >= delivery.quantity * 2 || !finite(delivery.at) || delivery.at > next.lastAt
+      || delivery.handoverId !== next.handoverId || delivery.kg !== delivery.quantity * FOOD[delivery.key])) return null;
     // Legacy plants start from their surviving operational baseline NOW, not
     // from an invented overdue maintenance date or retroactive wear.
     if (!next.powerMaintenance) {
@@ -210,13 +219,32 @@
   const contact = c => c.alive && c.capable && c.atCounter && c.local && c.free && !c.violence && c.reportersPresent;
   const plantWorking = s => !s.powerMaintenance || !s.powerMaintenance.accountLost && !s.powerMaintenance.repairAssignment && s.powerMaintenance.condition > 50 + 1e-7;
   function order(s, succession, people, c, at) {
-    if (!contact(c) || !authority(s, succession, people, c) || s.plan || s.command || s.recharge || s.operatorServiceAssignment || s.operatorWorkSeconds < 3600 || c.institutionsAvailable !== true) return false;
+    if (!contact(c) || !authority(s, succession, people, c) || s.plan || s.command || s.recharge || s.foodDelivery || s.operatorServiceAssignment || s.operatorWorkSeconds < 3600 || c.institutionsAvailable !== true) return false;
     s.command = { id: `${s.id}:operating-priority:${s.nextNumber++}`, at, progress: 0 };
     return true;
   }
   const owned = i => !i.cityOwnerId && !i.civicCustody && (!i.ownerId || i.ownerId === 'scientist') && (!i.legalOwnerId || i.legalOwnerId === 'scientist');
+  // Edible contents only: a sealed field pack also contains water, which is
+  // deliberately not credited to either the food or water account again.
+  const FOOD = Object.freeze({ trailMeal: .5, fieldRation: .5 });
+  function deliverFood(s, succession, people, c, stacks, key, at, quantity = 1) {
+    const kg = FOOD[key] * quantity;
+    if (!s || !Object.hasOwn(FOOD, key) || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 10000
+      || !Number.isFinite(at) || at !== s.lastAt || !contact(c) || !authority(s, succession, people, c)
+      || !c.institutionsAvailable || s.command || s.recharge || s.foodDelivery || s.operatorServiceAssignment
+      || s.operatorWorkSeconds < quantity * 2 || s.foodKg + kg > s.dailyKg * 4 + 1e-7) return false;
+    const item = stacks.find(i => i.id && i.section === 'inventory' && i.key === key && Number.isSafeInteger(i.quantity)
+      && i.quantity >= quantity && i.carriedBy === 'scientist' && owned(i) && !i.reservedTaskId && !i.fixtureId
+      && !i.containerId && !i.carryTaskId && !i.contents?.length && !i.biology && !i.chemicalBatch
+      && !i.tags?.some(t => /contaminated|stolen|spoiled|poison/i.test(t)));
+    if (!item) return false;
+    item.quantity -= quantity; item.knownQuantity = Math.min(item.knownQuantity ?? item.quantity, item.quantity);
+    s.foodDelivery = { id: `${s.id}:owned-food:${s.nextNumber++}`, stackId: item.id, key, quantity, kg,
+      at, progress: 0, handoverId: s.handoverId };
+    return true;
+  }
   function recharge(s, succession, people, c, stacks, at, quantity = 1) {
-    if (!contact(c) || !authority(s, succession, people, c) || !c.institutionsAvailable || !plantWorking(s) || s.command || s.recharge || s.operatorServiceAssignment
+    if (!contact(c) || !authority(s, succession, people, c) || !c.institutionsAvailable || !plantWorking(s) || s.command || s.recharge || s.foodDelivery || s.operatorServiceAssignment
       || !Number.isInteger(quantity) || quantity < 1 || s.operatorWorkSeconds < 60 * quantity
       || s.initialEnergy - s.energy < 21600 * quantity) return false;
     const item = stacks.find(i => i.key === 'arcaneFeedstock' && i.quantity >= quantity && i.carriedBy === 'scientist'
@@ -286,6 +314,7 @@
         s.energy > 1e-7 ? s.energy / s.energyRate : Infinity,
         s.command ? 3600 - s.command.progress : Infinity,
         s.recharge ? 60 * s.recharge.quantity - s.recharge.progress : Infinity,
+        s.foodDelivery ? 2 * s.foodDelivery.quantity - s.foodDelivery.progress : Infinity,
         s.since != null && start < s.since + INTERVAL ? s.since + INTERVAL - start : Infinity,
         ...s.farms.flatMap(f => [f.trip ? f.trip.dueAt - start : Infinity,
           f.lastDepartureAt != null ? f.lastDepartureAt + DAY - start : Infinity])]) if (t > 1e-7) dt = Math.min(dt, t);
@@ -311,6 +340,15 @@
           s.receipts.push({ id: s.command.id, at: end, kind: 'operatingPriority', workSeconds: 3600 }); s.command = null;
         }
       } else if (s.command && !operative) s.command = null; // No refund or signature-only completion.
+      if (s.foodDelivery && operative && !s.operatorServiceAssignment) {
+        const j = s.foodDelivery, work = Math.min(dt - workUsed, s.operatorWorkSeconds, j.quantity * 2 - j.progress);
+        s.operatorWorkSeconds -= work; workUsed += work; j.progress += work;
+        if (j.progress >= j.quantity * 2) {
+          s.foodKg += j.kg; s.deliveredFoodKg = (s.deliveredFoodKg || 0) + j.kg;
+          s.receipts.push({ ...copy(j), kind: 'ownedFoodDelivered', at: end, receivedAt: j.at, workSeconds: j.quantity * 2 });
+          s.foodDelivery = null;
+        }
+      }
       if (s.recharge && operative && plantAtStart && !s.operatorServiceAssignment && s.recharge.handoverId === s.handoverId && s.recharge.powerWorksId === s.source.powerId) {
         const work = Math.min(dt - workUsed, s.operatorWorkSeconds); s.operatorWorkSeconds -= work; s.recharge.progress += work;
         workUsed += work;
@@ -408,6 +446,7 @@
       status: authority(s, succession, people, c) ? s.status : 'contested', since: s.since,
       establishedAt: s.establishedAt, accomplishment: copy(s.accomplishment),
       foodKg: s.foodKg, waterLiters: s.waterLiters, energy: s.energy,
+      deliveredFoodKg: s.deliveredFoodKg || 0, pendingFood: copy(s.foodDelivery || null),
       pendingDeliveries: s.farms.filter(f => f.trip).map(f => ({ farmId: f.id, dispatchedAt: f.lastDepartureAt,
         expectedKg: f.cargoKg, nominalReturnAt: f.lastDepartureAt + f.trip.seconds,
         overdue: at > f.lastDepartureAt + f.trip.seconds,
@@ -422,5 +461,5 @@
     History.issue(s, s.report);
     return true;
   }
-  return { DAY, INTERVAL, ROLES, LIMITS, sourceFromWorld, validSource, create, createAggregate, createClient, normalize, authority, continueGovernment, contact, plantWorking, condition, order, recharge, distribution, advance, receive };
+  return { DAY, INTERVAL, ROLES, LIMITS, FOOD, sourceFromWorld, validSource, create, createAggregate, createClient, normalize, authority, continueGovernment, contact, plantWorking, condition, order, deliverFood, recharge, distribution, advance, receive };
 });

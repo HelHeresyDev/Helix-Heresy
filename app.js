@@ -12570,6 +12570,7 @@
   function advanceLocalMarketProduction(now) {
     const market = ensureEconomy().commodityMarket;
     if (!market.localProduction) return 0;
+    reserveCityFoodProduction();
     const previous = market.localProduction.lastAt;
     const support = LocalExchangeCarrier.support(exchangeCarrier(), state.clock);
     for (const g of state.penalFlights?.assistance?.cityApproach?.gates || []) { prepareForeignCommissionDeliveries(g); prepareIntercityCompactDeliveries(g); }
@@ -34709,6 +34710,8 @@
   }
 
   function physicalItemUnitMetrics(section, key) {
+    // A sealed food/water pack is cargo, not an empty collection receptacle.
+    if (section === "inventory" && key === "fieldRation") return { massKg: 1, volumeL: 1.4 };
     if (section === "inventory" && key === "humanTissueTemplate") return { massKg: .1, volumeL: .1 };
     if (section === "inventory" && key === "growthMedium") return { massKg: 1.4, volumeL: 1.4 };
     if (section === "inventory" && key === "grownTissue") return { massKg: 1, volumeL: 1.2 };
@@ -88008,6 +88011,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function cityAuthorityOperationContext(e, originalGovernment = false) {
     const book = state.cityAuthority, sources = cityAuthoritySources(e.source.cityId), current = sources?.political;
+    const currentFarms = cityAuthorityOperatingSources(e)?.operation?.farms || [];
     const s = e.operation, defenseId = e.source.institutions.find(i => i.role === 'militaryDefenseCommand')?.id;
     const defender = e.staff.find(a => a.institutionId === defenseId && a.exceptionalCapabilities?.includes('city-scale ward defense'));
     const sameSource = Boolean(current && JSON.stringify(current) === JSON.stringify(e.source));
@@ -88030,7 +88034,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         && !defender.magicSuppressed && !defender.suppressionActive && defender.stamina > 0),
       actualOpposition: opposition,
       counterpower: sameSource ? opposition ? 'capableOpposition' : 'noEstablishedChallenge' : 'unverified',
-      routes: Object.fromEntries((s?.source.farms || []).map(f => [f.id || f.satelliteId, f.routeUsable !== false
+      routes: Object.fromEntries((s?.source.farms || []).map(f => [f.id || f.satelliteId, currentFarms.some(a => a.satelliteId === f.satelliteId) && f.routeUsable !== false
         && !NetworkInterdiction.blocks(state.networkInterdiction, e.source.cityId, f.satelliteId, s.handoverId, s)])) };
     return s?.governmentBinding && !originalGovernment ? cityAuthorityGoverningContext(e, cityAuthoritySuccessor(e), context) : context;
   }
@@ -88047,6 +88051,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (e.recovery?.job) changed = CityRecovery.advance(e.recovery, cityAuthorityRecoveryContext(e), state.clock) || changed;
       else if (e.recovery) e.recovery.lastAt = state.clock;
       if (e.operation) {
+        reserveCityFoodProduction();
         const successor = cityAuthoritySuccessor(e), receipt = successor?.succession.handover;
         if (receipt && !e.operation.governmentBinding) {
           const old = () => { const c = cityAuthorityOperationContext(e, true);
@@ -88132,15 +88137,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const c = cityAuthorityOperationContext(e);
       e.operation = CityRule.createClient(operating.operation, e, book.authorities, book, state.clock,
         { id: operating.defense.installationId, initialEnergy: operating.defense.baselineEnergy }, c);
-      if (e.operation) { e.operationAllocatedAt = state.clock; ok = CityRule.order(e.operation, e, e.staff, cityAuthorityOperationContext(e), state.clock); }
+      if (e.operation) { e.operationAllocatedAt = state.clock; reserveCityFoodProduction(); ok = CityRule.order(e.operation, e, e.staff, cityAuthorityOperationContext(e), state.clock); }
     } else if (e.operation && action === 'operate') ok = CityRule.order(e.operation, e, e.staff, cityAuthorityOperationContext(e), state.clock);
     else if (e.operation && action === 'recharge') ok = CityRule.recharge(e.operation, e, e.staff, cityAuthorityOperationContext(e), ensurePhysicalItemStacks(), state.clock);
+    else if (e.operation && action.startsWith('food:')) ok = CityRule.deliverFood(e.operation, e, e.staff, cityAuthorityOperationContext(e), ensurePhysicalItemStacks(), action.slice(5), state.clock, expected == null ? 1 : expected);
     else if (e.operation && action === 'receiveOperation') {
       const previous = e.operation.report;
       ok = CityRule.receive(e.operation, e, e.staff, cityAuthorityOperationContext(e), state.clock);
       if (ok) retainReceivedCityRuleReports(previous, e.operation.report);
     }
-    if (ok && (action === 'recharge' || action.startsWith('recoveryStage:'))) { state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0); syncActorInventories(); syncPhysicalReadModels(); }
+    if (ok && (action === 'recharge' || action.startsWith('food:') || action.startsWith('recoveryStage:'))) { state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0); syncActorInventories(); syncPhysicalReadModels(); }
     persist(); render(); return ok;
   }
   function renderCityAuthority() {
@@ -88176,12 +88182,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           if (k.controlStatus !== 'displacedClaim') {
             button('Issue the original city provisioning and defensive operating priority', 'operate', k.cityId);
             button('Supply one carried owned arcane feedstock to this city', 'recharge', k.cityId);
+            if (e.operation) appendCityFoodControls(panel, (action, quantity) => cityAuthorityAction(action, k.cityId, quantity), attending && !book?.job);
           }
           if (!e.operation?.governmentBinding) button('Relinquish this political agreement (one attended minute)', 'withdraw', k.cityId);
         }
         if (!e.operation?.governmentBinding) button('Receive an updated political account (one attended minute)', 'report', k.cityId);
         if (e.operation) button('Receive this city’s actual operating report', 'receiveOperation', k.cityId);
         if (e.operation?.report?.governmentBinding) panel.append(textEl('p', `Operating account received ${formatClock(e.operation.report.at)}: continuing under the witnessed handover ${e.operation.report.governmentBinding.receiptId}, effective ${formatClock(e.operation.report.governmentBinding.handoverAt)}. Original allocation and earlier reports retained; this is not remote telemetry.`));
+      }
+      if (e.operation?.report) {
+        const r = e.operation.report;
+        panel.append(textEl('p', `${k.cityName}: operating account received ${formatClock(r.at)} — ${r.status}; ${formatNumber(r.foodKg)} kg food, ${formatNumber(r.waterLiters)} liters water, ${formatNumber(r.energy)} ward-power units. Dated received information, not a current remote stock count.`));
+        appendPendingMunicipalDeliveries(panel, r);
       }
       if (k.terms && k.parties.some(p => p.cityId === counter.cityId)
         && !k.resolutions.some(r => r.authorityId === k.parties.find(p => p.cityId === counter.cityId)?.authorityId))
@@ -88245,7 +88257,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       armedRouteHolds: (n?.source.farms || []).filter(f => NetworkInterdiction.blocks(state.networkInterdiction, g.cityId, f.satelliteId, n?.rule?.handoverId, n)).map(f => f.satelliteId),
       armedRouteCrossings: Object.fromEntries((n?.source.farms || []).map(f => [f.satelliteId,
         NetworkInterdiction.crossings(state.networkInterdiction, g.cityId, f.satelliteId, n?.rule?.handoverId, n)])),
-      routes: Object.fromEntries((n?.source.farms || []).map(f => [f.satelliteId, f.routeUsable !== false
+      routes: Object.fromEntries((n?.source.farms || []).map(f => [f.satelliteId, sources?.operation?.farms.some(a => a.satelliteId === f.satelliteId) && f.routeUsable !== false
         && !NetworkInterdiction.blocks(state.networkInterdiction, g.cityId, f.satelliteId, n?.rule?.handoverId, n)])),
       incapacitatedIds: [...leaders, b?.defender].filter(a => a && actorIsIncapacitated(a)).map(a => a.id) };
   }
@@ -88256,6 +88268,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const g of regionalGovernmentGates()) {
       changed += Number(RegionalGovernment.advance(g.regionalGovernment, g, regionalGovernmentContext(g), state.clock, {
         move: (a, cell) => moveSuccessionParticipant(a, cell),
+        reserveFood: () => reserveCityFoodProduction(),
         retainedAllocation: CityAuthority.hasOperatingAllocation(state.cityAuthority, g.cityId)
       }));
       if (g.regionalGovernment.rule) changed += Number(updateMunicipalFuelService(g.cityId))
@@ -88298,7 +88311,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const ok = RegionalGovernment.action(n, g, regionalGovernmentContext(g), action, expected, state.clock, ensurePhysicalItemStacks());
     if (ok && action === 'report') retainReceivedCityRuleReports(priorReport, n.rule?.report);
     if (ok && CitySuccession.working(n.succession)) suspendScientistRoutineWork('regional government hearing');
-    if (ok && ['deliver', 'recharge'].includes(action)) {
+    if (ok && (['deliver', 'recharge'].includes(action) || action.startsWith('food:'))) {
       state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0); syncActorInventories(); syncPhysicalReadModels();
     }
     if (!ok) addEvent('The original officials did not authorize that action. Attendance, exact terms, individual consent, actual carried supplies and original finite staff remain required; no immunity or compulsory retirement follows from governing experience.');
@@ -88339,6 +88352,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           if (n.rule) {
             button('Authorize this city\'s original operating priority', 'operate', Boolean(n.rule.plan || n.rule.command));
             button('Hand over one owned arcane feedstock for municipal power processing', 'recharge', Boolean(n.rule.recharge));
+            appendCityFoodControls(panel, (action, quantity) => regionalGovernmentAction(action, quantity), !s.job);
           }
           button('Receive this city\'s dated governing account', 'report', Boolean(s.job));
           if (s.job) button('End unfinished political attendance', 'cancel', false);
@@ -88460,7 +88474,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       armedRouteHolds: (source?.farms || []).filter(f => s && NetworkInterdiction.blocks(state.networkInterdiction, s.source.cityId, f.satelliteId, s.handoverId, s)).map(f => f.satelliteId),
       armedRouteCrossings: Object.fromEntries((source?.farms || []).map(f => [f.satelliteId,
         s ? NetworkInterdiction.crossings(state.networkInterdiction, s.source.cityId, f.satelliteId, s.handoverId, s) : []])),
-      routes: Object.fromEntries((source?.farms || []).map(f => [f.satelliteId, f.routeUsable !== false
+      routes: Object.fromEntries((s?.source.farms || []).map(f => [f.satelliteId, source?.farms.some(a => a.satelliteId === f.satelliteId) && f.routeUsable !== false
         && !(s && NetworkInterdiction.blocks(state.networkInterdiction, s.source.cityId, f.satelliteId, s.handoverId, s))])),
       pilotSupplied: Boolean(p && p.id === s?.pilotProvisionId && p.stores.cityKg > 1e-7),
       defenseAccount: d, defenseStationPresent,
@@ -88478,10 +88492,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (CityAuthority.hasOperatingAllocation(state.cityAuthority, source.cityId)) return null;
     state.cityRule = CityRule.create(source, state.citySuccession, state.cityProvisioning, state.cityDefense,
       { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id }, state.clock);
+    reserveCityFoodProduction();
     return state.cityRule;
   }
   function updateCityRule() {
     if (!state.cityRule || scientistIsDead()) return 0;
+    reserveCityFoodProduction();
     const changed = Number(CityRule.advance(state.cityRule, state.citySuccession, cityRulePeople(), cityRuleContext, state.clock));
     return changed + Number(updateCivicCommunications()) + Number(updateMunicipalFuelService()) + Number(updatePowerworksMaintenance()) + Number(updatePowerworksStandards());
   }
@@ -88740,6 +88756,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return market?.localProduction?.cityId === cityId ? { production: market.localProduction, listings: market.listings }
       : market?.intercityTrade?.neighbors.find(n => n.production?.cityId === cityId) || null;
   }
+  function reserveCityFoodProduction(extra = null) {
+    if (scientistIsDead()) return;
+    const market = state.economy?.commodityMarket;
+    const rules = [state.cityRule, ...(state.cityAuthority?.entries || []).map(e => e.operation),
+      ...regionalGovernmentGates().map(g => g.regionalGovernment.rule)].filter(Boolean);
+    const producers = [...new Set([market?.localProduction, ...(market?.intercityTrade?.neighbors || []).map(n => n.production), extra].filter(Boolean))];
+    for (const p of producers) {
+      const rule = rules.find(r => r.source.cityId === p.cityId) || null;
+      const quota = state.cityProvisioning?.source.cityId === p.cityId ? state.cityProvisioning : null;
+      LocalMarketProduction.reserveMunicipalFood(p, rule, quota);
+    }
+  }
   function municipalFuelTrucks() {
     return CityServices.entries(state).flatMap(e => {
       const s = e.owner.municipalFuelService, p = cityServiceMarket(e.rule.source.cityId)?.production;
@@ -88881,6 +88909,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const c = cityRuleContext(); let ok = false;
     if (action === 'operate') ok = CityRule.order(s, state.citySuccession, cityRulePeople(), c, state.clock);
     if (action === 'recharge') ok = CityRule.recharge(s, state.citySuccession, cityRulePeople(), c, ensurePhysicalItemStacks(), state.clock, quantity);
+    if (action.startsWith('food:')) ok = CityRule.deliverFood(s, state.citySuccession, cityRulePeople(), c, ensurePhysicalItemStacks(), action.slice(5), state.clock, quantity);
     if (action === 'distribution' || action === 'stopDistribution') ok = CityRule.distribution(s, state.citySuccession, cityRulePeople(), c, action === 'distribution', state.clock);
     if (action === 'report') {
       const priorReport = s.report;
@@ -88893,12 +88922,23 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }, s.report.accomplishment.at));
     }
     if (!ok) addEvent('City account action requires personal attendance with the original officials, authentic continuing authority for new commands, and supported original city sources. No resources or power were awarded.');
-    if (ok && action === 'recharge') { state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0); syncActorInventories(); syncPhysicalReadModels(); }
+    if (ok && (action === 'recharge' || action.startsWith('food:'))) { state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0); syncActorInventories(); syncPhysicalReadModels(); }
     persist(); render(); return ok;
   }
   function appendPendingMunicipalDeliveries(panel, report) {
+    if (report && Number.isFinite(report.deliveredFoodKg)) panel.append(textEl('p', `Received ${formatClock(report.at)}: ${formatNumber(report.deliveredFoodKg)} kg admitted from carried owned food. ${report.pendingFood ? `${report.pendingFood.quantity} packages in municipal custody awaiting completed intake.` : 'No unfinished food intake in this account.'}`));
     for (const r of report?.pendingDeliveries || []) panel.append(textEl('p',
       `Dispatch ledger received ${formatClock(report.at)}: ${formatNumber(r.expectedKg)} kg from ${r.farmId}; dispatched ${formatClock(r.dispatchedAt)}, nominal return ${formatClock(r.nominalReturnAt)} — ${r.overdue ? 'overdue at reporting' : 'not yet received'}. ${r.scope}`));
+  }
+  function appendCityFoodControls(panel, action, available) {
+    const quantity = document.createElement('input'); quantity.type = 'number'; quantity.min = '1'; quantity.max = '10000'; quantity.step = '1'; quantity.value = '1';
+    quantity.setAttribute('aria-label', 'City food package quantity');
+    const label = document.createElement('label'); label.append(document.createTextNode('Food package quantity '), quantity); panel.append(label);
+    for (const [key, label] of [['trailMeal', 'trail meals'], ['fieldRation', 'field provision packs']]) {
+      const b = storesActionButton(`Deliver carried owned ${label} to city food stores`, 'Each clean package contributes 0.5 kg edible food after two seconds of original municipal intake work. Four-day food capacity; no water credit, remote purchase or automatic refill.', () => action(`food:${key}`, Number(quantity.value)));
+      b.dataset.cityFoodAction = key; b.disabled = !available; panel.append(b);
+    }
+    panel.append(textEl('p', 'Only physically carried, clean, unreserved owned food can enter this city account. Paid cargo still at a seller, in transit or at the Loading Bay must arrive and be carried here first. Farm output already allocated to municipal supply is not produced again for the market. A city without a usable farm depends on its finite buffer and actual delivered food; a political agreement cannot feed it.'));
   }
   function renderCityRule() {
     const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.cityRule = 'true';
@@ -88910,7 +88950,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
     button('Walk to original municipal counter', 'counter', scientistInKnownCombat());
     if (!s) {
-      panel.append(textEl('p', 'Unverified city-wide coverage: requires authentic voluntary handover, original institutional continuations, both detailed contributions, existing operational water/wall and power works, and supported direct agricultural routes. No missing source, import, asset or defender is invented.'));
+      panel.append(textEl('p', 'Unverified city-wide coverage: requires authentic voluntary handover, original institutional continuations, supported defense, and existing operational water/wall and power works. Actual reserves and physically received food, not the presence of a farm label, determine supply. No missing source, import, asset or defender is invented.'));
       return panel;
     }
     const contact = CityRule.contact(c);
@@ -88922,6 +88962,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const fuel = document.createElement('input'); fuel.type = 'number'; fuel.min = '1'; fuel.step = '1'; fuel.value = '1'; fuel.setAttribute('aria-label', 'Municipal power fuel quantity');
     const fuelButton = storesActionButton('Deliver carried arcane feedstock to original powerworks', 'Each unit consumes 60 seconds of original operator work and supplies 21,600 energy, within the existing reserve capacity.', () => cityRuleAction('recharge', Number(fuel.value)));
     fuelButton.dataset.cityRuleAction = 'recharge'; fuelButton.disabled = !contact || Boolean(s.command || s.recharge); panel.append(fuel, fuelButton);
+    appendCityFoodControls(panel, (action, quantity) => cityRuleAction(action, quantity), contact);
     panel.append(textEl('p', 'The operating priority draws city-owned buffers, finite farm stores/crop, original convoys and fuel, existing waterworks and a finite ward-power reserve. Detailed quota, driver/truck and approach-station energy remain excluded. Standing grain pickup and power distribution must be authorized separately. Distribution transfers municipal energy, never creates it; original powerworks can process physically delivered owned feedstock within their existing capacity and finite staff duty. No remote purchase, personal mana or free refill. No attack or continuous defender watch is required.'));
     if (s.command) panel.append(textEl('p', 'Operating priority issued; unfinished work is not an accomplished governing command.'));
     const r = s.report;
@@ -89128,7 +89169,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!s || ![CityProvisioning.HOME, CityProvisioning.DOCK, CityProvisioning.TRUCK].every(cell =>
       labMapCellRoomId(cell) === SurveyExpeditions.FIELD_ROOM && labMapCellIsWalkable(cell)
       && !labMapCellIsPathBlocked(cell, { actor: s.driver, skipPlacement: true }))) return null;
-    state.cityProvisioning = s; prepareMunicipalSupplyThreats(); return s;
+    state.cityProvisioning = s; reserveCityFoodProduction(); prepareMunicipalSupplyThreats(); return s;
   }
   let supplySimulationSite = null;
   function municipalSupplySiteForActor(actor) {
@@ -99020,6 +99061,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const market = foreignSupplierMarket(g); if (!market?.production) return false;
     prepareIntercityCompactDeliveries(g);
     const support = LocalExchangeCarrier.support(market.carrier, state.clock);
+    reserveCityFoodProduction(market.production);
     LocalMarketProduction.advance(market.production, state.clock, market.listings, support.supplier);
     return IntercityCompact.advance(s, g, market, () => intercityCompactContext(g), state.clock, intercityCompactHooks(g));
   }
@@ -99390,7 +99432,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     // Same finite city producer trucks as ordinary industry. The reserved route
     // ends at this named workspace, not a depot followed by a free last mile.
     const support = LocalExchangeCarrier.support(market.carrier, state.clock);
-    const previous = p.lastAt; LocalMarketProduction.advance(p, state.clock, market.listings, support.supplier);
+    const previous = p.lastAt; reserveCityFoodProduction(p); LocalMarketProduction.advance(p, state.clock, market.listings, support.supplier);
     let changed = LocalServices.advance(s.service, p, state.clock) || p.lastAt !== previous || !existed;
     changed = ForeignMunicipalAssay.advance(municipal, s, p, state.clock) || changed;
     changed = ForeignIndustrialAssay.dispatchReservation(s, w, p, c, state.clock) || changed;

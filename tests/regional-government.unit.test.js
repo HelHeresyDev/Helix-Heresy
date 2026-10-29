@@ -73,7 +73,7 @@ test('actual regional succession completes without allocating a second pool when
   const people=copy(f.n.succession.leaders);advance(f,3600);assert.equal(f.n.rule,null);assert.deepEqual(f.n.succession.leaders,people);
 });
 test('missing sources, incompatible charters, patron authentications, duplicate original people and unreceived records cannot open this route', () => {
-  for (const mutate of [f => f.original.operation.farms = [], f => f.original.defense.baselineEnergy = NaN,
+  for (const mutate of [f => f.original.operation.farms = null, f => f.original.defense.baselineEnergy = NaN,
     f => f.original.succession.designationReview = { requiredAuthorizationIds: ['patron'] }, f => f.original.succession.succession = 'hereditary',
     f => f.n.evidence.reportAt = f.at + 1, f => f.n.evidence.runId = 'different', f => f.original.operation.charterId = 'other']) {
     const f = fixture(); mutate(f);
