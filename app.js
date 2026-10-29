@@ -87869,7 +87869,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     let cache = cityAuthoritySourceCache.get(map); if (!cache) { cache = new Map(); cityAuthoritySourceCache.set(map, cache); }
     if (!cache.has(cityId)) cache.set(cityId, { political: CityAuthority.sourceFromWorld(map, cityId),
       operation: CityRule.sourceFromWorld(map, cityId, { politicalSettlement: true }),
-      defense: CityDefense.sourceFromWorld(map, cityId, { politicalSettlement: true }), recovery: CityRecovery.sourceFromWorld(map, cityId) });
+      defense: CityDefense.sourceFromWorld(map, cityId, { politicalSettlement: true }), recovery: CityRecovery.sourceFromWorld(map, cityId),
+      counter: CityAuthority.counterSource(map, cityId) });
     return cache.get(cityId);
   }
   function cityAuthorityOperatingSources(e) {
@@ -87897,18 +87898,32 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     return CityAuthority.bound(state.cityAuthority, b) ? state.cityAuthority : null;
   }
+  function cityAuthorityChanges() {
+    return [state.citySuccession, ...(state.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.regionalGovernment?.succession)]
+      .map(s => CityAuthority.authorityChange(s)).filter(Boolean);
+  }
+  function cityPoliticalCounterSource(cityId) {
+    const sources = cityAuthoritySources(cityId);
+    return sources?.counter || (state.cityAuthority?.preparedSources
+      ? CityAuthority.counterFromPolitical(sources?.political) : null);
+  }
   function cityAuthorityCounter() {
     const g = passengerReceptionGate(), foreign = g && foreignReceptionContext(g, false, true);
+    const authorityChanges = cityAuthorityChanges();
+    const custodyActive = Boolean(restrictedOffsiteStay() || currentDetentionRaid()
+      || GateEnforcement.custodyActive(currentGateEnforcement()) || GateEnforcement.custodyActive(g?.enforcement));
     if (foreign?.local) return { cityId: g.cityId, gate: g, office: RegionalGovernment.office(g),
-      context: { ...foreign, at: state.clock, atCounter: foreign.atDesk, free: !foreign.otherBusy,
-        permission: Boolean(foreignVisitorPermission(g)), violence: scientistInKnownCombat(), clerkId: g.clerk.id,
-        sourceCurrent: foreign.authorityCurrent } };
+      context: { ...CityAuthority.counterContext(g, foreign, foreignVisitorPermission(g), cityPoliticalCounterSource(g.cityId), state.clock,
+        { originalBody: componentLanded(g) || passengerBodyCurrent(), custodyActive, violence: scientistInKnownCombat() }), authorityChanges } };
     const office = scientistCivicOffice(), c = scientistCivicContext(office);
-    const source = office && cityAuthoritySources(office.cityId)?.political;
+    const source = office && cityPoliticalCounterSource(office.cityId);
+    const excluded = Boolean(office && (state.penalFlights?.banishments || []).some(b => b.personId === 'scientist' && b.status === 'active'
+      && (b.cityId === office.cityId || b.recognizedBy?.some(r => r.cityId === office.cityId && r.status === 'active' && r.localOrderId && r.institutionId))));
     return { cityId: office?.cityId, office, context: { ...c, at: state.clock, bodyEpoch: ensureScientistIdentity().bodyEpoch,
-      local: Boolean(c.cityId && c.cityId === office?.cityId), atCounter: c.atCounter, free: !c.busy, powerPerSecond: 0,
-      permission: state.surveyExpeditions?.discovery?.access.active === true, violence: scientistInKnownCombat(),
-      clerkId: office?.clerk?.id, sourceCurrent: Boolean(c.serviceAvailable && source?.institutions.some(i => i.role === 'centralAdministration' && i.id === office?.institutionId)) } };
+      local: Boolean(c.cityId && c.cityId === office?.cityId), atCounter: c.atCounter,
+      free: !c.busy && c.lineOfSight && !excluded && !custodyActive, powerPerSecond: 0, originalBody: true, custodyActive, excluded,
+      permission: !excluded && state.surveyExpeditions?.discovery?.access.active === true, violence: scientistInKnownCombat(), authorityChanges,
+      clerkId: office?.clerk?.id, sourceCurrent: Boolean(c.serviceAvailable && source?.institutionId === office?.institutionId) } };
   }
   function useCityAuthorityCounter(counter, work) {
     const office = counter.office, beforeWork = office?.workSeconds, beforePower = office?.power;
@@ -87966,9 +87981,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       || gate?.outerApproach?.relief?.mission && ['outbound', 'unloading', 'recovering', 'servicing', 'contesting'].includes(gate.outerApproach.relief.phase));
     return { ...original, at: state.clock, alive: !scientistIsDead(), bodyEpoch: ensureScientistIdentity().bodyEpoch,
       sourceCurrent: sameSource, coverageVerified: sameSource, politicalAuthorities: book?.authorities || [],
+      authorityChanges: cityAuthorityChanges(),
       recoveredInstitutionIds: e.recovery?.completed.filter(r => e.recovery.source.projects.some(p => p.id === r.projectId && p.kind === 'institutionRecovery')).map(r => r.targetId) || [],
       local: Boolean(local && original.local), atCounter: Boolean(local && original.atCounter),
-      free: Boolean(local && original.free && !book?.job), reportersPresent: Boolean(local && original.clerkPresent),
+      free: Boolean(local && original.free && original.permission && original.sourceCurrent && !book?.job),
+      reportersPresent: Boolean(local && original.clerkPresent),
       capable: !actorIsIncapacitated('scientist'), institutionsAvailable: e.staff.length > 0 && e.staff.every(a => a.status === 'alive' && a.health >= 50
         && !actorIsIncapacitated(a)),
       defenseAvailable: Boolean(defender && CityDefense.able(defender) && !actorIsIncapacitated(defender)
@@ -88000,7 +88017,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const currentSource = cityAuthoritySources(e.source.cityId)?.recovery;
     return { ...c, ...counter.context, alive: !scientistIsDead(), bodyEpoch: ensureScientistIdentity().bodyEpoch,
       cityId: counter.cityId, local: counter.cityId === e.source.cityId && counter.context.local,
-      free: counter.context.free && !state.cityAuthority?.job, sourceCurrent: c.sourceCurrent
+      free: counter.context.free && counter.context.permission && counter.context.sourceCurrent && !state.cityAuthority?.job, sourceCurrent: c.sourceCurrent
         && JSON.stringify(currentSource) === JSON.stringify(e.recovery?.source),
       authority: CityAuthority.authorizes(e, state.cityAuthority?.authorities || [], c, state.clock),
       worksAvailable: Boolean(works && works.status === 'alive' && works.health >= 50 && !works.hostile && !actorIsIncapacitated(works)
@@ -88018,7 +88035,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       else CityAuthority.release(book, null);
       persist(); render(); return true;
     }
-    if (!counter.office || !counter.context.local) return false;
+    // Gate before registering/allocating anything: a disabled UI is not an
+    // access boundary, and a failed order must not allocate fresh reserves.
+    if (!CityAuthority.attending(counter.context, counter.office)) return false;
     const sources = cityAuthoritySources(cityId); if (!sources?.political) return false;
     let e = book.entries.find(e => e.source.cityId === cityId);
     if (!e) {
@@ -88056,7 +88075,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     } else if (action === 'operate' && !e.operation && e.operationAllocatedAt == null && !e.operationLost) {
       // Never allocate a second copy of an existing home/regional city account.
       if (state.cityRule?.source.cityId === cityId || state.cityProvisioning?.source.cityId === cityId
-        || state.cityDefense?.source.cityId === cityId || regionalGovernmentGates().some(g => g.regionalGovernment.rule?.source.cityId === cityId)) return false;
+        || state.cityDefense?.source.cityId === cityId || regionalGovernmentGates().some(g => g.regionalGovernment.source.cityId === cityId)) return false;
       const operating = cityAuthorityOperatingSources(e);
       if (!CityRule.validSource(operating.operation) || !CityDefense.validSource(operating.defense)) {
         addEvent('The actual city water, food routes, power or defenses do not support operation. A political agreement cannot create missing infrastructure or supplies.'); persist(); render(); return false;
@@ -88080,7 +88099,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.cityAuthority = 'true';
     panel.append(textEl('h4', 'City political settlements'), textEl('p', CityAuthority.SCOPE));
     const counter = cityAuthorityCounter(), c = counter.context, book = state.cityAuthority;
-    const attending = Boolean(c?.alive && c.capable && c.local && c.atCounter && c.free && c.permission && c.clerkPresent);
+    const attending = CityAuthority.attending(c, counter.office);
     const button = (label, action, cityId, expected = null) => { const b = document.createElement('button'); b.textContent = label;
       b.dataset.cityAuthorityAction = action; b.dataset.cityAuthorityTarget = cityId; b.disabled = !attending || Boolean(book?.job);
       b.onclick = () => cityAuthorityAction(action, cityId, expected); panel.append(b); };
@@ -88201,6 +88220,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (action === 'walk') return foreignReceptionAction('walk');
     let n = g.regionalGovernment;
     if (!n && action === 'request') {
+      if (CityAuthority.hasOperatingAllocation(state.cityAuthority, g.cityId)) return refuse();
       const c = foreignReceptionContext(g, false, true), record = RegionalGovernment.evidence(state.cityRule, c.bodyEpoch);
       if (!c.atDesk || !c.authorityCurrent || c.otherBusy || !foreignVisitorPermission(g) || !record
         || state.cityRule.worldId !== activeWorldRecord.id || state.cityRule.runId !== activeRunRecord.id) return refuse();
@@ -88398,7 +88418,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const office = scientistCivicOffice(), c = scientistCivicContext(office);
     if (!c.alive || !c.capable || !c.atCounter || !c.clerkPresent || c.busy) return null;
     const source = cityRuleSource(); if (!source) return null;
-    if (state.cityAuthority?.entries.some(e => e.source.cityId === source.cityId && e.operationAllocatedAt != null)) return null;
+    if (CityAuthority.hasOperatingAllocation(state.cityAuthority, source.cityId)) return null;
     state.cityRule = CityRule.create(source, state.citySuccession, state.cityProvisioning, state.cityDefense,
       { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id }, state.clock);
     return state.cityRule;
@@ -88900,6 +88920,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (state.cityDefense || scientistIsDead()) return state.cityDefense;
     const succession = state.citySuccession, office = scientistCivicOffice(), source = cityDefenseSource(), a = state.sovereignBargains?.defender;
     if (!source || !succession?.handover || succession.control?.recognizedAuthorityId !== 'scientist' || !office) return null;
+    if (CityAuthority.hasOperatingAllocation(state.cityAuthority, source.cityId)) return null;
     const c = scientistCivicContext(office);
     if (!c.alive || !c.capable || !c.atCounter || !c.clerkPresent || c.busy) return null;
     // Reuse the ordinary existing municipal boundary materialization. This
@@ -89045,6 +89066,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!c.alive || !c.capable || !c.atCounter || !c.clerkPresent || c.busy) return null;
     const source = cityProvisioningSource();
     if (!source) return null;
+    if (CityAuthority.hasOperatingAllocation(state.cityAuthority, source.cityId)) return null;
     const s = CityProvisioning.create(source, succession, office, { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id }, state.clock);
     if (!s || ![CityProvisioning.HOME, CityProvisioning.DOCK, CityProvisioning.TRUCK].every(cell =>
       labMapCellRoomId(cell) === SurveyExpeditions.FIELD_ROOM && labMapCellIsWalkable(cell)
@@ -102385,7 +102407,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const scientistNear = cell => c.local && sees(scientistMapCell(), cell, 2);
     const priorPaidPurpose = Boolean(s.mission && ['outbound', 'unloading', 'recovering', 'servicing', 'contesting'].includes(s.phase));
     const discretionary = CityAuthority.externalCampaignAllowed(state.cityAuthority, s.source.partnerId,
-      { bodyEpoch: state.scientistIdentity?.bodyEpoch }, state.clock);
+      { bodyEpoch: state.scientistIdentity?.bodyEpoch, authorityChanges: cityAuthorityChanges() }, state.clock);
     return { ...c, route, sourceCurrent: Boolean(source && JSON.stringify(source) === JSON.stringify(s.source)), independent: !localControl && (priorPaidPurpose || discretionary),
       definitions: COMMODITY_MARKET_LISTING_DEFS, equipmentSponsor: networkEquipmentSponsor(g, countercoalitionMarket(g)),
       routeOpen: Boolean(route?.supportCapable && route.continuity === 'continuous' && !blocked),
@@ -102409,7 +102431,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!o.relief && o.phase === 'held') {
       const partners = countercoalitionMarkets().filter(n => n.id !== g.cityId);
       for (const n of partners) {
-        if (!CityAuthority.externalCampaignAllowed(state.cityAuthority, n.id, { bodyEpoch: state.scientistIdentity?.bodyEpoch }, state.clock)) continue;
+        if (!CityAuthority.externalCampaignAllowed(state.cityAuthority, n.id, { bodyEpoch: state.scientistIdentity?.bodyEpoch, authorityChanges: cityAuthorityChanges() }, state.clock)) continue;
         const route = state.strategicJourneys?.routes.find(r => r.endpointCityIds.includes(g.cityId) && r.endpointCityIds.includes(n.id));
         const source = route && countercoalitionSource(g, n.id, route);
         if (CountercoalitionRelief.eligible(source)) { o.relief = CountercoalitionRelief.create(source, o, g, state.clock); break; }

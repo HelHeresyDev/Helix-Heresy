@@ -13,6 +13,56 @@
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const hash = s => [...s].reduce((n, c) => (Math.imul(n, 31) + c.charCodeAt(0)) >>> 0, 0);
   const SCOPE = 'City-specific political submission with retained local government, not succession, trade or a technical compact. Original controllers must separately release their claim on this city. No army, immunity, divine endorsement, remote city telemetry or domination award.';
+  function counterSource(map, cityId) {
+    const g = map?.cityGovernments?.governments?.find(g => g.cityId === cityId);
+    const row = map?.strategicPlayableSettlementState?.cityRows?.find(r => r.cityId === cityId);
+    const control = map?.strategicPoliticalHistory?.currentControlRows?.find(r => r.cityId === cityId);
+    const admin = map?.strategicCivicHistory?.currentInstitutionRows?.find(r => r.institutionId === g?.roleAssignments?.centralAdministration);
+    if (!g?.charter?.id || !row?.physicalJurisdictionExists || !Number.isSafeInteger(row.currentPopulation) || row.currentPopulation < 2 || row.physicalCondition === 'ruined'
+      || !id(control?.recognizedAuthorityId) || !admin || !['operational', 'strained'].includes(admin.operationalStatus)
+      || !['localCharter', 'overtOccupation', 'capturedAppointments'].includes(admin.actualControlStatus)) return null;
+    return { cityId, charterId: g.charter.id, populationSourceId: row.assetId, institutionId: admin.institutionId,
+      authorityId: control.recognizedAuthorityId, operationalStatus: admin.operationalStatus };
+  }
+  function counterFromPolitical(source) {
+    if (!validSource(source) || !source.physicalJurisdictionExists || source.population < 2) return null;
+    const admin = source.institutions.find(i => i.role === 'centralAdministration');
+    if (!['operational', 'strained'].includes(admin.status)) return null;
+    return { cityId: source.cityId, charterId: source.charterId, populationSourceId: source.populationSourceId,
+      institutionId: admin.id, authorityId: source.parties[0].authorityId, operationalStatus: admin.status };
+  }
+  function counterContext(g, reception, permit, source, at, safeguards) {
+    if (!g?.clerk || !reception || !safeguards) return { sourceCurrent: false, permission: false, free: false };
+    const excluded = Boolean(reception.bans?.some(b => b.status === 'active' && (b.cityId === g.cityId
+      || b.recognizedBy?.some(r => r.cityId === g.cityId && r.status === 'active' && r.localOrderId && r.institutionId))));
+    const permission = Boolean(permit?.scope === 'visitorHallOnly' && permit.cityId === g.cityId && permit.bodyEpoch === reception.bodyEpoch
+      && permit.visitId === reception.visitId && permit.issuedAt <= at && at < permit.expiresAt);
+    return { ...reception, at, atCounter: reception.atDesk, clerkId: g.clerk.id, powerPerSecond: 1,
+      excluded, originalBody: safeguards.originalBody === true, custodyActive: safeguards.custodyActive === true,
+      violence: safeguards.violence === true,
+      sourceCurrent: Boolean(source && source.cityId === g.cityId && source.institutionId === g.institutionId && reception.authorityCurrent),
+      permission: permission && !excluded, free: !reception.otherBusy && !excluded && safeguards.originalBody === true
+        && !safeguards.custodyActive && !safeguards.violence && reception.lineOfSight === true };
+  }
+  function authorityChange(s) {
+    if (!s?.handover || !id(s.source?.cityId)) return null;
+    const h = s.handover, c = s.control;
+    const valid = id(h.id) && time(h.at) && h.cityId === s.source.cityId && h.charterId === s.source.charterId
+      && id(h.recognizedAuthorityId) && c?.sourceReceiptId === h.id && c.cityId === h.cityId && c.charterId === h.charterId
+      && c.recognizedAuthorityId === h.recognizedAuthorityId && c.bodyEpoch === h.bodyEpoch;
+    return { cityId: s.source.cityId, charterId: s.source.charterId, at: time(h.at) ? h.at : 0,
+      authorityId: valid ? h.recognizedAuthorityId : null, receiptId: valid ? h.id : null, invalid: !valid };
+  }
+  function partyCurrent(party, changes, at) {
+    if (!party) return false;
+    const applicable = (changes || []).filter(r => r.cityId === party.cityId && r.at <= at);
+    return applicable.every(r => !r.invalid && r.charterId === party.charterId && r.authorityId === party.authorityId);
+  }
+  function hasOperatingAllocation(book, cityId) {
+    // A lost/withdrawn account still owns its original allocation. A different
+    // government screen cannot turn it into another unused pool of reserves.
+    return Boolean(book?.entries?.some(e => e.source.cityId === cityId && e.operationAllocatedAt != null));
+  }
   function sourceFromWorld(map, cityId) {
     const g = map?.cityGovernments?.governments?.find(g => g.cityId === cityId), p = map?.cityPolities?.polities?.find(p => p.cityId === cityId);
     const row = map?.strategicPlayableSettlementState?.cityRows?.find(r => r.cityId === cityId);
@@ -113,10 +163,14 @@
         status: 'alive', health: 100, workSeconds: party.channelWorkSeconds, assignment: null } } : {}) };
     book.authorities.push(a); return a;
   }
-  function ready(c, office, own = null) {
+  function attending(c, office) {
     return Boolean(c?.alive && c.capable && c.local && c.atCounter && c.free && !c.violence && c.sourceCurrent && c.permission
+      && !c.excluded && !c.custodyActive && c.originalBody !== false && c.lineOfSight !== false
       && c.clerkPresent && able(office?.clerk) && office.clerk.id === c.clerkId && c.bodyEpoch >= 0
-      && time(c.at) && office.active !== false && office.channelPowered !== false && office.workSeconds > 0
+      && time(c.at) && office.active !== false);
+  }
+  function ready(c, office, own = null) {
+    return Boolean(attending(c, office) && office.channelPowered !== false && office.workSeconds > 0
       && (office.power > 0 || c.powerPerSecond === 0 && own) && (!office.assignment || office.assignment === own));
   }
   function quote(e, bodyEpoch, at) {
@@ -133,11 +187,12 @@
     let party = e.source.parties.find(p => p.cityId === c.cityId && (!c.authorityId || p.authorityId === c.authorityId));
     if (!party && c.displacedChannelId) party = e.source.parties.find(p => p.channel === c.displacedChannelId);
     if (!party || kind !== 'inspect' && !e.knowledge) return false;
+    if (!partyCurrent(party, c.authorityChanges, at)) return false;
     if (kind === 'negotiate' && (party !== e.source.parties[0] || ['active', 'refused'].includes(e.phase))) return false;
-    if (kind === 'accept' && (e.phase !== 'offered' || !same(expected, e.terms) || at >= e.terms.expiresAt || e.terms.bodyEpoch !== c.bodyEpoch)) return false;
-    if (kind === 'assent' && (!e.terms || !same(expected, e.terms) || !e.resolutions.length || at >= e.terms.expiresAt
+    if (kind === 'accept' && (party !== e.source.parties[0] || e.phase !== 'offered' || !same(expected, e.terms) || at >= e.terms.expiresAt || e.terms.bodyEpoch !== c.bodyEpoch)) return false;
+    if (kind === 'assent' && (party === e.source.parties[0] || e.phase !== 'awaitingControllers' || !e.terms || !same(expected, e.terms) || !e.resolutions.length || at >= e.terms.expiresAt
       || e.terms.bodyEpoch !== c.bodyEpoch || e.resolutions.some(r => r.authorityId === party.authorityId && r.termsId === e.terms.id))) return false;
-    if (kind === 'withdraw' && e.phase !== 'active') return false;
+    if (kind === 'withdraw' && (party !== e.source.parties[0] || e.phase !== 'active')) return false;
     if (kind === 'report' && !e.terms) return false;
     if (!['inspect', 'negotiate', 'accept', 'assent', 'withdraw', 'report'].includes(kind)) return false;
     const authority = ensureAuthority(book, party, originals), seconds = ['negotiate', 'assent'].includes(kind) ? 180 : 60;
@@ -167,6 +222,7 @@
     const e = book.entries.find(e => e.source.cityId === j.cityId), authority = book.authorities.find(a => a.authorityId === j.authorityId);
     if (j.bodyEpoch !== c.bodyEpoch || !e || !authority) { release(book, office); return true; }
     const available = ready({ ...c, at }, office, j.id) && j.officeId === office.id && j.clerkId === office.clerk.id
+      && partyCurrent(e.source.parties.find(p => p.authorityId === j.authorityId), c.authorityChanges, at)
       && authority.members.every(a => able(a) && a.assignment === j.id)
       && (!authority.channel || able(authority.operator) && authority.operator.assignment === j.id);
     if (!available) { if (office?.assignment === j.id) office.assignment = null; j.wasReady = false; return false; }
@@ -220,12 +276,16 @@
       && e.terms.charterId === e.source.charterId && time(e.since) && e.since <= at && e.terms.at <= e.since && (!e.withdrawal)
       // The deadline belongs to unsigned proposals, not a perpetual renewal
       // ceremony. Accepted relationships end through actual loss or breach.
-      && e.source.parties.every(p => {
+      && e.source.parties.every((p, index) => {
         const a = authorities.find(a => a.authorityId === p.authorityId && a.charterId === p.charterId && a.cityId === p.cityId);
         const r = e.resolutions.find(r => r.authorityId === p.authorityId && r.charterId === p.charterId && r.termsId === e.terms.id && r.decisionMandateId === p.decisionMandateId);
         return a && a.kind === p.kind && a.members.length === (p.kind === 'collective' ? 3 : 1) && r && r.at <= at && r.at >= e.terms.at
           && r.required === a.members.length && Array.isArray(r.members) && new Set(r.members).size === r.members.length
-          && r.members.filter(member => a.members.some(a => a.id === member && able(a) && !a.hostile)).length >= r.required;
+          // A completed controller release is a dated relinquishment, not a
+          // perpetual personal guarantee. Later succession/death cannot
+          // resurrect that released claim. Local government stays current.
+          && partyCurrent(p, c.authorityChanges, index === 0 ? at : r.at)
+          && r.members.filter(member => a.members.some(a => a.id === member && (index > 0 || able(a) && !a.hostile))).length >= r.required;
       }));
   }
   function lifecycleFact(e, book, c, at) {
@@ -303,5 +363,6 @@
       if (e.recovery && bound(e.recovery, from)) Object.assign(e.recovery, pickBinding(to));
     } return s; }
   return { DAY, ROLES, SCOPE, bound, sourceFromWorld, validSource, create, register, ensureAuthority, ready, quote,
+    counterSource, counterFromPolitical, counterContext, authorityChange, partyCurrent, attending, hasOperatingAllocation,
     validLaw, begin, advance, release, receive, authorizes, lifecycleFact, breach, externalCampaignAllowed, adoptActor, normalize, rebind };
 });
