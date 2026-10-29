@@ -92,7 +92,8 @@
   function cityAccount(b, s, succession, people, c, at) {
     if (!s?.source) return null;
     const f = { ...b, targetId: `city:${s.source.cityId}`, sourceId: s.source.populationSourceId,
-      kind: 'city', at, since: s.since, state: 'unverified', proofId: s.id, basis: 'directGovernment', viable: false };
+      kind: 'city', at, since: s.since, state: 'unverified', proofId: s.id,
+      basis: s.authorityKind === 'subordinateLocalGovernment' ? 'enforceableClient' : 'directGovernment', viable: false };
     if (!bound(s, b) || s.lastAt !== at || !c?.alive || !c.sourceCurrent) return f;
     const reason = Rule.condition(s, succession, people, c);
     if (reason === 'unverified') return f;

@@ -227,6 +227,12 @@
         id: `city-charter:${ordinal}`,
         legitimacyBasis: legitimacyBasis(polity),
         decisionRule: decisionRule(polity),
+        politicalAgreements: {
+          id: `city-charter:${ordinal}:external-political-agreements`, authority: 'currentRecognizedSovereign',
+          individualRule: 'recordedPersonalDirective', collectiveRule: 'unanimousThreeDelegateResolution',
+          collectiveSeats: 3, scope: 'Retained local government may accept external strategic primacy or relinquish an existing territorial claim.',
+          safeguards: 'Charter, courts, property, worship and existing appointments remain; foreign controllers must separately release their own claims. No succession, immunity or divine endorsement.'
+        },
         successionPrinciple: polity.successionPrinciple,
         designationReview: designationReviewRule(worldSeed, city.id, polity.successionPrinciple, polity.authority.kind, reviewId, patron),
         publicWorksAppointment: polity.authority.kind === 'individual'

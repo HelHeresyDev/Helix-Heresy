@@ -13,7 +13,7 @@
   const LIMITS = 'Original approach installation and two outer approach tiles only, not whole-city defense, a new wall, an army or divine endorsement. Station energy is separate from personal mana and counter power. Existing inner-boundary protection is outside this contribution. No forced attack, remote telemetry, automatic political collapse or city-power award.';
   const same = (a, b) => Boolean(a && b && a.x === b.x && a.y === b.y && a.z === b.z);
   const able = a => a?.status === 'alive' && a.health >= 50 && (a.fatigue || 0) < 80;
-  function sourceFromWorld(map, cityId) {
+  function sourceFromWorld(map, cityId, options = {}) {
     const row = map?.strategicPlayableSettlementState?.cityRows?.find(r => r.cityId === cityId);
     const g = map?.cityGovernments?.governments?.find(g => g.cityId === cityId);
     const institution = g?.institutions?.find(i => i.id === g.roleAssignments.militaryDefenseCommand);
@@ -21,7 +21,8 @@
     if (!row || row.currentPopulation < 8 || !row.physicalJurisdictionExists || row.physicalCondition === 'ruined'
       || !['fragile', 'functional', 'strong'].includes(row.services?.fortifications) || !institution
       || ['disrupted', 'displaced', 'suspended'].includes(current?.operationalStatus)
-      || current && current.actualControlStatus !== 'localCharter') return null;
+      || current && current.actualControlStatus !== 'localCharter'
+        && !(options.politicalSettlement && ['overtOccupation', 'capturedAppointments'].includes(current.actualControlStatus))) return null;
     const condition = Math.min(({ fragile: 55, functional: 80, strong: 100 })[row.services.fortifications],
       ({ intact: 100, worn: 85, damaged: 55, badlyDamaged: 40 })[row.physicalCondition] || 55);
     return { cityId, cityName: row.name || cityId, charterId: g.charter.id, institutionId: institution.id,

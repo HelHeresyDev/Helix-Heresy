@@ -1,17 +1,18 @@
 (function (root, factory) {
   const node = typeof module === 'object' && module.exports;
   const api = factory(node ? require('./city-provisioning') : root.HelixCityProvisioning,
-    node ? require('./city-rule-history') : root.HelixCityRuleHistory);
+    node ? require('./city-rule-history') : root.HelixCityRuleHistory,
+    node ? require('./city-authority') : root.HelixCityAuthority);
   if (node) module.exports = api;
   if (root) root.HelixCityRule = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Provisioning, History) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Provisioning, History, Political) {
   'use strict';
   const DAY = 86400, INTERVAL = 3 * DAY;
   const ROLES = ['centralAdministration', 'civicReview', 'civilWatch', 'publicWorksAndProvisioning', 'militaryDefenseCommand'];
   const copy = x => JSON.parse(JSON.stringify(x));
   const finite = n => Number.isFinite(n) && n >= 0;
   const LIMITS = 'Three uninterrupted days of supported city operation, not neighboring sovereignty, divine endorsement or an ending. Independent courts, property and worship remain independent. Reports are dated personal receipts, never a live remote roster. Finite municipal allocations are not player or market goods.';
-  function sourceFromWorld(map, cityId) {
+  function sourceFromWorld(map, cityId, options = {}) {
     if (!map || !cityId) return null;
     const row = map?.strategicPlayableSettlementState?.cityRows?.find(r => r.cityId === cityId);
     const g = map?.cityGovernments?.governments?.find(r => r.cityId === cityId);
@@ -21,14 +22,16 @@
     const works = sites.find(s => s.cityId === cityId && s.function === 'fortifiedWorks' && s.operationalAtPlayableYear);
     const power = sites.find(s => s.cityId === cityId && s.function === 'powerWorks' && s.operationalAtPlayableYear);
     if (!row?.physicalJurisdictionExists || row.currentPopulation < 8 || row.physicalCondition === 'ruined'
-      || !g || !civic || !control || control.controlStatus !== 'sovereign' || !control.recognizedAuthorityId || !control.sovereignPolityId
-      || control.effectiveControllerPolityId !== control.sovereignPolityId
+      || !g || !civic || !control || !control.recognizedAuthorityId || !control.sovereignPolityId
+      || (!options.politicalSettlement && (control.controlStatus !== 'sovereign' || control.effectiveControllerPolityId !== control.sovereignPolityId))
+      || !['sovereign', 'tributary', 'puppet', 'occupied'].includes(control.controlStatus)
       || !works || !power || !['functional', 'strong'].includes(row.services?.provisioning)
       || !['functional', 'strong'].includes(row.services?.fortifications)) return null;
     const institutions = ROLES.map(role => {
       const id = g.roleAssignments[role], original = g.institutions.find(i => i.id === id);
       const current = civic.find(i => i.institutionId === id);
-      return original && current && current.actualControlStatus === 'localCharter'
+      return original && current && (current.actualControlStatus === 'localCharter'
+        || options.politicalSettlement && ['overtOccupation', 'capturedAppointments'].includes(current.actualControlStatus))
         && !['displaced', 'disrupted', 'suspended'].includes(current.operationalStatus)
         ? { role, id } : null;
     });
@@ -67,6 +70,18 @@
       || source.baselineAuthorityId && source.baselineAuthorityId !== succession.source.authority?.id
       || !reservedDefense?.id || !finite(reservedDefense.initialEnergy)) return null;
     return allocate(source, succession, run, at, null, reservedDefense.initialEnergy, reservedDefense.id);
+  }
+  function createClient(source, settlement, authorities, run, at, reservedDefense, c) {
+    if (!validSource(source) || !Political.bound(settlement, run) || !Political.authorizes(settlement, authorities, c, at)
+      || settlement.source.cityId !== source.cityId || settlement.source.charterId !== source.charterId
+      || settlement.source.populationSourceId !== source.populationSourceId || settlement.source.population !== source.population
+      || !reservedDefense?.id || !finite(reservedDefense.initialEnergy)) return null;
+    // The existing allocation engine uses a receipt ID, not a second sovereign
+    // handover. The political settlement remains a distinct authority contract.
+    const s = allocate(source, { source, officeId: settlement.source.institutions.find(i => i.role === 'centralAdministration').id,
+      handover: { id: settlement.terms.id, bodyEpoch: settlement.terms.bodyEpoch } }, run, at, null, reservedDefense.initialEnergy, reservedDefense.id);
+    s.authorityKind = 'subordinateLocalGovernment'; s.politicalSourceId = settlement.source.sourceId;
+    return s;
   }
   function allocate(source, succession, run, at, provision, excludedEnergy, defenseId) {
     const population = source.population - (provision?.demand.population || 0), dailyKg = population * .5;
@@ -127,6 +142,16 @@
     return next;
   }
   function authority(s, succession, people, c) {
+    if (s?.authorityKind === 'subordinateLocalGovernment') return Boolean(c.sourceCurrent && Political.bound(s, succession)
+      && s.bodyEpoch === c.bodyEpoch && s.handoverId === succession.terms?.id && s.politicalSourceId === succession.source?.sourceId
+      && s.source.cityId === succession.source.cityId && s.source.charterId === succession.source.charterId
+      && s.source.populationSourceId === succession.source.populationSourceId
+      && Political.authorizes(succession, c.politicalAuthorities || [], c, Math.max(s.lastAt, c.at ?? s.lastAt))
+      && ROLES.every(role => s.source.institutions.some(i => i.role === role && succession.source.institutions.some(p => p.role === role && p.id === i.id
+        && !['displaced', 'disrupted', 'suspended'].includes(p.status)) && people.some(a => a.institutionId === i.id
+          && (a.roles?.includes(role) || role === 'militaryDefenseCommand' && a.exceptionalCapabilities?.includes('city-scale ward defense'))
+          && a.status === 'alive' && a.health >= 50 && a.officeStatus?.status !== 'replacedByReviewedAppointment'
+          && !c.incapacitatedIds?.includes(a.id)))));
     return Boolean(s && c.sourceCurrent && c.bodyEpoch === s.bodyEpoch && succession?.handover?.id === s.handoverId
       && succession.control?.sourceReceiptId === s.handoverId && succession.control.recognizedAuthorityId === 'scientist'
       && succession.control.bodyEpoch === s.bodyEpoch && succession.source.cityId === s.source.cityId
@@ -354,5 +379,5 @@
     History.issue(s, s.report);
     return true;
   }
-  return { DAY, INTERVAL, ROLES, LIMITS, sourceFromWorld, validSource, create, createAggregate, normalize, authority, contact, plantWorking, condition, order, recharge, distribution, advance, receive };
+  return { DAY, INTERVAL, ROLES, LIMITS, sourceFromWorld, validSource, create, createAggregate, createClient, normalize, authority, contact, plantWorking, condition, order, recharge, distribution, advance, receive };
 });

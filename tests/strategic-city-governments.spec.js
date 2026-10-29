@@ -92,6 +92,21 @@ test('generated designation review rules are explicit deterministic published lo
   expect(CityGovernments.auditCityGovernments(map).valid).toBe(true);
 });
 
+test('political agreement law explicitly authorizes the original sovereign decision rather than a spokesperson or succession shortcut', () => {
+  test.setTimeout(180000);
+  const map = governmentFoundation('charter-foundation'), A = require('../city-authority');
+  const directory = CityGovernments.publicCityGovernmentDirectory(map);
+  expect(new Set(map.cityPolities.polities.map(p => p.authority.kind))).toEqual(new Set(['individual', 'collective']));
+  for (const g of map.cityGovernments.governments) {
+    const law = g.charter.politicalAgreements;
+    expect(A.validLaw(law)).toBe(true); expect(directory.find(e => e.city.id === g.cityId).charter.politicalAgreements).toEqual(law);
+    expect(law).toMatchObject({ authority: 'currentRecognizedSovereign', individualRule: 'recordedPersonalDirective',
+      collectiveRule: 'unanimousThreeDelegateResolution', collectiveSeats: 3 });
+    expect(law.safeguards).toContain('foreign controllers must separately release');
+    expect(law.safeguards).toContain('No succession');
+  }
+});
+
 test('disputed public-works appointment law is separately published only where independent designation confirmation is permitted', () => {
   const map = governmentFoundation('charter-foundation'), A = require('../public-works-appointments');
   const original = JSON.stringify(map), directory = CityGovernments.publicCityGovernmentDirectory(map);
