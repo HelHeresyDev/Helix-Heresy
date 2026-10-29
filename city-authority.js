@@ -35,13 +35,15 @@
     if (!g?.clerk || !reception || !safeguards) return { sourceCurrent: false, permission: false, free: false };
     const excluded = Boolean(reception.bans?.some(b => b.status === 'active' && (b.cityId === g.cityId
       || b.recognizedBy?.some(r => r.cityId === g.cityId && r.status === 'active' && r.localOrderId && r.institutionId))));
-    const permission = Boolean(permit?.scope === 'visitorHallOnly' && permit.cityId === g.cityId && permit.bodyEpoch === reception.bodyEpoch
+    const visitor = Boolean(permit?.scope === 'visitorHallOnly' && permit.cityId === g.cityId && permit.bodyEpoch === reception.bodyEpoch
       && permit.visitId === reception.visitId && permit.issuedAt <= at && at < permit.expiresAt);
+    const own = safeguards.governmentBinding?.cityId === g.cityId && source?.charterId === safeguards.governmentBinding.charterId
+      && governingAccess(safeguards.governmentBinding, safeguards.governingSuccession, at, reception.bodyEpoch);
     return { ...reception, at, atCounter: reception.atDesk, clerkId: g.clerk.id, powerPerSecond: 1,
       excluded, originalBody: safeguards.originalBody === true, custodyActive: safeguards.custodyActive === true,
       violence: safeguards.violence === true,
       sourceCurrent: Boolean(source && source.cityId === g.cityId && source.institutionId === g.institutionId && reception.authorityCurrent),
-      permission: permission && !excluded, free: !reception.otherBusy && !excluded && safeguards.originalBody === true
+      permission: (visitor || own) && !excluded, free: !reception.otherBusy && !excluded && safeguards.originalBody === true
         && !safeguards.custodyActive && !safeguards.violence && reception.lineOfSight === true };
   }
   function authorityChange(s) {
@@ -52,6 +54,14 @@
       && c.recognizedAuthorityId === h.recognizedAuthorityId && c.bodyEpoch === h.bodyEpoch;
     return { cityId: s.source.cityId, charterId: s.source.charterId, at: time(h.at) ? h.at : 0,
       authorityId: valid ? h.recognizedAuthorityId : null, receiptId: valid ? h.id : null, invalid: !valid };
+  }
+  function governingAccess(binding, succession, at, bodyEpoch) {
+    const change = authorityChange(succession);
+    return Boolean(binding && change && !change.invalid && change.authorityId === 'scientist'
+      && change.receiptId === binding.receiptId && change.at === binding.handoverAt && change.at <= at && binding.at <= at
+      && change.cityId === binding.cityId && change.charterId === binding.charterId
+      && succession.source.populationSourceId === binding.populationSourceId
+      && succession.control.bodyEpoch === bodyEpoch && binding.bodyEpoch === bodyEpoch);
   }
   function partyCurrent(party, changes, at) {
     if (!party) return false;
@@ -363,6 +373,6 @@
       if (e.recovery && bound(e.recovery, from)) Object.assign(e.recovery, pickBinding(to));
     } return s; }
   return { DAY, ROLES, SCOPE, bound, sourceFromWorld, validSource, create, register, ensureAuthority, ready, quote,
-    counterSource, counterFromPolitical, counterContext, authorityChange, partyCurrent, attending, hasOperatingAllocation,
+    counterSource, counterFromPolitical, counterContext, authorityChange, governingAccess, partyCurrent, attending, hasOperatingAllocation,
     validLaw, begin, advance, release, receive, authorizes, lifecycleFact, breach, externalCampaignAllowed, adoptActor, normalize, rebind };
 });

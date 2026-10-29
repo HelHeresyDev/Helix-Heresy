@@ -32,7 +32,7 @@ function fixture(name = 'Original Keeper') {
 }
 function advance(f, seconds) {
   f.at += seconds;
-  Government.advance(f.n, f.g, f.c, f.at, { move: (a, cell) => { a.mapCell = copy(cell); return true; } });
+  Government.advance(f.n, f.g, f.c, f.at, { retainedAllocation: f.retainedAllocation, move: (a, cell) => { a.mapCell = copy(cell); return true; } });
 }
 const action = (f, a, expected, stacks) => Government.action(f.n, f.g, f.c, a, expected, f.at, stacks);
 function hearing(f) {
@@ -62,6 +62,15 @@ test('received governing experience is knowledge, not copied authority, original
   assert.equal(f.n.rule.initialEnergy + f.original.defense.baselineEnergy, 5 * 86400 * 3);
   assert.equal(f.n.rule.farms[0].drivers, 6); assert.equal(f.n.rule.pilotProvisionId, null);
   assert.equal(f.n.rule.farms[0].excludedPilotId, null);
+});
+test('actual regional succession completes without allocating a second pool when an original client account already owns the city resources', () => {
+  const f=fixture();f.retainedAllocation=true;hearing(f);
+  assert(action(f,'sign',copy(f.n.succession.terms)));
+  assert(action(f,'deliver',null,[{id:'original-owned-parts',key:'metalParts',quantity:18,carriedBy:'scientist'}]));
+  for(const p of [...f.n.succession.leaders,f.g.foreignCivic.bargain.defender]){assert(action(f,'agree',p.id));advance(f,60);}
+  assert(action(f,'handover'));advance(f,180);
+  assert(f.n.succession.handover);assert.equal(f.n.rule,null);
+  const people=copy(f.n.succession.leaders);advance(f,3600);assert.equal(f.n.rule,null);assert.deepEqual(f.n.succession.leaders,people);
 });
 test('missing sources, incompatible charters, patron authentications, duplicate original people and unreceived records cannot open this route', () => {
   for (const mutate of [f => f.original.operation.farms = [], f => f.original.defense.baselineEnergy = NaN,

@@ -126,6 +126,12 @@
       || !Array.isArray(s.farms) || !Array.isArray(s.receipts) || s.farms.length !== s.source.farms.length
       || s.farms.some(f => !['stockKg', 'cropKg', 'cargoKg', 'fuelKm', 'dutySeconds'].every(k => finite(f[k])))) return null;
     const next = copy(s);
+    if (next.governmentBinding && (!['receiptId', 'cityId', 'charterId', 'populationSourceId', 'fromProofId'].every(k => typeof next.governmentBinding[k] === 'string' && next.governmentBinding[k])
+      || !finite(next.governmentBinding.at) || !finite(next.governmentBinding.handoverAt)
+      || next.governmentBinding.handoverAt > next.governmentBinding.at || next.governmentBinding.at > next.lastAt
+      || next.governmentBinding.cityId !== next.source.cityId || next.governmentBinding.charterId !== next.source.charterId
+      || next.governmentBinding.populationSourceId !== next.source.populationSourceId || next.governmentBinding.fromProofId !== next.handoverId
+      || next.governmentBinding.bodyEpoch !== next.bodyEpoch)) return null;
     next.chargedEnergy ??= 0;
     // Legacy plants start from their surviving operational baseline NOW, not
     // from an invented overdue maintenance date or retroactive wear.
@@ -147,6 +153,13 @@
     return next;
   }
   function authority(s, succession, people, c) {
+    if (s?.governmentBinding) {
+      const b = s.governmentBinding, actual = c.governingSuccession;
+      return Boolean(Political.governingAccess(b, actual, c.at ?? s.lastAt, c.bodyEpoch)
+        && b.fromProofId === s.handoverId && b.bodyEpoch === s.bodyEpoch
+        && actual.source.populationSourceId === s.source.populationSourceId && actual.source.population === s.source.population
+        && directAuthority(s, actual, c.governingPeople || [], c, b.receiptId));
+    }
     if (s?.authorityKind === 'subordinateLocalGovernment') return Boolean(c.sourceCurrent && Political.bound(s, succession)
       && s.bodyEpoch === c.bodyEpoch && s.handoverId === succession.terms?.id && s.politicalSourceId === succession.source?.sourceId
       && s.source.cityId === succession.source.cityId && s.source.charterId === succession.source.charterId
@@ -158,8 +171,11 @@
           && (a.roles?.includes(role) || role === 'militaryDefenseCommand' && a.exceptionalCapabilities?.includes('city-scale ward defense'))
           && a.status === 'alive' && a.health >= 50 && a.officeStatus?.status !== 'replacedByReviewedAppointment'
           && !c.incapacitatedIds?.includes(a.id)))));
-    return Boolean(s && c.sourceCurrent && c.bodyEpoch === s.bodyEpoch && succession?.handover?.id === s.handoverId
-      && succession.control?.sourceReceiptId === s.handoverId && succession.control.recognizedAuthorityId === 'scientist'
+    return directAuthority(s, succession, people, c);
+  }
+  function directAuthority(s, succession, people, c, proofId = s?.handoverId) {
+    return Boolean(s && c.sourceCurrent && c.bodyEpoch === s.bodyEpoch && succession?.handover?.id === proofId
+      && succession.control?.sourceReceiptId === proofId && succession.control.recognizedAuthorityId === 'scientist'
       && succession.control.bodyEpoch === s.bodyEpoch && succession.source.cityId === s.source.cityId
       && succession.source.charterId === s.source.charterId && ROLES.every(role => {
         const institution = s.source.institutions.find(i => i.role === role);
@@ -170,6 +186,26 @@
             && p.officeStatus?.status !== 'replacedByReviewedAppointment')
           && succession.control.commandRelationships?.some(a => a.personId === r.personId && a.institutionId === institution.id && a.roles.includes(role)));
       }));
+  }
+  function continueGovernment(s, previous, previousPeople, previousContext, successor, people, c, at) {
+    const change = Political.authorityChange(successor);
+    if (!s || s.authorityKind !== 'subordinateLocalGovernment' || s.governmentBinding || !c.alive
+      || !finite(at) || at < s.lastAt || !change || change.invalid || change.at > at
+      || !Political.bound(s, previous) || successor.source.populationSourceId !== s.source.populationSourceId
+      || successor.source.population !== s.source.population
+      || !directAuthority(s, successor, people, c, change.receiptId)) return false;
+    // Advance only the old government's actually supported time up to the
+    // real handover boundary. Never repair an earlier gap or move time back.
+    const boundary = Math.max(s.lastAt, change.at);
+    advance(s, previous, previousPeople, previousContext, boundary);
+    if (s.lastAt !== boundary) return false;
+    s.governmentBinding = { receiptId: change.receiptId, at: boundary, handoverAt: change.at,
+      cityId: s.source.cityId, charterId: s.source.charterId, populationSourceId: s.source.populationSourceId,
+      bodyEpoch: s.bodyEpoch, fromProofId: s.handoverId };
+    s.receipts.push({ id: `${s.id}:government-continuation:${change.receiptId}`, kind: 'governmentContinuation',
+      at: boundary, handoverAt: change.at, handoverId: change.receiptId, originalAllocationId: s.handoverId });
+    assess(s, previous, previousPeople, { ...c, governingSuccession: successor, governingPeople: people }, boundary);
+    return true;
   }
   const contact = c => c.alive && c.capable && c.atCounter && c.local && c.free && !c.violence && c.reportersPresent;
   const plantWorking = s => !s.powerMaintenance || !s.powerMaintenance.accountLost && !s.powerMaintenance.repairAssignment && s.powerMaintenance.condition > 50 + 1e-7;
@@ -380,10 +416,11 @@
       receipts: copy(s.receipts), counterpower: c.counterpower === 'capableOpposition' ? 'An established effective challenge prevents verification.'
         : c.counterpower !== 'noEstablishedChallenge' ? 'Unverified: current coverage is incomplete.'
           : 'No established capable challenge within this operating account; not proof of universal loyalty or divine acquiescence.' };
+    if (s.governmentBinding) s.report.governmentBinding = copy(s.governmentBinding);
     if (s.powerFuel) s.report.powerFuel = copy(s.powerFuel);
     if (s.powerMaintenance) s.report.powerMaintenance = copy(s.powerMaintenance);
     History.issue(s, s.report);
     return true;
   }
-  return { DAY, INTERVAL, ROLES, LIMITS, sourceFromWorld, validSource, create, createAggregate, createClient, normalize, authority, contact, plantWorking, condition, order, recharge, distribution, advance, receive };
+  return { DAY, INTERVAL, ROLES, LIMITS, sourceFromWorld, validSource, create, createAggregate, createClient, normalize, authority, continueGovernment, contact, plantWorking, condition, order, recharge, distribution, advance, receive };
 });

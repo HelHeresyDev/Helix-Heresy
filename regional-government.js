@@ -97,7 +97,7 @@
   function advance(n, g, c, at, effects = {}) {
     if (!n || !c.alive || !Number.isFinite(at) || at < n.lastAt) return false;
     let ctx = context(n, g, c), changed = useOffice(g, o => Succession.advance(n.succession, g.foreignCivic.bargain, o, ctx, at, effects));
-    if (n.succession.handover && !n.rule) {
+    if (n.succession.handover && !n.rule && !effects.retainedAllocation) {
       n.rule = Rule.createAggregate(n.source, n.succession, { worldId: n.worldId, runId: n.runId }, n.succession.handover.at,
         { id: n.defense.installationId, initialEnergy: n.defense.baselineEnergy });
       changed ||= Boolean(n.rule);
