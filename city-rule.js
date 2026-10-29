@@ -37,17 +37,19 @@
     });
     if (institutions.some(i => !i)) return null;
     const reserveDays = Math.min(...[works, power].map(s => ({ fragile: 2, strained: 3, serviceable: 4, robust: 5 })[s.hiddenConditionBand] || 0));
-    const farms = Provisioning.sourceFromWorld(map, cityId, true);
+    const farms = Provisioning.sourceFromWorld(map, cityId, true, { aggregateTransport: true });
     if (!reserveDays || !farms.length) return null;
     return { cityId, cityName: row.name, charterId: g.charter.id, populationSourceId: row.assetId,
       population: row.currentPopulation, institutions, worksId: works.id, powerId: power.id,
       powerCondition: ({ fragile: 65, strained: 75, serviceable: 85, robust: 100 })[power.hiddenConditionBand], reserveDays, farms,
+      reservedClaimantEnergy: (map.strategicPlayableSettlementState.claimantContactRows || []).filter(r => r.hostCityId === cityId && r.powerSourceId === power.id).reduce((n, r) => n + r.reservedEnergy, 0),
       politicalSourceId: `${cityId}:playable-political-control`, baselineAuthorityId: control.recognizedAuthorityId,
       provenance: 'Existing populated city, original institutions, water/wall works, power works and measured direct agricultural routes; finite run-owned elaboration.' };
   }
   function validSource(s) {
     return Boolean(s && ['cityId', 'charterId', 'populationSourceId', 'worksId', 'powerId'].every(k => typeof s[k] === 'string' && s[k])
       && Number.isInteger(s.population) && s.population >= 8 && finite(s.reserveDays) && s.reserveDays >= 1 && s.reserveDays <= 5
+      && finite(s.reservedClaimantEnergy ?? 0) && (s.reservedClaimantEnergy || 0) <= s.reserveDays * DAY * Math.max(1, s.population / 1000)
       && (s.powerCondition == null || finite(s.powerCondition) && s.powerCondition <= 100)
       && ROLES.every(role => s.institutions?.some(i => i.role === role && i.id)) && Array.isArray(s.farms) && s.farms.length
       && new Set(s.farms.map(f => f.satelliteId)).size === s.farms.length
@@ -91,16 +93,19 @@
       // allocated quota/crop/driver/truck is removed, not copied into this pool.
       const output = f.satellitePopulation * .5 * ({ marginal: 4, limited: 6, productive: 8, abundant: 10 })[f.arableLandBand];
       const exportKg = Math.max(0, output - f.satellitePopulation * .5 - (pilot?.demand.kgPerDay || 0));
-      const drivers = Math.max(0, Math.floor(f.satellitePopulation / 100) - (pilot ? 1 : 0));
+      const carriers = Math.max(0, (f.transport?.carriers ?? Math.floor(f.satellitePopulation / 100)) - (pilot ? 1 : 0));
+      const drivers = carriers * (f.transport?.crewPerCarrier || 1), speedKph = f.transport?.speedKph || 40;
+      const capacityKg = f.transport ? f.transport.capacityKg * carriers / f.transport.carriers : carriers * 1200;
+      const fuelKm = carriers * (f.transport?.rangeKm || 600);
       const stock = exportKg * f.storageDays;
-      return { id: f.satelliteId, distanceKm: f.distanceKm, drivers, capacityKg: drivers * 1200,
-        fuelKm: drivers * 600, initialFuelKm: drivers * 600, spentFuelKm: 0, dutySeconds: drivers * 8 * 3600,
+      return { id: f.satelliteId, distanceKm: f.distanceKm, drivers, carriers, speedKph, mode: f.transport?.mode || 'groundConvoy', capacityKg,
+        fuelKm, initialFuelKm: fuelKm, spentFuelKm: 0, dutySeconds: drivers * 8 * 3600,
         stockKg: stock, initialKg: stock, cropKg: exportKg * 6, initialCropKg: exportKg * 6,
         harvestedKg: 0, deliveredKg: 0, cargoKg: 0, exportKg, trip: null, lastDepartureAt: null,
         excludedPilotId: pilot?.id || null, storageDays: f.storageDays };
     });
     const rate = Math.max(1, source.population / 1000);
-    const energy = Math.max(0, source.reserveDays * DAY * rate - excludedEnergy);
+    const energy = Math.max(0, source.reserveDays * DAY * rate - excludedEnergy - (source.reservedClaimantEnergy || 0));
     return { id: `${source.cityId}:city-operating-account`, worldId: run.worldId, runId: run.runId, source: copy(source),
       handoverId: succession.handover.id, officeId: succession.officeId, bodyEpoch: succession.handover.bodyEpoch,
       allocationMode: provision ? 'detailedPilot' : 'aggregate',
@@ -148,7 +153,8 @@
       && s.source.populationSourceId === succession.source.populationSourceId
       && Political.authorizes(succession, c.politicalAuthorities || [], c, Math.max(s.lastAt, c.at ?? s.lastAt))
       && ROLES.every(role => s.source.institutions.some(i => i.role === role && succession.source.institutions.some(p => p.role === role && p.id === i.id
-        && !['displaced', 'disrupted', 'suspended'].includes(p.status)) && people.some(a => a.institutionId === i.id
+        && (!['displaced', 'disrupted', 'suspended'].includes(p.status)
+          || p.status === 'disrupted' && c.recoveredInstitutionIds?.includes(p.id))) && people.some(a => a.institutionId === i.id
           && (a.roles?.includes(role) || role === 'militaryDefenseCommand' && a.exceptionalCapabilities?.includes('city-scale ward defense'))
           && a.status === 'alive' && a.health >= 50 && a.officeStatus?.status !== 'replacedByReviewedAppointment'
           && !c.incapacitatedIds?.includes(a.id)))));
@@ -328,7 +334,7 @@
           // A team arriving behind it cannot stop it remotely; inbound passage
           // is a separate encounter after the original farm handling time.
           const handling = Math.ceil(f.cargoKg / (50 * f.drivers)) * 30;
-          const stop = crossings.flatMap(km => [km / 40 * 3600, (2 * f.distanceKm - km) / 40 * 3600 + handling])
+          const stop = crossings.flatMap(km => [km / (f.speedKph || 40) * 3600, (2 * f.distanceKm - km) / (f.speedKph || 40) * 3600 + handling])
             .filter(t => t >= f.trip.progress - 1e-7).sort((a, b) => a - b)[0] ?? Infinity;
           f.trip.progress = Math.min(f.trip.progress + dt, stop);
           if (f.trip.progress + 1e-7 >= f.trip.seconds) {
@@ -340,8 +346,8 @@
         if (!f.trip && s.plan && operative && (route !== false || crossings.length) && f.drivers && s.foodKg > 0 && s.waterLiters > 0
           && (f.lastDepartureAt == null || end - f.lastDepartureAt >= DAY)) {
           const kg = Math.floor((Math.min(f.stockKg, f.capacityKg, Math.max(0, s.dailyKg * 3 - s.foodKg)) + 1e-7) / 50) * 50;
-          const seconds = 2 * f.distanceKm / 40 * 3600 + 2 * Math.ceil(kg / (50 * f.drivers)) * 30;
-          const fuel = 2 * f.distanceKm * f.drivers;
+          const seconds = 2 * f.distanceKm / (f.speedKph || 40) * 3600 + 2 * Math.ceil(kg / (50 * f.drivers)) * 30;
+          const fuel = 2 * f.distanceKm * (f.carriers ?? f.drivers);
           if (kg > 0 && seconds <= 8 * 3600 && f.fuelKm >= fuel && f.dutySeconds >= seconds * f.drivers) {
             f.stockKg = Math.max(0, f.stockKg - kg); f.cargoKg = kg; f.fuelKm -= fuel; f.spentFuelKm += fuel;
             f.dutySeconds -= seconds * f.drivers; f.lastDepartureAt = end;

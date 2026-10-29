@@ -163,6 +163,55 @@
     return components.sort((left, right) => left.cityIds[0].localeCompare(right.cityIds[0]));
   }
 
+  // Present allocations, never addresses inferred from historical hooks.
+  // These people are a subset of refugees already admitted at the named host.
+  function claimantContacts(map, cityRows, displacementRows) {
+    const contacts = [], reservedByHost = new Map();
+    const sites = map.strategicCapabilityHistory?.milestoneRows.flatMap(m => m.infrastructureRows || []) || [];
+    for (const city of cityRows.filter(c => !c.physicalJurisdictionExists && c.currentPopulation === 0 && c.physicalCondition === 'ruined')) {
+      const control = map.strategicPoliticalHistory.currentControlRows.find(r => r.cityId === city.cityId);
+      const cause = map.strategicPoliticalHistory.eventRows.find(e => e.kind === 'claimantDisplacement' && e.location.cityId === city.cityId);
+      const g = map.cityGovernments.governments.find(g => g.cityId === city.cityId);
+      const p = map.cityPolities.polities.find(p => p.cityId === city.cityId);
+      const authority = control?.recognizedAuthorityId === p?.authority.id ? p.authority
+        : map.strategicPoliticalHistory.actorRows.find(a => a.id === control?.recognizedAuthorityId);
+      const displaced = displacementRows.find(r => r.originAssetId === city.assetId && r.sourceEventId === city.lastCauseEventId);
+      if (!g || !cause || !authority || !['individual', 'collective'].includes(authority.kind) || !displaced) continue;
+      const people = (authority.kind === 'collective' ? 3 : 1) + 1;
+      for (const admission of [...displaced.admissions].sort((a, b) => b.admittedPopulation - a.admittedPopulation || a.cityId.localeCompare(b.cityId))) {
+        const host = cityRows.find(c => c.cityId === admission.cityId), hostGovernment = map.cityGovernments.governments.find(g => g.cityId === admission.cityId);
+        const power = sites.find(s => s.cityId === admission.cityId && s.function === 'powerWorks' && s.operationalAtPlayableYear);
+        if (admission.admittedPopulation < people || !host?.physicalJurisdictionExists || host.services.communications === 'failed' || !hostGovernment || !power) continue;
+        const rate = Math.max(1, host.currentPopulation / 1000), energy = 720 * rate;
+        const reserveDays = ({ fragile: 2, strained: 3, serviceable: 4, robust: 5 })[power.hiddenConditionBand] || 0;
+        const reserved = reservedByHost.get(host.cityId) || 0;
+        if (reserved + energy > reserveDays * 86400 * rate / 10) continue;
+        reservedByHost.set(host.cityId, reserved + energy);
+        contacts.push({ id: `${city.cityId}:retained-claimant-channel`, cityId: city.cityId,
+          authorityId: authority.id, causeId: cause.id, displacementId: displaced.id,
+          institutionId: g.roleAssignments.centralAdministration, hostCityId: host.cityId,
+          hostInstitutionId: hostGovernment.roleAssignments.centralAdministration,
+          populationSourceId: city.assetId, hostPopulationSourceId: host.assetId,
+          admittedPopulation: admission.admittedPopulation, allocatedPopulation: people,
+          operatorId: `${city.cityId}:displaced-records-custodian`, powerSourceId: power.id,
+          workSeconds: 1800, powerUnits: 12, reservedEnergy: energy,
+          provenance: 'Original admitted claimant delegates and records custodian; dedicated host communications allocation excluded from municipal operating energy.' });
+        break;
+      }
+    }
+    return contacts;
+  }
+
+  function localTransport(satellite, population, condition) {
+    const mode = satellite.logistics.vehicleMode, crewPerCarrier = mode === 'aircraft' ? 2 : 1;
+    const carriers = condition === 'ruined' ? 0 : Math.floor(population / (100 * crewPerCarrier));
+    const profile = ({ groundConvoy: [40, 1200, 600], mixedFleet: [40, 1200, 600], aircraft: [180, 900, 1800], flyingMounts: [70, 180, 400] })[mode];
+    return { sourceId: `${satellite.id}:original-local-carriers`, mode, carriers, operators: carriers * crewPerCarrier,
+      crewPerCarrier, speedKph: profile[0], capacityKg: carriers * profile[1], rangeKm: profile[2], fuelKm: carriers * profile[2],
+      dutySeconds: carriers * crewPerCarrier * 8 * 3600, populationSourceId: satellite.id, reservedFor: 'municipalFoodAndLocalEvacuation',
+      provenance: 'Bounded original local logistics fleet and resident operators, not newly purchased vehicles or created creatures.' };
+  }
+
   function createStrategicPlayableSettlementState(worldSeed, map) {
     const seed = String(worldSeed || "").trim();
     if (!seed) throw new Error("A world seed is required for playable-year settlement state.");
@@ -310,6 +359,7 @@
         habitationStatus: habitationFor(physicalCondition, populationLedger.currentPopulation, protectedCapacity), protectedCapacity, currentPopulation: populationLedger.currentPopulation, populationLedger,
         services: { fortifications: serviceBand(serviceIndex - 1), utilities: serviceBand(serviceIndex), provisioning: serviceBand(serviceIndex), transport: serviceBand(parentOperational ? serviceIndex : 0), communications: serviceBand(serviceIndex) },
         localRouteUsable: parentOperational && physicalCondition !== "ruined", evacuationPlanGuaranteedSuccess: false, lastCauseEventId: source?.causeEventId || null,
+        transportAllocation: localTransport(satellite, populationLedger.currentPopulation, physicalCondition),
         exactFactors: { sponsorPublicWorksCapacityIndices: sponsorWorks, parentOperational, advertisedReadiness: satellite.evacuation.advertisedReadiness }
       };
     });
@@ -365,6 +415,7 @@
       };
     });
     const currentSupportComponents = connectedComponents(cityRows, routeRows);
+    const claimantContactRows = claimantContacts(strategicMap, cityRows, displacementRows);
     if (!cityRows.some((row) => row.physicalCondition !== "ruined" && row.currentPopulation > 0)) throw new Error("World history left no viable inhabited fortified core.");
 
     const publicAsset = (row, confidence) => ({
@@ -397,7 +448,7 @@
       sourcePoliticalHistoryDigest: strategicMap.strategicPoliticalHistory.digest,
       sourceCivicHistoryDigest: strategicMap.strategicCivicHistory.digest,
       publicDirectoryDigest: publicDirectory.digest,
-      cityRows, strongholdRows, satelliteRows, routeRows, currentSupportComponents, recoveryRows, displacementRows,
+      cityRows, strongholdRows, satelliteRows, routeRows, currentSupportComponents, recoveryRows, displacementRows, claimantContactRows,
       diagnostics: {
         cityCount: cityRows.length, viableCityCount: cityRows.filter((row) => row.physicalCondition !== "ruined" && row.currentPopulation > 0).length,
         ruinedCityCount: cityRows.filter((row) => row.physicalCondition === "ruined").length, strongholdCount: strongholdRows.length, satelliteCount: satelliteRows.length,
@@ -421,6 +472,8 @@
     if (JSON.stringify(expectedComponents) !== JSON.stringify(record.currentSupportComponents) || record.currentSupportComponents.some((row) => row.politicalUnity)) throw new Error("Playable support components do not match usable current routes.");
     const sourceEventIds = new Set(strategicMap.strategicCrisisHistory.eventRows.map((event) => event.id));
     if (record.recoveryRows.some((row) => !RECOVERY_KINDS.includes(row.kind) || !sourceEventIds.has(row.sourceEventId) || !row.prerequisites.includes(row.sourceEventId) || !row.exactFactors || !row.publicAccount) || record.displacementRows.some((row) => !sourceEventIds.has(row.sourceEventId) || row.displacedPopulation < row.unresolvedDisplacedPopulation || row.cityGateAdmissionGuaranteed || !row.individualSimulationDeferred)) throw new Error("Settlement recovery or displacement lacks a causal source or bounded consequence.");
+    if (record.claimantContactRows && JSON.stringify(record.claimantContactRows) !== JSON.stringify(claimantContacts(strategicMap, record.cityRows, record.displacementRows))) throw new Error("Claimant contact allocations do not match original refugees, host infrastructure or finite power.");
+    if (record.satelliteRows.some((row, n) => row.transportAllocation && JSON.stringify(row.transportAllocation) !== JSON.stringify(localTransport(settlements.satellites[n], row.currentPopulation, row.physicalCondition)))) throw new Error("Local carrier allocations do not match original logistics, surviving population or condition.");
     if (!record.cityRows.some((row) => row.physicalCondition !== "ruined" && row.currentPopulation > 0) || record.cityRows.some((row) => row.physicalCondition === "ruined" && row.physicalJurisdictionExists)) throw new Error("Playable settlement state lacks a viable city or grants jurisdiction to ruins.");
     const publicJson = JSON.stringify(directory);
     if (/populationLedger|protectedCapacity|currentPopulation|exactFactors|crisisFatalities|unresolvedDisplacedPopulation|admittedPopulation|sponsorPublicWorksCapacityIndices/.test(publicJson) || !directory.principles?.destroyedCitiesRemainRuins || !directory.principles?.currentComponentsAreAuthoritative) throw new Error("Public playable settlement state leaks exact population, losses, readiness, or repair calculations.");
@@ -479,7 +532,7 @@
 
   return Object.freeze({
     PHYSICAL_CONDITIONS, HABITATION_STATUSES, SERVICE_CONDITIONS, ROUTE_CONTINUITY, POPULATION_BANDS, CROWDING_BANDS, OBSERVATION_CONFIDENCE, RECOVERY_KINDS,
-    createStrategicPlayableSettlementState, validateStrategicPlayableSettlementState, attachStrategicPlayableSettlementState,
+    claimantContacts, localTransport, createStrategicPlayableSettlementState, validateStrategicPlayableSettlementState, attachStrategicPlayableSettlementState,
     publicPlayableSettlementDirectory, currentSettlementForAsset, cellPublicPlayableSettlementSnapshot, auditStrategicPlayableSettlementState
   });
 });

@@ -67,3 +67,23 @@ test('world save-load preserves canonical and public playable settlement state',
   expect(normalized.generatedData.strategicMap.strategicPlayableSettlementState).toEqual(world.generatedData.strategicMap.strategicPlayableSettlementState);
   expect(normalized.generatedData.strategicMap.publicPlayableSettlementDirectory).toEqual(world.generatedData.strategicMap.publicPlayableSettlementDirectory);
 });
+
+test('current claimant and local-carrier allocations retain actual admitted people, original infrastructure and private finite budgets', () => {
+  test.setTimeout(900000);
+  const world = generatedWorld(), map = world.generatedData.strategicMap, record = map.strategicPlayableSettlementState;
+  expect(record.claimantContactRows).toEqual(SettlementState.claimantContacts(map, record.cityRows, record.displacementRows));
+  for (const channel of record.claimantContactRows) {
+    const displacement = record.displacementRows.find(d => d.id === channel.displacementId);
+    expect(displacement.admissions.find(a => a.cityId === channel.hostCityId).admittedPopulation).toBeGreaterThanOrEqual(channel.allocatedPopulation);
+    expect(channel.allocatedPopulation).toBeLessThanOrEqual(channel.admittedPopulation);
+    expect(channel.reservedEnergy).toBe(720 * Math.max(1, record.cityRows.find(c => c.cityId === channel.hostCityId).currentPopulation / 1000));
+  }
+  expect(record.satelliteRows.every(s => s.transportAllocation.populationSourceId === s.assetId
+    && s.transportAllocation.operators <= s.currentPopulation
+    && s.transportAllocation.fuelKm === s.transportAllocation.carriers * s.transportAllocation.rangeKm)).toBe(true);
+  expect(JSON.stringify(map.publicPlayableSettlementDirectory)).not.toMatch(/claimantContactRows|reservedEnergy|transportAllocation|operatorId|powerUnits/);
+  const normalized = Library.normalizeWorld(JSON.parse(JSON.stringify(world)));
+  expect(normalized.generatedData.strategicMap.strategicPlayableSettlementState).toEqual(record);
+  const corrupt = JSON.parse(JSON.stringify(map)); corrupt.strategicPlayableSettlementState.satelliteRows[0].transportAllocation.fuelKm++;
+  expect(() => SettlementState.validateStrategicPlayableSettlementState(corrupt)).toThrow();
+});

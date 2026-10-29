@@ -16,7 +16,7 @@
   const LIMITS = 'One agricultural satellite contribution, not the entire city food supply, famine simulation or city-power completion. Municipal quota, driver, vehicle, custody and spent resources remain original. No player food, ownership, free army, appointment, divine endorsement, immunity or neighboring authority. Reports are dated, not remote telemetry.';
   const same = (a, b) => Boolean(a && b && a.x === b.x && a.y === b.y && a.z === b.z);
   const able = a => a?.status === 'alive' && a.health >= 50;
-  function sourceFromWorld(map, cityId, all = false) {
+  function sourceFromWorld(map, cityId, all = false, options = {}) {
     const city = map?.strategicPlayableSettlementState?.cityRows?.find(a => a.cityId === cityId);
     const g = map?.cityGovernments?.governments?.find(a => a.cityId === cityId);
     const institution = g?.institutions.find(i => i.id === g.roleAssignments.publicWorksAndProvisioning);
@@ -29,7 +29,7 @@
     if (!directories.has(map.publicSettlementDirectory)) directories.set(map.publicSettlementDirectory, Settlements.publicSettlementDirectory(map));
     const farms = directories.get(map.publicSettlementDirectory).satellites.filter(a => a.parentId === cityId
       && a.parentKind === 'sovereignResourceAnchorCity' && a.function === 'agriculture'
-      && ['groundConvoy', 'mixedFleet'].includes(a.logistics.vehicleMode));
+      && (['groundConvoy', 'mixedFleet'].includes(a.logistics.vehicleMode) || options.aggregateTransport));
     const candidates = farms.map(farm => {
       const state = map.strategicPlayableSettlementState.satelliteRows?.find(a => a.assetId === farm.id);
       const path = farm.localRouteCellIds;
@@ -41,12 +41,16 @@
       if (indices.some(i => !Number.isInteger(i) || i < 0 || i >= topology.cellCount)
         || indices.slice(1).some((i, n) => !topology.neighbors[indices[n]].includes(i))) return null;
       const distanceKm = path.slice(1).reduce((n, cell, i) => n + World.greatCircleDistanceKm(map, World.cellIndex(path[i]), World.cellIndex(cell)), 0);
-      if (!Number.isFinite(distanceKm) || distanceKm <= 0 || distanceKm > 250) return null;
+      const transport = options.aggregateTransport && state.transportAllocation;
+      if (options.aggregateTransport && !['groundConvoy', 'mixedFleet'].includes(farm.logistics.vehicleMode)
+        && (!transport || transport.mode !== farm.logistics.vehicleMode || transport.carriers < 1)) return null;
+      if (!Number.isFinite(distanceKm) || distanceKm <= 0 || distanceKm > (transport ? 750 : 250)) return null;
       return { cityId, cityName: city.name, populationSourceId: city.assetId, cityPopulation: city.currentPopulation,
         charterId: g.charter.id, institutionId: institution.id, satelliteId: farm.id, satelliteName: farm.name,
         satellitePopulation: state.currentPopulation, cityCellId: city.cellId, satelliteCellId: farm.cellId,
         arableLandBand: farm.arableLandBand, storageDays: farm.logistics.storageEnduranceDays, distanceKm,
-        routeCellIds: copy(path), routeUsable: true, provenance: 'One existing municipal agricultural quota; not the farm harvest or the city market stock.' };
+        routeCellIds: copy(path), routeUsable: true, ...(transport ? { transport: copy(transport) } : {}),
+        provenance: 'One existing municipal agricultural quota; not the farm harvest or the city market stock.' };
     }).filter(Boolean).sort((a, b) => a.distanceKm - b.distanceKm || a.satelliteId.localeCompare(b.satelliteId));
     return all ? candidates : candidates[0] || null;
   }
@@ -54,9 +58,18 @@
     return a && ['cityId', 'charterId', 'institutionId', 'populationSourceId', 'satelliteId', 'cityCellId', 'satelliteCellId'].every(k => typeof a[k] === 'string' && a[k])
       && [a.cityPopulation, a.satellitePopulation].every(n => Number.isFinite(n) && n >= 8)
       && Number.isFinite(a.storageDays) && a.storageDays >= 1 && a.storageDays <= 30
-      && Number.isFinite(a.distanceKm) && a.distanceKm > 0 && a.distanceKm <= 250
+      && Number.isFinite(a.distanceKm) && a.distanceKm > 0 && a.distanceKm <= (a.transport ? 750 : 250)
+      && (!a.transport || validTransport(a.transport, a))
       && Array.isArray(a.routeCellIds) && a.routeCellIds.length >= 2 && a.routeCellIds[0] === a.satelliteCellId
       && a.routeCellIds.at(-1) === a.cityCellId && ['marginal', 'limited', 'productive', 'abundant'].includes(a.arableLandBand);
+  }
+  function validTransport(t, source) {
+    return t && t.sourceId === `${source.satelliteId}:original-local-carriers` && t.populationSourceId === source.satelliteId
+      && ['groundConvoy', 'mixedFleet', 'aircraft', 'flyingMounts'].includes(t.mode)
+      && ['carriers', 'operators', 'crewPerCarrier'].every(k => Number.isSafeInteger(t[k]) && t[k] > 0)
+      && t.operators === t.carriers * t.crewPerCarrier && t.operators <= source.satellitePopulation
+      && ['speedKph', 'capacityKg', 'rangeKm', 'fuelKm', 'dutySeconds'].every(k => Number.isFinite(t[k]) && t[k] > 0)
+      && t.fuelKm === t.carriers * t.rangeKm && t.dutySeconds === t.operators * 8 * 3600;
   }
   function create(source, succession, office, run, at) {
     if (!validSource(source) || !run?.worldId || !run.runId || !succession?.handover

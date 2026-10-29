@@ -154,6 +154,7 @@
   const CityDefense = window.HelixCityDefense;
   const CityRule = window.HelixCityRule;
   const CityAuthority = window.HelixCityAuthority;
+  const CityRecovery = window.HelixCityRecovery;
   const RegionalGovernment = window.HelixRegionalGovernment;
   const IntercityCompact = window.HelixIntercityCompact;
   const WardResearch = window.HelixWardResearchCompact;
@@ -13847,8 +13848,32 @@
         public: RegionalChange.publicView(state.regionalChange), clock: state.clock }),
       supremacySnapshot: () => clonePlainObject({ saved: state.durableSupremacy,
         public: Supremacy.publicView(state.durableSupremacy), assessmentContext: supremacyAssessmentContext(), clock: state.clock }),
-      cityAuthoritySnapshot: () => clonePlainObject({ saved: state.cityAuthority, counter: cityAuthorityCounter(), clock: state.clock }),
+      cityAuthoritySnapshot: () => clonePlainObject({ saved: state.cityAuthority, counter: cityAuthorityCounter(), clock: state.clock,
+        recoveries: (state.cityAuthority?.entries || []).filter(e => e.recovery).map(e => ({ cityId: e.source.cityId, context: cityAuthorityRecoveryContext(e) })) }),
       cityAuthorityAction: (action, cityId, expected) => cityAuthorityAction(action, cityId, expected),
+      advanceCityRecoveryForTest: seconds => {
+        // Prior-input fixture only: advance the real autonomous paid model,
+        // not unrelated civic consumers. No supplies, consent or result flags.
+        if (!state.sovereignBargains?.testFixture || !state.cityAuthority?.preparedSources || scientistIsDead()
+          || !Number.isFinite(seconds) || seconds < 0 || state.cityRule || regionalGovernmentGates().some(g => g.regionalGovernment.rule)
+          || state.cityAuthority.entries.some(e => e.operation)) return false;
+        state.clock += seconds; updateCityAuthority();
+        if (state.wildernessSurvival) state.wildernessSurvival.lastAt = state.clock;
+        persist(); render(); return state.clock;
+      },
+      advanceCityClientForTest: seconds => {
+        // Isolated prior-input account: the real city model still performs all
+        // work, deliveries, depletion, qualification and historical issuance.
+        const book = state.cityAuthority;
+        if (!state.sovereignBargains?.testFixture || !book?.preparedSources || scientistIsDead() || book.job
+          || !Number.isFinite(seconds) || seconds < 0 || state.cityRule || regionalGovernmentGates().some(g => g.regionalGovernment.rule)
+          || book.entries.some(e => e.recovery?.job) || !book.entries.some(e => e.operation)) return false;
+        const contexts = book.entries.filter(e => e.operation).map(e => [e, cityAuthorityOperationContext(e)]);
+        state.clock += seconds;
+        for (const [e, c] of contexts) CityRule.advance(e.operation, e, e.staff, () => ({ ...c, at: e.operation.lastAt }), state.clock);
+        updateSupremacy(); if (state.wildernessSurvival) state.wildernessSurvival.lastAt = state.clock;
+        persist(); render(); return state.clock;
+      },
       configureCityAuthorityTest: sources => {
         if (!state.sovereignBargains?.testFixture || !Array.isArray(sources) || !sources.every(s => CityAuthority.validSource(s.political))) return false;
         const book = ensureCityAuthority(); if (!book || book.entries.length) return false;
@@ -87831,7 +87856,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const actors = (context?.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => g.regionalGovernment?.succession
       ? [g.regionalGovernment.succession.ruler, ...g.regionalGovernment.succession.leaders] : []);
     actors.push(...(context?.cityAuthority?.entries || []).flatMap(e => e.staff || []),
-      ...(context?.cityAuthority?.authorities || []).flatMap(a => a.members || []));
+      ...(context?.cityAuthority?.authorities || []).flatMap(a => [...(a.members || []), a.operator].filter(Boolean)),
+      ...(context?.cityAuthority?.entries || []).flatMap(e => e.recovery?.crew || []));
     return [...new Map(actors.map(a => [a.id, a])).values()];
   }
   const cityAuthoritySourceCache = new WeakMap();
@@ -87843,8 +87869,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     let cache = cityAuthoritySourceCache.get(map); if (!cache) { cache = new Map(); cityAuthoritySourceCache.set(map, cache); }
     if (!cache.has(cityId)) cache.set(cityId, { political: CityAuthority.sourceFromWorld(map, cityId),
       operation: CityRule.sourceFromWorld(map, cityId, { politicalSettlement: true }),
-      defense: CityDefense.sourceFromWorld(map, cityId, { politicalSettlement: true }) });
+      defense: CityDefense.sourceFromWorld(map, cityId, { politicalSettlement: true }), recovery: CityRecovery.sourceFromWorld(map, cityId) });
     return cache.get(cityId);
+  }
+  function cityAuthorityOperatingSources(e) {
+    const baseline = cityAuthoritySources(e.source.cityId);
+    if (!e.recovery?.completed.length) return baseline;
+    const map = baseline.rawMap || activeWorldRecord?.generatedData?.strategicMap;
+    const projected = map && CityRecovery.projectMap(map, e.recovery, state.cityAuthority);
+    if (!projected || projected === map) return baseline;
+    return { ...baseline, operation: CityRule.sourceFromWorld(projected, e.source.cityId, { politicalSettlement: true }),
+      defense: CityDefense.sourceFromWorld(projected, e.source.cityId, { politicalSettlement: true }) };
   }
   function ensureCityAuthority() {
     const b = { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id };
@@ -87852,13 +87887,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!state.cityAuthority && state.cityAuthorityInitialized) return null;
     state.cityAuthority ||= CityAuthority.create(b); state.cityAuthorityInitialized = true;
     if (state.cityAuthority && !cityAuthorityHydrated.has(state.cityAuthority)) {
-      const originals = new Map([...(state.citySuccession ? [state.citySuccession.ruler, ...state.citySuccession.leaders] : []),
-        state.sovereignBargains?.defender,
-        ...(state.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => [
-          ...(g.regionalGovernment?.succession ? [g.regionalGovernment.succession.ruler, ...g.regionalGovernment.succession.leaders] : []),
-          g.foreignCivic?.bargain?.defender, g.foreignCivic?.bargain?.representative])].filter(Boolean).map(a => [a.id, a]));
-      for (const a of state.cityAuthority.authorities) a.members = a.members.map(m => originals.get(m.id) || m);
-      for (const e of state.cityAuthority.entries) e.staff = e.staff.map(m => originals.get(m.id) || m);
+      const link = (owner, key) => { if (owner?.[key]) owner[key] = CityAuthority.adoptActor(state.cityAuthority, owner[key]); };
+      const succession = s => { if (s) { link(s, 'ruler'); s.leaders = s.leaders.map(a => CityAuthority.adoptActor(state.cityAuthority, a)); } };
+      succession(state.citySuccession); link(state.sovereignBargains, 'defender');
+      for (const g of state.penalFlights?.assistance?.cityApproach?.gates || []) {
+        succession(g.regionalGovernment?.succession); link(g.foreignCivic?.bargain, 'defender'); link(g.foreignCivic?.bargain, 'representative');
+      }
       cityAuthorityHydrated.add(state.cityAuthority);
     }
     return CityAuthority.bound(state.cityAuthority, b) ? state.cityAuthority : null;
@@ -87895,16 +87929,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return gate ? { gate, office: RegionalGovernment.office(gate), context: { ...current.context, local: false } } : current;
   }
   function originalPoliticalActors() {
-    return [...citySuccessionPeople(), ...regionalGovernmentActors(),
+    return [...citySuccessionPeople(), state.sovereignBargains?.defender, ...regionalGovernmentActors(),
       ...(state.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => [g.foreignCivic?.bargain?.representative, g.foreignCivic?.bargain?.defender])].filter(Boolean);
   }
   function cityAuthorityStaff(e) {
     if (e.staff.length || e.operationAllocatedAt != null) return e.staff;
+    const bargain = state.sovereignBargains?.source.cityId === e.source.cityId ? state.sovereignBargains
+      : (state.penalFlights?.assistance?.cityApproach?.gates || []).find(g => g.cityId === e.source.cityId)?.foreignCivic?.bargain;
+    if (bargain) DefenderChallenges.prepareDefender(bargain); // Existing one-time original-body preparation, never recovery/refill.
     const originals = originalPoliticalActors(), staged = [];
     for (const institutionId of [...new Set(e.source.institutions.map(i => i.id))]) {
       const roles = e.source.institutions.filter(i => i.id === institutionId).map(i => i.role);
       const defense = roles.includes('militaryDefenseCommand'), id = defense ? `${institutionId}:ward-defender` : `${institutionId}:officeholder`;
-      staged.push(originals.find(a => a.id === id) || { id, actorKind: 'civicOfficeholder', institutionId, roles,
+      const original = originals.find(a => a.id === id);
+      if (original) original.roles = [...new Set([...(original.roles || []), ...roles])];
+      staged.push(original || { id, actorKind: 'civicOfficeholder', institutionId, roles,
         status: 'alive', health: 100, fatigue: 0, workSeconds: 1800, assignment: null,
         ...(defense ? { exceptionalCapabilities: ['city-scale ward defense'], stamina: 80, wardMana: 48 } : {}) });
     }
@@ -87916,7 +87955,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function cityAuthorityOperationContext(e) {
     const book = state.cityAuthority, sources = cityAuthoritySources(e.source.cityId), current = sources?.political;
-    const s = e.operation, defender = e.staff.find(a => a.roles?.includes('militaryDefenseCommand') || a.institutionId === s?.source.institutions.find(i => i.role === 'militaryDefenseCommand').id);
+    const s = e.operation, defenseId = e.source.institutions.find(i => i.role === 'militaryDefenseCommand')?.id;
+    const defender = e.staff.find(a => a.institutionId === defenseId && a.exceptionalCapabilities?.includes('city-scale ward defense'));
     const sameSource = Boolean(current && JSON.stringify(current) === JSON.stringify(e.source));
     const counter = cityAuthorityCounter(), local = counter.cityId === e.source.cityId;
     const original = local ? counter.context : {};
@@ -87926,6 +87966,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       || gate?.outerApproach?.relief?.mission && ['outbound', 'unloading', 'recovering', 'servicing', 'contesting'].includes(gate.outerApproach.relief.phase));
     return { ...original, at: state.clock, alive: !scientistIsDead(), bodyEpoch: ensureScientistIdentity().bodyEpoch,
       sourceCurrent: sameSource, coverageVerified: sameSource, politicalAuthorities: book?.authorities || [],
+      recoveredInstitutionIds: e.recovery?.completed.filter(r => e.recovery.source.projects.some(p => p.id === r.projectId && p.kind === 'institutionRecovery')).map(r => r.targetId) || [],
       local: Boolean(local && original.local), atCounter: Boolean(local && original.atCounter),
       free: Boolean(local && original.free && !book?.job), reportersPresent: Boolean(local && original.clerkPresent),
       capable: !actorIsIncapacitated('scientist'), institutionsAvailable: e.staff.length > 0 && e.staff.every(a => a.status === 'alive' && a.health >= 50
@@ -87947,9 +87988,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (reserved.office) changed = useCityAuthorityCounter(reserved, office => CityAuthority.advance(book, reserved.context, office, state.clock));
     }
     for (const e of book.entries) {
+      if (e.recovery?.job) changed = CityRecovery.advance(e.recovery, cityAuthorityRecoveryContext(e), state.clock) || changed;
+      else if (e.recovery) e.recovery.lastAt = state.clock;
       if (e.operation) changed = CityRule.advance(e.operation, e, e.staff, () => cityAuthorityOperationContext(e), state.clock) || changed;
     }
     return changed;
+  }
+  function cityAuthorityRecoveryContext(e) {
+    const counter = cityAuthorityCounter(), c = cityAuthorityOperationContext(e);
+    const works = e.staff.find(a => a.roles?.includes('publicWorksAndProvisioning'));
+    const currentSource = cityAuthoritySources(e.source.cityId)?.recovery;
+    return { ...c, ...counter.context, alive: !scientistIsDead(), bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      cityId: counter.cityId, local: counter.cityId === e.source.cityId && counter.context.local,
+      free: counter.context.free && !state.cityAuthority?.job, sourceCurrent: c.sourceCurrent
+        && JSON.stringify(currentSource) === JSON.stringify(e.recovery?.source),
+      authority: CityAuthority.authorizes(e, state.cityAuthority?.authorities || [], c, state.clock),
+      worksAvailable: Boolean(works && works.status === 'alive' && works.health >= 50 && !works.hostile && !actorIsIncapacitated(works)
+        && works.officeStatus?.status !== 'replacedByReviewedAppointment'),
+      defenseAvailable: c.defenseAvailable && !c.actualOpposition };
   }
   function cityAuthorityAction(action, cityId = cityAuthorityCounter().cityId, expected = null) {
     if (scientistIsDead() || actorIsIncapacitated('scientist')) return false;
@@ -87975,19 +88031,40 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       e = CityAuthority.register(book, sources.political); if (!e) return false;
     }
     if (e.source.controlStatus === 'displacedClaim') counter.context.displacedChannelId = e.source.parties[0].channel;
+    if (action.startsWith('assent:')) {
+      const party = e.source.parties.find(p => p.authorityId === action.slice('assent:'.length) && p.channel);
+      if (!party) return false;
+      counter.context.authorityId = party.authorityId; counter.context.displacedChannelId = party.channel; action = 'assent';
+    }
+    counter.context.sourceCurrent &&= JSON.stringify(sources.political) === JSON.stringify(e.source);
     updateCityAuthority(); let ok = false;
     if (['inspect', 'negotiate', 'accept', 'assent', 'withdraw', 'report'].includes(action)) {
       ok = useCityAuthorityCounter(counter, office => CityAuthority.begin(book, e, action, counter.context, office, state.clock, expected, originalPoliticalActors()));
+    } else if (action.startsWith('recovery')) {
+      if (e.operation || e.operationAllocatedAt != null || e.recoveryInitialized && !e.recovery) return false;
+      if (!e.recovery) {
+        if (action !== 'recoveryReview' || counter.cityId !== cityId || !CityAuthority.authorizes(e, book.authorities, counter.context, state.clock)) return false;
+        cityAuthorityStaff(e);
+        const source = sources.recovery || CityRecovery.sourceFromWorld(activeWorldRecord?.generatedData?.strategicMap, cityId);
+        e.recovery = CityRecovery.create(source, book, state.clock); e.recoveryInitialized = true;
+        if (!e.recovery) { persist(); render(); return false; }
+      }
+      const c = cityAuthorityRecoveryContext(e);
+      if (action === 'recoveryReview') ok = CityRecovery.receive(e.recovery, c, state.clock);
+      else if (action === 'recoveryStart') ok = CityRecovery.begin(e.recovery, c, state.clock);
+      else if (action.startsWith('recoveryStage:')) ok = CityRecovery.stage(e.recovery, c, ensurePhysicalItemStacks(), action.slice('recoveryStage:'.length), state.clock);
     } else if (action === 'operate' && !e.operation && e.operationAllocatedAt == null && !e.operationLost) {
       // Never allocate a second copy of an existing home/regional city account.
-      if (state.cityRule?.source.cityId === cityId || regionalGovernmentGates().some(g => g.regionalGovernment.rule?.source.cityId === cityId)) return false;
-      if (!CityRule.validSource(sources.operation) || !CityDefense.validSource(sources.defense)) {
+      if (state.cityRule?.source.cityId === cityId || state.cityProvisioning?.source.cityId === cityId
+        || state.cityDefense?.source.cityId === cityId || regionalGovernmentGates().some(g => g.regionalGovernment.rule?.source.cityId === cityId)) return false;
+      const operating = cityAuthorityOperatingSources(e);
+      if (!CityRule.validSource(operating.operation) || !CityDefense.validSource(operating.defense)) {
         addEvent('The actual city water, food routes, power or defenses do not support operation. A political agreement cannot create missing infrastructure or supplies.'); persist(); render(); return false;
       }
       cityAuthorityStaff(e);
       const c = cityAuthorityOperationContext(e);
-      e.operation = CityRule.createClient(sources.operation, e, book.authorities, book, state.clock,
-        { id: sources.defense.installationId, initialEnergy: sources.defense.baselineEnergy }, c);
+      e.operation = CityRule.createClient(operating.operation, e, book.authorities, book, state.clock,
+        { id: operating.defense.installationId, initialEnergy: operating.defense.baselineEnergy }, c);
       if (e.operation) { e.operationAllocatedAt = state.clock; ok = CityRule.order(e.operation, e, e.staff, cityAuthorityOperationContext(e), state.clock); }
     } else if (e.operation && action === 'operate') ok = CityRule.order(e.operation, e, e.staff, cityAuthorityOperationContext(e), state.clock);
     else if (e.operation && action === 'recharge') ok = CityRule.recharge(e.operation, e, e.staff, cityAuthorityOperationContext(e), ensurePhysicalItemStacks(), state.clock);
@@ -87996,7 +88073,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       ok = CityRule.receive(e.operation, e, e.staff, cityAuthorityOperationContext(e), state.clock);
       if (ok) retainReceivedCityRuleReports(previous, e.operation.report);
     }
-    if (ok && action === 'recharge') { state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0); syncActorInventories(); syncPhysicalReadModels(); }
+    if (ok && (action === 'recharge' || action.startsWith('recoveryStage:'))) { state.physicalItemStacks = state.physicalItemStacks.filter(i => i.quantity > 0); syncActorInventories(); syncPhysicalReadModels(); }
     persist(); render(); return ok;
   }
   function renderCityAuthority() {
@@ -88017,8 +88094,21 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         if (['unreceived', 'negotiating', 'offered'].includes(k.phase)) button('Request city-level political terms (three attended minutes)', 'negotiate', k.cityId);
         if (k.phase === 'offered') button('Accept these exact retained-government terms (one attended minute)', 'accept', k.cityId, clonePlainObject(k.terms));
         if (k.phase === 'active') {
-          button('Issue the original city provisioning and defensive operating priority', 'operate', k.cityId);
-          button('Supply one carried owned arcane feedstock to this city', 'recharge', k.cityId);
+          if (!e.operation && k.controlStatus !== 'displacedClaim') {
+            button('Receive the existing city recovery work list', 'recoveryReview', k.cityId);
+            const recovery = e.recovery?.report;
+            if (recovery) {
+              panel.append(textEl('p', `Local recovery account received ${formatClock(recovery.at)}: ${recovery.completed.length} / ${recovery.projects.length} original projects completed. ${recovery.limits}`));
+              for (const p of recovery.projects) panel.append(textEl('p', `${p.kind} — ${p.targetId}: ${formatDuration(p.seconds)} original crew work; ${Object.entries(p.costs).map(([key, n]) => `${n} ${key}`).join(', ')}.`));
+              for (const key of CityRecovery.KEYS) button(`Deliver carried owned ${key} to this city's recovery stores (${recovery.stores[key]} last reported)`, `recoveryStage:${key}`, k.cityId);
+              button('Dispatch the next supplied local repair (or sixteen-hour supplied crew rest)', 'recoveryStart', k.cityId);
+              if (recovery.job) panel.append(textEl('p', `Last received work: ${recovery.job.kind}, ${formatDuration(recovery.job.progress)} / ${formatDuration(recovery.job.seconds)}. Updates require receiving a local account.`));
+            }
+          }
+          if (k.controlStatus !== 'displacedClaim') {
+            button('Issue the original city provisioning and defensive operating priority', 'operate', k.cityId);
+            button('Supply one carried owned arcane feedstock to this city', 'recharge', k.cityId);
+          }
           button('Relinquish this political agreement (one attended minute)', 'withdraw', k.cityId);
         }
         button('Receive an updated political account (one attended minute)', 'report', k.cityId);
@@ -88027,6 +88117,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (k.terms && k.parties.some(p => p.cityId === counter.cityId)
         && !k.resolutions.some(r => r.authorityId === k.parties.find(p => p.cityId === counter.cityId)?.authorityId))
         button(`Request this government’s separate release of its claim on ${k.cityName} (three minutes)`, 'assent', k.cityId, clonePlainObject(k.terms));
+      if (k.terms) for (const p of k.parties.slice(1)) if (p.correspondenceChannelId && !k.resolutions.some(r => r.authorityId === p.authorityId))
+        button(`Request ${p.name || p.authorityId}'s separate claim release through its retained correspondence channel (three minutes)`, `assent:${p.authorityId}`, k.cityId, clonePlainObject(k.terms));
     }
     if (c?.local) for (const d of state.strategicJourneys?.destinations || []) {
       if (!d.known || !d.cityId || book?.entries.some(e => e.source.cityId === d.cityId)) continue;
@@ -111079,6 +111171,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.durableSupremacy = Supremacy.normalize(candidate?.durableSupremacy);
     next.cityAuthority = CityAuthority.normalize(candidate?.cityAuthority);
     next.cityAuthorityInitialized = Boolean(candidate?.cityAuthorityInitialized || candidate?.cityAuthority);
+    if (next.cityAuthority) for (const e of next.cityAuthority.entries) {
+      e.recoveryInitialized = Boolean(e.recoveryInitialized || e.recovery);
+      if (e.recovery) e.recovery = CityRecovery.normalize(e.recovery);
+    }
     if (next.cityAuthority) for (const e of next.cityAuthority.entries) if (e.operation) {
       const operation = CityRule.normalize(e.operation);
       if (!operation) { e.operation = null; e.operationLost = true; }

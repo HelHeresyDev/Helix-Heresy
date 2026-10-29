@@ -101,6 +101,15 @@ test('a historical claimant broadcast hook cannot manufacture a current communic
   g.book.authorities[0].channelPower = 0;
   assert.equal(A.begin(g.book, g.e, 'report', g.context(), g.offices.a, g.at), false);
 });
+test('relinking a previously materialized original keeps political role bindings and cannot refill wounded or spent physical reserves', () => {
+  const f=fixture(), actor={id:'same-original',roles:['militaryDefenseCommand'],status:'alive',health:60,workSeconds:700,stamina:15,wardMana:8,stats:{bodyIntegrity:{current:60,max:100}}};
+  f.e.staff=[actor]; const incoming={id:actor.id,status:'alive',health:100,workSeconds:3600,stamina:100,wardMana:120,mapCell:{x:1,y:2,z:3}};
+  const linked=A.adoptActor(f.book,incoming); assert.equal(linked,actor);
+  assert.deepEqual(linked.roles,['militaryDefenseCommand']);assert.equal(linked.health,60);assert.equal(linked.workSeconds,700);
+  assert.equal(linked.stamina,15);assert.equal(linked.wardMana,8);assert.deepEqual(linked.mapCell,incoming.mapCell);
+  A.adoptActor(f.book,{...incoming,stats:{bodyIntegrity:{current:20,max:100}}});assert.equal(actor.stats.bodyIntegrity.current,20);
+  A.adoptActor(f.book,{...incoming,health:0,status:'dead'});assert.equal(actor.status,'dead');assert.equal(actor.health,0);
+});
 test('finite shared duty, original clerk, exact terms, attendance and living body gate political work; partial absence never backfills', () => {
   const f = fixture(); f.act('inspect'); const c = f.context(), o = f.offices.a;
   assert(A.begin(f.book, f.e, 'negotiate', c, o, f.at));
