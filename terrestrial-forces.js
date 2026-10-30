@@ -137,11 +137,15 @@
         if (!plan?.families.includes('armedForce')) return [];
         const v = a?.ledger === 'inventory' ? a.state : views.find(v => v.id === id)?.value;
         const q = plan.initial.qualification, post = posts?.posts?.find(p => p.actorId === id), view = views.find(v => v.id === id);
-        return [{ id, kind: plan.kind, state: !a || a.lost || !v || v.groundForceInitialized && (!post || !resolve(posts, n, post)) ? 'unverified' : q === 'ordinaryProtectiveTraining' ? 'ordinaryTrainingOnly'
+        const offensive = view?.unit?.offensivePostId && bound(run.offensiveMandates, n)
+          && run.offensiveMandates.posts?.find(p => p.id === view.unit.offensivePostId && p.source.id === view.unit.id);
+        const missingOffensive = view?.unit?.offensivePostId && !offensive;
+        return [{ id, kind: plan.kind, state: !a || a.lost || !v || missingOffensive || v.groundForceInitialized && (!post || !resolve(posts, n, post)) ? 'unverified' : q === 'ordinaryProtectiveTraining' ? 'ordinaryTrainingOnly'
           : q === 'localDefensiveDuty' ? 'ownPremisesDefenseOnly' : 'originalContractScope',
-          intent: view?.unit?.deployment ? 'Existing scoped field deployment' : view?.contract ? 'Existing limited civilian contract'
+          intent: offensive ? 'Separately disclosed political preparation at original chapter; no performed assault or city control'
+            : view?.unit?.deployment ? 'Existing scoped field deployment' : view?.contract ? 'Existing limited civilian contract'
             : q === 'localDefensiveDuty' ? 'Own premises only; no offensive commission' : 'No offensive commission supplied by an inventory',
-          contract: copy(view?.contract || null),
+          contract: copy(offensive?.contract || view?.contract || null),
           current: copy(v), deployment: copy(views.find(v => v.id === id)?.unit?.deployment || null),
           postId: posts?.posts?.find(p => p.actorId === id)?.id || null }];
       }) })), limits: 'Current original ground resources/scopes only; missing contracts/owners stay unverified. Blocked journeys and expired duties are reversible constraints, not destruction. Covert and exceptional means and whole-network aggregation remain separate.' };

@@ -136,7 +136,7 @@
       const a = Networks.host(networks, u.source.branchId); if (!a) continue;
       let row = a.allocations.find(r => r.id === u.id);
       if (!row) a.allocations.push(row = { id: u.id, kind: 'originalFieldTeam', people: u.source.people });
-      row.actorIds = u.actors.map(a => a.id); row.assignment = u.deployment?.id || null;
+      row.actorIds = u.actors.map(a => a.id); row.assignment = u.offensiveMandateId || u.offensivePostId || u.deployment?.id || null;
       row.conditions = u.actors.map(a => ({ id: a.id, status: a.status, workSeconds: a.workSeconds, kit: copy(a.fieldKit) }));
     }
   }
@@ -169,6 +169,9 @@
         }
       }
       for (const u of s.units) {
+        // The same original bodies cannot execute an old interdiction while
+        // physically at a separately contracted political muster.
+        if (u.offensivePostId) continue;
         const c = context(u); if (!c) continue;
         const a = c.account, d = u.deployment;
         if (!d || u.phase === 'returned') {

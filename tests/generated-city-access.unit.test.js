@@ -3,6 +3,8 @@ const Library = require('../world-run-library'), Journeys = require('../strategi
 const Survey = require('../survey-expeditions'), Municipal = require('../municipal-carrier');
 const Passenger = require('../intercity-passenger'), Networks = require('../strategic-non-state-network-history');
 const Authority = require('../city-authority');
+const NetworksBook = require('../network-operations'), Inventories = require('../network-inventories');
+const Field = require('../network-interdiction'), Offensive = require('../offensive-mandates');
 test('generated municipal-first starts preserve real distance/endurance and collective refusal rather than fabricating a concurrent governing route', () => {
   const world = Library.createWorld({ id: 'generated-city-access', worldSeed: 'charter-foundation', worldTheme: 'madcap', createdAt: 'test' });
   const map = world.generatedData.strategicMap, before = JSON.stringify(map);
@@ -52,5 +54,16 @@ test('generated municipal-first starts preserve real distance/endurance and coll
   const q = Passenger.quote(passenger, r.network, 'city:city:09434'); assert(q.ok); assert.equal(q.km, 894);
   assert.equal(Passenger.reason(passenger, q, { kg: 0, l: 0 }, q.fee), '');
   assert.equal(Passenger.reason(passenger, q, { kg: 0, l: 0 }, 0), 'The exact fare is not available.');
+  // The new preparation contract may not invent employees/desk capacity at
+  // these reachable cities. This is original-source coverage, not a paid
+  // player acquisition/muster or city-conquest positive scenario.
+  const binding = { worldId: world.id, runId: 'original-force-branch' };
+  const networks = NetworksBook.create(NetworksBook.sources(map, world.worldSeed), binding, 0, { originalInventory: true });
+  const field = Field.create(Field.originalSources(networks), binding, world.worldSeed, 0);
+  assert(Inventories.adopt(networks, 'interdiction', field, binding));
+  assert.equal(field.units.length, 10);
+  const people = field.units.flatMap(u => u.actors); assert.equal(new Set(people.map(a => a.id)).size, 20);
+  for (const cityId of cities) assert.deepEqual(Offensive.sources(networks, field, cityId), []);
+  assert(people.every(a => !a.mapCell && !a.assignment));
   assert.equal(JSON.stringify(map), before);
 });

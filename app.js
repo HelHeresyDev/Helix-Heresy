@@ -196,6 +196,7 @@
   const CityServices = window.HelixCityServices;
   const NetworkInterdiction = window.HelixNetworkInterdiction;
   const TerrestrialForces = window.HelixTerrestrialForces;
+  const OffensiveMandates = window.HelixOffensiveMandates;
   const CovertFunctions = window.HelixCovertFunctions;
   const ExceptionalReach = window.HelixExceptionalReach;
   const CampaignSettlement = window.HelixCampaignSettlement;
@@ -13855,6 +13856,10 @@
       cityAuthoritySnapshot: () => clonePlainObject({ saved: state.cityAuthority, counter: cityAuthorityCounter(), clock: state.clock,
         recoveries: (state.cityAuthority?.entries || []).filter(e => e.recovery).map(e => ({ cityId: e.source.cityId, context: cityAuthorityRecoveryContext(e) })) }),
       cityAuthorityAction: (action, cityId, expected) => cityAuthorityAction(action, cityId, expected),
+      offensiveMandateAction,
+      offensiveMandateSnapshot: () => clonePlainObject({ saved: state.offensiveMandates, clock: state.clock,
+        contexts: state.offensiveMandates?.posts.map(p => { const c = offensiveMandateContext(p); return { id: p.id, context: c }; }),
+        field: state.networkInterdiction, money: state.economy?.money, public: OffensiveMandates.publicView(state.offensiveMandates) }),
       bulkProvisioningAction,
       bulkProvisioningSnapshot: () => clonePlainObject({ saved: state.bulkProvisioning, clock: state.clock,
         counter: bulkProvisioningContact(), entries: bulkCityEntries().map(e => ({ rule: e.rule, context: e.context() })) }),
@@ -15277,7 +15282,7 @@
         // Run the actual dependent contributions too; no outcome injection or
         // replenishment is provided by this clock helper.
         for (let left = Math.max(0, seconds); left > 0 && !scientistIsDead();) {
-          const physical = CityServices.active(state) || state.terrestrialForces?.posts?.some(p => p.phase === 'onPost') || municipalSupplyPhysical() || activeScientistTravelTask() || state.cityDefense?.duty || state.cityDefense?.job
+          const physical = CityServices.active(state) || state.offensiveMandates?.posts.some(p => p.job || OffensiveMandates.active(p)) || state.terrestrialForces?.posts?.some(p => p.phase === 'onPost') || municipalSupplyPhysical() || activeScientistTravelTask() || state.cityDefense?.duty || state.cityDefense?.job
             || ['approaching', 'returningToPost'].includes(state.cityProvisioning?.order?.phase);
           const step = Math.min(left, physical ? 1 : 60); state.clock += step; left -= step;
           updateIntercityPassenger(); updateForeignReception(); updateScientistMovementTask(); completeDueTasks(); updateScientistIdentity(); updatePendingCombatActions(); progressInjuries();
@@ -15759,7 +15764,7 @@
           // Explicit endowment for legacy browser fixtures; ordinary play binds
           // only actual generated charters, defense institutions and route geometry.
           const source = { cityId: office.cityId, cityName: 'Test City', charterId: 'test-city-charter',
-            authority: { id: 'test-city-ruler', kind: options.collective ? 'collective' : 'individual', name: 'Test Authority', title: 'Sovereign' },
+            authority: { id: options.authorityId || 'test-city-ruler', kind: options.collective ? 'collective' : 'individual', name: 'Test Authority', title: 'Sovereign' },
             administrationId: office.institutionId, defenseId: 'test-defense-command', defenseName: 'Test Defense Command', succession: 'Test charter succession',
             archive: { routeId: 'test-restricted-approach', source: 'Test Defense retained approach chart', sourceDate: null,
               coverage: [{ cellId: 'planet-cell:00001', latitude: 12, longitude: 20 }, { cellId: 'planet-cell:00003', latitude: 14, longitude: 21 }], notes: ['Limited city-end segment only.'] } };
@@ -20866,6 +20871,8 @@
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.networkInterdiction = NetworkInterdiction.rebind(importedState.networkInterdiction,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.offensiveMandates = OffensiveMandates.rebind(importedState.offensiveMandates,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.terrestrialForces = TerrestrialForces.rebind(importedState.terrestrialForces,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.covertFunctions = CovertFunctions.rebind(importedState.covertFunctions,
@@ -24777,7 +24784,7 @@
       }
       return changed;
     }
-    if (!options.chapterStep && elapsed > 1 && (CityServices.active(state) || ReceivableFinance.active(state.receivableFinance) || state.covertFunctions?.job || state.networkOperations?.job || networkInterdictionActive() || state.terrestrialForces?.posts?.some(p => p.phase === 'onPost') || outerApproachGates().some(g => g.outerApproach.chapterProtection?.job || ChapterProtection.assigned(g.outerApproach.chapterProtection)))) {
+    if (!options.chapterStep && elapsed > 1 && (CityServices.active(state) || state.offensiveMandates?.posts.some(p => p.job || OffensiveMandates.active(p)) || ReceivableFinance.active(state.receivableFinance) || state.covertFunctions?.job || state.networkOperations?.job || networkInterdictionActive() || state.terrestrialForces?.posts?.some(p => p.phase === 'onPost') || outerApproachGates().some(g => g.outerApproach.chapterProtection?.job || ChapterProtection.assigned(g.outerApproach.chapterProtection)))) {
       let left = elapsed, changed = 0;
       while (left > 0 && !scientistIsDead()) {
         const before = state.clock, health = scientistVital('health').current;
@@ -88239,6 +88246,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const b = document.createElement('button'); b.textContent = 'End unfinished political attendance'; b.dataset.cityAuthorityAction = 'cancel';
       b.onclick = () => cityAuthorityAction('cancel', book.job.cityId); panel.append(b);
     }
+    panel.append(renderOffensiveMandates());
     return panel;
   }
   function regionalGovernmentSources(g) {
@@ -102094,8 +102102,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function updateNetworkOperations() {
     const s = ensureNetworkOperations(); if (!s) return false;
     const changed = NetworkOperations.advance(s, networkOperationsContext, state.clock);
-    const fieldChanged = updateNetworkInterdiction(s), reserveChanged = updateTerrestrialForces(), covertChanged = updateCovertFunctions();
-    return fieldChanged || reserveChanged || covertChanged || changed;
+    const fieldChanged = updateNetworkInterdiction(s), reserveChanged = updateTerrestrialForces(), covertChanged = updateCovertFunctions(),
+      offensiveChanged = updateOffensiveMandates();
+    return fieldChanged || reserveChanged || covertChanged || offensiveChanged || changed;
   }
   function ensureTerrestrialForces() {
     if (scientistIsDead()) return null;
@@ -102104,6 +102113,138 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       state.terrestrialForcesInitialized = true;
     }
     return state.terrestrialForces && !state.terrestrialForces.invalid ? state.terrestrialForces : null;
+  }
+  function ensureOffensiveMandates() {
+    if (scientistIsDead() || !activeWorldRecord || !activeRunRecord) return null;
+    if (!state.offensiveMandates && !state.offensiveMandatesInitialized) {
+      state.offensiveMandates = OffensiveMandates.create({ worldId: activeWorldRecord.id, runId: activeRunRecord.id }, state.clock);
+      state.offensiveMandatesInitialized = true;
+    }
+    return state.offensiveMandates;
+  }
+  function offensiveMandateTarget(cityId) {
+    const e = state.cityAuthority?.entries.find(e => e.source.cityId === cityId), current = cityAuthoritySources(cityId)?.political;
+    return e?.knowledge?.phase === 'refused' && e.source.parties[0].kind === 'collective' && current
+      && JSON.stringify(current) === JSON.stringify(e.source)
+      ? { cityId, charterId: e.source.charterId, authorityId: e.source.parties[0].authorityId, kind: 'collective' } : null;
+  }
+  function offensiveMandateContext(p, unit = null) {
+    const n = state.networkOperations, f = state.networkInterdiction;
+    const u = unit || OffensiveMandates.resolve(state.offensiveMandates, n, f, p), a = n?.accounts.find(a => a.id === p.source.branchId && !a.lost);
+    const counter = cityAuthorityCounter(), target = offensiveMandateTarget(p.target.cityId), here = scientistMapCell();
+    const rooms = [...p.layout.roomIds, p.layout.returnRoom], body = ensureScientistIdentity().bodyEpoch;
+    const visit = counter.cityId === p.target.cityId && counter.context.permission && counter.context.originalBody
+      && !counter.context.custodyActive && !counter.context.excluded;
+    const heardIds = body === p.bodyEpoch && visit ? (u?.actors || []).filter(a => a.status === 'alive' && a.mapCell
+      && a.mapCell.z === here.z && mapCellDistance(a.mapCell, here) <= 2 && sensoryLineOfSight(here, a.mapCell)).map(a => a.id) : [];
+    const returnPaths = (u?.actors || []).map((a, i) => a.status === 'dead' ? [p.layout.homes[i]]
+      : labMapPathBetweenCells(a.mapCell, p.layout.homes[i], { actor: a, ignoreDoors: false }));
+    return { alive: !scientistIsDead(), capable: annexCapable() && !actorIsIncapacitated('scientist'),
+      sourceCurrent: Boolean(target && u && rooms.every(id => roomById(id)) && a), target,
+      bodyEpoch: body, local: Boolean(visit && rooms.includes(scientistRoomId())), near: heardIds.length > 0,
+      free: !surveyBusy() && !scientistInKnownCombat(), atPost: scientistRoomId() === p.layout.roomId,
+      heardIds, observedIds: (u?.actors || []).filter(a => chapterPersonVisible(a)).map(a => a.id), manager: a?.operator, terminal: a?.terminal,
+      returnRouteOpen: returnPaths.length === 2 && returnPaths.every(path => path.length > 0 && path.every(c => rooms.includes(labMapCellRoomId(c)))),
+      returnSeconds: returnPaths.length ? Math.max(...returnPaths.map(path => path.length * 2)) : Infinity };
+  }
+  function updateOffensiveMandates() {
+    const s = state.offensiveMandates; if (!s || scientistIsDead()) return false;
+    const changed = OffensiveMandates.advance(s, state.networkOperations, state.networkInterdiction, offensiveMandateContext, state.clock, {
+      alive: () => !scientistIsDead(), incapacitated: actorIsIncapacitated,
+      followGoal: (p, a, c) => {
+        if (!c.local || c.bodyEpoch !== p.bodyEpoch || !chapterPersonVisible(a)) return null;
+        return WildernessBeasts.neighbors(scientistMapCell()).filter(cell => [...p.layout.roomIds, p.layout.returnRoom].includes(labMapCellRoomId(cell))
+          && labMapCellIsWalkable(cell) && canActorOccupyTile(a, cell))
+          .sort((x, y) => mapCellDistance(a.mapCell, x) - mapCellDistance(a.mapCell, y))[0];
+      },
+      move: (p, a, goal) => {
+        const rooms = new Set([...p.layout.roomIds, p.layout.returnRoom]), map = ensureLabMap();
+        const blocked = new Set(labMapBlockingCellKeys(map, { actor: a }));
+        for (const r of Object.values(map.rooms)) if (!rooms.has(r.roomId)) for (const c of r.cells || []) blocked.add(mapCellKey(c));
+        return moveDefenderParticipant(a, goal, { blockedCellKeys: blocked, ignoreDoors: false });
+      }
+    });
+    if (changed) NetworkInterdiction.reserve(state.networkInterdiction, state.networkOperations);
+    return changed;
+  }
+  function offensiveMandateAction(action, sourceId, expected = null) {
+    if (scientistIsDead() || actorIsIncapacitated('scientist')) return false;
+    const s = ensureOffensiveMandates(), n = ensureNetworkOperations(), f = n && ensureNetworkInterdiction(n);
+    if (!s || !n || !f) return false;
+    updateOffensiveMandates(); let p = s.posts.find(p => p.source.id === sourceId), ok = false;
+    if (action === 'contacts') {
+      const counter = cityAuthorityCounter();
+      ok = Boolean(offensiveMandateTarget(counter.cityId) && CityAuthority.attending(counter.context, counter.office));
+    }
+    if (action === 'walk') {
+      if (!p) {
+        const counter = cityAuthorityCounter(), target = offensiveMandateTarget(counter.cityId);
+        if (!target || !CityAuthority.attending(counter.context, counter.office) || state.cityAuthority?.job) return false;
+        const src = OffensiveMandates.sources(n, f, target.cityId).find(r => r.id === sourceId), unit = f.units.find(u => u.id === sourceId);
+        if (!src || !unit || unit.offensivePostId || unit.job || unit.actors.some(a => !OffensiveMandates.able(a) || a.assignment || a.mapCell)
+          || unit.deployment && !['returned', 'declined'].includes(unit.phase)) return false;
+        const b = n.source.branches.find(b => b.id === src.branchId);
+        const layout = state.terrestrialForces?.posts.find(p => p.branchId === b.id)?.layout
+          || materializeTerrestrialPost({ regional: Boolean(counter.gate), gate: counter.gate }, b);
+        if (!layout) return false;
+        const homes = [-1, 1].map(dx => ({ ...layout.visitor, x: layout.visitor.x + dx, y: layout.visitor.y + 1 }));
+        if (!homes.every((c, i) => labMapCellIsWalkable(c) && canActorOccupyTile(unit.actors[i], c))) return false;
+        p = OffensiveMandates.open(s, n, f, sourceId, target, { ...layout, homes }, { ...counter.context, target,
+          sourceCurrent: true, refusalReceived: true }, activeWorldRecord.worldSeed, state.clock);
+      }
+      if (p && OffensiveMandates.resolve(s, n, f, p) && !surveyBusy())
+        ok = Boolean(startScientistMove(p.layout.roomId, { toCell: p.layout.visitor, allowMultiRoom: true }));
+    } else if (p) {
+      const c = offensiveMandateContext(p), u = OffensiveMandates.resolve(s, n, f, p);
+      if (action === 'review') ok = OffensiveMandates.review(s, p, n, f, c, state.clock);
+      if (action === 'cancel') ok = c.local && OffensiveMandates.cancel(p, u, c);
+      if (action === 'accept') ok = OffensiveMandates.accept(s, p, n, f, c, expected, ensureEconomy(), state.clock);
+      if (['hold', 'follow', 'withdraw'].includes(action)) ok = OffensiveMandates.command(s, p, n, f, c, action, state.clock);
+      if (action === 'report') ok = Boolean(OffensiveMandates.receive(s, p, n, f, c, state.clock));
+      if (action === 'settle') ok = OffensiveMandates.settle(s, p, n, f, c, ensureEconomy(), state.clock);
+      if (action === 'return' && c.local && !surveyBusy())
+        ok = Boolean(startScientistMove(p.layout.returnRoom, { toCell: p.layout.returnCell, allowMultiRoom: true }));
+    }
+    NetworkInterdiction.reserve(f, n); persist(); render(); return ok;
+  }
+  function renderOffensiveMandates() {
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.offensiveMandates = 'true';
+    panel.append(textEl('h4', 'Separate offensive mandates — local preparation'), textEl('p', OffensiveMandates.SCOPE));
+    const book = state.offensiveMandates, counter = cityAuthorityCounter(), target = offensiveMandateTarget(counter.cityId);
+    const button = (label, action, sourceId, disabled = false, expected = null) => {
+      const b = document.createElement('button'); b.textContent = label; b.dataset.offensiveMandateAction = action; b.dataset.sourceId = sourceId;
+      b.disabled = Boolean(scientistIsDead() || disabled); b.onclick = () => offensiveMandateAction(action, sourceId, expected); panel.append(b);
+    };
+    if (target && CityAuthority.attending(counter.context, counter.office)) {
+      const n = state.networkOperations, f = state.networkInterdiction;
+      if (n && f) {
+        const rows = OffensiveMandates.sources(n, f, target.cityId);
+        for (const src of rows) button(`Walk to ${src.label}'s original field-team receiving post`, 'walk', src.id, surveyBusy());
+        if (!rows.length) panel.append(textEl('p', 'No supported original local field-team receiving contact is available for this request. Training halls, reduced offices and defensive contracts do not create a substitute assault team.'));
+      } else panel.append(textEl('p', 'Review local chapter availability to locate existing public receiving contacts; this allocates no additional employees.'));
+      button('Review original local chapter availability', 'contacts', '');
+    }
+    for (const p of book?.posts || []) {
+      const c = offensiveMandateContext(p);
+      if (!c.local) continue; // Remote UI below uses received records only.
+      button('Walk to original field-team receiving post', 'walk', p.source.id, surveyBusy());
+      if (c.near) {
+        button('Disclose regime-change purpose and attend one-minute original-team review', 'review', p.source.id, Boolean(p.job || p.contract || p.report?.phase === 'refused'));
+        if (p.job) {
+          panel.append(textEl('p', `Personally attended review ${formatDuration(p.job.progress)} / one minute. Actual original attention and terminal power are spent.`));
+          button('End unfinished review', 'cancel', p.source.id);
+        }
+        if (p.report?.terms) button(`Accept exact local preparation terms (${p.report.terms.total} marks; includes return reserve)`, 'accept', p.source.id,
+          Boolean(p.contract), clonePlainObject(p.report.terms));
+        for (const [a, label] of [['hold', 'Hold position'], ['follow', 'Follow within visible authorized local ground'], ['withdraw', 'Withdraw physically to original chapter'],
+          ['report', 'Receive personally heard dated team account'], ['settle', 'Settle returned-team unused wage escrow']])
+          button(label, a, p.source.id, a !== 'report' && !p.contract);
+      }
+      button('Walk back to original municipal counter', 'return', p.source.id, surveyBusy());
+    }
+    for (const r of OffensiveMandates.publicView(book).slice(-6)) panel.append(textEl('p', `${formatClock(r.at)} — ${r.label}: ${r.phase}. ${r.message}
+      ${r.payment ? `Dated payment account: ${formatNumber(r.payment.earned)} earned wages, ${formatNumber(r.payment.held)} held, ${formatNumber(r.payment.refunded)} refunded.` : ''}`));
+    return panel;
   }
   function materializeTerrestrialPost(t, b) {
     const map = ensureLabMap(), z = t.regional ? t.gate.z : SurveyExpeditions.FIELD_Z,
@@ -111320,6 +111461,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     next.networkOperations = NetworkOperations.normalize(candidate?.networkOperations);
     next.networkInterdiction = NetworkInterdiction.normalize(candidate?.networkInterdiction);
+    next.offensiveMandates = OffensiveMandates.normalize(candidate?.offensiveMandates);
+    next.offensiveMandatesInitialized = candidate?.offensiveMandatesInitialized === true || candidate?.offensiveMandates != null;
     next.terrestrialForces = TerrestrialForces.normalize(candidate?.terrestrialForces);
     next.terrestrialForcesInitialized = candidate?.terrestrialForcesInitialized === true || Boolean(next.terrestrialForces);
     next.covertFunctions = CovertFunctions.normalize(candidate?.covertFunctions);
