@@ -8,6 +8,18 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Standing counter-maintenance deputy — standalone #1 complete
+
+The developer selected #1 independently after stopping domination and approved exactly one standing maintenance deputy. Its three frozen checks passed, so #1 was removed from the active queue without another appointment variant or follow-up. #2/#3 and their beast workstream remain deferred, not complete; this grants no city-control or domination accomplishment.
+
+Supported new separate-office designation charters publish the narrow deputy rule. The existing population-backed municipal technician receives one independent review and explicit consent, retaining the same identity, actual credential, finite duty and carrying capacity. Stable refusal does not reroll. The living incumbent keeps their office, roles, health, rights and agreements. No emergency, police, military, wider public-works or city-government authority transfers; old saved laws are not amended.
+
+The existing one-repair commission engine now also supports this standing mode, rather than duplicating physical upkeep. Successive due-date repairs use the same appointment and original registers while actually collecting, carrying and installing three parts per repair. Original stock, duty and battery operations are spent once; shortage and exhaustion block further work. Existing supplied eight-hour rest restores bounded duty, never health or supplies. Revocation, actual withdrawal/resignation, recovery, death or lost acting authority prevent further installation. Cargo must return physically to municipal receiving custody, followed by the same technician's walk home and finite clerk-recorded handback. Blocking, unavailable duty or outages pause return; death is not promotion. A scientist attack gives the actual technician a personal withdrawal reason, not an invented criminal judgment.
+
+All three completion checks passed: (1) actual independently reviewed acceptance and stable refusal; (2) two distinct supplied daily repairs under one appointment, plus real shortage/exhaustion and supplied recovery; (3) interrupted loaded return and handback, save/load, continued import and final scientist-death freeze without replaced originals or duplicated stock. The DOM/Canvas scenarios use an actual lifecycle run with explicitly prepared prior civic sources, initial local access/purse, injury and technician characteristics. Appointment, repair receipts, physical collection/carrying/return and continuation are executed, not inserted. This is focused civic evidence, not earned whole-world conquest or a claim that every generated appointment variant is covered.
+
+Focused verification: 148 model checks in `maintenance-deputy`, `temporary-maintenance-commission`, `city-administration`, `public-works-appointments` and `public-works-vacancies`; two named `designation binds` / `combined directorate` source checks; the named published replacement/deputy-law generation check; two deputy DOM/Canvas scenarios and two existing temporary injury-cover DOM/Canvas regressions. Syntax and whitespace checks passed. The full suite was not run under `AGENTS.md`.
+
 ### Activated organized opposition; separate original-team preparation — #2 / 3.35d-A remain open
 
 Developer approval activated existing #2 specifically for the original collective-refusal case and froze its four acceptance conditions in the existing queue. No additional prompt was created; #1, beast development, general army management and compulsory god-killing remain outside this pass. The approval also covers the remaining actual defense/control and supplied occupation work; another activation discussion is not required.

@@ -142,6 +142,8 @@ test('public-works replacement rules are explicit published law only for separat
     expect(directory.find(d => d.city.id === g.cityId).charter.maintenanceCargoRecovery).toEqual(g.charter.maintenanceCargoRecovery);
     expect(g.charter.temporaryMaintenance).toEqual(supported ? A.temporaryMaintenanceRuleFor(g.cityId, office.id, g.roleAssignments.civicReview) : null);
     expect(directory.find(d => d.city.id === g.cityId).charter.temporaryMaintenance).toEqual(g.charter.temporaryMaintenance);
+    expect(g.charter.maintenanceDeputy).toEqual(supported ? A.maintenanceDeputyRuleFor(g.cityId, office.id, g.roleAssignments.civicReview) : null);
+    expect(directory.find(d => d.city.id === g.cityId).charter.maintenanceDeputy).toEqual(g.charter.maintenanceDeputy);
     expect(g.charter.civilInstallationAccess).toEqual(supported ? Civil.ruleFor(g.cityId, office.id, g.roleAssignments.civicReview, g.roleAssignments.militaryDefenseCommand) : null);
     expect(directory.find(d => d.city.id === g.cityId).charter.civilInstallationAccess).toEqual(g.charter.civilInstallationAccess);
     if (supported) applicable++;

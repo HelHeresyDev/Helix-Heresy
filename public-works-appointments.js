@@ -153,7 +153,7 @@
     return '';
   }
   function free(s, succession, upkeep, office) {
-    return !s.job && !s.travel && !s.vacancy && !office.assignment && !office.clerk.assignment && !succession.job
+    return !s.job && !s.travel && !s.vacancy && !s.candidate?.maintenanceDeputyId && !office.assignment && !office.clerk.assignment && !succession.job
       && !upkeep.job && !upkeep.rests.length && !upkeep.resistance?.job && succession.directive?.status !== 'carrying';
   }
   function actors(s, succession, office, kind) {
@@ -322,7 +322,7 @@
     return Boolean(d && d.candidateId === a?.id && same(d.credential, a.credential)
       && a.populationSourceId === s.populationSourceId && a.credential.issuerInstitutionId === s.institutionId
       && a.credential.populationSourceId === s.populationSourceId && Number.isFinite(a.credential.maintenance)
-      && a.credential.maintenance >= s.rule.minimumMaintenance && a.appointmentPolicy === 'considerExactDuties'
+      && a.credential.maintenance >= s.rule.minimumMaintenance && a.appointmentPolicy === 'considerExactDuties' && !a.maintenanceDeputyId
       && (!a.roles.length || s.receipt && same(a.roles, [ROLE])));
   }
   function advance(s, succession, upkeep, office, institutions, c, at, effects = {}) {
@@ -553,6 +553,7 @@
       approaching: Boolean(s.travel), message: s.message, history: copy(s.history), limitations: scopeFor(s) };
   }
   return { ROLE, REASON, HOME, RETIRED_POST, LIMITS, COMBINED_LIMITS, ruleFor, roleRuleFor, disputedRuleFor, vacancyRuleFor: Vacancies.ruleFor,
+    maintenanceDeputyRuleFor: TemporaryMaintenance.standing.ruleFor,
     cargoRecoveryRuleFor: CargoRecovery.ruleFor, temporaryMaintenanceRuleFor: TemporaryMaintenance.ruleFor, create, normalize, incumbent, reviewer, bound, localReason,
     discuss, propose, hear, appoint, approach, transfer, discussAccess, inspectAccess, settleAccess, declineAccess,
     custodyInventory, compulsoryTransfer, authenticAppointment, cancel, advance, authorization, publicView };

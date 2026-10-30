@@ -117,6 +117,7 @@ test('designation binds existing individual ruler, charter, actual institutions 
   assert.equal(Succession.sourceFromWorld(map, f.b).publicWorksVacancy, null);
   assert.equal(Succession.sourceFromWorld(map, f.b).maintenanceCargoRecovery, null);
   assert.equal(Succession.sourceFromWorld(map, f.b).temporaryMaintenance, null);
+  assert.equal(Succession.sourceFromWorld(map, f.b).maintenanceDeputy, null);
   government.charter.designationReview = { id: 'original-law', principle: f.source.succession,
     reviewInstitutionId: government.roleAssignments.civicReview, coercionRule: 'independentConfirmationPermitted', requiredAuthorizationIds: [] };
   const published = Succession.sourceFromWorld(map, f.b).designationReview;
@@ -130,9 +131,13 @@ test('designation binds existing individual ruler, charter, actual institutions 
   government.charter.publicWorksVacancy = Appointments.vacancyRuleFor('a', worksId, reviewId);
   government.charter.maintenanceCargoRecovery = Appointments.cargoRecoveryRuleFor('a', worksId);
   government.charter.temporaryMaintenance = Appointments.temporaryMaintenanceRuleFor('a', worksId, reviewId);
+  government.charter.maintenanceDeputy = Appointments.maintenanceDeputyRuleFor('a', worksId, reviewId);
   government.charter.civilInstallationAccess = require('../civil-installation-access').ruleFor('a', worksId, reviewId, government.roleAssignments.militaryDefenseCommand);
   for (const i of government.institutions) { i.roles = [i.role]; i.appointmentMethod = 'appointmentBySovereignAuthority'; }
   const replacementSource = Succession.sourceFromWorld(map, f.b);
+  assert.deepEqual(replacementSource.maintenanceDeputy, government.charter.maintenanceDeputy);
+  replacementSource.maintenanceDeputy.minimumMaintenance = 0;
+  assert.equal(government.charter.maintenanceDeputy.minimumMaintenance, 40);
   assert.deepEqual(replacementSource.publicWorksAppointment, government.charter.publicWorksAppointment);
   assert.deepEqual(replacementSource.publicWorksVacancy, government.charter.publicWorksVacancy);
   replacementSource.publicWorksVacancy.minimumMaintenance = 0;

@@ -20,7 +20,7 @@
   }
   function supported(s, succession, upkeep, office, c) {
     const law = s?.vacancy?.rule || c.vacancyRule;
-    return Boolean(s && s.rule.method === 'reviewedPublicWorksReplacement' && !s.receipt && !upkeep.authorizationId
+    return Boolean(s && s.rule.method === 'reviewedPublicWorksReplacement' && !s.receipt && !upkeep.authorizationId && !s.candidate?.maintenanceDeputyId
       && law && same(law, ruleFor(s.cityId, s.institutionId, s.reviewerInstitutionId))
       && same(law, succession.source.publicWorksVacancy) && same(law, c.vacancyRule)
       && succession.handover?.id === s.handoverId && succession.control?.recognizedAuthorityId === 'scientist'

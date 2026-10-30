@@ -31,7 +31,8 @@
   function staff(succession, bargain, office, upkeep = null) {
     const temporary = upkeep?.temporaryMaintenance;
     const coveredTechnician = temporary?.commission && (!temporary.ended || temporary.job?.kind === 'repair');
-    return [...(succession?.leaders || []), ...(succession?.appointments?.receipt || succession?.appointments?.vacancy?.receipt || coveredTechnician ? [succession.appointments.candidate] : []), bargain?.representative, bargain?.defender, office?.clerk]
+    const deputy = upkeep?.maintenanceDeputy, coveredDeputy = deputy?.commission && (!deputy.handback || deputy.job);
+    return [...(succession?.leaders || []), ...(succession?.appointments?.receipt || succession?.appointments?.vacancy?.receipt || coveredTechnician || coveredDeputy ? [succession.appointments.candidate] : []), bargain?.representative, bargain?.defender, office?.clerk]
       .filter(a => a && a.officeStatus?.status !== 'replacedByReviewedAppointment' && (!upkeep?.authorizationId || upkeep.staffIds.includes(a.id)));
   }
   function scopedAuthorization(succession, office, c) {
@@ -111,7 +112,7 @@
     return '';
   }
   function inspect(s, succession, office, c, at) {
-    if (s.temporaryMaintenance?.job || localReason(s, succession, office, c) || !able(worker(s, succession)) || !able(office.clerk)
+    if (s.temporaryMaintenance?.job || s.maintenanceDeputy?.job || localReason(s, succession, office, c) || !able(worker(s, succession)) || !able(office.clerk)
       || office.assignment || worker(s, succession)?.assignment) return false;
     s.inspection = { at, workerId: s.workerId, installationId: s.installation.id, handoverId: s.handoverId, authorizationId: s.authorizationId, charterId: s.charterId,
       essentialOnly: !authorization(s, succession, office, c),
@@ -123,7 +124,7 @@
   function order(s, succession, bargain, office, stacks, expected, c, at) {
     const a = worker(s, succession);
     if (localReason(s, succession, office, c) || !s.inspection || !same(expected, s.inspection) || s.inspection.dueAt !== s.dueAt
-      || s.job || s.cargoRecovery?.job || s.temporaryMaintenance?.job || !able(a) || a.assignment || office.assignment || succession.job || succession.directive?.status === 'carrying'
+      || s.job || s.cargoRecovery?.job || s.temporaryMaintenance?.job || s.maintenanceDeputy?.job || !able(a) || a.assignment || office.assignment || succession.job || succession.directive?.status === 'carrying'
       || !c.externalPowered || office.power < 1 || office.workSeconds < 30 || a.workSeconds < WORK + 60
       || s.servicedAt != null && at < s.dueAt) return false;
     const staged = c.stagedSupplyReachable !== false && stacks.find(i => i.key === 'metalParts' && clean(i) && i.quantity >= PARTS && i.cityOwnerId === s.cityId
@@ -203,7 +204,11 @@
       && ![s.workerId, office.clerk.id].includes(personId)) return false;
     const temporaryJob = a && s.temporaryMaintenance?.job?.kind === 'repair' && succession.appointments?.candidate?.id === a.id
       && a.assignment === s.temporaryMaintenance.job.id ? s.temporaryMaintenance.job : null;
-    const pausedJob = temporaryJob || a?.id === s.workerId && (s.job && a.assignment === s.job.id ? s.job
+    const deputyJob = a && ['repair', 'handback'].includes(s.maintenanceDeputy?.job?.kind) && succession.appointments?.candidate?.id === a.id
+      && a.assignment === s.maintenanceDeputy.job.id ? s.maintenanceDeputy.job : null;
+    const deputyClerkJob = a === office.clerk && s.maintenanceDeputy?.job?.kind === 'handback'
+      && office.assignment === s.maintenanceDeputy.job.id ? s.maintenanceDeputy.job : null;
+    const pausedJob = deputyClerkJob || deputyJob || temporaryJob || a?.id === s.workerId && (s.job && a.assignment === s.job.id ? s.job
       : s.cargoRecovery?.job && s.cargoRecovery.job.phase !== 'recording' && a.assignment === s.cargoRecovery.job.id ? s.cargoRecovery.job : null);
     if (!living(a) || !Number.isFinite(s.workCaps[a.id]) || a.assignment && !pausedJob || duty.assignment && !pausedJob || !c.staffPresentIds?.includes(a.id) || s.rests.some(r => r.personId === a.id)
       || !(duty.workSeconds < s.workCaps[a.id] || (a.fatigue || 0) > 0)) return false;
@@ -244,6 +249,9 @@
         }
         if (r.resumeAssignment && s.temporaryMaintenance?.job?.id === r.resumeAssignment) {
           a.assignment = s.temporaryMaintenance.job.id; s.temporaryMaintenance.job.lastAt = at;
+        }
+        if (r.resumeAssignment && s.maintenanceDeputy?.job?.id === r.resumeAssignment) {
+          a.assignment = s.maintenanceDeputy.job.id; s.maintenanceDeputy.job.lastAt = at;
         }
         if (a === office.clerk) office.availableAt = Math.max(office.availableAt || 0, at - (delta - recovered));
         s.rests = s.rests.filter(x => x.id !== r.id);
@@ -318,7 +326,8 @@
         carrying: s.job.cargo?.quantity || 0, workSeconds: WORK },
       rests: s.rests.map(r => ({ personId: r.personId, progress: r.progress, seconds: REST })),
       receipts: copy(s.receipts), cargoRecovery: CargoRecovery.publicView(s.cargoRecovery),
-      temporaryMaintenance: TemporaryMaintenance.publicView(s.temporaryMaintenance), message: s.message, limitations: LIMITS };
+      temporaryMaintenance: TemporaryMaintenance.publicView(s.temporaryMaintenance),
+      maintenanceDeputy: TemporaryMaintenance.standing.publicView(s.maintenanceDeputy), message: s.message, limitations: LIMITS };
   }
   return { PERIOD, GRACE, REST, WORK, PARTS, POWER_CAP, WORK_CELL, RECOGNIZED_WORK_CELL, RECEIVING, LIMITS, create, normalize, worker, staff,
     authorization, bodyEpoch, reserveKey, agreement, commandLink, suppliedCustody,

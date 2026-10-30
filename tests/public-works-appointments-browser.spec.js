@@ -1,6 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const { pathToFileURL } = require('url');
 const path = require('path');
+const { startLifecycleRun } = require('./helpers/start-lifecycle-run');
 test.setTimeout(300000);
 const snap = page => page.evaluate(() => window.helixHeresyDebug.cityAppointmentsSnapshot());
 const act = (page, action, expected) => page.evaluate(({ action, expected }) => window.helixHeresyDebug.cityAppointmentsAction(action, expected), { action, expected });
@@ -20,10 +21,15 @@ async function finishWalk(page) {
       cell: d.surveyExpeditionSnapshot().scientistCell, combat: d.combatSnapshot().routineSuspension })}`);
   });
 }
-async function setup(page, renderer = 'dom', obstruct = false, accessPolicy = 'rejectReplacement', civilPolicy = null, combinedWorks = false, opposition = null, vacancy = false, retainedCargo = false, temporaryMaintenance = false) {
+async function setup(page, renderer = 'dom', obstruct = false, accessPolicy = 'rejectReplacement', civilPolicy = null, combinedWorks = false, opposition = null, vacancy = false, retainedCargo = false, temporaryMaintenance = false, maintenanceDeputy = false) {
+  if (maintenanceDeputy) {
+    await startLifecycleRun(page, `standing-deputy-${renderer}`);
+    await page.evaluate(r => window.helixHeresyDebug.setMapRenderer(r), renderer);
+  } else {
   await page.goto(pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href);
   await page.evaluate(renderer => { localStorage.clear(); localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: renderer })); }, renderer);
   await page.reload();
+  }
   await page.evaluate(() => {
     const d = window.helixHeresyDebug;
     d.setSurveyExpeditionTestContext({ network: { homeDestinationId: 'site:lab', nearestSettlementDestinationId: 'city:a', routes: [], destinations: [
@@ -35,11 +41,12 @@ async function setup(page, renderer = 'dom', obstruct = false, accessPolicy = 'r
   });
   expect(await act(page, 'discuss')).toBe(false);
   expect(await succession(page, 'walk')).toBe(true); await finishWalk(page);
-  expect(await page.evaluate(({ civilPolicy, combinedWorks, vacancy, retainedCargo, temporaryMaintenance }) => window.helixHeresyDebug.configureCitySuccessionTest({ retirement: true, appointmentLaw: true, combinedWorks,
+  expect(await page.evaluate(({ civilPolicy, combinedWorks, vacancy, retainedCargo, temporaryMaintenance, maintenanceDeputy }) => window.helixHeresyDebug.configureCitySuccessionTest({ retirement: true, appointmentLaw: true, combinedWorks,
     ...(temporaryMaintenance ? { temporaryMaintenanceLaw: true, officeWork: 1800 } : {}),
+    ...(maintenanceDeputy ? { maintenanceDeputyLaw: true, officeWork: 1800 } : {}),
     ...(retainedCargo ? { recoveryLaw: true } : {}),
     ...(vacancy ? { vacancyLaw: true, officeWork: 1800 } : {}),
-    ...(civilPolicy ? { civilAccessLaw: true, officeWork: 1800 } : {}) }), { civilPolicy, combinedWorks, vacancy, retainedCargo, temporaryMaintenance })).toBe(true);
+    ...(civilPolicy ? { civilAccessLaw: true, officeWork: 1800 } : {}) }), { civilPolicy, combinedWorks, vacancy, retainedCargo, temporaryMaintenance, maintenanceDeputy })).toBe(true);
   expect(await succession(page, 'request')).toBe(true);
   await page.evaluate(() => window.helixHeresyDebug.advanceCitySuccessionForTest(30));
   expect(await succession(page, 'hear')).toBe(true);
@@ -129,6 +136,90 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: temporary injury ma
   expect(stacks.find(i => i.id === original.staged).quantity).toBe(3);
   expect(stacks.find(i => i.id === r.collection.stackId)).toBeUndefined();
   expect(await admin(page, 'temporaryInspect')).toBe(false); expect(await admin(page, 'temporaryObserve')).toBe(false);
+  expect(errors).toEqual([]);
+});
+for (const renderer of ['dom', 'canvas']) test(`${renderer}: standing maintenance deputy repeats supplied upkeep under one appointment and preserves physical custody through continuation`, async ({ page }) => {
+  test.setTimeout(480000);
+  page.setDefaultTimeout(20000); page.on('dialog', d => d.accept());
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await setup(page, renderer, false, 'rejectReplacement', null, false, null, false, false, false, true);
+  // Original living injury and qualification are prepared inputs, never an appointment or repair outcome.
+  expect(await page.evaluate(() => window.helixHeresyDebug.configureCityAppointmentsTest({ incumbentHealth: 35 }))).toBe(true);
+  let s = await snap(page);
+  const old = s.succession.leaders.find(a => a.id === s.administration.workerId);
+  const original = { worker: old.id, roles: old.roles, health: old.health, candidate: s.appointments.candidate.id,
+    handover: s.succession.handover, agreements: s.succession.agreements, stock: s.succession.provision.stock };
+  const panel = page.locator('[data-city-administration]');
+  await panel.locator('[data-administration-action="deputyObserve"]').click();
+  await page.evaluate(() => window.helixHeresyDebug.advanceCityAdministrationForTest(15));
+  await page.evaluate(() => window.helixHeresyDebug.reloadSurveyExpeditionTestState());
+  await page.evaluate(() => window.helixHeresyDebug.advanceCityAdministrationForTest(15));
+  s = await snap(page); expect(s.administration.maintenanceDeputy.observation.personId).toBe(old.id);
+  await panel.locator('[data-administration-action="deputyPropose"]').click(); s = await snap(page);
+  await page.evaluate(n => window.helixHeresyDebug.advanceCityAdministrationForTest(n), s.administration.maintenanceDeputy.review.readyAt - s.clock);
+  await panel.locator('[data-administration-action="deputyHear"]').click();
+  await page.evaluate(() => window.helixHeresyDebug.advanceCityAdministrationForTest(180));
+  s = await snap(page); expect(s.administration.maintenanceDeputy.review.outcome).toBe('eligible');
+  await panel.locator('[data-administration-action="deputySign"]').click();
+  await page.evaluate(() => window.helixHeresyDebug.advanceCityAdministrationForTest(60));
+  s = await snap(page); const appointment = s.administration.maintenanceDeputy.commission, review = s.administration.maintenanceDeputy.review;
+  expect(appointment).toBeTruthy(); expect(appointment.expiresAt).toBeNull();
+  for (let cycle = 0; cycle < 2; cycle++) {
+    s = await snap(page);
+    if (s.administration.dueAt >= s.clock) await page.evaluate(n => window.helixHeresyDebug.advanceCityAdministrationForTest(n), s.administration.dueAt + 1 - s.clock);
+    await panel.locator('[data-administration-action="deputyInspect"]').click();
+    await panel.locator('[data-administration-action="deputyOrder"]').click();
+    await page.evaluate(() => window.helixHeresyDebug.advanceCityAdministrationForTest(75));
+    s = await snap(page); expect(s.administration.maintenanceDeputy.collection).toBeTruthy();
+    if (!cycle) {
+      await page.reload(); await page.locator('#loadLastSaveBtn').click();
+      await page.locator('[data-workspace-tab="visits"]').click();
+    }
+    await page.evaluate(() => window.helixHeresyDebug.advanceCityAdministrationForTest(300));
+    s = await snap(page); const r = s.administration.maintenanceDeputy;
+    expect(r.repairs.length, JSON.stringify(r.job)).toBe(cycle + 1);
+    expect(r.commission).toEqual(appointment); expect(r.review).toEqual(review); expect(r.ended).toBeNull();
+    expect(s.succession.provision.stock).toBe(original.stock - (cycle + 1) * 3);
+  }
+  expect(new Set(s.administration.maintenanceDeputy.repairs.map(r => r.receipt.id)).size).toBe(2);
+  // Continuation uses the real exported run, including original bodies, stock and registers.
+  const bundle = await page.evaluate(() => ({ format: 'helix-heresy-run-bundle', version: 2, ...window.helixHeresyDebug.currentWorldRunSnapshot() }));
+  await page.locator('#newRunBtn').click();
+  await page.locator('#titleImportFileInput').setInputFiles({ name: 'continued-standing-deputy.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(bundle)) });
+  await expect(page.locator('#setupOverlay')).toHaveClass(/hidden/, { timeout: 60000 });
+  await page.locator('[data-workspace-tab="visits"]').click();
+  s = await snap(page); expect(s.administration.maintenanceDeputy.commission).toEqual(appointment);
+  expect(s.administration.maintenanceDeputy.repairs).toHaveLength(2);
+  expect(s.administration.workerId).toBe(original.worker); expect(s.appointments.candidate.id).toBe(original.candidate);
+  expect(s.appointments.candidate.roles).toEqual([]); expect(s.appointments.receipt).toBeNull();
+  expect(s.succession.handover).toEqual(original.handover); expect(s.succession.agreements).toEqual(original.agreements);
+  expect(s.succession.leaders.find(a => a.id === old.id).roles).toEqual(original.roles);
+  expect(s.succession.leaders.find(a => a.id === old.id).health).toBe(original.health);
+  await page.evaluate(n => window.helixHeresyDebug.advanceCityAdministrationForTest(n), s.administration.dueAt + 1 - s.clock);
+  await panel.locator('[data-administration-action="deputyInspect"]').click();
+  await panel.locator('[data-administration-action="deputyOrder"]').click();
+  await page.evaluate(() => window.helixHeresyDebug.advanceCityAdministrationForTest(75));
+  s = await snap(page); expect(s.administration.maintenanceDeputy.collection).toBeTruthy();
+  if (renderer === 'dom') {
+    const collection = s.administration.maintenanceDeputy.collection, stock = s.succession.provision.stock;
+    await panel.locator('[data-administration-action="deputyRevoke"]').click();
+    for (let i = 0; i < 40 && !(await snap(page)).administration.maintenanceDeputy.handback; i++)
+      await page.evaluate(() => window.helixHeresyDebug.advanceCityAdministrationForTest(30));
+    s = await snap(page); const r = s.administration.maintenanceDeputy;
+    expect(r.handback, JSON.stringify({ job: r.job, candidate: s.appointments.candidate, context: s.context })).toBeTruthy();
+    expect(r.ended.reason).toBe('revoked'); expect(r.repairs).toHaveLength(2);
+    expect(s.appointments.candidate.maintenanceDeputyId).toBeUndefined(); expect(s.succession.provision.stock).toBe(stock);
+    const stacks = (await page.evaluate(() => window.helixHeresyDebug.cityAdministrationSnapshot())).stacks;
+    const returned = stacks.find(i => i.id === collection.stackId);
+    expect(returned.quantity).toBe(3); expect(returned.carriedBy).toBeNull(); expect(returned.cell).toEqual({ x: 16, y: 12, z: 6 });
+    expect(await admin(page, 'deputyInspect')).toBe(false);
+  } else {
+    const frozen = { administration: s.administration, candidate: s.appointments.candidate, stock: s.succession.provision.stock, clock: s.clock };
+    await page.evaluate(() => { window.helixHeresyDebug.inflictTestScientistDamage(); window.helixHeresyDebug.advanceTestRunTime(300); });
+    s = await snap(page);
+    expect({ administration: s.administration, candidate: s.appointments.candidate, stock: s.succession.provision.stock, clock: s.clock }).toEqual(frozen);
+  }
+  expect(await page.evaluate(() => window.helixHeresyDebug.validateMapScene())).toEqual([]);
   expect(errors).toEqual([]);
 });
 for (const renderer of ['dom', 'canvas']) for (const retainedCargo of [false, true]) test(`${renderer}: ${retainedCargo ? 'retained cargo recovery after ' : ''}death vacancy uses actual combat death, emergency hearing and physical supplied maintenance`, async ({ page }) => {
