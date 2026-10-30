@@ -641,6 +641,16 @@
     if (!storage || typeof storage.getItem !== "function" || typeof storage.setItem !== "function") {
       throw new Error("A Web Storage-compatible adapter is required.");
     }
+    // Full generated-world validation is deliberately expensive. Re-reading
+    // an unchanged immutable record during every run save must not replay it.
+    // The exact stored bytes, not a caller-supplied digest, identify a hit.
+    // Keep the private validated value separate from every returned branch.
+    const worldCache = new Map();
+    function rememberWorld(id, raw, world) {
+      worldCache.delete(id);
+      worldCache.set(id, { raw, world });
+      while (worldCache.size > 2) worldCache.delete(worldCache.keys().next().value);
+    }
 
     function readJson(key) {
       const raw = storage.getItem(key);
@@ -662,8 +672,21 @@
     function getWorld(id) {
       const worldId = cleanId(id);
       if (!worldId) return null;
-      const value = readJson(`${WORLD_KEY_PREFIX}${worldId}`);
-      return value ? normalizeWorld(value) : null;
+      const raw = storage.getItem(`${WORLD_KEY_PREFIX}${worldId}`);
+      if (!raw) { worldCache.delete(worldId); return null; }
+      const cached = worldCache.get(worldId);
+      if (cached?.raw === raw) {
+        rememberWorld(worldId, raw, cached.world);
+        return clone(cached.world);
+      }
+      // Invalidate BEFORE decoding/validation. A failed changed record cannot
+      // fall back to a stale, previously valid world on a later read.
+      worldCache.delete(worldId);
+      const value = JSON.parse(decompressStorageText(raw));
+      if (!value) return null;
+      const world = normalizeWorld(value);
+      rememberWorld(worldId, raw, world);
+      return clone(world);
     }
 
     function getRun(id) {
@@ -691,7 +714,9 @@
       }
       const next = manifest();
       if (!next.worldIds.includes(world.id)) next.worldIds.push(world.id);
-      storage.setItem(`${WORLD_KEY_PREFIX}${world.id}`, compressStorageText(JSON.stringify(world)));
+      const raw = compressStorageText(JSON.stringify(world));
+      storage.setItem(`${WORLD_KEY_PREFIX}${world.id}`, raw);
+      rememberWorld(world.id, raw, world);
       writeManifest(next);
       return clone(world);
     }
@@ -768,6 +793,7 @@
       const current = manifest();
       if (!current.worldIds.includes(worldId)) return false;
       storage.removeItem(`${WORLD_KEY_PREFIX}${worldId}`);
+      worldCache.delete(worldId);
       current.worldIds = current.worldIds.filter((entry) => entry !== worldId);
       writeManifest(current);
       return true;
