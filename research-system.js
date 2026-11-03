@@ -8,6 +8,14 @@
   const BASIC_TEST_IDS = Object.freeze(["visual", "sustenance", "element", "containment", "byproduct", "behavior"]);
   const PROJECTS = Object.freeze([
     Object.freeze({
+      id: 'divineCoreResonance', label: 'Divine Core Resonance',
+      description: 'Identify a personally examined ascended individual with a carried thaumometer, then focus a costly animantic attack on that exact living body. Avatars are not the individual; no outcome or submission is guaranteed.',
+      skillId: 'animancy', minimumSkills: { animancy: 201, fabrication: 151, materialsScience: 101 },
+      workSeconds: 18 * 3600, prerequisites: ['soulBeaconReconstruction'], evidence: [],
+      inputs: { resources: { arcaneFeedstock: 12, metalParts: 8, glass: 8 }, specimenAmount: 0 },
+      unlocks: [{ id: 'procedure:divineResonance', label: 'Physical divine signature examination and resonant soul strike' }]
+    }),
+    Object.freeze({
       id: "controlledStress", label: "Controlled Stress Methodology",
       description: "Establish a repeatable way to distinguish ordinary agitation from biologically meaningful instability.",
       skillId: "medicine", workSeconds: 90, prerequisites: [],

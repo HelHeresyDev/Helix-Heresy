@@ -4,8 +4,29 @@ const Library = require('../world-run-library');
 const DivineHistory = require('../strategic-divine-history');
 const Faiths = require('../strategic-faiths');
 const Religion = require('../religious-recognition');
+const Bodies = require('../divine-bodies');
+const Owners = require('../divine-capabilities');
 
 const cache = new Map();
+
+test('original divine true bodies bind physical homes and retained human/beast power without changing the generated world or exposing a roster', () => {
+  const map = generatedWorld().generatedData.strategicMap, original = JSON.stringify(map);
+  const book = Owners.create(Owners.sources(map), { worldId: 'original-world', runId: 'new-branch' }, 0, true);
+  const homes = Bodies.homes(map, book), s = Bodies.create(book, homes, 0);
+  expect(s.bodies.length).toBeGreaterThan(0); expect(Bodies.known(s)).toEqual([]);
+  expect(s.bodies.some(a => a.home.cityId)).toBe(true);
+  for (const a of s.bodies) {
+    const g = book.records.find(r => r.godId === a.godId).god;
+    expect(a.maxHealth).toBe(200 + g.divineCore.innateCapacity * 4);
+    expect(a.signature).toBe(g.divineCore.repeatableSignature);
+    expect(a.home.cityId ? map.humanGeography.cities.some(c => c.id === a.home.cityId && c.cellId === a.home.cellId)
+      : map.strategicDivineHistory.holySiteStateRows.some(h => h.siteId === a.home.placeId && h.cellId === a.home.cellId)
+        || map.strategicDivineHistory.eventRows.some(e => e.cellId === a.home.cellId && e.participantIds.includes(a.godId))).toBe(true);
+  }
+  expect(JSON.stringify(map)).toBe(original);
+  const independent = Bodies.create(Owners.create(Owners.sources(map), { worldId: 'original-world', runId: 'independent' }, 0, true), homes, 0);
+  s.bodies[0].health -= 50; expect(independent.bodies[0].health).toBe(independent.bodies[0].maxHealth);
+});
 
 function generatedWorld(seed = 'world-seed-one', worldTheme = 'unbound') {
   const key = `${seed}:${worldTheme}`;
