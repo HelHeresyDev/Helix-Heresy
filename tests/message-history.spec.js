@@ -1,22 +1,13 @@
 // @ts-check
 const { test, expect } = require('@playwright/test');
-const path = require('path');
-const { pathToFileURL } = require('url');
-
-const projectRoot = path.resolve(__dirname, '..');
-const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
+const { startLifecycleRun } = require('./helpers/start-lifecycle-run');
 const { activeRunStorageKey } = require('./helpers/active-run-storage');
 const preferencesKey = 'helix-heresy-v1-preferences';
+test.setTimeout(90000);
+test.use({ actionTimeout: 15000 });
 
 async function startRun(page) {
-  await page.goto(appUrl);
-  await page.evaluate(() => {
-    window.localStorage.clear();
-    window.localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: 'dom' }));
-  });
-  await page.reload();
-  await page.locator('#titleNewRunBtn').click();
-  await page.locator('#setupForm button[type="submit"]').click();
+  await startLifecycleRun(page, 'message-history');
 }
 
 async function loadSavedRun(page) {
@@ -28,7 +19,7 @@ test('message history keeps routine records while compact feed shows urgent obse
   await startRun(page);
 
   await page.evaluate(({ key }) => {
-    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const payload = JSON.parse(window.HelixWorldRunLibrary.decompressStorageText(window.localStorage.getItem(key) || '{}'));
     const state = payload.state || payload;
     const anchor = state.labMap.rooms.mainLab.anchor;
     state.incidents = [{
@@ -72,12 +63,13 @@ test('message history keeps routine records while compact feed shows urgent obse
         cell: { ...anchor },
       },
     ];
-    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+    window.localStorage.setItem(key, window.HelixWorldRunLibrary.compressStorageText(JSON.stringify({ ...payload, state })));
   }, { key: await activeRunStorageKey(page) });
   await loadSavedRun(page);
 
   await expect(page.locator('#messageFeed')).toContainText('Critical test leak');
-  await expect(page.locator('#messageFeed')).toHaveAttribute('data-feed-fade', 'true');
+  // Critical text remains fully readable even when ordinary feed fading is on.
+  await expect(page.locator('#messageFeed')).toHaveAttribute('data-feed-fade', 'false');
   await expect(page.locator('#messageFeed')).not.toContainText('Visual Survey complete');
   await expect(page.locator('#messageFeed')).not.toContainText('Discovery recorded');
   await expect(page.locator('#messageFeed [data-message-feed="true"]')).toHaveCount(1);
@@ -101,6 +93,8 @@ test('message history keeps routine records while compact feed shows urgent obse
 
   await page.locator('#messageFilterSelect').selectOption('incident');
   await page.locator('#eventLog').getByRole('button', { name: 'Focus Incident' }).click();
-  await expect(page.locator('[data-selection-inspector="true"]')).toHaveAttribute('data-selection-kind', 'incident');
-  await expect(page.locator('[data-selection-inspector="true"]')).toContainText('Critical test leak');
+  await expect(page.locator('[data-workspace-panel="map"]')).toBeVisible();
+  await expect(page.locator('[data-map-assistive-status="true"]')).toContainText('Critical test leak');
+  await expect(page.locator('[data-map-cursor="true"]')).toHaveAttribute('data-map-target-kind', 'incident');
+  await expect(page.locator('[data-map-cursor="true"]')).toHaveAttribute('data-map-target-id', 'incident-message-test');
 });

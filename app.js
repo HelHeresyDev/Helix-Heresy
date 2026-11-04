@@ -170,6 +170,7 @@
   const DivineSubmission = window.HelixDivineSubmission;
   const DivineWayfinding = window.HelixDivineWayfinding;
   const DivineReign = window.HelixDivineReign;
+  const Notifications = window.HelixNotifications;
   const DivineCapabilities = window.HelixDivineCapabilities;
   const DivineNonintervention = window.HelixDivineNonintervention;
   const DivineContacts = window.HelixDivineContacts;
@@ -4933,6 +4934,11 @@
   let selectedStartingScenarioId = "";
   let selectedStartingSiteId = "";
   let uiPreferences = null;
+  const notificationQueue = Notifications.createQueue();
+  let notificationAudio = null, notificationState = null, notificationRunId = null;
+  let notificationPreferenceRevision = 0;
+  let currentNotifications = { groups: [], notice: null, sound: null }, notificationFeedSignature = '';
+  const notificationDismissedKeys = new Set();
   let startupView = "title";
   let reviewedRun = null;
   let deathSaveQueued = false;
@@ -10561,7 +10567,8 @@
       if (state.combat?.routineSuspension?.reason === "civic registration visit") resumeScientistRoutineWork();
     }
     state.paused = true; state.runEnded = result.terminal;
-    addEvent(result.resurrectionPending ? `${result.record.summary} A physically ready soul beacon can guide recovery; select and confirm a destination while the simulation remains paused.` : `${result.record.summary} No physically eligible soul-beacon recovery remains, so the run ended.`, { sourceKind: "scientistDeath", sourceId: result.record.id });
+    addEvent(result.resurrectionPending ? `${result.record.summary} A physically ready soul beacon can guide recovery; select and confirm a destination while the simulation remains paused.` : `${result.record.summary} No physically eligible soul-beacon recovery remains, so the run ended.`,
+      { cue: 'danger', severity: 'critical', category: 'facility', sourceKind: "scientistDeath", sourceId: result.record.id });
     if (result.terminal) state.postmortem = RunLifecycle.captureReport(state, {
       ...postmortemContext(state, activeWorldRecord),
       location: roomName(result.record.location.roomId),
@@ -12966,6 +12973,7 @@
       compactFeedVisible: true,
       compactFeedFades: true,
       compactMessageLimit: COMPACT_MESSAGE_LIMIT,
+      notificationAudio: Notifications.preferences(),
       mapVisualMode: "sprites",
       mapRendererMode: MAP_RENDERER_CANVAS,
       mapMotion: "system",
@@ -13290,6 +13298,8 @@
     worldRepository = WorldRunLibrary.createRepository(window.localStorage);
     ensureInventoryPanel();
     uiPreferences = loadUiPreferences();
+    notificationAudio = Notifications.createAudio(window);
+    installNotificationSettings();
     mapRendererMode = normalizeMapRendererMode(uiPreferences.mapRendererMode);
     applyAccessibilityDocumentPreferences();
     installAccessibilityMediaListeners();
@@ -13311,6 +13321,18 @@
     render();
     focusStartupView();
     window.setInterval(tick, REAL_TICK_MS);
+    window.setInterval(presentNotifications, 250);
+    document.addEventListener('visibilitychange', () => {
+      notificationPreferenceRevision++;
+      notificationAudio.stop();
+      // Discard pending foreground/background sounds, not the message log.
+      notificationQueue.flush(performance.now(), uiPreferences.notificationAudio, notificationEligible, false);
+    });
+    for (const type of ['pointerdown', 'keydown']) document.addEventListener(type, event => {
+      if (event.isTrusted && !uiPreferences.notificationAudio.muted && !notificationAudio.ready() && !document.hidden) {
+        void notificationAudio.unlock().then(syncNotificationSettings);
+      }
+    }, { passive: true });
   }
 
   function cacheDom() {
@@ -18715,6 +18737,9 @@
         return added;
       },
       startResearchProject: (projectId) => startResearchProject(projectId),
+      notificationSnapshot: () => clonePlainObject({ preferences: uiPreferences.notificationAudio, groups: currentNotifications.groups,
+        audioReady: notificationAudio.ready(), audioStatus: notificationAudio.status(), events: jailVisibleMessages(state.events) }),
+      emitNotificationTestEvent: (message, options = {}) => { addEvent(message, options); persist(); renderEvents(); },
       divineBodyAction,
       divineWayfindingAction,
       divineReignSnapshot: () => clonePlainObject({ saved: state.divineReign, public: DivineReign.view(state.divineReign), campaign: state.campaign,
@@ -18826,6 +18851,12 @@
   function showStartupView(view = "title", options = {}) {
     startupView = ["title", "worlds", "setup", "settings", "about", "outcome"].includes(view) ? view : "title";
     startupOverlayOpen = true;
+    notificationPreferenceRevision++;
+    notificationAudio?.stop();
+    if (startupView !== 'outcome') {
+      notificationQueue.clear(); notificationDismissedKeys.clear(); currentNotifications = { groups: [], notice: null, sound: null };
+      document.getElementById('notificationAnnouncer').textContent = '';
+    }
     lastTickAt = Date.now();
     if (startupView === "title") syncTitleContinue();
     if (startupView === "worlds") renderWorldLibrary();
@@ -20567,6 +20598,7 @@
   }
 
   function syncTitleSettings() {
+    syncNotificationSettings();
     const prefs = normalizeUiPreferences(uiPreferences);
     for (const control of dom.titleSettingsPanel.querySelectorAll("[data-title-preference]")) {
       const key = control.dataset.titlePreference;
@@ -20601,6 +20633,8 @@
 
   function resetTitleSettings() {
     uiPreferences = defaultUiPreferences();
+    notificationPreferenceRevision++;
+    notificationAudio.stop();
     applyAccessibilityDocumentPreferences();
     setMapRendererMode(uiPreferences.mapRendererMode, { render: false });
     persistUiPreferences();
@@ -22639,6 +22673,7 @@
     const markerScale = Number(candidate?.mapMarkerScale);
     return {
       version: PREFERENCES_VERSION,
+      notificationAudio: Notifications.preferences(candidate?.notificationAudio),
       compactFeedVisible: candidate?.compactFeedVisible === undefined
         ? defaults.compactFeedVisible
         : Boolean(candidate.compactFeedVisible),
@@ -22752,6 +22787,8 @@
 
   function resetUiPreferences() {
     uiPreferences = defaultUiPreferences();
+    notificationPreferenceRevision++;
+    notificationAudio.stop(); syncNotificationSettings();
     mapAccessibilityPanelOpen = false;
     applyAccessibilityDocumentPreferences();
     debugToolsSessionEnabled = DEBUG_TOOLS_DEFAULT_ENABLED;
@@ -25237,7 +25274,7 @@
       const reveal = revealTraits(slime, TESTS.find((test) => test.id === "visual").traits);
       awardActionXp(task.data.skillId, task.data.baseXp, reveal, "Synthesis");
       if (task.data?.experimentId) attachSynthesizedExperimentSubject(task, slime);
-      addEvent(`${slime.name} stabilized in the synthesis tube.`);
+      addEvent(`${slime.name} stabilized in the synthesis tube.`, { cue: 'completion', category: 'task', sourceKind: 'synthesis', sourceId: task.id });
       emitMapFeedback("feedbackWork", objectMapCell(tube), {
         label: slime.name + " stabilized",
         intensityBand: "high",
@@ -25258,7 +25295,9 @@
       recordTestResearchEvidence(task, slime, test);
       const testBurden = { visual: 0, behavior: 8, stress: 28, breeding: 16, lifespan: 12 }[test.id] || 6;
       if (testBurden) recordSlimeWelfareIntervention(slime, `test:${test.id}`, testBurden, `${test.label} imposed a recorded research burden.`);
-      addEvent(`${test.label} complete for ${slime.name}.`);
+      addEvent(`${test.label} complete for ${slime.name}.${reveal.newDiscoveries ? ' New observations recorded.' : ''}`,
+        { cue: reveal.newDiscoveries ? 'discovery' : 'completion', category: reveal.newDiscoveries ? 'discovery' : 'task',
+          sourceKind: 'specimenTest', sourceId: `${slime.id}:${test.id}` });
       return;
     }
 
@@ -37952,7 +37991,8 @@
     for (const unlock of project.unlocks) if (!research.unlocks.includes(unlock.id)) research.unlocks.push(unlock.id);
     const prototype = project.id === "reinforcedObservationVessels" ? createReinforcedObservationPrototype(workstation) : null;
     awardXp(project.skillId, Math.max(8, project.workSeconds / 10), `research: ${project.label}`);
-    addEvent(`${project.label} complete. Unlocked ${project.unlocks.map((unlock) => unlock.label).join(", ")}${prototype ? "; a usable prototype was placed in the Main Lab" : ""}.`);
+    addEvent(`${project.label} complete. Unlocked ${project.unlocks.map((unlock) => unlock.label).join(", ")}${prototype ? "; a usable prototype was placed in the Main Lab" : ""}.`,
+      { cue: 'discovery', sourceKind: 'research', sourceId: project.id, category: 'discovery', severity: 'notice' });
     emitMapFeedback("feedbackWork", workstation.origin, { label: project.label + " completed", intensityBand: "high", coalesceKey: "research:" + project.id });
     return true;
   }
@@ -53273,6 +53313,7 @@
   }
 
   function render(options = {}) {
+    syncNotificationSession();
     if (state?.started && activeRunRecord && RunLifecycle.phase(state) !== "active" && !startupOverlayOpen) showRunOutcome(currentRunRecord());
     const scrollSnapshot = options.preserveWorkspaceScroll ? captureWorkspaceScroll() : null;
     syncSelectionState();
@@ -82008,6 +82049,111 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return block;
   }
 
+  function syncNotificationSession() {
+    if (notificationState === state && notificationRunId === activeRunRecord?.id) return;
+    notificationState = state; notificationRunId = activeRunRecord?.id;
+    notificationPreferenceRevision++;
+    notificationQueue.clear(); notificationAudio?.stop();
+    notificationDismissedKeys.clear();
+    currentNotifications = { groups: [], notice: null, sound: null }; notificationFeedSignature = '';
+    document.getElementById('notificationAnnouncer').textContent = '';
+  }
+
+  function notificationEligible(entry) {
+    if (!state?.started || notificationState !== state || notificationRunId !== activeRunRecord?.id) return false;
+    if (startupOverlayOpen && !(startupView === 'outcome' && entry.sourceKind === 'scientistDeath')) return false;
+    if (entry.sourceKind === 'scientistDeath') return true; // The scientist's own actual death, never a remote actor's.
+    if (scientistIsDead()) return false;
+    return jailVisibleMessages([entry]).length === 1;
+  }
+
+  function presentNotifications() {
+    syncNotificationSession();
+    const before = JSON.stringify(currentNotifications.groups);
+    currentNotifications = notificationQueue.flush(performance.now(), uiPreferences.notificationAudio, notificationEligible, !document.hidden);
+    if (currentNotifications.notice) {
+      const n = currentNotifications.notice;
+      document.getElementById('notificationAnnouncer').textContent = `${Notifications.LABELS[n.kind]}: ${n.event.message}`;
+    }
+    if (currentNotifications.sound && !notificationAudio.play(currentNotifications.sound, uiPreferences.notificationAudio.volume)) syncNotificationSettings();
+    if (before !== JSON.stringify(currentNotifications.groups)) renderCompactMessageFeed();
+    return currentNotifications;
+  }
+
+  function installNotificationSettings() {
+    for (const panel of document.querySelectorAll('[data-notification-settings]')) {
+      panel.classList.add('notification-settings');
+      panel.append(textEl('h3', 'Sound and notifications'), textEl('p', 'Short cues only; no music, speech or ambient loops. Categories control sound, never the message history. Background tabs are silent.'));
+      const field = (label, pref, type) => {
+        const wrapper = document.createElement('label'), input = document.createElement('input');
+        input.type = type; input.dataset.notificationPref = pref;
+        if (type === 'range') { input.min = '0'; input.max = '100'; input.step = '1'; }
+        wrapper.append(document.createTextNode(label), input); panel.append(wrapper); return input;
+      };
+      field('Mute all notification sounds', 'muted', 'checkbox');
+      const volume = field('Notification volume', 'volume', 'range');
+      const output = document.createElement('output'); output.dataset.notificationVolume = ''; volume.parentElement.append(output);
+      for (const kind of Notifications.KINDS) field(`${Notifications.LABELS[kind]} sounds`, kind, 'checkbox');
+      const actions = document.createElement('div'); actions.className = 'policy-button-row';
+      const enable = document.createElement('button'); enable.type = 'button'; enable.textContent = 'Enable sound for this page';
+      enable.dataset.notificationAction = 'enable';
+      enable.addEventListener('click', async () => {
+        const revision = notificationPreferenceRevision;
+        if (await notificationAudio.unlock() && revision === notificationPreferenceRevision) {
+          uiPreferences.notificationAudio = { ...uiPreferences.notificationAudio, muted: false }; persistUiPreferences();
+        }
+        syncNotificationSettings();
+      });
+      const label = document.createElement('label'), select = document.createElement('select');
+      select.dataset.notificationPreview = '';
+      for (const k of Notifications.KINDS) { const option = document.createElement('option'); option.value = k; option.textContent = Notifications.LABELS[k]; select.append(option); }
+      label.append(document.createTextNode('Preview cue'), select);
+      const preview = document.createElement('button'); preview.type = 'button'; preview.textContent = 'Play preview'; preview.dataset.notificationAction = 'preview';
+      preview.addEventListener('click', async () => {
+        const p = uiPreferences.notificationAudio;
+        if (p.muted || p.volume <= 0 || !p.categories[select.value]) return;
+        const revision = notificationPreferenceRevision;
+        if (await notificationAudio.unlock() && revision === notificationPreferenceRevision) {
+          const current = uiPreferences.notificationAudio;
+          if (!current.muted && current.categories[select.value]) notificationAudio.play(select.value, current.volume);
+        }
+        syncNotificationSettings();
+      });
+      select.addEventListener('change', syncNotificationSettings);
+      const status = textEl('p', ''); status.dataset.notificationStatus = ''; status.setAttribute('role', 'status');
+      actions.append(enable, label, preview); panel.append(actions, status);
+      panel.addEventListener('change', async event => {
+        const control = event.target.closest('[data-notification-pref]'); if (!control) return;
+        const key = control.dataset.notificationPref, p = uiPreferences.notificationAudio;
+        notificationPreferenceRevision++;
+        notificationAudio.stop();
+        uiPreferences.notificationAudio = Notifications.preferences(key === 'volume' ? { ...p, volume: Number(control.value) / 100 }
+          : key === 'muted' ? { ...p, muted: control.checked } : { ...p, categories: { ...p.categories, [key]: control.checked } });
+        persistUiPreferences();
+        if (key === 'muted' && !control.checked) await notificationAudio.unlock();
+        syncNotificationSettings();
+      });
+    }
+    syncNotificationSettings();
+  }
+
+  function syncNotificationSettings() {
+    const p = Notifications.preferences(uiPreferences?.notificationAudio);
+    for (const panel of document.querySelectorAll('[data-notification-settings]')) {
+      for (const input of panel.querySelectorAll('[data-notification-pref]')) {
+        const key = input.dataset.notificationPref;
+        if (key === 'volume') input.value = String(Math.round(p.volume * 100));
+        else input.checked = key === 'muted' ? p.muted : p.categories[key];
+      }
+      panel.querySelector('[data-notification-volume]').textContent = `${Math.round(p.volume * 100)}%`;
+      const kind = panel.querySelector('[data-notification-preview]').value;
+      panel.querySelector('[data-notification-action="preview"]').disabled = p.muted || !p.categories[kind] || p.volume <= 0;
+      const status = notificationAudio.status();
+      panel.querySelector('[data-notification-status]').textContent = p.muted
+        ? `Sound muted. Text notifications and history remain available.${/unavailable|blocked|failed/.test(status) ? ` ${status}` : ''}` : status;
+    }
+  }
+
   function renderEvents() {
     state.events = normalizeMessages(state.events);
     renderCompactMessageFeed();
@@ -82035,10 +82181,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!prefs.compactFeedVisible) {
       return [];
     }
-    return jailVisibleMessages(normalizeMessages(state.events))
+    const live = currentNotifications.groups.filter(g => notificationEligible(g.event));
+    const older = jailVisibleMessages(normalizeMessages(state.events))
       .filter((entry) => entry.feed)
+      .filter(entry => !notificationDismissedKeys.has(Notifications.key(entry)))
+      .filter(entry => !live.some(g => g.key === Notifications.key(entry)))
       .slice(-prefs.compactMessageLimit)
       .reverse();
+    return [...live.map(g => ({ ...g.event, feed: true, notificationKind: g.kind, notificationCount: g.count, notificationKey: g.key })), ...older]
+      .slice(0, prefs.compactMessageLimit);
   }
 
   function filteredMessageHistory() {
@@ -82049,21 +82200,29 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function jailVisibleMessages(messages) {
-    if (surveyScientistAway()) return messages.filter((entry) => entry.time <= state.surveyExpeditions.departedAt || entry.sourceKind === "surveyExpedition");
+    // Equal timestamps at departure are not evidence of receipt. Returning
+    // home retains existing access to dated local logs, without fresh cues.
+    if (surveyScientistAway()) return messages.filter((entry) => entry.received !== false
+      && (entry.time <= state.surveyExpeditions.departedAt || entry.sourceKind === "surveyExpedition"));
     const stay = restrictedOffsiteStay();
     if (!stay) return messages;
-    return messages.filter((entry) => entry.time <= stay.knowledge.labSnapshotAt || ["jailCustody", "jailEscape", "prisonCustody", "prisonBreak"].includes(entry.sourceKind));
+    return messages.filter((entry) => entry.received !== false
+      && (entry.time <= stay.knowledge.labSnapshotAt || ["jailCustody", "jailEscape", "prisonCustody", "prisonBreak"].includes(entry.sourceKind)));
   }
 
   function renderCompactMessageFeed() {
     if (!dom.messageFeed) {
       return;
     }
-    dom.messageFeed.textContent = "";
     const messages = compactFeedMessages();
     const prefs = normalizeUiPreferences(uiPreferences);
+    const signature = JSON.stringify([messages, prefs.compactFeedFades]);
+    if (signature === notificationFeedSignature) return;
+    notificationFeedSignature = signature;
+    const focused = document.activeElement?.closest('[data-notification-dismiss]')?.dataset.notificationDismiss;
+    dom.messageFeed.textContent = "";
     dom.messageFeed.classList.toggle("message-feed-empty", messages.length === 0);
-    dom.messageFeed.dataset.feedFade = String(prefs.compactFeedFades);
+    dom.messageFeed.dataset.feedFade = String(prefs.compactFeedFades && !messages.some(m => m.notificationKind === 'danger' || m.severity === 'critical'));
     if (!messages.length) {
       return;
     }
@@ -82073,8 +82232,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.messageFeed.append(title);
     for (const entry of messages) {
       const row = messageRowEl(entry, { compact: true });
+      if (entry.notificationKind) {
+        row.dataset.notificationKind = entry.notificationKind;
+        row.querySelector('.message-body').prepend(textEl('strong', `${Notifications.LABELS[entry.notificationKind]}${entry.notificationCount > 1 ? ` · ${entry.notificationCount} related notices` : ''}`));
+        const dismiss = document.createElement('button'); dismiss.type = 'button'; dismiss.textContent = 'Dismiss';
+        dismiss.setAttribute('aria-label', `Dismiss ${Notifications.LABELS[entry.notificationKind]} notice`);
+        dismiss.dataset.notificationDismiss = entry.notificationKey;
+        dismiss.addEventListener('click', event => {
+          event.stopPropagation(); notificationQueue.dismiss(entry.notificationKey); notificationDismissedKeys.add(entry.notificationKey);
+          currentNotifications.groups = notificationQueue.snapshot(); renderCompactMessageFeed();
+          // Explicit dismissal should leave keyboard focus somewhere useful,
+          // without focus movement when notices merely arrive or coalesce.
+          if (document.activeElement === document.body) (dom.messageFeed.querySelector('[data-notification-dismiss]') || dom.pauseBtn).focus({ preventScroll: true });
+        });
+        row.querySelector('.message-body').append(dismiss);
+      }
       dom.messageFeed.append(row);
     }
+    if (focused) [...dom.messageFeed.querySelectorAll('[data-notification-dismiss]')].find(b => b.dataset.notificationDismiss === focused)?.focus({ preventScroll: true });
   }
 
   function renderMessageHistory() {
@@ -90748,7 +90923,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         { kind: 'creature', id: 'scientist', lastKnownCell: scientistMapCell() }, { baseDamage: p.damage, damageTypes: p.types }),
       telegraph: a => { if (DivineBodies.visible(a, divineBodyContext(a))) {
         emitMapFeedback('feedbackImpact', a.mapCell, { label: 'True individual preparing a strike — guard or withdraw', intensityBand: 'high' });
-        addEvent('The extraordinary individual prepares a three-second attack. Guard, break line of effect or withdraw.'); state.paused = true;
+        addEvent('The extraordinary individual prepares a three-second attack. Guard, break line of effect or withdraw.',
+          { cue: 'danger', category: 'combat', severity: 'critical', sourceKind: 'surveyExpedition', sourceId: a.id }); state.paused = true;
       } }
     }) ? 1 : 0;
   }
@@ -111083,6 +111259,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       incidentId: String(source.incidentId || "").trim(),
       sourceKind: String(source.sourceKind || "").trim(),
       sourceId: String(source.sourceId || "").trim(),
+      cue: [...Notifications.KINDS, 'none'].includes(source.cue) ? source.cue : null,
+      received: typeof source.received === 'boolean' ? source.received : null,
       key: String(source.key || `message-${fallbackIndex}`).trim()
     };
   }
@@ -111107,8 +111285,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!record) {
       return;
     }
+    // New events must pass the current delivery channel, not the timestamp
+    // exception that preserves already-held records while away. In particular,
+    // an unseen lab event at the exact departure clock is not a received alarm.
+    const personallyDelivered = record.sourceKind === 'scientistDeath'
+      || jailVisibleMessages([{ ...record, received: null, time: Infinity }]).length === 1;
+    record.received = personallyDelivered;
     state.events.push(record);
     state.events = normalizeMessages(state.events).slice(-MESSAGE_HISTORY_LIMIT);
+    if (notificationState === state && notificationRunId === activeRunRecord?.id
+      && notificationQueue.offer(record, notificationEligible(record) && personallyDelivered)) notificationDismissedKeys.delete(Notifications.key(record));
   }
 
   function cleanGenome(value) {

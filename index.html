@@ -704,14 +704,16 @@
             </label>
           </div>
           <div id="eventLog" class="event-log"></div>
+          <div data-notification-settings="game"></div>
         </section>
       </main>
 
       <div id="mapOverlayHud" class="map-overlay-hud"></div>
-      <aside id="messageFeed" class="message-feed" aria-label="Recent important messages" aria-live="polite"></aside>
+      <aside id="messageFeed" class="message-feed" aria-label="Recent important messages" aria-live="off"></aside>
       <div id="seedReadout" class="seed-corner">Seed: none</div>
     </div>
 
+    <div id="notificationAnnouncer" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
     <div id="setupOverlay" class="setup-overlay" data-startup-view="title">
       <div class="title-backdrop" aria-hidden="true">
         <span class="title-helix title-helix-left">ACGT</span>
@@ -1111,6 +1113,7 @@
           <label class="title-checkbox"><input data-title-preference="compactFeedVisible" type="checkbox"><span>Show compact message feed</span></label>
           <label class="title-checkbox"><input data-title-preference="compactFeedFades" type="checkbox"><span>Fade compact message feed</span></label>
         </div>
+        <div data-notification-settings="title"></div>
         <div class="startup-footer-actions">
           <button id="titleResetSettingsBtn" type="button">Reset Settings</button>
           <p id="titleSettingsStatus" class="journal-meta" aria-live="polite"></p>
@@ -1422,6 +1425,7 @@
     <script src="armed-rescue.js"></script>
     <script src="living-smuggling.js"></script>
     <script src="intercity-smuggling.js"></script>
+    <script src="notifications.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

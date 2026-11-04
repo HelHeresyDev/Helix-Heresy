@@ -5,7 +5,7 @@ This is the finite remaining queue, not an implementation diary or a source of a
 ## Queue rules and stopping conditions
 
 - Discuss the selected work package before implementing gameplay, and wait for explicit developer approval. Questions should include a recommended answer and brief reasoning. This queue update does not approve the gameplay designs below.
-- The queue contains **14 scheduled work packages and 6 conditional/optional packages**. IDs identify work, not software versions. A package can take several sessions; continuing it does not create another pending prompt.
+- The queue retains **13 work packages (including indefinitely deferred work) and 6 conditional/optional packages**. IDs identify work, not software versions. A package can take several sessions; continuing it does not create another pending prompt.
 - **Do not append or subdivide the queue automatically.** Bugs, interruption cases, missing adapters, documentation and focused tests needed to deliver an entry stay inside that entry. Do not turn each official, material, species, spell, report, permission or save edge case into another prompt.
 - A genuine scope change requires a concrete explanation and explicit developer approval to replace, expand or defer a named entry. Record the tradeoff here; do not silently add a follow-up or claim unfinished work is complete. There is no automatic discovery backlog.
 - Freeze each package's acceptance checklist during its design discussion. Once it passes, remove the package from this active file, update remaining counts/dependencies, and put useful completion notes in the history or feature documentation. Do not append another “completed bounded slice, but next…” paragraph here.
@@ -29,7 +29,7 @@ These apply to every package; they are not additional work items.
 
 ## Order and current state
 
-**#1 and #4 are complete and removed; no gameplay package is currently active.** All three frozen 4-C checks passed, including the approved shared physical-access inclusion. Completion notes are in the implementation history and README. #2/#3 and their beast workstream remain deferred; the next selected package still requires its design discussion and explicit approval.
+**#1, #4 and #6-A are complete and removed; no gameplay package is currently active.** Sound/notification completion notes and focused acceptance results are in the README and implementation history. #2/#3 and their beast workstream remain deferred, as does #5 onboarding/tutorial. The next eligible scheduled discussion is #6-B; no package is automatically activated.
 
 **#2/#3 and the associated beast workstream remain deferred indefinitely, not complete.** The developer explicitly rejected continuing domination. Preserve existing implementation, but do not resume its requirements, preparation or acceptance checks unless explicitly asked. Completing #1 neither closes domination nor authorizes returning to it. The old domination-first order is superseded.
 
@@ -131,17 +131,15 @@ Connect B/C to actual habitat, conserved original populations, appropriate group
 
 Done when all current species are represented by the approved matrix, representative physical encounters consume each shared family, strategic outputs cover original source classes, and persistence/death/knowledge boundaries pass focused checks. **Close 3.38 here; remaining integration belongs to the already listed 3.35d-D/E, not new beast prompts.**
 
-## 5. New-run onboarding and contextual tutorial — one package
+## 5. New-run onboarding and contextual tutorial — deferred indefinitely
+
+**Stopped by developer direction, not complete.** Do not build a tutorial before the game systems are implemented. Preserve the scope below for later reconsideration, but do not resume its design, implementation or acceptance work unless the developer explicitly reactivates #5. Completion of other packages does not automatically reactivate it. This deferral neither resumes #2/#3 nor creates additional system-completion prompts.
 
 Implement optional contextual guidance for existing world/site/start choice, discovery, containment, physical map/tasks, research, company/legal and black markets, secrecy, death/recovery/postmortem and independent restart. Use existing actions and knowledge; no free resources, compulsory campaign chapters or artificial unlocks.
 
 Done when a new player can follow and dismiss/resume that fixed introductory path with persistent preferences, keyboard support and correct knowledge limits. Wider feature-specific tutorials are not automatic follow-up prompts.
 
-## 6. Sound, notifications and accessibility — two packages
-
-### 6-A. Audio and notification language
-
-Deliver restrained shared cue categories, urgency/coalescing rules, volume/mute controls and saved preferences. Every important cue has a visual/text equivalent; no audio-only game state. Use current event categories rather than adding one implementation prompt per sound.
+## 6. Accessibility — one remaining package
 
 ### 6-B. Accessibility closeout
 
