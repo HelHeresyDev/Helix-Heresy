@@ -135,7 +135,7 @@
   }
   function attack(s, book, a, c, at) {
     if (!authentic(s, book, a) || !visible(a, c) || a.status !== 'alive') return false;
-    a.hostile = true; a.aggressionAt = at; return true;
+    a.hostile = true; a.aggressionAt = at; a.aggressionSerial = (a.aggressionSerial || 0) + 1; return true;
   }
   function absorb(s, book, a, amount, c) {
     const g = owner(book, a?.godId)?.god;
@@ -176,8 +176,10 @@
       if (a.health <= 0) changed = death(s, book, a, at, 'actual bodily injury') || changed;
       if (a.status === 'alive' && g.lifecycle.lifeState === 'dead') { a.health = 0; a.status = 'dead'; a.pending = null; }
       const dt = at - a.lastAt; a.lastAt = at;
+      const controlled = effects.control?.(a, c, at, dt);
       if (!local(a, c) || a.status !== 'alive' || c.incapacitated || dt <= 0) { a.pending = null; continue; }
       a.retreating = a.health < a.maxHealth / 4;
+      if (controlled) { a.retreating = false; changed = observe(s, book, a, context(a), at) || changed; continue; }
       if (a.hostile && c.tracks && c.distance <= 6) {
         if (a.pending && at >= a.pending.releaseAt) {
           const p = a.pending; a.pending = null;

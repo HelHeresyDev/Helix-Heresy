@@ -5,7 +5,7 @@ This is the finite remaining queue, not an implementation diary or a source of a
 ## Queue rules and stopping conditions
 
 - Discuss the selected work package before implementing gameplay, and wait for explicit developer approval. Questions should include a recommended answer and brief reasoning. This queue update does not approve the gameplay designs below.
-- The queue contains **16 scheduled work packages and 6 conditional/optional packages**. IDs identify work, not software versions. A package can take several sessions; continuing it does not create another pending prompt.
+- The queue contains **15 scheduled work packages and 6 conditional/optional packages**. IDs identify work, not software versions. A package can take several sessions; continuing it does not create another pending prompt.
 - **Do not append or subdivide the queue automatically.** Bugs, interruption cases, missing adapters, documentation and focused tests needed to deliver an entry stay inside that entry. Do not turn each official, material, species, spell, report, permission or save edge case into another prompt.
 - A genuine scope change requires a concrete explanation and explicit developer approval to replace, expand or defer a named entry. Record the tradeoff here; do not silently add a follow-up or claim unfinished work is complete. There is no automatic discovery backlog.
 - Freeze each package's acceptance checklist during its design discussion. Once it passes, remove the package from this active file, update remaining counts/dependencies, and put useful completion notes in the history or feature documentation. Do not append another “completed bounded slice, but next…” paragraph here.
@@ -29,7 +29,7 @@ These apply to every package; they are not additional work items.
 
 ## Order and current state
 
-**4-A is complete and removed, as is #1.** Physical-world true-individual confrontation passed its three frozen completion checks; see the README and implementation history. No gameplay package is active. The next discussion should select an existing non-deferred package, not append another confrontation route, per-god mission, realm-travel or certification ladder. Submission remains the already listed 4-B; #2/#3 and their beast workstream remain deferred.
+**4-A, 4-B and #1 are complete and removed.** Personal divine submission passed its three frozen checks; see the README and implementation history. No gameplay package is active. The ambition award remains in existing 4-C, not an automatically started follow-up. #2/#3 and their beast workstream remain deferred.
 
 **#2/#3 and the associated beast workstream remain deferred indefinitely, not complete.** The developer explicitly rejected continuing domination. Preserve existing implementation, but do not resume its requirements, preparation or acceptance checks unless explicitly asked. Completing #1 neither closes domination nor authorizes returning to it. The old domination-first order is superseded.
 
@@ -131,15 +131,9 @@ Connect B/C to actual habitat, conserved original populations, appropriate group
 
 Done when all current species are represented by the approved matrix, representative physical encounters consume each shared family, strategic outputs cover original source classes, and persistence/death/knowledge boundaries pass focused checks. **Close 3.38 here; remaining integration belongs to the already listed 3.35d-D/E, not new beast prompts.**
 
-## 4. Divine Supremacy: Rule over the Gods — two remaining packages
+## 4. Divine Supremacy: Rule over the Gods — one remaining package
 
 These are a separate ambition, not mandatory world-domination prerequisites. Preserve original human/beast gods, living descended individuals, new ascendants, faithful and actual divine signatures. Worship loss/descent is not a kill; ordinary players never receive an undiscovered-god checklist. Personal ascension is optional.
-
-### 4-B. Enforceable submission, refusal and rebellion
-
-Implement exact imposed terms, real leverage, independent assent/refusal, commanded limits, breach, rebellion and enforcement over surviving gods. Those who refuse submission must actually be killed to meet this ambition. Retain the finite original agents, their own faithful and obligations, rather than turning a signature into permanent obedience.
-
-Done when submission can operate and be lost/reasserted through actual mechanics, and neither lack of worship nor friendly cooperation counts as rule over a god.
 
 ### 4-C. Accomplishment and continued reign
 

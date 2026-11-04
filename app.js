@@ -167,6 +167,7 @@
   const ReligiousRecognition = window.HelixReligiousRecognition;
   const DivineIntervention = window.HelixDivineIntervention;
   const DivineBodies = window.HelixDivineBodies;
+  const DivineSubmission = window.HelixDivineSubmission;
   const DivineCapabilities = window.HelixDivineCapabilities;
   const DivineNonintervention = window.HelixDivineNonintervention;
   const DivineContacts = window.HelixDivineContacts;
@@ -18723,9 +18724,12 @@
         if (!activeRunRecord || !activeWorldRecord || state.divineBodies?.bodies?.length || !options.god
           || !DivineCapabilities.validGod(options.god)) return false;
         const g = clonePlainObject(options.god), binding = { worldId: activeWorldRecord.id, runId: activeRunRecord.id };
-        state.divineCapabilities = DivineCapabilities.create({ complete: true, rows: [{ godId: g.id, god: g, faith: options.faith || null, death: null }] }, binding, state.clock, true);
+        const additional = clonePlainObject(options.additionalOriginals || []);
+        if (additional.some(o => !DivineCapabilities.validGod(o.god) || !o.home)) return false;
+        state.divineCapabilities = DivineCapabilities.create({ complete: true, rows: [{ godId: g.id, god: g, faith: options.faith || null, death: null },
+          ...additional.map(o => ({ godId: o.god.id, god: o.god, faith: o.faith || null, death: null }))] }, binding, state.clock, true);
         state.divineCapabilitiesInitialized = true;
-        state.divineBodies = DivineBodies.create(state.divineCapabilities, [options.home], state.clock);
+        state.divineBodies = DivineBodies.create(state.divineCapabilities, [options.home, ...additional.map(o => o.home)], state.clock);
         for (const [id, level] of Object.entries(options.skills || {})) {
           const skill = scientistSkill(id, { create: true }); skill.xp = totalXpForLevel(level);
           if (skill.embodiment) skill.embodiment.xp = skill.xp;
@@ -24744,7 +24748,7 @@
       }
       return changed;
     }
-    if (!options.trueBodyStep && elapsed > 1 && (state.divineBodies?.job || localTrueDivineBodies().some(a => a.hostile && a.status === 'alive'))) {
+    if (!options.trueBodyStep && elapsed > 1 && (state.divineBodies?.job || localTrueDivineBodies().some(a => (a.hostile || a.submission?.status === 'accepted') && a.status === 'alive'))) {
       let remaining = elapsed, changed = 0;
       while (remaining > 0 && !scientistIsDead()) {
         const before = state.clock, health = scientistVital('health').current, pending = localTrueDivineBodies().some(a => a.pending);
@@ -42641,8 +42645,10 @@
     }
     const targetActor = combatActor(target.id);
     if (!targetActor) return { ok: false, reason: "The target is no longer present." };
-    if (actorId === 'scientist' && targetActor.actorKind === 'divineIndividual')
+    if (actorId === 'scientist' && targetActor.actorKind === 'divineIndividual') {
       DivineBodies.attack(currentDivineBodies(), currentDivineCapabilities(), targetActor, divineBodyContext(targetActor), state.clock);
+      DivineSubmission.witnessAttack(currentDivineBodies(), currentDivineCapabilities(), targetActor, divineBodyContext(targetActor), state.clock);
+    }
     if (actorId === 'scientist') observeDivineAggression(target.id, actionId);
     if (actorId === 'scientist' && state.cityAuthority) {
       const c = cityAuthorityCounter().context;
@@ -43086,8 +43092,10 @@
       if (!resonancePayment) return false;
       const instrument = divineBodyInstrument(); instrument.current = Math.max(0, instrument.current - 1);
     }
-    if (slime?.actorKind === 'divineIndividual')
+    if (slime?.actorKind === 'divineIndividual') {
       DivineBodies.attack(currentDivineBodies(), currentDivineCapabilities(), slime, divineBodyContext(slime), state.clock);
+      DivineSubmission.witnessAttack(currentDivineBodies(), currentDivineCapabilities(), slime, divineBodyContext(slime), state.clock);
+    }
     if (action.chargeSeconds > 0 || action.channelSeconds > 0) {
       state.combat.pendingActions.scientist = normalizePendingCombatAction({
         actorId: "scientist", actionId, target, startedAt: state.clock,
@@ -87307,7 +87315,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (actor.actorKind === 'divineIndividual' && !options.injuryProgress) {
       amount = DivineBodies.absorb(currentDivineBodies(), currentDivineCapabilities(), actor, amount, divineBodyContext(actor));
       if (amount <= 0) return false;
-      actor.lastDamage = { at: state.clock, attackerId: options.attackerId || null, amount, damageTypes: options.damageTypes || ['physical'] };
     }
     if (!options.injuryProgress) amount = DivineIntervention.absorb(currentDivineIntervention(), divineInterventionContext(), actor.id, amount, options.damageTypes || ['physical']);
     if (amount <= 0) return true;
@@ -87317,6 +87324,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       actor.physicalControl.stamina = Math.max(0, actor.physicalControl.stamina - amount * .1);
     }
     actor.health = Math.max(0, actor.health - amount);
+    if (actor.actorKind === 'divineIndividual' && !options.injuryProgress)
+      actor.lastDamage = { at: state.clock, attackerId: options.attackerId || null, amount, damageTypes: options.damageTypes || ['physical'],
+        serial: (actor.lastDamage?.serial || 0) + 1, bodyEpoch: options.attackerId === 'scientist' ? ensureScientistIdentity().bodyEpoch : null };
     if (!options.injuryProgress && options.attackerId === 'scientist' && actor.maintenanceDeputyId)
       actor.maintenanceDeputyResignation ||= { appointmentId: actor.maintenanceDeputyId, at: state.clock,
         reason: 'Personally received an attack from the appointing scientist; withdrawing the deputy agreement, not a criminal verdict.' };
@@ -89366,6 +89376,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }) ? 1 : 0;
   }
   function cityDefenseAbsorb(actorId, cell, amount, damageTypes, targetId = null) {
+    if (targetId === 'scientist' && !scientistIsDead()) {
+      const s = currentDivineBodies(), book = currentDivineCapabilities();
+      for (const a of localTrueDivineBodies()) {
+        const absorbed = DivineSubmission.absorb(s, book, a, divineBodyContext(a), amount, damageTypes, state.clock, actorId);
+        if (absorbed) return { damage: amount - absorbed, absorbed };
+      }
+    }
     const founding = foundingWorksAbsorb(actorId, targetId, cell, amount, damageTypes);
     if (founding.absorbed) return founding;
     const outer = outerApproachCover(actorId, cell, amount, damageTypes);
@@ -90546,6 +90563,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { ...c, cell, capable: !actorIsIncapacitated('scientist'),
       researched: Research.isUnlocked(ensureResearchState(), DivineBodies.UNLOCK), animancy: skillLevel('animancy', 'knowledge'),
       bodyEpoch: ensureScientistIdentity().bodyEpoch,
+      mana: scientistVital('mana').current, resonanceDamage: combatActionDef('divineResonance').baseDamage,
+      combatReady: !state.combat?.pendingActions?.scientist && (state.combat?.actorRecoveryUntil?.scientist || 0) <= state.clock,
       instrument: Boolean(divineBodyInstrument()), suppressed: Boolean(scientistMagicSuppressionReason()),
       free: !activeScientistTravelTask() && !state.combat?.pendingActions?.scientist && !scientistQueueTasks().length
         && !state.religiousRecognition?.job && !currentDivineCapabilities()?.job
@@ -90560,15 +90579,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function updateDivineBodies() {
     const s = currentDivineBodies(), book = currentDivineCapabilities();
     if (!s || scientistIsDead()) return 0;
-    return DivineBodies.advance(s, book, state.clock, divineBodyContext, {
-      move: (a, target, retreat) => {
+    const move = (a, target, retreat, exact = false) => {
         const cells = (ensureLabMap().rooms[a.roomId]?.cells || []).filter(p => canActorOccupyTile(a, p));
         const goals = cells.filter(p => retreat ? WildernessBeasts.distance(p, target) > WildernessBeasts.distance(a.mapCell, target)
-          : WildernessBeasts.distance(p, target) <= 1);
+          : exact ? sameMapCell(p, target) : WildernessBeasts.distance(p, target) <= 1);
         goals.sort((p, q) => retreat ? WildernessBeasts.distance(q, target) - WildernessBeasts.distance(p, target)
           : WildernessBeasts.distance(p, a.mapCell) - WildernessBeasts.distance(q, a.mapCell));
         return goals.some(p => moveDefenderParticipant(a, p));
-      },
+    };
+    return DivineBodies.advance(s, book, state.clock, divineBodyContext, {
+      move,
+      control: (a, c, at, dt) => DivineSubmission.control(s, book, a, c, at, dt, move),
       strike: (a, p) => resolveSharedCombatAction(a.id, p.action,
         { kind: 'creature', id: 'scientist', lastKnownCell: scientistMapCell() }, { baseDamage: p.damage, damageTypes: p.types }),
       telegraph: a => { if (DivineBodies.visible(a, divineBodyContext(a))) {
@@ -90589,12 +90610,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (action === 'lash') return beginScientistCombatAction('soulLash', id);
     if (action === 'guard') return startScientistGuard();
     let ok = false;
+    if (action === 'demand') ok = DivineSubmission.demand(s, currentDivineCapabilities(), a, ensurePhysicalItemStacks(), divineBodyContext(a), state.clock);
+    if ([...DivineSubmission.COMMANDS, 'release'].includes(action)) ok = DivineSubmission.command(s, currentDivineCapabilities(), a, divineBodyContext(a), action, state.clock);
     if (action === 'examine') {
       ok = DivineBodies.begin(s, currentDivineCapabilities(), a, ensurePhysicalItemStacks(), divineBodyContext(a), state.clock);
       if (ok) { const t = divineBodyInstrument(); t.current = Math.max(0, t.current - 1); }
     }
     if (action === 'cancel' && s.job?.actorId === id) { s.job = null; ok = true; }
-    if (ok) { syncActorInventories(); persist(); render(); }
+    if (ok || action === 'demand' || [...DivineSubmission.COMMANDS, 'release'].includes(action)) { syncActorInventories(); persist(); render(); }
     return ok;
   }
   function renderDivineBodies() {
@@ -90621,13 +90644,25 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         button('Strike — ordinary physical combat', 'strike', Boolean(scientistCombatActionBlockReason('strike', a)));
         button('Resonant soul strike — 30 mana, three feedstock, three-second charge', 'resonance', Boolean(scientistCombatActionBlockReason('divineResonance', a)));
         button(scientistGuarding() ? 'Stop guarding' : 'Guard', 'guard', !c.capable);
+        if (a.identified) {
+          panel.append(textEl('p', DivineSubmission.TERMS));
+          button('Demand personal submission — demonstrated wound and present lethal force', 'demand', !DivineSubmission.leverage(s, book, a, ensurePhysicalItemStacks(), c)
+            || ['accepted', 'refused'].includes(a.submission?.status) || a.submission && a.lastDamage?.serial <= a.submission.forceSerial);
+          if (a.submission?.status === 'accepted' && DivineSubmission.valid(a)) {
+            for (const [kind, label] of [['standDown', 'Stand down'], ['hold', 'Hold this actual post'], ['withdraw', 'Withdraw physically to original home'], ['protect', 'Protect me on this ground for two minutes'], ['release', 'Release from submission']])
+              button(label, kind, !DivineSubmission.contact(s, book, a, c) || !c.free);
+            if (a.submission.command) panel.append(textEl('p', `Personally observed ${a.submission.command.kind}: ${a.submission.command.status}; ${formatDuration(a.submission.command.progress)} active protection; ${formatNumber(a.submission.command.absorbed)} damage intercepted. No reserve or health was restored.`));
+          }
+        }
       }
+      const submission = DivineSubmission.publicView(a);
+      if (submission) for (const r of submission.history) panel.append(textEl('p', `${formatClock(r.at)} — ${r.message}`));
       if (s.job?.actorId === a.id) { panel.append(textEl('p', `Actual examination: ${formatDuration(s.job.progress)} / two minutes. Interrupted time earns no progress.`)); button('Cancel examination; spent supplies remain spent', 'cancel'); }
       if (v.death) panel.append(textEl('p', `${v.death.at != null ? `Personally witnessed permanent true-individual death ${formatClock(v.death.at)}`
         : `Personally confirmed identified remains ${formatClock(v.death.observedAt)}; death time was not witnessed`}. Original remains retained; no submission, worship or accomplishment awarded.`));
     }
     panel.append(textEl('p', 'Late-game Divine Core Resonance research requires the reconstructed soul-beacon principles, Animancy 201, Fabrication 151 and Materials Science 101. Carry a calibrated functioning thaumometer and actual reagents. Ordinary map walking and existing return transport remain available; no arena lock or automatic defeat.'));
-    panel.append(textEl('p', DivineBodies.LIMITS)); return panel;
+    panel.append(textEl('p', DivineBodies.LIMITS), textEl('p', DivineSubmission.LIMITS)); return panel;
   }
   function currentDivineIntervention() {
     const s = state.divineIntervention;
