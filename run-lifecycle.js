@@ -27,8 +27,9 @@
       scenario: text(value.scenario, "Starting circumstances not recorded"),
       startingSite: text(value.startingSite, "Starting site not recorded"),
       company: text(value.company, "Unnamed laboratory"), runSeed: text(value.runSeed),
-      accomplishments: (Array.isArray(value.accomplishments) ? value.accomplishments : []).slice(0, 9).map(entry => ({
-        label: text(entry?.label), at: clock(entry?.at)
+      accomplishments: (Array.isArray(value.accomplishments) ? value.accomplishments : []).slice(0, 24).map(entry => ({
+        label: text(entry?.label), at: clock(entry?.at),
+        ...(Number.isFinite(entry?.recognizedAt) && entry.recognizedAt >= entry.at ? { recognizedAt: clock(entry.recognizedAt) } : {})
       })).filter(entry => entry.label),
       events: (Array.isArray(value.events) ? value.events : []).slice(-12).map((entry) => ({
         time: clock(entry?.time), message: text(entry?.message)

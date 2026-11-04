@@ -6,6 +6,7 @@ const Faiths = require('../strategic-faiths');
 const Religion = require('../religious-recognition');
 const Bodies = require('../divine-bodies');
 const Owners = require('../divine-capabilities');
+const Wayfinding = require('../divine-wayfinding');
 
 const cache = new Map();
 
@@ -26,6 +27,40 @@ test('original divine true bodies bind physical homes and retained human/beast p
   expect(JSON.stringify(map)).toBe(original);
   const independent = Bodies.create(Owners.create(Owners.sources(map), { worldId: 'original-world', runId: 'independent' }, 0, true), homes, 0);
   s.bodies[0].health -= 50; expect(independent.bodies[0].health).toBe(independent.bodies[0].maxHealth);
+});
+
+test('divine closeout wayfinding discovers and reaches every living original in the normal generated world without trimming sources or changing canonical data', () => {
+  test.setTimeout(600000);
+  const map = generatedWorld().generatedData.strategicMap, canonical = JSON.stringify(map);
+  const book = Owners.create(Owners.sources(map), { worldId: 'normal', runId: 'closeout' }, 0, true);
+  const s = Bodies.create(book, Bodies.homes(map, book), 0), initial = JSON.parse(JSON.stringify(book));
+  expect(book.complete).toBe(true);
+  expect(s.bodies.length).toBe(book.records.filter(r => r.god.lifecycle.lifeState === 'living').length);
+  expect(s.bodies.some(a => !a.home.cityId)).toBe(true);
+  let at = 0;
+  // A finite model operation budget, not injected encounters or allegiance.
+  // Browser cases separately use the actual scientist pool and physical stock.
+  const c = { alive: true, capable: true, free: true, allowed: true, wayfinding: true, researched: true, animancy: 201,
+    mana: 1000, instrument: true, bodyEpoch: 0, roomId: 'lab', cell: { x: 1, y: 1, z: 0 },
+    distanceTo: id => require('../strategic-world').greatCircleDistanceKm(map, 0, require('../strategic-world').cellIndex(id)), originUsable: () => true };
+  const stacks = [{ key: 'arcaneFeedstock', quantity: 1000, carriedBy: 'scientist', cell: { ...c.cell } }];
+  const move = (roomId, cell) => { c.roomId = roomId; c.cell = { ...cell }; stacks[0].cell = { ...cell };
+    Object.assign(c, Wayfinding.location(s, roomId) || { field: false }); };
+  const effects = { prepare: g => ({ x: 10, y: 10, z: g.z }), move };
+  const grounds = new Set(s.bodies.map(a => Wayfinding.key(a.home)));
+  for (let i = 0; i < grounds.size; i++) {
+    expect(Wayfinding.begin(s, book, stacks, c, 'scan', null, at)).toBe(true); c.mana -= 5;
+    at += Wayfinding.SCAN; Wayfinding.advance(s, book, c, at, effects);
+    const t = s.access.traces.at(-1);
+    expect(Wayfinding.begin(s, book, stacks, c, 'outbound', t.id, at)).toBe(true); c.mana -= s.access.job.terms.mana;
+    at += s.access.job.seconds; Wayfinding.advance(s, book, c, at, effects);
+    expect(s.bodies.filter(a => Wayfinding.key(a.home) === t.key).every(a => Bodies.local(a, c))).toBe(true);
+    expect(Wayfinding.begin(s, book, stacks, c, 'return', null, at)).toBe(true);
+    at += s.access.job.seconds; Wayfinding.advance(s, book, c, at, effects);
+  }
+  expect(new Set(s.access.traces.map(t => t.key)).size).toBe(grounds.size);
+  expect(Bodies.known(s)).toEqual([]); expect(JSON.stringify(Wayfinding.view(s))).not.toContain('god:');
+  expect(book).toEqual(initial); expect(JSON.stringify(map)).toBe(canonical);
 });
 
 function generatedWorld(seed = 'world-seed-one', worldTheme = 'unbound') {

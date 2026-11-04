@@ -8,6 +8,14 @@
   const BASIC_TEST_IDS = Object.freeze(["visual", "sustenance", "element", "containment", "byproduct", "behavior"]);
   const PROJECTS = Object.freeze([
     Object.freeze({
+      id: 'divineWayfinding', label: 'Divine Wayfinding',
+      description: 'Use a carried calibrated thaumometer and actual reagents to isolate one extraordinary physical trace at a time, then carry your living body and inventory through a paid, interruptible resonant passage. A return must be prepaid; no allegiance, safe ground or census is granted.',
+      skillId: 'animancy', minimumSkills: { animancy: 201, fabrication: 151, materialsScience: 101 },
+      workSeconds: 12 * 3600, prerequisites: ['divineCoreResonance'], evidence: [],
+      inputs: { resources: { arcaneFeedstock: 12, metalParts: 4, glass: 4 }, specimenAmount: 0 },
+      unlocks: [{ id: 'procedure:divineWayfinding', label: 'Supplied resonant wayfinding and body-bound return passage' }]
+    }),
+    Object.freeze({
       id: 'divineCoreResonance', label: 'Divine Core Resonance',
       description: 'Identify a personally examined ascended individual with a carried thaumometer, then focus a costly animantic attack on that exact living body. Avatars are not the individual; no outcome or submission is guaranteed.',
       skillId: 'animancy', minimumSkills: { animancy: 201, fabrication: 151, materialsScience: 101 },

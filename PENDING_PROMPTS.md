@@ -5,7 +5,7 @@ This is the finite remaining queue, not an implementation diary or a source of a
 ## Queue rules and stopping conditions
 
 - Discuss the selected work package before implementing gameplay, and wait for explicit developer approval. Questions should include a recommended answer and brief reasoning. This queue update does not approve the gameplay designs below.
-- The queue contains **15 scheduled work packages and 6 conditional/optional packages**. IDs identify work, not software versions. A package can take several sessions; continuing it does not create another pending prompt.
+- The queue contains **14 scheduled work packages and 6 conditional/optional packages**. IDs identify work, not software versions. A package can take several sessions; continuing it does not create another pending prompt.
 - **Do not append or subdivide the queue automatically.** Bugs, interruption cases, missing adapters, documentation and focused tests needed to deliver an entry stay inside that entry. Do not turn each official, material, species, spell, report, permission or save edge case into another prompt.
 - A genuine scope change requires a concrete explanation and explicit developer approval to replace, expand or defer a named entry. Record the tradeoff here; do not silently add a follow-up or claim unfinished work is complete. There is no automatic discovery backlog.
 - Freeze each package's acceptance checklist during its design discussion. Once it passes, remove the package from this active file, update remaining counts/dependencies, and put useful completion notes in the history or feature documentation. Do not append another “completed bounded slice, but next…” paragraph here.
@@ -29,7 +29,7 @@ These apply to every package; they are not additional work items.
 
 ## Order and current state
 
-**4-A, 4-B and #1 are complete and removed.** Personal divine submission passed its three frozen checks; see the README and implementation history. No gameplay package is active. The ambition award remains in existing 4-C, not an automatically started follow-up. #2/#3 and their beast workstream remain deferred.
+**#1 and #4 are complete and removed; no gameplay package is currently active.** All three frozen 4-C checks passed, including the approved shared physical-access inclusion. Completion notes are in the implementation history and README. #2/#3 and their beast workstream remain deferred; the next selected package still requires its design discussion and explicit approval.
 
 **#2/#3 and the associated beast workstream remain deferred indefinitely, not complete.** The developer explicitly rejected continuing domination. Preserve existing implementation, but do not resume its requirements, preparation or acceptance checks unless explicitly asked. Completing #1 neither closes domination nor authorizes returning to it. The old domination-first order is superseded.
 
@@ -130,16 +130,6 @@ Done when each approved matrix capability has a working consumed behavior, meani
 Connect B/C to actual habitat, conserved original populations, appropriate groups/colonies, ordinary travel and supported human logistics. Provide actual military/nonmilitary consequences and legitimate received observations for 3.35d-D/E. Preserve fixed identities, wounds, remains, losses and unlocated capacity; no endless replacement encounters, omniscient census or collective allegiance inferred from one individual.
 
 Done when all current species are represented by the approved matrix, representative physical encounters consume each shared family, strategic outputs cover original source classes, and persistence/death/knowledge boundaries pass focused checks. **Close 3.38 here; remaining integration belongs to the already listed 3.35d-D/E, not new beast prompts.**
-
-## 4. Divine Supremacy: Rule over the Gods — one remaining package
-
-These are a separate ambition, not mandatory world-domination prerequisites. Preserve original human/beast gods, living descended individuals, new ascendants, faithful and actual divine signatures. Worship loss/descent is not a kill; ordinary players never receive an undiscovered-god checklist. Personal ascension is optional.
-
-### 4-C. Accomplishment and continued reign
-
-Integrate the completed true-individual combat/death mechanics and 4-B into a finite source-bound ambition assessment: rule over surviving gods and actually kill refusers, with legitimate discovered evidence and honest uncertainty. Include relevant new ascendants and living descended claimants, a once-only dated accomplishment, later challenges, save/import, independent starts and death behavior. Theme changes presentation, not the requirement.
-
-Done when a genuine complete route is playable and the historical accomplishment remains distinct from current reign. **Close #4; do not append another generic pantheon audit or certification ladder.**
 
 ## 5. New-run onboarding and contextual tutorial — one package
 

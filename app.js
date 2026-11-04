@@ -168,6 +168,8 @@
   const DivineIntervention = window.HelixDivineIntervention;
   const DivineBodies = window.HelixDivineBodies;
   const DivineSubmission = window.HelixDivineSubmission;
+  const DivineWayfinding = window.HelixDivineWayfinding;
+  const DivineReign = window.HelixDivineReign;
   const DivineCapabilities = window.HelixDivineCapabilities;
   const DivineNonintervention = window.HelixDivineNonintervention;
   const DivineContacts = window.HelixDivineContacts;
@@ -5612,6 +5614,7 @@
       religiousRecognitionKnowledge: null,
       divineIntervention: null,
       divineBodies: null,
+      divineReign: null,
       citySuccession: null,
       citySuccessionKnowledge: null,
       cityAdministration: null,
@@ -18713,6 +18716,9 @@
       },
       startResearchProject: (projectId) => startResearchProject(projectId),
       divineBodyAction,
+      divineWayfindingAction,
+      divineReignSnapshot: () => clonePlainObject({ saved: state.divineReign, public: DivineReign.view(state.divineReign), campaign: state.campaign,
+        access: DivineWayfinding.view(currentDivineBodies()), context: divineWayfindingContext(), clock: state.clock }),
       divineBodiesSnapshot: () => clonePlainObject({ saved: currentDivineBodies(), known: DivineBodies.known(currentDivineBodies()),
         owners: currentDivineCapabilities(), clock: state.clock, injuries: state.injuries,
         contexts: (currentDivineBodies()?.bodies || []).map(a => ({ id: a.id, context: divineBodyContext(a) })),
@@ -18730,6 +18736,7 @@
           ...additional.map(o => ({ godId: o.god.id, god: o.god, faith: o.faith || null, death: null }))] }, binding, state.clock, true);
         state.divineCapabilitiesInitialized = true;
         state.divineBodies = DivineBodies.create(state.divineCapabilities, [options.home, ...additional.map(o => o.home)], state.clock);
+        state.divineReign = DivineReign.create(state.divineCapabilities, state.clock);
         for (const [id, level] of Object.entries(options.skills || {})) {
           const skill = scientistSkill(id, { create: true }); skill.xp = totalXpForLevel(level);
           if (skill.embodiment) skill.embodiment.xp = skill.xp;
@@ -20683,6 +20690,7 @@
       { worldId: world.id, runId }, next.clock, { originalInventory: true });
     next.divineCapabilities = DivineCapabilities.create(DivineCapabilities.sources(worldMap), { worldId: world.id, runId }, next.clock, true);
     next.divineBodies = DivineBodies.create(next.divineCapabilities, DivineBodies.homes(worldMap, next.divineCapabilities), next.clock);
+    next.divineReign = DivineReign.create(next.divineCapabilities, next.clock);
     next.divineCapabilitiesInitialized = true;
     // Allocate original interfaces once, before any contact. Correspondence
     // and later civic routing spend these SAME ports, never parallel terminals.
@@ -20874,6 +20882,8 @@
     importedState.divineIntervention = DivineIntervention.rebind(importedState.divineIntervention,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.divineBodies = DivineBodies.rebind(importedState.divineBodies,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.divineReign = DivineReign.rebind(importedState.divineReign,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.divineCapabilities = DivineCapabilities.rebind(importedState.divineCapabilities,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
@@ -24616,6 +24626,7 @@
     changes.scientistMovementChanged += livingUpdate(() => updateGateEnforcement(elapsed));
     changes.scientistMovementChanged += livingUpdate(() => updateRegionalChanges());
     changes.scientistMovementChanged += livingUpdate(() => updateSupremacy());
+    changes.scientistMovementChanged += livingUpdate(() => updateDivineReign());
     return changes;
   }
 
@@ -24748,11 +24759,21 @@
       }
       return changed;
     }
-    if (!options.trueBodyStep && elapsed > 1 && (state.divineBodies?.job || localTrueDivineBodies().some(a => (a.hostile || a.submission?.status === 'accepted') && a.status === 'alive'))) {
+    if (!options.trueBodyStep && elapsed > 1 && (state.divineBodies?.job || state.divineBodies?.access?.job || localTrueDivineBodies().some(a => (a.hostile || a.submission?.status === 'accepted') && a.status === 'alive'))) {
       let remaining = elapsed, changed = 0;
+      // Quiet, isolated visited grounds contain only the original individuals.
+      // Held examination can advance to a short work boundary; combat, duty,
+      // queued motion and paid attacks still use one-second physical steps.
+      const quietWork = () => !state.combat?.pendingActions?.scientist
+        && (!scientistQueueTasks().length || state.combat?.routineSuspension?.reason === 'divine wayfinding' && !activeScientistTravelTask())
+        && !localTrueDivineBodies().some(a => a.hostile || a.submission?.status === 'accepted')
+        && (state.divineBodies?.access?.job || state.divineBodies?.job && state.scientist.roomId.startsWith('divine-visited-ground-'));
       while (remaining > 0 && !scientistIsDead()) {
         const before = state.clock, health = scientistVital('health').current, pending = localTrueDivineBodies().some(a => a.pending);
-        changed += advanceTime(Math.min(1, remaining), { ...options, trueBodyStep: true });
+        if (state.divineBodies?.job && !divineBodyContext(null).free) state.divineBodies.job.ready = false;
+        const work = state.divineBodies?.access?.job, examine = state.divineBodies?.job;
+        const boundary = Math.min(work ? Math.max(1, work.seconds - work.progress) : Infinity, examine ? Math.max(1, DivineBodies.WORK - examine.progress) : Infinity);
+        changed += advanceTime(Math.min(quietWork() ? Math.min(30, boundary) : 1, remaining), { ...options, trueBodyStep: true });
         remaining -= state.clock - before;
         if (state.clock <= before || !pending && localTrueDivineBodies().some(a => a.pending) || scientistVital('health').current < health) break;
       }
@@ -42648,6 +42669,7 @@
     if (actorId === 'scientist' && targetActor.actorKind === 'divineIndividual') {
       DivineBodies.attack(currentDivineBodies(), currentDivineCapabilities(), targetActor, divineBodyContext(targetActor), state.clock);
       DivineSubmission.witnessAttack(currentDivineBodies(), currentDivineCapabilities(), targetActor, divineBodyContext(targetActor), state.clock);
+      updateDivineReign();
     }
     if (actorId === 'scientist') observeDivineAggression(target.id, actionId);
     if (actorId === 'scientist' && state.cityAuthority) {
@@ -43095,6 +43117,7 @@
     if (slime?.actorKind === 'divineIndividual') {
       DivineBodies.attack(currentDivineBodies(), currentDivineCapabilities(), slime, divineBodyContext(slime), state.clock);
       DivineSubmission.witnessAttack(currentDivineBodies(), currentDivineCapabilities(), slime, divineBodyContext(slime), state.clock);
+      updateDivineReign();
     }
     if (action.chargeSeconds > 0 || action.channelSeconds > 0) {
       state.combat.pendingActions.scientist = normalizePendingCombatAction({
@@ -43773,6 +43796,7 @@
     const health = scientistVital("health");
     const before = health.current;
     health.current = clamp(before - damage, 0, health.max);
+    DivineWayfinding.cancel(state.divineBodies, state.clock, 'Actual bodily damage interrupted the held passage; spent allocations remain spent.');
     const pending = state.combat?.pendingActions?.scientist;
     if (!options.injuryProgress) recordCombatInjury(state.scientist, damage, options.damageTypes || ["physical"], reason, { observed: true });
     if (pending && combatActionDef(pending.actionId)?.damageInterrupts) {
@@ -57164,6 +57188,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       return null;
     }
+    DivineWayfinding.cancel(state.divineBodies, state.clock, 'Actual walking interrupted held wayfinding; paid costs remain spent.');
+    if (state.combat?.routineSuspension?.reason === 'divine wayfinding') resumeScientistRoutineWork();
+    if (state.divineBodies?.job) { state.divineBodies.job.ready = false; state.divineBodies.job.lastAt = state.clock; }
     const pendingCombatAction = state.combat?.pendingActions?.scientist;
     if (pendingCombatAction && combatActionDef(pendingCombatAction.actionId)?.movementInterrupts) {
       cancelPendingScientistCombatAction({ quiet: true });
@@ -57249,6 +57276,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const g of state.penalFlights?.assistance?.cityApproach?.gates || []) updateForeignWorkspace(g);
     const task = firstScientistQueueTask();
     if (!task) return null;
+    if (divineAccessActive() && !surveyTaskAllowed(task)) return null;
     const suspension = state.combat?.routineSuspension;
     if (suspension && (!suspension.taskId || task.id !== suspension.taskId)) return null;
     if (!["hiddenWorkshopWork", "firstContact", "homunculusWork", "soulBeaconWork", "surveyExpeditionWork", "scientistMove", "equipmentChange", "doorOperation", "visitFixtureAccess", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) return null;
@@ -81602,6 +81630,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const content = dom.campaignContent;
     content.replaceChildren();
     content.append(textEl("p", "Ambitions are optional and overlapping, not mandatory chapters. Only irreversible death ends a run. No deadlines, free rewards, or campaign gates."));
+    const divine = DivineReign.view(state.divineReign);
+    if (divine) {
+      const section = document.createElement('section'); section.dataset.divineReign = 'true';
+      section.append(textEl('h4', 'Rule over the gods'), textEl('p', divine.text));
+      if (divine.recognizedAt != null) section.append(textEl('p', `${divine.achievedAt != null ? `Achieved ${formatClock(divine.achievedAt)}` : `Confirmed by ${formatClock(divine.confirmedByAt)}; earlier qualification time unverified`}; recognized ${formatClock(divine.recognizedAt)}. ${divine.knownLoss ? 'A personally known loss of control challenges the reign.' : 'No permanent obedience or live worldwide status is promised.'}`));
+      for (const r of divine.receipts) section.append(textEl('p', `${formatClock(r.at)} — ${r.name}: ${r.state}.`));
+      const button = storesActionButton('Review personally held supremacy accounts', 'Review personally held supremacy accounts', () => divineWayfindingAction('review'));
+      button.dataset.divineReignAction = 'review'; button.disabled = scientistIsDead(); section.append(button); content.append(section);
+    }
     const label = document.createElement("label");
     const toggle = document.createElement("input");
     toggle.type = "checkbox";
@@ -81667,7 +81704,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const roadmap = document.createElement("details");
       roadmap.append(textEl("summary", "Six ambitions — long-term roadmap"));
       for (const ambition of Campaign.roadmap(activeWorldRecord?.worldTheme || state.worldTheme || "madcap")) {
-        roadmap.append(textEl("h4", `${ambition.label}${ambition.id === "laboratory" ? "" : ambition.id === "localLeverage" ? " — first customer service available; broader dependency remains future work" : ambition.id === "independence" ? " — first paid surface worker available; broader autonomy remains future work" : ambition.id === 'cityPower' ? ' — bounded civic assay delegation available; city sovereignty remains future work' : " — future mechanics"}`), textEl("p", ambition.template));
+        roadmap.append(textEl("h4", `${ambition.label}${ambition.id === 'divineRule' ? ' — source-bound accomplishment and continuing reign' : ambition.id === "laboratory" ? "" : ambition.id === "localLeverage" ? " — first customer service available; broader dependency remains future work" : ambition.id === "independence" ? " — first paid surface worker available; broader autonomy remains future work" : ambition.id === 'cityPower' ? ' — bounded civic assay delegation available; city sovereignty remains future work' : " — future mechanics"}`), textEl("p", ambition.template));
       }
       roadmap.append(textEl("p", "World domination and divine supremacy are separate accomplishments, not run endings or a fixed-order dependency. Gods that lose followers descend rather than die. No undiscovered powers or hidden totals are listed here."));
       content.append(roadmap);
@@ -87342,6 +87379,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (actor.actorKind === 'divineIndividual') {
       DivineBodies.death(currentDivineBodies(), currentDivineCapabilities(), actor, state.clock, options.cause || 'actual physical combat');
       DivineBodies.observe(currentDivineBodies(), currentDivineCapabilities(), actor, divineBodyContext(actor), state.clock);
+      updateDivineReign();
     }
     if (actor.fieldKit && !options.injuryProgress) {
       if (options.attackerId) { actor.fieldProvokedUntil = state.clock + 30; actor.fieldAggressorId = options.attackerId;
@@ -90540,10 +90578,121 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function currentDivineBodies() {
     return DivineBodies.bound(state.divineBodies, currentDivineCapabilities()) ? state.divineBodies : null;
   }
+  function divineAccessActive() { return Boolean(state.divineBodies && !state.divineBodies.invalid && state.divineBodies.access?.active); }
+  function divineWayfindingContext() {
+    const c = divineBodyContext(null), map = activeWorldRecord?.generatedData?.strategicMap, e = state.surveyExpeditions;
+    const originCellId = state.divineBodies?.access?.active
+      ? state.divineBodies.access.grounds.find(g => g.key === state.divineBodies.access.active.key)?.cellId
+      : c.roomId === SurveyExpeditions.FIELD_ROOM ? e?.destination?.cellId
+        : state.startingSite?.strategicLocation?.strategicCellId || state.startingSite?.strategicCellId || e?.homeContext?.strategicCellId;
+    const originIndex = originCellId ? StrategicWorld.cellIndex(originCellId) : -1;
+    const travel = activeScientistTravelTask(), walking = travel?.data?.movement && !travel.data.movement.completed;
+    // A deliberate cast may pause ordinary queued laboratory work, just like
+    // guarding. Paused orders are not concurrent attended work or free labor.
+    const ritualFree = !walking && !state.combat?.pendingActions?.scientist
+      && !state.religiousRecognition?.job && !currentDivineCapabilities()?.job
+      && !DivineContacts.jobs(currentDivineCapabilities()).length && !ordinaryCorrespondenceJobs().length
+      && !state.sovereignBargains?.job && !state.citySuccession?.job && !state.charterRecognition?.job
+      && !state.publicWorksRecognition?.job && !state.watchRecognition?.job && !state.defenseRecognition?.job;
+    return { ...c, free: Boolean(ritualFree), wayfinding: Research.isUnlocked(ensureResearchState(), DivineWayfinding.UNLOCK),
+      allowed: !restrictedOffsiteStay() && !currentDetentionRaid() && !scientistInClinicCare() && !passengerAway() && !annexAway()
+        && !unsupportedActive() && !overlandOnRoad() && (!surveyScientistAway() || divineAccessActive()
+          || e?.phase === 'field' && c.roomId === SurveyExpeditions.FIELD_ROOM),
+      distanceTo: id => { const i = StrategicWorld.cellIndex(id); return map && originIndex >= 0 && i >= 0
+        && i < map.topology.cellCount && originIndex < map.topology.cellCount ? StrategicWorld.greatCircleDistanceKm(map, originIndex, i) : Infinity; },
+      nativeGround: t => e?.destination?.id === t.placeId && e.destination.cellId === t.cellId ? { roomId: DivineBodies.ROOM, z: 6 } : null,
+      originUsable: o => Boolean(o && ensureLabMap().rooms[o.roomId] && labMapCellHasFloor(o.cell)
+        && labMapCellIsWalkable(o.cell) && !labMapCellIsPathBlocked(o.cell, { map: ensureLabMap(), actor: state.scientist }) && canActorOccupyTile(state.scientist, o.cell)
+        && !(currentDivineBodies()?.bodies || []).some(a => a.roomId === o.roomId && a.status === 'alive' && sameMapCell(a.mapCell, o.cell))) };
+  }
+  function prepareDivineGround(g) {
+    if (g.native) materializeSurveySpaces({ groundOnly: true });
+    else if (!ensureLabMap().rooms[g.roomId]) {
+      const spec = { id: g.roomId, name: g.label, z: g.z, x: 8, y: 8, width: 12, height: 10 };
+      const room = normalizeRoom({ ...spec, articleName: 'the surveyed divine ground', facilityClass: 'surveyExpedition', connections: [], purposeId: 'corridor',
+        geometry: { lengthM: 12, widthM: 10, heightM: 3, floorAreaM2: 120, volumeM3: 360 },
+        purposeSource: 'divineWayfinding', description: 'The original resonance anchor. No city authority, stock, construction rights or guaranteed safety.' });
+      state.rooms = normalizeRooms([...state.rooms, room]);
+      const map = ensureLabMap(), rect = { roomId: g.roomId, x: 8, y: 8, z: g.z, width: 12, height: 10 }, cells = rectangularRoomCells(rect);
+      map.layers[String(g.z)] = { id: g.roomId, kind: 'structure', label: g.label };
+      map.rooms[g.roomId] = normalizeLabMapRoom({ ...rect, cells, anchor: { x: 10, y: 10, z: g.z } }, room);
+      map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...cells]); state.roomStockpiles[g.roomId] = emptyRoomStockpile();
+    }
+    return (ensureLabMap().rooms[g.roomId]?.cells || []).filter(p => labMapCellIsWalkable(p) && !labMapCellIsPathBlocked(p, { map: ensureLabMap(), actor: state.scientist }) && canActorOccupyTile(state.scientist, p)
+      && !(currentDivineBodies()?.bodies || []).some(a => DivineWayfinding.key(a.home) === g.key && a.mapCell.x === p.x && a.mapCell.y === p.y))
+      .sort((a, b) => Math.hypot(a.x - 10, a.y - 10) - Math.hypot(b.x - 10, b.y - 10))[0] || null;
+  }
+  function updateDivineReign() {
+    const s = state.divineReign, book = currentDivineCapabilities(), bodies = currentDivineBodies();
+    return s && book && bodies && !scientistIsDead() ? Number(DivineReign.advance(s, bodies, book, state.clock,
+      { ...divineBodyContext(null), sources: activeWorldRecord?.generatedData?.strategicMap?.strategicDivineHistory?.currentGodRows })) : 0;
+  }
+  function divineWayfindingAction(kind, id) {
+    if (scientistIsDead()) return false;
+    if (kind === 'pack') return packSurveyItem('arcaneFeedstock', 24);
+    const s = currentDivineBodies(), book = currentDivineCapabilities(); if (!s || !book) return false;
+    if (kind === 'review') {
+      updateDivineReign();
+      const ok = DivineReign.review(state.divineReign, s, book, state.clock,
+        { ...divineBodyContext(null), sources: activeWorldRecord?.generatedData?.strategicMap?.strategicDivineHistory?.currentGodRows });
+      if (ok && state.divineReign.recognizedAt != null) {
+        const first = !Campaign.normalize(state.campaign).divineRule;
+        const evidence = DivineReign.view(state.divineReign);
+        setCampaignState(Campaign.record(state.campaign, { kind: 'divineRule', known: true, alive: true,
+          achievedAt: evidence.achievedAt, confirmedByAt: evidence.confirmedByAt, recognizedAt: evidence.recognizedAt }, state.clock));
+        if (first) addEvent(({ madcap: 'Campaign accomplishment: Rule over the gods. Your improbable divine court is in session.',
+          grim: 'Campaign accomplishment: Rule over the gods. The surviving divinities submit; the refusers are dead.',
+          unbound: 'Campaign accomplishment: Rule over the gods. The reign is real, and it can still be challenged.' })[activeWorldRecord.worldTheme] || 'Campaign accomplishment: Rule over the gods.');
+      }
+      persist(); render(); return ok;
+    }
+    if (kind === 'cancel') { const ok = DivineWayfinding.cancel(s, state.clock); if (ok) { if (state.combat?.routineSuspension?.reason === 'divine wayfinding') resumeScientistRoutineWork(); persist(); render(); } return ok; }
+    const c = divineWayfindingContext();
+    if (!DivineWayfinding.begin(s, book, ensurePhysicalItemStacks(), c, kind, id, state.clock)) return false;
+    const j = s.access.job, mana = kind === 'scan' ? 5 : j.terms?.mana || 0;
+    // begin checked actual mana before consuming carried reagents; only this
+    // synchronous controller pays the original pool once, including return.
+    if (mana) spendMana(mana);
+    const t = divineBodyInstrument(); t.current = Math.max(0, t.current - 1);
+    stopScientistGuard({ quiet: true }); suspendScientistRoutineWork('divine wayfinding');
+    syncActorInventories(); persist(); render(); return true;
+  }
+  function renderDivineWayfinding() {
+    const panel = document.createElement('section'); panel.dataset.divineWayfinding = 'true';
+    panel.append(textEl('h4', 'Divine wayfinding and continued reign'));
+    const s = currentDivineBodies(), v = DivineWayfinding.view(s), c = divineWayfindingContext();
+    const button = (label, kind, disabled = false, id = null) => { const b = storesActionButton(label, label, () => divineWayfindingAction(kind, id));
+      b.dataset.divineWayfindingAction = kind; if (id) b.dataset.traceId = id; b.disabled = Boolean(disabled); panel.append(b); };
+    panel.append(textEl('p', 'Late Divine Wayfinding research enables a thirty-second held scan: five mana, one carried feedstock and instrument wear per attempt. It reveals one measured ground, not a name, allegiance, census or safe route. Passage prepays four actual feedstock, both mana allocations and one body-bound return; movement, damage or lost support interrupts casting without refund. Only the scientist and actual carried inventory travel.'));
+    if (!divineAccessActive() && state.surveyExpeditions?.phase === 'home') button('Physically pack up to twenty-four feedstock for a supplied passage', 'pack', surveyBusy());
+    const blocked = DivineWayfinding.reason(s, currentDivineCapabilities(), ensurePhysicalItemStacks(), c);
+    button('Isolate one extraordinary physical trace', 'scan', Boolean(blocked) || c.mana < 5);
+    for (const t of v.traces) {
+      panel.append(textEl('p', `${formatClock(t.at)} — ${t.label}. Identity remains subject to personal examination.`));
+      const q = DivineWayfinding.quote(c.distanceTo(t.cellId));
+      button(q ? `Visit measured ground — ${q.mana} mana, four feedstock; one return prepaid` : 'No supported planetary geometry for this trace', 'outbound', blocked || v.away || !q, t.id);
+    }
+    if (v.away) button(s?.access?.active?.returnPaid ? 'Use the prepaid return to the original departure tile'
+      : 'Bind this recovered body to the known return — 20 mana and two feedstock', 'return', Boolean(blocked));
+    if (v.job) { panel.append(textEl('p', `${v.job.kind}: ${formatDuration(v.job.progress)} / ${formatDuration(v.job.seconds)}.`)); button('Cancel held work — no refund', 'cancel'); }
+    if (blocked) panel.append(textEl('p', blocked));
+    for (const r of v.history) panel.append(textEl('p', `${formatClock(r.at)} — ${r.text}`));
+    const r = DivineReign.view(state.divineReign);
+    if (r) {
+      panel.append(textEl('p', r.text)); if (r.recognizedAt != null) panel.append(textEl('p', `${r.achievedAt != null ? `Achieved ${formatClock(r.achievedAt)}` : `Confirmed by ${formatClock(r.confirmedByAt)}; earlier qualification time unverified`}; recognized ${formatClock(r.recognizedAt)}. Historical, not permanent obedience.`));
+      if (r.knownLoss) panel.append(textEl('p', 'A personally known loss of control or independent challenge contests the reign. Historical recognition is retained.'));
+      for (const receipt of r.receipts) panel.append(textEl('p', `${formatClock(receipt.at)} — ${receipt.name}: ${receipt.state}.`));
+    }
+    button('Review personally held supremacy accounts', 'review', !c.alive || !c.capable || !c.free);
+    return panel;
+  }
   function divineBodyLocation() {
     const e = state.surveyExpeditions;
     // Also called by tile occupancy during path search. Read already-normalized
     // location here; do not rebuild the scientist for every candidate tile.
+    const a = state.divineBodies?.access, active = a?.active, ground = active && a.grounds?.find(g => g.key === active.key && g.roomId === state.scientist?.roomId);
+    if (ground) return { alive: !state.runEnded && (state.scientist?.vitals?.health?.current || 0) > 0, field: true, roomId: ground.roomId,
+      cityId: ground.cityId, cellId: ground.cellId, placeId: ground.placeId };
     return { alive: !state.runEnded && (state.scientist?.vitals?.health?.current || 0) > 0, field: e?.phase === 'field', roomId: state.scientist?.roomId,
       cityId: e?.destination?.cityId, cellId: e?.destination?.cellId, placeId: e?.destination?.id };
   }
@@ -90566,7 +90715,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       mana: scientistVital('mana').current, resonanceDamage: combatActionDef('divineResonance').baseDamage,
       combatReady: !state.combat?.pendingActions?.scientist && (state.combat?.actorRecoveryUntil?.scientist || 0) <= state.clock,
       instrument: Boolean(divineBodyInstrument()), suppressed: Boolean(scientistMagicSuppressionReason()),
-      free: !activeScientistTravelTask() && !state.combat?.pendingActions?.scientist && !scientistQueueTasks().length
+      free: !activeScientistTravelTask() && !state.combat?.pendingActions?.scientist
+        && !scientistQueueTasks().some(t => !divineAccessActive() || surveyTaskAllowed(t))
         && !state.religiousRecognition?.job && !currentDivineCapabilities()?.job
         && !DivineContacts.jobs(currentDivineCapabilities()).length && !ordinaryCorrespondenceJobs().length,
       distance: local ? combatFootprintDistanceMeters(a, state.scientist) : Infinity,
@@ -90579,6 +90729,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function updateDivineBodies() {
     const s = currentDivineBodies(), book = currentDivineCapabilities();
     if (!s || scientistIsDead()) return 0;
+    if (s.access?.job || s.access?.active) {
+      DivineWayfinding.advance(s, book, divineWayfindingContext(), state.clock, { prepare: prepareDivineGround, move: moveSurveyScientist });
+    }
+    if (!s.access?.job && state.combat?.routineSuspension?.reason === 'divine wayfinding') resumeScientistRoutineWork();
     const move = (a, target, retreat, exact = false) => {
         const cells = (ensureLabMap().rooms[a.roomId]?.cells || []).filter(p => canActorOccupyTile(a, p));
         const goals = cells.filter(p => retreat ? WildernessBeasts.distance(p, target) > WildernessBeasts.distance(a.mapCell, target)
@@ -90617,12 +90771,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (ok) { const t = divineBodyInstrument(); t.current = Math.max(0, t.current - 1); }
     }
     if (action === 'cancel' && s.job?.actorId === id) { s.job = null; ok = true; }
-    if (ok || action === 'demand' || [...DivineSubmission.COMMANDS, 'release'].includes(action)) { syncActorInventories(); persist(); render(); }
+    if (ok || action === 'demand' || [...DivineSubmission.COMMANDS, 'release'].includes(action)) { updateDivineReign(); syncActorInventories(); persist(); render(); }
     return ok;
   }
   function renderDivineBodies() {
     const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.divineBodies = 'true';
     panel.append(textEl('strong', 'True individuals — physical-world confrontation'));
+    panel.append(renderDivineWayfinding());
     const s = currentDivineBodies(), book = currentDivineCapabilities();
     if (!s) { panel.append(textEl('p', 'No original physical-divine allocation in this run. No replacement bodies or fresh reserves are created.')); return panel; }
     if (state.surveyExpeditions?.phase === 'home') for (const [action, label] of [['packReagents', 'Physically pack twelve arcane feedstock'], ['packInstrument', 'Physically pack the existing thaumometer']]) {
@@ -103793,9 +103948,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return expedition;
   }
 
-  function surveyScientistAway() { return passengerAway() || Boolean(state?.surveyExpeditions && state.surveyExpeditions.phase !== "home"); }
+  function surveyScientistAway() { return divineAccessActive() || passengerAway() || Boolean(state?.surveyExpeditions && state.surveyExpeditions.phase !== "home"); }
   function surveyScientistReserved() { return surveyScientistAway() || Boolean(state?.surveyExpeditions?.preparing); }
   function surveyTaskAllowed(task) {
+    if (divineAccessActive()) {
+      const target = task.data?.toCell || task.data?.targetCell;
+      if (target && target.z !== state.scientist.mapCell.z) return false;
+      return task.type === 'scientistMove' && task.data?.toRoomId === state.scientist.roomId
+        || task.type === 'rest' || task.type === 'injuryTreatment' && task.data?.targetActorId === 'scientist'
+        || task.type === 'surveyExpeditionWork' && task.data?.action === 'consume';
+    }
     const transit = jointTransitLocal(), inHeldCabin = state.intercityPassenger?.trip?.checkpoint && !state.intercityPassenger.trip.checkpoint.cleared
       && scientistRoomId() === state.intercityPassenger.spaces?.cabin.roomId;
     if (transit || inHeldCabin) return task.type === 'scientistMove' && task.data?.toRoomId === scientistRoomId()
@@ -104206,13 +104368,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return panel;
   }
 
-  function packSurveyItem(itemKey) {
+  function packSurveyItem(itemKey, requestedAmount = null) {
     const expedition = ensureSurveyExpeditions();
     const def = [...SurveyExpeditions.PACK_LIST, ...WildernessSurvival.ITEMS, { key: 'metalParts', amount: 6 }, { key: 'arcaneFeedstock', amount: 12 },
       { key: 'masonryHammer', amount: 1 }, { key: 'stoneChisel', amount: 1 }, { key: 'handSaw', amount: 1 }].find((entry) => entry.key === itemKey);
     if (!def || expedition.phase !== "home" || restrictedOffsiteStay() || currentDetentionRaid()) return false;
     const carried = surveyCarriedStacks().filter((entry) => entry.key === itemKey).reduce((n, entry) => n + entry.quantity, 0);
-    const targetAmount = itemKey === 'satelliteCommunicator' ? 2 : def.amount;
+    const targetAmount = itemKey === 'arcaneFeedstock' && requestedAmount === 24 ? 24 : itemKey === 'satelliteCommunicator' ? 2 : def.amount;
     if (carried >= targetAmount) return false;
     const candidates = ensurePhysicalItemStacks().filter((entry) => entry.key === itemKey && !entry.carriedBy && !entry.reservedTaskId && entry.quantity > 0)
       .filter(entry => itemKey !== 'handSaw' || fieldStationHomeSupply(entry))
@@ -104222,7 +104384,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const isInstrument = ["environmentalSurveyKit", "thaumometer", "masonryHammer", "stoneChisel", "handSaw"].includes(itemKey);
       const tool = isInstrument ? toolInstancesForItem(itemKey).find((entry) => entry.roomId === stack.roomId && !entry.carriedBy && !entry.reservedTaskId && entry.current > 0 && (!stack.toolInstanceId || entry.id === stack.toolInstanceId)) : null;
       if (isInstrument && !tool) continue;
-      const amount = Math.min(targetAmount - carried, stack.quantity, itemKey === 'satelliteCommunicator' ? 1 : Infinity);
+      let amount = Math.min(targetAmount - carried, stack.quantity, itemKey === 'satelliteCommunicator' ? 1 : Infinity);
+      if (itemKey === 'arcaneFeedstock' && requestedAmount === 24) while (amount > 0 && !actorInventoryCanCarry('scientist', stack, amount)) amount--;
+      if (amount <= 0) continue;
       if (!actorInventoryCanCarry("scientist", stack, amount)) continue;
       const cell = stockpileHaulAccessCell(stack);
       if (cell && queueSurveyWork("pack", cell, { stackId: stack.id, itemKey, amount, toolInstanceId: tool?.id || "" })) return true;
@@ -104472,6 +104636,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function updateSurveyExpedition() {
+    if (divineAccessActive()) return 0;
     if (fieldCharterOwnsRoad()) return 0;
     if (overlandOnRoad()) return 0; // The walking clock, not an old carrier journey, owns this body.
     if (passengerAway()) { updateForeignWilderness(passengerReceptionGate()?.foreignSurvey); return 0; }
@@ -104538,6 +104703,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function renderSurveyExpeditions() {
+    if (divineAccessActive()) return renderDivineBodies();
     if (jointTransitLocal() && state.jointTransit?.visit?.id === jointTransitLocal().id) return renderJointTransit();
     if (outerApproachLocal()) return renderOuterApproach();
     if (fieldCharterOwnsRoad() || currentFieldCharter()?.boarded.includes('scientist')) return renderFieldCharter();
@@ -111854,6 +112020,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.religiousRecognition = ReligiousRecognition.normalize(candidate?.religiousRecognition);
     next.divineIntervention = DivineIntervention.normalize(candidate?.divineIntervention);
     next.divineBodies = DivineBodies.normalize(candidate?.divineBodies);
+    if (next.divineBodies?.access && !DivineWayfinding.valid(next.divineBodies)) next.divineBodies.invalid = true;
+    next.divineReign = DivineReign.normalize(candidate?.divineReign);
     next.divineCapabilities = DivineCapabilities.normalize(candidate?.divineCapabilities);
     next.divineCapabilitiesInitialized = candidate?.divineCapabilitiesInitialized === true || candidate?.divineCapabilities != null;
     DivineCapabilities.link(next.divineCapabilities, next.religiousRecognition);

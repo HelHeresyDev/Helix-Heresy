@@ -32,6 +32,12 @@
   function normalizeReceipt(value) {
     return value && Number.isFinite(value.at) ? { at: time(value.at), sourceId: text(value.sourceId), summary: text(value.summary) } : null;
   }
+  function normalizeDivineRule(v) {
+    const confirmedByAt = v?.confirmedByAt ?? v?.achievedAt;
+    if (!Number.isFinite(confirmedByAt) || !Number.isFinite(v?.recognizedAt) || v.recognizedAt < confirmedByAt
+      || v.achievedAt != null && (!Number.isFinite(v.achievedAt) || v.achievedAt > confirmedByAt)) return null;
+    return { achievedAt: v.achievedAt == null ? null : time(v.achievedAt), confirmedByAt: time(confirmedByAt), recognizedAt: time(v.recognizedAt) };
+  }
   function normalize(value) {
     return {
       guidanceEnabled: value?.guidanceEnabled !== false,
@@ -41,6 +47,7 @@
       } : null])),
       independentOperations: Object.fromEntries(["recruitment", "delegation"].map(id => [id, normalizeReceipt(value?.independentOperations?.[id])])),
       cityPower: { mandate: normalizeReceipt(value?.cityPower?.mandate), succession: normalizeReceipt(value?.cityPower?.succession), rule: normalizeReceipt(value?.cityPower?.rule) },
+      divineRule: normalizeDivineRule(value?.divineRule),
       readiness: value?.readiness && Number.isFinite(value.readiness.at) ? {
         at: time(value.readiness.at), checks: Object.fromEntries(CHECKS.map(id => [id, value.readiness.checks?.[id] === true]))
       } : null,
@@ -57,6 +64,10 @@
   function record(value, outcome = {}, clock = 0) {
     const state = normalize(value);
     if (outcome.known !== true || outcome.alive === false) return state;
+    if (outcome.kind === 'divineRule') {
+      const receipt = normalizeDivineRule(outcome);
+      if (receipt && receipt.recognizedAt <= clock) state.divineRule ||= receipt; return state;
+    }
     if (outcome.kind === 'cityRule') {
       if (outcome.established === true && outcome.sourceId && outcome.cityId && outcome.intervalSeconds >= 259200)
         state.cityPower.rule ||= { at: time(clock), sourceId: text(outcome.sourceId), summary: text(outcome.summary) };
@@ -107,6 +118,8 @@
     if (state.cityPower.mandate) result.push({ label: 'Receive a bounded civic assay delegation (not city sovereignty)', at: state.cityPower.mandate.at });
     if (state.cityPower.succession) result.push({ label: 'Receive a charter-backed city handover (historical, not perpetual rule)', at: state.cityPower.succession.at });
     if (state.cityPower.rule) result.push({ label: 'Sustain one city for three days (historical, subsequently losable control)', at: state.cityPower.rule.at });
+    if (state.divineRule) result.push({ label: state.divineRule.achievedAt == null ? 'Rule over the gods (confirmed by this date)' : 'Rule over the gods',
+      at: state.divineRule.achievedAt ?? state.divineRule.confirmedByAt, recognizedAt: state.divineRule.recognizedAt });
     if (state.accomplishedAt !== null) result.push({ label: "Establish the laboratory", at: state.accomplishedAt });
     for (const [id, label] of [["service", "Complete useful work for a local customer"], ["reservation", "Negotiate a real materials reservation"]]) {
       if (state.localLeverage[id]) result.push({ label, at: state.localLeverage[id].at });

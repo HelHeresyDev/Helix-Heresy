@@ -90,13 +90,14 @@
   function observe(s, book, a, c, at) {
     if (!authentic(s, book, a) || !visible(a, c)) return false;
     if (a.death && a.identified && a.death.at === at) a.death.witnessedAt ??= at;
+    if (a.death && a.identified) a.death.confirmedAt ??= at;
     a.observed = { at, id: a.id, name: a.identified ? a.home.name : 'Unidentified extraordinary individual',
       cell: copy(a.mapCell), condition: a.status === 'dead' ? 'physical remains' : c.incapacitated ? 'incapacitated'
         : a.health < a.maxHealth / 4 ? 'severely wounded' : 'living',
       identified: Boolean(a.identified), hostile: a.hostile, retreating: a.retreating,
       pending: a.pending && { action: a.pending.action, releaseAt: a.pending.releaseAt },
       death: a.identified && a.death ? { id: a.death.id, godId: a.godId, remainsId: a.id, permanent: true,
-        at: a.death.witnessedAt != null ? a.death.at : null, observedAt: at, cell: copy(a.mapCell) } : null };
+        at: a.death.witnessedAt != null ? a.death.at : null, confirmedAt: a.death.confirmedAt, observedAt: at, cell: copy(a.mapCell) } : null };
     return true;
   }
   function reagents(stacks, n, c, consume = false) {
@@ -167,6 +168,7 @@
       j.ready = ready; j.lastAt = at;
       if (j.progress >= WORK) {
         a.identified = { at, godId: a.godId, signature: a.signature, observerId: 'scientist', cell: copy(a.mapCell) };
+        if (!a.home.name || a.home.name === 'Unidentified extraordinary individual') a.home.name = `Personally identified ascended individual ${s.reports.length + 1}`;
         a.name = a.home.name; s.reports.push(copy(a.identified)); s.job = null; changed = true;
       }
     }
