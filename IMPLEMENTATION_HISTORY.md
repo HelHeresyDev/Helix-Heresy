@@ -8,6 +8,41 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Creature formation, inherited animancy and Mudlets — #8-A complete
+
+The frozen three checks are complete: performed research and affordable chamber
+construction leading to physical Mudlet formation; moisture/leak behavior,
+soul-dependent initiative and consequential interruptions, including reconciliation
+of future artificial slimes and homunculi; and persistence/import plus Canvas/DOM
+identification. The inherited device operates from the start with finite fuel.
+Artificial broods receive distinct creation-window souls only from sufficient
+concurrent gathering. Unassisted bodies cannot gain a soul by reconnecting later.
+Existing identities and advanced homunculus/receiver difficulty remain intact.
+
+Mudlets reproduce a naturally existing earth/water convergence using real clay
+and water. Original input lots, finite apparatus fuel, interrupted work, retained
+matter, evaporation, wetting, a four-litre test reservoir and eight-litre catch
+basin have real saved consequences. Wet bodies obstruct low-pressure flow; high
+pressure opens it and damages the body using actual water flow. Souled loose
+bodies can seek directly sensed adjacent runoff; soulless bodies choose no such
+action. Native research inspection and M/remains map cues identify the family;
+no new production bitmap or wild-encounter program is claimed. See
+[CREATURE_FORMATION.md](CREATURE_FORMATION.md) for recipes and limits.
+
+Focused verification: 25 formation/homunculus model tests, 44 first-contact,
+signed-language, cooperation and soul-beacon model tests, four local commodity
+market model checks plus a direct clay-family mapping assertion, and four Chromium cases
+(the complete Mudlet workflow, both native slime soul outcomes, and the existing
+advanced homunculus growth workflow). The Mudlet case includes interrupted growth,
+reload and native export/import continuation, wet/dry reversal, actual leak/pressure
+damage, finite starting-stock custody, moisture-seeking versus no initiative, and
+both map scenes. Browser fixtures relocate existing supplies and advance selected
+real task/movement/formation systems; controlled environment and apparatus outages
+are explicit inputs. The advanced homunculus fixture explicitly endows advanced
+skills and supplies rather than claiming those were earned at a new start.
+The full suite was not run under `AGENTS.md`. No replacement prompts were added;
+the nine remaining creature proposals retain their own finite endpoints.
+
 ### Production art — #7 complete
 
 The three approved checks are complete: coverage of the frozen current inventory,

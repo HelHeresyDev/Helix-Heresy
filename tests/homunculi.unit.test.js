@@ -3,9 +3,9 @@ const assert = require('node:assert/strict');
 const H = require('../homunculi');
 const R = require('../research-system');
 const context = () => ({ research: true, morphogenesis: true, medicine: 101, alchemy: 101, chamber: true, condition: 100, inspected: true, services: true,
-  quality: 90, template: { family: 'human', donorId: 'scientist', examined: true } });
+  quality: 90, animancy: true, deviceId: 'original-device', template: { family: 'human', donorId: 'scientist', examined: true } });
 function fixture(mode = 'body', overrides = {}) {
-  const s = H.create(), support = { ok: true, roomId: 'lab', cell: { x: 1, y: 1, z: 0 } }, consumed = {}, releases = [];
+  const s = H.create(), support = { ok: true, soulEnergy: 2 / 3600, roomId: 'lab', cell: { x: 1, y: 1, z: 0 } }, consumed = {}, releases = [];
   const hooks = { support: () => support, consume: (r, amounts) => { for (const [key, n] of Object.entries(amounts)) consumed[key] = (consumed[key] || 0) + n; return true; }, release: r => releases.push(r.id), environment: () => ({ floor: true, temperature: 20, hazard: false }) };
   const result = H.begin(s, mode, 'chamber', { ...context(), ...overrides }, 0, (id, costs) => Object.entries(costs).map(([key, quantity]) => ({ key, quantity, stackId: key })));
   function advance(hours, care = true) {
@@ -25,10 +25,29 @@ test('72-hour causal growth incorporates exact finite inputs and develops a uniq
   f.advance(36); const a = f.s.individuals[0]; assert.equal(a.status, 'developing'); assert.equal(H.stage(f.result.run), 'Physiological stabilization');
   assert.equal(H.cancel(f.s, f.result.run, f.s.lastAt, f.hooks), false);
   f.advance(12); assert.equal(f.result.run.status, 'completed'); assert.deepEqual(f.consumed, H.MODES.body.inputs); assert.equal(f.releases.length, 1);
-  assert.equal(a.soulOrigin, 'naturally-developed'); assert.notEqual(a.id, a.donorId); assert.deepEqual(a.skills, {}); assert.deepEqual(a.memories, []); assert.equal(a.language, null); assert.equal(a.agreement, null);
+  assert.equal(a.soulOrigin, 'creation-time-animancy'); assert.equal(a.formationSoul.present, true); assert.notEqual(a.id, a.donorId); assert.deepEqual(a.skills, {}); assert.deepEqual(a.memories, []); assert.equal(a.language, null); assert.equal(a.agreement, null);
   assert.equal(a.maturity, 1); assert.equal(a.health, 100);
   assert.deepEqual(a.vocalAnatomy, H.VOCAL_ANATOMY); assert.deepEqual(a.receivedCare, []);
   a.vocalAnatomy.larynx = false; assert.equal(H.normalize(f.s).individuals[0].vocalAnatomy.larynx, false);
+});
+test('unassisted formation creates no own soul and cannot acquire one after embodiment', () => {
+  const f = fixture('body', { animancy: false, deviceId: '' }); f.advance(72);
+  const a = f.s.individuals[0]; assert.equal(a.formationSoul.present, false); assert.equal(a.soulId, null);
+  const identity = JSON.stringify(a.formationSoul); f.support.soulEnergy = 100; f.advance(1);
+  assert.equal(JSON.stringify(a.formationSoul), identity);
+  const Signed = require('../signed-language'), Contact = require('../first-contact'), Coop = require('../creation-cooperation');
+  a.chamberId = ''; assert.equal(Signed.eligible(a), false); assert.equal(Coop.eligible(a), false);
+  assert.equal(Contact.session(Contact.create(), a, 'demonstrate', 0, { local: true }), null);
+});
+test('requested concurrent animancy has finite interruption support without silently downgrading the body', () => {
+  const f = fixture(); f.advance(2); f.support.soulEnergy = 0;
+  f.advance(1 / 6); assert.equal(f.result.run.buffer, 600); assert.equal(f.result.run.damage, 0);
+  f.advance(10); assert.equal(f.result.run.status, 'failed'); assert.equal(f.s.individuals.length, 0);
+});
+test('legacy individuals and already-started growth retain their established identity', () => {
+  const f = fixture(); delete f.result.run.soulWindow; f.advance(72);
+  const a = f.s.individuals[0]; assert.equal(a.soulOrigin, 'established-individual'); assert.equal(a.soulId, `soul:${f.result.run.id}`);
+  a.skills.memory = { xp: 123 }; assert.deepEqual(H.normalize(f.s).individuals[0], a);
 });
 test('culture trial is not a person; cancellation preserves progressive incorporation without refund', () => {
   const f = fixture('culture'); f.advance(4); assert.equal(H.cancel(f.s, f.result.run, f.s.lastAt, f.hooks), true); const consumed = { ...f.consumed };

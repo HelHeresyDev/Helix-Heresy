@@ -62,7 +62,7 @@ test('real staged care, research, finite chamber growth, reload and a physical i
   await advance(page, 7 * 3600); await action(page, 'observe', run.id); s = await snapshot(page);
   expect(s.saved.runs[1].status, JSON.stringify(s.saved.runs[1])).toBe('completed');
   const person = s.saved.individuals[0]; expect(person.status).toBe('stabilizing'); expect(person.skills).toEqual({}); expect(person.memories).toEqual([]);
-  expect(person.soulOrigin).toBe('naturally-developed'); expect(person.agreement).toBeNull(); expect(person.language).toBeNull(); expect(person.id).not.toBe('scientist');
+  expect(person.soulOrigin).toBe('creation-time-animancy'); expect(person.agreement).toBeNull(); expect(person.language).toBeNull(); expect(person.id).not.toBe('scientist');
   expect(s.fixtures.find(f => f.id === 'test-growth-water').utility.contents.cleanWater).toBeLessThan(initialWater - 70);
   expect(await page.evaluate(id => window.helixHeresyDebug.homunculusAction('cancelGrowth', id), run.id)).toBe(false);
   await action(page, 'nourish', person.id); await action(page, 'release', person.id); s = await snapshot(page);

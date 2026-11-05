@@ -14,6 +14,7 @@
     return s.subjects[id] ||= { demonstrations: 0, testedContexts: [], understood: false, lastSessionAt: null, restUntil: 0 };
   }
   function session(s, actor, action, now, context = {}) {
+    if (actor?.formationSoul?.present === false) return null; // No independent response or learning.
     if (context.dead || !actor || !context.local || !ACTIONS.includes(action)) return null;
     const r = subject(s, actor.id);
     const record = (outcome, summary, response = null) => {

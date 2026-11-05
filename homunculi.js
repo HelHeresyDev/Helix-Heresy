@@ -1,8 +1,9 @@
 (function (root, factory) {
-  const api = factory(typeof module === 'object' && module.exports ? require('./theme-content') : root.HelixThemeContent);
+  const api = factory(typeof module === 'object' && module.exports ? require('./theme-content') : root.HelixThemeContent,
+    typeof module === 'object' && module.exports ? require('./creature-formation') : root.HelixCreatureFormation);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixHomunculi = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Theme) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Theme, Formation) {
   'use strict';
   const HOUR = 3600, STEP = 60, CARE = 12 * HOUR, BUFFER = 20 * 60;
   const VOCAL_ANATOMY = Object.freeze({ larynx: true, oralArticulation: true, respiration: true });
@@ -23,6 +24,7 @@
     if (!MODES[mode]) return 'Unknown growth procedure.';
     if (!context?.research) return 'Documented tissue-culture research is required.';
     if (mode === 'body' && !context.morphogenesis) return 'Complete evidence-backed Homunculus Morphogenesis first.';
+    if (mode === 'body' && context.animancy && !context.deviceId) return 'A physically bound creation-time animancy device is required for requested soul formation.';
     if (context.medicine < 101 || context.alchemy < 101) return 'Medicine and Alchemy must both reach Adept (101).';
     if (!context.template?.examined || context.template.family !== 'human') return 'An examined physical human-derived template is required; slime material is not a template.';
     if (!context.inspected || !context.chamber || context.condition < 80) return 'Physically inspect a dedicated chamber in at least 80% condition.';
@@ -38,7 +40,8 @@
     const stocks = load(id, MODES[mode].inputs); if (!stocks) return { ok: false, reason: 'Exact staged inputs could not be loaded; no growth begun.' };
     const r = { id, mode, chamberId, template: copy(context.template), quality: context.quality,
       stocks: copy(stocks), consumed: {}, status: 'growing', progress: 0, damage: Math.max(0, (80 - context.quality) / 2),
-      buffer: BUFFER, careAt: now, startedAt: now, lastAt: now, personId: '', finishedAt: null, cleared: false, reason: '', history: [] };
+      buffer: BUFFER, careAt: now, startedAt: now, lastAt: now, personId: '', finishedAt: null, cleared: false, reason: '', history: [],
+      soulWindow: mode === 'body' ? Formation.soulWindow(Boolean(context.animancy), context.deviceId || '') : null };
     s.nextRun++; s.runs.push(r); return { ok: true, run: r };
   }
   function stage(r) { return r.mode === 'culture' ? 'Tissue establishment' : r.progress < 1 / 3 ? 'Tissue establishment' : r.progress < 5 / 6 ? 'Organ formation' : 'Physiological stabilization'; }
@@ -51,8 +54,11 @@
     if (!a.health) { a.status = 'dead'; a.diedAt = now; }
   }
   function embody(s, r, location, now) {
+    const formationSoul = r.soulWindow ? Formation.sealSoul(r.soulWindow, r.id, now) : null;
+    if (r.soulWindow && !formationSoul) return null;
     const a = { id: `homunculus:${r.id}`, actorKind: 'homunculus', family: 'homunculus', name: `Homunculus ${s.individuals.length + 1}`,
-      soulId: `soul:${r.id}`, soulOrigin: 'naturally-developed', donorId: r.template.donorId, runId: r.id,
+      soulId: formationSoul ? formationSoul.id : `soul:${r.id}`, soulOrigin: formationSoul ? formationSoul.origin : 'established-individual',
+      ...(formationSoul ? { formationSoul } : {}), donorId: r.template.donorId, runId: r.id,
       definitionId: s.definitionId, sourceTheme: s.sourceTheme,
       status: 'developing', present: true, chamberId: r.chamberId, roomId: location.roomId, mapCell: copy(location.cell),
       health: Math.max(1, 100 - r.damage), maxHealth: 100, massKg: 48, maturity: 0, skills: {}, memories: [], language: null,
@@ -72,10 +78,12 @@
         r.lastAt = at;
         const physical = hooks.support(r, STEP), person = s.individuals.find(a => a.id === r.personId);
         const careLate = at - r.careAt > CARE;
-        const supported = physical.ok && !careLate && r.quality >= 50;
-        r.reason = supported ? '' : careLate ? 'Scheduled examination and corrective care are overdue.' : physical.reason || 'Prepared medium or template is unsuitable.';
+        const soulUnits = r.soulWindow?.requested && !r.soulWindow.sealed ? STEP / (60 * HOUR) * r.soulWindow.required : 0;
+        const animancySupported = !soulUnits || physical.soulEnergy >= soulUnits - 1e-8;
+        const supported = physical.ok && animancySupported && !careLate && r.quality >= 50;
+        r.reason = supported ? '' : careLate ? 'Scheduled examination and corrective care are overdue.' : !animancySupported ? 'Creation-time animancy supply is interrupted; no soulless substitution.' : physical.reason || 'Prepared medium or template is unsuitable.';
         if (!supported) {
-          const buffered = physical.ok || physical.destroyed ? 0 : Math.min(STEP, r.buffer); r.buffer -= buffered;
+          const buffered = physical.destroyed || physical.ok && animancySupported ? 0 : Math.min(STEP, r.buffer); r.buffer -= buffered;
           const unprotected = careLate || r.quality < 50 || physical.destroyed ? STEP : STEP - buffered;
           const damage = unprotected / HOUR * (physical.destroyed ? 100 : 12);
           r.damage = Math.min(100, r.damage + damage); injury(person, damage, r.reason, at);
@@ -85,6 +93,7 @@
             Math.max(0, (key === 'humanTissueTemplate' ? 1 : Math.floor(total * next + 1e-8)) - (r.consumed[key] || 0))]));
           if (!hooks.consume(r, amounts)) { r.reason = 'An original loaded supply is missing; no substitution or progress.'; r.damage = Math.min(100, r.damage + STEP / HOUR * 12); injury(person, STEP / HOUR * 12, r.reason, at); }
           else {
+            if (r.soulWindow && !r.soulWindow.sealed) Formation.supplySoul(r.soulWindow, soulUnits);
             for (const [key, amount] of Object.entries(amounts)) r.consumed[key] = (r.consumed[key] || 0) + amount;
             r.progress = next;
             if (r.mode === 'body' && next >= 5 / 6 && !person) embody(s, r, physical, at);

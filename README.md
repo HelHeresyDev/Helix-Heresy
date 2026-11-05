@@ -340,6 +340,7 @@ The smoke command is a quick cross-system check, but routine changes should run 
 - `actor-visual-state.js` - Renderer-neutral four-way facing, canonical pose precedence, semantic activity families, condition cues, and sprite-key candidates derived from simulation state.
 - `animation-clock.js` - Presentation-only game-time sampling plus normalized motion/action timelines; it never advances simulation.
 - `map-knowledge.js` - Sparse saved cell observations, light-aware same-layer perception queries, last-observed age tiers, and knowledge records for current, stale, unknown, and Debug map presentation.
+- `creature-formation.js` - Creation-time soul provenance, distinct research/synthesis tiers, and the finite Mudlet lifecycle. [Creature formation guide](CREATURE_FORMATION.md) covers inherited animancy, performed research, chamber construction, physical care and test-fitting limits.
 - `map-visual-state.js` - Versioned renderer-neutral map scenes, unique entities, effect planes, severity-ranked status cues, knowledge-filtered lighting/environment state, animation timelines, capped presentation-time feedback, interactions, overscan, pre-normalization culling, optional chunked spatial queries, and schema validation.
 - `map-render-order.js` - Shared semantic render passes, stable depth ordering, crowded-target priority, tall-layer slicing, and occlusion policy.
 - `sprite-asset-manifest.js` - Stable semantic map-sprite keys, source and logical dimensions, tile anchors, transform capabilities, aliases, and category fallbacks.

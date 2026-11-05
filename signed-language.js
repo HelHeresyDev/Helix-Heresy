@@ -12,7 +12,7 @@
   };
   const QUESTIONS = ['want', 'wantFood', 'wantWater', 'wantRest', 'pain'];
   const copy = x => JSON.parse(JSON.stringify(x));
-  const eligible = a => Boolean(a && !a.genome && a.family === 'homunculus' && a.actorKind === 'homunculus'
+  const eligible = a => Boolean(a && a.formationSoul?.present !== false && !a.genome && a.family === 'homunculus' && a.actorKind === 'homunculus'
     && a.status !== 'dead' && a.status !== 'developing' && a.maturity >= 1 && !a.chamberId);
   const willing = a => eligible(a) && a.health >= 75 && a.foodHours >= 6 && a.waterHours >= 6 && a.fatigue < 20 && a.stress < 30;
   function create() { return { subjects: {}, journal: [] }; }

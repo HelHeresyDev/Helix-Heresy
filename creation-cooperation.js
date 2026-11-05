@@ -6,7 +6,7 @@
   'use strict';
   const STEP = 10, REST = 3600, LESSON = 600;
   const copy = x => JSON.parse(JSON.stringify(x));
-  const eligible = a => Boolean(a && !a.genome && a.family === 'homunculus' && a.actorKind === 'homunculus'
+  const eligible = a => Boolean(a && a.formationSoul?.present !== false && !a.genome && a.family === 'homunculus' && a.actorKind === 'homunculus'
     && a.status !== 'dead' && a.status !== 'developing' && a.maturity >= 1 && !a.chamberId);
   function create(now = 0) { return { lastAt: now, nextId: 1, lessons: [], orders: [], learning: {}, relationships: {}, knowledge: {} }; }
   function normalize(s, now = 0) { return s?.lessons && s?.orders ? copy(s) : create(now); }

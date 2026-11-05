@@ -9,7 +9,7 @@
     constructionStone: ['stoneBlocks'], timberFiber: ['lumber', 'cloth', 'medicalBandage', 'filterBag', 'escortVest', 'fieldShelter'],
     ferrousOre: ['steelPanels', 'metalParts', 'escortBaton'],
     baseMetalOre: ['refinedConductors', 'relayBattery'], manaCrystals: ['preparedManaCrystals', 'arcaneFeedstock'],
-    industrialMinerals: ['bricks', 'glass', 'sealedCollectionJar', 'linedScrapeJar', 'condenserFlask', 'mixedOutputJar', 'sealedReagentBottle'],
+    industrialMinerals: ['clay', 'bricks', 'glass', 'sealedCollectionJar', 'linedScrapeJar', 'condenserFlask', 'mixedOutputJar', 'sealedReagentBottle'],
     chemicalFeedstock: ['rubber', 'assayReagent', 'neutralizingWash', 'membraneSealant', 'helixBufferSolution'],
     freshWater: ['drinkingWater']
   };
