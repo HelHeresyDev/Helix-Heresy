@@ -8,6 +8,34 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Zephyr Motes — #8-C complete
+
+The frozen three-part checklist is complete: personally performed local airflow
+characterization, compared gentle/disruptive chamber trials and documented research;
+four-mana shared-chamber formation from an original 0.1 m³ air parcel with both
+concurrent own-soul gathering and unassisted outcomes; and finite physical care,
+persistence/import, map identification and updated references. Research Tier 1 and
+Production Tier 0 remain independent. No Mudlet/Cinderling discovery prerequisite
+or new apparatus framework was added.
+
+The same retained vortex has finite mana/coherence, a physical sealable vessel,
+locally adjusted apertures and ordinary body barriers. Air exchange conserves each
+airborne substance's amount rather than deleting contamination. Strong circulation,
+opposing ventilation and depletion can kill; original captured air disperses once
+when exposed, while a sealed holder retains it. Soulless bodies choose neither
+movement nor recharging despite nearby original feedstock. Physical controls do
+not confer language, consent or an autonomous workforce. Native checks use actual
+starter stocks, performed work, finite charges and a continued run, not injected
+creatures or successful research. No wildlife spawning, object hauling or global
+pressure/oxygen simulator was introduced. Seven proposed families remain.
+
+Focused verification: 15 Zephyr model checks, 10 shared formation/Mudlet checks,
+12 Cinderling model checks, the native Zephyr browser workflow, the existing
+Cinderling browser workflow, nine source/ODS/XLSX/CSV checks, JavaScript syntax and
+diff whitespace. Both map renderers passed scene validation; the Canvas screenshot
+was inspected. The full suite was not run under AGENTS.md. See
+[CREATURE_FORMATION.md](CREATURE_FORMATION.md) and [the creature reference](reference/README.md).
+
 ### Cinderlings — #8-B complete
 
 The approved three-part checklist is complete: actual charcoal research and shared

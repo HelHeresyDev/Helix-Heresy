@@ -488,6 +488,13 @@
       description: 'Open, fire-resistant holder for one physically placed ember body. Retains its original body and ash, permits warmth/light, and prevents direct contact with loose flammable stock while intact. Not fuel, a controller or a second formation chamber.'
     },
     {
+      id: 'moteVessel', label: 'Sealable Vortex Vessel', glyph: 'VV', assemblyClass: 'siteBuilt',
+      footprint: { width: 1, height: 1 }, collision: 'blocking', layer: 'floor',
+      ports: [{ id: 'operator', label: 'Vortex Aperture Controls', x: 0, y: 1 }], capabilities: ['vortexContainment'],
+      workMinutes: 5, materialOptions: { glass: { composition: { primary: 'glass', frame: 'steel' }, costs: { glass: 2, metalParts: 1 }, score: 65 } },
+      description: 'One local air-vortex vessel, with physical seal, directional openings and gentle/strong circulation controls. Not a mana source, filter, controller or duct teleport. Sealed collapsed air remains inside until opened.'
+    },
+    {
       id: "exhaustedSoulApparatus", label: "Exhausted Original Soul Apparatus", glyph: "SB", assemblyClass: "recovered",
       footprint: { width: 1, height: 1 }, collision: "blocking", layer: "floor",
       ports: [{ id: "examiner", label: "Apparatus Examiner", x: 0, y: 1 }], capabilities: ["beaconEvidence"],
@@ -17505,7 +17512,7 @@
       },
       elementalAction: (action, id = '') => queueElementalWork(action, id),
       elementalBuildOptions: (typeId = 'elementalChamber', anchorId = '') => {
-        const def = FIXTURE_BY_ID[typeId]; if (!['elementalChamber', 'emberBrazier'].includes(typeId)) return [];
+        const def = FIXTURE_BY_ID[typeId]; if (!['elementalChamber', 'emberBrazier', 'moteVessel'].includes(typeId)) return [];
         const f = fixtureById(anchorId) || state.fixtures.find(f => f.typeId === 'animancyDevice'); if (!f) return [];
         const usedPorts = new Set(state.fixtures.flatMap(f => fixtureAccessCells(f).map(p => mapCellKey(p.cell))));
         const cells = []; for (let x = f.origin.x - 5; x <= f.origin.x + 5; x++) for (let y = f.origin.y - 5; y <= f.origin.y + 5; y++) {
@@ -17518,6 +17525,29 @@
         tools: ensureToolDurability(), environments: (state.elementalLab?.creatures || []).map(a => ({ id: a.id, environment: tileEnvironmentAtCell(a.mapCell), light: Formation.light(a) })) }),
       elementalWorkPreview: (action, id = '') => { const t = elementalTarget(action, id); return clonePlainObject({ cell: t.cell, fixture: t.f?.id,
         costs: Formation.COSTS[action], staged: t.cell && homunculusInputs(Formation.COSTS[action] || {}, t.cell), path: t.cell && labNavigationPlanBetweenCells(scientistMapCell(), t.cell, { actor: state.scientist, ignoreDoors: true }) }); },
+      zephyrSnapshot: id => {
+        const a = ensureElementalLab().creatures.find(a => a.id === id), volume = tileEnvironmentVolumeM3(), totals = {};
+        for (const env of Object.values(ensureTileEnvironments())) for (const [id, concentration] of Object.entries(env.airborne)) totals[id] = (totals[id] || 0) + concentration * volume;
+        const parcels = [...ensureElementalLab().creatures.map(a => a.airParcel), ...ensureElementalLab().runs.map(r => r.airParcel),
+          ...state.tasks.filter(t => t.type === 'elementalWork').map(t => t.data.airParcel)].filter(p => p && !p.released);
+        for (const p of parcels) for (const [id, n] of Object.entries(p.airborne)) totals[id] = (totals[id] || 0) + n;
+        const to = a && zephyrFlowCell(a);
+        return clonePlainObject({ volume, totals, actor: a, to, fromEnvironment: a && tileEnvironmentAtCell(a.mapCell),
+          toEnvironment: to && tileEnvironmentAtCell(to), passage: a && zephyrAirPassage(a.mapCell, to), bodyPassage: a && zephyrAirPassage(a.mapCell, to, true),
+          chamberEnvironments: state.fixtures.filter(f => f.typeId === 'elementalChamber').map(f => tileEnvironmentAtCell(f.origin)),
+          barriers: Object.entries(ensureLabMap().doors || {}).filter(([key]) => !doorPositionIsOpen(state.doors[key]) && !doorIsBreached(state.doors[key]))
+            .flatMap(([key, d]) => cardinalMapCells(d.cell).filter(c => tileEnvironmentAtCell(c)).map(c => ({ key, from: c, to: d.cell,
+              air: zephyrAirPassage(c, d.cell), body: zephyrAirPassage(c, d.cell, true) }))) });
+      },
+      setZephyrTestAir: id => {
+        // Explicit known environmental INPUTS only, never a body, energy,
+        // research receipt, circulation result or damage/escape outcome grant.
+        const a = ensureElementalLab().creatures.find(a => a.id === id); if (!a) return false;
+        const to = zephyrFlowCell(a); if (!zephyrAirPassage(a.mapCell, to)) return false;
+        tileEnvironmentAtCell(a.mapCell).airborne['chemistry-test-fumes'] = 6;
+        tileEnvironmentAtCell(to).airborne['mineral-test-dust'] = 2;
+        persist(); render(); return true;
+      },
       stageElementalTestSupplies: (action, id = '') => {
         // Explicit test placement of EXISTING unclaimed original stocks; never
         // grants evidence, stock, skills, a chamber or a successful creature.
@@ -26626,7 +26656,7 @@
 
   function fixturePlacementBlockReason(def, origin, rotation = 0, options = {}) {
     if (def.id === 'animancyDevice') return 'The inherited device already exists; this is not an unlocked duplication blueprint.';
-    if (def.id === 'elementalChamber' && !ensureElementalLab().knowledge.characterized && !ensureElementalLab().fireKnowledge?.characterized) return 'Read the inherited notes and physically characterize clay/water or charcoal before constructing the chamber.';
+    if (def.id === 'elementalChamber' && !ensureElementalLab().knowledge.characterized && !ensureElementalLab().fireKnowledge?.characterized && !ensureElementalLab().airKnowledge?.characterized) return 'Read the inherited notes and physically characterize clay/water, charcoal or airflow before constructing the chamber.';
     if (def.id === 'exhaustedSoulApparatus') return 'The exhausted original apparatus is recovered evidence, not a buildable extra life.';
     if (['soulReceiver', 'soulBeacon'].includes(def.id) && (!Research.isUnlocked(ensureResearchState(), `fixtureBlueprint:${def.id}`) || skillLevel('fabrication') < 101))
       return 'Evidence-backed soul-beacon research and Adept Fabrication (101) are required.';
@@ -30662,6 +30692,7 @@
       manaDensity: clamp(Number.isFinite(Number(candidate?.manaDensity)) ? Number(candidate.manaDensity) : base.manaDensity, 0, 1000),
       rockManaDensity: clamp(Number.isFinite(Number(candidate?.rockManaDensity)) ? Number(candidate.rockManaDensity) : base.rockManaDensity, 0, 1000),
       airborne: normalizeAirborneLoads(candidate?.airborne ?? base.airborne),
+      airVolumeDeltaM3: Number.isFinite(Number(candidate?.airVolumeDeltaM3)) ? Number(candidate.airVolumeDeltaM3) : 0,
       chemicalTraces: normalizeChemicalTraces(candidate?.chemicalTraces ?? base.chemicalTraces),
       updatedAt: finiteTime(candidate?.updatedAt, Number(state?.clock) || 0)
     };
@@ -38859,7 +38890,7 @@
   }
 
   function actorFloorLoadM2(actor) {
-    if (['mudlet', 'cinderling'].includes(actor?.actorKind)) return .2;
+    if (['mudlet', 'cinderling', 'zephyrMote'].includes(actor?.actorKind)) return .2;
     if (actor?.actorKind === 'fieldDriver') return .6;
     if (!actor) return 0;
     if (['cityDefender', 'civicOfficeholder', 'cityIncumbent', 'municipalTechnician', 'divineAvatar', 'divineIndividual', 'reliefDriver'].includes(actor.actorKind)) return .6;
@@ -38900,7 +38931,7 @@
     const assistant = state.laboratoryAssistant?.actor;
     if (assistant?.present && assistant.id !== excludeActor?.id && mapCellKey(assistant.mapCell) === key) occupied += .6;
     for (const a of state.homunculi?.individuals || []) if (!a.chamberId && a.id !== excludeActor?.id && mapCellKey(a.mapCell) === key) occupied += .6;
-    for (const a of state.elementalLab?.creatures || []) if (!a.chamberId && !a.brazierId && a.id !== excludeActor?.id && mapCellKey(a.mapCell) === key) occupied += .2;
+    for (const a of state.elementalLab?.creatures || []) if (!a.chamberId && !a.brazierId && !a.vesselId && a.id !== excludeActor?.id && mapCellKey(a.mapCell) === key) occupied += .2;
     const medic = state.medicalExtraction?.medic;
     if (medic && medic.id !== excludeActor?.id && mapCellKey(medic.mapCell) === key) occupied += .6;
     const clinician = state.medicalExtraction?.clinic?.clinician;
@@ -39023,7 +39054,7 @@
   }
 
   function navigationFootprintForActor(actor) {
-    if (['mudlet', 'cinderling'].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .2, exclusive: false });
+    if (['mudlet', 'cinderling', 'zephyrMote'].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .2, exclusive: false });
     if (actor?.actorKind === 'fieldDriver') return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (['cityDefender', 'civicOfficeholder', 'cityIncumbent', 'municipalTechnician', 'divineAvatar', 'divineIndividual', 'reliefDriver'].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (["surfaceWorker", "laboratoryAssistant", "homunculus", "foreignSupplier"].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
@@ -42514,7 +42545,7 @@
   }
 
   function combatActorVitalPercent(actor, key) {
-    if (['mudlet', 'cinderling'].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
+    if (['mudlet', 'cinderling', 'zephyrMote'].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
     if (actor?.actorKind === 'fieldDriver') return actor.health / actor.maxHealth * 100;
     if (['civicOfficeholder', 'cityIncumbent', 'divineAvatar', 'divineIndividual', 'reliefDriver'].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
     if (actor?.actorKind === 'cityDefender') return actor.health / actor.maxHealth * 100;
@@ -42569,7 +42600,7 @@
   }
 
   function scientistCombatTargetForSlime(slime) {
-    if (['mudlet', 'cinderling'].includes(slime?.actorKind)) return normalizeCombatTarget({ kind: 'creature', id: slime.id, lastKnownCell: slime.mapCell, observedAt: state.clock });
+    if (['mudlet', 'cinderling', 'zephyrMote'].includes(slime?.actorKind)) return normalizeCombatTarget({ kind: 'creature', id: slime.id, lastKnownCell: slime.mapCell, observedAt: state.clock });
     if (!slime) return null;
     if (['cityDefender', 'cityIncumbent', 'civicOfficeholder', 'divineAvatar', 'divineIndividual', 'reliefDriver'].includes(slime.actorKind)) return normalizeCombatTarget({ kind: 'creature', id: slime.id, lastKnownCell: slime.mapCell, observedAt: state.clock });
     if (slime.actorKind === "wildernessBeast") return normalizeCombatTarget({ kind: "creature", id: slime.id, lastKnownCell: ensureWildernessBeasts().sightings[slime.id]?.cell, observedAt: ensureWildernessBeasts().sightings[slime.id]?.observedAt });
@@ -42987,7 +43018,7 @@
       : targetActor.actorKind === "surfaceWorker" ? damageSurfaceWorker(guardedDamage, { damageTypes: action.damageTypes }, targetActor)
       : targetActor.actorKind === "laboratoryAssistant" ? damageSurfaceWorker(guardedDamage, { damageTypes: action.damageTypes }, targetActor)
       : targetActor.actorKind === "homunculus" ? damageHomunculus(targetActor, guardedDamage, { damageTypes: action.damageTypes, observed: actor === state.scientist })
-      : ['mudlet', 'cinderling'].includes(targetActor.actorKind) ? Formation.damage(targetActor, guardedDamage, action.label, state.clock)
+      : ['mudlet', 'cinderling', 'zephyrMote'].includes(targetActor.actorKind) ? Formation.damage(targetActor, guardedDamage, action.label, state.clock)
       : targetActor.actorKind === 'cityDefender' ? damageCityDefender(guardedDamage, { damageTypes: action.damageTypes }, targetActor)
       : targetActor.actorKind === 'cityIncumbent' ? damageIncumbent(guardedDamage, { damageTypes: action.damageTypes })
       : ['civicOfficeholder', 'divineAvatar', 'divineIndividual', 'reliefDriver'].includes(targetActor.actorKind) ? damageCivilOfficeholder(targetActor, guardedDamage, { damageTypes: action.damageTypes, attackerId: actorId })
@@ -64876,15 +64907,37 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       && mapCellDistance(f.origin, a.mapCell) <= 2 && sensoryLineOfSight(f.origin, a.mapCell)
       && !ensureElementalLab().creatures.some(b => b.brazierId === f.id));
   }
+  function nearbyMoteVessel(a) {
+    return a && state.fixtures.find(f => f.typeId === 'moteVessel' && f.condition >= 50 && f.origin.z === a.mapCell.z
+      && mapCellDistance(f.origin, a.mapCell) <= 2 && sensoryLineOfSight(f.origin, a.mapCell)
+      && !ensureElementalLab().creatures.some(b => b.vesselId === f.id));
+  }
+  function zephyrAirPassage(from, to, body = false) {
+    if (!sameMapLayer(from, to) || Math.abs(from.x - to.x) + Math.abs(from.y - to.y) !== 1
+      || !tileEnvironmentAtCell(from) || !tileEnvironmentAtCell(to) || constructedWallAtCell(to)) return 0;
+    const door = labMapDoorForCells(from, to);
+    if (body && door && !doorPositionIsOpen(state.doors?.[door.key] || door) && !doorIsBreached(state.doors?.[door.key] || door)) return 0;
+    if (body && !labMapCellIsWalkable(to)) return 0;
+    return tileEnvironmentAirModifier(from, to);
+  }
+  function zephyrDisruptionAt(cell) {
+    return state.fixtures.filter(f => fixtureInfrastructureDef(f)?.role === 'airTerminal' && utilityFixtureEnabled(f)
+      && f.utility.status === 'operating' && f.utility.mode !== 'closed' && f.origin.z === cell.z
+      && mapCellDistance(f.origin, cell) <= 1 && sensoryLineOfSight(f.origin, cell)).length;
+  }
+  function zephyrFlowCell(a) {
+    const d = [{ x: 0, y: -1 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }][a.direction % 4];
+    return { x: a.mapCell.x + d.x, y: a.mapCell.y + d.y, z: a.mapCell.z };
+  }
   function elementalTarget(action, id, route = true) {
     const s = ensureElementalLab(), a = s.creatures.find(a => a.id === id), r = s.runs.find(r => r.id === a?.runId || r.id === id);
-    const f = a && !a.chamberId && !a.brazierId && ['wet', 'examine', 'release', 'feedCinderling', 'quenchCinderling', 'brazier'].includes(action) ? null
+    const f = a && !a.chamberId && !a.brazierId && !a.vesselId ? null
       : action === 'notes' ? state.fixtures.find(f => f.typeId === 'animancyDevice')
-      : ['characterize', 'document', 'fireCharacterize', 'fireDocument'].includes(action) ? researchWorkstations()[0]
-      : fixtureById(a?.brazierId || a?.chamberId || r?.chamberId || id);
+      : ['characterize', 'document', 'fireCharacterize', 'fireDocument', 'airCharacterize', 'airDocument'].includes(action) ? researchWorkstations()[0]
+      : fixtureById(a?.vesselId || a?.brazierId || a?.chamberId || r?.chamberId || id);
     if (!route) return { s, a, r, f };
     const port = f && fixtureAccessCells(f).find(p => labNavigationPlanBetweenCells(scientistMapCell(), p.cell, { actor: state.scientist, ignoreDoors: true }).found);
-    const cell = a && !a.chamberId && !a.brazierId ? [scientistMapCell(), ...cardinalMapCells(a.mapCell)].find(c => c.z === a.mapCell.z
+    const cell = a && !a.chamberId && !a.brazierId && !a.vesselId ? [scientistMapCell(), ...cardinalMapCells(a.mapCell)].find(c => c.z === a.mapCell.z
       && mapCellDistance(c, a.mapCell) <= 1 && labMapCellIsWalkable(c) && labNavigationPlanBetweenCells(scientistMapCell(), c, { actor: state.scientist, ignoreDoors: true }).found) : port?.cell;
     return { s, a, r, f, cell };
   }
@@ -64903,15 +64956,32 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     const k = t.s.knowledge;
     const fire = t.s.fireKnowledge || {};
+    const air = t.s.airKnowledge || {};
+    if (d.action === 'airCharacterize' && !k.notes || ['airLow', 'airHigh'].includes(d.action) && !air.characterized
+      || d.action === 'airDocument' && (!air.low || !air.high) || d.action === 'growZephyr' && !air.documented)
+      return 'Read the inherited notes, characterize real airflow, compare gentle and disruptive chamber trials, then document the observed vortex.';
     if (d.action === 'fireCharacterize' && !k.notes || d.action === 'fireStability' && !fire.characterized
       || d.action === 'fireDocument' && !fire.stability || d.action === 'growCinderling' && !fire.documented) return 'Read the inherited notes, characterize charcoal, perform a contained ignition/stability trial, then document the flame pattern.';
     if (d.action === 'characterize' && !k.notes || d.action === 'stability' && !k.characterized || d.action === 'document' && !k.stability || d.action === 'grow' && !k.documented) return 'Read the original notes, characterize clay/water, perform stabilization, then document the method.';
-    if (['stability', 'grow', 'fireStability', 'growCinderling', 'fillLeak', 'drainLeak', 'pressure'].includes(d.action) && f?.typeId !== 'elementalChamber') return 'Use the actual convergence chamber and its integrated test fitting.';
+    if (['stability', 'grow', 'fireStability', 'growCinderling', 'airLow', 'airHigh', 'growZephyr', 'fillLeak', 'drainLeak', 'pressure'].includes(d.action) && f?.typeId !== 'elementalChamber') return 'Use the actual convergence chamber and its integrated test fitting.';
     if (d.action === 'charge' && (!f || !['elementalChamber', 'animancyDevice'].includes(f.typeId) || f.utility.storedMana > 16)) return 'The original apparatus must have room for all eight mana from one feedstock.';
     if (d.action === 'fillLeak' && t.s.leaks[f.id]?.remainingL > 1e-8) return 'The four-litre reservoir still contains water. Drain it before refilling.';
     if (['drainLeak', 'pressure'].includes(d.action) && !t.s.leaks[f.id]) return 'Fill the original test fitting first.';
-    if (['stability', 'grow', 'fireStability', 'growCinderling'].includes(d.action) && t.s.runs.some(r => r.chamberId === f.id && !r.cleared)) return 'The chamber contains an original procedure, creature or remains; release and clear it first.';
-    if (['grow', 'growCinderling'].includes(d.action) && d.soulWindow.requested && (!d.soulWindow.deviceId || !creationDevice(f.origin, d.soulWindow.deviceId))) return 'The bound inherited animancy device must remain physically available during formation.';
+    if (['stability', 'grow', 'fireStability', 'growCinderling', 'airLow', 'airHigh', 'growZephyr'].includes(d.action) && t.s.runs.some(r => r.chamberId === f.id && !r.cleared)) return 'The chamber contains an original procedure, creature or remains; release and clear it first.';
+    if (['grow', 'growCinderling', 'growZephyr'].includes(d.action) && d.soulWindow.requested && (!d.soulWindow.deviceId || !creationDevice(f.origin, d.soulWindow.deviceId))) return 'The bound inherited animancy device must remain physically available during formation.';
+    if (['airCharacterize', 'airLow', 'airHigh', 'growZephyr'].includes(d.action) && !d.airParcel) {
+      const env = tileEnvironmentAtCell(f?.origin || cell);
+      if (!env || tileEnvironmentVolumeM3() + (env.airVolumeDeltaM3 || 0) < .1) return 'The actual local air parcel is unavailable.';
+    }
+    if (['rechargeMote', 'vesselMote', 'sealMote', 'gentleMote', 'strongMote', 'orientMote'].includes(d.action) && t.a?.family !== 'zephyrMote') return 'Select the original Zephyr Mote.';
+    if (d.action === 'rechargeMote' && (t.a.status === 'dead' || t.a.manaReserve > 8 + 1e-8)) return 'A living vortex with room for all eight supplied mana is required; collapsed individuals cannot be restarted.';
+    if (['sealMote', 'gentleMote', 'strongMote', 'orientMote'].includes(d.action) && (!t.a.vesselId || f?.condition < 50)) return 'Use the original intact vessel aperture controls, not a remote creature command.';
+    if (d.action === 'vesselMote') {
+      const v = fixtureById(d.vesselId);
+      if (!v || v.typeId !== 'moteVessel' || v.condition < 50 || v.productionTaskId && v.productionTaskId !== task.id
+        || mapCellDistance(v.origin, t.a.mapCell) > 2 || mapCellDistance(v.origin, cell) > 2 || !sensoryLineOfSight(v.origin, cell)
+        || t.s.creatures.some(a => a.vesselId === v.id)) return 'Build an intact empty vortex vessel within two tiles for this local physical transfer.';
+    }
     if (d.action === 'wet' && t.a?.family !== 'mudlet' || d.action === 'position' && t.a?.family !== 'mudlet') return 'Use the actual Mudlet for wetting or physical leak obstruction; water can quench an ember core.';
     if (['feedCinderling', 'quenchCinderling', 'brazier'].includes(d.action) && t.a?.family !== 'cinderling') return 'Select an actual original Cinderling.';
     if (d.action === 'feedCinderling' && (t.a.status === 'dead' || t.a.fuelUnits > 3)) return 'A living Cinderling with room for the entire charcoal unit is required; dead remains cannot be rekindled as the same individual.';
@@ -64939,6 +65009,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       data: { action, targetId, fixtureId: t.f?.id || '', toCell: clonePlainObject(cell), roomId: labMapCellRoomId(cell), mapPath: path.path,
         work: { progress: 0, required: Formation.SECONDS[action], lastAt: state.clock },
         soulWindow: Formation.soulWindow(t.s.useAnimancy, device?.id || ''), brazierId: action === 'brazier' ? nearbyEmberBrazier(t.a)?.id || '' : '',
+        vesselId: action === 'vesselMote' ? nearbyMoteVessel(t.a)?.id || '' : '',
         inputQuantities: Object.fromEntries(slices.map(p => [p.stackId, p.quantity])), reservedStackIds: slices.map(p => p.stackId) } };
     if (!reserveProductionMaterialSlices(slices, id)) return false;
     task.data.reservedStackIds = slices.map(p => p.stackId);
@@ -64954,6 +65025,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     task.data.movementStartedAt = start; task.data.workStartsAt = start + travel; task.dueAt = start + travel + Formation.SECONDS[action];
     if (t.f) fixtureById(t.f.id).productionTaskId = id;
     if (task.data.brazierId) fixtureById(task.data.brazierId).productionTaskId = id;
+    if (task.data.vesselId) fixtureById(task.data.vesselId).productionTaskId = id;
     state.tasks.push(task); persist(); render(); return true;
   }
   function updateElementalWork() {
@@ -64961,13 +65033,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const w = d.work, elapsed = Math.max(0, state.clock - Math.max(w.lastAt, d.workStartsAt)); w.lastAt = state.clock;
     if (!elapsed || taskBlockReason(task) || !sameMapCell(scientistMapCell(), d.toCell) || state.combat?.routineSuspension) return;
     const used = Math.min(elapsed, w.required - w.progress), f = fixtureById(d.fixtureId);
-    if (['stability', 'fireStability'].includes(d.action) && !formationEnergy(f, used / w.required)) return;
+    if (['airCharacterize', 'airLow', 'airHigh'].includes(d.action) && !d.airParcel) {
+      d.airCell = clonePlainObject(f?.origin || d.toCell);
+      d.airParcel = Formation.takeAir(tileEnvironmentAtCell(d.airCell), .1, tileEnvironmentVolumeM3()); if (!d.airParcel) return;
+    }
+    if (['stability', 'fireStability', 'airLow', 'airHigh'].includes(d.action) && !formationEnergy(f, used / w.required)) return;
+    if (['airLow', 'airHigh'].includes(d.action)) {
+      d.airManaSpent = (d.airManaSpent || 0) + used / w.required;
+      d.circulationObservedM3 = (d.circulationObservedM3 || 0) + used / 3600 * (d.action === 'airHigh' ? 3 : 1);
+      d.trialCoherence = d.action === 'airHigh' ? Math.max(0, 100 - (w.progress + used) / w.required * 75) : 100;
+    }
     if (['characterize', 'stability', 'fireCharacterize', 'fireStability'].includes(d.action) && !d.materialConsumed) { consumeProductionMaterialReservations(task); d.materialConsumed = true; }
     w.progress += used;
   }
   function releaseElementalWork(task) {
     const d = task.data, f = fixtureById(d.fixtureId); if (f?.productionTaskId === task.id) f.productionTaskId = '';
     const brazier = fixtureById(d.brazierId); if (brazier?.productionTaskId === task.id) brazier.productionTaskId = '';
+    const vessel = fixtureById(d.vesselId); if (vessel?.productionTaskId === task.id) vessel.productionTaskId = '';
+    if (d.airParcel && !d.airParcel.released) Formation.returnAir(tileEnvironmentAtCell(d.airCell), d.airParcel, tileEnvironmentVolumeM3());
     const tongs = ensurePhysicalItemStacks().find(i => i.id === d.tongsStackId), tool = tongs && toolInstanceById(tongs.toolInstanceId)?.instance;
     if (tongs?.reservedTaskId === task.id) tongs.reservedTaskId = '';
     if (tool?.reservedTaskId === task.id) tool.reservedTaskId = '';
@@ -64988,19 +65071,28 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const d = task.data, t = elementalTarget(d.action, d.targetId, false), f = fixtureById(d.fixtureId);
     try {
       if (elementalTaskReason(task) || !sameMapCell(scientistMapCell(), d.toCell) || d.work.progress < d.work.required - 1e-8) return false;
-      if (!['grow', 'growCinderling'].includes(d.action) && !d.materialConsumed) { consumeProductionMaterialReservations(task); d.materialConsumed = true; }
-      const receipt = { taskId: task.id, fixtureId: d.fixtureId, originalInputs: d.inputQuantities, at: state.clock };
-      if (['notes', 'characterize', 'stability', 'document', 'fireCharacterize', 'fireStability', 'fireDocument'].includes(d.action)) {
+      if (!['grow', 'growCinderling', 'growZephyr'].includes(d.action) && !d.materialConsumed) { consumeProductionMaterialReservations(task); d.materialConsumed = true; }
+      const receipt = { taskId: task.id, fixtureId: d.fixtureId, originalInputs: d.inputQuantities, at: state.clock,
+        ...(d.airParcel ? { capturedAir: clonePlainObject(d.airParcel), manaSpent: d.airManaSpent || 0, circulationM3: d.circulationObservedM3 || 0, coherence: d.trialCoherence } : {}) };
+      if (['notes', 'characterize', 'stability', 'document', 'fireCharacterize', 'fireStability', 'fireDocument', 'airCharacterize', 'airLow', 'airHigh', 'airDocument'].includes(d.action)) {
         if (!Formation.research(t.s, d.action, receipt, state.clock)) return false;
-        recordResearchEvidence({ methodId: `elemental:${d.action}`, category: 'diagnostic', specimenId: task.id, specimenName: d.action.startsWith('fire') ? 'Charcoal/flame elemental study' : 'Clay/water elemental study',
-          sourceKey: task.id, summary: `Personally performed ${d.action} using original staged inputs and actual equipment.`, confidence: .9 });
+        recordResearchEvidence({ methodId: `elemental:${d.action}`, category: 'diagnostic', specimenId: task.id, specimenName: d.action.startsWith('air') ? 'Airflow/vortex elemental study' : d.action.startsWith('fire') ? 'Charcoal/flame elemental study' : 'Clay/water elemental study',
+          sourceKey: task.id, summary: `Personally performed ${d.action} using original staged inputs and actual equipment.${d.airParcel ? ` Captured ${d.airParcel.volumeM3} m³ of local air; observed coherence ${d.trialCoherence ?? 'sampled'} with ${formatDecimal(d.airManaSpent || 0, 2)} mana spent.` : ''}`, confidence: .9 });
       } else if (d.action === 'charge') f.utility.storedMana = Math.min(24, f.utility.storedMana + 8);
-      else if (['grow', 'growCinderling'].includes(d.action)) {
+      else if (['grow', 'growCinderling', 'growZephyr'].includes(d.action)) {
         const slices = d.reservedStackIds.map(id => ({ stackId: id, key: ensurePhysicalItemStacks().find(i => i.id === id)?.key, quantity: d.inputQuantities[id] }));
-        const r = Formation.begin(t.s, f.id, slices, d.soulWindow, { roomId: d.roomId, bodyCell: f.origin, cell: d.toCell }, state.clock, d.action === 'growCinderling' ? 'cinderling' : 'mudlet');
-        if (!r) return false;
+        const parcel = d.action === 'growZephyr' ? Formation.takeAir(tileEnvironmentAtCell(f.origin), .1, tileEnvironmentVolumeM3()) : null;
+        const r = Formation.begin(t.s, f.id, slices, d.soulWindow, { roomId: d.roomId, bodyCell: f.origin, cell: d.toCell }, state.clock,
+          d.action === 'growZephyr' ? 'zephyrMote' : d.action === 'growCinderling' ? 'cinderling' : 'mudlet', parcel);
+        if (!r) { if (parcel) Formation.returnAir(tileEnvironmentAtCell(f.origin), parcel, tileEnvironmentVolumeM3()); return false; }
         for (const p of slices) { const item = ensurePhysicalItemStacks().find(i => i.id === p.stackId); item.reservedTaskId = r.id; item.fixtureId = f.id; item.cell = clonePlainObject(f.origin); }
-      } else if (d.action === 'feedCinderling') Formation.feed(t.a);
+      } else if (d.action === 'rechargeMote') Formation.rechargeMote(t.a);
+      else if (d.action === 'vesselMote') {
+        const v = fixtureById(d.vesselId); t.a.chamberId = ''; t.a.vesselId = v.id; t.a.aperture = 'sealed';
+        t.a.mapCell = clonePlainObject(v.origin); t.a.roomId = labMapCellRoomId(v.origin);
+      } else if (['sealMote', 'gentleMote', 'strongMote'].includes(d.action)) t.a.aperture = { sealMote: 'sealed', gentleMote: 'gentle', strongMote: 'strong' }[d.action];
+      else if (d.action === 'orientMote') t.a.direction = (t.a.direction + 1) % 4;
+      else if (d.action === 'feedCinderling') Formation.feed(t.a);
       else if (d.action === 'quenchCinderling') {
         const result = Formation.quench(t.a, 1, state.clock), env = tileEnvironmentAtCell(t.a.mapCell);
         if (result && env) env.airborne['cinderling-steam'] = (env.airborne['cinderling-steam'] || 0) + result.vapor;
@@ -65021,7 +65113,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       else if (['position', 'release'].includes(d.action)) {
         const destination = d.action === 'position' ? t.s.leaks[t.r.chamberId].cell : cardinalMapCells(d.toCell).find(c => labMapCellIsWalkable(c) && canActorOccupyTile(t.a, c) && sensoryLineOfSight(d.toCell, c));
         if (!destination || !labMapCellIsWalkable(destination) || !canActorOccupyTile(t.a, destination)) return false;
-        t.a.chamberId = ''; t.a.brazierId = ''; t.a.mapCell = clonePlainObject(destination); t.a.roomId = labMapCellRoomId(destination);
+        if (t.a.family === 'zephyrMote' && !zephyrAirPassage(d.toCell, destination, true)) return false;
+        t.a.chamberId = ''; t.a.brazierId = ''; t.a.vesselId = ''; t.a.mapCell = clonePlainObject(destination); t.a.roomId = labMapCellRoomId(destination);
       } else if (d.action === 'clear') t.r.cleared = true;
       else if (d.action !== 'examine') return false;
       if (d.tongsStackId) { const i = ensurePhysicalItemStacks().find(i => i.id === d.tongsStackId); if (i) damageSpecificTool(i.toolInstanceId, 1, 'physical ember handling'); }
@@ -65033,12 +65126,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function elementalHooks() {
     return { dead: scientistIsDead(), support: (r, seconds) => {
       const f = fixtureById(r.chamberId), device = r.soulWindow.requested && creationDevice(f?.origin, r.soulWindow.deviceId);
-      const energy = 2 * seconds / r.required, neededSoul = r.soulWindow.requested ? energy : 0;
+      const energy = (r.family === 'zephyrMote' ? 4 : 2) * seconds / r.required, neededSoul = r.soulWindow.requested ? 2 * seconds / r.required : 0;
       const present = r.stocks.every(p => { const item = ensurePhysicalItemStacks().find(i => i.id === p.stackId); return p.quantity - (p.used || 0) < 1e-8 || item?.reservedTaskId === r.id && item.fixtureId === r.chamberId && item.quantity + 1e-8 >= p.quantity - (p.used || 0); });
       const ok = Boolean(f && f.condition >= 50 && utilityFixtureEnabled(f) && f.utility.storedMana + 1e-8 >= energy && present
         && (!neededSoul || device && device.utility.storedMana + 1e-8 >= neededSoul));
       if (ok) { formationEnergy(f, energy); if (neededSoul) formationEnergy(device, neededSoul); }
-      return { ok, soulEnergy: ok ? neededSoul : 0, destroyed: !f || f.condition <= 0, reason: 'Original loaded materials, chamber mana/condition or concurrent animancy are unavailable; stabilization buffer is finite.' };
+      return { ok, soulEnergy: ok ? neededSoul : 0, manaEnergy: ok ? energy : 0, destroyed: !f || f.condition <= 0, reason: 'Original loaded materials, chamber mana/condition or concurrent animancy are unavailable; stabilization buffer is finite.' };
     }, consume: (r, amounts) => {
       const deductions = [];
       for (const [key, amount] of Object.entries(amounts)) {
@@ -65055,10 +65148,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return true;
     }, release: r => {
       for (const item of ensurePhysicalItemStacks().filter(i => i.reservedTaskId === r.id)) { item.reservedTaskId = ''; item.fixtureId = ''; item.cell = clonePlainObject(r.location.cell); item.roomId = r.location.roomId; }
-      if (r.status === 'failed' && !r.remainsStackId) r.remainsStackId = createPhysicalItemStack(r.family === 'cinderling' ? 'collectedByproducts' : 'inventory',
+      if (r.status === 'failed' && r.family === 'zephyrMote' && r.airParcel && !r.airParcel.released)
+        Formation.returnAir(tileEnvironmentAtCell(r.location.bodyCell), r.airParcel, tileEnvironmentVolumeM3());
+      if (r.status === 'failed' && r.family !== 'zephyrMote' && !r.remainsStackId) r.remainsStackId = createPhysicalItemStack(r.family === 'cinderling' ? 'collectedByproducts' : 'inventory',
         r.family === 'cinderling' ? 'failed ember formation residue' : 'convergenceResidue', Object.values(r.consumed).reduce((n, v) => n + v, 0),
         { roomId: r.location.roomId, cell: r.location.cell }, { sourceLabels: [r.id], tags: ['mineral'] })?.id || '';
     }, environment: (a, seconds) => {
+      if (a.family === 'zephyrMote') {
+        const protectedBody = Boolean(a.chamberId || a.vesselId && a.aperture === 'sealed');
+        const disruption = protectedBody ? 0 : zephyrDisruptionAt(a.mapCell);
+        return { disruption, shelter: disruption > 0 ? cardinalMapCells(a.mapCell).find(c => zephyrAirPassage(a.mapCell, c, true) > 0
+          && canActorOccupyTile(a, c) && zephyrDisruptionAt(c) < disruption) : null };
+      }
       if (a.family === 'cinderling') {
         const env = tileEnvironmentAtCell(a.mapCell);
         const fuel = c => ensurePhysicalItemStacks().find(i => i.key === 'charcoal' && i.quantity >= 1 && !i.carriedBy && !i.containerId && !i.fixtureId && !i.reservedTaskId && sameMapCell(i.cell, c));
@@ -65077,7 +65178,26 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const pool = !a.chamberId && wet(a.mapCell), absorb = pool ? Math.max(0, Math.floor(Math.min(pool.quantity, 2 - a.waterL, seconds / 60 * .1) * 1000) / 1000) : 0;
       if (absorb) { pool.quantity = roundOutputValue(pool.quantity - absorb); pool.knownQuantity = Math.min(pool.quantity, pool.knownQuantity); }
       return { humidity: env?.humidityPct ?? env?.humidity ?? 50, temperature: env?.temperatureC ?? 20, hazard: Boolean(surfaceWorkerHazard(a.mapCell)), moistDestination: destination, absorb };
-    }, move: (a, cell) => { if (!labMapCellIsWalkable(cell) || !canActorOccupyTile(a, cell)) return false; a.mapCell = clonePlainObject(cell); a.roomId = labMapCellRoomId(cell); return true; },
+    }, move: (a, cell) => { if (!labMapCellIsWalkable(cell) || !canActorOccupyTile(a, cell)
+      || a.family === 'zephyrMote' && !zephyrAirPassage(a.mapCell, cell, true)) return false;
+      a.mapCell = clonePlainObject(cell); a.roomId = labMapCellRoomId(cell); return true; },
+    circulateAir: (a, volume) => {
+      const to = zephyrFlowCell(a), permeability = zephyrAirPassage(a.mapCell, to);
+      if (permeability <= 0) return 0;
+      const moved = Formation.exchangeAir(tileEnvironmentAtCell(a.mapCell), tileEnvironmentAtCell(to), volume * permeability,
+        tileEnvironmentVolumeM3(), tileEnvironmentVolumeM3());
+      a.lastExchange = { at: state.clock, from: clonePlainObject(a.mapCell), to, volumeM3: moved };
+      return moved;
+    }, disperseAir: a => {
+      if (a.chamberId || a.vesselId && a.aperture === 'sealed') return false;
+      const parcel = a.airParcel;
+      if (!parcel || parcel.released) return true;
+      if (Formation.returnAir(tileEnvironmentAtCell(a.mapCell), parcel, tileEnvironmentVolumeM3())) {
+        if (homunculusLocal(a.mapCell)) addEvent(`${a.name}'s vortex collapsed; its original air and retained contamination dispersed locally. The same individual cannot be restarted.`);
+        return true;
+      }
+      return false;
+    },
     takeFuel: a => {
       const i = ensurePhysicalItemStacks().find(i => i.key === 'charcoal' && i.quantity >= 1 && !i.carriedBy && !i.containerId && !i.fixtureId && !i.reservedTaskId && sameMapCell(i.cell, a.mapCell));
       if (!i) return false; i.quantity -= 1; i.knownQuantity = Math.min(i.knownQuantity, i.quantity); return true;
@@ -65116,21 +65236,34 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       if (a.brazierId && !(fixtureById(a.brazierId)?.condition >= 50)) a.brazierId = '';
     }
+    for (const a of state.elementalLab.creatures) if (a.family === 'zephyrMote') {
+      if (a.chamberId && !(fixtureById(a.chamberId)?.condition > 0)) {
+        const r = state.elementalLab.runs.find(r => r.id === a.runId); a.chamberId = '';
+        if (r?.location.cell) a.mapCell = clonePlainObject(r.location.cell);
+      }
+      if (a.vesselId && !(fixtureById(a.vesselId)?.condition >= 50)) { a.vesselId = ''; a.aperture = 'gentle'; }
+    }
     return Formation.advance(state.elementalLab, state.clock, elementalHooks());
   }
   function renderElementalLab(parent) {
     const s = ensureElementalLab(), panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.elementalLab = 'true'; parent.append(panel);
-    panel.append(textEl('h3', 'Tier 0 — Natural Elemental Formation'), textEl('p', 'Mudlet: Research Tier 0 / Synthesis Tier 0. Natural wet-clay/earth-water convergence, not new life from nothing. Read original notes, characterize materials, build the chamber, stabilize a trial and document the pattern. Stage listed actual supplies within one tile of the operator.'));
+    panel.append(textEl('h3', 'Natural Elemental Formation'), textEl('p', 'Mudlet: Research Tier 0 / Synthesis Tier 0. Natural wet-clay/earth-water convergence, not new life from nothing. Read original notes, characterize materials, build the chamber, stabilize a trial and document the pattern. Stage listed actual supplies within one tile of the operator.'));
     const select = document.createElement('select'); select.setAttribute('aria-label', 'Animancy connection for future artificial formation');
     select.append(new Option('Connect inherited animancy during formation', 'souled'), new Option('Bypass device: soulless formation', 'soulless')); select.value = s.useAnimancy ? 'souled' : 'soulless';
     select.addEventListener('change', () => { s.useAnimancy = select.value === 'souled'; persist(); render(); }); panel.append(select);
     const button = (label, action, id = '') => {
-      const t = elementalTarget(action, id, false), k = s.knowledge, fire = s.fireKnowledge || {};
+      const t = elementalTarget(action, id, false), k = s.knowledge, fire = s.fireKnowledge || {}, air = s.airKnowledge || {};
       const reason = state.tasks.some(t => t.type === 'elementalWork') ? 'Finish or cancel the current elemental procedure first.'
+        : t.a && !homunculusLocal(t.a.mapCell) ? 'Travel to the original body for physical examination and handling.'
         : action === 'characterize' && !k.notes ? 'Read the inherited notes first.'
         : action === 'stability' && !k.characterized ? 'Characterize clay and water first.'
         : action === 'document' && !k.stability ? 'Complete a physical stabilization trial first.'
-        : action === 'fireCharacterize' && !k.notes ? 'Read the inherited notes first.'
+        : ['fireCharacterize', 'airCharacterize'].includes(action) && !k.notes ? 'Read the inherited notes first.'
+        : ['airLow', 'airHigh'].includes(action) && !air.characterized ? 'Characterize actual local airflow first.'
+        : action === 'airDocument' && (!air.low || !air.high) ? 'Perform both the gentle and disruptive circulation trials.'
+        : action === 'growZephyr' && (!air.documented || s.runs.some(r => r.chamberId === id && !r.cleared)) ? 'Document the compared vortex pattern and clear the chamber first.'
+        : action === 'rechargeMote' && (t.a?.status === 'dead' || t.a?.manaReserve > 8 + 1e-8) ? 'A living vortex with room for all eight mana is required.'
+        : ['sealMote', 'gentleMote', 'strongMote', 'orientMote'].includes(action) && !t.a?.vesselId ? 'Use the actual local vessel controls.'
         : action === 'fireStability' && !fire.characterized ? 'Characterize actual charcoal first.'
         : action === 'fireDocument' && !fire.stability ? 'Complete a contained ignition/stability trial first.'
         : action === 'growCinderling' && (!fire.documented || s.runs.some(r => r.chamberId === id && !r.cleared)) ? 'Document the flame pattern and clear the original chamber first.'
@@ -65138,16 +65271,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         : action === 'grow' && (!k.documented || s.runs.some(r => r.chamberId === id && !r.cleared)) ? 'Document the pattern and clear the original chamber first.'
         : action === 'charge' && t.f && homunculusLocal(t.f.origin) && t.f.utility.storedMana > 16 ? 'Fuel storage must have room for eight mana.'
         : ['drainLeak', 'pressure'].includes(action) && !s.leaks[id] ? 'Fill the original fitting first.'
-        : action === 'fillLeak' && t.f && homunculusLocal(t.f.origin) && s.leaks[id]?.remainingL > 1e-8 ? 'Drain the existing reservoir first.'
-        : t.a && !homunculusLocal(t.a.mapCell) ? 'Travel to the original body for physical examination and handling.' : '';
+        : action === 'fillLeak' && t.f && homunculusLocal(t.f.origin) && s.leaks[id]?.remainingL > 1e-8 ? 'Drain the existing reservoir first.' : '';
       const b = storesActionButton(label, reason || label, () => queueElementalWork(action, id));
       b.disabled = Boolean(reason); b.dataset.elementalAction = action; b.dataset.elementalTarget = id; panel.append(b);
     };
-    button('Read original earth/water working notes on inherited device', 'notes'); button('Characterize clay and water (1 clay, 1 water)', 'characterize');
+    button('Read original elemental working notes on inherited device', 'notes'); button('Characterize clay and water (1 clay, 1 water)', 'characterize');
     button('Document observed Mudlet pattern (1 reagent)', 'document');
     panel.append(textEl('h4', 'Cinderling — Research Tier 0 / Production Tier 0'),
       textEl('p', 'Natural ember-core/flame bodies form at charred burn sites or volcanic vents with sustained flame-aspected mana. No biomass. Charcoal powers finite warmth/light; intact chambers and fire-resistant braziers isolate loose flammable stock. Hot handling requires the original usable long tongs; rubber gloves alone do not suffice. Water can permanently quench the individual.'));
     button('Characterize charcoal (1 charcoal)', 'fireCharacterize'); button('Document observed flame pattern (1 reagent)', 'fireDocument');
+    panel.append(textEl('h4', 'Zephyr Mote — Research Tier 1 / Production Tier 0'),
+      textEl('p', 'Naturally coherent air vortices arise at wind-scoured cliffs/passes with persistent air-aspected mana. Capture real surrounding air, compare gentle/disruptive chamber trials, then document the stable pattern. No biomass. Four chamber mana: two expended, two retained; optional concurrent animancy costs two more device mana.'));
+    button('Characterize local airflow (captured air, no biomass)', 'airCharacterize');
+    button('Document compared vortex pattern (1 reagent)', 'airDocument');
     s.fixtureObservations ||= {};
     for (const f of state.fixtures.filter(f => ['animancyDevice', 'elementalChamber'].includes(f.typeId))) {
       if (homunculusLocal(f.origin)) s.fixtureObservations[f.id] = { at: state.clock, mana: f.utility.storedMana };
@@ -65157,6 +65293,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (f.typeId === 'elementalChamber') { button('Run stabilization trial (1 clay, 1 water, 1 chamber mana)', 'stability', f.id); button('Load Mudlet formation (2 clay, 2 water; 2 chamber mana over ten minutes)', 'grow', f.id); button('Fill test-fitting reservoir (4 water)', 'fillLeak', f.id); button('Drain reservoir and eight-litre catch basin to floor', 'drainLeak', f.id); button('Change physical test-fitting pressure', 'pressure', f.id); }
       if (f.typeId === 'elementalChamber') { button('Contained ignition/stability trial (1 charcoal, 1 chamber mana)', 'fireStability', f.id);
         button('Load Cinderling formation (2 charcoal; 2 chamber mana over ten minutes)', 'growCinderling', f.id); }
+      if (f.typeId === 'elementalChamber') {
+        button('Gentle captured-air circulation trial (1 chamber mana)', 'airLow', f.id);
+        button('Disruptive captured-air circulation trial (1 chamber mana)', 'airHigh', f.id);
+        button('Load Zephyr Mote formation (0.1 m³ local air, 4 chamber mana over ten minutes)', 'growZephyr', f.id);
+      }
     }
     s.runObservations ||= {};
     for (const r of s.runs) {
@@ -65175,6 +65316,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         button('Administer charcoal with long tongs (1 charcoal)', 'feedCinderling', a.id);
         button('Physically place in nearby fire-resistant brazier', 'brazier', a.id);
         button('Quench ember with 1 water (can permanently kill)', 'quenchCinderling', a.id);
+      } else if (a.family === 'zephyrMote') {
+        panel.append(textEl('p', `Observed vortex: ${formatDecimal(view.manaReserve, 3)} / 16 mana; coherence ${formatDecimal(view.coherence, 1)}%; exchanged ${formatDecimal(view.circulatedM3, 3)} m³. ${view.vesselId ? `Original vessel ${view.aperture}, pointing ${['north', 'east', 'south', 'west'][view.direction]}.` : view.chamberId ? 'Sealed in original chamber.' : 'Loose on the physical map.'} Closed upkeep 1 mana/h; gentle circulation 2, strong 4 mana/h. Strong circulation and opposing ventilation tear coherence. Air exchange spreads rather than neutralizes contaminants. No spoken commands or automatic self-feeding.`));
+        button('Supply one arcane feedstock (+8 mana)', 'rechargeMote', a.id);
+        button('Physically transfer into nearby empty vortex vessel', 'vesselMote', a.id);
+        button('Close original vessel apertures', 'sealMote', a.id);
+        button('Open gentle circulation (1 m³/h)', 'gentleMote', a.id);
+        button('Open strong circulation (3 m³/h; disruptive)', 'strongMote', a.id);
+        button('Rotate original vessel opening clockwise', 'orientMote', a.id);
       } else { button('Wet Mudlet (1 water)', 'wet', a.id); button('Physically position at nearby test fitting', 'position', a.id); }
       button('Release to adjacent reachable floor', 'release', a.id);
     }
@@ -70302,7 +70451,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (laboratoryAssistantNearby(true)) setLabMapOverlayEntry(assignments, assistant.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: assistant.name, title: "Laboratory technician; direct observation", source: "Direct observation", value: assistant.status === "dead" ? "†" : "A", target: { kind: "tile", tile: assistant.mapCell } }, map);
     for (const a of state.homunculi?.individuals || []) if (!a.chamberId && homunculusLocal(a.mapCell)) setLabMapOverlayEntry(assignments, a.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: a.name, title: `${a.name}: ${a.status === "dead" ? "physical remains" : "independent inexperienced individual"}`, source: "Direct observation", value: a.status === "dead" ? "†" : "H", target: { kind: "tile", tile: a.mapCell } }, map);
     for (const a of state.elementalLab?.creatures || []) if (!a.chamberId && homunculusLocal(a.mapCell)) setLabMapOverlayEntry(assignments, a.mapCell,
-      { overlayId, classNames: ['map-overlay-resources'], label: a.name, title: `${a.name}: ${Formation.consistency(a)}; ${a.status}`, source: 'Direct observation', value: a.status === 'dead' ? '†' : a.family === 'cinderling' ? 'C' : 'M', target: { kind: 'tile', tile: a.mapCell } }, map);
+      { overlayId, classNames: ['map-overlay-resources'], label: a.name, title: `${a.name}: ${Formation.consistency(a)}; ${a.status}`, source: 'Direct observation', value: a.status === 'dead' ? '†' : a.family === 'cinderling' ? 'C' : a.family === 'zephyrMote' ? 'Z' : 'M', target: { kind: 'tile', tile: a.mapCell } }, map);
     if (!ensureWildernessBeasts().materialized) return assignments;
     const knowledge = wildernessBeastKnowledge();
     const markers = [
@@ -71160,7 +71309,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         anchorCell: cleanMapCell(a.mapCell), footprintCells: [cleanMapCell(a.mapCell)], orientation: 'square', facing: 'none', pose: a.status === 'dead' ? 'prone' : 'idle',
         condition: { ratio: a.health / 100, band: a.status === 'dead' ? 'dead' : 'living', cues: [] },
         knowledge: { state: 'current', observedAt: state.clock, confidence: 1, source: 'Direct observation' },
-        visual: { key: `actor.${a.family}`, glyph: a.status === 'dead' ? '†' : a.family === 'cinderling' ? 'C' : 'M', recipeKey: `${a.family}:${Formation.consistency(a)}` }, blocking: false });
+        visual: { key: `actor.${a.family}`, glyph: a.status === 'dead' ? '†' : a.family === 'cinderling' ? 'C' : a.family === 'zephyrMote' ? 'Z' : 'M', recipeKey: `${a.family}:${Formation.consistency(a)}` }, blocking: false });
     }
     const scientistCell = scientistMapCell();
     const scientistHealthVital = scientistVital("health");
@@ -113069,7 +113218,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const constructionTaskIds = new Set(next.tasks.filter((task) => task?.type === "constructionWork").map((task) => String(task.id || "")));
     const productionTaskIds = new Set(next.tasks.filter((task) => task?.type === "productionWork").map((task) => String(task.id || "")));
     const physicalFixtureClaims = new Map(next.tasks.filter(task => ['elementalWork', 'homunculusWork', 'soulBeaconWork', 'hiddenWorkshopWork'].includes(task?.type)
-      && (task.data?.fixtureId || task.data?.brazierId)).flatMap(task => [task.data.fixtureId, task.data.brazierId].filter(Boolean).map(id => [id, task.id])));
+      && (task.data?.fixtureId || task.data?.brazierId || task.data?.vesselId)).flatMap(task => [task.data.fixtureId, task.data.brazierId, task.data.vesselId].filter(Boolean).map(id => [id, task.id])));
     const diagnosticTaskIds = new Set(next.tasks.filter((task) => task?.type === "physicalDiagnostic").map((task) => String(task.id || "")));
     const assistantOrderIds = new Set((next.laboratoryAssistant?.orders || []).filter(o => o.status === "active").flatMap(o => [o.id, o.batchId].filter(Boolean)));
     const elementalToolTaskIds = next.tasks.filter(t => t.type === 'elementalWork' && t.data?.tongsStackId

@@ -21,13 +21,13 @@ class CreatureCatalogTests(unittest.TestCase):
 
     def test_complete_unique_current_catalog_and_separate_proposals(self):
         rows = self.data['creatures']
-        self.assertEqual(len(rows), 29)
+        self.assertEqual(len(rows), 30)
         ids = [row[-1] for row in rows]
         self.assertEqual(len(ids), len(set(ids)))
-        self.assertEqual(set(ids[:5]), {'human', 'slime', 'mudlet', 'homunculus', 'cinderling'})
-        self.assertEqual({row[1] for row in self.data['ecology']}, set(ids[5:]))
+        self.assertEqual(set(ids[:6]), {'human', 'slime', 'mudlet', 'homunculus', 'cinderling', 'zephyrMote'})
+        self.assertEqual({row[1] for row in self.data['ecology']}, set(ids[6:]))
         self.assertEqual(len(self.data['ecology']), 24)
-        self.assertEqual({row[-1] for row in self.data['planned']}, {f'8-{c}' for c in 'CDEFGHIJ'})
+        self.assertEqual({row[-1] for row in self.data['planned']}, {f'8-{c}' for c in 'DEFGHIJ'})
         self.assertTrue(all(row[2].startswith('Proposed only') for row in self.data['planned']))
 
     def test_authored_tiers_and_material_costs_are_not_fabricated(self):
@@ -39,7 +39,9 @@ class CreatureCatalogTests(unittest.TestCase):
         self.assertEqual(rows['homunculus'][3:5], ['Not defined — advanced'] * 2)
         self.assertEqual(rows['homunculus'][5], '60 biomass + 18 prepared growth medium + 6 genetic material + 1 examined human tissue template')
         self.assertEqual(rows['cinderling'][3:6], [0, 0, '2 charcoal'])
-        for row in self.data['creatures'][5:]:
+        self.assertEqual(rows['zephyrMote'][3:5], [1, 0])
+        self.assertIn('0.1 m³', rows['zephyrMote'][5])
+        for row in self.data['creatures'][6:]:
             self.assertEqual(row[3:5], ['Not defined', 'Not defined'])
             self.assertIn('no implemented player-production recipe', row[5])
         self.assertTrue(all(r[4] == 0 for r in self.data['planned']))
@@ -68,6 +70,8 @@ class CreatureCatalogTests(unittest.TestCase):
             self.assertTrue(rows[7][3].startswith('Not defined'))
             self.assertEqual(rows[8][0], 'Cinderling')
             self.assertEqual(rows[8][3:5], [0, 0])
+            self.assertEqual(rows[9][0], 'Zephyr Mote')
+            self.assertEqual(rows[9][3:5], [1, 0])
 
     def test_ooxml_relationships_resolve_and_have_no_external_dependencies(self):
         with ZipFile(self.workbook) as archive:

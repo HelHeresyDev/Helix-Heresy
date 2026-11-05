@@ -11,10 +11,10 @@ libreoffice --calc reference/creature-catalog.ods
 The original **[XLSX workbook](creature-catalog.xlsx)** is also retained for Excel
 and other compatible applications. Both workbooks contain:
 
-- Catalog: humans, slime, Mudlet, Cinderling, human-derived homunculus and all 24 beast species (29 entries).
+- Catalog: humans, slime, Mudlet, Cinderling, Zephyr Mote, human-derived homunculus and all 24 beast species (30 entries).
 - Production detail: per-creature ingredients, process costs, equipment, utilities and care.
 - Beast ecology: decoded biomes, comparative prevalence, threat, movement and social traits.
-- Planned creatures: the eight separate pending proposals, not implemented recipes.
+- Planned creatures: the seven separate pending proposals, not implemented recipes.
 - Other life & forms: explicit dog lore and divine, avatar, scientist and receiver distinctions.
 - Read me: interpretation, scope, source revision and design limits.
 
@@ -45,7 +45,8 @@ documents to remain at their original locations:
 PYTHONDONTWRITEBYTECODE=1 python3 tests/creature-catalog.test.py OdsArtifactTests
 ```
 
-Source citations in these snapshots refer to the recorded repository revision.
+Source citations refer to the captured source files. The displayed revision is
+the repository base; a rebuild can include working-tree changes against that base.
 If source documents are relocated, the exporter's source paths must be updated
 before full regeneration; this does not affect opening the existing workbooks.
 

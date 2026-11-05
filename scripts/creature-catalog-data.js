@@ -82,6 +82,16 @@ function buildCatalog() {
     'Finite charcoal reserve, capacity 4 units; nominal burn 1 unit/hour; ash and emissions conserved; no free permanent heat/light',
     `${soulRule} Two original charcoal units form the body; reusable chamber or local fire-resistant brazier contains contact ignition. Dead remains cannot be relit into the same individual.`,
     formationSource + '; CREATURE_FORMATION.md', 'cinderling']);
+  rows.push(['Zephyr Mote', 'Air elemental', 'Implemented: researched vortex, shared chamber, finite air/mana and vessel care',
+    Formation.FAMILIES.zephyrMote.researchTier, Formation.FAMILIES.zephyrMote.synthesisTier,
+    '0.1 m³ captured surrounding air (no biomass)', Formation.FAMILIES.zephyrMote.habitat,
+    'Not defined; natural habitat authored, no wild encounter/population integration',
+    'Spreads existing airborne contamination; opposing ventilation, strong circulation or mana depletion can collapse the vortex',
+    'No language/order channel; soul permits local avoidance of directly sensed disruptive airflow, not automatic obedience',
+    'Adjacent ordinary floor-space movement if souled; walls/closed doors block body, ducts grant no travel access',
+    'Finite mana: 1/hour sealed, 2/hour gentle, 4/hour strong; 1 feedstock supplies 8, capacity 16; no autonomous feeding',
+    `${soulRule} Four chamber mana form the body: two expended, two retained. Physical vessel controls exchange adjacent air, preserving substance amounts; no neutralization. Collapse retains the original identity and releases its captured air only when physically unsealed.`,
+    formationSource + '; CREATURE_FORMATION.md', 'zephyrMote']);
   const ecologyRows = [];
   for (const s of Ecology.BEAST_SPECIES) {
     const biome = s.biomeCodes.map(c => {
@@ -112,7 +122,6 @@ function buildCatalog() {
   }
   const pending = text('PENDING_PROMPTS.md');
   const plannedData = {
-    '8-C': ['Air elemental', 'Ambient/pressurized air + focusing configuration + modest mana; quantities not defined', 'Formation environment: air/pressure and a stable vortex; natural map biomes not authored', 'Ventilation, pressure, barriers, dust/airborne contaminants and light-object displacement'],
     '8-D': ['Plant creature', 'Seedling/plant material + water + minerals; quantities not defined', 'Formation environment: plant growth, soil, suitable water/light; natural map biomes not authored', 'Slow growth, finite nutrients, root extension and drainage/soil effects'],
     '8-E': ['Fungal creature', 'Spores + damp compost + water + fungal material; quantities not defined', 'Formation environment: damp organic substrate; natural map biomes not authored', 'Finite decomposition input, mycelial support and local spore/cleanliness consequences'],
     '8-F': ['Cloth construct', 'Fabric + thread + stuffing + animation sigil/process; quantities not defined', 'Naturally occurring base form required; exact natural animation conditions and biomes not designed', 'Seam wear, repair, carrying limits and high flammability'],
@@ -165,9 +174,27 @@ function buildCatalog() {
       'Original usable long tongs for hot feeding/handling; actual nearby empty brazier for transfer',
       'Real local inputs and reach; hot handling wears the same tongs',
       'Quenching can permanently kill. Ash/emissions remain; a soulless body never chooses to feed itself.', 'CREATURE_FORMATION.md'],
-    ['Elemental chamber — construction', 'Mudlet / Cinderling', 'Reusable equipment; not per creature',
+    ['Zephyr Mote — formation', 'Zephyr Mote', 'Per creature', '0.1 m³ captured actual surrounding air; no biomass',
+      '4 chamber mana: 2 spent stabilizing + 2 retained; +2 inherited-device mana if its own soul is requested',
+      '60 seconds loading + 600 seconds formation; travel/attendance extra', 'Same reusable convergence chamber and optional inherited animancy',
+      'Compared gentle/disruptive air trials and documented pattern; original captured parcel; finite 120-second outage buffer',
+      'Captured airborne substances remain with the parcel. Failed formation returns them; no clean-air grant or free energy.', 'creature-formation.js:begin/finish; CREATURE_FORMATION.md'],
+    ['Zephyr Mote — method discovery', 'Zephyr Mote', 'One-time research setup; not per repeated creature',
+      'Reusable 0.1 m³ air samples for characterization and trials; 1 assay reagent for documentation',
+      '1 chamber mana per gentle/disruptive trial (2 total)', 'Notes 60 s; characterization 120 s; low/high trials 300 s each; document 180 s',
+      'Inherited notes, workbench and shared chamber; no mandatory Mudlet/Cinderling discovery',
+      'Both original trial receipts required; high circulation damages trial coherence rather than discovering a free recipe',
+      'Captured air/contaminants return on completion or cancellation; spent mana remains spent.', 'CREATURE_FORMATION.md'],
+    ['Zephyr Mote — vessel and upkeep', 'Zephyr Mote', 'Reusable equipment / per charge separately',
+      'Vessel: 2 glass + 1 metal part; recharge: 1 arcane feedstock',
+      'Charge +8 mana if whole charge fits, capacity 16; sealed upkeep 1/h, gentle 2/h, strong 4/h',
+      'Vessel construction 5 min; physical transfer/seal/orient/mode 30 s; recharge 60 s; travel extra',
+      'Intact nearby original sealable vessel; physical operator access, not creature commands',
+      'Gentle exchanges 1 m³/h, strong 3 m³/h; barriers/permeability apply; strong mode tears coherence',
+      'Conserves individual airborne substance amounts; no room-wide cleaning, filter substitute, autonomous feeding or revival.', 'CREATURE_FORMATION.md'],
+    ['Elemental chamber — construction', 'Mudlet / Cinderling / Zephyr Mote', 'Reusable equipment; not per creature',
       '4 metal parts + 2 glass + 2 arcane feedstock', 'Charge chamber separately; maximum stored mana 24', '20 base construction minutes + normal construction logistics',
-      '2 × 1 floor footprint with accessible operator/test fitting', 'Read inherited notes and physically characterize clay/water or charcoal first',
+      '2 × 1 floor footprint with accessible operator/test fitting', 'Read inherited notes and physically characterize clay/water, charcoal or airflow first',
       'Do not add this full equipment bill to each repeated Mudlet.', source('app.js', "id: 'elementalChamber'")],
     ['Mudlet — method discovery', 'Mudlet', 'Research setup; not per repeated creature',
       'Characterization: 1 clay + 1 drinking water; stabilization: 1 clay + 1 drinking water; documentation: 1 assay reagent',
@@ -217,7 +244,7 @@ function buildCatalog() {
   ];
   const guide = [
     ['Purpose', 'Developer reference for authored creature definitions and current design proposals. This is not the scientist’s in-game knowledge or a live world census.'],
-    ['Coverage', `${rows.length} current catalog entries: humans, slime, Mudlet, human-derived homunculus, Cinderling, and all ${Ecology.BEAST_SPECIES.length} strategic beast species. ${planned.length} proposed creatures are on a separate tab. Explicit dog lore and divine/receiver states are separate from species.`],
+    ['Coverage', `${rows.length} current catalog entries: humans, slime, Mudlet, human-derived homunculus, Cinderling, Zephyr Mote, and all ${Ecology.BEAST_SPECIES.length} strategic beast species. ${planned.length} proposed creatures are on a separate tab. Explicit dog lore and divine/receiver states are separate from species.`],
     ['Research tier', 'Difficulty of discovering a reproducible formation method. Numeric values appear only where authored; they are not combat ratings or compulsory campaign chapters.'],
     ['Production tier', 'The code calls this Synthesis Tier: practical production complexity after the method is known. Tier 0 is inexpensive/simple, not free or upkeep-free.'],
     ['Not defined', 'The current source has no authored number, recipe or classification. This is not zero, impossible, universally unavailable, or approval to invent one.'],

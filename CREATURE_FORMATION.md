@@ -1,4 +1,4 @@
-# Creature formation: Mudlets and Cinderlings
+# Creature formation: Mudlets, Cinderlings and Zephyr Motes
 
 Every supported family has a naturally existing base form. The scientist modifies
 its formation process; neither science nor gods invent life from nothing. An
@@ -116,6 +116,66 @@ or self-feeding, even beside fuel; passive combustion, cooling and ignition stil
 occur. Both outcomes retain identity, soul provenance, injuries, fuel, ash and
 observations through saves and continued imports. Local examinations are dated;
 both Canvas and DOM maps use a `C`/remains glyph fallback, not claimed new bitmap art.
+
+## Zephyr Motes: captured air, not free filtration
+
+Zephyr Motes naturally arise at wind-scoured mountain passes and exposed cliffs
+with persistent air-aspected mana. Research Tier **1** describes the harder task
+of discovering a stable vortex; Production Tier **0** describes its inexpensive
+repeatable formation, not its power. Natural encounters are not added here.
+
+Read the inherited notes and personally characterize local airflow at the bench
+(two minutes, a captured 0.1 m³ sample). This also unlocks the existing convergence
+chamber without requiring Mudlet or Cinderling research. Personally compare gentle
+and disruptive circulation in the empty chamber: five minutes and one chamber
+mana each. The high-flow trial tears coherence; both actual trial receipts are
+required before documenting the observed pattern with one assay reagent. Samples
+and retained contaminants return to their original surroundings after trials or
+cancellation; expended mana is not refunded. No arbitrary elemental designer is
+unlocked.
+
+Loading captures **0.1 m³ of actual surrounding air**, including its share of
+airborne substances. Formation takes **ten minutes and four chamber mana**: two
+expended in stabilization and two retained in the new individual's reserve.
+Optional own-soul formation requires the same concurrent inherited-device
+connection and two additional device mana. The shared nonrenewable two-minute
+outage buffer applies. Failure returns the original parcel and contaminants,
+retains the spent energy record and creates no body or silent soulless substitute.
+
+Build an adjacent **Sealable Vortex Vessel** from **two glass and one metal part**
+through five minutes of ordinary construction. Physically transfer the same
+individual into it. Its reachable controls seal the vessel, open gentle/strong
+circulation, or rotate its opening clockwise. These are mechanical controls,
+not creature orders. Queued transfers retain the original vessel reservation
+across saves; no distant transport, new body or magical ownership is supplied.
+
+Sealed upkeep is **one mana/hour**. Gentle circulation exchanges **one m³/hour**
+between its tile and the adjacent opening at **two mana/hour** total; strong
+circulation exchanges **three m³/hour** at **four mana/hour** total and damages
+coherence. Blocked circulation still spends energy but moves no air. One actual
+arcane feedstock supplies **eight mana**, only if the whole charge fits within
+the **sixteen-mana capacity**. Recharging does not repair coherence or injuries.
+
+Air exchange preserves each substance's amount (tile concentration × nominal
+volume); cleaning one position spreads its contamination elsewhere. Captured
+parcel amounts are saved separately and never duplicated as a live chamber
+reservoir after embodiment. A small withdrawal/return ledger records captured
+air; it is not a new global pressure, oxygen or weather simulator. Normal air
+permeability applies to circulation. Tiny door leaks can pass some ordinary air
+without passing the coherent creature: walls, closed doors and normal body
+clearance block movement, and ducts grant no automatic creature access. This
+package does not move objects, replace filters or supply room-wide ventilation.
+
+A souled loose Mote may move one adjacent legal step away from directly sensed
+operating ventilation. A sealed vessel or chamber prevents that movement and
+protects against opposing flow. Soulless bodies choose neither movement nor
+self-recharging, even next to usable feedstock; passive circulation continues
+while powered. Opposing ventilation, strong circulation and depletion can tear
+coherence and kill. Collapse is irreversible. Original air and contamination
+remain in a sealed holder until physically opened/released; exposed collapsed
+air disperses once. The dead individual's identity, sealed soul history, injuries
+and energy ledger remain, with no new ash, resurrected vortex or refunded charge.
+Local observations stay dated. Canvas and DOM use `Z` and a retained-death cue.
 
 ## Shared soul rules and compatibility
 

@@ -64,7 +64,7 @@ def load_data():
 
 
 def sheet_definitions(data, as_of):
-    summary = f'Source snapshot {as_of} · commit {data["revision"]} · {len(data["creatures"])} current entries / {len(data["ecology"])} beast species / {len(data["planned"])} proposals'
+    summary = f'Source snapshot {as_of} · base {data["revision"]} · {len(data["creatures"])} current entries / {len(data["ecology"])} beast species / {len(data["planned"])} proposals'
     catalog_widths = [29, 23, 40, 20, 20, 57, 62, 46, 54, 58, 48, 51, 92, 65, 33]
     return [
         ('Read me', 'HELIX HERESY / Creature reference', summary, ['Field', 'Meaning / limits'], data['guide'], [28, 135], '17324D'),
