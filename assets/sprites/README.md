@@ -2,6 +2,16 @@
 
 The map uses semantic keys from `sprite-asset-manifest.js`; simulation and `MapScene` data never contain file paths or loaded image objects. The Canvas renderer asks the shared loader for a key and retains its existing procedural or glyph presentation until an image is ready.
 
+## Current production set
+
+The runtime manifest now selects the [production set](production/README.md):
+eight alpha-preserving atlases at 64 source pixels per occupied tile. Its frozen
+inventory covers all 125 existing semantic mappings, retaining physical geometry,
+aliases and category/glyph fallbacks. Separate title key art lives under
+`assets/art/`. Source images, exact generation prompts and mechanical build/hash
+records accompany the set. The development assets below are historical references,
+not runtime dependencies.
+
 ## Development Placeholders
 
 Files under `placeholders/` are generated development assets, not final game art. The original individual placeholders remain, and four transparent 3 by 3 atlases now cover every semantic sprite family emitted by the current map renderer:

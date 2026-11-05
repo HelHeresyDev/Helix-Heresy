@@ -8,6 +8,46 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Production art — #7 complete
+
+The three approved checks are complete: coverage of the frozen current inventory,
+focused loading/placement/readability/fallback verification, and documented
+provenance. Eight production atlases replace all 44 placeholder and 81 development
+manifest mappings; all 125 semantic identities, logical footprints, layer counts,
+anchors, rotations, mirroring, variants, aliases and category fallbacks are retained.
+The atlas images use 64 source pixels per occupied tile and total 879,901 bytes
+(15,040,512 decoded RGBA bytes). Separate 275,302-byte title key art shows the
+respectable chemistry front above its concealed magitech laboratory. Native menu
+text, controls and focus remain separate from the decorative static image;
+high/forced contrast hides it and a missing image does not block startup.
+
+The built-in image generator produced the source artwork. Original generated PNGs,
+exact base prompts and correction directives, frozen inventory, source/final hashes,
+and the local mechanical crop/resample/packing script are retained in the repository.
+Review corrected front-elevation candidates, species-specific generic remains and
+neighboring-row crop fragments. Ordinary and lawful freight share their image,
+not a hidden-legality cue. Madcap, Grim and Unbound share the set. No gameplay,
+species, encounter, animation-system or simulation authority was added. The
+pre-existing uncatalogued 2 × 1 starter waste enclosure retains its footprint-correct
+procedural/glyph fallback and named diagnostic instead of stretching the generic
+1 × 1 cabinet sprite; it does not create another asset prompt.
+
+Ten unique focused Chromium checks passed: five in `tests/production-art.spec.js`,
+four in `tests/sprite-asset-loader.spec.js`, and the named existing title Settings
+regression. Coverage includes actual RGBA content/transparent backgrounds, file
+hashes and memory bounds, full-sheet load failure, exact surface keys and freight
+anchor, loaded single/multi-tile Canvas art, 8px/64px zoom, DOM/glyph-first rollback,
+title image failure, native focus, compact layout and high/forced contrast. The
+sprite browser helper now uses the existing validated world/site-selection flow;
+the expanded native map journey has an appropriate scoped timeout. Contact sheets
+and title/physical-map captures were visually inspected. Syntax/whitespace checks
+passed. The full suite was not run under `AGENTS.md`; this is not a cross-engine
+or screen-reader certification.
+
+#7 was removed, leaving eleven indefinitely deferred scheduled packages and six
+conditional/optional routes. None is automatically activated. Future cosmetics
+remain outside this queue, and the new creature-prompt file was left untouched.
+
 ### Current-interface accessibility closeout — 6-B and #6 complete
 
 The approved six-area matrix and fixed journeys passed their focused checks, with explicit verification limits in [ACCESSIBILITY.md](ACCESSIBILITY.md). 6-B and its completed parent #6 were removed, reducing the retained remaining work packages from thirteen to twelve without a screen-by-screen follow-up backlog. No next package was automatically activated. #2/#3 and their beast workstream, and #5 tutorial, remain indefinitely deferred.

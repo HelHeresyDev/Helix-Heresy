@@ -1,0 +1,69 @@
+{
+  "generator": "built-in image_gen",
+  "processing": "ImageMagick crop, alpha-preserving resample and atlas packing; title WebP encoding",
+  "records": [
+    {
+      "id": "underground-terrain",
+      "source": "source/underground-terrain.png",
+      "sourceSha256": "a26b18ff571162151a5a9576fa712b738b7866abc51436ebc39020185ab5b257",
+      "file": "underground-terrain.png",
+      "sha256": "6197653327625beba59d8a6121b967f023b32336405442f4ee24b9a97f7aabdf"
+    },
+    {
+      "id": "underground-equipment",
+      "source": "source/underground-equipment.png",
+      "sourceSha256": "52fede923c69fc660796d0eac586cb57465762896b99c313acab163446d7e8af",
+      "file": "underground-equipment.png",
+      "sha256": "37ab4abb968631145f776adeb7e253aeb7975ff7a0b25842e0e86a45ced4bb25"
+    },
+    {
+      "id": "actors-goods",
+      "source": "source/actors-goods.png",
+      "sourceSha256": "8d10b511702c131a2118ada149b669e5ba2c8aa476c07b2aede949e12b278d89",
+      "file": "actors-goods.png",
+      "sha256": "00fea633775afafb54f81f3d01d4ee497bbd3f8a3ba15c2d4f0066067c8428d5"
+    },
+    {
+      "id": "effects-markers",
+      "source": "source/effects-markers.png",
+      "sourceSha256": "26ab0612c1395b3129250040c676f130102898b220db74976c351634186da80c",
+      "file": "effects-markers.png",
+      "sha256": "9beed7caa4fd372f4f29bf00cdfc1989f2ab66a24325d2edcfc5b5fd4f5e30bc"
+    },
+    {
+      "id": "surface-terrain",
+      "source": "source/surface-terrain.png",
+      "sourceSha256": "9ddf03cf908b4e40c245a19f3034304c781122d8432768fb26e4d89c933d8cea",
+      "file": "surface-terrain.png",
+      "sha256": "f84033b40037127c8e7812aa0037ee12e5f289fc9a4f0f19109f95842a00dd5b"
+    },
+    {
+      "id": "surface-equipment",
+      "source": "source/surface-equipment.png",
+      "sourceSha256": "197ee51e083e06f5ef126078101952cd92b52ff3ac403f32b42ad1c2dc7bfb50",
+      "file": "surface-equipment.png",
+      "sha256": "b47081653165d43081286f73baec49f2a3c97294a9e139f0937a45b1a5843ea5"
+    },
+    {
+      "id": "surface-access",
+      "source": "source/surface-access.png",
+      "sourceSha256": "90dd7bd7a074df05a50ccfa50dfb7971281aedbaa803470f53636ecabae9a953",
+      "file": "surface-access.png",
+      "sha256": "b65b22bb05c7abee6e5db5cc0c1cdbd157e5bf14ec21439578d4d1e9c0d68fc3"
+    },
+    {
+      "id": "surface-goods",
+      "source": "source/surface-goods.png",
+      "sourceSha256": "4b02e100d5c96dde55fbe36fd947c1531fca7b4968c2fbcd028d2148107b44bb",
+      "file": "surface-goods.png",
+      "sha256": "8be87f1bc92841714c1fb2fa924babf6d8839aff6203b549fe8e83ca94a98b9c"
+    },
+    {
+      "id": "title-key-art",
+      "source": "source/title-key-art.png",
+      "sourceSha256": "7c6f1d4a5621b696988b609dcb7266907355c4c008c3bbea42d9b5338007206a",
+      "file": "../../art/title-key-art.webp",
+      "sha256": "0fb77161b4fbae228df39dfc27fc3224a1ecbb9b021739b9fc513979d3df1d7f"
+    }
+  ]
+}

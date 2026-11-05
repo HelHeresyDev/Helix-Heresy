@@ -1,0 +1,2798 @@
+{
+  "description": "Frozen before generation: all 125 existing semantic mappings and their authoritative geometry; no new mechanics or species.",
+  "sourceCommit": "08b18d9",
+  "title": "assets/art/title-key-art.webp",
+  "atlases": [
+    {
+      "id": "underground-terrain",
+      "columns": 3,
+      "rows": 3,
+      "opaqueSlots": [
+        0,
+        1,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "id": "underground-equipment",
+      "columns": 4,
+      "rows": 4,
+      "opaqueSlots": []
+    },
+    {
+      "id": "actors-goods",
+      "columns": 4,
+      "rows": 3,
+      "opaqueSlots": []
+    },
+    {
+      "id": "effects-markers",
+      "columns": 4,
+      "rows": 3,
+      "opaqueSlots": []
+    },
+    {
+      "id": "surface-terrain",
+      "columns": 4,
+      "rows": 4,
+      "opaqueSlots": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        13,
+        14,
+        15
+      ]
+    },
+    {
+      "id": "surface-equipment",
+      "columns": 3,
+      "rows": 3,
+      "opaqueSlots": []
+    },
+    {
+      "id": "surface-access",
+      "columns": 4,
+      "rows": 3,
+      "sourceRowBounds": [[0, 362], [362, 680], [690, 1086]],
+      "opaqueSlots": []
+    },
+    {
+      "id": "surface-goods",
+      "columns": 4,
+      "rows": 4,
+      "opaqueSlots": []
+    }
+  ],
+  "assets": [
+    {
+      "key": "tile.solidEarth",
+      "category": "terrain",
+      "atlas": "underground-terrain",
+      "slot": 0,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.closed",
+      "category": "fixture",
+      "atlas": "underground-equipment",
+      "slot": 0,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "fixture.basicWorkbench",
+      "category": "fixture",
+      "atlas": "underground-equipment",
+      "slot": 1,
+      "logicalSize": {
+        "width": 2,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "item.stack",
+      "category": "item",
+      "atlas": "actors-goods",
+      "slot": 0,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "actor.slime",
+      "category": "actor",
+      "atlas": "actors-goods",
+      "slot": 1,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "horizontal"
+      },
+      "variants": []
+    },
+    {
+      "key": "actor.slime.large",
+      "category": "actor",
+      "atlas": "actors-goods",
+      "slot": 2,
+      "logicalSize": {
+        "width": 2,
+        "height": 2,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "horizontal"
+      },
+      "variants": []
+    },
+    {
+      "key": "effect.hazard.pulse",
+      "category": "effect",
+      "atlas": "effects-markers",
+      "slot": 0,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "marker.incident",
+      "category": "marker",
+      "atlas": "effects-markers",
+      "slot": 1,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": [
+        "stack"
+      ]
+    },
+    {
+      "key": "tile.unknownDark",
+      "category": "terrain",
+      "atlas": "underground-terrain",
+      "slot": 1,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.draftExcavation.valid",
+      "category": "terrain",
+      "atlas": "underground-terrain",
+      "slot": 2,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.draftExcavation.invalid",
+      "category": "terrain",
+      "atlas": "underground-terrain",
+      "slot": 3,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.plannedExcavation",
+      "category": "terrain",
+      "atlas": "underground-terrain",
+      "slot": 4,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.wall",
+      "category": "terrain",
+      "atlas": "underground-terrain",
+      "slot": 5,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.room",
+      "category": "terrain",
+      "atlas": "underground-terrain",
+      "slot": 6,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.floor",
+      "category": "terrain",
+      "atlas": "underground-terrain",
+      "slot": 7,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.vertical",
+      "category": "terrain",
+      "atlas": "underground-terrain",
+      "slot": 8,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.open",
+      "category": "fixture",
+      "atlas": "underground-equipment",
+      "slot": 2,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.locked",
+      "category": "fixture",
+      "atlas": "underground-equipment",
+      "slot": 3,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.sealed",
+      "category": "fixture",
+      "atlas": "underground-equipment",
+      "slot": 4,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.breached",
+      "category": "fixture",
+      "atlas": "underground-equipment",
+      "slot": 5,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "fixture.generic",
+      "category": "fixture",
+      "atlas": "underground-equipment",
+      "slot": 6,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "fixture.bed",
+      "category": "fixture",
+      "atlas": "underground-equipment",
+      "slot": 7,
+      "logicalSize": {
+        "width": 2,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "fixture.storageShelf",
+      "category": "fixture",
+      "atlas": "underground-equipment",
+      "slot": 8,
+      "logicalSize": {
+        "width": 2,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "fixture.sumpTank",
+      "category": "fixture",
+      "atlas": "underground-equipment",
+      "slot": 9,
+      "logicalSize": {
+        "width": 2,
+        "height": 2,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "fixture.fuelGenerator",
+      "category": "fixture",
+      "atlas": "underground-equipment",
+      "slot": 10,
+      "logicalSize": {
+        "width": 2,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "container.synthesisTube",
+      "category": "fixture",
+      "atlas": "underground-equipment",
+      "slot": 11,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "container.generic",
+      "category": "fixture",
+      "atlas": "underground-equipment",
+      "slot": 12,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "container.pit",
+      "category": "fixture",
+      "atlas": "underground-equipment",
+      "slot": 13,
+      "logicalSize": {
+        "width": 2,
+        "height": 2,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "item.receptacle",
+      "category": "item",
+      "atlas": "actors-goods",
+      "slot": 3,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "item.spill",
+      "category": "item",
+      "atlas": "actors-goods",
+      "slot": 4,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "item.rubble",
+      "category": "item",
+      "atlas": "actors-goods",
+      "slot": 5,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "item.materialPile",
+      "category": "item",
+      "atlas": "actors-goods",
+      "slot": 6,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "corpse.remains",
+      "category": "item",
+      "atlas": "actors-goods",
+      "slot": 7,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "horizontal"
+      },
+      "variants": []
+    },
+    {
+      "key": "corpse.remains.large",
+      "category": "item",
+      "atlas": "actors-goods",
+      "slot": 8,
+      "logicalSize": {
+        "width": 2,
+        "height": 2,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "horizontal"
+      },
+      "variants": []
+    },
+    {
+      "key": "actor.scientist",
+      "category": "actor",
+      "atlas": "actors-goods",
+      "slot": 9,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "horizontal"
+      },
+      "variants": []
+    },
+    {
+      "key": "effect.spill",
+      "category": "effect",
+      "atlas": "effects-markers",
+      "slot": 2,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "effect.structure",
+      "category": "effect",
+      "atlas": "effects-markers",
+      "slot": 3,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "effect.electricity",
+      "category": "effect",
+      "atlas": "effects-markers",
+      "slot": 4,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "effect.fire",
+      "category": "effect",
+      "atlas": "effects-markers",
+      "slot": 5,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "effect.magic",
+      "category": "effect",
+      "atlas": "effects-markers",
+      "slot": 6,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "effect.combatAction",
+      "category": "effect",
+      "atlas": "effects-markers",
+      "slot": 7,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "effect.task.urgent",
+      "category": "effect",
+      "atlas": "effects-markers",
+      "slot": 8,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "effect.task.blocked",
+      "category": "effect",
+      "atlas": "effects-markers",
+      "slot": 9,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "effect.task",
+      "category": "effect",
+      "atlas": "effects-markers",
+      "slot": 10,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.surface.outdoor.grass",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 0,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.surface.outdoor.gravel",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 1,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.surface.interior.constructed",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 2,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.surface.interior.loading.constructed",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 3,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.surface.roof.constructed",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 4,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.surface.wall.exterior",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 5,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.surface.wall.partition",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 6,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.surface.vertical.down",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 7,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "fixture.surfaceServiceTrunk.endpoint",
+      "category": "fixture",
+      "atlas": "surface-terrain",
+      "slot": 8,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "fixture.surfaceServiceTrunk.straight",
+      "category": "fixture",
+      "atlas": "surface-terrain",
+      "slot": 9,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "fixture.surfaceServiceTrunk.corner",
+      "category": "fixture",
+      "atlas": "surface-terrain",
+      "slot": 10,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "fixture.surfaceServiceTrunk.tee",
+      "category": "fixture",
+      "atlas": "surface-terrain",
+      "slot": 11,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "fixture.surfaceServiceTrunk.cross",
+      "category": "fixture",
+      "atlas": "surface-terrain",
+      "slot": 12,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.surface.roof.edge",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 13,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.surface.outdoor.gravel.drainage",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 14,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.surface.outdoor.gravel.weeds",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 15,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.wall.surface.exterior.stoneBlocks.intact",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 5,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.wall.surface.partition.stoneBlocks.intact",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 6,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.roof.stoneBlocks.intact",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 4,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.wall.surface.exterior.stoneBlocks.worn",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 5,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.wall.surface.partition.stoneBlocks.worn",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 6,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.roof.stoneBlocks.worn",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 4,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.wall.surface.exterior.stoneBlocks.damaged",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 5,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.wall.surface.partition.stoneBlocks.damaged",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 6,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.roof.stoneBlocks.damaged",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 4,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.wall.surface.exterior.stoneBlocks.breached",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 5,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.wall.surface.partition.stoneBlocks.breached",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 6,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.roof.stoneBlocks.breached",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 4,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.wall.surface.exterior.stoneBlocks.destroyed",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 5,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.wall.surface.partition.stoneBlocks.destroyed",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 6,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "tile.roof.stoneBlocks.destroyed",
+      "category": "terrain",
+      "atlas": "surface-terrain",
+      "slot": 4,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "fixture.utilityServiceHead",
+      "category": "fixture",
+      "atlas": "surface-equipment",
+      "slot": 0,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "fixture.surfaceUtilityRiser",
+      "category": "fixture",
+      "atlas": "surface-equipment",
+      "slot": 1,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "fixture.waterCisternPump",
+      "category": "fixture",
+      "atlas": "surface-equipment",
+      "slot": 2,
+      "logicalSize": {
+        "width": 1,
+        "height": 2,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "fixture.wetChemistryBench",
+      "category": "fixture",
+      "atlas": "surface-equipment",
+      "slot": 3,
+      "logicalSize": {
+        "width": 2,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "fixture.reactionVessel",
+      "category": "fixture",
+      "atlas": "surface-equipment",
+      "slot": 4,
+      "logicalSize": {
+        "width": 2,
+        "height": 2,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "fixture.fumeHood",
+      "category": "fixture",
+      "atlas": "surface-equipment",
+      "slot": 5,
+      "logicalSize": {
+        "width": 2,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "fixture.analysisStation",
+      "category": "fixture",
+      "atlas": "surface-equipment",
+      "slot": 6,
+      "logicalSize": {
+        "width": 2,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "fixture.packagingStation",
+      "category": "fixture",
+      "atlas": "surface-equipment",
+      "slot": 7,
+      "logicalSize": {
+        "width": 2,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "fixture.wasteTreatmentStation",
+      "category": "fixture",
+      "atlas": "surface-equipment",
+      "slot": 8,
+      "logicalSize": {
+        "width": 2,
+        "height": 2,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.public.closed",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 0,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.public.locked",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 0,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.public.open",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 1,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.public.sealed",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 5,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.public.breached",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 7,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.staff.closed",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 2,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.staff.locked",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 2,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.staff.open",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 3,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.staff.sealed",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 5,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.staff.breached",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 7,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.hazard.closed",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 4,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.hazard.locked",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 4,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.hazard.open",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 3,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.hazard.sealed",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 5,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.hazard.breached",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 7,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.basement.closed",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 6,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.basement.locked",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 6,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.basement.open",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 3,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.basement.sealed",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 5,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.basement.breached",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 7,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "quarterTurns",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.freight.closed",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 8,
+      "logicalSize": {
+        "width": 1,
+        "height": 3,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 1,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.freight.open",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 9,
+      "logicalSize": {
+        "width": 1,
+        "height": 3,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 1,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.freight.locked",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 10,
+      "logicalSize": {
+        "width": 1,
+        "height": 3,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 1,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.freight.sealed",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 10,
+      "logicalSize": {
+        "width": 1,
+        "height": 3,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 1,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "door.surface.freight.breached",
+      "category": "fixture",
+      "atlas": "surface-access",
+      "slot": 11,
+      "logicalSize": {
+        "width": 1,
+        "height": 3,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 1,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "item.chemical.raw",
+      "category": "item",
+      "atlas": "surface-goods",
+      "slot": 0,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "item.chemical.intermediate",
+      "category": "item",
+      "atlas": "surface-goods",
+      "slot": 1,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "item.chemical.bulk",
+      "category": "item",
+      "atlas": "surface-goods",
+      "slot": 2,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "item.chemical.packaged",
+      "category": "item",
+      "atlas": "surface-goods",
+      "slot": 3,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "item.surface.freight",
+      "category": "item",
+      "atlas": "surface-goods",
+      "slot": 4,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "item.chemical.emptyBottle",
+      "category": "item",
+      "atlas": "surface-goods",
+      "slot": 5,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "item.chemical.waste",
+      "category": "item",
+      "atlas": "surface-goods",
+      "slot": 6,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "item.chemical.sludge",
+      "category": "item",
+      "atlas": "surface-goods",
+      "slot": 7,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "item.chemical.spill",
+      "category": "item",
+      "atlas": "surface-goods",
+      "slot": 8,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "item.chemical.spill.corrosive",
+      "category": "item",
+      "atlas": "surface-goods",
+      "slot": 9,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "item.chemical.spill.reactive",
+      "category": "item",
+      "atlas": "surface-goods",
+      "slot": 10,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "item.chemical.vapor",
+      "category": "item",
+      "atlas": "surface-goods",
+      "slot": 11,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "effect.fume.exhaust",
+      "category": "effect",
+      "atlas": "surface-goods",
+      "slot": 12,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "effect.leak.water",
+      "category": "effect",
+      "atlas": "surface-goods",
+      "slot": 13,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "item.chemical.residue",
+      "category": "item",
+      "atlas": "surface-goods",
+      "slot": 14,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    },
+    {
+      "key": "item.surface.freight.lawful",
+      "category": "item",
+      "atlas": "surface-goods",
+      "slot": 4,
+      "logicalSize": {
+        "width": 1,
+        "height": 1,
+        "layers": 1
+      },
+      "placement": {
+        "anchorTile": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": "none",
+        "mirror": "none"
+      },
+      "variants": []
+    }
+  ],
+  "aliases": [
+    {
+      "match": "prefix",
+      "pattern": "effect.incident.",
+      "key": "marker.incident"
+    },
+    {
+      "match": "exact",
+      "pattern": "map.stack",
+      "key": "item.stack"
+    },
+    {
+      "match": "exact",
+      "pattern": "container.openDirtPit",
+      "key": "container.pit"
+    },
+    {
+      "match": "exact",
+      "pattern": "container.gratedDirtPit",
+      "key": "container.pit"
+    },
+    {
+      "match": "exact",
+      "pattern": "container.cappedDirtPit",
+      "key": "container.pit"
+    },
+    {
+      "match": "exact",
+      "pattern": "container.reinforcedObservationVessel",
+      "key": "container.generic"
+    },
+    {
+      "match": "exact",
+      "pattern": "item.mapArtifact",
+      "key": "item.materialPile"
+    },
+    {
+      "match": "exact",
+      "pattern": "object.container",
+      "key": "container.generic"
+    },
+    {
+      "match": "exact",
+      "pattern": "object.unknown",
+      "key": "fixture.generic"
+    },
+    {
+      "match": "prefix",
+      "pattern": "fixture.",
+      "key": "fixture.generic"
+    },
+    {
+      "match": "prefix",
+      "pattern": "container.",
+      "key": "container.generic"
+    },
+    {
+      "match": "prefix",
+      "pattern": "door.",
+      "key": "door.closed"
+    },
+    {
+      "match": "prefix",
+      "pattern": "effect.",
+      "key": "effect.hazard.pulse"
+    }
+  ],
+  "categoryFallbacks": {
+    "terrain": {
+      "type": "procedural",
+      "key": "fallback.terrain"
+    },
+    "fixture": {
+      "type": "glyph",
+      "key": "fallback.fixture",
+      "glyph": "F"
+    },
+    "item": {
+      "type": "glyph",
+      "key": "fallback.item",
+      "glyph": "P"
+    },
+    "actor": {
+      "type": "glyph",
+      "key": "fallback.actor",
+      "glyph": "?"
+    },
+    "effect": {
+      "type": "procedural",
+      "key": "fallback.effect"
+    },
+    "marker": {
+      "type": "glyph",
+      "key": "fallback.marker",
+      "glyph": "!"
+    }
+  }
+}

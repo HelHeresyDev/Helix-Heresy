@@ -4,19 +4,13 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 const Manifest = require('../sprite-asset-manifest.js');
 const SpriteAssets = require('../sprite-asset-loader.js');
+const { startLifecycleRun } = require('./helpers/start-lifecycle-run');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
 
 async function startRun(page) {
-  await page.goto(appUrl);
-  await page.evaluate(() => {
-    window.localStorage.clear();
-    window.localStorage.setItem('helix-heresy-v1-preferences', JSON.stringify({ mapRendererMode: 'dom' }));
-  });
-  await page.reload();
-  await page.locator('#titleNewRunBtn').click();
-  await page.locator('#setupForm button[type="submit"]').click();
+  await startLifecycleRun(page, 'production-art-loading');
 }
 
 function fakeImageFactory(calls, errorKey = '') {
@@ -39,18 +33,18 @@ function fakeImageFactory(calls, errorKey = '') {
   };
 }
 
-test('@smoke development sprite manifest is valid and covers every asset category', () => {
+test('@smoke production sprite manifest is valid and covers every asset category', () => {
   expect(Manifest.manifest.version).toBe(4);
   expect(SpriteAssets.validateManifest(Manifest.manifest)).toEqual([]);
   expect(new Set(Manifest.manifest.assets.map((entry) => entry.category))).toEqual(
     new Set(SpriteAssets.CATEGORIES)
   );
-  expect(Manifest.manifest.assets.some((entry) => entry.placeholder)).toBe(true);
+  expect(Manifest.manifest.assets.some((entry) => entry.placeholder || entry.development)).toBe(false);
   const authoredSurfaceAssets = Manifest.manifest.assets.filter((entry) =>
-    entry.source.path.startsWith('assets/sprites/development/chemistry-front/'));
+    entry.source.path.startsWith('assets/sprites/production/surface-'));
   expect(authoredSurfaceAssets.length).toBeGreaterThan(50);
   expect(authoredSurfaceAssets.every((entry) => entry.placeholder === false
-    && entry.development === true && entry.generated === true)).toBe(true);
+    && entry.production === true && entry.generated === true)).toBe(true);
 
   const invalid = structuredClone(Manifest.manifest);
   invalid.assets[1].key = invalid.assets[0].key;
@@ -197,7 +191,7 @@ test('loader caches images and resolves exact, base, alias, and category fallbac
   ];
   for (const key of authoredKeys) {
     expect(loader.resolve(key), key).toMatchObject({ resolvedKey: key, resolution: 'exact', status: 'ready' });
-    expect(loader.resolve(key).entry).toMatchObject({ placeholder: false, development: true, generated: true });
+    expect(loader.resolve(key).entry).toMatchObject({ placeholder: false, production: true, generated: true });
   }
   expect(loader.resolve('fixture.waterCisternPump').entry.logicalSize).toEqual({ width: 1, height: 2, layers: 1 });
   expect(loader.resolve('fixture.reactionVessel').entry.logicalSize).toEqual({ width: 2, height: 2, layers: 1 });
@@ -214,13 +208,16 @@ test('loader caches images and resolves exact, base, alias, and category fallbac
 
   await failedLoader.loadAll();
 
+  const failedPath = Manifest.manifest.assets.find(entry => entry.key === 'item.stack').source.path;
+  const failedEntries = Manifest.manifest.assets.filter(entry => entry.source.path === failedPath);
   expect(failedLoader.snapshot()).toMatchObject({
     state: 'partial',
-    counts: { idle: 0, loading: 0, ready: Manifest.manifest.assets.length - 1, error: 1 },
+    counts: { idle: 0, loading: 0, ready: Manifest.manifest.assets.length - failedEntries.length, error: failedEntries.length },
   });
-  expect(failedLoader.snapshot().errors).toEqual([
+  expect(failedLoader.snapshot().errors).toHaveLength(failedEntries.length);
+  expect(failedLoader.snapshot().errors).toEqual(expect.arrayContaining([
     expect.stringContaining('item.stack: Failed to load'),
-  ]);
+  ]));
   expect(failedLoader.resolve('item.stack')).toMatchObject({
     status: 'error',
     image: null,
@@ -228,7 +225,8 @@ test('loader caches images and resolves exact, base, alias, and category fallbac
   });
 });
 
-test('surface scene emits exact authored keys with footprint-safe geometry', async ({ page }) => {
+test('surface scene emits exact authored keys with footprint-safe geometry', async ({ page }, info) => {
+  test.setTimeout(60_000);
   await startRun(page);
   await page.evaluate(() => {
     const surface = window.helixHeresyDebug.surfaceMapSnapshot();
@@ -281,10 +279,23 @@ test('surface scene emits exact authored keys with footprint-safe geometry', asy
     bounds: { width: 1, height: 3, depth: 1 },
   });
   expect(snapshot.items).toContain('item.chemical.raw');
-  expect(snapshot.renderer.canvas.spritePlacementMismatches).toBe(0);
+  // This pre-existing uncatalogued 2x1 fixture must keep its procedural
+  // footprint rather than stretch the frozen generic 1x1 artwork.
+  expect(snapshot.renderer.canvas.placementWarnings).toEqual([
+    expect.stringMatching(/^fixture:starter-waste-enclosure \(fixture.generic\): asset expects 1x1x1 .*footprint is 2x1x1 /),
+  ]);
+  await expect.poll(() => page.evaluate(() => window.helixHeresyDebug.spriteAssetSnapshot().state)).toBe('ready');
+  await page.locator('canvas[data-canvas-map="true"]').screenshot({ path: info.outputPath('surface-production.png') });
+  await page.evaluate(() => window.helixHeresyDebug.setMapOverlay('none'));
+  for (let step = 0; step < 8; step++) {
+    if (await page.evaluate(() => window.helixHeresyDebug.mapViewSnapshot().zoom.tilePx) >= 32) break;
+    await page.getByTitle('Zoom in (+)', { exact: true }).click();
+  }
+  await page.locator('canvas[data-canvas-map="true"]').screenshot({ path: info.outputPath('surface-production-normal.png') });
 });
 
-test('browser loads declared images and Canvas reports authored sprites', async ({ page }) => {
+test('browser loads declared images and Canvas reports authored sprites', async ({ page }, info) => {
+  test.setTimeout(90_000); // native setup, zoom extremes and both renderer rollbacks
   await startRun(page);
 
   await expect.poll(() => page.evaluate(() =>
@@ -365,4 +376,25 @@ test('browser loads declared images and Canvas reports authored sprites', async 
   await expect.poll(() => page.evaluate(() =>
     window.helixHeresyDebug.mapRendererSnapshot().canvas?.multiTileSpritesDrawn || 0
   )).toBeGreaterThan(1);
+  const canvas = page.locator('canvas[data-canvas-map="true"]');
+  await canvas.screenshot({ path: info.outputPath('underground-production.png') });
+  for (const [direction, tilePx] of [['out', 8], ['in', 64]]) {
+    const control = page.getByTitle(`Zoom ${direction} (${direction === 'out' ? '-' : '+'})`, { exact: true });
+    for (let step = 0; step < 16 && await control.isEnabled(); step++) {
+      if (await page.evaluate(() => window.helixHeresyDebug.mapViewSnapshot().zoom.tilePx) === tilePx) break;
+      await control.click();
+    }
+    expect(await page.evaluate(() => window.helixHeresyDebug.mapViewSnapshot().zoom.tilePx)).toBe(tilePx);
+    expect(await page.evaluate(() => window.helixHeresyDebug.mapRendererSnapshot().canvas?.spritePlacementMismatches)).toBe(0);
+    await canvas.screenshot({ path: info.outputPath(`underground-production-${tilePx}px.png`) });
+  }
+  // The same physical map remains usable without sprite art.
+  await page.evaluate(() => window.helixHeresyDebug.setMapRenderer('dom'));
+  await expect(page.locator('.lab-map-grid[data-map-renderer="dom"]')).toBeVisible();
+  await page.evaluate(() => window.helixHeresyDebug.setMapRenderer('canvas'));
+  const preferences = page.locator('[data-map-accessibility-controls="true"]');
+  await preferences.locator('summary').click();
+  await preferences.locator('[data-map-accessibility-preference="mapVisualMode"]').selectOption('glyphs');
+  await expect(canvas).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.helixHeresyDebug.mapRendererSnapshot().canvas?.spritesDrawn)).toBe(0);
 });

@@ -377,14 +377,31 @@ Color is never the sole signal. Routes, designations, hazards, effects, equipmen
 
 The sprite renderer must preserve all interaction and information available in glyph mode. Visual richness may add atmosphere and recognition, but it may not remove textual identification or keyboard operation.
 
-## Deferred Decisions
+## Current Production Art
 
-This specification does not yet define:
+The frozen current inventory is implemented by eight atlases under
+`assets/sprites/production/`, covering all 125 existing semantic mappings at
+64 source pixels per occupied tile. `inventory.json` records the authoritative
+geometry and `prompts.json`, `corrections.json`, original sources and build hashes
+record provenance. Atlas slots are 192 pixels; source rectangles cover only the
+actual logical size, not the surrounding padding. Physical footprints, anchors,
+transforms, aliases and fallback behavior are unchanged. Goods do not disclose
+hidden legality or provenance through appearance.
 
-- Final production sprite filenames or atlas packing
-- Final animation frame counts
-- Final authored fog and production-quality lighting/environment shader artwork beyond the implemented semantic treatment
-- Final authored cross-layer slice artwork for tall bodies
-- Final swatch values
+The separate title illustration shows the chemistry front above its concealed
+magitech laboratory. Menu text and controls remain HTML, never painted into the
+image. The static decorative backdrop is hidden in high/forced contrast. Madcap,
+Grim and Unbound share the map assets; theme is not a physical identification aid.
 
-Those decisions belong to later production-art and accessibility work and should conform to this visual language.
+## Future Presentation Options Outside The Current Inventory
+
+The following are not required by the completed current-inventory art package
+and do not create additional pending prompts:
+
+- Additional animation frames
+- Authored fog or lighting/environment shader art beyond existing semantic treatment
+- Additional authored cross-layer slices for tall bodies
+- Cosmetic palette variants
+
+Any explicitly requested future art should conform to this visual language;
+the existing procedural and accessible fallbacks remain valid in the meantime.

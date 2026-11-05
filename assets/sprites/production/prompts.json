@@ -1,0 +1,195 @@
+{
+  "mode": "built-in image_gen",
+  "atlases": [
+    {
+      "id": "underground-terrain",
+      "columns": 3,
+      "rows": 3,
+      "prompt": "Use case: stylized-concept. Asset type: production orthographic game sprite atlas for Helix Heresy. Hard-edged low-detail illustrated industrial magitech, crisp dark contours, broad readable planes, cool charcoal stone and muted steel, restrained brass, cyan instrument accents. NOT pixel art, NOT isometric, NOT a rendered scene. Camera fixed directly above facing north; tall objects may have only a very shallow elevation cue. Unified neutral lighting from upper left; no cast shadows outside objects. Every listed subject occupies exactly its assigned equal grid cell in row-major order. No objects, glow, or shadows cross cell boundaries. No grid lines, separators, captions, numbers, typography, logos or watermarks. Genuine transparent alpha background around isolated objects; no colored backdrop or checkerboard painted into the image. For floor/ground/wall/roof material tiles only, draw an opaque square material swatch filling the cell. All other subjects centered with generous clear padding; wide 2:1 and tall 1:2 or 1:3 subjects must maintain that exact silhouette proportion within their square cell, not be stretched. Connected conduits meet their stated tile edges. Blank remaining cells fully transparent. Low detail, clean small-scale silhouettes, not tiny decorations.\nMake one square-cell atlas, 3 columns by 3 rows, 768 by 768 pixels if possible. Exact row-major subjects:\n1. cool charcoal natural bedrock square\n2. uniform almost-black featureless square, no objects or clues\n3. excavation drafting marker with dashed cyan square and small corner ticks\n4. invalid excavation drafting marker with dashed amber square and diagonal slash\n5. queued excavation marker with pale dashed square and pick head silhouette\n6. gray stone block wall cap viewed directly above\n7. smooth neutral gray laboratory floor square\n8. rough excavated gray stone floor square\n9. stone stair opening descending north, dark center",
+      "subjects": [
+        "cool charcoal natural bedrock square",
+        "uniform almost-black featureless square, no objects or clues",
+        "excavation drafting marker with dashed cyan square and small corner ticks",
+        "invalid excavation drafting marker with dashed amber square and diagonal slash",
+        "queued excavation marker with pale dashed square and pick head silhouette",
+        "gray stone block wall cap viewed directly above",
+        "smooth neutral gray laboratory floor square",
+        "rough excavated gray stone floor square",
+        "stone stair opening descending north, dark center"
+      ],
+      "opaqueSlots": [
+        0,
+        1,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "id": "underground-equipment",
+      "columns": 4,
+      "rows": 4,
+      "prompt": "Use case: stylized-concept. Asset type: production orthographic game sprite atlas for Helix Heresy. Hard-edged low-detail illustrated industrial magitech, crisp dark contours, broad readable planes, cool charcoal stone and muted steel, restrained brass, cyan instrument accents. NOT pixel art, NOT isometric, NOT a rendered scene. Camera fixed directly above facing north; tall objects may have only a very shallow elevation cue. Unified neutral lighting from upper left; no cast shadows outside objects. Every listed subject occupies exactly its assigned equal grid cell in row-major order. No objects, glow, or shadows cross cell boundaries. No grid lines, separators, captions, numbers, typography, logos or watermarks. Genuine transparent alpha background around isolated objects; no colored backdrop or checkerboard painted into the image. For floor/ground/wall/roof material tiles only, draw an opaque square material swatch filling the cell. All other subjects centered with generous clear padding; wide 2:1 and tall 1:2 or 1:3 subjects must maintain that exact silhouette proportion within their square cell, not be stretched. Connected conduits meet their stated tile edges. Blank remaining cells fully transparent. Low detail, clean small-scale silhouettes, not tiny decorations.\nMake one square-cell atlas, 4 columns by 4 rows, 1024 by 1024 pixels if possible. Exact row-major subjects:\n1. closed steel door leaf in narrow square frame\n2. 2:1 horizontal wooden workbench with tools and one glass flask\n3. open steel doorway with door folded against its edge\n4. locked steel door with stout mechanical bolt\n5. sealed steel door with crossed reinforcement bars\n6. breached steel door with a jagged hole\n7. compact square metal cabinet\n8. 2:1 horizontal narrow bed with gray mattress and folded blanket\n9. 2:1 horizontal storage shelving seen from above with crates\n10. square industrial sump tank with inset dark water\n11. 2:1 horizontal compact fuel generator with vented casing and fuel cap\n12. circular glass synthesis vessel viewed above with pale green liquid and brass rim\n13. square holding vessel with thick transparent glass walls\n14. square stone-lined open dirt pit with dark inset\n15. EMPTY transparent cell\n16. EMPTY transparent cell",
+      "subjects": [
+        "closed steel door leaf in narrow square frame",
+        "2:1 horizontal wooden workbench with tools and one glass flask",
+        "open steel doorway with door folded against its edge",
+        "locked steel door with stout mechanical bolt",
+        "sealed steel door with crossed reinforcement bars",
+        "breached steel door with a jagged hole",
+        "compact square metal cabinet",
+        "2:1 horizontal narrow bed with gray mattress and folded blanket",
+        "2:1 horizontal storage shelving seen from above with crates",
+        "square industrial sump tank with inset dark water",
+        "2:1 horizontal compact fuel generator with vented casing and fuel cap",
+        "circular glass synthesis vessel viewed above with pale green liquid and brass rim",
+        "square holding vessel with thick transparent glass walls",
+        "square stone-lined open dirt pit with dark inset"
+      ],
+      "opaqueSlots": []
+    },
+    {
+      "id": "actors-goods",
+      "columns": 4,
+      "rows": 3,
+      "prompt": "Use case: stylized-concept. Asset type: production orthographic game sprite atlas for Helix Heresy. Hard-edged low-detail illustrated industrial magitech, crisp dark contours, broad readable planes, cool charcoal stone and muted steel, restrained brass, cyan instrument accents. NOT pixel art, NOT isometric, NOT a rendered scene. Camera fixed directly above facing north; tall objects may have only a very shallow elevation cue. Unified neutral lighting from upper left; no cast shadows outside objects. Every listed subject occupies exactly its assigned equal grid cell in row-major order. No objects, glow, or shadows cross cell boundaries. No grid lines, separators, captions, numbers, typography, logos or watermarks. Genuine transparent alpha background around isolated objects; no colored backdrop or checkerboard painted into the image. For floor/ground/wall/roof material tiles only, draw an opaque square material swatch filling the cell. All other subjects centered with generous clear padding; wide 2:1 and tall 1:2 or 1:3 subjects must maintain that exact silhouette proportion within their square cell, not be stretched. Connected conduits meet their stated tile edges. Blank remaining cells fully transparent. Low detail, clean small-scale silhouettes, not tiny decorations.\nMake one square-cell atlas, 4 columns by 3 rows, 1024 by 768 pixels if possible. Exact row-major subjects:\n1. small stack of neutral crates and sacks\n2. simple irregular small translucent green slime blob, no face or eyes, no tools\n3. broad irregular translucent green slime blob, no face or eyes, no tools\n4. empty broad-neck glass jar seen directly above\n5. irregular muted green liquid puddle\n6. angular gray rubble pile\n7. small pile of stone pieces and metal bars\n8. collapsed inert desaturated organic remains, non-graphic\n9. larger collapsed inert desaturated organic remains, non-graphic\n10. scientist viewed directly from above: pale laboratory coat, dark hair, shoulders, arms at sides, boots, head toward north\n11. EMPTY transparent cell\n12. EMPTY transparent cell",
+      "subjects": [
+        "small stack of neutral crates and sacks",
+        "simple irregular small translucent green slime blob, no face or eyes, no tools",
+        "broad irregular translucent green slime blob, no face or eyes, no tools",
+        "empty broad-neck glass jar seen directly above",
+        "irregular muted green liquid puddle",
+        "angular gray rubble pile",
+        "small pile of stone pieces and metal bars",
+        "collapsed inert desaturated organic remains, non-graphic",
+        "larger collapsed inert desaturated organic remains, non-graphic",
+        "scientist viewed directly from above: pale laboratory coat, dark hair, shoulders, arms at sides, boots, head toward north"
+      ],
+      "opaqueSlots": []
+    },
+    {
+      "id": "effects-markers",
+      "columns": 4,
+      "rows": 3,
+      "prompt": "Use case: stylized-concept. Asset type: production orthographic game sprite atlas for Helix Heresy. Hard-edged low-detail illustrated industrial magitech, crisp dark contours, broad readable planes, cool charcoal stone and muted steel, restrained brass, cyan instrument accents. NOT pixel art, NOT isometric, NOT a rendered scene. Camera fixed directly above facing north; tall objects may have only a very shallow elevation cue. Unified neutral lighting from upper left; no cast shadows outside objects. Every listed subject occupies exactly its assigned equal grid cell in row-major order. No objects, glow, or shadows cross cell boundaries. No grid lines, separators, captions, numbers, typography, logos or watermarks. Genuine transparent alpha background around isolated objects; no colored backdrop or checkerboard painted into the image. For floor/ground/wall/roof material tiles only, draw an opaque square material swatch filling the cell. All other subjects centered with generous clear padding; wide 2:1 and tall 1:2 or 1:3 subjects must maintain that exact silhouette proportion within their square cell, not be stretched. Connected conduits meet their stated tile edges. Blank remaining cells fully transparent. Low detail, clean small-scale silhouettes, not tiny decorations.\nMake one square-cell atlas, 4 columns by 3 rows, 1024 by 768 pixels if possible. Exact row-major subjects:\n1. amber segmented hazard ring with small warning triangle\n2. clear ivory warning triangle with amber outline and dark exclamation shape\n3. small irregular teal spill ripple\n4. angular falling gray fragments and cracked stone silhouette\n5. forked cyan electrical arc\n6. compact amber flame with pale core\n7. restrained violet arcane swirl\n8. pale sharp impact burst\n9. amber urgent task chevrons\n10. pale broken ring with diagonal blocking bar\n11. pale task ring with small tool silhouette\n12. EMPTY transparent cell",
+      "subjects": [
+        "amber segmented hazard ring with small warning triangle",
+        "clear ivory warning triangle with amber outline and dark exclamation shape",
+        "small irregular teal spill ripple",
+        "angular falling gray fragments and cracked stone silhouette",
+        "forked cyan electrical arc",
+        "compact amber flame with pale core",
+        "restrained violet arcane swirl",
+        "pale sharp impact burst",
+        "amber urgent task chevrons",
+        "pale broken ring with diagonal blocking bar",
+        "pale task ring with small tool silhouette"
+      ],
+      "opaqueSlots": []
+    },
+    {
+      "id": "surface-terrain",
+      "columns": 4,
+      "rows": 4,
+      "prompt": "Use case: stylized-concept. Asset type: production orthographic game sprite atlas for Helix Heresy. Hard-edged low-detail illustrated industrial magitech, crisp dark contours, broad readable planes, cool charcoal stone and muted steel, restrained brass, cyan instrument accents. NOT pixel art, NOT isometric, NOT a rendered scene. Camera fixed directly above facing north; tall objects may have only a very shallow elevation cue. Unified neutral lighting from upper left; no cast shadows outside objects. Every listed subject occupies exactly its assigned equal grid cell in row-major order. No objects, glow, or shadows cross cell boundaries. No grid lines, separators, captions, numbers, typography, logos or watermarks. Genuine transparent alpha background around isolated objects; no colored backdrop or checkerboard painted into the image. For floor/ground/wall/roof material tiles only, draw an opaque square material swatch filling the cell. All other subjects centered with generous clear padding; wide 2:1 and tall 1:2 or 1:3 subjects must maintain that exact silhouette proportion within their square cell, not be stretched. Connected conduits meet their stated tile edges. Blank remaining cells fully transparent. Low detail, clean small-scale silhouettes, not tiny decorations.\nMake one square-cell atlas, 4 columns by 4 rows, 1024 by 1024 pixels if possible. Exact row-major subjects:\n1. muted green grass ground square\n2. gray gravel ground square\n3. smooth gray laboratory floor square\n4. loading-bay concrete floor square with restrained wear\n5. dark gray metal roof square\n6. thick gray stone exterior wall cap square\n7. thin gray interior partition wall cap square\n8. stone basement staircase descending north\n9. service conduit endpoint entering south and ending at tile center\n10. straight service conduit from north edge to south edge\n11. service conduit right-angle from north edge to east edge\n12. service conduit tee joining north east south edges\n13. service conduit cross joining all four edges\n14. dark roof edge with metal flashing\n15. gravel with narrow drainage channel\n16. gravel with sparse weeds",
+      "subjects": [
+        "muted green grass ground square",
+        "gray gravel ground square",
+        "smooth gray laboratory floor square",
+        "loading-bay concrete floor square with restrained wear",
+        "dark gray metal roof square",
+        "thick gray stone exterior wall cap square",
+        "thin gray interior partition wall cap square",
+        "stone basement staircase descending north",
+        "service conduit endpoint entering south and ending at tile center",
+        "straight service conduit from north edge to south edge",
+        "service conduit right-angle from north edge to east edge",
+        "service conduit tee joining north east south edges",
+        "service conduit cross joining all four edges",
+        "dark roof edge with metal flashing",
+        "gravel with narrow drainage channel",
+        "gravel with sparse weeds"
+      ],
+      "opaqueSlots": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        13,
+        14,
+        15
+      ]
+    },
+    {
+      "id": "surface-equipment",
+      "columns": 3,
+      "rows": 3,
+      "prompt": "Use case: stylized-concept. Asset type: production orthographic game sprite atlas for Helix Heresy. Hard-edged low-detail illustrated industrial magitech, crisp dark contours, broad readable planes, cool charcoal stone and muted steel, restrained brass, cyan instrument accents. NOT pixel art, NOT isometric, NOT a rendered scene. Camera fixed directly above facing north; tall objects may have only a very shallow elevation cue. Unified neutral lighting from upper left; no cast shadows outside objects. Every listed subject occupies exactly its assigned equal grid cell in row-major order. No objects, glow, or shadows cross cell boundaries. No grid lines, separators, captions, numbers, typography, logos or watermarks. Genuine transparent alpha background around isolated objects; no colored backdrop or checkerboard painted into the image. For floor/ground/wall/roof material tiles only, draw an opaque square material swatch filling the cell. All other subjects centered with generous clear padding; wide 2:1 and tall 1:2 or 1:3 subjects must maintain that exact silhouette proportion within their square cell, not be stretched. Connected conduits meet their stated tile edges. Blank remaining cells fully transparent. Low detail, clean small-scale silhouettes, not tiny decorations.\nMake one square-cell atlas, 3 columns by 3 rows, 768 by 768 pixels if possible. Exact row-major subjects:\n1. square underground service head with pipe junction and metal hatch\n2. square surface utility riser with thick elbow pipes\n3. 1:2 vertical cistern and water pump assembly\n4. 2:1 horizontal wet chemistry bench with sink and glassware\n5. square reaction vessel with round tank and external pipes\n6. 2:1 horizontal fume hood with rear exhaust\n7. 2:1 horizontal analysis bench with compact instruments and blue inset screen\n8. 2:1 horizontal packaging bench with trays and sealed bottles\n9. square waste treatment plant with settling tank and filter",
+      "subjects": [
+        "square underground service head with pipe junction and metal hatch",
+        "square surface utility riser with thick elbow pipes",
+        "1:2 vertical cistern and water pump assembly",
+        "2:1 horizontal wet chemistry bench with sink and glassware",
+        "square reaction vessel with round tank and external pipes",
+        "2:1 horizontal fume hood with rear exhaust",
+        "2:1 horizontal analysis bench with compact instruments and blue inset screen",
+        "2:1 horizontal packaging bench with trays and sealed bottles",
+        "square waste treatment plant with settling tank and filter"
+      ],
+      "opaqueSlots": []
+    },
+    {
+      "id": "surface-access",
+      "columns": 4,
+      "rows": 3,
+      "prompt": "Use case: stylized-concept. Asset type: production orthographic game sprite atlas for Helix Heresy. Hard-edged low-detail illustrated industrial magitech, crisp dark contours, broad readable planes, cool charcoal stone and muted steel, restrained brass, cyan instrument accents. NOT pixel art, NOT isometric, NOT a rendered scene. Camera fixed directly above facing north; tall objects may have only a very shallow elevation cue. Unified neutral lighting from upper left; no cast shadows outside objects. Every listed subject occupies exactly its assigned equal grid cell in row-major order. No objects, glow, or shadows cross cell boundaries. No grid lines, separators, captions, numbers, typography, logos or watermarks. Genuine transparent alpha background around isolated objects; no colored backdrop or checkerboard painted into the image. For floor/ground/wall/roof material tiles only, draw an opaque square material swatch filling the cell. All other subjects centered with generous clear padding; wide 2:1 and tall 1:2 or 1:3 subjects must maintain that exact silhouette proportion within their square cell, not be stretched. Connected conduits meet their stated tile edges. Blank remaining cells fully transparent. Low detail, clean small-scale silhouettes, not tiny decorations.\nMake one square-cell atlas, 4 columns by 3 rows, 1024 by 768 pixels if possible. Exact row-major subjects:\n1. public entrance closed personnel door with glass window, square footprint\n2. public entrance open personnel doorway, square footprint\n3. staff closed steel personnel door with small window, square footprint\n4. staff open personnel doorway, square footprint\n5. hazard-area closed steel door with warning stripe, square footprint\n6. sealed reinforced personnel door with crossed braces, square footprint\n7. basement closed heavy personnel door with round wheel, square footprint\n8. breached personnel doorway with broken frame, square footprint\n9. 1:3 vertical freight shutter closed, long side north-south\n10. 1:3 vertical freight doorway open, long side north-south\n11. 1:3 vertical freight shutter sealed with visible steel braces, long side north-south\n12. 1:3 vertical freight shutter breached with torn center, long side north-south",
+      "subjects": [
+        "public entrance closed personnel door with glass window, square footprint",
+        "public entrance open personnel doorway, square footprint",
+        "staff closed steel personnel door with small window, square footprint",
+        "staff open personnel doorway, square footprint",
+        "hazard-area closed steel door with warning stripe, square footprint",
+        "sealed reinforced personnel door with crossed braces, square footprint",
+        "basement closed heavy personnel door with round wheel, square footprint",
+        "breached personnel doorway with broken frame, square footprint",
+        "1:3 vertical freight shutter closed, long side north-south",
+        "1:3 vertical freight doorway open, long side north-south",
+        "1:3 vertical freight shutter sealed with visible steel braces, long side north-south",
+        "1:3 vertical freight shutter breached with torn center, long side north-south"
+      ],
+      "opaqueSlots": []
+    },
+    {
+      "id": "surface-goods",
+      "columns": 4,
+      "rows": 4,
+      "prompt": "Use case: stylized-concept. Asset type: production orthographic game sprite atlas for Helix Heresy. Hard-edged low-detail illustrated industrial magitech, crisp dark contours, broad readable planes, cool charcoal stone and muted steel, restrained brass, cyan instrument accents. NOT pixel art, NOT isometric, NOT a rendered scene. Camera fixed directly above facing north; tall objects may have only a very shallow elevation cue. Unified neutral lighting from upper left; no cast shadows outside objects. Every listed subject occupies exactly its assigned equal grid cell in row-major order. No objects, glow, or shadows cross cell boundaries. No grid lines, separators, captions, numbers, typography, logos or watermarks. Genuine transparent alpha background around isolated objects; no colored backdrop or checkerboard painted into the image. For floor/ground/wall/roof material tiles only, draw an opaque square material swatch filling the cell. All other subjects centered with generous clear padding; wide 2:1 and tall 1:2 or 1:3 subjects must maintain that exact silhouette proportion within their square cell, not be stretched. Connected conduits meet their stated tile edges. Blank remaining cells fully transparent. Low detail, clean small-scale silhouettes, not tiny decorations.\nMake one square-cell atlas, 4 columns by 4 rows, 1024 by 1024 pixels if possible. Exact row-major subjects:\n1. raw chemical mineral chunks in small open tray\n2. intermediate chemical in a broad sealed glass vessel\n3. bulk chemical steel drum\n4. packaged chemical bottles in cardboard tray\n5. ordinary strapped freight crate with no identifying symbols\n6. empty clear glass bottle\n7. chemical waste in scuffed sealed drum\n8. dark olive industrial sludge puddle\n9. teal chemical liquid puddle\n10. irregular chemical puddle with visibly pitted edges\n11. chemical puddle with small visible bubbles\n12. small pale vapor wisp\n13. pale exhaust plume\n14. clear water leak droplets and small puddle\n15. dry chalky chemical residue\n16. EMPTY transparent cell",
+      "subjects": [
+        "raw chemical mineral chunks in small open tray",
+        "intermediate chemical in a broad sealed glass vessel",
+        "bulk chemical steel drum",
+        "packaged chemical bottles in cardboard tray",
+        "ordinary strapped freight crate with no identifying symbols",
+        "empty clear glass bottle",
+        "chemical waste in scuffed sealed drum",
+        "dark olive industrial sludge puddle",
+        "teal chemical liquid puddle",
+        "irregular chemical puddle with visibly pitted edges",
+        "chemical puddle with small visible bubbles",
+        "small pale vapor wisp",
+        "pale exhaust plume",
+        "clear water leak droplets and small puddle",
+        "dry chalky chemical residue",
+        ""
+      ],
+      "opaqueSlots": []
+    }
+  ],
+  "title": {
+    "id": "title-key-art",
+    "prompt": "Use case: illustration-story. Asset type: landscape title-screen key art for Helix Heresy, no text. Primary request: a respectable ordinary above-ground chemistry laboratory conceals a forbidden underground magitech research facility. Composition: wide 16:9 architectural cutaway illustration, upper third the modest chemistry laboratory with benches, glassware, loading entrance and daylight; below a physical cutaway through charcoal bedrock reveals a larger secret research chamber with glass synthesis vessels holding simple green slime, pipes, workbench, and restrained holographic instrument light. No people required. Hard-edged illustrated shapes, controlled low-detail industrial materials, cool gray stone and steel, warm brass and amber lamps, green biology and cyan arcane accents. Dramatic readable silhouettes and depth without busy microdetail. Center of the composition can be subdued because the opaque menu card overlays it; the secret chamber and surface lab should still read toward the sides. This is title illustration, not a map screenshot. No gods, churches, military armies, new beast species, gore or sexual imagery. No words, title lettering, logos, labels, UI controls or watermark. Full opaque finished background."
+  }
+}

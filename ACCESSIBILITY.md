@@ -57,3 +57,12 @@ Three model checks, five fixed-journey browser cases and the three named existin
 - The palette checks are not an exhaustive contrast census of every glyph, environmental lighting state or historical content panel. The matrix covers the named current journeys and shared patterns, not every optional late-game encounter, future feature, browser engine, mobile layout or color/perception condition.
 
 These limits are disclosed rather than represented as passed tests or converted into an automatically expanding pending queue.
+
+## Production-art preservation check
+
+The current production-art pass preserves native title text/controls and invoker
+focus; its static, empty-alt backdrop does not intercept input and is hidden for
+high/forced contrast. Focused art tests cover image load/failure, a compact title
+layout, high/forced contrast and native Settings keyboard return, plus actual
+Canvas sprites, DOM rollback and glyph-first presentation. These checks supplement
+the matrix above; they do not claim a new screen-reader or full-suite audit.

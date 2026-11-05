@@ -5,7 +5,7 @@ This is the finite remaining queue, not an implementation diary or a source of a
 ## Queue rules and stopping conditions
 
 - Discuss the selected work package before implementing gameplay, and wait for explicit developer approval. Questions should include a recommended answer and brief reasoning. This queue update does not approve the gameplay designs below.
-- The queue retains **12 work packages (including indefinitely deferred work) and 6 conditional/optional packages**. IDs identify work, not software versions. A package can take several sessions; continuing it does not create another pending prompt.
+- The queue retains **11 work packages (all indefinitely deferred) and 6 conditional/optional packages**. IDs identify work, not software versions. A package can take several sessions; continuing it does not create another pending prompt.
 - **Do not append or subdivide the queue automatically.** Bugs, interruption cases, missing adapters, documentation and focused tests needed to deliver an entry stay inside that entry. Do not turn each official, material, species, spell, report, permission or save edge case into another prompt.
 - A genuine scope change requires a concrete explanation and explicit developer approval to replace, expand or defer a named entry. Record the tradeoff here; do not silently add a follow-up or claim unfinished work is complete. There is no automatic discovery backlog.
 - Freeze each package's acceptance checklist during its design discussion. Once it passes, remove the package from this active file, update remaining counts/dependencies, and put useful completion notes in the history or feature documentation. Do not append another “completed bounded slice, but next…” paragraph here.
@@ -29,7 +29,7 @@ These apply to every package; they are not additional work items.
 
 ## Order and current state
 
-**#1, #4 and #6 are complete and removed; no package is currently active.** Accessibility's fixed current-interface matrix, focused results and verification limits are in `ACCESSIBILITY.md` and the implementation history. #2/#3 and their beast workstream remain deferred, as does #5 onboarding/tutorial. #7 is the next eligible scheduled discussion, subject to explicit design approval; nothing is automatically activated.
+**#1, #4, #6 and #7 are complete and removed; no package is currently active.** The completed current-inventory art contract, sources, prompts and verification limits are in `assets/sprites/production/README.md`; accessibility's limits remain in `ACCESSIBILITY.md`. All remaining scheduled work is indefinitely deferred. #2/#3 and their beast workstream, and #5 onboarding/tutorial, require explicit reactivation; conditional/optional routes require explicit selection. Completing art does not activate any of them or authorize new cosmetic prompts.
 
 **#2/#3 and the associated beast workstream remain deferred indefinitely, not complete.** The developer explicitly rejected continuing domination. Preserve existing implementation, but do not resume its requirements, preparation or acceptance checks unless explicitly asked. Completing #1 neither closes domination nor authorizes returning to it. The old domination-first order is superseded.
 
@@ -150,9 +150,3 @@ These preserve existing requested ideas without making them campaign prerequisit
 | 3.31d | Finish successful city founding beyond the completed camp/works/failure branch: real resource purpose, dependable water/food, city-scale construction, lasting protection, finite consenting migration, actual governance and practical support links or a genuine refuge exception. | One genuinely operating run-owned city integrates with existing strategy and can lose support; no miniature-compound city label, spawned citizens or canonical-world mutation. |
 | 3.36 | One existing intelligent creation's demonstrated voluntary field duty, actual transport/care and refusal, using current cognition and party-custody systems. | The original creation can perform/refuse that duty with saved needs, training and consequences; no slime cooperation, free seats or early homunculus army. |
 | 3.37 | One explicitly selected exceptional mission family using original hardware/body/control manifests, such as an actual launch/payload or exceptional traveler/interception route. | That selected mission has real actors, finite resources, reach, permission and outcomes. It does not require every space technology or become a universal certificate. Minimum institutional assessment gaps are owned by 3.35d-B, not deferred here indefinitely. |
-
-## 7. Production art using the existing sprite pipeline — one package, always last
-
-Freeze the required asset inventory from completed gameplay/UI manifests, then use the existing manifest, loader, atlases, semantic keys and development sprites to deliver one coherent production-quality set, including title-screen key art. Preserve footprints/anchors/transforms, Canvas rendering, DOM glyph fallbacks and accessibility. Replace inventoried placeholders; do not reopen finished mechanics to justify new art prompts.
-
-Done when the frozen manifest is covered, assets load and render correctly, provenance/licensing is documented, and focused visual/loading checks pass. Future cosmetic packs are outside this queue unless explicitly requested.
