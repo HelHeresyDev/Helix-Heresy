@@ -2,6 +2,15 @@ const { test, expect } = require('@playwright/test');
 const Market = require('../city-commodity-market');
 const defs = [{ id: 'steelPanels', supply: 100, liquidity: 20 }, { id: 'biomass', supply: 100, liquidity: 20 }];
 const facts = () => ({ directory: { foundations: [{ city: { id: 'a', name: 'Aster' }, primaryExploitation: { id: 'ferrousOre', label: 'Ferrous Ore' }, arableLandBand: 'productive' }, { city: { id: 'b' }, primaryExploitation: { id: 'biologicalProductivity' } }], satellites: [{ id: 'farm', parentId: 'a', name: 'Aster Farm', function: 'agriculture', sizeBand: 'town', exportResource: { id: 'biologicalProductivity' } }] }, current: { playableYear: 500, cityRows: [{ cityId: 'a', physicalCondition: 'intact', populationBand: 'large', services: { utilities: 'functional' } }], satelliteRows: [] } });
+test('Cinderling charcoal supply follows published local timber rather than free fuel replenishment', () => {
+  expect(Market.familyFor('charcoal')).toBe('timberFiber');
+  const f = facts(), definitions = [{ id: 'charcoal', supply: 120, liquidity: 40 }];
+  const absent = Market.profile('a', f.directory, f.current, definitions);
+  f.directory.foundations[0].primaryExploitation = { id: 'timberFiber', label: 'Timber / fiber' };
+  const local = Market.profile('a', f.directory, f.current, definitions);
+  expect(local.listings.charcoal.targetSupply).toBeGreaterThan(absent.listings.charcoal.targetSupply);
+  expect(Market.evolve({ supply: 0, demand: 1 }, local.listings.charcoal, definitions[0], 1, .5).supply).toBe(0);
+});
 test('public local production and farming influence finite supply without foreign imports or hidden data', () => {
   const f = facts(), before = JSON.stringify(f), a = Market.profile('a', f.directory, f.current, defs);
   expect(JSON.stringify(f)).toBe(before);

@@ -6,7 +6,7 @@
   'use strict';
   const groups = {
     biologicalProductivity: ['biomass', 'fieldRation', 'trailMeal'],
-    constructionStone: ['stoneBlocks'], timberFiber: ['lumber', 'cloth', 'medicalBandage', 'filterBag', 'escortVest', 'fieldShelter'],
+    constructionStone: ['stoneBlocks'], timberFiber: ['charcoal', 'lumber', 'cloth', 'medicalBandage', 'filterBag', 'escortVest', 'fieldShelter'],
     ferrousOre: ['steelPanels', 'metalParts', 'escortBaton'],
     baseMetalOre: ['refinedConductors', 'relayBattery'], manaCrystals: ['preparedManaCrystals', 'arcaneFeedstock'],
     industrialMinerals: ['clay', 'bricks', 'glass', 'sealedCollectionJar', 'linedScrapeJar', 'condenserFlask', 'mixedOutputJar', 'sealedReagentBottle'],

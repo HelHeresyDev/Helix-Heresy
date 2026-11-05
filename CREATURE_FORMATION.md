@@ -1,4 +1,4 @@
-# Creature formation and the Mudlet laboratory
+# Creature formation: Mudlets and Cinderlings
 
 Every supported family has a naturally existing base form. The scientist modifies
 its formation process; neither science nor gods invent life from nothing. An
@@ -61,6 +61,61 @@ high pressure reopens flow, and high pressure erodes the body. Water is conserve
 between reservoir and basin. Draining deposits the actual water on the floor;
 there is no infinite water supply or remote plumbing repair. Examine locally for
 current readings; off-site body, run, fuel and fitting observations stay dated.
+
+## Forming and caring for a Cinderling
+
+Cinderlings naturally form around charred burn sites or volcanic vents where
+combustible material sustains flame-aspected mana. A coherent ember core and flame
+are the natural base body, not a new species invented by the scientist. Research
+and Synthesis Tier are both zero; wild encounters remain outside this package.
+
+After reading the inherited notes, characterize one charcoal at the workbench.
+Either charcoal or clay/water characterization unlocks the **same** convergence
+chamber: Mudlet discovery is not compulsory. Perform a five-minute contained
+ignition/stability trial using one charcoal and one chamber mana, then document
+the observed flame pattern with one assay reagent. Consumed trials leave physical
+assay residue or ash and smoke, including interrupted trials; they are not free
+research clicks or refunded materials.
+
+Load **two charcoal**, then sustain **two chamber mana over ten minutes**. There
+is no biomass input. The shared optional animancy connection requires two more
+mana from the actual inherited device during this same formation window. The
+original lots, partial incorporation, two-minute outage buffer and sealed soul
+outcome follow the Mudlet contract. Failure leaves incorporated residue and
+releases only unused inputs; it creates neither a body nor a replacement soul.
+
+A living Cinderling begins with two finite fuel units, holds at most four, and
+normally burns one per hour (one quarter per hour when cold and smoldering).
+Administering one actual charcoal adds one unit. Consumed material remains in the
+saved ledger as ash (10%) and emissions (90%). Actual local warmth and light
+depend on burning fuel; closed barriers and normal light propagation still apply.
+Ventilation failure stops combustion, while starvation, suffocation, cold and
+unsafe contamination can injure and kill. Dead hot remains lose only residual
+heat, do not burn more fuel, and cannot be fed or rekindled into the same person.
+
+Hot feeding, release and transfer require the original usable **long tongs** in
+physical reach or carried by the scientist. Handling reserves and wears that
+same durable tool, not an abstract inventory total. A nearby empty **fire-resistant
+brazier** costs two stone blocks and two metal parts, with five minutes of ordinary
+construction. It holds one original body and protects against loose contact
+ignition; it is not a second convergence machine, controller or fuel source.
+The intact chamber also contains contact ignition, with reduced outward light/heat.
+
+A loose burning body accumulates contact ignition against actual exposed charcoal,
+lumber or cloth on its own tile. Sustained contact consumes original stock and
+leaves physical ash and smoke. Reserved/container-held lots are excluded. This is
+a bounded local hazard, not a global wildfire or firefighting simulation. Direct
+scientist contact can burn. Water quenching consumes real water, leaves retained
+water/steam, damages the ember core and can permanently kill it; contact with an
+actual Mudlet runoff pool also quenches. It is not reversible desiccation care.
+
+A hungry souled loose Cinderling may move to directly sensed adjacent exposed
+charcoal and ingest the original unit. Neither the brazier nor soul presence
+implies language, obedience or a work role. Soulless bodies never choose movement
+or self-feeding, even beside fuel; passive combustion, cooling and ignition still
+occur. Both outcomes retain identity, soul provenance, injuries, fuel, ash and
+observations through saves and continued imports. Local examinations are dated;
+both Canvas and DOM maps use a `C`/remains glyph fallback, not claimed new bitmap art.
 
 ## Shared soul rules and compatibility
 

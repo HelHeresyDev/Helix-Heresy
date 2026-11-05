@@ -8,6 +8,25 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Cinderlings — #8-B complete
+
+The approved three-part checklist is complete: actual charcoal research and shared
+chamber formation from two charcoal/two chamber mana, with both concurrent inherited
+animancy and unassisted soul outcomes; finite fuel-driven warmth/light, original
+tongs and brazier handling, exposed-stock contact ignition, consequential cooling,
+starvation, quenching and retained death; and persistence, continued import,
+Canvas/DOM identification, documentation and regenerated creature workbooks.
+The species has an authored natural ember/flame origin and separate Research 0 /
+Synthesis 0 ratings, without adding wild encounters or a global fire simulator.
+No new prerequisite or follow-up package was added. Eight proposed families remain.
+
+Focused verification: 12 Cinderling model checks, 10 shared formation/Mudlet model
+checks, five local commodity-market checks, the native Cinderling lifecycle browser
+case, the existing native Mudlet workflow case, nine source/ODS/XLSX/CSV checks,
+JavaScript syntax and diff whitespace. The full suite was not run under AGENTS.md.
+See [CREATURE_FORMATION.md](CREATURE_FORMATION.md) and the
+[Linux-friendly creature reference](reference/README.md) for recipes and limits.
+
 ### Creature formation, inherited animancy and Mudlets — #8-A complete
 
 The frozen three checks are complete: performed research and affordable chamber
