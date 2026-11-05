@@ -102,6 +102,16 @@ function buildCatalog() {
     'Finite water and organic/mineral medium, light and safe temperature; captured pollutants saturate leaves, tissue and substrate',
     `${soulRule} New propagated individual, not a soul retrofit to its source. Existing synthesis tube forms the body; ordinary planter supports care, bounded filtration and retained contaminated maintenance waste. Treated liquid is nonpotable; no free crops or universal purification.`,
     formationSource + '; rootlings.js; CREATURE_FORMATION.md', 'rootling']);
+  rows.push(['Sporecap', 'Fungal creature', 'Implemented: original-tube development, covered planter, finite decomposition and spores',
+    Formation.FAMILIES.sporecap.researchTier, Formation.FAMILIES.sporecap.synthesisTier,
+    bundle(Formation.COSTS.growSporecap), Formation.FAMILIES.sporecap.habitat,
+    'Not defined; natural family authored, no wild encounter/population integration',
+    'Desiccation, waterlogging, unsafe temperature, retained pollutants and local spore contamination',
+    'No language/order channel; souled individuals can deliberately close gills against directly sensed disturbance',
+    'Stationary cap and bounded connected mycelial mat; no autonomous gathering or colony expansion',
+    'Finite contacting plant waste and water; no sunlight required; real cover maintenance and waste collection',
+    `${soulRule} One cap and its connected mat are one individual. Decomposition retains spent substrate, pollutants and respiratory losses; spores spend body reserves. No automatic offspring, edible harvest, universal detoxification or workforce.`,
+    formationSource + '; sporecaps.js; CREATURE_FORMATION.md', 'sporecap']);
   const ecologyRows = [];
   for (const s of Ecology.BEAST_SPECIES) {
     const biome = s.biomeCodes.map(c => {
@@ -132,7 +142,6 @@ function buildCatalog() {
   }
   const pending = text('PENDING_PROMPTS.md');
   const plannedData = {
-    '8-E': ['Fungal creature', 'Spores + damp compost + water + fungal material; quantities not defined', 'Formation environment: damp organic substrate; natural map biomes not authored', 'Finite decomposition input, mycelial support and local spore/cleanliness consequences'],
     '8-F': ['Cloth construct', 'Fabric + thread + stuffing + animation sigil/process; quantities not defined', 'Naturally occurring base form required; exact natural animation conditions and biomes not designed', 'Seam wear, repair, carrying limits and high flammability'],
     '8-G': ['Mineral construct', 'Common quartz/minerals + salts + finite mana; quantities not defined', 'Naturally occurring base form required; exact formation conditions and biomes not designed', 'Refraction/light interaction, impact fractures and material-consuming repairs'],
     '8-H': ['Umbral creature', 'Stable umbral pattern + modest mana + suitably dark field; quantities not defined', 'Formation environment: darkness and suitable mana; natural map biomes not authored', 'Illumination and mana-disruption limits; no presumed wall phasing or ghost identity'],
@@ -219,6 +228,25 @@ function buildCatalog() {
       'Original nearby empty planter, light/water/medium and physical reach; pruning uses and wears the original scraper',
       'Tray holds ≤2 L of a real supplied botanical liquid batch; capture is profile-specific, finite and saturating',
       'Washing yields contaminated water; replacement yields spent substrate; pruning wounds the plant and yields contaminated cuttings. Root barriers/real drain openings constrain growth; dead roots continue obstructing until cut.', 'rootlings.js; CREATURE_FORMATION.md'],
+    ['Sporecap — development', 'Sporecap', 'Per new individual', bundle(Formation.COSTS.growSporecap),
+      '2 original synthesis-tube mana; +2 concurrent inherited-device mana for an own soul',
+      '60 seconds loading + 4 supported hours; cumulative nonrenewable 30-minute support-loss buffer',
+      'Original synthesis tube, shared exclusively with slime and Rootling formation',
+      'Documented actual damp/dry comparison; 15–32 °C, original stocks and intact unmoved apparatus; no light requirement',
+      'Starter = 1 kg sourced spores/fungal tissue; compost = 1 kg plant-derived organic substrate; water = 1 L. One cap plus its connected mat, not multiple individuals.', 'creature-formation.js:COSTS/begin/advance; CREATURE_FORMATION.md'],
+    ['Sporecap — method discovery', 'Sporecap', 'One-time research setup',
+      'Characterize: 1 fungal starter + 1 assay reagent; damp trial: 1 starter + 1 compost + 1 water; dry control: 1 starter + 1 compost; document: 1 reagent',
+      'Actual local temperature; dry control receives no supplied water; no Rootling research or elemental-chamber dependency',
+      'Notes 60 s; characterization 120 s; controls 300 s each; document 180 s', 'Inherited notes and actual research bench',
+      'Personally performed controls and saved evidence, not a free known recipe',
+      'Consumed trial solids and supplied water remain physical outputs; assay pollutants stay in characterized substrate.', 'CREATURE_FORMATION.md'],
+    ['Sporecap — care and spore control', 'Sporecap', 'Reusable equipment / per care action separately',
+      'Reuse planter: 2 lumber + 2 glass + 1 metal part; cover: 1 cloth; water or each washing: 1 water; feeding: original compatible plant waste',
+      'Nominal decomposition 0.05 kg/h; 25% reserve, 25% spent substrate, 50% recorded respiratory loss; ongoing reserve respiration separate',
+      'Planter construction 5 min; transfer/feed/fit/wash/collect 60 s; cover controls/water 30 s',
+      'One individual per planter; bounded connected mat, real reach and original reserved feed portions',
+      'Exposed spores spend up to 0.005 kg/h of reserves; fitted cover holds 0.02 kg before saturation stops further covered release',
+      'Spores become real airborne/deposited material, never automatic offspring. Cover/floor washing retains spores in nonpotable wastewater. Spent substrate is not automatically fresh nutrient medium or food.', 'sporecaps.js; CREATURE_FORMATION.md'],
     ['Elemental chamber — construction', 'Mudlet / Cinderling / Zephyr Mote', 'Reusable equipment; not per creature',
       '4 metal parts + 2 glass + 2 arcane feedstock', 'Charge chamber separately; maximum stored mana 24', '20 base construction minutes + normal construction logistics',
       '2 × 1 floor footprint with accessible operator/test fitting', 'Read inherited notes and physically characterize clay/water, charcoal or airflow first',
@@ -271,7 +299,7 @@ function buildCatalog() {
   ];
   const guide = [
     ['Purpose', 'Developer reference for authored creature definitions and current design proposals. This is not the scientist’s in-game knowledge or a live world census.'],
-    ['Coverage', `${rows.length} current catalog entries: humans, slime, Mudlet, human-derived homunculus, Cinderling, Zephyr Mote, Rootling, and all ${Ecology.BEAST_SPECIES.length} strategic beast species. ${planned.length} proposed creatures are on a separate tab. Explicit dog lore and divine/receiver states are separate from species.`],
+    ['Coverage', `${rows.length} current catalog entries: humans, slime, Mudlet, human-derived homunculus, Cinderling, Zephyr Mote, Rootling, Sporecap, and all ${Ecology.BEAST_SPECIES.length} strategic beast species. ${planned.length} proposed creatures are on a separate tab. Explicit dog lore and divine/receiver states are separate from species.`],
     ['Research tier', 'Difficulty of discovering a reproducible formation method. Numeric values appear only where authored; they are not combat ratings or compulsory campaign chapters.'],
     ['Production tier', 'The code calls this Synthesis Tier: practical production complexity after the method is known. Tier 0 is inexpensive/simple, not free or upkeep-free.'],
     ['Not defined', 'The current source has no authored number, recipe or classification. This is not zero, impossible, universally unavailable, or approval to invent one.'],

@@ -1,4 +1,4 @@
-# Creature formation: elemental and botanical families
+# Creature formation: elemental, botanical and fungal families
 
 Every supported family has a naturally existing base form. The scientist modifies
 its formation process; neither science nor gods invent life from nothing. An
@@ -12,7 +12,7 @@ The starting laboratory contains the original creation-time animancy device with
 stores souls nor performs resurrection. One physically staged arcane feedstock
 charges eight mana, up to 24. Duplicate device construction is not unlocked.
 
-Use Research → Natural Elemental Formation. Personally read the inherited notes,
+Use Research → Natural Creature Formation. Personally read the inherited notes,
 then characterize one common clay and one drinking water at the workbench. That
 allows a 2×1 Elemental Convergence Chamber: four metal parts, two glass and two
 arcane feedstock, built through ordinary construction. Charge it, perform the
@@ -116,6 +116,76 @@ or self-feeding, even beside fuel; passive combustion, cooling and ignition stil
 occur. Both outcomes retain identity, soul provenance, injuries, fuel, ash and
 observations through saves and continued imports. Local examinations are dated;
 both Canvas and DOM maps use a `C`/remains glyph fallback, not claimed new bitmap art.
+
+## Sporecaps: supplied decomposition and spore containment
+
+Sporecaps naturally develop in damp decomposing woodland plant matter under suitable
+life-aspected mana. One cap and its bounded connected mycelial mat are one persistent
+individual. Research and Production Tier are both zero. There is no Rootling research
+prerequisite, elemental-chamber dependency, independent mushroom colony or new
+cultivation-building framework.
+
+Read the inherited notes, characterize one sourced fungal starter with one reagent
+(120 seconds), then perform damp and dry substrate controls (300 seconds each).
+Each control uses one starter and one plant compost; only the damp control receives
+one drinking water. Controls require actual 8–35 °C bench conditions. Document their
+saved comparison with one reagent (180 seconds). Spent starter/plant substrate stays
+physical; characterization retains its assay pollutants in that substrate, and the
+damp trial retains its supplied water as wastewater. Interrupted consumed trials
+still leave their real outputs without granting completed research.
+
+Load the **original synthesis tube** with one fungal starter (1 kg sourced spores
+and fungal tissue), one plant compost (1 kg organic material) and one water (1 L).
+Loading takes one minute, followed by four supported hours at 15–32 °C. Sunlight is
+not required. The tube spends two actual mana; the existing feedstock charge supplies
+eight, capacity 24. A requested own soul needs two more mana from the physically
+connected inherited device during development. Starter incorporates at initiation,
+water after one supported hour and compost after two. Missing support consumes a
+nonrenewable cumulative thirty-minute buffer. Failed incorporated material remains
+as physical residue; unused original inputs return. A requested soul-bearing attempt
+never substitutes a soulless creature. Slime, Rootling and Sporecap work share one
+exclusive tube, including retained uncleared procedures and remains.
+
+Physically move the same cap/mat into an empty nearby existing planter. One planter
+holds one individual of either family. Its Rootling controls are not used for fungi.
+Fit a real cloth spore cover (one cloth, one minute); its saved receipt retains the
+original source. Opening/closing takes thirty seconds, not a creature order.
+
+Compatible contacting waste decomposes at up to 0.05 kg/hour: 25% enters reserves,
+25% becomes spent substrate and 50% is recorded respiratory matter loss. Continuing
+reserve respiration consumes another 0.01 kg/hour. These are authored organic-matter
+budgets, not a global oxygen/carbon chemistry simulation. Water loss is finite;
+dryness, waterlogging, unsafe temperatures, starvation and retained toxins can kill.
+Care never heals away injuries or resurrects an individual.
+
+Manually load a real nearby compatible portion: 0.25 kg or less of spent plant/fungal
+trial tissue or Rootling cuttings, or one existing sawdust inventory unit. The tray
+holds at most 2 kg of contacting feed. Stored lots, their pollutant densities and
+source IDs matter; this is not automatic gathering. No corpse consumption, unknown
+organic-waste wildcard, edible harvest or universal detoxification is implied.
+Pollutants transfer into tissue and spent compost rather than disappearing with
+respiration. Collecting spent compost preserves those pollutants; it is not fresh
+nutrient medium or food.
+
+Exposed sporulation spends up to 0.005 kg/hour from retained reserves. While the
+individual is in the original tube, spores enter that actual container's interior
+air; its existing seal/permeability rules govern leakage. A loose or planter-held
+cap releases into local air and deposited physical patches, measured in grams; finer
+unemitted amounts stay in the original body. They do not generate offspring. A
+closed fitted cover retains at most 20 g before further covered release stops.
+Washing the cover uses one real water and retains its spores in nonpotable washwater;
+washing a deposited patch separately uses one water and transfers that original
+reserved patch into physical wastewater. Airborne spores remain in the existing air
+system; a floor wash does not magically clean the air. Finite local contamination and
+deposited mess are the cleanliness consequence, not a new disease system.
+
+Both soul outcomes passively digest already-contacting material. Only a souled
+individual can deliberately close its gills against directly sensed dry air or
+operating adjacent ventilation. An unordered soulless individual cannot choose that
+response, find new supplies, move itself or level. Physical covers work for either.
+Both maps identify the cap/mat as `S`, or `†` after death. Saves and continued imports
+retain bodies, original source receipts, reserves, spent material, cover, spores,
+pollutants, wounds and soul provenance. Death retains the same remains and loads.
 
 ## Rootlings: original-tube propagation and finite filtration
 

@@ -8,6 +8,44 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Sporecaps — #8-E complete
+
+The approved checklist is complete: personally performed fungal characterization,
+damp/dry substrate controls and documentation; four-hour original-tube development
+from sourced starter, compost and water with finite tube mana and both concurrent
+inherited-animancy and unassisted outcomes; finite supplied-waste decomposition,
+physical spore handling, persistent identity and death, saves/imports and map cues.
+Research and Production Tier are both zero. Slime, Rootling and Sporecap work share
+one exclusive tube. One existing planter holds one cap/connected mat or one Rootling;
+no separate cultivation-building system, Rootling research prerequisite, workforce,
+reproduction, disease, encounter program or new pending package was added.
+
+Actual compatible waste portions become retained reserves, spent substrate and
+recorded respiratory matter loss. Pollutants remain in tissue/substrate rather
+than disappearing. Collecting spent material retains sub-gram remainders and their
+pollutants in the same mat. Spores consume finite reserves and enter real tube
+interior air or local air/deposited stock, subject to existing containment. A real
+cloth cover retains up to twenty grams; cover and local-patch washes spend original
+water and preserve spores in physical nonpotable wastewater. Ordinary air behavior
+is not replaced by a room-wide cleaning shortcut. Souled caps can deliberately
+close gills against directly sensed disturbance; soulless caps neither choose that
+response nor collect nearby supplies. Neither soul outcome is a source of food,
+unlimited biomass, neutralized toxins or automatically viable offspring.
+
+Focused verification: 16 Sporecap, 16 Rootling and 10 shared formation/Mudlet model
+checks; the complete Sporecap and existing Rootling browser workflows, two native
+slime synthesis cases and the fungal-market case; nine source/ODS/XLSX/CSV checks;
+JavaScript syntax and diff whitespace. Native work uses actual starter stocks,
+performed research, ordinary planter construction, supplied feed, a fitted cover,
+physical cleaning, source reservations across reload, both soul outcomes and a
+real failed requested formation, not injected research or creature outcomes.
+Suitable local climate is an explicitly declared test input, not a granted heater
+or free in-game services. Both renderer scenes validate; the Canvas screenshot was
+inspected. Continued import and death preserve original bodies, source receipts,
+pollutants and spores. The full suite was not run under AGENTS.md. The catalog now
+contains 32 current catalog entries and five proposals. #8-E was removed; next discussion
+is #8-F Ragkin.
+
 ### Rootlings — #8-D complete
 
 The frozen checklist is complete: performed plant characterization, illuminated

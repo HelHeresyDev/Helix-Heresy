@@ -499,7 +499,7 @@
       footprint: { width: 1, height: 1 }, collision: 'blocking', layer: 'floor',
       ports: [{ id: 'operator', label: 'Planter Care and Filtration Controls', x: 0, y: 1 }], capabilities: ['rootlingCare'],
       workMinutes: 5, materialOptions: { wood: { composition: { primary: 'wood', lining: 'glass', frame: 'steel' }, costs: { lumber: 2, glass: 2, metalParts: 1 }, score: 60 } },
-      description: 'One physical planter with root barrier, manually guided opening and a two-litre nonpotable batch tray. Care/filtration only: new Rootlings form in the original synthesis tube.'
+      description: 'One physical cultivation planter: root barrier and two-litre tray for a Rootling, or bounded fungal substrate with a separately fitted spore cover for a Sporecap. One individual only; care, not creation.'
     },
     {
       id: "exhaustedSoulApparatus", label: "Exhausted Original Soul Apparatus", glyph: "SB", assemblyClass: "recovered",
@@ -3566,6 +3566,8 @@
   const COMMODITY_MARKET_FREIGHT_SECONDS = minutesToSeconds(20);
   const COMMODITY_MARKET_MAX_OUTSTANDING = 6;
   const COMMODITY_MARKET_LISTING_DEFS = [
+    { id: 'fungalStarter', section: 'resources', key: 'fungalStarter', label: 'Sourced Fungal Starter', basePrice: 4, supply: 60, liquidity: 20, buyable: true, sellable: true },
+    { id: 'plantCompost', section: 'resources', key: 'plantCompost', label: 'Plant Compost', basePrice: 3, supply: 60, liquidity: 20, buyable: true, sellable: true },
     { id: 'plantPropagule', section: 'resources', key: 'plantPropagule', label: 'Sourced Plant Propagule', basePrice: 4, supply: 60, liquidity: 20, buyable: true, sellable: true },
     { id: 'nutrientMedium', section: 'resources', key: 'nutrientMedium', label: 'Botanical Nutrient Medium', basePrice: 5, supply: 60, liquidity: 20, buyable: true, sellable: true },
     { id: 'charcoal', section: 'resources', key: 'charcoal', label: 'Common Charcoal', basePrice: 4, supply: 120, liquidity: 40, buyable: true, sellable: true },
@@ -3846,6 +3848,8 @@
     destination: "drum"
   };
   const RESOURCE_DEFS = [
+    { key: 'fungalStarter', label: 'Sourced Fungal Starter', initial: 8 },
+    { key: 'plantCompost', label: 'Plant Compost', initial: 8 },
     { key: 'plantPropagule', label: 'Sourced Plant Propagule', initial: 8 },
     { key: 'nutrientMedium', label: 'Botanical Nutrient Medium', initial: 8 },
     { key: 'charcoal', label: 'Common Charcoal', initial: 12 },
@@ -17546,6 +17550,27 @@
           sourceInputs: ensurePhysicalItemStacks().filter(i => ['plantPropagule', 'nutrientMedium', 'arcaneFeedstock'].includes(i.key)),
           mass: a && Formation.Rootlings.dryMass(a), volume: tileEnvironmentVolumeM3() });
       },
+      sporecapSnapshot: id => {
+        const a = ensureElementalLab().creatures.find(a => a.id === id), volume = tileEnvironmentVolumeM3();
+        const airGrams = Object.values(ensureTileEnvironments()).reduce((n, env) => n + (env.airborne[Formation.Sporecaps.SPORES] || 0) * volume, 0)
+          + state.containers.reduce((n, c) => n + (c.environment?.airborne?.[Formation.Sporecaps.SPORES] || 0) * containerInteriorVolumeM3(c), 0);
+        const patches = ensurePhysicalItemStacks().filter(i => i.key === 'sporecap deposited spores' && i.quantity > 0);
+        const washGrams = ensurePhysicalItemStacks().filter(i => i.quantity > 0).reduce((n, i) => n + (i.biology?.rootlingLiquid?.substances?.[Formation.Sporecaps.SPORES] || 0), 0);
+        return clonePlainObject({ actor: a, airGrams, patches, washGrams,
+          sporeGrams: airGrams + patches.reduce((n, i) => n + i.quantity, 0) + washGrams
+            + ensureElementalLab().creatures.filter(a => a.family === 'sporecap').reduce((n, a) => n + (a.coverSporeKg + a.pendingSporeKg) * 1000, 0),
+          mass: a && Formation.Sporecaps.dryMass(a), environment: a && tileEnvironmentAtCell(a.mapCell) });
+      },
+      setSporecapTestClimate: (temperature = 20, humidity = 60) => {
+        // Explicit local environmental INPUT, not supplied heat, fuel, growth,
+        // research, an individual or a successful biological outcome.
+        const tube = formationApparatus(SYNTHESIS_TUBE_ID); if (!tube) return false;
+        const room = labMapCellRoomId(tube.origin);
+        for (const env of Object.values(ensureTileEnvironments())) if (env.cell.z === tube.origin.z && labMapCellRoomId(env.cell) === room) {
+          env.temperatureC = temperature; env.humidity = humidity;
+        }
+        persist(); render(); return true;
+      },
       setRootlingTestAir: id => {
         // Explicit environmental INPUT, not a captured-load or plant outcome grant.
         const a = ensureElementalLab().creatures.find(a => a.id === id), env = a && tileEnvironmentAtCell(a.mapCell); if (!env) return false;
@@ -17610,6 +17635,12 @@
         }
         if (action === 'rootLoad') {
           const i = ensurePhysicalItemStacks().find(i => i.biology?.rootlingLiquid && i.quantity > 0 && i.quantity <= 2 && !i.reservedTaskId && !i.carriedBy && !i.containerId);
+          if (!i) return false; i.cell = clonePlainObject(t.cell); i.roomId = labMapCellRoomId(t.cell); i.stockpileId = ''; i.fixtureId = '';
+        }
+        if (action === 'fungusFeed') {
+          const i = ensurePhysicalItemStacks().find(i => ['spent fungal trial plant substrate', 'spent characterized plant tissue', 'rootling contaminated cuttings', 'sawdust'].includes(i.key)
+            && i.quantity > 0 && !i.reservedTaskId && !i.carriedBy && !i.containerId
+            && Formation.Sporecaps.total((i.biology?.fungalWaste || i.biology?.rootlingWaste)?.substances) === 0);
           if (!i) return false; i.cell = clonePlainObject(t.cell); i.roomId = labMapCellRoomId(t.cell); i.stockpileId = ''; i.fixtureId = '';
         }
         if (hotElementalHandling(t.a, action) || action === 'rootPrune') {
@@ -38948,7 +38979,7 @@
   }
 
   function actorFloorLoadM2(actor) {
-    if (['mudlet', 'cinderling', 'zephyrMote', 'rootling'].includes(actor?.actorKind)) return .2;
+    if (['mudlet', 'cinderling', 'zephyrMote', 'rootling', 'sporecap'].includes(actor?.actorKind)) return .2;
     if (actor?.actorKind === 'fieldDriver') return .6;
     if (!actor) return 0;
     if (['cityDefender', 'civicOfficeholder', 'cityIncumbent', 'municipalTechnician', 'divineAvatar', 'divineIndividual', 'reliefDriver'].includes(actor.actorKind)) return .6;
@@ -39112,7 +39143,7 @@
   }
 
   function navigationFootprintForActor(actor) {
-    if (['mudlet', 'cinderling', 'zephyrMote', 'rootling'].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .2, exclusive: false });
+    if (['mudlet', 'cinderling', 'zephyrMote', 'rootling', 'sporecap'].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .2, exclusive: false });
     if (actor?.actorKind === 'fieldDriver') return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (['cityDefender', 'civicOfficeholder', 'cityIncumbent', 'municipalTechnician', 'divineAvatar', 'divineIndividual', 'reliefDriver'].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (["surfaceWorker", "laboratoryAssistant", "homunculus", "foreignSupplier"].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
@@ -42603,7 +42634,7 @@
   }
 
   function combatActorVitalPercent(actor, key) {
-    if (['mudlet', 'cinderling', 'zephyrMote', 'rootling'].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
+    if (['mudlet', 'cinderling', 'zephyrMote', 'rootling', 'sporecap'].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
     if (actor?.actorKind === 'fieldDriver') return actor.health / actor.maxHealth * 100;
     if (['civicOfficeholder', 'cityIncumbent', 'divineAvatar', 'divineIndividual', 'reliefDriver'].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
     if (actor?.actorKind === 'cityDefender') return actor.health / actor.maxHealth * 100;
@@ -42658,7 +42689,7 @@
   }
 
   function scientistCombatTargetForSlime(slime) {
-    if (['mudlet', 'cinderling', 'zephyrMote', 'rootling'].includes(slime?.actorKind)) return normalizeCombatTarget({ kind: 'creature', id: slime.id, lastKnownCell: slime.mapCell, observedAt: state.clock });
+    if (['mudlet', 'cinderling', 'zephyrMote', 'rootling', 'sporecap'].includes(slime?.actorKind)) return normalizeCombatTarget({ kind: 'creature', id: slime.id, lastKnownCell: slime.mapCell, observedAt: state.clock });
     if (!slime) return null;
     if (['cityDefender', 'cityIncumbent', 'civicOfficeholder', 'divineAvatar', 'divineIndividual', 'reliefDriver'].includes(slime.actorKind)) return normalizeCombatTarget({ kind: 'creature', id: slime.id, lastKnownCell: slime.mapCell, observedAt: state.clock });
     if (slime.actorKind === "wildernessBeast") return normalizeCombatTarget({ kind: "creature", id: slime.id, lastKnownCell: ensureWildernessBeasts().sightings[slime.id]?.cell, observedAt: ensureWildernessBeasts().sightings[slime.id]?.observedAt });
@@ -43076,7 +43107,7 @@
       : targetActor.actorKind === "surfaceWorker" ? damageSurfaceWorker(guardedDamage, { damageTypes: action.damageTypes }, targetActor)
       : targetActor.actorKind === "laboratoryAssistant" ? damageSurfaceWorker(guardedDamage, { damageTypes: action.damageTypes }, targetActor)
       : targetActor.actorKind === "homunculus" ? damageHomunculus(targetActor, guardedDamage, { damageTypes: action.damageTypes, observed: actor === state.scientist })
-      : ['mudlet', 'cinderling', 'zephyrMote', 'rootling'].includes(targetActor.actorKind) ? Formation.damage(targetActor, guardedDamage, action.label, state.clock)
+      : ['mudlet', 'cinderling', 'zephyrMote', 'rootling', 'sporecap'].includes(targetActor.actorKind) ? Formation.damage(targetActor, guardedDamage, action.label, state.clock)
       : targetActor.actorKind === 'cityDefender' ? damageCityDefender(guardedDamage, { damageTypes: action.damageTypes }, targetActor)
       : targetActor.actorKind === 'cityIncumbent' ? damageIncumbent(guardedDamage, { damageTypes: action.damageTypes })
       : ['civicOfficeholder', 'divineAvatar', 'divineIndividual', 'reliefDriver'].includes(targetActor.actorKind) ? damageCivilOfficeholder(targetActor, guardedDamage, { damageTypes: action.damageTypes, attackerId: actorId })
@@ -53915,7 +53946,7 @@
     if (!tube) {
       return "No synthesis tube exists.";
     }
-    if (rootlingTubeBusy()) return 'Synthesis tube reserved for original botanical work, formation, a Rootling or its remains. Transplant/release and clear the original procedure first.';
+    if (rootlingTubeBusy()) return 'Synthesis tube reserved for original botanical/fungal work, formation, an individual or its remains. Transplant/release and clear the original procedure first.';
     const occupants = synthesisTubeOccupants();
     if (occupants.length) {
       return `Synthesis tube occupied by ${occupants.map((slime) => slime.name).join(", ")}.`;
@@ -53975,7 +54006,7 @@
   }
 
   function synthesisTubeBlockReason() {
-    if (rootlingTubeBusy()) return 'The original synthesis tube is occupied/reserved by botanical work or a retained Rootling procedure.';
+    if (rootlingTubeBusy()) return 'The original synthesis tube is occupied/reserved by botanical/fungal work or a retained procedure.';
     const tube = synthesisTube();
     const occupants = synthesisTubeOccupants();
     const corpses = tube ? containerCorpses(tube.id) : [];
@@ -64917,7 +64948,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function ensureElementalLab() { return state.elementalLab ||= Formation.create(state.clock); }
   function rootlingTubeBusy(excludeTaskId = '') {
-    return Boolean((state.elementalLab?.runs || []).some(r => r.family === 'rootling' && !r.cleared)
+    return Boolean((state.elementalLab?.runs || []).some(r => ['rootling', 'sporecap'].includes(r.family) && !r.cleared)
       || state.tasks.some(t => t.type === 'elementalWork' && t.data?.fixtureId === SYNTHESIS_TUBE_ID && t.id !== excludeTaskId));
   }
   function formationApparatus(id) {
@@ -64941,6 +64972,48 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       && Math.abs(f.origin.x - a.mapCell.x) + Math.abs(f.origin.y - a.mapCell.y) === 1
       && labMapCellIsWalkable(f.origin) && sensoryLineOfSight(a.mapCell, f.origin))?.origin;
   }
+  function fungalWasteInput(cell, claim = '') {
+    const names = ['sawdust', 'spent characterized plant tissue', 'rootling contaminated cuttings', 'spent fungal trial plant substrate'];
+    const i = ensurePhysicalItemStacks().find(i => names.includes(i.key) && i.quantity > 0 && !i.carriedBy && !i.containerId && !i.fixtureId
+      && (!i.reservedTaskId || i.reservedTaskId === claim) && sameMapLayer(i.cell, cell) && mapCellDistance(i.cell, cell) <= 1 && sensoryLineOfSight(i.cell, cell));
+    if (!i) return null;
+    const portion = i.section === 'resources' ? 1 : Math.min(.25, i.quantity), source = i.biology?.rootlingWaste || i.biology?.fungalWaste;
+    const kg = portion * i.unitMassKg;
+    return { stack: i, portion, batch: { kg, substances: Object.fromEntries(Object.entries(source?.substances || {}).map(([key, n]) => [key, n * kg / source.kg])),
+      sourceIds: [i.id, ...(source?.sourceIds || [])], sourceKey: i.key } };
+  }
+  function fungalSurfaceResidue(a) {
+    return a && ensurePhysicalItemStacks().find(i => i.key === 'sporecap deposited spores' && i.quantity > 0 && !i.reservedTaskId
+      && !i.carriedBy && !i.containerId && !i.fixtureId && sameMapCell(i.cell, a.mapCell));
+  }
+  function emitSporecapSpores(a, kg) {
+    const container = a.chamberId && containerById(a.chamberId);
+    if (container && containerEffectiveSeal(container) > 0) {
+      // Original tube interior, not outside floor residue. Its ordinary finite
+      // seal/permeability exchange remains responsible for later leakage.
+      container.environment.airborne ||= {};
+      container.environment.airborne[Formation.Sporecaps.SPORES] = (container.environment.airborne[Formation.Sporecaps.SPORES] || 0) + kg * 1000 / containerInteriorVolumeM3(container);
+      return true;
+    }
+    const env = tileEnvironmentAtCell(a.mapCell); if (!env) return false;
+    const grams = kg * 1000, deposited = Math.floor((grams * .5 + 1e-10) * 1000) / 1000;
+    env.airborne[Formation.Sporecaps.SPORES] = (env.airborne[Formation.Sporecaps.SPORES] || 0) + (grams - deposited) / tileEnvironmentVolumeM3();
+    if (deposited > 0) {
+      let stack = fungalSurfaceResidue(a);
+      if (stack) {
+        stack.quantity = roundOutputValue(stack.quantity + deposited); stack.updatedAt = state.clock;
+        stack.sourceLabels = normalizeResidueSourceLabels([...(stack.sourceLabels || []), a.id]);
+        if (homunculusLocal(a.mapCell)) { stack.knownQuantity = stack.quantity; stack.observedAt = state.clock; }
+      }
+      else {
+        stack = createPhysicalItemStack('collectedByproducts', 'sporecap deposited spores', deposited, { roomId: a.roomId, cell: a.mapCell },
+          { known: homunculusLocal(a.mapCell), phase: 'solid', tags: ['organic', 'mess', 'fungal-spores', 'nonpotable'], sourceLabels: [a.id],
+            biology: { sporecapDeposit: true, viableOffspring: false }, deferSync: true });
+        if (stack) { stack.unitMassKg = .001; stack.unitVolumeL = .001; }
+      }
+    }
+    return true;
+  }
   function rootlingDrainFactor(cell) {
     return (state.elementalLab?.creatures || []).filter(a => a.family === 'rootling').reduce((factor, a) => Math.min(factor, Formation.Rootlings.drainFactor(a, cell)), 1);
   }
@@ -64954,7 +65027,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       { phase: 'liquid', tags: ['wet', 'nonpotable', 'botanical'], sourceLabels: batch.sourceIds,
         biology: { rootlingLiquid: clonePlainObject(batch) }, deferSync: true,
         contents: Object.entries(batch.substances).map(([key, amount]) => ({ kind: 'waste', key, amount, phase: 'liquid', tags: ['nonpotable'] })) });
-    if (stack) { stack.unitMassKg = 1; stack.unitVolumeL = 1; syncPhysicalReadModels(); }
+    if (stack) { stack.unitMassKg = 1 + (batch.substances?.[Formation.Sporecaps.SPORES] || 0) / 1000 / batch.waterL; stack.unitVolumeL = 1; syncPhysicalReadModels(); }
     return stack;
   }
   function depositRootlingSolid(output, cell) {
@@ -65047,7 +65120,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const s = ensureElementalLab(), a = s.creatures.find(a => a.id === id), r = s.runs.find(r => r.id === a?.runId || r.id === id);
     const f = a && !a.chamberId && !a.brazierId && !a.vesselId && !a.planterId ? null
       : action === 'notes' ? state.fixtures.find(f => f.typeId === 'animancyDevice')
-      : ['characterize', 'document', 'fireCharacterize', 'fireDocument', 'airCharacterize', 'airDocument', 'rootCharacterize', 'rootWetTrial', 'rootShadeTrial', 'rootDocument'].includes(action) ? researchWorkstations()[0]
+      : ['characterize', 'document', 'fireCharacterize', 'fireDocument', 'airCharacterize', 'airDocument', 'rootCharacterize', 'rootWetTrial', 'rootShadeTrial', 'rootDocument', 'fungusCharacterize', 'fungusWetTrial', 'fungusDryTrial', 'fungusDocument'].includes(action) ? researchWorkstations()[0]
       : formationApparatus(a?.planterId || a?.vesselId || a?.brazierId || a?.chamberId || r?.chamberId || id);
     if (!route) return { s, a, r, f };
     const port = f && formationAccessCells(f).find(p => labNavigationPlanBetweenCells(scientistMapCell(), p.cell, { actor: state.scientist, ignoreDoors: true }).found);
@@ -65069,6 +65142,37 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         || !sameMapLayer(item.cell, cell) || mapCellDistance(item.cell, cell) > 1 || !sensoryLineOfSight(item.cell, cell)) return 'Stage the original unclaimed input lots within one tile of the operating position.';
     }
     const k = t.s.knowledge;
+    const fungal = t.s.fungalKnowledge;
+    if (['fungusWetTrial', 'fungusDryTrial'].includes(d.action)) {
+      const env = tileEnvironmentAtCell(f?.origin);
+      if (!env || env.temperatureC < 8 || env.temperatureC > 35) return 'Fungal substrate controls require actual 8–35 °C bench conditions.';
+    }
+    if (d.action === 'fungusCharacterize' && !k.notes || ['fungusWetTrial', 'fungusDryTrial'].includes(d.action) && !fungal.characterized
+      || d.action === 'fungusDocument' && (!fungal.wet || !fungal.dry) || d.action === 'growSporecap' && !fungal.documented)
+      return 'Characterize fungal material, compare damp and dry substrate, then document the performed method.';
+    if (d.action === 'growSporecap' && (f?.typeId !== 'synthesisTube' || rootlingTubeBusy(task.id) || synthesisTubeOccupants().length || containerCorpses(SYNTHESIS_TUBE_ID).length || pendingSynthesisCount() > 0))
+      return 'Use the empty, cleared original synthesis tube, exclusively shared with slime and botanical work.';
+    if (d.action === 'growSporecap' && d.soulWindow.requested && !creationDevice(f.origin, d.soulWindow.deviceId)) return 'Concurrent inherited animancy must reach the original tube.';
+    if (d.action.startsWith('fungus') && !['fungusCharacterize', 'fungusWetTrial', 'fungusDryTrial', 'fungusDocument'].includes(d.action)) {
+      const a = t.a;
+      if (a?.family !== 'sporecap') return 'Select the original Sporecap.';
+      if (['fungusFeed', 'fungusWater'].includes(d.action) && a.status === 'dead') return 'Dead fungi cannot resume metabolism; care does not resurrect them.';
+      if (d.action !== 'fungusPlant' && !a.planterId) return 'Use the original cultivation planter and its fungal controls.';
+      if (d.action === 'fungusWater' && a.waterL > 1 + 1e-8) return 'The entire litre must fit in the two-litre fungal reservoir.';
+      if (d.action === 'fungusFitCover' && a.coverFitted || ['fungusCover', 'fungusExpose', 'fungusWash'].includes(d.action) && !a.coverFitted) return 'Fit exactly one original cloth spore cover before operating or washing it.';
+      if (d.action === 'fungusFeed' && (!d.feedBatch || a.feedKg + d.feedBatch.kg > 2 + 1e-8)) return 'Stage compatible plant waste beside a tray with space for the whole selected portion.';
+      if (d.action === 'fungusFeed') {
+        const i = ensurePhysicalItemStacks().find(i => i.id === d.feedStackId);
+        if (!i || JSON.stringify(i.biology || null) !== d.feedOriginal) return 'The original waste composition changed; do not substitute a different source.';
+      }
+      if (d.action === 'fungusCleanResidue' && !d.sporeStackId) return 'No unclaimed deposited spore patch is within this planter maintenance scope.';
+      if (d.action === 'fungusSpent' && a.spentKg < .001) return 'Allow a measurable spent-substrate portion to accumulate first.';
+      if (d.action === 'fungusPlant') {
+        const p = fixtureById(d.planterId);
+        if (a.planterId || !p || p.condition < 50 || mapCellDistance(p.origin, a.mapCell) > 2 || mapCellDistance(p.origin, cell) > 2
+          || !sensoryLineOfSight(p.origin, cell) || t.s.creatures.some(b => b.planterId === p.id)) return 'Use an intact empty nearby planter for this same connected cap and mycelial mat.';
+      }
+    }
     const root = t.s.rootKnowledge || {};
     if (d.action === 'rootCharacterize' && !k.notes || ['rootWetTrial', 'rootShadeTrial'].includes(d.action) && !root.characterized
       || d.action === 'rootDocument' && (!root.wet || !root.shade) || d.action === 'growRootling' && !root.documented)
@@ -65153,6 +65257,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const slices = homunculusInputs(Formation.COSTS[action], cell); if (!slices) { addEvent('Stage the listed actual supplies within one tile of the operating position.'); persist(); render(); return false; }
     const batch = action === 'rootLoad' && rootlingLiquidInput(cell);
     if (batch) slices.push({ stackId: batch.id, key: batch.key, quantity: batch.quantity });
+    const waste = action === 'fungusFeed' && fungalWasteInput(cell), spores = action === 'fungusCleanResidue' && fungalSurfaceResidue(t.a);
+    if (waste) slices.push({ stackId: waste.stack.id, key: waste.stack.key, quantity: waste.portion });
+    if (spores) slices.push({ stackId: spores.id, key: spores.key, quantity: spores.quantity });
     const path = labNavigationPlanBetweenCells(scientistMapCell(), cell, { actor: state.scientist, ignoreDoors: true }); if (!path.found) return false;
     const device = t.f && creationDevice(t.f.origin), id = `task-${state.nextTaskNumber++}`;
     const task = { id, type: 'elementalWork', label: `Elemental laboratory: ${action}`, createdAt: state.clock, dueAt: state.clock + Formation.SECONDS[action],
@@ -65160,12 +65267,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         work: { progress: 0, required: Formation.SECONDS[action], lastAt: state.clock },
         soulWindow: Formation.soulWindow(t.s.useAnimancy, device?.id || ''), brazierId: action === 'brazier' ? nearbyEmberBrazier(t.a)?.id || '' : '',
         vesselId: action === 'vesselMote' ? nearbyMoteVessel(t.a)?.id || '' : '',
-        planterId: action === 'rootPlant' ? nearbyRootlingPlanter(t.a)?.id || '' : '',
+        planterId: ['rootPlant', 'fungusPlant'].includes(action) ? nearbyRootlingPlanter(t.a)?.id || '' : '',
         rootCell: action === 'rootGuide' ? clonePlainObject(rootlingDrainCell(t.a) || null) : null,
         ...(batch ? { batchStackId: batch.id, batchOriginal: JSON.stringify(batch.biology.rootlingLiquid),
           liquidBatch: { ...clonePlainObject(batch.biology.rootlingLiquid), waterL: batch.quantity, sourceIds: [batch.id] } } : {}),
         inputQuantities: Object.fromEntries(slices.map(p => [p.stackId, p.quantity])), reservedStackIds: slices.map(p => p.stackId) } };
     if (!reserveProductionMaterialSlices(slices, id)) return false;
+    if (waste) {
+      const slice = slices.find(p => p.key === waste.stack.key);
+      task.data.feedStackId = slice.stackId; task.data.feedBatch = clonePlainObject(waste.batch);
+      task.data.feedOriginal = JSON.stringify(waste.stack.biology || null);
+    }
+    if (spores) { task.data.sporeStackId = slices.find(p => p.key === spores.key).stackId; task.data.sporeGrams = spores.quantity; }
     task.data.reservedStackIds = slices.map(p => p.stackId);
     task.data.inputQuantities = Object.fromEntries(slices.map(p => [p.stackId, p.quantity]));
     if (hotElementalHandling(t.a, action)) {
@@ -65192,6 +65305,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const w = d.work, elapsed = Math.max(0, state.clock - Math.max(w.lastAt, d.workStartsAt)); w.lastAt = state.clock;
     if (!elapsed || taskBlockReason(task) || !sameMapCell(scientistMapCell(), d.toCell) || state.combat?.routineSuspension) return;
     const used = Math.min(elapsed, w.required - w.progress), f = formationApparatus(d.fixtureId);
+    if (['fungusCharacterize', 'fungusWetTrial', 'fungusDryTrial'].includes(d.action)) {
+      if (!d.materialConsumed) { consumeProductionMaterialReservations(task); d.materialConsumed = true; }
+      const env = tileEnvironmentAtCell(f.origin);
+      d.fungalTrial ||= { dampSeconds: 0, drySeconds: 0, colonizationSignal: 0, suppliedWaterL: d.action === 'fungusWetTrial' ? 1 : 0, sourceInputs: clonePlainObject(d.inputQuantities) };
+      d.fungalTrial[d.action === 'fungusWetTrial' ? 'dampSeconds' : 'drySeconds'] += used;
+      if (env?.temperatureC >= 8 && env.temperatureC <= 35 && d.action === 'fungusWetTrial') d.fungalTrial.colonizationSignal += used / 3600;
+    }
     if (['rootCharacterize', 'rootWetTrial', 'rootShadeTrial'].includes(d.action)) {
       if (!d.materialConsumed) { consumeProductionMaterialReservations(task); d.materialConsumed = true; }
       const light = tileEnvironmentAtCell(f.origin)?.lightLevel || 0;
@@ -65225,6 +65345,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (care?.reservedTaskId === task.id) care.reservedTaskId = '';
     if (careTool?.reservedTaskId === task.id) careTool.reservedTaskId = '';
     releaseProductionMaterialReservations(task);
+    if (d.materialConsumed && !d.outputRecorded && ['fungusCharacterize', 'fungusWetTrial', 'fungusDryTrial'].includes(d.action)) {
+      const kg = d.action === 'fungusCharacterize' ? 1 : 2;
+      const stack = createPhysicalItemStack('collectedByproducts', 'spent fungal trial plant substrate', kg, { roomId: d.roomId, cell: d.toCell },
+        { phase: 'solid', tags: ['organic', 'nonpotable', 'fungal-waste'], sourceLabels: [task.id],
+          biology: { fungalWaste: { kg, substances: d.action === 'fungusCharacterize' ? { 'spent-assay-solute': 1 } : {}, sourceIds: [task.id] } }, deferSync: true });
+      if (stack) stack.unitMassKg = 1;
+      if (d.action === 'fungusWetTrial') depositRootlingLiquid({ waterL: 1, substances: {}, sourceIds: [task.id] }, d.toCell, 'spent fungal trial water');
+      d.outputRecorded = true;
+    }
     if (d.materialConsumed && !d.outputRecorded && ['rootCharacterize', 'rootWetTrial', 'rootShadeTrial'].includes(d.action)) {
       if (d.action === 'rootCharacterize') {
         depositRootlingLiquid({ waterL: 1, substances: { 'spent-assay-solute': 1 }, sourceIds: [task.id] }, d.toCell, 'plant trial wastewater');
@@ -65251,26 +65380,36 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const d = task.data, t = elementalTarget(d.action, d.targetId, false), f = formationApparatus(d.fixtureId);
     try {
       if (elementalTaskReason(task) || !sameMapCell(scientistMapCell(), d.toCell) || d.work.progress < d.work.required - 1e-8) return false;
-      if (!['grow', 'growCinderling', 'growZephyr', 'growRootling'].includes(d.action) && !d.materialConsumed) { consumeProductionMaterialReservations(task); d.materialConsumed = true; }
+      if (!['grow', 'growCinderling', 'growZephyr', 'growRootling', 'growSporecap'].includes(d.action) && !d.materialConsumed) { consumeProductionMaterialReservations(task); d.materialConsumed = true; }
       const receipt = { taskId: task.id, fixtureId: d.fixtureId, originalInputs: d.inputQuantities, at: state.clock,
+        ...(d.fungalTrial ? { fungalTrial: clonePlainObject(d.fungalTrial) } : {}),
         ...(d.rootTrial ? { botanicalTrial: clonePlainObject(d.rootTrial) } : {}),
         ...(d.airParcel ? { capturedAir: clonePlainObject(d.airParcel), manaSpent: d.airManaSpent || 0, circulationM3: d.circulationObservedM3 || 0, coherence: d.trialCoherence } : {}) };
-      if (['notes', 'characterize', 'stability', 'document', 'fireCharacterize', 'fireStability', 'fireDocument', 'airCharacterize', 'airLow', 'airHigh', 'airDocument', 'rootCharacterize', 'rootWetTrial', 'rootShadeTrial', 'rootDocument'].includes(d.action)) {
+      if (['notes', 'characterize', 'stability', 'document', 'fireCharacterize', 'fireStability', 'fireDocument', 'airCharacterize', 'airLow', 'airHigh', 'airDocument', 'rootCharacterize', 'rootWetTrial', 'rootShadeTrial', 'rootDocument', 'fungusCharacterize', 'fungusWetTrial', 'fungusDryTrial', 'fungusDocument'].includes(d.action)) {
         if (!Formation.research(t.s, d.action, receipt, state.clock)) return false;
-        recordResearchEvidence({ methodId: `elemental:${d.action}`, category: 'diagnostic', specimenId: task.id, specimenName: d.action.startsWith('root') ? 'Botanical propagation study' : d.action.startsWith('air') ? 'Airflow/vortex elemental study' : d.action.startsWith('fire') ? 'Charcoal/flame elemental study' : 'Clay/water elemental study',
+        recordResearchEvidence({ methodId: `elemental:${d.action}`, category: 'diagnostic', specimenId: task.id, specimenName: d.action.startsWith('fungus') ? 'Fungal development study' : d.action.startsWith('root') ? 'Botanical propagation study' : d.action.startsWith('air') ? 'Airflow/vortex elemental study' : d.action.startsWith('fire') ? 'Charcoal/flame elemental study' : 'Clay/water elemental study',
           sourceKey: task.id, summary: `Personally performed ${d.action} using original staged inputs and actual equipment.${d.airParcel ? ` Captured ${d.airParcel.volumeM3} m³ of local air; observed coherence ${d.trialCoherence ?? 'sampled'} with ${formatDecimal(d.airManaSpent || 0, 2)} mana spent.` : ''}`, confidence: .9 });
       } else if (d.action === 'charge') f.utility.storedMana = Math.min(24, f.utility.storedMana + 8);
       else if (d.action === 'rootCharge') t.s.tubeMana[f.id] = Math.min(24, (t.s.tubeMana[f.id] || 0) + 8);
-      else if (['grow', 'growCinderling', 'growZephyr', 'growRootling'].includes(d.action)) {
+      else if (['grow', 'growCinderling', 'growZephyr', 'growRootling', 'growSporecap'].includes(d.action)) {
         const slices = d.reservedStackIds.map(id => ({ stackId: id, key: ensurePhysicalItemStacks().find(i => i.id === id)?.key, quantity: d.inputQuantities[id] }));
         const parcel = d.action === 'growZephyr' ? Formation.takeAir(tileEnvironmentAtCell(f.origin), .1, tileEnvironmentVolumeM3()) : null;
         const r = Formation.begin(t.s, f.id, slices, d.soulWindow, { roomId: d.roomId, bodyCell: f.origin, cell: d.toCell }, state.clock,
-          d.action === 'growRootling' ? 'rootling' : d.action === 'growZephyr' ? 'zephyrMote' : d.action === 'growCinderling' ? 'cinderling' : 'mudlet', parcel);
+          d.action === 'growSporecap' ? 'sporecap' : d.action === 'growRootling' ? 'rootling' : d.action === 'growZephyr' ? 'zephyrMote' : d.action === 'growCinderling' ? 'cinderling' : 'mudlet', parcel);
         if (!r) { if (parcel) Formation.returnAir(tileEnvironmentAtCell(f.origin), parcel, tileEnvironmentVolumeM3()); return false; }
         for (const p of slices) { const item = ensurePhysicalItemStacks().find(i => i.id === p.stackId); item.reservedTaskId = r.id; item.fixtureId = f.id; item.cell = clonePlainObject(f.origin); }
-      } else if (d.action === 'rootPlant') {
+      } else if (['rootPlant', 'fungusPlant'].includes(d.action)) {
         const p = fixtureById(d.planterId); t.a.chamberId = ''; t.a.planterId = p.id; t.a.mapCell = clonePlainObject(p.origin); t.a.roomId = labMapCellRoomId(p.origin);
-      } else if (d.action === 'rootWater') Formation.Rootlings.water(t.a);
+      } else if (d.action === 'fungusWater') Formation.Sporecaps.water(t.a);
+      else if (d.action === 'fungusFeed') Formation.Sporecaps.feed(t.a, d.feedBatch);
+      else if (d.action === 'fungusFitCover') { t.a.coverFitted = true; t.a.covered = true;
+        t.a.coverReceipt = { taskId: task.id, sourceStackIds: Object.keys(d.inputQuantities), cloth: 1, at: state.clock }; }
+      else if (d.action === 'fungusCover') t.a.covered = true;
+      else if (d.action === 'fungusExpose') t.a.covered = false;
+      else if (d.action === 'fungusWash') depositRootlingLiquid(Formation.Sporecaps.wash(t.a), d.toCell, 'sporecap cover washwater');
+      else if (d.action === 'fungusCleanResidue') depositRootlingLiquid({ waterL: 1, substances: { [Formation.Sporecaps.SPORES]: d.sporeGrams }, sourceIds: [d.sporeStackId] }, d.toCell, 'sporecap floor washwater');
+      else if (d.action === 'fungusSpent') depositRootlingSolid(Formation.Sporecaps.collectSpent(t.a), d.toCell);
+      else if (d.action === 'rootWater') Formation.Rootlings.water(t.a);
       else if (d.action === 'rootNourish') Formation.Rootlings.nourish(t.a);
       else if (['rootAir', 'rootLiquid', 'rootOff'].includes(d.action)) t.a.filterMode = { rootAir: 'air', rootLiquid: 'liquid', rootOff: 'off' }[d.action];
       else if (d.action === 'rootLoad') Formation.Rootlings.loadLiquid(t.a, d.liquidBatch);
@@ -65325,16 +65464,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const f = formationApparatus(r.chamberId), device = r.soulWindow.requested && creationDevice(f?.origin, r.soulWindow.deviceId);
       const energy = (r.family === 'zephyrMote' ? 4 : 2) * seconds / r.required, neededSoul = r.soulWindow.requested ? 2 * seconds / r.required : 0;
       const present = r.stocks.every(p => { const item = ensurePhysicalItemStacks().find(i => i.id === p.stackId); return p.quantity - (p.used || 0) < 1e-8 || item?.reservedTaskId === r.id && item.fixtureId === r.chamberId && item.quantity + 1e-8 >= p.quantity - (p.used || 0); });
-      const botanical = r.family === 'rootling';
+      const botanical = ['rootling', 'sporecap'].includes(r.family);
       const rootEnvironment = botanical && tileEnvironmentAtCell(f?.origin);
       const bodyServices = botanical ? f?.typeId === 'synthesisTube' && !isContainerInTransit(f.id) && sameMapCell(f.origin, r.location.bodyCell)
-        && !synthesisTubeOccupants().length && !containerCorpses(f.id).length && (rootEnvironment?.lightLevel || 0) >= 20
+        && !synthesisTubeOccupants().length && !containerCorpses(f.id).length && (r.family === 'sporecap' || (rootEnvironment?.lightLevel || 0) >= 20)
         && rootEnvironment.temperatureC >= 15 && rootEnvironment.temperatureC <= 32 : utilityFixtureEnabled(f);
       const ok = Boolean(f && f.condition >= 50 && bodyServices && f.utility.storedMana + 1e-8 >= energy && present
         && (!neededSoul || device && device.utility.storedMana + 1e-8 >= neededSoul));
       if (ok) { formationEnergy(f, energy); if (neededSoul) formationEnergy(device, neededSoul); }
       const reason = !f || f.condition < 50 ? 'Original formation apparatus is missing or below 50% condition.'
-        : botanical && !bodyServices ? 'Original botanical tube support is unavailable: retain the unmoved empty tube, light ≥20 and 15–32 °C.'
+        : botanical && !bodyServices ? `Original tube support is unavailable: retain the unmoved empty tube and 15–32 °C.${r.family === 'rootling' ? ' Rootlings also require light ≥20.' : ' Fungal development does not require light.'}`
         : !present ? 'Original reserved formation input lots are missing or changed.'
         : f.utility.storedMana + 1e-8 < energy ? 'Original formation apparatus has insufficient stored mana.'
         : neededSoul && (!device || device.utility.storedMana + 1e-8 < neededSoul) ? 'Concurrent inherited animancy is disconnected or insufficiently fueled.'
@@ -65358,12 +65497,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       for (const item of ensurePhysicalItemStacks().filter(i => i.reservedTaskId === r.id)) { item.reservedTaskId = ''; item.fixtureId = ''; item.cell = clonePlainObject(r.location.cell); item.roomId = r.location.roomId; }
       if (r.status === 'failed' && r.family === 'zephyrMote' && r.airParcel && !r.airParcel.released)
         Formation.returnAir(tileEnvironmentAtCell(r.location.bodyCell), r.airParcel, tileEnvironmentVolumeM3());
-      if (r.status === 'failed' && r.family !== 'zephyrMote' && !r.remainsStackId) r.remainsStackId = createPhysicalItemStack(['cinderling', 'rootling'].includes(r.family) ? 'collectedByproducts' : 'inventory',
-        r.family === 'rootling' ? 'failed botanical formation residue' : r.family === 'cinderling' ? 'failed ember formation residue' : 'convergenceResidue', Object.values(r.consumed).reduce((n, v) => n + v, 0),
+      if (r.status === 'failed' && r.family !== 'zephyrMote' && !r.remainsStackId) r.remainsStackId = createPhysicalItemStack(['cinderling', 'rootling', 'sporecap'].includes(r.family) ? 'collectedByproducts' : 'inventory',
+        r.family === 'sporecap' ? 'failed fungal formation residue' : r.family === 'rootling' ? 'failed botanical formation residue' : r.family === 'cinderling' ? 'failed ember formation residue' : 'convergenceResidue', Object.values(r.consumed).reduce((n, v) => n + v, 0),
         { roomId: r.location.roomId, cell: r.location.cell }, { sourceLabels: [r.id],
-          ...(r.family === 'rootling' ? { phase: r.consumed.drinkingWater > 0 ? 'sludge' : 'solid', tags: ['organic', 'nonpotable', 'botanical-waste'],
+          ...(['rootling', 'sporecap'].includes(r.family) ? { phase: r.consumed.drinkingWater > 0 ? 'sludge' : 'solid', tags: ['organic', 'nonpotable', 'botanical-waste'],
             biology: { failedBotanicalFormation: { consumed: clonePlainObject(r.consumed), sourceIds: r.stocks.map(p => p.stackId) } } } : { tags: ['mineral'] }) })?.id || '';
     }, environment: (a, seconds) => {
+      if (a.family === 'sporecap') {
+        const env = tileEnvironmentAtCell(a.mapCell);
+        return { temperature: env?.temperatureC ?? 20, humidity: env?.humidity ?? 50,
+          disturbed: (env?.humidity ?? 50) < 35 || zephyrDisruptionAt(a.mapCell) > 0, hazard: !env };
+      }
       if (a.family === 'rootling') {
         const env = tileEnvironmentAtCell(a.mapCell), drain = rootlingDrainCell(a);
         const moist = drain && ensurePhysicalItemStacks().some(i => i.quantity > 0 && i.form === 'spill' && !i.carriedBy && !i.containerId && sameMapCell(i.cell, drain));
@@ -65395,7 +65539,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const pool = !a.chamberId && wet(a.mapCell), absorb = pool ? Math.max(0, Math.floor(Math.min(pool.quantity, 2 - a.waterL, seconds / 60 * .1) * 1000) / 1000) : 0;
       if (absorb) { pool.quantity = roundOutputValue(pool.quantity - absorb); pool.knownQuantity = Math.min(pool.quantity, pool.knownQuantity); }
       return { humidity: env?.humidityPct ?? env?.humidity ?? 50, temperature: env?.temperatureC ?? 20, hazard: Boolean(surfaceWorkerHazard(a.mapCell)), moistDestination: destination, absorb };
-    }, transpire: (a, amount) => { const env = tileEnvironmentAtCell(a.mapCell); if (env) env.humidity = Math.min(100, env.humidity + amount); },
+    }, emitSpores: emitSporecapSpores,
+    transpire: (a, amount) => { const env = tileEnvironmentAtCell(a.mapCell); if (env) env.humidity = Math.min(100, env.humidity + amount); },
     move: (a, cell) => { if (!labMapCellIsWalkable(cell) || !canActorOccupyTile(a, cell)
       || a.family === 'zephyrMote' && !zephyrAirPassage(a.mapCell, cell, true)) return false;
       a.mapCell = clonePlainObject(cell); a.roomId = labMapCellRoomId(cell); return true; },
@@ -65461,8 +65606,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       if (a.vesselId && !(fixtureById(a.vesselId)?.condition >= 50)) { a.vesselId = ''; a.aperture = 'gentle'; }
     }
-    for (const a of state.elementalLab.creatures) if (a.family === 'rootling') {
-      if (a.planterId && !(fixtureById(a.planterId)?.condition >= 50)) { a.planterId = ''; a.filterMode = 'off'; }
+    for (const a of state.elementalLab.creatures) if (['rootling', 'sporecap'].includes(a.family)) {
+      if (a.planterId && !(fixtureById(a.planterId)?.condition >= 50)) { a.planterId = ''; if (a.family === 'rootling') a.filterMode = 'off'; else a.covered = false; }
       if (a.chamberId && !formationApparatus(a.chamberId)) { a.chamberId = ''; const r = state.elementalLab.runs.find(r => r.id === a.runId); if (r) a.mapCell = clonePlainObject(r.location.cell); }
     }
     return Formation.advance(state.elementalLab, state.clock, elementalHooks());
@@ -65477,6 +65622,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const t = elementalTarget(action, id, false), k = s.knowledge, fire = s.fireKnowledge || {}, air = s.airKnowledge || {};
       const reason = state.tasks.some(t => t.type === 'elementalWork') ? 'Finish or cancel the current elemental procedure first.'
         : t.a && !homunculusLocal(t.a.mapCell) ? 'Travel to the original body for physical examination and handling.'
+        : action === 'fungusCharacterize' && !k.notes ? 'Read the inherited working notes first.'
+        : ['fungusWetTrial', 'fungusDryTrial'].includes(action) && !s.fungalKnowledge.characterized ? 'Characterize the actual sourced fungal starter first.'
+        : action === 'fungusDocument' && (!s.fungalKnowledge.wet || !s.fungalKnowledge.dry) ? 'Perform both damp and dry substrate controls first.'
+        : action === 'growSporecap' && (!s.fungalKnowledge.documented || rootlingTubeBusy() || synthesisTubeOccupants().length || containerCorpses(SYNTHESIS_TUBE_ID).length || pendingSynthesisCount() > 0) ? 'Document fungal development and empty/clear the original shared synthesis tube.'
         : action === 'rootCharacterize' && !k.notes ? 'Read the inherited working notes first.'
         : ['rootWetTrial', 'rootShadeTrial'].includes(action) && !s.rootKnowledge.characterized ? 'Characterize actual sourced plant propagation material first.'
         : action === 'rootDocument' && (!s.rootKnowledge.wet || !s.rootKnowledge.shade) ? 'Compare the supported and physically shaded trials first.'
@@ -65517,6 +65666,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     button('Supported botanical growth trial (1 propagule, 1 water, 1 medium)', 'rootWetTrial');
     button('Physically shaded botanical control (same original supplies)', 'rootShadeTrial');
     button('Document compared botanical development (1 reagent)', 'rootDocument');
+    panel.append(textEl('h3', 'Sporecap — Research Tier 0 / Production Tier 0'),
+      textEl('p', 'One naturally existing fungal individual: a cap and connected bounded mycelial mat. Characterize sourced fungal material, compare damp and dry substrate, then document. Original-tube formation: 1 fungal starter, 1 plant compost, 1 water; four supported hours, 2 tube mana and optional concurrent inherited animancy. No Rootling research prerequisite or elemental chamber.'));
+    button('Characterize fungal starter (1 starter, 1 reagent)', 'fungusCharacterize');
+    button('Damp fungal substrate trial (1 starter, 1 compost, 1 water)', 'fungusWetTrial');
+    button('Dry fungal control (1 starter, 1 compost)', 'fungusDryTrial');
+    button('Document compared fungal development (1 reagent)', 'fungusDocument');
     s.fixtureObservations ||= {};
     const tube = formationApparatus(SYNTHESIS_TUBE_ID);
     for (const f of [...state.fixtures.filter(f => ['animancyDevice', 'elementalChamber'].includes(f.typeId)), ...(tube ? [tube] : [])]) {
@@ -65524,8 +65679,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const view = s.fixtureObservations[f.id];
       panel.append(textEl('h4', f.name), textEl('p', view ? `Fuel inspected ${formatClock(view.at)}: ${formatDecimal(view.mana, 2)} mana. No stored souls. Actions require actual travel and attendance.` : 'Inherited/built apparatus location recorded. Travel there for a current fuel inspection.'));
       if (f.typeId === 'synthesisTube') {
-        button('Charge the original synthesis tube (1 feedstock, +8 botanical mana)', 'rootCharge', f.id);
+        button('Charge the original synthesis tube (1 feedstock, +8 botanical/fungal mana)', 'rootCharge', f.id);
         button('Load Rootling propagation (6 hours, real plant/water/medium, 2 tube mana)', 'growRootling', f.id);
+        button('Load Sporecap development (4 hours, real starter/compost/water, 2 tube mana)', 'growSporecap', f.id);
       } else button('Charge from one staged arcane feedstock (+8 mana)', 'charge', f.id);
       if (f.typeId === 'elementalChamber') { button('Run stabilization trial (1 clay, 1 water, 1 chamber mana)', 'stability', f.id); button('Load Mudlet formation (2 clay, 2 water; 2 chamber mana over ten minutes)', 'grow', f.id); button('Fill test-fitting reservoir (4 water)', 'fillLeak', f.id); button('Drain reservoir and eight-litre catch basin to floor', 'drainLeak', f.id); button('Change physical test-fitting pressure', 'pressure', f.id); }
       if (f.typeId === 'elementalChamber') { button('Contained ignition/stability trial (1 charcoal, 1 chamber mana)', 'fireStability', f.id);
@@ -65561,6 +65717,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         button('Open gentle circulation (1 m³/h)', 'gentleMote', a.id);
         button('Open strong circulation (3 m³/h; disruptive)', 'strongMote', a.id);
         button('Rotate original vessel opening clockwise', 'orientMote', a.id);
+      } else if (a.family === 'sporecap') {
+        const v = view.fungus;
+        panel.append(textEl('p', `Observed fungus: ${formatDecimal(v.waterL, 2)} L water; ${formatDecimal(v.feedKg, 3)} kg contacting organic substrate; ${formatDecimal(v.digestedKg, 3)} kg decomposed; ${formatDecimal(v.spentKg, 3)} kg spent compost; ${formatDecimal(v.respiredKg, 3)} kg recorded respiratory matter loss. ${v.coverFitted ? v.covered ? 'Physical spore cover closed.' : 'Physical cover open.' : 'No spore cover fitted.'} Cover holds ${formatDecimal(v.coverSporeKg * 1000, 3)} / 20 g spores. ${v.gillsClosed ? 'Gills deliberately closed against sensed disturbance.' : 'No deliberate gill closure observed.'} Emitted spores are finite body material, not new offspring. Toxins remain in feed/tissue/spent substrate; this is not universal detoxification or edible production.`));
+        button('Transfer cap and connected mat into an empty nearby planter', 'fungusPlant', a.id);
+        button('Fit one cloth spore cover (1 cloth)', 'fungusFitCover', a.id);
+        button('Close physical spore cover', 'fungusCover', a.id); button('Open physical spore cover', 'fungusExpose', a.id);
+        button('Load a real compatible plant-waste portion', 'fungusFeed', a.id); button('Administer 1 fungal care water', 'fungusWater', a.id);
+        button('Wash retained cover spores into wastewater (1 water)', 'fungusWash', a.id);
+        button('Wash deposited spore patch into wastewater (1 water)', 'fungusCleanResidue', a.id);
+        button('Collect original spent compost', 'fungusSpent', a.id);
       } else if (a.family === 'rootling') {
         const v = view.botany;
         panel.append(textEl('p', `Observed care: ${formatDecimal(v.waterL, 2)} L water; ${formatDecimal(v.mediumOrganicKg + v.mediumMineralKg, 3)} kg remaining medium; ${v.filterMode} filtration. Retained leaf particles ${formatDecimal(Formation.Rootlings.total(v.surfaceLoad), 3)}, tissue pollutants ${formatDecimal(Formation.Rootlings.total(v.tissueLoad), 3)}, substrate pollutants ${formatDecimal(Formation.Rootlings.total(v.substrateLoad), 3)}. Root extension ${formatDecimal(v.rootLength, 2)} tile; ${v.rootGuard ? 'barrier closed' : 'root opening exposed'}. ${v.liquid ? `${formatDecimal(v.liquid.waterL, 2)} L original nonpotable batch retained.` : 'Batch tray empty.'} Capture is limited to the documented smoke/particle and test-fume/assay-solute responses; unknown chemicals are not silently neutralized. Source water remains nonpotable. Captured pollutants remain after death.`));
@@ -70702,7 +70868,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (laboratoryAssistantNearby(true)) setLabMapOverlayEntry(assignments, assistant.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: assistant.name, title: "Laboratory technician; direct observation", source: "Direct observation", value: assistant.status === "dead" ? "†" : "A", target: { kind: "tile", tile: assistant.mapCell } }, map);
     for (const a of state.homunculi?.individuals || []) if (!a.chamberId && homunculusLocal(a.mapCell)) setLabMapOverlayEntry(assignments, a.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: a.name, title: `${a.name}: ${a.status === "dead" ? "physical remains" : "independent inexperienced individual"}`, source: "Direct observation", value: a.status === "dead" ? "†" : "H", target: { kind: "tile", tile: a.mapCell } }, map);
     for (const a of state.elementalLab?.creatures || []) if (!a.chamberId && homunculusLocal(a.mapCell)) setLabMapOverlayEntry(assignments, a.mapCell,
-      { overlayId, classNames: ['map-overlay-resources'], label: a.name, title: `${a.name}: ${Formation.consistency(a)}; ${a.status}`, source: 'Direct observation', value: a.status === 'dead' ? '†' : a.family === 'cinderling' ? 'C' : a.family === 'zephyrMote' ? 'Z' : a.family === 'rootling' ? 'R' : 'M', target: { kind: 'tile', tile: a.mapCell } }, map);
+      { overlayId, classNames: ['map-overlay-resources'], label: a.name, title: `${a.name}: ${Formation.consistency(a)}; ${a.status}`, source: 'Direct observation', value: a.status === 'dead' ? '†' : a.family === 'cinderling' ? 'C' : a.family === 'zephyrMote' ? 'Z' : a.family === 'rootling' ? 'R' : a.family === 'sporecap' ? 'S' : 'M', target: { kind: 'tile', tile: a.mapCell } }, map);
     if (!ensureWildernessBeasts().materialized) return assignments;
     const knowledge = wildernessBeastKnowledge();
     const markers = [
@@ -71560,7 +71726,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         anchorCell: cleanMapCell(a.mapCell), footprintCells: [cleanMapCell(a.mapCell)], orientation: 'square', facing: 'none', pose: a.status === 'dead' ? 'prone' : 'idle',
         condition: { ratio: a.health / 100, band: a.status === 'dead' ? 'dead' : 'living', cues: [] },
         knowledge: { state: 'current', observedAt: state.clock, confidence: 1, source: 'Direct observation' },
-        visual: { key: `actor.${a.family}`, glyph: a.status === 'dead' ? '†' : a.family === 'cinderling' ? 'C' : a.family === 'zephyrMote' ? 'Z' : a.family === 'rootling' ? 'R' : 'M', recipeKey: `${a.family}:${Formation.consistency(a)}` }, blocking: false });
+        visual: { key: `actor.${a.family}`, glyph: a.status === 'dead' ? '†' : a.family === 'cinderling' ? 'C' : a.family === 'zephyrMote' ? 'Z' : a.family === 'rootling' ? 'R' : a.family === 'sporecap' ? 'S' : 'M', recipeKey: `${a.family}:${Formation.consistency(a)}` }, blocking: false });
     }
     const scientistCell = scientistMapCell();
     const scientistHealthVital = scientistVital("health");
