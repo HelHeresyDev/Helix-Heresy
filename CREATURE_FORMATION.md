@@ -1,4 +1,4 @@
-# Creature formation: Mudlets, Cinderlings and Zephyr Motes
+# Creature formation: elemental and botanical families
 
 Every supported family has a naturally existing base form. The scientist modifies
 its formation process; neither science nor gods invent life from nothing. An
@@ -116,6 +116,76 @@ or self-feeding, even beside fuel; passive combustion, cooling and ignition stil
 occur. Both outcomes retain identity, soul provenance, injuries, fuel, ash and
 observations through saves and continued imports. Local examinations are dated;
 both Canvas and DOM maps use a `C`/remains glyph fallback, not claimed new bitmap art.
+
+## Rootlings: original-tube propagation and finite filtration
+
+Rootlings naturally develop in damp woodland banks and life-aspected soils. The
+scientist propagates a new individual from sourced plant material, not life from
+nothing or an existing individual's soul retrofit. Research Tier 1 and Production
+Tier 0 are separate ratings.
+
+Read the inherited notes, then characterize one plant propagule, one water and
+one assay reagent at the original bench (120 seconds). Perform an illuminated
+growth trial and a physically shaded control, each consuming one propagule, one
+water and one nutrient medium over ten attended minutes. Document the comparison
+with one reagent over three minutes. Consumed trial material remains as physical
+spent tissue, medium and wastewater; the characterization reagent remains as spent
+assay solute in its wastewater. No elemental discovery or chamber is required.
+
+Formation uses the **original synthesis tube**, exclusively shared with slime
+synthesis. Load **one propagule (1 kg sourced plant material), two waters (2 L)
+and one nutrient medium (1 kg organic/mineral material)**. Loading takes a minute,
+followed by six supported hours at 15–32 °C and light level at least 20. The tube
+spends two actual mana. Charge it separately with one arcane feedstock for eight
+mana, capacity 24; there is no passive refill. An own soul additionally requires
+two actual inherited-device mana concurrently supplied through its existing
+physical connection. Unassisted formation is soulless. The cumulative thirty-minute
+support-loss buffer does not reset on recovery. Failure retains incorporated
+material as residue and releases only unused original inputs. Clear the run before
+reusing the tube.
+
+The **Rootling planter is care equipment, not a creation machine**. Build it from
+two lumber, two glass and one metal part in five base minutes, then transplant the
+same individual into a nearby empty intact planter (one minute). Watering supplies
+one actual litre; nourishing supplies one medium with finite organic and mineral
+portions. Light supplies energy, not free dry matter: root growth transfers retained
+material, respiration consumes reserves, and transpiration spends water. Darkness,
+dehydration, exhausted nutrients, waterlogging, unsafe temperature and phytotoxic
+accumulation can wound or kill.
+
+Physically select the planter's off, air or supplied-liquid mode:
+
+- Air capture supports `cinderling-smoke`, `fuel-smoke` and `mineral-test-dust` on
+  leaves, and `chemistry-test-fumes` in tissue. Passive contact is 0.5 m³/hour,
+  or 1 m³/hour with nearby operating ventilation. Real concentrations, contact
+  volume and finite capacity constrain capture. Unknown gases remain untouched;
+  accumulated dust also shades the leaves.
+- The tray holds at most two litres of a real supplied botanical wastewater batch,
+  preserving its source IDs, water and substances. The documented liquid response
+  captures `spent-assay-solute` into substrate and tissue. It saturates rather than
+  deleting arbitrary chemicals, microbes or salinity. Drained output is explicitly
+  **nonpotable**, not certified drinking water.
+- Washing consumes one water and produces contaminated washwater. Substrate
+  replacement consumes one medium and produces the original contaminated substrate,
+  without clearing tissue pollution. Loads persist in body, tray or physical waste
+  after death. Capture amounts use the existing substance-load units, not invented
+  universal chemical mass conversions.
+
+An intact root barrier prevents extension. Opening it is not an order. A souled
+plant may direct a tip toward directly sensed adjacent moisture at a real drain
+opening. A physical guide can direct passive growth for either soul outcome;
+soulless plants never choose a target, seek supplies or feed themselves. Extension
+is bounded to one adjacent real patch, not passage through walls or floors.
+Attached roots reduce actual drain inlet throughput, to 25% at full extension;
+backed-up water is not erased. Dead roots obstruct until cut. Pruning uses/wears
+the original scraper, wounds the individual and leaves contaminated cuttings.
+Cut attached roots and collect tray liquid before moving the body.
+
+Both map renderers identify Rootlings as `R`, with retained `†` remains. Physically
+gated observations stay dated. Saves and continued imports retain original inputs,
+body, soul provenance, damage, roots, tray and pollutants. This package adds no
+agriculture, harvests, reproduction, encounters, global soil/oxygen simulator or
+autonomous workforce.
 
 ## Zephyr Motes: captured air, not free filtration
 

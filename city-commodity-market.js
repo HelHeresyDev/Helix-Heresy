@@ -5,7 +5,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
   const groups = {
-    biologicalProductivity: ['biomass', 'fieldRation', 'trailMeal'],
+    biologicalProductivity: ['biomass', 'fieldRation', 'trailMeal', 'plantPropagule', 'nutrientMedium'],
     constructionStone: ['stoneBlocks'], timberFiber: ['charcoal', 'lumber', 'cloth', 'medicalBandage', 'filterBag', 'escortVest', 'fieldShelter'],
     ferrousOre: ['steelPanels', 'metalParts', 'escortBaton'],
     baseMetalOre: ['refinedConductors', 'relayBattery'], manaCrystals: ['preparedManaCrystals', 'arcaneFeedstock'],

@@ -2,6 +2,17 @@ const { test, expect } = require('@playwright/test');
 const Market = require('../city-commodity-market');
 const defs = [{ id: 'steelPanels', supply: 100, liquidity: 20 }, { id: 'biomass', supply: 100, liquidity: 20 }];
 const facts = () => ({ directory: { foundations: [{ city: { id: 'a', name: 'Aster' }, primaryExploitation: { id: 'ferrousOre', label: 'Ferrous Ore' }, arableLandBand: 'productive' }, { city: { id: 'b' }, primaryExploitation: { id: 'biologicalProductivity' } }], satellites: [{ id: 'farm', parentId: 'a', name: 'Aster Farm', function: 'agriculture', sizeBand: 'town', exportResource: { id: 'biologicalProductivity' } }] }, current: { playableYear: 500, cityRows: [{ cityId: 'a', physicalCondition: 'intact', populationBand: 'large', services: { utilities: 'functional' } }], satelliteRows: [] } });
+test('Rootling propagules and medium use finite local biological production', () => {
+  const f = facts(), definitions = ['plantPropagule', 'nutrientMedium'].map(id => ({ id, supply: 60, liquidity: 20 }));
+  const supplied = Market.profile('a', f.directory, f.current, definitions);
+  f.directory.satellites = []; f.directory.foundations[0].arableLandBand = 'barren';
+  const scarce = Market.profile('a', f.directory, f.current, definitions);
+  for (const d of definitions) {
+    expect(Market.familyFor(d.id)).toBe('biologicalProductivity');
+    expect(supplied.listings[d.id].targetSupply).toBeGreaterThan(scarce.listings[d.id].targetSupply);
+    expect(Market.evolve({ supply: 0, demand: 1 }, supplied.listings[d.id], d, 1, .5).supply).toBe(0);
+  }
+});
 test('Cinderling charcoal supply follows published local timber rather than free fuel replenishment', () => {
   expect(Market.familyFor('charcoal')).toBe('timberFiber');
   const f = facts(), definitions = [{ id: 'charcoal', supply: 120, liquidity: 40 }];

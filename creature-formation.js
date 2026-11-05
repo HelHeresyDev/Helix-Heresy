@@ -4,6 +4,7 @@
   if (root) root.HelixCreatureFormation = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
+  const Rootlings = typeof module === 'object' && module.exports ? require('./rootlings') : globalThis.HelixRootlings;
   const copy = x => JSON.parse(JSON.stringify(x));
   const FAMILIES = Object.freeze({
     slime: { name: 'Slime', researchTier: 0, synthesisTier: 0, natural: true, communication: false },
@@ -16,6 +17,9 @@
     zephyrMote: { name: 'Zephyr Mote', researchTier: 1, synthesisTier: 0, natural: true, communication: false,
       habitat: 'Wind-scoured mountain passes and exposed cliffs with persistent air-aspected mana',
       formation: 'A stable natural vortex binds a finite parcel of surrounding air; excessive circulation tears its coherence.' },
+    rootling: { name: 'Rootling', researchTier: 1, synthesisTier: 0, natural: true, communication: false,
+      habitat: 'Damp woodland banks and nutrient-rich soils with suitable life-aspected mana',
+      formation: 'A new rooted individual develops from sourced plant propagation material; existing individuals are not overwritten.' },
     homunculus: { name: 'Human-derived homunculus', researchTier: null, synthesisTier: null, natural: true,
       formation: 'Modified human tissue development; advanced methods, not an early workforce.' }
   });
@@ -26,12 +30,21 @@
     fireCharacterize: { charcoal: 1 }, fireStability: { charcoal: 1 }, fireDocument: { assayReagent: 1 },
     growCinderling: { charcoal: 2 }, feedCinderling: { charcoal: 1 }, quenchCinderling: { drinkingWater: 1 }, brazier: {},
     airCharacterize: {}, airLow: {}, airHigh: {}, airDocument: { assayReagent: 1 }, growZephyr: {},
-    rechargeMote: { arcaneFeedstock: 1 }, vesselMote: {}, sealMote: {}, gentleMote: {}, strongMote: {}, orientMote: {} });
+    rechargeMote: { arcaneFeedstock: 1 }, vesselMote: {}, sealMote: {}, gentleMote: {}, strongMote: {}, orientMote: {},
+    rootCharacterize: { plantPropagule: 1, drinkingWater: 1, assayReagent: 1 },
+    rootWetTrial: { plantPropagule: 1, drinkingWater: 1, nutrientMedium: 1 },
+    rootShadeTrial: { plantPropagule: 1, drinkingWater: 1, nutrientMedium: 1 }, rootDocument: { assayReagent: 1 },
+    growRootling: { plantPropagule: 1, drinkingWater: 2, nutrientMedium: 1 }, rootCharge: { arcaneFeedstock: 1 },
+    rootPlant: {}, rootWater: { drinkingWater: 1 }, rootNourish: { nutrientMedium: 1 }, rootAir: {}, rootLiquid: {}, rootOff: {},
+    rootLoad: {}, rootDrain: {}, rootWash: { drinkingWater: 1 }, rootReplace: { nutrientMedium: 1 }, rootPrune: {}, rootGuide: {}, rootGuard: {}, rootOpen: {} });
   const SECONDS = Object.freeze({ notes: 60, characterize: 120, stability: 300, document: 180,
     grow: 60, charge: 60, wet: 30, fillLeak: 60, drainLeak: 60, examine: 30, position: 30, release: 30, pressure: 30, clear: 60,
     fireCharacterize: 120, fireStability: 300, fireDocument: 180, growCinderling: 60, feedCinderling: 30, quenchCinderling: 30, brazier: 30,
     airCharacterize: 120, airLow: 300, airHigh: 300, airDocument: 180, growZephyr: 60,
-    rechargeMote: 60, vesselMote: 30, sealMote: 30, gentleMote: 30, strongMote: 30, orientMote: 30 });
+    rechargeMote: 60, vesselMote: 30, sealMote: 30, gentleMote: 30, strongMote: 30, orientMote: 30,
+    rootCharacterize: 120, rootWetTrial: 600, rootShadeTrial: 600, rootDocument: 180, growRootling: 60, rootCharge: 60,
+    rootPlant: 60, rootWater: 30, rootNourish: 30, rootAir: 30, rootLiquid: 30, rootOff: 30, rootLoad: 60, rootDrain: 60,
+    rootWash: 60, rootReplace: 120, rootPrune: 60, rootGuide: 60, rootGuard: 30, rootOpen: 30 });
   function soulWindow(requested, deviceId = '', required = 2) {
     return { requested: Boolean(requested), deviceId: requested ? deviceId : '', required: requested ? required : 0,
       gathered: 0, sealed: false, result: null };
@@ -68,10 +81,23 @@
     return { lastAt: now, nextId: 1, knowledge: { notes: false, characterized: false, stability: false, documented: false },
       evidence: [], pattern: null, fireKnowledge: { characterized: false, stability: false, documented: false }, firePattern: null,
       airKnowledge: { characterized: false, low: false, high: false, documented: false }, airPattern: null,
+      rootKnowledge: { characterized: false, wet: false, shade: false, documented: false }, rootPattern: null, tubeMana: {},
       runs: [], creatures: [], leaks: {}, observations: {}, useAnimancy: true, ignitions: {} };
   }
   function normalize(s, now = 0) { return s?.creatures && s?.runs ? { ...create(now), ...copy(s) } : create(now); }
   function research(s, method, receipt, now) {
+    if (['rootCharacterize', 'rootWetTrial', 'rootShadeTrial', 'rootDocument'].includes(method)) {
+      const k = s.rootKnowledge ||= { characterized: false, wet: false, shade: false, documented: false };
+      if (!s.knowledge.notes || ['rootWetTrial', 'rootShadeTrial'].includes(method) && !k.characterized
+        || method === 'rootDocument' && (!k.wet || !k.shade)) return false;
+      k[{ rootCharacterize: 'characterized', rootWetTrial: 'wet', rootShadeTrial: 'shade', rootDocument: 'documented' }[method]] = true;
+      s.evidence.push({ method, receipt: copy(receipt), at: now });
+      if (method === 'rootDocument') s.rootPattern = { id: 'rootling-development', family: 'rootling',
+        source: 'Personally compared supported plant development with a physically shaded control',
+        properties: { requiredHours: 6, airCapture: Rootlings.DIRECTIONS.air, liquidCapture: Rootlings.DIRECTIONS.liquid },
+        evidenceIds: s.evidence.filter(e => e.method.startsWith('root')).map(e => e.receipt.taskId) };
+      return true;
+    }
     if (['airCharacterize', 'airLow', 'airHigh', 'airDocument'].includes(method)) {
       const k = s.airKnowledge ||= { characterized: false, low: false, high: false, documented: false };
       if (!s.knowledge.notes || ['airLow', 'airHigh'].includes(method) && !k.characterized
@@ -106,18 +132,19 @@
       properties: { binding: 'coherent clay', hydration: 'two litres per two kilograms of clay' }, evidenceIds: s.evidence.map(e => e.receipt.taskId) };
     return true;
   }
-  function recipe(family) { return family === 'zephyrMote' ? COSTS.growZephyr : family === 'cinderling' ? COSTS.growCinderling : COSTS.grow; }
+  function recipe(family) { return family === 'rootling' ? COSTS.growRootling : family === 'zephyrMote' ? COSTS.growZephyr : family === 'cinderling' ? COSTS.growCinderling : COSTS.grow; }
   function begin(s, chamberId, stocks, window, location, now, family = 'mudlet', airParcel = null) {
-    const pattern = family === 'zephyrMote' ? s.airPattern : family === 'cinderling' ? s.firePattern : family === 'mudlet' ? s.pattern : null;
+    const pattern = family === 'rootling' ? s.rootPattern : family === 'zephyrMote' ? s.airPattern : family === 'cinderling' ? s.firePattern : family === 'mudlet' ? s.pattern : null;
     if (!pattern || family === 'zephyrMote' && (!airParcel || airParcel.released || airParcel.volumeM3 < .1)
       || s.runs.some(r => r.chamberId === chamberId && !r.cleared)) return null;
     const r = { id: `convergence-${s.nextId++}`, family, chamberId, pattern: copy(pattern), stocks: copy(stocks),
       consumed: Object.fromEntries(Object.keys(recipe(family)).map(k => [k, 0])), soulWindow: copy(window), location: copy(location), progress: 0,
-      ...(family === 'zephyrMote' ? { airParcel: copy(airParcel), manaReceived: 0 } : {}),
-      required: 600, buffer: 120, status: 'forming', reason: '', startedAt: now, lastAt: now, creatureId: '', cleared: false };
+      ...(family === 'zephyrMote' ? { airParcel: copy(airParcel), manaReceived: 0 } : family === 'rootling' ? { manaReceived: 0 } : {}),
+      required: family === 'rootling' ? 21600 : 600, buffer: family === 'rootling' ? 1800 : 120, status: 'forming', reason: '', startedAt: now, lastAt: now, creatureId: '', cleared: false };
     s.runs.push(r); return r;
   }
   function finish(s, r, now) {
+    if (r.family === 'rootling' && r.manaReceived < 2 - 1e-8) return false;
     if (r.family === 'zephyrMote' && (r.manaReceived < 4 - 1e-8 || !r.airParcel || r.airParcel.released)) return false;
     const formationSoul = sealSoul(r.soulWindow, r.id, now); if (!formationSoul) return false;
     const family = r.family || 'mudlet';
@@ -126,7 +153,7 @@
       status: 'alive', present: true, health: 100, maxHealth: 100,
       ...(family === 'cinderling' ? { fuelUnits: 2, fuelReceived: 2, burnedUnits: 0, ashUnits: 0, emittedUnits: 0,
         temperatureC: 360, burning: true, heatEmitted: 0, waterVaporL: 0, quenchWaterL: 0, brazierId: '' }
-        : family === 'zephyrMote' ? { airParcel: r.airParcel, manaReserve: 2, manaReceived: 2, manaSpent: 0,
+        : family === 'rootling' ? Rootlings.body() : family === 'zephyrMote' ? { airParcel: r.airParcel, manaReserve: 2, manaReceived: 2, manaSpent: 0,
           formationManaSpent: 2, vesselId: '', aperture: 'sealed', direction: 0, circulatedM3: 0, coherence: 100, airReturned: false }
           : { clayKg: 2, waterL: 2, evaporatedL: 0 }),
       formationSoul, skills: {}, independentIntent: '', createdAt: now, injuries: [], lastMoveAt: now };
@@ -134,6 +161,7 @@
     s.creatures.push(a); r.creatureId = a.id; r.status = 'completed'; r.finishedAt = now; return true;
   }
   function consistency(a) {
+    if (a.family === 'rootling') return a.status === 'dead' ? 'dead rooted plant and retained contaminants' : a.waterL < .2 ? 'wilting Rootling' : a.rootLength > 0 ? 'Rootling with attached spreading roots' : 'contained rooted plant';
     if (a.family === 'zephyrMote') return a.status === 'dead' ? 'irreversibly collapsed vortex' : a.coherence < 40 ? 'fraying vortex' : 'coherent air vortex';
     if (a.family === 'cinderling') return a.status === 'dead' ? 'extinguished ember/ash remains' : a.burning ? a.temperatureC >= 120 ? 'brightly burning' : 'smoldering' : 'cooling and fuel-starved';
     return a.waterL < .35 ? 'dry and stiff' : a.waterL > 1.6 ? 'wet and yielding' : 'cohesive damp clay';
@@ -256,7 +284,7 @@
         }
         for (const [k, n] of Object.entries(amounts)) r.consumed[k] += n;
         supplySoul(r.soulWindow, support.soulEnergy || 0);
-        if (r.family === 'zephyrMote') r.manaReceived += Math.max(0, support.manaEnergy || 0);
+        if (['zephyrMote', 'rootling'].includes(r.family)) r.manaReceived += Math.max(0, support.manaEnergy || 0);
         r.progress = next; r.reason = '';
         if (r.progress >= r.required - 1e-8) {
           if (finish(s, r, at)) hooks.release(r);
@@ -268,6 +296,7 @@
       for (const a of s.creatures.filter(a => a.status !== 'dead' || a.family === 'cinderling' && a.temperatureC > 25 || a.family === 'zephyrMote' && !a.airReturned)) {
         if (a.createdAt >= at) continue;
         const env = hooks.environment(a, seconds), hours = seconds / 3600;
+        if (a.family === 'rootling') { Rootlings.step(a, env, seconds, at, { ...hooks, hasWill, damage }); changes++; continue; }
         if (a.family === 'zephyrMote') { advanceZephyr(a, env, seconds, at, hooks); changes++; continue; }
         if (a.family === 'cinderling') { a.independentIntent = ''; advanceCinderling(a, env, seconds, at, hooks); changes++; continue; }
         const evaporation = Math.min(a.waterL, hours * Math.max(.03, .15 * (1 - (env.humidity ?? 50) / 100) + Math.max(0, (env.temperature ?? 20) - 25) * .02));
@@ -308,9 +337,10 @@
       fuelUnits: a.fuelUnits, temperatureC: a.temperatureC, ashUnits: a.ashUnits,
       vesselId: a.vesselId || '', aperture: a.aperture, direction: a.direction, manaReserve: a.manaReserve,
       coherence: a.coherence, circulatedM3: a.circulatedM3, airReturned: a.airReturned,
+      botany: a.family === 'rootling' ? copy(Object.fromEntries(Object.keys(Rootlings.body()).map(k => [k, a[k]]))) : null,
       health: a.health, formationSoul: copy(a.formationSoul), independentIntent: a.independentIntent };
     s.observations[a.id] = v; return copy(v);
   }
   return { FAMILIES, COSTS, SECONDS, soulWindow, supplySoul, soulReady, sealSoul, sealBrood, hasWill, create, normalize, research,
-    begin, advance, consistency, light, feed, quench, sameCell, damage, observe, takeAir, returnAir, exchangeAir, rechargeMote };
+    begin, advance, consistency, light, feed, quench, sameCell, damage, observe, takeAir, returnAir, exchangeAir, rechargeMote, Rootlings };
 });

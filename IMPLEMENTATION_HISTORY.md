@@ -8,6 +8,40 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Rootlings — #8-D complete
+
+The frozen checklist is complete: performed plant characterization, illuminated
+and shaded controls, and documented botanical research; six-hour propagation in
+the original synthesis tube with real plant/water/medium, finite tube mana and
+both concurrent inherited-animancy and unassisted soul outcomes; finite care,
+air/liquid filtration, root hazards, persistence and identification. Research
+Tier 1 / Production Tier 0 remain separate. The tube is exclusively shared with
+slime synthesis. The ordinary planter supports care, not creation; no propagation
+bed, agriculture prerequisite, new workforce or follow-up package was added.
+
+Profile-specific capture retains pollutants in leaves, tissue and substrate.
+Finite capacities, shading, phytotoxicity, water and nutrient depletion matter.
+Actual washing, substrate replacement and scraper pruning preserve contaminated
+physical outputs. Treated liquid remains nonpotable. Guided root growth spends
+retained matter, requires a real adjacent opening and restricts the existing
+drain-inlet throughput calculation. Barriers and ordinary geometry apply; dead
+roots still obstruct until cut. A souled plant may direct a tip toward sensed
+moisture; passive guided growth does not give a soulless plant independent intent
+or self-feeding. Death retains the original identity, soul provenance and loads.
+
+Focused verification: 16 Rootling, 10 shared formation/Mudlet, 12 Cinderling and
+15 Zephyr model checks; the complete Rootling browser workflow, two existing
+native slime synthesis cases and the botanical commodity-market case; nine
+source/ODS/XLSX/CSV checks; JavaScript syntax and diff whitespace. The Rootling
+workflow performs original research, supplied formation, ordinary planter
+construction, filtration, maintenance, pruning with mid-task reload, continued
+import and retained death. Its explicit inputs include suitable local temperature,
+airborne test substances and placement of the original starter drain, not granted
+creatures, research, root outcomes or an invented connected drainage network.
+Both renderer scenes validate and the Canvas screenshot was inspected. The full
+suite was not run under AGENTS.md. The Linux-native catalog now has 31 current
+entries and six proposals. #8-D was removed; next discussion is #8-E Sporecap.
+
 ### Zephyr Motes — #8-C complete
 
 The frozen three-part checklist is complete: personally performed local airflow

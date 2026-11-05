@@ -21,13 +21,13 @@ class CreatureCatalogTests(unittest.TestCase):
 
     def test_complete_unique_current_catalog_and_separate_proposals(self):
         rows = self.data['creatures']
-        self.assertEqual(len(rows), 30)
+        self.assertEqual(len(rows), 31)
         ids = [row[-1] for row in rows]
         self.assertEqual(len(ids), len(set(ids)))
-        self.assertEqual(set(ids[:6]), {'human', 'slime', 'mudlet', 'homunculus', 'cinderling', 'zephyrMote'})
-        self.assertEqual({row[1] for row in self.data['ecology']}, set(ids[6:]))
+        self.assertEqual(set(ids[:7]), {'human', 'slime', 'mudlet', 'homunculus', 'cinderling', 'zephyrMote', 'rootling'})
+        self.assertEqual({row[1] for row in self.data['ecology']}, set(ids[7:]))
         self.assertEqual(len(self.data['ecology']), 24)
-        self.assertEqual({row[-1] for row in self.data['planned']}, {f'8-{c}' for c in 'DEFGHIJ'})
+        self.assertEqual({row[-1] for row in self.data['planned']}, {f'8-{c}' for c in 'EFGHIJ'})
         self.assertTrue(all(row[2].startswith('Proposed only') for row in self.data['planned']))
 
     def test_authored_tiers_and_material_costs_are_not_fabricated(self):
@@ -41,7 +41,9 @@ class CreatureCatalogTests(unittest.TestCase):
         self.assertEqual(rows['cinderling'][3:6], [0, 0, '2 charcoal'])
         self.assertEqual(rows['zephyrMote'][3:5], [1, 0])
         self.assertIn('0.1 m³', rows['zephyrMote'][5])
-        for row in self.data['creatures'][6:]:
+        self.assertEqual(rows['rootling'][3:5], [1, 0])
+        self.assertEqual(rows['rootling'][5], '1 plant propagule + 2 drinking water + 1 nutrient medium')
+        for row in self.data['creatures'][7:]:
             self.assertEqual(row[3:5], ['Not defined', 'Not defined'])
             self.assertIn('no implemented player-production recipe', row[5])
         self.assertTrue(all(r[4] == 0 for r in self.data['planned']))
@@ -72,6 +74,8 @@ class CreatureCatalogTests(unittest.TestCase):
             self.assertEqual(rows[8][3:5], [0, 0])
             self.assertEqual(rows[9][0], 'Zephyr Mote')
             self.assertEqual(rows[9][3:5], [1, 0])
+            self.assertEqual(rows[10][0], 'Rootling')
+            self.assertEqual(rows[10][3:5], [1, 0])
 
     def test_ooxml_relationships_resolve_and_have_no_external_dependencies(self):
         with ZipFile(self.workbook) as archive:

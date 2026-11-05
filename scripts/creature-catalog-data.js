@@ -92,6 +92,16 @@ function buildCatalog() {
     'Finite mana: 1/hour sealed, 2/hour gentle, 4/hour strong; 1 feedstock supplies 8, capacity 16; no autonomous feeding',
     `${soulRule} Four chamber mana form the body: two expended, two retained. Physical vessel controls exchange adjacent air, preserving substance amounts; no neutralization. Collapse retains the original identity and releases its captured air only when physically unsealed.`,
     formationSource + '; CREATURE_FORMATION.md', 'zephyrMote']);
+  rows.push(['Rootling', 'Botanical creature', 'Implemented: original-tube propagation, planter care and finite air/liquid filtration',
+    Formation.FAMILIES.rootling.researchTier, Formation.FAMILIES.rootling.synthesisTier,
+    bundle(Formation.COSTS.growRootling), Formation.FAMILIES.rootling.habitat,
+    'Not defined; natural family authored, no wild encounter/population integration',
+    'Desiccation, darkness, waterlogging, phytotoxic accumulation and constrained root/drain obstruction',
+    'No language/order channel; souled plants can direct a root tip toward directly sensed adjacent moisture',
+    'Stationary body; bounded adjacent root extension through a real opening; physical guides also support passive soulless growth',
+    'Finite water and organic/mineral medium, light and safe temperature; captured pollutants saturate leaves, tissue and substrate',
+    `${soulRule} New propagated individual, not a soul retrofit to its source. Existing synthesis tube forms the body; ordinary planter supports care, bounded filtration and retained contaminated maintenance waste. Treated liquid is nonpotable; no free crops or universal purification.`,
+    formationSource + '; rootlings.js; CREATURE_FORMATION.md', 'rootling']);
   const ecologyRows = [];
   for (const s of Ecology.BEAST_SPECIES) {
     const biome = s.biomeCodes.map(c => {
@@ -122,7 +132,6 @@ function buildCatalog() {
   }
   const pending = text('PENDING_PROMPTS.md');
   const plannedData = {
-    '8-D': ['Plant creature', 'Seedling/plant material + water + minerals; quantities not defined', 'Formation environment: plant growth, soil, suitable water/light; natural map biomes not authored', 'Slow growth, finite nutrients, root extension and drainage/soil effects'],
     '8-E': ['Fungal creature', 'Spores + damp compost + water + fungal material; quantities not defined', 'Formation environment: damp organic substrate; natural map biomes not authored', 'Finite decomposition input, mycelial support and local spore/cleanliness consequences'],
     '8-F': ['Cloth construct', 'Fabric + thread + stuffing + animation sigil/process; quantities not defined', 'Naturally occurring base form required; exact natural animation conditions and biomes not designed', 'Seam wear, repair, carrying limits and high flammability'],
     '8-G': ['Mineral construct', 'Common quartz/minerals + salts + finite mana; quantities not defined', 'Naturally occurring base form required; exact formation conditions and biomes not designed', 'Refraction/light interaction, impact fractures and material-consuming repairs'],
@@ -192,6 +201,24 @@ function buildCatalog() {
       'Intact nearby original sealable vessel; physical operator access, not creature commands',
       'Gentle exchanges 1 m³/h, strong 3 m³/h; barriers/permeability apply; strong mode tears coherence',
       'Conserves individual airborne substance amounts; no room-wide cleaning, filter substitute, autonomous feeding or revival.', 'CREATURE_FORMATION.md'],
+    ['Rootling — propagation', 'Rootling', 'Per new individual', bundle(Formation.COSTS.growRootling),
+      '2 original synthesis-tube mana; +2 concurrent inherited-device mana for an own soul',
+      '60 seconds loading + 6 supported hours; nonrenewable 30-minute outage buffer', 'Original synthesis tube; no elemental chamber or new propagation apparatus',
+      'Documented botanical method; real light ≥20, 15–32 °C, original input lots and exclusive tube occupancy',
+      'One propagule represents 1 kg sourced plant material; one medium is 1 kg organic/mineral substrate; water is in litres. Failure retains incorporated material, not a replacement creature.', 'creature-formation.js:COSTS/SECONDS/begin/finish; CREATURE_FORMATION.md'],
+    ['Rootling — method discovery', 'Rootling', 'Research setup; not per repeated creature',
+      'Characterization: 1 propagule + 1 water + 1 assay reagent; illuminated and shaded trials: each 1 propagule + 1 water + 1 medium; documentation: 1 assay reagent',
+      'Original bench light and performed, physically shaded comparison; no elemental chamber trial',
+      'Notes 60 s; characterization 120 s; each trial 600 s; document 180 s', 'Inherited notes and original research bench',
+      'Characterize sourced material, perform both actual controls, retain dated evidence and document',
+      'Consumed trial inputs become physical spent tissue, medium and wastewater; documentation grants a method, not a body.', 'CREATURE_FORMATION.md'],
+    ['Rootling — planter and care', 'Rootling', 'Reusable planter / per maintenance action separately',
+      'Planter: 2 lumber + 2 glass + 1 metal part; water: 1 water; nourish or replace substrate: 1 nutrient medium; wash: 1 water',
+      'Tube charge: 1 arcane feedstock adds 8 mana, capacity 24; no passive refill',
+      'Planter construction 5 min; transplant 60 s; water/nourish/mode 30 s; load/drain/wash/prune/guide 60 s; replace 120 s',
+      'Original nearby empty planter, light/water/medium and physical reach; pruning uses and wears the original scraper',
+      'Tray holds ≤2 L of a real supplied botanical liquid batch; capture is profile-specific, finite and saturating',
+      'Washing yields contaminated water; replacement yields spent substrate; pruning wounds the plant and yields contaminated cuttings. Root barriers/real drain openings constrain growth; dead roots continue obstructing until cut.', 'rootlings.js; CREATURE_FORMATION.md'],
     ['Elemental chamber — construction', 'Mudlet / Cinderling / Zephyr Mote', 'Reusable equipment; not per creature',
       '4 metal parts + 2 glass + 2 arcane feedstock', 'Charge chamber separately; maximum stored mana 24', '20 base construction minutes + normal construction logistics',
       '2 × 1 floor footprint with accessible operator/test fitting', 'Read inherited notes and physically characterize clay/water, charcoal or airflow first',
@@ -244,7 +271,7 @@ function buildCatalog() {
   ];
   const guide = [
     ['Purpose', 'Developer reference for authored creature definitions and current design proposals. This is not the scientist’s in-game knowledge or a live world census.'],
-    ['Coverage', `${rows.length} current catalog entries: humans, slime, Mudlet, human-derived homunculus, Cinderling, Zephyr Mote, and all ${Ecology.BEAST_SPECIES.length} strategic beast species. ${planned.length} proposed creatures are on a separate tab. Explicit dog lore and divine/receiver states are separate from species.`],
+    ['Coverage', `${rows.length} current catalog entries: humans, slime, Mudlet, human-derived homunculus, Cinderling, Zephyr Mote, Rootling, and all ${Ecology.BEAST_SPECIES.length} strategic beast species. ${planned.length} proposed creatures are on a separate tab. Explicit dog lore and divine/receiver states are separate from species.`],
     ['Research tier', 'Difficulty of discovering a reproducible formation method. Numeric values appear only where authored; they are not combat ratings or compulsory campaign chapters.'],
     ['Production tier', 'The code calls this Synthesis Tier: practical production complexity after the method is known. Tier 0 is inexpensive/simple, not free or upkeep-free.'],
     ['Not defined', 'The current source has no authored number, recipe or classification. This is not zero, impossible, universally unavailable, or approval to invent one.'],
