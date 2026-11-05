@@ -56,7 +56,7 @@ Helix Heresy is a desktop-focused static browser prototype about forbidden creat
 
 The current build starts with slimes as the simplest creature type. Players edit 26-base genomes, synthesize living samples, discover traits through tests, manage slime reproduction, manage corpses and Suspicion, and assign creatures to early lab jobs.
 
-For story background, long-term systems, current design direction, and open questions, see [DESIGN_BIBLE.md](DESIGN_BIBLE.md). The approved map projection, sprite scale, modular creature assembly, and readability rules live in [VISUAL_LANGUAGE.md](VISUAL_LANGUAGE.md).
+For story background, long-term systems, current design direction, and open questions, see [the design bible](reference/DESIGN_BIBLE.md). The approved map projection, sprite scale, modular creature assembly, and readability rules live in [VISUAL_LANGUAGE.md](VISUAL_LANGUAGE.md).
 
 ## Current Prototype
 
@@ -340,7 +340,7 @@ The smoke command is a quick cross-system check, but routine changes should run 
 - `actor-visual-state.js` - Renderer-neutral four-way facing, canonical pose precedence, semantic activity families, condition cues, and sprite-key candidates derived from simulation state.
 - `animation-clock.js` - Presentation-only game-time sampling plus normalized motion/action timelines; it never advances simulation.
 - `map-knowledge.js` - Sparse saved cell observations, light-aware same-layer perception queries, last-observed age tiers, and knowledge records for current, stale, unknown, and Debug map presentation.
-- `creature-formation.js` - Creation-time soul provenance, distinct research/synthesis tiers, and the finite Mudlet lifecycle. [Creature formation guide](CREATURE_FORMATION.md) covers inherited animancy, performed research, chamber construction, physical care and test-fitting limits.
+- `creature-formation.js` - Creation-time soul provenance, distinct research/synthesis tiers, and finite Mudlet/Cinderling lifecycles. [Creature formation guide](CREATURE_FORMATION.md) covers inherited animancy, performed research, shared chamber construction, moisture/leak behavior, fuel-driven heat/light, tongs/brazier handling and quenching. The [creature reference](reference/README.md) includes Linux-native ODS and XLSX/CSV catalogs.
 - `map-visual-state.js` - Versioned renderer-neutral map scenes, unique entities, effect planes, severity-ranked status cues, knowledge-filtered lighting/environment state, animation timelines, capped presentation-time feedback, interactions, overscan, pre-normalization culling, optional chunked spatial queries, and schema validation.
 - `map-render-order.js` - Shared semantic render passes, stable depth ordering, crowded-target priority, tall-layer slicing, and occlusion policy.
 - `sprite-asset-manifest.js` - Stable semantic map-sprite keys, source and logical dimensions, tile anchors, transform capabilities, aliases, and category fallbacks.
@@ -352,7 +352,7 @@ The smoke command is a quick cross-system check, but routine changes should run 
 - `map-population-benchmark.js` and `benchmarks/` - Deterministic representative, dense, and mostly-offscreen population fixtures measured in a real browser Canvas.
 - `scripts/run-map-benchmark.js` - Quick/full benchmark CLI with stage timings, advisory budgets, and structural invariant checks.
 - `RENDERER_PROMOTION_CHECKLIST.md` - Automated, human-review, and release gates retained as the completed promotion record and ongoing regression policy.
-- `DESIGN_BIBLE.md` - Story, design goals, current direction, future systems, and open questions.
+- `reference/DESIGN_BIBLE.md` - Story, design goals, current direction, future systems, and open questions.
 - `VISUAL_LANGUAGE.md` - Approved map projection, sprite scale, modular creature rendering, palette, and readability contract.
 - `CHANGELOG.md` - Milestone-level development history.
 - `package.json` - Node/Playwright metadata for local automation.
