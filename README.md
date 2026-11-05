@@ -2169,6 +2169,12 @@ The compact feed supplies matching readable labels and keyboard-operable dismiss
 
 Only newly delivered events are eligible for cues. Existing off-site/custody knowledge channels are checked when a record is created and again before presentation. A new private laboratory event at the same clock as departure is not mistaken for an already-held observation. Existing access to dated local logs on return is retained without fresh sound. Backgrounding stops active tones and drops pending cues; foreground return, ordinary view changes, reload, continued import and independent starts do not replay historical sounds. Actual scientist death can issue one final danger cue, not continued laboratory-work notifications. Notification queues, dismissal and cooldown state are presentation-only and are not saved into the run or reusable world. The broader accessibility closeout remains separate.
 
+### Keyboard and accessibility
+
+The current-interface accessibility matrix and verification limits are recorded in [ACCESSIBILITY.md](ACCESSIBILITY.md). Tab groups support arrow keys and Home/End; native form keys and button activation are not consumed by map shortcuts. A skip link reaches the current workspace. Shared rerenders preserve the same control's focus/draft/caret without assigning them to a different entity, startup views contain focus, and title subviews return focus to their initiating control.
+
+Top controls → **Unavailable actions** provides readable current-view block reasons without activating work. Broad clock/interface live announcements are replaced by scoped notification and deliberate map-navigation feedback. Keyboard map inspection's “Also here” uses the actual cursor tile, not a room's center. Both renderers retain the same knowledge limits and physical movement rules. High contrast, reduced motion, native forced colors and scaled text/layout have focused coverage; spatial maps retain pan/zoom/scroll and DOM compatibility. This is not a formal accessibility certificate or a claim of real screen-reader testing.
+
 ## Development Notes
 
 - Keep the game runtime dependency-free unless a feature clearly needs a library.

@@ -5,7 +5,7 @@ This is the finite remaining queue, not an implementation diary or a source of a
 ## Queue rules and stopping conditions
 
 - Discuss the selected work package before implementing gameplay, and wait for explicit developer approval. Questions should include a recommended answer and brief reasoning. This queue update does not approve the gameplay designs below.
-- The queue retains **13 work packages (including indefinitely deferred work) and 6 conditional/optional packages**. IDs identify work, not software versions. A package can take several sessions; continuing it does not create another pending prompt.
+- The queue retains **12 work packages (including indefinitely deferred work) and 6 conditional/optional packages**. IDs identify work, not software versions. A package can take several sessions; continuing it does not create another pending prompt.
 - **Do not append or subdivide the queue automatically.** Bugs, interruption cases, missing adapters, documentation and focused tests needed to deliver an entry stay inside that entry. Do not turn each official, material, species, spell, report, permission or save edge case into another prompt.
 - A genuine scope change requires a concrete explanation and explicit developer approval to replace, expand or defer a named entry. Record the tradeoff here; do not silently add a follow-up or claim unfinished work is complete. There is no automatic discovery backlog.
 - Freeze each package's acceptance checklist during its design discussion. Once it passes, remove the package from this active file, update remaining counts/dependencies, and put useful completion notes in the history or feature documentation. Do not append another “completed bounded slice, but next…” paragraph here.
@@ -29,7 +29,7 @@ These apply to every package; they are not additional work items.
 
 ## Order and current state
 
-**#1, #4 and #6-A are complete and removed; no gameplay package is currently active.** Sound/notification completion notes and focused acceptance results are in the README and implementation history. #2/#3 and their beast workstream remain deferred, as does #5 onboarding/tutorial. The next eligible scheduled discussion is #6-B; no package is automatically activated.
+**#1, #4 and #6 are complete and removed; no package is currently active.** Accessibility's fixed current-interface matrix, focused results and verification limits are in `ACCESSIBILITY.md` and the implementation history. #2/#3 and their beast workstream remain deferred, as does #5 onboarding/tutorial. #7 is the next eligible scheduled discussion, subject to explicit design approval; nothing is automatically activated.
 
 **#2/#3 and the associated beast workstream remain deferred indefinitely, not complete.** The developer explicitly rejected continuing domination. Preserve existing implementation, but do not resume its requirements, preparation or acceptance checks unless explicitly asked. Completing #1 neither closes domination nor authorizes returning to it. The old domination-first order is superseded.
 
@@ -138,14 +138,6 @@ Done when all current species are represented by the approved matrix, representa
 Implement optional contextual guidance for existing world/site/start choice, discovery, containment, physical map/tasks, research, company/legal and black markets, secrecy, death/recovery/postmortem and independent restart. Use existing actions and knowledge; no free resources, compulsory campaign chapters or artificial unlocks.
 
 Done when a new player can follow and dismiss/resume that fixed introductory path with persistent preferences, keyboard support and correct knowledge limits. Wider feature-specific tutorials are not automatic follow-up prompts.
-
-## 6. Accessibility — one remaining package
-
-### 6-B. Accessibility closeout
-
-Check and fix the current interface against a fixed matrix: keyboard operation/focus, modal and tab order, meaningful labels/screen-reader announcements, contrast/non-color cues, text scaling, reduced motion and reduced-sensory alternatives, and DOM-map fallback. Cover world/start selection, main management views, map inspection/orders and death/restart. Repairs stay in this package.
-
-Done when the matrix passes named focused checks and documented manual checks, with residual limitations disclosed rather than an automatically appended audit.
 
 ## Conditional/optional expansion routes — five packages, not the critical path
 

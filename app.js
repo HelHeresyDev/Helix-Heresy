@@ -171,6 +171,7 @@
   const DivineWayfinding = window.HelixDivineWayfinding;
   const DivineReign = window.HelixDivineReign;
   const Notifications = window.HelixNotifications;
+  const AccessibilityUI = window.HelixAccessibilityUI;
   const DivineCapabilities = window.HelixDivineCapabilities;
   const DivineNonintervention = window.HelixDivineNonintervention;
   const DivineContacts = window.HelixDivineContacts;
@@ -4940,6 +4941,7 @@
   let currentNotifications = { groups: [], notice: null, sound: null }, notificationFeedSignature = '';
   const notificationDismissedKeys = new Set();
   let startupView = "title";
+  let startupReturnFocus = null, mapAnnouncementRequested = false;
   let reviewedRun = null;
   let deathSaveQueued = false;
   let startupOverlayOpen = true;
@@ -13309,6 +13311,7 @@
     populateMessageFilterSelect();
     dom.sequenceInput.maxLength = GENOME_LENGTH;
     bindEvents();
+    installAccessibilityControls();
     state = defaultState();
     geneMap = buildGeneMap(state.seed, state.complexity);
     prepareCorpseState();
@@ -18819,6 +18822,8 @@
     const open = Boolean(startupOverlayOpen);
     dom.setupOverlay.classList.toggle("hidden", !open);
     dom.setupOverlay.dataset.startupView = startupView;
+    dom.setupOverlay.setAttribute('aria-labelledby', ({ title: 'titleScreenHeading', worlds: 'worldLibraryHeading', setup: 'newRunHeading',
+      settings: 'titleSettingsHeading', about: 'titleAboutHeading', outcome: 'runOutcomeHeading' })[startupView]);
     dom.titleScreen.hidden = !open || startupView !== "title";
     dom.worldLibraryPanel.hidden = !open || startupView !== "worlds";
     dom.runOutcomePanel.hidden = !open || startupView !== "outcome";
@@ -18833,7 +18838,8 @@
   function focusStartupView() {
     if (!startupOverlayOpen) return;
     window.requestAnimationFrame(() => {
-      const target = startupView === "outcome" ? dom.runOutcomeHeading : startupView === "setup"
+      const returning = startupView === 'title' && AccessibilityUI.visible(startupReturnFocus) && dom.titleScreen.contains(startupReturnFocus) ? startupReturnFocus : null;
+      const target = returning || (startupView === "outcome" ? dom.runOutcomeHeading : startupView === "setup"
         ? dom.setupBackBtn
         : startupView === "worlds"
           ? dom.worldLibraryBackBtn
@@ -18843,12 +18849,13 @@
             ? dom.titleAboutBackBtn
             : dom.loadLastSaveBtn.disabled
               ? dom.titleNewRunBtn
-              : dom.loadLastSaveBtn;
+              : dom.loadLastSaveBtn);
       target?.focus();
     });
   }
 
   function showStartupView(view = "title", options = {}) {
+    if (startupOverlayOpen && startupView === 'title' && view !== 'title' && dom.titleScreen.contains(document.activeElement)) startupReturnFocus = document.activeElement;
     startupView = ["title", "worlds", "setup", "settings", "about", "outcome"].includes(view) ? view : "title";
     startupOverlayOpen = true;
     notificationPreferenceRevision++;
@@ -21046,6 +21053,57 @@
     }
   }
 
+  function installAccessibilityControls() {
+    const revealFocus = () => {
+      const target = document.activeElement;
+      if (target && target !== document.body && AccessibilityUI.visible(target)) target.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
+    };
+    document.addEventListener('focusin', () => requestAnimationFrame(revealFocus));
+    document.addEventListener('keydown', event => {
+      if (event.defaultPrevented) return;
+      if (startupOverlayOpen && AccessibilityUI.trapFocus(event, dom.setupOverlay)) return;
+      AccessibilityUI.handleTabKey(event);
+    }, true);
+    const help = document.getElementById('actionAvailability');
+    help.addEventListener('toggle', () => { if (help.open) syncActionAvailability(); });
+    document.addEventListener('click', () => { if (help.open) queueMicrotask(syncActionAvailability); }, true);
+    document.getElementById('skipToWorkspace').addEventListener('click', event => {
+      event.preventDefault();
+      const panel = workspacePanelForTab(currentWorkspaceTab());
+      const target = currentWorkspaceTab() === 'map' ? panel?.querySelector('[data-map-viewport]') : panel?.querySelector('h2');
+      if (target) { if (!target.hasAttribute('tabindex')) target.tabIndex = -1; target.focus(); }
+    });
+    let frame = 0;
+    const measure = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const header = document.querySelector('.topbar').getBoundingClientRect(), nav = document.querySelector('.workspace-tabs').getBoundingClientRect();
+        const root = document.documentElement;
+        root.style.setProperty('--management-top-offset', `${Math.ceil(header.bottom + 8)}px`);
+        root.style.setProperty('--workspace-bottom-offset', `${Math.ceil(innerHeight - nav.top + 8)}px`);
+        requestAnimationFrame(revealFocus);
+      });
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(document.querySelector('.topbar')); observer.observe(document.querySelector('.workspace-tabs'));
+    window.addEventListener('resize', measure); measure();
+  }
+
+  function syncActionAvailability() {
+    const help = document.getElementById('actionAvailability');
+    if (!help.open || startupOverlayOpen) return;
+    const entries = [...(workspacePanelForTab(currentWorkspaceTab())?.querySelectorAll('button:disabled') || [])]
+      .filter(AccessibilityUI.visible).map(button => `${button.textContent.trim().replace(/\s+/g, ' ')}: ${button.dataset.disabledReason || button.title || 'Unavailable in the current state.'}`);
+    const content = document.getElementById('actionAvailabilityList'), signature = JSON.stringify(entries);
+    if (content.dataset.signature === signature) return;
+    content.dataset.signature = signature; content.replaceChildren();
+    content.append(textEl('p', 'Current visible controls only. These explanations grant no action, knowledge or permission.'));
+    if (!entries.length) content.append(textEl('p', 'No unavailable actions in this view.'));
+    const list = document.createElement('ul');
+    for (const text of entries) list.append(textEl('li', text));
+    content.append(list);
+  }
+
   function bindEvents() {
     bindWorkspaceTabs();
     document.addEventListener("contextmenu", (event) => {
@@ -21635,6 +21693,9 @@
   }
 
   function handleKeyboardShortcut(event) {
+    if (event.defaultPrevented) return;
+    const availability = document.getElementById('actionAvailability');
+    if (!startupOverlayOpen && event.key === 'Escape' && availability.open) { event.preventDefault(); availability.open = false; availability.querySelector('summary').focus(); return; }
     if (startupOverlayOpen) {
       if (event.key === "Escape" && !isTypingTarget(event.target) && startupView !== "title") {
         event.preventDefault();
@@ -21643,7 +21704,7 @@
       }
       return;
     }
-    if (event.defaultPrevented || isTypingTarget(event.target) || !state?.started) {
+    if (isTypingTarget(event.target) || AccessibilityUI.nativeKey(event.target, event.key) || !state?.started) {
       return;
     }
     if (handleTimeShortcut(event)) {
@@ -23602,6 +23663,7 @@
   }
 
   function moveMapCursor(dx, dy) {
+    mapAnnouncementRequested = true;
     const map = ensureLabMap();
     const cursor = mapCursorCell(map);
     ensureUiState().mapCursor = {
@@ -23617,6 +23679,7 @@
   }
 
   function setMapLayer(delta, options = {}) {
+    mapAnnouncementRequested = true;
     if (surveyScientistAway()) return false;
     const map = ensureLabMap();
     const cursor = mapCursorCell(map);
@@ -23660,6 +23723,7 @@
   }
 
   function selectMapCursorTarget() {
+    mapAnnouncementRequested = true;
     const target = mapCursorTarget();
     if (!target) {
       addEvent("No map target under the cursor.");
@@ -28434,6 +28498,7 @@
   }
 
   function setActiveWorkspaceTab(tabId, options = {}) {
+    const oldFocusPanel = document.activeElement?.closest?.('[data-workspace-panel]');
     const tab = visibleWorkspaceTabOrMap(tabId);
     activeWorkspaceTab = tab;
     if (state?.ui) {
@@ -28443,9 +28508,15 @@
       }
     }
     syncWorkspaceShell();
+    syncActionAvailability();
+    if (oldFocusPanel && cleanWorkspaceTab(oldFocusPanel.dataset.workspacePanel) !== tab) requestAnimationFrame(() => {
+      if (startupOverlayOpen || AccessibilityUI.visible(document.activeElement) && document.activeElement !== document.body) return;
+      const panel = workspacePanelForTab(tab), target = tab === 'map' ? panel?.querySelector('[data-map-viewport]') : panel?.querySelector('h2');
+      if (target) { if (!target.hasAttribute('tabindex')) target.tabIndex = -1; target.focus(); }
+    });
     if (options.scroll) {
       requestAnimationFrame(() => {
-        workspacePanelForTab(tab)?.scrollIntoView({ block: "start", inline: "nearest", behavior: options.animate === false ? "auto" : "smooth" });
+        workspacePanelForTab(tab)?.scrollIntoView({ block: "start", inline: "nearest", behavior: options.animate === false || mapAccessibilityPresentation().reducedMotion ? "auto" : "smooth" });
       });
     }
   }
@@ -53313,6 +53384,10 @@
   }
 
   function render(options = {}) {
+    return AccessibilityUI.preserveFocus(document, () => renderAccessibleContent(options));
+  }
+
+  function renderAccessibleContent(options = {}) {
     syncNotificationSession();
     if (state?.started && activeRunRecord && RunLifecycle.phase(state) !== "active" && !startupOverlayOpen) showRunOutcome(currentRunRecord());
     const scrollSnapshot = options.preserveWorkspaceScroll ? captureWorkspaceScroll() : null;
@@ -53354,6 +53429,8 @@
     syncSetupForm();
     explainDisabledButtons();
     restoreWorkspaceScroll(scrollSnapshot);
+    AccessibilityUI.linkTabs(document);
+    syncActionAvailability();
   }
 
   function renderLiveReadouts() {
@@ -75966,6 +76043,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function selectionInspectorMapCell(selection) {
+    const cursor = mapCursorCell();
+    if (selection?.source === 'keyboard' && selectableTargetsAtCell(cursor).some(target => selectionKey(target) === selectionKey(selection))) return cursor;
     const clickedCell = cleanMapCell(canvasMapLastSelectionCell);
     const scene = activeCanvasMapSurface?.mapView?.scene;
     const selectedKey = selectionKey(selection);
@@ -78348,10 +78427,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     status.id = "mapAssistiveStatus";
     status.className = "screen-reader-only";
     status.dataset.mapAssistiveStatus = "true";
-    status.setAttribute("role", "status");
-    status.setAttribute("aria-live", "polite");
-    status.setAttribute("aria-atomic", "true");
+    status.setAttribute("aria-live", "off");
     status.textContent = mapAssistiveDescription(mapView);
+    if (mapAnnouncementRequested && !startupOverlayOpen) {
+      document.getElementById('interfaceAnnouncer').textContent = status.textContent;
+      mapAnnouncementRequested = false;
+    }
     return status;
   }
 
@@ -78888,6 +78969,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     host.tabIndex = 0;
     host.setAttribute("role", "region");
     host.setAttribute("aria-label", `Interactive Canvas laboratory map at Z ${mapView.viewport.z}`);
+    host.setAttribute('aria-describedby', 'mapKeyboardInstructions mapAssistiveStatus');
     setMapViewportDataset(host, mapView);
 
     const canvas = document.createElement("canvas");
@@ -79001,7 +79083,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     grid.tabIndex = 0;
     grid.setAttribute("role", "region");
     grid.setAttribute("aria-label", `Interactive glyph laboratory map at Z ${mapView.viewport.z}`);
-    grid.setAttribute("aria-describedby", "mapAssistiveStatus");
+    grid.setAttribute("aria-describedby", "mapKeyboardInstructions mapAssistiveStatus");
     setMapViewportDataset(grid, mapView);
     grid.style.setProperty("--map-tile-size", `${mapView.zoom.tilePx}px`);
     grid.style.gridTemplateColumns = `repeat(${mapView.width}, var(--map-tile-size))`;
@@ -79447,6 +79529,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function renderMapInteraction() {
+    return AccessibilityUI.preserveFocus(document, () => { const result = renderAccessibleMapInteraction(); AccessibilityUI.linkTabs(document); return result; });
+  }
+
+  function renderAccessibleMapInteraction() {
     if (!state?.started || currentWorkspaceTab() !== "map") {
       render();
       return;
@@ -79510,6 +79596,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function renderMapSelectionInteraction() {
+    return AccessibilityUI.preserveFocus(document, () => { const result = renderAccessibleMapSelection(); AccessibilityUI.linkTabs(document); return result; });
+  }
+
+  function renderAccessibleMapSelection() {
     if (!state?.started || currentWorkspaceTab() !== "map") {
       render();
       return;
@@ -111755,13 +111845,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return;
     }
     const container = card.closest(".slime-list, .corpse-list, .container-list, .room-list, .task-list");
-    const behavior = options.animate === false ? "auto" : "smooth";
+    const behavior = options.animate === false || mapAccessibilityPresentation().reducedMotion ? "auto" : "smooth";
     if (container) {
       scrollCardWithinContainer(container, card, behavior);
     } else {
       card.scrollIntoView({ block: "start", inline: "nearest", behavior });
     }
-    if (options.animate === false) {
+    if (options.animate === false || mapAccessibilityPresentation().reducedMotion) {
       return;
     }
     card.classList.remove("focus-pulse");

@@ -730,5 +730,5 @@ test('title Settings persist independently and About describes world-backed save
   await page.locator('#titleAboutBtn').click();
   await expect(page.locator('#titleAboutPanel')).toContainText('reusable generated worlds');
   await page.locator('#titleAboutBackBtn').click();
-  await expect(page.locator('#titleNewRunBtn')).toBeFocused();
+  await expect(page.locator('#titleAboutBtn')).toBeFocused();
 });

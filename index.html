@@ -8,12 +8,13 @@
   </head>
   <body>
     <div id="appShell" class="app-shell">
+      <a id="skipToWorkspace" class="skip-link" href="#labRoot">Skip to current workspace</a>
       <header class="topbar">
         <div>
           <h1>Helix Heresy</h1>
           <div class="subtitle">Forbidden slime genetics prototype</div>
         </div>
-        <div class="status-strip" aria-live="polite">
+        <div class="status-strip" aria-label="Current run status">
           <span id="clockReadout">Day 1 00:00</span>
           <span id="pauseReadout">Paused</span>
           <span id="speedReadout">Speed 1x</span>
@@ -31,6 +32,10 @@
             Import
             <input id="importFileInput" type="file" accept="application/json,.json">
           </label>
+          <details id="actionAvailability" class="action-availability">
+            <summary>Unavailable actions</summary>
+            <div id="actionAvailabilityList"></div>
+          </details>
         </div>
       </header>
       <div class="menu-only-readouts" hidden>
@@ -38,7 +43,7 @@
         <span id="wasteReadout">Drums 0/8</span>
       </div>
 
-      <main class="lab-grid workspace-shell" id="labRoot" aria-live="polite" data-active-workspace-tab="map">
+      <main class="lab-grid workspace-shell" id="labRoot" tabindex="-1" data-active-workspace-tab="map">
         <nav class="workspace-tabs" aria-label="Bottom management menu">
           <svg class="workspace-icon-defs" aria-hidden="true" focusable="false">
             <symbol id="workspace-icon-map" viewBox="0 0 24 24"><path d="m3 5 5-2 8 3 5-2v15l-5 2-8-3-5 2Z M8 3v15 M16 6v15"/></symbol>
@@ -714,7 +719,9 @@
     </div>
 
     <div id="notificationAnnouncer" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
-    <div id="setupOverlay" class="setup-overlay" data-startup-view="title">
+    <div id="interfaceAnnouncer" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
+    <p id="mapKeyboardInstructions" class="visually-hidden">Arrow keys move the map cursor; Enter selects known contents. Use the selected target's action buttons to issue orders. Tab reaches map controls and management menus. The DOM Compatibility Map is available in Display and Accessibility.</p>
+    <div id="setupOverlay" class="setup-overlay" data-startup-view="title" role="dialog" aria-modal="true" aria-labelledby="titleScreenHeading">
       <div class="title-backdrop" aria-hidden="true">
         <span class="title-helix title-helix-left">ACGT</span>
         <span class="title-helix title-helix-right">TGCA</span>
@@ -799,7 +806,7 @@
           <div>
             <p class="title-kicker">New Run</p>
             <h2 id="newRunHeading">Choose a Starting Scenario</h2>
-            <p id="selectedWorldSummary" class="journal-meta"></p>
+            <p id="selectedWorldSummary" class="journal-meta" role="status"></p>
           </div>
           <button id="setupBackBtn" type="button">Back</button>
         </div>
@@ -824,7 +831,7 @@
             <div>
               <h3 id="strategicWorldPreviewHeading">Strategic Globe — Omniscient Generation Preview</h3>
               <p>This setup preview is not the scientist's map collection. Beginning a run grants no copies, survey knowledge, or travel rights from this view.</p>
-              <p id="strategicWorldPreviewSummary" class="journal-meta" aria-live="polite"></p>
+              <p id="strategicWorldPreviewSummary" class="journal-meta"></p>
             </div>
             <div class="strategic-globe-controls" aria-label="Globe controls">
               <label for="strategicGlobeLayerSelect">Layer
@@ -857,10 +864,10 @@
               <button type="button" data-globe-action="reset">Reset</button>
             </div>
           </div>
-          <div id="strategicGlobeLegend" class="strategic-globe-legend" aria-live="polite"></div>
+          <div id="strategicGlobeLegend" class="strategic-globe-legend"></div>
           <div class="strategic-world-preview-layout">
             <canvas id="strategicWorldCanvas" width="720" height="480" tabindex="0" aria-label="Interactive strategic globe. Drag to rotate, use the mouse wheel to zoom, press arrow keys to rotate, and press Enter to inspect the centered cell."></canvas>
-            <div id="strategicWorldInspector" class="strategic-world-inspector">
+            <div id="strategicWorldInspector" class="strategic-world-inspector" role="status" aria-live="polite" aria-atomic="true">
               <h4>Selected Cell</h4>
               <dl>
                 <div><dt>Identity</dt><dd id="strategicCellId">None</dd></div>
@@ -1056,7 +1063,7 @@
               <select id="startingSiteDistanceFilter"><option value="all">All distance bands</option></select>
             </label>
           </div>
-          <p id="startingSiteStatus" class="journal-meta"></p>
+          <p id="startingSiteStatus" class="journal-meta" role="status"></p>
           <div id="startingSiteList" class="starting-site-list"></div>
         </fieldset>
 
@@ -1425,6 +1432,7 @@
     <script src="armed-rescue.js"></script>
     <script src="living-smuggling.js"></script>
     <script src="intercity-smuggling.js"></script>
+    <script src="accessibility-ui.js"></script>
     <script src="notifications.js"></script>
     <script src="app.js"></script>
   </body>
