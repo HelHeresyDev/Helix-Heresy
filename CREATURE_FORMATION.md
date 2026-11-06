@@ -1,4 +1,4 @@
-# Creature formation: elemental, botanical and fungal families
+# Creature formation: elemental, botanical, fungal and mineral families
 
 Every supported family has a naturally existing base form. The scientist modifies
 its formation process; neither science nor gods invent life from nothing. An
@@ -10,6 +10,13 @@ individual inhabits a personally significant object. They cannot be manufactured
 from fresh soul energy and have no production tier or soulless counterpart.
 Animancy can enable communication, voluntary continuing work and optional release
 leaving residual enchantment; see [HAUNTBOUND.md](HAUNTBOUND.md).
+
+Quartz Shardlings use the shared chamber but their own mineral research and
+formation pattern, without compulsory Mudlet discovery. They eat compatible stone
+for sustenance, need their own mineral for growth/repair, and physically dig very
+slowly toward privately sensed quartz. Soulless bodies need an actually received
+core-contact standing instruction or explicitly administered food. See
+[SHARDLINGS.md](SHARDLINGS.md) for inputs, custody, depletion and mining limits.
 
 ## Apparatus and research
 

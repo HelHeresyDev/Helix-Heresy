@@ -124,6 +124,16 @@ function buildCatalog() {
     'No biological food, water or sleep; finite soul exertion/recovery and physical care; one cloth per repair with retained worn fabric',
     'Same surviving deceased soul, not a fresh gathered soul or retroactive artificial soul. Keeping a willing worker is a complete route. Voluntary reincarnation leaves an object-specific finite-charge enchantment; no inhabitant remains.',
     source('hauntbound.js', 'const DEFINITION') + '; HAUNTBOUND.md', 'hauntbound']);
+  rows.push(['Quartz Shardling', 'Material-specific mineral creature', 'Implemented: chamber formation, physical care and slow real prospecting/mining',
+    Formation.FAMILIES.quartzShardling.researchTier, Formation.FAMILIES.quartzShardling.synthesisTier,
+    bundle(Formation.COSTS.growShardling), Formation.FAMILIES.quartzShardling.habitat,
+    'Not defined; natural family authored, no strategic population or wild encounter integration',
+    'Impact fractures, extreme thermal shock, mineral starvation and ordinary excavation hazards; not immune to support collapse',
+    'Narrow core-contact instructions for soulless bodies; no initiative without an actual order; own soul permits autonomous mineral seeking',
+    'Untiring but very slow: five minutes/tile; actual structural tunnelling toward own mineral through several layers of rock',
+    'Compatible minerals including ordinary stone sustain; only quartz grows/repairs this subtype; 10 g/hour nominal feeding with retained spent material',
+    `${soulRule} One-hour formation: 2 chamber mana, optional 2 inherited-device mana; original 1 kg body and 1.1 kg spent brine. Private six-tile same-stratum sense; slow feeding leaves a discovered vein available for ordinary mining. Actual remaining stock, body custody and standing orders persist. No optical endpoint or free ore.`,
+    formationSource + '; shardlings.js; SHARDLINGS.md', 'quartzShardling']);
   const ecologyRows = [];
   for (const s of Ecology.BEAST_SPECIES) {
     const biome = s.biomeCodes.map(c => {
@@ -154,7 +164,6 @@ function buildCatalog() {
   }
   const pending = text('PENDING_PROMPTS.md');
   const plannedData = {
-    '8-G': ['Mineral construct', 'Common quartz/minerals + salts + finite mana; quantities not defined', 'Naturally occurring base form required; exact formation conditions and biomes not designed', 'Refraction/light interaction, impact fractures and material-consuming repairs'],
     '8-H': ['Umbral creature', 'Stable umbral pattern + modest mana + suitably dark field; quantities not defined', 'Formation environment: darkness and suitable mana; natural map biomes not authored', 'Illumination and mana-disruption limits; no presumed wall phasing or ghost identity'],
     '8-I': ['Luminous creature', 'Common luminous reagent + mana + inexpensive focusing process; quantities not defined', 'Naturally occurring base form required; exact formation method and biomes not designed', 'Finite emission energy, depletion, fragility and exposure; no presumed ghost origin'],
     '8-J': ['Osteal construct', 'Sourced cleaned animal bones + bindings + animation sigil/process; quantities not defined', 'Naturally occurring base form required; exact natural animation conditions and biomes not designed', 'Joint breakage, blunt-force damage and repairs requiring real replacement bones/bindings']
@@ -173,6 +182,18 @@ function buildCatalog() {
   }
   if (planned.length !== Object.keys(plannedData).length) throw Error('Planned-creature queue changed; update the reference annotations.');
   const production = [
+    ['Quartz Shardling — formation', 'Quartz Shardling', 'Per original body', bundle(Formation.COSTS.growShardling),
+      '2 chamber mana; optional 2 inherited-device mana concurrently for an own soul',
+      '1 hour after 60-second attended loading; travel extra', 'Shared Elemental Convergence Chamber; separate characterized/documented mineral pattern',
+      'Finite 120-second service-failure buffer; actual incorporated inputs remain consumed; no late soul retrofit',
+      '1 kg quartz body and 1.1 kg spent lattice brine. Natural mineral lattice reproduced, not a deceased-spirit vessel.', 'creature-formation.js; SHARDLINGS.md'],
+    ['Quartz Shardling — feeding and mining', 'Quartz Shardling', 'Finite original food / physical work',
+      'Offered block: 1 stone block (8 kg) or 1 quartz (1 kg); adjacent actual minerals also eaten when authorized',
+      '10 g/hour; quartz assimilation 25%, body limit 2 kg; ordinary stone does not grow/repair quartz',
+      '5 minutes/movement tile; slow actual structural excavation; repair before growth',
+      'Core contact to receive/cancel a soulless prospect-and-feed instruction; capacity-limited physical carrying',
+      'Private own-mineral sense through rock, six tiles in current stratum; no remote survey; contained bodies cannot tunnel',
+      'Retains spent minerals, fractures, partial deposit depletion, source receipts, original actor and actual recovered rubble.', 'shardlings.js; SHARDLINGS.md'],
     ['Hauntbound — discovery and relationship, NOT production', 'Existing deceased individual / original inhabited object', 'No synthesis recipe or production tier',
       'Original inherited keepsake and original farewell; one personal mana per animantic exchange',
       'Imprints 1 enchantment charge/hour while inhabited, up to 20; optional departure stops imbuement, not an automatic timer',

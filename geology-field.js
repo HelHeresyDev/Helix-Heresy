@@ -214,8 +214,10 @@
 
   function excavationMaterials(profile) {
     if (!profile) return {};
+    if (profile.excavationRemainder) return { ...profile.excavationRemainder };
     const materials = { [profile.stratum.materialId]: profile.rubbleYield };
     if (profile.deposit) materials[profile.deposit.materialId] = profile.deposit.yield;
+    if (profile.quartzKg > 0) materials.quartz = profile.quartzKg;
     return materials;
   }
 

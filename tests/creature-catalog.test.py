@@ -21,13 +21,13 @@ class CreatureCatalogTests(unittest.TestCase):
 
     def test_complete_unique_current_catalog_and_separate_proposals(self):
         rows = self.data['creatures']
-        self.assertEqual(len(rows), 33)
+        self.assertEqual(len(rows), 34)
         ids = [row[-1] for row in rows]
         self.assertEqual(len(ids), len(set(ids)))
-        self.assertEqual(set(ids[:9]), {'human', 'slime', 'mudlet', 'homunculus', 'cinderling', 'zephyrMote', 'rootling', 'sporecap', 'hauntbound'})
-        self.assertEqual({row[1] for row in self.data['ecology']}, set(ids[9:]))
+        self.assertEqual(set(ids[:10]), {'human', 'slime', 'mudlet', 'homunculus', 'cinderling', 'zephyrMote', 'rootling', 'sporecap', 'hauntbound', 'quartzShardling'})
+        self.assertEqual({row[1] for row in self.data['ecology']}, set(ids[10:]))
         self.assertEqual(len(self.data['ecology']), 24)
-        self.assertEqual({row[-1] for row in self.data['planned']}, {f'8-{c}' for c in 'GHIJ'})
+        self.assertEqual({row[-1] for row in self.data['planned']}, {f'8-{c}' for c in 'HIJ'})
         self.assertTrue(all(row[2].startswith('Proposed only') for row in self.data['planned']))
 
     def test_authored_tiers_and_material_costs_are_not_fabricated(self):
@@ -47,7 +47,9 @@ class CreatureCatalogTests(unittest.TestCase):
         self.assertIn('not producible', rows['hauntbound'][4])
         self.assertIn('No creation recipe', rows['hauntbound'][5])
         self.assertIn('personal animancy', rows['hauntbound'][3])
-        for row in self.data['creatures'][9:]:
+        self.assertEqual(rows['quartzShardling'][3:6], [1, 0, '1 quartz + 1 mineral salts + 1 drinking water'])
+        self.assertIn('only quartz grows/repairs', rows['quartzShardling'][11])
+        for row in self.data['creatures'][10:]:
             self.assertEqual(row[3:5], ['Not defined', 'Not defined'])
             self.assertIn('no implemented player-production recipe', row[5])
         self.assertTrue(all(r[4] == 0 for r in self.data['planned']))
@@ -66,7 +68,7 @@ class CreatureCatalogTests(unittest.TestCase):
         self.assertTrue(any('Divine avatar' == row[0] for row in self.data['forms']))
 
     def test_xlsx_contents_filters_freezes_and_types_round_trip(self):
-        definitions = builder.sheet_definitions(self.data, '2026-11-05')
+        definitions = builder.sheet_definitions(self.data, '2026-11-06')
         builder.validate_workbook(self.workbook, definitions)
         with ZipFile(self.workbook) as archive:
             rows = builder.read_sheet_rows(archive, 2)

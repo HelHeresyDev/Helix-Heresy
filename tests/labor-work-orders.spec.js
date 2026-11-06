@@ -6,6 +6,7 @@ const { pathToFileURL } = require('url');
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
 const { activeRunStorageKey } = require('./helpers/active-run-storage');
+const { startLifecycleRun } = require('./helpers/start-lifecycle-run');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -25,7 +26,7 @@ async function loadSavedRun(page) {
 
 async function finishCurrentTask(page) {
   const timing = await page.evaluate(({ key }) => {
-    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    const state = JSON.parse(window.HelixWorldRunLibrary.decompressStorageText(window.localStorage.getItem(key) || '{}')).state;
     const task = window.helixHeresyDebug.taskStatusSnapshot()[0];
     return task ? { seconds: Math.max(1, task.dueAt - state.clock + 1), type: task.type } : null;
   }, { key: await activeRunStorageKey(page) });
@@ -35,17 +36,20 @@ async function finishCurrentTask(page) {
 }
 
 test('rubble hauling catalogs the physical pile as raw stock and exposes its order controls', async ({ page }) => {
-  await startRun(page);
+  test.setTimeout(180000);
+  await startLifecycleRun(page, 'fractional-mineral-hauling');
   const setup = await page.evaluate(({ key }) => {
-    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const payload = JSON.parse(window.HelixWorldRunLibrary.decompressStorageText(window.localStorage.getItem(key) || '{}'));
     const state = payload.state;
     const source = { ...state.scientist.mapCell };
     const destination = { ...state.labMap.rooms.storageRoom.anchor };
     state.labMap.terrain.rubble.push({
       id: 'labor-rubble', cell: source, source: 'test excavation', createdAt: state.clock,
-      materials: [{ id: 'stone', label: 'Stone rubble', amount: 8 }],
+      // Explicit physical source fixture for the hauling adapter only; it grants
+      // no Shardling, discovery, formation, excavation or order completion.
+      materials: [{ id: 'stone', label: 'Stone rubble', amount: 8.375 }, { id: 'quartz', label: 'Quartz', amount: 1.625 }],
     });
-    window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
+    window.localStorage.setItem(key, window.HelixWorldRunLibrary.compressStorageText(JSON.stringify({ ...payload, state })));
     return { source, destination };
   }, { key: await activeRunStorageKey(page) });
   await loadSavedRun(page);
@@ -72,10 +76,11 @@ test('rubble hauling catalogs the physical pile as raw stock and exposes its ord
 
   await finishCurrentTask(page);
   const after = await page.evaluate(({ key }) => {
-    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+    const state = JSON.parse(window.HelixWorldRunLibrary.decompressStorageText(window.localStorage.getItem(key) || '{}')).state;
     return {
       pile: state.labMap.terrain.rubble.find((entry) => entry.id === 'labor-rubble'),
       rawStack: state.physicalItemStacks.find((entry) => entry.key === 'stoneRubble' && entry.tags?.includes('unprocessed-rubble')),
+      recovered: state.physicalItemStacks.filter(entry => entry.sourceLabels?.includes('labor-rubble')),
       order: window.helixHeresyDebug.workOrderSnapshot().find((entry) => entry.data.dedupeKey === 'test:rubble'),
     };
   }, { key: await activeRunStorageKey(page) });
@@ -85,6 +90,8 @@ test('rubble hauling catalogs the physical pile as raw stock and exposes its ord
     materialComposition: { primary: 'stone' },
   });
   expect(after.order.status).toBe('completed');
+  expect(after.recovered.filter(i => i.key === 'stoneRubble').reduce((n, i) => n + i.quantity * i.unitMassKg, 0)).toBeCloseTo(8.375, 6);
+  expect(after.recovered.filter(i => i.key === 'quartz').reduce((n, i) => n + i.quantity * i.unitMassKg, 0)).toBeCloseTo(1.625, 6);
 });
 
 test('repair orders haul physical material before restoring a damaged door', async ({ page }) => {

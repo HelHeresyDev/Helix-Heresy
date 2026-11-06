@@ -8,6 +8,61 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Quartz Shardlings — #8-G complete
+
+The approved replacement for the former optics proposal is complete: a
+material-specific mineral creature, beginning with Quartz Shardling (Research 1,
+Synthesis 0). Its natural lattice forms in suitable quartz-bearing fissures under
+earth-aspected mana. Performed characterization and inert stone/quartz controls
+lead to an independent formation pattern in the shared elemental chamber; Mudlet
+discovery is not compulsory. A sourced one-hour process consumes one quartz,
+one mineral salt, one water and two chamber mana. Concurrent inherited animancy
+spends two more actual device mana for an own soul; unassisted results are soulless.
+Consumed inputs, finite failure buffer, original identity and physical brine remain.
+
+Compatible minerals, including ordinary stone, supply finite sustenance. Only
+quartz grows or replaces the quartz body. Nominal feeding is 10 g/hour, movement
+takes five minutes/tile, and excavation applies very slow actual structural damage
+with normal material resistance, support, rubble and hazards. There is no biological
+rest cycle. Bounded private own-mineral sense passes through intervening rock;
+absence of a source permits exploratory digging. A reached vein occupies the body
+with slow feeding rather than awarding ore. The generated hard-basalt native
+approach required roughly four and a half simulated days before reaching quartz.
+
+Soulless bodies do nothing independently without a physically received core-contact
+standing instruction. Explicitly administered original food remains source-specific;
+instructions and cancellation persist. Capacity-limited carrying, put-down, retained
+chips/spent minerals, quartz-only repair, starvation and irreversible core death
+preserve the same individual. Carried body/remains mass includes retained material.
+Destroyed chambers cannot remain phantom containment. Queued elemental care now
+replans from the actual scientist position after earlier walking/hauling, including
+a procedure originally requested at its work position; travel and attended time
+remain necessary.
+
+Local quartz patches and granite traces use independent deterministic rolls, without
+changing old iron/copper/hazard rolls or immutable strategic worlds. Partial feeding
+debits the original cell's remaining excavation budget. Ordinary mining and hauling
+recover only the remainder, including fractional mineral lots and original source
+IDs; hauling metrics use the material actually cataloged. Dated examinations omit
+private targets/exploration history. Canvas/DOM identify the original lattice as Q.
+Bible, feature guide and Linux ODS/XLSX/CSV/preview now include 34 current entries,
+24 authored strategic species and three remaining proposals.
+
+Focused verification passed: 18 Shardling model checks, 10 shared formation checks,
+nine catalog/artifact checks, the named geology-compatibility and finite quartz/salt
+market checks, the complete native Quartz workflow, the queued-care adapter case,
+the existing named Mudlet research/formation/care/continuation workflow, and the
+named rubble-hauling case extended for exact fractional recovery. Native checks use
+original stocks, actual research, construction, soul gathering, travel, excavation,
+mining and hauling; they cover formation/depletion reloads, continued export/import,
+both renderers and persistent death. Canvas output and catalog preview were inspected.
+Long quarry intervals use the explicitly isolated elemental/task clock, not a claim
+of unattended whole-world survival; a short ordinary-simulation integration check
+occurs before that interval. The routing adapter uses a separately declared body
+fixture, not earned formation evidence. Syntax/whitespace checks passed. The full
+suite was not run under AGENTS.md. #8-G was removed without adding prompts; next
+discussion is #8-H Shadelet.
+
 ### Hauntbound — #8-F complete (replaces Ragkin production)
 
 The explicitly approved replacement is complete: one original inherited inhabited

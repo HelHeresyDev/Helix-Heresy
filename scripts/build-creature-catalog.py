@@ -479,7 +479,7 @@ def preview(path, data, as_of):
     title_font = ImageFont.truetype(str(font_dir / 'LiberationSans-Bold.ttf'), 29)
     widths = [225, 170, 135, 135, 275, 340, 290]
     width, row_height = sum(widths), 144
-    preview_rows = data['creatures'][:9]
+    preview_rows = data['creatures'][:10]
     image = Image.new('RGB', (width, 160 + row_height * len(preview_rows)), '#FFFFFF')
     draw = ImageDraw.Draw(image)
     draw.rectangle((0, 0, width, 100), fill='#17324D')

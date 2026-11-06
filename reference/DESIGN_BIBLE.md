@@ -398,6 +398,33 @@ Creation-time acquisition of a creature's own soul is distinct from an existing 
 
 The shared formation implementation records creation-time soul provenance for new artificial slime synthesis, controlled reproduction, homunculus growth, Mudlets, Cinderlings, Zephyr Motes, Rootlings and Sporecaps. Unassisted results have no independent will or leveling; existing individuals retain their histories. Natural births are not rewritten. The inherited device supplies finite concurrent animancy rather than a retroactive soul switch. Homunculus growth retains its advanced requirements, and late-game receiving bodies remain empty destinations for the scientist's existing soul. See [CREATURE_FORMATION.md](../CREATURE_FORMATION.md) for the actual apparatus, recipes, handling and limits.
 
+### Shardlings and mineral-specific growth
+
+Shardlings are named for their composing material: Quartz Shardling is the first
+playable subtype. Naturally occurring mineral lattices develop in suitable
+quartz-rich fissures under earth-aspected mana; the scientist reproduces that
+existing formation process in the shared elemental chamber, not by inventing life
+or binding a dead spirit. Research Tier 1 and Synthesis Tier 0 describe discovery
+and practical production independently.
+
+They resemble untiring sloths: very slow movement, excavation and eating, without
+biological sleep or muscular fatigue. Many compatible minerals, including ordinary
+stone, supply sustenance, but only the material composing the body supports growth
+and replacement of damaged mass. Actual food, fragments, spent material and bodily
+damage remain finite and persistent. Mineral sense reaches through several layers
+of rock toward the creature's own material; without a sensed source it digs
+exploratorily. A reached vein occupies it with slow feeding, leaving the scientist
+time to mine the rest. This is physical tunnelling and depletion, not a free ore
+grant, remote survey or immunity to ordinary structural hazards.
+
+Artificial formation uses concurrent inherited animancy for an own soul; an
+unassisted body has no individual will. An actually received core-contact standing
+prospect-and-feed instruction can authorize its narrow routine, while an unordered
+soulless body cannot independently seek or eat food. Explicitly administered feeding
+remains possible. Source-backed research, chamber costs, custody, quartz sensing,
+physical mining and save-continuity limits are in [SHARDLINGS.md](../SHARDLINGS.md).
+No optical/refraction endpoint or additional material roster is implied.
+
 ### Hauntbound, soul force and enduring enchantment
 
 A Hauntbound is an original deceased individual's lingering soul inhabiting an object to which they were deeply attached in life after failing to enter reincarnation. It may inhabit a doll, tool, bicycle, weapon, mech or other significant object; this is a phenomenon, not a cloth-only biological species. A newly gathered soul lacks that lived history, so the scientist cannot synthesize Hauntbound or manufacture a deceased identity with the inherited device. Their intelligence is diminished relative to their former selves, but they remain intelligent, independently willing people with personality fragments, an obsession/grudge/attachment and few former memories or skills.

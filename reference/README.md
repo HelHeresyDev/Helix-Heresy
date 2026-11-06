@@ -11,10 +11,10 @@ libreoffice --calc reference/creature-catalog.ods
 The original **[XLSX workbook](creature-catalog.xlsx)** is also retained for Excel
 and other compatible applications. Both workbooks contain:
 
-- Catalog: humans, slime, Mudlet, Cinderling, Zephyr Mote, Rootling, Sporecap, human-derived homunculus, Hauntbound and all 24 beast species (33 entries). Hauntbound are existing deceased individuals inhabiting objects, not a production recipe or biological species.
+- Catalog: humans, slime, Mudlet, Cinderling, Zephyr Mote, Rootling, Sporecap, human-derived homunculus, Hauntbound, Quartz Shardling and all 24 beast species (34 entries). Hauntbound are existing deceased individuals inhabiting objects, not a production recipe or biological species. Quartz Shardling is the first material-specific mining subtype; ordinary stone sustains it but only quartz grows/repairs it.
 - Production detail: per-creature ingredients, process costs, equipment, utilities and care.
 - Beast ecology: decoded biomes, comparative prevalence, threat, movement and social traits.
-- Planned creatures: the four remaining separate formation proposals, not implemented recipes.
+- Planned creatures: the three remaining separate formation proposals, not implemented recipes.
 - Other life & forms: explicit dog lore and divine, avatar, scientist and receiver distinctions.
 - Read me: interpretation, scope, source revision and design limits.
 
@@ -31,7 +31,7 @@ selected columns/rows from the same dataset, not every sheet.
 Rebuild the snapshots with:
 
 ```sh
-python3 scripts/build-creature-catalog.py --as-of 2026-11-05
+python3 scripts/build-creature-catalog.py --as-of 2026-11-06
 PYTHONDONTWRITEBYTECODE=1 python3 tests/creature-catalog.test.py
 ```
 

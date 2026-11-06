@@ -1,5 +1,11 @@
 # Helix Heresy
 
+Quartz Shardlings are available in Research → **Natural Creature Formation**.
+Research the mineral controls, form a body in the shared elemental chamber, and
+physically carry it to rock for slow prospecting. Ordinary minerals sustain it;
+only quartz grows or repairs it. Its actual excavation, feeding and remaining
+deposits persist through saves. See [SHARDLINGS.md](SHARDLINGS.md).
+
 Hauntbound are available in Research → **Hauntbound — inhabited objects**. Examine
 the inherited keepsake, use personal animancy to communicate, and negotiate useful
 continuing light-materials work through the existing task/work-order system.
