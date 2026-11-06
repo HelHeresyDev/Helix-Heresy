@@ -1,5 +1,13 @@
 # Helix Heresy
 
+Hauntbound are available in Research → **Hauntbound — inhabited objects**. Examine
+the inherited keepsake, use personal animancy to communicate, and negotiate useful
+continuing light-materials work through the existing task/work-order system.
+Investigating its original farewell opens an optional reincarnation route that
+leaves an enchanted item; understanding does not automatically dismiss the worker.
+These are existing deceased individuals, not a new synthesis recipe. See
+[HAUNTBOUND.md](HAUNTBOUND.md) for acquisition, care, soul force and both routes.
+
 Newly generated city laws publish saved, offense-specific fine ranges in the existing credits/money unit. Independent city monetary scales vary by ±20%, unrelated to theme, prison capacity or enforcement priority. Contraband commerce has a 300–3,000-credit baseline; its basic receiver sentence still uses only the published minimum and remains stayed. Public law records show the actual range, while older worlds without monetary terms explicitly remain unspecified. Historical-law reconstruction preserves saved amounts, and new publication never backfills old case evidence. No collection or means-based penalty inference is added.
 
 Cargo convictions now have a separate sentencing hearing: fresh notice and exact penalty disclosure, at least one day to prepare, independently appointed sentencing counsel or self-representation, and a thirty-minute remote session using actual local court participants and finite resources. The bounded receiver case considers its documented role and excludes unsupported harm, private means, accusations and silence as aggravation. A decision stays indefinitely pending separate review; it cannot collect money, authorize custody or book a prisoner. Only consented sentencing notices reach the market UI. Historical cases without published monetary amounts remain policy-pending rather than receiving invented fines or substitute prison terms. Explicit local fine ranges and finite-prison-only ranges are supported without retroactively backfilling old cases. Judgment review and enforcement remain separate queued discussions.

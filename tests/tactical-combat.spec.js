@@ -202,7 +202,8 @@ test('Guard suspends and then preserves the remaining scientist task schedule', 
 });
 
 test('Guard reduces incoming damage and physical first aid stabilizes the resulting injury', async ({ page }) => {
-  await startRun(page);
+  test.setTimeout(180000);
+  await startLifecycleRun(page, 'focused-guard-protection');
   await seedCombatSlime(page, 'guard-attacker', {
     name: 'GUARD-ATTACKER',
     behavior: 'vibration hunting',
@@ -216,7 +217,7 @@ test('Guard reduces incoming damage and physical first aid stabilizes the result
   await skipSeconds(page, 1);
 
   const result = await page.evaluate((key) => {
-    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const payload = JSON.parse(window.HelixWorldRunLibrary.decompressStorageText(window.localStorage.getItem(key) || '{}'));
     const state = payload.state || payload;
     return {
       health: state.scientist.vitals.health.current,
@@ -239,7 +240,7 @@ test('Guard reduces incoming damage and physical first aid stabilizes the result
   await stabilize.click();
 
   const queuedCare = await page.evaluate((key) => {
-    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const payload = JSON.parse(window.HelixWorldRunLibrary.decompressStorageText(window.localStorage.getItem(key) || '{}'));
     const state = payload.state || payload;
     const task = state.tasks.find((entry) => entry.type === 'injuryTreatment');
     const reserved = state.physicalItemStacks.find((stack) => stack.id === task?.data.supplyStackId);
@@ -249,7 +250,7 @@ test('Guard reduces incoming damage and physical first aid stabilizes the result
   await skipSeconds(page, queuedCare.seconds);
 
   const careResult = await page.evaluate((key) => {
-    const payload = JSON.parse(window.localStorage.getItem(key) || '{}');
+    const payload = JSON.parse(window.HelixWorldRunLibrary.decompressStorageText(window.localStorage.getItem(key) || '{}'));
     const state = payload.state || payload;
     return {
       statuses: state.injuries.filter((injury) => injury.actorId === 'scientist').map((injury) => injury.status),

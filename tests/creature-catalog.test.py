@@ -21,13 +21,13 @@ class CreatureCatalogTests(unittest.TestCase):
 
     def test_complete_unique_current_catalog_and_separate_proposals(self):
         rows = self.data['creatures']
-        self.assertEqual(len(rows), 32)
+        self.assertEqual(len(rows), 33)
         ids = [row[-1] for row in rows]
         self.assertEqual(len(ids), len(set(ids)))
-        self.assertEqual(set(ids[:8]), {'human', 'slime', 'mudlet', 'homunculus', 'cinderling', 'zephyrMote', 'rootling', 'sporecap'})
-        self.assertEqual({row[1] for row in self.data['ecology']}, set(ids[8:]))
+        self.assertEqual(set(ids[:9]), {'human', 'slime', 'mudlet', 'homunculus', 'cinderling', 'zephyrMote', 'rootling', 'sporecap', 'hauntbound'})
+        self.assertEqual({row[1] for row in self.data['ecology']}, set(ids[9:]))
         self.assertEqual(len(self.data['ecology']), 24)
-        self.assertEqual({row[-1] for row in self.data['planned']}, {f'8-{c}' for c in 'FGHIJ'})
+        self.assertEqual({row[-1] for row in self.data['planned']}, {f'8-{c}' for c in 'GHIJ'})
         self.assertTrue(all(row[2].startswith('Proposed only') for row in self.data['planned']))
 
     def test_authored_tiers_and_material_costs_are_not_fabricated(self):
@@ -44,7 +44,10 @@ class CreatureCatalogTests(unittest.TestCase):
         self.assertEqual(rows['rootling'][3:5], [1, 0])
         self.assertEqual(rows['rootling'][5], '1 plant propagule + 2 drinking water + 1 nutrient medium')
         self.assertEqual(rows['sporecap'][3:6], [0, 0, '1 fungal starter + 1 plant compost + 1 drinking water'])
-        for row in self.data['creatures'][8:]:
+        self.assertIn('not producible', rows['hauntbound'][4])
+        self.assertIn('No creation recipe', rows['hauntbound'][5])
+        self.assertIn('personal animancy', rows['hauntbound'][3])
+        for row in self.data['creatures'][9:]:
             self.assertEqual(row[3:5], ['Not defined', 'Not defined'])
             self.assertIn('no implemented player-production recipe', row[5])
         self.assertTrue(all(r[4] == 0 for r in self.data['planned']))

@@ -11,10 +11,10 @@ libreoffice --calc reference/creature-catalog.ods
 The original **[XLSX workbook](creature-catalog.xlsx)** is also retained for Excel
 and other compatible applications. Both workbooks contain:
 
-- Catalog: humans, slime, Mudlet, Cinderling, Zephyr Mote, Rootling, Sporecap, human-derived homunculus and all 24 beast species (32 entries).
+- Catalog: humans, slime, Mudlet, Cinderling, Zephyr Mote, Rootling, Sporecap, human-derived homunculus, Hauntbound and all 24 beast species (33 entries). Hauntbound are existing deceased individuals inhabiting objects, not a production recipe or biological species.
 - Production detail: per-creature ingredients, process costs, equipment, utilities and care.
 - Beast ecology: decoded biomes, comparative prevalence, threat, movement and social traits.
-- Planned creatures: the five separate pending proposals, not implemented recipes.
+- Planned creatures: the four remaining separate formation proposals, not implemented recipes.
 - Other life & forms: explicit dog lore and divine, avatar, scientist and receiver distinctions.
 - Read me: interpretation, scope, source revision and design limits.
 

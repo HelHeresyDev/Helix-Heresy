@@ -8,6 +8,7 @@ const Environment = require('../climate-hydrology-biomes');
 const Arcane = require('../strategic-arcane-geography');
 const Formation = require('../creature-formation');
 const Homunculi = require('../homunculi');
+const Hauntbound = require('../hauntbound');
 const Wilderness = require('../wilderness-beasts');
 const resolveSource = file => file === 'DESIGN_BIBLE.md' && !fs.existsSync(path.join(root, file)) ? 'reference/DESIGN_BIBLE.md' : file;
 const text = file => fs.readFileSync(path.join(root, resolveSource(file)), 'utf8');
@@ -112,6 +113,17 @@ function buildCatalog() {
     'Finite contacting plant waste and water; no sunlight required; real cover maintenance and waste collection',
     `${soulRule} One cap and its connected mat are one individual. Decomposition retains spent substrate, pollutants and respiratory losses; spores spend body reserves. No automatic offspring, edible harvest, universal detoxification or workforce.`,
     formationSource + '; sporecaps.js; CREATURE_FORMATION.md', 'sporecap']);
+  rows.push(['Hauntbound', 'Soul being / inhabited object', 'Implemented: inherited haunting, animancy contact, voluntary continuing work and optional residual enchantment',
+    'N/A — personal animancy enables contact, not a production recipe', 'N/A — not producible',
+    'No creation recipe; discover an existing deceased individual and their personally significant object',
+    'Attachment to a particular object, not a biome. Dolls, bicycles, tools and mechs can be inhabited in the setting; current playable body is a cloth doll.',
+    'No authored rarity rank or strategic population; one original inherited episode per run',
+    'Body-specific damage, wet cloth/seam wear, limited soul force, soul injury; consent can be withdrawn',
+    'Intelligent independent individual with diminished memories/personality and an obsession; direct conversation requires personal animancy; no ordinary speech',
+    `Current doll: ${Hauntbound.DEFINITION.bodyMassKg} kg body, ${Hauntbound.DEFINITION.maxForceN} N soul force, ${Hauntbound.DEFINITION.carryMassKg} kg / ${Hauntbound.DEFINITION.carryVolumeL} L real cargo; no unpowered mech locomotion`,
+    'No biological food, water or sleep; finite soul exertion/recovery and physical care; one cloth per repair with retained worn fabric',
+    'Same surviving deceased soul, not a fresh gathered soul or retroactive artificial soul. Keeping a willing worker is a complete route. Voluntary reincarnation leaves an object-specific finite-charge enchantment; no inhabitant remains.',
+    source('hauntbound.js', 'const DEFINITION') + '; HAUNTBOUND.md', 'hauntbound']);
   const ecologyRows = [];
   for (const s of Ecology.BEAST_SPECIES) {
     const biome = s.biomeCodes.map(c => {
@@ -142,7 +154,6 @@ function buildCatalog() {
   }
   const pending = text('PENDING_PROMPTS.md');
   const plannedData = {
-    '8-F': ['Cloth construct', 'Fabric + thread + stuffing + animation sigil/process; quantities not defined', 'Naturally occurring base form required; exact natural animation conditions and biomes not designed', 'Seam wear, repair, carrying limits and high flammability'],
     '8-G': ['Mineral construct', 'Common quartz/minerals + salts + finite mana; quantities not defined', 'Naturally occurring base form required; exact formation conditions and biomes not designed', 'Refraction/light interaction, impact fractures and material-consuming repairs'],
     '8-H': ['Umbral creature', 'Stable umbral pattern + modest mana + suitably dark field; quantities not defined', 'Formation environment: darkness and suitable mana; natural map biomes not authored', 'Illumination and mana-disruption limits; no presumed wall phasing or ghost identity'],
     '8-I': ['Luminous creature', 'Common luminous reagent + mana + inexpensive focusing process; quantities not defined', 'Naturally occurring base form required; exact formation method and biomes not designed', 'Finite emission energy, depletion, fragility and exposure; no presumed ghost origin'],
@@ -162,6 +173,19 @@ function buildCatalog() {
   }
   if (planned.length !== Object.keys(plannedData).length) throw Error('Planned-creature queue changed; update the reference annotations.');
   const production = [
+    ['Hauntbound — discovery and relationship, NOT production', 'Existing deceased individual / original inhabited object', 'No synthesis recipe or production tier',
+      'Original inherited keepsake and original farewell; one personal mana per animantic exchange',
+      'Imprints 1 enchantment charge/hour while inhabited, up to 20; optional departure stops imbuement, not an automatic timer',
+      'Examine 30 s; contact/agreement/read letter 60 s each; share farewell 90 s; optional goodbye 60 s; travel extra',
+      'Actual personally significant object; personal Animancy [Initiate], no suppression; no creation-device prerequisite',
+      'Source-backed investigation and independent willingness; readiness does not automatically dismiss the worker',
+      'Repeatable physical materials work uses the shared task/work-order system and real inventory. No meals, sleep or automatic loyalty; original instructions/cargo persist.', 'hauntbound.js; HAUNTBOUND.md'],
+    ['Hauntbound — care and optional enchanted keepsake', 'Original body / released protective item', 'Per physical care action',
+      'Repair 1 cloth, retaining 0.5 kg replaced fabric; released enchantment recharge 1 actual arcane feedstock for 8 charge',
+      'Carried intact released keepsake cushions physical-only damage by 30%, at most 3 points/hit; 1 charge/point; capacity 20',
+      'Repair 180 s; recharge 60 s; take/put down 15 s; travel extra', 'Original object and personally staged source supplies',
+      'Repair never heals a soul; goodbye requires willing readiness and physically settled cargo; recharge never recalls a person',
+      'No free power, new spirit, biological stamina drain or mech implementation. Breaking the object does not automatically destroy its soul.', 'hauntbound.js; HAUNTBOUND.md'],
     ['Slime — tube synthesis', 'Slime', 'Per creature', `${slimeCost} biomass`, 'Optional soul-bearing attempt: 2 inherited-device mana during formation',
       '8 base minutes, skill-adjusted; actual routing/attendance adds time', 'Existing synthesis tube + inherited animancy device',
       'Valid genome, tube availability, stamina and actual biomass', 'Upkeep and hazards remain genome-dependent. Equipment and fuel charging are separate from biomass cost.', source('app.js', 'function startSynthesisFromCurrentGenome')],

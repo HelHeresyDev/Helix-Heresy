@@ -5,6 +5,12 @@ its formation process; neither science nor gods invent life from nothing. An
 engineered variant need not occur naturally. Research Tier describes discovery
 difficulty; Synthesis Tier describes practical production complexity, not power.
 
+Hauntbound are deliberately outside artificial formation: an existing deceased
+individual inhabits a personally significant object. They cannot be manufactured
+from fresh soul energy and have no production tier or soulless counterpart.
+Animancy can enable communication, voluntary continuing work and optional release
+leaving residual enchantment; see [HAUNTBOUND.md](HAUNTBOUND.md).
+
 ## Apparatus and research
 
 The starting laboratory contains the original creation-time animancy device with

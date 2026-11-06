@@ -479,7 +479,8 @@ def preview(path, data, as_of):
     title_font = ImageFont.truetype(str(font_dir / 'LiberationSans-Bold.ttf'), 29)
     widths = [225, 170, 135, 135, 275, 340, 290]
     width, row_height = sum(widths), 144
-    image = Image.new('RGB', (width, 160 + row_height * 8), '#FFFFFF')
+    preview_rows = data['creatures'][:9]
+    image = Image.new('RGB', (width, 160 + row_height * len(preview_rows)), '#FFFFFF')
     draw = ImageDraw.Draw(image)
     draw.rectangle((0, 0, width, 100), fill='#17324D')
     draw.text((22, 16), 'HELIX HERESY / CREATURE CATALOG', font=title_font, fill='white')
@@ -491,7 +492,7 @@ def preview(path, data, as_of):
         draw.rectangle((x, 100, x + w, 144), fill='#117D89')
         draw.text((x + 10, 113), label, font=bold, fill='white')
         x += w
-    for r, record in enumerate(data['creatures'][:8]):
+    for r, record in enumerate(preview_rows):
         y, x = 144 + r * row_height, 0
         draw.rectangle((0, y, width, y + row_height), fill='#F0F6F8' if r % 2 == 0 else 'white')
         for index, w in zip(indices, widths):

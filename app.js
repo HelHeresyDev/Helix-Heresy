@@ -49,6 +49,7 @@
   if (!LeasedAnnex) throw new Error("HelixLeasedAnnex must load before app.js");
   const Homunculi = window.HelixHomunculi;
   const Formation = window.HelixCreatureFormation;
+  const Hauntbound = window.HelixHauntbound;
   if (!Formation) throw new Error("HelixCreatureFormation must load before app.js");
   if (!Homunculi) throw new Error("HelixHomunculi must load before app.js");
   const SoulBeacons = window.HelixSoulBeacons;
@@ -5353,7 +5354,7 @@
     "signedLanguage",
     "creationLesson",
     "firstContact",
-    "elementalWork", "homunculusWork",
+    "elementalWork", "homunculusWork", "hauntboundWork",
     "soulBeaconWork",
     "hiddenWorkshopWork",
     "synthesize",
@@ -6183,6 +6184,7 @@
     const visitor = actorOrId?.kind === "visitor";
     const capacity = scientist
       ? { maxMassKg: SCIENTIST_CARRY_MASS_KG, maxVolumeL: SCIENTIST_CARRY_VOLUME_L }
+      : actorOrId?.actorKind === 'hauntbound' ? { maxMassKg: Hauntbound.DEFINITION.carryMassKg, maxVolumeL: Hauntbound.DEFINITION.carryVolumeL }
       : actorOrId?.actorKind === "expeditionEscort" ? { maxMassKg: 25, maxVolumeL: 30 }
       : actorOrId?.actorKind === "rescueMedic" ? { maxMassKg: 35, maxVolumeL: 45 }
       : actorOrId?.actorKind === "penalPrisoner" ? { maxMassKg: 25, maxVolumeL: 30 }
@@ -17525,6 +17527,45 @@
         if (changes.killScientist) damageScientistCombat(1000, "Explicit first-contact test death");
         persist(); render(); return true;
       },
+      hauntboundSnapshot: () => clonePlainObject({ saved: ensureHauntbound(), clock: state.clock, tasks: state.tasks, orders: state.workOrders,
+        stacks: ensurePhysicalItemStacks(), scientist: scientistMapCell(), mana: scientistVital('mana'), animancy: skillLevel('animancy'), skills: state.scientist.skills,
+        context: hauntboundContext(), identity: state.runIdentity, events: state.events.slice(-8) }),
+      hauntboundAction: (action, options = {}) => queueHauntboundWork(action, options),
+      advanceHauntboundForTest: seconds => {
+        // Advance actual attended work/navigation, not dialogue, agreement or enchantment outcome grants.
+        let left = Math.max(0, Number(seconds) || 0);
+        while (left > 0 && !scientistIsDead()) {
+          const working = scientistQueueTasks().length || state.hauntbound?.orders.some(o => !['completed', 'canceled'].includes(o.status));
+          const dt = Math.min(working ? 3 : 60, left); state.clock += dt; left -= dt;
+          updateScientistMovementTask(); completeDueTasks(); updateHauntbound();
+        }
+        persist(); render(); return state.clock;
+      },
+      stageHauntboundTestInputs: () => {
+        // Relocate ORIGINAL supplies; neither research, spirit nor consent is granted.
+        const s = ensureHauntbound(), cell = scientistMapCell();
+        for (const key of ['cloth', 'metalParts', 'arcaneFeedstock']) {
+          const i = ensurePhysicalItemStacks().find(i => i.section === 'resources' && i.key === key && !i.carriedBy && !i.reservedTaskId);
+          if (i) { i.cell = clonePlainObject(cell); i.roomId = scientistRoomId(); i.fixtureId = ''; i.stockpileId = ''; i.containerId = ''; }
+        }
+        for (const c of ensureLabMap().rooms[MAIN_ROOM_ID]?.cells || []) { const e = tileEnvironmentAtCell(c); if (e) e.temperatureC = 20; }
+        syncPhysicalReadModels(); persist(); render(); return Boolean(s);
+      },
+      hauntboundTestDestination: () => {
+        const s = ensureHauntbound(), start = scientistMapCell();
+        return cardinalMapCells(start).concat(cardinalMapCells(s.actor.mapCell)).find(c => !sameMapCell(c, s.actor.mapCell)
+          && !sameMapCell(c, start) && labMapCellRoomId(c) === MAIN_ROOM_ID && labMapCellIsWalkable(c)
+          && canActorOccupyTile(s.actor, c) && homunculusLocal(c)
+          && labNavigationPlanBetweenCells(s.actor.mapCell, c, { actor: s.actor, ignoreDoors: false }).found);
+      },
+      setHauntboundTestInputs: changes => {
+        // Explicit disability / weather / damage INPUTS only, never earned progression.
+        if (changes.animancyXp != null) { const e = scientistSkill('animancy', { create: true }); e.xp = changes.animancyXp; e.bodyPracticeXp = changes.animancyXp; }
+        if (changes.damage) Hauntbound.damage(ensureHauntbound(), changes.damage, changes.kind || 'physical', state.clock);
+        if (changes.temperature != null) { const e = tileEnvironmentAtCell(ensureHauntbound().actor.mapCell); if (e) e.temperatureC = changes.temperature; }
+        if (changes.scientistDamage) damageScientistCombat(changes.scientistDamage, 'Explicit protective keepsake test impact', { damageTypes: changes.damageTypes || ['physical'] });
+        persist(); render(); return true;
+      },
       elementalAction: (action, id = '') => queueElementalWork(action, id),
       elementalBuildOptions: (typeId = 'elementalChamber', anchorId = '') => {
         const def = FIXTURE_BY_ID[typeId]; if (!['elementalChamber', 'emberBrazier', 'moteVessel', 'rootlingPlanter'].includes(typeId)) return [];
@@ -24895,6 +24936,7 @@
     changes.scientistMovementChanged += livingUpdate(() => updateFoundingExpedition());
     changes.scientistMovementChanged += livingUpdate(() => updateFoundingWorks());
     changes.scientistMovementChanged += livingUpdate(() => updateSurfaceWorkers());
+    changes.scientistMovementChanged += livingUpdate(() => updateHauntbound());
     changes.scientistMovementChanged += livingUpdate(() => updateHomunculi());
     changes.scientistMovementChanged += livingUpdate(() => updateElementalLab());
     changes.scientistMovementChanged += livingUpdate(() => updateSoulBeacons());
@@ -25388,6 +25430,7 @@
   }
 
   function completeDueTasks() {
+    updateHauntboundWork();
     updateElementalWork();
     updateSlimeFormationWork();
     updateCorridorWork();
@@ -25418,6 +25461,10 @@
         .sort((a, b) => a.dueAt - b.dueAt);
       for (const task of due) {
         if (scientistIsDead()) return changeCount;
+        if (task.type === 'hauntboundLabor') { task.dueAt = state.clock + 60; continue; }
+        if (task.type === 'hauntboundWork' && task.data.work.progress < task.data.work.required - 1e-8) {
+          task.dueAt = state.clock + Math.max(1, task.data.work.required - task.data.work.progress); continue;
+        }
         if (task.type === 'elementalWork' && task.data.work.progress < task.data.work.required - 1e-8) {
           task.dueAt = state.clock + Math.max(1, task.data.work.required - task.data.work.progress); continue;
         }
@@ -25493,6 +25540,7 @@
   }
 
   function completeTask(task) {
+    if (task.type === 'hauntboundWork') { finishHauntboundWork(task); return; }
     if (task.type === "spokenLanguage") { finishSpokenLanguage(task); return; }
     if (task.type === "signedLanguage") { finishSignedLanguage(task); return; }
     if (task.type === "creationLesson") { finishCreationLesson(task); return; }
@@ -26182,6 +26230,11 @@
   function cancelWorkOrder(orderId) {
     const order = workOrderById(orderId);
     if (!order || ["completed", "canceled"].includes(order.status)) return false;
+    if (order.kind === 'hauntboundHaul') {
+      if (Hauntbound.communicationReason(state.hauntbound, hauntboundContext())) return false;
+      if (!Hauntbound.cancel(state.hauntbound, order.id, state.clock, hauntboundHooks())) return false;
+      state.tasks = state.tasks.filter(t => t.id !== order.claimedTaskId);
+    }
     if (order.claimedTaskId && findTask(order.claimedTaskId)) {
       cancelTask(order.claimedTaskId, { quiet: true, noLaborClaim: true });
     }
@@ -26487,7 +26540,7 @@
     if (surveyScientistReserved()) return 0;
     if (scientistQueueTasks().length) return 0;
     const candidates = ensureWorkOrders()
-      .filter((order) => ["open", "blocked"].includes(order.status))
+      .filter((order) => order.kind !== 'hauntboundHaul' && ["open", "blocked"].includes(order.status))
       .sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt);
     for (const order of candidates) {
       const plan = laborOrderPlan(order);
@@ -35481,6 +35534,7 @@
     if (porter) return porter;
     if (context?.surfaceWorkers?.actor?.id === id) return context.surfaceWorkers.actor;
     if (context?.laboratoryAssistant?.actor?.id === id) return context.laboratoryAssistant.actor;
+    if (context?.hauntbound?.actor?.id === id) return context.hauntbound.actor;
     if (context?.citySuccession?.appointments?.candidate?.id === id) return context.citySuccession.appointments.candidate;
     if (context?.homunculi?.individuals.some(a => a.id === id)) return context.homunculi.individuals.find(a => a.id === id);
     if (context?.elementalLab?.creatures.some(a => a.id === id)) return context.elementalLab.creatures.find(a => a.id === id);
@@ -35543,6 +35597,7 @@
       ...(context.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.builder?.actor).filter(Boolean).map(actor => ({ id: actor.id, actor })),
       ...(context.surfaceWorkers?.actor ? [{ id: context.surfaceWorkers.actor.id, actor: context.surfaceWorkers.actor }] : []),
       ...(context.laboratoryAssistant?.actor ? [{ id: context.laboratoryAssistant.actor.id, actor: context.laboratoryAssistant.actor }] : []),
+      ...(context.hauntbound?.actor ? [{ id: context.hauntbound.actor.id, actor: context.hauntbound.actor }] : []),
       ...(context.citySuccession?.appointments?.candidate ? [{ id: context.citySuccession.appointments.candidate.id, actor: context.citySuccession.appointments.candidate }] : []),
       ...(context.medicalExtraction?.medic ? [{ id: context.medicalExtraction.medic.id, actor: context.medicalExtraction.medic }] : []),
       ...(context.penalFlights?.assistance?.cityApproach?.gates || []).filter(g => g.visitorSupplies).map(g => ({ id: g.visitorSupplies.actor.id, actor: g.visitorSupplies.actor })),
@@ -35678,6 +35733,9 @@
     const id = normalizeActorInventoryOwnerId(actorId);
     const actor = actorInventoryOwner(id);
     const source = ensurePhysicalItemStacks().find((stack) => stack.id === stackId);
+    // Nested actor cargo has no transport adapter: put down the actual load
+    // before carrying its inhabited body, rather than hiding that mass in a doll.
+    if (source?.id === state.hauntbound?.objectId && actorInventoryStacks(state.hauntbound.actor.id).length) return null;
     const amount = source?.section === "collectedByproducts"
       ? roundOutputValue(Math.max(0, Number(quantity) || 0))
       : Math.max(0, Math.floor(Number(quantity) || 0));
@@ -36359,6 +36417,9 @@
 
   function physicalStackStoredCorrectly(stack) {
     if (!stack) return false;
+    // A person's inhabited body and its original personal record are in use,
+    // not unattended bulk stock for automatic hauling. Manual custody remains physical.
+    if (state.hauntbound && [state.hauntbound.objectId, state.hauntbound.letterId].includes(stack.id)) return true;
     if (stack.carriedBy) return true;
     if (stack.evidenceDocument && stack.fixtureId === recordsCabinet()?.id) return true;
     if (normalizeResidueTags(stack.tags).includes("bait")) return true;
@@ -38979,6 +39040,7 @@
   }
 
   function actorFloorLoadM2(actor) {
+    if (actor?.actorKind === 'hauntbound') return .08;
     if (['mudlet', 'cinderling', 'zephyrMote', 'rootling', 'sporecap'].includes(actor?.actorKind)) return .2;
     if (actor?.actorKind === 'fieldDriver') return .6;
     if (!actor) return 0;
@@ -39143,6 +39205,7 @@
   }
 
   function navigationFootprintForActor(actor) {
+    if (actor?.actorKind === 'hauntbound') return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .08, exclusive: false });
     if (['mudlet', 'cinderling', 'zephyrMote', 'rootling', 'sporecap'].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .2, exclusive: false });
     if (actor?.actorKind === 'fieldDriver') return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (['cityDefender', 'civicOfficeholder', 'cityIncumbent', 'municipalTechnician', 'divineAvatar', 'divineIndividual', 'reliefDriver'].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
@@ -42606,6 +42669,7 @@
     const homunculus = state.homunculi?.individuals.find(a => a.id === actorId);
     if (homunculus) return homunculus;
     const mudlet = state.elementalLab?.creatures.find(a => a.id === actorId); if (mudlet) return mudlet;
+    if (state.hauntbound?.actor.id === actorId && state.hauntbound.actor.status !== 'departed') return state.hauntbound.actor;
     if (state.surfaceWorkers?.actor?.id === actorId) return state.surfaceWorkers.actor;
     if (state.laboratoryAssistant?.actor?.id === actorId) return state.laboratoryAssistant.actor;
     return actorId === "scientist" ? state.scientist : regionalGovernmentActors().find(a => a.id === actorId) || findSlime(actorId) || wildernessBeast(actorId) || escortStateForActor(actorId)?.actor || (state.medicalExtraction?.medic?.id === actorId ? state.medicalExtraction.medic : null) || state.penalFlights?.actors.find(a => a.id === actorId)
@@ -42620,6 +42684,7 @@
   }
 
   function combatActorSkillLevel(actor, skillId) {
+    if (actor?.actorKind === 'hauntbound') return 0;
     if (actor?.actorKind === 'fieldDriver') return actor.skills[skillId] || 1;
     if (actor?.actorKind === 'cityIncumbent') return actor.personalDefense.skills[skillId] || 1;
     if (['cityDefender', 'civicOfficeholder', 'divineAvatar', 'divineIndividual', 'reliefDriver'].includes(actor?.actorKind)) return actor.skills?.[skillId] || 1;
@@ -42634,6 +42699,7 @@
   }
 
   function combatActorVitalPercent(actor, key) {
+    if (actor?.actorKind === 'hauntbound') return actor.health;
     if (['mudlet', 'cinderling', 'zephyrMote', 'rootling', 'sporecap'].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
     if (actor?.actorKind === 'fieldDriver') return actor.health / actor.maxHealth * 100;
     if (['civicOfficeholder', 'cityIncumbent', 'divineAvatar', 'divineIndividual', 'reliefDriver'].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
@@ -42689,6 +42755,7 @@
   }
 
   function scientistCombatTargetForSlime(slime) {
+    if (slime?.actorKind === 'hauntbound') return normalizeCombatTarget({ kind: 'creature', id: slime.id, lastKnownCell: slime.mapCell, observedAt: state.clock });
     if (['mudlet', 'cinderling', 'zephyrMote', 'rootling', 'sporecap'].includes(slime?.actorKind)) return normalizeCombatTarget({ kind: 'creature', id: slime.id, lastKnownCell: slime.mapCell, observedAt: state.clock });
     if (!slime) return null;
     if (['cityDefender', 'cityIncumbent', 'civicOfficeholder', 'divineAvatar', 'divineIndividual', 'reliefDriver'].includes(slime.actorKind)) return normalizeCombatTarget({ kind: 'creature', id: slime.id, lastKnownCell: slime.mapCell, observedAt: state.clock });
@@ -43036,6 +43103,10 @@
     }
     const targetActor = combatActor(target.id);
     if (!targetActor) return { ok: false, reason: "The target is no longer present." };
+    if (actorId === 'scientist' && targetActor.actorKind === 'hauntbound') {
+      state.hauntbound.agreement = false; state.hauntbound.withdrawn = true;
+      targetActor.independentIntent = 'Withdraw from work after the scientist’s witnessed attack.';
+    }
     if (actorId === 'scientist' && targetActor.actorKind === 'divineIndividual') {
       DivineBodies.attack(currentDivineBodies(), currentDivineCapabilities(), targetActor, divineBodyContext(targetActor), state.clock);
       DivineSubmission.witnessAttack(currentDivineBodies(), currentDivineCapabilities(), targetActor, divineBodyContext(targetActor), state.clock);
@@ -43107,6 +43178,7 @@
       : targetActor.actorKind === "surfaceWorker" ? damageSurfaceWorker(guardedDamage, { damageTypes: action.damageTypes }, targetActor)
       : targetActor.actorKind === "laboratoryAssistant" ? damageSurfaceWorker(guardedDamage, { damageTypes: action.damageTypes }, targetActor)
       : targetActor.actorKind === "homunculus" ? damageHomunculus(targetActor, guardedDamage, { damageTypes: action.damageTypes, observed: actor === state.scientist })
+      : targetActor.actorKind === 'hauntbound' ? Hauntbound.damage(state.hauntbound, guardedDamage, action.requiresSoul ? 'soul' : (action.damageTypes || []).includes('heat') ? 'fire' : 'physical', state.clock)
       : ['mudlet', 'cinderling', 'zephyrMote', 'rootling', 'sporecap'].includes(targetActor.actorKind) ? Formation.damage(targetActor, guardedDamage, action.label, state.clock)
       : targetActor.actorKind === 'cityDefender' ? damageCityDefender(guardedDamage, { damageTypes: action.damageTypes }, targetActor)
       : targetActor.actorKind === 'cityIncumbent' ? damageIncumbent(guardedDamage, { damageTypes: action.damageTypes })
@@ -43434,6 +43506,7 @@
       if (!container || !containerAccessOpen(container)) return `${container?.name || "The container"} is closed. Open it before striking the contained creature.`;
     }
     if (action.requiresSoul && slime.actorKind === 'divineAvatar') return 'This constructed protecting manifestation has no separate mortal soul to lash; its body is not the god’s true individual.';
+    if (action.requiresSoul && slime.actorKind === 'hauntbound' && (slime.soul.integrity <= 0 || slime.status === 'departed')) return 'The original soul is no longer present.';
     if (action.requiresSoul && (slime.status === "dead" || !Formation.hasWill(slime))) return "Soul Lash requires a living, souled target.";
     if (actionId === 'divineResonance') {
       const reason = DivineBodies.resonanceReason(currentDivineBodies(), currentDivineCapabilities(), slime,
@@ -44161,7 +44234,11 @@
       if (cover.absorbed) addEvent(`The original defender's nearby ward absorbed ${cover.absorbed} combat damage using personal energy.`,
         { sourceKind: 'defenseRecognition', sourceId: state.defenseRecognition.personId });
     }
-    const protectedDamage = scientistEquipmentDamageResult(wardDamage, options.damageTypes || ["physical"], reason);
+    const keepsake = state.hauntbound && ensurePhysicalItemStacks().find(i => i.id === state.hauntbound.objectId);
+    const cushion = options.injuryProgress ? { damage: wardDamage, absorbed: 0 } : Hauntbound.absorb(state.hauntbound, wardDamage,
+      options.damageTypes || ['physical'], keepsake?.carriedBy === 'scientist' && keepsake.quantity === 1);
+    if (cushion.absorbed) addEvent(`The departed spirit's keepsake absorbed ${cushion.absorbed} physical damage using its finite enchantment charge.`);
+    const protectedDamage = scientistEquipmentDamageResult(cushion.damage, options.damageTypes || ["physical"], reason);
     const damage = protectedDamage.damage;
     if (!damage) return true;
     const health = scientistVital("health");
@@ -57663,8 +57740,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (divineAccessActive() && !surveyTaskAllowed(task)) return null;
     const suspension = state.combat?.routineSuspension;
     if (suspension && (!suspension.taskId || task.id !== suspension.taskId)) return null;
-    if (!["synthesize", "hiddenWorkshopWork", "firstContact", "elementalWork", "homunculusWork", "soulBeaconWork", "surveyExpeditionWork", "scientistMove", "equipmentChange", "doorOperation", "visitFixtureAccess", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) return null;
-    if (["synthesize", "hiddenWorkshopWork", "firstContact", "elementalWork", "homunculusWork", "soulBeaconWork", "surveyExpeditionWork", "equipmentChange", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) {
+    if (!["synthesize", "hiddenWorkshopWork", "firstContact", "elementalWork", "homunculusWork", "hauntboundWork", "soulBeaconWork", "surveyExpeditionWork", "scientistMove", "equipmentChange", "doorOperation", "visitFixtureAccess", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) return null;
+    if (["synthesize", "hiddenWorkshopWork", "firstContact", "elementalWork", "homunculusWork", "hauntboundWork", "soulBeaconWork", "surveyExpeditionWork", "equipmentChange", "recaptureSlime", "placeBait", "laborWork", "resourceHaul", "breed", "researchWork", "experimentConclusion", "physicalDiagnostic", "injuryTreatment", "blackMarketTrade", "institutionalResponse"].includes(task.type)) {
       const blockedReason = taskBlockReason(task);
       if (blockedReason) {
         task.data ||= {};
@@ -64946,6 +65023,248 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.append(textEl('p', 'Prepare one ready body and charged disarmed beacon using eight metal parts, four glass, eight arcane feedstock and four compatible growth medium. Validation uses two reagent and two feedstock. Both fixtures and the body must remain at least 90% fit. Research alone upgrades nothing; each new body needs its own preparation. Both transfer methods require soul integrity of at least 75 and never heal it. Perfected transfer retains current memory and knowledge, not old lost memories or trained bodily execution. The main laboratory and separately supplied wilderness receiving alcove are independent destinations; away examinations stay dated.'));
   }
 
+  function ensureHauntbound() {
+    if (state.hauntbound || scientistIsDead()) return state.hauntbound;
+    // A once-only inherited possession in this run, not a mutable addition to its archived world.
+    const cell = nearestOpenMapCellInRoom(MAIN_ROOM_ID, { x: 54, y: 48, z: 0 }, { ignoreAccessPolicy: true });
+    if (!cell) return null;
+    const object = createPhysicalItemStack('inventory', 'inheritedClothKeepsake', 1, { roomId: MAIN_ROOM_ID, cell },
+      { tags: ['cloth', 'personal-keepsake'], sourceLabels: ['Original scientist’s recovered personal effects; predates this run'] });
+    const letter = createPhysicalItemStack('inventory', 'oldFarewellLetter', 1, { roomId: MAIN_ROOM_ID, cell },
+      { tags: ['paper', 'personal-record'], sourceLabels: ['Original folded farewell accompanying the keepsake'] });
+    object.unitMassKg = .5; object.unitVolumeL = 1; letter.unitMassKg = .005; letter.unitVolumeL = .01;
+    object.materialComposition = { primary: 'cloth' };
+    state.hauntbound = Hauntbound.create(state.clock, { roomId: MAIN_ROOM_ID, cell }, object.id, letter.id,
+      `haunting-${state.runIdentity?.runId || state.seed}`);
+    syncActorInventories(); return state.hauntbound;
+  }
+  function hauntboundObject() { return state.hauntbound && ensurePhysicalItemStacks().find(i => i.id === state.hauntbound.objectId && i.quantity === 1); }
+  function hauntboundLetter() { return state.hauntbound && ensurePhysicalItemStacks().find(i => i.id === state.hauntbound.letterId && i.quantity === 1); }
+  function hauntboundLocal(item) {
+    return Boolean(item && !item.containerId && !item.fixtureId && (!item.carriedBy || item.carriedBy === 'scientist') && homunculusLocal(item.cell));
+  }
+  function hauntboundContext() {
+    return { local: hauntboundLocal(hauntboundObject()), letterLocal: hauntboundLocal(hauntboundLetter()), letterExists: Boolean(hauntboundLetter()),
+      dead: scientistIsDead(), incapacitated: actorIsIncapacitated('scientist'), suppressed: Boolean(scientistMagicSuppressionReason()),
+      animancy: scientistSkill('animancy').xp > 0 ? skillLevel('animancy') : 0 };
+  }
+  function hauntboundTaskReason(task) {
+    const s = state.hauntbound, d = task.data, context = hauntboundContext(), object = hauntboundObject();
+    if (!s || !object) return 'The original inhabited object is missing; no replacement appears.';
+    if (scientistIsDead() || actorIsIncapacitated('scientist')) return 'The scientist cannot attend.';
+    if (!['examine', 'letter', 'repair', 'recharge', 'take', 'put'].includes(d.action)) {
+      const reason = Hauntbound.communicationReason(s, { ...context, local: true }); if (reason) return reason;
+      if (scientistVital('mana').current < Hauntbound.DEFINITION.contactMana) return 'Personal spirit contact requires one actual scientist mana.';
+    }
+    if (d.action === 'letter' && !context.letterExists) return 'The original farewell letter is unavailable.';
+    if (d.action === 'recharge' && (s.actor.status !== 'departed' || s.enchantment.charge > 12 + 1e-8)) return 'Recharge only the departed spirit’s enchantment with room for all eight mana.';
+    if (d.action === 'take' && (s.actor.status !== 'departed' || object.carriedBy || !actorInventoryCanCarry('scientist', object, 1))) return 'Only the released enchanted keepsake can be picked up here, within actual carrying capacity.';
+    if (d.action === 'put' && object.carriedBy !== 'scientist') return 'The original keepsake is not carried by the scientist.';
+    const target = d.action === 'letter' ? hauntboundLetter() : object;
+    if (!target || target.containerId || target.fixtureId || target.carriedBy && target.carriedBy !== 'scientist'
+      || mapCellDistance(d.toCell, target.cell) > 1 || !sensoryLineOfSight(d.toCell, target.cell)) return 'The original object moved or became inaccessible; approach it again.';
+    if (d.reservedStackIds && !d.materialConsumed && (d.resourceCosts && Object.keys(d.resourceCosts).length)) {
+      const original = d.reservedStackIds.map(id => ensurePhysicalItemStacks().find(i => i.id === id));
+      if (original.some(i => !i || i.reservedTaskId !== task.id || i.carriedBy || i.containerId || i.fixtureId
+        || !sameMapLayer(i.cell, d.toCell) || mapCellDistance(i.cell, d.toCell) > 1 || !sensoryLineOfSight(i.cell, d.toCell))
+        || Object.entries(d.resourceCosts).some(([key, n]) => original.filter(i => i?.key === key).reduce((total, i) => total + i.quantity, 0) < n))
+        return 'Original reserved maintenance supplies must remain at the work position.';
+    }
+    return '';
+  }
+  function queueHauntboundWork(action, options = {}) {
+    const times = { examine: 30, contact: 60, letter: 60, agreement: 60, farewell: 90, release: 60, repair: 180, recharge: 60, take: 15, put: 15, assign: 30, cancel: 30 };
+    const s = ensureHauntbound();
+    if (!s || !Object.hasOwn(times, action) || scientistQueueTasks().length || confidentialServiceChannelReason()) return false;
+    updateHauntbound();
+    const target = action === 'letter' ? hauntboundLetter() : hauntboundObject(); if (!target) return false;
+    if (!hauntboundLocal(target)) { addEvent('Personally locate the original object; this panel supplies no remote spirit tracking.'); persist(); render(); return false; }
+    const candidates = [target.cell, ...cardinalMapCells(target.cell)].filter(c => labMapCellIsWalkable(c) && canActorOccupyTile(state.scientist, c));
+    const paths = candidates.map(c => ({ cell: c, path: labNavigationPlanBetweenCells(scientistMapCell(), c, { actor: state.scientist, ignoreDoors: true }) })).filter(p => p.path.found)
+      .sort((a, b) => a.path.path.length - b.path.path.length);
+    const point = paths[0]; if (!point) return false;
+    const costs = action === 'repair' ? { cloth: 1 } : action === 'recharge' ? { arcaneFeedstock: 1 } : {};
+    const slices = homunculusInputs(costs, point.cell); if (!slices) { addEvent('Stage the actual listed care supplies beside the operating position.'); persist(); render(); return false; }
+    const task = { id: `task-${state.nextTaskNumber++}`, type: 'hauntboundWork', label: `Hauntbound: ${action}`, createdAt: state.clock,
+      data: { action, ...clonePlainObject(options), toCell: point.cell, roomId: labMapCellRoomId(point.cell), mapPath: point.path.path,
+        resourceCosts: costs, work: { progress: 0, required: times[action], lastAt: state.clock } } };
+    if (hauntboundTaskReason(task)) { addEvent(hauntboundTaskReason(task)); persist(); render(); return false; }
+    task.data.reservedStackIds = reserveProductionMaterialSlices(slices, task.id);
+    if (!task.data.reservedStackIds) return false;
+    task.data.sourceStackIds = slices.map(p => p.stackId);
+    const travel = mapPathTravelDistanceMeters(point.path.path, ensureLabMap()) / scientistMoveSpeedMps();
+    task.data.workStartsAt = state.clock + travel;
+    task.data.movement = createScientistMovementRecord(point.path.path, travel, state.clock, { intent: 'hauntbound personal visit' });
+    task.dueAt = state.clock + travel + times[action]; state.tasks.push(task); persist(); render(); return true;
+  }
+  function updateHauntboundWork() {
+    const t = firstScientistQueueTask(); if (t?.type !== 'hauntboundWork' || scientistIsDead()) return;
+    const d = t.data, w = d.work, elapsed = Math.max(0, state.clock - Math.max(w.lastAt, d.workStartsAt)); w.lastAt = state.clock;
+    if (!elapsed || taskBlockReason(t) || !sameMapCell(scientistMapCell(), d.toCell) || state.combat?.routineSuspension) return;
+    w.progress += Math.min(elapsed, w.required - w.progress);
+  }
+  function finishHauntboundWork(task) {
+    const s = state.hauntbound, d = task.data, context = hauntboundContext(); let result = { ok: false };
+    try {
+      if (hauntboundTaskReason(task)) return false;
+      const spiritual = !['examine', 'letter', 'repair', 'recharge', 'take', 'put'].includes(d.action);
+      if (spiritual) scientistVital('mana').current -= Hauntbound.DEFINITION.contactMana;
+      if (d.action === 'repair' || d.action === 'recharge') {
+        const receipt = { sourceStackIds: d.reservedStackIds, taskId: task.id, at: state.clock, cloth: d.action === 'repair' ? 1 : 0 };
+        result.ok = d.action === 'repair' ? Hauntbound.repair(s, receipt, state.clock) : Hauntbound.recharge(s, receipt);
+        if (result.ok) {
+          if (d.action === 'repair') {
+            const scraps = createPhysicalItemStack('collectedByproducts', 'worn keepsake cloth', .5, { roomId: s.actor.roomId, cell: s.actor.mapCell },
+              { tags: ['cloth', 'nonpotable'], sourceLabels: [s.objectId, task.id], biology: { replacedHauntboundFabric: true } });
+            if (scraps) { scraps.unitMassKg = 1; scraps.unitVolumeL = 4; }
+          }
+          consumeProductionMaterialReservations(task); d.materialConsumed = true;
+        }
+      } else if (d.action === 'take') result.ok = Boolean(carryPhysicalStack('scientist', s.objectId, 1));
+      else if (d.action === 'put') result.ok = dropActorInventoryStack('scientist', s.objectId);
+      else if (d.action === 'assign') result = assignHauntboundOrder(d);
+      else if (d.action === 'cancel') {
+        const o = s.orders.find(o => !['completed', 'canceled'].includes(o.status));
+        result.ok = Boolean(o && Hauntbound.cancel(s, o.id, state.clock, hauntboundHooks()));
+      } else result = Hauntbound.interact(s, d.action, context, state.clock);
+      if (result.ok && d.action === 'release') {
+        const original = hauntboundObject();
+        original.tags = [...new Set([...original.tags, 'enchanted', 'residual-protection'])];
+        original.sourceLabels.push('Mara voluntarily entered reincarnation; protective imprint remains without an inhabitant.');
+      }
+      addEvent(result.text || result.reason || (result.ok ? `Hauntbound ${d.action}: physical procedure completed.` : 'No supported change occurred.'),
+        { category: result.ok ? 'discovery' : 'task', severity: result.ok ? 'routine' : 'warning', sourceKind: 'hauntbound', sourceId: s.actor.id, feed: !result.ok });
+      if (result.ok && spiritual) awardXp('animancy', 3, 'Personal spirit communication');
+      if (hauntboundLocal(hauntboundObject())) Hauntbound.observe(s, state.clock);
+      return result.ok;
+    } finally { releaseProductionMaterialReservations(task); syncPhysicalReadModels(); }
+  }
+  function hauntboundMove(a, target, load = null) {
+    const s = state.hauntbound;
+    if (a.nextMoveAt > s.lastAt) return {};
+    const plan = labNavigationPlanBetweenCells(a.mapCell, target, { actor: a, ignoreDoors: false, carriedLoad: load });
+    if (!plan.found) return { reason: plan.reason || 'Actual walls, closed/locked doors, occupancy or access block the route.' };
+    const next = plan.path[1]; if (!next) return { done: true };
+    const env = tileEnvironmentAtCell(next);
+    if (!env || env.temperatureC > 45 || Object.keys(env.airborne || {}).some(k => /fire|flame/.test(k))) return { reason: 'Mara declines a directly sensed hot or burning route.' };
+    if (!Hauntbound.canMove(a, load?.massKg || 0)) return { reason: 'Actual body and load exceed this spirit’s soul force.' };
+    a.mapCell = clonePlainObject(next); a.roomId = labMapCellRoomId(next); a.nextMoveAt = s.lastAt + 3;
+    const object = hauntboundObject(); object.cell = clonePlainObject(next); object.roomId = a.roomId;
+    syncActorInventories(); return {};
+  }
+  function hauntboundHooks() {
+    const s = state.hauntbound, a = s?.actor;
+    return { dead: scientistIsDead(), environment: (actor, dt) => {
+      const object = hauntboundObject(), letter = hauntboundLetter(), e = object && tileEnvironmentAtCell(object.cell);
+      const water = object && !object.carriedBy && !object.containerId && !object.fixtureId && ensurePhysicalItemStacks().find(i => i.form === 'spill'
+        && ['mudlet runoff', 'drinkingWater'].includes(i.key) && i.quantity > 0 && !i.carriedBy && !i.containerId && !i.fixtureId && !i.reservedTaskId && sameMapCell(i.cell, actor.mapCell));
+      const portion = water ? Math.max(0, Math.floor(Math.min((.5 - actor.wetKg) / water.unitMassKg, dt * .002 / water.unitMassKg, water.quantity) * 1000) / 1000) : 0;
+      const waterKg = portion ? portion * water.unitMassKg : 0;
+      if (portion) { water.quantity = roundOutputValue(water.quantity - portion); water.knownQuantity = Math.min(water.knownQuantity, water.quantity); }
+      return { missing: !object, letterExists: Boolean(letter), carried: Boolean(object?.carriedBy || object?.containerId || object?.fixtureId),
+        fire: e?.temperatureC > 65, unsafe: e?.temperatureC > 45, wet: Boolean(water), waterKg };
+    }, release: o => {
+      if (o.carriedStackId && !dropActorInventoryStack(a.id, o.carriedStackId, { roomId: a.roomId, cell: a.mapCell })) return false;
+      o.carriedStackId = '';
+      for (const i of ensurePhysicalItemStacks()) if (i.reservedTaskId === o.id) i.reservedTaskId = '';
+      return true;
+    }, work: (actor, o) => {
+      const source = ensurePhysicalItemStacks().find(i => i.id === o.sourceStackId);
+      if (o.stage === 'pickup') {
+        if (!source || source.reservedTaskId !== o.id || !Hauntbound.eligible({ ...source, reservedTaskId: '' })
+          || source.roomId !== o.fromRoomId || !sameMapCell(source.cell, o.fromCell)) return { reason: 'Original reserved source moved, changed or was lost; no replacement supplies.' };
+        const moved = hauntboundMove(actor, source.cell); if (!moved.done) return moved;
+        const capacity = actorInventorySnapshot(actor.id).remaining;
+        const amount = Math.floor(Math.min(o.amount - o.delivered, source.quantity, capacity.massKg / source.unitMassKg, capacity.volumeL / source.unitVolumeL));
+        if (amount < 1) return { reason: 'Actual load exceeds this object’s carrying capacity.' };
+        const carried = carryPhysicalStack(actor.id, source.id, amount, { allowReserved: true, carryTaskId: o.id });
+        if (!carried) return { reason: 'Original physical pickup failed.' };
+        o.carriedStackId = carried.id; o.stage = 'delivery';
+        if (source.id === carried.id) source.reservedTaskId = '';
+        return { loadKg: carried.quantity * carried.unitMassKg };
+      }
+      const carried = actorInventoryStacks(actor.id).find(i => i.id === o.carriedStackId);
+      if (!carried) return { reason: 'Actual carried cargo is missing; delivery is not credited.' };
+      const load = { massKg: carried.quantity * carried.unitMassKg, volumeL: carried.quantity * carried.unitVolumeL };
+      const moved = hauntboundMove(actor, o.toCell, load); if (!moved.done) return { ...moved, loadKg: load.massKg };
+      const quantity = carried.quantity;
+      if (!dropActorInventoryStack(actor.id, carried.id, { roomId: o.toRoomId, cell: o.toCell })) return { reason: 'No physical delivery occurred.' };
+      o.delivered += quantity; o.carriedStackId = ''; o.stage = 'pickup';
+      return { loadKg: load.massKg };
+    } };
+  }
+  function assignHauntboundOrder(data) {
+    const s = state.hauntbound, source = ensurePhysicalItemStacks().find(i => i.id === data.sourceStackId);
+    const toCell = cleanMapCell(data.destination), toRoomId = toCell && labMapCellRoomId(toCell);
+    if (!source || !hauntboundLocal(source) || !toCell || !homunculusLocal(toCell) || !labMapCellIsWalkable(toCell)
+      || sameMapCell(source.cell, toCell)) return { ok: false, reason: 'Personally identify a real source and a distinct visible walkable destination.' };
+    const id = `hauntbound-order-${state.nextWorkOrderNumber || 1}`, taskId = `task-${state.nextTaskNumber++}`;
+    const result = Hauntbound.assign(s, { id, taskId, sourceStackId: source.id, amount: Number(data.amount), fromRoomId: source.roomId,
+      fromCell: clonePlainObject(source.cell), toCell, toRoomId }, { ...hauntboundContext(), source }, state.clock);
+    if (!result.ok) return result;
+    source.reservedTaskId = id;
+    const order = createWorkOrder({ kind: 'hauntboundHaul', category: 'hauling', label: `Mara: carry ${data.amount} ${source.key}`,
+      source: 'manual', status: 'claimed', claimedTaskId: taskId, target: { id: source.id, cell: source.cell, roomId: source.roomId },
+      destination: { cell: toCell, roomId: toRoomId }, data: { workerId: s.actor.id }, dedupeKey: id });
+    // Bind to the shared scheduler's actual ID, including the source claim.
+    const own = s.orders.at(-1); own.id = order.id; source.reservedTaskId = order.id;
+    state.tasks.push({ id: taskId, type: 'hauntboundLabor', label: order.label, createdAt: state.clock, dueAt: state.clock + 60,
+      data: { workOrderId: order.id, actorId: s.actor.id, toCell, roomId: toRoomId } });
+    return { ok: true, text: 'Mara accepted the materials assignment. Original cargo and independent work now belong to the shared task/work-order queue.' };
+  }
+  function updateHauntbound() {
+    const s = state.hauntbound; if (!s || scientistIsDead()) return 0;
+    const object = hauntboundObject();
+    if (object) { s.actor.mapCell = clonePlainObject(object.cell); s.actor.roomId = object.roomId; }
+    const result = Hauntbound.advance(s, state.clock, hauntboundHooks());
+    if (object) object.unitMassKg = s.actor.bodyMassKg + s.actor.wetKg;
+    for (const o of s.orders) {
+      const order = workOrderById(o.id), observed = hauntboundLocal(object);
+      if (order && observed) Object.assign(order, { status: o.status, progress: o.progress, blockedReason: o.blockedReason,
+        completedAt: o.completedAt ?? null, updatedAt: state.clock });
+      if (['completed', 'canceled'].includes(o.status)) {
+        state.tasks = state.tasks.filter(t => t.id !== o.taskId);
+        for (const i of ensurePhysicalItemStacks()) if (i.reservedTaskId === o.id) i.reservedTaskId = '';
+        if (order && observed) order.claimedTaskId = '';
+      }
+    }
+    if (s.discovered && hauntboundLocal(object)) Hauntbound.observe(s, state.clock);
+    if (result) { syncActorInventories(); syncPhysicalReadModels(); markStateDirty(); }
+    return result;
+  }
+  function renderHauntbound(parent) {
+    const s = ensureHauntbound(); if (!s) return;
+    const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.hauntbound = 'true'; parent.append(panel);
+    panel.append(textEl('h3', 'Hauntbound — inhabited objects'), textEl('p', 'An inherited cloth keepsake and old farewell lie among the original laboratory effects. Hauntbound are deceased individuals, not producible creatures. Direct conversation requires personal Animancy [Initiate], no suppression and one mana per attended exchange. Keeping a willing worker and helping it reincarnate are alternative routes.'));
+    const button = (label, action, options = {}) => { const b = storesActionButton(label, label, () => queueHauntboundWork(action, typeof options === 'function' ? options() : options)); b.dataset.hauntboundAction = action;
+      setActionButtonState(b, Boolean(scientistQueueTasks().length || scientistIsDead()), 'Finish current scientist work.'); panel.append(b); };
+    button('Examine the original keepsake', 'examine');
+    const known = s.observations;
+    if (!known) return;
+    panel.append(textEl('p', `Last personally observed ${formatClock(known.at)}: ${known.actor.name}; ${known.actor.status}; body ${formatNumber(known.actor.health)}%; seams ${formatNumber(known.actor.seamWear)}%; soul exertion reserve ${formatNumber(known.actor.soulReserve)}. No biological food, water or sleep; wet cloth, soul exertion and physical damage still matter.`));
+    button('Establish direct spirit contact', 'contact'); button('Read the original farewell letter', 'letter');
+    if (known.contact) {
+      panel.append(textEl('p', `${known.actor.personality} ${known.actor.memories} Attachment: ${known.actor.obsession}`));
+      button('Agree on ongoing safe materials work', 'agreement'); button('Share the original farewell — do not dismiss', 'farewell');
+      button('Offer a voluntary goodbye and reincarnation', 'release');
+      const source = document.createElement('select'); source.setAttribute('aria-label', 'Hauntbound materials source');
+      for (const i of ensurePhysicalItemStacks().filter(i => Hauntbound.eligible(i) && hauntboundLocal(i))) source.append(new Option(`${i.id}: ${i.quantity} ${i.key} at ${i.cell.x},${i.cell.y}`, i.id));
+      const amount = document.createElement('input'); amount.type = 'number'; amount.min = '1'; amount.value = '2'; amount.setAttribute('aria-label', 'Hauntbound materials quantity');
+      const x = document.createElement('input'), y = document.createElement('input'); x.type = y.type = 'number';
+      x.value = String(scientistMapCell().x + 1); y.value = String(scientistMapCell().y); x.setAttribute('aria-label', 'Hauntbound destination X'); y.setAttribute('aria-label', 'Hauntbound destination Y');
+      panel.append(source, amount, x, y);
+      button('Assign repeatable physical materials delivery', 'assign', () => ({ sourceStackId: source.value, amount: Number(amount.value), destination: { x: Number(x.value), y: Number(y.value), z: scientistMapCell().z } }));
+      button('Personally cancel the current assignment', 'cancel');
+    }
+    button('Repair cloth body (1 actual cloth; 3 minutes)', 'repair');
+    if (known.actor.status === 'departed') {
+      panel.append(textEl('p', `Protective keepsake: ${formatDecimal(known.enchantment.charge, 2)} / 20 charge. While physically carried, cushions physical-only damage by 30%, at most 3 points per hit and 1 charge per point. No fire/soul protection, healing or returning inhabitant.`));
+      button('Carry the original enchanted keepsake', 'take'); button('Put down the original keepsake', 'put'); button('Recharge imprint (1 feedstock supplies 8 charge)', 'recharge');
+    }
+    for (const o of known.orders) panel.append(textEl('p', `${o.id}: ${o.status}; ${o.delivered}/${o.amount} delivered. ${o.blockedReason}`));
+    for (const entry of s.journal.slice(-6)) panel.append(textEl('p', `${formatClock(entry.at)}: ${entry.text}`));
+  }
+
   function ensureElementalLab() { return state.elementalLab ||= Formation.create(state.clock); }
   function rootlingTubeBusy(excludeTaskId = '') {
     return Boolean((state.elementalLab?.runs || []).some(r => ['rootling', 'sporecap'].includes(r.family) && !r.cleared)
@@ -66492,6 +66811,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.researchSummary.textContent = `${completed}/${Research.PROJECTS.length} projects complete · ${research.evidence.length} distinct evidence record${research.evidence.length === 1 ? "" : "s"}`;
     dom.researchProjectList.textContent = "";
     renderHomunculi(dom.researchProjectList);
+    renderHauntbound(dom.researchProjectList);
     renderElementalLab(dom.researchProjectList);
     renderSoulBeacons(dom.researchProjectList);
     renderFirstContact(dom.researchProjectList);
@@ -70866,6 +71186,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       setLabMapOverlayEntry(assignments, worker.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: worker.name, title: "Hired surface worker; direct observation, not remote monitoring", source: "Direct observation", value: worker.status === "dead" ? "†" : "W", target: { kind: "tile", tile: worker.mapCell } }, map);
     const assistant = state.laboratoryAssistant?.actor;
     if (laboratoryAssistantNearby(true)) setLabMapOverlayEntry(assignments, assistant.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: assistant.name, title: "Laboratory technician; direct observation", source: "Direct observation", value: assistant.status === "dead" ? "†" : "A", target: { kind: "tile", tile: assistant.mapCell } }, map);
+    const haunt = state.hauntbound, keepsake = hauntboundObject();
+    if (haunt && hauntboundLocal(keepsake)) setLabMapOverlayEntry(assignments, keepsake.cell, { overlayId, classNames: ['map-overlay-resources'],
+      label: haunt.contact ? haunt.actor.name : 'Inherited cloth keepsake', title: haunt.discovered ? `Hauntbound: ${haunt.actor.status}; direct observation` : 'An inherited personal possession',
+      source: 'Direct observation', value: haunt.actor.status === 'departed' ? 'E' : haunt.discovered ? 'HB' : '?', target: { kind: 'tile', tile: keepsake.cell } }, map);
     for (const a of state.homunculi?.individuals || []) if (!a.chamberId && homunculusLocal(a.mapCell)) setLabMapOverlayEntry(assignments, a.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: a.name, title: `${a.name}: ${a.status === "dead" ? "physical remains" : "independent inexperienced individual"}`, source: "Direct observation", value: a.status === "dead" ? "†" : "H", target: { kind: "tile", tile: a.mapCell } }, map);
     for (const a of state.elementalLab?.creatures || []) if (!a.chamberId && homunculusLocal(a.mapCell)) setLabMapOverlayEntry(assignments, a.mapCell,
       { overlayId, classNames: ['map-overlay-resources'], label: a.name, title: `${a.name}: ${Formation.consistency(a)}; ${a.status}`, source: 'Direct observation', value: a.status === 'dead' ? '†' : a.family === 'cinderling' ? 'C' : a.family === 'zephyrMote' ? 'Z' : a.family === 'rootling' ? 'R' : a.family === 'sporecap' ? 'S' : 'M', target: { kind: 'tile', tile: a.mapCell } }, map);
@@ -71728,6 +72052,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         knowledge: { state: 'current', observedAt: state.clock, confidence: 1, source: 'Direct observation' },
         visual: { key: `actor.${a.family}`, glyph: a.status === 'dead' ? '†' : a.family === 'cinderling' ? 'C' : a.family === 'zephyrMote' ? 'Z' : a.family === 'rootling' ? 'R' : a.family === 'sporecap' ? 'S' : 'M', recipeKey: `${a.family}:${Formation.consistency(a)}` }, blocking: false });
     }
+    const haunted = state.hauntbound, hauntedObject = hauntboundObject();
+    if (haunted && hauntedObject && (options.debug || perceivedCellKeys?.has(mapCellKey(hauntedObject.cell)))) {
+      entities.push({ id: haunted.actor.id, kind: 'hauntbound', category: haunted.actor.status === 'departed' ? 'item' : 'actor', subtype: 'inhabitedObject',
+        target: { kind: 'tile', tile: hauntedObject.cell }, anchorCell: cleanMapCell(hauntedObject.cell), footprintCells: [cleanMapCell(hauntedObject.cell)], orientation: 'square', facing: 'none',
+        pose: haunted.actor.health <= 0 ? 'prone' : 'idle', condition: { ratio: haunted.actor.health / 100, band: haunted.actor.health <= 0 ? 'broken' : 'intact', cues: [] },
+        knowledge: { state: 'current', observedAt: state.clock, confidence: 1, source: 'Direct observation' },
+        visual: { key: 'actor.hauntbound', glyph: haunted.actor.status === 'departed' ? 'E' : haunted.discovered ? 'HB' : '?', recipeKey: `hauntbound:${haunted.actor.status}` }, blocking: false });
+    }
     const scientistCell = scientistMapCell();
     const scientistHealthVital = scientistVital("health");
     const scientistHealthRatio = clamp(scientistHealthVital.current / Math.max(1, scientistHealthVital.max), 0, 1);
@@ -72189,6 +72521,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function taskBlockReason(task) {
+    if (task?.type === 'hauntboundWork') { const reason = hauntboundTaskReason(task); if (reason) return reason; }
     if (['synthesize', 'breed'].includes(task?.type) && task.data?.soulWindow?.requested && !Formation.soulReady(task.data.soulWindow)) {
       const device = creationDevice(objectMapCell(synthesisTube()), task.data.soulWindow.deviceId);
       if (!device || device.utility.storedMana <= 1e-8) return 'The original creation-time animancy device needs power, condition and physical reach; no soulless substitution.';
@@ -72550,6 +72883,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!task) {
       return;
     }
+    if (task.type === 'hauntboundWork') releaseProductionMaterialReservations(task);
+    if (task.type === 'hauntboundLabor') Hauntbound.cancel(state.hauntbound, task.data.workOrderId, state.clock, hauntboundHooks());
     if (task.type === "homunculusWork") releaseHomunculusWork(task);
     if (task.type === 'elementalWork') releaseElementalWork(task);
     if (task.type === "soulBeaconWork") releaseHomunculusWork(task);
@@ -72735,6 +73070,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function cancelTask(taskId, options = {}) {
     const task = findTask(taskId);
+    if (task?.type === 'hauntboundLabor' && Hauntbound.communicationReason(state.hauntbound, hauntboundContext())) return false;
     const reason = cancelTaskBlockReason(task);
     if (reason) {
       addEvent(reason);
@@ -113461,6 +113797,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.hiddenWorkshop = candidate?.hiddenWorkshop ? HiddenWorkshop.normalize(candidate.hiddenWorkshop) : null;
     next.homunculi = Homunculi.normalize(candidate?.homunculi, next.clock);
     next.elementalLab = Formation.normalize(candidate?.elementalLab, next.clock);
+    next.hauntbound = candidate?.hauntbound ? clonePlainObject(candidate.hauntbound) : null;
     next.firstContact = FirstContact.normalize(candidate?.firstContact);
     next.signedLanguage = SignedLanguage.normalize(candidate?.signedLanguage);
     next.spokenLanguage = SpokenLanguage.normalize(candidate?.spokenLanguage);

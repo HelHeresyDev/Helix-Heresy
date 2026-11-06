@@ -8,6 +8,55 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Hauntbound — #8-F complete (replaces Ragkin production)
+
+The explicitly approved replacement is complete: one original inherited inhabited
+keepsake and farewell; personally attended, skill- and suppression-gated animantic
+communication; an intelligent original deceased individual with fragmented history
+and independent willingness; repeatable real light-materials work; physical body
+care and finite soul exertion; optional voluntary reincarnation and an enduring
+enchanted item. There is no production tier, fresh-soul recipe, artificial soulless
+counterpart, creation-device prerequisite or general possession/bicycle/mech system.
+Everything creatable exists naturally, but not every natural being is producible.
+
+Mara's original body, soul, letter, terms, work experience, instructions and real
+carried source stacks persist. Shared tasks/work orders schedule her independent
+multi-trip deliveries while the scientist can perform separate work. Physical
+access, walls/closed doors, actual weight/capacity, source claims, willingness,
+limited force, seams, waterlogging, damage and soul destruction remain causal.
+There are no biological meals, drinking requirements or sleep costs. Cloth repair
+consumes the original reserved material slice and leaves replaced fabric as physical
+waste, without healing a soul. Supported contacting water transfers actual stock
+into the doll's mass and retains an evaporation ledger. Automatic stockpiling does
+not treat an inhabited body or its original personal record as bulk materials, and
+nested carried cargo cannot disappear into a doll's nominal weight.
+
+Reading and sharing the original farewell provides evidence and readiness, not an
+automatic dismissal. Keeping a willing useful worker is a complete route. A separate
+goodbye, after physically settling ongoing work, allows Mara to choose reincarnation.
+The same object retains its bounded protective imprint, not a trapped or consumed
+person. Actual carried custody and finite charge constrain its physical-only damage
+cushion; supplied recharging neither recalls the person nor supplies free machinery
+power. Discovery/journal events are explicitly classified so quoted refusals and
+hazards do not become false critical incident alerts. Bible, feature guide and the
+Linux-native ODS plus XLSX/CSV/preview now describe this distinction: 33 current
+catalog entries, 24 strategic species and four remaining formation proposals.
+
+Focused verification passed: 22 Hauntbound model checks, 10 shared formation checks,
+nine catalog/ODS/XLSX/CSV checks, the complete native Hauntbound workflow, the named
+existing surface-worker arrival/cargo/reload/return case, and the named Guard/damage/
+first-aid case. The latter's obsolete setup and uncompressed-save reads were updated
+only for that selected regression. Native coverage includes the untrained animancy
+boundary and restoration of the actual starting skill, original inherited items,
+agreed real deliveries, source conservation, reload and continued import with cargo
+in hand, ordinary simulation, concurrent scientist work, physical repair receipts,
+both renderer scenes, inspected Canvas output, retaining a ready worker, separate
+departure, real carried enchanted protection, nonphysical bypass, supplied recharge,
+continued item import and final-death freeze. Fixtures relocate original supplies
+and declare climate/damage inputs; they grant no spirit, consent, work or resolution
+outcomes. Syntax and whitespace checks passed. The full suite was not run under
+AGENTS.md. #8-F was removed with no additional prompts; next discussion is #8-G.
+
 ### Sporecaps — #8-E complete
 
 The approved checklist is complete: personally performed fungal characterization,
