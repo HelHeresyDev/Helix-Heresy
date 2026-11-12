@@ -8,6 +8,27 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Bone Skitter — #8-J withdrawn; creature sequence closed
+
+On 2026-11-11 the developer discarded Bone Skitter for now because the proposed
+assembled-bone construct lacked a convincing natural origin. It was not
+implemented or replaced. #8-A–I remain complete; the creature sequence closes
+without weakening the natural-origin rule, adding a substitute creature, creating
+a manufactured-automaton work item or reopening deferred work. Reconsideration
+requires an explicit request, not an automatic backlog entry.
+
+The pending queue now distinguishes twelve already-deferred packages (#2, six
+3.35d packages, four 3.38 packages and the tutorial) from five unselected optional
+routes. Previously #2 was included in the six conditional/optional total despite
+its separate stop instruction; this is a count/classification clarification, not
+new work or reactivation. The first nondeferred optional topic remains #3.5 porter
+retrieval on adjoining local ground, requiring selection and design approval.
+The reference catalog retains 36 current entries and six workbook sheets, with no
+active creature proposals; Bone Skitter is not counted as an existing species.
+Nine focused catalog/source and ODS/XLSX/CSV artifact checks passed after removal.
+No gameplay changed, and no gameplay or full regression suite was run under the
+focused-testing policy.
+
 ### Lantern Wisps — #8-I complete
 
 The approved Research Tier 2 / Synthesis Tier 0 family is a naturally coherent

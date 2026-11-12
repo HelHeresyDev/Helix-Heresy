@@ -183,9 +183,9 @@ function buildCatalog() {
       s.description, src]);
   }
   const pending = text('PENDING_PROMPTS.md');
-  const plannedData = {
-    '8-J': ['Osteal construct', 'Sourced cleaned animal bones + bindings + animation sigil/process; quantities not defined', 'Naturally occurring base form required; exact natural animation conditions and biomes not designed', 'Joint breakage, blunt-force damage and repairs requiring real replacement bones/bindings']
-  };
+  // The initial creature sequence is closed. Bone Skitter was withdrawn, not
+  // implemented or replaced; keep it out of both current and planned species.
+  const plannedData = {};
   const planned = [];
   for (const line of pending.split('\n')) {
     const m = line.match(/^\| (8-[B-J]) \| \*\*([^*]+)\*\* — Research (\d+) \|/);
@@ -387,7 +387,7 @@ function buildCatalog() {
   ];
   const guide = [
     ['Purpose', 'Developer reference for authored creature definitions and current design proposals. This is not the scientist’s in-game knowledge or a live world census.'],
-    ['Coverage', `${rows.length} current catalog entries: humans, slime, Mudlet, human-derived homunculus, Cinderling, Zephyr Mote, Rootling, Sporecap, and all ${Ecology.BEAST_SPECIES.length} strategic beast species. ${planned.length} proposed creatures are on a separate tab. Explicit dog lore and divine/receiver states are separate from species.`],
+    ['Coverage', `${rows.length} current catalog entries, including humans, implemented laboratory creature families and all ${Ecology.BEAST_SPECIES.length} strategic beast species. ${planned.length ? `${planned.length} proposed creatures are on a separate tab.` : 'There are no active creature proposals; withdrawn ideas are not existing species.'} Explicit dog lore and divine/receiver states are separate from species.`],
     ['Research tier', 'Difficulty of discovering a reproducible formation method. Numeric values appear only where authored; they are not combat ratings or compulsory campaign chapters.'],
     ['Production tier', 'The code calls this Synthesis Tier: practical production complexity after the method is known. Tier 0 is inexpensive/simple, not free or upkeep-free.'],
     ['Not defined', 'The current source has no authored number, recipe or classification. This is not zero, impossible, universally unavailable, or approval to invent one.'],
@@ -401,7 +401,7 @@ function buildCatalog() {
     ['Soul and will', 'Artificial own-soul formation needs concurrent inherited animancy; unassisted bodies have no independent will/leveling. No later own-soul retrofit. Slimes never communicate or cooperate. A soul does not guarantee consent or obedience.'],
     ['Origins', 'Every creatable base form exists naturally. Engineered variants need not occur naturally. Even gods cannot invent arbitrary creature kinds or life from nothing.'],
     ['Humans and homunculi', 'Humans are included. Human occupations are not species. Homunculi are advanced human-derived engineered bodies with unassigned numeric tiers; campaign-stage descriptions must not be silently converted to tier numbers.'],
-    ['Planned tab', `All ${planned.length} pending creatures are proposals. Proposed numeric tiers and qualitative ingredients are not final balancing values or implemented recipes. Exact quantities, biomes, rarity and control channels still require ordinary design.`],
+    ['Planned tab', planned.length ? `All ${planned.length} pending creatures are proposals. Proposed numeric tiers and qualitative ingredients are not final balancing values or implemented recipes. Exact quantities, biomes, rarity and control channels still require ordinary design.` : 'No active proposals. The initial creature sequence is closed; Bone Skitter was shelved without implementation or a replacement. The empty tab is retained for workbook consistency, not a new backlog.'],
     ['Variants and scope', 'One row per authored base kind/implemented human-derived family, not every generated name, slime genotype, occupation, avatar or soul condition. Implied generic fauna/mounts are not invented catalog species.'],
     ['Authority', 'Runtime definitions win for implemented values. Current PENDING_PROMPTS.md wins for future scope; the original untracked creature-ideas file is not silently treated as implemented content.'],
     ['Editing / rebuild', 'The workbook is editable. Generated files are snapshots; rebuilding replaces them. To retain design annotations across rebuilds, update scripts/creature-catalog-data.js. Run python3 scripts/build-creature-catalog.py. No gameplay definitions are changed.']

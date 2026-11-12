@@ -27,7 +27,8 @@ class CreatureCatalogTests(unittest.TestCase):
         self.assertEqual(set(ids[:12]), {'human', 'slime', 'mudlet', 'homunculus', 'cinderling', 'zephyrMote', 'rootling', 'sporecap', 'hauntbound', 'quartzShardling', 'duskcat', 'lanternWisp'})
         self.assertEqual({row[1] for row in self.data['ecology']}, set(ids[12:]))
         self.assertEqual(len(self.data['ecology']), 24)
-        self.assertEqual({row[-1] for row in self.data['planned']}, {'8-J'})
+        self.assertEqual(self.data['planned'], [])
+        self.assertNotIn('boneSkitter', ids)
         self.assertTrue(all(row[2].startswith('Proposed only') for row in self.data['planned']))
 
     def test_authored_tiers_and_material_costs_are_not_fabricated(self):
