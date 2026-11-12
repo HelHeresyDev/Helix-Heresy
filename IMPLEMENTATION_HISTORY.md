@@ -8,6 +8,56 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Fixed creature biology and ecological design — #3.38-A complete
+
+Completed on 2026-11-12 as the approved **design/reference deliverable**, not new
+runtime simulation. [The fixed matrix](reference/CREATURE_ECOLOGY_MATRIX.md) binds
+all 24 authored strategic species to concrete bodies, canonical scale/cognition/
+locomotion/habitat, senses, finite needs, core capabilities and meaningful limits.
+It preserves the completed Rimefang, Gravebloom Elk and Mirror Ape consumers and
+defines the remaining biological Carrion Lantern corpse-light/scavenging behavior.
+No species, production recipe, numeric research tier or replacement consumer was added.
+
+All 36 current catalog entries, including humans and core laboratory families,
+receive an approved nurturing/destroying/neutral disposition: 10 nurturing,
+5 destroying and 21 neutral. Twenty directed antagonisms identify predation,
+territorial defense, recruitment control or restorative opposition, with explicit
+shared-habitat/adjacent-ecotone/local-site limits and failure conditions. They are
+not moral labels or universally cooperating factions. Actual activity/variants
+determine realized impact; humans, noncooperative slimes and soulless initiative
+limits retain their existing rules.
+
+The shared contract requires effective local seasonal maintenance and viable
+matchups, separate environmental ledgers, conserved finite budgets and no
+double-spending. Exhausted territories require actual nurturer/renewal-site
+defeat and accumulated causal damage, not bad-seed relabeling or natural desert/
+polar/null geography. Decline, starvation/migration and source-backed recovery
+remain causal; there are no automatic rescues, population respawns or ore refunds.
+Pre-city natural exhaustion is compatible with “pristine” meaning before city
+pressure. Private truth remains separate from dated acquired observations.
+
+The design bible, Linux-native ODS, XLSX, CSV and reference guide now carry these
+explicitly labeled design requirements. The existing six-sheet layout, actual
+costs/tiers and separate food-web roles remain intact. The read-only reference
+module and generated matrix are included in the existing catalog rebuild.
+
+Validation: six focused `tests/creature-ecology-design.unit.test.js` checks cover
+exact catalog identity, concrete bounded rows, directed roles and habitat
+possibilities (including every destructive preferred biome), export parity,
+exhaustion/recovery/knowledge rules and reproducible design-only documentation.
+All nine `tests/creature-catalog.test.py` source/CSV/ODS/XLSX checks pass. Workbook
+generation validates all six sheets, filters, types and frozen panes; the PNG
+preview was inspected. These checks establish design/export consistency, not
+runtime ecological balance. No browser/gameplay code changed; no broad/full suite
+was run under `AGENTS.md`.
+
+A was removed from the active queue: **13 packages remain**, next #3.38-B. Physical
+reach belongs to B, consumed capabilities/restoration/antagonism to C, and actual
+regional population maintenance, causal history/exhaustion/recovery, encounters
+and strategic outputs to D. These are the existing three packages, not new prompts
+or a new audit/certification gate. World domination remains unfinished; tutorial
+#5 alone remains indefinitely deferred.
+
 ### Ordinary field cache — #3.6 complete
 
 Completed on 2026-11-12. The collapsible field chest is an ordinary portable

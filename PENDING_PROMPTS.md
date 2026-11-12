@@ -6,7 +6,7 @@ This is the finite remaining queue, not an implementation diary or a source of a
 
 - **Developer direction: reactivate and finish everything remaining except #5 tutorial.** Proceed through the existing bounded scopes and their acceptance criteria without another approval round for each ordinary implementation step. Ask only for a genuinely unresolved material design/scope choice; state recommended answers and reasons. The previous blanket deferrals and unselected status of the five expansion routes are superseded. Bone Skitter remains withdrawn, not reactivated.
 - **Work serially.** The developer declined parallel agents; finish and verify each existing package before beginning the next implementation.
-- There are **14 active packages**: #2, six 3.35d packages, four 3.38 packages and three expansion routes. **Only #5 tutorial remains indefinitely deferred.** No package has been added; this changes authorization and ordering, not the fixed completion requirements. IDs identify work, not software versions. Continuing a package does not create another pending prompt.
+- There are **13 active packages**: #2, six 3.35d packages, three 3.38 packages and three expansion routes. **Only #5 tutorial remains indefinitely deferred.** No package has been added; #3.38-A's fixed design deliverable is complete. IDs identify work, not software versions. Continuing a package does not create another pending prompt.
 - **Do not append or subdivide the queue automatically.** Bugs, interruption cases, missing adapters, documentation and focused tests needed to deliver an entry stay inside that entry. Do not turn each official, material, species, spell, report, permission or save edge case into another prompt.
 - A genuine scope change requires a concrete explanation and explicit developer approval to replace, expand or defer a named entry. Record the tradeoff here; do not silently add a follow-up or claim unfinished work is complete. There is no automatic discovery backlog.
 - Freeze each package's acceptance checklist during its design discussion. Once it passes, remove the package from this active file, update remaining counts/dependencies, and put useful completion notes in the history or feature documentation. Do not append another “completed bounded slice, but next…” paragraph here.
@@ -32,7 +32,7 @@ These apply to every package; they are not additional work items.
 
 ## Order and current state
 
-**#1, #3.5, #3.6, #4, #6, #7 and #8-A–I are complete. Bone Skitter (#8-J) remains shelved, not implemented; the creature sequence is closed without replacement.** All fourteen remaining non-tutorial packages are active by developer direction. Continue with the **fixed 3.38-A–D beast work**, then the selected 3.36/3.37/3.31d expansions, #2 and 3.35d-A–F in dependency order. Work proceeds serially; a listed expansion is not a new universal campaign prerequisite. Existing formation behavior is in [CREATURE_FORMATION.md](CREATURE_FORMATION.md), luminous following/light and housing in [LANTERN_WISPS.md](LANTERN_WISPS.md), feline care and stalking in [DUSKCATS.md](DUSKCATS.md), mining in [SHARDLINGS.md](SHARDLINGS.md), and Hauntbound in [HAUNTBOUND.md](HAUNTBOUND.md). The current-inventory art contract is in `assets/sprites/production/README.md` and accessibility limits remain in `ACCESSIBILITY.md`. Completed art is not reopened and new cosmetic prompts are not automatic.
+**#1, #3.5, #3.6, #3.38-A, #4, #6, #7 and #8-A–I are complete. Bone Skitter (#8-J) remains shelved, not implemented; the creature sequence is closed without replacement.** All thirteen remaining non-tutorial packages are active by developer direction. Continue with **3.38-B**, then C/D, the selected 3.36/3.37/3.31d expansions, #2 and 3.35d-A–F in dependency order. The approved [creature ecology matrix](reference/CREATURE_ECOLOGY_MATRIX.md) fixes B–D's shared scope; its new ecological requirements are design, not already implemented regional simulation. Work proceeds serially; a listed expansion is not a new universal campaign prerequisite. Existing formation behavior is in [CREATURE_FORMATION.md](CREATURE_FORMATION.md), luminous following/light and housing in [LANTERN_WISPS.md](LANTERN_WISPS.md), feline care and stalking in [DUSKCATS.md](DUSKCATS.md), mining in [SHARDLINGS.md](SHARDLINGS.md), and Hauntbound in [HAUNTBOUND.md](HAUNTBOUND.md). The current-inventory art contract is in `assets/sprites/production/README.md` and accessibility limits remain in `ACCESSIBILITY.md`. Completed art is not reopened and new cosmetic prompts are not automatic.
 
 **#2/#3 and the associated beast workstream are reactivated, not complete.** The new instruction explicitly supersedes their previous stop instructions. Preserve completed implementation and finish the fixed remaining acceptance requirements; do not reopen completed #1, create more domination prerequisites or mistake reactivation for completion.
 
@@ -88,7 +88,7 @@ Done when current original divine source families have actual supported terrestr
 
 ### 3.35d-D. Integrate completed natural-beast strategic outcomes
 
-**Blocked on the approved completion of 3.38-A–D below; no beast creation/encounter implementation occurs in this package.** Connect that work's actual population identity, movement/reach, ability/willingness and supported military/nonmilitary outcomes to the existing evaluator and source continuity.
+**Blocked on completion of the remaining 3.38-B–D below; A's design is complete, not runtime coverage. No beast creation/encounter implementation occurs in this package.** Connect that work's actual population identity, movement/reach, ability/willingness and supported military/nonmilitary outcomes to the existing evaluator and source continuity.
 
 Done when the fixed catalog's original populations remain conserved and assessable on their actual strategic means. Individual victories, safe deliveries, habitat boundaries, small contact groups and species labels cannot stand for a whole population. This is one integration package, not another series of species, movement, spell or encounter prompts.
 
@@ -116,25 +116,29 @@ Run named focused checks for those outcomes, not the full suite. **Passing this 
 
 This separately scoped beast workstream is reactivated, including the remaining Carrion Lantern work. The boundary is the **24 currently authored species in `strategic-beast-ecology.js`**, preserving completed Rimefang, Gravebloom Elk and Mirror Ape behavior. New species or unrelated abilities require an explicit later scope decision, not automatic additions here. Every species still exists in every newly generated world with randomized populations/distribution.
 
-### 3.38-A. Freeze the fixed biology and capability matrix
-
-Establish one finite matrix from the current authored species together: body/scale, locomotion, senses, needs, social intelligence, finite resources, authored core abilities, ecological behavior and encounter/strategic relevance. Include the remaining Carrion Lantern corpse-light/scavenging design. Freeze the finite trait/ability checklist and map it to B–D; do not create one prompt per species or power. This is a design deliverable, not permission to invent endless extra biology.
+The approved [fixed matrix](reference/CREATURE_ECOLOGY_MATRIX.md) supplies all 24 strategic biology/capability rows, all 36 current catalog classifications, directed nurturing–destroying antagonisms and the local maintenance/exhaustion/recovery contract. `scripts/creature-ecology-design.js` owns its reference annotations and spreadsheet columns, not runtime behavior. Complete the following three existing packages against that finite source; do not reopen A, add species or introduce another design/certification gate. Exact rates/physical parameters are implementation calibration inside B/C, not new prompts.
 
 ### 3.38-B. Implement shared bodies, movement and environmental reach
 
 Implement the matrix's remaining physical families together: flight/levitation, aquatic/amphibious/drifting movement, burrowing, colossal footprints, colonies/swarms/superorganisms and necessary habitat/terrain interactions. Extend existing grounded/climbing behavior rather than replacing it. Actual anatomy, occupancy, carrying/reach, perception, fatigue and persistent injury constrain action.
 
-Done when every matrix row uses its real supported physical family with focused representative and catalog-wide contract checks. Shared movement does not require another species-specific movement prompt.
+Ecological reach must use actual shared habitat or adjoining traversable ecotones, seasonal presence, sensed signals and appropriate physical media. A species-level adversary edge does not establish local contact or effective regional capacity. Preserve canonical preferred habitats and actual finite source bodies; no unallocated laboratory-family wild populations.
+
+Done when every strategic biology row uses its real supported physical family with focused representative and catalog-wide contract checks, retaining already implemented core-family consumers. Shared movement does not require another species-specific movement prompt.
 
 ### 3.38-C. Implement authored abilities and ecological/individual behavior
 
 Implement the finite A checklist through shared combat, perception, environmental effects, needs and finite costs, retaining individual learning, agency and supported communication limits. Reuse completed Soul Lash imitation and territorial compacts. Do not expand into every conceivable spell, engineered creation, magical technology or a new mythology catalog.
+
+Consume the matrix's specific restoration, predation/recruitment control, territorial defense and nurturing–destroying opposition with viable matchups and shared finite work/resource budgets. Roles are not moral alignment, friendly factions or performed work; humans/variants use actual impacts. Preserve noncooperative slimes and soulless initiative limits. Carrion Lantern remains a biological scavenging aerostat with finite corpse-light cues, not soul theft, compelled movement or fabricated knowledge.
 
 Done when each approved matrix capability has a working consumed behavior, meaningful limitations and persistence. A missing listed ability remains unfinished C work, not a newly appended prompt.
 
 ### 3.38-D. Complete population-backed encounters and strategic outputs
 
 Connect B/C to actual habitat, conserved original populations, appropriate groups/colonies, ordinary travel and supported human logistics. Provide actual military/nonmilitary consequences and legitimate received observations for 3.35d-D/E. Preserve fixed identities, wounds, remains, losses and unlocated capacity; no endless replacement encounters, omniscient census or collective allegiance inferred from one individual.
+
+Implement the matrix's effective local seasonal maintenance accounts: nurturing plus natural renewal must sustain destructive pressure/ordinary consumption in initially healthy regions, including seasonal lows and viable opposing matchups. An infeasible initial allocation is not automatically exhausted. Exhausted territories require actual nurturer/renewal-site defeat and accumulated causal damage, before cities or during play; record real losses, resulting starvation/migration and conditional source-backed recovery. Separate soil/cover, freshwater, wetland/reef, biomass and arcane ledgers; no global headcount balancing, automatic rescue spawns, ore regeneration or role-label certificates. Tests cover healthy/boundary cases, actual defeat/exhaustion, decline/recovery, saved consequences, knowledge limits and independent run branches within this package.
 
 Done when all current species are represented by the approved matrix, representative physical encounters consume each shared family, strategic outputs cover original source classes, and persistence/death/knowledge boundaries pass focused checks. **Close 3.38 here; remaining integration belongs to the already listed 3.35d-D/E, not new beast prompts.**
 

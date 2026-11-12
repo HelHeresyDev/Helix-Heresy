@@ -75,7 +75,7 @@ class CreatureCatalogTests(unittest.TestCase):
         self.assertTrue(any('Divine avatar' == row[0] for row in self.data['forms']))
 
     def test_xlsx_contents_filters_freezes_and_types_round_trip(self):
-        definitions = builder.sheet_definitions(self.data, '2026-11-11')
+        definitions = builder.sheet_definitions(self.data, '2026-11-12')
         builder.validate_workbook(self.workbook, definitions)
         with ZipFile(self.workbook) as archive:
             rows = builder.read_sheet_rows(archive, 2)

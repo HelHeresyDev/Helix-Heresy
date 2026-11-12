@@ -10,6 +10,7 @@ const Formation = require('../creature-formation');
 const Homunculi = require('../homunculi');
 const Hauntbound = require('../hauntbound');
 const Wilderness = require('../wilderness-beasts');
+const EcologyDesign = require('./creature-ecology-design');
 const resolveSource = file => file === 'DESIGN_BIBLE.md' && !fs.existsSync(path.join(root, file)) ? 'reference/DESIGN_BIBLE.md' : file;
 const text = file => fs.readFileSync(path.join(root, resolveSource(file)), 'utf8');
 const humanize = s => String(s).replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase());
@@ -26,7 +27,9 @@ function bundle(costs) {
 }
 const HEADERS = ['Creature', 'Group', 'Implementation / availability', 'Research tier', 'Production tier',
   'Material cost per creature', 'Biome / habitat', 'Rarity / prevalence', 'Threat / hazards',
-  'Intelligence / communication', 'Movement', 'Diet / upkeep', 'Production / identity notes', 'Source', 'Stable ID'];
+  'Intelligence / communication', 'Movement', 'Diet / upkeep', 'Production / identity notes',
+  'Ecological disposition (approved design)', 'Environmental impact (approved design)',
+  'Ecological adversaries (approved design)', 'Source', 'Stable ID'];
 const UNKNOWN = 'Not defined';
 function buildCatalog() {
   const app = text('app.js');
@@ -385,6 +388,15 @@ function buildCatalog() {
       'Inherited start or separately supplied late-game recovery; not a repeatable ordinary-human recipe',
       'Scientist’s actual starting/receiving location', 'Memory continuity and body-tied expertise depend on the actual mechanism; neither cloning nor rebinding invents a new species.', 'DESIGN_BIBLE.md; soul-beacons.js']
   ];
+  const designById = new Map(EcologyDesign.rows.map(row => [row.id, row]));
+  if (designById.size !== rows.length || rows.some(row => !designById.has(row.at(-1)))) {
+    throw Error('Approved ecological matrix must cover the exact current creature catalog.');
+  }
+  for (const row of rows) {
+    const design = designById.get(row.at(-1));
+    row.splice(-2, 0, humanize(design.role), design.impact, EcologyDesign.adversaries(design.id));
+    row[row.length - 2] += '; reference/CREATURE_ECOLOGY_MATRIX.md';
+  }
   const guide = [
     ['Purpose', 'Developer reference for authored creature definitions and current design proposals. This is not the scientist’s in-game knowledge or a live world census.'],
     ['Coverage', `${rows.length} current catalog entries, including humans, implemented laboratory creature families and all ${Ecology.BEAST_SPECIES.length} strategic beast species. ${planned.length ? `${planned.length} proposed creatures are on a separate tab.` : 'There are no active creature proposals; withdrawn ideas are not existing species.'} Explicit dog lore and divine/receiver states are separate from species.`],
@@ -397,6 +409,8 @@ function buildCatalog() {
     ['Population bands', 'The Beast ecology tab’s seeded population-count ranges are the number of generated population records, not animal counts. They come directly from populationCount().'],
     ['Biome and threat', 'Beast biome and mana-aspect codes are decoded from the authored legends. Threat rank maps to the authored threat bands, not a predicted fight result. Other habitats are labelled lore/formation conditions, not invented map biomes.'],
     ['Implementation status', 'Strategic ecology does not mean a fully implemented local creature, combat ability, player production recipe or encounter. Only current WildernessBeasts.PROFILES are identified as local profiles.'],
+    ['Ecological disposition — approved design', 'Nurturing, destroying or neutral describe usual net environmental impact, not morality, friendliness, threat or the Beast ecology tab’s food-web role. Actual activities, variants, density and resources determine realized impact; humans have no exemption. These three design columns do not claim regional balancing/exhaustion or new abilities are implemented. See reference/CREATURE_ECOLOGY_MATRIX.md; scripts/creature-ecology-design.js owns the approved annotations.'],
+    ['Ecological adversaries — approved design', 'Directed species-specific predation, territorial defense or restoration; not two cooperative factions. Actual same-habitat/adjacent-ecotone reach, viable matchups and finite resources are required. Local core-family restoration supplies no invented strategic wild population. Slimes cannot cooperate; soulless bodies have no initiative. Exhausted territories require actual nurturer defeat and accumulated damage, with conditional real recovery, not automatic repair.'],
     ['Costs', 'Materials are in game inventory units unless explicitly stated otherwise. They are not market currency quotes. Production detail separates per-creature input, per-procedure cost, reusable equipment, research setup and upkeep.'],
     ['Soul and will', 'Artificial own-soul formation needs concurrent inherited animancy; unassisted bodies have no independent will/leveling. No later own-soul retrofit. Slimes never communicate or cooperate. A soul does not guarantee consent or obedience.'],
     ['Origins', 'Every creatable base form exists naturally. Engineered variants need not occur naturally. Even gods cannot invent arbitrary creature kinds or life from nothing.'],
@@ -407,6 +421,7 @@ function buildCatalog() {
     ['Editing / rebuild', 'The workbook is editable. Generated files are snapshots; rebuilding replaces them. To retain design annotations across rebuilds, update scripts/creature-catalog-data.js. Run python3 scripts/build-creature-catalog.py. No gameplay definitions are changed.']
   ];
   return { headers: HEADERS, creatures: rows, planned, ecology: ecologyRows, production, forms, guide,
+    ecologyDesignReference: EcologyDesign.renderReference(),
     legends: { biomes: Environment.BIOME_CLASS_LEGEND, aspects: Arcane.ASPECT_CLASS_LEGEND },
     revision: process.env.CREATURE_CATALOG_REVISION || 'Working-tree snapshot' };
 }

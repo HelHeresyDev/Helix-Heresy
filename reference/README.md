@@ -24,6 +24,15 @@ numeric tiers are unassigned. Beast rarity uses the actual comparative prevalenc
 rank rather than invented spawn percentages. No particular world census is implied.
 Research tier and production/synthesis tier are independent.
 
+The Catalog also includes **approved-design** columns for nurturing/destroying/neutral
+disposition, net environmental impact and specific ecological adversaries. These
+are not morality, threat ratings or a claim of implemented regional balancing.
+The Beast ecology sheet's **Food-web role** remains the separate authored niche.
+The [fixed biology and ecology matrix](CREATURE_ECOLOGY_MATRIX.md) covers all 36
+classifications, the 24 strategic species' bounded biology/capabilities, local
+maintenance, actual nurturer defeat, exhausted territories and conditional recovery.
+Its B–D ownership table identifies the remaining runtime work without adding prompts.
+
 [The CSV](creature-catalog.csv) contains the primary catalog only; additional sheets
 and formatting are in the ODS/XLSX workbooks. [The preview](creature-catalog-preview.png) shows
 selected columns/rows from the same dataset, not every sheet.
@@ -31,7 +40,7 @@ selected columns/rows from the same dataset, not every sheet.
 Rebuild the snapshots with:
 
 ```sh
-python3 scripts/build-creature-catalog.py --as-of 2026-11-11
+python3 scripts/build-creature-catalog.py --as-of 2026-11-12
 PYTHONDONTWRITEBYTECODE=1 python3 tests/creature-catalog.test.py
 ```
 
@@ -50,8 +59,11 @@ the repository base; a rebuild can include working-tree changes against that bas
 If source documents are relocated, the exporter's source paths must be updated
 before full regeneration; this does not affect opening the existing workbooks.
 
+The full rebuild also regenerates `CREATURE_ECOLOGY_MATRIX.md` from its approved
+design source; edit that source rather than the generated Markdown table.
 The exporter reads existing runtime definitions and current pending proposals;
-manual annotations live in `scripts/creature-catalog-data.js`. It changes no gameplay
+manual annotations live in `scripts/creature-catalog-data.js`, with approved ecological
+design in `scripts/creature-ecology-design.js`. It changes no gameplay
 definitions. ODS/XLSX/CSV generation uses Python's standard library and Node.js;
 the optional PNG preview additionally uses Pillow. Rebuilding replaces these named
 generated snapshots, so retain manual workbook edits separately if desired.

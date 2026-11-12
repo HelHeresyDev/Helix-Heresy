@@ -65,7 +65,7 @@ def load_data():
 
 def sheet_definitions(data, as_of):
     summary = f'Source snapshot {as_of} · base {data["revision"]} · {len(data["creatures"])} current entries / {len(data["ecology"])} beast species / {len(data["planned"])} proposal{"s" if len(data["planned"]) != 1 else ""}'
-    catalog_widths = [29, 23, 40, 20, 20, 57, 62, 46, 54, 58, 48, 51, 92, 65, 33]
+    catalog_widths = [29, 23, 40, 20, 20, 57, 62, 46, 54, 58, 48, 51, 92, 30, 80, 110, 65, 33]
     return [
         ('Read me', 'HELIX HERESY / Creature reference', summary, ['Field', 'Meaning / limits'], data['guide'], [28, 135], '17324D'),
         ('Catalog', 'CREATURE CATALOG / Current definitions', summary, data['headers'], data['creatures'], catalog_widths, '117D89'),
@@ -74,7 +74,7 @@ def sheet_definitions(data, as_of):
          data['production'], [43, 35, 39, 73, 90, 75, 90, 96, 103, 70], '117D89'),
         ('Beast ecology', 'BEAST ECOLOGY / All 24 authored species', 'Prevalence is comparative and seeded. Population-record counts are not individual animal counts.',
          ['Creature', 'Stable ID', 'Decoded biomes', 'Biome codes', 'Realm', 'Mana aspects', 'Prevalence rank / 4', 'Population records / world',
-          'Threat rank / 4', 'Threat band', 'Size band', 'Intelligence', 'Movement', 'Diet', 'Ecological role', 'Social pattern', 'Lair / breeding site', 'Local implementation', 'Authored description', 'Source'],
+          'Threat rank / 4', 'Threat band', 'Size band', 'Intelligence', 'Movement', 'Diet', 'Food-web role', 'Social pattern', 'Lair / breeding site', 'Local implementation', 'Authored description', 'Source'],
          data['ecology'], [29, 35, 65, 22, 14, 25, 20, 27, 18, 20, 20, 20, 34, 26, 28, 30, 30, 62, 105, 48], '315E86'),
         ('Planned creatures', 'PLANNED / Not implemented or finally balanced' if data['planned'] else 'PLANNED / No active creature proposals',
          'Amber rows are proposals. Ingredients are qualitative; exact quantities, rarity and natural map biomes are not assigned.' if data['planned'] else 'The creature sequence is closed. Withdrawn ideas are not implemented species or recipes; this tab is intentionally empty.',
@@ -516,7 +516,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--as-of', default=dt.date.today().isoformat())
     parser.add_argument('--format', choices=['all', 'ods', 'xlsx'], default='all',
-                        help='Build only the selected workbook; all also refreshes CSV/preview.')
+                        help='Build only the selected workbook; all also refreshes CSV/preview and the design matrix.')
     args = parser.parse_args()
     dt.date.fromisoformat(args.as_of)
     data = load_data()
@@ -533,6 +533,7 @@ def main():
         validate_ods(workbook, definitions)
         built.append(workbook.name)
     if args.format == 'all':
+        (OUTPUT / 'CREATURE_ECOLOGY_MATRIX.md').write_text(data['ecologyDesignReference'], encoding='utf-8')
         with (OUTPUT / 'creature-catalog.csv').open('w', encoding='utf-8-sig', newline='') as handle:
             writer = csv.writer(handle)
             writer.writerow(data['headers'])
