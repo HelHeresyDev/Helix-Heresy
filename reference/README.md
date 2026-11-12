@@ -32,6 +32,11 @@ The [fixed biology and ecology matrix](CREATURE_ECOLOGY_MATRIX.md) covers all 36
 classifications, the 24 strategic species' bounded biology/capabilities, local
 maintenance, actual nurturer defeat, exhausted territories and conditional recovery.
 Its B–D ownership table identifies the remaining runtime work without adding prompts.
+The matrix and workbook Read me also record monthly regional planning with gradual
+effects, per-individual rate units and knowledge-limited migration: traditional
+destinations can fail, forced dispersal is essentially random, and no hidden
+capacity coordinator guarantees a safe arrival. Species rate coefficients and the
+actual monthly simulation remain C/D implementation, not completed runtime behavior.
 
 [The CSV](creature-catalog.csv) contains the primary catalog only; additional sheets
 and formatting are in the ODS/XLSX workbooks. [The preview](creature-catalog-preview.png) shows

@@ -8,6 +8,50 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Monthly ecology and knowledge-limited migration — approved design clarification
+
+Recorded on 2026-11-12 in the existing ecology design source, generated matrix,
+design bible and workbook guide. This is a design clarification inside existing
+#3.38-C/D, not a completed runtime planner, a reopening of A or another package.
+The active queue remains 13; B is still next in the existing serial order.
+
+Regional strategic planning occurs once per actual game-calendar month, with
+finite work/consumption accrued gradually over actual residence and elapsed time.
+Separate per-individual daily nurturing/destruction coefficients use one ecological
+point per affected hectare per percentage-point condition change in each ledger.
+Six independent ledgers prevent cross-canceling unlike effects. Exact species
+coefficients remain C calibration; earlier sample numbers were illustrative, not
+finalized gameplay rates. Monthly forecasts grant no upfront restoration, food or
+guaranteed end state. Cached rates, scheduled events and lazy evaluation avoid
+per-frame individual strategic planning while local combat/needs remain responsive.
+
+Instinctive migrants retain inherited routes and traditional destinations despite
+hidden shortages. Forced nonmigratory dispersal is essentially random exploration
+guided only by immediate perception and encountered traversability. Genuinely
+learned/received information may guide capable individuals, with its actual owner,
+source, age and uncertainty; intelligence does not confer a map. Hidden capacity,
+unseen incoming groups and future environmental truth are not decision inputs.
+There is no invisible capacity reservation or global optimal-placement controller.
+
+Biologically viable groups depart at staggered times, retain integer original
+membership, consume resources along actual travel and may remain in transit across
+months. Convergence, overcrowding, starvation, conflict and repeated failed
+destinations remain valid. Arrival or local discovery may prompt a limited new
+choice; unseen distant change cannot telepathically redirect a group. Interruptions
+settle earned work then invalidate only affected unperformed work, without backfill.
+Saves retain choices, applied times, budgets, knowledge and transit progress to
+prevent rerolls, duplicated effects or refills. Healthy initial generation does not
+guarantee continuing balance; exhaustion still requires actual causal damage/losses.
+
+Validation: all eight `tests/creature-ecology-design.unit.test.js` design/export
+contract checks and all nine `tests/creature-catalog.test.py` source/CSV/ODS/XLSX
+checks pass; the existing builder validates all six workbook sheets. New checks
+verify the recorded monthly units/cadence, gradual accounting, migration knowledge
+boundaries and failure policy. They do not claim to test unimplemented runtime
+planning. Runtime hidden-truth-independence, gradual execution, interruption and
+save/import scenarios are explicitly owned by existing C/D. No gameplay/browser
+code changed and the full suite was not run under `AGENTS.md`.
+
 ### Fixed creature biology and ecological design — #3.38-A complete
 
 Completed on 2026-11-12 as the approved **design/reference deliverable**, not new

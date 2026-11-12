@@ -133,3 +133,49 @@ test('published matrix is reproducible and explicitly separates design from runt
   assert.match(read('reference/DESIGN_BIBLE.md'), /Exhausted territories/);
   assert.match(read('reference/DESIGN_BIBLE.md'), /remaining physical, behavioral and regional simulation implementation/);
 });
+
+test('monthly design contract fixes cadence, rate units and gradual finite accounting', () => {
+  const m = design.monthlyEcology;
+  assert.equal(m.planningCadence, 'oncePerGameMonth');
+  assert.equal(m.application, 'gradualEventBoundedAccrual');
+  assert.equal(m.rateUnit, 'ecologicalPointsPerIndividualPerGameDayPerLedger');
+  assert.match(m.pointDefinition, /one hectare.*one percentage point.*one environmental ledger/);
+  assert.deepEqual(m.ledgers, ['soilCover', 'freshwaterQuantity', 'freshwaterQuality', 'wetlandReefHabitat', 'renewableBiomass', 'arcaneStability']);
+  const rules = new Map(m.rules);
+  assert.match(rules.get('Rate accounting'), /actual game-calendar month duration/);
+  assert.match(rules.get('Rate accounting'), /sample rates are illustrative/);
+  assert.match(rules.get('Gradual effects'), /not.*upfront/i);
+  assert.match(rules.get('Gradual effects'), /evaluated lazily/);
+  assert.match(rules.get('Group movement'), /integer membership/);
+  assert.match(rules.get('Group movement'), /transit feeding, damage and losses/);
+  assert.match(rules.get('Group movement'), /carries into later months/);
+  assert.equal(m.wholePopulationTeleport, false);
+  assert.equal(m.localReactionsRemainResponsive, true);
+  assert.match(rules.get('Persistence and evidence'), /cannot double-apply effects, reroll a bad destination or refill food/);
+  assert.match(design.packages[3][1], /Plan once per game month/);
+  assert.ok(buildCatalog().guide.some(row => row[0] === 'Monthly ecology — approved design' && row[1].includes('not an implemented monthly planner')));
+});
+
+test('migration design contract excludes private destination truth and permits repeated failure', () => {
+  const m = design.monthlyEcology;
+  assert.deepEqual(m.decisionInputs, ['innateMigrationPattern', 'personallyRetainedMemory', 'actuallyReceivedInformation', 'currentLocalPerception']);
+  assert.deepEqual(m.forbiddenDecisionInputs, ['hiddenDestinationCapacity', 'unobservedIncomingGroups', 'globalHabitatRanking', 'futureResourceTruth']);
+  assert.ok(m.decisionInputs.every(input => !m.forbiddenDecisionInputs.includes(input)));
+  assert.equal(m.destinationCapacityReservations, false);
+  assert.equal(m.guaranteesSuccessfulArrival, false);
+  const modes = new Map(m.migrationModes.map(mode => [mode.id, mode]));
+  assert.equal(modes.size, 3);
+  assert.match(modes.get('instinctive').limits, /Do not change a traditional destination/);
+  assert.match(modes.get('forcedDispersal').choice, /essentially randomly/);
+  assert.match(modes.get('forcedDispersal').limits, /No global habitat search/);
+  assert.match(modes.get('informed').limits, /source\/date and uncertainty/);
+  assert.match(modes.get('informed').limits, /stale or wrong/);
+  const rules = new Map(m.rules);
+  assert.match(rules.get('No invisible traffic controller'), /may converge, overcrowd and compete/);
+  assert.match(rules.get('Discovery and failure'), /Forced dispersal may fail repeatedly/);
+  assert.match(rules.get('Discovery and failure'), /starvation, conflict or a second departure/);
+  assert.match(rules.get('Interruptions and local reactions'), /unseen destination does not cancel an instinctive departure/);
+  assert.match(read('PENDING_PROMPTS.md'), /active count remains 13/);
+  assert.match(read('reference/DESIGN_BIBLE.md'), /Initial healthy ecology does not guarantee continued balance/);
+  assert.ok(buildCatalog().guide.some(row => row[0] === 'Migration knowledge — approved design'));
+});
