@@ -2,6 +2,13 @@ const { test, expect } = require('@playwright/test');
 const Market = require('../city-commodity-market');
 const defs = [{ id: 'steelPanels', supply: 100, liquidity: 20 }, { id: 'biomass', supply: 100, liquidity: 20 }];
 const facts = () => ({ directory: { foundations: [{ city: { id: 'a', name: 'Aster' }, primaryExploitation: { id: 'ferrousOre', label: 'Ferrous Ore' }, arableLandBand: 'productive' }, { city: { id: 'b' }, primaryExploitation: { id: 'biologicalProductivity' } }], satellites: [{ id: 'farm', parentId: 'a', name: 'Aster Farm', function: 'agriculture', sizeBand: 'town', exportResource: { id: 'biologicalProductivity' } }] }, current: { playableYear: 500, cityRows: [{ cityId: 'a', physicalCondition: 'intact', populationBand: 'large', services: { utilities: 'functional' } }], satelliteRows: [] } });
+test('Wisp glow salts use finite local mineral supply, not spontaneous free luminous cores', () => {
+  const f = facts(), d = { id: 'glowSalts', supply: 60, liquidity: 20 };
+  expect(Market.familyFor(d.id)).toBe('industrialMinerals');
+  const a = Market.profile('a', f.directory, f.current, [d]); f.directory.foundations[0].primaryExploitation = { id: 'industrialMinerals' };
+  const b = Market.profile('a', f.directory, f.current, [d]); expect(b.listings[d.id].targetSupply).toBeGreaterThan(a.listings[d.id].targetSupply);
+  expect(Market.evolve({ supply: 0, demand: 1 }, b.listings[d.id], d, 1, .5).supply).toBe(0);
+});
 test('Duskcat ration follows finite biological supply; sourced embryos are not automatically grown by generic farms', () => {
   const f = facts(), definitions = ['felineRation', 'duskcatEmbryo'].map(id => ({ id, supply: 12, liquidity: 4 }));
   const profile = Market.profile('a', f.directory, f.current, definitions);

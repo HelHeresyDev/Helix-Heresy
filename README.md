@@ -1,5 +1,11 @@
 # Helix Heresy
 
+Lantern Wisps are available in Research → **Natural Creature Formation**. Their
+fragile luminous cores need actual mana, can learn local follow/stay signals and
+illuminate real surroundings. A physical lantern housing protects and carries
+them; closing its shutter hides light without saving fuel. See
+[LANTERN_WISPS.md](LANTERN_WISPS.md).
+
 Duskcats are available in Research → **Natural Creature Formation**. These small
 dark-aspected felines develop from sourced embryonic material in the original
 hooded synthesis tube, need real food/water/rest, and can learn local attack and

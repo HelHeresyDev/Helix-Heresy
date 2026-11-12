@@ -11,10 +11,10 @@ libreoffice --calc reference/creature-catalog.ods
 The original **[XLSX workbook](creature-catalog.xlsx)** is also retained for Excel
 and other compatible applications. Both workbooks contain:
 
-- Catalog: humans, slime, Mudlet, Cinderling, Zephyr Mote, Rootling, Sporecap, human-derived homunculus, Hauntbound, Quartz Shardling, Duskcat and all 24 beast species (35 entries). Hauntbound are existing deceased individuals inhabiting objects, not a production recipe or biological species. Quartz Shardling is the first material-specific mining subtype. Duskcat replaces the Shadelet proposal with a biological dark-aspected feline; care, development, learned cues and pouncing are implemented without room dimming or automatic kills.
+- Catalog: humans, slime, Mudlet, Cinderling, Zephyr Mote, Rootling, Sporecap, human-derived homunculus, Hauntbound, Quartz Shardling, Duskcat, Lantern Wisp and all 24 beast species (36 entries). Hauntbound are existing deceased individuals inhabiting objects, not a production recipe or biological species. Quartz Shardling is the first material-specific mining subtype. Duskcat replaces Shadelet with a biological dark-aspected feline. Lantern Wisp is a fragile luminous mineral creature with finite real light, learned local following and physical lantern custody, not a ghost or free permanent lamp.
 - Production detail: per-creature ingredients, process costs, equipment, utilities and care.
 - Beast ecology: decoded biomes, comparative prevalence, threat, movement and social traits.
-- Planned creatures: the two remaining separate formation proposals, not implemented recipes.
+- Planned creatures: the remaining Bone Skitter proposal, not an implemented recipe.
 - Other life & forms: explicit dog lore and divine, avatar, scientist and receiver distinctions.
 - Read me: interpretation, scope, source revision and design limits.
 

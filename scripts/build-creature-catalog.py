@@ -64,7 +64,7 @@ def load_data():
 
 
 def sheet_definitions(data, as_of):
-    summary = f'Source snapshot {as_of} · base {data["revision"]} · {len(data["creatures"])} current entries / {len(data["ecology"])} beast species / {len(data["planned"])} proposals'
+    summary = f'Source snapshot {as_of} · base {data["revision"]} · {len(data["creatures"])} current entries / {len(data["ecology"])} beast species / {len(data["planned"])} proposal{"s" if len(data["planned"]) != 1 else ""}'
     catalog_widths = [29, 23, 40, 20, 20, 57, 62, 46, 54, 58, 48, 51, 92, 65, 33]
     return [
         ('Read me', 'HELIX HERESY / Creature reference', summary, ['Field', 'Meaning / limits'], data['guide'], [28, 135], '17324D'),
@@ -479,12 +479,12 @@ def preview(path, data, as_of):
     title_font = ImageFont.truetype(str(font_dir / 'LiberationSans-Bold.ttf'), 29)
     widths = [225, 170, 135, 135, 275, 340, 290]
     width, row_height = sum(widths), 144
-    preview_rows = data['creatures'][:11]
+    preview_rows = data['creatures'][:12]
     image = Image.new('RGB', (width, 160 + row_height * len(preview_rows)), '#FFFFFF')
     draw = ImageDraw.Draw(image)
     draw.rectangle((0, 0, width, 100), fill='#17324D')
     draw.text((22, 16), 'HELIX HERESY / CREATURE CATALOG', font=title_font, fill='white')
-    draw.text((22, 59), f'{as_of} · {len(data["creatures"])} current entries · {len(data["ecology"])} beast species · {len(data["planned"])} proposals on a separate tab', font=regular, fill='#DCE8ED')
+    draw.text((22, 59), f'{as_of} · {len(data["creatures"])} current entries · {len(data["ecology"])} beast species · {len(data["planned"])} proposal{"s" if len(data["planned"]) != 1 else ""} on a separate tab', font=regular, fill='#DCE8ED')
     indices = [0, 1, 3, 4, 5, 6, 7]
     labels = ['Creature', 'Group', 'Research tier', 'Production tier', 'Per-creature materials', 'Biome / habitat', 'Rarity / prevalence']
     x = 0
@@ -538,7 +538,7 @@ def main():
             writer.writerows(data['creatures'])
         preview(OUTPUT / 'creature-catalog-preview.png', data, args.as_of)
     print(f'Built and validated {", ".join(built)}: {len(data["creatures"])} catalog entries, '
-          f'{len(data["ecology"])} beasts, {len(data["planned"])} proposals, {len(definitions)} sheets.')
+          f'{len(data["ecology"])} beasts, {len(data["planned"])} proposal{"s" if len(data["planned"]) != 1 else ""}, {len(definitions)} sheets.')
 
 
 if __name__ == '__main__':

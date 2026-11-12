@@ -1,4 +1,4 @@
-# Creature formation: elemental, botanical, fungal, mineral and feline families
+# Creature formation: elemental, botanical, fungal, mineral, feline and luminous families
 
 Every supported family has a naturally existing base form. The scientist modifies
 its formation process; neither science nor gods invent life from nothing. An
@@ -19,6 +19,13 @@ core-contact standing instruction or explicitly administered food. See
 [SHARDLINGS.md](SHARDLINGS.md) for inputs, custody, depletion and mining limits.
 
 ## Apparatus and research
+
+Lantern Wisps reproduce natural luminous-mineral coherence in the shared
+convergence chamber, using a real glass focusing insert. They have separate
+Research Tier 2 / Synthesis Tier 0 discovery, finite mana-driven illumination,
+learned local follow/stay signals and a real shuttered lantern housing. See
+[LANTERN_WISPS.md](LANTERN_WISPS.md). They are not ghosts, free permanent lamps,
+phasing units or automatic guides.
 
 Duskcats are biological dark-aspected felines developed in the original synthesis
 tube, not umbral elementals. Their independent Research Tier 2 / Synthesis Tier 0

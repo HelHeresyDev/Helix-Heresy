@@ -21,13 +21,13 @@ class CreatureCatalogTests(unittest.TestCase):
 
     def test_complete_unique_current_catalog_and_separate_proposals(self):
         rows = self.data['creatures']
-        self.assertEqual(len(rows), 35)
+        self.assertEqual(len(rows), 36)
         ids = [row[-1] for row in rows]
         self.assertEqual(len(ids), len(set(ids)))
-        self.assertEqual(set(ids[:11]), {'human', 'slime', 'mudlet', 'homunculus', 'cinderling', 'zephyrMote', 'rootling', 'sporecap', 'hauntbound', 'quartzShardling', 'duskcat'})
-        self.assertEqual({row[1] for row in self.data['ecology']}, set(ids[11:]))
+        self.assertEqual(set(ids[:12]), {'human', 'slime', 'mudlet', 'homunculus', 'cinderling', 'zephyrMote', 'rootling', 'sporecap', 'hauntbound', 'quartzShardling', 'duskcat', 'lanternWisp'})
+        self.assertEqual({row[1] for row in self.data['ecology']}, set(ids[12:]))
         self.assertEqual(len(self.data['ecology']), 24)
-        self.assertEqual({row[-1] for row in self.data['planned']}, {f'8-{c}' for c in 'IJ'})
+        self.assertEqual({row[-1] for row in self.data['planned']}, {'8-J'})
         self.assertTrue(all(row[2].startswith('Proposed only') for row in self.data['planned']))
 
     def test_authored_tiers_and_material_costs_are_not_fabricated(self):
@@ -52,7 +52,10 @@ class CreatureCatalogTests(unittest.TestCase):
         self.assertEqual(rows['duskcat'][3:6], [2, 0, '1 duskcat embryo + 2 biomass + 1 nutrient medium + 1 drinking water'])
         self.assertIn('never burns flesh', rows['duskcat'][8])
         self.assertIn('no room dimming', rows['duskcat'][11])
-        for row in self.data['creatures'][11:]:
+        self.assertEqual(rows['lanternWisp'][3:6], [2, 0, '1 glow salts'])
+        self.assertIn('no phasing', rows['lanternWisp'][10])
+        self.assertIn('0.5/hour', rows['lanternWisp'][11])
+        for row in self.data['creatures'][12:]:
             self.assertEqual(row[3:5], ['Not defined', 'Not defined'])
             self.assertIn('no implemented player-production recipe', row[5])
         self.assertTrue(all(r[4] == 0 for r in self.data['planned']))

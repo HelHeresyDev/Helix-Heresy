@@ -8,6 +8,55 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Lantern Wisps — #8-I complete
+
+The approved Research Tier 2 / Synthesis Tier 0 family is a naturally coherent
+luminous mantle around a fragile mineral core, not a deceased spirit. Actual
+sourced mineral controls compare stable and overcharged focusing before the
+method is documented. A reusable glass focusing insert is an original attached
+item in the shared convergence chamber, not a free prerequisite flag. A ten-minute
+process consumes one 100 g salts portion and four chamber mana, with two retained
+in the body. Optional concurrent inherited animancy spends two device mana for an
+own soul. Original stocks, failed incorporated salts, the nonrenewable interruption
+buffer, paid energy and immutable formation identity persist.
+
+Bright and dim output enter existing physical lighting, with real propagation,
+barriers and exposure. Sustenance is finite; a souled low-reserve wisp voluntarily
+dims, while a soulless body only emits and depletes passively. Nine actual rewarded
+learning sessions establish familiarity and separate follow/stay signals. Local
+visual/audible demonstrations, normal paths, lost-perception timeouts, adverse
+conditions and willingness constrain cooperation. No language, cargo role,
+phasing, vertical traversal, hidden teacher tracking or automatic allegiance is
+granted. Dated observations omit private routes and teacher memory.
+
+The original glass/metal lantern housing uses actual inventory custody and mass.
+Its opaque shutter hides outgoing light without reducing internal expenditure.
+Opening releases the same core; dropping keeps it enclosed. Finite physical shell
+protection can shatter, retaining broken housing and original core/fractures at
+the same location; excess impact reaches the fragile body. Other holders or
+enclosing stores do not grant direct care, and physical strikes cannot bypass
+separate enclosing storage. No recharge heals a fractured core or revives a dead
+individual. Canvas/DOM identify loose bodies with W; actual light also illuminates
+their surroundings. No new bitmap-art queue is introduced.
+
+[LANTERN_WISPS.md](LANTERN_WISPS.md), the design bible and Linux ODS/XLSX/CSV/preview
+describe costs, habitat, learning, care and limits. The catalog includes 36 current
+entries and one separate Bone Skitter proposal. This package does not add wild
+encounters, a strategic population, a generic guiding contract, new work prompts
+or a claim of full-world survival/regression from the isolated feature clock.
+
+Focused verification on 2026-11-11: 13 Lantern Wisp model checks, 10 shared
+formation checks, the two named Cinderling finite-emission/ventilation-light
+checks, the named local glow-salt market check, the native Chromium Wisp journey
+and nine ODS/XLSX/CSV source/artifact checks passed. The native journey earned its
+research, focusing insert, bodies, lessons and housing; demonstrated actual
+follow/stay, lighting/shutters and shell fracture; then checked both soul outcomes,
+failed requested formation, normal Canvas/DOM, saves/continued import and retained
+death. Syntax/diff checks and preview inspection complete this package, without
+the full suite under `AGENTS.md`. #8-I is removed; only #8-J remains in the creature
+sequence. The finite queue is now 12 scheduled packages plus six separately
+optional routes, with deferred work still deferred and no automatic follow-ups.
+
 ### Duskcats — #8-H complete
 
 The approved Shadelet redesign is a naturally existing dark-aspected biological

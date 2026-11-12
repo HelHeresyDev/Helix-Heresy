@@ -396,7 +396,31 @@ Order-capable constructs are not a loophole around creature-specific limits. Sli
 
 Creation-time acquisition of a creature's own soul is distinct from an existing soul's transfer or possession of an empty shell. Soul-beacon recovery restores the same surviving scientist in a prepared receiving body; it does not manufacture a new soul for that body. A receiving body must not incidentally acquire another individual's soul merely because a creation device exists nearby. Soul damage or destruction remains possible after formation and does not rewrite the historical creation record.
 
-The shared formation implementation records creation-time soul provenance for new artificial slime synthesis, controlled reproduction, homunculus growth, Mudlets, Cinderlings, Zephyr Motes, Rootlings and Sporecaps. Unassisted results have no independent will or leveling; existing individuals retain their histories. Natural births are not rewritten. The inherited device supplies finite concurrent animancy rather than a retroactive soul switch. Homunculus growth retains its advanced requirements, and late-game receiving bodies remain empty destinations for the scientist's existing soul. See [CREATURE_FORMATION.md](../CREATURE_FORMATION.md) for the actual apparatus, recipes, handling and limits.
+The shared formation implementation records creation-time soul provenance for new artificial slime synthesis, controlled reproduction, homunculus growth, Mudlets, Cinderlings, Zephyr Motes, Rootlings, Sporecaps, Quartz Shardlings, Duskcats and Lantern Wisps. Unassisted results have no independent will or leveling; existing individuals retain their histories. Natural births are not rewritten. The inherited device supplies finite concurrent animancy rather than a retroactive soul switch. Homunculus growth retains its advanced requirements, and late-game receiving bodies remain empty destinations for the scientist's existing soul. See [CREATURE_FORMATION.md](../CREATURE_FORMATION.md) for the actual apparatus, recipes, handling and limits.
+
+### Lantern Wisps: living light and fragile mineral cores
+
+Lantern Wisps naturally develop where luminous minerals accumulate under sustained
+light-aspected mana, including caves and shaded rocky hollows. A fragile mineral
+core supports a coherent luminous mantle; this is an existing natural process
+the scientist can reproduce, not a deceased soul or invented life. Research Tier 2
+and Synthesis Tier 0 distinguish discovering the method from practical production.
+
+Their niche is responsive mobile illumination alongside this world's ordinary
+advanced lamps. Light costs finite mana and propagates through ordinary physical
+space, exposing its bearer as well as illuminating nearby surroundings. They
+are animal-like, not speaking people. An independently souled wisp can develop
+familiarity and learn local follow/stay signals, refuse under adverse conditions
+and voluntarily dim to conserve dwindling reserves. This is neither automatic
+loyalty nor a remote guiding agreement. An artificial soulless body has passive
+emission and damage but no learning, self-care or independent movement.
+
+Their bodies cannot pass through walls, closed doors or sealed glass, carry
+meaningful cargo or reveal unknown places remotely. A transparent physical
+lantern housing protects the fragile core; an opaque shutter hides light without
+stopping internal energy consumption. Damage, lost coherence and death remain
+real, and refueling cannot resurrect a dead individual. See
+[LANTERN_WISPS.md](../LANTERN_WISPS.md) for implemented costs and limits.
 
 ### Duskcats: dark-aspected biological predators
 

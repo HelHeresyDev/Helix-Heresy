@@ -53,6 +53,7 @@
   const Hauntbound = window.HelixHauntbound;
   if (!Formation) throw new Error("HelixCreatureFormation must load before app.js");
   const Duskcats = Formation.Duskcats;
+  const Wisps = Formation.Wisps;
   if (!Homunculi) throw new Error("HelixHomunculi must load before app.js");
   const SoulBeacons = window.HelixSoulBeacons;
   const EmbodiedSkills = window.HelixEmbodiedSkills;
@@ -3570,6 +3571,7 @@
   const COMMODITY_MARKET_FREIGHT_SECONDS = minutesToSeconds(20);
   const COMMODITY_MARKET_MAX_OUTSTANDING = 6;
   const COMMODITY_MARKET_LISTING_DEFS = [
+    { id: 'glowSalts', section: 'resources', key: 'glowSalts', label: 'Sourced Luminous Mineral Salts', basePrice: 4, supply: 60, liquidity: 20, buyable: true, sellable: true },
     { id: 'duskcatEmbryo', section: 'resources', key: 'duskcatEmbryo', label: 'Sourced Dark-aspected Feline Embryonic Culture', basePrice: 25, supply: 12, liquidity: 4, buyable: true, sellable: true },
     { id: 'felineRation', section: 'resources', key: 'felineRation', label: 'Feline Meat Ration', basePrice: 3, supply: 60, liquidity: 20, buyable: true, sellable: true },
     { id: 'quartz', section: 'resources', key: 'quartz', label: 'Quartz', basePrice: 5, supply: 60, liquidity: 20, buyable: true, sellable: true },
@@ -3856,6 +3858,7 @@
     destination: "drum"
   };
   const RESOURCE_DEFS = [
+    { key: 'glowSalts', label: 'Sourced Luminous Mineral Salts', initial: 8 },
     { key: 'duskcatEmbryo', label: 'Sourced Dark-aspected Feline Embryonic Culture', initial: 8 },
     { key: 'felineRation', label: 'Feline Meat Ration', initial: 16 },
     { key: 'quartz', label: 'Quartz', initial: 8 },
@@ -6195,6 +6198,7 @@
     const visitor = actorOrId?.kind === "visitor";
     const capacity = scientist
       ? { maxMassKg: SCIENTIST_CARRY_MASS_KG, maxVolumeL: SCIENTIST_CARRY_VOLUME_L }
+      : actorOrId?.actorKind === 'lanternWisp' ? { maxMassKg: 0, maxVolumeL: 0 }
       : actorOrId?.actorKind === 'hauntbound' ? { maxMassKg: Hauntbound.DEFINITION.carryMassKg, maxVolumeL: Hauntbound.DEFINITION.carryVolumeL }
       : actorOrId?.actorKind === "expeditionEscort" ? { maxMassKg: 25, maxVolumeL: 30 }
       : actorOrId?.actorKind === "rescueMedic" ? { maxMassKg: 35, maxVolumeL: 45 }
@@ -17578,6 +17582,24 @@
         persist(); render(); return true;
       },
       elementalAction: (action, id = '') => queueElementalWork(action, id),
+      wispSnapshot: id => {
+        const a = ensureElementalLab().creatures.find(a => a.id === id);
+        ensurePhysicalLightingCurrent();
+        return clonePlainObject({ actor: a, observed: a && wispObserved(a), source: a && wispLightSource(a),
+          environment: a && tileEnvironmentAtCell(a.mapCell), clock: state.clock, scientist: scientistMapCell(), tasks: state.tasks,
+          stacks: ensurePhysicalItemStacks(), identity: state.runIdentity, events: state.events.slice(-6) });
+      },
+      wispWalkOptions: id => {
+        const a = ensureElementalLab().creatures.find(a => a.id === id); if (!a) return [];
+        return (ensureLabMap().rooms[scientistRoomId()]?.cells || []).filter(cell => Wisps.distance(a.mapCell, cell) >= 3
+          && Wisps.distance(a.mapCell, cell) <= 5 && labMapCellIsWalkable(cell) && canActorOccupyTile(state.scientist, cell)
+          && sensoryLineOfSight(a.mapCell, cell) && labNavigationPlanBetweenCells(scientistMapCell(), cell, { actor: state.scientist, ignoreDoors: false }).found).map(cell => ({ cell, roomId: labMapCellRoomId(cell) }));
+      },
+      damageWispForTest: (id, amount) => {
+        // Explicit physical impact INPUT, not a granted fracture/death outcome.
+        const a = ensureElementalLab().creatures.find(a => a.id === id && a.family === 'lanternWisp'); if (!a) return false;
+        const result = damageLanternWisp(a, amount, 'Explicit test impact'); persist(); render(); return result;
+      },
       duskcatSnapshot: id => {
         const a = ensureElementalLab().creatures.find(a => a.id === id);
         return clonePlainObject({ actor: a, environment: a && duskcatEnvironment(a), observed: a && duskcatObserved(a),
@@ -17799,7 +17821,7 @@
         f.utility.enabled = Boolean(enabled); persist(); render(); return true;
       },
       advanceElementalForTest: seconds => { let left = Math.max(0, Number(seconds) || 0); while (left > 0 && !scientistIsDead()) {
-        const step = Math.min(scientistQueueTasks().length ? 5 : 60, left), fromClock = state.clock; state.clock += step; left -= step;
+        const step = Math.min(state.elementalLab?.creatures.some(a => a.family === 'lanternWisp' && a.goal) ? 1 : scientistQueueTasks().length ? 5 : 60, left), fromClock = state.clock; state.clock += step; left -= step;
         updateScientistMovementTask(); updateConstructionWorkProgress(fromClock, state.clock); completeDueTasks();
         if (state.construction?.orders.some(o => o.tiles.some(t => t.status === 'planned'))) claimNextConstructionWork();
         updateElementalLab();
@@ -26873,7 +26895,7 @@
 
   function fixturePlacementBlockReason(def, origin, rotation = 0, options = {}) {
     if (def.id === 'animancyDevice') return 'The inherited device already exists; this is not an unlocked duplication blueprint.';
-    if (def.id === 'elementalChamber' && !ensureElementalLab().knowledge.characterized && !ensureElementalLab().fireKnowledge?.characterized && !ensureElementalLab().airKnowledge?.characterized && !ensureElementalLab().shardKnowledge?.characterized) return 'Read the inherited notes and physically characterize clay/water, charcoal, airflow or quartz before constructing the chamber.';
+    if (def.id === 'elementalChamber' && !ensureElementalLab().knowledge.characterized && !ensureElementalLab().fireKnowledge?.characterized && !ensureElementalLab().airKnowledge?.characterized && !ensureElementalLab().shardKnowledge?.characterized && !ensureElementalLab().wispKnowledge?.characterized) return 'Read inherited notes and characterize actual clay/water, charcoal, airflow, quartz or luminous minerals before constructing the shared chamber.';
     if (def.id === 'exhaustedSoulApparatus') return 'The exhausted original apparatus is recovered evidence, not a buildable extra life.';
     if (['soulReceiver', 'soulBeacon'].includes(def.id) && (!Research.isUnlocked(ensureResearchState(), `fixtureBlueprint:${def.id}`) || skillLevel('fabrication') < 101))
       return 'Evidence-backed soul-beacon research and Adept Fabrication (101) are required.';
@@ -31569,7 +31591,10 @@
       Number(state.navigation?.topologyRevision) || 0,
       Number(state.navigation?.doorRevision) || 0,
       Math.round(surfaceDaylightIntensity(state.clock) * 10),
-      (state.elementalLab?.creatures || []).filter(a => a.family === 'cinderling').map(a => `${a.id}:${mapCellKey(a.mapCell)}:${Math.round(Formation.light(a) * 100)}:${a.chamberId}`).join('|'),
+      (state.elementalLab?.creatures || []).filter(a => ['cinderling', 'lanternWisp'].includes(a.family)).map(a => {
+        const source = a.family === 'lanternWisp' ? wispLightSource(a) : { cell: a.mapCell, light: Formation.light(a) };
+        return `${a.id}:${mapCellKey(source.cell)}:${Math.round(source.light * 100)}:${a.chamberId}`;
+      }).join('|'),
       fixtures
     ].join(":");
   }
@@ -31607,8 +31632,9 @@
         changes += utilitySetStatus(fixture, power < 0.99 ? "impaired" : "operating", power < 0.99 ? "Power supply is insufficient." : `Illuminating ${illuminatedTiles} nearby tile${illuminatedTiles === 1 ? "" : "s"}.`);
       }
     }
-    for (const a of state.elementalLab?.creatures || []) if (Formation.light(a) > 0) {
-      addLightFromOrigins([a.mapCell], Formation.light(a) * (a.chamberId ? .35 : 1), a.chamberId ? 1 : 3, environments, map);
+    for (const a of state.elementalLab?.creatures || []) {
+      const source = a.family === 'lanternWisp' ? wispLightSource(a) : { cell: a.mapCell, light: Formation.light(a) };
+      if (source.light > 0) addLightFromOrigins([source.cell], source.light * (a.chamberId ? .35 : 1), a.chamberId ? 1 : a.family === 'lanternWisp' ? a.emission === 'dim' ? 2 : 5 : 3, environments, map);
     }
     state.scientist = normalizeScientist(state.scientist);
     const carried = state.scientist.carriedLight;
@@ -35333,6 +35359,7 @@
     if (fieldItem) return { massKg: fieldItem.massKg, volumeL: fieldItem.volumeL };
     if (section === "resources") {
       return {
+        glowSalts: { volumeL: .1, massKg: .1 },
         duskcatEmbryo: { volumeL: .2, massKg: .1 }, felineRation: { volumeL: .2, massKg: .1 },
         quartz: { volumeL: .4, massKg: 1 }, mineralSalts: { volumeL: .1, massKg: .1 },
         biomass: { volumeL: 1.2, massKg: 1 },
@@ -35817,6 +35844,7 @@
   }
 
   function actorInventoryCanCarry(actorId, stack, quantity = stack?.quantity) {
+    if (actorInventoryOwner(actorId)?.family === 'lanternWisp') return false;
     const snapshot = actorInventorySnapshot(actorId);
     const amount = stack?.section === "collectedByproducts"
       ? roundOutputValue(Math.max(0, Number(quantity) || 0))
@@ -36514,6 +36542,7 @@
 
   function physicalStackStoredCorrectly(stack) {
     if (!stack) return false;
+    if (stack.biology?.wispHousing || stack.biology?.wispFocus) return true;
     if (stack.biology?.duskcatCarrier || stack.biology?.duskcatLure) return true;
     if (stack.biology?.shardlingId || stack.biology?.shardlingFeed) return true;
     // A person's inhabited body and its original personal record are in use,
@@ -39140,7 +39169,7 @@
 
   function actorFloorLoadM2(actor) {
     if (actor?.actorKind === 'hauntbound') return .08;
-    if (['mudlet', 'cinderling', 'zephyrMote', 'rootling', 'sporecap', 'quartzShardling', 'duskcat'].includes(actor?.actorKind)) return .2;
+    if (['mudlet', 'cinderling', 'zephyrMote', 'rootling', 'sporecap', 'quartzShardling', 'duskcat', 'lanternWisp'].includes(actor?.actorKind)) return .2;
     if (actor?.actorKind === 'fieldDriver') return .6;
     if (!actor) return 0;
     if (['cityDefender', 'civicOfficeholder', 'cityIncumbent', 'municipalTechnician', 'divineAvatar', 'divineIndividual', 'reliefDriver'].includes(actor.actorKind)) return .6;
@@ -39305,7 +39334,7 @@
 
   function navigationFootprintForActor(actor) {
     if (actor?.actorKind === 'hauntbound') return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .08, exclusive: false });
-    if (['mudlet', 'cinderling', 'zephyrMote', 'rootling', 'sporecap', 'quartzShardling', 'duskcat'].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .2, exclusive: false });
+    if (['mudlet', 'cinderling', 'zephyrMote', 'rootling', 'sporecap', 'quartzShardling', 'duskcat', 'lanternWisp'].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .2, exclusive: false });
     if (actor?.actorKind === 'fieldDriver') return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (['cityDefender', 'civicOfficeholder', 'cityIncumbent', 'municipalTechnician', 'divineAvatar', 'divineIndividual', 'reliefDriver'].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (["surfaceWorker", "laboratoryAssistant", "homunculus", "foreignSupplier"].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
@@ -42799,7 +42828,7 @@
 
   function combatActorVitalPercent(actor, key) {
     if (actor?.actorKind === 'hauntbound') return actor.health;
-    if (['mudlet', 'cinderling', 'zephyrMote', 'rootling', 'sporecap', 'quartzShardling', 'duskcat'].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
+    if (['mudlet', 'cinderling', 'zephyrMote', 'rootling', 'sporecap', 'quartzShardling', 'duskcat', 'lanternWisp'].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
     if (actor?.actorKind === 'fieldDriver') return actor.health / actor.maxHealth * 100;
     if (['civicOfficeholder', 'cityIncumbent', 'divineAvatar', 'divineIndividual', 'reliefDriver'].includes(actor?.actorKind)) return actor.health / actor.maxHealth * 100;
     if (actor?.actorKind === 'cityDefender') return actor.health / actor.maxHealth * 100;
@@ -42855,7 +42884,7 @@
 
   function scientistCombatTargetForSlime(slime) {
     if (slime?.actorKind === 'hauntbound') return normalizeCombatTarget({ kind: 'creature', id: slime.id, lastKnownCell: slime.mapCell, observedAt: state.clock });
-    if (['mudlet', 'cinderling', 'zephyrMote', 'rootling', 'sporecap', 'quartzShardling', 'duskcat'].includes(slime?.actorKind)) return normalizeCombatTarget({ kind: 'creature', id: slime.id, lastKnownCell: slime.mapCell, observedAt: state.clock });
+    if (['mudlet', 'cinderling', 'zephyrMote', 'rootling', 'sporecap', 'quartzShardling', 'duskcat', 'lanternWisp'].includes(slime?.actorKind)) return normalizeCombatTarget({ kind: 'creature', id: slime.id, lastKnownCell: slime.mapCell, observedAt: state.clock });
     if (!slime) return null;
     if (['cityDefender', 'cityIncumbent', 'civicOfficeholder', 'divineAvatar', 'divineIndividual', 'reliefDriver'].includes(slime.actorKind)) return normalizeCombatTarget({ kind: 'creature', id: slime.id, lastKnownCell: slime.mapCell, observedAt: state.clock });
     if (slime.actorKind === "wildernessBeast") return normalizeCombatTarget({ kind: "creature", id: slime.id, lastKnownCell: ensureWildernessBeasts().sightings[slime.id]?.cell, observedAt: ensureWildernessBeasts().sightings[slime.id]?.observedAt });
@@ -42870,6 +42899,7 @@
 
   function scientistHasExactCombatTarget(slime) {
     if (!slime || slime.status === "dead") return false;
+    if (slime.family === 'lanternWisp') return wispObserved(slime);
     if (slime.family === 'duskcat') return duskcatObserved(slime);
     if (slime.actorKind === 'divineIndividual') return DivineBodies.visible(slime, divineBodyContext(slime));
     if (slime.actorKind === 'reliefDriver') return reliefDriverVisible(slime);
@@ -43279,7 +43309,8 @@
       : targetActor.actorKind === "laboratoryAssistant" ? damageSurfaceWorker(guardedDamage, { damageTypes: action.damageTypes }, targetActor)
       : targetActor.actorKind === "homunculus" ? damageHomunculus(targetActor, guardedDamage, { damageTypes: action.damageTypes, observed: actor === state.scientist })
       : targetActor.actorKind === 'hauntbound' ? Hauntbound.damage(state.hauntbound, guardedDamage, action.requiresSoul ? 'soul' : (action.damageTypes || []).includes('heat') ? 'fire' : 'physical', state.clock)
-      : ['mudlet', 'cinderling', 'zephyrMote', 'rootling', 'sporecap', 'quartzShardling', 'duskcat'].includes(targetActor.actorKind) ? Formation.damage(targetActor, guardedDamage, action.label, state.clock)
+      : targetActor.family === 'lanternWisp' ? damageLanternWisp(targetActor, guardedDamage, action.label, action.damageTypes)
+      : ['mudlet', 'cinderling', 'zephyrMote', 'rootling', 'sporecap', 'quartzShardling', 'duskcat', 'lanternWisp'].includes(targetActor.actorKind) ? Formation.damage(targetActor, guardedDamage, action.label, state.clock)
       : targetActor.actorKind === 'cityDefender' ? damageCityDefender(guardedDamage, { damageTypes: action.damageTypes }, targetActor)
       : targetActor.actorKind === 'cityIncumbent' ? damageIncumbent(guardedDamage, { damageTypes: action.damageTypes })
       : ['civicOfficeholder', 'divineAvatar', 'divineIndividual', 'reliefDriver'].includes(targetActor.actorKind) ? damageCivilOfficeholder(targetActor, guardedDamage, { damageTypes: action.damageTypes, attackerId: actorId })
@@ -65508,6 +65539,94 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     a.carryStackId = proxy.id; a.chamberId = ''; a.mapCell = clonePlainObject(scientistMapCell()); a.roomId = scientistRoomId(); return true;
   }
 
+  function wispFocus(f) {
+    const id = f && ensureElementalLab().wispFocus[f.id]?.stackId;
+    return id && ensurePhysicalItemStacks().find(i => i.id === id && i.biology?.wispFocus && i.quantity === 1 && !i.carriedBy
+      && !i.containerId && !i.reservedTaskId && i.fixtureId === f.id && sameMapCell(i.cell, f.origin));
+  }
+  function wispHousing(a, empty = false, cell = a.mapCell) {
+    return ensurePhysicalItemStacks().find(i => i.biology?.wispHousing?.condition > 0 && i.quantity === 1
+      && Duskcats.carrierAccessible(i, cell)
+      && (empty ? !i.biology.wispHousing.occupantId : i.id === a.carryStackId && i.biology.wispHousing.occupantId === a.id));
+  }
+  function wispObserved(a) {
+    if (!a || !homunculusLocal(a.mapCell)) return false;
+    if (a.carryStackId) return Boolean(wispHousing(a));
+    return Boolean(a.chamberId || scientistExactPerceptionAtCell(a.mapCell));
+  }
+  function wispLightSource(a) {
+    const i = a.carryStackId && ensurePhysicalItemStacks().find(i => i.id === a.carryStackId && i.quantity > 0 && i.biology?.wispHousing?.occupantId === a.id);
+    if (a.carryStackId) return { cell: i?.cell || a.mapCell, light: i ? Wisps.light({ ...a,
+      shutterClosed: Boolean(i.biology.wispHousing.shutterClosed || i.containerId || i.fixtureId) }) : 0 };
+    return { cell: a.mapCell, light: Wisps.light(a) };
+  }
+  function wispTeacher(a) {
+    if (a.shutterClosed) return null;
+    const cell = scientistMapCell(), distance = Wisps.distance(a.mapCell, cell);
+    const light = perceptionLightLevelAtCell(cell, ensureLabMap());
+    return distance <= 6 && (distance <= 1 || distance <= MapKnowledge.visualRangeForLight(light))
+      && sensoryLineOfSight(a.mapCell, cell) ? { cell, lineOfSight: true } : null;
+  }
+  function wispHooks() {
+    return { teacher: wispTeacher,
+      next: (a, goal) => {
+        const plan = labNavigationPlanBetweenCells(a.mapCell, goal, { actor: a, ignoreDoors: false });
+        return plan.found ? plan.path.find(c => Wisps.distance(a.mapCell, c) === 1) : null;
+      },
+      move: (a, cell) => {
+        if (!labMapCellIsWalkable(cell) || !canActorOccupyTile(a, cell) || !sensoryLineOfSight(a.mapCell, cell)
+          || !zephyrAirPassage(a.mapCell, cell, true)) return false;
+        a.roomId = labMapCellRoomId(cell) || MAIN_ROOM_ID; return true;
+      } };
+  }
+  function damageLanternWisp(a, amount, cause, types = ['physical']) {
+    const i = a.carryStackId && ensurePhysicalItemStacks().find(i => i.id === a.carryStackId && i.biology?.wispHousing?.occupantId === a.id);
+    // A direct core/housing strike cannot skip a separate enclosing store or
+    // break the inner lantern into a body outside that store.
+    if (i && (i.containerId || i.fixtureId)) return false;
+    if (i && types.length && types.every(t => t === 'physical')) {
+      amount = Wisps.shield(i.biology.wispHousing, amount);
+      if (!i.biology.wispHousing.condition) {
+        i.biology.wispHousing.occupantId = ''; i.key = 'broken lantern housing'; i.unitMassKg = i.biology.wispHousing.baseMassKg;
+        a.carryStackId = ''; a.shutterClosed = false; a.mapCell = clonePlainObject(i.cell); a.roomId = i.roomId;
+      }
+      if (!amount) return true;
+    }
+    return Formation.damage(a, amount, cause, state.clock);
+  }
+  function handleWisp(task, t, receipt) {
+    const d = task.data, a = t.a, ids = Object.keys(d.inputQuantities);
+    if (d.action === 'wispFocus') {
+      const i = createPhysicalItemStack('inventory', 'wispFocusingInsert', 1, { roomId: d.roomId, cell: t.f.origin, fixtureId: t.f.id },
+        { tags: ['equipment', 'glass'], sourceLabels: [task.id, ...ids], biology: { wispFocus: true } });
+      i.unitMassKg = d.inputMassKg; i.unitVolumeL = .2;
+      t.s.wispFocus[t.f.id] = { stackId: i.id, at: state.clock, sourceIds: ids }; return true;
+    }
+    if (d.action === 'wispRecharge') return Wisps.recharge(a, { ...receipt, sourceIds: ids });
+    if (['wispFamiliar', 'wispLearnFollow', 'wispLearnStay'].includes(d.action)) return Wisps.lesson(a,
+      { wispFamiliar: 'familiarity', wispLearnFollow: 'follow', wispLearnStay: 'stay' }[d.action], { ...receipt, heard: true }, Formation.hasWill(a));
+    if (['wispFollow', 'wispStay'].includes(d.action)) return Wisps.cue(a, d.action === 'wispFollow' ? 'follow' : 'stay', wispTeacher(a), { ...receipt, heard: true }, Formation.hasWill(a));
+    if (d.action === 'wispHousing') {
+      const i = createPhysicalItemStack('inventory', 'wispLanternHousing', 1, { roomId: d.roomId, cell: d.toCell },
+        { tags: ['equipment', 'glass'], sourceLabels: [task.id, ...ids], biology: { wispHousing: { occupantId: '', shutterClosed: false, condition: 100, baseMassKg: d.inputMassKg } } });
+      i.unitMassKg = d.inputMassKg; i.unitVolumeL = 1; return true;
+    }
+    if (d.action === 'wispHouse') {
+      const i = wispHousing(a, true, d.toCell); if (!i) return false;
+      i.biology.wispHousing.occupantId = a.id; i.unitMassKg = i.biology.wispHousing.baseMassKg + a.bodyKg + a.brokenKg;
+      a.carryStackId = i.id; a.chamberId = ''; a.goal = null; a.mapCell = clonePlainObject(i.cell); a.roomId = i.roomId; return true;
+    }
+    const i = wispHousing(a); if (!i) return false;
+    if (d.action === 'wispTake') return Boolean(carryPhysicalStack('scientist', i.id, 1));
+    if (d.action === 'wispPut') return Boolean(dropActorInventoryStack('scientist', i.id, { cell: d.toCell, roomId: d.roomId }));
+    if (d.action === 'wispShutter') { i.biology.wispHousing.shutterClosed = !i.biology.wispHousing.shutterClosed; a.shutterClosed = i.biology.wispHousing.shutterClosed; return true; }
+    if (d.action === 'wispOpen') {
+      const cell = cardinalMapCells(d.toCell).find(c => labMapCellIsWalkable(c) && canActorOccupyTile(a, c)); if (!cell) return false;
+      i.biology.wispHousing.occupantId = ''; i.unitMassKg = i.biology.wispHousing.baseMassKg;
+      a.carryStackId = ''; a.shutterClosed = false; a.mapCell = clonePlainObject(cell); a.roomId = labMapCellRoomId(cell) || MAIN_ROOM_ID; return true;
+    }
+    return false;
+  }
   function duskcatEnvironment(a) {
     const e = tileEnvironmentAtCell(a.mapCell);
     return { light: e?.lightLevel ?? 0, temperature: e?.temperatureC ?? 20,
@@ -65791,7 +65910,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const s = ensureElementalLab(), a = s.creatures.find(a => a.id === id), r = s.runs.find(r => r.id === a?.runId || r.id === id);
     const f = a && !a.chamberId && !a.brazierId && !a.vesselId && !a.planterId ? null
       : action === 'notes' ? state.fixtures.find(f => f.typeId === 'animancyDevice')
-      : ['catCharacterize', 'catShadeTrial', 'catBrightTrial', 'catDocument', 'shardCharacterize', 'shardStoneTrial', 'shardQuartzTrial', 'shardDocument', 'characterize', 'document', 'fireCharacterize', 'fireDocument', 'airCharacterize', 'airDocument', 'rootCharacterize', 'rootWetTrial', 'rootShadeTrial', 'rootDocument', 'fungusCharacterize', 'fungusWetTrial', 'fungusDryTrial', 'fungusDocument'].includes(action) ? researchWorkstations()[0]
+      : ['wispCharacterize', 'wispDocument', 'catCharacterize', 'catShadeTrial', 'catBrightTrial', 'catDocument', 'shardCharacterize', 'shardStoneTrial', 'shardQuartzTrial', 'shardDocument', 'characterize', 'document', 'fireCharacterize', 'fireDocument', 'airCharacterize', 'airDocument', 'rootCharacterize', 'rootWetTrial', 'rootShadeTrial', 'rootDocument', 'fungusCharacterize', 'fungusWetTrial', 'fungusDryTrial', 'fungusDocument'].includes(action) ? researchWorkstations()[0]
       : formationApparatus(a?.planterId || a?.vesselId || a?.brazierId || a?.chamberId || r?.chamberId || id);
     if (!route) return { s, a, r, f };
     const port = f && formationAccessCells(f).find(p => labNavigationPlanBetweenCells(scientistMapCell(), p.cell, { actor: state.scientist, ignoreDoors: true }).found);
@@ -65813,6 +65932,34 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         || !sameMapLayer(item.cell, cell) || mapCellDistance(item.cell, cell) > 1 || !sensoryLineOfSight(item.cell, cell)) return 'Stage the original unclaimed input lots within one tile of the operating position.';
     }
     const k = t.s.knowledge;
+    const wk = t.s.wispKnowledge;
+    if (d.action === 'wispCharacterize' && !k.notes || ['wispStable', 'wispOvercharge', 'wispFocus'].includes(d.action) && !wk.characterized
+      || d.action === 'wispDocument' && (!wk.stable || !wk.overcharge) || d.action === 'growWisp' && !wk.documented)
+      return 'Read inherited notes, characterize real luminous minerals, compare stable/overcharged focusing controls, then document the method.';
+    if (['wispStable', 'wispOvercharge', 'wispFocus', 'growWisp'].includes(d.action)) {
+      if (f?.typeId !== 'elementalChamber' || t.s.runs.some(r => r.chamberId === f.id && !r.cleared)) return 'Use the original empty, cleared shared convergence chamber.';
+      if (d.action === 'wispFocus' ? wispFocus(f) : !wispFocus(f)) return 'Fit one actual reusable glass focusing insert; its original stack must remain attached.';
+      if (['wispStable', 'wispOvercharge'].includes(d.action) && (!utilityFixtureEnabled(f) || f.condition < 50 || f.utility.storedMana < .01)) return 'The original enabled chamber requires actual fuel and at least 50% condition.';
+    }
+    if (d.action === 'growWisp' && d.soulWindow.requested && !creationDevice(f.origin, d.soulWindow.deviceId)) return 'Connect the actual original inherited animancy device before requesting this own-soul formation.';
+    if (d.action.startsWith('wisp') && !['wispCharacterize', 'wispStable', 'wispOvercharge', 'wispDocument', 'wispFocus'].includes(d.action)) {
+      const a = t.a;
+      if (a?.family !== 'lanternWisp' || !wispObserved(a)) return 'Physically reacquire the original luminous core and its accessible housing.';
+      if (a.status === 'dead' && !['wispHousing', 'wispHouse', 'wispTake', 'wispPut', 'wispOpen', 'wispShutter'].includes(d.action)) return 'Original inactive remains cannot be restarted by fuel or learned signals.';
+      if (d.action === 'wispRecharge' && a.manaReserve > 8 + 1e-8) return 'All eight supplied mana must fit in the sixteen-mana reserve.';
+      if (['wispFamiliar', 'wispLearnFollow', 'wispLearnStay', 'wispFollow', 'wispStay'].includes(d.action)) {
+        if (!Formation.hasWill(a) || !Wisps.willing(a, duskcatEnvironment(a).disrupted) || !wispTeacher(a)) return 'A sufficiently fueled, healthy, unfrightened soul-bearing wisp must willingly see/hear the local signal; open any opaque shutter. No soulless learning or automatic obedience.';
+        if (d.action !== 'wispFamiliar' && a.familiarity < 3) return 'Earn three actual rewarded familiarity sessions first.';
+        if (['wispFollow', 'wispStay'].includes(d.action) && (a.carryStackId || a.chamberId || a.lessons[d.action === 'wispFollow' ? 'follow' : 'stay'] < 3 || !wispTeacher(a))) return 'Release the actual body and earn three lessons for this locally demonstrated signal.';
+        if (['wispFamiliar', 'wispLearnFollow', 'wispLearnStay'].includes(d.action) && a.manaReserve < .55) return 'Keep actual sustenance after the 0.05 mana lesson reward.';
+      }
+      if (d.action === 'wispHouse' && (a.carryStackId || !wispHousing(a, true, cell)
+        || a.status !== 'dead' && Formation.hasWill(a) && (a.familiarity < 3 || !Wisps.willing(a)))) return 'Stage an original empty intact lantern housing; acclimate a living souled wisp before physical transfer.';
+      if (['wispTake', 'wispPut', 'wispOpen', 'wispShutter'].includes(d.action) && !wispHousing(a)) return 'Reach the original occupied intact housing, not another holder or enclosing container.';
+      if (d.action === 'wispTake' && ensurePhysicalItemStacks().find(i => i.id === a.carryStackId)?.carriedBy === 'scientist') return 'The original housing is already carried.';
+      if (d.action === 'wispPut' && ensurePhysicalItemStacks().find(i => i.id === a.carryStackId)?.carriedBy !== 'scientist') return 'Actually carry the original housing before setting it down.';
+      if (d.action === 'wispOpen' && !cardinalMapCells(cell).some(c => labMapCellIsWalkable(c) && canActorOccupyTile(a, c))) return 'Opening needs real adjacent free floor space for the core.';
+    }
     const ck = t.s.catKnowledge;
     if (d.action === 'catCharacterize' && !k.notes || ['catShadeTrial', 'catBrightTrial'].includes(d.action) && !ck.characterized
       || d.action === 'catDocument' && (!ck.shade || !ck.bright) || d.action === 'growDuskcat' && !ck.documented)
@@ -65869,6 +66016,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (['shardFeedStone', 'shardFeedQuartz'].includes(d.action) && t.a.assistedSourceId && ensurePhysicalItemStacks().some(i => i.id === t.a.assistedSourceId && i.quantity > 0)) return 'The original offered feed block still remains; do not stack unlimited meals into its mouth.';
     }
     if (d.action === 'release' && t.a?.family === 'duskcat') return 'Use the original feline carrier and its opening controls; generic elemental transfer is not safe feline handling.';
+    if (d.action === 'release' && t.a?.family === 'lanternWisp' && !t.a.chamberId) return 'The original core is already released; transport requires its real lantern housing.';
     if (d.action === 'release' && t.a?.carryStackId) return 'Open/place the original carried body using its custody controls.';
     const fungal = t.s.fungalKnowledge;
     if (['fungusWetTrial', 'fungusDryTrial'].includes(d.action)) {
@@ -65981,6 +66129,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!Object.hasOwn(Formation.SECONDS, action) || scientistIsDead() || confidentialServiceChannelReason()) return false;
     updateElementalLab();
     const t = elementalTarget(action, targetId), cell = t.cell;
+    if (t.a?.family === 'lanternWisp' && !wispObserved(t.a)) return false;
     if (t.a?.family === 'duskcat' && !duskcatObserved(t.a)) return false;
     if (!cell || !t.f && !t.a || state.tasks.some(t => t.type === 'elementalWork')) return false;
     const slices = homunculusInputs(Formation.COSTS[action], cell); if (!slices) { addEvent('Stage the listed actual supplies within one tile of the operating position.'); persist(); render(); return false; }
@@ -66035,6 +66184,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const w = d.work, elapsed = Math.max(0, state.clock - Math.max(w.lastAt, d.workStartsAt)); w.lastAt = state.clock;
     if (!elapsed || taskBlockReason(task) || !sameMapCell(scientistMapCell(), d.toCell) || state.combat?.routineSuspension) return;
     const used = Math.min(elapsed, w.required - w.progress), f = formationApparatus(d.fixtureId);
+    if (['wispCharacterize', 'wispStable', 'wispOvercharge'].includes(d.action)) {
+      if (d.action !== 'wispCharacterize') {
+        const energy = used / w.required * (d.action === 'wispOvercharge' ? 2 : 1);
+        if (!formationEnergy(f, energy)) return;
+        d.wispTrial ||= { manaSpent: 0, observedSeconds: 0, coherence: d.action === 'wispOvercharge' ? 25 : 100,
+          livingIndividual: false, sourceIds: Object.keys(d.inputQuantities) };
+        d.wispTrial.manaSpent += energy; d.wispTrial.observedSeconds += used;
+      }
+      if (!d.materialConsumed) { consumeProductionMaterialReservations(task); d.materialConsumed = true; }
+    }
     if (['catCharacterize', 'catShadeTrial', 'catBrightTrial'].includes(d.action)) {
       if (!d.materialConsumed) { consumeProductionMaterialReservations(task); d.materialConsumed = true; }
       const e = tileEnvironmentAtCell(f.origin);
@@ -66090,6 +66249,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (care?.reservedTaskId === task.id) care.reservedTaskId = '';
     if (careTool?.reservedTaskId === task.id) careTool.reservedTaskId = '';
     releaseProductionMaterialReservations(task);
+    if (d.materialConsumed && !d.outputRecorded && ['wispCharacterize', 'wispStable', 'wispOvercharge', 'wispDocument'].includes(d.action)) {
+      const i = createPhysicalItemStack('collectedByproducts', 'spent luminous mineral control', d.inputMassKg,
+        { roomId: d.roomId, cell: d.toCell }, { tags: ['mineral', 'assayed', 'nonpotable'], sourceLabels: [task.id, ...Object.keys(d.inputQuantities)], biology: { wispTrial: d.wispTrial || null } });
+      i.unitMassKg = 1; d.outputRecorded = true;
+    }
     if (d.materialConsumed && !d.outputRecorded && ['catCharacterize', 'catShadeTrial', 'catBrightTrial', 'catDocument'].includes(d.action)) {
       const i = createPhysicalItemStack('collectedByproducts', 'spent feline tissue control', d.inputMassKg, { roomId: d.roomId, cell: d.toCell },
         { tags: ['organic', 'assayed', 'nonpotable'], sourceLabels: [task.id, ...Object.keys(d.inputQuantities)], biology: { felineTrial: d.catTrial || null } });
@@ -66135,27 +66299,29 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const d = task.data, t = elementalTarget(d.action, d.targetId, false), f = formationApparatus(d.fixtureId);
     try {
       if (elementalTaskReason(task) || !sameMapCell(scientistMapCell(), d.toCell) || d.work.progress < d.work.required - 1e-8) return false;
-      if (!['growDuskcat', 'growShardling', 'grow', 'growCinderling', 'growZephyr', 'growRootling', 'growSporecap'].includes(d.action) && !d.materialConsumed) { consumeProductionMaterialReservations(task); d.materialConsumed = true; }
+      if (!['growWisp', 'growDuskcat', 'growShardling', 'grow', 'growCinderling', 'growZephyr', 'growRootling', 'growSporecap'].includes(d.action) && !d.materialConsumed) { consumeProductionMaterialReservations(task); d.materialConsumed = true; }
       const receipt = { taskId: task.id, fixtureId: d.fixtureId, originalInputs: d.inputQuantities, at: state.clock,
+        ...(d.wispTrial ? { wispTrial: clonePlainObject(d.wispTrial) } : {}),
         ...(d.catTrial ? { felineTrial: clonePlainObject(d.catTrial) } : {}),
         ...(d.shardTrial ? { mineralTrial: clonePlainObject(d.shardTrial) } : {}),
         ...(d.fungalTrial ? { fungalTrial: clonePlainObject(d.fungalTrial) } : {}),
         ...(d.rootTrial ? { botanicalTrial: clonePlainObject(d.rootTrial) } : {}),
         ...(d.airParcel ? { capturedAir: clonePlainObject(d.airParcel), manaSpent: d.airManaSpent || 0, circulationM3: d.circulationObservedM3 || 0, coherence: d.trialCoherence } : {}) };
-      if (['catCharacterize', 'catShadeTrial', 'catBrightTrial', 'catDocument', 'shardCharacterize', 'shardStoneTrial', 'shardQuartzTrial', 'shardDocument', 'notes', 'characterize', 'stability', 'document', 'fireCharacterize', 'fireStability', 'fireDocument', 'airCharacterize', 'airLow', 'airHigh', 'airDocument', 'rootCharacterize', 'rootWetTrial', 'rootShadeTrial', 'rootDocument', 'fungusCharacterize', 'fungusWetTrial', 'fungusDryTrial', 'fungusDocument'].includes(d.action)) {
+      if (['wispCharacterize', 'wispStable', 'wispOvercharge', 'wispDocument', 'catCharacterize', 'catShadeTrial', 'catBrightTrial', 'catDocument', 'shardCharacterize', 'shardStoneTrial', 'shardQuartzTrial', 'shardDocument', 'notes', 'characterize', 'stability', 'document', 'fireCharacterize', 'fireStability', 'fireDocument', 'airCharacterize', 'airLow', 'airHigh', 'airDocument', 'rootCharacterize', 'rootWetTrial', 'rootShadeTrial', 'rootDocument', 'fungusCharacterize', 'fungusWetTrial', 'fungusDryTrial', 'fungusDocument'].includes(d.action)) {
         if (!Formation.research(t.s, d.action, receipt, state.clock)) return false;
-        recordResearchEvidence({ methodId: `elemental:${d.action}`, category: 'diagnostic', specimenId: task.id, specimenName: d.action.startsWith('cat') ? 'Dark-aspected feline tissue study' : d.action.startsWith('shard') ? 'Mineral lattice development study' : d.action.startsWith('fungus') ? 'Fungal development study' : d.action.startsWith('root') ? 'Botanical propagation study' : d.action.startsWith('air') ? 'Airflow/vortex elemental study' : d.action.startsWith('fire') ? 'Charcoal/flame elemental study' : 'Clay/water elemental study',
+        recordResearchEvidence({ methodId: `elemental:${d.action}`, category: 'diagnostic', specimenId: task.id, specimenName: d.action.startsWith('wisp') ? 'Luminous mineral coherence study' : d.action.startsWith('cat') ? 'Dark-aspected feline tissue study' : d.action.startsWith('shard') ? 'Mineral lattice development study' : d.action.startsWith('fungus') ? 'Fungal development study' : d.action.startsWith('root') ? 'Botanical propagation study' : d.action.startsWith('air') ? 'Airflow/vortex elemental study' : d.action.startsWith('fire') ? 'Charcoal/flame elemental study' : 'Clay/water elemental study',
           sourceKey: task.id, summary: `Personally performed ${d.action} using original staged inputs and actual equipment.${d.airParcel ? ` Captured ${d.airParcel.volumeM3} m³ of local air; observed coherence ${d.trialCoherence ?? 'sampled'} with ${formatDecimal(d.airManaSpent || 0, 2)} mana spent.` : ''}`, confidence: .9 });
       } else if (d.action === 'charge') f.utility.storedMana = Math.min(24, f.utility.storedMana + 8);
       else if (d.action === 'rootCharge') t.s.tubeMana[f.id] = Math.min(24, (t.s.tubeMana[f.id] || 0) + 8);
-      else if (['growDuskcat', 'growShardling', 'grow', 'growCinderling', 'growZephyr', 'growRootling', 'growSporecap'].includes(d.action)) {
+      else if (['growWisp', 'growDuskcat', 'growShardling', 'grow', 'growCinderling', 'growZephyr', 'growRootling', 'growSporecap'].includes(d.action)) {
         const slices = d.reservedStackIds.map(id => ({ stackId: id, key: ensurePhysicalItemStacks().find(i => i.id === id)?.key, quantity: d.inputQuantities[id] }));
         const parcel = d.action === 'growZephyr' ? Formation.takeAir(tileEnvironmentAtCell(f.origin), .1, tileEnvironmentVolumeM3()) : null;
         const r = Formation.begin(t.s, f.id, slices, d.soulWindow, { roomId: d.roomId, bodyCell: f.origin, cell: d.toCell }, state.clock,
-          d.action === 'growDuskcat' ? 'duskcat' : d.action === 'growShardling' ? 'quartzShardling' : d.action === 'growSporecap' ? 'sporecap' : d.action === 'growRootling' ? 'rootling' : d.action === 'growZephyr' ? 'zephyrMote' : d.action === 'growCinderling' ? 'cinderling' : 'mudlet', parcel);
+          d.action === 'growWisp' ? 'lanternWisp' : d.action === 'growDuskcat' ? 'duskcat' : d.action === 'growShardling' ? 'quartzShardling' : d.action === 'growSporecap' ? 'sporecap' : d.action === 'growRootling' ? 'rootling' : d.action === 'growZephyr' ? 'zephyrMote' : d.action === 'growCinderling' ? 'cinderling' : 'mudlet', parcel);
         if (!r) { if (parcel) Formation.returnAir(tileEnvironmentAtCell(f.origin), parcel, tileEnvironmentVolumeM3()); return false; }
         for (const p of slices) { const item = ensurePhysicalItemStacks().find(i => i.id === p.stackId); item.reservedTaskId = r.id; item.fixtureId = f.id; item.cell = clonePlainObject(f.origin); }
-      } else if (d.action.startsWith('cat')) { if (!handleDuskcat(task, t, receipt)) return false; }
+      } else if (d.action.startsWith('wisp')) { if (!handleWisp(task, t, receipt)) return false; }
+      else if (d.action.startsWith('cat')) { if (!handleDuskcat(task, t, receipt)) return false; }
       else if (['shardFeedStone', 'shardFeedQuartz'].includes(d.action)) shardlingFeedBlock(t.a, task, d.action === 'shardFeedStone' ? 'stone' : 'quartz', d.action === 'shardFeedStone' ? 8 : 1);
       else if (d.action === 'shardRemoveFeed') {
         const block = ensurePhysicalItemStacks().find(i => i.id === t.a.assistedSourceId && i.quantity > 0);
@@ -66225,7 +66391,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       else if (['position', 'release'].includes(d.action)) {
         const destination = d.action === 'position' ? t.s.leaks[t.r.chamberId].cell : cardinalMapCells(d.toCell).find(c => labMapCellIsWalkable(c) && canActorOccupyTile(t.a, c) && sensoryLineOfSight(d.toCell, c));
         if (!destination || !labMapCellIsWalkable(destination) || !canActorOccupyTile(t.a, destination)) return false;
-        if (t.a.family === 'zephyrMote' && !zephyrAirPassage(d.toCell, destination, true)) return false;
+        if (['zephyrMote', 'lanternWisp'].includes(t.a.family) && !zephyrAirPassage(d.toCell, destination, true)) return false;
         t.a.chamberId = ''; t.a.brazierId = ''; t.a.vesselId = ''; t.a.planterId = ''; t.a.mapCell = clonePlainObject(destination); t.a.roomId = labMapCellRoomId(destination);
       } else if (d.action === 'clear') t.r.cleared = true;
       else if (d.action !== 'examine') return false;
@@ -66238,7 +66404,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function elementalHooks() {
     return { dead: scientistIsDead(), support: (r, seconds) => {
       const f = formationApparatus(r.chamberId), device = r.soulWindow.requested && creationDevice(f?.origin, r.soulWindow.deviceId);
-      const energy = (['duskcat', 'zephyrMote'].includes(r.family) ? 4 : 2) * seconds / r.required, neededSoul = r.soulWindow.requested ? 2 * seconds / r.required : 0;
+      const energy = (['lanternWisp', 'duskcat', 'zephyrMote'].includes(r.family) ? 4 : 2) * seconds / r.required, neededSoul = r.soulWindow.requested ? 2 * seconds / r.required : 0;
       const present = r.stocks.every(p => { const item = ensurePhysicalItemStacks().find(i => i.id === p.stackId); return p.quantity - (p.used || 0) < 1e-8 || item?.reservedTaskId === r.id && item.fixtureId === r.chamberId && item.quantity + 1e-8 >= p.quantity - (p.used || 0); });
       const botanical = ['rootling', 'sporecap', 'duskcat'].includes(r.family);
       const rootEnvironment = botanical && tileEnvironmentAtCell(f?.origin);
@@ -66247,11 +66413,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         && (r.family === 'duskcat' ? ensureElementalLab().tubeHoods[f.id]?.closed : r.family === 'sporecap'
           || (!ensureElementalLab().tubeHoods[f.id]?.closed && (rootEnvironment?.lightLevel || 0) >= 20))
         && rootEnvironment.temperatureC >= 15 && rootEnvironment.temperatureC <= 32 : utilityFixtureEnabled(f);
-      const ok = Boolean(f && f.condition >= 50 && bodyServices && f.utility.storedMana + 1e-8 >= energy && present
+      const luminousSupport = r.family !== 'lanternWisp' || wispFocus(f) && sameMapCell(f.origin, r.location.bodyCell);
+      const ok = Boolean(f && f.condition >= 50 && bodyServices && luminousSupport && f.utility.storedMana + 1e-8 >= energy && present
         && (!neededSoul || device && device.utility.storedMana + 1e-8 >= neededSoul));
       if (ok) { formationEnergy(f, energy); if (neededSoul) formationEnergy(device, neededSoul); }
       const reason = !f || f.condition < 50 ? 'Original formation apparatus is missing or below 50% condition.'
         : botanical && !bodyServices ? `Original tube support is unavailable: retain the unmoved empty tube and 15–32 °C.${r.family === 'rootling' ? ' Rootlings also require light ≥20.' : r.family === 'duskcat' ? ' Duskcats require the original closed developmental hood.' : ' Fungal development does not require light.'}`
+        : !luminousSupport ? 'The original glass focusing insert or unmoved chamber support is missing.'
         : !present ? 'Original reserved formation input lots are missing or changed.'
         : f.utility.storedMana + 1e-8 < energy ? 'Original formation apparatus has insufficient stored mana.'
         : neededSoul && (!device || device.utility.storedMana + 1e-8 < neededSoul) ? 'Concurrent inherited animancy is disconnected or insufficiently fueled.'
@@ -66273,6 +66441,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return true;
     }, release: r => {
       for (const item of ensurePhysicalItemStacks().filter(i => i.reservedTaskId === r.id)) { item.reservedTaskId = ''; item.fixtureId = ''; item.cell = clonePlainObject(r.location.cell); item.roomId = r.location.roomId; }
+      if (r.family === 'lanternWisp') {
+        if (r.status === 'failed' && !r.remainsStackId && r.consumed.glowSalts > 0) {
+          const i = createPhysicalItemStack('collectedByproducts', 'failed luminous mineral core', r.consumed.glowSalts * .1,
+            { roomId: r.location.roomId, cell: r.location.cell }, { tags: ['mineral', 'inactive'], sourceLabels: [r.id, ...r.stocks.map(p => p.stackId)] });
+          i.unitMassKg = 1; r.remainsStackId = i.id;
+        }
+        return;
+      }
       if (r.family === 'duskcat') {
         if (!r.residueRecorded) {
           const kg = r.status === 'completed' ? 1.5 : (r.consumed.duskcatEmbryo || 0) * .1 + (r.consumed.biomass || 0) + (r.consumed.nutrientMedium || 0) + (r.consumed.drinkingWater || 0);
@@ -66299,6 +66475,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           ...(['rootling', 'sporecap', 'duskcat'].includes(r.family) ? { phase: r.consumed.drinkingWater > 0 ? 'sludge' : 'solid', tags: ['organic', 'nonpotable', 'botanical-waste'],
             biology: { failedBotanicalFormation: { consumed: clonePlainObject(r.consumed), sourceIds: r.stocks.map(p => p.stackId) } } } : { tags: ['mineral'] }) })?.id || '';
     }, environment: (a, seconds) => {
+      if (a.family === 'lanternWisp') return duskcatEnvironment(a);
       if (a.family === 'duskcat') return duskcatEnvironment(a);
       if (a.family === 'quartzShardling') return { temperature: tileEnvironmentAtCell(a.mapCell)?.temperatureC ?? 20 };
       if (a.family === 'sporecap') {
@@ -66337,7 +66514,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const pool = !a.chamberId && wet(a.mapCell), absorb = pool ? Math.max(0, Math.floor(Math.min(pool.quantity, 2 - a.waterL, seconds / 60 * .1) * 1000) / 1000) : 0;
       if (absorb) { pool.quantity = roundOutputValue(pool.quantity - absorb); pool.knownQuantity = Math.min(pool.quantity, pool.knownQuantity); }
       return { humidity: env?.humidityPct ?? env?.humidity ?? 50, temperature: env?.temperatureC ?? 20, hazard: Boolean(surfaceWorkerHazard(a.mapCell)), moistDestination: destination, absorb };
-    }, duskcat: duskcatHooks(), shardling: shardlingHooks(), emitSpores: emitSporecapSpores,
+    }, wisp: wispHooks(), duskcat: duskcatHooks(), shardling: shardlingHooks(), emitSpores: emitSporecapSpores,
     transpire: (a, amount) => { const env = tileEnvironmentAtCell(a.mapCell); if (env) env.humidity = Math.min(100, env.humidity + amount); },
     move: (a, cell) => { if (!labMapCellIsWalkable(cell) || !canActorOccupyTile(a, cell)
       || a.family === 'zephyrMote' && !zephyrAirPassage(a.mapCell, cell, true)) return false;
@@ -66390,6 +66567,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function updateElementalLab() {
     if (!state.elementalLab || scientistIsDead()) return 0;
+    for (const [id, entry] of Object.entries(state.elementalLab.wispFocus)) if (!(fixtureById(id)?.condition > 0)) {
+      const i = ensurePhysicalItemStacks().find(i => i.id === entry.stackId); if (i?.fixtureId === id) i.fixtureId = '';
+    }
+    for (const a of state.elementalLab.creatures) if (a.family === 'lanternWisp') {
+      if (a.carryStackId) {
+        syncActorInventories();
+        const i = ensurePhysicalItemStacks().find(i => i.id === a.carryStackId && i.biology?.wispHousing?.occupantId === a.id && i.quantity > 0);
+        if (i) { a.mapCell = clonePlainObject(i.cell); a.roomId = i.roomId;
+          a.shutterClosed = Boolean(i.biology.wispHousing.shutterClosed || i.containerId || i.fixtureId); }
+        else { a.carryStackId = ''; a.shutterClosed = false; }
+      }
+      if (a.chamberId && !formationApparatus(a.chamberId)) { const r = state.elementalLab.runs.find(r => r.id === a.runId);
+        a.chamberId = ''; if (r) { a.mapCell = clonePlainObject(r.location.cell); a.roomId = r.location.roomId; } }
+    }
     for (const a of state.elementalLab.creatures) if (a.family === 'duskcat') {
       if (a.carryStackId) {
         syncActorInventories();
@@ -66452,7 +66643,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const button = (label, action, id = '') => {
       const t = elementalTarget(action, id, false), k = s.knowledge, fire = s.fireKnowledge || {}, air = s.airKnowledge || {};
       const reason = state.tasks.some(t => t.type === 'elementalWork') ? 'Finish or cancel the current elemental procedure first.'
-        : t.a && (!homunculusLocal(t.a.mapCell) || t.a.family === 'duskcat' && !duskcatObserved(t.a)) ? 'Physically reacquire the original body for examination and handling.'
+        : t.a && (!homunculusLocal(t.a.mapCell) || t.a.family === 'duskcat' && !duskcatObserved(t.a) || t.a.family === 'lanternWisp' && !wispObserved(t.a)) ? 'Physically reacquire the original body for examination and handling.'
         : action === 'shardCharacterize' && !k.notes ? 'Read the inherited notes first.'
         : ['shardStoneTrial', 'shardQuartzTrial'].includes(action) && !s.shardKnowledge.characterized ? 'Characterize actual quartz first.'
         : action === 'shardDocument' && (!s.shardKnowledge.stone || !s.shardKnowledge.quartz) ? 'Compare ordinary-stone and quartz controls first.'
@@ -66495,6 +66686,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       textEl('p', 'Naturally coherent air vortices arise at wind-scoured cliffs/passes with persistent air-aspected mana. Capture real surrounding air, compare gentle/disruptive chamber trials, then document the stable pattern. No biomass. Four chamber mana: two expended, two retained; optional concurrent animancy costs two more device mana.'));
     button('Characterize local airflow (captured air, no biomass)', 'airCharacterize');
     button('Document compared vortex pattern (1 reagent)', 'airDocument');
+    panel.append(textEl('h3', 'Lantern Wisp — Research Tier 2 / Production Tier 0'),
+      textEl('p', 'A naturally coherent luminous mantle around a fragile mineral core, not a ghost or a free lamp. Characterize sourced glow salts; fit a real reusable glass focusing insert in the shared chamber; compare stable and overcharged controls, then document. One 100 g mineral portion, four chamber mana and ten minutes form the core; optional concurrent inherited animancy costs two additional device mana. Bright emission costs 2 mana/hour; a souled wisp voluntarily dims at low reserves (0.5/hour). Prolonged starvation kills. Low hover uses ordinary local paths; no phasing or cargo.'));
+    button('Characterize luminous minerals (1 salts, 1 reagent)', 'wispCharacterize');
+    button('Document compared luminous coherence (1 reagent)', 'wispDocument');
     panel.append(textEl('h3', 'Shardlings — Quartz Shardling: Research Tier 1 / Production Tier 0'),
       textEl('p', 'Naturally mineral-specific slow prospectors. Ordinary stone sustains them; quartz alone grows and repairs a Quartz Shardling. Compare mineral controls, then form one original lattice in the shared chamber from 1 quartz (1 kg), 1 salts (0.1 kg) and 1 water, using two chamber mana over an hour. Optional concurrent inherited animancy costs two more mana. No biomass, possessing spirit, optics job or later self-soul retrofit.'));
     button('Characterize quartz (1 quartz, 1 reagent)', 'shardCharacterize');
@@ -66535,7 +66730,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         button('Load Rootling propagation (6 hours, real plant/water/medium, 2 tube mana)', 'growRootling', f.id);
         button('Load Sporecap development (4 hours, real starter/compost/water, 2 tube mana)', 'growSporecap', f.id);
       } else button('Charge from one staged arcane feedstock (+8 mana)', 'charge', f.id);
-      if (f.typeId === 'elementalChamber') { button('Run stabilization trial (1 clay, 1 water, 1 chamber mana)', 'stability', f.id); button('Load Mudlet formation (2 clay, 2 water; 2 chamber mana over ten minutes)', 'grow', f.id); button('Fill test-fitting reservoir (4 water)', 'fillLeak', f.id); button('Drain reservoir and eight-litre catch basin to floor', 'drainLeak', f.id); button('Change physical test-fitting pressure', 'pressure', f.id); }
+      if (f.typeId === 'elementalChamber') {
+        button('Fit original reusable glass focusing insert (1 glass)', 'wispFocus', f.id);
+        button('Stable luminous mineral control (1 salts, 1 chamber mana)', 'wispStable', f.id);
+        button('Overcharged mineral control (1 salts, 2 chamber mana)', 'wispOvercharge', f.id);
+        button('Load Lantern Wisp (1 salts; 4 chamber mana over ten minutes)', 'growWisp', f.id);
+        button('Run stabilization trial (1 clay, 1 water, 1 chamber mana)', 'stability', f.id); button('Load Mudlet formation (2 clay, 2 water; 2 chamber mana over ten minutes)', 'grow', f.id); button('Fill test-fitting reservoir (4 water)', 'fillLeak', f.id); button('Drain reservoir and eight-litre catch basin to floor', 'drainLeak', f.id); button('Change physical test-fitting pressure', 'pressure', f.id); }
       if (f.typeId === 'elementalChamber') { button('Contained ignition/stability trial (1 charcoal, 1 chamber mana)', 'fireStability', f.id);
         button('Load Cinderling formation (2 charcoal; 2 chamber mana over ten minutes)', 'growCinderling', f.id); }
       if (f.typeId === 'elementalChamber') {
@@ -66553,11 +66753,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       button('Clear released/failed chamber', 'clear', r.id);
     }
     for (const a of s.creatures) {
-      const view = (a.family === 'duskcat' ? duskcatObserved(a) : homunculusLocal(a.mapCell)) ? Formation.observe(s, a, state.clock) : s.observations[a.id];
+      const view = (a.family === 'lanternWisp' ? wispObserved(a) : a.family === 'duskcat' ? duskcatObserved(a) : homunculusLocal(a.mapCell)) ? Formation.observe(s, a, state.clock) : s.observations[a.id];
       if (!view) continue;
       panel.append(textEl('p', view ? `${view.name}: ${view.consistency}, ${view.status}; ${view.formationSoul.present ? 'soul-bearing, independent will' : 'soulless, no independent will or leveling'}. Last observed ${formatClock(view.at)}.` : `${a.name}: no received local examination.`));
       button('Examine original creature locally', 'examine', a.id);
-      if (a.family === 'duskcat') {
+      if (a.family === 'lanternWisp') {
+        const v = view.wisp;
+        panel.append(textEl('p', `Observed ${v.mode}; mana ${formatDecimal(v.manaReserve, 3)} / 16, ${v.emission} emission. Familiarity ${v.familiarity}/3; follow ${v.lessons.follow}/3, stay ${v.lessons.stay}/3. ${v.carryStackId ? 'Original physical housing; shutter ' + (v.shutterClosed ? 'closed' : 'open') : 'No portable housing observed'}. Internal emission still spends mana behind a shutter. No food/water, speech, automatic obedience, phasing or remote teacher tracking. Core and retained fractures: ${formatDecimal(v.bodyKg + v.brokenKg, 3)} kg.`));
+        for (const [action, label] of [['wispRecharge', 'Supply one actual feedstock (+8 mana)'], ['wispFamiliar', 'Rewarded familiar handling (0.05 stored mana)'],
+          ['wispLearnFollow', 'Teach local follow signal (0.05 stored mana)'], ['wispLearnStay', 'Teach local stay signal (0.05 stored mana)'],
+          ['wispFollow', 'Give learned follow signal (five-minute local intent)'], ['wispStay', 'Give learned stay signal (five minutes)'],
+          ['wispHousing', 'Make glass/metal lantern housing (1 glass, 1 metal part)'], ['wispHouse', 'Physically transfer original core into staged empty housing'],
+          ['wispTake', 'Carry original occupied lantern'], ['wispPut', 'Set down original occupied lantern'], ['wispShutter', 'Toggle original opaque lantern shutter'],
+          ['wispOpen', 'Open housing and release original core to adjacent floor']]) button(label, action, a.id);
+      } else if (a.family === 'duskcat') {
         const m = view.feline;
         panel.append(textEl('p', `Observed ${m.mode}; food ${formatDecimal(m.foodKg, 3)} kg, water ${formatDecimal(m.waterL, 2)} L; body ${formatDecimal(m.bodyKg, 3)} kg; fatigue ${formatNumber(m.fatigue)}; familiarity ${m.familiarity}/3 before training; attack ${m.lessons.attack}/4, recall ${m.lessons.recall}/4. ${m.sleeping ? 'Sleeping; do not force lessons.' : 'Care and learning require actual willingness.'} Mana ${formatDecimal(m.manaReserve, 2)}/16; camouflage uses one mana/hour and an ambush burst one more. No phasing, scent erasure or automatic kill. Distant concealment defeats ordinary vision, not actual contact/close observation.`));
         button('Physically administer one feline ration (100 g)', 'catFeed', a.id);
@@ -71755,8 +71964,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       label: haunt.contact ? haunt.actor.name : 'Inherited cloth keepsake', title: haunt.discovered ? `Hauntbound: ${haunt.actor.status}; direct observation` : 'An inherited personal possession',
       source: 'Direct observation', value: haunt.actor.status === 'departed' ? 'E' : haunt.discovered ? 'HB' : '?', target: { kind: 'tile', tile: keepsake.cell } }, map);
     for (const a of state.homunculi?.individuals || []) if (!a.chamberId && homunculusLocal(a.mapCell)) setLabMapOverlayEntry(assignments, a.mapCell, { overlayId, classNames: ["map-overlay-resources"], label: a.name, title: `${a.name}: ${a.status === "dead" ? "physical remains" : "independent inexperienced individual"}`, source: "Direct observation", value: a.status === "dead" ? "†" : "H", target: { kind: "tile", tile: a.mapCell } }, map);
-    for (const a of state.elementalLab?.creatures || []) if (!a.chamberId && !a.carryStackId && homunculusLocal(a.mapCell) && (a.family !== 'duskcat' || duskcatObserved(a))) setLabMapOverlayEntry(assignments, a.mapCell,
-      { overlayId, classNames: ['map-overlay-resources'], label: a.name, title: `${a.name}: ${Formation.consistency(a)}; ${a.status}`, source: 'Direct observation', value: a.status === 'dead' ? '†' : a.family === 'duskcat' ? 'D' : a.family === 'quartzShardling' ? 'Q' : a.family === 'cinderling' ? 'C' : a.family === 'zephyrMote' ? 'Z' : a.family === 'rootling' ? 'R' : a.family === 'sporecap' ? 'S' : 'M', target: { kind: 'tile', tile: a.mapCell } }, map);
+    for (const a of state.elementalLab?.creatures || []) if (!a.chamberId && !a.carryStackId && homunculusLocal(a.mapCell) && (a.family !== 'duskcat' || duskcatObserved(a)) && (a.family !== 'lanternWisp' || wispObserved(a))) setLabMapOverlayEntry(assignments, a.mapCell,
+      { overlayId, classNames: ['map-overlay-resources'], label: a.name, title: `${a.name}: ${Formation.consistency(a)}; ${a.status}`, source: 'Direct observation', value: a.status === 'dead' ? '†' : a.family === 'lanternWisp' ? 'W' : a.family === 'duskcat' ? 'D' : a.family === 'quartzShardling' ? 'Q' : a.family === 'cinderling' ? 'C' : a.family === 'zephyrMote' ? 'Z' : a.family === 'rootling' ? 'R' : a.family === 'sporecap' ? 'S' : 'M', target: { kind: 'tile', tile: a.mapCell } }, map);
     if (!ensureWildernessBeasts().materialized) return assignments;
     const knowledge = wildernessBeastKnowledge();
     const markers = [
@@ -72614,7 +72823,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         anchorCell: cleanMapCell(a.mapCell), footprintCells: [cleanMapCell(a.mapCell)], orientation: 'square', facing: 'none', pose: a.status === 'dead' ? 'prone' : 'idle',
         condition: { ratio: a.health / 100, band: a.status === 'dead' ? 'dead' : 'living', cues: [] },
         knowledge: { state: 'current', observedAt: state.clock, confidence: 1, source: 'Direct observation' },
-        visual: { key: `actor.${a.family}`, glyph: a.status === 'dead' ? '†' : a.family === 'duskcat' ? 'D' : a.family === 'quartzShardling' ? 'Q' : a.family === 'cinderling' ? 'C' : a.family === 'zephyrMote' ? 'Z' : a.family === 'rootling' ? 'R' : a.family === 'sporecap' ? 'S' : 'M', recipeKey: `${a.family}:${Formation.consistency(a)}` }, blocking: false });
+        visual: { key: `actor.${a.family}`, glyph: a.status === 'dead' ? '†' : a.family === 'lanternWisp' ? 'W' : a.family === 'duskcat' ? 'D' : a.family === 'quartzShardling' ? 'Q' : a.family === 'cinderling' ? 'C' : a.family === 'zephyrMote' ? 'Z' : a.family === 'rootling' ? 'R' : a.family === 'sporecap' ? 'S' : 'M', recipeKey: `${a.family}:${Formation.consistency(a)}` }, blocking: false });
     }
     const haunted = state.hauntbound, hauntedObject = hauntboundObject();
     if (haunted && hauntedObject && (options.debug || perceivedCellKeys?.has(mapCellKey(hauntedObject.cell)))) {

@@ -144,6 +144,16 @@ function buildCatalog() {
     '12 g food and 25 mL water/hour; sleep and finite mana; shadow blending 1 mana/hour, assisted pounce 1 extra; no room dimming',
     `${soulRule} Eight-hour biological development: sourced embryo, nutrients, actual closed tube hood, 4 tube mana (2 expended, 2 retained), optional 2 concurrent device mana. Retains 1.5 kg gestation waste. Physical original carrier, learned local cues and cloth-lure wear persist. Not a ghost, shadow elemental, phasing or instant-kill unit.`,
     formationSource + '; duskcats.js; DUSKCATS.md', 'duskcat']);
+  rows.push(['Lantern Wisp', 'Luminous mineral creature', 'Implemented: chamber formation, learned local following, real illumination and physical lantern custody',
+    Formation.FAMILIES.lanternWisp.researchTier, Formation.FAMILIES.lanternWisp.synthesisTier,
+    bundle(Formation.COSTS.growWisp), Formation.FAMILIES.lanternWisp.habitat,
+    'Not defined; natural family/habitat authored, no new wild encounter or strategic population',
+    'Fragile physical core, mana starvation, extreme temperature and disruptive magic; emitted light exposes its bearer',
+    'Animal-like; earned familiarity and follow/stay signals for souled individuals, no speech, automatic loyalty or soulless initiative',
+    'Low same-stratum hover along ordinary adjacent paths; no phasing, door operation, cargo or remote guiding',
+    'Bright emission 2 mana/hour; voluntary souled low-reserve dimming 0.5/hour; one actual feedstock +8, capacity 16; no food/water/sleep',
+    `${soulRule} Ten-minute formation, actual attached glass focusing insert, 4 chamber mana (2 expended, 2 retained), optional 2 concurrent device mana. One 100 g core, with retained fractures. A real glass/metal housing protects and carries the original body; an opaque shutter hides light without saving internal fuel. Recharging never revives a dead core.`,
+    formationSource + '; lantern-wisps.js; LANTERN_WISPS.md', 'lanternWisp']);
   const ecologyRows = [];
   for (const s of Ecology.BEAST_SPECIES) {
     const biome = s.biomeCodes.map(c => {
@@ -174,7 +184,6 @@ function buildCatalog() {
   }
   const pending = text('PENDING_PROMPTS.md');
   const plannedData = {
-    '8-I': ['Luminous creature', 'Common luminous reagent + mana + inexpensive focusing process; quantities not defined', 'Naturally occurring base form required; exact formation method and biomes not designed', 'Finite emission energy, depletion, fragility and exposure; no presumed ghost origin'],
     '8-J': ['Osteal construct', 'Sourced cleaned animal bones + bindings + animation sigil/process; quantities not defined', 'Naturally occurring base form required; exact natural animation conditions and biomes not designed', 'Joint breakage, blunt-force damage and repairs requiring real replacement bones/bindings']
   };
   const planned = [];
@@ -191,6 +200,19 @@ function buildCatalog() {
   }
   if (planned.length !== Object.keys(plannedData).length) throw Error('Planned-creature queue changed; update the reference annotations.');
   const production = [
+    ['Lantern Wisp — formation', 'Lantern Wisp', 'Per original mineral core', bundle(Formation.COSTS.growWisp),
+      '4 chamber mana (2 expended, 2 retained); optional 2 concurrent inherited-device mana for own soul',
+      '60 seconds loading + ten minutes formation; actual travel/attendance extra',
+      'Shared convergence chamber; reusable original attached focusing insert (1 glass)',
+      'Characterize salts; stable control 1 salts + 1 mana; overcharged control 1 salts + 2 mana; document with 1 reagent',
+      '100 g original core; nonrenewable two-minute failure buffer, incorporated salts retained on failure. No biomass or deceased donor.', 'creature-formation.js; LANTERN_WISPS.md'],
+    ['Lantern Wisp — light, signals and housing', 'Lantern Wisp', 'Finite upkeep / attended lessons / original carrier',
+      '1 feedstock adds 8 mana, capacity 16; 1 glass + 1 metal part makes reusable shuttered housing',
+      'Bright intensity 60 / radius 5 / 2 mana per hour; souled low-reserve dim intensity 20 / radius 2 / 0.5 mana per hour',
+      '3 familiarity sessions + 3 lessons per follow/stay cue; 60 seconds and 0.05 stored mana each; cues 10 seconds, five-minute maximum intent',
+      'Accessible original core/housing, actual local perception and ordinary paths; opaque shutters block training',
+      'Housing absorbs 25 cumulative physical damage before shattering; excess reaches fragile core; shutter hides light but not expenditure',
+      'No phasing, meaningful cargo, speech, remote tracking or automatic allegiance. Matter, paid mana, learned history, custody, damage and death persist.', 'lantern-wisps.js; LANTERN_WISPS.md'],
     ['Duskcat — biological development', 'Duskcat', 'Per original body', bundle(Formation.COSTS.growDuskcat),
       '4 tube mana (2 expended, 2 retained); optional 2 concurrent inherited-device mana for own soul',
       '8 hours after 60-second attended loading; travel extra', 'Original shared synthesis tube; reusable opaque hood (1 cloth); 15–32 °C',
