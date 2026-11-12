@@ -1,5 +1,11 @@
 # Helix Heresy
 
+Duskcats are available in Research → **Natural Creature Formation**. These small
+dark-aspected felines develop from sourced embryonic material in the original
+hooded synthesis tube, need real food/water/rest, and can learn local attack and
+recall cues through rewarded handling. Their shadow blending never darkens a room;
+pounces remain ordinary physical attacks. See [DUSKCATS.md](DUSKCATS.md).
+
 Quartz Shardlings are available in Research → **Natural Creature Formation**.
 Research the mineral controls, form a body in the shared elemental chamber, and
 physically carry it to rock for slow prospecting. Ordinary minerals sustain it;

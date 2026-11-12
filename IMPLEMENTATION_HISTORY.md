@@ -8,6 +8,53 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Duskcats — #8-H complete
+
+The approved Shadelet redesign is a naturally existing dark-aspected biological
+feline, not an umbral elemental or illumination-reduction tool. Its independent
+Research Tier 2 / Synthesis Tier 0 method characterizes sourced embryonic tissue,
+compares actual covered/bright controls, documents development and uses the
+original shared synthesis tube with a reusable cloth hood. Eight hours consume
+four tube mana and original embryo/biomass/medium/water lots. Optional concurrent
+inherited animancy gathers the individual's own soul for two device mana; no
+initial training, donor identity, late soul retrofit or automatic loyalty exists.
+The finite interruption buffer retains incorporated matter and original residue.
+
+Actual food/water, bounded biological growth, fatigue, voluntary sleep, injury
+and death persist. Soulless bodies have passive physiology and assisted care but
+no learning, camouflage, self-care or hunting. Rewarded familiarity precedes
+separate local attack/recall lessons. A real capacity-limited carrier retains the
+same animal/remains, body mass and custody; ordinary release cannot bypass it.
+The original sourced cloth lure retains material, finite wear and attack receipts.
+
+Loose souled cats stalk through ordinary adjacent floor space and can blend into
+existing shade with finite mana, never darkening the room. Actual nearby prey or
+an attacker can provoke independent predation/self-defense. Learned cues retain
+only a local target and last-seen location, not through-wall tracking. Pounces
+have visible preparation, finite exertion, recovery and a dodge opportunity;
+light/disruption can strip a paid ambush bonus without refund. Living targets use
+shared physical combat, guard, armor and injuries, not an instant-death or soul
+attack. Daylight never burns normal feline flesh. Catch-up cannot execute cues
+before their actual attended completion. Canvas/DOM and handling controls withhold
+unperceived concealed bodies while retaining dated examinations.
+
+[DUSKCATS.md](DUSKCATS.md), the design bible and Linux ODS/XLSX/CSV/preview describe
+the recipe, habitat, care and supported behavior. The catalog now has 35 current
+entries and two separate proposals. No wild population, rarity rank, new encounter,
+autonomous workforce, general assassin contract or additional prompt is invented.
+The native test's long development clock isolates this feature from unrelated
+multi-day city/survival simulation; an ordinary short integration tick is checked
+before that clock is used. This is not a full-world regression claim.
+
+Focused verification on 2026-11-11: 18 Duskcat model checks, 10 shared formation
+checks, the two named Sporecap interruption/tube-exclusivity checks, one named
+finite ration/embryo market check, the native Chromium Duskcat journey and nine
+ODS/XLSX/CSV source/artifact checks passed. JavaScript syntax and diff checks also
+passed; Canvas and spreadsheet previews were inspected. The full suite was not
+run under `AGENTS.md`. #8-H is removed, leaving #8-I and #8-J as the two creature
+proposals; the queue now has 13 scheduled packages plus six separately optional
+routes, without reopening deferred work or adding follow-ups.
+
 ### Quartz Shardlings — #8-G complete
 
 The approved replacement for the former optics proposal is complete: a

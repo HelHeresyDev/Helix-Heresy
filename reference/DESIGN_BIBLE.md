@@ -398,6 +398,26 @@ Creation-time acquisition of a creature's own soul is distinct from an existing 
 
 The shared formation implementation records creation-time soul provenance for new artificial slime synthesis, controlled reproduction, homunculus growth, Mudlets, Cinderlings, Zephyr Motes, Rootlings and Sporecaps. Unassisted results have no independent will or leveling; existing individuals retain their histories. Natural births are not rewritten. The inherited device supplies finite concurrent animancy rather than a retroactive soul switch. Homunculus growth retains its advanced requirements, and late-game receiving bodies remain empty destinations for the scientist's existing soul. See [CREATURE_FORMATION.md](../CREATURE_FORMATION.md) for the actual apparatus, recipes, handling and limits.
 
+### Duskcats: dark-aspected biological predators
+
+Duskcats replace the early Shadelet concept: small flesh-and-blood dark-aspected
+felines naturally found in nocturnal wooded cover and shaded rocky/cave margins.
+They develop through a natural feline embryonic process, which the scientist can
+support with sourced biological material and dark-aspected conditions. They are
+not ghosts, soul-bound objects or life condensed from nothing. Research Tier 2
+and Synthesis Tier 0 distinguish discovery from practical production.
+
+Their role is a stealthy predator: quiet local stalking, low-light vision, limited
+mana-supported shadow blending and a short pounce. They cannot dim rooms, teleport,
+phase through walls, erase scent, bypass armor, guarantee death or destroy souls.
+Bright light removes magical advantages without burning ordinary flesh. Food,
+water, sleep, injuries and independent feline instincts matter. Actual rewarded
+familiarity and training can establish narrow handling, attack and recall cues,
+not unconditional loyalty or political obedience. Unassisted artificial bodies
+remain soulless and cannot learn or initiate behavior; assisted care is physical.
+The original creation-time animancy process can instead gather their own soul
+during development. See [DUSKCATS.md](../DUSKCATS.md) for playable limits.
+
 ### Shardlings and mineral-specific growth
 
 Shardlings are named for their composing material: Quartz Shardling is the first

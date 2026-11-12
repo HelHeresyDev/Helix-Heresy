@@ -1,4 +1,4 @@
-# Creature formation: elemental, botanical, fungal and mineral families
+# Creature formation: elemental, botanical, fungal, mineral and feline families
 
 Every supported family has a naturally existing base form. The scientist modifies
 its formation process; neither science nor gods invent life from nothing. An
@@ -19,6 +19,15 @@ core-contact standing instruction or explicitly administered food. See
 [SHARDLINGS.md](SHARDLINGS.md) for inputs, custody, depletion and mining limits.
 
 ## Apparatus and research
+
+Duskcats are biological dark-aspected felines developed in the original synthesis
+tube, not umbral elementals. Their independent Research Tier 2 / Synthesis Tier 0
+method uses sourced embryonic material, nutrients, a real developmental hood and
+eight hours of finite support. Food, water, sleep, rewarded learning, physical
+carrier custody and local stalking/pouncing are documented in [DUSKCATS.md](DUSKCATS.md).
+They blend into existing shadows without reducing illumination; normal daylight
+disrupts that advantage but never burns their flesh. No free soul, loyalty or
+trained workforce is included.
 
 The starting laboratory contains the original creation-time animancy device with
 24 mana of fuel. It gathers soul energy while artificial bodies form. It neither

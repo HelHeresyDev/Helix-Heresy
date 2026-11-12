@@ -7,6 +7,7 @@
   const Rootlings = typeof module === 'object' && module.exports ? require('./rootlings') : globalThis.HelixRootlings;
   const Sporecaps = typeof module === 'object' && module.exports ? require('./sporecaps') : globalThis.HelixSporecaps;
   const Shardlings = typeof module === 'object' && module.exports ? require('./shardlings') : globalThis.HelixShardlings;
+  const Duskcats = typeof module === 'object' && module.exports ? require('./duskcats') : globalThis.HelixDuskcats;
   const copy = x => JSON.parse(JSON.stringify(x));
   const FAMILIES = Object.freeze({
     slime: { name: 'Slime', researchTier: 0, synthesisTier: 0, natural: true, communication: false },
@@ -28,6 +29,9 @@
     quartzShardling: { name: 'Quartz Shardling', researchTier: 1, synthesisTier: 0, natural: true, communication: 'physical-core-contact',
       habitat: 'Quartz-bearing fissures and mineral-rich ground under sustained earth-aspected mana',
       formation: 'A mineral-specific coherent lattice develops by natural mineral deposition; not a possessing deceased spirit.' },
+    duskcat: { name: 'Duskcat', researchTier: 2, synthesisTier: 0, natural: true, communication: 'learned audible cues with visible local demonstration',
+      habitat: 'Nocturnal wooded hollows, shaded rocky cover and cave margins with dark-aspected mana',
+      formation: 'Natural dark-aspected feline embryonic development, supported with sourced tissue, nutrients and water; a biological animal, not condensed shadow or a ghost.' },
     homunculus: { name: 'Human-derived homunculus', researchTier: null, synthesisTier: null, natural: true,
       formation: 'Modified human tissue development; advanced methods, not an early workforce.' }
   });
@@ -54,7 +58,13 @@
     shardCharacterize: { quartz: 1, assayReagent: 1 }, shardStoneTrial: { stoneBlocks: 1, mineralSalts: 1, drinkingWater: 1 },
     shardQuartzTrial: { quartz: 1, mineralSalts: 1, drinkingWater: 1 }, shardDocument: { assayReagent: 1 },
     growShardling: { quartz: 1, mineralSalts: 1, drinkingWater: 1 }, shardFeedStone: { stoneBlocks: 1 }, shardFeedQuartz: { quartz: 1 },
-    shardOrder: {}, shardStop: {}, shardCarry: {}, shardPut: {}, shardCollect: {}, shardRemoveFeed: {} });
+    shardOrder: {}, shardStop: {}, shardCarry: {}, shardPut: {}, shardCollect: {}, shardRemoveFeed: {},
+    catCharacterize: { duskcatEmbryo: 1, assayReagent: 1 }, catShadeTrial: { duskcatEmbryo: 1, nutrientMedium: 1, cloth: 1 },
+    catBrightTrial: { duskcatEmbryo: 1, nutrientMedium: 1 }, catDocument: { assayReagent: 1 }, catHood: { cloth: 1 },
+    growDuskcat: { duskcatEmbryo: 1, biomass: 2, nutrientMedium: 1, drinkingWater: 1 },
+    catFeed: { felineRation: 1 }, catWater: { drinkingWater: 1 }, catMana: { arcaneFeedstock: 1 },
+    catSocialize: {}, catTrainAttack: {}, catTrainRecall: {}, catAttack: {}, catRecall: {},
+    catCarrier: { cloth: 1, metalParts: 1 }, catCarry: {}, catPut: {}, catLure: { cloth: 1 }, catOpenHood: {}, catCloseHood: {} });
   const SECONDS = Object.freeze({ notes: 60, characterize: 120, stability: 300, document: 180,
     grow: 60, charge: 60, wet: 30, fillLeak: 60, drainLeak: 60, examine: 30, position: 30, release: 30, pressure: 30, clear: 60,
     fireCharacterize: 120, fireStability: 300, fireDocument: 180, growCinderling: 60, feedCinderling: 30, quenchCinderling: 30, brazier: 30,
@@ -67,7 +77,10 @@
     fungusPlant: 60, fungusFitCover: 60, fungusCover: 30, fungusExpose: 30, fungusFeed: 60,
     fungusWater: 30, fungusWash: 60, fungusCleanResidue: 60, fungusSpent: 60,
     shardCharacterize: 120, shardStoneTrial: 300, shardQuartzTrial: 300, shardDocument: 180, growShardling: 60,
-    shardFeedStone: 30, shardFeedQuartz: 30, shardOrder: 30, shardStop: 30, shardCarry: 30, shardPut: 30, shardCollect: 60, shardRemoveFeed: 30 });
+    shardFeedStone: 30, shardFeedQuartz: 30, shardOrder: 30, shardStop: 30, shardCarry: 30, shardPut: 30, shardCollect: 60, shardRemoveFeed: 30,
+    catCharacterize: 120, catShadeTrial: 300, catBrightTrial: 300, catDocument: 180, catHood: 60, growDuskcat: 60,
+    catFeed: 30, catWater: 30, catMana: 60, catSocialize: 60, catTrainAttack: 60, catTrainRecall: 60,
+    catAttack: 10, catRecall: 10, catCarrier: 120, catCarry: 30, catPut: 30, catLure: 60, catOpenHood: 30, catCloseHood: 30 });
   function soulWindow(requested, deviceId = '', required = 2) {
     return { requested: Boolean(requested), deviceId: requested ? deviceId : '', required: requested ? required : 0,
       gathered: 0, sealed: false, result: null };
@@ -107,10 +120,22 @@
       rootKnowledge: { characterized: false, wet: false, shade: false, documented: false }, rootPattern: null, tubeMana: {},
       fungalKnowledge: { characterized: false, wet: false, dry: false, documented: false }, fungalPattern: null,
       shardKnowledge: { characterized: false, stone: false, quartz: false, documented: false }, shardPattern: null,
+      catKnowledge: { characterized: false, shade: false, bright: false, documented: false }, catPattern: null, tubeHoods: {}, catTargetId: '',
       runs: [], creatures: [], leaks: {}, observations: {}, useAnimancy: true, ignitions: {} };
   }
   function normalize(s, now = 0) { return s?.creatures && s?.runs ? { ...create(now), ...copy(s) } : create(now); }
   function research(s, method, receipt, now) {
+    if (['catCharacterize', 'catShadeTrial', 'catBrightTrial', 'catDocument'].includes(method)) {
+      const k = s.catKnowledge;
+      if (!s.knowledge.notes || ['catShadeTrial', 'catBrightTrial'].includes(method) && !k.characterized
+        || method === 'catDocument' && (!k.shade || !k.bright)) return false;
+      k[{ catCharacterize: 'characterized', catShadeTrial: 'shade', catBrightTrial: 'bright', catDocument: 'documented' }[method]] = true;
+      s.evidence.push({ method, receipt: copy(receipt), at: now });
+      if (method === 'catDocument') s.catPattern = { id: 'dark-feline-development', family: 'duskcat',
+        source: 'Personally characterized sourced embryonic tissue and compared shaded and illuminated tissue responses; not a pre-trained animal',
+        evidenceIds: s.evidence.filter(e => e.method.startsWith('cat')).map(e => e.receipt.taskId) };
+      return true;
+    }
     if (['shardCharacterize', 'shardStoneTrial', 'shardQuartzTrial', 'shardDocument'].includes(method)) {
       const k = s.shardKnowledge;
       if (!s.knowledge.notes || ['shardStoneTrial', 'shardQuartzTrial'].includes(method) && !k.characterized
@@ -179,19 +204,19 @@
       properties: { binding: 'coherent clay', hydration: 'two litres per two kilograms of clay' }, evidenceIds: s.evidence.map(e => e.receipt.taskId) };
     return true;
   }
-  function recipe(family) { return family === 'quartzShardling' ? COSTS.growShardling : family === 'sporecap' ? COSTS.growSporecap : family === 'rootling' ? COSTS.growRootling : family === 'zephyrMote' ? COSTS.growZephyr : family === 'cinderling' ? COSTS.growCinderling : COSTS.grow; }
+  function recipe(family) { return family === 'duskcat' ? COSTS.growDuskcat : family === 'quartzShardling' ? COSTS.growShardling : family === 'sporecap' ? COSTS.growSporecap : family === 'rootling' ? COSTS.growRootling : family === 'zephyrMote' ? COSTS.growZephyr : family === 'cinderling' ? COSTS.growCinderling : COSTS.grow; }
   function begin(s, chamberId, stocks, window, location, now, family = 'mudlet', airParcel = null) {
-    const pattern = family === 'quartzShardling' ? s.shardPattern : family === 'sporecap' ? s.fungalPattern : family === 'rootling' ? s.rootPattern : family === 'zephyrMote' ? s.airPattern : family === 'cinderling' ? s.firePattern : family === 'mudlet' ? s.pattern : null;
+    const pattern = family === 'duskcat' ? s.catPattern : family === 'quartzShardling' ? s.shardPattern : family === 'sporecap' ? s.fungalPattern : family === 'rootling' ? s.rootPattern : family === 'zephyrMote' ? s.airPattern : family === 'cinderling' ? s.firePattern : family === 'mudlet' ? s.pattern : null;
     if (!pattern || family === 'zephyrMote' && (!airParcel || airParcel.released || airParcel.volumeM3 < .1)
       || s.runs.some(r => r.chamberId === chamberId && !r.cleared)) return null;
     const r = { id: `convergence-${s.nextId++}`, family, chamberId, pattern: copy(pattern), stocks: copy(stocks),
       consumed: Object.fromEntries(Object.keys(recipe(family)).map(k => [k, 0])), soulWindow: copy(window), location: copy(location), progress: 0,
-      ...(family === 'zephyrMote' ? { airParcel: copy(airParcel), manaReceived: 0 } : ['rootling', 'sporecap', 'quartzShardling'].includes(family) ? { manaReceived: 0 } : {}),
-      required: family === 'quartzShardling' ? 3600 : family === 'sporecap' ? 14400 : family === 'rootling' ? 21600 : 600, buffer: ['rootling', 'sporecap'].includes(family) ? 1800 : 120, status: 'forming', reason: '', startedAt: now, lastAt: now, creatureId: '', cleared: false };
+      ...(family === 'zephyrMote' ? { airParcel: copy(airParcel), manaReceived: 0 } : ['duskcat', 'rootling', 'sporecap', 'quartzShardling'].includes(family) ? { manaReceived: 0 } : {}),
+      required: family === 'duskcat' ? 28800 : family === 'quartzShardling' ? 3600 : family === 'sporecap' ? 14400 : family === 'rootling' ? 21600 : 600, buffer: ['duskcat', 'rootling', 'sporecap'].includes(family) ? 1800 : 120, status: 'forming', reason: '', startedAt: now, lastAt: now, creatureId: '', cleared: false };
     s.runs.push(r); return r;
   }
   function finish(s, r, now) {
-    if (['rootling', 'sporecap', 'quartzShardling'].includes(r.family) && r.manaReceived < 2 - 1e-8) return false;
+    if (['rootling', 'sporecap', 'quartzShardling'].includes(r.family) && r.manaReceived < 2 - 1e-8 || r.family === 'duskcat' && r.manaReceived < 4 - 1e-8) return false;
     if (r.family === 'zephyrMote' && (r.manaReceived < 4 - 1e-8 || !r.airParcel || r.airParcel.released)) return false;
     const formationSoul = sealSoul(r.soulWindow, r.id, now); if (!formationSoul) return false;
     const family = r.family || 'mudlet';
@@ -200,7 +225,7 @@
       status: 'alive', present: true, health: 100, maxHealth: 100,
       ...(family === 'cinderling' ? { fuelUnits: 2, fuelReceived: 2, burnedUnits: 0, ashUnits: 0, emittedUnits: 0,
         temperatureC: 360, burning: true, heatEmitted: 0, waterVaporL: 0, quenchWaterL: 0, brazierId: '' }
-        : family === 'quartzShardling' ? Shardlings.body('quartz') : family === 'sporecap' ? Sporecaps.body() : family === 'rootling' ? Rootlings.body() : family === 'zephyrMote' ? { airParcel: r.airParcel, manaReserve: 2, manaReceived: 2, manaSpent: 0,
+        : family === 'duskcat' ? Duskcats.body() : family === 'quartzShardling' ? Shardlings.body('quartz') : family === 'sporecap' ? Sporecaps.body() : family === 'rootling' ? Rootlings.body() : family === 'zephyrMote' ? { airParcel: r.airParcel, manaReserve: 2, manaReceived: 2, manaSpent: 0,
           formationManaSpent: 2, vesselId: '', aperture: 'sealed', direction: 0, circulatedM3: 0, coherence: 100, airReturned: false }
           : { clayKg: 2, waterL: 2, evaporatedL: 0 }),
       formationSoul, skills: {}, independentIntent: '', createdAt: now, injuries: [], lastMoveAt: now };
@@ -208,6 +233,7 @@
     s.creatures.push(a); r.creatureId = a.id; r.status = 'completed'; r.finishedAt = now; return true;
   }
   function consistency(a) {
+    if (a.family === 'duskcat') return a.status === 'dead' ? 'original feline remains' : `${a.mode}; ${a.bodyKg.toFixed(3)} kg living feline`;
     if (a.family === 'quartzShardling') return a.status === 'dead' ? 'dead original quartz lattice and mineral remains' : `${a.mode}; ${a.bodyKg.toFixed(3)} kg quartz body`;
     if (a.family === 'sporecap') return a.status === 'dead' ? 'dead cap and original mycelial remains' : a.waterL < .1 ? 'desiccating Sporecap' : a.covered ? 'covered Sporecap and contained mat' : a.gillsClosed ? 'Sporecap with deliberately closed gills' : 'exposed sporulating Sporecap';
     if (a.family === 'rootling') return a.status === 'dead' ? 'dead rooted plant and retained contaminants' : a.waterL < .2 ? 'wilting Rootling' : a.rootLength > 0 ? 'Rootling with attached spreading roots' : 'contained rooted plant';
@@ -314,7 +340,8 @@
     if (hooks.dead || now <= s.lastAt) return 0;
     let changes = 0;
     while (s.lastAt < now) {
-      const seconds = Math.min(60, now - s.lastAt); s.lastAt += seconds; const at = s.lastAt;
+      const hunting = s.creatures.some(a => a.family === 'duskcat' && a.status !== 'dead' && (a.goal || a.pendingPounce));
+      const seconds = Math.min(hunting ? 1 : 60, now - s.lastAt); s.lastAt += seconds; const at = s.lastAt;
       for (const r of s.runs.filter(r => r.status === 'forming')) {
         if (r.lastAt >= at) continue;
         const elapsed = Math.min(seconds, at - r.lastAt); r.lastAt = at;
@@ -326,7 +353,7 @@
         }
         const next = r.progress + used;
         const amounts = Object.fromEntries(Object.entries(recipe(r.family)).map(([k, n]) => {
-          const incorporated = r.family === 'quartzShardling' ? next + 1e-8 >= r.required * ({ quartz: 1 / 3, mineralSalts: .5, drinkingWater: 2 / 3 }[k] ?? 1) ? n : 0 : r.family === 'sporecap'
+          const incorporated = r.family === 'duskcat' ? next + 1e-8 >= r.required * ({ duskcatEmbryo: 0, biomass: .25, nutrientMedium: .5, drinkingWater: .75 }[k] ?? 1) ? n : 0 : r.family === 'quartzShardling' ? next + 1e-8 >= r.required * ({ quartz: 1 / 3, mineralSalts: .5, drinkingWater: 2 / 3 }[k] ?? 1) ? n : 0 : r.family === 'sporecap'
             ? next + 1e-8 >= r.required * ({ fungalStarter: 0, drinkingWater: .25, plantCompost: .5 }[k] ?? 1) ? n : 0
             : Math.floor(n * next / r.required + 1e-8);
           return [k, Math.max(0, incorporated - r.consumed[k])];
@@ -338,7 +365,7 @@
         }
         for (const [k, n] of Object.entries(amounts)) r.consumed[k] += n;
         supplySoul(r.soulWindow, support.soulEnergy || 0);
-        if (['zephyrMote', 'rootling', 'sporecap', 'quartzShardling'].includes(r.family)) r.manaReceived += Math.max(0, support.manaEnergy || 0);
+        if (['duskcat', 'zephyrMote', 'rootling', 'sporecap', 'quartzShardling'].includes(r.family)) r.manaReceived += Math.max(0, support.manaEnergy || 0);
         r.progress = next; r.reason = '';
         if (r.progress >= r.required - 1e-8) {
           if (finish(s, r, at)) hooks.release(r);
@@ -350,6 +377,7 @@
       for (const a of s.creatures.filter(a => a.status !== 'dead' || a.family === 'cinderling' && a.temperatureC > 25 || a.family === 'zephyrMote' && !a.airReturned)) {
         if (a.createdAt >= at) continue;
         const env = hooks.environment(a, seconds), hours = seconds / 3600;
+        if (a.family === 'duskcat') { Duskcats.step(a, env, seconds, at, { ...hooks.duskcat, hasWill }); changes++; continue; }
         if (a.family === 'quartzShardling') { Shardlings.step(a, env, seconds, at, { ...hooks.shardling, hasWill }); changes++; continue; }
         if (a.family === 'sporecap') { Sporecaps.step(a, env, seconds, at, { ...hooks, hasWill, damage }); changes++; continue; }
         if (a.family === 'rootling') { Rootlings.step(a, env, seconds, at, { ...hooks, hasWill, damage }); changes++; continue; }
@@ -379,6 +407,7 @@
   }
   function sameCell(a, b) { return a && b && a.x === b.x && a.y === b.y && a.z === b.z; }
   function damage(a, amount, cause, now) {
+    if (a?.family === 'duskcat') return Duskcats.damage(a, amount, cause, now);
     if (a?.family === 'quartzShardling') return Shardlings.damage(a, amount, cause, now);
     if (!a || a.status === 'dead' || !(amount > 0)) return false;
     a.health = Math.max(0, a.health - amount);
@@ -397,9 +426,10 @@
       botany: a.family === 'rootling' ? copy(Object.fromEntries(Object.keys(Rootlings.body()).map(k => [k, a[k]]))) : null,
       fungus: a.family === 'sporecap' ? copy(Object.fromEntries(Object.keys(Sporecaps.body()).map(k => [k, a[k]]))) : null,
       mineral: a.family === 'quartzShardling' ? copy(Object.fromEntries(Object.keys(Shardlings.body(a.material)).filter(k => !['sensed', 'lastSenseAt', 'explored', 'foodSources'].includes(k)).map(k => [k, a[k]]))) : null,
+      feline: a.family === 'duskcat' ? copy(Object.fromEntries(Object.keys(Duskcats.body()).filter(k => !['goal', 'pendingPounce', 'lastSourceIds', 'attacks', 'lastSenseAt', 'lastMoveAt'].includes(k)).map(k => [k, a[k]]))) : null,
       health: a.health, formationSoul: copy(a.formationSoul), independentIntent: a.independentIntent };
     s.observations[a.id] = v; return copy(v);
   }
   return { FAMILIES, COSTS, SECONDS, soulWindow, supplySoul, soulReady, sealSoul, sealBrood, hasWill, create, normalize, research,
-    begin, advance, consistency, light, feed, quench, sameCell, damage, observe, takeAir, returnAir, exchangeAir, rechargeMote, Rootlings, Sporecaps, Shardlings };
+    begin, advance, consistency, light, feed, quench, sameCell, damage, observe, takeAir, returnAir, exchangeAir, rechargeMote, Rootlings, Sporecaps, Shardlings, Duskcats };
 });

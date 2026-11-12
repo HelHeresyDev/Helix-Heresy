@@ -134,6 +134,16 @@ function buildCatalog() {
     'Compatible minerals including ordinary stone sustain; only quartz grows/repairs this subtype; 10 g/hour nominal feeding with retained spent material',
     `${soulRule} One-hour formation: 2 chamber mana, optional 2 inherited-device mana; original 1 kg body and 1.1 kg spent brine. Private six-tile same-stratum sense; slow feeding leaves a discovered vein available for ordinary mining. Actual remaining stock, body custody and standing orders persist. No optical endpoint or free ore.`,
     formationSource + '; shardlings.js; SHARDLINGS.md', 'quartzShardling']);
+  rows.push(['Duskcat', 'Dark-aspected biological feline', 'Implemented: original-tube development, physical care, earned cues and local stalking/pounce',
+    Formation.FAMILIES.duskcat.researchTier, Formation.FAMILIES.duskcat.synthesisTier,
+    bundle(Formation.COSTS.growDuskcat), Formation.FAMILIES.duskcat.habitat,
+    'Not defined; natural family authored, no strategic population or new wild encounters',
+    'Predatory physical attacks; starvation, dehydration, exhaustion, unsafe temperature and injury; bright light removes camouflage, never burns flesh',
+    'Own soul permits independent feline instincts and rewarded familiarity/attack/recall learning; no automatic loyalty; soulless bodies cannot learn or initiate behavior',
+    'Ordinary adjacent stalking; low-light vision; visible two-second pounce, dodgeable and subject to normal physical combat',
+    '12 g food and 25 mL water/hour; sleep and finite mana; shadow blending 1 mana/hour, assisted pounce 1 extra; no room dimming',
+    `${soulRule} Eight-hour biological development: sourced embryo, nutrients, actual closed tube hood, 4 tube mana (2 expended, 2 retained), optional 2 concurrent device mana. Retains 1.5 kg gestation waste. Physical original carrier, learned local cues and cloth-lure wear persist. Not a ghost, shadow elemental, phasing or instant-kill unit.`,
+    formationSource + '; duskcats.js; DUSKCATS.md', 'duskcat']);
   const ecologyRows = [];
   for (const s of Ecology.BEAST_SPECIES) {
     const biome = s.biomeCodes.map(c => {
@@ -164,7 +174,6 @@ function buildCatalog() {
   }
   const pending = text('PENDING_PROMPTS.md');
   const plannedData = {
-    '8-H': ['Umbral creature', 'Stable umbral pattern + modest mana + suitably dark field; quantities not defined', 'Formation environment: darkness and suitable mana; natural map biomes not authored', 'Illumination and mana-disruption limits; no presumed wall phasing or ghost identity'],
     '8-I': ['Luminous creature', 'Common luminous reagent + mana + inexpensive focusing process; quantities not defined', 'Naturally occurring base form required; exact formation method and biomes not designed', 'Finite emission energy, depletion, fragility and exposure; no presumed ghost origin'],
     '8-J': ['Osteal construct', 'Sourced cleaned animal bones + bindings + animation sigil/process; quantities not defined', 'Naturally occurring base form required; exact natural animation conditions and biomes not designed', 'Joint breakage, blunt-force damage and repairs requiring real replacement bones/bindings']
   };
@@ -182,6 +191,18 @@ function buildCatalog() {
   }
   if (planned.length !== Object.keys(plannedData).length) throw Error('Planned-creature queue changed; update the reference annotations.');
   const production = [
+    ['Duskcat — biological development', 'Duskcat', 'Per original body', bundle(Formation.COSTS.growDuskcat),
+      '4 tube mana (2 expended, 2 retained); optional 2 concurrent inherited-device mana for own soul',
+      '8 hours after 60-second attended loading; travel extra', 'Original shared synthesis tube; reusable opaque hood (1 cloth); 15–32 °C',
+      'Personally characterize sourced tissue, compare shade/bright controls, document; 30-minute nonrenewable service-failure buffer',
+      '2 kg body + 0.1 kg stored food + 0.5 L water + 1.5 kg retained gestation waste; no free life or initial training.', 'creature-formation.js; DUSKCATS.md'],
+    ['Duskcat — care, training and custody', 'Duskcat', 'Actual attended care and learned local cues',
+      'Feed: 1 feline ration (100 g); water: 1 drinking water (half administered, remainder retained); mana: 1 arcane feedstock (+8)',
+      '12 g food and 25 mL water/hour; growth 25% of food consumed, capped at +0.5 kg; mana cap 16',
+      'Three familiarity sessions, four lessons/cue; 60 s and 10 g stored reward/session; attack/recall cue 10 s',
+      'Reusable carrier: 1 cloth + 1 metal part; physical lure: 1 cloth; actual inventory capacity, movement and original body',
+      'Willing awake souled animal learns; soulless bodies require assisted care, cannot learn or self-feed; light ≥35 disrupts shadow advantage',
+      'Existing shade, not illumination reduction; finite mana, fatigue and visible windup; real living-target defenses, retained lure wear and original IDs.', 'duskcats.js; DUSKCATS.md'],
     ['Quartz Shardling — formation', 'Quartz Shardling', 'Per original body', bundle(Formation.COSTS.growShardling),
       '2 chamber mana; optional 2 inherited-device mana concurrently for an own soul',
       '1 hour after 60-second attended loading; travel extra', 'Shared Elemental Convergence Chamber; separate characterized/documented mineral pattern',

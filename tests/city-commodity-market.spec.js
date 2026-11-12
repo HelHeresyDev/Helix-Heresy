@@ -2,6 +2,12 @@ const { test, expect } = require('@playwright/test');
 const Market = require('../city-commodity-market');
 const defs = [{ id: 'steelPanels', supply: 100, liquidity: 20 }, { id: 'biomass', supply: 100, liquidity: 20 }];
 const facts = () => ({ directory: { foundations: [{ city: { id: 'a', name: 'Aster' }, primaryExploitation: { id: 'ferrousOre', label: 'Ferrous Ore' }, arableLandBand: 'productive' }, { city: { id: 'b' }, primaryExploitation: { id: 'biologicalProductivity' } }], satellites: [{ id: 'farm', parentId: 'a', name: 'Aster Farm', function: 'agriculture', sizeBand: 'town', exportResource: { id: 'biologicalProductivity' } }] }, current: { playableYear: 500, cityRows: [{ cityId: 'a', physicalCondition: 'intact', populationBand: 'large', services: { utilities: 'functional' } }], satelliteRows: [] } });
+test('Duskcat ration follows finite biological supply; sourced embryos are not automatically grown by generic farms', () => {
+  const f = facts(), definitions = ['felineRation', 'duskcatEmbryo'].map(id => ({ id, supply: 12, liquidity: 4 }));
+  const profile = Market.profile('a', f.directory, f.current, definitions);
+  expect(Market.familyFor('felineRation')).toBe('biologicalProductivity'); expect(Market.familyFor('duskcatEmbryo')).toBe('manufacturedGoods');
+  for (const d of definitions) expect(Market.evolve({ supply: 0, demand: 1 }, profile.listings[d.id], d, 1, .5).supply).toBe(0);
+});
 test('Shardling quartz and salts follow finite local industrial-mineral supply without free replenishment', () => {
   const f = facts(), definitions = ['quartz', 'mineralSalts'].map(id => ({ id, supply: 60, liquidity: 20 }));
   const absent = Market.profile('a', f.directory, f.current, definitions);
