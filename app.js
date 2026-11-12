@@ -136,6 +136,7 @@
   const ForeignEscortRepairs = window.HelixForeignEscortRepairs;
   const ForeignEscortHauling = window.HelixForeignEscortHauling;
   const FieldPorter = window.HelixFieldPorter;
+  const FieldCache = window.HelixFieldCache;
   const FieldSupplyLeg = window.HelixFieldSupplyLeg;
   const FieldBuilder = window.HelixFieldBuilder;
   const FieldEmployeeRecovery = window.HelixFieldEmployeeRecovery;
@@ -635,6 +636,16 @@
         steel: { composition: { primary: "steel" }, costs: { steelPanels: 3, metalParts: 2 }, score: 84 }
       },
       description: "High-capacity open storage. Contents are quick to reach but exposed to loose creatures and room hazards."
+    },
+    {
+      id: 'fieldCache', label: 'Collapsible Field Chest', glyph: 'K', assemblyClass: 'portable',
+      footprint: { width: 1, height: 1 }, collision: 'blocking', layer: 'floor',
+      ports: [{ id: 'storage', label: 'Field Chest Access', x: 0, y: 1 }],
+      capabilities: ['storage', 'closableStorage'],
+      storage: { volumeL: 30, massKg: 30, defaultAccessState: 'closed', security: 0, preference: ['resources', 'inventory'] },
+      workMinutes: 5,
+      materialOptions: { wood: { composition: { primary: 'wood', reinforcement: 'iron' }, costs: { lumber: 3, metalParts: 1 }, score: 60 } },
+      description: 'An ordinary collapsible field chest: carry its empty 4 kg / 8 L folded frame, deploy on reached clear ground, and store at most 30 kg / 30 L. No shelter, preservation, beacon or protection.'
     },
     {
       id: "storageCrate",
@@ -18150,6 +18161,11 @@
         syncActorInventories(); persist(); render(); return state.clock;
       },
       fieldStationAction,
+      fieldCacheAction,
+      fieldCacheSnapshot: () => clonePlainObject({ records: fieldCacheRecords(), known: FieldCache.publicView(fieldCacheRecords()),
+        context: fieldCacheContext(), clock: state.clock, cell: scientistMapCell(), roomId: scientistRoomId(),
+        stacks: ensurePhysicalItemStacks(), fixtures: state.fixtures, fabricated: state.fabricatedFixtures,
+        tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) }),
       startFieldToolCare,
       queueToolMaintenance,
       fieldToolCareSnapshot: () => clonePlainObject({ clock: state.clock, cell: scientistMapCell(), roomId: scientistRoomId(),
@@ -25539,6 +25555,7 @@
   }
 
   function completeDueTasks() {
+    updateFieldCacheAttendance();
     updateHauntboundWork();
     updateElementalWork();
     updateSlimeFormationWork();
@@ -28166,7 +28183,7 @@
       name: def.label,
       origin: tile.cell,
       rotation: order.rotation,
-      condition: 100,
+      condition: fabricated?.condition ?? 100,
       operationalState: fixtureAccessCells(tile.cell, def, order.rotation).length ? "operational" : "impaired",
       materialPolicy: order.materialPolicy,
       materialComposition: fabricated?.materialComposition || materialOption?.composition,
@@ -35354,6 +35371,7 @@
   }
 
   function physicalItemUnitMetrics(section, key) {
+    if (section === 'inventory' && key === FieldCache.KEY) return { massKg: FieldCache.MASS, volumeL: FieldCache.VOLUME };
     // A sealed food/water pack is cargo, not an empty collection receptacle.
     if (section === "inventory" && key === "fieldRation") return { massKg: 1, volumeL: 1.4 };
     if (section === "inventory" && key === "humanTissueTemplate") return { massKg: .1, volumeL: .1 };
@@ -36850,6 +36868,7 @@
       materialPolicy: String(item?.materialPolicy || "closest"),
       materialComposition: normalizeMaterialComposition(item?.materialComposition, { primary: "steel" }),
       craftsmanship: clamp(Number(item?.craftsmanship) || 0, 0, 100),
+      condition: item?.condition == null ? 100 : clamp(Number(item.condition) || 0, 0, 100),
       productionBillId: String(item?.productionBillId || ""),
       physicalStackId: String(item?.physicalStackId || ""),
       reservedOrderId: String(item?.reservedOrderId || ""),
@@ -73759,6 +73778,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
       if (task.data?.fieldStationWork) FieldStation.cancel(fieldStationState(null, null, task), task.data.fieldStationWork, fieldStationTools(), ensurePhysicalItemStacks(), state.clock);
       if (task.data?.fieldStationTransfer) releaseProductionMaterialReservations(task);
+      if (task.data?.fieldCacheWork) {
+        releaseProductionMaterialReservations(task);
+        const fab = state.fabricatedFixtures.find(f => f.reservedOrderId === task.id);
+        if (fab) fab.reservedOrderId = '';
+      }
       if (task.data?.stoneWork) SurfaceStone.cancel(task.data.stoneWork, surfaceStoneTools(), state.clock, state.surfaceStone?.sites[task.data.stoneWork.siteId]);
       if (task.data?.timberWork) FallenTimber.cancel(task.data.timberWork, fallenTimberTools(), ensurePhysicalItemStacks(), state.clock);
       if (task.data?.action === 'foreignEscortRepair') {
@@ -100284,6 +100308,179 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function fieldStationPatch() {
     const w = foreignWildernessLocal(); return w && foreignWildernessPatch(w, scientistMapCell());
   }
+  function fieldCacheRecords() { return state.fieldCaches ||= []; }
+  function fieldCacheContext(working = false) {
+    const e = foreignSurveyAtField(), p = e && fieldStationPatch();
+    return { worldId: p?.context.worldId, siteId: p?.context.siteId, roomId: scientistRoomId(),
+      bodyEpoch: ensureScientistIdentity().bodyEpoch, visitId: passengerVisitId(), tripId: e?.trip?.id,
+      alive: !scientistIsDead(), capable: annexCapable(), originalBody: passengerBodyCurrent(),
+      custody: GateEnforcement.custodyActive(currentGateEnforcement()) || localPrisonRestricted(),
+      local: Boolean(e && scientistInWilderness() && p?.discovery?.baseline), busy: !working && surveyBusy(),
+      threatened: Boolean(state.combat?.routineSuspension || allWildernessBeasts().some(b => b.status !== 'dead'
+        && b.roomId === scientistRoomId() && mapCellDistance(b.mapCell, scientistMapCell()) <= 7 && sensoryLineOfSight(scientistMapCell(), b.mapCell))) };
+  }
+  function fieldCacheLocal(r) {
+    const c = fieldCacheContext(true);
+    return r && ['worldId', 'siteId', 'roomId'].every(k => r[k] === c[k]);
+  }
+  function observeFieldCache(r) {
+    if (scientistIsDead() || actorIsIncapacitated('scientist') || !fieldCacheLocal(r)
+      || mapCellDistance(scientistMapCell(), r.cell) > 5 || !sensoryLineOfSight(scientistMapCell(), r.cell)) return false;
+    const f = fixtureById(r.fixtureId), atPort = sameMapCell(scientistMapCell(), r.port);
+    FieldCache.observe(r, f, ensurePhysicalItemStacks(), state.clock, atPort && (!f || f.condition <= 0 || f.accessState === 'open'));
+    return true;
+  }
+  function fieldCacheWorkReason(task) {
+    const j = task.data.fieldCacheWork, c = fieldCacheContext(true), i = ensurePhysicalItemStacks().find(i => i.id === task.data.stackId);
+    if (FieldCache.reason(c) || !FieldCache.current(j, c)) return FieldCache.reason(c) || 'Original body, world, reached patch and trip required.';
+    if (j.kind === 'deploy') {
+      const fab = state.fabricatedFixtures.find(f => f.id === j.fabricatedId);
+      if (!FieldCache.source(i, fab, task.id) || FieldCache.signature(i) !== j.signature
+        || (fab.condition ?? 100) !== j.frameCondition || fixturePlacementBlockReason(FIXTURE_BY_ID.fieldCache, j.cell)
+        || tileOccupiedAreaM2(j.cell) > TILE_OCCUPANCY_EPSILON || !sameMapCell(task.data.toCell, j.port))
+        return 'The exact carried crafted frame and original clear supported placement must remain available.';
+      return '';
+    }
+    const r = fieldCacheRecords().find(r => r.fixtureId === j.fixtureId), f = r && fixtureById(r.fixtureId);
+    if (!r || r.packed || !fieldCacheLocal(r) || !sameMapCell(task.data.toCell, r.port) || r.installedAt !== j.installedAt)
+      return 'The original cache and physical access point changed.';
+    if (j.kind === 'recover') {
+      if (f && (!FieldCache.frame(r, f) || f.condition > 0)) return 'Recover only surviving goods at the original broken or missing frame.';
+    } else if (!FieldCache.frame(r, f) || f.condition <= 0 || f.operationalState === 'broken' || f.accessState !== 'open')
+      return 'The original usable open cache is required.';
+    if (j.kind === 'pack') {
+      if (ensurePhysicalItemStacks().some(i => i.fixtureId === r.fixtureId && i.quantity > 0)
+        || ensurePhysicalItemStacks().some(i => i.id === r.kit.id) || state.fabricatedFixtures.some(f => f.id === r.fabricated.id)
+        || !actorInventoryCanCarry('scientist', r.kit, 1)) return 'Empty the original chest first and leave real backpack capacity for its folded frame.';
+      return '';
+    }
+    if (!FieldCache.safe(i) || i.reservedTaskId !== task.id || FieldCache.signature(i) !== j.signature) return 'The original reserved owned supply changed.';
+    if (j.kind === 'put') return i.carriedBy !== 'scientist' || i.quantity !== 1
+      || storageFixtureCapacityUnits(f, i.section, i.key) < 1 ? 'Carry the exact unit and leave actual cache capacity.' : '';
+    return i.carriedBy || (j.looseRecovery ? i.fixtureId || !r.storedIds?.includes(i.id) : i.fixtureId !== r.fixtureId)
+      || !sameMapCell(i.cell, r.cell) || !actorInventoryCanCarry('scientist', i, 1)
+      ? 'The original stored unit and real carrying capacity are required.' : '';
+  }
+  function fieldCacheAction(kind, options = {}) {
+    const c = fieldCacheContext(); if (FieldCache.reason(c)) return false;
+    const r = fieldCacheRecords().find(r => r.fixtureId === options.fixtureId), f = r && fixtureById(r.fixtureId);
+    let i = ensurePhysicalItemStacks().find(i => i.id === options.stackId), fab, cell, port, extra;
+    if (kind === 'deploy') {
+      fab = state.fabricatedFixtures.find(f => f.physicalStackId === i?.id);
+      cell = { ...scientistMapCell(), y: scientistMapCell().y - 1 }; port = cleanMapCell(scientistMapCell());
+      if (!FieldCache.source(i, fab) || !ForeignWilderness.contains(fieldStationPatch().bounds, cell)
+        || !sensoryLineOfSight(port, cell) || fixturePlacementBlockReason(FIXTURE_BY_ID.fieldCache, cell)
+        || tileOccupiedAreaM2(cell) > TILE_OCCUPANCY_EPSILON) return false;
+      extra = { cell, port, fabricatedId: fab.id, frameCondition: fab.condition ?? 100, signature: FieldCache.signature(i) };
+    } else {
+      if (!r || r.packed || !fieldCacheLocal(r) || mapCellDistance(scientistMapCell(), r.cell) > 5 || !sensoryLineOfSight(scientistMapCell(), r.cell)) return false;
+      if (kind === 'access' || kind === 'inspect') {
+        if (!sameMapCell(scientistMapCell(), r.port)) return false;
+        if (kind === 'access' && (!FieldCache.frame(r, f) || f.condition <= 0
+          || !setStorageFixtureAccessState(f.id, f.accessState === 'open' ? 'closed' : 'open'))) return false;
+        observeFieldCache(r); persist(); render(); return true;
+      }
+      cell = r.cell; port = r.port; extra = { fixtureId: r.fixtureId, installedAt: r.installedAt };
+      if (kind === 'pack') i = null;
+      else if (!['put', 'take', 'recover'].includes(kind) || !FieldCache.safe(i) || i.reservedTaskId) return false;
+      if (kind === 'put' && (i.carriedBy !== 'scientist' || !f || f.condition <= 0 || f.accessState !== 'open'
+        || storageFixtureCapacityUnits(f, i.section, i.key) < 1)) return false;
+      const looseRecovery = kind === 'recover' && !i?.fixtureId && r.storedIds?.includes(i?.id) && sameMapCell(i?.cell, r.cell);
+      if (['take', 'recover'].includes(kind) && (i.carriedBy || i.fixtureId !== r.fixtureId && !looseRecovery || !actorInventoryCanCarry('scientist', i, 1))) return false;
+      if (looseRecovery) extra.looseRecovery = true;
+      if (kind === 'pack' && (!FieldCache.frame(r, f) || f.condition <= 0 || f.accessState !== 'open'
+        || ensurePhysicalItemStacks().some(i => i.fixtureId === r.fixtureId && i.quantity > 0) || !actorInventoryCanCarry('scientist', r.kit, 1))) return false;
+      if (kind === 'recover' ? f?.condition > 0 : !FieldCache.frame(r, f) || f.condition <= 0 || f.accessState !== 'open') return false;
+      if (i) extra.signature = FieldCache.signature(i);
+    }
+    if (!FieldCache.SECONDS[kind] || !queueSurveyWork('fieldCache', port, { stackId: i?.id, itemKey: i?.key, toolInstanceId: i?.toolInstanceId || '',
+      workSeconds: FieldCache.SECONDS[kind], fieldCacheWork: { kind, ...FieldCache.binding(c), ...extra },
+      label: `Field chest: ${kind}` }, { deferRender: true })) return false;
+    const task = state.tasks.at(-1);
+    Object.assign(task.data.fieldCacheWork, { progress: 0, required: FieldCache.SECONDS[kind] * WildernessSurvival.fatigueMultiplier(state.wildernessSurvival),
+      lastAt: state.clock, wasReady: false });
+    if (kind === 'deploy') fab.reservedOrderId = task.id;
+    if (kind === 'put' && i.quantity > 1) {
+      i.reservedTaskId = '';
+      const ids = reserveProductionMaterialSlices([{ stackId: i.id, quantity: 1 }], task.id);
+      if (!ids) { cancelTask(task.id, { quiet: true }); return false; }
+      task.data.stackId = ids[0]; task.data.fieldCacheWork.signature = FieldCache.signature(ensurePhysicalItemStacks().find(i => i.id === ids[0]));
+    }
+    persist(); render(); return true;
+  }
+  function completeFieldCacheWork(task) {
+    const j = task.data.fieldCacheWork;
+    if (j.progress < j.required || fieldCacheWorkReason(task) || !sameMapCell(scientistMapCell(), task.data.toCell)) return;
+    const i = ensurePhysicalItemStacks().find(i => i.id === task.data.stackId);
+    let r = fieldCacheRecords().find(r => r.fixtureId === j.fixtureId);
+    if (j.kind === 'deploy') {
+      const fab = state.fabricatedFixtures.find(f => f.id === j.fabricatedId), id = `field-cache-${state.nextFixtureNumber++}`;
+      const kit = clonePlainObject(i), fabricated = clonePlainObject(fab); kit.reservedTaskId = ''; kit.carriedBy = ''; fabricated.reservedOrderId = '';
+      r = { ...FieldCache.binding(j), fixtureId: id, cell: j.cell, port: j.port, installedAt: state.clock, kit, fabricated, packed: false };
+      state.fixtures.push(defaultFixtureInstance(id, 'fieldCache', j.cell, 0, { materialPolicy: fab.materialPolicy,
+        materialComposition: fab.materialComposition, craftsmanship: fab.craftsmanship, condition: j.frameCondition, accessState: 'closed', installedAt: state.clock }));
+      state.physicalItemStacks = ensurePhysicalItemStacks().filter(s => s.id !== i.id);
+      state.fabricatedFixtures = state.fabricatedFixtures.filter(f => f.id !== fab.id); fieldCacheRecords().push(r);
+      bumpNavigationRevision('topology');
+    } else if (j.kind === 'pack') {
+      const kit = normalizePhysicalItemStack({ ...r.kit, carriedBy: 'scientist', roomId: scientistRoomId(), cell: scientistMapCell(), reservedTaskId: '' }, state.nextPhysicalItemStackNumber);
+      r.packedCondition = fixtureById(r.fixtureId).condition;
+      state.fixtures = state.fixtures.filter(f => f.id !== r.fixtureId); ensurePhysicalItemStacks().push(kit);
+      state.fabricatedFixtures.push({ ...clonePlainObject(r.fabricated), condition: r.packedCondition, reservedOrderId: '', roomId: scientistRoomId() });
+      r.packed = true; bumpNavigationRevision('topology');
+    } else if (j.kind === 'put') {
+      i.reservedTaskId = ''; if (!dropActorInventoryStack('scientist', i.id)) return;
+      i.fixtureId = r.fixtureId; i.cell = cleanMapCell(r.cell);
+      r.storedIds = [...new Set([...(r.storedIds || []), i.id])];
+    } else {
+      const carried = carryPhysicalStack('scientist', i.id, 1, { allowReserved: true });
+      if (!carried) return; carried.reservedTaskId = ''; if (i.reservedTaskId === task.id) i.reservedTaskId = '';
+    }
+    const tool = task.data.toolInstanceId && toolInstanceById(task.data.toolInstanceId)?.instance;
+    if (tool?.reservedTaskId === task.id) tool.reservedTaskId = '';
+    syncActorInventories(); syncPhysicalReadModels(); observeFieldCache(r);
+    surveyEvent(`${task.label} complete through original physical property. No shelter, title, protection or remote stock access granted.`);
+  }
+  function renderFieldCachePanel() {
+    const panel = document.createElement('section'); panel.dataset.fieldCache = 'true';
+    panel.append(textEl('h4', 'Ordinary field chest'), textEl('p', 'Craft at a workbench; carry a folded 4 kg / 8 L frame. Deploy just north of your working tile. Capacity 30 kg / 30 L. One base minute to deploy/repack, ten seconds per stored/retrieved unit. Empty-only repacking; no protection, shelter, preservation or remote inventory.'));
+    const c = fieldCacheContext(), button = (label, kind, options = {}, disabled = false) => {
+      const b = document.createElement('button'); b.textContent = label; b.disabled = Boolean(FieldCache.reason(c) || disabled);
+      b.onclick = () => fieldCacheAction(kind, options); panel.append(b);
+    };
+    for (const i of actorInventoryStacks('scientist').filter(i => i.key === FieldCache.KEY && !i.reservedTaskId))
+      button(`Deploy carried field chest (${i.id})`, 'deploy', { stackId: i.id });
+    for (const r of fieldCacheRecords()) {
+      const visible = c.alive && c.capable && fieldCacheLocal(r) && !r.packed
+        && mapCellDistance(scientistMapCell(), r.cell) <= 5 && sensoryLineOfSight(scientistMapCell(), r.cell);
+      if (visible) observeFieldCache(r);
+      const known = FieldCache.publicView([r])[0];
+      panel.append(textEl('p', `Remembered chest ${known.id} — ${known.siteId}, ${known.cell.x},${known.cell.y}, Z ${known.cell.z}: ${known.lastInspection ? `${formatClock(known.lastInspection.at)} — ${known.lastInspection.state}` : 'not inspected'}. Dated knowledge, not current remote condition.`));
+      if (known.lastInspection?.contents) panel.append(textEl('p', `Contents inspected ${formatClock(known.lastInspection.contentsAt)}: ${known.lastInspection.contents.map(i => `${i.quantity} ${i.key} (${i.id})`).join(', ') || 'empty'}.`));
+      if (!visible) continue;
+      const f = fixtureById(r.fixtureId), atPort = sameMapCell(scientistMapCell(), r.port);
+      button(`Open/close field chest (${r.fixtureId})`, 'access', { fixtureId: r.fixtureId }, !atPort || !f || f.condition <= 0);
+      button(`Inspect field chest (${r.fixtureId})`, 'inspect', { fixtureId: r.fixtureId }, !atPort);
+      button(`Repack empty field chest (${r.fixtureId})`, 'pack', { fixtureId: r.fixtureId }, !f || f.condition <= 0 || f.accessState !== 'open'
+        || ensurePhysicalItemStacks().some(i => i.fixtureId === r.fixtureId && i.quantity > 0) || !actorInventoryCanCarry('scientist', r.kit, 1));
+      for (const i of actorInventoryStacks('scientist').filter(i => FieldCache.safe(i) && !i.reservedTaskId))
+        button(`Store one ${i.key} in chest (${i.id})`, 'put', { fixtureId: r.fixtureId, stackId: i.id }, !f || f.condition <= 0 || f.accessState !== 'open');
+      if (atPort && (!f || f.condition <= 0 || f.accessState === 'open')) for (const i of ensurePhysicalItemStacks().filter(i => FieldCache.safe(i)
+        && (i.fixtureId === r.fixtureId || (!f || f.condition <= 0) && !i.fixtureId && !i.carriedBy && sameMapCell(i.cell, r.cell) && r.storedIds?.includes(i.id))))
+        button(`Retrieve one ${i.key} from chest (${i.id})`, f?.condition > 0 ? 'take' : 'recover', { fixtureId: r.fixtureId, stackId: i.id }, Boolean(i.reservedTaskId));
+    }
+    return panel;
+  }
+  function updateFieldCacheAttendance() {
+    if (scientistIsDead()) return;
+    const head = firstScientistQueueTask();
+    for (const task of scientistQueueTasks().filter(t => t.data?.fieldCacheWork)) {
+      const j = task.data.fieldCacheWork;
+      const ready = head?.id === task.id && !fieldCacheWorkReason(task) && sameMapCell(scientistMapCell(), task.data.toCell);
+      FieldCache.advance(j, state.clock, ready);
+      task.dueAt = ready && j.progress >= j.required ? state.clock : state.clock + Math.max(1, j.required - j.progress);
+    }
+  }
   function ensureFieldWater() { return state.fieldWater ||= FieldWater.create(); }
   function fieldWaterPlantUsable(p = ensureFieldWater().plant) {
     const site = state.fieldRefuge?.site, f = p && fixtureById(p.fixtureId);
@@ -100562,6 +100759,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       .map(stack => ({ key: stack.key, stack, tool: toolInstanceById(stack.toolInstanceId)?.instance || null }));
   }
   function fieldStationHomeSupply(item) {
+    if (item?.key === FieldCache.KEY && FieldCache.safe(item) && !item.carriedBy && !item.reservedTaskId
+      && state.rooms.some(r => r.id === item.roomId && (r.facilityClass === 'laboratory' || SURFACE_ROOM_IDS.includes(r.id)))) return true;
     return FieldStation.homeSupply(item, state.rooms.filter(r => r.facilityClass === 'laboratory' || SURFACE_ROOM_IDS.includes(r.id)).map(r => r.id));
   }
   function fieldStationGroundReason(l, registering = false) {
@@ -101331,7 +101530,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (foreignSurveyAtField()) panel.append(renderFieldPorterPanel());
     if (foreignSurveyAtField()) panel.append(renderFieldBuilderPanel());
     if (state.surveyExpeditions?.phase === "field" || foreignSurveyAtField()) panel.append(renderWildernessBeastsPanel());
-    panel.append(renderFieldStationPanel());
+    panel.append(renderFieldCachePanel(), renderFieldStationPanel());
     panel.append(textEl("strong", "Field Survival"), textEl("p", `Thirst ${Math.round(survival.thirst)}/100 · Hunger ${Math.round(survival.hunger)}/100 · Exertion ${Math.round(survival.exertion)}/100 · Exposure ${Math.round(survival.exposure)}/100. High needs slow movement and work; prolonged critical thirst, hunger, or exposure damages health.`));
     const button = (label, run, disabled = false) => { const el = document.createElement("button"); el.type = "button"; el.textContent = label; el.disabled = disabled; el.addEventListener("click", run); panel.append(el); };
     button(survival.autoCare ? "Automatic Eating and Drinking: On" : "Automatic Eating and Drinking: Off", () => { survival.autoCare = !survival.autoCare; persist(); render(); });
@@ -106562,6 +106761,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const target = task?.data?.toCell || task?.data?.targetCell;
     if (!target || target.z !== scientistMapCell().z) return false;
     const foreignGround = foreignSurveyAtField();
+    if (foreignGround && task.type === 'surveyExpeditionWork' && task.data?.fieldCacheWork) return true;
     if (task.type === 'surveyExpeditionWork' && task.data.action === 'foreignSurveyTravel') return true;
     if (foreignGround && (task.type === 'scientistMove' || task.type === 'surveyExpeditionWork' && ['pack', 'consume', 'radioBattery', 'caretakerRadioBattery', 'walkWilderness', 'deployShelter', 'packShelter', 'foreignEscortRepair', 'foreignEscortScope', 'fieldEmployeeShelter', 'surfaceStone', 'fallenTimber', 'fieldStation', 'fieldStationPut', 'fieldStationService', 'fieldWater'].includes(task.data.action)
       || task.type === 'physicalDiagnostic' && task.data.workflowId === 'resourceSurvey')) return true;
@@ -106989,6 +107189,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function surveyWorkBlockReason(task) {
+    if (task.data?.fieldCacheWork) return fieldCacheWorkReason(task);
     if (task.data?.action === 'suppressionRecon') return suppressionReconReason(task);
     if (task.data?.action?.startsWith('corridor')) return corridorWorksTaskReason(task);
     if (['jointTransitTransfer', 'jointTransitSupply'].includes(task.data?.action)) return jointTransitWorkReason(task);
@@ -107120,6 +107321,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function completeSurveyWork(task) {
+    if (task.data?.fieldCacheWork) { completeFieldCacheWork(task); return; }
     if (task.data?.action === 'suppressionRecon') { completeSuppressionRecon(task); return; }
     if (task.data?.action?.startsWith('corridor')) { completeCorridorWorksTask(task); return; }
     if (['jointTransitTransfer', 'jointTransitSupply'].includes(task.data?.action)) { completeJointTransitWork(task); return; }
@@ -114471,6 +114673,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.surfaceStone = clonePlainObject(candidate?.surfaceStone || { sites: {} });
     next.fallenTimber = clonePlainObject(candidate?.fallenTimber || { sites: {} });
     next.fieldStation = candidate?.fieldStation ? clonePlainObject(candidate.fieldStation) : null;
+    next.fieldCaches = Array.isArray(candidate?.fieldCaches) ? clonePlainObject(candidate.fieldCaches) : [];
     next.fieldRefuge = candidate?.fieldRefuge ? clonePlainObject(candidate.fieldRefuge) : null;
     next.awayOperation = AwayOperation.normalize(candidate?.awayOperation);
     next.regionalOperations = RegionalOperations.normalize(candidate?.regionalOperations);
@@ -114907,6 +115110,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       && t.data.toolInstanceId && [next.fieldStation, next.fieldRefuge].some(s => t.data.fieldStationTransfer.cacheId === s?.site?.cacheId)
       && next.physicalItemStacks.some(s => s.id === t.data.stackId && s.toolInstanceId === t.data.toolInstanceId && s.reservedTaskId === t.id))
       .map(t => [t.id, t.data.toolInstanceId]));
+    for (const t of next.tasks.filter(t => t.data?.fieldCacheWork && t.data.toolInstanceId
+      && next.physicalItemStacks.some(i => i.id === t.data.stackId && i.toolInstanceId === t.data.toolInstanceId && i.reservedTaskId === t.id)))
+      stationTransferTools.set(t.id, t.data.toolInstanceId);
     const wardResearchTools = new Map((next.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => {
       const claim = WardResearch.savedToolClaim(g.outerApproach, g, next.physicalItemStacks);
       return claim ? [[claim.jobId, claim.toolId]] : [];

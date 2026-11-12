@@ -1572,6 +1572,20 @@ Work requires the original free capable body, world/site/room, visit/trip, exact
 
 Focused coverage: `tests/field-tool-care.spec.js`, Canvas/DOM `tests/field-tool-care-browser.spec.js`, and the existing stone/timber model files. The full suite is not run under repository policy.
 
+### Collapsible field chest
+
+An ordinary field cache can be made without building a station. At an operational workbench, **Fabricate Collapsible Field Chest** uses the existing fabrication chain: three wooden components, one metal part and the normal woodworking-tool requirements. The finished folded frame is **4 kg / 8 L**. Pack it through the existing station-supply preparation controls in Visits; production, pickup, transport capacity and ownership remain physical.
+
+On personally reached ground in the existing foreign wilderness patches, **Deploy carried field chest (…)** unfolds it immediately north of the scientist's working tile. Both placement and access need clear supported ground, and deployment takes one base minute of attended work. The installed chest holds at most **30 kg / 30 L**. It begins closed; stand at its southern access tile to **Open/close field chest (…)** and inspect it. No station registration, land title, employees, ward, shelter, beacon or preservation is granted. The ordinary generic fixture/item artwork is reused.
+
+**Store one … in chest** and **Retrieve one … from chest** transfer original owned resource/inventory units through the existing storage and carrying systems, with ten attended seconds per unit. Exact source claims, capacity, the original body/world/patch/visit/trip, physical arrival and safe working conditions remain necessary. Civic or claimed property, living/soul-bearing entities, hazardous batches and uncontained contents are not accepted by this ordinary-supplies interface. Closed or changed access pauses work without backfilling time. Cancellation releases only that task's claims and never duplicates cargo.
+
+**Repack empty field chest (…)** requires an open, surviving, completely empty chest and enough real backpack capacity. It takes one base minute and restores the same original folded item and fabrication record, retaining material, craftsmanship and actual damage. It is not another crafting roll, repair or loaded-container transport. A destroyed frame cannot be repacked. Retrieve surviving original goods at its actual wreck position; goods genuinely lost or destroyed are not restored from records.
+
+The Visits record retains the cache's patch, coordinates and dated inspections. Closed-cache observations retain the earlier contents date instead of refreshing stock knowledge, and distant damage or inventory changes are not remote telemetry. Saves/continued imports preserve original frame provenance, contents, partial attended work, claims, damage and packed/deployed state. Scientist death freezes attendance and observation; caches belong to the current run, not the reusable world.
+
+Focused coverage: six model cases in `tests/field-cache.spec.js` and Canvas/DOM lifecycle cases in `tests/field-cache-browser.spec.js`, including real crafting, packing, deployment cancellation, saved blocked transfers, departure/revisit, empty-only folding, damage preservation and structural-loss recovery. The full suite is not run under repository policy.
+
 ### Local noncombat field porter
 
 The Visits wilderness controls offer one persistent **field porter**, separate from the escort and home laboratory staff. A functioning, locally recognized transport contract depot and the original city's surviving population must back the employee already posted at the defended sampling ground. No depot allocation means no hire; death, wounds, spent duty and exhausted provisions never create a replacement.

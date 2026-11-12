@@ -8,6 +8,37 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Ordinary field cache — #3.6 complete
+
+Completed on 2026-11-12. The collapsible field chest is an ordinary portable
+fixture fabricated through existing workbench recipes from three wooden
+components and one metal part. Its empty folded frame occupies 4 kg / 8 L;
+deployed storage has actual 30 kg / 30 L limits. Personal deployment and empty
+repacking require one base minute; individual storage transfers require ten
+attended seconds. No station, title, safety, preservation, beacon, remote stock
+access, loaded-container transport or employee authority is created.
+
+Original crafted-frame provenance, finite item custody, source claims, current
+body/world/patch/visit/trip, reachable access, needs and danger constrain work.
+Interruption and queued nonattendance cannot backfill labor. Closed-cache
+observations retain the previous contents date; absence and unconsciousness or
+death cannot expose fresh private stock. Folding restores the original empty
+item/fabrication record and retains damage, rather than repairing or rerolling
+the chest. Shared fabricated-fixture normalization and assembly preserve that
+condition. Structural destruction leaves surviving original goods recoverable
+where they actually remain; archived records cannot replace destroyed frames.
+
+Six focused model checks passed. Separate serial Canvas and DOM browser checks
+passed actual material-consuming workshop production, physical packing, local
+walking, deployment cancellation and saved partial deployment, access-blocked
+storage with saved claims, departure/revisit without remote damage reports,
+original-goods retrieval, empty repacking and damaged redeployment, followed by
+real structural destruction and saved recovery. Their initial field presence is
+an explicit local fixture, not a claim of an earned intercity journey or a
+domination route. Syntax/whitespace checks passed; the full suite was not run
+under repository policy. #3.6 is removed without a follow-up: fourteen active
+packages remain, starting with the fixed 3.38 biology/encounter workstream.
+
 ### Adjoining-patch porter retrieval — #3.5 complete
 
 Completed on 2026-11-12. The original employed porter can accept an existing
