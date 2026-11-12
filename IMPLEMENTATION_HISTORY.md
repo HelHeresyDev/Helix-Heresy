@@ -8,6 +8,19 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Remaining queue reactivated, tutorial excluded
+
+On 2026-11-11 the developer reactivated all sixteen remaining non-tutorial
+packages and selected serial implementation without parallel agents. This
+supersedes the previous #2/#3/beast deferrals and selects the five existing
+expansion routes. It does not resurrect the withdrawn Bone Skitter, add packages,
+erase unfinished acceptance criteria or reopen completed systems. #5 tutorial
+alone remains indefinitely deferred. The fixed dependency order starts with
+adjoining-patch porter retrieval and the ordinary field cache, then the existing
+beast, expansion, occupation and domination closeout packages. Players need not
+use every optional route in every run. Documentation-only reactivation required
+no gameplay tests; the full suite was not run under repository policy.
+
 ### Bone Skitter — #8-J withdrawn; creature sequence closed
 
 On 2026-11-11 the developer discarded Bone Skitter for now because the proposed
