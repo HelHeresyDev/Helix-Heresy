@@ -29,6 +29,58 @@ function tick(f, n = 1) { for (let k = 0; k < n; k++) Porter.advance(f.s, f.c, f
 function onsite(f) { hire(f); tick(f, 20); expect(f.s.phase).toBe('onSite'); }
 function assign(f) { expect(Porter.assign(f.s, f.c, f.item, f.now, f.reserve)).toBe(true); return f.s.job; }
 
+function adjoining(f) {
+  f.item.cell = cell(40);
+  f.c.sourceRoute = { worldId: 'world', rootSiteId: 'station', targetSiteId: 'station:adjoining-east',
+    linkId: 'station:east', observedAt: f.now - 1, cells: Array.from({ length: 16 }, (_, n) => cell(25 + n)) };
+}
+test('adjoining retrieval keeps exact dated inspection, personal order, original budgets and saved physical delivery', () => {
+  const f = fixture(); onsite(f); adjoining(f);
+  const start = f.s.contract.startedAt, duty = f.s.dutySeconds, identity = f.s.actor.id;
+  expect(Porter.inspectSource(f.s, { ...f.c, near: false }, f.item, f.now)).toBe(true);
+  const inspected = copy(Porter.publicView(f.s).sourceInspections);
+  expect(Porter.append(f.s, { ...f.c, near: false }, f.item, f.now)).toBe(false);
+  expect(Porter.append(f.s, { ...f.c, orderingLocal: false }, f.item, f.now)).toBe(false);
+  expect(Porter.assign(f.s, f.c, f.item, f.now, f.reserve)).toBe(false); // Expanded scope needs the exact preview.
+  expect(Porter.append(f.s, f.c, f.item, f.now)).toBe(true);
+  const preview = copy(f.s.proposal);
+  expect(Porter.accept(f.s, f.c, [{ item: f.item, context: { ...f.c, sourceRoute: null } }], preview, f.now, f.reserve, f.hooks.release)).toBe(false);
+  expect(Porter.accept(f.s, f.c, [{ item: f.item, context: f.c }], preview, f.now, f.reserve, f.hooks.release)).toBe(true);
+  const job = copy(f.s.job); expect(job.sourceRoute).toEqual(f.c.sourceRoute);
+  Object.assign(f.s, copy(f.s)); tick(f, 120);
+  expect(f.s.history[0]).toMatchObject({ stackId: job.stackId, status: 'delivered', sourceRoute: job.sourceRoute });
+  expect(f.deposited).toBe(1); expect(f.s.actor.id).toBe(identity); expect(f.s.contract.startedAt).toBe(start);
+  expect(f.s.dutySeconds).toBe(duty - 120); expect(f.wallet.money).toBe(36);
+  expect(Porter.publicView(f.s).sourceInspections).toEqual(inspected);
+  expect(Porter.publicView(f.s).received).toBeNull();
+  expect(Porter.receive(f.s, { ...f.c, near: false }, f.now)).toBe(false);
+  expect(Porter.withdraw(f.s, f.hooks, f.now)).toBe(true); tick(f, 100);
+  expect(f.s.phase).toBe('awaitingSettlement');
+  expect(Porter.receive(f.s, f.c, f.now)).toBe(true);
+  expect(Porter.publicView(f.s).received.job.status).toBe('delivered');
+  expect(Porter.settle(f.s, f.c, f.wallet, f.now)).toBe(true);
+});
+test('adjoining inspection rejects unseen, stale-body and wrong-world scope; danger releases exact cargo without replacement', () => {
+  for (const wrong of [{ itemVisible: false }, { originalBody: false }, { custody: true }, { busy: true },
+    { sourceRoute: null }, { sourceRoute: { worldId: 'elsewhere', cells: [cell(25), cell(40)] } }]) {
+    const f = fixture(); onsite(f); adjoining(f);
+    expect(Porter.inspectSource(f.s, { ...f.c, ...wrong }, f.item, f.now), JSON.stringify(wrong)).toBe(false);
+    expect(f.s.sourceInspections).toBeUndefined();
+  }
+  const f = fixture(); onsite(f); adjoining(f);
+  expect(Porter.append(f.s, f.c, f.item, f.now)).toBe(true);
+  expect(Porter.accept(f.s, f.c, [{ item: f.item, context: f.c }], copy(f.s.proposal), f.now, f.reserve, f.hooks.release)).toBe(true);
+  while (f.s.job.phase !== 'delivery') tick(f);
+  const cargo = f.stacks.find(i => i.id === f.s.job.stackId), at = copy(f.s.actor.mapCell);
+  f.c.threatened = true; tick(f);
+  expect(cargo).toMatchObject({ carriedBy: '', reservedTaskId: '', cell: at });
+  expect(f.s.job.status).toBe('interrupted'); expect(f.s.job.sourceRoute).toEqual(f.c.sourceRoute);
+  expect(f.item.quantity).toBe(1); expect(f.s.phase).toBe('returning');
+  f.c.threatened = false; tick(f, 100); expect(f.s.phase).toBe('awaitingSettlement');
+  expect(Porter.receive(f.s, f.c, f.now)).toBe(true);
+  expect(Porter.publicView(f.s).received.job.status).toBe('interrupted');
+});
+
 test('only a real functioning local population-backed transport depot allocates one original noncombat person', () => {
   const f = fixture(); expect(f.s.source.people).toBe(1); expect(f.s.actor.id).toBe('depot:b:field-porter'); expect(f.s.actor.actorKind).toBe('surfaceWorker');
   for (const city of [{ ...f.city, currentPopulation: 7 }, { ...f.city, services: { transport: 'failed' } }, { ...f.city, assetId: 'other' }, { ...f.city, physicalCondition: 'ruined' }])

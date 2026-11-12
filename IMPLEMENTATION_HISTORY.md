@@ -8,6 +8,35 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Adjoining-patch porter retrieval — #3.5 complete
+
+Completed on 2026-11-12. The original employed porter can accept an existing
+bounded delivery order for exact owned loose cargo on surveyed ground directly
+adjoining the original station patch. A dated personal source inspection lets
+the scientist return and issue the order in person without inventing remote
+stock knowledge, a new hire or general roaming/labor rights. Actual footsteps
+are retained independently of map redraws. The named route, original source,
+inspection date and original body/visit/trip survive normal saves.
+
+Actual loading, carrying, handoffs, obstruction, finite provisions/capacity,
+danger, injury, wages, duty and shift remain unchanged. Accepted route cells
+remain available for physical withdrawal after interruption; new orders outside
+the original patch cannot erase that return path. Navigation reuses a blocking
+snapshot and checks real next-step floor occupancy rather than recounting every
+world actor at every search candidate. No teleport, replacement cargo, repeat
+order or remote progress report is introduced.
+
+All 38 focused porter model cases passed, including exact inspection/route
+binding, rejection and interrupted original-cargo return/report. Two serial
+Chromium Canvas/DOM cases passed a real scientist seam crossing, owned cargo
+placement, personal inspection and ordering, original-worker crossing, mid-route
+save/load, conserved delivery, dated report, physical return and settlement.
+Those browser fixtures supply initial finite local presence, funds and depot
+backing; they do not claim an earned intercity journey or domination acceptance.
+Syntax and whitespace checks passed. The full suite was not run under the
+focused-testing policy. #3.5 is removed from the queue: fifteen active packages
+remain, #3.6 field cache is next, and the tutorial alone stays frozen.
+
 ### Remaining queue reactivated, tutorial excluded
 
 On 2026-11-11 the developer reactivated all sixteen remaining non-tutorial

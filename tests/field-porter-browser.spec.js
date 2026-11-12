@@ -15,8 +15,12 @@ async function move(page, room, cell) {
   }
   throw new Error('Scientist walk did not finish');
 }
-async function until(page, predicate, limit = 80) {
-  for (let n = 0; n < limit; n++) { const s = await snap(page); if (predicate(s)) return s; await advance(page, 2); }
+async function until(page, predicate, limit = 80, quiet = false) {
+  for (let n = 0; n < limit; n++) {
+    const s = await snap(page); if (predicate(s)) return s;
+    if (quiet) await page.evaluate(() => window.helixHeresyDebug.advanceFieldPorterForTest(2, true));
+    else await advance(page, 2);
+  }
   throw new Error(`Porter condition not reached: ${JSON.stringify((await snap(page)).saved)}`);
 }
 async function reload(page, renderer) {
@@ -74,6 +78,71 @@ async function setup(page, renderer, tools = false) {
   await until(page, s => s.saved.phase === 'onSite');
   return { ...f, room, errors, id: (await snap(page)).actor.id };
 }
+
+for (const renderer of ['canvas', 'dom']) test(`${renderer} adjoining porter retrieves personally inspected original cargo across a real seam and returns with dated saved reporting`, async ({ page }) => {
+  test.setTimeout(900000);
+  const f = await setup(page, renderer);
+  console.info('adjoining porter: original engagement physically arrived');
+  const original = await snap(page), start = original.saved.contract.startedAt;
+  const cargo = await page.evaluate(id => window.helixHeresyDebug.carryActorStack('scientist', id, 1), f.stone);
+  expect(cargo).toBeTruthy();
+  async function finishWalk() {
+    for (let n = 0; n < 80; n++) {
+      const tasks = await page.evaluate(() => window.helixHeresyDebug.foreignSurveySnapshot().tasks);
+      if (!tasks.length) return;
+      expect(tasks[0].reason).toBe(''); await advance(page, Math.max(1, tasks[0].dueAt - (await snap(page)).clock + 1));
+    }
+    throw Error('Original scientist did not finish surveyed seam walk');
+  }
+  for (const action of ['walkLocalEdge', 'crossLocalConnection']) {
+    expect(await page.evaluate(action => window.helixHeresyDebug.foreignSurveyAction(action, { direction: 'east' }), action)).toBe(true);
+    await finishWalk();
+  }
+  const adjoining = await page.evaluate(() => window.helixHeresyDebug.foreignWildernessSnapshot());
+  const inside = { ...adjoining.cell, x: adjoining.cell.x + 2 };
+  await move(page, f.station.roomId, inside);
+  expect(await page.evaluate(id => window.helixHeresyDebug.dropActorStack('scientist', id), cargo.id)).toBeTruthy();
+  const sourceState = await snap(page);
+  console.info('adjoining porter: crossed and placed original cargo', JSON.stringify({ cell: sourceState.scientistCell,
+    stackId: cargo.id, bounds: adjoining.site.bounds, errors: f.errors }));
+  const visits = page.locator('[data-workspace-tab="visits"]');
+  if (await visits.getAttribute('aria-current') !== 'page') await visits.click();
+  // Disabled-action accessibility labels append their reason, so inspect the
+  // real button independently of that changing accessible name.
+  const sourceButton = page.locator('[data-field-porter] button').filter({ hasText: `Inspect adjoining porter source (${cargo.id})` });
+  expect(await sourceButton.isEnabled(), JSON.stringify(await page.evaluate(id => {
+    const s = window.helixHeresyDebug.fieldPorterSnapshot(id); return { context: s.context, ground: s.routeGround };
+  }, cargo.id))).toBe(true);
+  await sourceButton.click();
+  console.info('adjoining porter: source personally inspected');
+  const inspection = (await snap(page)).known.sourceInspections[0]; expect(inspection.sourceId).toBe(cargo.id);
+  expect(inspection.sourceRoute.targetSiteId).toBe(adjoining.site.extension.context.siteId);
+  expect(await act(page, 'append', { stackId: cargo.id })).toBe(false); // No remote instruction.
+  await move(page, f.station.roomId, f.station.layout.apron);
+  const appendButton = page.locator('[data-field-porter] button').filter({ hasText: `Append inspected adjoining porter delivery (${cargo.id})` });
+  expect(await appendButton.isEnabled(), JSON.stringify((await snap(page)).context)).toBe(true);
+  await appendButton.click();
+  expect((await snap(page)).known.proposal.rows[0].inspectedAt).toBe(inspection.inspectedAt);
+  await page.getByRole('button', { name: 'Accept exact bounded porter delivery order', exact: true }).click();
+  console.info('adjoining porter: exact retrieval personally ordered');
+  const issued = (await snap(page)).known, job = (await snap(page)).saved.job;
+  expect(job.stackId).toBe(cargo.id); expect(job.sourceRoute).toEqual(inspection.sourceRoute);
+  await until(page, s => s.actor.mapCell.x >= adjoining.site.extension.bounds.x, 180, true);
+  console.info('adjoining porter: original worker physically crossed');
+  await reload(page, renderer); expect((await snap(page)).saved.job.sourceRoute).toEqual(job.sourceRoute);
+  await until(page, s => s.saved.job.status === 'delivered', 180, true);
+  console.info('adjoining porter: same original cargo delivered after reload');
+  let s = await snap(page);
+  expect(s.known).toEqual(issued); expect(s.saved.contract.startedAt).toBe(start); expect(s.actor.id).toBe(f.id);
+  expect(s.stacks.find(i => i.id === cargo.id)).toMatchObject({ carriedBy: '', reservedTaskId: '', quantity: 1, cell: f.station.layout.apron });
+  expect(s.stacks.find(i => i.id === f.stone).quantity).toBe(2);
+  expect(await act(page, 'report')).toBe(true); expect((await snap(page)).known.received.job.status).toBe('delivered');
+  expect(await act(page, 'withdraw')).toBe(true);
+  await until(page, s => s.saved.phase === 'awaitingSettlement', 100, true);
+  await move(page, f.room, (await snap(page)).saved.layout.meeting);
+  expect(await act(page, 'settle')).toBe(true); s = await snap(page);
+  expect(s.actor.id).toBe(f.id); expect(s.saved.phase).toBe('completed'); expect(f.errors).toEqual([]);
+});
 
 test('canvas porter walks, delivers one exact unit with real saved attendance, reports on reunion and settles only after return', async ({ page }) => {
   const f = await setup(page, 'canvas');

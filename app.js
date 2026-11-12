@@ -18558,19 +18558,27 @@
         const g = passengerReceptionGate(); if (!g?.foreignSurvey || !source) return false;
         g.preparedFieldPorterTestSource = clonePlainObject(source); persist(); return true;
       },
-      fieldPorterSnapshot: () => {
+      fieldPorterSnapshot: (stackId = '') => {
         const s = foreignSurveyAtField()?.porter || fieldPorterStates()[0];
-        return clonePlainObject({ saved: s || null, known: FieldPorter.publicView(s), context: s ? fieldPorterContext(s, null, true) : null,
+        const item = stackId ? ensurePhysicalItemStacks().find(i => i.id === stackId) : null;
+        const w = s && fieldPorterExcursion(s)?.wilderness;
+        return clonePlainObject({ saved: s || null, known: FieldPorter.publicView(s), context: s ? fieldPorterContext(s, item, true) : null,
+          routeGround: item && w ? { target: LocalPatchGraph.nodeAt(w.patchGraph, item.cell), records: w.patchGraph?.records,
+            patch: foreignWildernessPatch(w, item.cell)?.context.siteId,
+            endpoints: [s.contract?.drop, item.cell].filter(Boolean).map(cell => ({ cell,
+              observed: Boolean(state.mapCellObservations?.[mapCellKey(cell)]), walked: Boolean(w.walkedGround?.[mapCellKey(cell)]),
+              perceived: scientistPerceivedMapCellKeys().has(mapCellKey(cell)), walkable: labMapCellIsWalkable(cell),
+              blocked: labMapCellIsPathBlocked(cell, { actor: s.actor, ignoreActorOccupancy: true }) })) } : null,
           actor: s?.actor, inventory: s ? actorInventorySnapshot(s.actor.id) : null, money: ensureEconomy().money,
           stacks: ensurePhysicalItemStacks(), station: state.fieldStation?.site, clock: state.clock, scientistCell: scientistMapCell(), scientistRoom: scientistRoomId() });
       },
-      advanceFieldPorterForTest: seconds => {
+      advanceFieldPorterForTest: (seconds, quiet = false) => {
         for (let left = Math.max(0, seconds); left > 0 && !scientistIsDead();) {
           const step = Math.min(left, 1); state.clock += step; left -= step;
           updateScientistMovementTask(); completeDueTasks(); updateWildernessNeeds(); progressInjuries();
           updateForeignWilderness(foreignSurveyAtField()); collectCombatRecords(); updateWildernessBeasts(step); updateAllExpeditionEscorts(step); updateAllFieldPorters(step);
         }
-        syncActorInventories(); persist(); render(); return state.clock;
+        syncActorInventories(); persist(); if (!quiet) render(); return state.clock;
       },
       foreignEscortHaulingSnapshot: () => {
         const s = ensureExpeditionEscorts();
@@ -98091,25 +98099,81 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (report?.supplyLeg) panel.append(textEl('p', `${formatClock(report.at)} — personally reported supply order ${report.supplyLeg.id}: ${report.supplyLeg.status}; ${report.supplyLeg.reason}. ${report.supplyLeg.rows.filter(r => r.phase === 'delivered').length} units reported deposited. Dated, not live inventory.`));
     return panel;
   }
-  function fieldPorterNextStep(s, actor, goal, moving = false) {
+  function fieldPorterSourceRoute(s, item, drop) {
+    if (!s.contract) return null;
+    const w = fieldPorterExcursion(s)?.wilderness, graph = w?.patchGraph;
+    const target = item && LocalPatchGraph.nodeAt(graph, item.cell);
+    if (!target || target.id === w.context.siteId) return null;
+    const link = LocalPatchGraph.connections(graph, w.context.siteId).find(l => l.toId === target.id);
+    const crossing = link && graph.records.find(r => r.kind === 'crossing' && r.linkId === link.id);
+    const patch = foreignWildernessPatch(w, item.cell);
+    if (!crossing || !patch?.discovery?.baseline || patch.context.siteId !== target.id) return null;
+    const seen = scientistPerceivedMapCellKeys(), map = ensureLabMap();
+    const blocked = labMapBlockingCellKeys(map), excavated = labMapExcavatedCellKeys(map);
+    const permitted = cell => (ForeignWilderness.contains(w.bounds, cell) || ForeignWilderness.contains(target.bounds, cell))
+      && (state.mapCellObservations?.[mapCellKey(cell)] || w.walkedGround?.[mapCellKey(cell)] || seen.has(mapCellKey(cell)))
+      && labMapCellIsWalkable(cell, map, excavated)
+      && !labMapCellIsPathBlocked(cell, { map, actor: s.actor, blockedCellKeys: blocked, ignoreActorOccupancy: true });
+    // Plan only on personally observed ground in these two patches. Current
+    // occupants (including the inspecting scientist) do not make the route
+    // nonexistent; actual steps still recheck occupancy, danger and access.
+    const path = (from, to) => {
+      if (!permitted(from) || !permitted(to)) return [];
+      const queue = [from], parents = new Map([[mapCellKey(from), null]]);
+      for (let n = 0; n < queue.length; n++) {
+        const cell = queue[n];
+        if (sameMapCell(cell, to)) {
+          const result = []; let step = cell;
+          while (step) { result.push(step); step = parents.get(mapCellKey(step)); }
+          return result.reverse();
+        }
+        for (const next of WildernessBeasts.neighbors(cell)) if (!parents.has(mapCellKey(next)) && permitted(next)) {
+          parents.set(mapCellKey(next), cell); queue.push(next);
+        }
+      }
+      return [];
+    };
+    const segments = [path(s.contract.drop, item.cell), path(item.cell, drop)];
+    if (!segments.every(p => p.length && p.every(permitted))) return null;
+    return { worldId: graph.worldId, rootSiteId: graph.rootSiteId, targetSiteId: target.id,
+      linkId: link.id, observedAt: crossing.at,
+      cells: [...new Map(segments.flat().map(p => [mapCellKey(p), cleanMapCell(p)])).values()] };
+  }
+  function fieldPorterNextStep(s, actor, goal, moving = false, inspectedRoute = null) {
     const e = fieldPorterExcursion(s), map = ensureLabMap(); if (!e || !goal) return null;
     const allowed = new Set([...(map.rooms[e.roomId]?.cells || []), ...(map.rooms[e.wilderness.roomId]?.cells || []).filter(c => ForeignWilderness.contains(e.wilderness.bounds, c)), e.wilderness.gate].map(mapCellKey));
     if (s.role !== 'builder' && FieldSupplyLeg.active(s)) allowed.clear();
     if (s.role !== 'builder' && s.supplyLeg && ['working', 'interrupted'].includes(s.supplyLeg.status))
       for (const cell of s.supplyLeg.route) allowed.add(mapCellKey(cell));
-    const beasts = e.wilderness.beasts?.actors || [], passable = new Map();
-    // One physical placement/blocking snapshot per supply movement search,
-    // not a whole-world placement pass for every BFS candidate tile.
-    const supplying = s.role !== 'builder' && ['working', 'interrupted'].includes(s.supplyLeg?.status);
-    const blocked = supplying ? labMapBlockingCellKeys(map) : undefined, excavated = supplying ? labMapExcavatedCellKeys(map) : null;
+    const retrieval = inspectedRoute || s.job?.sourceRoute;
+    if (s.role !== 'builder' && retrieval?.worldId === e.wilderness.context.worldId
+      && retrieval.rootSiteId === e.wilderness.context.siteId
+      && LocalPatchGraph.connections(e.wilderness.patchGraph, retrieval.rootSiteId)
+        .some(l => l.id === retrieval.linkId && l.toId === retrieval.targetSiteId))
+      for (const cell of retrieval.cells) {
+        const node = LocalPatchGraph.nodeAt(e.wilderness.patchGraph, cell);
+        if ([retrieval.rootSiteId, retrieval.targetSiteId].includes(node?.id)) allowed.add(mapCellKey(cell));
+      }
+    const beasts = foreignWildernessPatches(e.wilderness).flatMap(p => p.beasts?.actors || []), passable = new Map(), occupiedSteps = new Set();
+    // Every search is synchronous: take one physical blocking snapshot rather
+    // than normalizing the entire map again for each candidate tile.
+    const blocked = labMapBlockingCellKeys(map), excavated = labMapExcavatedCellKeys(map);
     const canEnter = c => {
       const key = mapCellKey(c); if (passable.has(key)) return passable.get(key);
-      const ok = allowed.has(key) && !beasts.some(b => b.status !== 'dead' && sameMapCell(c, b.mapCell))
-        && labMapCellIsWalkable(c, map, excavated) && !labMapCellIsPathBlocked(c, { map, actor, blockedCellKeys: blocked }); passable.set(key, ok); return ok;
+      const ok = allowed.has(key) && !occupiedSteps.has(key) && !beasts.some(b => b.status !== 'dead' && sameMapCell(c, b.mapCell))
+        && labMapCellIsWalkable(c, map, excavated)
+        && !labMapCellIsPathBlocked(c, { map, actor, blockedCellKeys: blocked, ignoreActorOccupancy: true }); passable.set(key, ok); return ok;
     };
     const goals = canEnter(goal) ? [goal] : WildernessBeasts.neighbors(goal).filter(canEnter);
     for (const g of goals.sort((a, b) => mapCellDistance(a, actor.mapCell) - mapCellDistance(b, actor.mapCell))) {
-      const step = WildernessBeasts.nextStep(actor.mapCell, g, canEnter);
+      let step = WildernessBeasts.nextStep(actor.mapCell, g, canEnter);
+      // Transient people can move before a distant tile is reached. Check the
+      // actual next step against real floor occupancy, and replan around it if
+      // necessary, instead of recounting every world actor at every BFS tile.
+      while (step && !canActorOccupyTile(actor, step)) {
+        const key = mapCellKey(step); occupiedSteps.add(key); passable.delete(key);
+        step = WildernessBeasts.nextStep(actor.mapCell, g, canEnter);
+      }
       if (step) {
         const door = labMapDoorAtCell(step);
         if (moving && ['working', 'interrupted'].includes(s.supplyLeg?.status) && s.supplyLeg.route.some(c => sameMapCell(c, step))
@@ -98211,23 +98275,34 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     };
     return hooks;
   }
-  function fieldPorterContext(s, item = null, contact = false, destination = null) {
+  function fieldPorterRememberedSource(s, item) {
+    const mark = (s.sourceInspections || []).find(r => r.sourceId === item?.id), k = s.contract;
+    return mark && mark.contractId === k?.id && mark.bodyEpoch === k.bodyEpoch && mark.visitId === k.visitId
+      && mark.tripId === k.tripId && item.quantity === mark.sourceQuantity && item.roomId === mark.roomId
+      && sameMapCell(item.cell, mark.pickup) && ForeignEscortHauling.signature(item) === mark.signature ? mark : null;
+  }
+  function fieldPorterContext(s, item = null, contact = false, destination = null, personalInspection = false) {
     // The arrival/default drop stays in the employment context. Only the
     // particular delivery's route/access may use a separate inspected tile.
     const c = fieldEmployeeContext(s, item, contact, fieldPorterSource, false), site = state.fieldStation?.site;
-    if (item && !ForeignWilderness.contains(fieldPorterExcursion(s)?.wilderness?.bounds, item.cell)) c.itemVisible = false;
     const drop = destination?.cell || c.drop;
+    const remembered = !personalInspection && item && !destination ? fieldPorterRememberedSource(s, item) : null;
+    const sourceRoute = remembered?.sourceRoute || (contact && item && drop ? fieldPorterSourceRoute(s, item, drop) : null);
+    if (remembered) c.itemVisible = true; // Dated exact inspection, never newly discovered remote cargo.
+    if (item && !ForeignWilderness.contains(fieldPorterExcursion(s)?.wilderness?.bounds, item.cell) && !sourceRoute) c.itemVisible = false;
     const crate = destination?.kind === 'crate' ? fieldPorterCrateContext(site, s.actor) : {};
     const known = !destination || (fieldPorterExcursion(s)?.porterStages || []).some(m => JSON.stringify(m) === JSON.stringify(destination));
-    return { ...c, ...crate, retainedCargo: fieldPorterRetainedCargo(s).length > 0, destination, deliveryDrop: drop,
+    return { ...c, ...crate, sourceRoute, sourceInspectedAt: remembered?.inspectedAt,
+      orderingLocal: ForeignWilderness.contains(fieldPorterExcursion(s)?.wilderness?.bounds, s.actor.mapCell),
+      retainedCargo: fieldPorterRetainedCargo(s).length > 0, destination, deliveryDrop: drop,
       deliveryDropLegal: Boolean(c.site && known && (destination ? FieldPorter.stageCurrent(destination, c)
         && (destination.kind === 'crate' ? FieldPorter.crateCurrent(destination, { ...c, ...crate }) && crate.crateLegal
           && (!item || crate.crateCapacity.massKg >= item.unitMassKg && crate.crateCapacity.volumeL >= item.unitVolumeL)
           : fieldPorterStageLegal(site, drop, s.actor)) : c.dropLegal)),
       routeOk: Boolean(contact && c.site && drop && (item ? c.itemVisible && item.roomId === c.site.roomId
-        && (mapCellDistance(s.actor.mapCell, item.cell) <= 1 && sensoryLineOfSight(s.actor.mapCell, item.cell) || fieldPorterNextStep(s, s.actor, item.cell))
+        && (mapCellDistance(s.actor.mapCell, item.cell) <= 1 && sensoryLineOfSight(s.actor.mapCell, item.cell) || fieldPorterNextStep(s, s.actor, item.cell, false, sourceRoute))
         && (mapCellDistance(item.cell, drop) <= 1 && sensoryLineOfSight(item.cell, drop)
-          || fieldPorterNextStep(s, { ...s.actor, mapCell: item.cell, roomId: item.roomId }, drop))
+          || fieldPorterNextStep(s, { ...s.actor, mapCell: item.cell, roomId: item.roomId }, drop, false, sourceRoute))
         : mapCellDistance(s.actor.mapCell, drop) <= 1 && sensoryLineOfSight(s.actor.mapCell, drop) || fieldPorterNextStep(s, s.actor, drop))) };
   }
   function fieldEmployeeContext(s, item = null, contact = false, sourceProvider = fieldPorterSource, calculateRoute = true) {
@@ -98252,7 +98327,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       hazards: { destination: e?.wilderness.destination || null, warnings: ['Unwarded wilderness, hostile beasts, weather and injury; no promised protection or rescue'],
         known: (e?.wilderness.discovery?.records || []).map(r => ({ at: r.at, text: r.text, cell: r.cell })),
         beasts: e?.wilderness.beasts ? WildernessBeasts.publicKnowledge(e.wilderness.beasts) : null },
-      threatened: Boolean(e?.wilderness.beasts?.actors.some(b => b.status !== 'dead' && b.roomId === a.roomId && mapCellDistance(b.mapCell, a.mapCell) <= 7 && sensoryLineOfSight(a.mapCell, b.mapCell))) };
+      threatened: Boolean(foreignWildernessPatches(e?.wilderness).some(p => p.beasts?.actors.some(b => b.status !== 'dead'
+        && b.roomId === a.roomId && mapCellDistance(b.mapCell, a.mapCell) <= 7 && sensoryLineOfSight(a.mapCell, b.mapCell)))) };
   }
   function fieldPorterAction(action, options = {}) {
     const e = foreignSurveyAtField(); if (!e || scientistIsDead()) return false;
@@ -98274,6 +98350,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     s.markedDrop ||= clonePlainObject(e.porterDrop || null);
     const item = ensurePhysicalItemStacks().find(i => i.id === options.stackId), c = fieldPorterContext(s, item, true), hooks = fieldPorterHooks(s);
     let result = false;
+    if (action === 'inspectSource') result = FieldPorter.inspectSource(s, fieldPorterContext(s, item, true, null, true), item, state.clock);
     if (action === 'review') result = FieldPorter.review(s, c, state.clock);
     if (action === 'hire') result = FieldPorter.hire(s, c, options.expected, ensureEconomy(), state.clock);
     if (action === 'report') result = FieldPorter.receive(s, c, state.clock);
@@ -98441,9 +98518,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     if (view.proposal) {
       panel.append(textEl('h5', `Inspected porter delivery order (${view.proposal.rows.length}/4)`),
-        textEl('p', 'Not yet accepted or reserved. Each named unit travels separately; the original two-hour wage clock is unchanged. All sources must still be personally visible at acceptance.'));
+        textEl('p', 'Not yet accepted or reserved. Each named unit travels separately; the original two-hour wage clock is unchanged. Original-patch sources must still be visible; adjoining sources require their unchanged dated personal inspection. No live remote stock knowledge.'));
       for (const [n, r] of view.proposal.rows.entries()) panel.append(textEl('p',
         `${n + 1}. One ${resourceLabel(r.key)} from ${r.sourceId} (observed ${r.sourceQuantity}; ${r.unitMassKg} kg / ${r.unitVolumeL} L per unit), pickup ${r.pickup.x},${r.pickup.y} → drop ${r.drop.x},${r.drop.y},${r.drop.z}${r.destination ? ` (${r.destination.kind === 'crate' ? `deposit into original crate ${r.destination.fixtureId};` : 'staging'} inspection ${formatClock(r.destination.at)})` : ' (original outdoor drop)'}; source inspected ${formatClock(r.inspectedAt)}. Provenance: ${r.sourceLabels.join(', ') || 'none recorded'}.`));
+      for (const r of view.proposal.rows.filter(r => r.sourceRoute)) panel.append(textEl('p',
+        `Adjoining retrieval only: ${r.sourceRoute.rootSiteId} → ${r.sourceRoute.targetSiteId} via ${r.sourceRoute.linkId}; route personally crossed ${formatClock(r.sourceRoute.observedAt)}. No onward-patch authority or shift extension.`));
       button('Remove last inspected porter delivery', 'remove', {}, !FieldPorter.canOrder(s, c, state.clock));
       button('Clear inspected porter delivery order', 'clear', {}, !FieldPorter.canOrder(s, c, state.clock));
       button('Accept exact bounded porter delivery order', 'acceptOrder', { expected: view.proposal }, !FieldPorter.canOrder(s, c, state.clock));
@@ -98455,10 +98534,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (c.near) for (const i of fieldPorterRetainedCargo(s)) button(`Collect retained porter cargo (${i.id})`, 'cargo', { stackId: i.id },
       c.busy || !c.atGround || !['awaitingSettlement', 'completed'].includes(s.phase) || !actorInventoryCanCarry('scientist', i, 1));
     for (const key of ['drinkingWater', 'trailMeal']) button(`Give porter one ${inventoryItemLabel(key)}`, 'provision', { key }, !c.near || c.busy);
+    for (const i of ensurePhysicalItemStacks().filter(i => ForeignEscortHauling.eligible(i) && !i.carriedBy && !i.reservedTaskId
+      && i.roomId === scientistRoomId() && mapCellDistance(i.cell, scientistMapCell()) <= 5 && sensoryLineOfSight(scientistMapCell(), i.cell)
+      && !ForeignWilderness.contains(e.wilderness.bounds, i.cell))) {
+      const ic = fieldPorterContext(s, i, true, null, true);
+      button(`Inspect adjoining porter source (${i.id})`, 'inspectSource', { stackId: i.id },
+        !FieldPorter.active(s) || !ic.sourceRoute || !ic.routeOk || !ic.carryOk || !ic.deliveryDropLegal || c.busy);
+    }
+    for (const r of view.sourceInspections) {
+      panel.append(textEl('p', `Dated adjoining source inspection ${formatClock(r.inspectedAt)}: ${r.sourceId}, ${r.sourceQuantity} ${resourceLabel(r.key)} at ${r.pickup.x},${r.pickup.y}; not a current stock report.`));
+      const currentInspection = r.contractId === s.contract?.id && ['bodyEpoch', 'visitId', 'tripId'].every(k => r[k] === c[k]);
+      button(`Append inspected adjoining porter delivery (${r.sourceId})`, 'append', { stackId: r.sourceId },
+        !currentInspection || !FieldPorter.canOrder(s, c, state.clock) || (view.proposal?.rows.length || 0) >= 4);
+    }
     if (c.near && FieldPorter.control(s, c)) for (const i of ensurePhysicalItemStacks().filter(i => ForeignEscortHauling.eligible(i) && !i.carriedBy && !i.reservedTaskId
       && i.roomId === scientistRoomId() && mapCellDistance(i.cell, scientistMapCell()) <= 5 && sensoryLineOfSight(scientistMapCell(), i.cell))) {
       const ic = fieldPorterContext(s, i, true, selectedStage);
-      button(`Instruct porter: one ${physicalStackLabel(i)} (${i.id})`, 'assign', { stackId: i.id }, !ic.carryOk || s.job?.status === 'working');
+      button(`Instruct porter: one ${physicalStackLabel(i)} (${i.id})`, 'assign', { stackId: i.id },
+        !FieldPorter.canOrder(s, c, state.clock) || !ic.carryOk || !ic.routeOk || Boolean(ic.sourceRoute));
       button(`Append porter delivery: one ${physicalStackLabel(i)} (${i.id})`, 'append', { stackId: i.id, stageId: selectedStage?.id },
         !FieldPorter.canOrder(s, c, state.clock) || !ic.carryOk || !ic.deliveryDropLegal || !ic.routeOk || (selectedStage?.kind === 'crate' && !['stoneBlocks', 'lumber'].includes(i.key)) || (view.proposal?.rows.length || 0) >= 4
           || (view.proposal?.rows.filter(r => r.sourceId === i.id).length || 0) >= i.quantity);
@@ -101783,6 +101876,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const w = foreignSurveyAtField()?.wilderness;
     if (!w || scientistRoomId() !== w.roomId) return;
     const graph = ensureForeignLocalGraph(w);
+    // Real footsteps remain personal route knowledge even when Visits, rather
+    // than the map workspace, is open. Do not depend on a renderer's redraws.
+    if (graph && from?.z === to?.z && Math.abs(from.x - to.x) + Math.abs(from.y - to.y) === 1) {
+      w.walkedGround ||= {};
+      for (const cell of [from, to]) if (LocalPatchGraph.nodeAt(graph, cell))
+        w.walkedGround[mapCellKey(cell)] = { cell: cleanMapCell(cell), at };
+    }
     if (graph) w.patchGraph = LocalPatchGraph.observe(LocalPatchGraph.recordStep(graph, from, to, at), to, at);
   }
   function foreignLocalConnection(direction, fromId = '') {

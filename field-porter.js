@@ -9,7 +9,7 @@
   const copy = x => JSON.parse(JSON.stringify(x));
   const same = (a, b) => a && b && ['x', 'y', 'z'].every(k => a[k] === b[k]);
   const SHIFT = 7200, FEE = 40, HOURLY = 12;
-  const SCOPE = 'One noncombat porter, two on-site hours (including waiting and rest), 40 engagement plus 24 prepaid wages. Earned wages round up to whole currency at settlement. Disclosed wilderness hazards and the original station/return route only. Personally accepted orders of one to four exact loose stone, log or lumber units, carried sequentially to the outdoor drop or separately inspected ground-level hut staging tiles. Separately accepted stone/lumber deposits may enter only the inspected original open station crate within actual capacity; no withdrawals or automatic ground dumping. Retained crate cargo requires personal handback after return. No automatic repeat, building, guard, vehicle seat or guaranteed rescue. Orders never extend the shift. Settlement at the defended meeting point after physical return.';
+  const SCOPE = 'One noncombat porter, two on-site hours (including waiting and rest), 40 engagement plus 24 prepaid wages. Earned wages round up to whole currency at settlement. Disclosed wilderness hazards, the original station/return route and personally accepted surveyed adjoining-patch retrieval routes only. Personally accepted orders of one to four exact loose stone, log or lumber units, carried sequentially to the outdoor drop or separately inspected ground-level hut staging tiles. Separately accepted stone/lumber deposits may enter only the inspected original open station crate within actual capacity; no withdrawals or automatic ground dumping. Retained crate cargo requires personal handback after return. No automatic repeat, building, guard, vehicle seat or guaranteed rescue. Orders never extend the shift. Settlement at the defended meeting point after physical return.';
   function stagingArea(site, cell) {
     return Boolean(site?.layout?.footprint?.length && cell && ['x', 'y', 'z'].every(k => Number.isInteger(cell[k]))
       && site.layout.footprint.some(p => p.z === cell.z && Math.max(Math.abs(p.x - cell.x), Math.abs(p.y - cell.y)) <= 1));
@@ -125,7 +125,7 @@
     stopJob(s, hooks, now, why, canDrop); s.proposal = null; s.phase = 'returning'; s.contract.reason ||= why; return true;
   }
   function canOrder(s, c, now) {
-    return Boolean(s && Number.isFinite(now) && s.phase === 'onSite' && control(s, c) && contact(c) && !refusal(s, c)
+    return Boolean(s && Number.isFinite(now) && s.phase === 'onSite' && c.orderingLocal !== false && control(s, c) && contact(c) && !refusal(s, c)
       && !c.injured && !c.care && s.job?.status !== 'working' && s.supplyLeg?.status !== 'working' && s.actor.id === s.contract.actorId
       && JSON.stringify(s.contract.site) === JSON.stringify(c.site) && s.contract.policy === policy(c)
       && same(s.contract.drop, c.drop) && s.contract.startedAt != null
@@ -135,12 +135,30 @@
   const destinationOkay = c => Boolean((c.deliveryDropLegal ?? c.dropLegal)
     && (c.destination ? (c.destination.kind === 'crate' ? crateCurrent(c.destination, c) : stageCurrent(c.destination, c))
       && same(deliveryDrop(c), c.destination.cell) : same(deliveryDrop(c), c.drop)));
+  function routeCurrent(s, route, item) {
+    if (!route) return true; // Older, original-patch orders retain their scope.
+    return Boolean(route.worldId === s.contract.site.worldId && route.rootSiteId === s.contract.site.siteId
+      && route.targetSiteId && route.targetSiteId !== route.rootSiteId && route.linkId
+      && Number.isFinite(route.observedAt) && Array.isArray(route.cells) && route.cells.length > 1
+      && route.cells.every(c => c && ['x', 'y', 'z'].every(k => Number.isInteger(c[k])))
+      && route.cells.some(c => same(c, item.cell)) && route.cells.some(c => same(c, s.contract.drop)));
+  }
   const available = (s, c, i) => Boolean(Hauling.eligible(i) && !i.carriedBy && !i.reservedTaskId
     && (c.destination?.kind !== 'crate' || ['stoneBlocks', 'lumber'].includes(i.key))
-    && i.roomId === s.contract.site.roomId && c.itemVisible && c.carryOk && c.routeOk && destinationOkay(c));
+    && i.roomId === s.contract.site.roomId && routeCurrent(s, c.sourceRoute, i)
+    && c.itemVisible && c.carryOk && c.routeOk && destinationOkay(c));
   const observed = (i, now, c) => ({ sourceId: i.id, sourceQuantity: i.quantity, key: i.key, unitMassKg: i.unitMassKg, unitVolumeL: i.unitVolumeL,
     sourceLabels: copy(i.sourceLabels || []), signature: Hauling.signature(i),
-    roomId: i.roomId, pickup: copy(i.cell), drop: copy(deliveryDrop(c)), destination: copy(c.destination || null), inspectedAt: now });
+    roomId: i.roomId, pickup: copy(i.cell), drop: copy(deliveryDrop(c)), destination: copy(c.destination || null),
+    sourceRoute: copy(c.sourceRoute || null), inspectedAt: c.sourceInspectedAt ?? now });
+  function inspectSource(s, c, item, now) {
+    if (!Number.isFinite(now) || !active(s) || !control(s, c) || !c.capable || c.busy || c.custody
+      || !c.itemVisible || !c.sourceRoute || !available(s, c, item)) return false;
+    const mark = { ...observed(item, now, c), contractId: s.contract.id, bodyEpoch: c.bodyEpoch,
+      visitId: c.visitId, tripId: c.tripId };
+    s.sourceInspections = [...(s.sourceInspections || []).filter(r => r.sourceId !== item.id), mark];
+    return true;
+  }
   function proposalCurrent(s, c, p) {
     return p && p.contractId === s.contract.id && p.actorId === s.actor.id && p.bodyEpoch === c.bodyEpoch
       && p.visitId === c.visitId && p.tripId === c.tripId && p.policy === policy(c)
@@ -173,7 +191,8 @@
       const r = p.rows[n], { item: i, context: ic } = entries[n];
       if (!ic || !canOrder(s, ic, now) || !available(s, ic, i) || i.id !== r.sourceId || i.quantity !== r.sourceQuantity
         || Hauling.signature(i) !== r.signature || i.roomId !== r.roomId || !same(i.cell, r.pickup)
-        || !same(deliveryDrop(ic), r.drop) || JSON.stringify(ic.destination || null) !== JSON.stringify(r.destination)) return false;
+        || !same(deliveryDrop(ic), r.drop) || JSON.stringify(ic.destination || null) !== JSON.stringify(r.destination)
+        || JSON.stringify(ic.sourceRoute || null) !== JSON.stringify(r.sourceRoute || null)) return false;
       counts.set(i.id, (counts.get(i.id) || 0) + 1); if (counts.get(i.id) > i.quantity) return false;
       if (r.destination?.kind === 'crate') {
         const load = crateLoads.get(r.destination.fixtureId) || { massKg: 0, volumeL: 0 };
@@ -193,7 +212,8 @@
         return false;
       }
       jobs.push({ id, orderId, actorId: s.actor.id, stackId: slice.id, sourceId: r.sourceId, signature: r.signature,
-        roomId: r.roomId, pickup: copy(r.pickup), drop: copy(r.drop), destination: copy(r.destination), status: 'pending', phase: 'pickup', progress: 0,
+        roomId: r.roomId, pickup: copy(r.pickup), drop: copy(r.drop), destination: copy(r.destination),
+        sourceRoute: copy(r.sourceRoute || null), status: 'pending', phase: 'pickup', progress: 0,
         lastAt: now, attended: false, reason: '' });
     }
     // Only s.job carries live attendance. The list stores pending instructions
@@ -201,12 +221,12 @@
     s.deliveryOrder = { ...copy(p), id: orderId, acceptedAt: now, status: 'working', index: 0, jobs };
     s.job = { ...copy(jobs[0]), status: 'working' };
     s.issued.push({ ...copy(p), at: now, id: orderId, deliveries: jobs.map(j => ({ id: j.id, sourceId: j.sourceId, stackId: j.stackId,
-      pickup: copy(j.pickup), drop: copy(j.drop), destination: copy(j.destination) })) });
+      pickup: copy(j.pickup), drop: copy(j.drop), destination: copy(j.destination), sourceRoute: copy(j.sourceRoute) })) });
     s.proposal = null; return true;
   }
   function assign(s, c, item, now, reserve) {
     if (s?.supplyPreview) return false;
-    if (!canOrder(s, c, now) || c.destination || !available(s, c, item)) return false;
+    if (!canOrder(s, c, now) || c.destination || c.sourceRoute || !available(s, c, item)) return false;
     const id = `field-porter-haul:${s.contract.id}:${s.next++}`, slice = reserve(item, id);
     if (!slice || slice.quantity !== 1 || slice.reservedTaskId !== id) return false;
     s.job = { id, actorId: s.actor.id, stackId: slice.id, sourceId: item.id, signature: Hauling.signature(item),
@@ -302,8 +322,9 @@
     return copy({ source: s?.source || null, quote: s?.quote || null, reply: s?.reply || null,
       agreement: s?.contract ? { id: s.contract.id, hiredAt: s.contract.hiredAt, site: s.contract.site, drop: s.contract.drop,
         fee: FEE, reserve: 24, seconds: SHIFT, scope: SCOPE, ...(s.contract.settledAt == null ? {} : { settledAt: s.contract.settledAt, refund: s.contract.refund }) } : null,
-      proposal: s?.proposal || null, issued: s?.issued || [], received: s?.received || null, scope: SCOPE });
+      sourceInspections: s?.sourceInspections || [], proposal: s?.proposal || null,
+      issued: s?.issued || [], received: s?.received || null, scope: SCOPE });
   }
   return { SHIFT, FEE, HOURLY, SCOPE, stagingArea, stageCurrent, markStage, crateCurrent, markCrate, source, create, active, current, control, review, hire, refusal, canOrder, append, edit, accept,
-    assign, stopJob, withdraw, advance, receive, settle, publicView };
+    inspectSource, assign, stopJob, withdraw, advance, receive, settle, publicView };
 });
