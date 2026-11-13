@@ -2245,8 +2245,11 @@ formation-site allocation and monthly regional ecology remain the existing D wor
 D's [population-account model and implementation status](BEAST_POPULATIONS.md)
 now cover conserved cohorts, finite consumption, timed scarcity/background deaths,
 monthly intentions and knowledge-limited staggered migration in focused model
-checks. It is not yet connected to native world/encounter consumers; D remains
-active and this is not additional ordinary-play encounter coverage.
+checks. New worlds also archive private physical-habitat proposals with quantified
+seasonal/prey/opposition diagnostics. Rejected proposals cannot activate the
+population model; they are not labelled healthy or exhausted. Successful seasonal
+allocation repair and native encounter integration remain D work, not additional
+ordinary-play encounter coverage.
 
 - Keep the game runtime dependency-free unless a feature clearly needs a library.
 - Preserve the discovery loop by avoiding public documentation of exact trait outcomes or hidden gene mappings.

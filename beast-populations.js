@@ -107,6 +107,7 @@
     return source;
   }
   function create(source, binding, at = 0) {
+    if (source?.diagnosticOnly) throw Error('An unaccepted generator proposal cannot create an active population account');
     validateSource(source);
     if (!id(binding?.worldId) || !id(binding.runId) || !nonnegative(at)) throw Error('Missing run binding');
     const s = { ...binding, sourceId: source.id, calendar: copy(source.calendar), clock: at, appliedAt: at,

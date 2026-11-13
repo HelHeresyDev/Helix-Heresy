@@ -8,6 +8,28 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Generated habitat proposals and private feasibility diagnostics — D remains open
+
+Implemented on 2026-11-13. New worlds with canonical beast ecology archive
+geodesic habitat areas/volumes, typed finite resource inputs, seeded original
+groups/cohorts, explicit hive and whole-organism units, preserved authoritative
+individual counts and original traditional migration paths. Existing archived
+worlds are not silently changed. World-library storage/import validates the
+proposal against its physical world and authored sources.
+
+Conservative generator checks quantify seasonal resource/ledger shortages,
+reachable prey and once-only integer carcass budgets, opposition limits and
+unverified seasonal residence. The tested generated allocation remains rejected,
+not healthy/exhausted; source activation and population-account construction
+refuse diagnostic proposals. Successful calibration/repair, paid ecology and
+lifecycles, actual seasonal scheduling and native encounters remain the existing
+D acceptance work. [BEAST_POPULATIONS.md](BEAST_POPULATIONS.md) records that exact
+boundary. No package is removed or added; eleven remain.
+
+Focused checks: fourteen source model/world-roundtrip checks, sixteen existing
+population-account checks, and one browser generation/compressed-storage/reload
+case. The full suite was not run under repository policy.
+
 ### Population account foundation — #3.38-D remains in progress
 
 Implemented the internal `beast-populations.js` account model on 2026-11-13.

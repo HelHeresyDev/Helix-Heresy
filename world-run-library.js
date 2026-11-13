@@ -104,6 +104,10 @@
 })(typeof window !== "undefined" ? window : globalThis, function createWorldRunLibraryApi(ThemeContent, StrategicWorld, PlanetaryRelief, ClimateHydrologyBiomes, StrategicGeology, StrategicArcaneGeography, StrategicResourcePotential, StrategicHumanGeography, StrategicCityPolities, StrategicBeastEcology, StrategicPreUrbanHumanity, StrategicCityGovernments, StrategicCityLaws, StrategicCityRecognition, StrategicReligions, StrategicDivinity, StrategicFaiths, StrategicCivilizationOrigins, StrategicCityExpansion, StrategicCapabilityHistory, StrategicNonStateNetworks, StrategicSettlements, StrategicDivineHistory, StrategicCrisisHistory, StrategicPoliticalHistory, StrategicCivicHistory, StrategicLegalHistory, StrategicPublicAttitudeHistory, StrategicPlayableSettlementState, StrategicReligiousInstitutionHistory, StrategicNonStateNetworkHistory, StrategicEnforcementPracticeHistory, StrategicStartingSites) {
   "use strict";
 
+  const BeastHabitatSources = typeof module === 'object' && module.exports
+    ? require('./beast-habitat-sources') : globalThis.HelixBeastHabitatSources;
+  if (!BeastHabitatSources) throw new Error('Beast habitat sources must load before world-run-library.js');
+
   if (!ThemeContent) throw new Error("HelixThemeContent must load before world-run-library.js");
   if (!StrategicWorld) throw new Error("HelixStrategicWorld must load before world-run-library.js");
   if (!PlanetaryRelief) throw new Error("HelixPlanetaryRelief must load before world-run-library.js");
@@ -325,6 +329,7 @@
         generatedStrategicMap = StrategicEnforcementPracticeHistory.attachStrategicEnforcementPracticeHistory(worldSeed, generatedStrategicMap);
         generatedStrategicMap = StrategicStartingSites.attachStrategicStartingSites(worldSeed, generatedStrategicMap);
       }
+      if (generationVersion >= 7) generatedStrategicMap = BeastHabitatSources.attach(worldSeed, generatedStrategicMap);
       generatedData = generationVersion >= 2 ? {
         version: generationVersion,
         strategicResolution: generationVersion >= 9
@@ -382,6 +387,7 @@
     if (generationVersion >= 8) StrategicHumanGeography.validateHumanGeography(generatedData.strategicMap);
     if (generationVersion >= 9) StrategicCityPolities.validateCityPolities(generatedData.strategicMap);
     if (generatedData.strategicMap?.beastEcology || generatedData.strategicMap?.publicBeastAtlas) StrategicBeastEcology.validateBeastEcology(generatedData.strategicMap);
+    if (generatedData.strategicMap?.beastHabitatSources) BeastHabitatSources.validate(generatedData.strategicMap.beastHabitatSources, generatedData.strategicMap, worldSeed);
     if (generatedData.strategicMap?.cityGovernments || generatedData.strategicMap?.publicCityGovernmentDirectory) StrategicCityGovernments.validateCityGovernments(generatedData.strategicMap);
     if (generatedData.strategicMap?.cityLegalCodes || generatedData.strategicMap?.publicCityLawDirectory) StrategicCityLaws.validateCityLegalCodes(generatedData.strategicMap);
     if (generatedData.strategicMap?.crossCityRecognition || generatedData.strategicMap?.publicCrossCityRecognitionDirectory) StrategicCityRecognition.validateCrossCityRecognition(generatedData.strategicMap);
