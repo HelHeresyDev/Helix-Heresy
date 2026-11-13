@@ -2235,8 +2235,12 @@ The [shared beast-body implementation](BEAST_BODIES.md) covers all 24 authored
 species' physical families, real dimensions/anatomy, terrain clearance, finite
 movement reserves, injury, partial motion/turns and saved observed footprints in
 Canvas/DOM. The reference workbook's Beast ecology sheet includes numeric physical
-values in T–Z. Additional authored abilities and population-backed encounters remain
-the existing C/D queue work; body support does not mean those systems are finished.
+values in T–Z. The [individual beast-behavior implementation](BEAST_BEHAVIOR.md)
+adds the fixed 24-species capabilities, finite care/growth and paid local recruitment,
+actual environmental work, timed combat effects and private knowledge. The same
+authored lifecycle/rate data is published to browser and spreadsheet; existing core
+care is not billed twice. Additional population-backed encounters, natural
+formation-site allocation and monthly regional ecology remain the existing D work.
 
 - Keep the game runtime dependency-free unless a feature clearly needs a library.
 - Preserve the discovery loop by avoiding public documentation of exact trait outcomes or hidden gene mappings.

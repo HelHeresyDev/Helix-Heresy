@@ -15,7 +15,7 @@ and other compatible applications. Both workbooks contain:
 - **Ecological rates: numeric initial balance values for all 36 entries.** Columns E–P contain separate nurturing/destruction rates for soil/cover, freshwater quantity, freshwater quality, wetland/reef habitat, renewable biomass and arcane stability. Columns C/D identify the counting basis and initial-tuning status. These are real number cells, including explicit zeroes and fractional worker rates, not prose descriptions.
 - **Lifecycle & resource use: numeric consumption, reproduction, maturity and mortality for all 36 entries.** It also includes body masses, juvenile intake factors, parental/queen counting units, gestation/incubation, birth material investment, reserves, ageing, travel, temperature, habitat and predation. Existing implemented care values are cited; new demographic values are labeled initial tuning.
 - Production detail: per-creature ingredients, process costs, equipment, utilities and care.
-- Beast ecology: decoded biomes, comparative prevalence, threat, movement and social traits, plus seven numeric physical columns **T–Z** (length/width/height/spread wings in metres, adult kg, base m/s, natural reach in metres). These come from the consumed shared body profiles; other abilities and population encounters remain separately identified as pending.
+- Beast ecology: decoded biomes, comparative prevalence, threat, movement and social traits, plus seven numeric physical columns **T–Z** (length/width/height/spread wings in metres, adult kg, base m/s, natural reach in metres). Shared bodies and individual abilities/needs are consumed; additional population-backed encounters remain pending.
 - Planned creatures: no active proposals. Bone Skitter was shelved, not implemented or replaced; its existing tab remains intentionally empty.
 - Other life & forms: explicit dog lore and divine, avatar, scientist and receiver distinctions.
 - Read me: interpretation, scope, source revision and design limits.
@@ -35,8 +35,9 @@ individual-days and supported activity/resource factors, then divide by affected
 hectares for condition-point change. Use the actual calendar month, not an assumed
 30 days. Do not sum unlike ledgers or award planned work upfront.
 
-These are **initial authored balance coefficients, not current runtime rates or
-proven final balance**. The counting basis matters: Ember Ant rates are per active
+These are **initial authored throughput ceilings, not measured rates or
+proven final balance**. Local beast work consumes supported channels against finite
+resources; the regional monthly planner is still pending. The counting basis matters: Ember Ant rates are per active
 worker, Mire Choir per member, Brine Cathedral per whole mature superorganism, and
 Marsh Hydra per body rather than per head. Predation-based nurturers such as the
 Glasswing Roc have no imaginary direct repair bonus; their ecological benefit
@@ -71,8 +72,11 @@ The matrix and workbook Read me also record monthly regional planning with gradu
 effects, per-individual rate units and knowledge-limited migration: traditional
 destinations can fail, forced dispersal is essentially random, and no hidden
 capacity coordinator guarantees a safe arrival. Numeric baseline coefficients are
-now published; their consumed implementation, calibration and the actual monthly
-simulation remain C/D work, not completed runtime behavior.
+now consumed by local individual behavior where actual work supports a channel;
+the monthly simulation, conserved regional cohorts and natural formation-site
+allocation remain D work. Existing human/laboratory care and formation retain
+their original owners, not a second demographic maintenance bill.
+See [BEAST_BEHAVIOR.md](../BEAST_BEHAVIOR.md) for the implemented scope.
 
 [The CSV](creature-catalog.csv) contains the primary catalog only; additional sheets
 and formatting are in the ODS/XLSX workbooks. [The preview](creature-catalog-preview.png) shows
@@ -81,7 +85,8 @@ selected columns/rows from the same dataset, not every sheet.
 Rebuild the snapshots with:
 
 ```sh
-python3 scripts/build-creature-catalog.py --as-of 2026-11-12
+node scripts/build-creature-biology.js
+python3 scripts/build-creature-catalog.py --as-of 2026-11-13
 PYTHONDONTWRITEBYTECODE=1 python3 tests/creature-catalog.test.py
 ```
 
@@ -103,7 +108,9 @@ before full regeneration; this does not affect opening the existing workbooks.
 The full rebuild also regenerates `CREATURE_ECOLOGY_MATRIX.md` and
 `CREATURE_LIFECYCLES.md` from their authored design sources; edit those sources
 rather than the generated Markdown tables.
-The exporter reads existing runtime definitions and current pending proposals;
+The separate biology publisher updates the dependency-free browser snapshot from
+the same authored life histories/rates; its parity test rejects stale data.
+The spreadsheet exporter reads existing runtime definitions and current pending proposals;
 manual annotations live in `scripts/creature-catalog-data.js`, with approved ecological
 design in `scripts/creature-ecology-design.js` and numeric life histories in
 `scripts/creature-lifecycle-data.js`. It changes no gameplay

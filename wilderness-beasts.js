@@ -1,10 +1,11 @@
 (function attach(root, factory) {
   const api = factory(typeof module === 'object' && module.exports ? require('./beast-climbing') : root.HelixBeastClimbing,
     typeof module === 'object' && module.exports ? require('./beast-spell-imitation') : root.HelixBeastSpellImitation,
-    typeof module === 'object' && module.exports ? require('./beast-bodies') : root.HelixBeastBodies);
+    typeof module === 'object' && module.exports ? require('./beast-bodies') : root.HelixBeastBodies,
+    typeof module === 'object' && module.exports ? require('./beast-behavior') : root.HelixBeastBehavior);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixWildernessBeasts = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function (Climbing, Imitation, Bodies) {
+})(typeof globalThis !== "undefined" ? globalThis : this, function (Climbing, Imitation, Bodies, Behavior) {
   "use strict";
   const ROOM = "wildernessSurveySector";
   const PROFILES = Object.freeze({ ...Object.fromEntries(Object.values(Bodies.profiles).map(p => [p.id, {
@@ -21,13 +22,25 @@
   const key = (cell) => `${cell.x},${cell.y},${cell.z}`;
   const distance = (a, b) => !a || !b || a.z !== b.z ? Infinity : Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
   function random(seed) { let n = 2166136261; for (const c of String(seed)) n = Math.imul(n ^ c.charCodeAt(0), 16777619); return (n >>> 0) / 4294967296; }
-  function defaultState() { return { materialized: false, siteId: "", actors: [], tracks: [], sightings: {}, heard: null, noticeSerial: 0, lastAt: 0 }; }
-  function normalizeState(candidate) { const s = { ...defaultState(), ...clone(candidate || {}) }; s.actors = s.actors.map(a => Imitation.normalizeActor(Climbing.normalizeActor(a))); return s; }
-  function actor(speciesId, id, cell, populationId, at = 0) {
+  function defaultState() { return { materialized: false, siteId: "", actors: [], offspring: [], tracks: [], sightings: {}, heard: null, noticeSerial: 0, lastAt: 0 }; }
+  function normalizeState(candidate) { const s = { ...defaultState(), ...clone(candidate || {}) }; s.actors = s.actors.map(a => Imitation.normalizeActor(Climbing.normalizeActor(a))); s.offspring = s.offspring.map(a => Imitation.normalizeActor(Climbing.normalizeActor(a))); return s; }
+  function actor(speciesId, id, cell, populationId, at = 0, source = {}) {
     const profile = PROFILES[speciesId];
-    return Bodies.attach({ id, actorKind: "wildernessBeast", speciesId, populationId, name: `${profile.name} ${id.split(":").pop()}`, roomId: ROOM, mapCell: clone(cell), homeCell: clone(cell), health: profile.health, maxHealth: profile.health, status: "alive", behavior: "roam", lastTarget: null, rememberedUntil: 0, nextMoveAt: at + profile.stepSeconds, nextAttackAt: at + profile.recovery, provokedUntil: 0, patrolIndex: 0,
+    const a = Bodies.attach({ id, actorKind: "wildernessBeast", speciesId, populationId, name: `${profile.name} ${id.split(":").pop()}`, roomId: ROOM, mapCell: clone(cell), homeCell: clone(cell), health: profile.health, maxHealth: profile.health, status: "alive", behavior: "roam", lastTarget: null, rememberedUntil: 0, nextMoveAt: at + profile.stepSeconds, nextAttackAt: at + profile.recovery, provokedUntil: 0, patrolIndex: 0,
       ...(speciesId === Climbing.SPECIES ? { climbStamina: Climbing.STAMINA, climbMassKg: 90, climbing: null, nextClimbAt: 0,
         spellImitation: Imitation.create(id, populationId, at) } : {}) }, at);
+    if (source.massKg > 0 && source.massKg !== a.bodyPhysics.massKg) {
+      const stage = Math.min(1, source.massKg / a.bodyPhysics.massKg), scale = (source.massKg / a.bodyPhysics.massKg) ** (1 / 3);
+      for (const k of Object.keys(a.bodyPhysics.dimensions)) a.bodyPhysics.dimensions[k] *= scale;
+      a.bodyPhysics.massKg = source.massKg;
+      a.bodyPhysics.mana *= stage;
+      if (a.spellImitation) a.spellImitation.mana *= stage;
+    }
+    if (source.origin === 'naturalBirth') {
+      a.bodyPhysics.mana = 0;
+      if (a.spellImitation) a.spellImitation.mana = 0;
+    }
+    return Behavior.attach(a, at, source);
   }
   function materialize(seed, siteId, populations, cells, at = 0) {
     const state = { ...defaultState(), materialized: true, siteId, lastAt: at };

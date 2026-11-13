@@ -408,8 +408,14 @@ space, carrying, movement, reach and perception. Flight, levitation, swimming,
 drifting and tunneling require their appropriate media and geometry; colossal
 bodies cannot pass through undersized spaces. A member, colony and whole
 superorganism are different accounting units, never duplicated bodies or resource
-pools. See [the implemented physical-body contract](../BEAST_BODIES.md); remaining
-authored abilities and population ecology are not implied by a body profile.
+pools. See [the implemented physical-body contract](../BEAST_BODIES.md) and
+[individual behavior contract](../BEAST_BEHAVIOR.md). The fixed 24-species local
+capabilities now consume actual senses, finite material/energy, anatomy and elapsed
+work. Restoration transfers existing resources; predation reduces real destructive
+pressure without imaginary repair credit. Intelligent bodies retain individual
+agency and dated private memories, not global species knowledge. Soulless bodies
+have no initiative. These local consumers are not a completed regional monthly
+population simulation or a source of unlimited encounters.
 
 No one, not even a god, can invent new kinds of creatures at will or create life from nothing. Every creatable creature has a naturally existing base form and a natural formation or developmental process. The scientist, gods and other creators can reproduce, redirect or modify those processes, not bypass them through unrestricted creature creation. This includes biological development and the setting's genuine elemental or other magical formation processes; it does not mean every family uses genes, biomass or a synthesis tube. Real material/energy sources and a supported process remain necessary. An apparatus or divine act is not a license to conjure an arbitrary creature through a recipe label or wish.
 

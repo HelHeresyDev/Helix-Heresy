@@ -1,5 +1,5 @@
-// Approved #3.38-A developer reference ONLY. Never imported by the game.
-// B–D own physical implementation, consumed behavior and population simulation.
+// Approved authoring source. Published to the browser by build-creature-biology;
+// the authoring module itself is never imported by the dependency-free game.
 const { BEAST_SPECIES } = require('../strategic-beast-ecology');
 const STATUS = 'Approved design; not a runtime implementation or world census';
 const coreNames = {
@@ -124,7 +124,7 @@ const rateDefinitions = [
   ['beast:burrowing-furnace', 'One healthy mature large burrower', [0.3, 0, 0, 0, 0, 0], [10, 2, 4, 2, 2, 0], 'Actual tunneling/heat/gas/subsidence. Oxygen, minerals, ventilation and existing gas deposits limit impact; no fabricated poison, endless heat or automatically replenished geology.']
 ];
 const rateProfiles = rateDefinitions.map(([id, basis, nurturing, destruction, notes]) => ({
-  id, basis, nurturing, destruction, notes, status: 'Initial balance values; not runtime rates'
+  id, basis, nurturing, destruction, notes, status: 'Initial throughput ceilings; local work constrained; regional planner pending'
 }));
 const rateProfileById = new Map(rateProfiles.map(profile => [profile.id, profile]));
 function rateCells(id) {
@@ -176,7 +176,7 @@ const rules = [
   ['Living consequences and recovery', 'Healthy balance is a starting viability constraint, not permanent protection. War, beast rivalry, player extraction and killing nurturers may cause decline and exhaustion. Recovery needs real surviving/recolonizing sources, seeds/substrate, water/nutrients, viable access and elapsed work/time; vitrified soil may remain damaged long after a battle. No automatic respawn, reserve refill, magical replenishment of ore or fresh souls/life. Conserved migration may create waves but need not put every city on a migration path.'],
   ['Knowledge and persistence', 'Private population budgets and exhausted causes are not an omniscient public census, conservation certificate or domination proof. Only actually acquired dated observations/reports enter player knowledge; uncertainty/receipt date remain separate from truth. Loss, partial work, wounds, spent reserves, population membership and causal recovery survive saves/continued imports. Canonical world history remains immutable; mutable play belongs to its run branch. Irreversible death stops run work under existing soul-beacon rules.'],
   ['Carrion Lantern', 'A biological wind-dependent aerostat/scavenger, not a dead soul. Real carrion supplies finite corpse-light substrate; damage affects buoyancy. Light can create uncertain sensory cues for vulnerable injured/exhausted observers only within actual visibility. It cannot force player movement, fake a factual report, steal souls, resurrect, act as a soul beacon or add an explosive-gas attack.'],
-  ['Preserved consumers', 'Rimefang, Gravebloom Elk and Mirror Ape retain completed grounded combat, existing perception and injuries, climbing, individual territorial compacts and the paid one-observation Soul Lash consumer. The authored cold/bloom extensions here remain C work where not already consumed. One contact group, individual defeat or treaty is never an entire population outcome.']
+  ['Preserved consumers', 'Rimefang, Gravebloom Elk and Mirror Ape retain completed grounded combat, existing perception and injuries, climbing, individual territorial compacts and the paid one-observation Soul Lash consumer. C also consumes the authored finite cold/bloom extensions; see BEAST_BEHAVIOR.md. One contact group, individual defeat or treaty is never an entire population outcome.']
 ];
 const packages = [
   ['A — this design deliverable', 'Freeze the 36 classifications, 24 biology/capability rows, directed antagonisms and shared rules below; publish spreadsheet/reference parity and focused contract checks. Complete on delivery; no runtime balance claim.'],
@@ -196,7 +196,7 @@ const table = (head, data) => [head, head.map(() => '---'), ...data].map(r => `|
 function renderReference() {
   return '# Creature biology and ecological capability matrix\n\n' +
     '> Approved #3.38-A design, 2026-11-12. **Not a claim of runtime implementation.**\n\n' +
-    'This developer reference is generated from `scripts/creature-ecology-design.js`. Runtime source definitions remain authoritative for implemented behavior; B–D below own the remaining implementation. The matrix closes A without adding queue entries.\n\n' +
+    'This developer reference is generated from `scripts/creature-ecology-design.js`. Runtime source definitions remain authoritative for implemented behavior. A/B/C are complete: see [shared bodies](../BEAST_BODIES.md) and [individual behavior](../BEAST_BEHAVIOR.md). D below owns the remaining regional populations, monthly planner and encounter allocation. The matrix itself is not proof of performed work or regional viability; no queue entries are added.\n\n' +
     '## Shared ecological contract\n\n' + rules.map(([name, text]) => `- **${name}.** ${text}`).join('\n') + '\n\n' +
     '## Monthly ecology and knowledge-limited migration\n\n' +
     'Approved clarification: monthly strategic planning with gradual execution, not monthly-only local reactions. This remains design, not an implemented planner.\n\n' +

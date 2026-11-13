@@ -255,6 +255,10 @@
   const WildernessDiscovery = window.HelixWildernessDiscovery;
   const WildernessBeasts = window.HelixWildernessBeasts;
   const BeastBodies = window.HelixBeastBodies;
+  const CreatureBiology = window.HelixCreatureBiology;
+  const CreatureLife = window.HelixCreatureLife;
+  const BeastHabitat = window.HelixBeastHabitat;
+  const BeastBehavior = window.HelixBeastBehavior;
   const ExpeditionEscorts = window.HelixExpeditionEscorts;
   if (!ExpeditionEscorts) throw new Error("Expedition escorts must load before app.js");
   if (!WildernessBeasts) throw new Error("Wilderness beasts must load before app.js");
@@ -2105,6 +2109,7 @@
   // Only real paid casting paths mint this short-lived release token. Damage
   // and reconstructed flags are not observations of an identifiable spell.
   const paidSpellReleases = new WeakSet();
+  const paidBeastReleases = new WeakSet();
   const COMBAT_DEFAULT_ATTACK_RECOVERY = 8;
   const COMBAT_CLASH_INTERVAL = 20;
   const COMBAT_AWARE_PAUSE_COOLDOWN = minutesToSeconds(10);
@@ -18447,6 +18452,13 @@
             reason: BeastBodies.habitatReason(a, cell, a.bodyPhysics.mode, a.bodyPhysics.altitudeM, beastBodyContext(a)) })) : [],
           visible: a && wildernessBeastVisible(a), knowledge: wildernessBeastKnowledge(), strikeReason: a && scientistCombatActionBlockReason('strike', a) });
       },
+      beastBehaviorSnapshot: id => {
+        const actor = wildernessBeast(id);
+        return clonePlainObject({ actor, clock: state.clock, habitat: ensureWildernessBeasts().bodyTerrain,
+          knowledge: wildernessBeastKnowledge(), health: scientistVital('health').current,
+          conditions: BeastBehavior.activeConditions(state.scientist, state.clock),
+          offspring: ensureWildernessBeasts().offspring || [], visible: actor && wildernessBeastVisible(actor) });
+      },
       wildernessBeastActionReason: (action, id) => scientistCombatActionBlockReason(action, wildernessBeast(id)),
       expeditionEscortSnapshot: () => { const s = ensureExpeditionEscorts(); return clonePlainObject({ ...s, stacks: s.actor ? actorInventoryStacks(s.actor.id) : [], money: ensureEconomy().money, scientistCell: scientistMapCell(), scientistHealth: scientistVital("health").current, clock: state.clock, injuries: state.injuries, beasts: ensureWildernessBeasts().actors }); },
       setForeignEscortTestSource: source => {
@@ -31595,6 +31607,20 @@
 
   let physicalLightingSignature = "";
 
+  function beastLightSources() {
+    const result = [];
+    for (const a of allWildernessBeasts()) if (a.status !== 'dead' && a.life?.display?.until > state.clock && beastElevation(a) >= 0)
+      result.push({ id: a.id, cell: a.mapCell, light: a.life.display.kind === 'corpseLight' ? 15 : 30, radius: 4 });
+    const sources = [state?.wildernessBeasts, currentRegionalEncounters()?.beasts,
+      ...(state?.penalFlights?.assistance?.cityApproach?.gates || []).map(g => g.foreignSurvey?.wilderness?.beasts)];
+    for (const saved of sources) for (const [key, p] of Object.entries(saved?.bodyTerrain || {})) {
+      if (!p.bloomLit || !(p.resources?.bloomKg > 0)) continue;
+      const [x, y, z] = key.split(',').map(Number);
+      result.push({ id: `blooms:${key}`, cell: { x, y, z }, light: Math.min(20, p.resources.bloomKg * 10), radius: 2 });
+    }
+    return result;
+  }
+
   function surfaceDaylightIntensity(clock = state.clock) {
     const hour = ((Number(clock) || 0) / 3600 + SURFACE_DAY_START_HOUR) % 24;
     if (hour <= 6 || hour >= 18) return 0;
@@ -31634,6 +31660,7 @@
         const source = a.family === 'lanternWisp' ? wispLightSource(a) : { cell: a.mapCell, light: Formation.light(a) };
         return `${a.id}:${mapCellKey(source.cell)}:${Math.round(source.light * 100)}:${a.chamberId}`;
       }).join('|'),
+      beastLightSources().map(source => `${source.id}:${mapCellKey(source.cell)}:${Math.round(source.light * 100)}`).join('|'),
       fixtures
     ].join(":");
   }
@@ -31675,6 +31702,7 @@
       const source = a.family === 'lanternWisp' ? wispLightSource(a) : { cell: a.mapCell, light: Formation.light(a) };
       if (source.light > 0) addLightFromOrigins([source.cell], source.light * (a.chamberId ? .35 : 1), a.chamberId ? 1 : a.family === 'lanternWisp' ? a.emission === 'dim' ? 2 : 5 : 3, environments, map);
     }
+    for (const source of beastLightSources()) addLightFromOrigins([source.cell], source.light, source.radius, environments, map);
     state.scientist = normalizeScientist(state.scientist);
     const carried = state.scientist.carriedLight;
     const scientistCell = cleanMapCell(state.scientist.mapCell);
@@ -42796,6 +42824,8 @@
   }
 
   function combatActionDef(actionId) {
+    if (actionId === 'beastPower') return { id: actionId, label: 'Natural beast ability', targetKinds: ['creature'],
+      damageTypes: ['physical'], skillId: 'striking', baseDamage: 1, rangeM: 16, staminaCost: 0, requiresLineOfEffect: true };
     return COMBAT_ACTION_DEFS[String(actionId || "")] || null;
   }
 
@@ -43155,16 +43185,21 @@
       if (/arm|appendages/.test(injury.location)) { totals.attack += rank * 5 * activeFactor; totals.work += rank * 0.1 * activeFactor; }
       if (/head|torso|core/.test(injury.location)) { totals.attack += rank * 2 * activeFactor; totals.work += rank * 0.05 * activeFactor; }
     }
+    const actor = actorOrId === 'scientist' ? state.scientist : typeof actorOrId === 'string' ? combatActor(actorOrId) : actorOrId;
+    const conditions = BeastBehavior.modifiers(actor, state.clock);
+    totals.movement += conditions.movement; totals.attack += conditions.attack; totals.work += conditions.work;
     return totals;
   }
 
   function actorIsIncapacitated(actorOrId) {
     const actor = actorOrId === "scientist" ? state.scientist : actorOrId;
     if (!actor) return false;
+    if (BeastBehavior.modifiers(actor, state.clock).incapacitated) return true;
     const scientist = actor === state.scientist || actor?.physicalPresence;
     const vital = scientist ? combatActorVitalPercent(state.scientist, "health") : combatActorVitalPercent(actor, "bodyIntegrity");
     if (vital <= 10 && vital > 0) return true;
-    return actorInjuries(actor).some((injury) => injury.severityId === "critical" && /head|torso|core/.test(injury.location));
+    return actorInjuries(actor).some((injury) => injury.severityId === "critical" && /head|torso|core/.test(injury.location)
+      && !(actor.speciesId === 'beast:marsh-hydra' && /^head \d/.test(injury.location)));
   }
 
   function injurySummary(actorOrId, options = {}) {
@@ -43227,9 +43262,13 @@
     if (actorId === 'scientist' && localPrisonRecord()?.p.escape?.restrained) return { ok: false, reason: 'Physical local prison restraints prevent this attack.' };
     if (actorId === 'scientist' && state.penalLegion?.desertion?.restrained) return { ok: false, reason: 'Physical military restraints prevent this attack.' };
     const actor = combatActor(actorId);
+    const naturalRelease = options.naturalRelease;
+    const genuineNatural = naturalRelease && paidBeastReleases.has(naturalRelease) && naturalRelease.actorId === actorId && naturalRelease.at === state.clock;
+    if (actionId === 'beastPower' && (!genuineNatural || actor?.actorKind !== 'wildernessBeast')) return { ok: false, reason: 'No original paid natural-ability release.' };
     const baseAction = combatActionDef(actionId);
     const action = baseAction ? {
       ...baseAction,
+      ...(genuineNatural ? { rangeM: naturalRelease.rangeM } : {}),
       baseDamage: Math.max(0, Number(options.baseDamage) || baseAction.baseDamage),
       damageTypes: Array.isArray(options.damageTypes) && options.damageTypes.length ? options.damageTypes : baseAction.damageTypes
     } : null;
@@ -43246,6 +43285,7 @@
       return { ok: false, reason: 'Soul Lash requires a living, souled target, not a structure or a constructed avatar.' };
     const range = combatActionRangeInfo(actor, action, target);
     if (!range.inRange) return { ok: false, reason: range.reason, blockedAt: target.lastKnownCell || combatTargetCurrentCell(target) };
+    if (genuineNatural) paidBeastReleases.delete(naturalRelease);
     if (genuineRelease) { paidSpellReleases.delete(release); observeBeastSpellRelease(actor, release); }
     observeBeastDiplomacyAggression(actorId, target.id, actionId);
     observeOrdinaryCorrespondenceAggression(actorId, target.id, actionId);
@@ -43343,6 +43383,16 @@
     }
     const targetId = targetIsScientist ? "scientist" : targetActor.id;
     let guardedDamage = Math.max(1, Math.round(action.baseDamage * combatGuardDamageMultiplier(targetId)));
+    if (actor.speciesId === 'beast:mirror-ape' && actionId === 'strike' && actor.life?.toolStackId) {
+      const tool = ensurePhysicalItemStacks().find(i => i.id === actor.life.toolStackId && i.carriedBy === actor.id && i.quantity > 0);
+      if (tool && BeastBodies.wounded(actor, /hand|arm/) < .6) {
+        guardedDamage += Math.min(4, tool.quantity * tool.unitMassKg);
+        const kg = Math.min(tool.quantity * tool.unitMassKg, .001 * guardedDamage);
+        tool.quantity = Math.max(0, tool.quantity - kg / tool.unitMassKg); tool.knownQuantity = Math.min(tool.knownQuantity, tool.quantity);
+        createPhysicalItemStack('collectedByproducts', 'worn beast-tool chips', kg, { roomId: actor.roomId, cell: actor.mapCell },
+          { unitMassKg: 1, sourceLabels: [tool.id, actor.id] });
+      }
+    }
     const stationCover = cityDefenseAbsorb(actorId, combatActorCell(targetActor), guardedDamage, action.damageTypes, targetId);
     guardedDamage = stationCover.damage;
     if (stationCover.absorbed && guardedDamage <= 0) return { ok: true, hit: true, damage: 0, absorbed: stationCover.absorbed, accuracy };
@@ -99711,10 +99761,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     RegionalEncounters.adopt(s, s.beasts.actors, 'walking', state.clock); return s;
   }
   function allWildernessBeasts() {
-    const list = [...(state?.wildernessBeasts?.actors || []), ...(currentRegionalEncounters()?.beasts.actors || []).filter(a => a.regionalPhase === 'local'),
-      ...(state?.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => g.foreignSurvey?.wilderness?.beasts?.actors || [])];
+    const list = [...localBeastActors(state?.wildernessBeasts), ...(currentRegionalEncounters()?.beasts.actors || []).filter(a => a.regionalPhase === 'local'),
+      ...(currentRegionalEncounters()?.beasts.offspring || []),
+      ...(state?.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => localBeastActors(g.foreignSurvey?.wilderness?.beasts))];
     return list.filter((a, i) => list.findIndex(b => b.id === a.id) === i);
   }
+  function localBeastActors(saved) { return [...(saved?.actors || []), ...(saved?.offspring || [])]; }
   function wildernessBeast(id) { return allWildernessBeasts().find(beast => beast.id === id) || currentRegionalEncounters()?.beasts.actors.find(a => a.id === id) || state?.unsupportedExcursions?.boundary?.beasts?.actors.find((beast) => beast.id === id) || state?.unsupportedExcursions?.remote?.beasts?.actors.find((beast) => beast.id === id) || null; }
   function ensureWildernessBeasts() {
     if (supplySimulationSite || localMunicipalSupplySite() || overlandStopSite() || fieldCharterLocalSite()) return ensureRegionalEncounters()?.beasts || WildernessBeasts.defaultState();
@@ -99745,7 +99797,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function wildernessBeastKnowledge() {
     const saved = ensureWildernessBeasts();
-    return WildernessBeasts.publicKnowledge(saved, saved.actors.filter(wildernessBeastVisible).map((beast) => beast.id));
+    return WildernessBeasts.publicKnowledge(saved, localBeastActors(saved).filter(wildernessBeastVisible).map((beast) => beast.id));
   }
   function pauseForWildernessThreat(message) {
     ensureWildernessBeasts().noticeSerial++;
@@ -99756,7 +99808,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const saved = ensureWildernessBeasts();
     if (!scientistInWilderness()) return 0;
     let changed = 0;
-    for (const beast of saved.actors) {
+    for (const beast of localBeastActors(saved)) {
       if (!wildernessBeastVisible(beast)) { if (saved.sightings[beast.id]) saved.sightings[beast.id].threatVisible = false; continue; }
       const previous = saved.sightings[beast.id];
       const threat = beast.status !== "dead" && (beast.behavior === "pursue" || WildernessBeasts.distance(scientistMapCell(), beast.mapCell) <= 3);
@@ -99765,6 +99817,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       saved.sightings[beast.id] = { id: beast.id, name: beast.name, speciesId: beast.speciesId, cell: cleanMapCell(beast.mapCell), observedAt: state.clock, status: beast.status, condition: beast.status === "dead" ? "Dead; physical remains" : beast.health < beast.maxHealth * .3 ? "Severely wounded" : beast.health < beast.maxHealth ? "Visibly wounded" : "No visible wounds", threatVisible: threat,
         heightM: beastElevation(beast), verticalActivity: beast.climbing?.mode || beast.bodyPhysics?.mode || 'ground',
         physicalPose: BeastBodies.observed(beast),
+        naturalActivity: beast.life?.pending ? `Preparing ${BeastBehavior.definitions[beast.life.pending.action]?.label || 'an observed action'}` : beast.life?.activity,
+        naturalEvent: BeastBehavior.publicEvent(beast)?.at === state.clock ? BeastBehavior.publicEvent(beast) : previous?.naturalEvent || null,
         visibleBodyCells: BeastBodies.occupied(beast, ensureLabMap().tileSizeM).filter(c => WildernessBeasts.distance(scientistMapCell(), c) <= 8 && sensoryLineOfSight(scientistMapCell(), c)),
         climbEvent: BeastClimbing.observedEvent(beast, previous, state.clock),
         spellEvent: BeastSpellImitation.observedEvent(beast, previous, state.clock),
@@ -99787,12 +99841,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function damageWildernessBeast(beast, damage, attackerId, options = {}) {
     if (!beast || beast.status === "dead" || damage <= 0) return false;
+    damage = BeastBehavior.absorb(beast, damage, options.damageTypes?.[0] || 'physical', state.clock, {
+      waste: (a, kind, kg) => { const p = recordedBeastTerrainAt(a.mapCell); if (p) { BeastHabitat.patch(p, a.mapCell); BeastHabitat.put(p, { [kind]: kg }); } } });
     beast.health = Math.max(0, beast.health - damage);
     BeastSpellImitation.interrupt(beast, 'Actual bodily damage interrupted preparation', state.clock, !scientistIsDead());
     if (attackerId === "scientist" || escortStateForActor(attackerId) || attackerId === state.medicalExtraction?.medic?.id || attackerId === state.foundingExpedition?.agreement?.actorId) { beast.provokedUntil = state.clock + 30; beast.lastTarget = cleanMapCell(combatActorCell(combatActor(attackerId))); beast.targetId = attackerId; beast.rememberedUntil = state.clock + 12; }
     if (!options.injuryProgress) {
       const injury = recordCombatInjury(beast, damage, options.damageTypes || ["physical"], options.cause || "Physical field combat", { observed: wildernessBeastVisible(beast) });
       if (injury) BeastBodies.damagePart(beast, injury.location, damage, state.clock);
+    }
+    BeastBehavior.interrupt(beast, state.clock, 'Actual bodily damage');
+    if (beast.life && wildernessBeast(attackerId)) {
+      beast.life.lastAggressorId = attackerId; beast.life.lastAggressorAt = state.clock; beast.provokedUntil = state.clock + 30;
     }
     const climbSite = beastClimbingSite(beast);
     if (beast.climbing && climbSite && !options.climbFall) BeastClimbing.interrupt(beast, climbSite, beastClimbingContext(beast, climbSite), state.clock, damage);
@@ -99962,6 +100022,129 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     BeastBodies.advance(a, at, c); return true;
   }
+  function beastBehaviorContext(a, seconds = 0) {
+    const c = beastBodyContext(a), saved = ensureWildernessBeasts(), map = ensureLabMap();
+    state.scientist.beastConditions = (state.scientist.beastConditions || []).filter(effect => effect.until > state.clock);
+    const scientist = { id: 'scientist', actorKind: 'scientist', mapCell: scientistMapCell(),
+      health: scientistVital('health').current, maxHealth: scientistVital('health').max, status: scientistIsDead() ? 'dead' : 'alive',
+      beastConditions: state.scientist.beastConditions, sleeping: firstScientistQueueTask()?.type === 'rest' };
+    const people = [...fieldEmployeeStates(), ...fieldForceMembers()].map(s => s.actor)
+      .concat(ensureExpeditionEscorts().actor || [], state.medicalExtraction?.medic || [], currentFieldCharter()?.driver || [], state.penalFlights?.actors || []);
+    const actors = [...allWildernessBeasts().filter(b => b.roomId === a.roomId), ...people.filter(b => b.roomId === a.roomId),
+      ...(scientistInWilderness() ? [scientist] : [])];
+    const patch = cell => {
+      const raw = recordedBeastTerrainAt(cell); if (!raw || !c.terrain(cell)) return null;
+      raw.tileAreaM2 = map.tileSizeM ** 2;
+      BeastHabitat.patch(raw, cell, map.tileSizeM);
+      if (!Number.isFinite(raw.temperatureC)) raw.temperatureC = tileEnvironmentAtCell(cell)?.temperatureC ?? 20;
+      raw.protected = c.terrain(cell).protected;
+      return raw;
+    };
+    const native = (cell, effect) => {
+      const env = tileEnvironmentAtCell(cell); if (!env) return;
+      if (Number.isFinite(effect.heatMJ)) env.temperatureC += effect.heatMJ / Math.max(.0048, tileEnvironmentVolumeM3() * .0012);
+      env.airborne ||= {};
+      if (effect.smokeKg > 0) env.airborne['beast-combustion-smoke'] = (env.airborne['beast-combustion-smoke'] || 0) + effect.smokeKg;
+    };
+    const signal = (observer, target, channel, head = null) => {
+      if (!observer.mapCell || !target.mapCell || observer.mapCell.z !== target.mapCell.z) return false;
+      const fromUnder = beastElevation(observer) < 0, toUnder = beastElevation(target) < 0;
+      if (channel === 'sight') return beastClimbingLine(observer, target) && (!head || observer.bodyPhysics.parts[head] > 25);
+      if (channel === 'mana' && !(target.bodyPhysics?.mana > 0 || target.spellImitation?.mana > 0)) return false;
+      if (channel === 'pressure' && (!fromUnder || !toUnder)) return false;
+      if (channel !== 'vibration' && fromUnder !== toUnder) return false;
+      if (channel === 'vibration') return [observer.mapCell, target.mapCell].every(p => c.terrain(p)?.floor && !c.terrain(p)?.foundation);
+      return sensoryLineOfSight(observer.mapCell, target.mapCell);
+    };
+    const context = { ...c, seconds, actors, patch, native, signal,
+      lightAt: cell => perceptionLightLevelAtCell(cell, map),
+      sunlightFluxMJ: surfaceEnvelopeAtCell(a.mapCell).openSky ? surfaceDaylightIntensity(state.clock) / 100 * .001 : 0,
+      cloudCover: (patch(a.mapCell)?.cloudCover || 0), focusAngle: 1,
+      noise: patch(a.mapCell)?.noise || 0,
+      effectLine: (from, to) => beastClimbingLine(from, to, true, true),
+      destinationSeen: (from, cell) => WildernessBeasts.distance(from.mapCell, cell) <= 3 && sensoryLineOfSight(from.mapCell, cell),
+      protectedTarget: (from, to) => beastDialogueProtected(from, to.id) || c.terrain(to.mapCell)?.protected,
+      vulnerable: target => target.id === 'scientist' ? scientistVital('health').current < scientistVital('health').max * .5
+        || scientistVital('stamina').current < scientistVital('stamina').max * .25 : target.health < target.maxHealth * .5 || target.bodyPhysics?.stamina < 75,
+      resistance: (target, kind) => clamp(.3 + combatActorSkillLevel(target.id === 'scientist' ? state.scientist : target, 'perception') / 50
+        + (target.id === 'scientist' && scientistGuarding() ? .2 : 0) + (patch(target.mapCell)?.noise > .7 && kind === 'chorus' ? .8 : 0), 0, 1),
+      conductive: (from, to) => Boolean(patch(from.mapCell)?.waterDepthM > 0 && patch(to.mapCell)?.waterDepthM > 0
+        || patch(to.mapCell)?.conductive),
+      waste: (actor, kind, kg) => {
+        const p = patch(actor.mapCell); if (p) {
+          BeastHabitat.put(p, { [kind === 'waterVaporKg' ? 'atmosphericWaterL' : kind]: kg });
+        }
+      },
+      damage: (actor, amount, cause) => {
+        if (!(amount > 0) || actor.status === 'dead') return;
+        actor.life.physiologicalDamage = (actor.life.physiologicalDamage || 0) + amount;
+        if (actor.life.physiologicalDamage >= 1) {
+          const whole = Math.floor(actor.life.physiologicalDamage); actor.life.physiologicalDamage -= whole;
+          damageWildernessBeast(actor, whole, 'physical-needs', { cause, injuryProgress: true });
+        }
+      },
+      changed: (cell, p) => {
+        if (p.waterAccounted) p.waterDepthM = (p.resources.waterL || 0) / (map.tileSizeM ** 2 * 1000);
+        const env = tileEnvironmentAtCell(cell); if (env && p.resources.airborneGasKg > 0) {
+          const fresh = p.resources.airborneGasKg - (p.gasDispersedKg || 0);
+          if (fresh > 0) { env.airborne ||= {}; env.airborne['beast-geological-gas'] = (env.airborne['beast-geological-gas'] || 0) + fresh; p.gasDispersedKg = p.resources.airborneGasKg; }
+        }
+      },
+      blinkDestination: (from, target) => cardinalMapCells(target.mapCell).filter(cell => signal(from, { mapCell: cell }, 'sight')
+        && WildernessBeasts.distance(from.mapCell, cell) <= 3 && !BeastBodies.habitatReason(from, cell, 'walking', 0, c))
+        .sort((x, y) => WildernessBeasts.distance(from.mapCell, x) - WildernessBeasts.distance(from.mapCell, y))[0],
+      chargeStep: (from, target, at) => {
+        if (!target) return;
+        const goal = WildernessBeasts.neighbors(target.mapCell).filter(cell => !BeastBodies.habitatReason(from, cell, from.bodyPhysics.mode, beastElevation(from), c))
+          .sort((x, y) => WildernessBeasts.distance(from.mapCell, x) - WildernessBeasts.distance(from.mapCell, y))[0];
+        if (goal && !from.bodyPhysics.motion) BeastBodies.request(from, from.bodyPhysics.mode, goal, c);
+        BeastBodies.advance(from, at, { ...c, speedMultiplier: 2 });
+      },
+      acquireTool: actor => {
+        if (actor.life.toolStackId || BeastBodies.wounded(actor, /arm|hand/) >= .6) return false;
+        const stack = ensurePhysicalItemStacks().find(i => !i.carriedBy && !i.containerId && !i.fixtureId && !i.reservedTaskId
+          && ['stone', 'rock', 'lumber', 'metalParts'].includes(i.key) && i.quantity > 0 && i.quantity * i.unitMassKg <= actor.bodyPhysics.massKg * .25
+          && i.cell?.z === actor.mapCell.z && WildernessBeasts.distance(actor.mapCell, i.cell) <= 1 && sensoryLineOfSight(actor.mapCell, i.cell));
+        if (!stack) return false;
+        stack.carriedBy = actor.id; actor.life.toolStackId = stack.id; syncPhysicalReadModels(); return true;
+      },
+      habitatSuitable: Boolean(c.terrain(a.mapCell) && !c.terrain(a.mapCell).protected), seasonSuitable: patch(a.mapCell)?.seasonSuitable !== false,
+      mateReachable: (from, mate) => WildernessBeasts.distance(from.mapCell, mate.mapCell) <= 1 && signal(from, mate, 'sight'),
+      recruit: (source, parent) => {
+        saved.offspring ||= []; if (saved.offspring.some(child => child.id === source.id)) return true;
+        for (const cell of [parent.mapCell, ...WildernessBeasts.neighbors(parent.mapCell)]) {
+          const child = WildernessBeasts.actor(source.speciesId, source.id, cell, parent.populationId, state.clock, source);
+          child.roomId = parent.roomId; child.naturalBirth = { parentIds: source.parentIds, parentPopulationId: source.parentPopulationId, at: source.bornAt };
+          child.maxHealth = Math.max(1, child.maxHealth * Math.sqrt(source.massKg / CreatureBiology.lifecycle[source.speciesId].adultKg)); child.health = child.maxHealth;
+          const medium = parent.bodyPhysics.mode;
+          if (['swimming', 'burrowing'].includes(medium)) { child.bodyPhysics.mode = medium; child.bodyPhysics.altitudeM = medium === 'swimming' ? -child.bodyPhysics.dimensions.heightM : -child.bodyPhysics.dimensions.heightM - .2; }
+          if (BeastBodies.habitatReason(child, cell, child.bodyPhysics.mode, child.bodyPhysics.altitudeM, beastBodyContext(child))) continue;
+          saved.offspring.push(child); return true;
+        }
+        return false;
+      },
+      strike: (from, target, effect) => {
+        if (scientistIsDead() || !target || beastDialogueProtected(from, target.id)) return { ok: false };
+        if (effect.radiant && target.speciesId === 'beast:glasswing-roc') {
+          const emission = { id: `${from.id}:${from.life.pending?.startedAt}:${state.clock}`, kind: 'radiant', energyMJ: effect.energyMJ };
+          const taken = BeastBehavior.receiveRadiance(target, emission, state.clock, { incomingLine: beastClimbingLine(from, target), focusAngle: 1 });
+          effect = { ...effect, damage: effect.damage * (1 - taken / effect.energyMJ) };
+          // The ordinary attack pipeline has a one-point physical damage floor;
+          // fully captured radiance is not an ordinary physical impact.
+          if (!(effect.damage > 1e-10)) return { ok: true, hit: true, damage: 0, absorbed: taken };
+        }
+        const release = { actorId: from.id, at: state.clock, rangeM: BeastBehavior.definitions[from.life.pending?.action]?.range || 2 };
+        paidBeastReleases.add(release);
+        const result = resolveSharedCombatAction(from.id, 'beastPower', { kind: 'creature', id: target.id }, {
+          naturalRelease: release, baseDamage: effect.damage, damageTypes: [effect.type], hideFeedback: !wildernessBeastVisible(from) && target.id !== 'scientist' });
+        if (result.ok && (target.id === 'scientist' || wildernessBeastVisible(from))) pauseForWildernessThreat(`Observed ${from.name}: ${effect.cause}.`);
+        return result;
+      }
+    };
+    context.dreamParticipants = actors.filter(t => t.id !== a.id && t.sleeping && a.life?.dreamContacts?.[t.id] === true)
+      .map(t => ({ ...t, consent: true }));
+    return context;
+  }
   function beastClimbingSurfaceAt(cell) {
     return (state?.roadsideStops?.sites || []).find(s => s.entry.z === cell?.z)?.climbSurfaces?.find(f => f.condition > 0 && sameMapCell(f.cell, cell)) || null;
   }
@@ -100051,8 +100234,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       .concat((FoundingExpedition.active(state.foundingExpedition) || FoundingWorks.active(state.foundingWorks)) && foundingProtector() || [], foundingWorksActors())
       .filter(a => a.status !== 'dead' && a.roomId === activeWildernessRoom());
     if ((!scientistInWilderness() && !escort && !medic && !porters.length && currentFieldCharter()?.driver.roomId !== activeWildernessRoom()) || scientistIsDead()) {
-      for (const beast of saved.actors) { beast.nextMoveAt += Math.max(0, elapsed); beast.nextAttackAt += Math.max(0, elapsed);
+      for (const beast of localBeastActors(saved)) { beast.nextMoveAt += Math.max(0, elapsed); beast.nextAttackAt += Math.max(0, elapsed);
         BeastSpellImitation.interrupt(beast, 'No original local target remains on this physical patch', state.clock);
+        if (CreatureLife.valid(beast)) BeastBehavior.advanceVitals(beast, state.clock, 0, { alive: true, local: false });
         if (beast.bodyPhysics) { beast.bodyPhysics.lastAt = state.clock; beast.bodyPhysics.wasLocal = false; }
         if (beast.climbing) { beast.climbing.lastAt = state.clock; beast.climbing.wasReady = false; } }
       saved.lastAt = state.clock; return 0;
@@ -100060,16 +100244,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const map = ensureLabMap(), working = Boolean(scientistInWilderness() && firstScientistQueueTask() && firstScientistQueueTask().type !== "rest");
     const sector = new Set(map.rooms[activeWildernessRoom()].cells.map(mapCellKey));
     let changed = observeWildernessBeasts();
-    for (const beast of saved.actors) {
+    for (const beast of localBeastActors(saved)) {
       const supplySite = municipalSupplySiteForActor(beast);
       if (supplySite && (state.cityProvisioning?.supplyTraffic?.encounters.some(e => e.siteId === supplySite.id && e.endedAt == null)
         || state.networkInterdiction?.units?.some(u => u.deployment?.siteId === supplySite.id
           && u.actors.some(a => a.status === 'alive' && a.roomId === supplySite.roomId)))) continue; // Exactly one physical AI owner.
       if (roadside && beast.roomId !== roadside.roomId) {
         BeastSpellImitation.interrupt(beast, 'The original local encounter is no longer attended', state.clock);
+        if (CreatureLife.valid(beast)) BeastBehavior.advanceVitals(beast, state.clock, 0, { alive: true, local: false });
         if (beast.bodyPhysics) { beast.bodyPhysics.lastAt = state.clock; beast.bodyPhysics.wasLocal = false; }
         if (beast.climbing) { beast.climbing.lastAt = state.clock; beast.climbing.wasReady = false; } continue;
       }
+      const biologyContext = CreatureLife.valid(beast) && elapsed > 0 ? beastBehaviorContext(beast, elapsed) : null;
+      if (biologyContext) BeastBehavior.advanceVitals(beast, state.clock, elapsed, biologyContext);
+      if (scientistIsDead()) break;
       const vertical = elapsed > 0 && updateBeastClimbing(beast, beastClimbingSite(beast));
       if (vertical && beast.climbing?.mode !== 'perched') {
         BeastSpellImitation.interrupt(beast, 'Moving climbing limbs cannot prepare a spell', state.clock); changed++; continue;
@@ -100082,19 +100270,31 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (!profile) continue;
       // Navigation may normalize actor records, so target identity must not depend on object equality.
       const driver = currentFieldCharter()?.driver;
-      const targets = [...(scientistInWilderness() ? [{ id: "scientist", actor: state.scientist }] : []), ...(escort ? [{ id: escort.id, actor: escort }] : []), ...(medic ? [{ id: medic.id, actor: medic }] : []), ...porters.map(actor => ({ id: actor.id, actor })), ...fieldInterdictionActors().filter(a => a.status === 'alive' && a.roomId === activeWildernessRoom()).map(actor => ({ id: actor.id, actor })), ...(driver?.status === 'alive' && driver.roomId === activeWildernessRoom() ? [{ id: driver.id, actor: driver }] : []), ...(state.penalFlights?.actors || []).filter(a => a.roomId === activeWildernessRoom() && a.status !== "dead").map(actor => ({ id: actor.id, actor }))]
+      const targets = [...(scientistInWilderness() ? [{ id: "scientist", actor: state.scientist }] : []), ...(escort ? [{ id: escort.id, actor: escort }] : []), ...(medic ? [{ id: medic.id, actor: medic }] : []), ...porters.map(actor => ({ id: actor.id, actor })), ...fieldInterdictionActors().filter(a => a.status === 'alive' && a.roomId === activeWildernessRoom()).map(actor => ({ id: actor.id, actor })), ...(driver?.status === 'alive' && driver.roomId === activeWildernessRoom() ? [{ id: driver.id, actor: driver }] : []), ...(state.penalFlights?.actors || []).filter(a => a.roomId === activeWildernessRoom() && a.status !== "dead").map(actor => ({ id: actor.id, actor })),
+        ...(biologyContext ? BeastBehavior.biologicalOpponents(beast, state.clock, biologyContext).map(actor => ({ id: actor.id, actor })) : [])]
         .filter(t => !beastDialogueProtected(beast, t.id));
       if (beast.targetId && beastDialogueProtected(beast, beast.targetId)) { beast.targetId = null; beast.lastTarget = null; beast.rememberedUntil = 0; }
-      const seenTargets = targets.filter((target) => target.actor.status !== 'dead' && WildernessBeasts.distance(beast.mapCell, combatActorCell(target.actor)) <= profile.sight && beastClimbingLine(beast, target.actor)
-        && (!beast.bodyPhysics || BeastBodies.perceive(beast, { ...target.actor, mapCell: combatActorCell(target.actor) }, 'sight',
-          { tileSizeM: map.tileSizeM, light: perceptionLightLevelAtCell(combatActorCell(target.actor), map), signal: () => beastClimbingLine(beast, target.actor) })));
+      if (biologyContext && beast.life.activity === 'hunt') {
+        const prey = biologyContext.actors.find(actor => actor.id === beast.targetId && actor.actorKind === 'wildernessBeast');
+        if (prey && !targets.some(target => target.id === prey.id)) targets.push({ id: prey.id, actor: prey });
+      }
+      if (biologyContext && state.clock - (beast.life.lastAggressorAt ?? -Infinity) <= 30) {
+        const aggressor = biologyContext.actors.find(actor => actor.id === beast.life.lastAggressorId);
+        if (aggressor && !targets.some(target => target.id === aggressor.id)) targets.push({ id: aggressor.id, actor: aggressor });
+      }
+      const seenTargets = targets.filter((target) => {
+        if (target.actor.status === 'dead') return false;
+        const actual = biologyContext?.actors.find(actor => actor.id === target.id);
+        if (actual) return ['sight', 'hearing', 'scent', 'vibration', 'pressure', 'mana'].some(channel => BeastBehavior.canSense(beast, actual, channel, biologyContext));
+        return WildernessBeasts.distance(beast.mapCell, combatActorCell(target.actor)) <= profile.sight && beastClimbingLine(beast, target.actor);
+      });
       const target = seenTargets.find((entry) => entry.id === beast.targetId && state.clock < beast.provokedUntil)
         || seenTargets.sort((a, b) => WildernessBeasts.distance(beast.mapCell, combatActorCell(a.actor)) - WildernessBeasts.distance(beast.mapCell, combatActorCell(b.actor)))[0]
         || null;
       const scientist = target ? combatActorCell(target.actor) : beast.lastTarget;
       const targetId = target?.id;
       const range = WildernessBeasts.distance(beast.mapCell, scientist);
-      const sees = Boolean(target && range <= profile.sight && beastClimbingLine(beast, target.actor));
+      const sees = Boolean(target && (biologyContext || range <= profile.sight && beastClimbingLine(beast, target.actor)));
       if (sees) beast.targetId = targetId;
       // No current coordinates of an unseen target may steer navigation or
       // renew memory through an opaque barrier. Local work noise is only
@@ -100107,6 +100307,25 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         && (!profile.bodyManaged || beast.bodyPhysics.motion && beastElevation(beast) >= 0 && sensoryLineOfSight(beast.mapCell, scientistMapCell()))
         && (!saved.heard || state.clock - saved.heard.at >= 30)) saved.heard = { at: state.clock, label: `${profile.sound}; source not located or identified` };
       if (elapsed <= 0) continue;
+      if (biologyContext) {
+        const physicalTarget = biologyContext.actors.find(actor => actor.id === targetId);
+        const handled = BeastBehavior.step(beast, decision, physicalTarget, state.clock, elapsed, biologyContext);
+        if (handled) {
+          if (!beast.life.will) {
+            beast.bodyPhysics.goal = null;
+            if (['levitation', 'flight'].includes(beast.bodyPhysics.mode) && BeastBodies.profiles[beast.speciesId].form !== 'aerostat') {
+              beast.bodyPhysics.pendingFallM = beastElevation(beast); beast.bodyPhysics.mode = beastElevation(beast) > 0 ? 'falling' : 'grounded'; beast.bodyPhysics.motion = null;
+            }
+          }
+          const mode = beast.bodyPhysics.mode;
+          if (BeastBehavior.definitions[beast.life.pending?.action]?.mobile || ['flight', 'levitation', 'drifting', 'landing', 'falling'].includes(mode)) {
+            if (beast.life.activity === 'rest' && mode === 'flight') { beast.bodyPhysics.mode = 'landing'; beast.bodyPhysics.motion = null; }
+            updateBeastBody(beast, decision, state.clock);
+          } else beast.bodyPhysics.lastAt = state.clock;
+          changed++; continue;
+        }
+        if (decision.preyId) beast.targetId = decision.preyId;
+      }
       if (profile.bodyManaged) {
         if (decision.behavior === 'pursue' && sees && targetId && state.clock >= beast.nextAttackAt
           && combatActionRangeInfo(beast, combatActionDef('strike'), { kind: 'creature', id: targetId }).inRange
@@ -100125,7 +100344,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (updateBeastClimbing(beast, beastClimbingSite(beast), decision)) { changed++; continue; }
       if (decision.behavior === "pursue" && sees && range <= 1 && state.clock >= beast.nextAttackAt) {
         const observed = targetId === "scientist" || targetId === medic?.id && rescueMedicObserved() || targetId === escort?.id && escortObserved() || porters.some(a => a.id === targetId && (fieldPorterObserved(a) || a.id === state.foundingExpedition?.agreement?.actorId && foundingNear(a, 8)));
-        const result = resolveSharedCombatAction(beast.id, "strike", { kind: "creature", id: targetId }, { baseDamage: profile.damage, damageTypes: profile.damageTypes, hideFeedback: !observed });
+        let damageTypes = profile.damageTypes;
+        if (beast.speciesId === 'beast:rimefang-pack' && beast.life) {
+          if (beast.bodyPhysics.mana >= 1) BeastBehavior.pay(beast, { mana: 1 });
+          else damageTypes = damageTypes.filter(type => type !== 'cold');
+        }
+        const result = resolveSharedCombatAction(beast.id, "strike", { kind: "creature", id: targetId }, { baseDamage: profile.damage, damageTypes, hideFeedback: !observed });
         beast.nextAttackAt = state.clock + profile.recovery;
         if (result.ok) { if (observed) pauseForWildernessThreat(`${beast.name} ${result.hit ? "struck" : "attacked and missed"} ${targetId === "scientist" ? "the scientist" : target.actor.name} at close range.`); changed++; }
       } else if (state.clock >= beast.nextMoveAt) {
@@ -100191,6 +100415,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       && WildernessBeasts.distance(scientistMapCell(), f.cell) <= 8)
       panel.append(textEl('p', `Observed ${f.kind === 'tree' ? 'grippable tree' : 'rough rock face'} at ${f.cell.x},${f.cell.y}: ${f.heightM} m high. Its solid base obstructs ground movement; it grants no access to buildings or another floor.`));
     const button = (label, run, disabled = false) => { const el = document.createElement("button"); el.textContent = label; el.disabled = disabled; el.addEventListener("click", run); panel.append(el); };
+    const ownConditions = BeastBehavior.activeConditions(state.scientist, state.clock);
+    if (ownConditions.some(c => ['misled', 'hypnotic', 'etherLure', 'dreamDrowsy'].includes(c.kind))) panel.append(textEl('p', 'Your attention is temporarily impaired by uncertain local sensory cues. These cues are not verified facts; your movement remains under your control.'));
+    if (ownConditions.some(c => c.kind === 'paralysis')) panel.append(textEl('p', 'Temporary radiant paralysis prevents bodily actions. It is not petrification or defeat; time still passes.'));
     button(scientistGuarding() ? "Stop Guarding" : "Guard", startScientistGuard, !scientistInWilderness() || scientistIsDead());
     button("Cancel Prepared Attack", () => { cancelPendingScientistCombatAction(); persist(); render(); }, !state.combat?.pendingActions?.scientist);
     if (!knowledge.sightings.some((entry) => entry.current)) panel.append(textEl("p", "No beast currently in sight."));
@@ -100198,9 +100425,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const entry of knowledge.sightings) {
       panel.append(textEl("p", `${entry.name}: ${entry.current ? `${entry.condition}; ${entry.verticalActivity || 'ground'}, ${formatDecimal(entry.heightM || 0, 2)} m above local ground` : `last seen at ${entry.cell.x},${entry.cell.y}, height ${formatDecimal(entry.heightM || 0, 2)} m; current position and condition unknown`}. Observed at ${formatDuration(entry.observedAt)}.`));
       if (entry.climbEvent) panel.append(textEl('p', `Witnessed vertical outcome: ${entry.climbEvent.kind} at ${formatClock(entry.climbEvent.at)}${entry.climbEvent.kind === 'fall' ? ` from ${formatDecimal(entry.climbEvent.heightM, 2)} m; bodily injuries persist` : ''}. This is a dated observation.`));
+      if (entry.current && entry.naturalActivity) panel.append(textEl('p', `Observed activity: ${entry.naturalActivity}. This discloses no reserve, appetite, reproductive state or private memory.`));
+      if (entry.naturalEvent) panel.append(textEl('p', `Witnessed natural outcome: ${entry.naturalEvent.action || entry.naturalEvent.kind} at ${formatClock(entry.naturalEvent.at)}. This is a dated observation, not a population assessment.`));
       if (entry.current && entry.castingActivity) panel.append(textEl('p', `${entry.name}: ${entry.castingActivity}. A moving target, lost line of effect or bodily interruption can stop preparation.`));
       if (entry.spellEvent) panel.append(textEl('p', `${entry.name}: witnessed reproduction of ${entry.spellEvent.spell} at ${formatClock(entry.spellEvent.at)}. This dated cast discloses neither remaining mana nor other learned techniques.`));
       const beast = wildernessBeast(entry.id);
+      if (entry.current && beast?.speciesId === 'beast:dreaming-tortoise') button(`Request a shared rest — ${entry.name}`, () => {
+        if (!CreatureLife.valid(beast) || scientistIsDead() || combatFootprintDistanceMeters(state.scientist, beast) > 3 || scientistQueueTasks().length) return;
+        const accepts = beast.life.willing && beast.health >= beast.maxHealth * .6 && BeastBehavior.activeConditions(beast, state.clock).length === 0
+          && CreatureLife.random(`${beast.life.seed}:dreamConsent`) >= .15;
+        beast.life.dreamContacts ||= {}; beast.life.dreamContacts.scientist = accepts;
+        if (accepts) { createRestTask(5); surveyEvent('The original tortoise accepted shared rest. Only actual local sleep, available moisture and finite effort can affect the weather; this grants no allegiance.'); }
+        else surveyEvent('The original tortoise declined shared rest. Repeating the unchanged request does not reroll its choice.');
+        persist(); render();
+      }, !scientistInWilderness() || scientistIsDead());
       if (entry.current && beast.status !== "dead") for (const actionId of ["strike", "shove", "soulLash"]) button(`${combatActionDef(actionId).label} — ${entry.name}`, () => beginScientistCombatAction(actionId, entry.id), Boolean(scientistCombatActionBlockReason(actionId, beast)));
     }
     for (const track of knowledge.tracks) panel.append(textEl("p", `${track.label} at ${track.cell.x},${track.cell.y}. Observed signs only.`));

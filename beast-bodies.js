@@ -1,8 +1,9 @@
 (function (root, factory) {
-  const api = factory(typeof module === 'object' && module.exports ? require('./strategic-beast-ecology') : root.HelixStrategicBeastEcology);
+  const api = factory(typeof module === 'object' && module.exports ? require('./strategic-beast-ecology') : root.HelixStrategicBeastEcology,
+    typeof module === 'object' && module.exports ? require('./creature-biology') : root.HelixCreatureBiology);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixBeastBodies = api;
-})(globalThis, function (Ecology) {
+})(globalThis, function (Ecology, Biology) {
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x));
   const key = p => `${p.x},${p.y},${p.z}`;
@@ -58,14 +59,16 @@
     const species = Ecology.BEAST_SPECIES.find(s => s.id === `beast:${suffix}`);
     if (!species) throw Error(`Unknown beast body ${suffix}`);
     return [species.id, Object.freeze({ id: species.id, name: species.name, lengthM, widthM, heightM, massKg, speed, form, wingSpanM,
-      modes: species.movementModes, organization: species.socialPattern, parts: Object.freeze(anatomy[form]),
+      modes: species.movementModes, organization: species.socialPattern, parts: Object.freeze([...anatomy[form],
+        ...(suffix === 'sunspine-basilisk' ? ['radiant fan'] : suffix === 'ashhorn-behemoth' ? ['left horn', 'right horn'] : [])]),
       sightM: suffix === 'glasswing-roc' ? 80 : suffix === 'nullmaw-stalker' ? 5 : 12,
       hearingM: 16, scentM: suffix === 'carrion-lantern' ? 40 : 12,
       vibrationM: ['burrower', 'manyLegged', 'rooted', 'amphibian', 'quadruped'].includes(form) ? 6 : 0,
       pressureM: form === 'bell' ? 30 : 0, manaSenseM: suffix === 'ley-manta' ? 20 : 0,
-      stamina: 300, mana: suffix === 'ley-manta' ? 1200 : 0,
+      stamina: 300, mana: suffix === 'mirror-ape' ? 0 : Biology.lifecycle[species.id].manaCapacity,
       airCost: form === 'aerostat' ? .1 : 2, levitationCost: .2,
-      minWaterDepthM: Math.max(.1, heightM), reachM: Math.max(.25, Math.min(6, lengthM / 3)) })];
+      minWaterDepthM: Math.max(.1, heightM), reachM: Math.max(.25, Math.min(6, lengthM / 3)),
+      depthToleranceM: suffix === 'abyssal-bell' ? 12000 : suffix === 'frostwake-leviathan' ? 4000 : suffix === 'reef-wyrm' ? 200 : suffix === 'brine-cathedral' ? 100 : 30 })];
   }));
   function attach(a, at = 0) {
     const p = profiles[a?.speciesId];
@@ -134,7 +137,7 @@
     if (wounded(a, /torso|core|thorax|trunk|^bell$|bladder|forebody/) >= .95) return false;
     if (mode === 'walking' && !(p.modes.includes('walking') || p.modes.includes('charging'))) return false;
     if (mode === 'rooting') return p.modes.includes('rooting') && wounded(a, /root/) < .7;
-    if (mode === 'flight') return p.modes.includes('flight') && wounded(a, p.form === 'aerostat' ? /bladder|membrane|buoyancy/ : /wing/) < .6 && b.stamina > 0;
+    if (mode === 'flight') return p.modes.includes('flight') && wounded(a, p.form === 'aerostat' ? /bladder|membrane|buoyancy/ : /wing|fin/) < .6 && (p.form === 'aerostat' || b.stamina > 0);
     if (mode === 'levitation') return p.modes.includes('levitation') && b.mana > 0 && !a.magicSuppressed;
     if (mode === 'swimming') return p.modes.includes('swimming') && wounded(a, /fin|tail|limb|rim/) < .8 && b.stamina > 0;
     if (mode === 'drifting') return p.modes.includes('drifting') && wounded(a, /core|reef base/) < .9;
@@ -216,6 +219,16 @@
       transition: { mode, vertical, fromAltitude: b.altitudeM, toAltitude: altitude } };
     return { ok: true };
   }
+  function dive(a, altitudeM, ctx) {
+    if (!valid(a) || !Number.isFinite(altitudeM) || a.bodyPhysics.mode !== 'swimming' || a.bodyPhysics.motion || a.bodyPhysics.turn
+      || !capable(a, 'swimming') || altitudeM === a.bodyPhysics.altitudeM || altitudeM + a.bodyPhysics.dimensions.heightM > 0) return { ok: false, reason: 'No supported swimming depth transition' };
+    const reason = habitatReason(a, a.mapCell, 'swimming', altitudeM, ctx);
+    if (reason) return { ok: false, reason };
+    const b = a.bodyPhysics;
+    b.motion = { from: copy(a.mapCell), to: copy(a.mapCell), progressM: 0, distanceM: Math.abs(altitudeM - b.altitudeM),
+      transition: { mode: 'swimming', vertical: true, dive: true, fromAltitude: b.altitudeM, toAltitude: altitudeM } };
+    return { ok: true };
+  }
   function breakIce(a, at, ctx) {
     if (!valid(a) || a.status === 'dead' || !profiles[a.speciesId].modes.includes('iceBreaking') || !ctx.breakIce) return { ok: false, reason: 'No actual ice-breaking body or terrain consumer' };
     const b = a.bodyPhysics, footprint = cells(a, a.mapCell, ctx.tileSizeM || 1);
@@ -280,7 +293,7 @@
       const m = b.motion, tr = m.transition, reason = habitatReason(a, m.to, tr.mode, tr.toAltitude, ctx);
       if (reason || !capable(a, tr.mode) || ctx.incapacitated) { b.blockedReason = reason || 'Transition interrupted by body incapacity'; return false; }
       const step = Math.min(p.speed * dt, m.distanceM - m.progressM, b.stamina);
-      if (tr.vertical) {
+      if (tr.vertical && !tr.dive) {
         const parts = cells(a, a.mapCell, ctx.tileSizeM || 1), volume = b.dimensions.lengthM * b.dimensions.widthM * step;
         for (const part of parts) if (!finite(ctx.excavate(a, part, volume / parts.length, ctx.terrain(part)))) { b.blockedReason = 'Original entry excavation unavailable'; return false; }
       }
@@ -324,15 +337,17 @@
       if (reason) { b.blockedReason = reason; break; }
       let speed = p.speed * Math.max(.1, 1 - wounded(a, /leg|limb|fin|tail|wing/) * .8)
         / (Math.max(1, ctx.movementFactor || 1) * (1 + (ctx.cargoKg?.(a) || 0) / b.massKg));
+      speed *= Math.max(1, Math.min(2, ctx.speedMultiplier || 1));
       if (b.mode === 'burrowing') speed /= Math.max(1, ctx.terrain(m.to).hardness);
       if (b.mode === 'drifting' || p.form === 'aerostat' && b.mode === 'flight') {
         const flow = b.mode === 'drifting' ? ctx.terrain(a.mapCell).current : ctx.terrain(a.mapCell).wind;
         speed = Math.min(speed, Math.hypot(flow?.x || 0, flow?.y || 0));
       }
       if (!(speed > 0)) break;
-      const rate = b.mode === 'flight' ? p.airCost : b.mode === 'burrowing' ? 3 : .5;
+      const passive = b.mode === 'drifting' || b.mode === 'flight' && p.form === 'aerostat';
+      const rate = passive ? 0 : (b.mode === 'flight' ? p.airCost : b.mode === 'burrowing' ? 3 : .5) * Math.max(1, Math.min(2, ctx.speedMultiplier || 1));
       const manaRate = b.mode === 'levitation' ? p.levitationCost : 0;
-      const seconds = Math.min(remaining, (m.distanceM - m.progressM) / speed, b.stamina / rate, manaRate ? b.mana / manaRate : Infinity);
+      const seconds = Math.min(remaining, (m.distanceM - m.progressM) / speed, rate ? b.stamina / rate : Infinity, manaRate ? b.mana / manaRate : Infinity);
       if (!(seconds > 1e-8)) break;
       const altitude = ['flight', 'levitation'].includes(b.mode) ? Math.min(6, b.altitudeM + seconds * .5) : b.altitudeM;
       if (habitatReason(a, m.to, b.mode, altitude, ctx)) { b.blockedReason = 'Vertical sweep lacks physical clearance'; break; }
@@ -370,7 +385,9 @@
     const organs = { sight: /head|crown|antennae|feeding organs/, hearing: /head|antennae/,
       scent: /head|feeding organs|antennae/, vibration: /leg|limb|root/, pressure: /pressure organs|bell/,
       mana: /head|torso/ };
-    if (!organs[channel] || wounded(observer, organs[channel]) >= .75) return false;
+    const hydraSenses = observer.speciesId === 'beast:marsh-hydra' && ['sight', 'hearing', 'scent'].includes(channel);
+    if (!organs[channel] || (hydraSenses ? !Object.entries(b.parts).some(([k, health]) => /^head \d/.test(k) && health > 25)
+      : wounded(observer, organs[channel]) >= .75)) return false;
     const range = channel === 'sight' ? p.sightM : channel === 'hearing' ? p.hearingM : channel === 'scent' ? p.scentM
       : channel === 'vibration' ? p.vibrationM : channel === 'pressure' ? p.pressureM : channel === 'mana' ? p.manaSenseM : 0;
     if (Math.hypot((observer.mapCell.x - target.mapCell.x) * (ctx.tileSizeM || 1),
@@ -385,5 +402,5 @@
       heading: a.bodyPhysics.heading || 0, turning: Boolean(a.bodyPhysics.turn),
       motion: a.bodyPhysics.motion ? { from: copy(a.bodyPhysics.motion.from), to: copy(a.bodyPhysics.motion.to), fraction: a.bodyPhysics.motion.progressM / a.bodyPhysics.motion.distanceM } : null };
   }
-  return { profiles, anatomy, attach, valid, height, footprint, cells, occupied, wounded, capable, habitatReason, request, turn, transition, breakIce, damagePart, advance, perceive, observed, key };
+  return { profiles, anatomy, attach, valid, height, footprint, cells, occupied, wounded, capable, habitatReason, request, turn, transition, dive, breakIce, damagePart, advance, perceive, observed, key };
 });

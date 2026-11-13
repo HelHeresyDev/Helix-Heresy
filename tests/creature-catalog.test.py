@@ -69,7 +69,7 @@ class CreatureCatalogTests(unittest.TestCase):
         self.assertEqual(beasts['Nullmaw Stalker'][7], '1–2')
         self.assertEqual(beasts['Reef Wyrm'][2], 'Reef Shelf; Upwelling Ocean; Tropical Ocean')
         self.assertEqual(beasts['Mirror Ape'][17], 'Bounded contact consumers; not generic wilderness spawning')
-        self.assertEqual(beasts['Glasswing Roc'][17], 'Shared physical body/movement; population encounters pending')
+        self.assertEqual(beasts['Glasswing Roc'][17], 'Shared body and individual behavior; population encounters pending')
         self.assertEqual(beasts['Glasswing Roc'][19:26], [8, 3, 4, 20, 30000, 6, 8 / 3])
         self.assertEqual(beasts['Mirror Ape'][23], 90)
         self.assertTrue(all(len(row) == 27 for row in beasts.values()))

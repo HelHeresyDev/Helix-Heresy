@@ -16,7 +16,7 @@ async function place(page, species, id, position, options = {}) {
       const water = options.waterRows?.includes(y) || options.waterFromX !== undefined && x >= options.waterFromX;
       bodyTerrain[`${x},${y},6`] = { floor: true, waterDepthM: water ? 5 : 0, waterClarityM: 5,
         soilDepthM: 8, hardness: 1, densityKgM3: 1500, materialKg: 12000, supportKg: 100000,
-        wind: { x: .2, y: 0 }, current: { x: .1, y: 0 }, ceilingM: 100, oxygen: true };
+        wind: { x: 3, y: 0 }, current: { x: .1, y: 0 }, ceilingM: 100, oxygen: true };
     }
     d.configureWildernessBeastsTest({ actors: [{ ...original, cell: position }], bodyTerrain, scientistCell: options.scientistCell || { x: 24, y: 12, z: 6 } });
     d.setMapOverlay('prospecting');
@@ -87,7 +87,8 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: physical flight, sa
   expect(await page.evaluate(() => window.helixHeresyDebug.beastBodyRequestForTest('original-colossal', 'swimming', { x: 22, y: 9, z: 6 }))).toMatchObject({ ok: true });
   await page.evaluate(() => window.helixHeresyDebug.advanceWildernessBeastsForTest(1));
   s = await snap(page, 'original-colossal'); expect(s.actor.mapCell.x).toBe(22); expect(s.footprint.mask.length).toBeGreaterThan(20);
-  expect(s.actor.bodyPhysics.massKg).toBe(40000);
+  expect(s.actor.bodyPhysics.massKg).toBeGreaterThan(39999);
+  expect(s.actor.bodyPhysics.massKg).toBeLessThanOrEqual(40000); // Real elapsed metabolic loss, not a reference resize.
   expect(await page.evaluate(() => window.helixHeresyDebug.beastBodyRequestForTest('original-colossal', 'swimming', { x: 22, y: 14, z: 6 }))).toMatchObject({ ok: true });
   await page.evaluate(() => window.helixHeresyDebug.advanceWildernessBeastsForTest(1));
   s = await snap(page, 'original-colossal'); expect(s.actor.bodyPhysics.blockedReason).toContain('Turning clearance');

@@ -8,6 +8,28 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Individual beast abilities, needs and local ecology — #3.38-C
+
+Implemented on 2026-11-13 for the fixed 24-species matrix. Shared local consumers
+now apply authored abilities, actual resource transfers, paid preparations, timed
+combat conditions, needs, growth, recruitment, per-head memory and knowledge-limited
+choices. Existing core-family care, climbing, Soul Lash and territorial compacts
+remain their own owners. [BEAST_BEHAVIOR.md](BEAST_BEHAVIOR.md) records every
+capability, actual limits and the original-source testing boundary.
+
+The generated browser biology snapshot and eight-sheet ODS/XLSX use the same
+36-entry lifecycle/rate authoring. No regional population, natural formation-site
+allocation, monthly planner or complete encounter coverage is claimed. Those
+remain the existing D package. C is removed; eleven active packages remain, D is
+next, and the tutorial stays frozen. No replacement prompt is added.
+
+Focused model checks cover finite spending, body/source conservation, actual
+effects, injury/interruption, private knowledge, recruitment and persistence.
+DOM/Canvas browser checks cover real autonomous fan preparation/release, shared
+hits, bloom work, partial saves/continued imports and final-death freeze; shared
+physical and existing wilderness checks and reference parity were also selected.
+The full suite was not run under repository policy.
+
 ### Shared beast bodies, movement and environmental reach — #3.38-B
 
 Implemented on 2026-11-12 for the fixed 24-species catalog. `beast-bodies.js`

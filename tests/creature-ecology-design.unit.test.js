@@ -191,7 +191,7 @@ test('every current entry has twelve finite numeric baseline coefficients and an
     assert.equal(design.rateCells(p.id).length, 12);
     assert.ok([...p.nurturing, ...p.destruction].every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0), p.id);
     assert.ok(p.basis.length > 15 && p.notes.length > 50, p.id);
-    assert.match(p.status, /Initial balance values; not runtime rates/);
+    assert.match(p.status, /Initial throughput ceilings; local work constrained; regional planner pending/);
   }
   const p = id => design.rateProfileById.get(id);
   assert.deepEqual([p('beast:ironroot-colossus').nurturing[0], p('beast:ironroot-colossus').destruction[0]], [40, 4]);
