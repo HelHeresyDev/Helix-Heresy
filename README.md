@@ -2256,6 +2256,13 @@ the population model; they are not labelled healthy or exhausted. Successful sea
 allocation repair and native encounter integration remain D work, not additional
 ordinary-play encounter coverage.
 
+Local predators now pursue actually sensed prey within a finite attempt budget
+through existing combat, movement and injury rules. Carrion Lanterns scavenge
+actual remains; consumers and decomposition share one saved finite corpse ledger.
+The population model can hand an established original local body to that owner
+without duplicating its membership or stores. This does not yet connect every
+generated population to travel/logistics or make the regional food web viable.
+
 - Keep the game runtime dependency-free unless a feature clearly needs a library.
 - Preserve the discovery loop by avoiding public documentation of exact trait outcomes or hidden gene mappings.
 - Favor small commits after meaningful feature passes or bug fixes.

@@ -44,6 +44,13 @@ pool and twelve-point releases, with no passive replenishment here.
 
 ## Needs, growth and recruitment
 
+The ongoing D integration also consumes shared local predation rules in
+`beast-predation.js`: finite sensed-prey pursuits use ordinary physical combat;
+Carrion Lanterns scavenge rather than initiate hunts. Actual carcasses share one
+eating/decomposition ledger, with timed feeding, physical approach/descent and
+no duplicate meat stock. See [population status](BEAST_POPULATIONS.md) for the
+original-body handoff and the still-unfinished generated regional integration.
+
 `creature-life.js` consumes the approved numeric life histories. Actual compatible
 food, water and minerals leave finite local stocks, enter body stores/mass and
 become recorded outputs. Fat and water initially belong to the original body,

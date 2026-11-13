@@ -3,10 +3,11 @@
   const api = factory(node ? require('./creature-biology') : root.HelixCreatureBiology,
     node ? require('./creature-life') : root.HelixCreatureLife,
     node ? require('./beast-bodies') : root.HelixBeastBodies,
-    node ? require('./beast-habitat') : root.HelixBeastHabitat);
+    node ? require('./beast-habitat') : root.HelixBeastHabitat,
+    node ? require('./beast-predation') : root.HelixBeastPredation);
   if (node) module.exports = api;
   root.HelixBeastBehavior = api;
-})(globalThis, function (Data, Life, Bodies, Habitat) {
+})(globalThis, function (Data, Life, Bodies, Habitat, Predation) {
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x)), DAY = 86400;
   const alive = a => a && a.status !== 'dead' && a.health > 0;
@@ -256,8 +257,8 @@
     } else if (action === 'iceCache') {
       if (!target || target.status !== 'dead' || !same(target.mapCell, a.mapCell) && distance(a, target, ctx) > 2
         || !Habitat.freeze(p, a, .1, at)) return false;
-      target.life.remains ||= { edibleKg: target.bodyPhysics.massKg * .6, lastAt: at };
-      target.life.remains.frozenUntil = at + 3600 / Math.max(1, (p.temperatureC || 0) / 10);
+      Predation.decay(target, at, ctx);
+      Predation.remains(target, at).frozenUntil = at + 3600 / Math.max(1, (p.temperatureC || 0) / 10);
     } else if (action === 'radiantFan') {
       ctx.strike?.(a, target, { damage: 6, type: 'heat', cause: 'Radiant fan flash', radiant: true, energyMJ: 2.4 });
       if (!resist(target, a, action, at, ctx)) condition(target, 'paralysis', a.id, at, 3);
@@ -367,13 +368,24 @@
     return fed > 0;
   }
   function consumeRemains(a, corpse, seconds, at, ctx) {
-    if (!corpse?.life || corpse.status !== 'dead' || distance(a, corpse, ctx) > 2 || !ctx.effectLine?.(a, corpse, 'feed')) return false;
+    if (!(seconds > 0) || !conscious(a, at) || !ctx.alive || !ctx.local
+      || !permitted(a, { ...ctx, actionId: 'feed' })
+      || !corpse?.life || corpse.status !== 'dead' || distance(a, corpse, ctx) > 2
+      || ctx.protectedTarget?.(a, corpse) || !Predation.sensed(a, corpse, ctx, true) || !ctx.effectLine?.(a, corpse, 'feed')) return false;
     if (!foodKeys(a).some(k => ['meatKg', 'carrionKg'].includes(k))) return false;
     if (corpse.speciesId === 'beast:ironroot-colossus') return false;
-    const r = corpse.life.remains ||= { edibleKg: corpse.bodyPhysics.massKg * .6, lastAt: at };
-    const amount = Math.min(r.edibleKg, Life.profile(a).foodKgDay * seconds / 600, a.life.foodCapacityKg - a.life.stores.foodKg);
+    Predation.decay(corpse, at, ctx);
+    const r = Predation.remains(corpse, at);
+    r.feedingAt ||= {};
+    // A second update/read at the same instant cannot pay the same feeding
+    // interval twice. Partial elapsed feeding cannot borrow future throughput.
+    const elapsed = Math.min(seconds, Math.max(0, at - Math.max(r.feedingAt[a.id] ?? at - seconds,
+      a.life.remainsFedAt ?? at - seconds, corpse.diedAt ?? at - seconds)));
+    r.feedingAt[a.id] = Math.max(at, r.feedingAt[a.id] || 0);
+    a.life.remainsFedAt = Math.max(at, a.life.remainsFedAt || 0);
+    const amount = Math.min(r.edibleKg, Life.profile(a).foodKgDay * elapsed / 600, a.life.foodCapacityKg - a.life.stores.foodKg);
     if (!(amount > 0)) return false;
-    r.edibleKg -= amount; Life.changeMass(corpse, -amount);
+    r.edibleKg -= amount; r.consumedKg += amount; Life.changeMass(corpse, -amount);
     let food = amount;
     if (a.speciesId === 'beast:carrion-lantern') { const light = amount * .05; food -= light; a.life.energy.lightKg += light; Life.changeMass(a, light); }
     Life.feed(a, 'foodKg', food); event(a, 'fedFromRemains', at, { corpseId: corpse.id, kg: amount }); return true;
@@ -412,12 +424,7 @@
         ctx.waste?.(a, 'failedRecruitmentKg', Math.max(0, r.investedKg - Life.profile(a).newbornKg * r.emitted.length));
         a.life.reproduction.disposedAt = at;
       }
-      const r = a.life.remains ||= { edibleKg: a.bodyPhysics.massKg * .6, lastAt: at };
-      const elapsed = at - r.lastAt; r.lastAt = at;
-      if (elapsed > 0 && !(r.frozenUntil > at)) {
-        const spoiled = r.edibleKg * -Math.expm1(-elapsed / DAY * .1); r.edibleKg -= spoiled;
-        Life.changeMass(a, -spoiled); ctx.waste?.(a, 'detritusKg', spoiled);
-      }
+      Predation.decay(a, at, ctx);
       return false;
     }
     const resting = ['rest', 'dreamWeather'].includes(a.life.activity), travelling = Boolean(a.bodyPhysics.motion || a.climbing && a.climbing.mode !== 'perched');
@@ -494,10 +501,20 @@
       decision.behavior = 'investigate'; decision.goal = copy(p.chemicalTrail.nextCell);
     }
     if (!danger) {
-      const corpse = (ctx.actors || []).find(t => t.status === 'dead' && distance(a, t, ctx) <= 2);
+      const corpse = Predation.carcass(a, at, { ...ctx, foodKeys });
       if (corpse && actions.includes('iceCache') && !(corpse.life?.remains?.frozenUntil > at)
         && begin(a, 'iceCache', corpse, at, ctx).ok) return true;
       if (corpse && consumeRemains(a, corpse, seconds, at, ctx)) { a.life.activity = 'feed'; return true; }
+      if (corpse) {
+        if (['flight', 'levitation'].includes(a.bodyPhysics.mode) && Bodies.height(a) > Bodies.height(corpse) + 2
+          && Math.hypot(a.mapCell.x - corpse.mapCell.x, a.mapCell.y - corpse.mapCell.y) * (ctx.tileSizeM || 1) <= 2) {
+          a.bodyPhysics.mode = 'landing'; a.bodyPhysics.motion = null; a.bodyPhysics.goal = null;
+          a.life.activity = 'approachCarrion'; return false;
+        }
+        decision.behavior = 'investigate'; decision.goal = copy(corpse.mapCell);
+        a.bodyPhysics.goal = copy(corpse.mapCell);
+        decision.carcassId = corpse.id; a.life.activity = 'seekCarrion'; return false;
+      }
       const lp = Life.profile(a), hungry = a.life.stores.fatKg < a.life.fatCapacityKg * .5 && a.life.stores.foodKg < lp.foodKgDay * .25,
         thirsty = lp.waterLDay > 0 && a.life.stores.waterL < a.life.waterCapacityL * .5;
       const selectiveFeeder = ['beast:ley-manta', 'beast:brine-cathedral', 'beast:burrowing-furnace'].includes(a.speciesId);
@@ -532,10 +549,9 @@
     }
     // Predation and ecological antagonism require actual sensed prey, compatible
     // body scale and shared medium, never a species-wide location oracle.
-    const prey = seen.find(t => t.speciesId && t.speciesId !== a.speciesId && t.bodyPhysics && t.bodyPhysics.massKg < a.bodyPhysics.massKg * .5
-      && foodKeys(a).includes('meatKg') && !ctx.protectedTarget?.(a, t));
-    if (!danger && prey && a.life.stores.fatKg < a.life.fatCapacityKg * .5) { decision.behavior = 'pursue'; decision.goal = copy(prey.mapCell); decision.preyId = prey.id; a.life.activity = 'hunt'; }
-    else a.life.activity = decision?.behavior || 'idle';
+    const prey = huntingTarget(a, at, ctx);
+    if (!danger && prey) { decision.behavior = 'pursue'; decision.goal = copy(prey.mapCell); decision.preyId = prey.id; a.life.activity = 'hunt'; }
+    else a.life.activity = a.life.hunt && target?.id === a.life.hunt.targetId && a.life.hunt.endedAt == null ? 'hunt' : decision?.behavior || 'idle';
     return false;
   }
   function publicEvent(a) {
@@ -543,6 +559,10 @@
     const e = [...a.life.events].reverse().find(e => ['released', 'ecologicalWork', 'headRegrown', 'fedFromRemains'].includes(e.kind));
     return e ? { at: e.at, kind: e.kind, action: e.action && definitions[e.action]?.label, part: e.part } : null;
   }
-  return { definitions, capabilities, attach, mana, affordable, pay, activeConditions, condition, modifiers, canSense, observe, biologicalOpponents,
+  function huntingTarget(a, at, ctx) {
+    return Predation.huntingTarget(a, at, { ...ctx, foodKeys, canHunt: body => capabilities[body.speciesId]?.includes('hunt'),
+      incapacitated: !conscious(a, at) || ctx.incapacitated });
+  }
+  return { definitions, capabilities, attach, mana, affordable, pay, activeConditions, condition, modifiers, canSense, observe, biologicalOpponents, huntingTarget,
     interrupt, begin, advanceAction, receiveRadiance, absorb, foodKeys, feed, consumeRemains, regenerate, advanceVitals, step, publicEvent };
 });

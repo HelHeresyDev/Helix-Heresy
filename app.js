@@ -100274,9 +100274,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         ...(biologyContext ? BeastBehavior.biologicalOpponents(beast, state.clock, biologyContext).map(actor => ({ id: actor.id, actor })) : [])]
         .filter(t => !beastDialogueProtected(beast, t.id));
       if (beast.targetId && beastDialogueProtected(beast, beast.targetId)) { beast.targetId = null; beast.lastTarget = null; beast.rememberedUntil = 0; }
-      if (biologyContext && beast.life.activity === 'hunt') {
-        const prey = biologyContext.actors.find(actor => actor.id === beast.targetId && actor.actorKind === 'wildernessBeast');
+      if (biologyContext) {
+        const prey = BeastBehavior.huntingTarget(beast, state.clock, biologyContext);
         if (prey && !targets.some(target => target.id === prey.id)) targets.push({ id: prey.id, actor: prey });
+        if (beast.life.hunt?.endedAt != null && beast.targetId === beast.life.hunt.targetId && state.clock >= beast.provokedUntil) {
+          beast.targetId = null; beast.lastTarget = null; beast.rememberedUntil = 0;
+          if (beast.bodyPhysics) beast.bodyPhysics.goal = null;
+        }
       }
       if (biologyContext && state.clock - (beast.life.lastAggressorAt ?? -Infinity) <= 30) {
         const aggressor = biologyContext.actors.find(actor => actor.id === beast.life.lastAggressorId);
@@ -100299,8 +100303,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       // No current coordinates of an unseen target may steer navigation or
       // renew memory through an opaque barrier. Local work noise is only
       // localized on an unobstructed sensory line in this bounded consumer.
-      let decision = BeastDiplomacy.intent(currentBeastDiplomacy(), beast, beastDialogueContext(beast), state.clock) || WildernessBeasts.decide(beast, scientist, state.clock, sees,
+      const diplomaticDecision = BeastDiplomacy.intent(currentBeastDiplomacy(), beast, beastDialogueContext(beast), state.clock);
+      let decision = diplomaticDecision || WildernessBeasts.decide(beast, scientist, state.clock, sees,
         working && targetId === 'scientist' && range <= 5 && sensoryLineOfSight(beast.mapCell, scientist));
+      if (!diplomaticDecision && beast.life?.hunt && targetId === beast.life.hunt.targetId && beast.life.hunt.endedAt == null && sees && beast.health >= beast.maxHealth * .3) {
+        decision = { behavior: 'pursue', goal: clonePlainObject(scientist), preyId: targetId };
+        beast.life.activity = 'hunt';
+      }
       if (beast.regionalPhase && beast.effortSeconds <= 0 && range > 1) decision = { behavior: 'return', goal: beast.homeCell };
       beast.behavior = decision.behavior;
       if (scientistInWilderness() && !wildernessBeastVisible(beast) && WildernessBeasts.distance(beast.mapCell, scientistMapCell()) <= 10
@@ -100309,6 +100318,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (elapsed <= 0) continue;
       if (biologyContext) {
         const physicalTarget = biologyContext.actors.find(actor => actor.id === targetId);
+        biologyContext.huntingAllowed = !diplomaticDecision;
         const handled = BeastBehavior.step(beast, decision, physicalTarget, state.clock, elapsed, biologyContext);
         if (handled) {
           if (!beast.life.will) {
@@ -100342,7 +100352,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (updateBeastSpellImitation(beast, targetId, decision)) { changed++; continue; }
       if (vertical) { changed++; continue; }
       if (updateBeastClimbing(beast, beastClimbingSite(beast), decision)) { changed++; continue; }
-      if (decision.behavior === "pursue" && sees && range <= 1 && state.clock >= beast.nextAttackAt) {
+      if (decision.behavior === "pursue" && sees && range <= 1 && state.clock >= beast.nextAttackAt
+        && (!beast.bodyPhysics || beast.bodyPhysics.stamina >= 1)) {
         const observed = targetId === "scientist" || targetId === medic?.id && rescueMedicObserved() || targetId === escort?.id && escortObserved() || porters.some(a => a.id === targetId && (fieldPorterObserved(a) || a.id === state.foundingExpedition?.agreement?.actorId && foundingNear(a, 8)));
         let damageTypes = profile.damageTypes;
         if (beast.speciesId === 'beast:rimefang-pack' && beast.life) {
@@ -100350,6 +100361,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           else damageTypes = damageTypes.filter(type => type !== 'cold');
         }
         const result = resolveSharedCombatAction(beast.id, "strike", { kind: "creature", id: targetId }, { baseDamage: profile.damage, damageTypes, hideFeedback: !observed });
+        if (beast.bodyPhysics) { beast.bodyPhysics.stamina -= 1; beast.bodyPhysics.spentStamina += 1; }
         beast.nextAttackAt = state.clock + profile.recovery;
         if (result.ok) { if (observed) pauseForWildernessThreat(`${beast.name} ${result.hit ? "struck" : "attacked and missed"} ${targetId === "scientist" ? "the scientist" : target.actor.name} at close range.`); changed++; }
       } else if (state.clock >= beast.nextMoveAt) {

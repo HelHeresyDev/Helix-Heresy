@@ -4,10 +4,13 @@
   const node = typeof module === 'object' && module.exports;
   const api = factory(node ? require('./creature-biology') : root.HelixCreatureBiology,
     node ? require('./creature-life') : root.HelixCreatureLife,
-    node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys);
+    node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys,
+    node ? require('./wilderness-beasts') : root.HelixWildernessBeasts,
+    node ? require('./beast-predation') : root.HelixBeastPredation,
+    node ? require('./beast-bodies') : root.HelixBeastBodies);
   if (node) module.exports = api;
   root.HelixBeastPopulations = api;
-})(globalThis, function (Biology, Life, Journeys) {
+})(globalThis, function (Biology, Life, Journeys, Wilderness, Predation, Bodies) {
   'use strict';
   const DAY = 86400, EPS = 1e-8, copy = x => JSON.parse(JSON.stringify(x));
   const nonnegative = n => Number.isFinite(n) && n >= 0;
@@ -309,8 +312,50 @@
     const result = { actorId, memberId, populationId: g.populationId, groupId, cohortId, ordinal,
       speciesId: g.speciesId, regionId: location(g), detailedAt: at, status: 'detailed',
       ageDays: Math.max(0, (at - c.bornAt) / DAY), massKg: c.massKg, structuralKg: c.structuralKg,
-      stores: copy(c.stores), role: c.role, colonyId: c.colonyId };
+      stores: copy(c.stores), role: c.role, colonyId: c.colonyId, health: c.health };
     s.details[actorId] = result; rebuild(s, at); return copy(result);
+  }
+  // A local source adapter must supply the original body's established position
+  // and real terrain context. A regional range/centroid alone cannot place prey
+  // beside a predator. The resulting actor is owned by this exact detail claim.
+  function claimLocal(s, groupId, cohortId, ordinal, actorId, at, ctx) {
+    if (!nonnegative(at) || at < s.clock || !ctx?.alive || !ctx.local || !id(actorId) || s.details[actorId]) return null;
+    advance(s, at, true, true);
+    const g = s.groups.find(g => g.id === groupId), c = g?.cohorts.find(c => c.id === cohortId);
+    if (!c || !c.ranges.some(([lo, hi]) => ordinal >= lo && ordinal < hi) || !Bodies.profiles[g.speciesId]) return null;
+    const position = ctx.originalPosition?.(g, c, ordinal, at);
+    if (!position || position.regionId !== location(g) || !position.cell
+      || !['x', 'y', 'z'].every(k => Number.isInteger(position.cell[k]))) return null;
+    const a = Wilderness.actor(g.speciesId, actorId, position.cell, g.populationId, at,
+      { ageDays: (at - c.bornAt) / DAY, massKg: c.massKg, role: c.role, colonyId: c.colonyId, will: g.will, willing: g.willing });
+    if (Number.isFinite(position.altitudeM)) a.bodyPhysics.altitudeM = position.altitudeM;
+    if (position.mode) a.bodyPhysics.mode = position.mode;
+    const reserves = ctx.originalReserves?.(g, c, ordinal, at), manaOwner = a.spellImitation || a.bodyPhysics;
+    // The background account does not yet own magical/effort histories. Missing
+    // provenance is unavailable, never a freshly full (or fabricated empty) pool.
+    if (!reserves || !nonnegative(reserves.mana) || reserves.mana > manaOwner.mana
+      || !nonnegative(reserves.stamina) || reserves.stamina > a.bodyPhysics.stamina
+      || !reserves.energy || !Object.keys(a.life.energy).every(k => nonnegative(reserves.energy[k]))) return null;
+    manaOwner.mana = reserves.mana; a.bodyPhysics.stamina = reserves.stamina;
+    a.life.energy = copy(reserves.energy);
+    const modes = Bodies.profiles[g.speciesId].modes;
+    if (!Bodies.valid(a) || !(modes.includes(a.bodyPhysics.mode) || a.bodyPhysics.mode === 'walking' && modes.includes('charging'))
+      || Bodies.habitatReason(a, a.mapCell, a.bodyPhysics.mode, Bodies.height(a), ctx)) return null;
+    const d = detail(s, groupId, cohortId, ordinal, actorId, at); if (!d) return null;
+    a.maxHealth = Math.max(1, a.maxHealth * Math.min(1, Math.sqrt(d.massKg / Biology.lifecycle[g.speciesId].adultKg)));
+    a.health = a.maxHealth * d.health;
+    a.life.stores = copy(d.stores); a.life.structuralKg = d.structuralKg;
+    a.life.bornAt = at - d.ageDays * DAY;
+    a.life.originalMemberId = d.memberId;
+    a.life.originalGroupId = groupId;
+    s.details[actorId].actor = a; return a;
+  }
+  function settleLocalLoss(s, actorId, at, cause) {
+    const d = s.details[actorId], a = d?.actor;
+    if (!a || a.status !== 'dead' || a.health > 0 || !id(cause) || !nonnegative(at) || at < s.clock) return false;
+    const r = Predation.remains(a, at);
+    if (!recordDetailedLoss(s, actorId, at, cause, r.massKgAtDeath)) return false;
+    return true;
   }
   function recordDetailedLoss(s, actorId, at, cause, remainsKg) {
     const d = s.details[actorId];
@@ -417,11 +462,17 @@
           || !integer(c.deathSerial) || !nonnegative(c.deathExposure) || !nonnegative(c.deathThreshold)
           || !c.needs || !Object.values(c.needs).every(nonnegative)) return null;
       }
-      for (const [actorId, d] of Object.entries(s.details)) if (actorId !== d.actorId || !id(d.memberId) || !integer(d.ordinal)
-        || !['detailed', 'dead'].includes(d.status) || !s.groups.some(g => g.id === d.groupId && g.populationId === d.populationId)) return null;
+      for (const [actorId, d] of Object.entries(s.details)) {
+        if (actorId !== d.actorId || !id(d.memberId) || !integer(d.ordinal)
+          || !['detailed', 'dead'].includes(d.status) || !s.groups.some(g => g.id === d.groupId && g.populationId === d.populationId)) return null;
+        if (d.actor && (d.actor.id !== actorId || d.actor.speciesId !== d.speciesId || d.actor.populationId !== d.populationId
+          || !nonnegative(d.actor.health) || !(d.actor.maxHealth > 0) || !Number.isFinite(d.actor.maxHealth) || d.actor.health > d.actor.maxHealth
+          || d.actor.life?.originalMemberId !== d.memberId || d.actor.life.originalGroupId !== d.groupId || !Life.valid(d.actor) || !Bodies.valid(d.actor)
+          || !Predation.validRemains(d.actor) || !Predation.validHunt(d.actor) || d.status === 'dead' && d.actor.status !== 'dead')) return null;
+      }
       audit(s); return s; // Preserve cached event times; loading is not a reroll or refill.
     } catch { return null; }
   }
   return { DAY, count, cohortKey, monthAt, hazardIntegral, validateSource, create, chooseDestination,
-    advance, detail, recordDetailedLoss, removeStock, kill, audit, rebind, normalize };
+    advance, detail, claimLocal, settleLocalLoss, recordDetailedLoss, removeStock, kill, audit, rebind, normalize };
 });
