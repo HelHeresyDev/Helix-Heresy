@@ -254,6 +254,7 @@
   if (!HiddenWorkshop) throw new Error('Hidden workshop must load before app.js');
   const WildernessDiscovery = window.HelixWildernessDiscovery;
   const WildernessBeasts = window.HelixWildernessBeasts;
+  const BeastBodies = window.HelixBeastBodies;
   const ExpeditionEscorts = window.HelixExpeditionEscorts;
   if (!ExpeditionEscorts) throw new Error("Expedition escorts must load before app.js");
   if (!WildernessBeasts) throw new Error("Wilderness beasts must load before app.js");
@@ -18427,12 +18428,25 @@
         materializeSurveySpaces(); materializeWilderness();
         state.surveyExpeditions.phase = "field"; state.wildernessSurvival.autoCare = false; state.tasks = [];
         state.wildernessBeasts = { ...WildernessBeasts.defaultState(), materialized: true, siteId: state.wildernessSurvival.destination.id, actors: (options.actors || []).map((entry, index) => ({ ...WildernessBeasts.actor(entry.speciesId || "beast:rimefang-pack", entry.id || `field-test-${index}`, entry.cell, "population-test", state.clock), ...entry, mapCell: entry.cell })) };
+        if (options.bodyTerrain) state.wildernessBeasts.bodyTerrain = clonePlainObject(options.bodyTerrain);
         moveSurveyScientist(WildernessBeasts.ROOM, options.scientistCell || WildernessSurvival.ENTRY);
         updateBoundaryDiscovery();
         state.injuries = []; state.combat = normalizeCombatState({});
         updateWildernessBeasts(0); persist(); render(); return true;
       },
-      advanceWildernessBeastsForTest: (seconds) => { for (let i = 0; i < seconds; i++) { state.clock++; updateWildernessBeasts(1); } render(); },
+      advanceWildernessBeastsForTest: (seconds) => { for (let i = 0; i < seconds; i++) { state.clock++; updateWildernessBeasts(1); } persist(); render(); },
+      beastBodyRequestForTest: (id, mode, goal, transition = false) => {
+        const actor = wildernessBeast(id); if (!actor) return { ok: false };
+        const result = transition ? BeastBodies.transition(actor, mode, goal, beastBodyContext(actor)) : BeastBodies.request(actor, mode, goal, beastBodyContext(actor));
+        persist(); render(); return result;
+      },
+      beastBodySnapshot: id => {
+        const a = wildernessBeast(id); return clonePlainObject({ actor: a, clock: state.clock,
+          footprint: a && BeastBodies.footprint(a, ensureLabMap().tileSizeM), terrain: ensureWildernessBeasts().bodyTerrain,
+          movementReasons: a?.bodyPhysics ? WildernessBeasts.neighbors(a.mapCell).map(cell => ({ cell,
+            reason: BeastBodies.habitatReason(a, cell, a.bodyPhysics.mode, a.bodyPhysics.altitudeM, beastBodyContext(a)) })) : [],
+          visible: a && wildernessBeastVisible(a), knowledge: wildernessBeastKnowledge(), strikeReason: a && scientistCombatActionBlockReason('strike', a) });
+      },
       wildernessBeastActionReason: (action, id) => scientistCombatActionBlockReason(action, wildernessBeast(id)),
       expeditionEscortSnapshot: () => { const s = ensureExpeditionEscorts(); return clonePlainObject({ ...s, stacks: s.actor ? actorInventoryStacks(s.actor.id) : [], money: ensureEconomy().money, scientistCell: scientistMapCell(), scientistHealth: scientistVital("health").current, clock: state.clock, injuries: state.injuries, beasts: ensureWildernessBeasts().actors }); },
       setForeignEscortTestSource: source => {
@@ -34571,7 +34585,9 @@
   }
 
   function labMapCellIsWalkable(cell, map = ensureLabMap(), excavatedKeys = null) {
+    const physical = recordedBeastTerrainAt(cell);
     return labMapCellHasFloor(cell, map, excavatedKeys)
+      && physical?.floor !== false && !(physical?.waterDepthM > .9) && physical?.supportKg !== 0
       && !beastClimbingSurfaceAt(cell)
       && !constructedWallAtCell(cell, map)
       && labMapCellHasSupport(cell, map, excavatedKeys);
@@ -39202,7 +39218,7 @@
     if (['cityDefender', 'civicOfficeholder', 'cityIncumbent', 'municipalTechnician', 'divineAvatar', 'divineIndividual', 'reliefDriver'].includes(actor.actorKind)) return .6;
     if (["surfaceWorker", "laboratoryAssistant", "homunculus", "foreignSupplier"].includes(actor.actorKind)) return .6;
     if (["expeditionEscort", "rescueMedic", "municipalClinician", "penalPrisoner"].includes(actor.actorKind)) return .6;
-    if (actor.actorKind === "wildernessBeast") return 1;
+    if (actor.actorKind === "wildernessBeast") return BeastBodies.height(actor) > 2 || BeastBodies.height(actor) < -1 ? 0 : BeastBodies.footprint(actor, ensureLabMap().tileSizeM).loadM2;
     if (actor === state.scientist || actor.physicalPresence) {
       return Math.max(0, Number(actor.physicalPresence?.floorLoadM2) || SCIENTIST_DEFAULT_PHYSICAL_PRESENCE.floorLoadM2);
     }
@@ -39271,7 +39287,8 @@
     }
     for (const a of reliefDrivers()) if (a.id !== excludeActor?.id && mapCellKey(a.mapCell) === key) occupied += .6;
     for (const beast of allWildernessBeasts()) {
-      if (beast.id !== excludeActor?.id && mapCellKey(beast.mapCell) === key) occupied += MAP_TILE_AREA_M2;
+      if (beast.id !== excludeActor?.id && beastElevation(beast) < 1.8 && beastElevation(beast) + (beast.bodyPhysics?.dimensions.heightM || 1.8) > 0
+        && BeastBodies.occupied(beast, ensureLabMap().tileSizeM).some(c => mapCellKey(c) === key)) occupied += MAP_TILE_AREA_M2;
     }
     if (!samePhysicalActor(state.scientist, excludeActor) && mapCellKey(state.scientist?.mapCell) === key) {
       occupied += Math.max(0, Number(state.scientist?.physicalPresence?.floorLoadM2) || SCIENTIST_DEFAULT_PHYSICAL_PRESENCE.floorLoadM2);
@@ -39366,7 +39383,7 @@
     if (['cityDefender', 'civicOfficeholder', 'cityIncumbent', 'municipalTechnician', 'divineAvatar', 'divineIndividual', 'reliefDriver'].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (["surfaceWorker", "laboratoryAssistant", "homunculus", "foreignSupplier"].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
     if (["expeditionEscort", "rescueMedic", "penalPrisoner"].includes(actor?.actorKind)) return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: .6, exclusive: false });
-    if (actor?.actorKind === "wildernessBeast") return Navigation.normalizeFootprint({ width: 1, height: 1, heightLayers: 1, loadM2: 1, exclusive: true });
+    if (actor?.actorKind === "wildernessBeast") return Navigation.normalizeFootprint(BeastBodies.footprint(actor, ensureLabMap().tileSizeM));
     const loadM2 = clamp(actorFloorLoadM2(actor), 0.015, MAP_TILE_AREA_M2);
     if (!actor || actor === state.scientist || actor.physicalPresence) {
       const heightM = Math.max(0.1, Number(actor?.physicalPresence?.heightM) || SCIENTIST_DEFAULT_PHYSICAL_PRESENCE.heightM);
@@ -42887,7 +42904,7 @@
         const horizontalDistance = Math.max(Math.abs(left.x - right.x), Math.abs(left.y - right.y)) * map.tileSizeM;
         distance = Math.min(distance, Math.hypot(
           horizontalDistance,
-          (left.z - right.z) * map.layerHeightM + BeastClimbing.height(leftActor) - BeastClimbing.height(rightActor)
+          (left.z - right.z) * map.layerHeightM + beastElevation(leftActor) - beastElevation(rightActor)
         ));
       }
     }
@@ -42959,8 +42976,13 @@
       const targetCell = combatActorCell(targetActor);
       if (!actorCell || !targetCell) return { inRange: false, reason: "The target has no physical position." };
       const distanceM = combatFootprintDistanceMeters(actor, targetActor);
-      if (distanceM > action.rangeM) return { inRange: false, distanceM, reason: `${targetActor.name || "The target"} is outside ${action.label}'s ${formatDecimal(action.rangeM, 1)} m range.` };
-      if (!beastClimbingLine(actor, targetActor, Boolean(action.requiresLineOfEffect || BeastClimbing.height(actor) || BeastClimbing.height(targetActor)), true))
+      const bodyStrike = action.id === 'strike' && WildernessBeasts.PROFILES[actor.speciesId]?.bodyManaged;
+      const reachM = bodyStrike ? BeastBodies.profiles[actor.speciesId].reachM : action.rangeM;
+      // Occupancy cells describe volumes, not point centres. Touching occupied
+      // cell edges have zero horizontal gap; retain the vertical separation.
+      const reachDistanceM = bodyStrike ? Math.max(Math.abs(beastElevation(actor) - beastElevation(targetActor)), distanceM - ensureLabMap().tileSizeM) : distanceM;
+      if (reachDistanceM > reachM) return { inRange: false, distanceM, reason: `${targetActor.name || "The target"} is outside ${action.label}'s ${formatDecimal(reachM, 1)} m range.` };
+      if (!beastClimbingLine(actor, targetActor, Boolean(action.requiresLineOfEffect || beastElevation(actor) || beastElevation(targetActor)), true))
         return { inRange: false, distanceM, reason: 'Natural climbing geometry or an opaque barrier blocks line of effect to the target.' };
       return { inRange: true, distanceM, reason: "" };
     }
@@ -42968,8 +42990,8 @@
     const actorCell = combatActorCell(actor);
     if (!cell || !actorCell) return { inRange: false, reason: "The target has no physical position." };
     const distanceM = Math.hypot(Math.hypot(actorCell.x - cell.x, actorCell.y - cell.y) * ensureLabMap().tileSizeM,
-      (actorCell.z - cell.z) * ensureLabMap().layerHeightM + BeastClimbing.height(actor));
-    const clear = beastClimbingLine(actor, { mapCell: cell }, Boolean(action.requiresLineOfEffect || BeastClimbing.height(actor)), true);
+      (actorCell.z - cell.z) * ensureLabMap().layerHeightM + beastElevation(actor));
+    const clear = beastClimbingLine(actor, { mapCell: cell }, Boolean(action.requiresLineOfEffect || beastElevation(actor)), true);
     return distanceM <= action.rangeM && clear
       ? { inRange: true, distanceM, reason: "" }
       : { inRange: false, distanceM, reason: distanceM > action.rangeM ? `The target is outside ${action.label}'s ${formatDecimal(action.rangeM, 1)} m range.` : "No clear line of effect reaches the target." };
@@ -43084,7 +43106,7 @@
     state.injuries = normalizeInjuries(state.injuries);
     const scientist = actor === state.scientist || actor?.physicalPresence;
     const actorId = scientist ? "scientist" : actor.id;
-    const locations = scientist || actor.speciesId === BeastSpellImitation.SPECIES || ["fieldDriver", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent", "civicOfficeholder", "divineAvatar", "divineIndividual", "reliefDriver"].includes(actor.actorKind) ? SCIENTIST_INJURY_LOCATIONS : actor.actorKind === "wildernessBeast" ? ["head", "torso", "left leg", "right leg"] : slimeInjuryLocations(actor);
+    const locations = scientist || actor.speciesId === BeastSpellImitation.SPECIES || ["fieldDriver", "expeditionEscort", "rescueMedic", "penalPrisoner", "surfaceWorker", "laboratoryAssistant", "homunculus", "cityDefender", "cityIncumbent", "civicOfficeholder", "divineAvatar", "divineIndividual", "reliefDriver"].includes(actor.actorKind) ? SCIENTIST_INJURY_LOCATIONS : actor.actorKind === "wildernessBeast" ? BeastBodies.profiles[actor.speciesId]?.parts || ["head", "torso"] : slimeInjuryLocations(actor);
     const rng = seedRng(`${state.seed}:injury:${actorId}:${state.combat?.nextActionNumber || 0}:${Math.round(state.clock)}:${damageTypes.join(":")}`);
     const location = options.location || locations[Math.floor(rng() * locations.length)] || (scientist ? "torso" : "body mass");
     const typeId = injuryTypeForDamage(actor, damageTypes, amount, location);
@@ -71996,6 +72018,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!ensureWildernessBeasts().materialized) return assignments;
     const knowledge = wildernessBeastKnowledge();
     const markers = [
+      ...knowledge.sightings.flatMap(entry => (entry.visibleBodyCells || []).filter(cell => !sameMapCell(cell, entry.cell)).map(cell => ({ cell,
+        value: entry.status === 'dead' ? '†' : entry.current ? 'B' : '?',
+        label: `${entry.name}: ${entry.current ? `${entry.verticalActivity}; ${formatDecimal(entry.heightM || 0, 2)} m relative to ground; observed body footprint` : 'dated body footprint; current location unknown'}` }))),
       ...knowledge.tracks.map((entry) => ({ cell: entry.cell, value: ":", label: `${entry.label}; tracks do not locate their maker` })),
       ...knowledge.sightings.map((entry) => ({ cell: entry.cell, value: entry.status === "dead" ? "†" : entry.current ? entry.heightM > 0 ? '↑' : "B" : "?", label: `${entry.name}: ${entry.current ? `${entry.condition}; ${entry.verticalActivity || 'ground'}, ${formatDecimal(entry.heightM || 0, 2)} m above local ground` : "last seen here; current location and height unknown"}` }))
     ];
@@ -99712,7 +99737,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return beasts;
   }
   function wildernessBeastVisible(beast) {
-    return Boolean(beast && scientistInWilderness() && WildernessBeasts.distance(scientistMapCell(), beast.mapCell) <= 8 && beastClimbingLine(state.scientist, beast));
+    const visibleDepth = beast && (beastElevation(beast) >= 0 || ['swimming', 'drifting'].includes(beast.bodyPhysics?.mode)
+      && (beastBodyContext(beast).terrain(beast.mapCell)?.waterClarityM || 0) >= -beastElevation(beast));
+    return Boolean(beast && scientistInWilderness() && visibleDepth
+      && BeastBodies.occupied(beast, ensureLabMap().tileSizeM).some(c => WildernessBeasts.distance(scientistMapCell(), c) <= 8
+        && sensoryLineOfSight(scientistMapCell(), c)) && beastClimbingLine(state.scientist, beast));
   }
   function wildernessBeastKnowledge() {
     const saved = ensureWildernessBeasts();
@@ -99734,7 +99763,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (threat && !previous?.threatVisible) pauseForWildernessThreat(`${beast.name} is an immediate visible threat. Guard, fight, or withdraw${unsupportedActive() || state.penalFlights?.fieldActive ? " to safer local ground; there is no defended gate here" : " through the secured entrance"}.`);
       else if (!previous) surveyEvent(`Sighted ${beast.name} on the wilderness trail.`);
       saved.sightings[beast.id] = { id: beast.id, name: beast.name, speciesId: beast.speciesId, cell: cleanMapCell(beast.mapCell), observedAt: state.clock, status: beast.status, condition: beast.status === "dead" ? "Dead; physical remains" : beast.health < beast.maxHealth * .3 ? "Severely wounded" : beast.health < beast.maxHealth ? "Visibly wounded" : "No visible wounds", threatVisible: threat,
-        heightM: BeastClimbing.height(beast), verticalActivity: beast.climbing?.mode || 'ground',
+        heightM: beastElevation(beast), verticalActivity: beast.climbing?.mode || beast.bodyPhysics?.mode || 'ground',
+        physicalPose: BeastBodies.observed(beast),
+        visibleBodyCells: BeastBodies.occupied(beast, ensureLabMap().tileSizeM).filter(c => WildernessBeasts.distance(scientistMapCell(), c) <= 8 && sensoryLineOfSight(scientistMapCell(), c)),
         climbEvent: BeastClimbing.observedEvent(beast, previous, state.clock),
         spellEvent: BeastSpellImitation.observedEvent(beast, previous, state.clock),
         castingActivity: BeastSpellImitation.visiblePreparation(beast) };
@@ -99759,10 +99790,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     beast.health = Math.max(0, beast.health - damage);
     BeastSpellImitation.interrupt(beast, 'Actual bodily damage interrupted preparation', state.clock, !scientistIsDead());
     if (attackerId === "scientist" || escortStateForActor(attackerId) || attackerId === state.medicalExtraction?.medic?.id || attackerId === state.foundingExpedition?.agreement?.actorId) { beast.provokedUntil = state.clock + 30; beast.lastTarget = cleanMapCell(combatActorCell(combatActor(attackerId))); beast.targetId = attackerId; beast.rememberedUntil = state.clock + 12; }
-    if (!options.injuryProgress) recordCombatInjury(beast, damage, options.damageTypes || ["physical"], options.cause || "Physical field combat", { observed: wildernessBeastVisible(beast) });
+    if (!options.injuryProgress) {
+      const injury = recordCombatInjury(beast, damage, options.damageTypes || ["physical"], options.cause || "Physical field combat", { observed: wildernessBeastVisible(beast) });
+      if (injury) BeastBodies.damagePart(beast, injury.location, damage, state.clock);
+    }
     const climbSite = beastClimbingSite(beast);
     if (beast.climbing && climbSite && !options.climbFall) BeastClimbing.interrupt(beast, climbSite, beastClimbingContext(beast, climbSite), state.clock, damage);
-    if (!beast.health) { beast.status = "dead"; beast.behavior = "dead"; beast.diedAt = state.clock; beast.deathCause = "Physical trauma"; }
+    if (!beast.health) { beast.status = "dead"; beast.behavior = "dead"; beast.diedAt = state.clock; beast.deathCause = "Physical trauma";
+      if (beast.bodyPhysics?.altitudeM > 0 && beast.bodyPhysics.mode !== 'grounded') { beast.bodyPhysics.pendingFallM = beast.bodyPhysics.altitudeM; beast.bodyPhysics.mode = 'falling'; beast.bodyPhysics.motion = null; beast.bodyPhysics.turn = null; } }
     if (!scientistIsDead()) ensureRegionalEncounters();
     observeWildernessBeasts();
     return true;
@@ -99823,6 +99858,110 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function beastClimbingSite(a) {
     return (state.roadsideStops?.sites || []).find(s => s.id === a?.regionalSiteId && s.roomId === a.roomId) || null;
   }
+  function beastElevation(a) { return a?.climbing ? BeastClimbing.height(a) : BeastBodies.height(a); }
+  function recordedBeastTerrainAt(c) {
+    const k = mapCellKey(c);
+    return state?.wildernessBeasts?.bodyTerrain?.[k] || state?.regionalEncounters?.beasts?.bodyTerrain?.[k]
+      || state?.unsupportedExcursions?.boundary?.beasts?.bodyTerrain?.[k] || state?.unsupportedExcursions?.remote?.beasts?.bodyTerrain?.[k]
+      || state?.penalFlights?.assistance?.cityApproach?.gates?.map(g => g.foreignSurvey?.wilderness?.beasts?.bodyTerrain?.[k]).find(Boolean);
+  }
+  function beastBodyContext(a) {
+    const map = ensureLabMap(), saved = ensureWildernessBeasts(), room = map.rooms[a.roomId];
+    const allowed = new Set((room?.cells || []).map(mapCellKey));
+    // One synchronous body step sees one physical occupancy snapshot. Do not
+    // rebuild every person's state and every other footprint per candidate cell.
+    const people = [...fieldEmployeeStates(), ...fieldForceMembers()].map(s => s.actor)
+      .concat(ensureExpeditionEscorts().actor || [], state.medicalExtraction?.medic || [], currentFieldCharter()?.driver || [],
+        state.penalFlights?.actors || [], foundingWorksActors(), fieldInterdictionActors(), producerDriverActors());
+    const peopleCells = new Set(people.filter(other => other.id !== a.id && other.roomId === a.roomId).map(other => mapCellKey(other.mapCell)));
+    peopleCells.add(mapCellKey(scientistMapCell()));
+    const bodyVolumes = new Map();
+    for (const other of allWildernessBeasts().filter(other => other.id !== a.id && other.roomId === a.roomId)) {
+      const low = beastElevation(other), high = low + (other.bodyPhysics?.dimensions.heightM || 1.8);
+      for (const c of BeastBodies.occupied(other, map.tileSizeM)) {
+        const k = mapCellKey(c); if (!bodyVolumes.has(k)) bodyVolumes.set(k, []);
+        bodyVolumes.get(k).push({ low, high });
+      }
+    }
+    const baseline = a.roomId === activeWildernessRoom() ? activeWildernessSite()?.discovery?.baseline : null;
+    const bounds = baseline?.bounds;
+    const terrain = c => {
+      const inSource = bounds && c.z === bounds.z && c.x >= bounds.x && c.x < bounds.x + bounds.width
+        && c.y >= bounds.y && c.y < bounds.y + bounds.height;
+      if (!allowed.has(mapCellKey(c)) && !inSource) return null;
+      const raw = recordedBeastTerrainAt(c) || {};
+      const door = labMapDoorAtCell(c, map), wall = constructedWallAtCell(c, map);
+      const outcrop = baseline?.rocks?.some(p => sameMapCell(p, c));
+      return { floor: labMapCellHasFloor(c, map), waterDepthM: 0, soilDepthM: 0, ...raw,
+        protected: sameMapCell(c, WildernessSurvival.GATE) || sameMapCell(c, foreignWildernessLocal()?.gate),
+        obstacleHeightM: wall || door && !doorFixtureAllowsPassage(door) || propertyOpaqueFixtureAtCell(c) ? 4 : Math.max(outcrop ? 2 : 0, raw.obstacleHeightM || 0),
+        foundation: Boolean(wall || door || raw.foundation),
+        ceilingM: labMapCellHasFloor({ ...c, z: c.z + 1 }, map) ? map.layerHeightM : raw.ceilingM };
+    };
+    return { tileSizeM: map.tileSizeM, alive: !scientistIsDead(), local: a.roomId === activeWildernessRoom(),
+      incapacitated: actorIsIncapacitated(a), movementFactor: 1 + injuryEffectTotals(a).movement, terrain,
+      cargoKg: actor => ensurePhysicalItemStacks().filter(s => s.carriedBy === actor.id)
+        .reduce((n, s) => n + s.quantity * s.unitMassKg, 0),
+      blocked: (c, low, high, actor) => {
+        const k = mapCellKey(c);
+        if (low < 1.8 && high > 0 && peopleCells.has(k)) return true;
+        return bodyVolumes.get(k)?.some(other => other.low < high && other.high > low) || false;
+      },
+      excavate: (actor, c, volume, t) => {
+        const raw = saved.bodyTerrain?.[mapCellKey(c)];
+        if (!raw || !Number.isFinite(raw.materialKg) || !Number.isFinite(t.densityKgM3) || t.protected || t.foundation) return null;
+        const kg = Math.min(raw.materialKg, volume * t.densityKgM3);
+        raw.materialKg -= kg; raw.rubbleKg = (raw.rubbleKg || 0) + kg;
+        raw.excavatedM3 = (raw.excavatedM3 || 0) + kg / t.densityKgM3;
+        if (Number.isFinite(raw.supportKg)) raw.supportKg = Math.max(0, raw.supportKg - kg);
+        return kg;
+      },
+      breakIce: (actor, c, volume, t) => {
+        const raw = saved.bodyTerrain?.[mapCellKey(c)];
+        if (!raw || raw.iceThicknessM <= 0 || !Number.isFinite(t.iceDensityKgM3)) return null;
+        const kg = volume * t.iceDensityKgM3;
+        raw.brokenIceKg = (raw.brokenIceKg || 0) + kg; raw.iceThicknessM = 0;
+        return kg;
+      },
+      damage: (actor, amount, cause) => damageWildernessBeast(actor, amount, 'physical-environment', { cause, damageTypes: ['physical'] }) };
+  }
+  function updateBeastBody(a, decision, at) {
+    if (!a.bodyPhysics || !WildernessBeasts.PROFILES[a.speciesId]?.bodyManaged) return false;
+    const b = a.bodyPhysics, c = beastBodyContext(a);
+    if (!b.motion && !b.turn && !['falling', 'landing'].includes(b.mode)) {
+      let goal = decision?.behavior === 'pursue' ? decision.goal : b.goal && !sameMapCell(b.goal, a.mapCell) ? b.goal : decision?.goal;
+      if ((!goal || sameMapCell(goal, a.mapCell)) && decision?.behavior === 'roam') goal = { ...a.homeCell, x: a.homeCell.x + (a.patrolIndex++ % 2 ? -2 : 2) };
+      if (decision?.behavior === 'flee' && goal) goal = { ...a.mapCell, x: a.mapCell.x + Math.sign(a.mapCell.x - goal.x) * 2, y: a.mapCell.y + Math.sign(a.mapCell.y - goal.y) * 2 };
+      const p = BeastBodies.profiles[a.speciesId];
+      const mode = ['grounded', 'walking'].includes(b.mode) && !p.modes.includes('walking') ? p.modes.includes('levitation') ? 'levitation' : p.modes.includes('flight') ? 'flight' : b.mode : b.mode;
+      const result = BeastBodies.request(a, mode, goal, c);
+      if (!result.ok) b.blockedReason = result.reason;
+      if (goal && !sameMapCell(goal, a.mapCell)) {
+        const toward = WildernessBeasts.neighbors(a.mapCell).filter(n => WildernessBeasts.distance(n, goal) < WildernessBeasts.distance(a.mapCell, goal));
+        // React only to the next physically encountered shore/soil boundary;
+        // this is not a search of distant destination habitat or capacity.
+        if (['walking', 'swimming'].includes(b.mode) && p.modes.includes('walking') && p.modes.includes('swimming')) {
+          const nextMode = b.mode === 'walking' ? 'swimming' : 'walking';
+          const shore = toward.find(n => BeastBodies.habitatReason(a, n, b.mode, b.altitudeM, c)
+            && !BeastBodies.habitatReason(a, n, nextMode, nextMode === 'swimming' ? -b.dimensions.heightM : 0, c));
+          if (shore) BeastBodies.transition(a, nextMode, shore, c);
+        } else if (b.mode === 'burrowing' && p.modes.includes('walking')) {
+          const exit = toward.find(n => BeastBodies.habitatReason(a, n, b.mode, b.altitudeM, c)
+            && !BeastBodies.habitatReason(a, n, 'walking', 0, c));
+          if (exit) BeastBodies.transition(a, 'walking', exit, c);
+        } else if (b.mode === 'walking' && p.modes.includes('burrowing') && toward.length
+          && toward.every(n => BeastBodies.habitatReason(a, n, 'walking', 0, c))) BeastBodies.transition(a, 'burrowing', a.mapCell, c);
+        if (!b.motion && ['walking', 'swimming'].includes(b.mode) && b.dimensions.lengthM > b.dimensions.widthM * 1.5) {
+          const heading = Math.abs(goal.y - a.mapCell.y) > Math.abs(goal.x - a.mapCell.x) ? 1 : 0;
+          if (heading !== (b.heading || 0)) {
+            const turned = BeastBodies.turn(a, heading, c);
+            if (!turned.ok) { b.blockedReason = `Turning clearance: ${turned.reason}`; b.lastAt = at; return true; }
+          }
+        }
+      }
+    }
+    BeastBodies.advance(a, at, c); return true;
+  }
   function beastClimbingSurfaceAt(cell) {
     return (state?.roadsideStops?.sites || []).find(s => s.entry.z === cell?.z)?.climbSurfaces?.find(f => f.condition > 0 && sameMapCell(f.cell, cell)) || null;
   }
@@ -99830,8 +99969,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const from = a?.id ? combatActorCell(a) : a?.mapCell || a, to = b?.id ? combatActorCell(b) : b?.mapCell || b;
     if (!from || !to || checkBase && !(effect ? directedLineOfEffect(from, to) : sensoryLineOfSight(from, to))) return false;
     const site = (state.roadsideStops?.sites || []).find(s => s.entry.z === from.z);
-    if (!site?.climbSurfaces?.length && !BeastClimbing.height(a) && !BeastClimbing.height(b)) return true;
-    return BeastClimbing.lineClear(from, BeastClimbing.height(a) + 1.5, to, BeastClimbing.height(b) + 1.5, site?.climbSurfaces);
+    if ((beastElevation(a) < 0) !== (beastElevation(b) < 0)) {
+      const underwater = beastElevation(a) < 0 ? a : b;
+      if (!underwater?.bodyPhysics || !['swimming', 'drifting'].includes(underwater.bodyPhysics.mode)
+        || (beastBodyContext(underwater).terrain(underwater.mapCell)?.waterClarityM || 0) < -beastElevation(underwater)) return false;
+    }
+    if (!site?.climbSurfaces?.length && !beastElevation(a) && !beastElevation(b)) return true;
+    return BeastClimbing.lineClear(from, Math.max(0, beastElevation(a)) + 1.5, to, Math.max(0, beastElevation(b)) + 1.5, site?.climbSurfaces);
   }
   function beastClimbingContext(a, site) {
     const map = ensureLabMap(), cells = site?.baseline || [];
@@ -99909,6 +100053,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if ((!scientistInWilderness() && !escort && !medic && !porters.length && currentFieldCharter()?.driver.roomId !== activeWildernessRoom()) || scientistIsDead()) {
       for (const beast of saved.actors) { beast.nextMoveAt += Math.max(0, elapsed); beast.nextAttackAt += Math.max(0, elapsed);
         BeastSpellImitation.interrupt(beast, 'No original local target remains on this physical patch', state.clock);
+        if (beast.bodyPhysics) { beast.bodyPhysics.lastAt = state.clock; beast.bodyPhysics.wasLocal = false; }
         if (beast.climbing) { beast.climbing.lastAt = state.clock; beast.climbing.wasReady = false; } }
       saved.lastAt = state.clock; return 0;
     }
@@ -99922,6 +100067,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           && u.actors.some(a => a.status === 'alive' && a.roomId === supplySite.roomId)))) continue; // Exactly one physical AI owner.
       if (roadside && beast.roomId !== roadside.roomId) {
         BeastSpellImitation.interrupt(beast, 'The original local encounter is no longer attended', state.clock);
+        if (beast.bodyPhysics) { beast.bodyPhysics.lastAt = state.clock; beast.bodyPhysics.wasLocal = false; }
         if (beast.climbing) { beast.climbing.lastAt = state.clock; beast.climbing.wasReady = false; } continue;
       }
       const vertical = elapsed > 0 && updateBeastClimbing(beast, beastClimbingSite(beast));
@@ -99929,15 +100075,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         BeastSpellImitation.interrupt(beast, 'Moving climbing limbs cannot prepare a spell', state.clock); changed++; continue;
       }
       if (beast.status === "dead" || actorIsIncapacitated(beast)) {
+        if (beast.bodyPhysics?.mode === 'falling') BeastBodies.advance(beast, state.clock, beastBodyContext(beast));
         BeastSpellImitation.interrupt(beast, 'Bodily incapacity interrupted preparation', state.clock); continue;
       }
       const profile = WildernessBeasts.PROFILES[beast.speciesId];
+      if (!profile) continue;
       // Navigation may normalize actor records, so target identity must not depend on object equality.
       const driver = currentFieldCharter()?.driver;
       const targets = [...(scientistInWilderness() ? [{ id: "scientist", actor: state.scientist }] : []), ...(escort ? [{ id: escort.id, actor: escort }] : []), ...(medic ? [{ id: medic.id, actor: medic }] : []), ...porters.map(actor => ({ id: actor.id, actor })), ...fieldInterdictionActors().filter(a => a.status === 'alive' && a.roomId === activeWildernessRoom()).map(actor => ({ id: actor.id, actor })), ...(driver?.status === 'alive' && driver.roomId === activeWildernessRoom() ? [{ id: driver.id, actor: driver }] : []), ...(state.penalFlights?.actors || []).filter(a => a.roomId === activeWildernessRoom() && a.status !== "dead").map(actor => ({ id: actor.id, actor }))]
         .filter(t => !beastDialogueProtected(beast, t.id));
       if (beast.targetId && beastDialogueProtected(beast, beast.targetId)) { beast.targetId = null; beast.lastTarget = null; beast.rememberedUntil = 0; }
-      const seenTargets = targets.filter((target) => target.actor.status !== 'dead' && WildernessBeasts.distance(beast.mapCell, combatActorCell(target.actor)) <= profile.sight && beastClimbingLine(beast, target.actor));
+      const seenTargets = targets.filter((target) => target.actor.status !== 'dead' && WildernessBeasts.distance(beast.mapCell, combatActorCell(target.actor)) <= profile.sight && beastClimbingLine(beast, target.actor)
+        && (!beast.bodyPhysics || BeastBodies.perceive(beast, { ...target.actor, mapCell: combatActorCell(target.actor) }, 'sight',
+          { tileSizeM: map.tileSizeM, light: perceptionLightLevelAtCell(combatActorCell(target.actor), map), signal: () => beastClimbingLine(beast, target.actor) })));
       const target = seenTargets.find((entry) => entry.id === beast.targetId && state.clock < beast.provokedUntil)
         || seenTargets.sort((a, b) => WildernessBeasts.distance(beast.mapCell, combatActorCell(a.actor)) - WildernessBeasts.distance(beast.mapCell, combatActorCell(b.actor)))[0]
         || null;
@@ -99953,8 +100103,23 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         working && targetId === 'scientist' && range <= 5 && sensoryLineOfSight(beast.mapCell, scientist));
       if (beast.regionalPhase && beast.effortSeconds <= 0 && range > 1) decision = { behavior: 'return', goal: beast.homeCell };
       beast.behavior = decision.behavior;
-      if (scientistInWilderness() && !wildernessBeastVisible(beast) && WildernessBeasts.distance(beast.mapCell, scientistMapCell()) <= 10 && (!saved.heard || state.clock - saved.heard.at >= 30)) saved.heard = { at: state.clock, label: `${profile.sound}; source not located or identified` };
+      if (scientistInWilderness() && !wildernessBeastVisible(beast) && WildernessBeasts.distance(beast.mapCell, scientistMapCell()) <= 10
+        && (!profile.bodyManaged || beast.bodyPhysics.motion && beastElevation(beast) >= 0 && sensoryLineOfSight(beast.mapCell, scientistMapCell()))
+        && (!saved.heard || state.clock - saved.heard.at >= 30)) saved.heard = { at: state.clock, label: `${profile.sound}; source not located or identified` };
       if (elapsed <= 0) continue;
+      if (profile.bodyManaged) {
+        if (decision.behavior === 'pursue' && sees && targetId && state.clock >= beast.nextAttackAt
+          && combatActionRangeInfo(beast, combatActionDef('strike'), { kind: 'creature', id: targetId }).inRange
+          && BeastBodies.capable(beast, beast.bodyPhysics.mode) && beast.bodyPhysics.stamina >= 1) {
+          const observed = wildernessBeastVisible(beast) || targetId === 'scientist';
+          const result = resolveSharedCombatAction(beast.id, 'strike', { kind: 'creature', id: targetId },
+            { baseDamage: profile.damage, damageTypes: profile.damageTypes, hideFeedback: !observed });
+          beast.nextAttackAt = state.clock + profile.recovery;
+          beast.bodyPhysics.stamina -= 1; beast.bodyPhysics.spentStamina += 1;
+          if (result.ok && observed) pauseForWildernessThreat(`${beast.name} ${result.hit ? 'struck' : 'attacked and missed'} its target within physical reach.`);
+        }
+        updateBeastBody(beast, decision, state.clock); changed++; continue;
+      }
       if (updateBeastSpellImitation(beast, targetId, decision)) { changed++; continue; }
       if (vertical) { changed++; continue; }
       if (updateBeastClimbing(beast, beastClimbingSite(beast), decision)) { changed++; continue; }
@@ -99965,7 +100130,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         if (result.ok) { if (observed) pauseForWildernessThreat(`${beast.name} ${result.hit ? "struck" : "attacked and missed"} ${targetId === "scientist" ? "the scientist" : target.actor.name} at close range.`); changed++; }
       } else if (state.clock >= beast.nextMoveAt) {
         const blocked = labMapBlockingCellKeys(map, { skipPlacement: true }), excavated = labMapExcavatedCellKeys(map);
-        const canEnter = (cell) => !BeastDiplomacy.forbidden(currentBeastDiplomacy(), beast, cell) && sector.has(mapCellKey(cell)) && (!target || mapCellKey(cell) !== mapCellKey(scientist))
+        const physicalContext = beast.bodyPhysics && beastBodyContext(beast);
+        const canEnter = (cell) => (!beast.bodyPhysics || BeastBodies.capable(beast, 'walking') && !BeastBodies.habitatReason(beast, cell, 'walking', 0, physicalContext))
+          && !BeastDiplomacy.forbidden(currentBeastDiplomacy(), beast, cell) && sector.has(mapCellKey(cell)) && (!target || mapCellKey(cell) !== mapCellKey(scientist))
           && !saved.actors.some((other) => other.id !== beast.id && mapCellKey(other.mapCell) === mapCellKey(cell))
           && labMapCellIsWalkable(cell, map, excavated) && !labMapCellIsPathBlocked(cell, { map, actor: beast, blockedCellKeys: blocked })
           && (!labMapDoorAtCell(cell, map) || doorFixtureAllowsPassage(labMapDoorAtCell(cell, map)));
@@ -100001,7 +100168,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
             else if (planned && canEnter(planned)) next = planned;
           }
         }
-        if (next) { const from = beast.mapCell; beast.mapCell = cleanMapCell(next); if (wildernessBeastVisible(beast)) emitMapFeedback("feedbackMove", next, { label: beast.name, fromCell: from }); changed++; }
+        if (next) { const from = beast.mapCell; beast.mapCell = cleanMapCell(next); if (beast.bodyPhysics) { beast.bodyPhysics.stamina = Math.max(0, beast.bodyPhysics.stamina - map.tileSizeM); beast.bodyPhysics.spentStamina += map.tileSizeM; beast.bodyPhysics.distanceM += map.tileSizeM; beast.bodyPhysics.lastAt = state.clock; } if (wildernessBeastVisible(beast)) emitMapFeedback("feedbackMove", next, { label: beast.name, fromCell: from }); changed++; }
         beast.nextMoveAt = state.clock + profile.stepSeconds * (1 + injuryEffectTotals(beast).movement) * map.tileSizeM;
       }
       if (scientistIsDead()) break;
@@ -100018,6 +100185,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.dataset.beastClimbing = 'true';
     panel.dataset.beastSpellImitation = 'true';
     panel.dataset.mirrorApePopulations = 'true';
+    panel.append(textEl('p', 'All 24 authored beasts have shared physical bodies: actual dimensions, occupied volumes, anatomy, finite movement reserves and habitat constraints. Observed body footprints use the same physics in both maps. Additional species’ authored abilities and population-backed encounters remain pending; a profile is not a completed encounter or a safety assessment.'));
     panel.append(textEl('p', 'Other original Mirror Ape groups may occupy source-backed habitat along a measured approach. Actual travel can encounter them; another individual’s compact does not bind them, and they learn spells only from their own observations. Quiet travel or defeating an encountered group is not a population census or strategic safety proof.'));
     for (const f of overlandStopSite()?.climbSurfaces || []) if (sensoryLineOfSight(scientistMapCell(), f.cell)
       && WildernessBeasts.distance(scientistMapCell(), f.cell) <= 8)

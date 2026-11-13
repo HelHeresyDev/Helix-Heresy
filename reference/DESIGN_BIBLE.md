@@ -402,6 +402,15 @@ Animancy is the study and manipulation of souls and is one of the most forbidden
 
 ## Creature Origins, Artificial Formation And Will
 
+Natural beasts have physical bodies, not abstract one-tile threat tokens. Their
+actual dimensions, mass, anatomy, injuries and finite reserves constrain occupied
+space, carrying, movement, reach and perception. Flight, levitation, swimming,
+drifting and tunneling require their appropriate media and geometry; colossal
+bodies cannot pass through undersized spaces. A member, colony and whole
+superorganism are different accounting units, never duplicated bodies or resource
+pools. See [the implemented physical-body contract](../BEAST_BODIES.md); remaining
+authored abilities and population ecology are not implied by a body profile.
+
 No one, not even a god, can invent new kinds of creatures at will or create life from nothing. Every creatable creature has a naturally existing base form and a natural formation or developmental process. The scientist, gods and other creators can reproduce, redirect or modify those processes, not bypass them through unrestricted creature creation. This includes biological development and the setting's genuine elemental or other magical formation processes; it does not mean every family uses genes, biomass or a synthesis tube. Real material/energy sources and a supported process remain necessary. An apparatus or divine act is not a license to conjure an arbitrary creature through a recipe label or wish.
 
 Not every engineered variant occurs naturally. Dogs exist in the world, for example, but a ten-legged dog with saber-tooth teeth may be a laboratory modification of that existing family rather than a naturally occurring variety. The same natural-origin requirement applies to any future living construct: an established crafting tradition or proposed assembly recipe alone is not a substitute for a credible naturally existing base form. Its particular formation conditions must be justified; merely invoking suitable mana does not establish that discarded materials naturally assemble into an arbitrary creature. Natural counterparts need not be known to the scientist, locally common or already represented by an implemented encounter. The fixed authored strategic-beast list remains distinct from the setting's broader creatures; catalog integration must not fabricate sightings or alter immutable archived worlds. The converse does not apply: not every naturally existing being is producible. Hauntbound are existing deceased individuals, not the former proposed Ragkin cloth-construct recipe. Bone Skitter was shelved, not established as a natural species or implemented creation.

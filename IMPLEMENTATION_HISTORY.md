@@ -8,6 +8,29 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Shared beast bodies, movement and environmental reach — #3.38-B
+
+Implemented on 2026-11-12 for the fixed 24-species catalog. `beast-bodies.js`
+provides consumed dimensions/mass, anatomy, injury, occupied/swept volumes,
+turning, carrying limits, finite locomotion, flight/levitation, shores, aquatic
+drift, tunneling, rooting, contacting ice and physical signal constraints.
+The local map adapter consumes original terrain, real obstacles and bodies;
+partial poses, resource spending, excavation and observations survive normal
+saves/continued imports. Existing ground encounters, Mirror Ape climbing and
+Soul Lash remain separate consumers. No additional generic animals are spawned.
+
+[BEAST_BODIES.md](BEAST_BODIES.md) records physical support and the clear C/D
+boundary. The ODS/XLSX Beast ecology tab adds seven typed physical columns T–Z.
+The earlier reference-only 60 kg ape estimate is corrected to its existing actual
+90 kg climbing mass; original saved bodies are never resized or refilled by a
+reference edit. The finite queue drops B and goes from thirteen to twelve active
+packages, with C next. Tutorial remains frozen; no package is added.
+
+Focused coverage includes all 24 profiles and all canonical non-spell physical
+modes, shared family/resource/injury boundaries, DOM/Canvas native movement,
+actual saves/continued import, existing wilderness encounters, climbing and
+spell-imitation consumers, plus workbook/source parity. No full suite was run.
+
 ### Numeric lifecycle and resource-use dataset — all 36 current creatures
 
 Added on 2026-11-12 following the approved lifecycle discussion. The Linux-native

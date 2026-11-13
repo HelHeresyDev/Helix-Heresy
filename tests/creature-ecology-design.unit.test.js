@@ -175,7 +175,7 @@ test('migration design contract excludes private destination truth and permits r
   assert.match(rules.get('Discovery and failure'), /Forced dispersal may fail repeatedly/);
   assert.match(rules.get('Discovery and failure'), /starvation, conflict or a second departure/);
   assert.match(rules.get('Interruptions and local reactions'), /unseen destination does not cancel an instinctive departure/);
-  assert.match(read('PENDING_PROMPTS.md'), /active count remains 13/);
+  assert.match(read('PENDING_PROMPTS.md'), /No package has been added/);
   assert.match(read('reference/DESIGN_BIBLE.md'), /Initial healthy ecology does not guarantee continued balance/);
   assert.ok(buildCatalog().guide.some(row => row[0] === 'Migration knowledge — approved design'));
 });

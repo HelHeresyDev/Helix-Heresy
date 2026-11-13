@@ -1,12 +1,18 @@
 (function attach(root, factory) {
   const api = factory(typeof module === 'object' && module.exports ? require('./beast-climbing') : root.HelixBeastClimbing,
-    typeof module === 'object' && module.exports ? require('./beast-spell-imitation') : root.HelixBeastSpellImitation);
+    typeof module === 'object' && module.exports ? require('./beast-spell-imitation') : root.HelixBeastSpellImitation,
+    typeof module === 'object' && module.exports ? require('./beast-bodies') : root.HelixBeastBodies);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixWildernessBeasts = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function (Climbing, Imitation) {
+})(typeof globalThis !== "undefined" ? globalThis : this, function (Climbing, Imitation, Bodies) {
   "use strict";
   const ROOM = "wildernessSurveySector";
-  const PROFILES = Object.freeze({
+  const PROFILES = Object.freeze({ ...Object.fromEntries(Object.values(Bodies.profiles).map(p => [p.id, {
+    name: p.name, contactOnly: true, bodyManaged: true, disposition: 'territorial',
+    health: Math.max(20, Math.min(2000, Math.ceil(Math.sqrt(p.massKg) * 4))), damage: Math.max(1, Math.min(100, Math.ceil(Math.sqrt(p.massKg) / 4))),
+    barrierKinds: [], damageTypes: ['physical'], stepSeconds: 1 / p.speed, recovery: 10, sight: p.sightM,
+    track: 'Physical signs', sound: 'An unlocated local sound'
+  }])),
     "beast:rimefang-pack": { name: "Rimefang", disposition: "predator", health: 48, damage: 6, barrierKinds: ["door"], damageTypes: ["physical", "cold"], stepSeconds: 1.5, recovery: 8, sight: 8, track: "Frost-rimmed paw prints", sound: "Distant growling" },
     "beast:gravebloom-elk": { name: "Gravebloom Elk", disposition: "territorial", health: 60, damage: 8, barrierKinds: ["door", "constructedWall"], damageTypes: ["physical"], stepSeconds: 2, recovery: 10, sight: 7, track: "Hoof prints among luminous flowers", sound: "Heavy rustling and a low call" },
     "beast:mirror-ape": { name: "Mirror Ape", disposition: "territorial", contactOnly: true, health: 80, damage: 8, barrierKinds: [], damageTypes: ["physical"], stepSeconds: 2, recovery: 8, sight: 8, track: "Handprints and deliberately arranged stones", sound: "Short calls and stone tapping" }
@@ -19,9 +25,9 @@
   function normalizeState(candidate) { const s = { ...defaultState(), ...clone(candidate || {}) }; s.actors = s.actors.map(a => Imitation.normalizeActor(Climbing.normalizeActor(a))); return s; }
   function actor(speciesId, id, cell, populationId, at = 0) {
     const profile = PROFILES[speciesId];
-    return { id, actorKind: "wildernessBeast", speciesId, populationId, name: `${profile.name} ${id.split(":").pop()}`, roomId: ROOM, mapCell: clone(cell), homeCell: clone(cell), health: profile.health, maxHealth: profile.health, status: "alive", behavior: "roam", lastTarget: null, rememberedUntil: 0, nextMoveAt: at + profile.stepSeconds, nextAttackAt: at + profile.recovery, provokedUntil: 0, patrolIndex: 0,
+    return Bodies.attach({ id, actorKind: "wildernessBeast", speciesId, populationId, name: `${profile.name} ${id.split(":").pop()}`, roomId: ROOM, mapCell: clone(cell), homeCell: clone(cell), health: profile.health, maxHealth: profile.health, status: "alive", behavior: "roam", lastTarget: null, rememberedUntil: 0, nextMoveAt: at + profile.stepSeconds, nextAttackAt: at + profile.recovery, provokedUntil: 0, patrolIndex: 0,
       ...(speciesId === Climbing.SPECIES ? { climbStamina: Climbing.STAMINA, climbMassKg: 90, climbing: null, nextClimbAt: 0,
-        spellImitation: Imitation.create(id, populationId, at) } : {}) };
+        spellImitation: Imitation.create(id, populationId, at) } : {}) }, at);
   }
   function materialize(seed, siteId, populations, cells, at = 0) {
     const state = { ...defaultState(), materialized: true, siteId, lastAt: at };

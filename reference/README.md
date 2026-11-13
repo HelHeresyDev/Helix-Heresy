@@ -15,7 +15,7 @@ and other compatible applications. Both workbooks contain:
 - **Ecological rates: numeric initial balance values for all 36 entries.** Columns E–P contain separate nurturing/destruction rates for soil/cover, freshwater quantity, freshwater quality, wetland/reef habitat, renewable biomass and arcane stability. Columns C/D identify the counting basis and initial-tuning status. These are real number cells, including explicit zeroes and fractional worker rates, not prose descriptions.
 - **Lifecycle & resource use: numeric consumption, reproduction, maturity and mortality for all 36 entries.** It also includes body masses, juvenile intake factors, parental/queen counting units, gestation/incubation, birth material investment, reserves, ageing, travel, temperature, habitat and predation. Existing implemented care values are cited; new demographic values are labeled initial tuning.
 - Production detail: per-creature ingredients, process costs, equipment, utilities and care.
-- Beast ecology: decoded biomes, comparative prevalence, threat, movement and social traits.
+- Beast ecology: decoded biomes, comparative prevalence, threat, movement and social traits, plus seven numeric physical columns **T–Z** (length/width/height/spread wings in metres, adult kg, base m/s, natural reach in metres). These come from the consumed shared body profiles; other abilities and population encounters remain separately identified as pending.
 - Planned creatures: no active proposals. Bone Skitter was shelved, not implemented or replaced; its existing tab remains intentionally empty.
 - Other life & forms: explicit dog lore and divine, avatar, scientist and receiver distinctions.
 - Read me: interpretation, scope, source revision and design limits.

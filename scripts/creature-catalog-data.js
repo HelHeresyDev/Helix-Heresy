@@ -10,6 +10,7 @@ const Formation = require('../creature-formation');
 const Homunculi = require('../homunculi');
 const Hauntbound = require('../hauntbound');
 const Wilderness = require('../wilderness-beasts');
+const Bodies = require('../beast-bodies');
 const EcologyDesign = require('./creature-ecology-design');
 const Lifecycle = require('./creature-lifecycle-data');
 const resolveSource = file => file === 'DESIGN_BIBLE.md' && !fs.existsSync(path.join(root, file)) ? 'reference/DESIGN_BIBLE.md' : file;
@@ -173,6 +174,7 @@ function buildCatalog() {
     const aspects = s.aspectCodes.map(c => humanize(Arcane.ASPECT_CLASS_LEGEND[c])).join('; ');
     const local = Wilderness.PROFILES[s.id];
     const status = !local ? 'Implemented strategic ecology; local encounters not implemented'
+      : local.bodyManaged ? 'Shared physical body/movement; population-backed encounters and authored abilities pending'
       : local.contactOnly ? 'Strategic ecology + bounded local contact/climbing/spell-imitation consumers'
         : 'Strategic ecology + supported local encounters';
     const rarity = `Baseline prevalence ${s.prevalenceRank}/4; seeded population and distribution vary`;
@@ -189,8 +191,9 @@ function buildCatalog() {
       s.threatRank, humanize(Ecology.THREAT_BANDS[s.threatRank - 1]), humanize(s.sizeBand),
       humanize(s.intelligenceBand), s.movementModes.map(humanize).join('; '), humanize(s.diet),
       humanize(s.ecologicalRole), humanize(s.socialPattern), humanize(s.lairKind),
-      local ? local.contactOnly ? 'Bounded contact consumers; not generic wilderness spawning' : 'Supported local profile' : 'Strategic only',
-      s.description, src]);
+      local ? local.bodyManaged ? 'Shared physical body/movement; population encounters pending' : local.contactOnly ? 'Bounded contact consumers; not generic wilderness spawning' : 'Supported local profile' : 'Strategic only',
+      s.description, ...['lengthM', 'widthM', 'heightM', 'wingSpanM', 'massKg', 'speed', 'reachM'].map(k => Bodies.profiles[s.id][k]),
+      src + '; beast-bodies.js:definitions']);
   }
   const pending = text('PENDING_PROMPTS.md');
   // The initial creature sequence is closed. Bone Skitter was withdrawn, not
@@ -425,7 +428,7 @@ function buildCatalog() {
     ['Every world', 'All 24 authored strategic beast species exist in every newly generated world. Population, abundance, territory and migration are randomized. No particular run/world census was supplied.'],
     ['Population bands', 'The Beast ecology tab’s seeded population-count ranges are the number of generated population records, not animal counts. They come directly from populationCount().'],
     ['Biome and threat', 'Beast biome and mana-aspect codes are decoded from the authored legends. Threat rank maps to the authored threat bands, not a predicted fight result. Other habitats are labelled lore/formation conditions, not invented map biomes.'],
-    ['Implementation status', 'Strategic ecology does not mean a fully implemented local creature, combat ability, player production recipe or encounter. Only current WildernessBeasts.PROFILES are identified as local profiles.'],
+    ['Implementation status', 'All 24 beasts have shared physical bodies and movement. Only Rimefang/Gravebloom Elk/Mirror Ape have existing population encounter consumers. Other authored abilities and population-backed encounters remain pending; a body profile is not full creature implementation or a player recipe.'],
     ['Ecological disposition — approved design', 'Nurturing, destroying or neutral describe usual net environmental impact, not morality, friendliness, threat or the Beast ecology tab’s food-web role. Actual activities, variants, density and resources determine realized impact; humans have no exemption. These three design columns do not claim regional balancing/exhaustion or new abilities are implemented. See reference/CREATURE_ECOLOGY_MATRIX.md; scripts/creature-ecology-design.js owns the approved annotations.'],
     ['Ecological adversaries — approved design', 'Directed species-specific predation, territorial defense or restoration; not two cooperative factions. Actual same-habitat/adjacent-ecotone reach, viable matchups and finite resources are required. Local core-family restoration supplies no invented strategic wild population. Slimes cannot cooperate; soulless bodies have no initiative. Exhausted territories require actual nurturer defeat and accumulated damage, with conditional real recovery, not automatic repair.'],
     ['Numeric ecological rates — initial balance values', 'Open Ecological rates for all 36 entries, or use the numeric columns in Catalog/CSV. Each ledger has separate nurturing and destruction numbers in EP per individual per game day; 1 EP changes 1 affected hectare by 1 percentage point in that ledger. These are authored initial balance coefficients, not current runtime measurements, final balance or proof of regional viability. Actual resources/body/counting basis constrain achieved effects; C/D still own consumed behavior and the planner. Zero is deliberate, not an unknown value. Never sum unlike ledgers or count predation as both reduced destroyer pressure and imaginary restoration.'],

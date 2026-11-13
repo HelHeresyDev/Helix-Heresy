@@ -2231,6 +2231,13 @@ Top controls → **Unavailable actions** provides readable current-view block re
 
 ## Development Notes
 
+The [shared beast-body implementation](BEAST_BODIES.md) covers all 24 authored
+species' physical families, real dimensions/anatomy, terrain clearance, finite
+movement reserves, injury, partial motion/turns and saved observed footprints in
+Canvas/DOM. The reference workbook's Beast ecology sheet includes numeric physical
+values in T–Z. Additional authored abilities and population-backed encounters remain
+the existing C/D queue work; body support does not mean those systems are finished.
+
 - Keep the game runtime dependency-free unless a feature clearly needs a library.
 - Preserve the discovery loop by avoiding public documentation of exact trait outcomes or hidden gene mappings.
 - Favor small commits after meaningful feature passes or bug fixes.
