@@ -61,7 +61,8 @@ test('all 24 canonical species remain represented, with original authoritative c
     if (S.ORIGINAL_COUNTS.includes(p.speciesId)) assert.equal(p.originalIndividualCount, populations.find(r => r.id === p.populationId).devotionalUnitCount);
   }
   const changed = clone(map);
-  changed.beastEcology = { populations: clone(populations), digest: 'prepared-abundance-only-variation' };
+  changed.beastEcology = clone(map.beastEcology || E.expandPristineBeastEcology(map));
+  changed.beastEcology.digest = 'prepared-abundance-only-variation';
   changed.beastEcology.populations.forEach(p => p.populationIndex = 999999999);
   assert.deepEqual(S.generate(record.seed, changed, { attempts: 1 }).groupRows,
     S.generate(record.seed, map, { attempts: 1 }).groupRows);
@@ -104,16 +105,22 @@ test('source geography uses real realm/depth and species-specific approaches ins
   for (const r of source.regions) for (const edge of r.edges) {
     const destination = source.regions.find(p => p.id === edge.id); assert.ok(destination);
     assert.ok(edge.distanceKm > 0 && edge.allowedSpecies.length > 0);
-    assert.ok(edge.allowedSpecies.every(id => S.compatible(E.BEAST_SPECIES.find(s => s.id === id), destination)));
-    if (destination.cellId === r.cellId) assert.ok(!['waterColumn', 'subsurface'].includes(destination.kind));
+    assert.ok(edge.allowedSpecies.every(id => {
+      const species = E.BEAST_SPECIES.find(s => s.id === id);
+      return S.compatible(species, destination) || destination.kind === 'waterColumn'
+        && species.movementModes.some(mode => ['flight', 'levitation'].includes(mode));
+    }));
+    if (destination.cellId === r.cellId) assert.notEqual(destination.kind, 'subsurface');
   }
 });
 test('a physically supplied prepared herbivore region passes; a bad season is explicitly rejected, not called exhausted', () => {
   const { source, region, map } = prepared((g, c) => [g('beast:gravebloom-elk', 'original-elk', [c('beast:gravebloom-elk', 'elk-adults', 2)])]);
   assert.equal(S.assess(source, map).status, 'feasibleInitialCycle');
   region.stocks.forageKg = 0; region.seasons[2].renewal.forageKg = 0;
+  assert.equal(S.assess(source, map).status, 'feasibleInitialCycle', 'actual accumulated summer stock can cover a seasonal low');
+  region.capacity.forageKg = 0;
   const bad = S.assess(source, map);
-  assert.equal(bad.status, 'rejected'); assert.ok(bad.issues.some(i => i.phase === 2 && i.deficits?.forageKg > 0));
+  assert.equal(bad.status, 'rejected'); assert.ok(bad.issues.some(i => i.phase === 2 && i.resource === 'forageKg' && i.missingAmount > 0));
   assert.equal(region.exhausted, false);
 });
 test('predator feasibility spends actual reachable prey bodies once, never a generic biomass score', () => {
@@ -122,7 +129,8 @@ test('predator feasibility spends actual reachable prey bodies once, never a gen
     g('beast:gravebloom-elk', 'prey', [c('beast:gravebloom-elk', 'breeders', 2), c('beast:gravebloom-elk', 'calves', 200, true)])
   ]);
   const before = clone(source), result = S.assess(source, map);
-  assert.equal(result.status, 'feasibleInitialCycle'); assert.deepEqual(source, before);
+  assert.equal(result.status, 'rejected'); assert.deepEqual(source, before);
+  assert.ok(result.issues.some(i => i.resource === 'meatKg' && i.missingAmount > 0), 'hypothetical future kills do not refill actual stocks');
   assert.ok(result.foodAllocations.length);
   const paid = result.foodAllocations.filter(a => a.preyCohortId === 'calves');
   const kills = paid.reduce((n, a) => n + a.individuals, 0), food = paid.reduce((n, a) => n + a.edibleKg, 0);
@@ -166,7 +174,7 @@ test('source validation derives area/counts from physical truth, not a re-signed
   assert.throws(() => S.validate(record, altered), /physical world/);
   assert.throws(() => S.validate(record, map, 'a-different-world-seed'), /physical world/);
 });
-test('traditional seasonal destinations stay fixed when private destination stocks fail; static budgets do not certify the journey', () => {
+test('traditional seasonal destinations stay fixed while concrete route and resource checks replace blanket unverified labels', () => {
   const { record, map } = fixture(), source = S.expand(record, map);
   const g = source.groups.find(g => g.instinct); assert.ok(g);
   const before = clone(g.instinct);
@@ -176,7 +184,10 @@ test('traditional seasonal destinations stay fixed when private destination stoc
   }
   const result = S.assess(source, map);
   assert.deepEqual(g.instinct, before);
-  assert.ok(result.issues.some(i => i.kind === 'seasonalResidenceUnverified' && i.populationId === g.populationId));
+  const journey = result.seasonalJourneys.find(j => j.groupId === g.id);
+  assert.ok(journey && journey.departures > 0);
+  assert.ok(result.issues.some(i => ['seasonalRouteBlocked', 'lateSeasonalArrival', 'seasonalResourceDeficit'].includes(i.kind)));
+  assert.ok(!result.issues.some(i => i.kind === 'seasonalResidenceUnverified'));
   assert.deepEqual(g.knowledge, []);
 });
 test('archived worlds without source proposals retain their identity; independent copies cannot drain the reusable source', () => {
@@ -189,4 +200,44 @@ test('archived worlds without source proposals retain their identity; independen
   a.regions[0].stocks.mineralsKg = 0; a.groups[0].cohorts[0].count = 0;
   assert.ok(b.regions[0].stocks.mineralsKg > 0 && b.groups[0].cohorts[0].count > 0);
   assert.equal(JSON.stringify(record), sourceBefore);
+});
+test('all resident groups compete for one finite supply, and later renewal cannot pay an earlier shortage', () => {
+  const { source, map, region } = prepared((g, c) => [
+    g('beast:gravebloom-elk', 'herd-one', [c('beast:gravebloom-elk', 'one', 1)]),
+    g('beast:gravebloom-elk', 'herd-two', [c('beast:gravebloom-elk', 'two', 1)])
+  ]);
+  source.calendar.monthDays = [1, 1, 1, 1];
+  const ration = D.lifecycle['beast:gravebloom-elk'].foodKgDay;
+  region.stocks.forageKg = ration * 6;
+  region.seasons.forEach(s => s.renewal.forageKg = 0);
+  const failures = S.assess(source, map).issues.filter(i => i.resource === 'forageKg');
+  approx(failures.reduce((n, i) => n + i.missingAmount, 0), ration * 2);
+  approx(failures[0].at, 3 * P.DAY);
+  region.stocks.forageKg = ration / 2;
+  region.seasons.slice(1).forEach(s => s.renewal.forageKg = ration * 100);
+  const earlier = S.assess(source, map).issues.filter(i => i.resource === 'forageKg');
+  assert.equal(earlier.length, 1); assert.equal(earlier[0].phase, 0);
+  approx(earlier[0].at, P.DAY / 4); approx(earlier[0].missingAmount, ration * 1.5);
+});
+test('archived advisory diagnostics retain their original identity, but cannot bypass current activation checks', () => {
+  const { map, record } = fixture(), archived = clone(record);
+  archived.assessment = { status: 'rejected', issues: [{ kind: 'seasonalResidenceUnverified', note: 'Original archived diagnostic' }] };
+  archived.id = ''; archived.id = `beast-habitat-source:${W.stableHash(archived)}`;
+  const before = clone(archived); assert.equal(S.validate(archived, map), archived); assert.deepEqual(archived, before);
+  archived.assessment = { status: 'feasibleInitialCycle', issues: [] };
+  archived.id = ''; archived.id = `beast-habitat-source:${W.stableHash(archived)}`;
+  const claimed = clone(map); claimed.beastHabitatSources = archived;
+  assert.throws(() => S.runtimeSource(archived, claimed), /current physical residence checks/);
+});
+test('a still-travelling original group misses its seasonal deadline even without an arrival event', () => {
+  const { source, map, region } = prepared((g, c) => [g('beast:gravebloom-elk', 'slow-herd', [c('beast:gravebloom-elk', 'adults', 1)])]);
+  source.calendar.monthDays = [1, 1, 1, 1];
+  const away = clone(region); away.id = 'traditional-away';
+  region.edges = [{ id: away.id, traversable: true, distanceKm: D.lifecycle['beast:gravebloom-elk'].travelKmDay * 10 }];
+  away.edges = [{ ...region.edges[0], id: region.id }]; source.regions.push(away);
+  source.groups[0].instinct = { mode: 'instinctive', seasonal: { outboundRoute: [region.id, away.id],
+    phases: { outboundPhase: 'thaw', residencePhase: 'highSun', returnPhase: 'stormturn', homePhase: 'deepCold' } } };
+  const report = S.assess(source, map);
+  assert.ok(report.issues.some(i => i.kind === 'lateSeasonalArrival' && i.at === 2 * P.DAY));
+  assert.equal(report.seasonalJourneys[0].arrivals, 0); assert.equal(report.seasonalJourneys[0].transitAtCycleEnd, true);
 });

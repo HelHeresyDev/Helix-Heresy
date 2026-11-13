@@ -2246,8 +2246,13 @@ D's [population-account model and implementation status](BEAST_POPULATIONS.md)
 now cover conserved cohorts, finite consumption, timed scarcity/background deaths,
 monthly intentions and knowledge-limited staggered migration in focused model
 checks. New worlds also archive private physical-habitat proposals with quantified
-seasonal/prey/opposition diagnostics. Rejected proposals cannot activate the
-population model; they are not labelled healthy or exhausted. Successful seasonal
+seasonal/prey/opposition diagnostics. Shared seasonal transitions now execute
+fixed multi-edge itineraries and queued return windows; initial-cycle checks
+charge actual residence/travel against shared finite stocks, timed seasonal
+renewal and capacity-limited carryover. Blocked routes, missed arrival windows
+and exact shortages replace blanket unverified-journey labels, without changing
+animal choices using hidden destination data. Rejected proposals cannot activate
+the population model; they are not labelled healthy or exhausted. Successful seasonal
 allocation repair and native encounter integration remain D work, not additional
 ordinary-play encounter coverage.
 

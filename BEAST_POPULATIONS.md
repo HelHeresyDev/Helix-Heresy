@@ -18,6 +18,13 @@ capabilities already implemented by C are described in [BEAST_BEHAVIOR.md](BEAST
   months, residence-dependent consumption and local shortage reactions. Crossing
   a region boundary during travel changes the charged resource account before
   final arrival. The model does not reserve destination food or capacity.
+- Shared seasonal transitions in `beast-seasonal-journeys.js`: actual named
+  calendar windows, fixed outbound/return itineraries, immediate continuation
+  through intermediate waypoints and queued return windows during unfinished
+  outbound journeys. Physical obstructions and late arrivals remain failures;
+  no invented approach path, teleport or hidden-food rerouting repairs them.
+  Seasonal renewal changes at the actual calendar boundary. Saved half-edge
+  residence, queued legs and deadlines survive normalization without replanning.
 - A choice policy receiving instincts, local neighboring approaches and dated
   personal knowledge, not hidden destination stocks or incoming populations.
   An unsuitable arrival can lead to repeated exploration and real starvation.
@@ -91,31 +98,47 @@ its best **diagnostic** result. This only changes uncommitted proposals, not
 existing actors or saved original counts. Edible stock compatibility comes from
 the existing C behavior's diet rules. Initial plant/detritus feeding locations
 prefer supported physical supply where available; that generator preference is
-not a creature migration adviser. Checks include per-season resource
-shortfalls and separate environmental ledgers, compatible reachable prey,
+not a creature migration adviser. New proposals start migratory originals at
+their actual traditional home where compatible original habitat exists. Flying
+over sea permits passage through air, not a new ocean home or extra population.
+Checks include timed resource shortfalls and separate environmental ledgers, compatible reachable prey,
 integer prey-body budgets shared once, and geometrically possible opposition.
 Scavengers cannot kill living prey to fund their own food. Food-web allocations
 are generator-only feasibility budgets; they neither kill source animals nor
 become real meat stocks, reserved meals or creature knowledge.
 
-The tested generated allocation is currently **rejected**, with quantified
-seasonal/prey shortages, unverified opposition and unresolved original habitat.
-Seasonal residence/travel is also explicitly unverified: a static stocked home
-does not prove that a traditional migration will be supplied or even arrive in
-time. Paid nurturing work, successful allocation repair, funded growth/recruitment
-and real seasonal execution remain unfinished D work. The checks conservatively
-omit unimplemented benefits instead of inventing their capacity. Rejection is
-not evidence of historical ecological defeat or exhausted territory.
+Seasonal feasibility now replays the **same month/edge transitions consumed by
+the account model**, rather than emitting a blanket unverified label. It charges
+travel effort and resident individual-days to each actual route region. All
+groups share one finite regional stock; renewal accrues only over elapsed time,
+with capacity-limited carryover between seasons. Later rain or forage cannot pay
+an earlier shortage. Diagnostics retain exact depletion intervals, missing
+amounts, blocked routes, late arrivals (including still-unfinished journeys), and
+per-group travel summaries. This is a conservative initial-cycle supply replay,
+not a substitute for population biology or performed ecological work: it grants
+no hypothetical prey kills, paid nurturing, future recruits or successful escape
+from scarcity. The account model separately consumes actual body reserves and
+can lose originals to starvation.
+
+The tested generated allocation is still **rejected**, with concrete seasonal/
+prey shortages, unverified opposition and unresolved original habitat. Paid
+nurturing work, successful allocation repair, funded growth/recruitment and live
+regional integration remain unfinished D work. Checks omit unimplemented benefits
+instead of inventing their capacity. Rejection is not evidence of historical
+ecological defeat or exhausted territory.
 
 Condition values in these proposals are relative initial calibration, not a
 satellite observation or a claim that naturally arid terrain has forest cover.
 The diagnostic compares conservative potential pressure, not measured performed
-work, and cannot replace the still-unfinished seasonal/nurturing execution.
+work, and cannot replace the still-unfinished ecological maintenance execution.
 
 `runtimeSource` refuses these rejected/unverified proposals. Diagnostic expansion
 is marked `diagnosticOnly`, which `beast-populations.create` also refuses. Source
 validation reconstructs physical areas and initial counts from the world, so
-re-signing an inflated table cannot create extra supply. No proposal or failure
+re-signing an inflated table cannot create extra supply. Valid original habitat
+placements and advisory diagnostics from older archives remain immutable rather
+than being regenerated by improved checks. Activation also reruns current
+physical feasibility; an old advisory success cannot bypass it. No proposal or failure
 detail is copied into public beast reports or the world-library interface.
 
 ## Fixed D acceptance still unfinished
@@ -145,6 +168,7 @@ follow-up prompt or additional certification gate is authorized by this document
 
 ```sh
 node tests/beast-populations.unit.test.js
+node tests/beast-seasonal-journeys.unit.test.js
 node tests/beast-habitat-sources.unit.test.js
 npx playwright test tests/beast-habitat-sources-browser.spec.js --project=chromium --workers=1
 ```
@@ -153,10 +177,14 @@ The sixteen current model checks cover source typing/all 36 profile identities,
 calendar boundaries, conserved claims, continuous hazards, resource depletion,
 knowledge-independent choices, staggered journeys, failed arrivals and starvation,
 interrupted supplies, duplicate-death exclusion, save validation and independent
-copies. Fourteen additional source checks cover geodesic area/volume, all 24
+copies. Eight shared-seasonal checks cover multi-edge timing, midpoint billing,
+queued returns and lateness, hidden-truth-independent routes, obstructions,
+half-edge reloads, actual renewal boundaries and no-will/mid-month starts.
+Seventeen additional source checks cover geodesic area/volume, all 24
 species, counting units, finite stocks and prey allocation, seasonal failures,
-knowledge-isolated traditional routes, refusal of invalid proposals and canonical
-world preservation. One browser case covers actual browser generation, compressed
+knowledge-isolated traditional routes, shared supply competition, early depletion,
+unfinished late journeys, refusal of invalid proposals and canonical world
+preservation. One browser case covers actual browser generation, compressed
 world storage/reload, private diagnostics and refusal to activate a rejected
 proposal. None claims ordinary-play acquisition, completed world-level balance or
 native encounter coverage. The full suite has not been run under repository policy.

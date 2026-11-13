@@ -15,15 +15,21 @@ test('browser generation, compressed world storage and reload preserve private r
     L.createRepository(localStorage).putWorld(world);
     return { id: world.id, name: world.name, digest: world.canonicalDigest, sourceId: source.id,
       status: source.assessment.status, species: new Set(source.populations.map(p => p.speciesId)).size,
+      journeyGroups: source.assessment.seasonalJourneys.length,
+      travellingDays: source.assessment.seasonalJourneys.reduce((n, g) => n + g.travellingDays, 0),
+      blanketUnverified: source.assessment.issues.some(i => i.kind === 'seasonalResidenceUnverified'),
       private: !JSON.stringify(world.generatedData.strategicMap.publicBeastAtlas || {}).includes('foodAllocations'),
       validated: S.validate(source, world.generatedData.strategicMap, world.worldSeed).id === source.id };
   });
   expect(original.species).toBe(24); expect(original.private).toBe(true); expect(original.validated).toBe(true);
   expect(original.status).toBe('rejected');
+  expect(original.journeyGroups).toBeGreaterThan(0); expect(original.travellingDays).toBeGreaterThan(0);
+  expect(original.blanketUnverified).toBe(false);
   await page.reload(); await page.locator('#titleWorldLibraryBtn').click();
   await expect(page.locator('body')).toContainText(original.name);
   await expect(page.locator('body')).not.toContainText('unfundedPrey');
   await expect(page.locator('body')).not.toContainText('foodAllocations');
+  await expect(page.locator('body')).not.toContainText('seasonalResourceDeficit');
   const loaded = await page.evaluate(id => {
     const L = window.HelixWorldRunLibrary, S = window.HelixBeastHabitatSources;
     const world = L.createRepository(localStorage).getWorld(id), map = world.generatedData.strategicMap;

@@ -3,10 +3,11 @@
 (function (root, factory) {
   const node = typeof module === 'object' && module.exports;
   const api = factory(node ? require('./creature-biology') : root.HelixCreatureBiology,
-    node ? require('./creature-life') : root.HelixCreatureLife);
+    node ? require('./creature-life') : root.HelixCreatureLife,
+    node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys);
   if (node) module.exports = api;
   root.HelixBeastPopulations = api;
-})(globalThis, function (Biology, Life) {
+})(globalThis, function (Biology, Life, Journeys) {
   'use strict';
   const DAY = 86400, EPS = 1e-8, copy = x => JSON.parse(JSON.stringify(x));
   const nonnegative = n => Number.isFinite(n) && n >= 0;
@@ -15,19 +16,7 @@
     && !Object.prototype.hasOwnProperty.call(Object.prototype, s);
   const count = c => c.ranges.reduce((n, [lo, hi]) => n + hi - lo, 0);
   const cohortKey = (c, ordinal) => `${c.originId || c.id}:${ordinal}`;
-  function monthAt(calendar, at) {
-    if (!calendar?.monthDays?.length || !calendar.monthDays.every(n => Number.isFinite(n) && n > 0)
-      || !Number.isFinite(calendar.epochAt)) throw Error('An explicit game calendar is required');
-    const year = calendar.monthDays.reduce((n, days) => n + days * DAY, 0);
-    const cycle = Math.floor((at - calendar.epochAt) / year);
-    let start = calendar.epochAt + cycle * year;
-    for (let index = 0; index < calendar.monthDays.length; index++) {
-      const end = start + calendar.monthDays[index] * DAY;
-      if (at < end - EPS) return { index: cycle * calendar.monthDays.length + index, start, end, season: index };
-      start = end;
-    }
-    return monthAt(calendar, start + EPS * 2);
-  }
+  const monthAt = Journeys.monthAt;
   function remove(c, ordinal) {
     const index = c.ranges.findIndex(([lo, hi]) => ordinal >= lo && ordinal < hi);
     if (index < 0) return false;
@@ -89,6 +78,8 @@
         || !Object.values(r.stocks).every(nonnegative) || !Object.values(r.capacity).every(nonnegative)
         || !Object.values(r.renewalPerDay).every(nonnegative) || !Array.isArray(r.edges)) throw Error('Invalid physical region');
       for (const [key, amount] of Object.entries(r.stocks)) if (amount > (r.capacity[key] ?? 0)) throw Error('Stock exceeds original capacity');
+      if (r.seasons && (r.seasons.length !== source.calendar.monthDays.length
+        || !r.seasons.every(s => s.renewal && Object.values(s.renewal).every(nonnegative)))) throw Error('Invalid actual seasonal supply');
       regions.add(r.id);
     }
     for (const r of source.regions) for (const edge of r.edges) if (!regions.has(edge.id) || !(edge.distanceKm > 0) || !Number.isFinite(edge.distanceKm)
@@ -97,6 +88,7 @@
       if (!id(g.id) || groups.has(g.id) || !id(g.populationId) || !regions.has(g.regionId)
         || !Array.isArray(g.cohorts) || !Biology.lifecycle[g.speciesId]) throw Error('Invalid population group');
       groups.add(g.id);
+      if (!Journeys.validSpec(g, source.calendar)) throw Error('Invalid original seasonal route');
       for (const c of g.cohorts) {
         if (c.speciesId !== g.speciesId || cohorts.has(c.id)) throw Error('Conflicting cohort source');
         if (c.role === 'queen' && (!id(c.colonyId) || !nonnegative(Biology.lifecycle[c.speciesId].breederMortality)
@@ -133,8 +125,9 @@
     return options.length ? options[Math.floor(Life.random(seed) * options.length)].id : null;
   }
   function scheduleDeparture(s, g, at, month) {
+    if (g.will === false || Journeys.configured(g) && g.seasonal?.active && g.seasonal.active.status !== 'blocked') return;
     const here = s.regions.find(r => r.id === g.regionId);
-    const policy = { ...(g.instinct || { mode: 'forcedDispersal' }), at };
+    const policy = { ...(Journeys.configured(g) ? { mode: 'forcedDispersal' } : g.instinct || { mode: 'forcedDispersal' }), at };
     const observations = here.edges.map(edge => ({ id: edge.id, encountered: true,
       learnedAt: g.knowledge.find(k => k.regionId === edge.id)?.at ?? null }));
     const serial = g.choiceSerial++;
@@ -147,19 +140,24 @@
     if (s.plans.some(p => p.index === month.index)) return;
     s.plans.push({ ...month, plannedAt: at });
     for (const g of s.groups) {
-      if (g.transit || !g.cohorts.some(c => count(c))) continue;
+      if (g.will === false || !g.cohorts.some(c => count(c))) continue;
+      if (Journeys.configured(g)) {
+        for (const event of Journeys.planMonth(g, s.calendar, month, at)) record(s, event.kind, event.at, event);
+        continue;
+      }
+      if (g.transit) continue;
       if (g.instinct?.mode !== 'instinctive' && !g.observedShortage && !g.displaced) continue;
       if (!g.intention) scheduleDeparture(s, g, at, month);
     }
     rebuild(s, at);
   }
-  function location(g) { return g.transit ? g.transit.path[g.transit.edgeIndex] : g.regionId; }
+  const location = Journeys.location;
   function rebuild(s, at) {
     const month = monthAt(s.calendar, at), until = month.end;
     let next = until;
     const rates = Object.fromEntries(s.regions.map(r => [r.id, { renewal: {}, demand: {}, supply: {}, net: {} }]));
-    for (const r of s.regions) for (const [key, value] of Object.entries(r.renewalPerDay)) {
-      rates[r.id].renewal[key] = value * (r.seasonFactors?.[month.season] ?? 1);
+    for (const r of s.regions) for (const [key, value] of Object.entries(r.seasons?.[month.season]?.renewal || r.renewalPerDay)) {
+      rates[r.id].renewal[key] = value * (r.seasons ? 1 : r.seasonFactors?.[month.season] ?? 1);
     }
     for (const g of s.groups) {
       const r = rates[location(g)]; g.needs = {};
@@ -276,24 +274,10 @@
       }
       if (!g.cohorts.some(c => count(c))) { g.intention = null; g.transit = null; continue; }
       if (g.intention && g.intention.departAt <= at + EPS) {
-        const edge = s.regions.find(r => r.id === g.regionId).edges.find(e => e.id === g.intention.destination);
-        const destination = g.intention.destination; g.intention = null;
-        if (!edge?.traversable || edge.allowedSpecies && !edge.allowedSpecies.includes(g.speciesId)) {
-          record(s, 'blockedDeparture', at, { groupId: g.id, destination }); continue;
-        }
-        const speed = Biology.lifecycle[g.speciesId].travelKmDay;
-        if (!(speed > 0)) continue;
-        g.transit = { path: [g.regionId, destination], edgeIndex: 0, departedAt: at,
-          edgeStartedAt: at, crossAt: at + edge.distanceKm / speed * DAY / 2, edgeArriveAt: at + edge.distanceKm / speed * DAY };
-        record(s, 'departure', at, { groupId: g.id, from: g.regionId, destination });
+        for (const event of Journeys.depart(g, at, s.regions.find(r => r.id === g.regionId), Biology.lifecycle[g.speciesId].travelKmDay))
+          record(s, event.kind, event.at, event);
       }
-      if (g.transit && g.transit.crossAt <= at + EPS) g.transit.edgeIndex = 1;
-      if (g.transit && g.transit.edgeArriveAt <= at + EPS) {
-        g.regionId = g.transit.path.at(-1); g.transit = null; g.observedShortage = false;
-        g.knowledge.push({ regionId: g.regionId, at, source: 'personalArrival', confidence: 'localOnly' });
-        if (g.instinct?.mode === 'instinctive') g.instinct.cursor = ((g.instinct.cursor || 0) + 1) % g.instinct.route.length;
-        record(s, 'arrival', at, { groupId: g.id, regionId: g.regionId });
-      }
+      for (const event of Journeys.arrive(g, at)) record(s, event.kind, event.at, event);
     }
     plan(s, at); rebuild(s, at);
     let changed = false;
@@ -422,6 +406,7 @@
       }
       for (const g of s.groups) {
         if (!integer(g.choiceSerial) || !Array.isArray(g.knowledge) || !g.needs || !Object.values(g.needs).every(nonnegative)) return null;
+        if (!Journeys.validState(g, s.calendar, s.clock)) return null;
         if (g.intention && (!id(g.intention.destination) || !nonnegative(g.intention.chosenAt) || !(g.intention.departAt > s.clock - EPS))) return null;
         if (g.transit && (!Array.isArray(g.transit.path) || g.transit.path.length !== 2 || ![0, 1].includes(g.transit.edgeIndex)
           || !nonnegative(g.transit.departedAt) || !(g.transit.edgeArriveAt > s.clock - EPS)

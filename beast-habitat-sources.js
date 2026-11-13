@@ -7,10 +7,11 @@
     node ? require('./creature-biology') : root.HelixCreatureBiology,
     node ? require('./local-site-context') : root.HelixLocalSiteContext,
     node ? require('./beast-bodies') : root.HelixBeastBodies,
-    node ? require('./beast-behavior') : root.HelixBeastBehavior);
+    node ? require('./beast-behavior') : root.HelixBeastBehavior,
+    node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys);
   if (node) module.exports = api;
   root.HelixBeastHabitatSources = api;
-})(globalThis, function (World, Ecology, Biology, Local, Bodies, Behavior) {
+})(globalThis, function (World, Ecology, Biology, Local, Bodies, Behavior, Journeys) {
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x)), clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
   const random = s => parseInt(World.stableHash(s), 16) / 4294967296;
@@ -139,6 +140,12 @@
     return (patch.stocks[key] || 0) / calendar.monthDays.reduce((n, d) => n + d, 0)
       + Math.min(...patch.seasons.map(season => season.renewal[key] || 0));
   }
+  function traversableHabitat(s, patch) {
+    // Flight over a sea is passage through its air, not a new ocean home or
+    // permission to increase the species' original habitat/count allocation.
+    return compatible(s, patch) || s.realm === 'land' && patch.kind === 'waterColumn'
+      && s.movementModes.some(mode => ['flight', 'levitation'].includes(mode));
+  }
   function expandGroups(record, map, patches) {
     const populations = populationsFor(map);
     const migrations = new Map((ecologyFor(map).migrations || []).map(m => [m.populationId, m]));
@@ -165,6 +172,10 @@
       const extentKm = Math.min(10, Math.sqrt(patch.areaHa / Math.PI) / 10);
       const offset = [random(`${record.seed}:${groupId}:x`) * extentKm, random(`${record.seed}:${groupId}:y`) * extentKm];
       const migration = migrations.get(population.id);
+      const outboundRoute = migration && migration.cellPath.map(cellId => {
+        const candidates = (patchByCell.get(cellId) || []).filter(p => traversableHabitat(s, p));
+        return (candidates.find(p => p.kind === patch.kind) || candidates.find(p => p.kind === 'surface') || candidates[0])?.id || null;
+      });
       const route = migration && [...migration.cellPath.slice(1), ...migration.cellPath.slice(0, -1).reverse()]
         .map(cellId => (patchByCell.get(cellId) || []).find(p => p.kind === patch.kind && compatible(s, p))?.id || null);
       const dietKeys = Behavior.foodKeys({ speciesId: s.id });
@@ -172,13 +183,15 @@
         || dietKeys.indexOf(a) - dietKeys.indexOf(b))[0] || 'foodKg';
       return { id: groupId, populationId: population.id, speciesId: s.id, regionId: patch.id, cohorts, dietKeys,
         home: { patchId: patch.id, cellId: patch.cellId, eastKm: offset[0], northKm: offset[1],
-          depthM: patch.kind === 'waterColumn' ? Math.min(patch.depthM - .1, Bodies.profiles[s.id].heightM * 1.2) : patch.kind === 'subsurface' ? .5 : 0 },
+          depthM: s.movementModes.some(mode => ['flight', 'levitation'].includes(mode)) ? 0
+            : patch.kind === 'waterColumn' ? Math.min(patch.depthM - .1, Bodies.profiles[s.id].heightM * 1.2) : patch.kind === 'subsurface' ? .5 : 0 },
         resources: { foodKg: foodKey, waterL: 'waterL', mineralsKg: 'mineralsKg' },
         countingBasis: colony ? 'One original queen, actual males, workers and brood' : s.socialPattern === 'superorganism' ? 'One whole original organism per member' : 'Actual individuals; not abundance or an encounter cap',
         knowledge: [], instinct: migration ? { mode: 'instinctive', sourceMigrationId: migration.id,
           route, traditionalCellPath: copy(migration.cellPath), phases: copy(migration.phases),
           homeCellId: migration.homeCellId, seasonalCellId: migration.seasonalCellId,
-          oneWayTravelDays: migration.distanceKm / profile.travelKmDay } : null };
+          oneWayTravelDays: migration.distanceKm / profile.travelKmDay,
+          seasonal: { outboundRoute, phases: copy(migration.phases) } } : null };
     });
   }
   function expand(record, map) {
@@ -197,8 +210,12 @@
         // wetland / shore approaches are explicit; solid burrow exits and sea
         // entry require their later physical source adapters, not this edge.
         const local = other.cellId === patch.cellId;
-        if (local ? ['subsurface', 'waterColumn'].some(kind => [patch.kind, other.kind].includes(kind)) : patch.kind !== other.kind) continue;
-        const allowedSpecies = Ecology.BEAST_SPECIES.filter(s => compatible(s, patch) && compatible(s, other)).map(s => s.id);
+        if ([patch.kind, other.kind].includes('subsurface') && local) continue;
+        const mixed = patch.kind !== other.kind;
+        const allowedSpecies = Ecology.BEAST_SPECIES.filter(s => traversableHabitat(s, patch) && traversableHabitat(s, other)
+          && (!mixed || local && ![patch.kind, other.kind].includes('waterColumn')
+            || s.movementModes.some(mode => ['flight', 'levitation'].includes(mode))
+            || [patch.kind, other.kind].every(kind => ['surface', 'shore'].includes(kind)))).map(s => s.id);
         if (!allowedSpecies.length) continue;
         patch.edges.push({ id: other.id, distanceKm: local ? .5 : World.greatCircleDistanceKm(map, index, World.cellIndex(other.cellId)),
           traversable: true, allowedSpecies });
@@ -214,41 +231,100 @@
     return Math.round(Math.hypot(horizontal, (a.home.depthM - b.home.depthM) / 1000) * 1000000) / 1000000;
   }
   function diet(s) { return ['carnivore', 'apexPredator', 'scavenger'].includes(s.diet); }
-  function assess(source, map) {
-    const issues = [], seasons = [], speciesById = new Map(Ecology.BEAST_SPECIES.map(s => [s.id, s]));
-    const pById = new Map(source.regions.map(p => [p.id, p]));
-    const groupsByPatch = new Map(source.regions.map(p => [p.id, []])), groupsBySpecies = new Map();
+  function residenceAudit(source) {
+    const until = source.calendar.monthDays.reduce((n, d) => n + d, 0) * Journeys.DAY;
+    const regions = new Map(source.regions.map(r => [r.id, r])), budgets = new Map(), totals = new Map();
+    const changes = [], issues = [], journeys = [];
     for (const g of source.groups) {
-      groupsByPatch.get(g.regionId).push(g);
+      const p = Biology.lifecycle[g.speciesId], trace = Journeys.trace(g, regions, source.calendar, until, p.travelKmDay);
+      if (g.instinct?.seasonal) {
+        const failures = trace.events.filter(e => e.kind === 'seasonalBlocked' || e.kind === 'seasonalLegArrived' && e.late);
+        const unfinished = trace.seasonal?.active;
+        if (unfinished && ['waiting', 'travelling'].includes(unfinished.status) && unfinished.arrivalWindow.end <= until)
+          failures.push({ kind: 'seasonalLegArrived', leg: unfinished.leg, at: unfinished.arrivalWindow.end,
+            reason: 'Original journey remains unfinished after its arrival window', late: true });
+        for (const event of failures) issues.push({ kind: event.kind === 'seasonalBlocked' ? 'seasonalRouteBlocked' : 'lateSeasonalArrival',
+          populationId: g.populationId, groupId: g.id, at: event.at, leg: event.leg, reason: event.reason || 'Arrival missed its original seasonal window' });
+        journeys.push({ groupId: g.id, populationId: g.populationId,
+          departures: trace.events.filter(e => e.kind === 'departure').length,
+          arrivals: trace.events.filter(e => e.kind === 'seasonalLegArrived').length,
+          travellingDays: trace.segments.filter(segment => segment.travelling).reduce((n, segment) => n + (segment.to - segment.from) / Journeys.DAY, 0),
+          transitAtCycleEnd: Boolean(trace.transit), failures: failures.length });
+      }
+      const scale = g.cohorts.reduce((n, c) => n + c.count * Math.max(1, (c.massKg / p.adultKg) ** .75), 0);
+      const members = g.cohorts.reduce((n, c) => n + c.count, 0);
+      for (const segment of trace.segments) {
+        const phase = Journeys.monthAt(source.calendar, segment.from).season, days = (segment.to - segment.from) / Journeys.DAY;
+        const demands = {}, effort = segment.travelling ? p.travelMultiplier : 1;
+        for (const [key, amount] of [[g.resources.foodKg, p.foodKgDay], ['waterL', p.waterLDay], ['mineralsKg', p.mineralsKgDay],
+          ['excessMana', p.manaDay], [g.speciesId === 'beast:burrowing-furnace' ? 'heatMJ' : 'chargeMJ', p.otherDay]])
+          if (amount > 0) demands[key] = (demands[key] || 0) + amount * scale * effort;
+        if (!totals.has(segment.regionId)) totals.set(segment.regionId, source.calendar.monthDays.map(() => ({ demand: {}, individualDays: {} })));
+        const total = totals.get(segment.regionId)[phase];
+        for (const [key, amount] of Object.entries(demands)) total.demand[key] = (total.demand[key] || 0) + amount * days;
+        total.individualDays[g.speciesId] = (total.individualDays[g.speciesId] || 0) + members * days;
+        changes.push({ at: segment.from, regionId: segment.regionId, demands, sign: 1 },
+          { at: segment.to, regionId: segment.regionId, demands, sign: -1 });
+      }
+    }
+    function settle(regionId, at) {
+      const r = regions.get(regionId);
+      let budget = budgets.get(regionId);
+      if (!budget) { budget = { at: 0, stocks: copy(r.stocks), demand: {} }; budgets.set(regionId, budget); }
+      while (budget.at < at - 1e-8) {
+        const month = Journeys.monthAt(source.calendar, budget.at), end = Math.min(at, month.end), days = (end - budget.at) / Journeys.DAY;
+        const renewal = r.seasons[month.season].renewal;
+        for (const key of new Set([...Object.keys(renewal), ...Object.keys(budget.demand)])) {
+          const need = Math.max(0, budget.demand[key] || 0), net = (renewal[key] || 0) - need;
+          const stock = budget.stocks[key] || 0, next = stock + net * days;
+          if (next < -1e-7) issues.push({ kind: 'seasonalResourceDeficit', patchId: regionId, phase: month.season,
+            resource: key, missingAmount: -next, at: budget.at + (net < 0 ? stock / -net * Journeys.DAY : 0),
+            until: end });
+          budget.stocks[key] = Math.max(0, Math.min(r.capacity[key] || 0, next));
+        }
+        budget.at = end;
+      }
+      return budget;
+    }
+    changes.sort((a, b) => a.at - b.at);
+    for (let i = 0; i < changes.length;) {
+      const at = changes[i].at;
+      const atTime = new Map();
+      for (; i < changes.length && changes[i].at === at; i++) {
+        const change = changes[i];
+        if (!atTime.has(change.regionId)) atTime.set(change.regionId, {});
+        const delta = atTime.get(change.regionId);
+        for (const [key, amount] of Object.entries(change.demands)) delta[key] = (delta[key] || 0) + amount * change.sign;
+      }
+      for (const [regionId, delta] of atTime) {
+        const budget = settle(regionId, at);
+        for (const [key, amount] of Object.entries(delta)) budget.demand[key] = Math.max(0, (budget.demand[key] || 0) + amount);
+      }
+    }
+    for (const regionId of budgets.keys()) settle(regionId, until);
+    return { issues, journeys, totals, until };
+  }
+  function assess(source, map) {
+    const residence = residenceAudit(source), issues = [...residence.issues], seasons = [], speciesById = new Map(Ecology.BEAST_SPECIES.map(s => [s.id, s]));
+    const pById = new Map(source.regions.map(p => [p.id, p]));
+    const groupsBySpecies = new Map();
+    for (const g of source.groups) {
       if (!groupsBySpecies.has(g.speciesId)) groupsBySpecies.set(g.speciesId, []);
       groupsBySpecies.get(g.speciesId).push(g);
     }
     for (const patch of source.regions) {
-      const occupants = groupsByPatch.get(patch.id), demand = {}, destruction = Biology.ledgers.map(() => 0);
-      for (const g of occupants) for (const c of g.cohorts) {
-        const p = Biology.lifecycle[g.speciesId], rate = Biology.rates[g.speciesId];
-        // Conservative full-adult maintenance, including today's young. This
-        // does not award growth or count a projected birth as an existing animal.
-        const scale = c.count * Math.max(1, (c.massKg / p.adultKg) ** .75);
-        for (const [key, amount] of [[g.resources.foodKg, p.foodKgDay], ['waterL', p.waterLDay], ['mineralsKg', p.mineralsKgDay],
-          ['excessMana', p.manaDay], [g.speciesId === 'beast:burrowing-furnace' ? 'heatMJ' : 'chargeMJ', p.otherDay]])
-          demand[key] = (demand[key] || 0) + amount * scale;
-        rate.destruction.forEach((v, i) => destruction[i] += v * c.count);
-      }
       for (let phase = 0; phase < source.calendar.monthDays.length; phase++) {
         const days = source.calendar.monthDays[phase], natural = patch.seasons[phase];
-        const deficits = {};
-        for (const [key, need] of Object.entries(demand)) {
-          if (!need || ['meatKg', 'carrionKg'].includes(key)) continue;
-          const available = (patch.stocks[key] || 0) / source.calendar.monthDays.reduce((n, d) => n + d, 0) + (natural.renewal[key] || 0);
-          if (need > available + 1e-8) deficits[key] = (need - available) * days;
-        }
+        const total = residence.totals.get(patch.id)?.[phase], deficits = {}, demand = total?.demand || {};
+        const destruction = Biology.ledgers.map(() => 0);
+        for (const [speciesId, individualDays] of Object.entries(total?.individualDays || {}))
+          Biology.rates[speciesId].destruction.forEach((v, i) => destruction[i] += v * individualDays / days);
         destruction.forEach((need, i) => {
           if (patch.kind === 'waterColumn' && ['soilCover', 'freshwaterQuantity', 'freshwaterQuality'].includes(Biology.ledgers[i][0])) return;
           if (need > natural.renewalEP[i] + 1e-8) deficits[`condition:${Biology.ledgers[i][0]}`] = (need - natural.renewalEP[i]) * days;
         });
         if (Object.keys(deficits).length) issues.push({ kind: 'seasonalDeficit', patchId: patch.id, phase, deficits });
-        if (occupants.length) seasons.push({ patchId: patch.id, phase, demand: copy(demand), naturalRenewalEP: copy(natural.renewalEP) });
+        if (total) seasons.push({ patchId: patch.id, phase, demand: copy(demand), naturalRenewalEP: copy(natural.renewalEP) });
       }
     }
     // A generator-only feasibility allocation. Prey remains alive in the source;
@@ -309,20 +385,15 @@
     const destroyers = new Set(source.groups.filter(g => Biology.roles[g.speciesId] === 'destroying').map(g => g.speciesId));
     for (const speciesId of destroyers) if (!opposition.some(o => Biology.antagonisms.find(e => e.id === o.edgeId).destroyer === speciesId))
       issues.push({ kind: 'unverifiedOpposition', speciesId });
-    const migrations = new Map(source.groups.filter(g => g.instinct).map(g => [g.populationId, g.instinct]));
-    for (const [populationId, instinct] of migrations) {
-      // Preserve the actual traditional route. Static residence arithmetic is
-      // not proof of feeding, delays or survival along that seasonal journey.
-      issues.push({ kind: 'seasonalResidenceUnverified', populationId, sourceMigrationId: instinct.sourceMigrationId,
-        oneWayTravelDays: instinct.oneWayTravelDays, unresolvedRouteHabitat: instinct.route.some(p => p === null) });
-    }
     return { status: issues.length ? 'rejected' : 'feasibleInitialCycle', issues, opposition, foodAllocations,
-      policy: 'Private generator feasibility only; no performed work, future meat stock, safe destination reservation or perpetual equilibrium guarantee', seasons };
+      policy: 'Private generator feasibility only; original-body residence and supply replay, no performed nurturing, future meat stock, safe destination reservation or perpetual equilibrium guarantee',
+      seasonalJourneys: residence.journeys, seasons };
   }
   function candidate(seed, map, patchRows, calibration) {
     const calendar = { epochAt: 0, monthDays: Local.PHASES.map(() => Local.PHASE_DAYS) };
     const patches = patchRows.map(row => expandPatch(map, row, calendar)), groupRows = [], populations = [], unlocated = [];
     const worldPopulations = populationsFor(map);
+    const migrations = new Map((ecologyFor(map).migrations || []).map(m => [m.populationId, m]));
     for (let pi = 0; pi < worldPopulations.length; pi++) {
       const p = worldPopulations[pi], s = Ecology.BEAST_SPECIES.find(s => s.id === p.speciesId);
       const mask = Uint8Array.from(atob(p.territory.rangeMask), c => c.charCodeAt(0));
@@ -338,7 +409,10 @@
       const supplied = plantFoods.length ? eligible.filter(({ patch }) => plantFoods.some(key => foodPotential(patch, key, calendar) >= Biology.lifecycle[s.id].foodKgDay)) : [];
       // Initial allocation may use actual habitat budgets. This preference is
       // never passed to a creature's later movement decision or received map.
-      const placementCandidates = supplied.length ? supplied : eligible;
+      const migration = migrations.get(p.id);
+      const homeCandidates = migration ? eligible.filter(({ patch }) => patch.cellId === migration.homeCellId) : [];
+      const surfaceHome = homeCandidates.filter(({ patch }) => patch.kind === 'surface');
+      const placementCandidates = surfaceHome.length ? surfaceHome : homeCandidates.length ? homeCandidates : supplied.length ? supplied : eligible;
       let left = n, ordinal = 0;
       while (left > 0) {
         const size = Math.min(left, groupSize(s));
@@ -395,14 +469,33 @@
     const topology = World.topologyForMap(map), patchRows = [];
     for (let i = 0; i < topology.cellCount; i++) patchRows.push(...patchesForCell(map, i, topology));
     const expected = candidate(record.seed, map, patchRows, record.calibration);
-    if (JSON.stringify(expected) !== JSON.stringify(record)) throw Error('Habitat source accounts or feasibility diagnostics were changed');
+    const physical = value => { const result = copy(value); delete result.id; delete result.assessment; delete result.groupRows; return result; };
+    if (World.stableHash(physical(expected)) !== World.stableHash(physical(record))) throw Error('Habitat source physical accounts were changed');
+    const templates = new Map(expected.groupRows.map(row => [`${row[0]}:${row[1]}`, row]));
+    const masks = new Map(), populations = populationsFor(map), patches = patchRows.map(row => expandPatch(map, row, record.calendar));
+    for (const row of record.groupRows) {
+      if (!Array.isArray(row) || row.length !== 5 || !row.every(n => Number.isSafeInteger(n) && n >= 0)) throw Error('Invalid original group row');
+      const key = `${row[0]}:${row[1]}`, template = templates.get(key), population = populations[row[0]], patch = patches[row[2]];
+      if (!template || !patch || row[3] !== template[3] || row[4] !== template[4]) throw Error('Original cohort counts were changed');
+      templates.delete(key);
+      if (!masks.has(population.id)) masks.set(population.id, Uint8Array.from(atob(population.territory.rangeMask), c => c.charCodeAt(0)));
+      const index = World.cellIndex(patch.cellId), mask = masks.get(population.id);
+      if (!(mask[index >> 3] & (1 << (index & 7))) || !compatible(Ecology.BEAST_SPECIES.find(s => s.id === population.speciesId), patch)) throw Error('Original group has no physical habitat');
+    }
+    if (templates.size || !record.assessment || !Array.isArray(record.assessment.issues)
+      || !['rejected', 'feasibleInitialCycle'].includes(record.assessment.status)) throw Error('Incomplete original source proposal');
+    // Archived diagnostics are immutable advisory results, not live capacity
+    // certificates. Replaying improved diagnostics must not rewrite a world.
+    // Activation below still recomputes current feasibility before use.
     return record;
   }
   function runtimeSource(record, map) {
     validate(record, map);
     if (map.beastHabitatSources?.id !== record.id) throw Error('Active accounts require the exact archived original source');
     if (record.assessment.status !== 'feasibleInitialCycle') throw Error('Rejected initial allocation is unavailable, not an exhausted or healthy region');
-    const result = expand(record, map); result.diagnosticOnly = false; return result;
+    const result = expand(record, map);
+    if (assess(result, map).status !== 'feasibleInitialCycle') throw Error('Original allocation is not supported by current physical residence checks');
+    result.diagnosticOnly = false; return result;
   }
   function attach(seed, map) {
     const next = World.validateStrategicMap(map);
