@@ -8,6 +8,23 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Population account foundation — #3.38-D remains in progress
+
+Implemented the internal `beast-populations.js` account model on 2026-11-13.
+Sixteen focused checks cover original integer membership, detailed-body exclusion,
+explicit calendar months, saved continuous mortality, finite consumption and
+scarcity deaths, staggered knowledge-limited migration, failed arrivals, actual
+stock interruption and persistence validation. The model uses all 36 authored
+life-history identities without automatically allocating any wild population.
+
+This checkpoint is not loaded into the game. Generated physical sources/seasonal
+viability, funded growth/recruitment/formation and ecological work/exhaustion,
+native encounter/logistics/report integration and full D acceptance remain
+unfinished within the same package. [BEAST_POPULATIONS.md](BEAST_POPULATIONS.md)
+records these exact boundaries. D is not removed, eleven packages remain and no
+new prompt is added. No browser tests were appropriate for this isolated model;
+the full suite was not run under repository policy.
+
 ### Individual beast abilities, needs and local ecology — #3.38-C
 
 Implemented on 2026-11-13 for the fixed 24-species matrix. Shared local consumers

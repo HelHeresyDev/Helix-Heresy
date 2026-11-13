@@ -2242,6 +2242,12 @@ authored lifecycle/rate data is published to browser and spreadsheet; existing c
 care is not billed twice. Additional population-backed encounters, natural
 formation-site allocation and monthly regional ecology remain the existing D work.
 
+D's [population-account model and implementation status](BEAST_POPULATIONS.md)
+now cover conserved cohorts, finite consumption, timed scarcity/background deaths,
+monthly intentions and knowledge-limited staggered migration in focused model
+checks. It is not yet connected to native world/encounter consumers; D remains
+active and this is not additional ordinary-play encounter coverage.
+
 - Keep the game runtime dependency-free unless a feature clearly needs a library.
 - Preserve the discovery loop by avoiding public documentation of exact trait outcomes or hidden gene mappings.
 - Favor small commits after meaningful feature passes or bug fixes.
