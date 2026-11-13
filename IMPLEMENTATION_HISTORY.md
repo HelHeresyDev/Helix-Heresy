@@ -8,6 +8,43 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Numeric ecological rates — spreadsheet omission corrected
+
+Corrected on 2026-11-12 after the developer pointed out that the preceding design
+updates contained units/rules but not the requested numeric coefficients. All 36
+current catalog entries now have explicit initial nurturing and destruction
+coefficients in each of the six environmental ledgers: **432 numeric values**,
+including deliberate zeroes. These are authored initial balance values, not
+runtime measurements, final tuning or evidence that regional equilibrium works.
+
+The Linux ODS and XLSX now have a dedicated **Ecological rates** tab (seven sheets
+total). E–P hold the twelve numeric rates, C/D identify counting basis/status, and
+limits explain resource, body, activity and shared-colony constraints. The same
+rates are also in Catalog Q–AB and CSV. Existing material costs, research tiers,
+species identities and behavior are unchanged. Numeric data and the generated
+matrix share `scripts/creature-ecology-design.js` as their reference source.
+
+Units remain EP per stated individual per game day: one point changes one affected
+hectare by one percentage point in one ledger. Unlike ledgers cannot be totaled.
+For example, Ironroot soil/cover is 40 nurturing / 4 destruction; Ashhorn is 1 / 60;
+Gravebloom Elk is 2 / 1. Ember Ant is per active worker (100,000 workers have a
+40-point/day biomass-destruction ceiling), Mire Choir per member, Brine Cathedral
+per mature whole superorganism and Hydra per body rather than head. The reference
+slime is explicitly 1 kg for calibration, not a claim that all slimes have that
+mass. Indirect predatory nurturers receive no invented direct repair bonus; actual
+prey/control outcomes reduce destructive capacity without double restoration.
+Existing stocks, actual shared work, damage events and extracted food are counted
+once. Zero in these ledgers does not erase other physical costs or actual work.
+
+Validation: ten focused `tests/creature-ecology-design.unit.test.js` checks and ten
+`tests/creature-catalog.test.py` checks pass. Added checks cover exact 36-profile
+coverage, finite nonnegative numeric vectors, counting bases, catalog/rate-tab
+parity and actual typed ODS/XLSX rate cells, including tiny worker fractions and
+explicit zeroes. Builder validation covers all seven sheets; rate-column header
+height is expanded in XLSX and ODS keeps optimal wrapped rows. Full suite not run
+under `AGENTS.md`. Runtime adoption/calibration and monthly simulation stay in
+existing C/D; no new prompt or package completion is claimed.
+
 ### Monthly ecology and knowledge-limited migration — approved design clarification
 
 Recorded on 2026-11-12 in the existing ecology design source, generated matrix,

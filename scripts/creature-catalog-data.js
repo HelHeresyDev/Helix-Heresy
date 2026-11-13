@@ -25,11 +25,14 @@ function bundle(costs) {
     arcaneFeedstock: 'arcane feedstock', assayReagent: 'assay reagent' };
   return Object.entries(costs).map(([key, n]) => `${n} ${names[key] || humanize(key).toLowerCase()}`).join(' + ');
 }
+const RATE_HEADERS = EcologyDesign.rateLedgers.flatMap(([, label]) =>
+  [`${label} nurture (EP/individual/day)`, `${label} destruction (EP/individual/day)`]);
 const HEADERS = ['Creature', 'Group', 'Implementation / availability', 'Research tier', 'Production tier',
   'Material cost per creature', 'Biome / habitat', 'Rarity / prevalence', 'Threat / hazards',
   'Intelligence / communication', 'Movement', 'Diet / upkeep', 'Production / identity notes',
   'Ecological disposition (approved design)', 'Environmental impact (approved design)',
-  'Ecological adversaries (approved design)', 'Source', 'Stable ID'];
+  'Ecological adversaries (approved design)', ...RATE_HEADERS,
+  'Ecological rate counting basis', 'Ecological rate status', 'Ecological rate limits', 'Source', 'Stable ID'];
 const UNKNOWN = 'Not defined';
 function buildCatalog() {
   const app = text('app.js');
@@ -394,9 +397,16 @@ function buildCatalog() {
   }
   for (const row of rows) {
     const design = designById.get(row.at(-1));
-    row.splice(-2, 0, humanize(design.role), design.impact, EcologyDesign.adversaries(design.id));
+    const profile = EcologyDesign.rateProfileById.get(design.id);
+    row.splice(-2, 0, humanize(design.role), design.impact, EcologyDesign.adversaries(design.id),
+      ...EcologyDesign.rateCells(design.id), profile.basis, profile.status, profile.notes);
     row[row.length - 2] += '; reference/CREATURE_ECOLOGY_MATRIX.md';
   }
+  const rates = rows.map(row => {
+    const design = designById.get(row.at(-1)), profile = EcologyDesign.rateProfileById.get(design.id);
+    return [design.name, humanize(design.role), profile.basis, profile.status,
+      ...EcologyDesign.rateCells(design.id), profile.notes, 'reference/CREATURE_ECOLOGY_MATRIX.md', design.id];
+  });
   const guide = [
     ['Purpose', 'Developer reference for authored creature definitions and current design proposals. This is not the scientist’s in-game knowledge or a live world census.'],
     ['Coverage', `${rows.length} current catalog entries, including humans, implemented laboratory creature families and all ${Ecology.BEAST_SPECIES.length} strategic beast species. ${planned.length ? `${planned.length} proposed creatures are on a separate tab.` : 'There are no active creature proposals; withdrawn ideas are not existing species.'} Explicit dog lore and divine/receiver states are separate from species.`],
@@ -411,7 +421,8 @@ function buildCatalog() {
     ['Implementation status', 'Strategic ecology does not mean a fully implemented local creature, combat ability, player production recipe or encounter. Only current WildernessBeasts.PROFILES are identified as local profiles.'],
     ['Ecological disposition — approved design', 'Nurturing, destroying or neutral describe usual net environmental impact, not morality, friendliness, threat or the Beast ecology tab’s food-web role. Actual activities, variants, density and resources determine realized impact; humans have no exemption. These three design columns do not claim regional balancing/exhaustion or new abilities are implemented. See reference/CREATURE_ECOLOGY_MATRIX.md; scripts/creature-ecology-design.js owns the approved annotations.'],
     ['Ecological adversaries — approved design', 'Directed species-specific predation, territorial defense or restoration; not two cooperative factions. Actual same-habitat/adjacent-ecotone reach, viable matchups and finite resources are required. Local core-family restoration supplies no invented strategic wild population. Slimes cannot cooperate; soulless bodies have no initiative. Exhausted territories require actual nurturer defeat and accumulated damage, with conditional real recovery, not automatic repair.'],
-    ['Monthly ecology — approved design', 'Plan regional ecology once per game month; accrue only supported effects gradually during elapsed time, with event-local corrections and no upfront forecast credit. Separate nurturing/destruction coefficients use ecological points per individual per game day per ledger: one point changes one affected hectare by one percentage point. Actual month length, resources, residence and original member counts constrain totals; numerical species coefficients still require C calibration, not a new queue entry. This is not an implemented monthly planner.'],
+    ['Numeric ecological rates — initial balance values', 'Open Ecological rates for all 36 entries, or use the numeric columns in Catalog/CSV. Each ledger has separate nurturing and destruction numbers in EP per individual per game day; 1 EP changes 1 affected hectare by 1 percentage point in that ledger. These are authored initial balance coefficients, not current runtime measurements, final balance or proof of regional viability. Actual resources/body/counting basis constrain achieved effects; C/D still own consumed behavior and the planner. Zero is deliberate, not an unknown value. Never sum unlike ledgers or count predation as both reduced destroyer pressure and imaginary restoration.'],
+    ['Monthly ecology — approved design', 'Plan regional ecology once per game month; accrue only supported effects gradually during elapsed time, with event-local corrections and no upfront forecast credit. Numeric daily coefficients are published in Ecological rates and Catalog. Multiply by actual local individual-days and activity/supply limits, using actual calendar duration. Shared/colony effects, already harvested food and damage events are debited once, not duplicated by a full baseline. This is not an implemented monthly planner.'],
     ['Migration knowledge — approved design', 'Instinctive migrants retain traditional routes despite hidden destination shortages. Nonmigratory displaced groups explore essentially randomly, influenced only by local senses and encountered traversability. Personally learned/actually received information can guide a cognitively capable group, but may be stale. No hidden destination-capacity reservations, global safe-route oracle or species-wide knowledge. Staggered original groups can converge, starve and migrate again; travel may span months. See reference/CREATURE_ECOLOGY_MATRIX.md.'],
     ['Costs', 'Materials are in game inventory units unless explicitly stated otherwise. They are not market currency quotes. Production detail separates per-creature input, per-procedure cost, reusable equipment, research setup and upkeep.'],
     ['Soul and will', 'Artificial own-soul formation needs concurrent inherited animancy; unassisted bodies have no independent will/leveling. No later own-soul retrofit. Slimes never communicate or cooperate. A soul does not guarantee consent or obedience.'],
@@ -423,6 +434,7 @@ function buildCatalog() {
     ['Editing / rebuild', 'The workbook is editable. Generated files are snapshots; rebuilding replaces them. To retain design annotations across rebuilds, update scripts/creature-catalog-data.js. Run python3 scripts/build-creature-catalog.py. No gameplay definitions are changed.']
   ];
   return { headers: HEADERS, creatures: rows, planned, ecology: ecologyRows, production, forms, guide,
+    rateHeaders: ['Creature', 'Environmental disposition', 'Counting basis', 'Rate status', ...RATE_HEADERS, 'Limits / calibration', 'Source', 'Stable ID'], rates,
     ecologyDesignReference: EcologyDesign.renderReference(),
     legends: { biomes: Environment.BIOME_CLASS_LEGEND, aspects: Arcane.ASPECT_CLASS_LEGEND },
     revision: process.env.CREATURE_CATALOG_REVISION || 'Working-tree snapshot' };

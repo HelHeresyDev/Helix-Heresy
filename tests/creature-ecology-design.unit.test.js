@@ -85,7 +85,7 @@ test('exported design columns match exact identities without changing costs, foo
   const catalog = buildCatalog();
   const roleAt = catalog.headers.indexOf('Ecological disposition (approved design)');
   assert.equal(roleAt, 13);
-  assert.equal(catalog.headers.length, 18);
+  assert.equal(catalog.headers.length, 33);
   assert.deepEqual(catalog.headers.slice(-2), ['Source', 'Stable ID']);
   for (const row of catalog.creatures) {
     const d = byId.get(row.at(-1));
@@ -178,4 +178,51 @@ test('migration design contract excludes private destination truth and permits r
   assert.match(read('PENDING_PROMPTS.md'), /active count remains 13/);
   assert.match(read('reference/DESIGN_BIBLE.md'), /Initial healthy ecology does not guarantee continued balance/);
   assert.ok(buildCatalog().guide.some(row => row[0] === 'Migration knowledge — approved design'));
+});
+
+test('every current entry has twelve finite numeric baseline coefficients and an explicit counting basis', () => {
+  assert.equal(design.rateProfiles.length, 36);
+  assert.equal(design.rateProfileById.size, 36);
+  assert.deepEqual(new Set(design.rateProfiles.map(p => p.id)), new Set(byId.keys()));
+  assert.deepEqual(design.rateLedgers.map(([id]) => id), design.monthlyEcology.ledgers);
+  for (const p of design.rateProfiles) {
+    assert.equal(p.nurturing.length, 6, p.id);
+    assert.equal(p.destruction.length, 6, p.id);
+    assert.equal(design.rateCells(p.id).length, 12);
+    assert.ok([...p.nurturing, ...p.destruction].every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0), p.id);
+    assert.ok(p.basis.length > 15 && p.notes.length > 50, p.id);
+    assert.match(p.status, /Initial balance values; not runtime rates/);
+  }
+  const p = id => design.rateProfileById.get(id);
+  assert.deepEqual([p('beast:ironroot-colossus').nurturing[0], p('beast:ironroot-colossus').destruction[0]], [40, 4]);
+  assert.deepEqual([p('beast:ashhorn-behemoth').nurturing[0], p('beast:ashhorn-behemoth').destruction[0]], [1, 60]);
+  assert.deepEqual([p('beast:gravebloom-elk').nurturing[0], p('beast:gravebloom-elk').destruction[0]], [2, 1]);
+  assert.ok(p('beast:glasswing-roc').nurturing.every(n => n === 0), 'predator control is not duplicate direct restoration');
+  assert.equal(p('beast:ember-ant').destruction[4] * 100000, 40);
+  assert.match(p('beast:ember-ant').basis, /worker, not a hive/);
+  assert.match(p('beast:brine-cathedral').basis, /superorganism, not one polyp/);
+  assert.match(p('beast:marsh-hydra').basis, /all heads combined/);
+  assert.match(p('slime').notes, /not a claim all slimes weigh 1 kg/);
+  assert.ok(design.rateCells('hauntbound').every(n => n === 0), 'explicit zero is not unknown');
+  assert.throws(() => design.rateCells('missing'), /Missing numeric ecological rate profile/);
+});
+
+test('numeric rate columns and dedicated rate sheet share the exact authoritative coefficients', () => {
+  const c = buildCatalog();
+  const first = c.headers.indexOf('Soil / cover nurture (EP/individual/day)');
+  assert.equal(first, 16);
+  assert.equal(c.rates.length, 36);
+  assert.equal(c.rateHeaders.length, 19);
+  for (const row of c.creatures) {
+    const id = row.at(-1), profile = design.rateProfileById.get(id);
+    assert.deepEqual(row.slice(first, first + 12), design.rateCells(id));
+    assert.deepEqual(row.slice(first + 12, first + 15), [profile.basis, profile.status, profile.notes]);
+    const rateRow = c.rates.find(r => r.at(-1) === id);
+    assert.equal(rateRow.length, c.rateHeaders.length);
+    assert.deepEqual(rateRow.slice(4, 16), design.rateCells(id));
+    assert.equal(rateRow[2], profile.basis);
+    assert.equal(rateRow[3], profile.status);
+  }
+  assert.match(c.ecologyDesignReference, /Numeric ecological rates — all 36 entries/);
+  assert.match(c.ecologyDesignReference, /not measured or live-game rates/);
 });

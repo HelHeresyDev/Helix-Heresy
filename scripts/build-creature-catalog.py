@@ -65,10 +65,13 @@ def load_data():
 
 def sheet_definitions(data, as_of):
     summary = f'Source snapshot {as_of} · base {data["revision"]} · {len(data["creatures"])} current entries / {len(data["ecology"])} beast species / {len(data["planned"])} proposal{"s" if len(data["planned"]) != 1 else ""}'
-    catalog_widths = [29, 23, 40, 20, 20, 57, 62, 46, 54, 58, 48, 51, 92, 30, 80, 110, 65, 33]
+    catalog_widths = [29, 23, 40, 20, 20, 57, 62, 46, 54, 58, 48, 51, 92, 30, 80, 110] + [25] * 12 + [48, 42, 100, 65, 33]
     return [
         ('Read me', 'HELIX HERESY / Creature reference', summary, ['Field', 'Meaning / limits'], data['guide'], [28, 135], '17324D'),
         ('Catalog', 'CREATURE CATALOG / Current definitions', summary, data['headers'], data['creatures'], catalog_widths, '117D89'),
+        ('Ecological rates', 'ECOLOGICAL RATES / Numeric initial balance values',
+         'Per stated individual per game day. 1 EP = 1 affected hectare changed by 1 percentage point in ONE ledger. Initial tuning, not live-game rates.',
+         data['rateHeaders'], data['rates'], [29, 26, 48, 42] + [25] * 12 + [110, 55, 35], '725585'),
         ('Production detail', 'PRODUCTION / Separate costs and prerequisites', 'Per-creature ingredients are not equipment, research or market-price totals.',
          ['Procedure', 'Applies to', 'Cost basis', 'Material input', 'Mana / services', 'Base time', 'Equipment / capex', 'Gates / care', 'Limits / accounting notes', 'Source'],
          data['production'], [43, 35, 39, 73, 90, 75, 90, 96, 103, 70], '117D89'),
@@ -161,7 +164,8 @@ def worksheet(index, definition):
         row = element('row', {'r': str(number), 'ht': str(height), 'customHeight': '1'}, body)
         for i in range(1, len(headers) + 1):
             write_cell(row, f'{column(i)}{number}', content if i == 1 else '', style)
-    header = element('row', {'r': '4', 'ht': '34', 'customHeight': '1'}, body)
+    header_height = '62' if any('EP/individual/day' in h for h in headers) else '34'
+    header = element('row', {'r': '4', 'ht': header_height, 'customHeight': '1'}, body)
     for i, value in enumerate(headers, 1):
         write_cell(header, f'{column(i)}4', value, 3)
     for r, values in enumerate(rows, 5):
