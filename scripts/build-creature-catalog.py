@@ -65,13 +65,16 @@ def load_data():
 
 def sheet_definitions(data, as_of):
     summary = f'Source snapshot {as_of} · base {data["revision"]} · {len(data["creatures"])} current entries / {len(data["ecology"])} beast species / {len(data["planned"])} proposal{"s" if len(data["planned"]) != 1 else ""}'
-    catalog_widths = [29, 23, 40, 20, 20, 57, 62, 46, 54, 58, 48, 51, 92, 30, 80, 110] + [25] * 12 + [48, 42, 100, 65, 33]
+    catalog_widths = [29, 23, 40, 20, 20, 57, 62, 46, 54, 58, 48, 51, 92, 30, 80, 110] + [25] * 12 + [48, 42, 100] + [32] * 6 + [55, 65, 33]
     return [
         ('Read me', 'HELIX HERESY / Creature reference', summary, ['Field', 'Meaning / limits'], data['guide'], [28, 135], '17324D'),
         ('Catalog', 'CREATURE CATALOG / Current definitions', summary, data['headers'], data['creatures'], catalog_widths, '117D89'),
         ('Ecological rates', 'ECOLOGICAL RATES / Numeric initial balance values',
          'Per stated individual per game day. 1 EP = 1 affected hectare changed by 1 percentage point in ONE ledger. Initial tuning, not live-game rates.',
          data['rateHeaders'], data['rates'], [29, 26, 48, 42] + [25] * 12 + [110, 55, 35], '725585'),
+        ('Lifecycle & resource use', 'LIFECYCLE / Consumption, recruitment, maturity and mortality',
+         'All 36 entries. Initial demographic tuning; cited implemented care is preserved. Daily intake, distinct breeding units, age clocks and continuous hazards; not a runtime population engine.',
+         data['lifecycleHeaders'], data['lifecycles'], data['lifecycleWidths'], '725585'),
         ('Production detail', 'PRODUCTION / Separate costs and prerequisites', 'Per-creature ingredients are not equipment, research or market-price totals.',
          ['Procedure', 'Applies to', 'Cost basis', 'Material input', 'Mana / services', 'Base time', 'Equipment / capex', 'Gates / care', 'Limits / accounting notes', 'Source'],
          data['production'], [43, 35, 39, 73, 90, 75, 90, 96, 103, 70], '117D89'),
@@ -164,7 +167,7 @@ def worksheet(index, definition):
         row = element('row', {'r': str(number), 'ht': str(height), 'customHeight': '1'}, body)
         for i in range(1, len(headers) + 1):
             write_cell(row, f'{column(i)}{number}', content if i == 1 else '', style)
-    header_height = '62' if any('EP/individual/day' in h for h in headers) else '34'
+    header_height = '62' if any('EP/individual/day' in h for h in headers) or name == 'Lifecycle & resource use' else '34'
     header = element('row', {'r': '4', 'ht': header_height, 'customHeight': '1'}, body)
     for i, value in enumerate(headers, 1):
         write_cell(header, f'{column(i)}4', value, 3)
@@ -520,7 +523,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--as-of', default=dt.date.today().isoformat())
     parser.add_argument('--format', choices=['all', 'ods', 'xlsx'], default='all',
-                        help='Build only the selected workbook; all also refreshes CSV/preview and the design matrix.')
+                        help='Build only the selected workbook; all also refreshes CSV/preview and the ecology/lifecycle references.')
     args = parser.parse_args()
     dt.date.fromisoformat(args.as_of)
     data = load_data()
@@ -538,6 +541,7 @@ def main():
         built.append(workbook.name)
     if args.format == 'all':
         (OUTPUT / 'CREATURE_ECOLOGY_MATRIX.md').write_text(data['ecologyDesignReference'], encoding='utf-8')
+        (OUTPUT / 'CREATURE_LIFECYCLES.md').write_text(data['lifecycleReference'], encoding='utf-8')
         with (OUTPUT / 'creature-catalog.csv').open('w', encoding='utf-8-sig', newline='') as handle:
             writer = csv.writer(handle)
             writer.writerow(data['headers'])

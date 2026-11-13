@@ -11,6 +11,7 @@ const Homunculi = require('../homunculi');
 const Hauntbound = require('../hauntbound');
 const Wilderness = require('../wilderness-beasts');
 const EcologyDesign = require('./creature-ecology-design');
+const Lifecycle = require('./creature-lifecycle-data');
 const resolveSource = file => file === 'DESIGN_BIBLE.md' && !fs.existsSync(path.join(root, file)) ? 'reference/DESIGN_BIBLE.md' : file;
 const text = file => fs.readFileSync(path.join(root, resolveSource(file)), 'utf8');
 const humanize = s => String(s).replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase());
@@ -32,7 +33,10 @@ const HEADERS = ['Creature', 'Group', 'Implementation / availability', 'Research
   'Intelligence / communication', 'Movement', 'Diet / upkeep', 'Production / identity notes',
   'Ecological disposition (approved design)', 'Environmental impact (approved design)',
   'Ecological adversaries (approved design)', ...RATE_HEADERS,
-  'Ecological rate counting basis', 'Ecological rate status', 'Ecological rate limits', 'Source', 'Stable ID'];
+  'Ecological rate counting basis', 'Ecological rate status', 'Ecological rate limits',
+  'Lifecycle food / organic intake (kg/day)', 'Lifecycle direct water demand (L/day)',
+  'Reproductive attempts / eligible unit / 365 days', 'Offspring / successful event',
+  'Birth to adult body (days)', 'Adult background hazard / 1000 individual-days', 'Lifecycle value status', 'Source', 'Stable ID'];
 const UNKNOWN = 'Not defined';
 function buildCatalog() {
   const app = text('app.js');
@@ -398,9 +402,12 @@ function buildCatalog() {
   for (const row of rows) {
     const design = designById.get(row.at(-1));
     const profile = EcologyDesign.rateProfileById.get(design.id);
+    const life = Lifecycle.byId.get(design.id);
+    if (!life) throw Error(`Missing lifecycle profile: ${design.id}`);
     row.splice(-2, 0, humanize(design.role), design.impact, EcologyDesign.adversaries(design.id),
-      ...EcologyDesign.rateCells(design.id), profile.basis, profile.status, profile.notes);
-    row[row.length - 2] += '; reference/CREATURE_ECOLOGY_MATRIX.md';
+      ...EcologyDesign.rateCells(design.id), profile.basis, profile.status, profile.notes,
+      life.foodKgDay, life.waterLDay, life.attempts365, life.offspring, life.adultDays, life.adultMortality, life.status);
+    row[row.length - 2] += '; reference/CREATURE_ECOLOGY_MATRIX.md; reference/CREATURE_LIFECYCLES.md';
   }
   const rates = rows.map(row => {
     const design = designById.get(row.at(-1)), profile = EcologyDesign.rateProfileById.get(design.id);
@@ -422,6 +429,8 @@ function buildCatalog() {
     ['Ecological disposition — approved design', 'Nurturing, destroying or neutral describe usual net environmental impact, not morality, friendliness, threat or the Beast ecology tab’s food-web role. Actual activities, variants, density and resources determine realized impact; humans have no exemption. These three design columns do not claim regional balancing/exhaustion or new abilities are implemented. See reference/CREATURE_ECOLOGY_MATRIX.md; scripts/creature-ecology-design.js owns the approved annotations.'],
     ['Ecological adversaries — approved design', 'Directed species-specific predation, territorial defense or restoration; not two cooperative factions. Actual same-habitat/adjacent-ecotone reach, viable matchups and finite resources are required. Local core-family restoration supplies no invented strategic wild population. Slimes cannot cooperate; soulless bodies have no initiative. Exhausted territories require actual nurturer defeat and accumulated damage, with conditional real recovery, not automatic repair.'],
     ['Numeric ecological rates — initial balance values', 'Open Ecological rates for all 36 entries, or use the numeric columns in Catalog/CSV. Each ledger has separate nurturing and destruction numbers in EP per individual per game day; 1 EP changes 1 affected hectare by 1 percentage point in that ledger. These are authored initial balance coefficients, not current runtime measurements, final balance or proof of regional viability. Actual resources/body/counting basis constrain achieved effects; C/D still own consumed behavior and the planner. Zero is deliberate, not an unknown value. Never sum unlike ledgers or count predation as both reduced destroyer pressure and imaginary restoration.'],
+    ['Lifecycle & resource use — numeric values', 'All 36 entries have numeric consumption, reproduction, maturity and mortality values on Lifecycle & resource use; Catalog/CSV also include six key values and their status. Body mass, compatible intake, growth/independence/fertility, breeding unit, material investment, reserves, age-specific hazards, travel, temperature, prey and artificial formation are separate. N/A is explicit inapplicability/unestablished fertility, not a fabricated zero. Implemented care values are preserved and cited; new demographics are initial tuning, not runtime population behavior. See reference/CREATURE_LIFECYCLES.md.'],
+    ['Lifecycle time / death units', 'Attempts are per eligible reproductive unit per 365 elapsed game days, not a global calendar year or per every colony worker. Background death is continuous hazard per 1000 individual-days: probability = 1 - exp(-hazard * days / 1000), split by actual age bands and old-age hazard doubling. Do not duplicate explicit combat, starvation, predation or genomic life-budget deaths. Birth/establishment, independence, adult size, fertility and laboratory formation are distinct clocks; no mass, soul, knowledge or consent appears merely because time elapsed.'],
     ['Monthly ecology — approved design', 'Plan regional ecology once per game month; accrue only supported effects gradually during elapsed time, with event-local corrections and no upfront forecast credit. Numeric daily coefficients are published in Ecological rates and Catalog. Multiply by actual local individual-days and activity/supply limits, using actual calendar duration. Shared/colony effects, already harvested food and damage events are debited once, not duplicated by a full baseline. This is not an implemented monthly planner.'],
     ['Migration knowledge — approved design', 'Instinctive migrants retain traditional routes despite hidden destination shortages. Nonmigratory displaced groups explore essentially randomly, influenced only by local senses and encountered traversability. Personally learned/actually received information can guide a cognitively capable group, but may be stale. No hidden destination-capacity reservations, global safe-route oracle or species-wide knowledge. Staggered original groups can converge, starve and migrate again; travel may span months. See reference/CREATURE_ECOLOGY_MATRIX.md.'],
     ['Costs', 'Materials are in game inventory units unless explicitly stated otherwise. They are not market currency quotes. Production detail separates per-creature input, per-procedure cost, reusable equipment, research setup and upkeep.'],
@@ -434,6 +443,8 @@ function buildCatalog() {
     ['Editing / rebuild', 'The workbook is editable. Generated files are snapshots; rebuilding replaces them. To retain design annotations across rebuilds, update scripts/creature-catalog-data.js. Run python3 scripts/build-creature-catalog.py. No gameplay definitions are changed.']
   ];
   return { headers: HEADERS, creatures: rows, planned, ecology: ecologyRows, production, forms, guide,
+    lifecycleHeaders: Lifecycle.headers, lifecycles: Lifecycle.rows(), lifecycleWidths: Lifecycle.widths,
+    lifecycleReference: Lifecycle.renderReference(),
     rateHeaders: ['Creature', 'Environmental disposition', 'Counting basis', 'Rate status', ...RATE_HEADERS, 'Limits / calibration', 'Source', 'Stable ID'], rates,
     ecologyDesignReference: EcologyDesign.renderReference(),
     legends: { biomes: Environment.BIOME_CLASS_LEGEND, aspects: Arcane.ASPECT_CLASS_LEGEND },

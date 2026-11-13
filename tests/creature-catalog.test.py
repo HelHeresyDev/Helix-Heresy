@@ -112,7 +112,7 @@ class CreatureCatalogTests(unittest.TestCase):
 
     def test_numeric_ecological_rates_are_real_numbers_in_both_workbooks(self):
         definitions = builder.sheet_definitions(self.data, '2026-11-12')
-        self.assertEqual(len(definitions), 7)
+        self.assertEqual(len(definitions), 8)
         rate_index = next(i for i, d in enumerate(definitions, 1) if d[0] == 'Ecological rates')
         expected = self.data['rates']
         self.assertEqual(len(expected), 36)
@@ -132,6 +132,33 @@ class CreatureCatalogTests(unittest.TestCase):
             catalog = builder.read_sheet_rows(xlsx, 2)[4:]
             for row in catalog:
                 self.assertTrue(all(isinstance(n, (int, float)) for n in row[16:28]), row[0])
+
+    def test_lifecycle_values_are_typed_and_complete_in_both_workbooks(self):
+        definitions = builder.sheet_definitions(self.data, '2026-11-12')
+        index = next(i for i, d in enumerate(definitions, 1) if d[0] == 'Lifecycle & resource use')
+        headers, expected = self.data['lifecycleHeaders'], self.data['lifecycles']
+        self.assertEqual(len(expected), 36)
+        def field(row, label):
+            return row[headers.index(label)]
+        with ZipFile(self.workbook) as xlsx, ZipFile(ROOT / 'reference/creature-catalog.ods') as ods:
+            tables = ET.fromstring(ods.read('content.xml')).findall('office:body/office:spreadsheet/table:table', builder.ODF)
+            outputs = [builder.read_sheet_rows(xlsx, index)[4:], builder.read_ods_rows(tables[index - 1])[4:]]
+            for rows in outputs:
+                self.assertEqual(rows, expected)
+                by_id = {row[-1]: row for row in rows}
+                for row in rows:
+                    for label in ['Food / organic substrate (kg/day)', 'Direct water demand (L/day)',
+                                  'Attempts per reproductive unit / 365 days', 'Established offspring per successful event',
+                                  'Birth to adult body (days)', 'Background adult hazard / 1000 individual-days']:
+                        self.assertIsInstance(field(row, label), (int, float), (row[0], label))
+                self.assertEqual(field(by_id['duskcat'], 'Food / organic substrate (kg/day)'), 0.288)
+                self.assertEqual(field(by_id['duskcat'], 'Direct water demand (L/day)'), 0.6)
+                self.assertEqual(field(by_id['hauntbound'], 'Birth to first reproductive eligibility (days)'), 'N/A')
+                self.assertEqual(field(by_id['hauntbound'], 'Established offspring per successful event'), 0)
+                self.assertEqual(field(by_id['beast:ember-ant'], 'Parental breeder background hazard / 1000 days'), 0.02)
+                self.assertEqual(field(by_id['beast:ember-ant'], 'Background adult hazard / 1000 individual-days'), 3)
+            for row in builder.read_sheet_rows(xlsx, 2)[4:]:
+                self.assertTrue(all(isinstance(n, (int, float)) for n in row[31:37]))
 
 class OdsArtifactTests(unittest.TestCase):
     """Conversion checks do not require unchanged live gameplay/document sources."""
@@ -181,7 +208,7 @@ class OdsArtifactTests(unittest.TestCase):
         with ZipFile(ROOT / 'reference/creature-catalog.ods') as archive:
             content = ET.fromstring(archive.read('content.xml'))
             ranges = content.findall('.//table:database-range', builder.ODF)
-            self.assertEqual(len(ranges), 7)
+            self.assertEqual(len(ranges), 8)
             for database, definition in zip(ranges, definitions):
                 name, _, _, headers, rows, _, _ = definition
                 self.assertEqual(database.get(builder.odf_name('table:target-range-address')),
@@ -192,7 +219,7 @@ class OdsArtifactTests(unittest.TestCase):
                 self.assertEqual(style.get(builder.odf_name('fo:wrap-option')), 'wrap')
             settings = ET.fromstring(archive.read('settings.xml'))
             panes = settings.findall('.//config:config-item-map-named/config:config-item-map-entry', builder.ODF)
-            self.assertEqual(len(panes), 7)
+            self.assertEqual(len(panes), 8)
             for pane, definition in zip(panes, definitions):
                 self.assertEqual(pane.get(builder.odf_name('config:name')), definition[0])
                 values = {item.get(builder.odf_name('config:name')): item.text for item in pane}

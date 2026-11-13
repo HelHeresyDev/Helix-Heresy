@@ -85,7 +85,7 @@ test('exported design columns match exact identities without changing costs, foo
   const catalog = buildCatalog();
   const roleAt = catalog.headers.indexOf('Ecological disposition (approved design)');
   assert.equal(roleAt, 13);
-  assert.equal(catalog.headers.length, 33);
+  assert.equal(catalog.headers.length, 40);
   assert.deepEqual(catalog.headers.slice(-2), ['Source', 'Stable ID']);
   for (const row of catalog.creatures) {
     const d = byId.get(row.at(-1));

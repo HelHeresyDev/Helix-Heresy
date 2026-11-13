@@ -8,6 +8,64 @@ Archived when the active queue was made finite on 2026-10-28. This preserves the
 
 ## Subsequent implementation notes
 
+### Numeric lifecycle and resource-use dataset — all 36 current creatures
+
+Added on 2026-11-12 following the approved lifecycle discussion. The Linux-native
+ODS and XLSX now include **Lifecycle & resource use**, an eight-sheet workbook in
+total, with 36 rows and 54 typed columns. All current entries have explicit daily
+intake, recruitment, maturity and background mortality numbers, plus body/newborn
+mass, juvenile demand, independence/fertility, parental/queen counting units,
+gestation/incubation, cooldowns, material investment, reserves, ageing, travel,
+habitat/temperature, prey/hunting and separate artificial-formation values. The
+six core lifecycle numbers and their status also appear in Catalog AF–AK / CSV,
+with status AL. [The generated lifecycle guide](reference/CREATURE_LIFECYCLES.md)
+and the authored `scripts/creature-lifecycle-data.js` share the same source values.
+
+Cited implemented care is preserved rather than replaced: Duskcat 0.288 kg food
+and 0.6 L water/day; Rootling nominal lit 20 C uptake 0.48 kg organic medium,
+0.024 kg minerals and 1.2 L water/day; Sporecap digestion ceiling 1.2 kg/day and
+nominal evaporation 0.48 L/day; Quartz Shardling bite ceiling 0.24 kg/day with
+0.06 kg/day reserve-maintenance equivalent; Mudlet nominal evaporation 1.8 L/day;
+Cinderling bright 24 fuel units/day with smolder 6/day; Zephyr sealed 24 mana/day,
+gentle 48/strong 96; Lantern Wisp bright 48 and dim 12 mana/day. Mode, temperature,
+humidity, available stock and actual care still govern consumption. Existing
+growth caps, body custody and formation clocks remain intact. Homunculus 72-hour
+growth/48 kg embodiment is distinct from proposed physical ration conversions and
+learned independence; natural fertility is unestablished, not invented or declared
+impossible. Slime reference values never override genome-dependent nutrition,
+division readiness, conserved parental mass or its explicit life budget.
+
+All new wild life histories, masses, habitat/movement rates and demographic
+assumptions are **initial balance values**, not live-game population behavior or
+proof of equilibrium. Environmental recruitment counts actual finite sites for
+elemental/mineral forms, never every adult as a parent. Queen reproduction and
+mortality are distinct from workers, Brine Cathedral counts whole superorganisms,
+and Hydra heads are not individuals. Hauntbound have no reproductive pathway or
+biological ageing hazard; actual object/soul injury still matters. Body/food,
+mineral, water, fuel, electrical energy and mana units remain separate, and extra
+birth investment or parent partition preserves source matter. Numeric clocks do
+not grant mass, souls, knowledge, self-care, consent or a new crafting recipe.
+
+Attempts use a standardized 365-elapsed-game-day denominator, not an imposed
+calendar. Mortality is a continuous hazard per 1,000 individual-days, split at
+actual juvenile/adult/ageing boundaries with old-age hazard doubling, not a fixed
+monthly cull or universal death birthday. The tested reference helper calculates
+interval probabilities without double-charging explicit starvation, combat,
+predation or existing genomic death. Monthly cohort/timing/resource implementation
+still belongs to existing C/D, including actual edible stocks and replenishment;
+ecological points and habitat hectares do not manufacture food. No package was
+added or marked complete; the queue remains 13, B still next in serial order.
+
+Validation: eight focused `tests/creature-lifecycle-data.unit.test.js` checks cover
+exact roster/schema, reproduction units and material accounting, actual existing
+model-step upkeep probes, stage/formation distinctions, hazard interval splitting,
+exports and reproducible documentation. Ten `tests/creature-ecology-design.unit.test.js`
+checks retain ecological/reference contracts. Eleven `tests/creature-catalog.test.py`
+checks validate source/CSV and actual typed ODS/XLSX values across all eight sheets,
+including fractional values and explicit N/A cases. Builder validation preserves
+filters, wrapped headers and native frozen panes. No gameplay/browser code changed;
+the full suite was not run under `AGENTS.md`.
+
 ### Numeric ecological rates — spreadsheet omission corrected
 
 Corrected on 2026-11-12 after the developer pointed out that the preceding design
