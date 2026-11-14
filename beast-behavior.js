@@ -419,10 +419,9 @@
     if (p) Habitat.advanceBlooms(p, at);
     if (a.life.capturedRadiance?.until <= at) a.life.capturedRadiance = null;
     if (a.status === 'dead') {
-      if (a.life.reproduction && !a.life.reproduction.disposedAt) {
-        const r = a.life.reproduction;
+      for (const r of [a.life.reproduction, ...(a.life.populationBroods || [])].filter(Boolean)) if (r.disposedAt == null) {
         ctx.waste?.(a, 'failedRecruitmentKg', Math.max(0, r.investedKg - Life.profile(a).newbornKg * r.emitted.length));
-        a.life.reproduction.disposedAt = at;
+        r.disposedAt = at;
       }
       Predation.decay(a, at, ctx);
       return false;
@@ -523,7 +522,7 @@
       if (actions.includes('regenerateHead') && regenerate(a, seconds, at, ctx)) { a.life.activity = 'regenerate'; return true; }
       if (actions.includes('toolUse') && ctx.acquireTool?.(a)) { a.life.activity = 'handleTool'; return true; }
       if (a.life.opportunities >= 1 && !a.life.reproduction) {
-        const mate = seen.find(t => t.speciesId === a.speciesId && t.id !== a.id);
+        const mate = seen.find(t => t.speciesId === a.speciesId && t.id !== a.id && Life.eligible(t, true));
         if (Life.beginReproduction(a, mate, at, ctx)) { a.life.activity = 'breed'; return true; }
       }
       const work = actions.find(id => ['rootStabilize', 'tendWetland', 'cultivateReef', 'buildDam', 'growBlooms', 'buildFurnace', 'dreamWeather'].includes(id));

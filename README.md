@@ -2263,6 +2263,14 @@ The population model can hand an established original local body to that owner
 without duplicating its membership or stores. This does not yet connect every
 generated population to travel/logistics or make the regional food web viable.
 
+Regional model growth and reproduction now use paid cohort/brood batches, compact
+identity streams and merged background age/condition groups. Large background
+losses use interval summaries rather than per-creature records; detailed local
+parents/offspring retain their own claims and funded progress. The
+[demographic implementation and scaling limits](BEAST_POPULATIONS.md) document
+the approximations and focused million-headcount/longer-history benchmarks.
+This remains D work, not completed native regional ecology.
+
 - Keep the game runtime dependency-free unless a feature clearly needs a library.
 - Preserve the discovery loop by avoiding public documentation of exact trait outcomes or hidden gene mappings.
 - Favor small commits after meaningful feature passes or bug fixes.

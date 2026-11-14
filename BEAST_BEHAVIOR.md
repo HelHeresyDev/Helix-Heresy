@@ -66,6 +66,13 @@ do not reroll on reload. Incubation transfers actual parent matter/mana; blocked
 births retain unfinished investment. Stable child identities and source/parent
 references survive saves; fragments partition existing mass, not cloned adults.
 
+Ongoing D work now also supplies compact regional conception/growth batches.
+Detailed original parents can receive their already paid brood, credit and
+cooldown state through the population handoff instead of starting over or leaving
+a second pregnancy in the background. Nursery-bound broods require their original
+physical source; local emitted children must register once with the population
+owner. These adapters do not yet establish generated-world population adoption.
+
 The full 36-entry dataset remains in the spreadsheet. Existing scientist/civic,
 slime/genome and laboratory-family care/formation retain their original owners;
 this engine does not charge them again or invent homunculus fertility. Hauntbound

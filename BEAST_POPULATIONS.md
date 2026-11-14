@@ -31,10 +31,11 @@ capabilities already implemented by C are described in [BEAST_BEHAVIOR.md](BEAST
 - Cached finite resource rates and depletion/reserve-depletion boundaries, rather
   than repeated strategic planning on every call. Reads settle elapsed work but
   do not reroll intentions, change cached rates or award future renewal.
-- Continuous background hazards integrated across actual age bands and old-age
-  doubling, including distinct queen hazards. Saved exposure and event thresholds
-  preserve risk for small populations. Explicit predation/combat/scarcity losses
-  remove membership before later background hazard processing.
+- Background hazards integrated across age bands and old-age doubling, including
+  distinct queen hazards. Original small cohorts retain individual event clocks;
+  large and generated cohorts use the compact demographic approximation below.
+  Explicit predation/combat/scarcity losses remove membership before subsequent
+  background hazard processing.
 - Original body reserves, finite consumption, retained metabolic outputs and
   timed scarcity harm. Current initial scarcity tuning loses 0.4 normalized
   health per unmet reference daily water ration and 0.1 for food/minerals, after
@@ -49,6 +50,78 @@ stocks/capacities, renewal, traversal edges and the calendar. Generic stock keys
 in focused fixtures are not permission to feed a predator plants, renew ore,
 invent a hive queen, or generate a natural formation site. The physical source
 adapter must establish compatible sources and biological counting units.
+
+## Batched growth, recruitment and mortality
+
+`beast-demography.js` consumes the existing published lifecycle values without
+creating a pregnancy, juvenile actor or death object for every background animal.
+Work scales with groups/cohorts, supported activity and interval fragmentation,
+not directly with headcount. Named local individuals remain detailed and are
+excluded from these background owners.
+
+- Each group saves its reproductive intent and attempt rate once per actual
+  calendar month. Aggregate daily physiology boundaries settle earned growth,
+  attempt credits and background mortality; incubation, resource depletion and
+  actual interruptions add their own boundaries. This is not per-frame strategic
+  replanning or an upfront monthly grant. The rate denominator stays 365 elapsed
+  game days even with a different supplied calendar year.
+- Maintenance has first claim on actual regional stocks/renewal. Surplus compatible
+  matter funds growth and incubation gradually, with published assimilation and
+  retained growth/reproductive waste. Required activity energy and reproductive
+  mana also leave finite sources; energy cannot be a body-matter recipe. Mineral
+  bodies require an explicit sourced material mixture rather than generic food.
+  Neither age nor elapsed incubation manufactures missing body mass.
+- Actual sourced nurseries declare finite receiving capacity, favorable phases
+  and local mate access. Eligible original mothers/colony queens, actual mature
+  same-group mates and cooldown ranges constrain integer conception batches.
+  A queen additionally needs her original same-colony furnace hive. Workers do
+  not reproduce. Whole colonial fragmentation partitions existing parental mass;
+  environmental/artificial core families keep their existing owners and gain no
+  automatic wild formation sites or parental fertility.
+- Brood records hold compact parent/success intervals, paid material/mana and a
+  due time, not one pregnancy object per parent. Success counts use saved seeded
+  stochastic rounding of the published conditional chance. This preserves mean
+  rates but deliberately does **not** reproduce independent per-animal variance.
+  Newborn batches receive actual newborn mass and append ordinal ranges to stable
+  per-group/role identity streams; individual IDs are derived only when needed.
+- Killed parents cancel their remaining investment once. Actual destroyed egg/
+  fragment nurseries dispose of affected invested material without refunds or
+  replacement offspring. Losing a live-bearing nursery does not itself kill a
+  mother or erase her funded gestation; missing support prevents completion.
+- Compatible generated cohorts merge into age/stage, mass and condition bins.
+  Counts, physical mass/stores, parent intervals, paid broods and cooldowns remain
+  conserved. Representative age/condition are approximations; earliest/latest
+  birth dates remain saved, and maturity/fertility and local handoff use the
+  youngest bound rather than prematurely ageing an uncertain member. Already
+  detailed bodies and their individual histories are never averaged together.
+- Cohorts initially exceeding 128 individuals, and generated birth cohorts,
+  settle continuous-hazard survival expectations in batches with a saved seeded
+  fractional rounding balance. Large losses remove anonymous ordinal intervals
+  and retain compact death/remains summaries, not millions of individual corpse
+  records. These summaries retain first/last death dates and total physical mass,
+  **not exact individual death times**. They are not omnipresent edible stocks or
+  observed casualty reports. Original small-cohort clocks remain unchanged.
+
+`claimLocal` transfers a selected parent's already paid brood progress, attempt
+credit and cooldown along with its original body. Background batches immediately
+exclude that member. Existing local lifecycle code can continue transferred
+broods, and `registerLocalBirth` registers each genuinely emitted physical child
+once against the same population. Nursery-bound broods require access to the
+original nursery; they cannot teleport with a travelling parent. Missing native
+source adapters hold work rather than inventing a supported site. Real nursery
+destruction also invalidates its handed-off external broods. These hooks and
+their focused handoff checks do not establish full generated-world adoption.
+
+The focused benchmark is `node scripts/benchmark-beast-demography.js`; add
+`--long` for 2,400 elapsed game days. It uses explicitly prepared finite supplies,
+one or ten independent groups and active growth/reproduction/mortality. It is
+not a full-game/world-generation benchmark or proof of ecological balance.
+Representative runs of 120 days at 1,000 and 1,000,000 starting bodies each used
+roughly 6,000 cohort intervals and tens of milliseconds, with two birth summary
+records and four compact death records. The longer run retained hundreds rather
+than millions of active cohort records. Wall-clock timing depends on hardware;
+focused tests gate structural work/state growth rather than a fragile millisecond
+threshold. Detailed encounters and more independent groups still cost more.
 
 ## Local predation and original-body handoff
 
@@ -190,9 +263,9 @@ detail is copied into public beast reports or the world-library interface.
    including supplied ecological opposition and original source adoption without
    duplicating the existing Rimefang/Elk/Mirror Ape consumers. Generated proposals
    and strict diagnostics now exist; their tested rejection is not completion.
-2. Funded growth/recruitment, finite natural formation sites, performed regional
-   ecological work, sustained food-web/source integration and causal exhaustion/
-   recovery using the existing data and C behavior. Local hunts, shared carcasses,
+2. Finite natural formation sites, performed regional ecological work, sustained
+   food-web/source integration and causal exhaustion/recovery using the existing
+   data and C behavior. Batched growth/recruitment, local hunts, shared carcasses,
    original-body handoff and explicit stock interruptions now exist; they do not
    establish regional viability or implement those broader consumers.
 3. Native integration with world/run persistence, ordinary travel, supported human
@@ -212,6 +285,7 @@ follow-up prompt or additional certification gate is authorized by this document
 
 ```sh
 node tests/beast-populations.unit.test.js
+node tests/beast-demography.unit.test.js
 node tests/beast-predation.unit.test.js
 node tests/beast-behavior.unit.test.js
 node tests/beast-seasonal-journeys.unit.test.js
@@ -241,3 +315,10 @@ partial pursuit and corpse state across reload without private-state disclosure.
 They use prepared original local sources, not proof of generated regional source
 adoption. No check claims completed world-level balance or universal encounter
 coverage. The full suite remains opt-in under repository policy.
+
+Nineteen demographic checks additionally cover matter/energy conservation,
+maintenance priority, real incubation, elapsed-day attempt rates, original colony
+roles, fragmentation, interruption, compact large losses, cohort merging, arbitrary
+read/reload chunking, malformed records, moving gestation and paid local maternal/offspring handoff.
+The focused headcount and longer-history benchmarks are reported separately from
+native play. No full-suite run is implied by the commands listed here.

@@ -125,14 +125,17 @@
   function mature(a) { const p = profile(a); return valid(a) && a.life.ageDays >= p.adultDays && a.life.structuralKg >= p.adultKg * .75; }
   function eligible(a, asMate = false) {
     const p = profile(a);
+    if (!p || (!p.massSource.startsWith('Partition') && !/propagule/i.test(p.method)
+      && (a.life?.role === 'male' && !asMate || a.life?.role === 'female' && asMate))) return false;
     return mature(a) && a.status !== 'dead' && a.health >= a.maxHealth * .6 && p.fertileDays !== null && a.life.ageDays >= p.fertileDays
       && a.life.will && p.offspring > 0 && (a.speciesId !== 'beast:ember-ant'
-        || a.life.role === 'queen' && a.life.colonyId && a.bodyPhysics.massKg >= p.breederKg * .8 || asMate && a.life.role === 'male');
+        || (asMate ? a.life.role === 'male' : a.life.role === 'queen' && a.life.colonyId && a.bodyPhysics.massKg >= p.breederKg * .8));
   }
   function random(seed) { let n = 2166136261; for (const c of String(seed)) n = Math.imul(n ^ c.charCodeAt(0), 16777619); return (n >>> 0) / 4294967296; }
   function beginReproduction(a, mate, at, ctx) {
     const p = profile(a), l = a?.life;
-    if (!ctx.alive || !ctx.local || !eligible(a) || l.reproduction || !ctx.seasonSuitable || !ctx.habitatSuitable
+    if (!ctx.alive || !ctx.local || !eligible(a) || l.reproduction || l.populationBroods?.length && !/egg|clutch|propagule|fragment/i.test(p.method)
+      || !ctx.seasonSuitable || !ctx.habitatSuitable
       || !ctx.recruit || l.opportunities < 1 || l.lastAttemptAt !== null && at - l.lastAttemptAt < p.cooldownDays * DAY) return false;
     if (a.speciesId === 'beast:ember-ant' && !(ctx.patch?.(a.mapCell)?.resources?.furnaceKg > 0)) return false;
     const fragment = p.massSource.startsWith('Partition');
@@ -147,12 +150,43 @@
     return true;
   }
   function advanceReproduction(a, at, seconds, ctx) {
+    if (!valid(a) || !ctx.alive || !ctx.local) return;
+    const local = a.life.reproduction;
+    if (local) advanceOneReproduction(a, at, seconds, ctx);
+    const remainingLocal = a.life.reproduction;
+    const retained = [];
+    for (const brood of a.life.populationBroods || []) {
+      if (brood.disposedAt != null) continue;
+      if (brood.externalNursery && !ctx.populationNurseryAccessible?.(brood, a)) { retained.push(brood); continue; }
+      a.life.reproduction = brood; advanceOneReproduction(a, at, seconds, ctx);
+      if (a.life.reproduction) retained.push(a.life.reproduction);
+    }
+    a.life.populationBroods = retained;
+    a.life.reproduction = remainingLocal;
+  }
+  function advanceOneReproduction(a, at, seconds, ctx) {
     const r = a.life.reproduction, p = profile(a); if (!r) return;
     const viable = a.status !== 'dead' && ctx.habitatSuitable && a.health > a.maxHealth * .3;
     if (!viable) { r.interruptedAt = at; return; }
     if (r.fragment) {
       if (r.investedKg === 0 && a.life.structuralKg >= r.requiredKg * 2) {
         a.life.structuralKg -= r.requiredKg; changeMass(a, -r.requiredKg); r.investedKg = r.requiredKg;
+      }
+    } else if (r.materialRecipe) {
+      const storeFor = key => ['waterL', 'mineralsKg'].includes(key) ? key
+        : ['foodKg', 'forageKg', 'organicKg', 'meatKg', 'carrionKg', 'detritusKg', 'planktonKg'].includes(key) ? 'foodKg' : null;
+      const wanted = Math.min(r.requiredKg - r.investedKg, r.requiredKg * seconds / Math.max(1, p.incubationDays * DAY));
+      let paid = wanted;
+      for (const [key, fraction] of Object.entries(r.materialRecipe)) if (fraction > 0) {
+        const store = storeFor(key);
+        paid = Math.min(paid, store ? (a.life.stores[store] || 0) / fraction : 0);
+      }
+      if (paid > 0) {
+        for (const [key, fraction] of Object.entries(r.materialRecipe)) {
+          const store = storeFor(key);
+          if (store) a.life.stores[store] -= paid * fraction;
+        }
+        changeMass(a, -paid); r.investedKg += paid;
       }
     } else {
       const payment = Math.min(r.requiredKg - r.investedKg, a.life.stores.foodKg,
