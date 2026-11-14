@@ -38,13 +38,14 @@
   function cohort(source, at) {
     const p = Biology.lifecycle[source.speciesId];
     if (!p || !id(source.id) || !integer(source.count) || !nonnegative(source.ageDays)
-      || !(source.massKg > 0) || !Number.isFinite(source.massKg)) throw Error('Invalid original cohort');
+      || !(source.massKg > 0) || !Number.isFinite(source.massKg) || !Ecology.Work.towersValid(source)) throw Error('Invalid original cohort');
     const waterL = Math.min(source.massKg * .1, p.waterLDay * (p.waterReserveDays || 0));
     const fatKg = Math.min(source.massKg * .1, p.foodKgDay * (p.foodReserveDays || 0));
     return { id: source.id, originId: source.id, speciesId: source.speciesId, ranges: source.count ? [[0, source.count]] : [],
       bornAt: at - source.ageDays * DAY, massKg: source.massKg, structuralKg: source.massKg - waterL - fatKg,
       stores: { waterL, fatKg, foodKg: 0, mineralsKg: 0 }, role: source.role || 'individual', sex: source.sex || null,
       colonyId: source.colonyId || null, health: 1, deathSerial: 0, deathExposure: 0,
+      ...(source.feedingTowers ? { feedingTowers: copy(source.feedingTowers) } : {}),
       deathThreshold: exponential(`${source.id}:background:0`),
       ...(source.count > 128 ? { aggregateMortality: true, mortalityBalance: Life.random(`${source.id}:mortality-offset`),
         batchHazard: 0, batchMembers: source.count } : {}) };
@@ -108,7 +109,7 @@
         cohort(c, 0); cohorts.add(c.id);
       }
     }
-    return source;
+    Ecology.Work.validateLinks(source); return source;
   }
   function create(source, binding, at = 0) {
     if (source?.diagnosticOnly) throw Error('An unaccepted generator proposal cannot create an active population account');
@@ -185,11 +186,12 @@
         Demography.synchronize(s, g, c, at);
         const p = Biology.lifecycle[c.speciesId], juvenile = at - c.bornAt < p.adultDays * DAY;
         const scale = count(c) * (c.massKg / p.adultKg) ** .75 * (juvenile ? p.juvenileMultiplier : 1) * (g.transit ? p.travelMultiplier : 1);
-        c.needs = {};
+        c.needs = {}; c.intake = {};
         for (const key of ['foodKg', 'waterL', 'mineralsKg']) {
           const need = p[({ foodKg: 'foodKgDay', waterL: 'waterLDay', mineralsKg: 'mineralsKgDay' })[key]] * scale;
           c.needs[key] = need;
-          g.needs[key] = (g.needs[key] || 0) + need;
+          c.intake[key] = Ecology.Work.intake(s, g, c, key);
+          g.needs[key] = (g.needs[key] || 0) + need * c.intake[key];
         }
         next = Math.min(next, nextDeath(c, at, until));
         if (c.bornAt + p.adultDays * DAY > at + EPS) next = Math.min(next, c.bornAt + p.adultDays * DAY);
@@ -201,15 +203,6 @@
       if (g.intention) next = Math.min(next, g.intention.departAt);
       if (g.transit) next = Math.min(next, g.transit.edgeIndex === 0 ? g.transit.crossAt : g.transit.edgeArriveAt);
     }
-    for (const r of s.regions) {
-      const rate = rates[r.id];
-      for (const key of new Set([...Object.keys(rate.renewal), ...Object.keys(rate.demand)])) {
-        const renewal = rate.renewal[key] || 0, demand = rate.demand[key] || 0, stock = r.stocks[key] || 0;
-        rate.supply[key] = demand > 0 ? stock > EPS ? 1 : Math.min(1, renewal / demand) : 1;
-        rate.net[key] = renewal - demand * rate.supply[key];
-        if (rate.net[key] < -EPS && stock > EPS) next = Math.min(next, at + stock / -rate.net[key] * DAY);
-      }
-    }
     const extra = Ecology.requests(s, at, s.groups.flatMap(g => g.cohorts.flatMap(c => Demography.requests(s, g, c, at))));
     const requestsByRegion = new Map();
     for (const request of extra) {
@@ -220,13 +213,24 @@
       if (request.manaPerDay > 0) request.inputs[request.brood.manaStockKey] = request.manaPerDay;
       requestsByRegion.get(key).push(request);
     }
-    for (const [regionId, list] of requestsByRegion) {
-      const r = Demography.region(s, regionId), rate = rates[regionId], requested = {};
+    // Process real upstream accounts first. Downstream consumers see only the
+    // water that actually passes retention/spill, never the undammed forecast.
+    for (const r of Ecology.Work.order(s)) {
+      const regionId = r.id, list = requestsByRegion.get(regionId) || [], rate = rates[regionId], requested = {};
+      Ecology.Work.addFlowDemand(r, rate);
+      for (const key of new Set([...Object.keys(rate.renewal), ...Object.keys(rate.demand)])) {
+        const renewal = rate.renewal[key] || 0, demand = rate.demand[key] || 0, stock = r.stocks[key] || 0;
+        rate.supply[key] = demand > 0 ? stock > EPS ? 1 : Math.min(1, renewal / demand) : 1;
+        rate.net[key] = renewal - demand * rate.supply[key];
+      }
+      Ecology.Work.limitFlow(s, list, at, rate);
       for (const request of list) for (const [key, n] of Object.entries(request.inputs)) requested[key] = (requested[key] || 0) + n;
       for (const request of list) {
         request.factor = Math.min(1, ...Object.entries(request.inputs).filter(([, n]) => n > 0).map(([key]) =>
           (r.stocks[key] || 0) > EPS ? 1 : Math.min(1, Math.max(0, (rate.renewal[key] || 0) - (rate.demand[key] || 0)) / requested[key])));
-        if (Object.entries(request.c.needs).some(([k, n]) => n > 0 && (rate.supply[request.g.resources?.[k] || k] ?? 0) < 1)) request.factor = 0;
+        if (Object.entries(request.c.needs).some(([k, n]) => n > 0
+          && !(request.g.ecology?.action === 'filterPlankton' && k === 'foodKg')
+          && (rate.supply[request.g.resources?.[k] || k] ?? 0) < 1)) request.factor = 0;
       }
       const activity = new Map(list.filter(r => r.kind === 'activity').map(r => [r.c.id, r.factor]));
       for (const request of list) {
@@ -240,8 +244,14 @@
           next = Math.min(next, at + remaining / perDay * DAY);
         }
       }
-      for (const [key, net] of Object.entries(rate.net)) if (net < -EPS && (r.stocks[key] || 0) > EPS)
-        next = Math.min(next, at + r.stocks[key] / -net * DAY);
+      next = Math.min(next, Ecology.Work.prepareOutputs(r, rate, list, at));
+      Ecology.Work.route(s, r, rate, list, rates);
+      next = Math.min(next, Ecology.Work.boundaries(r, rate, at, list));
+      for (const [key, net] of Object.entries(rate.net)) {
+        if (net < -EPS && (r.stocks[key] || 0) > EPS) next = Math.min(next, at + r.stocks[key] / -net * DAY);
+        if (net > EPS && (r.stocks[key] || 0) < (r.capacity[key] || 0) - EPS)
+          next = Math.min(next, at + ((r.capacity[key] || 0) - (r.stocks[key] || 0)) / net * DAY);
+      }
     }
     next = Math.min(next, Ecology.build(s, rates, extra, at, month.season));
     if (s.regions.some(r => r.ecology) || s.groups.some(g => g.cohorts.some(c => count(c) && (c.aggregateMortality || c.demography)) || g.breeding) || extra.length) {
@@ -257,7 +267,7 @@
       c.healthLossPerDay = 0;
       const rate = rates[location(g)], p = Biology.lifecycle[c.speciesId];
       for (const [key, need] of Object.entries(c.needs)) {
-        const deficit = need * (1 - (rate.supply[g.resources?.[key] || key] ?? 0)) / n;
+        const deficit = need * (1 - (rate.supply[g.resources?.[key] || key] ?? 0) * c.intake[key]) / n;
         if (!(deficit > EPS)) continue;
         const stored = (c.stores[key] || 0) + (key === 'foodKg' ? c.stores.fatKg : 0);
         if (stored > EPS) next = Math.min(next, at + stored / deficit * DAY);
@@ -280,12 +290,16 @@
     if (s.work) s.work.cohortIntervals += s.groups.reduce((n, g) => n + g.cohorts.length, 0);
     for (const r of s.regions) {
       const rate = s.rates[r.id];
+      const waterBefore = r.stocks.waterL || 0;
       r.receipts ||= {};
       for (const [key, net] of Object.entries(rate.net)) {
         const before = r.stocks[key] || 0;
+        const overflow = Math.max(0, before + days * net - (r.capacity[key] || 0));
+        if (overflow > 0) { r.outputs ||= {}; const k = `${key}Overflow`; r.outputs[k] = (r.outputs[k] || 0) + overflow; }
         r.stocks[key] = Math.max(0, Math.min(r.capacity[key] || 0, before + days * net));
         r.receipts[key] = (r.receipts[key] || 0) + r.stocks[key] - before;
       }
+      Ecology.Work.integrateWater(r, rate, days, waterBefore);
     }
     for (const g of s.groups) {
       const r = Demography.region(s, location(g)), rate = s.rates[r.id];
@@ -297,7 +311,7 @@
           c.mortalityBalance += n * Math.exp(-c.batchHazard) * -Math.expm1(-hazard); c.batchHazard += hazard;
         } else c.deathExposure += hazardIntegral(c, from, to) * n;
         for (const [key, need] of Object.entries(c.needs)) {
-          const stockKey = g.resources?.[key] || key, supply = rate.supply[stockKey] ?? 0;
+          const stockKey = g.resources?.[key] || key, supply = (rate.supply[stockKey] ?? 0) * (c.intake?.[key] ?? 1);
           let missing = need * days * (1 - supply);
           const available = (c.stores[key] || 0) + (key === 'foodKg' ? c.stores.fatKg : 0);
           const consumed = Math.min(available, missing / n);
@@ -368,7 +382,7 @@
     if (!integer(n) || !integer(origin.count + n)) throw Error('Birth batch exceeds conserved integer capacity');
     const lo = origin.count; origin.count += n;
     const c = cohort({ id: `${originId}:${lo}`, speciesId: g.speciesId, count: n, ageDays: 0, massKg: p.newbornKg,
-      role, colonyId: parent.colonyId }, at);
+      role, colonyId: parent.colonyId, ...(parent.feedingTowers ? { feedingTowers: copy(parent.feedingTowers) } : {}) }, at);
     Object.assign(c, { originId, generated: true, nurseryId: brood.nurseryId, ranges: [[lo, lo + n]], aggregateMortality: true,
       mortalityBalance: Life.random(`${c.id}:mortality-offset`), batchHazard: 0, batchMembers: n });
     g.cohorts.push(c);
@@ -460,6 +474,7 @@
       speciesId: g.speciesId, regionId: location(g), detailedAt: at, status: 'detailed',
       ageDays: Math.max(0, (at - (c.birthSpan?.[1] ?? c.bornAt)) / DAY), massKg: c.massKg, structuralKg: c.structuralKg,
       stores: copy(c.stores), role: c.role, colonyId: c.colonyId, health: c.health,
+      ...(c.feedingTowers ? { feedingTowers: copy(c.feedingTowers) } : {}),
       ...(c.nurseryId ? { nurseryId: c.nurseryId } : {}),
       ...(demographicHandoff ? { demography: demographicHandoff } : {}), ...(c.birthSpan ? { birthSpan: copy(c.birthSpan) } : {}) };
     s.details[actorId] = result; rebuild(s, at); return copy(result);
@@ -487,6 +502,7 @@
       || !reserves.energy || !Object.keys(a.life.energy).every(k => nonnegative(reserves.energy[k]))) return null;
     manaOwner.mana = reserves.mana; a.bodyPhysics.stamina = reserves.stamina;
     a.life.energy = copy(reserves.energy);
+    if (c.feedingTowers) c.feedingTowers.forEach((health, i) => { a.bodyPhysics.parts[`feeding tower ${i + 1}`] = health; });
     const modes = Bodies.profiles[g.speciesId].modes;
     if (!Bodies.valid(a) || !(modes.includes(a.bodyPhysics.mode) || a.bodyPhysics.mode === 'walking' && modes.includes('charging'))
       || Bodies.habitatReason(a, a.mapCell, a.bodyPhysics.mode, Bodies.height(a), ctx)) return null;
@@ -548,6 +564,7 @@
     const r = s.regions.find(r => r.id === regionId);
     if (!r || !(r.stocks[key] >= amount)) return false;
     r.stocks[key] -= amount;
+    if (key === 'waterL' && r.retainedWaterL) r.retainedWaterL = Math.max(0, r.retainedWaterL - amount);
     record(s, 'stockLoss', at, { regionId, key, amount, cause });
     rebuild(s, at); return true;
   }
@@ -571,6 +588,28 @@
     advance(s, at, true, true);
     if (!Ecology.destroySite(s, regionId, siteId, at, cause)) return false;
     record(s, 'renewalSiteDestroyed', at, { regionId, siteId, cause }); rebuild(s, at); return true;
+  }
+  function destroyEcologicalWorkSite(s, regionId, siteId, at, cause) {
+    if (!id(cause) || !nonnegative(at) || at < s.clock) return false;
+    advance(s, at, true, true);
+    if (!Ecology.destroyWorkSite(s, regionId, siteId, at, cause)) return false;
+    record(s, 'ecologicalWorkSiteDestroyed', at, { regionId, siteId, cause }); rebuild(s, at); return true;
+  }
+  function setEcologicalActivity(s, groupId, state, at, cause) {
+    if (!id(cause) || !nonnegative(at) || at < s.clock || !state
+      || ['sleeping', 'dreamConsent'].some(k => typeof state[k] !== 'boolean')) return false;
+    advance(s, at, true, true);
+    const g = Demography.group(s, groupId); if (!g) return false;
+    g.activityState = { sleeping: state.sleeping, dreamConsent: state.dreamConsent };
+    record(s, 'ecologicalActivityChanged', at, { groupId, ...g.activityState, cause }); rebuild(s, at); return true;
+  }
+  function damageFeedingTower(s, groupId, cohortId, towerIndex, damage, at, cause) {
+    if (!id(cause) || !nonnegative(at) || at < s.clock || !integer(towerIndex) || towerIndex >= 4 || !(damage > 0) || !Number.isFinite(damage)) return false;
+    advance(s, at, true, true);
+    const g = Demography.group(s, groupId), c = g && Demography.cohort(s, groupId, cohortId);
+    if (!c?.feedingTowers || !count(c) || c.feedingTowers[towerIndex] <= 0) return false;
+    c.feedingTowers[towerIndex] = Math.max(0, c.feedingTowers[towerIndex] - damage);
+    record(s, 'feedingTowerDamaged', at, { groupId, cohortId, towerIndex, damage, cause }); rebuild(s, at); return true;
   }
   function kill(s, groupId, cohortId, ordinal, at, cause) {
     if (!id(cause) || cause === 'background' || !nonnegative(at) || at < s.clock) return false;
@@ -664,7 +703,8 @@
         for (const c of g.cohorts) if (!Demography.valid(c) || !Number.isFinite(c.bornAt) || !nonnegative(c.structuralKg) || c.massKg + EPS < c.structuralKg
           || !c.stores || !Object.values(c.stores).every(nonnegative) || !nonnegative(c.health) || c.health > 1
           || !integer(c.deathSerial) || !nonnegative(c.deathExposure) || !nonnegative(c.deathThreshold)
-          || !c.needs || !Object.values(c.needs).every(nonnegative)) return null;
+          || !c.needs || !Object.values(c.needs).every(nonnegative) || !Ecology.Work.towersValid(c)
+          || c.intake && Object.values(c.intake).some(n => !nonnegative(n) || n > 1)) return null;
       }
       if (s.extraRates && (!Array.isArray(s.extraRates) || s.extraRates.some(r => {
         const g = s.groups.find(g => g.id === r.groupId), c = g?.cohorts.find(c => c.id === r.cohortId);
@@ -688,5 +728,6 @@
     } catch { return null; }
   }
   return { DAY, count, cohortKey, monthAt, hazardIntegral, validateSource, create, chooseDestination,
-    advance, detail, claimLocal, settleLocalLoss, registerLocalBirth, recordDetailedLoss, removeStock, destroyNursery, destroyRenewalSite, kill, audit, rebind, normalize };
+    advance, detail, claimLocal, settleLocalLoss, registerLocalBirth, recordDetailedLoss, removeStock, destroyNursery, destroyRenewalSite,
+    destroyEcologicalWorkSite, setEcologicalActivity, damageFeedingTower, kill, audit, rebind, normalize };
 });

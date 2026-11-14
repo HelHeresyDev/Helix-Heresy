@@ -18,6 +18,11 @@
     dreamWeather: { costs: { atmosphericWaterL: 1000 }, outputs: { waterL: 1000 }, channels: ['soilCover', 'freshwaterQuantity', 'wetlandReefHabitat'] }
   };
   const workSpec = kind => WORK[kind] ? JSON.parse(JSON.stringify(WORK[kind])) : null;
+  const FILTER = {
+    filterMana: { costs: {}, outputs: {}, channels: ['arcaneStability'] },
+    filterPlankton: { costs: {}, outputs: {}, channels: ['wetlandReefHabitat', 'renewableBiomass'] }
+  };
+  const filterSpec = kind => FILTER[kind] ? JSON.parse(JSON.stringify(FILTER[kind])) : null;
   function patch(p, c, tileM = 1) {
     if (!p || p.known === false) return null;
     p.resources ||= {};
@@ -166,5 +171,5 @@
     ctx.native?.(a.mapCell, { kind: 'heat', heatMJ: amount }); ctx.changed?.(a.mapCell, p);
     return receipt(p, a, kind, at, { heatMJ: amount });
   }
-  return { DAY, key, workSpec, patch, has, take, put, fraction, ledger, receipt, burn, freeze, thaw, advanceBlooms, work, thermal };
+  return { DAY, key, workSpec, filterSpec, patch, has, take, put, fraction, ledger, receipt, burn, freeze, thaw, advanceBlooms, work, thermal };
 });

@@ -126,10 +126,11 @@ threshold. Detailed encounters and more independent groups still cost more.
 ## Paid regional maintenance, decline and recovery
 
 `beast-regional-ecology.js` adds an opt-in ecological account to the internal
-population model. This pass supplies **Ironroot rooting and Thunderback grazing**
-as performed regional consumers. Other species' local C abilities remain intact;
-their regional ecological adapters, generated-source adoption and whole-food-web
-viability are not established by this workface demonstration.
+population model. Ironroot rooting, Thunderback grazing and all eight additional
+approved work adapters below now execute against this shared account. Other
+species' local C abilities remain intact. Generated-source adoption,
+natural formation, ecological opposition and whole-food-web viability are not
+established by these workface demonstrations.
 
 Every participating region supplies all six independent condition ledgers:
 soil/cover, freshwater quantity, freshwater quality, wetland/reef habitat,
@@ -145,7 +146,7 @@ destination. Actual location, mature physical body, health, willingness, intact
 rootable substrate and original shared work-site capacity gate performed work.
 Travelling or detailed individuals cannot simultaneously restore the regional
 account. The seven local physical recipes are shared through
-`beast-habitat.js::workSpec`; only rooting is consumed regionally in this pass.
+`beast-habitat.js::workSpec`; filter channels are shared through `filterSpec`.
 Rooting consumes water, minerals and organic matter and retains actual rooted
 biomass/atmospheric-water outputs. Those outputs are physical retained matter,
 not automatically edible regional stock or a replacement renewal site.
@@ -211,10 +212,77 @@ and dehydration at an equally poor destination without destination clairvoyance.
 
 Run `node scripts/benchmark-beast-regional-ecology.js` for the focused scaling
 check. A representative 120-day run at 12, 12,000 and 1,200,000 starting bodies
-retained three cohorts and **372 cohort intervals** in every case, about 13–17 KB
-of serialized state and roughly 8–13 ms locally. Timings are illustrative, not a
+retained three cohorts and **372–375 cohort intervals**, about 14–18 KB
+of serialized state and roughly 11–16 ms locally. Timings are illustrative, not a
 test threshold. More regions, independent groups and detailed bodies cost more;
 this is not a full-game benchmark or ecological balance certificate.
+
+### Existing work adapters
+
+`beast-regional-work.js` supplies the fixed approved set, without adding species,
+abilities or authored rate changes:
+
+| Original creature | Performed regional action and physical limits |
+| --- | --- |
+| Mire Choir | Detritus-supported wetland tending requires a surviving wetland bed and an actual adequate water column. Nutrients remain physical outputs. |
+| Reef Wyrm | Actual calcium/organic inputs and ordinary prey/mineral upkeep fund growth of an existing living reef, stopping at its finite receiving capacity. |
+| Rivercoil | Construction material becomes a finite shared dam; actual connected flow bounds work, retention, passage and spill. |
+| Gravebloom Elk | Actual carrion and water grow an existing bloom in its original favorable phases; new bloom enters the same finite edible stock once. |
+| Ember Ant | Only adult workers of the original site colony build its furnace from actual metal/fuel. Queens, brood and other colonies do not supply worker credits. |
+| Dreaming Tortoise | The original tortoise and identified original participant groups must actually be present, alive, willing, sleeping and consenting. Existing atmospheric water becomes rain; mana is charged once. |
+| Ley Manta | Credits only the actual excess-mana intake used by its shared paid physiological/work bill. No second mana debit or invented personal reservoir is supplied. |
+| Brine Cathedral | Original surviving feeding-tower fractions constrain actual plankton intake and whole-superorganism throughput once; absent marine medium or destroyed towers cannot feed or filter. |
+
+Regional sites declare actual affected area, shared worker capacity, original
+physical substrate/structures and applicable seasonal/medium facts. Aquatic
+work uses actual water volume and area, plus the existing shared body's minimum
+depth and footprint; declaring an arbitrarily shallow or tiny patch cannot make
+a colossal organism fit. Finite structure receiving capacity is shared across
+all cohorts, not allocated afresh to each worker batch. Reef/bloom outputs enter
+declared physical stocks, not a second inventory or automatic formation site;
+furnace output belongs to its original colony's site. It does not automatically
+grant another nursery, queen or hive.
+
+The explicit adjacent watercourse uses one finite original flow account, processed
+upstream before downstream consumption. A dam cannot reserve downstream drinking
+water and also retain it upstream. Banks fill at actual event times, unretained
+flow/spill passes to the adjoining account, and declared floodable ground can
+suffer actual overflow damage. All overflow remains physical output rather than
+being discarded by a stock clamp. Constructed dams retain hydraulic effects after
+their builder is lost, but receive no ongoing labor credit. A captured-water
+provenance tag is part of the same water stock, **not additional water**; the
+aggregate account spends tagged water first. Breach releases only surviving
+tagged water and retains real structure debris. Destroyed beds/sites do not
+automatically repair. Cyclic or nonadjoining flow and duplicate outlets are
+rejected; this is coarse adjacent flux, not a whole-world hydrodynamics model or
+instant long-range logistics.
+
+Dream participants refer to original groups, not a site-level consent assertion.
+Absence, travel, loss, detailing, wakefulness or refusal interrupts future work
+after settling what was already paid. The source-owner activity and tower-damage
+hooks settle at the exact event time; they are not automatic consent, combat
+projection or native-world source adoption. Tower damage applies uniformly to
+the named cohort; a uniquely injured original must be detailed or represented
+in its own compatible cohort. Distinct tower injuries cannot be averaged into
+repaired structures during compaction, and a local original-body handoff retains
+those injuries rather than creating intact replacement towers.
+
+The manta adapter does not assume an unknown personal pool has space to fill.
+It credits only measured shared-bill intake against the existing local
+one-mana-per-second filtration ceiling. Thus sixty actually filtered/spent mana
+over a day earns only `60 / 86400` of a fully supported daily EP ceiling, not a
+free full day of repair. The intake is already charged by the shared activity
+request; no body mass or stored mana is manufactured. Brine food is likewise
+charged by the ordinary intake account once. Reduced intake can drain the same
+original body reserves and cause real hunger rather than reducing upkeep needs.
+
+Discrete burns, excavation, attacks and predation remain actual C/physical
+events. Merely owning an Ashhorn or predator adds no assumed daily horn casts,
+kills or restoration. No new regional combat AI or magical powers are introduced.
+Monthly intent, shared growth/reproduction effort, cached rates, partial-work
+reloads, continued branches, original identities and final-death freeze remain
+the existing account contract. These adapters close this approved work-action
+set, not D's remaining generated-population, formation or encounter acceptance.
 
 ## Local predation and original-body handoff
 
@@ -331,15 +399,16 @@ can lose originals to starvation.
 
 The tested generated allocation is still **rejected**, with concrete seasonal/
 prey shortages, unverified opposition and unresolved original habitat. Paid
-nurturing work, successful allocation repair, funded growth/recruitment and live
-regional integration remain unfinished D work. Checks omit unimplemented benefits
+regional work and funded growth/recruitment execute in the account model;
+successful generated allocation repair and live regional integration remain
+unfinished D work. Checks omit unimplemented benefits
 instead of inventing their capacity. Rejection is not evidence of historical
 ecological defeat or exhausted territory.
 
 Condition values in these proposals are relative initial calibration, not a
 satellite observation or a claim that naturally arid terrain has forest cover.
 The diagnostic compares conservative potential pressure, not measured performed
-work, and cannot replace the still-unfinished ecological maintenance execution.
+work, and cannot substitute for the account model's paid maintenance execution.
 
 `runtimeSource` refuses these rejected/unverified proposals. Diagnostic expansion
 is marked `diagnosticOnly`, which `beast-populations.create` also refuses. Source
@@ -356,13 +425,13 @@ detail is copied into public beast reports or the world-library interface.
    including supplied ecological opposition and original source adoption without
    duplicating the existing Rimefang/Elk/Mirror Ape consumers. Generated proposals
    and strict diagnostics now exist; their tested rejection is not completion.
-2. Finite natural formation sites, remaining species' performed regional
-   ecological consumers and sustained food-web/source integration using the
-   existing data and C behavior. Paid Ironroot work/Thunderback pressure and
-   causal decline/exhaustion/recovery now execute in supplied workfaces, alongside
-   batched growth/recruitment, local hunts, shared carcasses and original-body
-   handoff. This does not establish all-species regional viability, ecological
-   opposition/defense or actual generated-source adoption.
+2. Finite natural formation sites and sustained food-web/source integration using
+   the existing data and C behavior. The approved eight additional work adapters,
+   paid Ironroot work/Thunderback pressure and causal decline/exhaustion/recovery
+   now execute in supplied workfaces, alongside batched growth/recruitment, local
+   hunts, shared carcasses and original-body handoff. This does not establish
+   all-species regional viability, ecological opposition/defense or actual
+   generated-source adoption.
 3. Native integration with world/run persistence, ordinary travel, supported human
    logistics, correctly sized/mediated physical encounters and legitimate dated
    observations. New-world source generation is wired into the library, but the
@@ -382,6 +451,7 @@ follow-up prompt or additional certification gate is authorized by this document
 node tests/beast-populations.unit.test.js
 node tests/beast-demography.unit.test.js
 node tests/beast-regional-ecology.unit.test.js
+node tests/beast-regional-work.unit.test.js
 node tests/beast-predation.unit.test.js
 node tests/beast-behavior.unit.test.js
 node tests/beast-seasonal-journeys.unit.test.js
@@ -429,3 +499,12 @@ provenance under merging and compact
 million-body scaling. A browser check uses the actual index dependency order and
 internal model serializer across a reload. It deliberately does **not** claim
 native game-save adoption or ordinary-play regional encounters.
+
+Thirty-four regional-work checks cover the complete eight-adapter set, physical
+inputs and receiving limits, shared colony capacity, consent withdrawal, marine
+body geometry, finite connected flow, downstream scarcity/flooding, breach and
+debris, paid bed destruction, damaged towers and original-body handoff, arbitrary
+read chunking, partial-work saves, independent/continued branches, final-death
+freeze and million-member batch scaling. A second browser case executes all
+eight adapters through the actual index dependencies and reloads partial work;
+these remain internal-model checks rather than claims of native source adoption.

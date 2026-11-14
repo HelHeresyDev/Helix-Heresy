@@ -354,13 +354,13 @@
     if (a.speciesId === 'beast:ley-manta') {
       const capacity = Life.profile(a).manaCapacity * Math.min(1, a.bodyPhysics.massKg / lp.adultKg);
       const amount = Math.min(p.resources.excessMana || 0, seconds, Math.max(0, capacity - a.bodyPhysics.mana));
-      if (amount > 0 && Habitat.take(p, { excessMana: amount })) { a.bodyPhysics.mana += amount; fed += amount; Habitat.ledger(p, a, seconds, Math.min(1, amount / Math.max(.001, seconds)), ['arcaneStability'], 'filterMana'); }
+      if (amount > 0 && Habitat.take(p, { excessMana: amount })) { a.bodyPhysics.mana += amount; fed += amount; Habitat.ledger(p, a, seconds, Math.min(1, amount / Math.max(.001, seconds)), Habitat.filterSpec('filterMana').channels, 'filterMana'); }
     }
     if (fed) {
       if (a.speciesId === 'beast:ember-ant') a.life.lastForageCell = copy(a.mapCell);
       if (a.speciesId === 'beast:brine-cathedral') {
         p.shelterBodies ||= {}; p.shelterBodies[a.id] = Bodies.cells(a, a.mapCell, ctx.tileSizeM || 1).length * (ctx.tileSizeM || 1) ** 2 * towers;
-        Habitat.ledger(p, a, seconds, towers, ['wetlandReefHabitat', 'renewableBiomass'], 'filterPlankton');
+        Habitat.ledger(p, a, seconds, towers, Habitat.filterSpec('filterPlankton').channels, 'filterPlankton');
       }
       Habitat.receipt(p, a, 'feeding', at, { transferred: fed });
       event(a, 'fed', at, { transferred: fed }); ctx.changed?.(a.mapCell, p);

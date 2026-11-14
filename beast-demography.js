@@ -225,7 +225,8 @@
         Math.floor(c.health * 10), Math.floor(c.massKg / p.adultKg * 20),
         // Averaging effort must not give an unworked original a different
         // cohort's contributor provenance when it subsequently dies.
-        Object.keys(c.ecologyHistory || {}).filter(k => c.ecologyHistory[k] > EPS).sort().join(',')].join(':');
+        Object.keys(c.ecologyHistory || {}).filter(k => c.ecologyHistory[k] > EPS).sort().join(','),
+        JSON.stringify(c.feedingTowers || null)].join(':');
       const old = bins.get(key);
       if (!old) { bins.set(key, c); retained.push(c); continue; }
       const a = size(old.ranges), b = size(c.ranges), total = a + b;

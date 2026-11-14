@@ -4,17 +4,18 @@
   const api = factory(node ? require('./creature-biology') : root.HelixCreatureBiology,
     node ? require('./beast-habitat') : root.HelixBeastHabitat,
     node ? require('./beast-demography') : root.HelixBeastDemography,
-    node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys);
+    node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys,
+    node ? require('./beast-regional-work') : root.HelixBeastRegionalWork);
   if (node) module.exports = api;
   root.HelixBeastRegionalEcology = api;
-})(globalThis, function (Data, Habitat, Demography, Journeys) {
+})(globalThis, function (Data, Habitat, Demography, Journeys, Work) {
   'use strict';
   const DAY = 86400, EPS = 1e-8, channels = Data.ledgers.map(([id]) => id);
   const nonnegative = n => Number.isFinite(n) && n >= 0;
   const vector = () => Object.fromEntries(channels.map(k => [k, 0]));
   const validVector = v => v && channels.every(k => nonnegative(v[k])) && Object.keys(v).every(k => channels.includes(k));
   const fractions = v => v && Object.values(v).every(n => nonnegative(n) && n <= 1);
-  const ROOT = 'beast:ironroot-colossus', GRAZER = 'beast:thunderback-grazer';
+  const GRAZER = 'beast:thunderback-grazer';
   const renewable = ['forageKg', 'organicKg', 'detritusKg', 'planktonKg', 'waterL', 'excessMana'];
   function validate(r) {
     const e = r.ecology; if (!e) return;
@@ -24,14 +25,13 @@
       || !validVector(e.naturalRenewalEP) || !e.renewalDependencies
       || Object.entries(e.renewalDependencies).some(([key, names]) => !renewable.includes(key) || !Array.isArray(names)
         || !names.length || new Set(names).size !== names.length || names.some(k => !channels.includes(k)))
-      || !Array.isArray(e.workSites) || !Array.isArray(e.renewalSites)) throw Error('Invalid sourced regional ecology');
+      || !Array.isArray(e.workSites) || !Array.isArray(e.renewalSites)
+      || e.floodable != null && typeof e.floodable !== 'boolean') throw Error('Invalid sourced regional ecology');
     for (const season of r.seasons || []) if (season.renewalEP && !validVector(season.renewalEP)) throw Error('Invalid seasonal ecological renewal');
     const ids = new Set();
     for (const site of e.workSites) {
-      if (typeof site.id !== 'string' || !site.id || ids.has(site.id) || site.action !== 'rootStabilize' || site.speciesId !== ROOT
-        || site.areaHa !== r.areaHa || !nonnegative(site.maxWorkers) || typeof site.rootable !== 'boolean'
-        || typeof site.substrateKey !== 'string' || !(site.minSubstrateKg > 0) || !Number.isFinite(site.minSubstrateKg)
-        || !nonnegative(site.vitrifiedKg) || site.destroyedAt != null && !nonnegative(site.destroyedAt)) throw Error('Invalid original regional work site');
+      if (ids.has(site.id)) throw Error('Duplicate original regional work site');
+      Work.validateSite(site, r);
       ids.add(site.id);
     }
     const shares = {}, ledgerShares = {};
@@ -55,15 +55,15 @@
     if (Object.entries(materials).some(([k, n]) => (r.stocks[k] || 0) + EPS < n)) throw Error('Missing original renewal-site material');
   }
   function validateGroup(g, regions) {
+    if (g.activityState && ['sleeping', 'dreamConsent'].some(k => typeof g.activityState[k] !== 'boolean')) throw Error('Invalid original activity/consent state');
     if (!g.ecology) return;
     const e = g.ecology, r = regions.find(r => r.id === e.regionId);
     if (!r?.ecology || !(e.effortFraction > 0 && e.effortFraction <= 1)
       || g.resources?.mana != null && g.resources.mana !== 'excessMana'
       || g.resources?.other != null && g.resources.other !== 'chargeMJ'
-      || !(e.action === 'graze' && g.speciesId === GRAZER && g.resources?.foodKg === 'forageKg'
-        || e.action === 'rootStabilize' && g.speciesId === ROOT && g.resources?.foodKg === 'organicKg'
-          && r.ecology.workSites.some(site => site.id === e.siteId)))
+      || !(e.action === 'graze' && g.speciesId === GRAZER && g.resources?.foodKg === 'forageKg' || Work.actions[e.action]))
       throw Error('Unsupported or unsourced regional action');
+    if (e.action !== 'graze') Work.validateGroup(g, r);
   }
   function initialize(s) {
     for (const r of s.regions) if (r.ecology) {
@@ -93,14 +93,12 @@
     for (const g of s.groups) {
       const p = g.ecologicalPlan, r = Demography.region(s, Journeys.location(g));
       if (!p?.requested || !r?.ecology || r.id !== p.regionId || g.transit || g.will === false || g.willing === false) continue;
-      const site = p.action === 'rootStabilize' ? r.ecology.workSites.find(site => site.id === p.siteId) : null;
-      if (p.action === 'rootStabilize' && (!site || site.destroyedAt != null || !site.rootable
-        || (r.stocks[site.substrateKey] || 0) < site.minSubstrateKg
-        || site.vitrifiedKg > 0 && !(r.stocks.soilSeedKg > 0))) continue;
+      const site = p.action !== 'graze' ? r.ecology.workSites.find(site => site.id === p.siteId) : null;
       for (const c of g.cohorts) {
         const n = Demography.size(c.ranges), life = Data.lifecycle[c.speciesId];
-        if (!n || c.health <= .3 || !Demography.mature(c, at)) continue;
-        const spec = Habitat.workSpec(p.action);
+        if (!n || c.health <= .3 || !Demography.mature(c, at) || site && !Work.available(s, g, c, site, at)
+          || p.action !== 'graze' && !site || p.action === 'graze' && g.activityState?.sleeping) continue;
+        const spec = Work.spec(p.action);
         const scale = Math.min(1, c.massKg / life.adultKg) * c.health;
         ecological.push({ kind: 'ecology', g, c, recipe: spec?.costs || {}, perDay: n * scale,
           action: p.action, siteId: site?.id || null, effortFraction: p.effortFraction,
@@ -143,10 +141,12 @@
         all.push({ kind: 'activity', g, c, recipe: {}, perDay: 0, additionalInputs: inputs });
       }
     }
-    return all;
+    Work.limitFlow(s, ecological, at);
+    return all.filter(q => q.kind !== 'ecology' || q.perDay > EPS);
   }
   function build(s, rates, extra, at, season) {
     let next = Infinity;
+    const activityByCohort = new Map(extra.filter(q => q.kind === 'activity').map(q => [q.c, q]));
     for (const r of s.regions) if (r.ecology) {
       const rate = rates[r.id], raw = r.seasons?.[season]?.renewalEP || r.ecology.naturalRenewalEP;
       rate.ecology = { natural: vector(), nurturing: vector(), destruction: vector(), net: vector() };
@@ -156,13 +156,28 @@
       const r = Demography.region(s, Journeys.location(q.g)), e = rates[r.id].ecology, authored = Data.rates[q.c.speciesId];
       // Ordinary grazing has already paid for its consumed physical food once.
       const food = q.g.resources?.foodKg || 'foodKg';
-      const fed = q.action === 'graze' ? rates[r.id].supply[food] ?? 0 : 1;
+      const fed = ['graze', 'filterPlankton'].includes(q.action) ? rates[r.id].supply[food] ?? 0 : 1;
       q.workPerDay = q.perDay * q.factor * fed;
+      if (q.action === 'filterPlankton') q.workPerDay *= Work.towers(q.c);
+      if (q.action === 'filterMana') {
+        const activity = activityByCohort.get(q.c);
+        // Regional filtration credits only mana actually taken and spent on
+        // physiology/work. It neither fills an unknown personal reserve nor
+        // bills the same mana twice. Match the local one-mana/second ceiling.
+        q.filteredManaPerDay = Math.min(q.perDay * q.factor * DAY, q.perDay / Math.max(1, Demography.size(q.c.ranges))
+          * (activity?.inputs.excessMana || 0) * q.factor);
+        q.workPerDay = q.filteredManaPerDay / DAY;
+      }
       for (const k of q.channels) {
         const index = channels.indexOf(k);
         e.nurturing[k] += q.action === 'graze' ? 0 : authored.nurturing[index] * q.workPerDay;
         e.destruction[k] += authored.destruction[index] * q.workPerDay;
       }
+    }
+    for (const r of s.regions) if (r.ecology) {
+      const rate = rates[r.id];
+      if (r.ecology.floodable && (r.stocks.waterL || 0) >= (r.capacity.waterL || 0) - EPS && rate.net.waterL > 0)
+        rate.ecology.destruction.soilCover += rate.net.waterL / 10000 * r.areaHa;
     }
     for (const r of s.regions) if (r.ecology) for (const k of channels) {
       const e = rates[r.id].ecology, net = (e.natural[k] + e.nurturing[k] - e.destruction[k]) / r.areaHa;
@@ -176,33 +191,39 @@
   function integrate(s, days, to) {
     for (const q of s.extraRates || []) if (q.kind === 'ecology' && q.workPerDay > 0) {
       const g = Demography.group(s, q.groupId), c = Demography.cohort(s, g.id, q.cohortId), r = Demography.region(s, Journeys.location(g));
-      const work = q.workPerDay * days; r.outputs ||= {};
-      for (const [key, value] of Object.entries(q.outputs)) r.outputs[key] = (r.outputs[key] || 0) + value * work;
+      const work = q.workPerDay * days;
+      const site = r.ecology.workSites.find(site => site.id === q.siteId);
+      Work.integrateWork(r, site, q, days);
       if (q.action !== 'graze') {
         c.ecologyHistory ||= {};
         c.ecologyHistory[r.id] = (c.ecologyHistory[r.id] || 0) + work / Math.max(1, Demography.size(c.ranges));
       }
     }
     for (const r of s.regions) if (r.ecology) {
+      Work.integrateRegion(r, s.rates[r.id], days);
       const a = r.ecologicalAccount, e = s.rates[r.id].ecology;
       for (const k of channels) {
         for (const kind of ['natural', 'nurturing', 'destruction']) a[kind][k] += e[kind][k] * days;
         r.condition[k] = Math.max(0, Math.min(100, r.condition[k] + e.net[k] * days));
       }
       for (const loss of a.sourceLosses) for (const k of loss.channels) loss.damageAfter[k] += e.destruction[k] * days;
-      const causalLoss = a.sourceLosses.find(loss => Object.entries(r.ecology.viabilityFloors).some(([k, floor]) => loss.channels.includes(k)
-        && r.condition[k] <= floor + EPS && loss.damageAfter[k] > EPS && r.condition[k] < loss.condition[k] - EPS));
-      if (!a.exhausted && causalLoss) { a.exhausted = true; a.episodes.push({ exhaustedAt: to, lossId: causalLoss.id }); }
-      if (a.exhausted && Object.entries(r.ecology.viabilityFloors).every(([k, floor]) => r.condition[k] > floor + EPS)
-        && channels.some(k => e.nurturing[k] > 0 || e.natural[k] > 0)) {
-        a.exhausted = false; a.episodes.at(-1).recoveredAt = to;
-      }
-      r.exhausted = a.exhausted;
+      assessCondition(r, to, e);
       // Rejected water renewal remains actual water leaving the usable account,
       // not matter destroyed by a percentage score. Food is foregone production.
       const rejected = s.rates[r.id].rejectedWaterPerDay || 0;
       if (rejected > 0) { r.outputs ||= {}; r.outputs.unusableWaterL = (r.outputs.unusableWaterL || 0) + rejected * days; }
     }
+  }
+  function assessCondition(r, at, rate) {
+    const a = r.ecologicalAccount;
+    const causalLoss = a.sourceLosses.find(loss => Object.entries(r.ecology.viabilityFloors).some(([k, floor]) => loss.channels.includes(k)
+      && r.condition[k] <= floor + EPS && loss.damageAfter[k] > EPS && r.condition[k] < loss.condition[k] - EPS));
+    if (!a.exhausted && causalLoss) { a.exhausted = true; a.episodes.push({ exhaustedAt: at, lossId: causalLoss.id }); }
+    if (a.exhausted && Object.entries(r.ecology.viabilityFloors).every(([k, floor]) => r.condition[k] > floor + EPS)
+      && channels.some(k => rate.nurturing[k] > 0 || rate.natural[k] > 0)) {
+      a.exhausted = false; a.episodes.at(-1).recoveredAt = at;
+    }
+    r.exhausted = a.exhausted;
   }
   function loss(r, id, at, detail) {
     if (!r?.ecology) return;
@@ -217,7 +238,7 @@
     const regionId = Journeys.location(g);
     if (c.ecologyHistory?.[regionId] > EPS) loss(Demography.region(s, regionId),
       `contributor:${c.originId}:${regionId}:${cause}`, at, { kind: 'contributor', originId: c.originId, count: n, cause, ref,
-        channels: Habitat.workSpec(g.ecology.action).channels.filter(k => Data.rates[c.speciesId].nurturing[channels.indexOf(k)] > 0) });
+        channels: Work.spec(g.ecology.action).channels.filter(k => Data.rates[c.speciesId].nurturing[channels.indexOf(k)] > 0) });
   }
   function destroySite(s, regionId, siteId, at, cause) {
     const r = Demography.region(s, regionId), site = r?.ecology?.renewalSites.find(site => site.id === siteId);
@@ -228,10 +249,37 @@
     for (const key of Object.keys(site.renewalShares)) for (const k of r.ecology.renewalDependencies[key] || []) affected.add(k);
     loss(r, `renewal:${siteId}`, at, { kind: 'renewalSite', siteId, cause, channels: [...affected] }); return true;
   }
+  function destroyWorkSite(s, regionId, siteId, at, cause) {
+    const r = Demography.region(s, regionId), site = r?.ecology?.workSites.find(site => site.id === siteId);
+    const originalDamKg = site?.action === 'buildDam' ? site.damKg : 0;
+    const allDamKg = r?.ecology?.workSites.filter(site => site.action === 'buildDam' && site.destroyedAt == null)
+      .reduce((n, site) => n + site.damKg, 0) || 0;
+    if (!r || !Work.destroySite(r, site, at)) return false;
+    if (originalDamKg > 0 && r.retainedWaterL > 0) {
+      const course = r.ecology.watercourses.find(c => c.id === site.watercourseId), down = Demography.region(s, course.downstreamRegionId);
+      const released = Math.min(r.stocks.waterL || 0, r.retainedWaterL * originalDamKg / allDamKg);
+      r.stocks.waterL -= released; r.retainedWaterL -= released;
+      const overflow = Math.max(0, (down.stocks.waterL || 0) + released - (down.capacity.waterL || 0));
+      down.stocks.waterL = Math.min(down.capacity.waterL || 0, (down.stocks.waterL || 0) + released);
+      down.outputs ||= {}; down.outputs.waterLOverflow = (down.outputs.waterLOverflow || 0) + overflow;
+      r.watercourseReceipts ||= { passedL: 0, retainedL: 0, spilledL: 0 };
+      r.watercourseReceipts.releasedL = (r.watercourseReceipts.releasedL || 0) + released;
+      if (overflow > 0 && down.ecology.floodable) {
+        const damage = overflow / 10000 * down.areaHa;
+        down.ecologicalAccount.destruction.soilCover += damage;
+        down.condition.soilCover = Math.max(0, down.condition.soilCover - damage / down.areaHa);
+        for (const loss of down.ecologicalAccount.sourceLosses) if (loss.channels.includes('soilCover')) loss.damageAfter.soilCover += damage;
+        assessCondition(down, at, s.rates[down.id].ecology);
+      }
+    }
+    if (site.performedWorkDays > EPS) loss(r, `work-site:${siteId}`, at, { kind: 'workSite', siteId, cause,
+      channels: Work.spec(site.action).channels.filter(k => Data.rates[site.speciesId].nurturing[channels.indexOf(k)] > 0) });
+    return true;
+  }
   function valid(s) {
     for (const r of s.regions) if (r.ecology) {
       const a = r.ecologicalAccount, e = s.rates[r.id]?.ecology;
-      if (!a || !e || !['natural', 'nurturing', 'destruction'].every(k => validVector(a[k]) && validVector(e[k]))
+      if (!a || !e || !Work.validRates(r, s.rates[r.id]) || !['natural', 'nurturing', 'destruction'].every(k => validVector(a[k]) && validVector(e[k]))
         || !e.net || !channels.every(k => Number.isFinite(e.net[k])
           && Math.abs(e.net[k] - (e.natural[k] + e.nurturing[k] - e.destruction[k]) / r.areaHa) < EPS)
         || typeof a.exhausted !== 'boolean' || r.exhausted !== a.exhausted
@@ -241,6 +289,7 @@
           || l.lastAt < l.firstAt || l.lastAt > s.appliedAt + EPS || !(l.count > 0) || !Number.isSafeInteger(l.count)
           || !Array.isArray(l.channels) || l.channels.some(k => !channels.includes(k))
           || !(l.kind === 'renewalSite' && r.ecology.renewalSites.some(site => site.id === l.siteId && site.destroyedAt != null)
+            || l.kind === 'workSite' && r.ecology.workSites.some(site => site.id === l.siteId && site.destroyedAt != null && site.performedWorkDays > 0)
             || l.kind === 'contributor' && s.origins[l.originId]
               && l.count <= [...s.losses, ...(s.lossBatches || [])].filter(dead => dead.originId === l.originId && dead.regionId === r.id && dead.cause === l.cause)
                 .reduce((n, dead) => n + (dead.count || 1), 0)))
@@ -259,7 +308,7 @@
         && Object.entries(c.ecologyHistory).some(([id, n]) => !nonnegative(n) || !Demography.region(s, id)?.ecology)) return false;
     }
     for (const q of s.extraRates || []) if (q.kind === 'ecology') {
-      const g = Demography.group(s, q.groupId), spec = Habitat.workSpec(q.action), plan = g?.ecologicalPlan;
+      const g = Demography.group(s, q.groupId), spec = Work.spec(q.action), plan = g?.ecologicalPlan;
       if (!plan || q.action !== plan.action || q.workPerDay > q.perDay * q.factor + EPS
         || JSON.stringify(q.outputs) !== JSON.stringify(spec?.outputs || {})
         || JSON.stringify(q.recipe) !== JSON.stringify(spec?.costs || {})
@@ -267,5 +316,5 @@
     }
     return true;
   }
-  return { channels, validate, validateGroup, initialize, plan, renewal, requests, build, integrate, lostContributor, destroySite, valid };
+  return { channels, validate, validateGroup, initialize, plan, renewal, requests, build, integrate, lostContributor, destroySite, destroyWorkSite, valid, Work };
 });

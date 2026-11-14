@@ -2279,8 +2279,13 @@ creating water, food or ore. Real original contributor/site losses, subsequent
 damage and depleted buffers precede exhaustion. A surviving original must
 physically return and pay for gradual recovery. The
 [maintenance endpoint and scaling limits](BEAST_POPULATIONS.md) distinguish these
-prepared workface checks from still-unfinished generated populations, remaining
-regional consumers and native encounter integration. The active queue remains
+prepared workface checks from still-unfinished generated populations and native
+encounter integration. The approved eight additional ecological work adapters
+now share that account: wetland/reef tending, connected dam flow, bloom growth,
+same-colony furnace construction, consent-dependent dream weather and actual
+mana/plankton filtration. Finite receiving capacity, downstream scarcity/spill,
+breach, original sleepers and damaged feeding towers constrain real transfers;
+no resource or upkeep bill is counted twice. The active queue remains
 eleven packages; no new prompt or full-world balance claim is added.
 
 - Keep the game runtime dependency-free unless a feature clearly needs a library.
