@@ -57,6 +57,26 @@ test('local mate access, parental roles and real nursery capacity cannot be repl
     assert.equal(births(s), 0); assert.ok(s.groups[0].cohorts.every(c => !c.demography?.broods.length));
   }
 });
+test('original dependent young occupy their recorded receiving nursery before another brood can start', () => {
+  const src = source(200, 'beast:rimefang-pack'), p = D.lifecycle['beast:rimefang-pack'];
+  src.regions[0].nurseries[0].capacity = 10;
+  src.groups[0].cohorts.push({ id: 'original-young', speciesId: p.id, count: 10, ageDays: 0,
+    massKg: p.newbornKg, role: 'juvenile', nurseryId: 'original-nursery' });
+  const s = P.create(src, binding); P.advance(s, DAY, true, true);
+  assert.equal(first(s).demography.broods.length, 0);
+  assert.equal(s.groups[0].cohorts.find(c => c.id === 'original-young').nurseryId, 'original-nursery');
+  assert.ok(P.normalize(s));
+});
+test('a linked nursery reads only the living same-colony furnace without copying or refilling it', () => {
+  const s = P.create(source(200, 'beast:ember-ant'), binding), g = s.groups[0], r = s.regions[0];
+  Object.assign(r.nurseries[0], { workSiteId: 'actual-furnace', colonyId: 'hive', furnaceKg: 999 });
+  const site = { id: 'actual-furnace', colonyId: 'hive', furnaceKg: 2 };
+  r.ecology = { workSites: [site] };
+  assert.equal(G.site(s, g, 0).furnaceKg, 2); assert.equal(r.nurseries[0].furnaceKg, 999);
+  site.furnaceKg = .5; assert.equal(G.site(s, g, 0).furnaceKg, .5);
+  site.colonyId = 'another-hive'; assert.equal(G.site(s, g, 0).furnaceKg, 0);
+  site.colonyId = 'hive'; site.destroyedAt = 0; assert.equal(G.site(s, g, 0).furnaceKg, 0);
+});
 test('attempt budgets use elapsed days over 365 rather than the supplied calendar year', () => {
   const src = source(100, 'beast:storm-kite'); src.calendar.monthDays = [1, 2, 3, 4];
   src.regions[0].nurseries[0].mateAccess = false;

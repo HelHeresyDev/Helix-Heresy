@@ -88,7 +88,8 @@ test('food, rainfall, salts, heat and loose minerals remain separate finite phys
       if (r.kind === 'subsurface') {
         assert.equal(season.renewal.forageKg, 0); assert.equal(season.renewal.waterL, 0);
       }
-      if (r.kind !== 'waterColumn') approx(season.renewal.waterL + season.photosyntheticWaterL, r.source.rainfallLPerDay);
+      if (r.kind !== 'waterColumn') approx(season.renewal.waterL + (season.renewal.atmosphericWaterL || 0)
+        + (season.renewal.flowWaterL || 0) + season.photosyntheticWaterL, r.source.rainfallLPerDay);
     }
     if (r.kind === 'waterColumn') { assert.equal(r.stocks.waterL, 0); assert.equal(r.source.waterKind, 'seawater'); }
     for (const [key, amount] of Object.entries(r.stocks)) assert.ok(Number.isFinite(amount) && amount >= 0 && amount <= r.capacity[key]);

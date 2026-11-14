@@ -15,6 +15,7 @@
 })(globalThis, function (Biology, Life, Journeys, Wilderness, Predation, Bodies, Demography, Ecology) {
   'use strict';
   const DAY = 86400, EPS = 1e-8, copy = x => JSON.parse(JSON.stringify(x));
+  const diagnosticToken = Symbol('private generated-source replay');
   const nonnegative = n => Number.isFinite(n) && n >= 0;
   const integer = n => Number.isSafeInteger(n) && n >= 0;
   const id = s => typeof s === 'string' && s.length > 0 && s !== 'prototype'
@@ -45,9 +46,10 @@
       bornAt: at - source.ageDays * DAY, massKg: source.massKg, structuralKg: source.massKg - waterL - fatKg,
       stores: { waterL, fatKg, foodKg: 0, mineralsKg: 0 }, role: source.role || 'individual', sex: source.sex || null,
       colonyId: source.colonyId || null, health: 1, deathSerial: 0, deathExposure: 0,
+      ...(source.nurseryId ? { nurseryId: source.nurseryId } : {}),
       ...(source.feedingTowers ? { feedingTowers: copy(source.feedingTowers) } : {}),
       deathThreshold: exponential(`${source.id}:background:0`),
-      ...(source.count > 128 ? { aggregateMortality: true, mortalityBalance: Life.random(`${source.id}:mortality-offset`),
+      ...(source.count > 128 || source.aggregateMortality === true ? { aggregateMortality: true, mortalityBalance: Life.random(`${source.id}:mortality-offset`),
         batchHazard: 0, batchMembers: source.count } : {}) };
   }
   function hazardIntegral(c, from, to) {
@@ -81,6 +83,8 @@
   function validateSource(source) {
     if (!id(source?.id) || !Array.isArray(source.groups) || !Array.isArray(source.regions)) throw Error('Missing population source');
     monthAt(source.calendar, 0);
+    if (source.unlocated && (!Array.isArray(source.unlocated) || source.unlocated.some(row => !id(row.populationId)
+      || !Biology.lifecycle[row.speciesId] || row.count != null && !integer(row.count)))) throw Error('Invalid original unlocated capacity');
     const regions = new Set(), groups = new Set(), cohorts = new Set();
     for (const r of source.regions) {
       if (!id(r.id) || regions.has(r.id) || !(r.areaHa > 0) || !Number.isFinite(r.areaHa) || !r.stocks || !r.capacity || !r.renewalPerDay
@@ -101,7 +105,7 @@
         || !Array.isArray(g.cohorts) || !Biology.lifecycle[g.speciesId]) throw Error('Invalid population group');
       groups.add(g.id);
       Ecology.validateGroup(g, source.regions);
-      if (!Journeys.validSpec(g, source.calendar)) throw Error('Invalid original seasonal route');
+      if (!Journeys.validSpec(g, source.calendar, source.diagnosticOnly === true)) throw Error('Invalid original seasonal route');
       for (const c of g.cohorts) {
         if (c.speciesId !== g.speciesId || cohorts.has(c.id)) throw Error('Conflicting cohort source');
         if (c.role === 'queen' && (!id(c.colonyId) || !nonnegative(Biology.lifecycle[c.speciesId].breederMortality)
@@ -111,11 +115,12 @@
     }
     Ecology.Work.validateLinks(source); return source;
   }
-  function create(source, binding, at = 0) {
-    if (source?.diagnosticOnly) throw Error('An unaccepted generator proposal cannot create an active population account');
+  function create(source, binding, at = 0, token = null) {
+    if (source?.diagnosticOnly && token !== diagnosticToken) throw Error('An unaccepted generator proposal cannot create an active population account');
     validateSource(source);
     if (!id(binding?.worldId) || !id(binding.runId) || !nonnegative(at)) throw Error('Missing run binding');
     const s = { ...binding, sourceId: source.id, calendar: copy(source.calendar), clock: at, appliedAt: at,
+      ...(token === diagnosticToken ? { diagnosticOnly: true } : {}), unlocated: copy(source.unlocated || []),
       regions: copy(source.regions), groups: source.groups.map(g => ({ ...copy(g), cohorts: g.cohorts.map(c => cohort(c, at)),
         knowledge: copy(g.knowledge || []), choiceSerial: 0, intention: null, transit: null, observedShortage: false })),
       details: {}, losses: [], lossBatches: [], births: [], plans: [], events: [], nextEventAt: at,
@@ -125,6 +130,10 @@
     s.origins = Object.fromEntries(source.groups.flatMap(g => g.cohorts.map(c => [c.id,
       { populationId: g.populationId, speciesId: c.speciesId, count: c.count }])));
     Ecology.initialize(s); plan(s, at); return s;
+  }
+  function createDiagnostic(source, binding, at = 0) {
+    if (source?.diagnosticOnly !== true) throw Error('A diagnostic replay requires an explicitly unaccepted source');
+    return create(source, binding, at, diagnosticToken);
   }
   function record(s, kind, at, detail) {
     s.events.push({ kind, at, ...detail }); if (s.events.length > 256) s.events.shift();
@@ -322,6 +331,7 @@
           if (missing > EPS) {
             g.observedShortage = true;
             c.unmet ||= {}; c.unmet[key] = (c.unmet[key] || 0) + missing / n;
+            r.unmetTotals ||= {}; r.unmetTotals[stockKey] = (r.unmetTotals[stockKey] || 0) + missing;
           }
           // Real maintenance outputs remain matter, not ecological points.
           const used = need * days * supply + consumed * n;
@@ -679,6 +689,7 @@
   function normalize(value, binding) {
     try {
       if (!id(value?.worldId) || !id(value.runId) || binding && (value.worldId !== binding.worldId || value.runId !== binding.runId)
+        || value.diagnosticOnly != null && typeof value.diagnosticOnly !== 'boolean'
         || !nonnegative(value.clock) || !nonnegative(value.appliedAt) || value.appliedAt > value.clock + EPS
         || !nonnegative(value.nextEventAt) || value.nextEventAt <= value.clock - EPS
         || !Array.isArray(value.losses) || !Array.isArray(value.births) || !Array.isArray(value.plans)
@@ -686,15 +697,17 @@
       const s = copy(value);
       if (s.nextDemographyAt != null && !nonnegative(s.nextDemographyAt)) return null;
       validateSource({ id: s.sourceId, calendar: s.calendar, regions: s.regions,
+        diagnosticOnly: s.diagnosticOnly === true, unlocated: s.unlocated,
         groups: s.groups.map(g => ({ ...g, cohorts: g.cohorts.map(c => ({ ...c, count: count(c), ageDays: Math.max(0, (s.clock - c.bornAt) / DAY) })) })) });
       for (const r of s.regions) {
+        if (r.unmetTotals && !Object.values(r.unmetTotals).every(nonnegative)) return null;
         const rate = s.rates[r.id];
         if (!rate || !['renewal', 'demand', 'supply'].every(k => rate[k] && Object.values(rate[k]).every(nonnegative))
           || !rate.net || !Object.values(rate.net).every(Number.isFinite)) return null;
       }
       for (const g of s.groups) {
         if (!integer(g.choiceSerial) || !Array.isArray(g.knowledge) || !g.needs || !Object.values(g.needs).every(nonnegative)) return null;
-        if (!Journeys.validState(g, s.calendar, s.clock)) return null;
+        if (!Journeys.validState(g, s.calendar, s.clock, s.diagnosticOnly === true)) return null;
         if (g.intention && (!id(g.intention.destination) || !nonnegative(g.intention.chosenAt) || !(g.intention.departAt > s.clock - EPS))) return null;
         if (g.transit && (!Array.isArray(g.transit.path) || g.transit.path.length !== 2 || ![0, 1].includes(g.transit.edgeIndex)
           || !nonnegative(g.transit.departedAt) || !(g.transit.edgeArriveAt > s.clock - EPS)
@@ -724,10 +737,10 @@
           || !Predation.validRemains(d.actor) || !Predation.validHunt(d.actor) || d.status === 'dead' && d.actor.status !== 'dead')) return null;
       }
       if (!Ecology.valid(s)) return null;
-      audit(s); return s; // Preserve cached event times; loading is not a reroll or refill.
+      audit(s); Demography.prepare(s, s.appliedAt); return s; // Rebuild only ephemeral lookup indexes, never paid rates or clocks.
     } catch { return null; }
   }
-  return { DAY, count, cohortKey, monthAt, hazardIntegral, validateSource, create, chooseDestination,
+  return { DAY, count, cohortKey, monthAt, hazardIntegral, validateSource, create, createDiagnostic, chooseDestination,
     advance, detail, claimLocal, settleLocalLoss, registerLocalBirth, recordDetailedLoss, removeStock, destroyNursery, destroyRenewalSite,
     destroyEcologicalWorkSite, setEcologicalActivity, damageFeedingTower, kill, audit, rebind, normalize };
 });

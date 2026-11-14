@@ -91,6 +91,10 @@
     const r = region(s, g.regionId), nursery = r?.nurseries?.find(n => n.id === g.breeding.siteId);
     if (!nursery || nursery.speciesId !== g.speciesId || nursery.enabled === false || !nursery.habitatSuitable
       || !nursery.phases.includes(s.plans.at(-1).season) || !(nursery.capacity > 0)) return null;
+    if (nursery.workSiteId) {
+      const site = r.ecology?.workSites.find(site => site.id === nursery.workSiteId && site.colonyId === nursery.colonyId);
+      return { ...nursery, furnaceKg: site && site.destroyedAt == null ? site.furnaceKg : 0 };
+    }
     return nursery;
   }
   function mature(c, at) {

@@ -2252,9 +2252,21 @@ charge actual residence/travel against shared finite stocks, timed seasonal
 renewal and capacity-limited carryover. Blocked routes, missed arrival windows
 and exact shortages replace blanket unverified-journey labels, without changing
 animal choices using hidden destination data. Rejected proposals cannot activate
-the population model; they are not labelled healthy or exhausted. Successful seasonal
+ordinary population gameplay; they are not labelled healthy or exhausted. Successful seasonal
 allocation repair and native encounter integration remain D work, not additional
 ordinary-play encounter coverage.
+
+Generated sources now archive typed work sites, finite shared nurseries, original
+group assignments and adjacent drainage, with material and rainfall shares drawn
+from existing physical pools. Original young occupy nursery slots; workers do
+not become mothers, raw minerals do not become refined metal and Dreaming
+Tortoises gain no invented willing sleepers. An explicit private replay executes
+these originals through the real population model, recording paid work, growth,
+births, shortages and losses across the full calendar. Partial diagnostic saves
+can continue independently without changing the reusable world; older unbound
+archives gain no sites on load. The sample remains rejected/unverified, and the
+complete diagnostic is still expensive—not a claim of native gameplay scaling.
+See [recorded source execution and its limits](BEAST_POPULATIONS.md#recorded-physical-source-execution).
 
 Local predators now pursue actually sensed prey within a finite attempt budget
 through existing combat, movement and injury rules. Carrion Lanterns scavenge

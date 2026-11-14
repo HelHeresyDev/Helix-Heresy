@@ -143,8 +143,8 @@
       g.instinct.cursor = ((g.instinct.cursor || 0) + 1) % g.instinct.route.length;
     return events;
   }
-  function validState(g, calendar, at) {
-    if (!validSpec(g, calendar)) return false;
+  function validState(g, calendar, at, allowUnresolved = false) {
+    if (!validSpec(g, calendar, allowUnresolved)) return false;
     if (!configured(g)) return !g.seasonal;
     const s = g.seasonal; if (!s) return true;
     if (!Number.isInteger(s.lastPlannedMonth) || s.lastPlannedMonth > monthAt(calendar, at).index

@@ -8,10 +8,11 @@
     node ? require('./local-site-context') : root.HelixLocalSiteContext,
     node ? require('./beast-bodies') : root.HelixBeastBodies,
     node ? require('./beast-behavior') : root.HelixBeastBehavior,
-    node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys);
+    node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys,
+    node ? require('./beast-habitat-bindings') : root.HelixBeastHabitatBindings);
   if (node) module.exports = api;
   root.HelixBeastHabitatSources = api;
-})(globalThis, function (World, Ecology, Biology, Local, Bodies, Behavior, Journeys) {
+})(globalThis, function (World, Ecology, Biology, Local, Bodies, Behavior, Journeys, Bindings) {
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x)), clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
   const random = s => parseInt(World.stableHash(s), 16) / 4294967296;
@@ -60,12 +61,13 @@
       ...(wet ? [[index, 1, area * wetFraction]] : []), ...(shore ? [[index, 2, area * shoreFraction]] : []),
       [index, 4, area]];
   }
-  function expandPatch(map, row, calendar) {
+  function expandPatch(map, row, calendar, physical = false) {
     const [index, kind, areaHa] = row, id = patchId(index, kind), land = map.surface.classes[index] === 'L';
     const biome = map.biomes.classes[index], latitude = World.cellSnapshot(map, index).latitude;
     const yearDays = calendar.monthDays.reduce((n, d) => n + d, 0), areaM2 = areaHa * 10000;
     const wet = kind === 1, marine = kind === 3, underground = kind === 4;
-    const depthM = marine ? Math.max(1, -map.relief.elevationM[index]) : wet ? 4 : underground ? 8 : 0;
+    const lakeDepthM = map.hydrology.lakeByCell[index] >= 0 ? Math.max(0, map.hydrology.flowSurfaceM[index] - map.relief.elevationM[index]) : 0;
+    const depthM = marine ? Math.max(1, -map.relief.elevationM[index]) : wet ? physical && lakeDepthM > 0 ? lakeDepthM : 4 : underground ? 8 : 0;
     const deposit = map.geology.surfaceDepositClasses[index];
     const weatheredM = underground ? .5 : deposit === 'n' ? .002 : .02;
     const densityKgM3 = 1600, mineralKg = marine ? areaM2 * Math.min(depthM, 200) * 35 : areaM2 * weatheredM * densityKgM3;
@@ -101,6 +103,8 @@
     capacity.heatMJ += underground ? mineralKg * .0008 * (20 + thermal * 100) : 0;
     const stocks = Object.fromEntries(STOCKS.map(key => [key, capacity[key] * .5]));
     stocks.mineralsKg = mineralKg;
+    if (physical && wet) stocks.waterL = capacity.waterL;
+    if (physical && marine) stocks.seawaterL = capacity.seawaterL = areaM2 * depthM * 1000;
     return { id, cellId: World.cellId(index), kind: KINDS[kind], areaHa, biome,
       floor: !marine, depthM, oxygen: true, densityKgM3, accessibleMineralDepthM: weatheredM,
       latitude, stocks, capacity, seasons, renewalPerDay: copy(seasons[0].renewal), edges: [],
@@ -109,13 +113,15 @@
         mineralRenewalKg: 0, meatRenewalKg: 0, plantAllocation: [.7, .1, .2], waterKind: marine ? 'seawater' : 'freshwater',
         mineralBasis: marine ? 'Finite dissolved salts in the original upper water column' : 'Finite accessible weathered substrate; not a new ore deposit' } };
   }
-  function compatible(s, patch) {
+  function compatible(s, patch, physical = false) {
     if (s.realm === 'ocean' && patch.kind !== 'waterColumn') return false;
     if (s.realm === 'land' && patch.kind === 'waterColumn') return false;
     if (patch.kind === 'subsurface' && !s.movementModes.includes('burrowing')) return false;
     if (s.waterAffinity && patch.kind !== 'wetland' && patch.kind !== 'waterColumn') return false;
     if (s.realm === 'ocean' && patch.depthM < Bodies.profiles[s.id].heightM) return false;
     if (s.id === 'beast:burrowing-furnace' && patch.kind !== 'subsurface') return false;
+    if (physical && (s.realm === 'ocean' || s.waterAffinity)
+      && patch.depthM < (Bodies.profiles[s.id].minWaterDepthM || 0)) return false;
     return true;
   }
   function originalCount(s, p, habitatHa, seed, calibration) {
@@ -140,13 +146,13 @@
     return (patch.stocks[key] || 0) / calendar.monthDays.reduce((n, d) => n + d, 0)
       + Math.min(...patch.seasons.map(season => season.renewal[key] || 0));
   }
-  function traversableHabitat(s, patch) {
+  function traversableHabitat(s, patch, physical = false) {
     // Flight over a sea is passage through its air, not a new ocean home or
     // permission to increase the species' original habitat/count allocation.
-    return compatible(s, patch) || s.realm === 'land' && patch.kind === 'waterColumn'
+    return compatible(s, patch, physical) || s.realm === 'land' && patch.kind === 'waterColumn'
       && s.movementModes.some(mode => ['flight', 'levitation'].includes(mode));
   }
-  function expandGroups(record, map, patches) {
+  function expandGroups(record, map, patches, physical = false) {
     const populations = populationsFor(map);
     const migrations = new Map((ecologyFor(map).migrations || []).map(m => [m.populationId, m]));
     const patchByCell = new Map();
@@ -173,7 +179,7 @@
       const offset = [random(`${record.seed}:${groupId}:x`) * extentKm, random(`${record.seed}:${groupId}:y`) * extentKm];
       const migration = migrations.get(population.id);
       const outboundRoute = migration && migration.cellPath.map(cellId => {
-        const candidates = (patchByCell.get(cellId) || []).filter(p => traversableHabitat(s, p));
+        const candidates = (patchByCell.get(cellId) || []).filter(p => traversableHabitat(s, p, physical));
         return (candidates.find(p => p.kind === patch.kind) || candidates.find(p => p.kind === 'surface') || candidates[0])?.id || null;
       });
       const route = migration && [...migration.cellPath.slice(1), ...migration.cellPath.slice(0, -1).reverse()]
@@ -194,8 +200,8 @@
           seasonal: { outboundRoute, phases: copy(migration.phases) } } : null };
     });
   }
-  function expand(record, map) {
-    const regions = record.patchRows.map(row => expandPatch(map, row, record.calendar));
+  function expand(record, map, options = {}) {
+    const regions = record.patchRows.map(row => expandPatch(map, row, record.calendar, Boolean(record.physicalBinding || options.physical)));
     const topology = World.topologyForMap(map), byCell = new Map();
     for (const patch of regions) {
       const index = World.cellIndex(patch.cellId);
@@ -212,7 +218,8 @@
         const local = other.cellId === patch.cellId;
         if ([patch.kind, other.kind].includes('subsurface') && local) continue;
         const mixed = patch.kind !== other.kind;
-        const allowedSpecies = Ecology.BEAST_SPECIES.filter(s => traversableHabitat(s, patch) && traversableHabitat(s, other)
+        const allowedSpecies = Ecology.BEAST_SPECIES.filter(s => traversableHabitat(s, patch, Boolean(record.physicalBinding || options.physical))
+          && traversableHabitat(s, other, Boolean(record.physicalBinding || options.physical))
           && (!mixed || local && ![patch.kind, other.kind].includes('waterColumn')
             || s.movementModes.some(mode => ['flight', 'levitation'].includes(mode))
             || [patch.kind, other.kind].every(kind => ['surface', 'shore'].includes(kind)))).map(s => s.id);
@@ -221,8 +228,10 @@
           traversable: true, allowedSpecies });
       }
     }
-    const groups = expandGroups(record, map, regions);
-    return { id: record.id, calendar: copy(record.calendar), regions, groups, diagnosticOnly: true };
+    const groups = expandGroups(record, map, regions, Boolean(record.physicalBinding || options.physical));
+    const result = { id: record.id, calendar: copy(record.calendar), regions, groups, diagnosticOnly: true,
+      unlocated: copy(record.unlocated || []) };
+    return record.physicalBinding && !options.raw ? Bindings.apply(result, record.physicalBinding, map) : result;
   }
   function distance(a, b, map) {
     const horizontal = a.home.cellId === b.home.cellId
@@ -321,7 +330,8 @@
           Biology.rates[speciesId].destruction.forEach((v, i) => destruction[i] += v * individualDays / days);
         destruction.forEach((need, i) => {
           if (patch.kind === 'waterColumn' && ['soilCover', 'freshwaterQuantity', 'freshwaterQuality'].includes(Biology.ledgers[i][0])) return;
-          if (need > natural.renewalEP[i] + 1e-8) deficits[`condition:${Biology.ledgers[i][0]}`] = (need - natural.renewalEP[i]) * days;
+          const available = Array.isArray(natural.renewalEP) ? natural.renewalEP[i] : natural.renewalEP[Biology.ledgers[i][0]];
+          if (need > available + 1e-8) deficits[`condition:${Biology.ledgers[i][0]}`] = (need - available) * days;
         });
         if (Object.keys(deficits).length) issues.push({ kind: 'seasonalDeficit', patchId: patch.id, phase, deficits });
         if (total) seasons.push({ patchId: patch.id, phase, demand: copy(demand), naturalRenewalEP: copy(natural.renewalEP) });
@@ -389,9 +399,9 @@
       policy: 'Private generator feasibility only; original-body residence and supply replay, no performed nurturing, future meat stock, safe destination reservation or perpetual equilibrium guarantee',
       seasonalJourneys: residence.journeys, seasons };
   }
-  function candidate(seed, map, patchRows, calibration) {
+  function candidate(seed, map, patchRows, calibration, physical = true) {
     const calendar = { epochAt: 0, monthDays: Local.PHASES.map(() => Local.PHASE_DAYS) };
-    const patches = patchRows.map(row => expandPatch(map, row, calendar)), groupRows = [], populations = [], unlocated = [];
+    const patches = patchRows.map(row => expandPatch(map, row, calendar, physical)), groupRows = [], populations = [], unlocated = [];
     const worldPopulations = populationsFor(map);
     const migrations = new Map((ecologyFor(map).migrations || []).map(m => [m.populationId, m]));
     for (let pi = 0; pi < worldPopulations.length; pi++) {
@@ -399,7 +409,7 @@
       const mask = Uint8Array.from(atob(p.territory.rangeMask), c => c.charCodeAt(0));
       const eligible = patches.map((patch, index) => ({ patch, index })).filter(({ patch }) => {
         const index = World.cellIndex(patch.cellId);
-        return Boolean(mask[index >> 3] & (1 << (index & 7))) && compatible(s, patch);
+        return Boolean(mask[index >> 3] & (1 << (index & 7))) && compatible(s, patch, physical);
       });
       const n = originalCount(s, p, eligible.reduce((n, row) => n + row.patch.areaHa, 0), seed, calibration);
       populations.push({ populationId: p.id, speciesId: s.id, units: n,
@@ -412,7 +422,8 @@
       const migration = migrations.get(p.id);
       const homeCandidates = migration ? eligible.filter(({ patch }) => patch.cellId === migration.homeCellId) : [];
       const surfaceHome = homeCandidates.filter(({ patch }) => patch.kind === 'surface');
-      const placementCandidates = surfaceHome.length ? surfaceHome : homeCandidates.length ? homeCandidates : supplied.length ? supplied : eligible;
+      const reefs = physical && s.id === 'beast:reef-wyrm' ? eligible.filter(({ patch }) => patch.biome === 'h') : [];
+      const placementCandidates = surfaceHome.length ? surfaceHome : homeCandidates.length ? homeCandidates : reefs.length ? reefs : supplied.length ? supplied : eligible;
       let left = n, ordinal = 0;
       while (left > 0) {
         const size = Math.min(left, groupSize(s));
@@ -428,7 +439,9 @@
       }
     }
     const record = { id: '', seed, sourceDigest: sourceDigest(map), calendar, patchRows, groupRows, populations, unlocated, calibration };
-    const expanded = expand(record, map), assessment = assess(expanded, map);
+    const expanded = expand(record, map, { physical, raw: true });
+    if (physical) { record.physicalBinding = Bindings.allocate(expanded, map); Bindings.apply(expanded, record.physicalBinding, map); }
+    const assessment = assess(expanded, map);
     for (const p of populations) {
       p.locatedIndividualCount = expanded.groups.filter(g => g.populationId === p.populationId)
         .reduce((n, g) => n + g.cohorts.reduce((sum, c) => sum + c.count, 0), 0);
@@ -468,9 +481,10 @@
     if (record.id !== `beast-habitat-source:${World.stableHash(saved)}`) throw Error('Habitat source identity is invalid');
     const topology = World.topologyForMap(map), patchRows = [];
     for (let i = 0; i < topology.cellCount; i++) patchRows.push(...patchesForCell(map, i, topology));
-    const expected = candidate(record.seed, map, patchRows, record.calibration);
+    const expected = candidate(record.seed, map, patchRows, record.calibration, Boolean(record.physicalBinding));
     const physical = value => { const result = copy(value); delete result.id; delete result.assessment; delete result.groupRows; return result; };
     if (World.stableHash(physical(expected)) !== World.stableHash(physical(record))) throw Error('Habitat source physical accounts were changed');
+    if (record.physicalBinding && World.stableHash(expected.groupRows) !== World.stableHash(record.groupRows)) throw Error('Original bound habitat placement was changed');
     const templates = new Map(expected.groupRows.map(row => [`${row[0]}:${row[1]}`, row]));
     const masks = new Map(), populations = populationsFor(map), patches = patchRows.map(row => expandPatch(map, row, record.calendar));
     for (const row of record.groupRows) {
@@ -495,7 +509,38 @@
     if (record.assessment.status !== 'feasibleInitialCycle') throw Error('Rejected initial allocation is unavailable, not an exhausted or healthy region');
     const result = expand(record, map);
     if (assess(result, map).status !== 'feasibleInitialCycle') throw Error('Original allocation is not supported by current physical residence checks');
+    if (record.physicalBinding)
+      throw Error('Bound original allocation remains diagnostic: regional food-web/opposition execution is not integrated');
     result.diagnosticOnly = false; return result;
+  }
+  function replay(record, map, options = {}) {
+    validate(record, map);
+    if (map.beastHabitatSources?.id !== record.id) throw Error('Replay requires the exact archived original source');
+    if (!record.physicalBinding) throw Error('Archived source lacks recorded physical bindings; replay cannot silently upgrade it');
+    const P = typeof module === 'object' && module.exports ? require('./beast-populations') : globalThis.HelixBeastPopulations;
+    if (!P) throw Error('Population account model must be loaded for a private source replay');
+    const binding = options.binding || { worldId: `diagnostic-world:${record.sourceDigest}`, runId: `diagnostic-run:${record.id}` };
+    const account = options.account ? P.normalize(options.account, binding) : P.createDiagnostic(expand(record, map), binding);
+    if (!account || account.diagnosticOnly !== true || account.sourceId !== record.id) throw Error('Replay does not own the original diagnostic source/binding');
+    const cycleEnd = record.calendar.epochAt + record.calendar.monthDays.reduce((n, d) => n + d, 0) * Journeys.DAY;
+    const until = options.until ?? cycleEnd;
+    if (!Number.isFinite(until) || until < account.clock) throw Error('Invalid elapsed replay endpoint');
+    P.advance(account, until, true, true);
+    const issues = copy(record.unlocated || []).map(row => ({ kind: 'unlocatedOriginals', ...row }));
+    for (const r of account.regions) for (const [resource, missingAmount] of Object.entries(r.unmetTotals || {}))
+      if (missingAmount > 1e-8) issues.push({ kind: 'performedResourceShortfall', regionId: r.id, resource, missingAmount });
+    const work = {};
+    for (const r of account.regions) for (const [action, amount] of Object.entries(r.ecologicalReceipts || {})) work[action] = (work[action] || 0) + amount;
+    const audit = P.audit(account), counts = Object.values(audit).reduce((sum, row) => {
+      for (const key of ['background', 'detailed', 'dead']) sum[key] += row[key]; return sum;
+    }, { background: 0, detailed: 0, dead: 0 });
+    const unresolved = ['Regional prey pursuits/carcass supply and sustained opposition are not performed by this source binding'];
+    const report = { diagnosticOnly: true, sourceId: record.id, until, cycleEnd,
+      status: until < cycleEnd ? 'incomplete' : issues.length ? 'rejected' : 'unverified',
+      issues, unresolved, work, counts, initialLocated: Object.values(account.originalCounts).reduce((n, v) => n + v, 0),
+      born: account.births.reduce((n, b) => n + b.count, 0), populations: copy(record.populations), sourceAvailability: copy(record.physicalBinding.issues),
+      boundaries: account.work.boundaries, cohortIntervals: account.work.cohortIntervals };
+    return { account, report };
   }
   function attach(seed, map) {
     const next = World.validateStrategicMap(map);
@@ -504,5 +549,5 @@
     return World.finalizeStrategicMap(next);
   }
   return { KINDS, STOCKS, ORIGINAL_COUNTS, cellAreaHa, compatible, sourceDigest, expandPatch,
-    expand, assess, generate, validate, runtimeSource, attach, populationsFor };
+    expand, assess, generate, validate, runtimeSource, replay, attach, populationsFor };
 });
