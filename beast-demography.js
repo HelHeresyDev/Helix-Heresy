@@ -142,7 +142,7 @@
   }
   function start(s, g, c, at) {
     const p = Data.lifecycle[c.speciesId], nursery = site(s, g, at), d = init(c);
-    if (!nursery || !eligible(c, at) || g.transit || !g.demographicPlan?.requestedReproduction
+    if (!nursery || !eligible(c, at) || c.contactBusyUntil > at || g.transit || !g.demographicPlan?.requestedReproduction
       || g.demographicPlan.siteId !== nursery.id || g.demographicPlan.regionId !== g.regionId) return;
     if (c.role === 'queen' && (!(nursery.furnaceKg > 0) || nursery.colonyId !== c.colonyId)) return;
     const fragment = p.massSource.startsWith('Partition'), propagation = /propagule/i.test(p.method);
@@ -172,7 +172,7 @@
   }
   function requests(s, g, c, at) {
     const p = Data.lifecycle[c.speciesId], n = size(c.ranges), result = [];
-    if (!n || Life.existingOwners[g.speciesId]) return result;
+    if (!n || c.contactBusyUntil > at || Life.existingOwners[g.speciesId]) return result;
     const reference = c.role === 'queen' ? p.breederKg : p.adultKg, mixture = recipe(g, p, 'growth');
     if (mixture && p.assimilation > 0 && c.health > .3 && c.structuralKg < reference * .8 - EPS) {
       const gain = Math.min(reference / Math.max(1, p.adultDays), (reference * .8 - c.structuralKg) * 8);
@@ -220,7 +220,7 @@
   function compact(g, at) {
     const bins = new Map(), retained = [];
     for (const c of g.cohorts) {
-      if (!size(c.ranges)) { if (!c.generated) retained.push(c); continue; }
+      if (!size(c.ranges)) { if (!c.generated && !c.contactSplit) retained.push(c); continue; }
       if (!c.generated) { retained.push(c); continue; }
       const p = Data.lifecycle[c.speciesId], age = Math.max(DAY, at - c.bornAt);
       const base = Math.max(DAY, p.adultDays * DAY / 12);
@@ -230,7 +230,7 @@
         // Averaging effort must not give an unworked original a different
         // cohort's contributor provenance when it subsequently dies.
         Object.keys(c.ecologyHistory || {}).filter(k => c.ecologyHistory[k] > EPS).sort().join(','),
-        JSON.stringify(c.feedingTowers || null)].join(':');
+        JSON.stringify(c.feedingTowers || null), JSON.stringify(c.regional || null), JSON.stringify(c.regionalPosition || null), c.contactBusyUntil || 0].join(':');
       const old = bins.get(key);
       if (!old) { bins.set(key, c); retained.push(c); continue; }
       const a = size(old.ranges), b = size(c.ranges), total = a + b;

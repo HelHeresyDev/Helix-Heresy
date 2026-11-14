@@ -230,7 +230,7 @@
     }
     const groups = expandGroups(record, map, regions, Boolean(record.physicalBinding || options.physical));
     const result = { id: record.id, calendar: copy(record.calendar), regions, groups, diagnosticOnly: true,
-      unlocated: copy(record.unlocated || []) };
+      unlocated: copy(record.unlocated || []), regionalFoodWeb: Boolean(record.physicalBinding) };
     return record.physicalBinding && !options.raw ? Bindings.apply(result, record.physicalBinding, map) : result;
   }
   function distance(a, b, map) {
@@ -510,7 +510,7 @@
     const result = expand(record, map);
     if (assess(result, map).status !== 'feasibleInitialCycle') throw Error('Original allocation is not supported by current physical residence checks');
     if (record.physicalBinding)
-      throw Error('Bound original allocation remains diagnostic: regional food-web/opposition execution is not integrated');
+      throw Error('Bound original allocation remains diagnostic: successful initial viability and native adoption are unfinished');
     result.diagnosticOnly = false; return result;
   }
   function replay(record, map, options = {}) {
@@ -534,11 +534,12 @@
     const audit = P.audit(account), counts = Object.values(audit).reduce((sum, row) => {
       for (const key of ['background', 'detailed', 'dead']) sum[key] += row[key]; return sum;
     }, { background: 0, detailed: 0, dead: 0 });
-    const unresolved = ['Regional prey pursuits/carcass supply and sustained opposition are not performed by this source binding'];
+    const unresolved = ['Bounded physical contacts do not establish sustained all-species food-web/opposition viability or native source adoption'];
     const report = { diagnosticOnly: true, sourceId: record.id, until, cycleEnd,
       status: until < cycleEnd ? 'incomplete' : issues.length ? 'rejected' : 'unverified',
       issues, unresolved, work, counts, initialLocated: Object.values(account.originalCounts).reduce((n, v) => n + v, 0),
       born: account.births.reduce((n, b) => n + b.count, 0), populations: copy(record.populations), sourceAvailability: copy(record.physicalBinding.issues),
+      foodWeb: P.foodWebSummary(account),
       boundaries: account.work.boundaries, cohortIntervals: account.work.cohortIntervals };
     return { account, report };
   }

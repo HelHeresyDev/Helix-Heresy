@@ -96,7 +96,7 @@
       const site = p.action !== 'graze' ? r.ecology.workSites.find(site => site.id === p.siteId) : null;
       for (const c of g.cohorts) {
         const n = Demography.size(c.ranges), life = Data.lifecycle[c.speciesId];
-        if (!n || c.health <= .3 || !Demography.mature(c, at) || site && !Work.available(s, g, c, site, at)
+        if (!n || c.health <= .3 || c.contactBusyUntil > at || c.regional?.workBlocked || !Demography.mature(c, at) || site && !Work.available(s, g, c, site, at)
           || p.action !== 'graze' && !site || p.action === 'graze' && g.activityState?.sleeping) continue;
         const spec = Work.spec(p.action);
         const scale = Math.min(1, c.massKg / life.adultKg) * c.health;

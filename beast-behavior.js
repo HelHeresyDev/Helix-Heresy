@@ -563,5 +563,5 @@
       incapacitated: !conscious(a, at) || ctx.incapacitated });
   }
   return { definitions, capabilities, attach, mana, affordable, pay, activeConditions, condition, modifiers, canSense, observe, biologicalOpponents, huntingTarget,
-    interrupt, begin, advanceAction, receiveRadiance, absorb, foodKeys, feed, consumeRemains, regenerate, advanceVitals, step, publicEvent };
+    interrupt, begin, advanceAction, receiveRadiance, absorb, foodKeys, feed, consumeRemains, regenerate, advanceVitals, step, publicEvent, conscious, distance };
 });

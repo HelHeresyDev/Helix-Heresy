@@ -464,9 +464,10 @@ sources through `beast-populations.createDiagnostic` and the real elapsed-time
 model. It is separate from world creation and ordinary runtime activation. It
 records performed work, accumulated unmet resources (including those of animals
 that subsequently die), births and conserved original membership. An incomplete
-cycle stays incomplete; a completed replay with shortfalls stays rejected. Missing
-regional pursuits/carcass supply and sustained opposition remain unverified, not
-potential benefits credited as executed. Rejection cannot imply historical
+cycle stays incomplete; a completed replay with shortfalls stays rejected.
+Performed bounded regional contacts are reported separately from still-unverified
+sustained all-species food-web/opposition viability. Potential benefits are not
+credited as executed. Rejection cannot imply historical
 nurturer defeat or exhausted territory.
 
 Diagnostic accounts retain their flag and world/run ownership through JSON
@@ -484,9 +485,111 @@ of one persistent record per animal. `scripts/benchmark-generated-beast-habitats
 runs a normally generated globe through its actual 120-day calendar with all
 original groups. The source-small/refinement-2 sample has 275 patches, 2,600
 groups and 56,186 located original bodies. A measured complete run took about
-six minutes and serialized roughly 24 MB of diagnostic account state: this is
+six minutes and serialized roughly 24 MB of diagnostic account state before
+regional contacts were added: this is
 **not** a claim of acceptable native-game scaling. Expensive replay is opt-in,
 not a world-creation or ordinary-save operation.
+
+### Regional feeding and ecological conflict
+
+`beast-regional-foodweb.js` connects generated bound sources to the same conserved
+population account. Prepared model sources opt in with `regionalFoodWeb: true`;
+existing core-care families do not acquire a second owner. This is internal
+regional execution, not ordinary-play source adoption or public census data.
+
+Monthly plans retain a finite hunt-attempt allowance from the authored
+per-individual rate and actual original membership. Daily local contact pulses
+consume at most one discovered opportunity per group, not one loop per member.
+They do not award a month's kills or food upfront. A 128-metre spatial index
+examines at most sixteen entries per neighboring bin; dense unexamined entries
+are recorded as deferred, not absent or safe. There is no global predator/prey
+pair search or relocation toward secretly available food.
+
+Original source cohorts get fixed, body-scaled formation spacing and immutable
+ordinal positions relative to their recorded home. One nearby original is not
+proof that all members occupy its coordinates. Injury cohorts retain their own
+actual retreat positions. A departed group, unresolved arrival or newborn stream
+without established local formation cannot acquire an encounter position from
+its region label alone. These bodies remain conserved and explicitly unlocated
+for contact purposes; they are not deleted or deemed harmless. These coarse
+source formations are not a native local-map placement certificate.
+
+Contacts require the existing sensory organs/ranges, compatible full-body medium,
+physical reach and unobstructed lines. Solid rock does not become a sight or
+attack corridor. Published hunting success is an opportunity ceiling, never a
+guaranteed kill. Heard, willing original pack/choir members may participate, with
+at most eight actual same-group attackers in a contact; every participant has
+its own membership claim, body and finite effort. Distant population totals
+provide neither pack mass nor combined damage. A single duel's result is never
+multiplied across a population.
+
+A contact lasts at most five elapsed minutes and resolves sparse movement,
+recovery/preparation and strike events rather than strategic per-frame AI.
+Existing body dimensions, wound/capability checks, natural strike profiles,
+paid applicable abilities, conditions and armour consumption constrain outcomes.
+Unknown radiance, unlearned blink destinations and missing reserves grant no
+ability effects. Faster prey can escape, injured animals can retreat, attempts
+can lose contact, and either participant can fail or die. Fighting originals
+cannot simultaneously supply regional work/growth. Their actual kills, wounds,
+feeding-tower damage and interrupted original contribution feed the existing
+decline/exhaustion accounting; a failed forecast is still not exhaustion.
+
+The directed authored antagonisms are motives only when the nurturer actually
+senses the opponent's recent nearby feeding damage. A species label, damage
+elsewhere or private regional destruction total cannot trigger defense. Existing
+adult-behemoth/deep-furnace limits remain; guardians receive no remote protection
+credit. This does not establish that every generated opposition matchup succeeds.
+
+Unengaged originals retain compact cohorts. Supported contacts split only the
+claimed ordinal ranges, preserving brood investment, original identity and
+saved hazard state. Wounded ranges keep their actual parts/conditions/effort;
+empty contact splits are discarded, not kept as another actor registry. The
+remaining exact hazard stream keeps its clock; a separated original receives a
+once-seeded memoryless residual clock. Pooled mortality balances partition
+proportionally. Reloading never resamples the split or replenishes effort.
+
+Personal effort begins with an attributable lower bound, not a newly full pool.
+Actual supplied rest establishes stamina; compatible food paid at the existing
+food-to-mana ratio restores mana. Heat/charge uptake debits finite original
+regional sources. Armour and crown tissue are already part of the original body
+mass and cannot be reminted on load. Mirror Apes do not receive a second passive
+mana owner. These are conservative owned-reserve accounts, not claims to know
+unrecorded prior personal magic histories.
+
+Every background corpse has one source-loss key and conserved body/edible mass.
+Located individual remains can feed an actually sensing, reaching predator or
+scavenger. Only the contact member receives the meal; it is not broadcast into
+generic regional meat or other members' stomachs. Carrion Lantern light retains
+the existing five-percent tissue allocation. Decomposition uses the shared local
+0.1/day exponential hazard and returns only actual tissue to detritus, with
+receiving overflow retained separately. Consumers, freezing and decay share the
+same remaining edible inventory. Detailed corpses stay with their local actor.
+Distributed batched deaths without resolved individual positions remain
+unlocated remains, not one convenient carcass pile at a group centroid.
+
+Pending contacts, consumed tissue, source provenance and wounds survive ordinary
+JSON normalization and independent/continued binding. An original lost to a
+different cause cancels its pending contact; local handoff settles only elapsed
+contact before transferring that original's current body. It does not copy the
+body or corpse. Final death freezes further execution. Food-web summaries expose
+unlocated living/remains capacity only to private diagnostics, never the UI.
+
+Focused million-member and dense-group checks demonstrate bounded contact work
+with respect to headcount, not constant cost for unlimited groups/history or
+acceptable native-game performance. The complete generated-source benchmark
+remains expensive. No all-world equilibrium, automatic historical exhaustion,
+formation-site completion or native encounter adoption is implied.
+
+The focused 35-day `source-small` replay crossed a calendar-month boundary with
+all 2,600 groups: 56,186 originals plus 6,324 births reconciled to 56,414 living
+and 6,096 dead. It recorded 1,234 attempts, five contacts, three escapes and
+109.9 kg consumed from real remains, with **no contact kills** in that generated
+sample. Prepared physical checks separately exercise successful kills and
+original nurturer loss. The replay took about 66 seconds and serialized about
+26 MB; its status is incomplete, not initial-cycle success. A longer development
+profiling run was stopped after day 80 (about eight minutes, over 52 million
+cohort intervals). It was not a completed seasonal check. These costs and the
+remaining unlocated capacity are explicit limitations, not a performance pass.
 
 ## Fixed D acceptance still unfinished
 
@@ -526,8 +629,10 @@ node tests/beast-behavior.unit.test.js
 node tests/beast-seasonal-journeys.unit.test.js
 node tests/beast-habitat-sources.unit.test.js
 node tests/beast-habitat-bindings.unit.test.js
+node tests/beast-regional-foodweb.unit.test.js
 node scripts/benchmark-generated-beast-habitats.js
 npx playwright test tests/beast-habitat-sources-browser.spec.js --project=chromium --workers=1
+npx playwright test tests/beast-regional-foodweb-browser.spec.js --project=chromium --workers=1
 npx playwright test tests/beast-regional-ecology-browser.spec.js --project=chromium --workers=1
 npx playwright test tests/beast-predation-browser.spec.js --project=chromium --workers=1
 ```
@@ -587,3 +692,12 @@ drainage, missing metal/consent, compact mortality, source tampering, unchanged
 legacy archives and paid execution with saved/continued/independent copies. The
 source browser case also checks the recorded bindings through compressed world
 storage and partial diagnostic continuation using the actual index dependencies.
+
+Twenty regional food-web checks cover elapsed original hunts, failed/blocked
+opportunities, escape and finite effort, heard same-group support, personally
+observed antagonism, real contributor death, single-owner feeding/decomposition,
+distributed/unlocated remains, source matter/provenance validation, paid reserve
+recovery, partial handoff, save/continued/independent copies and final-death freeze.
+They also compare sparse work at ten versus one million original members and
+bound dense-bin candidate work. The browser check reloads an actual pending
+contact and consumes its resulting corpse without disclosing private records.

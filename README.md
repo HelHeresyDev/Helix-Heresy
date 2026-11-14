@@ -2275,6 +2275,18 @@ The population model can hand an established original local body to that owner
 without duplicating its membership or stores. This does not yet connect every
 generated population to travel/logistics or make the regional food web viable.
 
+Generated bound sources now also execute sparse regional feeding and ecological
+conflict. Monthly attempt budgets and bounded spatial queries lead to actual
+timed contacts, with senses, body clearance, finite effort, escape, wounds and
+original losses—not kills multiplied by population size. Directed ecological
+opponents defend only against recently sensed nearby damage. Predators,
+scavengers and decomposition share one source-backed corpse inventory; meals do
+not become free generic meat. Distributed remains and unresolved body positions
+stay explicitly unlocated. Saved contacts and wounded-original handoff preserve
+ownership and independent branches. These are conservative internal-model
+contacts, not proof of sustained all-species viability or native encounter
+adoption; see [regional feeding and its limits](BEAST_POPULATIONS.md#regional-feeding-and-ecological-conflict).
+
 Regional model growth and reproduction now use paid cohort/brood batches, compact
 identity streams and merged background age/condition groups. Large background
 losses use interval summaries rather than per-creature records; detailed local
