@@ -8,10 +8,11 @@
     node ? require('./wilderness-beasts') : root.HelixWildernessBeasts,
     node ? require('./beast-predation') : root.HelixBeastPredation,
     node ? require('./beast-bodies') : root.HelixBeastBodies,
-    node ? require('./beast-demography') : root.HelixBeastDemography);
+    node ? require('./beast-demography') : root.HelixBeastDemography,
+    node ? require('./beast-regional-ecology') : root.HelixBeastRegionalEcology);
   if (node) module.exports = api;
   root.HelixBeastPopulations = api;
-})(globalThis, function (Biology, Life, Journeys, Wilderness, Predation, Bodies, Demography) {
+})(globalThis, function (Biology, Life, Journeys, Wilderness, Predation, Bodies, Demography, Ecology) {
   'use strict';
   const DAY = 86400, EPS = 1e-8, copy = x => JSON.parse(JSON.stringify(x));
   const nonnegative = n => Number.isFinite(n) && n >= 0;
@@ -90,7 +91,7 @@
       if (r.nurseries && (!Array.isArray(r.nurseries) || new Set(r.nurseries.map(n => n.id)).size !== r.nurseries.length
         || r.nurseries.some(n => !id(n.id) || !Biology.lifecycle[n.speciesId] || !integer(n.capacity)
           || !Array.isArray(n.phases) || n.phases.some(i => !integer(i) || i >= source.calendar.monthDays.length)))) throw Error('Invalid sourced nursery');
-      regions.add(r.id);
+      Ecology.validate(r); regions.add(r.id);
     }
     for (const r of source.regions) for (const edge of r.edges) if (!regions.has(edge.id) || !(edge.distanceKm > 0) || !Number.isFinite(edge.distanceKm)
       || typeof edge.traversable !== 'boolean') throw Error('Invalid regional edge');
@@ -98,6 +99,7 @@
       if (!id(g.id) || groups.has(g.id) || !id(g.populationId) || !regions.has(g.regionId)
         || !Array.isArray(g.cohorts) || !Biology.lifecycle[g.speciesId]) throw Error('Invalid population group');
       groups.add(g.id);
+      Ecology.validateGroup(g, source.regions);
       if (!Journeys.validSpec(g, source.calendar)) throw Error('Invalid original seasonal route');
       for (const c of g.cohorts) {
         if (c.speciesId !== g.speciesId || cohorts.has(c.id)) throw Error('Conflicting cohort source');
@@ -121,7 +123,7 @@
     for (const g of source.groups) s.originalCounts[g.populationId] = (s.originalCounts[g.populationId] || 0) + g.cohorts.reduce((n, c) => n + c.count, 0);
     s.origins = Object.fromEntries(source.groups.flatMap(g => g.cohorts.map(c => [c.id,
       { populationId: g.populationId, speciesId: c.speciesId, count: c.count }])));
-    plan(s, at); return s;
+    Ecology.initialize(s); plan(s, at); return s;
   }
   function record(s, kind, at, detail) {
     s.events.push({ kind, at, ...detail }); if (s.events.length > 256) s.events.shift();
@@ -151,6 +153,7 @@
     if (s.plans.some(p => p.index === month.index)) return;
     s.plans.push({ ...month, plannedAt: at });
     for (const g of s.groups) {
+      Ecology.plan(g, month);
       g.demographicPlan = { monthIndex: month.index, regionId: g.regionId, siteId: g.breeding?.siteId || null,
         requestedReproduction: Boolean(g.breeding && g.will !== false && g.willing !== false),
         ratePerDay: Biology.lifecycle[g.speciesId].attempts365 / 365 };
@@ -172,7 +175,9 @@
     let next = until;
     const rates = Object.fromEntries(s.regions.map(r => [r.id, { renewal: {}, demand: {}, supply: {}, net: {} }]));
     for (const r of s.regions) for (const [key, value] of Object.entries(r.seasons?.[month.season]?.renewal || r.renewalPerDay)) {
-      rates[r.id].renewal[key] = value * (r.seasons ? 1 : r.seasonFactors?.[month.season] ?? 1);
+      const base = value * (r.seasons ? 1 : r.seasonFactors?.[month.season] ?? 1);
+      rates[r.id].renewal[key] = Ecology.renewal(r, key, base);
+      if (key === 'waterL') rates[r.id].rejectedWaterPerDay = base - rates[r.id].renewal[key];
     }
     for (const g of s.groups) {
       const r = rates[location(g)]; g.needs = {};
@@ -205,7 +210,7 @@
         if (rate.net[key] < -EPS && stock > EPS) next = Math.min(next, at + stock / -rate.net[key] * DAY);
       }
     }
-    const extra = s.groups.flatMap(g => g.cohorts.flatMap(c => Demography.requests(s, g, c, at)));
+    const extra = Ecology.requests(s, at, s.groups.flatMap(g => g.cohorts.flatMap(c => Demography.requests(s, g, c, at))));
     const requestsByRegion = new Map();
     for (const request of extra) {
       const key = location(request.g);
@@ -228,7 +233,7 @@
         if (request.kind !== 'activity') request.factor = Math.min(request.factor, activity.get(request.c.id) ?? 1);
         for (const [key, amount] of Object.entries(request.inputs)) rate.net[key] = (rate.net[key] || 0) - amount * request.factor;
         const perDay = request.perDay * request.factor;
-        if (perDay > EPS) {
+        if (perDay > EPS && ['growth', 'brood'].includes(request.kind)) {
           const remaining = request.kind === 'growth' ? (Biology.lifecycle[request.c.speciesId][request.c.role === 'queen' ? 'breederKg' : 'adultKg'] * .8 - request.c.structuralKg)
             * count(request.c) / Biology.lifecycle[request.c.speciesId].assimilation
             : request.brood.requiredKg * Demography.size(request.brood.parents) - request.brood.investedKg;
@@ -238,7 +243,8 @@
       for (const [key, net] of Object.entries(rate.net)) if (net < -EPS && (r.stocks[key] || 0) > EPS)
         next = Math.min(next, at + r.stocks[key] / -net * DAY);
     }
-    if (s.groups.some(g => g.cohorts.some(c => count(c) && (c.aggregateMortality || c.demography)) || g.breeding) || extra.length) {
+    next = Math.min(next, Ecology.build(s, rates, extra, at, month.season));
+    if (s.regions.some(r => r.ecology) || s.groups.some(g => g.cohorts.some(c => count(c) && (c.aggregateMortality || c.demography)) || g.breeding) || extra.length) {
       s.nextDemographyAt ??= (Math.floor(at / DAY) + 1) * DAY;
       next = Math.min(next, s.nextDemographyAt);
     }
@@ -327,6 +333,7 @@
         for (const [key, input] of Object.entries(rate.inputs)) r.activityReceipts[key] = (r.activityReceipts[key] || 0) + input * rate.factor * days;
         continue;
       }
+      if (rate.kind === 'ecology') continue;
       if (!(amount > 0 || rate.manaPerDay > 0)) continue;
       if (rate.kind === 'growth') {
         const gain = amount * Biology.lifecycle[c.speciesId].assimilation;
@@ -337,11 +344,13 @@
         brood.investedKg += amount; brood.investedMana += (rate.manaPerDay || 0) * rate.factor * days;
       }
     }
+    Ecology.integrate(s, days, to);
     s.appliedAt = to;
   }
   function loseBatch(s, g, c, amount, cause, at) {
     const ranges = Demography.take(c.ranges, Math.min(amount, count(c)), true), n = Demography.size(ranges);
     if (!n) return;
+    Ecology.lostContributor(s, g, c, n, at, cause, `loss-batch:${c.originId}:${location(g)}:${cause}`);
     c.ranges = Demography.subtract(c.ranges, ranges);
     s.lossBatches ||= [];
     const batchId = `loss-batch:${c.originId}:${location(g)}:${cause}`;
@@ -371,6 +380,7 @@
   }
   function lose(s, g, c, ordinal, cause, at) {
     if (!remove(c, ordinal)) return false;
+    Ecology.lostContributor(s, g, c, 1, at, cause, cohortKey(c, ordinal));
     const loss = { memberId: cohortKey(c, ordinal), populationId: g.populationId, speciesId: g.speciesId,
       groupId: g.id, originId: c.originId || c.id, ordinal, regionId: location(g), cause, at, massKg: c.massKg };
     s.losses.push(loss);
@@ -556,6 +566,12 @@
       }
     record(s, 'nurseryDestroyed', at, { regionId, siteId, cause }); rebuild(s, at); return true;
   }
+  function destroyRenewalSite(s, regionId, siteId, at, cause) {
+    if (!id(cause) || !nonnegative(at) || at < s.clock) return false;
+    advance(s, at, true, true);
+    if (!Ecology.destroySite(s, regionId, siteId, at, cause)) return false;
+    record(s, 'renewalSiteDestroyed', at, { regionId, siteId, cause }); rebuild(s, at); return true;
+  }
   function kill(s, groupId, cohortId, ordinal, at, cause) {
     if (!id(cause) || cause === 'background' || !nonnegative(at) || at < s.clock) return false;
     advance(s, at, true, true);
@@ -652,10 +668,12 @@
       }
       if (s.extraRates && (!Array.isArray(s.extraRates) || s.extraRates.some(r => {
         const g = s.groups.find(g => g.id === r.groupId), c = g?.cohorts.find(c => c.id === r.cohortId);
-        return !c || !['activity', 'growth', 'brood'].includes(r.kind) || !nonnegative(r.perDay) || !nonnegative(r.factor)
+        return !c || !['activity', 'growth', 'brood', 'ecology'].includes(r.kind) || !nonnegative(r.perDay) || !nonnegative(r.factor)
           || r.factor > 1 || !r.inputs || !Object.values(r.inputs).every(nonnegative)
           || r.manaPerDay != null && !nonnegative(r.manaPerDay)
-          || r.kind === 'brood' && !c.demography?.broods.some(b => b.id === r.broodId);
+          || r.kind === 'brood' && !c.demography?.broods.some(b => b.id === r.broodId)
+          || r.kind === 'ecology' && (!g.ecology || !nonnegative(r.workPerDay) || !r.outputs || !Object.values(r.outputs).every(nonnegative)
+            || !Array.isArray(r.channels) || r.channels.some(k => !Ecology.channels.includes(k)));
       }))) return null;
       for (const [actorId, d] of Object.entries(s.details)) {
         if (actorId !== d.actorId || !id(d.memberId) || !integer(d.ordinal)
@@ -665,9 +683,10 @@
           || d.actor.life?.originalMemberId !== d.memberId || d.actor.life.originalGroupId !== d.groupId || !Life.valid(d.actor) || !Bodies.valid(d.actor)
           || !Predation.validRemains(d.actor) || !Predation.validHunt(d.actor) || d.status === 'dead' && d.actor.status !== 'dead')) return null;
       }
+      if (!Ecology.valid(s)) return null;
       audit(s); return s; // Preserve cached event times; loading is not a reroll or refill.
     } catch { return null; }
   }
   return { DAY, count, cohortKey, monthAt, hazardIntegral, validateSource, create, chooseDestination,
-    advance, detail, claimLocal, settleLocalLoss, registerLocalBirth, recordDetailedLoss, removeStock, destroyNursery, kill, audit, rebind, normalize };
+    advance, detail, claimLocal, settleLocalLoss, registerLocalBirth, recordDetailedLoss, removeStock, destroyNursery, destroyRenewalSite, kill, audit, rebind, normalize };
 });

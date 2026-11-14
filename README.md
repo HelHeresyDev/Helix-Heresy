@@ -2271,6 +2271,18 @@ parents/offspring retain their own claims and funded progress. The
 the approximations and focused million-headcount/longer-history benchmarks.
 This remains D work, not completed native regional ecology.
 
+The internal regional account now executes paid Ironroot rooting and actual
+Thunderback grazing pressure with separate soil, freshwater quantity/quality,
+wetland/reef, biomass and arcane ledgers. Work shares finite inputs and effort
+with growth/reproduction; condition can reduce original usable renewal without
+creating water, food or ore. Real original contributor/site losses, subsequent
+damage and depleted buffers precede exhaustion. A surviving original must
+physically return and pay for gradual recovery. The
+[maintenance endpoint and scaling limits](BEAST_POPULATIONS.md) distinguish these
+prepared workface checks from still-unfinished generated populations, remaining
+regional consumers and native encounter integration. The active queue remains
+eleven packages; no new prompt or full-world balance claim is added.
+
 - Keep the game runtime dependency-free unless a feature clearly needs a library.
 - Preserve the discovery loop by avoiding public documentation of exact trait outcomes or hidden gene mappings.
 - Favor small commits after meaningful feature passes or bug fixes.

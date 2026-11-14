@@ -222,10 +222,19 @@
       const base = Math.max(DAY, p.adultDays * DAY / 12);
       const width = base * 2 ** Math.max(0, Math.floor(Math.log2(age / (base * 12))));
       const key = [c.originId, c.role, stage(c, at), Math.floor(c.bornAt / width), width,
-        Math.floor(c.health * 10), Math.floor(c.massKg / p.adultKg * 20)].join(':');
+        Math.floor(c.health * 10), Math.floor(c.massKg / p.adultKg * 20),
+        // Averaging effort must not give an unworked original a different
+        // cohort's contributor provenance when it subsequently dies.
+        Object.keys(c.ecologyHistory || {}).filter(k => c.ecologyHistory[k] > EPS).sort().join(',')].join(':');
       const old = bins.get(key);
       if (!old) { bins.set(key, c); retained.push(c); continue; }
       const a = size(old.ranges), b = size(c.ranges), total = a + b;
+      if (old.ecologyHistory || c.ecologyHistory) {
+        const history = {};
+        for (const k of new Set([...Object.keys(old.ecologyHistory || {}), ...Object.keys(c.ecologyHistory || {})]))
+          history[k] = ((old.ecologyHistory?.[k] || 0) * a + (c.ecologyHistory?.[k] || 0) * b) / total;
+        old.ecologyHistory = history;
+      }
       old.birthSpan ||= [old.bornAt, old.bornAt];
       old.birthSpan = [Math.min(old.birthSpan[0], c.birthSpan?.[0] ?? c.bornAt), Math.max(old.birthSpan[1], c.birthSpan?.[1] ?? c.bornAt)];
       for (const k of ['bornAt', 'massKg', 'structuralKg', 'health']) old[k] = (old[k] * a + c[k] * b) / total;

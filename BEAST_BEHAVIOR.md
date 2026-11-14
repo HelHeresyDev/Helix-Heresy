@@ -92,6 +92,12 @@ counted once. Hunting changes real prey pressure without duplicate repair credit
 Ecological opponents require perceived actual local harmful activity and a viable
 matchup, not two friendly/moral factions or automatic remote defense.
 
+The seven local work recipes are also exposed as copied `workSpec` data; their
+local prerequisites and dynamic flow/thermal effects are unchanged. D's internal
+[regional maintenance account](BEAST_POPULATIONS.md) reuses the rooting recipe
+for paid cohort work, not automatic bonuses for every nurturing species. Local
+actors removed from background membership cannot also earn that regional credit.
+
 Memories belong to the sensing individual or surviving head. Pack reports require
 actual local communication and retain their source/date. Instinctive migration
 choices retain traditional destinations despite hidden shortages; forced

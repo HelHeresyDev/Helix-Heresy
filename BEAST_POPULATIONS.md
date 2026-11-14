@@ -123,6 +123,99 @@ than millions of active cohort records. Wall-clock timing depends on hardware;
 focused tests gate structural work/state growth rather than a fragile millisecond
 threshold. Detailed encounters and more independent groups still cost more.
 
+## Paid regional maintenance, decline and recovery
+
+`beast-regional-ecology.js` adds an opt-in ecological account to the internal
+population model. This pass supplies **Ironroot rooting and Thunderback grazing**
+as performed regional consumers. Other species' local C abilities remain intact;
+their regional ecological adapters, generated-source adoption and whole-food-web
+viability are not established by this workface demonstration.
+
+Every participating region supplies all six independent condition ledgers:
+soil/cover, freshwater quantity, freshwater quality, wetland/reef habitat,
+renewable biomass and arcane stability. It also supplies its actual affected
+hectares, natural reference conditions, applicable viability floors, original
+physical renewal sites and explicit dependencies of usable renewable supplies on
+condition. Zero-reference natural terrain does not become exhausted merely for
+being a desert or polar region. Missing ecological declarations leave legacy
+accounts unchanged, rather than inventing a healthy starting ecology.
+
+Monthly ecological intent names an already known workface, not a hidden future
+destination. Actual location, mature physical body, health, willingness, intact
+rootable substrate and original shared work-site capacity gate performed work.
+Travelling or detailed individuals cannot simultaneously restore the regional
+account. The seven local physical recipes are shared through
+`beast-habitat.js::workSpec`; only rooting is consumed regionally in this pass.
+Rooting consumes water, minerals and organic matter and retains actual rooted
+biomass/atmospheric-water outputs. Those outputs are physical retained matter,
+not automatically edible regional stock or a replacement renewal site.
+
+Maintenance has first claim on supply. Growth, funded reproduction and ecological
+work share a normalized cohort effort budget. There is one work-energy request
+per working cohort, shared with demographic work; missing mana/charge cannot
+fund an effect. The published daily throughput is the coarse ordinary-rest
+approximation, not an extra full day of work added to rest. This is not a native
+per-body stamina or combat simulator: detailing transfers the original out of
+background work, and native interruptions still need source-backed integration.
+The activity request spends real regional energy supply; it does not create a
+fresh personal mana reservoir for a subsequent local-body claim.
+
+Grazing pressure uses actual compatible forage consumption and its paid activity,
+without consuming that food a second time or granting a positive disposition
+bonus. Rooting earns nurturing and incurs its authored destructive side effects
+only in the channels its actual recipe supports. Natural renewal, performed
+nurturing and destruction have separate cumulative receipts; their net changes
+condition per affected hectare. Rates are cached between calendar, daily
+physiological, depletion, loss, journey and condition-boundary events. Reads
+settle only elapsed effects; they do not replan or award a month's future work.
+
+Explicit condition/reference ratios can reduce subsequent usable food/water
+renewal, never increase it above the original source ceiling. Lost productivity
+is foregone food production. Incoming water rejected from the usable account
+remains recorded as unusable/diverted water. Destroying an original catchment
+debits its actual material once and disables only its original renewal shares;
+the original incoming flow is diverted, not conjured as drinking water. EP never
+regenerates ore, creates meat, repairs a destroyed site or fabricates a worker.
+
+Exhaustion requires a recorded actual original contributor/renewal-site loss,
+subsequent performed destruction in a supported affected channel, a condition
+decline from the loss-time buffer and crossing that region's applicable floor.
+A contributor needs prior paid work there: its species label or an unperformed
+order is insufficient. Original deaths still own their existing loss/remains
+accounts. Ecological causal summaries pool repeated losses by original stream,
+region and cause, retaining first/last times and counts rather than creating a
+record per background individual. Cohorts with different sets of worked regions
+cannot merge and lend unearned contributor provenance to unworked originals.
+Historical exhaustion/recovery episodes remain
+saved even after current condition recovers. Bad initial allocation, shortage,
+winter, an unrelated source loss or missing facts cannot certify exhaustion.
+
+Recovery needs actual surviving/returning original support, usable substrate,
+paid inputs and elapsed work above the applicable floors. A source loss does
+not spawn a rescuer, restore destroyed material or teleport a tree. Detailed
+native-body losses and pre-city histories are not automatically projected back
+onto regions from an old location snapshot; that native provenance remains D
+integration work. The source-proposal feasibility assessor is unchanged and
+still rejects unaccepted generated allocations.
+
+The prepared endpoint uses a 10-hectare **maintenance workface**, not a complete
+species territory or a healthy generated region. One original Ironroot supports
+ten original grazers through a full seasonal cycle. Killing that tree produces
+gradual soil decline and later exhaustion; a separately surviving original must
+travel back along the real edge before paid restoration can recover the workface.
+Finite buffer/input quantities are explicit in
+`scripts/benchmark-beast-regional-ecology.js`; they do not certify territorial
+space, the complete diet of every species, natural formation or ecological defense.
+An original catchment-loss check also exercises discovered shortage, dispersal
+and dehydration at an equally poor destination without destination clairvoyance.
+
+Run `node scripts/benchmark-beast-regional-ecology.js` for the focused scaling
+check. A representative 120-day run at 12, 12,000 and 1,200,000 starting bodies
+retained three cohorts and **372 cohort intervals** in every case, about 13–17 KB
+of serialized state and roughly 8–13 ms locally. Timings are illustrative, not a
+test threshold. More regions, independent groups and detailed bodies cost more;
+this is not a full-game benchmark or ecological balance certificate.
+
 ## Local predation and original-body handoff
 
 `beast-predation.js` supplies shared local prey selection and corpse accounting,
@@ -263,11 +356,13 @@ detail is copied into public beast reports or the world-library interface.
    including supplied ecological opposition and original source adoption without
    duplicating the existing Rimefang/Elk/Mirror Ape consumers. Generated proposals
    and strict diagnostics now exist; their tested rejection is not completion.
-2. Finite natural formation sites, performed regional ecological work, sustained
-   food-web/source integration and causal exhaustion/recovery using the existing
-   data and C behavior. Batched growth/recruitment, local hunts, shared carcasses,
-   original-body handoff and explicit stock interruptions now exist; they do not
-   establish regional viability or implement those broader consumers.
+2. Finite natural formation sites, remaining species' performed regional
+   ecological consumers and sustained food-web/source integration using the
+   existing data and C behavior. Paid Ironroot work/Thunderback pressure and
+   causal decline/exhaustion/recovery now execute in supplied workfaces, alongside
+   batched growth/recruitment, local hunts, shared carcasses and original-body
+   handoff. This does not establish all-species regional viability, ecological
+   opposition/defense or actual generated-source adoption.
 3. Native integration with world/run persistence, ordinary travel, supported human
    logistics, correctly sized/mediated physical encounters and legitimate dated
    observations. New-world source generation is wired into the library, but the
@@ -286,11 +381,13 @@ follow-up prompt or additional certification gate is authorized by this document
 ```sh
 node tests/beast-populations.unit.test.js
 node tests/beast-demography.unit.test.js
+node tests/beast-regional-ecology.unit.test.js
 node tests/beast-predation.unit.test.js
 node tests/beast-behavior.unit.test.js
 node tests/beast-seasonal-journeys.unit.test.js
 node tests/beast-habitat-sources.unit.test.js
 npx playwright test tests/beast-habitat-sources-browser.spec.js --project=chromium --workers=1
+npx playwright test tests/beast-regional-ecology-browser.spec.js --project=chromium --workers=1
 npx playwright test tests/beast-predation-browser.spec.js --project=chromium --workers=1
 ```
 
@@ -322,3 +419,13 @@ roles, fragmentation, interruption, compact large losses, cohort merging, arbitr
 read/reload chunking, malformed records, moving gestation and paid local maternal/offspring handoff.
 The focused headcount and longer-history benchmarks are reported separately from
 native play. No full-suite run is implied by the commands listed here.
+
+Nineteen regional ecology checks cover original source/area declarations, paid
+work and shared effort, real material/energy interruption, independent channels,
+no duplicated food credit, seasonal lows, causal contributor/site loss,
+shortage/dispersal/death, gradual original-body return/recovery, detailing,
+partial-work serialization/continued binding, final-death freeze, contributor
+provenance under merging and compact
+million-body scaling. A browser check uses the actual index dependency order and
+internal model serializer across a reload. It deliberately does **not** claim
+native game-save adoption or ordinary-play regional encounters.

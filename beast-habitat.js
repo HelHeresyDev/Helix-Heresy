@@ -6,6 +6,18 @@
   'use strict';
   const DAY = 86400, positive = n => Number.isFinite(n) && n >= 0;
   const key = c => `${c.x},${c.y},${c.z}`;
+  // Shared physical daily work recipes; regional cohorts and local bodies use
+  // the same costs/outputs. These are not automatic disposition bonuses.
+  const WORK = {
+    rootStabilize: { costs: { waterL: 600, mineralsKg: 120, organicKg: 30 }, outputs: { rootedBiomassKg: 150, atmosphericWaterL: 600 }, channels: ['soilCover', 'freshwaterQuality', 'renewableBiomass'] },
+    tendWetland: { costs: { detritusKg: .1 }, outputs: { plantNutrientsKg: .1 }, channels: ['soilCover', 'freshwaterQuality', 'wetlandReefHabitat'] },
+    cultivateReef: { costs: { calciumKg: 20, organicKg: 5 }, outputs: { livingReefKg: 25 }, channels: ['wetlandReefHabitat', 'renewableBiomass', 'freshwaterQuality'] },
+    buildDam: { costs: { constructionKg: 100 }, outputs: { damKg: 100 }, channels: ['freshwaterQuantity', 'freshwaterQuality', 'wetlandReefHabitat'] },
+    growBlooms: { costs: { carrionKg: 2, waterL: 1 }, outputs: { bloomKg: 2, waterInPlantsKg: 1 }, channels: ['soilCover', 'renewableBiomass', 'wetlandReefHabitat'] },
+    buildFurnace: { costs: { metalKg: .00002, fuelKg: .00002 }, outputs: { furnaceKg: .00004 }, channels: ['soilCover', 'renewableBiomass'] },
+    dreamWeather: { costs: { atmosphericWaterL: 1000 }, outputs: { waterL: 1000 }, channels: ['soilCover', 'freshwaterQuantity', 'wetlandReefHabitat'] }
+  };
+  const workSpec = kind => WORK[kind] ? JSON.parse(JSON.stringify(WORK[kind])) : null;
   function patch(p, c, tileM = 1) {
     if (!p || p.known === false) return null;
     p.resources ||= {};
@@ -92,39 +104,28 @@
     const p = ctx.patch?.(a.mapCell); if (!p || p.protected || !(seconds > 0)) return null;
     const massScale = Math.min(1, (a.bodyPhysics?.massKg || 0) / (Data.lifecycle[a.speciesId]?.adultKg || Infinity));
     const scale = massScale * Math.max(0, ctx.healthFactor ?? 1), d = seconds / DAY * scale;
-    let costs, outputs = {}, channels = [], factor = 1;
+    const spec = workSpec(kind); if (!spec) return null;
+    let costs = Object.fromEntries(Object.entries(spec.costs).map(([k, n]) => [k, n * d]));
+    let outputs = Object.fromEntries(Object.entries(spec.outputs).map(([k, n]) => [k, n * d]));
+    const channels = spec.channels; let factor = 1;
     if (kind === 'rootStabilize') {
       if (a.bodyPhysics.mode !== 'rooting' || p.vitrifiedKg > 0 && !(p.resources.soilSeedKg > 0)) return null;
-      costs = { waterL: d * 600, mineralsKg: d * 120, organicKg: d * 30 };
-      outputs = { rootedBiomassKg: d * 150, atmosphericWaterL: d * 600 }; channels = ['soilCover', 'freshwaterQuality', 'renewableBiomass'];
     } else if (kind === 'tendWetland') {
       if (!(p.waterDepthM > 0) || !(p.resources.wetlandBedKg > 0)) return null;
-      costs = { detritusKg: d * .1 }; outputs = { plantNutrientsKg: d * .1 };
-      channels = ['soilCover', 'freshwaterQuality', 'wetlandReefHabitat'];
     } else if (kind === 'cultivateReef') {
       if (!(p.waterDepthM > 0) || !(p.resources.livingReefKg > 0)) return null;
-      costs = { calciumKg: d * 20, organicKg: d * 5 }; outputs = { livingReefKg: d * 25 };
-      channels = ['wetlandReefHabitat', 'renewableBiomass', 'freshwaterQuality'];
     } else if (kind === 'buildDam') {
       const downstream = p.downstream && ctx.patch(p.downstream);
       if (!downstream || !(p.resources.flowWaterL > 0)) return null;
-      costs = { constructionKg: d * 100 }; outputs = { damKg: d * 100 };
       const water = Math.min(p.resources.flowWaterL, d * 1000);
       // Retention moves actual flow; it is NOT additional water creation.
       costs.flowWaterL = water; outputs.waterL = water;
-      channels = ['freshwaterQuantity', 'freshwaterQuality', 'wetlandReefHabitat'];
     } else if (kind === 'growBlooms') {
       if (!(p.resources.bloomKg > 0) || p.seasonSuitable === false) return null;
-      costs = { carrionKg: d * 2, waterL: d }; outputs = { bloomKg: d * 2, waterInPlantsKg: d };
-      channels = ['soilCover', 'renewableBiomass', 'wetlandReefHabitat'];
     } else if (kind === 'buildFurnace') {
       if (!a.life?.colonyId || p.oxygen === false || p.waterDepthM > .1) return null;
-      costs = { metalKg: d * .00002, fuelKg: d * .00002 }; outputs = { furnaceKg: d * .00004 };
-      channels = ['soilCover', 'renewableBiomass'];
     } else if (kind === 'dreamWeather') {
       if (!ctx.dreamParticipants?.length || ctx.dreamParticipants.some(t => !t.sleeping || !t.consent)) return null;
-      costs = { atmosphericWaterL: d * 1000 }; outputs = { waterL: d * 1000 };
-      channels = ['soilCover', 'freshwaterQuantity', 'wetlandReefHabitat'];
     } else return null;
     factor = fraction(p, costs); if (!(factor > 0)) return null;
     for (const k of Object.keys(costs)) costs[k] *= factor;
@@ -165,5 +166,5 @@
     ctx.native?.(a.mapCell, { kind: 'heat', heatMJ: amount }); ctx.changed?.(a.mapCell, p);
     return receipt(p, a, kind, at, { heatMJ: amount });
   }
-  return { DAY, key, patch, has, take, put, fraction, ledger, receipt, burn, freeze, thaw, advanceBlooms, work, thermal };
+  return { DAY, key, workSpec, patch, has, take, put, fraction, ledger, receipt, burn, freeze, thaw, advanceBlooms, work, thermal };
 });
