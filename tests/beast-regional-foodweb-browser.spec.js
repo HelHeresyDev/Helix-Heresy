@@ -35,3 +35,28 @@ test('regional contacts and single-owner carcass feeding survive a browser reloa
   await expect(page.locator('body')).not.toContainText('huntingRemaining');
   expect(errors).toEqual([]);
 });
+
+test('unequal regional clocks restore in the browser without recalculating or settling unrelated accounts', async ({ page }) => {
+  await page.goto(pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href);
+  await page.waitForFunction(() => window.HelixBeastPopulationScheduler && window.HelixBeastPopulations);
+  const saved = await page.evaluate(src => {
+    const P = window.HelixBeastPopulations;
+    src.regions.push({ ...JSON.parse(JSON.stringify(src.regions[0])), id: 'unrelated-ground' });
+    const s = P.create(src, { worldId: 'regional-clock-browser', runId: 'run' });
+    P.removeStock(s, 'ground', 'waterL', 1, P.DAY / 4, 'actual-local-interruption');
+    return JSON.stringify(s);
+  }, source([['storm-kite', 0, 2]]));
+  await page.reload(); await page.waitForFunction(() => window.HelixBeastPopulations);
+  const result = await page.evaluate(text => {
+    const P = window.HelixBeastPopulations, before = JSON.parse(text), s = P.normalize(before);
+    if (!s) throw Error('Regional clocks failed to restore');
+    const untouched = JSON.stringify({ region: s.regions[1], rate: s.rates['unrelated-ground'], clock: s.regionClocks['unrelated-ground'] });
+    const unchanged = JSON.stringify(s) === text, rebuilds = s.work.regionRebuilds;
+    P.settleRegions(s, P.DAY / 3, ['ground']);
+    return { unchanged, appliedAt: s.appliedAt, localAt: s.regionClocks.ground.appliedAt,
+      noRebuild: rebuilds === s.work.regionRebuilds,
+      untouched: untouched === JSON.stringify({ region: s.regions[1], rate: s.rates['unrelated-ground'], clock: s.regionClocks['unrelated-ground'] }),
+      valid: Boolean(P.normalize(s)) };
+  }, saved);
+  expect(result).toEqual({ unchanged: true, appliedAt: 0, localAt: 86400 / 3, noRebuild: true, untouched: true, valid: true });
+});

@@ -10,10 +10,11 @@
     node ? require('./beast-bodies') : root.HelixBeastBodies,
     node ? require('./beast-demography') : root.HelixBeastDemography,
     node ? require('./beast-regional-ecology') : root.HelixBeastRegionalEcology,
-    node ? require('./beast-regional-foodweb') : root.HelixBeastRegionalFoodweb);
+    node ? require('./beast-regional-foodweb') : root.HelixBeastRegionalFoodweb,
+    node ? require('./beast-population-scheduler') : root.HelixBeastPopulationScheduler);
   if (node) module.exports = api;
   root.HelixBeastPopulations = api;
-})(globalThis, function (Biology, Life, Journeys, Wilderness, Predation, Bodies, Demography, Ecology, Foodweb) {
+})(globalThis, function (Biology, Life, Journeys, Wilderness, Predation, Bodies, Demography, Ecology, Foodweb, Scheduler) {
   'use strict';
   const DAY = 86400, EPS = 1e-8, copy = x => JSON.parse(JSON.stringify(x));
   const diagnosticToken = Symbol('private generated-source replay');
@@ -132,7 +133,8 @@
     for (const g of source.groups) s.originalCounts[g.populationId] = (s.originalCounts[g.populationId] || 0) + g.cohorts.reduce((n, c) => n + c.count, 0);
     s.origins = Object.fromEntries(source.groups.flatMap(g => g.cohorts.map(c => [c.id,
       { populationId: g.populationId, speciesId: c.speciesId, count: c.count }])));
-    Ecology.initialize(s); Foodweb.initialize(s, source.regionalFoodWeb === true); plan(s, at); return s;
+    Ecology.initialize(s); Foodweb.initialize(s, source.regionalFoodWeb === true); plan(s, at);
+    Scheduler.initialize(s, schedulerOps); return s;
   }
   function createDiagnostic(source, binding, at = 0) {
     if (source?.diagnosticOnly !== true) throw Error('A diagnostic replay requires an explicitly unaccepted source');
@@ -161,7 +163,7 @@
     if (destination) g.intention = { destination, chosenAt: at,
       departAt: at + (month.end - at) * (.05 + .9 * Life.random(`${g.id}:departure:${month.index}:${serial}`)) };
   }
-  function plan(s, at) {
+  function plan(s, at, build = true) {
     const month = monthAt(s.calendar, at);
     if (s.plans.some(p => p.index === month.index)) return;
     s.plans.push({ ...month, plannedAt: at });
@@ -180,11 +182,33 @@
       if (g.instinct?.mode !== 'instinctive' && !g.observedShortage && !g.displaced) continue;
       if (!g.intention) scheduleDeparture(s, g, at, month);
     }
-    rebuild(s, at);
+    if (build) rebuild(s, at);
   }
   const location = Journeys.location;
-  function rebuild(s, at) {
+  const schedulerOps = { location, rebuild: rebuildKernel, integrate, boundary,
+    refreshGroups: (s, groups) => Demography.refreshGroups(s, groups),
+    dailyNeeded: s => Boolean(s.regions.some(r => r.ecology) || s.groups.some(g => g.cohorts.some(c => count(c) && (c.aggregateMortality || c.demography)) || g.breeding) || s.extraRates?.length),
+    movingDestinations: (g, at) => [g.intention?.departAt <= at + EPS ? g.intention.destination : null,
+      g.transit && (g.transit.crossAt <= at + EPS || g.transit.edgeArriveAt <= at + EPS) ? g.transit.path.at(-1) : null].filter(Boolean),
+    references: (g, at) => {
+      const refs = new Set();
+      for (const c of g.cohorts) {
+        for (const b of c.demography?.broods || []) refs.add(b.regionId);
+        if (c.nurseryId && count(c) && at - (c.birthSpan?.[1] ?? c.bornAt) < Biology.lifecycle[c.speciesId].independentDays * DAY) refs.add(g.regionId);
+      }
+      return refs;
+    } };
+  function rebuild(s, at, affected = null) {
+    if (s.accountRoot || !Scheduler.active(s)) return rebuildKernel(s, at);
+    if (affected) Scheduler.invalidate(s, typeof affected === 'string' ? [affected] : affected, at);
+    else Scheduler.rebuildAll(s, at);
+  }
+  function rebuildKernel(s, at) {
     Demography.prepare(s, at);
+    if (s.work) {
+      s.work.regionRebuilds = (s.work.regionRebuilds || 0) + s.regions.length;
+      s.work.cohortRateVisits = (s.work.cohortRateVisits || 0) + s.groups.reduce((n, g) => n + g.cohorts.length, 0);
+    }
     const month = monthAt(s.calendar, at), until = month.end;
     let next = until;
     const rates = Object.fromEntries(s.regions.map(r => [r.id, { renewal: {}, demand: {}, supply: {}, net: {} }]));
@@ -195,6 +219,7 @@
     }
     for (const g of s.groups) {
       const r = rates[location(g)]; g.needs = {};
+      if (!r) throw Error(`Group ${g.id} moved outside its settled scope (${location(g)})`);
       for (const c of g.cohorts) {
         Demography.synchronize(s, g, c, at);
         const p = Biology.lifecycle[c.speciesId], juvenile = at - c.bornAt < p.adultDays * DAY;
@@ -257,6 +282,10 @@
             : request.brood.requiredKg * Demography.size(request.brood.parents) - request.brood.investedKg;
           next = Math.min(next, at + remaining / perDay * DAY);
         }
+        if (request.kind === 'brood' && request.manaPerDay * request.factor > EPS) {
+          const remaining = request.brood.requiredMana * Demography.size(request.brood.parents) - request.brood.investedMana;
+          next = Math.min(next, at + remaining / (request.manaPerDay * request.factor) * DAY);
+        }
       }
       next = Math.min(next, Ecology.Work.prepareOutputs(r, rate, list, at));
       Ecology.Work.route(s, r, rate, list, rates);
@@ -268,7 +297,8 @@
       }
     }
     next = Math.min(next, Ecology.build(s, rates, extra, at, month.season));
-    if (s.regions.some(r => r.ecology) || s.groups.some(g => g.cohorts.some(c => count(c) && (c.aggregateMortality || c.demography)) || g.breeding) || extra.length) {
+    s.dailyNeeded = Boolean(s.regions.some(r => r.ecology) || s.groups.some(g => g.cohorts.some(c => count(c) && (c.aggregateMortality || c.demography)) || g.breeding) || extra.length);
+    if (s.dailyNeeded) {
       s.nextDemographyAt ??= (Math.floor(at / DAY) + 1) * DAY;
       next = Math.min(next, s.nextDemographyAt);
     }
@@ -296,13 +326,14 @@
     for (const g of s.groups) if (!g.transit && !g.observedShortage && g.cohorts.some(c => count(c))
       && Object.entries(g.needs).some(([key, need]) => need > 0 && (rates[location(g)].supply[g.resources?.[key] || key] ?? 0) < 1))
       next = Math.min(next, at + 1); // The next actual local feeding attempt discovers it.
-    next = Math.min(next, Foodweb.next(s));
+    next = Math.min(next, Foodweb.next(s, s.regionIds));
     s.rates = rates; s.nextEventAt = Math.max(at + 1e-6, next);
   }
   function integrate(s, to) {
     const from = s.appliedAt, days = (to - from) / DAY;
     if (!(days > 0)) return;
     if (s.work) s.work.cohortIntervals += s.groups.reduce((n, g) => n + g.cohorts.length, 0);
+    if (s.work) s.work.regionIntervals = (s.work.regionIntervals || 0) + s.regions.length;
     for (const r of s.regions) {
       const rate = s.rates[r.id];
       const waterBefore = r.stocks.waterL || 0;
@@ -443,19 +474,21 @@
         lose(s, g, c, ordinal, 'background', at); c.deathExposure = Math.max(0, c.deathExposure - c.deathThreshold);
         c.deathThreshold = exponential(`${c.id}:background:${++c.deathSerial}`);
       }
-      if (!g.cohorts.some(c => count(c))) { g.intention = null; g.transit = null; continue; }
+      if (!g.cohorts.some(c => count(c))) { g.regionId = location(g); g.intention = null; g.transit = null; continue; }
       if (g.intention && g.intention.departAt <= at + EPS) {
         for (const event of Journeys.depart(g, at, s.regions.find(r => r.id === g.regionId), Biology.lifecycle[g.speciesId].travelKmDay))
           record(s, event.kind, event.at, event);
       }
       for (const event of Journeys.arrive(g, at)) record(s, event.kind, event.at, event);
     }
-    plan(s, at);
+    plan(s, at, false);
     const demographicTick = at + EPS >= (s.nextDemographyAt ?? Infinity);
     if (demographicTick) s.nextDemographyAt = (Math.floor((at + EPS) / DAY) + 1) * DAY;
-    Foodweb.advance(s, at, monthAt(s.calendar, at), {
+    const foodApi = {
       region: id => Demography.region(s, id), group: id => Demography.group(s, id), lose: (...args) => lose(s, ...args)
-    });
+    };
+    if (s.accountRoot) Foodweb.finish(s.accountRoot, at, foodApi, s.regionIds);
+    else Foodweb.advance(s, at, monthAt(s.calendar, at), foodApi);
     for (const g of s.groups) {
       for (const c of [...g.cohorts]) {
         if (demographicTick && c.aggregateMortality && count(c)) {
@@ -472,7 +505,7 @@
       if (demographicTick) Demography.compact(g, at);
     }
     rebuild(s, at);
-    let changed = false;
+    const changed = new Set();
     for (const g of s.groups) {
       const rate = s.rates[location(g)];
       const localShortage = !g.transit && g.cohorts.some(c => count(c)) && Object.entries(g.needs)
@@ -480,24 +513,33 @@
       if (localShortage && !g.observedShortage) {
         g.observedShortage = true;
         record(s, 'observedShortage', at, { groupId: g.id, regionId: g.regionId });
-        if (!g.intention) { scheduleDeparture(s, g, at, monthAt(s.calendar, at)); changed = true; }
+        if (!g.intention) { scheduleDeparture(s, g, at, monthAt(s.calendar, at)); changed.add(location(g)); }
       }
     }
-    if (changed) rebuild(s, at);
+    if (changed.size) rebuild(s, at, changed);
   }
   function advance(s, at, alive = true, settle = false) {
     if (!alive || !nonnegative(at) || at < s.clock) return false;
-    while (s.nextEventAt <= at + EPS) { const eventAt = s.nextEventAt; integrate(s, eventAt); boundary(s, eventAt); }
-    if (settle) integrate(s, at); // A read settles elapsed work, not new intentions/rates.
-    s.clock = at; return true;
+    if (!Scheduler.active(s)) Scheduler.restore(s, schedulerOps);
+    Scheduler.advance(s, at, settle); return true;
   }
+  function advanceLocal(s, at, regions) {
+    advance(s, at, true, false);
+    const ids = typeof regions === 'function' ? regions() : regions;
+    return Scheduler.settle(s, typeof ids === 'string' ? [ids] : ids, at);
+  }
+  function settleRegions(s, at, regions, alive = true) {
+    if (!alive || !nonnegative(at) || at < s.clock || !Array.isArray(regions) || regions.some(id => !Demography.region(s, id))) return false;
+    advanceLocal(s, at, regions); return true;
+  }
+  const groupRegions = (s, id) => { const g = Demography.group(s, id); return g ? [location(g)] : []; };
   function detail(s, groupId, cohortId, ordinal, actorId, at) {
     if (!id(actorId) || s.details[actorId] || !nonnegative(at) || at < s.clock) return null;
-    advance(s, at, true, true);
-    const g = s.groups.find(g => g.id === groupId), c = g?.cohorts.find(c => c.id === cohortId);
+    advanceLocal(s, at, () => groupRegions(s, groupId));
+    const g = Demography.group(s, groupId), c = g?.cohorts.find(c => c.id === cohortId);
     if (!c || !c.ranges.some(([lo, hi]) => ordinal >= lo && ordinal < hi)) return null;
     Foodweb.handoff(s, groupId, cohortId, at, { region: id => Demography.region(s, id), group: id => Demography.group(s, id), lose: (...args) => lose(s, ...args) });
-    if (!c.ranges.some(([lo, hi]) => ordinal >= lo && ordinal < hi)) { rebuild(s, at); return null; }
+    if (!c.ranges.some(([lo, hi]) => ordinal >= lo && ordinal < hi)) { rebuild(s, at, location(g)); return null; }
     const demographicHandoff = Demography.handoff(c, ordinal, at);
     if (!remove(c, ordinal)) return null;
     const memberId = cohortKey(c, ordinal);
@@ -509,20 +551,20 @@
       ...(c.feedingTowers ? { feedingTowers: copy(c.feedingTowers) } : {}),
       ...(c.nurseryId ? { nurseryId: c.nurseryId } : {}),
       ...(demographicHandoff ? { demography: demographicHandoff } : {}), ...(c.birthSpan ? { birthSpan: copy(c.birthSpan) } : {}) };
-    s.details[actorId] = result; rebuild(s, at); return copy(result);
+    s.details[actorId] = result; Scheduler.noteDetail(s, actorId); rebuild(s, at, location(g)); return copy(result);
   }
   // A local source adapter must supply the original body's established position
   // and real terrain context. A regional range/centroid alone cannot place prey
   // beside a predator. The resulting actor is owned by this exact detail claim.
   function claimLocal(s, groupId, cohortId, ordinal, actorId, at, ctx) {
     if (!nonnegative(at) || at < s.clock || !ctx?.alive || !ctx.local || !id(actorId) || s.details[actorId]) return null;
-    advance(s, at, true, true);
-    const g = s.groups.find(g => g.id === groupId), c = g?.cohorts.find(c => c.id === cohortId);
+    advanceLocal(s, at, () => groupRegions(s, groupId));
+    const g = Demography.group(s, groupId), c = g?.cohorts.find(c => c.id === cohortId);
     if (!c || !c.ranges.some(([lo, hi]) => ordinal >= lo && ordinal < hi) || !Bodies.profiles[g.speciesId]) return null;
     let position = ctx.originalPosition?.(g, c, ordinal, at);
     if (position?.regionId === location(g) && c.contactBusyUntil > at) {
       Foodweb.handoff(s, groupId, cohortId, at, { region: id => Demography.region(s, id), group: id => Demography.group(s, id), lose: (...args) => lose(s, ...args) });
-      rebuild(s, at);
+      rebuild(s, at, location(g));
       if (!c.ranges.some(([lo, hi]) => ordinal >= lo && ordinal < hi)) return null;
       position = ctx.originalPosition?.(g, c, ordinal, at);
     }
@@ -561,7 +603,7 @@
       a.life.lastAttemptAt = d.demography.lastAttemptAt;
       a.life.populationBroods = copy(d.demography.broods);
     }
-    s.details[actorId].actor = a; return a;
+    s.details[actorId].actor = a; Scheduler.noteDetail(s, actorId); return a;
   }
   function settleLocalLoss(s, actorId, at, cause) {
     const d = s.details[actorId], a = d?.actor;
@@ -581,19 +623,19 @@
       || r.investedMana + EPS < r.requiredMana) return false;
     const suffix = child.id.slice(r.id.length + 1), index = Number(suffix);
     if (!integer(index) || String(index) !== suffix || index >= p.offspring) return false;
-    advance(s, at, true, true);
-    const g = s.groups.find(g => g.id === parent.groupId), co = g.cohorts.find(c => c.originId === parent.memberId.slice(0, parent.memberId.lastIndexOf(':')))
+    advanceLocal(s, at, () => groupRegions(s, parent.groupId));
+    const g = Demography.group(s, parent.groupId), co = g.cohorts.find(c => c.originId === parent.memberId.slice(0, parent.memberId.lastIndexOf(':')))
       || { originId: parent.memberId.slice(0, parent.memberId.lastIndexOf(':')), colonyId: a.life.colonyId };
     const c = recordBirth(s, g, co, { nurseryId: g.breeding?.siteId || null }, child.life.role || 'individual', 1, at);
-    rebuild(s, at);
+    rebuild(s, at, location(g));
     const d = detail(s, g.id, c.id, c.ranges[0][0], child.id, at); if (!d) return false;
     child.life.originalMemberId = d.memberId; child.life.originalGroupId = g.id;
-    s.details[child.id].actor = child; return true;
+    s.details[child.id].actor = child; Scheduler.noteDetail(s, child.id); return true;
   }
   function recordDetailedLoss(s, actorId, at, cause, remainsKg) {
     const d = s.details[actorId];
     if (!d || d.status !== 'detailed' || !nonnegative(remainsKg) || !nonnegative(at) || at < s.clock) return false;
-    advance(s, at, true, true); d.status = 'dead'; d.diedAt = at; d.cause = cause;
+    advanceLocal(s, at, [d.regionId]); d.status = 'dead'; d.diedAt = at; d.cause = cause;
     s.losses.push({ memberId: d.memberId, populationId: d.populationId, speciesId: d.speciesId,
       groupId: d.groupId, originId: d.memberId.slice(0, d.memberId.lastIndexOf(':')), ordinal: d.ordinal,
       regionId: d.regionId, cause, at, massKg: remainsKg, detailOwner: actorId });
@@ -603,63 +645,63 @@
   }
   function removeStock(s, regionId, key, amount, at, cause) {
     if (!id(cause) || !nonnegative(amount) || !nonnegative(at) || at < s.clock) return false;
-    advance(s, at, true, true);
-    const r = s.regions.find(r => r.id === regionId);
+    advanceLocal(s, at, [regionId]);
+    const r = Demography.region(s, regionId);
     if (!r || !(r.stocks[key] >= amount)) return false;
     r.stocks[key] -= amount;
     if (key === 'waterL' && r.retainedWaterL) r.retainedWaterL = Math.max(0, r.retainedWaterL - amount);
     record(s, 'stockLoss', at, { regionId, key, amount, cause });
-    rebuild(s, at); return true;
+    rebuild(s, at, regionId); return true;
   }
   function destroyNursery(s, regionId, siteId, at, cause) {
     if (!nonnegative(at) || at < s.clock || !id(cause)) return false;
-    advance(s, at, true, true);
-    const nursery = s.regions.find(r => r.id === regionId)?.nurseries?.find(n => n.id === siteId);
+    advanceLocal(s, at, [regionId]);
+    const nursery = Demography.region(s, regionId)?.nurseries?.find(n => n.id === siteId);
     if (!nursery || nursery.destroyedAt != null) return false;
     nursery.destroyedAt = at; nursery.enabled = false;
-    for (const d of Object.values(s.details)) for (const brood of d.actor?.life?.populationBroods || [])
+    for (const d of Scheduler.detailsForRegion(s, regionId)) for (const brood of d.actor?.life?.populationBroods || [])
       if (brood.externalNursery && brood.sourceRegionId === regionId && brood.sourceNurseryId === siteId && brood.disposedAt == null) {
-        const r = s.regions.find(r => r.id === regionId); r.outputs ||= {};
+        const r = Demography.region(s, regionId); r.outputs ||= {};
         r.outputs.failedRecruitmentKg = (r.outputs.failedRecruitmentKg || 0)
           + Math.max(0, brood.investedKg - Biology.lifecycle[d.speciesId].newbornKg * brood.emitted.length);
         brood.disposedAt = at;
       }
-    record(s, 'nurseryDestroyed', at, { regionId, siteId, cause }); rebuild(s, at); return true;
+    record(s, 'nurseryDestroyed', at, { regionId, siteId, cause }); rebuild(s, at, regionId); return true;
   }
   function destroyRenewalSite(s, regionId, siteId, at, cause) {
     if (!id(cause) || !nonnegative(at) || at < s.clock) return false;
-    advance(s, at, true, true);
+    advanceLocal(s, at, [regionId]);
     if (!Ecology.destroySite(s, regionId, siteId, at, cause)) return false;
-    record(s, 'renewalSiteDestroyed', at, { regionId, siteId, cause }); rebuild(s, at); return true;
+    record(s, 'renewalSiteDestroyed', at, { regionId, siteId, cause }); rebuild(s, at, regionId); return true;
   }
   function destroyEcologicalWorkSite(s, regionId, siteId, at, cause) {
     if (!id(cause) || !nonnegative(at) || at < s.clock) return false;
-    advance(s, at, true, true);
+    advanceLocal(s, at, [regionId]);
     if (!Ecology.destroyWorkSite(s, regionId, siteId, at, cause)) return false;
-    record(s, 'ecologicalWorkSiteDestroyed', at, { regionId, siteId, cause }); rebuild(s, at); return true;
+    record(s, 'ecologicalWorkSiteDestroyed', at, { regionId, siteId, cause }); rebuild(s, at, regionId); return true;
   }
   function setEcologicalActivity(s, groupId, state, at, cause) {
     if (!id(cause) || !nonnegative(at) || at < s.clock || !state
       || ['sleeping', 'dreamConsent'].some(k => typeof state[k] !== 'boolean')) return false;
-    advance(s, at, true, true);
+    advanceLocal(s, at, () => groupRegions(s, groupId));
     const g = Demography.group(s, groupId); if (!g) return false;
     g.activityState = { sleeping: state.sleeping, dreamConsent: state.dreamConsent };
-    record(s, 'ecologicalActivityChanged', at, { groupId, ...g.activityState, cause }); rebuild(s, at); return true;
+    record(s, 'ecologicalActivityChanged', at, { groupId, ...g.activityState, cause }); rebuild(s, at, location(g)); return true;
   }
   function damageFeedingTower(s, groupId, cohortId, towerIndex, damage, at, cause) {
     if (!id(cause) || !nonnegative(at) || at < s.clock || !integer(towerIndex) || towerIndex >= 4 || !(damage > 0) || !Number.isFinite(damage)) return false;
-    advance(s, at, true, true);
+    advanceLocal(s, at, () => groupRegions(s, groupId));
     const g = Demography.group(s, groupId), c = g && Demography.cohort(s, groupId, cohortId);
     if (!c?.feedingTowers || !count(c) || c.feedingTowers[towerIndex] <= 0) return false;
     c.feedingTowers[towerIndex] = Math.max(0, c.feedingTowers[towerIndex] - damage);
-    record(s, 'feedingTowerDamaged', at, { groupId, cohortId, towerIndex, damage, cause }); rebuild(s, at); return true;
+    record(s, 'feedingTowerDamaged', at, { groupId, cohortId, towerIndex, damage, cause }); rebuild(s, at, location(g)); return true;
   }
   function kill(s, groupId, cohortId, ordinal, at, cause) {
     if (!id(cause) || cause === 'background' || !nonnegative(at) || at < s.clock) return false;
-    advance(s, at, true, true);
-    const g = s.groups.find(g => g.id === groupId), c = g?.cohorts.find(c => c.id === cohortId);
+    advanceLocal(s, at, () => groupRegions(s, groupId));
+    const g = Demography.group(s, groupId), c = g?.cohorts.find(c => c.id === cohortId);
     if (!c || !lose(s, g, c, ordinal, cause, at)) return false;
-    rebuild(s, at); return true;
+    rebuild(s, at, location(g)); return true;
   }
   function audit(s) {
     const byPopulation = {}, families = new Map();
@@ -769,11 +811,11 @@
           || d.actor.life?.originalMemberId !== d.memberId || d.actor.life.originalGroupId !== d.groupId || !Life.valid(d.actor) || !Bodies.valid(d.actor)
           || !Predation.validRemains(d.actor) || !Predation.validHunt(d.actor) || d.status === 'dead' && d.actor.status !== 'dead')) return null;
       }
-      if (!Ecology.valid(s) || !Foodweb.validate(s)) return null;
-      audit(s); Demography.prepare(s, s.appliedAt); return s; // Rebuild only ephemeral lookup indexes, never paid rates or clocks.
+      if (!Ecology.valid(s) || !Foodweb.validate(s) || !Scheduler.validate(s)) return null;
+      audit(s); Demography.prepare(s, s.appliedAt); Scheduler.restore(s, schedulerOps); return s; // Restore indexes, never paid rates or choices.
     } catch { return null; }
   }
   return { DAY, count, cohortKey, monthAt, hazardIntegral, validateSource, create, createDiagnostic, chooseDestination,
-    advance, detail, claimLocal, settleLocalLoss, registerLocalBirth, recordDetailedLoss, removeStock, destroyNursery, destroyRenewalSite, foodWebSummary: Foodweb.summary,
+    advance, settleRegions, detail, claimLocal, settleLocalLoss, registerLocalBirth, recordDetailedLoss, removeStock, destroyNursery, destroyRenewalSite, foodWebSummary: Foodweb.summary,
     destroyEcologicalWorkSite, setEcologicalActivity, damageFeedingTower, kill, audit, rebind, normalize };
 });

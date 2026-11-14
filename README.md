@@ -2264,8 +2264,15 @@ Tortoises gain no invented willing sleepers. An explicit private replay executes
 these originals through the real population model, recording paid work, growth,
 births, shortages and losses across the full calendar. Partial diagnostic saves
 can continue independently without changing the reusable world; older unbound
-archives gain no sites on load. The sample remains rejected/unverified, and the
-complete diagnostic is still expensive—not a claim of native gameplay scaling.
+archives gain no sites on load. Regional event clocks now settle local interruptions
+only within their real water/care dependencies, retaining scheduled global monthly
+and daily work. Unequal regional settlement times and cached rates survive saves
+without replanning. Exact paid funding targets replace event-sensitive growth/
+brood tapering. The same bounded 35-day diagnostic took 8.1 seconds versus 61.7
+with the global scheduler and identical corrected funding math, with 94% fewer
+cohort integration visits. It preserves all source groups/counts; it is not
+bit-identical to the old unrelated-event-dependent maintenance trajectory.
+The sample remains rejected/unverified—not a claim of native gameplay scaling.
 See [recorded source execution and its limits](BEAST_POPULATIONS.md#recorded-physical-source-execution).
 
 Local predators now pursue actually sensed prey within a finite attempt budget

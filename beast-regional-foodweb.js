@@ -386,11 +386,17 @@
     if (result === 'escaped' || result === 'lostContact') s.foodWeb.receipts.escapes++;
     event(s, at, 'contactEnded', { id: contact.id, kind: contact.kind, outcome: result, startedAt: contact.startedAt });
   }
-  function advance(s, at, month, api) {
+  function finish(s, at, api, regionIds = null) {
     if (!s.foodWeb) return;
     const web = s.foodWeb;
-    const due = web.pending.filter(c => c.dueAt <= at + EPS); web.pending = web.pending.filter(c => c.dueAt > at + EPS);
+    const due = web.pending.filter(c => c.dueAt <= at + EPS && (!regionIds || regionIds.has(c.regionId)));
+    const claimed = new Set(due); web.pending = web.pending.filter(c => !claimed.has(c));
     for (const c of due) resolve(s, c, at, api);
+  }
+  function advance(s, at, month, api) {
+    if (!s.foodWeb) return;
+    finish(s, at, api);
+    const web = s.foodWeb;
     if (at + EPS < web.nextAt) return;
     web.nextAt = (Math.floor((at + EPS) / DAY) + 1) * DAY; web.lastAt = at;
     const regionMap = new Map(s.regions.map(r => [r.id, r])), rows = [], harms = new Map();
@@ -453,7 +459,8 @@
       }
     }
   }
-  function next(s) { return s.foodWeb ? Math.min(s.foodWeb.nextAt, ...s.foodWeb.pending.map(c => c.dueAt)) : Infinity; }
+  function next(s, regionIds = null) { return s.foodWeb ? Math.min(s.foodWeb.nextAt,
+    ...s.foodWeb.pending.filter(c => !regionIds || regionIds.has(c.regionId)).map(c => c.dueAt)) : Infinity; }
   function cancel(s, groupId, cohortId, ranges, at) {
     if (!s.foodWeb) return;
     const pending = s.foodWeb.pending.filter(p => p.members.some(m => m.groupId === groupId && m.cohortId === cohortId
@@ -480,7 +487,7 @@
     if (!s.foodWeb) return s.regionalFoodWeb !== true;
     if (s.regionalFoodWeb !== true) return false;
     const w = s.foodWeb;
-    if (!finite(w.nextAt) || w.nextAt <= s.appliedAt || !finite(w.lastAt) || w.lastAt > s.appliedAt
+    if (!finite(w.nextAt) || w.nextAt <= s.clock || !finite(w.lastAt) || w.lastAt > s.clock
       || !Number.isSafeInteger(w.serial) || w.serial < 0 || !Object.values(w.receipts).every(finite)
       || !Object.values(w.work).every(finite) || !Array.isArray(w.events) || !Array.isArray(w.pending)) return false;
     for (const g of s.groups) {
@@ -490,7 +497,8 @@
         || !(f.northSpacingM > 0) || !finite(f.northSpacingM))) return false;
       for (const c of g.cohorts) {
         const x = c.regional;
-        if (!x || x.originalTissueAccounted !== true || !finite(x.at) || x.at > s.appliedAt || !finite(x.stamina) || x.stamina > 300 || !finite(x.mana)
+        const appliedAt = s.regionClocks?.[g.transit ? g.transit.path[g.transit.edgeIndex] : g.regionId]?.appliedAt ?? s.appliedAt;
+        if (!x || x.originalTissueAccounted !== true || !finite(x.at) || x.at > appliedAt || !finite(x.stamina) || x.stamina > 300 || !finite(x.mana)
           || x.mana > Data.lifecycle[c.speciesId].manaCapacity || !energyKeys.every(k => finite(x.energy[k]))
           || !Bodies.profiles[c.speciesId].parts.every(k => finite(x.parts[k]) && x.parts[k] <= 100) || !finite(x.armourKg) || x.armourKg > c.massKg
           || !Array.isArray(x.conditions) || !Object.values(x.cooldowns).every(finite)) return false;
@@ -515,7 +523,8 @@
     }
     if (Math.abs(consumed - w.receipts.consumedKg) > 1e-6 * Math.max(1, consumed) || Math.abs(decomposed - w.receipts.decomposedKg) > 1e-6 * Math.max(1, decomposed)) return false;
     const reserved = new Set();
-    return w.pending.every(p => finite(p.startedAt) && p.startedAt <= s.appliedAt && finite(p.dueAt) && p.dueAt > s.appliedAt && p.dueAt === p.startedAt + DURATION
+    return w.pending.every(p => finite(p.startedAt) && p.startedAt <= (s.regionClocks?.[p.regionId]?.appliedAt ?? s.appliedAt)
+      && finite(p.dueAt) && p.dueAt > s.clock && p.dueAt === p.startedAt + DURATION
       && ['hunt', 'defense'].includes(p.kind) && s.regions.some(r => r.id === p.regionId) && p.members.length >= 2 && p.members.length <= 9
       && p.members.every(m => {
         const key = `${m.groupId}:${m.cohortId}:${m.ordinal}`;
@@ -540,5 +549,5 @@
         && !position(g, regions.get(g.regionId), c, c.ranges[0][0]) ? size(c) : 0), 0), 0),
       unlocatedRemainsKg: s.regions.reduce((n, r) => n + Object.values(r.remainsBatches || {}).reduce((v, row) => v + (!row.position ? row.edibleKg : 0), 0), 0) };
   }
-  return { initialize, initial, plan, advance, next, validate, validateSource, position, environment, context, actor, split, addRemains, decay, cancel, handoff, noteFeeding, summary, LIMIT, DURATION };
+  return { initialize, initial, plan, advance, finish, next, validate, validateSource, position, environment, context, actor, split, addRemains, decay, cancel, handoff, noteFeeding, summary, LIMIT, DURATION };
 });

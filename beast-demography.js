@@ -17,15 +17,26 @@
     }
     return value;
   }
-  const region = (s, id) => index(s).regions.get(id);
-  const group = (s, id) => index(s).groups.get(id) || s.groups.find(g => g.id === id);
+  const region = (s, id) => index(s).regions.get(id) || (s.accountRoot && region(s.accountRoot, id));
+  const group = (s, id) => index(s).groups.get(id) || (s.accountRoot && group(s.accountRoot, id)) || s.groups.find(g => g.id === id);
   const cohort = (s, groupId, id) => index(s).cohorts.get(`${groupId}:${id}`) || group(s, groupId)?.cohorts.find(c => c.id === id);
+  function refreshGroups(s, groups) {
+    const value = index(s); value.cohortKeys ||= new Map();
+    for (const g of groups) {
+      for (const key of value.cohortKeys.get(g.id) || []) value.cohorts.delete(key);
+      const keys = []; value.groups.set(g.id, g);
+      for (const c of g.cohorts) { const key = `${g.id}:${c.id}`; keys.push(key); value.cohorts.set(key, c); }
+      value.cohortKeys.set(g.id, keys);
+    }
+    value.occupancy = null;
+  }
   function prepare(s, at) {
-    const value = index(s); value.groups = new Map(); value.cohorts = new Map(); value.occupancy = new Map();
+    const value = index(s); value.groups = new Map(); value.cohorts = new Map(); value.cohortKeys = new Map(); value.occupancy = new Map();
     for (const g of s.groups) {
       value.groups.set(g.id, g);
+      const keys = []; value.cohortKeys.set(g.id, keys);
       for (const c of g.cohorts) {
-        value.cohorts.set(`${g.id}:${c.id}`, c);
+        const key = `${g.id}:${c.id}`; keys.push(key); value.cohorts.set(key, c);
         if (c.nurseryId && at - (c.birthSpan?.[1] ?? c.bornAt) < Data.lifecycle[c.speciesId].independentDays * DAY) {
           const key = `${g.regionId}:${c.nurseryId}`;
           value.occupancy.set(key, (value.occupancy.get(key) || 0) + size(c.ranges));
@@ -175,14 +186,17 @@
     if (!n || c.contactBusyUntil > at || Life.existingOwners[g.speciesId]) return result;
     const reference = c.role === 'queen' ? p.breederKg : p.adultKg, mixture = recipe(g, p, 'growth');
     if (mixture && p.assimilation > 0 && c.health > .3 && c.structuralKg < reference * .8 - EPS) {
-      const gain = Math.min(reference / Math.max(1, p.adultDays), (reference * .8 - c.structuralKg) * 8);
+      // The population clock schedules the exact funded-target boundary.
+      // Tapering toward the remaining gap would make unrelated rate refreshes
+      // change the growth trajectory and could prevent completion indefinitely.
+      const gain = reference / Math.max(1, p.adultDays);
       result.push({ kind: 'growth', g, c, recipe: mixture, perDay: gain / p.assimilation * n });
     }
     for (const brood of c.demography?.broods || []) {
       if (!site(s, g, at) || brood.regionId !== g.regionId) continue;
       const units = size(brood.parents), days = Math.max(.25, p.incubationDays);
-      const matter = Math.min(brood.requiredKg * units - brood.investedKg, brood.requiredKg * units / days);
-      const mana = Math.min(brood.requiredMana * units - brood.investedMana, brood.requiredMana * units / days);
+      const matter = brood.requiredKg * units - brood.investedKg > EPS ? brood.requiredKg * units / days : 0;
+      const mana = brood.requiredMana * units - brood.investedMana > EPS ? brood.requiredMana * units / days : 0;
       if (matter > EPS || mana > EPS) result.push({ kind: 'brood', g, c, brood,
         recipe: brood.materialRecipe, perDay: Math.max(0, matter), manaPerDay: Math.max(0, mana) });
     }
@@ -299,6 +313,6 @@
     }
     return true;
   }
-  return { DAY, region, group, cohort, prepare, size, contains, subtract, intersect, take, union, recipeValid, recipe, site, mature, eligible,
+  return { DAY, region, group, cohort, prepare, refreshGroups, size, contains, subtract, intersect, take, union, recipeValid, recipe, site, mature, eligible,
     init, freeRanges, synchronize, start, requests, complete, compact, handoff, valid };
 });

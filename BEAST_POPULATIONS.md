@@ -51,6 +51,46 @@ in focused fixtures are not permission to feed a predator plants, renew ore,
 invent a hive queen, or generate a natural formation site. The physical source
 adapter must establish compatible sources and biological counting units.
 
+## Regional execution clocks
+
+`beast-population-scheduler.js` indexes actual regional residents, cached rates
+and next events. A local loss, stock interruption, work-site change or original
+body claim settles and rebuilds only the affected physical dependency component,
+not every world cohort. Real connected watercourses are conservatively coupled
+in both directions; original external nursery/care and named dream-participant
+references also couple accounts. Departure, midpoint crossing and arrival settle
+their actual endpoint accounts before changing residence. An extinct travelling
+group retains its last physical residence rather than reverting to its origin.
+Unrelated regions gain no refresh, knowledge, resources or replacement bodies.
+
+The supplied calendar's monthly planning and scheduled daily demographic/food-web
+pulses still visit the world. This is event localization, not skipped physiology
+or reduced populations. A large connected river/care component can still be
+expensive. Local contact resolution visits its affected accounts; the scheduled
+daily contact search retains its existing bounded spatial index and budgets.
+
+Saved `regionClocks` hold each region's `appliedAt`, `nextEventAt` and daily-work
+flag. Root `clock` is processed time; root `appliedAt` is the oldest regional
+settlement, **not a claim that every account has the same timestamp**.
+`settleRegions` reads selected dependencies; `advance(..., true, true)` explicitly
+settles a whole snapshot. Neither read recalculates rates or rerolls choices.
+JSON/continued branches restore recorded rates/times and rebuild only disposable
+indexes/queues. Inconsistent coupled clocks and invalid event metadata are
+rejected. The cache is a WeakMap; bounded lazy heaps retain event/clock metadata,
+not a lifetime list of cohort work. Occasional heap compaction visits clock
+metadata only. Whole saves/audits remain proportional to the saved account.
+
+This pass also corrects event-partition-sensitive funding: growth and brood
+funding keep their authored full rate until an exact paid target boundary,
+including separately completed matter and mana. The former remaining-gap taper
+could postpone a brood whenever an unrelated event refreshed its rate. No
+incubation, assimilation, source requirement or lifecycle table is shortened;
+funding is not a birth, and missing material still stalls recruitment. Old
+recorded progress is retained on load, not backfilled. The old global scheduler
+also refreshed mass-dependent maintenance whenever *any* region had an event;
+the regional scheduler removes that unrelated sampling dependency. Its generated
+trajectory is therefore not promised to match that old timing artifact exactly.
+
 ## Batched growth, recruitment and mortality
 
 `beast-demography.js` consumes the existing published lifecycle values without
@@ -576,20 +616,43 @@ unlocated living/remains capacity only to private diagnostics, never the UI.
 
 Focused million-member and dense-group checks demonstrate bounded contact work
 with respect to headcount, not constant cost for unlimited groups/history or
-acceptable native-game performance. The complete generated-source benchmark
-remains expensive. No all-world equilibrium, automatic historical exhaustion,
+acceptable native-game performance. The regional scheduler reduces the measured
+diagnostic cost below, but does not certify native-game scaling. No all-world equilibrium, automatic historical exhaustion,
 formation-site completion or native encounter adoption is implied.
 
-The focused 35-day `source-small` replay crossed a calendar-month boundary with
-all 2,600 groups: 56,186 originals plus 6,324 births reconciled to 56,414 living
-and 6,096 dead. It recorded 1,234 attempts, five contacts, three escapes and
-109.9 kg consumed from real remains, with **no contact kills** in that generated
-sample. Prepared physical checks separately exercise successful kills and
-original nurturer loss. The replay took about 66 seconds and serialized about
-26 MB; its status is incomplete, not initial-cycle success. A longer development
-profiling run was stopped after day 80 (about eight minutes, over 52 million
-cohort intervals). It was not a completed seasonal check. These costs and the
-remaining unlocated capacity are explicit limitations, not a performance pass.
+The focused 35-day `source-small` replay uses the same original source
+`beast-habitat-source:60cb5545`: 275 regions, all 2,600 groups and 56,186 originals.
+On the same machine, comparing the committed global kernel at `59174aa` with the
+regional scheduler, **both using the corrected funding math**, gave:
+
+| Measure | Global scheduler | Regional scheduler |
+| --- | ---: | ---: |
+| Execution time, excluding setup/report | 61.731 s | 8.097 s |
+| Cohort integration visits | 5,923,138 | 359,269 |
+| Born / living / dead | 19,604 / 66,721 / 9,069 | 19,604 / 66,720 / 9,070 |
+
+That is about 7.6× faster and 94% fewer cohort integration visits, without
+dropping groups or bodies. Birth totals agree after the funding correction;
+one death and contact opportunities differ under the maintenance-refresh change
+described above. This is not bit-for-bit global-kernel equivalence. The regional
+sample recorded 1,245 attempts, six contacts, four escapes, 109.9 kg consumed
+from real remains and **no contact kills**. Prepared physical checks separately
+exercise successful kills and original nurturer loss. Its saved account is about
+27 MB and its status remains incomplete, not initial-cycle success.
+
+Reproduce the comparison serially, supplying a trusted committed kernel through
+stdin so both engines import the same current biology/support modules:
+
+```sh
+git show 59174aa:beast-populations.js | node scripts/benchmark-generated-beast-habitats.js --baseline-stdin --days=35
+node scripts/benchmark-generated-beast-habitats.js --days=35
+```
+
+The earlier uncorrected 35-day run took about 66 seconds with 6,324 delayed
+births. Its longer profiling run was stopped at day 80, not a completed seasonal
+check. Neither those old observations nor the new bounded comparison establishes
+full-cycle viability, acceptable default-world/native cost or resolved body
+positions. Those remain existing D limitations, not new queue entries.
 
 ## Fixed D acceptance still unfinished
 
@@ -621,6 +684,7 @@ follow-up prompt or additional certification gate is authorized by this document
 
 ```sh
 node tests/beast-populations.unit.test.js
+node tests/beast-population-scheduler.unit.test.js
 node tests/beast-demography.unit.test.js
 node tests/beast-regional-ecology.unit.test.js
 node tests/beast-regional-work.unit.test.js
@@ -701,3 +765,13 @@ recovery, partial handoff, save/continued/independent copies and final-death fre
 They also compare sparse work at ten versus one million original members and
 bound dense-bin candidate work. The browser check reloads an actual pending
 contact and consumes its resulting corpse without disclosing private records.
+
+Thirteen regional scheduler checks cover fixed local visit counts at 2 versus
+300 unrelated regions, unchanged unrelated trajectories, scoped/full read
+idempotence, asynchronous save/continued branches, corrupt clocks, empty worlds,
+hydraulic/care/dream dependencies, midpoint mortality residence, bounded heap
+metadata, exact paid growth/matter/mana targets and regional pending-contact
+continuation. They gate structural locality and conservation, not a hardware
+millisecond threshold or generated-world viability.
+The additional browser reload case preserves unequal regional clocks and proves
+that a scoped read neither settles unrelated ground nor rebuilds cached rates.
