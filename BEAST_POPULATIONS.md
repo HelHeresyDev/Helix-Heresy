@@ -101,6 +101,16 @@ without adding catalog species or strategic victories. New proposals archive
 their allocations; old worlds acquire none on load. The complete 120-day sample
 still rejects ecological activation; a prey layer is not a viability certificate.
 
+Monthly per-cohort search/handling/eating/rest budgets now replace the wildlife
+layer's daily one-cohort five-minute feeding limit. Local event clocks earn
+actual effort and ingest single-owner claimed carcass tissue gradually, including
+longer meals and repeated bouts. Independent juveniles can grow from ingested
+surplus at the existing paid assimilation rate. Sufficient land/marine prepared
+habitats sustain their original feeders across the full seasonal calendar;
+insufficient habitats can still cause starvation. See the same wildlife document
+for exact budgets, conservation, replay measurements and remaining generated
+source failures. Sparse original-beast duels retain their separate rules below.
+
 `beast-demography.js` consumes the existing published lifecycle values without
 creating a pregnancy, juvenile actor or death object for every background animal.
 Work scales with groups/cohorts, supported activity and interval fragmentation,

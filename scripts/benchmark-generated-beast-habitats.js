@@ -16,9 +16,14 @@ function run({ seed = 'source-small', days, progress = () => {}, engine = P } = 
   }
   const executionMilliseconds = Math.round(performance.now() - executionStarted);
   const result = S.replay(record, map, { binding, account, until: endDays * engine.DAY });
+  const byKind = rows => rows.reduce((counts, row) => { counts[row.kind] = (counts[row.kind] || 0) + 1; return counts; }, {});
+  const lossesByCause = {};
+  for (const loss of [...account.losses, ...account.lossBatches])
+    lossesByCause[loss.cause] = (lossesByCause[loss.cause] || 0) + (loss.count ?? 1);
   return { milliseconds: Math.round(performance.now() - started), executionMilliseconds, days: endDays, regions: account.regions.length,
     groups: account.groups.length, bindingBytes: JSON.stringify(record.physicalBinding).length,
     accountBytes: JSON.stringify(account).length, ...result.report, issues: result.report.issues.length,
+    issueKinds: byKind(result.report.issues), sourceIssueKinds: byKind(result.report.sourceAvailability), lossesByCause,
     sourceAvailability: result.report.sourceAvailability.length, populations: result.report.populations.length };
 }
 if (require.main === module) {

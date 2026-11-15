@@ -30,9 +30,10 @@ function fixture(options) {
 const pool = s => s.regions[0].wildlife.pools[0];
 function valid(s) { assert.ok(P.normalize(s, binding), `invalid at ${s.clock / DAY}`); }
 function pending(s) {
-  for (let day = Math.floor(s.clock / DAY) + 1; day <= 10; day++) {
-    P.advance(s, day * DAY, true, true);
-    if (s.regions[0].wildlife.pending.length) return s.regions[0].wildlife.pending[0];
+  for (let i = 0; i < 2000 && s.clock < 10 * DAY; i++) {
+    P.advance(s, s.nextEventAt, true, true);
+    for (const g of s.groups) for (const c of g.cohorts) if (c.foraging?.phase === 'search')
+      return { ...c.foraging.action, groupId: g.id, cohortId: c.id, memberCount: P.count(c) };
   }
   assert.fail('No elapsed original wildlife search was established');
 }
@@ -100,17 +101,18 @@ test('separate prey guilds share one actual feeding-time budget', () => {
   const s = P.create(src, binding), c = s.groups[0].cohorts[0];
   c.massKg -= c.stores.fatKg * .6; c.stores.fatKg *= .4;
   P.removeStock(s, r.id, 'waterL', 0, 0, 'original-hungry-members');
-  const q = pending(s); P.advance(s, q.dueAt, true, true);
+  const q = pending(s); P.advance(s, q.dueAt + 660, true, true);
   assert.ok(W.summary(s).consumedKg > 0);
-  assert.ok(W.summary(s).consumedKg <= D.lifecycle[s.groups[0].speciesId].foodKgDay * W.DURATION / 600 * q.memberCount + 1e-7);
+  assert.ok(W.summary(s).consumedKg <= D.lifecycle[s.groups[0].speciesId].foodKgDay * 660 / 600 * q.memberCount + 1e-7);
   valid(s);
 });
 test('hunting spends real time/effort and integer prey before food reaches the original hunters', () => {
   const s = fixture({ hunters: 2 }), p = pool(s), q = pending(s), c = s.groups[0].cohorts.find(c => c.id === q.cohortId);
   const count = W.total(p), food = c.stores.foodKg, budget = s.groups[0].foodWebPlan.huntingRemaining;
-  assert.ok(c.regional.stamina < 300); assert.equal(p.huntedCount, 0);
+  P.advance(s, q.startedAt + 100, true, true); assert.ok(c.regional.stamina < 300); assert.equal(p.huntedCount, 0);
   P.advance(s, q.dueAt - 1, true, true); assert.equal(p.huntedCount, 0);
-  P.advance(s, q.dueAt, true, true);
+  P.advance(s, q.dueAt, true, true); assert.equal(p.carcass.consumedKg, 0, 'finding prey is not an instant meal');
+  P.advance(s, q.dueAt + 660, true, true);
   assert.ok(p.huntedCount > 0); assert.equal(W.total(p), count - p.huntedCount);
   assert.ok(c.stores.foodKg > food); assert.ok(p.carcass.consumedKg > 0);
   assert.equal(s.groups[0].foodWebPlan.huntingRemaining, budget); assert.equal(s.regions[0].stocks.meatKg, 0);
@@ -122,9 +124,9 @@ test('search outcomes use local density, do not reserve prey, and cannot spend t
   const kg = before * p.cohorts[0].massKg;
   Object.assign(p.carcass, { initialMassKg: p.carcass.initialMassKg + kg, massKg: p.carcass.massKg + kg, edibleKg: p.carcass.edibleKg + kg * .6 });
   P.removeStock(s, 'ground', 'waterL', 0, s.clock, 'actual-prey-loss-before-arrival');
-  P.advance(s, q.dueAt, true, true);
+  P.advance(s, q.dueAt + 660, true, true);
   assert.equal(p.huntedCount, 0); assert.ok(p.carcass.consumedKg <= p.carcass.initialMassKg * .6);
-  const eaten = p.carcass.consumedKg; P.advance(s, q.dueAt, true, true); assert.equal(p.carcass.consumedKg, eaten); valid(s);
+  const eaten = p.carcass.consumedKg; P.advance(s, s.clock, true, true); assert.equal(p.carcass.consumedKg, eaten); valid(s);
 });
 test('unlocated hunters, obstructed habitat, refusal and wrong media provide no ambient food', () => {
   for (const change of [src => delete src.groups[0].home, src => src.groups[0].willing = false,
@@ -157,7 +159,7 @@ test('partial searches survive normalization and continued branches without refu
   const s = fixture(), q = pending(s); P.advance(s, q.startedAt + 100, true, true);
   const saved = P.normalize(clone(s), binding); assert.ok(saved);
   const continued = P.rebind(saved, binding, { ...binding, runId: 'continued' });
-  P.advance(s, q.dueAt, true, true); P.advance(continued, q.dueAt, true, true);
+  P.advance(s, q.dueAt + 660, true, true); P.advance(continued, q.dueAt + 660, true, true);
   assert.deepEqual(W.summary(continued), W.summary(s)); assert.deepEqual(continued.regions[0].wildlife, s.regions[0].wildlife);
   assert.equal(saved.clock, q.startedAt + 100);
   const fresh = fixture(); assert.equal(pool(fresh).huntedCount, 0); assert.equal(pool(fresh).bornCount, 0); valid(s);
@@ -166,20 +168,20 @@ test('original participant loss and handoff cancel pending batch work without cr
   const s = fixture({ hunters: 2 }), q = pending(s), g = s.groups[0], c = g.cohorts.find(c => c.id === q.cohortId);
   const stamina = c.regional.stamina;
   assert.ok(P.detail(s, g.id, c.id, c.ranges[0][0], 'original-physical-hunter', q.startedAt + 100));
-  assert.equal(s.regions[0].wildlife.pending.length, 0); assert.ok(c.regional.stamina <= stamina);
+  assert.equal(c.foraging.action, null); assert.ok(c.regional.stamina <= stamina);
   P.advance(s, q.dueAt, true, true); assert.equal(pool(s).huntedCount, 0); valid(s);
 });
 test('scavenging consumes local natural carcasses without killing living wildlife', () => {
   const s = fixture({ hunter: 'carrion-lantern', count: 100000 }); const q = pending(s);
-  assert.equal(q.scavenge, true); assert.ok(pool(s).deadCount > 0);
-  P.advance(s, q.dueAt, true, true);
+  assert.equal(q.scavenge, true);
+  P.advance(s, 2 * DAY, true, true);
   assert.equal(pool(s).huntedCount, 0); assert.ok(pool(s).carcass.consumedKg > 0);
   approx(pool(s).carcass.initialMassKg, pool(s).carcass.massKg + pool(s).carcass.consumedKg + pool(s).carcass.decomposedKg); valid(s);
 });
 test('waterborne predators can encounter finite fish, without treating every fish in the column as nearby', () => {
   const s = fixture({ guild: 'fish', hunter: 'reef-wyrm', count: 100000, areaHa: 1 }), q = pending(s);
   const p = pool(s), before = W.total(p); assert.ok(q.depthM > 0 && q.depthM < p.habitatDepthM);
-  P.advance(s, q.dueAt, true, true); assert.ok(p.huntedCount > 0); assert.ok(p.huntedCount < before);
+  P.advance(s, q.dueAt + 660, true, true); assert.ok(p.huntedCount > 0); assert.ok(p.huntedCount < before);
   assert.ok(p.carcass.consumedKg > 0); valid(s);
 });
 test('arbitrary read partitioning and reloads preserve paid funding, growth, loss and recruitment', () => {
@@ -195,9 +197,9 @@ test('births, original membership, body matter, pending claims and cached rates 
   for (const corrupt of [x => pool(x).cohorts[0].count++, x => pool(x).cohorts[0].massKg *= 2,
     x => pool(x).huntedCount++, x => pool(x).carcass.edibleKg = 1e12,
     x => x.rates.ground.wildlifeRates[0].factor = 2,
-    x => x.regions[0].wildlife.pending[0].memberCount++, x => pool(x).broods[0].investedKg = 1e12,
-    x => x.regions[0].wildlife.pending.push(clone(x.regions[0].wildlife.pending[0])),
-    x => x.regions[0].wildlife.pending[0].success = 1]) {
+    x => x.groups[0].cohorts[0].foraging.phase = 'bogus', x => pool(x).broods[0].investedKg = 1e12,
+    x => x.groups[0].cohorts[0].foraging.mealIds.push('missing'),
+    x => x.groups[0].cohorts[0].foraging.plan.used.search = 1e12]) {
     const bad = clone(s); corrupt(bad); assert.equal(P.normalize(bad, binding), null);
   }
 });

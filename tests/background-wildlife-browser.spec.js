@@ -1,43 +1,44 @@
 const { test, expect } = require('@playwright/test');
 const { pathToFileURL } = require('node:url'), path = require('node:path');
-const { source } = require('./helpers/regional-foodweb-source');
-const W = require('../background-wildlife');
-test('background wildlife and a pending paid search survive browser reload and continued branching privately', async ({ page }) => {
+const { source } = require('./helpers/sustenance-source');
+for (const phase of ['search', 'eating']) test(`background wildlife and partial ${phase} survive browser reload and continued branching privately`, async ({ page }) => {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
-  const src = source([['rimefang-pack', 0, 2]]), r = src.regions[0]; r.areaHa = 1;
-  r.seasons = Array.from({ length: 4 }, () => ({ temperatureC: 20, renewal: {} }));
-  W.apply(src, { allocations: [{ regionId: r.id, pools: [{ id: 'original-background-animals', guild: 'smallAnimals',
-    foodKey: 'forageKg', areaHa: 1, habitatDepthM: 0, originalCount: 1000, originalMassKg: 2000, capacityCount: 1500 }] }] });
+  const src = source({ members: 2, cohorts: 2 });
   await page.goto(pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href);
   await page.waitForFunction(() => window.helixHeresyDebug && window.HelixBackgroundWildlife && window.HelixBeastPopulations);
-  const saved = await page.evaluate(src => {
+  const saved = await page.evaluate(({ src, phase }) => {
     const P = window.HelixBeastPopulations, s = P.create(src, { worldId: 'background-browser', runId: 'run' });
-    const c = s.groups[0].cohorts[0], spent = c.stores.fatKg * .6; c.stores.fatKg -= spent; c.massKg -= spent;
-    P.removeStock(s, 'ground', 'waterL', 0, 0, 'original-paid-hunger');
-    for (let day = 1; day <= 10; day++) {
-      P.advance(s, day * P.DAY, true, true);
-      const pending = s.regions[0].wildlife.pending[0];
-      if (pending) { P.advance(s, pending.startedAt + 100, true, true); return JSON.stringify(s); }
+    for (const c of s.groups[0].cohorts) c.deathThreshold = 1e12;
+    for (let i = 0; i < 1000 && s.nextEventAt < 10 * P.DAY; i++) {
+      P.advance(s, s.nextEventAt, true, true);
+      const c = s.groups[0].cohorts.find(c => c.foraging?.phase === phase);
+      if (c) {
+        P.advance(s, s.clock + Math.min(100, (c.foraging.nextAt - s.clock) / 2), true, true);
+        return JSON.stringify(s);
+      }
     }
     throw Error('No actual wildlife search');
-  }, src);
+  }, { src, phase });
   await page.reload(); await page.waitForFunction(() => window.HelixBeastPopulations && window.HelixBackgroundWildlife);
   const result = await page.evaluate(text => {
-    const P = window.HelixBeastPopulations, W = window.HelixBackgroundWildlife;
+    const P = window.HelixBeastPopulations, W = window.HelixBackgroundWildlife, F = window.HelixBeastForaging;
     const binding = { worldId: 'background-browser', runId: 'run' }, s = P.normalize(JSON.parse(text), binding);
     if (!s) throw Error('Background state failed to normalize');
     const unchanged = JSON.stringify(s) === text, branchBinding = { ...binding, runId: 'continued' };
-    const branch = P.rebind(s, binding, branchBinding);
+    const branch = P.rebind(s, binding, branchBinding), oldEaten = F.summary(branch).eatenKg;
     P.advance(branch, 60 * P.DAY, true, true);
     const state = W.summary(branch), before = JSON.stringify(branch);
     P.advance(branch, 70 * P.DAY, false, true);
-    return { unchanged, state, frozen: before === JSON.stringify(branch), valid: Boolean(P.normalize(branch, branchBinding)),
+    return { unchanged, state, paidFeeding: F.summary(branch).eatenKg > oldEaten,
+      healthy: branch.groups[0].cohorts.every(c => c.health > .99),
+      frozen: before === JSON.stringify(branch), valid: Boolean(P.normalize(branch, branchBinding)),
       independent: JSON.stringify(s) === text, strategic: P.audit(branch)['population-0'] };
   }, saved);
   expect(result.unchanged).toBe(true); expect(result.independent).toBe(true); expect(result.frozen).toBe(true); expect(result.valid).toBe(true);
+  expect(result.paidFeeding).toBe(true); expect(result.healthy).toBe(true);
   expect(result.state.born).toBeGreaterThan(0); expect(result.state.hunted).toBeGreaterThan(0); expect(result.state.consumedKg).toBeGreaterThan(0);
   expect(result.state.living + result.state.hunted + result.state.dead).toBe(result.state.original + result.state.born);
   expect(result.strategic.background + result.strategic.dead + result.strategic.detailed).toBe(2);
-  await expect(page.locator('body')).not.toContainText('original-background-animals');
-  await expect(page.locator('body')).not.toContainText('wildlife-search:'); expect(errors).toEqual([]);
+  await expect(page.locator('body')).not.toContainText('original-prey:smallAnimals');
+  await expect(page.locator('body')).not.toContainText('forage-meal:'); expect(errors).toEqual([]);
 });

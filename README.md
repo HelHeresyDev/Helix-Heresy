@@ -2278,9 +2278,12 @@ See [recorded source execution and its limits](BEAST_POPULATIONS.md#recorded-phy
 New habitat proposals also archive finite [background wildlife](BACKGROUND_WILDLIFE.md):
 ordinary insects, small animals and fish in compact age cohorts. Original bodies
 partition standing matter; maintenance and paid growth/recruitment share the same
-regional resources. Timed local searches remove actual integer prey or consume
-finite carcasses, without creating meat income or strategic victories. Partial
-searches and losses survive saves/continued branches; archived worlds gain no
+regional resources. Monthly per-cohort search/handling/eating/rest budgets drive
+repeated elapsed local actions; catches claim finite carcass tissue and longer
+meals ingest it gradually, without meat income or strategic victories. Sufficient
+prepared land/marine habitats sustain feeding through a seasonal cycle, with
+paid juvenile growth; deficient habitats can still starve. Partial searches,
+meals and losses survive saves/continued branches; archived worlds gain no
 wildlife on load. The full seasonal sample still rejects activation, so this does
 not claim a balanced generated ecosystem or completed native encounters.
 

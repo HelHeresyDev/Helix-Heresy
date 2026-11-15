@@ -8,10 +8,11 @@
     node ? require('./beast-predation') : root.HelixBeastPredation,
     node ? require('./wilderness-beasts') : root.HelixWildernessBeasts,
     node ? require('./beast-demography') : root.HelixBeastDemography,
-    node ? require('./background-wildlife') : root.HelixBackgroundWildlife);
+    node ? require('./background-wildlife') : root.HelixBackgroundWildlife,
+    node ? require('./beast-foraging') : root.HelixBeastForaging);
   if (node) module.exports = api;
   root.HelixBeastRegionalFoodweb = api;
-})(globalThis, function (Data, Life, Bodies, Behavior, Predation, Wilderness, Demography, Wildlife) {
+})(globalThis, function (Data, Life, Bodies, Behavior, Predation, Wilderness, Demography, Wildlife, Foraging) {
   'use strict';
   const DAY = Life.DAY, EPS = 1e-8, BIN = 128, LIMIT = 16, DURATION = 300;
   const copy = x => JSON.parse(JSON.stringify(x)), size = c => Demography.size(c.ranges);
@@ -114,7 +115,9 @@
     return c.regional;
   }
   function restore(c, g, r, at) {
-    const state = initial(c, at), elapsed = Math.max(0, at - state.at), p = Data.lifecycle[c.speciesId];
+    const state = initial(c, at), managed = c.foraging && r.foraging && !g.transit;
+    const elapsed = Math.max(0, at - state.at), p = Data.lifecycle[c.speciesId];
+    if (managed) { state.at = at; c.foraging.restPending = 0; return; } // Paid at its actual supplied-rest interval, not after a later meal.
     const n = size(c); if (!n) { state.at = at; return; }
     const manaCapacity = p.manaCapacity * Math.min(1, c.massKg / p.adultKg);
     const canRest = !g.transit && !c.contactBusyUntil && (r.floor || r.kind === 'waterColumn');
@@ -169,6 +172,7 @@
     s.foodWeb = { nextAt: (Math.floor(s.clock / DAY) + 1) * DAY, lastAt: s.clock, pending: [],
       serial: 0, receipts: { attempts: 0, contacts: 0, kills: 0, escapes: 0, interrupted: 0, consumedKg: 0, decomposedKg: 0, deferred: 0 },
       work: { indexedGroups: 0, candidateChecks: 0, combatSteps: 0 }, events: [] };
+    for (const r of s.regions) Foraging.initialize(r);
     for (const g of s.groups) {
       g.regionalFormation = {}; let offsetM = 0;
       for (const c of g.cohorts) {
@@ -187,6 +191,8 @@
       g.foodWebPlan = { monthIndex: month.index, plannedAt: month.plannedAt ?? month.start,
         huntingRemaining: Math.floor(n * p.huntsDay * (month.end - month.start) / DAY),
         contactPulses: 0 };
+      if (s.regions.some(r => r.id === g.regionId && r.foraging) && (Behavior.capabilities[g.speciesId]?.includes('hunt') || g.speciesId === 'beast:carrion-lantern'))
+        for (const c of g.cohorts) Foraging.plan(g, c, month, month.plannedAt ?? month.start);
     }
   }
   function event(s, at, kind, detail) {
@@ -212,7 +218,7 @@
     return result;
   }
   function chooseCohort(g, seed) {
-    const live = g.cohorts.filter(c => size(c) && c.health > 0 && !c.contactBusyUntil);
+    const live = g.cohorts.filter(c => size(c) && c.health > 0 && !c.contactBusyUntil && !c.foraging?.action);
     const n = live.reduce((n, c) => n + size(c), 0); let rank = Math.floor(Life.random(seed) * n);
     for (const c of live) { if (rank < size(c)) return c; rank -= size(c); }
     return null;
@@ -221,7 +227,7 @@
     if (!['beast:rimefang-pack', 'beast:gloam-prowler', 'beast:mire-choir'].includes(g.speciesId)) return [];
     const result = [];
     for (const c of g.cohorts) {
-      if (c.contactBusyUntil || c.health <= .3) continue;
+      if (c.contactBusyUntil || c.foraging?.action || c.health <= .3) continue;
       for (const [lo, hi] of c.ranges) for (let ordinal = lo; ordinal < Math.min(hi, lo + 8) && result.length < 7; ordinal++) {
         if (`${c.originId}:${ordinal}` === primary.id) continue;
         const a = actor(g, c, ordinal, r, at);
@@ -247,12 +253,12 @@
   }
   function decay(s, r, row, at) {
     const elapsed = Math.max(0, at - Math.max(row.lastAt, row.frozenUntil || 0)); row.lastAt = at;
-    const kg = row.edibleKg * -Math.expm1(-elapsed / DAY * .1);
+    const kg = Math.max(0, row.edibleKg - (row.reservedKg || 0)) * -Math.expm1(-elapsed / DAY * .1);
     row.edibleKg -= kg; row.massKg -= kg; row.decomposedKg += kg; put(r, 'detritusKg', kg);
     s.foodWeb.receipts.decomposedKg += kg;
   }
-  function feed(s, g, c, a, r, rows, at) {
-    if (!Predation.hungry(a) || !a.life.will || a.life.willing === false
+  function feed(s, g, c, a, r, rows, at, foraging = false) {
+    if ((!foraging && !Predation.hungry(a)) || foraging && size(c) !== 1 || !a.life.will || a.life.willing === false
       || !Behavior.foodKeys(a).some(k => ['meatKg', 'carrionKg'].includes(k))) return;
     for (const { row } of rows) {
       s.foodWeb.work.candidateChecks++;
@@ -265,12 +271,21 @@
       body.status = 'dead'; body.health = 0; body.bodyPhysics.altitudeM = row.position.altitudeM;
       const ctx = context(r, [a, body], 0);
       if (!Predation.sensed(a, body, ctx, true) || Behavior.distance(a, body, ctx) > 2) continue;
-      const p = Data.lifecycle[c.speciesId], capacity = Math.min(c.massKg * .25, Math.max(p.foodKgDay * (p.foodReserveDays || 1), p.newbornKg || 0));
+      const p = Data.lifecycle[c.speciesId], managed = Boolean(r.foraging && c.foraging);
+      const capacity = Math.min(c.massKg * .25, Math.max(p.foodKgDay * (p.foodReserveDays || 1), p.newbornKg || 0));
       // Only this original contact member feeds. Other members do not receive
       // food remotely merely because their cohort shares a strategic patch.
-      const amount = Math.min(row.edibleKg, p.foodKgDay * DURATION / 600, Math.max(0, capacity - c.stores.foodKg));
+      const amount = Math.min(Math.max(0, row.edibleKg - (row.reservedKg || 0)),
+        managed ? Math.max(0, Foraging.capacity(c) - c.stores.foodKg) : p.foodKgDay * DURATION / 600,
+        Math.max(0, (managed ? Foraging.capacity(c) : capacity) - c.stores.foodKg));
       if (!(amount > EPS)) return;
       const ordinal = c.ranges[0][0], eater = split(g, c, ordinal, at);
+      if (managed) {
+        const key = Object.keys(r.remains || {}).find(k => r.remains[k] === row) || Object.keys(r.remainsBatches || {}).find(k => r.remainsBatches[k] === row);
+        if (Foraging.claim(r, g, eater, 'beast', key, amount, at, position(g, r, eater, ordinal))) {
+          eater.foraging.nextAt = at; return true;
+        }
+      }
       row.edibleKg -= amount; row.massKg -= amount; row.consumedKg += amount;
       const light = c.speciesId === 'beast:carrion-lantern' ? amount * .05 : 0;
       eater.stores.foodKg += amount - light; eater.massKg += amount;
@@ -465,10 +480,39 @@
           antagonismId: defends ? antagonism.id : null, startedAt: at, dueAt: at + DURATION, season: month.season, members });
         web.receipts.contacts++; break;
       }
-      if (!c.contactBusyUntil && Behavior.conscious(a, at) && Predation.hungry(a)
+      if (!r.foraging && !c.contactBusyUntil && Behavior.conscious(a, at) && Predation.hungry(a)
         && Behavior.foodKeys(a).some(k => ['meatKg', 'carrionKg'].includes(k)) && (hunting || g.speciesId === 'beast:carrion-lantern'))
         Wildlife.begin(r, g, c, a, at, position(g, r, c, ordinal), hunting ? 1 : 0);
     }
+  }
+  function foragers(s, at, month) {
+    if (!s.foodWeb) return;
+    const regions = new Map(s.regions.map(r => [r.id, r]));
+    for (const g of s.groups) {
+      const r = regions.get(g.regionId); if (!r?.foraging || g.transit) continue;
+      if (!Behavior.capabilities[g.speciesId]?.includes('hunt') && g.speciesId !== 'beast:carrion-lantern') continue;
+      for (const c of g.cohorts) {
+        if (!size(c)) continue;
+        Foraging.plan(g, c, month, at);
+        const a = actor(g, c, c.ranges[0][0], r, at), pos = position(g, r, c, c.ranges[0][0]);
+        if (c.foraging.nextAt <= at + EPS || c.foraging.action) restore(c, g, r, at);
+        const ctx = a && context(r, [a], month.season);
+        if (a && c.foraging.phase === 'idle' && !c.contactBusyUntil && size(c) === 1
+          && c.stores.foodKg < Math.max(Data.lifecycle[c.speciesId].foodKgDay, c.needs.foodKg || 0)) {
+          const rows = [...Object.values(r.remains || {}), ...Object.values(r.remainsBatches || {})]
+            .filter(row => row.position && row.edibleKg > (row.reservedKg || 0)).map(row => ({ row }));
+          feed(s, g, c, a, r, rows, at, true);
+        }
+        Foraging.step(s, r, g, c, at, { actor: a, position: pos,
+          usable: Boolean(a && pos && Behavior.conscious(a, at) && Bodies.wounded(a, /head|torso|limb|leg|wing|fin/) < .65
+            && !Bodies.habitatReason(a, a.mapCell, a.bodyPhysics.mode, Bodies.height(a), ctx)),
+          guilds: actor => Wildlife.guilds(r, c, actor), capture: (q, maximum) => Wildlife.capture(r, g, c, q, maximum, at) });
+      }
+    }
+  }
+  function cancelForaging(s, g, at) {
+    const r = Demography.region(s, g.transit ? g.transit.path[g.transit.edgeIndex] : g.regionId);
+    if (r?.foraging) for (const c of g.cohorts) Foraging.cancel(r, c, at);
   }
   function next(s, regionIds = null) { return s.foodWeb ? Math.min(s.foodWeb.nextAt,
     ...s.foodWeb.pending.filter(c => !regionIds || regionIds.has(c.regionId)).map(c => c.dueAt),
@@ -476,6 +520,7 @@
   function cancel(s, groupId, cohortId, ranges, at) {
     if (!s.foodWeb) return;
     const owner = Demography.group(s, groupId), region = owner && Demography.region(s, owner.transit ? owner.transit.path[owner.transit.edgeIndex] : owner.regionId);
+    if (region?.foraging) Foraging.cancel(region, owner.cohorts.find(c => c.id === cohortId), at);
     if (region?.wildlife?.pending.some(q => q.groupId === groupId && q.cohortId === cohortId))
       Wildlife.cancel(region, groupId, cohortId, owner.cohorts.find(c => c.id === cohortId));
     const pending = s.foodWeb.pending.filter(p => p.members.some(m => m.groupId === groupId && m.cohortId === cohortId
@@ -492,6 +537,7 @@
   function handoff(s, groupId, cohortId, at, api) {
     if (!s.foodWeb) return;
     const owner = api.group(groupId), region = owner && api.region(owner.regionId);
+    if (region?.foraging) Foraging.cancel(region, owner.cohorts.find(c => c.id === cohortId), at);
     if (region?.wildlife?.pending.some(q => q.groupId === groupId && q.cohortId === cohortId))
       Wildlife.cancel(region, groupId, cohortId, owner.cohorts.find(c => c.id === cohortId));
     const pending = s.foodWeb.pending.filter(p => p.members.some(m => m.groupId === groupId && m.cohortId === cohortId));
@@ -562,10 +608,10 @@
   function summary(s) {
     if (!s.foodWeb) return null;
     const regions = new Map(s.regions.map(r => [r.id, r]));
-    return { ...copy(s.foodWeb.receipts), work: copy(s.foodWeb.work), pending: s.foodWeb.pending.length, wildlife: Wildlife.summary(s),
+    return { ...copy(s.foodWeb.receipts), work: copy(s.foodWeb.work), pending: s.foodWeb.pending.length, wildlife: Wildlife.summary(s), foraging: Foraging.summary(s),
       unlocatedLiving: s.groups.reduce((n, g) => n + g.cohorts.reduce((v, c) => v + (c.ranges.length
         && !position(g, regions.get(g.regionId), c, c.ranges[0][0]) ? size(c) : 0), 0), 0),
       unlocatedRemainsKg: s.regions.reduce((n, r) => n + Object.values(r.remainsBatches || {}).reduce((v, row) => v + (!row.position ? row.edibleKg : 0), 0), 0) };
   }
-  return { initialize, initial, plan, advance, finish, next, validate, validateSource, position, environment, context, actor, split, addRemains, decay, cancel, handoff, noteFeeding, summary, LIMIT, DURATION };
+  return { initialize, initial, plan, advance, finish, foragers, cancelForaging, next, validate, validateSource, position, environment, context, actor, split, addRemains, decay, cancel, handoff, noteFeeding, summary, LIMIT, DURATION };
 });

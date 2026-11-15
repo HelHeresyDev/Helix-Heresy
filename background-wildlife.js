@@ -163,7 +163,10 @@
     }
     for (const pool of r.wildlife.pools) {
       const row = pool.carcass, elapsed = Math.max(0, to - row.lastAt) / DAY, fraction = -Math.expm1(-elapsed * .1);
-      const kg = row.massKg * fraction; row.massKg -= kg; row.edibleKg *= 1 - fraction; row.decomposedKg += kg; row.lastAt = to;
+      const reserved = row.reservedKg || 0;
+      const kg = Math.max(0, row.massKg - reserved) * fraction;
+      row.massKg -= kg; row.edibleKg -= Math.max(0, row.edibleKg - reserved) * fraction;
+      row.decomposedKg += kg; row.lastAt = to;
       const accepted = Math.min(kg, Math.max(0, (r.capacity.detritusKg || 0) - (r.stocks.detritusKg || 0)));
       if (accepted) r.stocks.detritusKg = (r.stocks.detritusKg || 0) + accepted;
       output(r, 'wildlifeDetritusOverflowKg', kg - accepted);
@@ -301,6 +304,30 @@
     r.wildlife.pending = r.wildlife.pending.filter(q => q.dueAt > at + EPS);
   }
   function poolCleanup(r) { for (const pool of r.wildlife.pools) pool.cohorts = pool.cohorts.filter(c => c.count); }
+  function guilds(r, c, a) {
+    const aquatic = ['swimming', 'drifting'].includes(a.bodyPhysics.mode);
+    if (aquatic && Bodies.profiles[a.speciesId].modes.includes('walking') && Bodies.height(a) >= 0) return [];
+    return (r.wildlife?.pools || []).filter(pool => aquatic === (pool.guild === 'fish') && suitable(r, pool)
+      && profiles[pool.guild].adultKg < c.massKg * .5).map(pool => pool.id);
+  }
+  function capture(r, g, c, q, maximumKg, at) {
+    const claims = []; let room = maximumKg;
+    for (const id of q.guilds) {
+      const pool = r.wildlife.pools.find(p => p.id === id); if (!pool || !suitable(r, pool) || !(room > EPS)) continue;
+      pool.attempts += q.memberCount;
+      const fraction = Math.min(1, q.areaHa / pool.areaHa) * (pool.habitatDepthM > 0 ? Math.min(1, q.depthM / pool.habitatDepthM) : 1);
+      const encounteredKg = Math.max(0, pool.carcass.edibleKg - (pool.carcass.reservedKg || 0)) * fraction;
+      let caughtKg = 0;
+      if (!q.scavenge) for (const prey of pool.cohorts) {
+        const n = Math.min(prey.count, Math.floor(prey.count * fraction * q.success + Life.random(`${q.id}:${prey.id}:catch`)),
+          Math.max(0, Math.ceil((room - encounteredKg - caughtKg) / Math.max(EPS, prey.massKg * .6))));
+        caughtKg += prey.massKg * n * .6; pool.catches += lose(r, pool, prey, n, true, at);
+      }
+      const kg = Math.min(room, encounteredKg + caughtKg, Math.max(0, pool.carcass.edibleKg - (pool.carcass.reservedKg || 0)));
+      if (kg > EPS) { claims.push({ sourceId: pool.id, kg }); room -= kg; }
+    }
+    poolCleanup(r); return claims;
+  }
   function validDefinition(r) {
     if (!r.wildlife) return true;
     const w = r.wildlife;
@@ -376,5 +403,5 @@
     return result;
   }
   return { profiles, allocate, apply, initialize, plan, prepare, fed, next, integrate, boundary, begin, finish, cancel,
-    validDefinition, valid, validRates, summary, total, mass, DURATION };
+    validDefinition, valid, validRates, summary, total, mass, guilds, capture, DURATION };
 });

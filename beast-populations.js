@@ -12,10 +12,11 @@
     node ? require('./beast-regional-ecology') : root.HelixBeastRegionalEcology,
     node ? require('./beast-regional-foodweb') : root.HelixBeastRegionalFoodweb,
     node ? require('./beast-population-scheduler') : root.HelixBeastPopulationScheduler,
-    node ? require('./background-wildlife') : root.HelixBackgroundWildlife);
+    node ? require('./background-wildlife') : root.HelixBackgroundWildlife,
+    node ? require('./beast-foraging') : root.HelixBeastForaging);
   if (node) module.exports = api;
   root.HelixBeastPopulations = api;
-})(globalThis, function (Biology, Life, Journeys, Wilderness, Predation, Bodies, Demography, Ecology, Foodweb, Scheduler, Wildlife) {
+})(globalThis, function (Biology, Life, Journeys, Wilderness, Predation, Bodies, Demography, Ecology, Foodweb, Scheduler, Wildlife, Foraging) {
   'use strict';
   const DAY = 86400, EPS = 1e-8, copy = x => JSON.parse(JSON.stringify(x));
   const diagnosticToken = Symbol('private generated-source replay');
@@ -228,7 +229,8 @@
         Demography.synchronize(s, g, c, at);
         const p = Biology.lifecycle[c.speciesId], juvenile = at - c.bornAt < p.adultDays * DAY;
         const scale = count(c) * (c.massKg / p.adultKg) ** .75 * (juvenile ? p.juvenileMultiplier : 1)
-          * (g.transit || c.contactBusyUntil > at ? p.travelMultiplier : 1);
+          * (g.transit ? p.travelMultiplier : c.foraging?.action
+            ? 1 + (p.travelMultiplier - 1) * Foraging.travelScale(c) : c.contactBusyUntil > at ? p.travelMultiplier : 1);
         c.needs = {}; c.intake = {};
         for (const key of ['foodKg', 'waterL', 'mineralsKg']) {
           const need = p[({ foodKg: 'foodKgDay', waterL: 'waterLDay', mineralsKg: 'mineralsKgDay' })[key]] * scale;
@@ -245,6 +247,8 @@
       }
       if (g.intention) next = Math.min(next, g.intention.departAt);
       if (g.transit) next = Math.min(next, g.transit.edgeIndex === 0 ? g.transit.crossAt : g.transit.edgeArriveAt);
+      if (!g.transit && Demography.region(s, g.regionId)?.foraging)
+        for (const c of g.cohorts) if (count(c)) next = Math.min(next, Foraging.next(c));
     }
     const extra = Ecology.requests(s, at, s.groups.flatMap(g => g.cohorts.flatMap(c => Demography.requests(s, g, c, at))));
     const requestsByRegion = new Map();
@@ -273,6 +277,7 @@
         request.factor = Math.min(1, ...Object.entries(request.inputs).filter(([, n]) => n > 0).map(([key]) =>
           (r.stocks[key] || 0) > EPS ? 1 : Math.min(1, Math.max(0, (rate.renewal[key] || 0) - (rate.demand[key] || 0)) / requested[key])));
         if (request.poolId ? !Wildlife.fed(r, request, rate) : Object.entries(request.c.needs).some(([k, n]) => n > 0
+          && !(request.storeFunded && k === 'foodKg')
           && !(request.g.ecology?.action === 'filterPlankton' && k === 'foodKg')
           && (rate.supply[request.g.resources?.[k] || k] ?? 0) < 1)) request.factor = 0;
       }
@@ -286,6 +291,10 @@
             * count(request.c) / Biology.lifecycle[request.c.speciesId].assimilation
             : request.brood.requiredKg * Demography.size(request.brood.parents) - request.brood.investedKg;
           next = Math.min(next, at + remaining / perDay * DAY);
+          if (request.storeFunded) {
+            const n = count(request.c), missing = request.c.needs.foodKg * (1 - (rate.supply[request.g.resources?.foodKg || 'foodKg'] ?? 0));
+            next = Math.min(next, at + (request.c.stores.foodKg - request.storeReserveKg) / ((perDay + missing) / n) * DAY);
+          }
         }
         if (request.kind === 'brood' && request.manaPerDay * request.factor > EPS) {
           const remaining = request.brood.requiredMana * Demography.size(request.brood.parents) - request.brood.investedMana;
@@ -318,7 +327,8 @@
       c.healthLossPerDay = 0;
       const rate = rates[location(g)], p = Biology.lifecycle[c.speciesId];
       for (const [key, need] of Object.entries(c.needs)) {
-        const deficit = need * (1 - (rate.supply[g.resources?.[key] || key] ?? 0) * c.intake[key]) / n;
+        const deficit = Math.max(0, need * (1 - (rate.supply[g.resources?.[key] || key] ?? 0) * c.intake[key]) / n
+          - (key === 'foodKg' ? Foraging.intake(c) : 0));
         if (!(deficit > EPS)) continue;
         const stored = (c.stores[key] || 0) + (key === 'foodKg' ? c.stores.fatKg : 0);
         if (stored > EPS) next = Math.min(next, at + stored / deficit * DAY);
@@ -331,7 +341,8 @@
       if (c.healthLossPerDay > 0) next = Math.min(next, at + c.health / c.healthLossPerDay * DAY);
     }
     for (const g of s.groups) if (!g.transit && !g.observedShortage && g.cohorts.some(c => count(c))
-      && Object.entries(g.needs).some(([key, need]) => need > 0 && (rates[location(g)].supply[g.resources?.[key] || key] ?? 0) < 1))
+      && Object.entries(g.needs).some(([key, need]) => need > 0 && !(key === 'foodKg' && g.cohorts.some(c => c.foraging))
+        && (rates[location(g)].supply[g.resources?.[key] || key] ?? 0) < 1))
       next = Math.min(next, at + 1); // The next actual local feeding attempt discovers it.
     next = Math.min(next, Foodweb.next(s, s.regionIds));
     s.rates = rates; s.nextEventAt = Math.max(at + 1e-6, next);
@@ -358,6 +369,7 @@
       const r = Demography.region(s, location(g)), rate = s.rates[r.id];
       for (const c of g.cohorts) {
         const n = count(c); if (!n) continue;
+        Foraging.integrate(s.accountRoot || s, r, g, c, from, to, rate);
         if (g.transit && c.regional) c.regional.at = to; // Travel is not banked supplied rest.
         if (c.aggregateMortality) {
           if (c.batchMembers !== n) { c.batchMembers = n; c.batchHazard = 0; }
@@ -375,6 +387,7 @@
           c.massKg -= consumed; missing -= consumed * n;
           if (missing > EPS) {
             g.observedShortage = true;
+            if (key === 'foodKg' && c.foraging) c.foraging.shortageAt ??= to;
             c.unmet ||= {}; c.unmet[key] = (c.unmet[key] || 0) + missing / n;
             r.unmetTotals ||= {}; r.unmetTotals[stockKey] = (r.unmetTotals[stockKey] || 0) + missing;
           }
@@ -408,6 +421,7 @@
       if (!(amount > 0 || rate.manaPerDay > 0)) continue;
       if (rate.kind === 'growth') {
         const gain = amount * Biology.lifecycle[c.speciesId].assimilation;
+        if (rate.storeFunded) { c.stores.foodKg = Math.max(0, c.stores.foodKg - amount / n); c.massKg -= amount / n; }
         c.structuralKg += gain / n; c.massKg += gain / n;
         r.outputs ||= {}; r.outputs.growthWasteKg = (r.outputs.growthWasteKg || 0) + amount - gain;
       } else {
@@ -415,7 +429,7 @@
         brood.investedKg += amount; brood.investedMana += (rate.manaPerDay || 0) * rate.factor * days;
       }
     }
-    for (const r of s.regions) Wildlife.integrate(r, s.rates[r.id], from, to);
+    for (const r of s.regions) { Foraging.decay(s.accountRoot || s, r, to); Wildlife.integrate(r, s.rates[r.id], from, to); }
     Ecology.integrate(s, days, to);
     s.appliedAt = to;
   }
@@ -484,6 +498,7 @@
       }
       if (!g.cohorts.some(c => count(c))) { g.regionId = location(g); g.intention = null; g.transit = null; continue; }
       if (g.intention && g.intention.departAt <= at + EPS) {
+        Foodweb.cancelForaging(s, g, at);
         for (const event of Journeys.depart(g, at, s.regions.find(r => r.id === g.regionId), Biology.lifecycle[g.speciesId].travelKmDay))
           record(s, event.kind, event.at, event);
       }
@@ -498,6 +513,7 @@
     };
     if (s.accountRoot) Foodweb.finish(s.accountRoot, at, foodApi, s.regionIds);
     else Foodweb.advance(s, at, monthAt(s.calendar, at), foodApi);
+    Foodweb.foragers(s, at, monthAt(s.calendar, at));
     for (const g of s.groups) {
       for (const c of [...g.cohorts]) {
         if (demographicTick && c.aggregateMortality && count(c)) {
@@ -518,7 +534,13 @@
     for (const g of s.groups) {
       const rate = s.rates[location(g)];
       const localShortage = !g.transit && g.cohorts.some(c => count(c)) && Object.entries(g.needs)
-        .some(([key, need]) => need > 0 && (rate.supply[g.resources?.[key] || key] ?? 0) < 1);
+        .some(([key, need]) => need > 0 && !(key === 'foodKg' && g.cohorts.some(c => c.foraging))
+          && (rate.supply[g.resources?.[key] || key] ?? 0) < 1);
+      for (const c of g.cohorts) if (!g.transit && c.foraging?.shortageAt != null
+        && c.foraging.shortageAt !== c.foraging.reactedShortageAt) {
+        c.foraging.reactedShortageAt = c.foraging.shortageAt;
+        if (!g.intention && count(c)) { scheduleDeparture(s, g, at, monthAt(s.calendar, at)); changed.add(location(g)); }
+      }
       if (localShortage && !g.observedShortage) {
         g.observedShortage = true;
         record(s, 'observedShortage', at, { groupId: g.id, regionId: g.regionId });
@@ -810,6 +832,7 @@
         return !c || !['activity', 'growth', 'brood', 'ecology'].includes(r.kind) || !nonnegative(r.perDay) || !nonnegative(r.factor)
           || r.factor > 1 || !r.inputs || !Object.values(r.inputs).every(nonnegative)
           || r.manaPerDay != null && !nonnegative(r.manaPerDay)
+          || r.storeFunded != null && (r.storeFunded !== true || r.kind !== 'growth' || !nonnegative(r.storeReserveKg) || !c.foraging)
           || r.kind === 'brood' && !c.demography?.broods.some(b => b.id === r.broodId)
           || r.kind === 'ecology' && (!g.ecology || !nonnegative(r.workPerDay) || !r.outputs || !Object.values(r.outputs).every(nonnegative)
             || !Array.isArray(r.channels) || r.channels.some(k => !Ecology.channels.includes(k)));
@@ -822,7 +845,7 @@
           || d.actor.life?.originalMemberId !== d.memberId || d.actor.life.originalGroupId !== d.groupId || !Life.valid(d.actor) || !Bodies.valid(d.actor)
           || !Predation.validRemains(d.actor) || !Predation.validHunt(d.actor) || d.status === 'dead' && d.actor.status !== 'dead')) return null;
       }
-      if (!Ecology.valid(s) || !Foodweb.validate(s) || !Scheduler.validate(s)) return null;
+      if (!Ecology.valid(s) || !Foodweb.validate(s) || !Scheduler.validate(s) || !Foraging.valid(s, id => Demography.group(s, id))) return null;
       audit(s); Demography.prepare(s, s.appliedAt); Scheduler.restore(s, schedulerOps); return s; // Restore indexes, never paid rates or choices.
     } catch { return null; }
   }

@@ -190,7 +190,10 @@
       // Tapering toward the remaining gap would make unrelated rate refreshes
       // change the growth trajectory and could prevent completion indefinitely.
       const gain = reference / Math.max(1, p.adultDays);
-      result.push({ kind: 'growth', g, c, recipe: mixture, perDay: gain / p.assimilation * n });
+      const storeReserveKg = p.foodKgDay * 2;
+      const storeFunded = c.foraging && ['meatKg', 'carrionKg'].includes(g.resources?.foodKg) && c.stores.foodKg > storeReserveKg + EPS;
+      result.push({ kind: 'growth', g, c, recipe: storeFunded ? {} : mixture, perDay: gain / p.assimilation * n,
+        ...(storeFunded ? { storeFunded: true, storeReserveKg } : {}) });
     }
     for (const brood of c.demography?.broods || []) {
       if (!site(s, g, at) || brood.regionId !== g.regionId) continue;
@@ -244,7 +247,8 @@
         // Averaging effort must not give an unworked original a different
         // cohort's contributor provenance when it subsequently dies.
         Object.keys(c.ecologyHistory || {}).filter(k => c.ecologyHistory[k] > EPS).sort().join(','),
-        JSON.stringify(c.feedingTowers || null), JSON.stringify(c.regional || null), JSON.stringify(c.regionalPosition || null), c.contactBusyUntil || 0].join(':');
+        JSON.stringify(c.feedingTowers || null), JSON.stringify(c.regional || null), JSON.stringify(c.regionalPosition || null),
+        JSON.stringify(c.foraging || null), c.contactBusyUntil || 0].join(':');
       const old = bins.get(key);
       if (!old) { bins.set(key, c); retained.push(c); continue; }
       const a = size(old.ranges), b = size(c.ranges), total = a + b;
