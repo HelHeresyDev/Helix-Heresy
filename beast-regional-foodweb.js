@@ -7,10 +7,11 @@
     node ? require('./beast-behavior') : root.HelixBeastBehavior,
     node ? require('./beast-predation') : root.HelixBeastPredation,
     node ? require('./wilderness-beasts') : root.HelixWildernessBeasts,
-    node ? require('./beast-demography') : root.HelixBeastDemography);
+    node ? require('./beast-demography') : root.HelixBeastDemography,
+    node ? require('./background-wildlife') : root.HelixBackgroundWildlife);
   if (node) module.exports = api;
   root.HelixBeastRegionalFoodweb = api;
-})(globalThis, function (Data, Life, Bodies, Behavior, Predation, Wilderness, Demography) {
+})(globalThis, function (Data, Life, Bodies, Behavior, Predation, Wilderness, Demography, Wildlife) {
   'use strict';
   const DAY = Life.DAY, EPS = 1e-8, BIN = 128, LIMIT = 16, DURATION = 300;
   const copy = x => JSON.parse(JSON.stringify(x)), size = c => Demography.size(c.ranges);
@@ -392,6 +393,13 @@
     const due = web.pending.filter(c => c.dueAt <= at + EPS && (!regionIds || regionIds.has(c.regionId)));
     const claimed = new Set(due); web.pending = web.pending.filter(c => !claimed.has(c));
     for (const c of due) resolve(s, c, at, api);
+    for (const r of s.regions) if (!regionIds || regionIds.has(r.id)) Wildlife.finish(r, at, { ...api,
+      canForage(g, c) {
+        const a = actor(g, c, c.ranges[0]?.[0], r, at); if (!a) return false;
+        const ctx = context(r, [a], s.plans.at(-1).season);
+        return Behavior.conscious(a, at) && Bodies.capable(a, a.bodyPhysics.mode)
+          && !Bodies.habitatReason(a, a.mapCell, a.bodyPhysics.mode, Bodies.height(a), ctx);
+      } });
   }
   function advance(s, at, month, api) {
     if (!s.foodWeb) return;
@@ -457,12 +465,19 @@
           antagonismId: defends ? antagonism.id : null, startedAt: at, dueAt: at + DURATION, season: month.season, members });
         web.receipts.contacts++; break;
       }
+      if (!c.contactBusyUntil && Behavior.conscious(a, at) && Predation.hungry(a)
+        && Behavior.foodKeys(a).some(k => ['meatKg', 'carrionKg'].includes(k)) && (hunting || g.speciesId === 'beast:carrion-lantern'))
+        Wildlife.begin(r, g, c, a, at, position(g, r, c, ordinal), hunting ? 1 : 0);
     }
   }
   function next(s, regionIds = null) { return s.foodWeb ? Math.min(s.foodWeb.nextAt,
-    ...s.foodWeb.pending.filter(c => !regionIds || regionIds.has(c.regionId)).map(c => c.dueAt)) : Infinity; }
+    ...s.foodWeb.pending.filter(c => !regionIds || regionIds.has(c.regionId)).map(c => c.dueAt),
+    ...s.regions.filter(r => !regionIds || regionIds.has(r.id)).flatMap(r => (r.wildlife?.pending || []).map(q => q.dueAt))) : Infinity; }
   function cancel(s, groupId, cohortId, ranges, at) {
     if (!s.foodWeb) return;
+    const owner = Demography.group(s, groupId), region = owner && Demography.region(s, owner.transit ? owner.transit.path[owner.transit.edgeIndex] : owner.regionId);
+    if (region?.wildlife?.pending.some(q => q.groupId === groupId && q.cohortId === cohortId))
+      Wildlife.cancel(region, groupId, cohortId, owner.cohorts.find(c => c.id === cohortId));
     const pending = s.foodWeb.pending.filter(p => p.members.some(m => m.groupId === groupId && m.cohortId === cohortId
       && ranges.some(([lo, hi]) => m.ordinal >= lo && m.ordinal < hi)));
     for (const p of pending) {
@@ -476,6 +491,9 @@
   }
   function handoff(s, groupId, cohortId, at, api) {
     if (!s.foodWeb) return;
+    const owner = api.group(groupId), region = owner && api.region(owner.regionId);
+    if (region?.wildlife?.pending.some(q => q.groupId === groupId && q.cohortId === cohortId))
+      Wildlife.cancel(region, groupId, cohortId, owner.cohorts.find(c => c.id === cohortId));
     const pending = s.foodWeb.pending.filter(p => p.members.some(m => m.groupId === groupId && m.cohortId === cohortId));
     for (const p of pending) {
       s.foodWeb.pending = s.foodWeb.pending.filter(x => x !== p); resolve(s, p, at, api);
@@ -544,7 +562,7 @@
   function summary(s) {
     if (!s.foodWeb) return null;
     const regions = new Map(s.regions.map(r => [r.id, r]));
-    return { ...copy(s.foodWeb.receipts), work: copy(s.foodWeb.work), pending: s.foodWeb.pending.length,
+    return { ...copy(s.foodWeb.receipts), work: copy(s.foodWeb.work), pending: s.foodWeb.pending.length, wildlife: Wildlife.summary(s),
       unlocatedLiving: s.groups.reduce((n, g) => n + g.cohorts.reduce((v, c) => v + (c.ranges.length
         && !position(g, regions.get(g.regionId), c, c.ranges[0][0]) ? size(c) : 0), 0), 0),
       unlocatedRemainsKg: s.regions.reduce((n, r) => n + Object.values(r.remainsBatches || {}).reduce((v, row) => v + (!row.position ? row.edibleKg : 0), 0), 0) };

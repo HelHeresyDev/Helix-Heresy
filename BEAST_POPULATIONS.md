@@ -93,6 +93,14 @@ trajectory is therefore not promised to match that old timing artifact exactly.
 
 ## Batched growth, recruitment and mortality
 
+Ordinary insects, small animals and fish now have separate conserved background
+guild accounts: see [background wildlife](BACKGROUND_WILDLIFE.md) for quantified
+rates, original-matter partitions, paid recruitment, finite density-based
+foraging and its approximation boundaries. They share actual regional resources
+without adding catalog species or strategic victories. New proposals archive
+their allocations; old worlds acquire none on load. The complete 120-day sample
+still rejects ecological activation; a prey layer is not a viability certificate.
+
 `beast-demography.js` consumes the existing published lifecycle values without
 creating a pregnancy, juvenile actor or death object for every background animal.
 Work scales with groups/cohorts, supported activity and interval fragmentation,

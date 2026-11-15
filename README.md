@@ -2275,6 +2275,15 @@ bit-identical to the old unrelated-event-dependent maintenance trajectory.
 The sample remains rejected/unverified—not a claim of native gameplay scaling.
 See [recorded source execution and its limits](BEAST_POPULATIONS.md#recorded-physical-source-execution).
 
+New habitat proposals also archive finite [background wildlife](BACKGROUND_WILDLIFE.md):
+ordinary insects, small animals and fish in compact age cohorts. Original bodies
+partition standing matter; maintenance and paid growth/recruitment share the same
+regional resources. Timed local searches remove actual integer prey or consume
+finite carcasses, without creating meat income or strategic victories. Partial
+searches and losses survive saves/continued branches; archived worlds gain no
+wildlife on load. The full seasonal sample still rejects activation, so this does
+not claim a balanced generated ecosystem or completed native encounters.
+
 Local predators now pursue actually sensed prey within a finite attempt budget
 through existing combat, movement and injury rules. Carrion Lanterns scavenge
 actual remains; consumers and decomposition share one saved finite corpse ledger.

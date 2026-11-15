@@ -82,6 +82,10 @@ See [BEAST_BEHAVIOR.md](../BEAST_BEHAVIOR.md) for the implemented scope.
 and formatting are in the ODS/XLSX workbooks. [The preview](creature-catalog-preview.png) shows
 selected columns/rows from the same dataset, not every sheet.
 
+The non-catalog insect/small-animal/fish guilds are quantified separately in
+[BACKGROUND_WILDLIFE.md](../BACKGROUND_WILDLIFE.md). They are aggregate ecological
+populations, not additional researchable creatures or spreadsheet catalog rows.
+
 Rebuild the snapshots with:
 
 ```sh

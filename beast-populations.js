@@ -11,10 +11,11 @@
     node ? require('./beast-demography') : root.HelixBeastDemography,
     node ? require('./beast-regional-ecology') : root.HelixBeastRegionalEcology,
     node ? require('./beast-regional-foodweb') : root.HelixBeastRegionalFoodweb,
-    node ? require('./beast-population-scheduler') : root.HelixBeastPopulationScheduler);
+    node ? require('./beast-population-scheduler') : root.HelixBeastPopulationScheduler,
+    node ? require('./background-wildlife') : root.HelixBackgroundWildlife);
   if (node) module.exports = api;
   root.HelixBeastPopulations = api;
-})(globalThis, function (Biology, Life, Journeys, Wilderness, Predation, Bodies, Demography, Ecology, Foodweb, Scheduler) {
+})(globalThis, function (Biology, Life, Journeys, Wilderness, Predation, Bodies, Demography, Ecology, Foodweb, Scheduler, Wildlife) {
   'use strict';
   const DAY = 86400, EPS = 1e-8, copy = x => JSON.parse(JSON.stringify(x));
   const diagnosticToken = Symbol('private generated-source replay');
@@ -99,6 +100,7 @@
       if (r.nurseries && (!Array.isArray(r.nurseries) || new Set(r.nurseries.map(n => n.id)).size !== r.nurseries.length
         || r.nurseries.some(n => !id(n.id) || !Biology.lifecycle[n.speciesId] || !integer(n.capacity)
           || !Array.isArray(n.phases) || n.phases.some(i => !integer(i) || i >= source.calendar.monthDays.length)))) throw Error('Invalid sourced nursery');
+      if (!Wildlife.validDefinition(r)) throw Error('Invalid original background wildlife');
       Ecology.validate(r); regions.add(r.id);
     }
     for (const r of source.regions) for (const edge of r.edges) if (!regions.has(edge.id) || !(edge.distanceKm > 0) || !Number.isFinite(edge.distanceKm)
@@ -133,6 +135,7 @@
     for (const g of source.groups) s.originalCounts[g.populationId] = (s.originalCounts[g.populationId] || 0) + g.cohorts.reduce((n, c) => n + c.count, 0);
     s.origins = Object.fromEntries(source.groups.flatMap(g => g.cohorts.map(c => [c.id,
       { populationId: g.populationId, speciesId: c.speciesId, count: c.count }])));
+    for (const r of s.regions) Wildlife.initialize(r, at);
     Ecology.initialize(s); Foodweb.initialize(s, source.regionalFoodWeb === true); plan(s, at);
     Scheduler.initialize(s, schedulerOps); return s;
   }
@@ -167,6 +170,7 @@
     const month = monthAt(s.calendar, at);
     if (s.plans.some(p => p.index === month.index)) return;
     s.plans.push({ ...month, plannedAt: at });
+    for (const r of s.regions) Wildlife.plan(r, month, at);
     Foodweb.plan(s, { ...month, plannedAt: at });
     for (const g of s.groups) {
       Ecology.plan(g, month);
@@ -187,7 +191,7 @@
   const location = Journeys.location;
   const schedulerOps = { location, rebuild: rebuildKernel, integrate, boundary,
     refreshGroups: (s, groups) => Demography.refreshGroups(s, groups),
-    dailyNeeded: s => Boolean(s.regions.some(r => r.ecology) || s.groups.some(g => g.cohorts.some(c => count(c) && (c.aggregateMortality || c.demography)) || g.breeding) || s.extraRates?.length),
+    dailyNeeded: s => Boolean(s.regions.some(r => r.ecology || r.wildlife) || s.groups.some(g => g.cohorts.some(c => count(c) && (c.aggregateMortality || c.demography)) || g.breeding) || s.extraRates?.length),
     movingDestinations: (g, at) => [g.intention?.departAt <= at + EPS ? g.intention.destination : null,
       g.transit && (g.transit.crossAt <= at + EPS || g.transit.edgeArriveAt <= at + EPS) ? g.transit.path.at(-1) : null].filter(Boolean),
     references: (g, at) => {
@@ -255,7 +259,8 @@
     // Process real upstream accounts first. Downstream consumers see only the
     // water that actually passes retention/spill, never the undammed forecast.
     for (const r of Ecology.Work.order(s)) {
-      const regionId = r.id, list = requestsByRegion.get(regionId) || [], rate = rates[regionId], requested = {};
+      const regionId = r.id, rate = rates[regionId], requested = {};
+      const list = [...(requestsByRegion.get(regionId) || []), ...Wildlife.prepare(r, at, rate)];
       Ecology.Work.addFlowDemand(r, rate);
       for (const key of new Set([...Object.keys(rate.renewal), ...Object.keys(rate.demand)])) {
         const renewal = rate.renewal[key] || 0, demand = rate.demand[key] || 0, stock = r.stocks[key] || 0;
@@ -267,13 +272,13 @@
       for (const request of list) {
         request.factor = Math.min(1, ...Object.entries(request.inputs).filter(([, n]) => n > 0).map(([key]) =>
           (r.stocks[key] || 0) > EPS ? 1 : Math.min(1, Math.max(0, (rate.renewal[key] || 0) - (rate.demand[key] || 0)) / requested[key])));
-        if (Object.entries(request.c.needs).some(([k, n]) => n > 0
+        if (request.poolId ? !Wildlife.fed(r, request, rate) : Object.entries(request.c.needs).some(([k, n]) => n > 0
           && !(request.g.ecology?.action === 'filterPlankton' && k === 'foodKg')
           && (rate.supply[request.g.resources?.[k] || k] ?? 0) < 1)) request.factor = 0;
       }
       const activity = new Map(list.filter(r => r.kind === 'activity').map(r => [r.c.id, r.factor]));
       for (const request of list) {
-        if (request.kind !== 'activity') request.factor = Math.min(request.factor, activity.get(request.c.id) ?? 1);
+        if (request.kind !== 'activity' && request.c) request.factor = Math.min(request.factor, activity.get(request.c.id) ?? 1);
         for (const [key, amount] of Object.entries(request.inputs)) rate.net[key] = (rate.net[key] || 0) - amount * request.factor;
         const perDay = request.perDay * request.factor;
         if (perDay > EPS && ['growth', 'brood'].includes(request.kind)) {
@@ -287,8 +292,10 @@
           next = Math.min(next, at + remaining / (request.manaPerDay * request.factor) * DAY);
         }
       }
+      if (r.wildlife) rate.wildlifeRates = list.filter(q => q.poolId);
       next = Math.min(next, Ecology.Work.prepareOutputs(r, rate, list, at));
       Ecology.Work.route(s, r, rate, list, rates);
+      next = Math.min(next, Wildlife.next(r, rate, at));
       next = Math.min(next, Ecology.Work.boundaries(r, rate, at, list));
       for (const [key, net] of Object.entries(rate.net)) {
         if (net < -EPS && (r.stocks[key] || 0) > EPS) next = Math.min(next, at + r.stocks[key] / -net * DAY);
@@ -297,7 +304,7 @@
       }
     }
     next = Math.min(next, Ecology.build(s, rates, extra, at, month.season));
-    s.dailyNeeded = Boolean(s.regions.some(r => r.ecology) || s.groups.some(g => g.cohorts.some(c => count(c) && (c.aggregateMortality || c.demography)) || g.breeding) || extra.length);
+    s.dailyNeeded = Boolean(s.regions.some(r => r.ecology || r.wildlife) || s.groups.some(g => g.cohorts.some(c => count(c) && (c.aggregateMortality || c.demography)) || g.breeding) || extra.length);
     if (s.dailyNeeded) {
       s.nextDemographyAt ??= (Math.floor(at / DAY) + 1) * DAY;
       next = Math.min(next, s.nextDemographyAt);
@@ -408,6 +415,7 @@
         brood.investedKg += amount; brood.investedMana += (rate.manaPerDay || 0) * rate.factor * days;
       }
     }
+    for (const r of s.regions) Wildlife.integrate(r, s.rates[r.id], from, to);
     Ecology.integrate(s, days, to);
     s.appliedAt = to;
   }
@@ -484,6 +492,7 @@
     plan(s, at, false);
     const demographicTick = at + EPS >= (s.nextDemographyAt ?? Infinity);
     if (demographicTick) s.nextDemographyAt = (Math.floor((at + EPS) / DAY) + 1) * DAY;
+    for (const r of s.regions) Wildlife.boundary(r, at, demographicTick);
     const foodApi = {
       region: id => Demography.region(s, id), group: id => Demography.group(s, id), lose: (...args) => lose(s, ...args)
     };
@@ -777,6 +786,8 @@
       for (const r of s.regions) {
         if (r.unmetTotals && !Object.values(r.unmetTotals).every(nonnegative)) return null;
         const rate = s.rates[r.id];
+        if (!Wildlife.valid(r, s.regionClocks?.[r.id]?.appliedAt ?? s.appliedAt, id => Demography.group(s, id), s.clock)
+          || !Wildlife.validRates(r, rate)) return null;
         if (!rate || !['renewal', 'demand', 'supply'].every(k => rate[k] && Object.values(rate[k]).every(nonnegative))
           || !rate.net || !Object.values(rate.net).every(Number.isFinite)) return null;
       }

@@ -27,7 +27,8 @@ test('initial work materials partition original matter and water rather than add
   const kg = r => Object.entries(r.stocks).filter(([k]) => k.endsWith('Kg')).reduce((n, [, v]) => n + v, 0);
   const water = r => ['waterL', 'atmosphericWaterL', 'flowWaterL'].reduce((n, k) => n + (r.stocks[k] || 0), 0);
   for (let i = 0; i < source.regions.length; i++) {
-    approx(kg(source.regions[i]), kg(raw.regions[i])); approx(water(source.regions[i]), water(raw.regions[i]));
+    const bodyKg = (source.regions[i].wildlife?.pools || []).reduce((n, p) => n + p.originalMassKg, 0);
+    approx(kg(source.regions[i]) + bodyKg, kg(raw.regions[i])); approx(water(source.regions[i]), water(raw.regions[i]));
     assert.equal(source.regions[i].stocks.seawaterL, raw.regions[i].stocks.seawaterL);
     assert.equal(source.regions[i].stocks.meatKg, undefined); assert.equal(source.regions[i].stocks.carrionKg, undefined);
     for (const season of source.regions[i].seasons) assert.equal(season.renewal.mineralsKg, 0);
