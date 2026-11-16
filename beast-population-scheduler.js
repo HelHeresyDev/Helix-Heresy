@@ -55,6 +55,10 @@
     const refs = new Set(c.ops.references(g, at)); c.refs.set(g.id, refs);
     for (const regionId of refs) add(c.owners, regionId, g.id);
   }
+  function registerGroup(s, g, at) {
+    const c = caches.get(s); if (!c || c.groups.has(g.id)) return;
+    c.groups.set(g.id, g); c.groupOrder.set(g.id, s.groups.indexOf(g)); updateGroup(s, g, at);
+  }
   function noteDetail(s, id) {
     const c = caches.get(s); if (!c) return;
     for (const r of c.detailRegions.get(id) || []) c.detailsAt.get(r)?.delete(id);
@@ -240,5 +244,5 @@
   const active = s => caches.has(s);
   const inspect = s => { const c = caches.get(s); return c ? { units: c.units.size, eventEntries: c.events.items.length, appliedEntries: c.applied.items.length } : null; };
   const detailsForRegion = (s, id) => [...(caches.get(s)?.detailsAt.get(id) || [])].map(key => s.details[key]);
-  return { initialize, restore, active, advance, settle, settleAll, invalidate, rebuildAll, noteDetail, detailsForRegion, validate, inspect, Heap };
+  return { initialize, restore, active, advance, settle, settleAll, invalidate, rebuildAll, noteDetail, detailsForRegion, validate, inspect, Heap, registerGroup };
 });

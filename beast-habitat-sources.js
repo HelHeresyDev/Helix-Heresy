@@ -220,6 +220,7 @@
         || dietKeys.indexOf(a) - dietKeys.indexOf(b))[0] || 'foodKg';
       return { id: groupId, populationId: population.id, speciesId: s.id, regionId: patch.id, cohorts, dietKeys,
         ...(record.physicalPlacement ? { parentalCare: Care.mode(s.id) } : {}),
+        ...(record.windTransport && s.id === 'beast:carrion-lantern' ? { windDriven: true } : {}),
         home: { patchId: patch.id, cellId: patch.cellId, eastKm: offset[0], northKm: offset[1],
           depthM: s.movementModes.some(mode => ['flight', 'levitation'].includes(mode)) ? 0
             : patch.kind === 'waterColumn' || record.physicalPlacement && patch.kind === 'wetland'
@@ -238,6 +239,10 @@
     const topology = World.topologyForMap(map), byCell = new Map();
     for (const patch of regions) {
       const index = World.cellIndex(patch.cellId);
+      if (record.windTransport && patch.kind !== 'subsurface') {
+        const angle = map.climate.windBearingDeg[index] * Math.PI / 180, speed = map.climate.windStrengthPermille[index] / 100;
+        patch.wind = { x: Math.sin(angle) * speed, y: Math.cos(angle) * speed };
+      }
       if (!byCell.has(index)) byCell.set(index, []);
       byCell.get(index).push(patch);
     }
@@ -267,7 +272,10 @@
             routeFrames: {
               exit: { regionId: patch.id, eastM: out[0] * distanceKm * 500, northM: out[1] * distanceKm * 500, altitudeM: 0 },
               entry: { regionId: other.id, eastM: back[0] * distanceKm * 500, northM: back[1] * distanceKm * 500, altitudeM: 0 }
-            }
+            },
+            ...(record.windTransport && !local ? { windBoundary: { normal: { x: out[0], y: out[1] }, offsetM: distanceKm * 500,
+              exit: { eastM: out[0] * distanceKm * 500, northM: out[1] * distanceKm * 500 },
+              entry: { eastM: back[0] * distanceKm * 500, northM: back[1] * distanceKm * 500 } } } : {})
           } : {}) });
       }
     }
@@ -445,7 +453,7 @@
       policy: 'Private generator feasibility only; original-body residence and supply replay, no performed nurturing, future meat stock, safe destination reservation or perpetual equilibrium guarantee',
       seasonalJourneys: residence.journeys, seasons };
   }
-  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false, habitatAccess = false) {
+  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false, habitatAccess = false, windTransport = false) {
     const calendar = { epochAt: 0, monthDays: Local.PHASES.map(() => Local.PHASE_DAYS) };
     const patches = patchRows.map(row => expandPatch(map, row, calendar, physical)), groupRows = [], populations = [], unlocated = [];
     const worldPopulations = populationsFor(map), foodUse = new Map(), feedingRows = [];
@@ -508,7 +516,8 @@
       }
     }
     const record = { id: '', seed, sourceDigest: sourceDigest(map), calendar, patchRows, groupRows, populations, unlocated, calibration,
-      ...(physicalPlacement ? { physicalPlacement: true } : {}), ...(habitatAccess ? { habitatAccess: true, feedingRows } : {}) };
+      ...(physicalPlacement ? { physicalPlacement: true } : {}), ...(habitatAccess ? { habitatAccess: true, feedingRows } : {}),
+      ...(windTransport ? { windTransport: true } : {}) };
     const expanded = expand(record, map, { physical, raw: true });
     if (physical) { record.physicalBinding = Bindings.allocate(expanded, map, { positions: physicalPlacement }); Bindings.apply(expanded, record.physicalBinding, map); }
     if (wildlife) { record.backgroundWildlife = Wildlife.allocate(expanded, seed); Wildlife.apply(expanded, record.backgroundWildlife); }
@@ -540,7 +549,7 @@
     const attempts = Number.isInteger(options.attempts) ? clamp(options.attempts, 1, 3) : 3;
     for (let calibration = 0; calibration < attempts; calibration++) {
       const record = candidate(seed, map, patchRows, calibration, true, options.backgroundWildlife !== false, options.physicalPlacement !== false,
-        options.physicalPlacement !== false && options.habitatAccess !== false);
+        options.physicalPlacement !== false && options.habitatAccess !== false, options.physicalPlacement !== false && options.windTransport !== false);
       if (!best || record.assessment.issues.length < best.assessment.issues.length) best = record;
       if (record.assessment.status === 'feasibleInitialCycle') break;
     }
@@ -554,7 +563,7 @@
     const topology = World.topologyForMap(map), patchRows = [];
     for (let i = 0; i < topology.cellCount; i++) patchRows.push(...patchesForCell(map, i, topology, record.physicalPlacement === true));
     const expected = candidate(record.seed, map, patchRows, record.calibration, Boolean(record.physicalBinding), Boolean(record.backgroundWildlife), record.physicalPlacement === true,
-      record.habitatAccess === true);
+      record.habitatAccess === true, record.windTransport === true);
     const physical = value => { const result = copy(value); delete result.id; delete result.assessment; delete result.groupRows; return result; };
     if (World.stableHash(physical(expected)) !== World.stableHash(physical(record))) throw Error('Habitat source physical accounts were changed');
     if (record.physicalBinding && World.stableHash(expected.groupRows) !== World.stableHash(record.groupRows)) throw Error('Original bound habitat placement was changed');

@@ -10,10 +10,11 @@
     node ? require('./beast-demography') : root.HelixBeastDemography,
     node ? require('./background-wildlife') : root.HelixBackgroundWildlife,
     node ? require('./beast-foraging') : root.HelixBeastForaging,
-    node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys);
+    node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys,
+    node ? require('./beast-wind-drift') : root.HelixBeastWindDrift);
   if (node) module.exports = api;
   root.HelixBeastRegionalFoodweb = api;
-})(globalThis, function (Data, Life, Bodies, Behavior, Predation, Wilderness, Demography, Wildlife, Foraging, Journeys) {
+})(globalThis, function (Data, Life, Bodies, Behavior, Predation, Wilderness, Demography, Wildlife, Foraging, Journeys, Wind) {
   'use strict';
   const DAY = Life.DAY, EPS = 1e-8, BIN = 128, LIMIT = 16, DURATION = 300;
   const copy = x => JSON.parse(JSON.stringify(x)), size = c => Demography.size(c.ranges);
@@ -55,7 +56,12 @@
         northM: stop.position.northM + old.northM - frame.origin.northM,
         altitudeM: stop.position.altitudeM + old.altitudeM - frame.origin.altitudeM };
     }
-    if (c?.regionalPosition?.regionId === r.id) return copy(c.regionalPosition);
+    if (c?.regionalPosition?.regionId === r.id) {
+      const p = copy(c.regionalPosition), f = c.windDrift?.layout;
+      if (f) { p.eastM += (ordinal % f.columns - f.firstOrdinal % f.columns) * f.eastSpacingM;
+        p.northM += (Math.floor(ordinal / f.columns) - Math.floor(f.firstOrdinal / f.columns)) * f.northSpacingM; }
+      return p;
+    }
     const localFormation = c?.regionalFormation;
     if (localFormation?.anchor.regionId === r.id) return formationPosition(localFormation, ordinal);
     if (g.regionalPosition?.regionId === r.id && point(g.regionalPosition) && c) {
@@ -110,7 +116,11 @@
     const personal = stop ? entry?.position : c.regionalPosition;
     const formation = stop ? entry?.formation : c.regionalFormation;
     let box;
-    if (personal) box = { regionId: personal.regionId, min: copy(personal), max: copy(personal) };
+    if (personal && c.windDrift?.layout) {
+      const f = c.windDrift.layout;
+      box = gridBounds({ ...personal, eastM: personal.eastM - f.firstOrdinal % f.columns * f.eastSpacingM,
+        northM: personal.northM - Math.floor(f.firstOrdinal / f.columns) * f.northSpacingM }, f, c.ranges);
+    } else if (personal) box = { regionId: personal.regionId, min: copy(personal), max: copy(personal) };
     else if (formation) box = layoutBounds(formation, c.ranges);
     else {
       const f = g.regionalFormation?.[c.originId], anchor = stop ? g.transit.spatial.origin : position(g, r);
@@ -220,7 +230,8 @@
       soilDepthM: r.kind === 'subsurface' ? r.depthM : r.accessibleMineralDepthM || 0,
       oxygen: r.oxygen !== false, ceilingM: r.kind === 'subsurface' ? r.depthM : Infinity,
       densityKgM3: r.densityKgM3 || 1600, hardness: r.source?.surfaceDeposit === 'n' ? 6 : 2,
-      temperatureC: r.seasons?.[season]?.temperatureC ?? 20, light: r.kind === 'subsurface' ? 0 : 100 };
+      temperatureC: r.seasons?.[season]?.temperatureC ?? 20, light: r.kind === 'subsurface' ? 0 : 100,
+      wind: r.seasons?.[season]?.wind ?? r.wind };
   }
   function blocked(r, a, b) {
     // Explicit local barriers are physical inputs, not received animal maps.
@@ -634,7 +645,7 @@
     }
     const corpses = index(rows), live = [];
     for (const g of s.groups) {
-      if (g.transit) continue; // Paused route feeding does not start an unowned stationary duel.
+      if (g.transit || g.windDriven) continue; // Moving background bodies use detailed contacts, not stationary proxy duels.
       const r = regionMap.get(g.regionId), pos = position(g, r); if (!pos || !g.cohorts.some(c => size(c))) continue;
       for (const c of g.cohorts) restore(c, g, r, at);
       live.push({ regionId: r.id, position: pos, g });
@@ -704,19 +715,58 @@
         // than tessellating hundreds of identical tiles on every care event.
         // Native heterogeneous terrain and multi-body contacts are unchanged.
         if (ctx) ctx.tileSizeM = Math.max(1, ...Object.values(a.bodyPhysics.dimensions)) * 2;
-        if (a && c.foraging.phase === 'idle' && !c.contactBusyUntil && size(c) === 1
+        if (!g.windDriven && a && c.foraging.phase === 'idle' && !c.contactBusyUntil && size(c) === 1
           && c.stores.foodKg < Math.max(Data.lifecycle[c.speciesId].foodKgDay, c.needs.foodKg || 0)) {
           const rows = [...Object.values(r.remains || {}), ...Object.values(r.remainsBatches || {})]
             .filter(row => row.position && row.edibleKg > (row.reservedKg || 0)).map(row => ({ row }));
           feed(s, g, c, a, r, rows, at, true);
         }
         Foraging.step(s, r, g, c, at, { actor: a, position: pos, until: g.transit?.stop?.until,
+          originalCarrion: g.windDriven && [...Object.values(r.remains || {}), ...Object.values(r.remainsBatches || {})].some(row => row.position && row.edibleKg > (row.reservedKg || 0)),
+          canHold: () => Wind.holding(g, c, r, Wind.windAt(r, month.season), pos, true),
+          clearance: Wind.enabled(g) ? Wind.extent(g, c, pos, pos) : 0,
+          contactTime: horizon => windContact(r, c, pos, horizon),
           beforeNext: beforeNext && (() => beforeNext(g, c)),
           usable: Boolean(a && pos && Behavior.conscious(a, at) && Bodies.wounded(a, /head|torso|limb|leg|wing|fin/) < .65
+            && (!g.windDriven || Bodies.wounded(a, /feeding organ/) < .65)
             && !Bodies.habitatReason(a, a.mapCell, a.bodyPhysics.mode, Bodies.height(a), ctx)),
-          guilds: actor => Wildlife.guilds(r, c, actor), capture: (q, maximum) => Wildlife.capture(r, g, c, { ...q, position: pos }, maximum, at) });
+          guilds: actor => Wildlife.guilds(r, c, actor), capture: (q, maximum) => {
+            const guilds = g.windDriven ? q.guilds.filter(id => {
+              const site = r.wildlife.pools.find(p => p.id === id)?.spatial;
+              return !site || Wind.extent(g, c, pos, site) + Bodies.profiles[c.speciesId].reachM <= site.radiusM;
+            }) : q.guilds;
+            const claims = Wildlife.capture(r, g, c, { ...q, guilds, position: pos }, maximum, at);
+            let left = maximum - claims.reduce((sum, claim) => sum + claim.kg, 0);
+            if (g.windDriven) for (const [sourceId, row] of [...Object.entries(r.remains || {}), ...Object.entries(r.remainsBatches || {})]) {
+              if (!row.position || !(left > EPS) || Wind.extent(g, c, pos, row.position) > Bodies.profiles[c.speciesId].reachM) continue;
+              const kg = Math.min(left, row.edibleKg - (row.reservedKg || 0));
+              if (kg > EPS) { claims.push({ kind: 'beast', sourceId, kg }); left -= kg; }
+            }
+            return claims;
+          } });
       }
     }
+  }
+  function windContact(r, c, pos, horizon) {
+    const v = c.windDrift?.velocity; if (!v || !pos || !(v.x * v.x + v.y * v.y > EPS)) return horizon;
+    const speed2 = v.x * v.x + v.y * v.y;
+    const sites = [...Object.values(r.remains || {}), ...Object.values(r.remainsBatches || {})]
+      .filter(row => row.position && row.edibleKg > (row.reservedKg || 0)).map(row => ({ ...row.position, radiusM: Bodies.profiles[c.speciesId].reachM }));
+    for (const pool of r.wildlife?.pools || []) if (pool.spatial && pool.guild !== 'fish' && pool.carcass.edibleKg > (pool.carcass.reservedKg || 0))
+      sites.push({ ...pool.spatial, altitudeM: 0 });
+    let next = horizon;
+    for (const site of sites) {
+      if (Math.abs(pos.altitudeM - site.altitudeM) > 2) continue;
+      const x = pos.eastM - site.eastM, y = pos.northM - site.northM, dot = x * v.x + y * v.y;
+      const d = dot * dot - speed2 * (x * x + y * y - site.radiusM ** 2); if (d < 0) continue;
+      const enter = (-dot - Math.sqrt(d)) / speed2, leave = (-dot + Math.sqrt(d)) / speed2;
+      if (leave <= 0 || enter > horizon) continue;
+      // A habitat field is sampled after real local search; a positioned
+      // original corpse is contacted at closest approach, never remotely.
+      const t = site.radiusM > 2 ? Math.max(60, enter + Math.min(60, (leave - enter) / 2)) : Math.max(1, -dot / speed2);
+      if (t <= leave && t > EPS) next = Math.min(next, t);
+    }
+    return next;
   }
   function cancelForaging(s, g, at) {
     const r = Demography.region(s, g.transit ? g.transit.path[g.transit.edgeIndex] : g.regionId);

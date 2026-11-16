@@ -271,6 +271,18 @@
     }
     return choices.find(c => !habitatReason(a, c, b.mode, b.altitudeM, ctx)) || null;
   }
+  // The same cardinal local-grid advection used by passive body steps. Unknown
+  // flow is not calm, and neither a goal nor food can choose this direction.
+  function flowVelocity(a, flow) {
+    if (!flow || !Number.isFinite(flow.x) || !Number.isFinite(flow.y)) return null;
+    if (!valid(a) || !(a.bodyPhysics.mode === 'drifting'
+      || a.bodyPhysics.mode === 'flight' && profiles[a.speciesId].form === 'aerostat')) return null;
+    if (!capable(a, a.bodyPhysics.mode)) return { x: 0, y: 0 };
+    const magnitude = Math.hypot(flow.x, flow.y);
+    if (magnitude <= .001) return { x: 0, y: 0 };
+    const speed = Math.min(profiles[a.speciesId].speed, magnitude);
+    return Math.abs(flow.x) >= Math.abs(flow.y) ? { x: Math.sign(flow.x) * speed, y: 0 } : { x: 0, y: Math.sign(flow.y) * speed };
+  }
   function advance(a, at, ctx) {
     if (!valid(a) || !finite(at) || at <= a.bodyPhysics.lastAt) return false;
     const b = a.bodyPhysics, p = profiles[a.speciesId], dt = at - b.lastAt; b.lastAt = at;
@@ -402,5 +414,5 @@
       heading: a.bodyPhysics.heading || 0, turning: Boolean(a.bodyPhysics.turn),
       motion: a.bodyPhysics.motion ? { from: copy(a.bodyPhysics.motion.from), to: copy(a.bodyPhysics.motion.to), fraction: a.bodyPhysics.motion.progressM / a.bodyPhysics.motion.distanceM } : null };
   }
-  return { profiles, anatomy, attach, valid, height, footprint, cells, occupied, wounded, capable, habitatReason, request, turn, transition, dive, breakIce, damagePart, advance, perceive, observed, key };
+  return { profiles, anatomy, attach, valid, height, footprint, cells, occupied, wounded, capable, habitatReason, request, turn, transition, dive, breakIce, damagePart, advance, perceive, observed, key, flowVelocity };
 });

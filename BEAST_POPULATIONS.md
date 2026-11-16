@@ -597,7 +597,7 @@ positioned travelling bodies separately instead of counting all travellers as
 unlocated. This remains a coarse regional geometry, not a claim that every body
 can simultaneously fit on the native local grid.
 
-The current `source-small` 120-day replay retains all 24 species, 89 source
+The preceding care-and-route-stop `source-small` 120-day replay retains all 24 species, 89 source
 populations and 56,243 located original individuals, with no unlocated original
 source rows. Its 190,892 paid births reconcile to 130,906 living and 116,229
 dead. All living bodies have a stationary formation or a positioned journey
@@ -605,7 +605,7 @@ dead. All living bodies have a stationary formation or a positioned journey
 4.94 million kg of actual ingested wildlife. Marine filtration accepts an
 exactly deep-enough original seawater column, consistent with body physics,
 without requiring or consuming imaginary extra seawater. Freshwater work still
-stops at its consumptive depth boundary. See [current replay accounting](BACKGROUND_WILDLIFE.md#verification-and-limits).
+stops at its consumptive depth boundary. See [baseline and wind replay accounting](BACKGROUND_WILDLIFE.md#verification-and-limits).
 
 **This is not D acceptance.** The replay records 191 starvation and ten
 dehydration deaths, 32 resource-shortfall records and no original-beast duels;
@@ -732,7 +732,7 @@ until existing ecological/opposition, natural-formation and native-adoption
 requirements actually pass. Prepared care/journey browser checks exercise model
 saves, not ordinary-game encounter adoption.
 
-In the current 120-day generated replay, caregivers spend 240.2 million actual
+In that preceding 120-day generated replay, caregivers spend 240.2 million actual
 member-seconds and process 12.17 million kg of food plus 19.81 million litres of
 water, delivering 9.73 million kg and 18.82 million litres after recorded waste.
 Thirteen dependent scarcity deaths remain, among Rimefang and Frostwake groups
@@ -741,6 +741,65 @@ Rimefang, Reef Wyrm, Frostwake and two travelling Glasswing Roc starvation
 failures still require investigation inside D. Neither surviving caregivers nor
 aggregate regional food prove that an individual could actually receive a meal,
 drink or safe resting place, and no failed region is automatically exhausted.
+
+### Wind-driven Carrion Lanterns
+
+New habitat proposals explicitly record `windTransport`. Their Carrion Lantern
+cohorts use actual regional airflow rather than the authored travel-reference
+speed as directed flight. Canonical prevailing bearing points **toward** travel
+(0° north, 90° east); strength maps to 10 m/s at 1,000 permille. This is a stated
+simulation conversion, not a measured weather speed. Seasonal wind overrides
+are consumed when present. Unknown flow and known calm remain distinct; neither
+creates movement. This is not yet an adapter for native local weather.
+
+`beast-wind-drift.js` saves absolute anchor/time/velocity segments of at most an
+hour, ending sooner at monthly changes or real adjoining-cell separating planes.
+Horizontal direction and the 0.5 m/s ceiling follow the existing native passive
+body rule. Neither carcass locations nor hidden destination food can steer it.
+Original ordinal spacing is retained. Actual edge crossings translate the local
+position frame, partition existing cohorts where needed and settle receiving
+accounts before transferring ownership. They do not create new individuals,
+reserve unknown food, teleport to a habitat centre or start an intentional route.
+These tangent-plane edges are a coarse physical transport model, not a detailed
+globe surface path or vertical buoyancy/fall simulation.
+Crossing time belongs to the cohort anchor; retained formation offsets are not
+individually tiled edge passages. This does not certify native terrain, drinking
+access or every member's fine-scale travel residence.
+
+Search earns elapsed effort, but only tissue within the body's current feeding
+reach can be claimed. Anonymous carcass fields retain their finite spatial
+footprints; a whole cohort must fit before receiving a shared meal. Leaving the
+field, cancelling a foraging action, crossing an edge or detailing releases unconsumed
+claims at their original source. A large dead animal can be scavenged without
+making it legal live prey. No living wildlife is killed by this scavenger.
+
+A mouth can hold a **positioned original corpse**, not the combined mass of an
+anonymous field. The model requires a real floor, contacting cohort geometry,
+surviving feeding organs and finite stamina. Drag uses 1.225 kg/m³ air density,
+coefficient 1, body-scaled frontal area and squared actual wind speed. Per-mouth
+grip is limited to a quarter of body weight scaled by organ integrity; corpse
+friction is limited to half the weight of its surviving inedible structure.
+These are explicit initial balance constants, not extra magic or soul powers.
+Holding costs `0.1 × drag / body weight` stamina per second. Gusts, lost contact
+or exhausted effort end support, with eating clipped to actual contact time.
+Ingestion still takes time, spends the one owned tissue stock and retains the
+existing 5% light-substrate allocation. Body wounds, energy, food and exact
+original membership survive local handoff without a fresh meal or reserve pool.
+
+Moving cohorts cannot remotely breed at their old nursery. Calm bodies still
+need actual contact with the recorded receiving site. Stationary proxy duels
+are not applied to advected cohorts; native encounter adoption remains D work.
+Archived sources without the new declaration keep their original interpretation
+and identity rather than being silently upgraded on load.
+
+Focused wind checks cover actual/contrary/calm/unknown flow, corpse contact,
+strong gusts, damaged buoyancy, finite effort/custody, crossings, formation
+spacing, million-member batching, malformed saves and independent continuations.
+A browser case reloads partial drift through the actual index dependency order,
+continues a finite meal independently and checks the final-death freeze.
+The fresh 120-day source replay still loses every original Lantern by day 20;
+wind correctness is not food/water viability. Exact conserved totals, failure
+causes and timing are in [the wind-enabled replay](BACKGROUND_WILDLIFE.md#wind-enabled-replay).
 
 ### Regional feeding and ecological conflict
 

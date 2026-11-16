@@ -98,10 +98,13 @@
     return p.foodKgDay > 0 ? { [g.resources?.foodKg || 'foodKg']: 1 } : null;
   }
   function site(s, g, at) {
-    if (!g.breeding || g.transit || g.will === false || g.willing === false || Life.existingOwners[g.speciesId]) return null;
+    if (!g.breeding || g.transit || g.windDriven && g.cohorts.some(c => c.windDrift && (c.windDrift.velocity.x || c.windDrift.velocity.y))
+      || g.will === false || g.willing === false || Life.existingOwners[g.speciesId]) return null;
     const r = region(s, g.regionId), nursery = r?.nurseries?.find(n => n.id === g.breeding.siteId);
     if (!nursery || nursery.speciesId !== g.speciesId || nursery.enabled === false || !nursery.habitatSuitable
       || !nursery.phases.includes(s.plans.at(-1).season) || !(nursery.capacity > 0)) return null;
+    if (g.windDriven && (!nursery.position || !g.cohorts.some(c => c.role === 'female' && c.regionalPosition?.regionId === r.id
+      && Math.hypot(c.regionalPosition.eastM - nursery.position.eastM, c.regionalPosition.northM - nursery.position.northM) <= 1))) return null;
     if (nursery.workSiteId) {
       const site = r.ecology?.workSites.find(site => site.id === nursery.workSiteId && site.colonyId === nursery.colonyId);
       return { ...nursery, furnaceKg: site && site.destroyedAt == null ? site.furnaceKg : 0 };
@@ -252,7 +255,7 @@
         // cohort's contributor provenance when it subsequently dies.
         Object.keys(c.ecologyHistory || {}).filter(k => c.ecologyHistory[k] > EPS).sort().join(','),
         JSON.stringify(c.feedingTowers || null), JSON.stringify(c.regional || null), JSON.stringify(c.regionalPosition || null),
-        JSON.stringify(c.regionalFormation || null), JSON.stringify(c.foraging || null), JSON.stringify(c.dependency || null),
+        JSON.stringify(c.regionalFormation || null), JSON.stringify(c.windDrift || null), JSON.stringify(c.foraging || null), JSON.stringify(c.dependency || null),
         JSON.stringify(c.parentalLedger || null), JSON.stringify(c.caregiving || null), JSON.stringify(c.firstScarcity || null), c.contactBusyUntil || 0].join(':');
       const old = bins.get(key);
       if (!old) { bins.set(key, c); retained.push(c); continue; }

@@ -149,6 +149,15 @@ spend ingested surplus above two nominal daily rations on structural growth at
 the existing rate/assimilation efficiency; other missing maintenance or energy
 still prevents growth. Age alone never supplies the missing material.
 
+New wind-enabled Carrion Lantern sources also use actual saved drift positions:
+the current feeding footprint, not the entire swept flight corridor, can claim
+tissue. All original members must fit the encountered field. Tissue is released
+on leaving contact; a field's aggregate corpse mass cannot anchor an aerostat.
+Only a reachable positioned original corpse with sufficient real structural
+weight can support a finite, stamina-paid feeding hold. Unknown/calm flow does
+not grant steering, and scavenging large remains does not grant a hunting power.
+See [the physical wind and holding contract](BEAST_POPULATIONS.md#wind-driven-carrion-lanterns).
+
 Foraging needs no destination census or new migration adviser. The simulator's
 private density resolves physical encounter chances; it is not passed to animal
 route choices or exposed in the UI. Participant loss, original-body handoff,
@@ -189,7 +198,7 @@ independent branches without disclosing private state. Named food-web/regional-
 clock and generated-source storage browser checks also pass. The full test suite
 is not run under the repository's focused-testing policy.
 
-The current care-and-route-stop `source-small` 120-day generated replay uses source
+The preceding care-and-route-stop `source-small` 120-day generated replay uses source
 `beast-habitat-source:8d9290e7`, 334 physical regions, 2,615 strategic groups and
 89 original source populations spanning all 24 strategic species. Its final
 accounts reconcile independently:
@@ -235,6 +244,47 @@ alongside conservation and feeding totals:
 ```sh
 node scripts/benchmark-generated-beast-habitats.js --days=120
 ```
+
+### Wind-enabled replay
+
+The newer fresh `source-small` 120-day execution uses
+`beast-habitat-source:6702be10`. It retains 334 regions and 89 original
+populations; conserved cohort divisions bring the group count to 2,631.
+
+| Account | Original | Paid births | Living | Dead | Hunted separately |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Strategic bodies | 56,243 | 190,892 | 130,906 | 116,229 | Included in dead |
+| Anonymous wildlife | 97,503,071,748 | 72,177,228,026 | 67,144,388,401 | 102,524,792,636 | 11,118,737 |
+
+Strategic deaths are 116,027 background, 168 starvation and 34 dehydration.
+**All 120 original Carrion Lanterns are dead by day 20**: 94 starvation, 24
+dehydration and two background losses, with no new Lantern births. The saved
+cohorts record 23 wind crossings. Correct transport and successful prepared
+corpse-contact tests do not establish viable generated scavenging or drinking
+access. This is an explicit unresolved source failure, not normality inferred
+from labels, evidence of exhaustion or a reason to steer toward hidden food.
+
+Actual wildlife ingestion is 4,935,319 kg. Thirteen dependent scarcity deaths
+remain in the other families; actual care delivers 9,732,182 kg of food and
+18,817,599 litres of water. All 20,808 travelling survivors remain positioned;
+unlocated living bodies are zero. There are still no original-beast duels.
+The replay reports 36 performed resource-shortfall records, plus the unchanged
+38 missing work sites, eight unverified furnace-metal sources and 32 unverified
+dream-participant sources. Its status remains **rejected**.
+
+This fresh execution took about 1,120 seconds with checkpoint/validation enabled,
+356,157 boundaries and 95,955,051 cohort integration visits. The final expanded
+account is 53,643,253 bytes. Focused checks ran concurrently on the same machine;
+this wall time is not an isolated performance comparison or native-game
+acceptance measurement. Ten-day checkpoints and the final account pass the final
+validation rules; a continued binding also validates without changing ownership.
+The temporary expanded snapshots remain outside the repository.
+
+The focused unit selection covers wind drift, bodies, foraging, the regional
+scheduler, demography, parental care, the regional food web, habitat sources and
+bindings: 155 checks pass. Four browser cases cover partial wind/meal reload,
+both native body renderers and generated-source compressed storage/continuation.
+The full suite was not run under the focused-testing policy.
 
 The benchmark checks normalization at ten-day endpoints. For diagnosis, an
 explicit `--checkpoint-dir=/absolute/existing/directory` writes private

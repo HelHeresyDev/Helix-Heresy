@@ -388,7 +388,7 @@
     const aquatic = ['swimming', 'drifting'].includes(a.bodyPhysics.mode);
     if (aquatic && Bodies.profiles[a.speciesId].modes.includes('walking') && Bodies.height(a) >= 0) return [];
     const pools = (r.wildlife?.pools || []).filter(pool => aquatic === (pool.guild === 'fish') && suitable(r, pool)
-      && profile(pool).adultKg < c.massKg * .5);
+      && (a.speciesId === 'beast:carrion-lantern' || profile(pool).adultKg < c.massKg * .5));
     // A large hunter tries suitable larger prey first, not millions of insects
     // merely because that ledger was inserted first. This is an intrinsic size
     // preference, not knowledge of where unseen herds are or how many remain.

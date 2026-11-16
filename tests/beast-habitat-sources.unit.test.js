@@ -40,6 +40,22 @@ test('new canonical worlds archive a private, reproducible source proposal witho
   assert.throws(() => S.attach(world.worldSeed, map), /overwrite/);
   assert.doesNotMatch(JSON.stringify(map.publicBeastAtlas || {}), /beast-habitat-source|groupRows|foodAllocations|originalIndividualCount/);
 });
+test('new drift records use canonical climate direction while older source records remain unchanged', () => {
+  const { source, map, record } = fixture();
+  assert.equal(record.windTransport, true);
+  assert.ok(source.groups.filter(g => g.speciesId === 'beast:carrion-lantern').every(g => g.windDriven));
+  for (const r of source.regions.filter(r => r.kind !== 'subsurface')) {
+    const i = W.cellIndex(r.cellId), angle = map.climate.windBearingDeg[i] * Math.PI / 180;
+    approx(r.wind.x, Math.sin(angle) * map.climate.windStrengthPermille[i] / 100);
+    approx(r.wind.y, Math.cos(angle) * map.climate.windStrengthPermille[i] / 100);
+  }
+  const legacy = S.generate(record.seed, map, { windTransport: false }), before = JSON.stringify(legacy);
+  assert.equal(legacy.windTransport, undefined); S.validate(legacy, map);
+  const old = S.expand(legacy, map);
+  assert.ok(old.groups.every(g => !g.windDriven)); assert.ok(old.regions.every(r => r.wind == null && r.edges.every(e => !e.windBoundary)));
+  assert.equal(JSON.stringify(legacy), before);
+  assert.deepEqual(legacy.groupRows, record.groupRows);
+});
 test('spherical habitat areas cover the actual globe once at the surface, with separate underground volumes', () => {
   const { map, record } = fixture();
   const globe = 4 * Math.PI * map.topology.planetRadiusKm ** 2 * 100;

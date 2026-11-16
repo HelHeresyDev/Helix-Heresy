@@ -14,10 +14,11 @@
     node ? require('./beast-population-scheduler') : root.HelixBeastPopulationScheduler,
     node ? require('./background-wildlife') : root.HelixBackgroundWildlife,
     node ? require('./beast-foraging') : root.HelixBeastForaging,
-    node ? require('./beast-parental-care') : root.HelixBeastParentalCare);
+    node ? require('./beast-parental-care') : root.HelixBeastParentalCare,
+    node ? require('./beast-wind-drift') : root.HelixBeastWindDrift);
   if (node) module.exports = api;
   root.HelixBeastPopulations = api;
-})(globalThis, function (Biology, Life, Journeys, Wilderness, Predation, Bodies, Demography, Ecology, Foodweb, Scheduler, Wildlife, Foraging, Care) {
+})(globalThis, function (Biology, Life, Journeys, Wilderness, Predation, Bodies, Demography, Ecology, Foodweb, Scheduler, Wildlife, Foraging, Care, Wind) {
   'use strict';
   const DAY = 86400, EPS = 1e-8, copy = x => JSON.parse(JSON.stringify(x));
   const diagnosticToken = Symbol('private generated-source replay');
@@ -88,6 +89,7 @@
   function validateSource(source) {
     if (!id(source?.id) || !Array.isArray(source.groups) || !Array.isArray(source.regions)) throw Error('Missing population source');
     Foodweb.validateSource(source);
+    if (!Wind.validDefinition(source)) throw Error('Invalid physical airflow');
     if (source.spatialContinuity != null && typeof source.spatialContinuity !== 'boolean') throw Error('Invalid physical continuity declaration');
     monthAt(source.calendar, 0);
     if (source.unlocated && (!Array.isArray(source.unlocated) || source.unlocated.some(row => !id(row.populationId)
@@ -162,6 +164,7 @@
     return options.length ? options[Math.floor(Life.random(seed) * options.length)].id : null;
   }
   function scheduleDeparture(s, g, at, month) {
+    if (Wind.enabled(g)) return; // A drift reference speed is not directed flight.
     if (g.will === false || Journeys.configured(g) && g.seasonal?.active && g.seasonal.active.status !== 'blocked') return;
     const here = s.regions.find(r => r.id === g.regionId);
     const policy = { ...(Journeys.configured(g) ? { mode: 'forcedDispersal' } : g.instinct || { mode: 'forcedDispersal' }), at };
@@ -184,7 +187,7 @@
       g.demographicPlan = { monthIndex: month.index, regionId: g.regionId, siteId: g.breeding?.siteId || null,
         requestedReproduction: Boolean(g.breeding && g.will !== false && g.willing !== false),
         ratePerDay: Biology.lifecycle[g.speciesId].attempts365 / 365 };
-      if (g.will === false || !g.cohorts.some(c => count(c))) continue;
+      if (Wind.enabled(g) || g.will === false || !g.cohorts.some(c => count(c))) continue;
       if (Journeys.configured(g)) {
         for (const event of Journeys.planMonth(g, s.calendar, month, at)) record(s, event.kind, event.at, event);
         continue;
@@ -228,7 +231,8 @@
     refreshGroups: (s, groups) => Demography.refreshGroups(s, groups),
     dailyNeeded: s => Boolean(s.regions.some(r => r.ecology || r.wildlife) || s.groups.some(g => g.cohorts.some(c => count(c) && (c.aggregateMortality || c.demography)) || g.breeding) || s.extraRates?.length),
     movingDestinations: (g, at) => [g.intention?.departAt <= at + EPS ? g.intention.destination : null,
-      g.transit && !g.transit.stop && (g.transit.crossAt <= at + EPS || g.transit.edgeArriveAt <= at + EPS) ? g.transit.path.at(-1) : null].filter(Boolean),
+      g.transit && !g.transit.stop && (g.transit.crossAt <= at + EPS || g.transit.edgeArriveAt <= at + EPS) ? g.transit.path.at(-1) : null,
+      ...Wind.destinations(g, at)].filter(Boolean),
     references: (g, at) => {
       const refs = new Set();
       for (const c of g.cohorts) {
@@ -262,6 +266,8 @@
       for (const c of g.cohorts) {
         Demography.synchronize(s, g, c, at);
         const p = Biology.lifecycle[c.speciesId], juvenile = at - c.bornAt < p.adultDays * DAY;
+        if (Wind.enabled(g) && count(c)) next = Math.min(next, Wind.plan(g, c, Demography.region(s, g.regionId), at, month,
+          Foodweb.position(g, Demography.region(s, g.regionId), c, c.ranges[0][0]), Foodweb.actor(g, c, c.ranges[0][0], Demography.region(s, g.regionId), at)));
         const scale = count(c) * (c.massKg / p.adultKg) ** .75 * (juvenile ? p.juvenileMultiplier : 1)
           * (Journeys.moving(g) ? p.travelMultiplier : c.foraging?.action
             ? 1 + (p.travelMultiplier - 1) * Foraging.travelScale(c) : c.contactBusyUntil > at ? p.travelMultiplier : 1);
@@ -421,6 +427,7 @@
       if (g.transit?.stop) g.travelCare.usedSeconds += to - from;
       for (const c of g.cohorts) {
         const n = count(c); if (!n) continue;
+        if (Wind.enabled(g)) Wind.integrate(c, to);
         Foraging.integrate(s.accountRoot || s, r, g, c, from, to, rate);
         Care.effort(c, to - from, r);
         if (Journeys.moving(g) && c.regional) c.regional.at = to; // Moving travel is not banked supplied rest; an actual stop can earn it.
@@ -561,6 +568,23 @@
   function boundary(s, at) {
     if (s.work) s.work.boundaries++;
     Care.finish(s, at);
+    for (const g of [...s.groups]) if (Wind.enabled(g)) for (const c of [...g.cohorts].reverse()) {
+      if (!count(c) || !c.windDrift?.crossing || c.windDrift.until > at + EPS) continue;
+      const position = Wind.entry(c), root = s.accountRoot || s;
+      c.windCrossings = (c.windCrossings || 0) + 1;
+      Foodweb.handoff(s, g.id, c.id, at, { region: id => Demography.region(s, id), group: id => Demography.group(s, id), lose: (...args) => lose(s, ...args) });
+      let owner = g;
+      if (g.cohorts.length > 1) {
+        const flock = g.windFlockId || g.id;
+        owner = { ...copy(g), id: `${flock}:drift:${c.id}:${c.windCrossings}`, windFlockId: flock, cohorts: [c], breeding: null, instinct: null, seasonal: null,
+          intention: null, transit: null, regionId: position.regionId };
+        g.cohorts = g.cohorts.filter(row => row !== c); root.groups.push(owner);
+        if (s !== root) s.groups.push(owner);
+        Scheduler.registerGroup(root, owner, at);
+      }
+      owner.regionId = position.regionId; c.regionalPosition = position; delete c.windDrift;
+      record(s, 'windCrossing', at, { groupId: owner.id, cohortId: c.id, regionId: owner.regionId });
+    }
     for (const g of s.groups) {
       for (const c of g.cohorts) if (count(c) && c.health <= EPS) {
         if (c.aggregateMortality) loseBatch(s, g, c, count(c), c.scarcityCause, at);
@@ -968,7 +992,7 @@
           || d.actor.life?.originalMemberId !== d.memberId || d.actor.life.originalGroupId !== d.groupId || !Life.valid(d.actor) || !Bodies.valid(d.actor)
           || !Predation.validRemains(d.actor) || !Predation.validHunt(d.actor) || d.status === 'dead' && d.actor.status !== 'dead')) return null;
       }
-      if (!Ecology.valid(s) || !Foodweb.validate(s) || !Scheduler.validate(s) || !Foraging.valid(s, id => Demography.group(s, id)) || !Care.valid(s)) return null;
+      if (!Ecology.valid(s) || !Foodweb.validate(s) || !Scheduler.validate(s) || !Foraging.valid(s, id => Demography.group(s, id)) || !Care.valid(s) || !Wind.valid(s)) return null;
       audit(s); Demography.prepare(s, s.appliedAt); Scheduler.restore(s, schedulerOps); return s; // Restore indexes, never paid rates or choices.
     } catch { return null; }
   }

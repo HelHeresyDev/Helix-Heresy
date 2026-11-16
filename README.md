@@ -2275,6 +2275,13 @@ bit-identical to the old unrelated-event-dependent maintenance trajectory.
 The sample remains rejected/unverified—not a claim of native gameplay scaling.
 See [recorded source execution and its limits](BEAST_POPULATIONS.md#recorded-physical-source-execution).
 
+New Carrion Lantern proposals now consume canonical prevailing winds through
+saved cohort drift rather than directed reference-speed travel. Real positions,
+finite local carcasses, paid feeding holds and original region crossings survive
+saves and local handoff; wind cannot steer toward unseen food. Archived sources
+are unchanged. This remains internal #3.38-D work, not native encounter adoption
+or an ecological-health certificate. See [wind-driven scavenging](BEAST_POPULATIONS.md#wind-driven-carrion-lanterns).
+
 New habitat proposals also archive finite [background wildlife](BACKGROUND_WILDLIFE.md):
 ordinary insects, three land-animal sizes and three fish sizes in compact age
 cohorts. Seeded finite herd/school footprints require actual horizontal and

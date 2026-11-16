@@ -38,6 +38,11 @@
     const id = `forage-meal:${r.id}:${r.foraging.serial++}`;
     r.foraging.meals[id] = { id, kind, sourceId, groupId: g.id, cohortId: c.id, kg, initialKg: kg,
       consumedKg: 0, decomposedKg: 0, lastAt: at, position: copy(position) };
+    if (g.windDriven && kind === 'wildlife') {
+      const pool = r.wildlife.pools.find(p => p.id === sourceId), site = pool.spatial;
+      r.foraging.meals[id].field = site ? { eastM: site.eastM, northM: site.northM, radiusM: site.radiusM }
+        : { eastM: 0, northM: 0, radiusM: Math.sqrt(r.areaHa * 10000 / Math.PI) };
+    }
     source.reservedKg = (source.reservedKg || 0) + kg;
     c.foraging.mealIds.push(id); return id;
   }
@@ -128,6 +133,7 @@
     } else if (restOK && !c.contactBusyUntil) {
       rest = seconds; c.regional.stamina = Math.min(300, c.regional.stamina + seconds * .5);
     }
+    if (g.windDriven && c.windDrift?.hold) c.regional.stamina = Math.max(0, c.regional.stamina - seconds * c.windDrift.hold.effortRate);
     if (rest > 0) { f.restPending += rest; f.plan.used.rest += rest; r.foraging.receipts.restSeconds += rest * n; }
     if (rest > 0 && g.speciesId !== 'beast:mirror-ape') {
       const p = Data.lifecycle[g.speciesId], capacity = p.manaCapacity * Math.min(1, c.massKg / p.adultKg);
@@ -171,11 +177,14 @@
     if (old) {
       f.action = null; f.phase = 'idle'; delete c.contactBusyUntil;
       if (old.phase === 'search' && old.earnedSeconds > 0) {
-        const footprint = (Math.PI * old.senseM ** 2 + old.speed * old.earnedSeconds * Math.min(100, old.senseM) * 2) / 10000;
+        // Wind moves the body, not an abstract omnidirectional search disk. A
+        // completed search may claim only tissue reachable at its actual end.
+        const footprint = g.windDriven ? Math.PI * Bodies.profiles[c.speciesId].reachM ** 2 / 10000
+          : (Math.PI * old.senseM ** 2 + old.speed * old.earnedSeconds * Math.min(100, old.senseM) * 2) / 10000;
         const areaHa = r.areaHa * -Math.expm1(-footprint * n / r.areaHa);
         const claims = ctx.capture({ id: old.id, areaHa, depthM: old.depthM, scavenge: old.scavenge,
           success: old.scavenge ? 1 : p.huntSuccess, memberCount: n, guilds: old.guilds }, Math.max(0, capacity(c) - c.stores.foodKg) * n);
-        for (const entry of claims) claim(r, g, c, 'wildlife', entry.sourceId, entry.kg, at, ctx.position);
+        for (const entry of claims) claim(r, g, c, entry.kind || 'wildlife', entry.sourceId, entry.kg, at, ctx.position);
         r.foraging.receipts.searches += n;
         if (f.mealIds.length) { action(c, 'handling', at, Math.min(60, room(f, 'handling'))); return; }
       }
@@ -187,7 +196,11 @@
     if (c.caregiving) { f.nextAt = c.caregiving.until; return; }
     if (f.availableUntil <= at + EPS) { f.nextAt = at + 1e-6; return; }
     f.mealIds = f.mealIds.filter(id => {
-      const meal = r.foraging.meals[id]; if (meal?.kg > EPS) return true;
+      const meal = r.foraging.meals[id];
+      const near = !g.windDriven || meal && (meal.field ? Math.hypot(ctx.position.eastM - meal.field.eastM, ctx.position.northM - meal.field.northM) + (ctx.clearance || 0) <= meal.field.radiusM
+        : c.windDrift?.hold?.mealId === id || Math.hypot(ctx.position.eastM - meal.position.eastM, ctx.position.northM - meal.position.northM,
+          ctx.position.altitudeM - meal.position.altitudeM) <= Bodies.profiles[c.speciesId].reachM);
+      if (meal?.kg > EPS && near) return true;
       if (meal) { const source = row(r, meal); source.reservedKg = Math.max(0, source.reservedKg - meal.kg); delete r.foraging.meals[id]; }
       return false;
     });
@@ -199,7 +212,19 @@
       const untilEmpty = meal.kg <= perDay * n * frozenDays ? meal.kg / (perDay * n) * DAY
         : (frozenDays + Math.log1p(DECAY * (meal.kg - perDay * n * frozenDays) / (perDay * n)) / DECAY) * DAY;
       const untilFull = net > 0 ? (capacity(c) - c.stores.foodKg) / net * DAY : HOUR;
-      action(c, 'eating', at, Math.min(room(f, 'eating'), untilEmpty, untilFull, 2 * HOUR), { mealId: meal.id, intakePerDay: perDay }); return;
+      let contactTime = Infinity;
+      const hold = g.windDriven && ctx.canHold?.();
+      if (g.windDriven && !hold) {
+        const v = c.windDrift?.velocity || { x: 0, y: 0 }, speed2 = v.x * v.x + v.y * v.y;
+        if (speed2 > EPS) {
+          const site = meal.field ? { ...meal.field, radiusM: Math.max(0, meal.field.radiusM - (ctx.clearance || 0)) }
+            : { eastM: meal.position.eastM, northM: meal.position.northM, radiusM: Bodies.profiles[c.speciesId].reachM };
+          const x = ctx.position.eastM - site.eastM, y = ctx.position.northM - site.northM, dot = x * v.x + y * v.y;
+          contactTime = Math.max(0, (-dot + Math.sqrt(Math.max(0, dot * dot - speed2 * (x * x + y * y - site.radiusM ** 2)))) / speed2);
+        }
+      }
+      action(c, 'eating', at, Math.min(room(f, 'eating'), untilEmpty, untilFull, 2 * HOUR, contactTime,
+        hold?.effortRate > 0 ? c.regional.stamina / hold.effortRate : Infinity), { mealId: meal.id, intakePerDay: perDay }); return;
     }
     if (f.mealIds.length) release(r, c);
     const need = Math.max(p.foodKgDay * .5, (c.needs.foodKg || 0) / n) + (c.provisioningDemandKgDay || 0);
@@ -233,7 +258,7 @@
     }
     const a = ctx.actor, b = Bodies.profiles[g.speciesId], aquatic = ['swimming', 'drifting'].includes(a.bodyPhysics.mode);
     if (!aquatic && ctx.position.altitudeM > 2 || r.contactBarriers?.length) { f.nextAt = Math.min(f.plan.end, at + 6 * HOUR); return; }
-    const guilds = ctx.guilds(a); if (!guilds.length) { f.nextAt = Math.min(f.plan.end, at + 6 * HOUR); return; }
+    const guilds = ctx.guilds(a); if (!guilds.length && !(g.windDriven && ctx.originalCarrion)) { f.nextAt = Math.min(f.plan.end, at + 6 * HOUR); return; }
     const passive = a.bodyPhysics.mode === 'drifting' || a.bodyPhysics.mode === 'flight' && b.form === 'aerostat';
     const effortRate = passive ? .01 : a.bodyPhysics.mode === 'flight' ? b.airCost : a.bodyPhysics.mode === 'burrowing' ? 3 : .5;
     const manaRate = a.bodyPhysics.mode === 'levitation' ? b.levitationCost : 0;
@@ -246,7 +271,7 @@
     // more search seconds than remain in the real monthly budget.
     const fullCycles = Math.max(0, Math.ceil(activeRoom / cycleActive) - 1);
     const searchWindow = fullCycles * (cycleActive + cycleRest) + activeRoom - fullCycles * cycleActive;
-    const seconds = Math.min(HOUR, f.bout.until - at, searchWindow,
+    const seconds = Math.min(HOUR, f.bout.until - at, searchWindow, g.windDriven ? ctx.contactTime?.(HOUR) ?? HOUR : Infinity,
       cycleRest ? Infinity : cycleActive);
     const senseM = (aquatic ? Math.max(b.pressureM || 0, b.sightM || 0) : Math.max(b.sightM || 0, b.scentM || 0))
       * Math.max(0, 1 - Bodies.wounded(a, /head|eye|antenna|pressure organ/));
@@ -269,6 +294,12 @@
           || meal.position.regionId !== r.id || meal.lastAt > (s.regionClocks?.[r.id]?.appliedAt ?? s.appliedAt) + EPS
           || Math.abs(meal.initialKg - meal.kg - meal.consumedKg - meal.decomposedKg) > 1e-6 * Math.max(1, meal.initialKg)) return false;
         if (owned.has(id)) return false;
+        if (g.windDriven && meal.kind === 'wildlife') {
+          const pool = r.wildlife.pools.find(p => p.id === meal.sourceId), site = pool.spatial;
+          const field = site ? { eastM: site.eastM, northM: site.northM, radiusM: site.radiusM }
+            : { eastM: 0, northM: 0, radiusM: Math.sqrt(r.areaHa * 10000 / Math.PI) };
+          if (JSON.stringify(meal.field) !== JSON.stringify(field)) return false;
+        } else if (meal.field != null) return false;
         owned.set(id, c); sums.set(source, (sums.get(source) || 0) + meal.kg);
       }
       for (const source of [...Object.values(r.remains || {}), ...Object.values(r.remainsBatches || {}), ...(r.wildlife?.pools || []).map(p => p.carcass)])
