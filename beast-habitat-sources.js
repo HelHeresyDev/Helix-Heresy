@@ -10,10 +10,11 @@
     node ? require('./beast-behavior') : root.HelixBeastBehavior,
     node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys,
     node ? require('./beast-habitat-bindings') : root.HelixBeastHabitatBindings,
-    node ? require('./background-wildlife') : root.HelixBackgroundWildlife);
+    node ? require('./background-wildlife') : root.HelixBackgroundWildlife,
+    node ? require('./beast-parental-care') : root.HelixBeastParentalCare);
   if (node) module.exports = api;
   root.HelixBeastHabitatSources = api;
-})(globalThis, function (World, Ecology, Biology, Local, Bodies, Behavior, Journeys, Bindings, Wildlife) {
+})(globalThis, function (World, Ecology, Biology, Local, Bodies, Behavior, Journeys, Bindings, Wildlife, Care) {
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x)), clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
   const random = s => parseInt(World.stableHash(s), 16) / 4294967296;
@@ -166,6 +167,13 @@
     return compatible(s, patch, physical) || s.realm === 'land' && patch.kind === 'waterColumn'
       && s.movementModes.some(mode => ['flight', 'levitation'].includes(mode));
   }
+  function routeDirection(topology, from, to) {
+    const a = topology.vertices[from], b = topology.vertices[to], east = cross(a, [0, 1, 0]);
+    const length = Math.hypot(...east);
+    const e = length > 1e-8 ? east.map(n => n / length) : [0, 0, 1], north = cross(e, a);
+    const x = dot(b, e), y = dot(b, north), n = Math.hypot(x, y);
+    return n > 1e-8 ? [x / n, y / n] : [1, 0];
+  }
   function expandGroups(record, map, patches, physical = false) {
     const populations = populationsFor(map);
     const migrations = new Map((ecologyFor(map).migrations || []).map(m => [m.populationId, m]));
@@ -205,6 +213,7 @@
       const foodKey = [...dietKeys].sort((a, b) => foodPotential(patch, b, record.calendar) - foodPotential(patch, a, record.calendar)
         || dietKeys.indexOf(a) - dietKeys.indexOf(b))[0] || 'foodKg';
       return { id: groupId, populationId: population.id, speciesId: s.id, regionId: patch.id, cohorts, dietKeys,
+        ...(record.physicalPlacement ? { parentalCare: Care.mode(s.id) } : {}),
         home: { patchId: patch.id, cellId: patch.cellId, eastKm: offset[0], northKm: offset[1],
           depthM: s.movementModes.some(mode => ['flight', 'levitation'].includes(mode)) ? 0
             : patch.kind === 'waterColumn' || record.physicalPlacement && patch.kind === 'wetland'
@@ -242,11 +251,17 @@
             || s.movementModes.some(mode => ['flight', 'levitation'].includes(mode))
             || [patch.kind, other.kind].every(kind => ['surface', 'shore'].includes(kind)))).map(s => s.id);
         if (!allowedSpecies.length) continue;
-        patch.edges.push({ id: other.id, distanceKm: local ? .5 : World.greatCircleDistanceKm(map, index, World.cellIndex(other.cellId)),
+        const otherIndex = World.cellIndex(other.cellId), distanceKm = local ? .5 : World.greatCircleDistanceKm(map, index, otherIndex);
+        const out = local ? [1, 0] : routeDirection(topology, index, otherIndex), back = local ? [-1, 0] : routeDirection(topology, otherIndex, index);
+        patch.edges.push({ id: other.id, distanceKm,
           traversable: true, allowedSpecies,
           ...(record.physicalPlacement ? {
             departurePosition: { regionId: patch.id, eastM: 0, northM: 0, altitudeM: 0 },
-            arrivalPosition: { regionId: other.id, eastM: 0, northM: 0, altitudeM: 0 }
+            arrivalPosition: { regionId: other.id, eastM: 0, northM: 0, altitudeM: 0 },
+            routeFrames: {
+              exit: { regionId: patch.id, eastM: out[0] * distanceKm * 500, northM: out[1] * distanceKm * 500, altitudeM: 0 },
+              entry: { regionId: other.id, eastM: back[0] * distanceKm * 500, northM: back[1] * distanceKm * 500, altitudeM: 0 }
+            }
           } : {}) });
       }
     }

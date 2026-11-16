@@ -7,6 +7,9 @@
   const DAY = 86400, EPS = 1e-8, copy = x => JSON.parse(JSON.stringify(x));
   const PHASES = ['thaw', 'highSun', 'stormturn', 'deepCold'];
   const finite = n => Number.isFinite(n) && n >= 0;
+  const moving = g => Boolean(g.transit && !g.transit.stop);
+  const next = g => g.transit ? g.transit.stop?.until
+    ?? Math.min(g.transit.edgeIndex === 0 ? g.transit.crossAt : g.transit.edgeArriveAt, g.transit.nextStopCheckAt ?? Infinity) : Infinity;
   function monthAt(calendar, at) {
     if (!calendar?.monthDays?.length || !calendar.monthDays.every(n => Number.isFinite(n) && n > 0)
       || !Number.isFinite(calendar.epochAt)) throw Error('An explicit game calendar is required');
@@ -112,13 +115,31 @@
     g.transit = { path: [g.regionId, intention.destination], edgeIndex: 0, departedAt: at,
       edgeStartedAt: at, crossAt: at + (approach + edge.distanceKm / 2) / speedKmDay * DAY,
       edgeArriveAt: at + (approach + edge.distanceKm + final) / speedKmDay * DAY,
-      ...(spatial ? { spatial: { ...copy(spatial), speedKmDay } } : {}) };
+      ...(spatial ? { spatial: { ...copy(spatial), speedKmDay }, nextStopCheckAt: at + DAY / 4,
+        pausedSeconds: { beforeCross: 0, afterCross: 0 } } : {}) };
     if (intention.seasonalLegId && g.seasonal?.active?.id === intention.seasonalLegId) g.seasonal.active.status = 'travelling';
     events.push({ kind: 'departure', at, groupId: g.id, from: g.regionId, destination: intention.destination }); return events;
   }
   const location = g => g.transit ? g.transit.path[g.transit.edgeIndex] : g.regionId;
+  function pause(g, at, position, until, reason) {
+    const t = g.transit;
+    if (!t?.spatial || t.stop || !(until > at) || until - at > DAY / 4 + EPS
+      || position?.regionId !== location(g) || !['eastM', 'northM', 'altitudeM'].every(k => Number.isFinite(position[k]))) return null;
+    t.pausedSeconds ||= { beforeCross: 0, afterCross: 0 };
+    t.stop = { startedAt: at, until, position: copy(position), reason };
+    return { kind: 'journeyStopped', at, groupId: g.id, regionId: location(g), reason, until };
+  }
+  function resume(g, at) {
+    const t = g.transit, stop = t?.stop; if (!stop || at < stop.startedAt || at > stop.until + EPS) return null;
+    const elapsed = at - stop.startedAt;
+    t.pausedSeconds[t.edgeIndex === 0 ? 'beforeCross' : 'afterCross'] += elapsed;
+    if (t.edgeIndex === 0) t.crossAt += elapsed;
+    t.edgeArriveAt += elapsed; delete t.stop;
+    t.nextStopCheckAt = at + DAY / 4;
+    return { kind: 'journeyResumed', at, groupId: g.id, regionId: location(g), stoppedSeconds: elapsed };
+  }
   function arrive(g, at) {
-    if (!g.transit) return [];
+    if (!g.transit || g.transit.stop) return [];
     if (g.transit.crossAt <= at + EPS) g.transit.edgeIndex = 1;
     if (g.transit.edgeArriveAt > at + EPS) return [];
     const events = [];
@@ -147,6 +168,15 @@
     return events;
   }
   function validState(g, calendar, at, allowUnresolved = false) {
+    const t = g.transit;
+    if (t?.pausedSeconds && (!t.spatial || !['beforeCross', 'afterCross'].every(k => finite(t.pausedSeconds[k]))
+      || t.pausedSeconds.beforeCross + t.pausedSeconds.afterCross > at - t.departedAt + EPS)) return false;
+    if (t?.nextStopCheckAt != null && (!t.spatial || !finite(t.nextStopCheckAt))) return false;
+    if (t?.stop && (!t.spatial || !t.pausedSeconds || !finite(t.stop.startedAt) || t.stop.startedAt > at + EPS
+      || !(t.stop.until > at - EPS) || t.stop.until - t.stop.startedAt > DAY / 4 + EPS
+      || t.stop.startedAt >= t.edgeArriveAt || t.stop.position?.regionId !== location(g)
+      || !['eastM', 'northM', 'altitudeM'].every(k => Number.isFinite(t.stop.position[k]))
+      || !['hunger', 'thirst', 'fatigue'].includes(t.stop.reason))) return false;
     if (!validSpec(g, calendar, allowUnresolved)) return false;
     if (!configured(g)) return !g.seasonal;
     const s = g.seasonal; if (!s) return true;
@@ -187,5 +217,5 @@
     }
     return { segments, events, at, regionId: g.regionId, transit: copy(g.transit), seasonal: copy(g.seasonal) };
   }
-  return { DAY, monthAt, phaseIds, configured, validSpec, planMonth, intent, depart, arrive, blocked, location, validState, trace };
+  return { DAY, monthAt, phaseIds, configured, validSpec, planMonth, intent, depart, arrive, pause, resume, moving, next, blocked, location, validState, trace };
 });

@@ -3,10 +3,11 @@
   const node = typeof module === 'object' && module.exports;
   const api = factory(node ? require('./creature-life') : root.HelixCreatureLife,
     node ? require('./creature-biology') : root.HelixCreatureBiology,
-    node ? require('./beast-bodies') : root.HelixBeastBodies);
+    node ? require('./beast-bodies') : root.HelixBeastBodies,
+    node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys);
   if (node) module.exports = api;
   root.HelixBeastForaging = api;
-})(globalThis, function (Life, Data, Bodies) {
+})(globalThis, function (Life, Data, Bodies, Journeys) {
   'use strict';
   const DAY = 86400, HOUR = 3600, EPS = 1e-8, DECAY = .1, copy = x => JSON.parse(JSON.stringify(x));
   const count = c => c.ranges.reduce((n, [lo, hi]) => n + hi - lo, 0);
@@ -60,15 +61,24 @@
     return (p.foodKgDay === 0 || c.stores.foodKg + c.stores.fatKg > EPS)
       && (p.waterLDay === 0 || c.stores.waterL > EPS || (rate?.supply[g.resources?.waterL || 'waterL'] ?? 0) >= 1);
   }
+  function canRest(c, g, r) {
+    if (Journeys.moving(g) || r.oxygen === false) return false;
+    const b = Bodies.profiles[c.speciesId], water = ['wetland', 'waterColumn'].includes(r.kind)
+      ? (r.stocks[r.kind === 'waterColumn' ? 'seawaterL' : 'waterL'] || 0) / (r.areaHa * 10000 * 1000) : 0;
+    if (b.form === 'aerostat') return true; // Actual passive buoyancy, not unsupported winged hovering.
+    if (b.modes.some(mode => ['swimming', 'drifting'].includes(mode)) && water >= b.minWaterDepthM && water > 0) return true;
+    return r.floor === true && water <= b.heightM * Math.cbrt(c.massKg / b.massKg) * .5;
+  }
   const usedActive = f => f.plan.used.search + f.plan.used.eating + f.plan.used.handling;
   const room = (f, kind) => Math.max(0, Math.min(f.plan.limits[kind] - f.plan.used[kind], f.plan.limits.active - usedActive(f)));
   function capacity(c) {
     const p = Data.lifecycle[c.speciesId];
-    return Math.min(c.massKg * .25, Math.max(p.foodKgDay * Math.max(2, p.foodReserveDays || 1), p.newbornKg));
+    return Math.min(c.massKg * .25, Math.max(p.foodKgDay * Math.max(2, p.foodReserveDays || 1)
+      + (c.provisioningDemandKgDay || 0) * 2, p.newbornKg));
   }
   function action(c, phase, at, seconds, data = {}) {
     const f = c.foraging;
-    seconds = Math.max(1e-6, Math.min(seconds, f.plan.end - at));
+    seconds = Math.max(1e-6, Math.min(seconds, (f.availableUntil ?? f.plan.end) - at));
     f.phase = phase; f.action = { phase, startedAt: at, dueAt: at + seconds, ...data }; f.nextAt = at + seconds;
     if (phase === 'search' || phase === 'eating' || phase === 'handling') c.contactBusyUntil = f.nextAt;
     else delete c.contactBusyUntil;
@@ -100,7 +110,7 @@
   }
   function integrate(s, r, g, c, from, to, rate) {
     const f = c.foraging; if (!f || !r.foraging || !(to > from) || !count(c)) return;
-    const a = f.action, seconds = to - from, n = count(c), restOK = supported(c, g, rate) && !g.transit;
+    const a = f.action, seconds = to - from, n = count(c), restOK = supported(c, g, rate) && canRest(c, g, r);
     let active = 0, rest = 0;
     if (f.phase === 'search' && a) {
       const earned = activeAt(a, Math.max(0, to - a.startedAt)) - activeAt(a, Math.max(0, from - a.startedAt));
@@ -146,8 +156,9 @@
   const intake = c => c.foraging?.phase === 'eating' ? c.foraging.action.intakePerDay * (c.speciesId === 'beast:carrion-lantern' ? .95 : 1) : 0;
   function step(s, r, g, c, at, ctx) {
     const f = c.foraging; if (!f || !r.foraging || !count(c)) return;
+    f.availableUntil = Math.min(f.plan.end, ctx.until ?? Infinity);
     const p = Data.lifecycle[g.speciesId], n = count(c);
-    if (g.transit || g.regionId !== r.id || g.will === false || g.willing === false || c.health <= .3 || !ctx.usable) {
+    if (Journeys.moving(g) || Journeys.location(g) !== r.id || g.will === false || g.willing === false || c.health <= .3 || !ctx.usable) {
       cancel(r, c, at); return;
     }
     if (c.contactBusyUntil > at && !f.action) { f.nextAt = c.contactBusyUntil; return; }
@@ -169,6 +180,7 @@
         if (f.mealIds.length) { action(c, 'handling', at, Math.min(60, room(f, 'handling'))); return; }
       }
     }
+    if (f.availableUntil <= at + EPS) { f.nextAt = at + 1e-6; return; }
     f.mealIds = f.mealIds.filter(id => {
       const meal = r.foraging.meals[id]; if (meal?.kg > EPS) return true;
       if (meal) { const source = row(r, meal); source.reservedKg = Math.max(0, source.reservedKg - meal.kg); delete r.foraging.meals[id]; }
@@ -185,9 +197,10 @@
       action(c, 'eating', at, Math.min(room(f, 'eating'), untilEmpty, untilFull, 2 * HOUR), { mealId: meal.id, intakePerDay: perDay }); return;
     }
     if (f.mealIds.length) release(r, c);
-    const need = Math.max(p.foodKgDay * .5, (c.needs.foodKg || 0) / n);
+    const need = Math.max(p.foodKgDay * .5, (c.needs.foodKg || 0) / n) + (c.provisioningDemandKgDay || 0);
     const continuingBout = f.bout && at < f.bout.until - EPS && c.stores.foodKg < capacity(c) - EPS;
-    const wantsFood = continuingBout || c.stores.foodKg < need && c.stores.fatKg < Math.max(EPS, c.massKg * .05);
+    const wantsFood = continuingBout || c.stores.foodKg < need
+      && (c.stores.fatKg < Math.max(EPS, c.massKg * .05) || (c.provisioningDemandKgDay || 0) > 0);
     if (!wantsFood) {
       f.shortageAt = null;
       const use = (c.needs.foodKg || 0) / n * (1 - (s.rates[r.id].supply[g.resources.foodKg] ?? 0));
@@ -198,7 +211,7 @@
       f.nextAt = f.plan.end; return;
     }
     if (c.regional.stamina < 100) {
-      if (supported(c, g, s.rates[r.id])) { action(c, 'rest', at, Math.max(1, (300 - c.regional.stamina) / .5)); return; }
+      if (supported(c, g, s.rates[r.id]) && canRest(c, g, r)) { action(c, 'rest', at, Math.max(1, (300 - c.regional.stamina) / .5)); return; }
       if (c.regional.stamina < 2) { f.nextAt = Math.min(f.plan.end, at + 6 * HOUR); return; }
     }
     const scavenge = g.speciesId === 'beast:carrion-lantern';
@@ -216,7 +229,7 @@
     const manaRate = a.bodyPhysics.mode === 'levitation' ? b.levitationCost : 0;
     const cycleActive = Math.min(300, c.regional.stamina * .5 / effortRate, manaRate > 0 ? c.regional.mana / manaRate : Infinity);
     if (cycleActive < 1) { f.nextAt = Math.min(f.plan.end, at + HOUR); return; }
-    const cycleRest = supported(c, g, s.rates[r.id]) ? cycleActive * effortRate / .5 : 0;
+    const cycleRest = supported(c, g, s.rates[r.id]) && canRest(c, g, r) ? cycleActive * effortRate / .5 : 0;
     const seconds = Math.min(HOUR, f.bout.until - at, room(f, 'search') * (cycleActive + cycleRest) / cycleActive,
       cycleRest ? Infinity : cycleActive);
     const senseM = (aquatic ? Math.max(b.pressureM || 0, b.sightM || 0) : Math.max(b.sightM || 0, b.scentM || 0))
@@ -234,7 +247,7 @@
       const sums = new Map();
       for (const [id, meal] of Object.entries(x.meals)) {
         const g = getGroup(meal.groupId), c = g?.cohorts.find(c => c.id === meal.cohortId), source = row(r, meal);
-        if (meal.id !== id || !c?.foraging?.mealIds.includes(id) || !source || g.regionId !== r.id || g.transit
+        if (meal.id !== id || !c?.foraging?.mealIds.includes(id) || !source || Journeys.location(g) !== r.id || Journeys.moving(g)
           || !['wildlife', 'beast'].includes(meal.kind) || !['kg', 'initialKg', 'consumedKg', 'decomposedKg', 'lastAt'].every(k => finite(meal[k]))
           || !meal.position || !['eastM', 'northM', 'altitudeM'].every(k => Number.isFinite(meal.position[k]))
           || meal.position.regionId !== r.id || meal.lastAt > (s.regionClocks?.[r.id]?.appliedAt ?? s.appliedAt) + EPS
@@ -248,7 +261,7 @@
     }
     for (const g of s.groups) for (const c of g.cohorts) if (c.foraging) {
       const f = c.foraging, plan = f.plan;
-      const dormant = !count(c) || g.transit || !s.regions.find(r => r.id === g.regionId)?.foraging;
+      const dormant = !count(c) || Journeys.moving(g) || !s.regions.find(r => r.id === Journeys.location(g))?.foraging;
       if (!['idle', 'search', 'handling', 'eating', 'rest'].includes(f.phase) || !finite(f.nextAt) || !dormant && f.nextAt <= s.clock - EPS
         || !finite(f.lastAt) || f.lastAt > s.clock + EPS || !finite(f.restPending) || !integer(f.serial)
         || !plan || !integer(plan.monthIndex) || !finite(plan.plannedAt) || !(plan.end > plan.plannedAt)
@@ -262,15 +275,17 @@
         || f.bout && (typeof f.bout.id !== 'string' || !finite(f.bout.until))
         || ['shortageAt', 'reactedShortageAt'].some(k => f[k] != null && (!finite(f[k]) || f[k] > s.clock + EPS))) return false;
       if (f.phase === 'idle' ? f.action != null : !f.action || f.action.phase !== f.phase || f.action.dueAt !== f.nextAt || !finite(f.action.startedAt)
-        || f.action.startedAt > (s.regionClocks?.[g.regionId]?.appliedAt ?? s.appliedAt) + EPS) return false;
+        || f.action.startedAt > (s.regionClocks?.[Journeys.location(g)]?.appliedAt ?? s.appliedAt) + EPS) return false;
       if (['search', 'eating', 'handling'].includes(f.phase) && c.contactBusyUntil !== f.nextAt) return false;
       const a = f.action;
       if (a && (!finite(a.dueAt) || !(a.dueAt > a.startedAt) || a.dueAt > plan.end + EPS)) return false;
+      if (f.availableUntil != null && (!finite(f.availableUntil) || f.availableUntil > plan.end + EPS)
+        || a && (Journeys.moving(g) || g.transit?.stop && a.dueAt > g.transit.stop.until + EPS)) return false;
       if (a?.phase === 'eating' && (!f.mealIds.includes(a.mealId) || a.intakePerDay !== Data.lifecycle[c.speciesId].foodKgDay * DAY / 600
         || a.dueAt - a.startedAt > 2 * HOUR + EPS)) return false;
       if (a?.phase === 'handling' && a.dueAt - a.startedAt > 60 + EPS) return false;
       if (a?.phase === 'search') {
-        const r = s.regions.find(r => r.id === g.regionId), b = Bodies.profiles[c.speciesId];
+        const r = s.regions.find(r => r.id === Journeys.location(g)), b = Bodies.profiles[c.speciesId];
         if (typeof a.id !== 'string' || !['cycleActive', 'cycleRest', 'effortRate', 'manaRate', 'speed', 'senseM', 'depthM', 'earnedSeconds'].every(k => finite(a[k]))
           || !(a.cycleActive >= 1 && a.cycleActive <= 300) || !(a.effortRate > 0) || a.speed > b.speed + EPS
           || a.dueAt - a.startedAt > HOUR + EPS || typeof a.scavenge !== 'boolean'
@@ -289,5 +304,5 @@
     }
     return result;
   }
-  return { initialize, plan, claim, cancel, supported, integrate, decay, step, next, travelScale, intake, valid, summary, capacity };
+  return { initialize, plan, claim, cancel, supported, canRest, integrate, decay, step, next, travelScale, intake, valid, summary, capacity };
 });

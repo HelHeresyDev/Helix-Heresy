@@ -9,10 +9,11 @@
     node ? require('./wilderness-beasts') : root.HelixWildernessBeasts,
     node ? require('./beast-demography') : root.HelixBeastDemography,
     node ? require('./background-wildlife') : root.HelixBackgroundWildlife,
-    node ? require('./beast-foraging') : root.HelixBeastForaging);
+    node ? require('./beast-foraging') : root.HelixBeastForaging,
+    node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys);
   if (node) module.exports = api;
   root.HelixBeastRegionalFoodweb = api;
-})(globalThis, function (Data, Life, Bodies, Behavior, Predation, Wilderness, Demography, Wildlife, Foraging) {
+})(globalThis, function (Data, Life, Bodies, Behavior, Predation, Wilderness, Demography, Wildlife, Foraging, Journeys) {
   'use strict';
   const DAY = Life.DAY, EPS = 1e-8, BIN = 128, LIMIT = 16, DURATION = 300;
   const copy = x => JSON.parse(JSON.stringify(x)), size = c => Demography.size(c.ranges);
@@ -41,7 +42,19 @@
     return referenceCache.get(speciesId);
   }
   function position(g, r, c = null, ordinal = 0) {
-    if (g.transit) return null;
+    if (g.transit) {
+      const stop = g.transit.stop, frame = g.transit.spatial;
+      if (!stop || stop.position.regionId !== r.id) return null;
+      if (!c) return copy(stop.position);
+      const entry = frame.formations.find(f => f.id === c.id), f = g.regionalFormation?.[c.originId];
+      const old = entry?.position || (entry?.formation ? formationPosition(entry.formation, ordinal) : f ? {
+        ...frame.origin, eastM: frame.origin.eastM + f.offsetM + ordinal % f.columns * f.eastSpacingM,
+        northM: frame.origin.northM + Math.floor(ordinal / f.columns) * f.northSpacingM } : null);
+      if (!old) return null;
+      return { ...copy(stop.position), eastM: stop.position.eastM + old.eastM - frame.origin.eastM,
+        northM: stop.position.northM + old.northM - frame.origin.northM,
+        altitudeM: stop.position.altitudeM + old.altitudeM - frame.origin.altitudeM };
+    }
     if (c?.regionalPosition?.regionId === r.id) return copy(c.regionalPosition);
     const localFormation = c?.regionalFormation;
     if (localFormation?.anchor.regionId === r.id) return formationPosition(localFormation, ordinal);
@@ -72,6 +85,44 @@
     }
     return { ...copy(anchor), eastM: anchor.eastM + slot % f.columns * f.eastSpacingM,
       northM: anchor.northM + Math.floor(slot / f.columns) * f.northSpacingM };
+  }
+  function gridBounds(anchor, f, ranges, first = 0) {
+    if (!ranges.length) return null;
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const [a, b] of ranges) {
+      const lo = a - first, hi = b - first - 1, row0 = Math.floor(lo / f.columns), row1 = Math.floor(hi / f.columns);
+      x0 = Math.min(x0, row0 === row1 ? lo % f.columns : 0); x1 = Math.max(x1, row0 === row1 ? hi % f.columns : f.columns - 1);
+      y0 = Math.min(y0, row0); y1 = Math.max(y1, row1);
+    }
+    return { regionId: anchor.regionId, min: { eastM: anchor.eastM + x0 * f.eastSpacingM, northM: anchor.northM + y0 * f.northSpacingM, altitudeM: anchor.altitudeM },
+      max: { eastM: anchor.eastM + x1 * f.eastSpacingM, northM: anchor.northM + y1 * f.northSpacingM, altitudeM: anchor.altitudeM } };
+  }
+  function layoutBounds(f, ranges) {
+    if (!f.mother) return gridBounds(f.anchor, f, ranges, f.firstOrdinal);
+    const b = layoutBounds(f.mother.layout, f.mother.ranges);
+    const siblings = gridBounds({ ...f.anchor, eastM: 0, northM: 0, altitudeM: 0 }, f, [[0, f.mother.offspring]]);
+    for (const side of ['min', 'max']) for (const k of ['eastM', 'northM', 'altitudeM']) b[side][k] += siblings[side][k];
+    return b;
+  }
+  function bounds(g, r, c) {
+    if (!size(c) || Journeys.moving(g)) return null;
+    const stop = g.transit?.stop, entry = stop && g.transit.spatial.formations.find(f => f.id === c.id);
+    const personal = stop ? entry?.position : c.regionalPosition;
+    const formation = stop ? entry?.formation : c.regionalFormation;
+    let box;
+    if (personal) box = { regionId: personal.regionId, min: copy(personal), max: copy(personal) };
+    else if (formation) box = layoutBounds(formation, c.ranges);
+    else {
+      const f = g.regionalFormation?.[c.originId], anchor = stop ? g.transit.spatial.origin : position(g, r);
+      if (!f || !anchor) return null;
+      box = gridBounds({ ...anchor, eastM: anchor.eastM + f.offsetM }, f, c.ranges);
+    }
+    if (!box) return null;
+    if (stop) {
+      for (const side of ['min', 'max']) for (const k of ['eastM', 'northM', 'altitudeM']) box[side][k] += stop.position[k] - g.transit.spatial.origin[k];
+      box.regionId = stop.position.regionId;
+    }
+    return box.regionId === r.id ? box : null;
   }
   function birthPosition(s, g, parent, c, brood, at) {
     if (!s.spatialContinuity || !s.foodWeb) return;
@@ -110,8 +161,12 @@
       northM: g.home.northKm * 1000, altitudeM: -g.home.depthM || 0 });
     else if (r.kind === Demography.region(s, edge.id)?.kind) arrival.altitudeM = origin.altitudeM;
     const distance = (a, b) => Math.hypot(a.eastM - b.eastM, a.northM - b.northM, a.altitudeM - b.altitudeM) / 1000;
-    const approachKm = distance(origin, edge.departurePosition), finalKm = distance(arrival, edge.arrivalPosition);
-    return { origin, departure: copy(edge.departurePosition), endpoint: copy(edge.arrivalPosition), arrival,
+    const departure = copy(edge.departurePosition), endpoint = copy(edge.arrivalPosition);
+    if (edge.routeFrames) { departure.altitudeM = origin.altitudeM; endpoint.altitudeM = arrival.altitudeM; }
+    const approachKm = distance(origin, departure), finalKm = distance(arrival, endpoint);
+    const routeFrames = edge.routeFrames && { exit: { ...copy(edge.routeFrames.exit), altitudeM: departure.altitudeM },
+      entry: { ...copy(edge.routeFrames.entry), altitudeM: endpoint.altitudeM } };
+    return { origin, departure, endpoint, arrival, ...(routeFrames ? { routeFrames } : {}),
       approachKm, finalKm, routeKm: edge.distanceKm, establishedAt: at, formations: g.cohorts.filter(c => size(c)).map(c => ({ id: c.id,
         ...(c.regionalPosition ? { position: copy(c.regionalPosition) } : {}),
         ...(c.regionalFormation ? { formation: copy(c.regionalFormation) } : {}) })) };
@@ -135,16 +190,22 @@
   }
   function transitPosition(g, at) {
     const t = g.transit, frame = t?.spatial; if (!frame || !(at >= t.departedAt)) return null;
+    const delay = (t.pausedSeconds?.beforeCross || 0) + (t.pausedSeconds?.afterCross || 0)
+      + (t.stop ? Math.max(0, at - t.stop.startedAt) : 0);
     const travelledKm = Math.min(frame.approachKm + frame.routeKm + frame.finalKm,
-      (at - t.departedAt) / DAY * frame.speedKmDay);
+      Math.max(0, at - t.departedAt - delay) / DAY * frame.speedKmDay);
     const interpolate = (from, to, fraction) => ({ regionId: from.regionId,
       eastM: from.eastM + (to.eastM - from.eastM) * fraction,
       northM: from.northM + (to.northM - from.northM) * fraction,
       altitudeM: from.altitudeM + (to.altitudeM - from.altitudeM) * fraction });
     if (travelledKm < frame.approachKm) return { phase: 'approach', travelledKm,
       position: interpolate(frame.origin, frame.departure, travelledKm / frame.approachKm) };
-    if (travelledKm < frame.approachKm + frame.routeKm) return { phase: 'route', travelledKm,
-      path: copy(t.path), fraction: (travelledKm - frame.approachKm) / frame.routeKm };
+    if (travelledKm < frame.approachKm + frame.routeKm) {
+      const fraction = (travelledKm - frame.approachKm) / frame.routeKm;
+      return { phase: 'route', travelledKm, path: copy(t.path), fraction,
+        ...(frame.routeFrames ? { position: fraction < .5 ? interpolate(frame.departure, frame.routeFrames.exit, fraction * 2)
+          : interpolate(frame.routeFrames.entry, frame.endpoint, (fraction - .5) * 2) } : {}) };
+    }
     return { phase: 'finalApproach', travelledKm,
       position: interpolate(frame.endpoint, frame.arrival, frame.finalKm ? (travelledKm - frame.approachKm - frame.routeKm) / frame.finalKm : 1) };
   }
@@ -210,12 +271,12 @@
     return c.regional;
   }
   function restore(c, g, r, at) {
-    const state = initial(c, at), managed = c.foraging && r.foraging && !g.transit;
+    const state = initial(c, at), managed = c.foraging && r.foraging && !Journeys.moving(g);
     const elapsed = Math.max(0, at - state.at), p = Data.lifecycle[c.speciesId];
     if (managed) { state.at = at; c.foraging.restPending = 0; return; } // Paid at its actual supplied-rest interval, not after a later meal.
     const n = size(c); if (!n) { state.at = at; return; }
     const manaCapacity = p.manaCapacity * Math.min(1, c.massKg / p.adultKg);
-    const canRest = !g.transit && !c.contactBusyUntil && (r.floor || r.kind === 'waterColumn');
+    const canRest = !c.contactBusyUntil && Foraging.canRest(c, g, r);
     if (canRest && c.speciesId !== 'beast:mirror-ape' && state.mana < manaCapacity) {
       const stockKey = g.resources?.foodKg || 'foodKg';
       if (Behavior.foodKeys({ speciesId: c.speciesId }).includes(stockKey)) {
@@ -263,6 +324,19 @@
     if (c.feedingTowers) c.feedingTowers.forEach((health, i) => { b.parts[`feeding tower ${i + 1}`] = health; });
     return a;
   }
+  function careCapable(c, g, r, at) {
+    if (r.contactBarriers?.length) return false;
+    const a = actor(g, c, c.ranges[0]?.[0], r, at); if (!a) return false;
+    const ctx = context(r, [a], 0);
+    // This context explicitly supplies identical terrain for every cell and no
+    // body occupants. One enclosing tile applies the SAME depth/clearance/load
+    // rules without tessellating thousands of identical tiles for a colossus.
+    // Native/local heterogeneous terrain still uses the full ordinary mask.
+    ctx.tileSizeM = Math.max(1, ...Object.values(a.bodyPhysics.dimensions)) * 2;
+    return Behavior.conscious(a, at) && Bodies.capable(a, a.bodyPhysics.mode)
+      && Bodies.wounded(a, /head|torso|core|thorax|limb|leg|fin/) < .65
+      && !Bodies.habitatReason(a, a.mapCell, a.bodyPhysics.mode, Bodies.height(a), ctx);
+  }
   function initialize(s, enabled) {
     if (!enabled) return;
     s.foodWeb = { nextAt: (Math.floor(s.clock / DAY) + 1) * DAY, lastAt: s.clock, pending: [],
@@ -278,6 +352,26 @@
         g.regionalFormation[c.originId] = { offsetM, columns, eastSpacingM, northSpacingM };
         offsetM += columns * eastSpacingM;
       }
+      // Original dependent young belong to their actual initial maternal family,
+      // not an unrelated grid appended beyond the adults' sensory/care reach.
+      // This allocates positions only: no new mother, child, mass or care credit.
+      if (s.spatialContinuity && g.parentalCare === 'family') {
+        const r = Demography.region(s, g.regionId), p = Data.lifecycle[g.speciesId], base = position(g, r);
+        for (const child of g.cohorts) if (base && child.nurseryId && s.clock - child.bornAt < p.independentDays * DAY) {
+          const mother = g.cohorts.find(c => c.role === 'female' && s.clock - c.bornAt >= p.independentDays * DAY
+            && size(c) * p.offspring >= size(child));
+          const f = mother && g.regionalFormation[mother.originId], own = g.regionalFormation[child.originId];
+          if (!f || !own) continue;
+          const anchor = { ...base, eastM: base.eastM + f.offsetM };
+          child.regionalFormation = { anchor: copy(anchor), firstOrdinal: child.ranges[0][0], sourceFamily: true,
+            columns: Math.max(1, Math.ceil(Math.sqrt(p.offspring))), eastSpacingM: own.eastSpacingM,
+            northSpacingM: own.northSpacingM, establishedAt: s.clock, nurseryId: child.nurseryId,
+            mother: { layout: { anchor, firstOrdinal: 0, columns: f.columns, eastSpacingM: f.eastSpacingM,
+              northSpacingM: f.northSpacingM, establishedAt: s.clock, nurseryId: child.nurseryId },
+              ranges: Demography.take(mother.ranges, Math.ceil(size(child) / p.offspring)), childOffset: 0,
+              parentOriginId: mother.originId, offspring: p.offspring } };
+        }
+      }
     }
   }
   function plan(s, month) {
@@ -288,7 +382,8 @@
         huntingRemaining: Math.floor(n * p.huntsDay * (month.end - month.start) / DAY),
         contactPulses: 0 };
       if (s.regions.some(r => r.id === g.regionId && r.foraging) && (Behavior.capabilities[g.speciesId]?.includes('hunt') || g.speciesId === 'beast:carrion-lantern'))
-        for (const c of g.cohorts) Foraging.plan(g, c, month, month.plannedAt ?? month.start);
+        for (const c of g.cohorts) if (!c.dependency || (month.plannedAt ?? month.start) - c.bornAt >= p.independentDays * DAY)
+          Foraging.plan(g, c, month, month.plannedAt ?? month.start);
     }
   }
   function event(s, at, kind, detail) {
@@ -313,8 +408,9 @@
     }
     return result;
   }
-  function chooseCohort(g, seed) {
-    const live = g.cohorts.filter(c => size(c) && c.health > 0 && !c.contactBusyUntil && !c.foraging?.action);
+  function chooseCohort(g, seed, at = null) {
+    const live = g.cohorts.filter(c => size(c) && c.health > 0 && !c.contactBusyUntil && !c.foraging?.action
+      && !(at != null && c.dependency && at - c.bornAt < Data.lifecycle[c.speciesId].independentDays * DAY));
     const n = live.reduce((n, c) => n + size(c), 0); let rank = Math.floor(Life.random(seed) * n);
     for (const c of live) { if (rank < size(c)) return c; rank -= size(c); }
     return null;
@@ -323,7 +419,8 @@
     if (!['beast:rimefang-pack', 'beast:gloam-prowler', 'beast:mire-choir'].includes(g.speciesId)) return [];
     const result = [];
     for (const c of g.cohorts) {
-      if (c.contactBusyUntil || c.foraging?.action || c.health <= .3) continue;
+      if (c.contactBusyUntil || c.foraging?.action || c.health <= .3
+        || c.dependency && at - c.bornAt < Data.lifecycle[c.speciesId].independentDays * DAY) continue;
       for (const [lo, hi] of c.ranges) for (let ordinal = lo; ordinal < Math.min(hi, lo + 8) && result.length < 7; ordinal++) {
         if (`${c.originId}:${ordinal}` === primary.id) continue;
         const a = actor(g, c, ordinal, r, at);
@@ -530,6 +627,7 @@
     }
     const corpses = index(rows), live = [];
     for (const g of s.groups) {
+      if (g.transit) continue; // Paused route feeding does not start an unowned stationary duel.
       const r = regionMap.get(g.regionId), pos = position(g, r); if (!pos || !g.cohorts.some(c => size(c))) continue;
       for (const c of g.cohorts) restore(c, g, r, at);
       live.push({ regionId: r.id, position: pos, g });
@@ -538,7 +636,7 @@
     for (const entry of live) {
       const { g, position: pos } = entry, r = regionMap.get(g.regionId), p = Data.lifecycle[g.speciesId];
       if (g.will === false || g.willing === false || !g.foodWebPlan) continue;
-      const c = chooseCohort(g, `${g.id}:${at}:active`); if (!c) continue;
+      const c = chooseCohort(g, `${g.id}:${at}:active`, at); if (!c) continue;
       const ordinal = c.ranges[0][0], a = actor(g, c, ordinal, r, at); if (!a) continue;
       const ctx = context(r, [a], month.season);
       if (!Bodies.capable(a, a.bodyPhysics.mode) || Bodies.habitatReason(a, a.mapCell, a.bodyPhysics.mode, Bodies.height(a), ctx)) continue;
@@ -581,14 +679,15 @@
         Wildlife.begin(r, g, c, a, at, position(g, r, c, ordinal), hunting ? 1 : 0);
     }
   }
-  function foragers(s, at, month) {
+  function foragers(s, at, month, onlyGroup = null) {
     if (!s.foodWeb) return;
     const regions = new Map(s.regions.map(r => [r.id, r]));
     for (const g of s.groups) {
-      const r = regions.get(g.regionId); if (!r?.foraging || g.transit) continue;
+      if (onlyGroup && g.id !== onlyGroup) continue;
+      const r = regions.get(Journeys.location(g)); if (!r?.foraging || Journeys.moving(g)) continue;
       if (!Behavior.capabilities[g.speciesId]?.includes('hunt') && g.speciesId !== 'beast:carrion-lantern') continue;
       for (const c of g.cohorts) {
-        if (!size(c)) continue;
+        if (!size(c) || c.dependency && at - c.bornAt < Data.lifecycle[c.speciesId].independentDays * DAY) continue;
         Foraging.plan(g, c, month, at);
         const a = actor(g, c, c.ranges[0][0], r, at), pos = position(g, r, c, c.ranges[0][0]);
         if (c.foraging.nextAt <= at + EPS || c.foraging.action) restore(c, g, r, at);
@@ -599,7 +698,7 @@
             .filter(row => row.position && row.edibleKg > (row.reservedKg || 0)).map(row => ({ row }));
           feed(s, g, c, a, r, rows, at, true);
         }
-        Foraging.step(s, r, g, c, at, { actor: a, position: pos,
+        Foraging.step(s, r, g, c, at, { actor: a, position: pos, until: g.transit?.stop?.until,
           usable: Boolean(a && pos && Behavior.conscious(a, at) && Bodies.wounded(a, /head|torso|limb|leg|wing|fin/) < .65
             && !Bodies.habitatReason(a, a.mapCell, a.bodyPhysics.mode, Bodies.height(a), ctx)),
           guilds: actor => Wildlife.guilds(r, c, actor), capture: (q, maximum) => Wildlife.capture(r, g, c, { ...q, position: pos }, maximum, at) });
@@ -632,7 +731,7 @@
   }
   function handoff(s, groupId, cohortId, at, api) {
     if (!s.foodWeb) return;
-    const owner = api.group(groupId), region = owner && api.region(owner.regionId);
+    const owner = api.group(groupId), region = owner && api.region(Journeys.location(owner));
     if (region?.foraging) Foraging.cancel(region, owner.cohorts.find(c => c.id === cohortId), at);
     if (region?.wildlife?.pending.some(q => q.groupId === groupId && q.cohortId === cohortId))
       Wildlife.cancel(region, groupId, cohortId, owner.cohorts.find(c => c.id === cohortId));
@@ -677,8 +776,21 @@
         const edge = s.regions.find(r => r.id === g.transit.path[0])?.edges.find(e => e.id === g.transit.path[1]);
         if (travel.routeKm !== edge?.distanceKm || Math.abs(travel.approachKm - distance(travel.origin, travel.departure)) > EPS
           || Math.abs(travel.finalKm - distance(travel.endpoint, travel.arrival)) > EPS
-          || Math.abs(g.transit.crossAt - g.transit.departedAt - (travel.approachKm + travel.routeKm / 2) / travel.speedKmDay * DAY) > 1e-6
-          || Math.abs(g.transit.edgeArriveAt - g.transit.departedAt - (travel.approachKm + travel.routeKm + travel.finalKm) / travel.speedKmDay * DAY) > 1e-6) return false;
+          || Math.abs(g.transit.crossAt - g.transit.departedAt - (travel.approachKm + travel.routeKm / 2) / travel.speedKmDay * DAY
+            - (g.transit.pausedSeconds?.beforeCross || 0)) > 1e-6
+          || Math.abs(g.transit.edgeArriveAt - g.transit.departedAt - (travel.approachKm + travel.routeKm + travel.finalKm) / travel.speedKmDay * DAY
+            - (g.transit.pausedSeconds?.beforeCross || 0) - (g.transit.pausedSeconds?.afterCross || 0)) > 1e-6) return false;
+        if (travel.routeFrames && (![travel.routeFrames.exit, travel.routeFrames.entry].every(located)
+          || travel.routeFrames.exit.regionId !== travel.departure.regionId || travel.routeFrames.entry.regionId !== travel.endpoint.regionId
+          || Math.abs(distance(travel.departure, travel.routeFrames.exit) - travel.routeKm / 2) > EPS
+          || Math.abs(distance(travel.routeFrames.entry, travel.endpoint) - travel.routeKm / 2) > EPS)) return false;
+        if (travel.routeFrames && (!edge.routeFrames || ['exit', 'entry'].some(k =>
+          travel.routeFrames[k].eastM !== edge.routeFrames[k].eastM || travel.routeFrames[k].northM !== edge.routeFrames[k].northM
+          || travel.routeFrames[k].altitudeM !== (k === 'exit' ? travel.departure.altitudeM : travel.endpoint.altitudeM)))) return false;
+        if (g.transit.stop) {
+          const p = transitPosition(g, s.clock)?.position, stop = g.transit.stop.position;
+          if (!p || p.regionId !== stop.regionId || distance(p, stop) > EPS) return false;
+        }
       }
       if (!g.foodWebPlan || !Number.isSafeInteger(g.foodWebPlan.huntingRemaining) || g.foodWebPlan.huntingRemaining < 0) return false;
       if (!g.regionalFormation || Object.entries(g.regionalFormation).some(([key, f]) => !s.origins[key]
@@ -686,7 +798,7 @@
         || !(f.northSpacingM > 0) || !finite(f.northSpacingM))) return false;
       for (const c of g.cohorts) {
         const f = c.regionalFormation;
-        if (f && (!s.spatialContinuity || !c.generated || !layout(f)
+        if (f && (!s.spatialContinuity || !(c.generated || f.sourceFamily === true && c.dependency && c.nurseryId === f.nurseryId) || !layout(f)
           || f.firstOrdinal >= s.origins[c.originId].count || c.ranges.some(([lo]) => lo < f.firstOrdinal)
           || !Number.isSafeInteger(f.columns) || f.columns < 1 || !(f.eastSpacingM > 0) || !finite(f.eastSpacingM)
           || !(f.northSpacingM > 0) || !finite(f.northSpacingM) || !finite(f.establishedAt) || f.establishedAt > s.clock
@@ -743,11 +855,12 @@
     const regions = new Map(s.regions.map(r => [r.id, r]));
     return { ...copy(s.foodWeb.receipts), work: copy(s.foodWeb.work), pending: s.foodWeb.pending.length, wildlife: Wildlife.summary(s), foraging: Foraging.summary(s),
       travellingLiving: s.groups.reduce((n, g) => n + (g.transit ? g.cohorts.reduce((n, c) => n + size(c), 0) : 0), 0),
+      stoppedTravellingLiving: s.groups.reduce((n, g) => n + (g.transit?.stop ? g.cohorts.reduce((n, c) => n + size(c), 0) : 0), 0),
       positionedTravellingLiving: s.groups.reduce((n, g) => n + (g.transit?.spatial ? g.cohorts.reduce((n, c) => n + size(c), 0) : 0), 0),
       unlocatedLiving: s.groups.reduce((n, g) => n + g.cohorts.reduce((v, c) => v + (c.ranges.length && !g.transit?.spatial
         && !position(g, regions.get(g.regionId), c, c.ranges[0][0]) ? size(c) : 0), 0), 0),
       unlocatedRemainsKg: s.regions.reduce((n, r) => n + Object.values(r.remainsBatches || {}).reduce((v, row) => v + (!row.position ? row.edibleKg : 0), 0), 0) };
   }
-  return { initialize, initial, plan, advance, finish, foragers, cancelForaging, next, validate, validateSource, position, birthPosition, travelPlan, arrived, transitPosition,
-    environment, context, actor, split, addRemains, decay, cancel, handoff, noteFeeding, summary, LIMIT, DURATION };
+  return { initialize, initial, plan, advance, finish, foragers, cancelForaging, next, validate, validateSource, position, bounds, birthPosition, travelPlan, arrived, transitPosition,
+    environment, context, actor, restore, careCapable, split, addRemains, decay, cancel, handoff, noteFeeding, summary, LIMIT, DURATION };
 });

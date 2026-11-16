@@ -2300,6 +2300,14 @@ The seasonal replay now distinguishes positioned travellers from unknown bodies;
 its remaining feeding/viability failures and unfinished native adoption remain
 documented in [the population model](BEAST_POPULATIONS.md#habitat-placement-and-location-continuity).
 
+Hungry travellers can now stop at actual route positions to feed or rest, paying
+elapsed delay without changing their original destination using unseen supply.
+Dependent family young and colony larvae receive finite, timed provisioning
+from actual capable caregivers; orphaning, refusal and interrupted care have
+real consequences. These [care and journey accounts](BEAST_POPULATIONS.md#route-feeding-and-dependent-care)
+save and branch with their source populations. They do not yet establish
+all-species ecological viability or ordinary-game encounter adoption.
+
 Local predators now pursue actually sensed prey within a finite attempt budget
 through existing combat, movement and injury rules. Carrion Lanterns scavenge
 actual remains; consumers and decomposition share one saved finite corpse ledger.

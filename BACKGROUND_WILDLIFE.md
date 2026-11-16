@@ -102,7 +102,7 @@ beast duels retain their separate authored hunt-attempt ceilings; an unsuccessfu
 daily contact cannot consume a whole cohort's background feeding allowance.
 
 An actual hungry, willing cohort's original members must have established
-regional positions and usable medium. Unlocated, travelling, incapacitated, refusing or obstructed
+regional positions and usable medium. Unlocated, actively travelling, incapacitated, refusing or obstructed
 groups get no background catch. Searches conservatively decline habitats with
 unresolved explicit barriers; they do not route through them by decree.
 
@@ -153,7 +153,12 @@ Foraging needs no destination census or new migration adviser. The simulator's
 private density resolves physical encounter chances; it is not passed to animal
 route choices or exposed in the UI. Participant loss, original-body handoff,
 incapacity, refusal or habitat loss can interrupt a search. Departure releases
-held meals at their origin rather than copying them across a journey. Spent
+held meals at their origin rather than copying them across a journey. Timed
+stops can reuse these same feeding routines at an actual route position, with
+frozen progress and paid arrival delay; moving bodies still cannot forage.
+Dependent family young require actual provisioning rather than receiving a
+shared regional meal. See [route feeding and dependent care](BEAST_POPULATIONS.md#route-feeding-and-dependent-care).
+Spent
 effort is not refunded. Actual unmet maintenance can trigger the existing
 knowledge-limited dispersal; an empty generic meat stock alone cannot send a
 successfully feeding hunter away. Partial searches, meals, physiology, paid
@@ -180,37 +185,44 @@ independent branches without disclosing private state. Named food-web/regional-
 clock and generated-source storage browser checks also pass. The full test suite
 is not run under the repository's focused-testing policy.
 
-The current `source-small` 120-day generated replay uses source
+The current care-and-route-stop `source-small` 120-day generated replay uses source
 `beast-habitat-source:be09b6d3`, 334 physical regions, 2,615 strategic groups and
 89 original source populations spanning all 24 strategic species. Its final
 accounts reconcile independently:
 
 | Account | Original | Paid births | Living | Dead | Hunted separately |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Strategic bodies | 56,243 | 191,180 | 131,131 | 116,292 | Included in dead |
-| Anonymous wildlife | 97,503,071,748 | 72,182,820,365 | 67,135,170,228 | 102,543,581,664 | 7,140,221 |
+| Strategic bodies | 56,243 | 191,024 | 130,360 | 116,907 | Included in dead |
+| Anonymous wildlife | 97,503,071,748 | 72,176,483,140 | 67,145,748,250 | 102,525,878,073 | 7,928,565 |
 
-Strategic deaths comprise 116,034 background losses, 252 starvation and six
+Strategic deaths comprise 116,028 background losses, 246 starvation and 633
 dehydration losses. All living strategic bodies retain stationary formations or
-positioned journeys; 10,750 are travelling. Wildlife ends in 3,318 cohorts, not
-billions of individual objects. Actual wildlife ingestion is **3,860,117 kg**,
+positioned journeys; 11,786 are travelling. Wildlife ends in 3,324 cohorts, not
+billions of individual objects. Actual wildlife ingestion is **4,469,905 kg**,
 compared with 43,886 kg in the earlier pond-enabled uniform-tiny-prey replay.
 Classes share the original guild food/water ceilings; the increase is not funded
 by extra meat renewal or another wildlife budget.
 
-The replay still records 81 performed resource-shortfall records and no
+The replay still records 59 performed resource-shortfall records and no
 original-beast duels. Source gaps remain 42 missing work sites, four unverified
 furnace-metal sources and 32 unverified dream-participant sources. An exact-depth
 marine-medium fix removes the former 123 false Brine Cathedral starvation
 deaths without changing their plankton supply. Remaining scarcity is real
 diagnostic failure, not grounds for declaring the source healthy or exhausted.
+Dependent young no longer receive regional rations directly, and health damage
+uses their actual scaled needs rather than an adult's denominator. Thus the
+larger dependent-death total is not directly comparable to the former
+pre-provisioning baseline. Actual care delivers 8,484,558 kg of food and
+15,982,803 litres of water, yet 636 dependent scarcity deaths remain; aggregate
+receipts do not prove that all families can feed their young.
 
-Measured execution takes roughly 152 seconds, 246,985 event boundaries, ten
-million cohort integration visits and 50.4 MB serialized expanded account state.
+Measured execution takes roughly 457 seconds, 253,775 event boundaries, 44.0
+million cohort integration visits and 52.3 MB serialized expanded account state.
 The compact immutable world definitions pass default-resolution browser
 save/reload, but this expanded run account is **not** a native-game performance
 or save-capacity certificate. The opt-in benchmark reports issue/source-gap
-kinds and deaths by cause/species alongside conservation and feeding totals:
+kinds, deaths by cause/species, care receipts and scarcity circumstances
+alongside conservation and feeding totals:
 
 ```sh
 node scripts/benchmark-generated-beast-habitats.js --days=120

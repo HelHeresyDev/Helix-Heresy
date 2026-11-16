@@ -190,9 +190,10 @@
       // Tapering toward the remaining gap would make unrelated rate refreshes
       // change the growth trajectory and could prevent completion indefinitely.
       const gain = reference / Math.max(1, p.adultDays);
-      const storeReserveKg = p.foodKgDay * 2;
-      const storeFunded = c.foraging && ['meatKg', 'carrionKg'].includes(g.resources?.foodKg) && c.stores.foodKg > storeReserveKg + EPS;
-      result.push({ kind: 'growth', g, c, recipe: storeFunded ? {} : mixture, perDay: gain / p.assimilation * n,
+      const requiresCare = c.dependency && at - c.bornAt < p.independentDays * DAY;
+      const storeReserveKg = requiresCare ? (c.needs.foodKg || 0) / n : p.foodKgDay * 2;
+      const storeFunded = (requiresCare || c.foraging && ['meatKg', 'carrionKg'].includes(g.resources?.foodKg)) && c.stores.foodKg > storeReserveKg + EPS;
+      if (!requiresCare || storeFunded) result.push({ kind: 'growth', g, c, recipe: storeFunded ? {} : mixture, perDay: gain / p.assimilation * n,
         ...(storeFunded ? { storeFunded: true, storeReserveKg } : {}) });
     }
     for (const brood of c.demography?.broods || []) {
@@ -251,7 +252,8 @@
         // cohort's contributor provenance when it subsequently dies.
         Object.keys(c.ecologyHistory || {}).filter(k => c.ecologyHistory[k] > EPS).sort().join(','),
         JSON.stringify(c.feedingTowers || null), JSON.stringify(c.regional || null), JSON.stringify(c.regionalPosition || null),
-        JSON.stringify(c.regionalFormation || null), JSON.stringify(c.foraging || null), c.contactBusyUntil || 0].join(':');
+        JSON.stringify(c.regionalFormation || null), JSON.stringify(c.foraging || null), JSON.stringify(c.dependency || null),
+        JSON.stringify(c.parentalLedger || null), JSON.stringify(c.caregiving || null), JSON.stringify(c.firstScarcity || null), c.contactBusyUntil || 0].join(':');
       const old = bins.get(key);
       if (!old) { bins.set(key, c); retained.push(c); continue; }
       const a = size(old.ranges), b = size(c.ranges), total = a + b;

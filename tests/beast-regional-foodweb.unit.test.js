@@ -160,6 +160,9 @@ test('regional death of an original contributor debits its performed work and do
   hunter.id = 'local-roc'; hunter.regionId = worker.regionId; hunter.home.patchId = worker.regionId;
   hunter.cohorts[0].id = 'actual-roc'; src.groups.push(hunter);
   const r = src.regions[0]; Object.assign(r, { kind: 'wetland', floor: true, oxygen: true });
+  // Supply an actual shallow landing/rest margin for the winged hunter; a
+  // flooded deep column is not a free airborne stamina recovery site.
+  r.stocks.waterL = 1.7e9;
   const s = P.create(src, binding), c = s.groups[1].cohorts[0];
   const spent = c.stores.fatKg * .6; c.stores.fatKg -= spent; c.massKg -= spent;
   for (let i = 0; Life.random(`${hunter.id}:${DAY}:opportunity`) >= .65; i++) hunter.id = s.groups[1].id = `local-roc-${i}`;

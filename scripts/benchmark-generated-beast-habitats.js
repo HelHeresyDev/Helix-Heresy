@@ -1,5 +1,5 @@
 // Focused generated-source execution, not a native game or world-balance claim.
-const L = require('../world-run-library'), S = require('../beast-habitat-sources'), P = require('../beast-populations');
+const L = require('../world-run-library'), S = require('../beast-habitat-sources'), P = require('../beast-populations'), Care = require('../beast-parental-care');
 function run({ seed = 'source-small', days, progress = () => {}, engine = P } = {}) {
   const started = performance.now();
   const world = L.createWorld({ id: 'generated-habitat-benchmark', worldSeed: seed, createdAt: 'test', generationVersion: 8,
@@ -24,14 +24,22 @@ function run({ seed = 'source-small', days, progress = () => {}, engine = P } = 
   for (const issue of result.report.issues) if (issue.kind === 'performedResourceShortfall')
     shortfalls[issue.resource] = (shortfalls[issue.resource] || 0) + issue.missingAmount;
   const lossesBySpecies = {};
+  const scarcityPhases = {}, scarcityExamples = {};
   for (const loss of [...account.losses, ...account.lossBatches]) {
     const row = lossesBySpecies[loss.speciesId] ||= {};
     row[loss.cause] = (row[loss.cause] || 0) + (loss.count ?? 1);
+    if (loss.context) {
+      const c = loss.context, phase = `${c.phase}:${c.dependent ? 'dependent' : 'independent'}:${c.afterPersonalArrival ? 'after-arrival' : 'no-prior-arrival'}`;
+      scarcityPhases[phase] = (scarcityPhases[phase] || 0) + (loss.count ?? 1);
+      const examples = scarcityExamples[loss.speciesId] ||= [];
+      if (examples.length < 2) examples.push({ cause: loss.cause, count: loss.count ?? 1, ...c });
+    }
   }
   return { milliseconds: Math.round(performance.now() - started), executionMilliseconds, days: endDays, regions: account.regions.length,
     groups: account.groups.length, bindingBytes: JSON.stringify(record.physicalBinding).length,
     accountBytes: JSON.stringify(account).length, ...result.report, issues: result.report.issues.length,
     issueKinds: byKind(result.report.issues), sourceIssueKinds: byKind(result.report.sourceAvailability), lossesByCause, lossesBySpecies, shortfalls,
+    parentalCare: Care.summary(account), scarcityPhases, scarcityExamples,
     sourceAvailability: result.report.sourceAvailability.length, populations: result.report.populations.length };
 }
 if (require.main === module) {
