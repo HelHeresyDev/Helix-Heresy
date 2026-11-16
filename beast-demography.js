@@ -223,7 +223,10 @@
       const females = Math.floor(born / 2 + Life.random(`${b.id}:sex`));
       const roles = c.role === 'queen' ? [['worker', born]] : b.fragment || /propagule/i.test(p.method) ? [['individual', born]]
         : [['female', females], ['male', born - females]];
-      for (const [role, count] of roles) if (count) hooks.birth(g, c, b, role, count, at);
+      let offspringOffset = 0;
+      for (const [role, count] of roles) if (count) {
+        hooks.birth(g, c, { ...b, offspringOffset }, role, count, at); offspringOffset += count;
+      }
       const r = region(s, b.regionId); r.outputs ||= {};
       r.outputs.reproductiveWasteKg = (r.outputs.reproductiveWasteKg || 0) + Math.max(0, b.investedKg - born * p.newbornKg);
       return false;
@@ -248,7 +251,7 @@
         // cohort's contributor provenance when it subsequently dies.
         Object.keys(c.ecologyHistory || {}).filter(k => c.ecologyHistory[k] > EPS).sort().join(','),
         JSON.stringify(c.feedingTowers || null), JSON.stringify(c.regional || null), JSON.stringify(c.regionalPosition || null),
-        JSON.stringify(c.foraging || null), c.contactBusyUntil || 0].join(':');
+        JSON.stringify(c.regionalFormation || null), JSON.stringify(c.foraging || null), c.contactBusyUntil || 0].join(':');
       const old = bins.get(key);
       if (!old) { bins.set(key, c); retained.push(c); continue; }
       const a = size(old.ranges), b = size(c.ranges), total = a + b;

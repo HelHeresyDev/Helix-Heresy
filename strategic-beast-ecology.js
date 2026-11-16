@@ -148,11 +148,38 @@
     return ranges[0] + Math.floor(seededNumber(seed, `${definition.id}:population-count`) * (ranges[1] - ranges[0] + 1));
   }
 
-  function selectCenters(definition, count, map, seed, applyCityPressure = true) {
-    const candidates = Array.from({ length: map.topology.cellCount }, (_, index) => ({
+  let physicalInputs;
+  function physicalHome(definition, map, index) {
+    // Loaded lazily after the shared catalog has initialized: bodies depend on
+    // that catalog. This only selects NEW founding sites, never reconstructs or
+    // moves an archived population/range/history.
+    physicalInputs ||= typeof module === 'object' && module.exports
+      ? { biology: require('./creature-biology'), bodies: require('./beast-bodies'), local: require('./local-site-context') }
+      : { biology: globalThis.HelixCreatureBiology, bodies: globalThis.HelixBeastBodies, local: globalThis.HelixLocalSiteContext };
+    const p = physicalInputs.biology.lifecycle[definition.id], b = physicalInputs.bodies.profiles[definition.id];
+    const temperatures = physicalInputs.local.PHASES.map(phase => map.climate.temperatureTenthsC[index] / 10
+      + map.climate.seasonalRangeTenthsC[index] / 10 * phase.temperatureFactor);
+    if (!temperatures.some(t => t >= p.minC && t <= p.maxC)) return false;
+    if (definition.realm === 'ocean' && Math.max(1, -map.relief.elevationM[index]) < b.minWaterDepthM) return false;
+    if (definition.waterAffinity) {
+      const lake = map.hydrology.lakeByCell[index] >= 0
+        ? map.hydrology.flowSurfaceM[index] - map.relief.elevationM[index] : 0;
+      const flowing = map.hydrology.riverClasses[index] !== '.';
+      const wet = flowing || map.hydrology.wetlandClasses[index] !== '.' || lake > 0
+        || map.climate.precipitationMm[index] > 0; // Finite catchment-funded sub-hex pond, not a new mapped river.
+      if (!wet) return false;
+      if ((lake > 0 ? lake : 4) < b.minWaterDepthM) return false;
+    }
+    return true;
+  }
+  function selectCenters(definition, count, map, seed, applyCityPressure = true, physical = false) {
+    const originalCandidates = Array.from({ length: map.topology.cellCount }, (_, index) => ({
       index,
       score: habitatSuitability(definition, map, index, seed, applyCityPressure) + seededNumber(seed, `${definition.id}:center:${index}`) * 260
-    })).filter((entry) => entry.score > 150).sort((left, right) => right.score - left.score || left.index - right.index);
+    })).filter((entry) => entry.score > 150)
+      .sort((left, right) => right.score - left.score || left.index - right.index);
+    const supported = physical ? originalCandidates.filter(entry => physicalHome(definition, map, entry.index)) : originalCandidates;
+    const candidates = supported.length ? supported : originalCandidates;
     if (!candidates.length) throw new Error(`${definition.name} has no viable habitat in this world.`);
     const selected = [];
     for (const candidate of candidates) {
@@ -161,6 +188,13 @@
       if (selected.length === count) break;
     }
     for (const candidate of candidates) {
+      if (selected.length === count) break;
+      if (!selected.includes(candidate.index)) selected.push(candidate.index);
+    }
+    // Preserve the requested population families even when this geography has
+    // too few compatible sites. The physical adapter must report those sources
+    // unavailable; neither omit their species nor fabricate water/temperature.
+    for (const candidate of originalCandidates) {
       if (selected.length === count) break;
       if (!selected.includes(candidate.index)) selected.push(candidate.index);
     }
@@ -214,7 +248,7 @@
     const temporaryRanges = new Map();
     for (const definition of BEAST_SPECIES) {
       const count = populationCount(definition, worldSeed);
-      const centers = selectCenters(definition, count, map, worldSeed, applyCityPressure);
+      const centers = selectCenters(definition, count, map, worldSeed, applyCityPressure, options.physicalHomes === true);
       centers.forEach((centerIndex, ordinal) => {
         const radius = definition.radius[0] + Math.floor(seededNumber(worldSeed, `${definition.id}:radius:${ordinal}`) * (definition.radius[1] - definition.radius[0] + 1));
         const territory = territoryIndices(definition, centerIndex, radius, map, worldSeed, applyCityPressure);
@@ -848,7 +882,7 @@
     ArcaneGeography.validateStrategicArcaneGeography(strategicMap);
     if (strategicMap.humanGeography || strategicMap.cityPolities) throw new Error("Pristine beast ecology must be generated before humans and cities.");
     const generationSalt = StrategicWorld.stableHash(`${seed}:pristine-beast-ecology`);
-    const { populations, temporaryRanges } = createPopulations(generationSalt, strategicMap, { applyCityPressure: false, includeGenerationFacts: true });
+    const { populations, temporaryRanges } = createPopulations(generationSalt, strategicMap, { applyCityPressure: false, includeGenerationFacts: true, physicalHomes: true });
     const relations = createRelations(populations, temporaryRanges);
     const migrations = createMigrations(generationSalt, strategicMap, populations, false);
     const populationRows = populations.map((population) => [

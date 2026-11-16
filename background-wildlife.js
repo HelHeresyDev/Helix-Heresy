@@ -18,6 +18,37 @@
     fish: Object.freeze({ adultKg: .25, newbornKg: .005, adultDays: 120, foodDay: .0125, waterDay: 0,
       offspringDay: .05, incubationDays: 7, mortalityDay: .002, assimilation: .25, hatchSuccess: .5, externalBrood: true })
   });
+  const sizeClasses = Object.freeze({
+    insects: { small: profiles.insects },
+    smallAnimals: { small: profiles.smallAnimals,
+      medium: { ...profiles.smallAnimals, adultKg: 10, newbornKg: .25, adultDays: 180, foodDay: .34, waterDay: .5,
+        offspringDay: .002, incubationDays: 45, mortalityDay: .0006 },
+      large: { ...profiles.smallAnimals, adultKg: 100, newbornKg: 5, adultDays: 365, foodDay: 1.9, waterDay: 3,
+        offspringDay: .001, incubationDays: 90, mortalityDay: .0002 } },
+    fish: { small: profiles.fish,
+      medium: { ...profiles.fish, adultKg: 2.5, newbornKg: .01, adultDays: 240, foodDay: .07,
+        offspringDay: .025, incubationDays: 10, mortalityDay: .001 },
+      large: { ...profiles.fish, adultKg: 25, newbornKg: .05, adultDays: 365, foodDay: .4,
+        offspringDay: .02, incubationDays: 14, mortalityDay: .0005 } }
+  });
+  const profile = pool => Object.hasOwn(profiles, pool.guild)
+    ? pool.sizeClass == null ? profiles[pool.guild]
+      : Object.hasOwn(sizeClasses[pool.guild], pool.sizeClass) ? sizeClasses[pool.guild][pool.sizeClass] : null : null;
+  const CLASSES = Object.freeze([['insects', 'small'], ['smallAnimals', 'small'], ['smallAnimals', 'medium'],
+    ['smallAnimals', 'large'], ['fish', 'small'], ['fish', 'medium'], ['fish', 'large']].map(Object.freeze));
+  // Procedural refinement of one regional feeding ground, not an omnipresent
+  // density multiplier. Its real geometry is also used for initial placement.
+  function feedingGround(r, seed) {
+    const regionRadiusM = Math.sqrt(r.areaHa * 10000 / Math.PI), angle = Life.random(`${seed}:${r.id}:feeding-ground:angle`) * Math.PI * 2;
+    const distance = regionRadiusM * .35 * Math.sqrt(Life.random(`${seed}:${r.id}:feeding-ground:radius`));
+    return { eastM: Math.cos(angle) * distance, northM: Math.sin(angle) * distance,
+      radiusM: regionRadiusM * Math.sqrt(.00025), depthTopM: Math.min(5, Math.max(0, r.depthM - 15)) };
+  }
+  function initialPosition(r, seed, groupId) {
+    const ground = feedingGround(r, seed), angle = Life.random(`${seed}:${groupId}:within-ground:angle`) * Math.PI * 2;
+    const distance = ground.radiusM * .7 * Math.sqrt(Life.random(`${seed}:${groupId}:within-ground:radius`));
+    return { eastM: ground.eastM + Math.cos(angle) * distance, northM: ground.northM + Math.sin(angle) * distance };
+  }
   const finite = n => Number.isFinite(n) && n >= 0, integer = n => Number.isSafeInteger(n) && n >= 0;
   const total = pool => pool.cohorts.reduce((n, c) => n + c.count, 0);
   const mass = pool => pool.cohorts.reduce((n, c) => n + c.count * c.massKg, 0);
@@ -29,6 +60,7 @@
   }
   const output = (r, key, kg) => { if (kg > 0) { r.outputs ||= {}; r.outputs[key] = (r.outputs[key] || 0) + kg; } };
   function allocate(source, seed) {
+    if (source.spatialContinuity) return allocateSpatial(source, seed);
     const allocations = [];
     for (const r of source.regions) {
       const aquatic = ['wetland', 'waterColumn'].includes(r.kind);
@@ -52,9 +84,57 @@
     }
     return { basis: 'Finite adapted background guilds; original body matter partitioned from standing food stocks', allocations };
   }
+  function allocateSpatial(source, seed) {
+    const allocations = [];
+    for (const r of source.regions) {
+      const aquatic = ['wetland', 'waterColumn'].includes(r.kind);
+      const types = r.kind === 'subsurface' ? [] : r.kind === 'waterColumn' ? ['fish']
+        : [...(aquatic && r.depthM >= .5 ? ['fish'] : []), 'insects', 'smallAnimals'];
+      const remaining = { ...r.stocks }, pools = [], spatial = feedingGround(r, seed);
+      for (const guild of types) for (const [sizeClass, p] of Object.entries(sizeClasses[guild])) {
+        const share = guild === 'insects' ? 1 : { small: .25, medium: .35, large: .4 }[sizeClass];
+        const foodKey = guild === 'fish' ? r.kind === 'waterColumn' ? 'planktonKg' : 'organicKg'
+          : guild === 'insects' ? 'organicKg' : 'forageKg';
+        const food = Math.min(...r.seasons.map(s => s.renewal[foodKey] || 0));
+        const water = p.waterDay ? Math.min(...r.seasons.map(s => s.renewal.waterL || 0)) * .05 * share / p.waterDay : Infinity;
+        const n = Math.floor(Math.min(food * .05 * share / (p.foodDay + p.offspringDay * p.newbornKg / p.assimilation),
+          (r.stocks[foodKey] || 0) * .02 * share / p.adultKg, (remaining[foodKey] || 0) / p.adultKg, water)
+          * (.6 + Life.random(`${seed}:${r.id}:${guild}:${sizeClass}:abundance`) * .4));
+        if (!(n > 0) || !integer(n) || !integer(Math.floor(n * 1.5))) continue;
+        const originalMassKg = n * p.adultKg; remaining[foodKey] -= originalMassKg;
+        pools.push({ id: `wildlife:${r.id}:${guild}:${sizeClass}`, guild, sizeClass, foodKey, areaHa: r.areaHa * .00025,
+          habitatDepthM: guild === 'fish' ? Math.min(r.depthM, 15) : 0, spatial: copy(spatial),
+          capacityCount: Math.floor(n * 1.5), originalCount: n, originalMassKg });
+      }
+      if (pools.length) allocations.push({ regionId: r.id, pools });
+    }
+    // Immutable world archives need counts, not seven copies of derived IDs,
+    // geometry, area, body mass and profile names for every geographic patch.
+    return { basis: 'Finite size-classed spatial herds/schools; original matter and shared regional feeding budgets', seed,
+      spatialRows: allocations.map(a => [a.regionId, ...CLASSES.map(([guild, size]) =>
+        a.pools.find(p => p.guild === guild && p.sizeClass === size)?.originalCount || 0)]) };
+  }
+  function definitions(record, regions) {
+    if (record.allocations) return record.allocations;
+    if (typeof record.seed !== 'string' || !record.seed || !Array.isArray(record.spatialRows)) throw Error('Invalid original spatial wildlife');
+    const byId = new Map(regions.map(r => [r.id, r])), seen = new Set();
+    return record.spatialRows.map(row => {
+      const r = byId.get(row[0]);
+      if (!r || seen.has(r.id) || row.length !== CLASSES.length + 1 || !row.slice(1).every(integer)) throw Error('Invalid original spatial wildlife row');
+      seen.add(r.id);
+      return { regionId: r.id, pools: CLASSES.flatMap(([guild, sizeClass], i) => {
+        const n = row[i + 1]; if (!n) return [];
+        const p = sizeClasses[guild][sizeClass];
+        return [{ id: `wildlife:${r.id}:${guild}:${sizeClass}`, guild, sizeClass,
+          foodKey: guild === 'fish' ? r.kind === 'waterColumn' ? 'planktonKg' : 'organicKg' : guild === 'insects' ? 'organicKg' : 'forageKg',
+          areaHa: r.areaHa * .00025, habitatDepthM: guild === 'fish' ? Math.min(r.depthM, 15) : 0,
+          spatial: feedingGround(r, record.seed), capacityCount: Math.floor(n * 1.5), originalCount: n, originalMassKg: n * p.adultKg }];
+      }) };
+    });
+  }
   function apply(source, record) {
     const regions = new Map(source.regions.map(r => [r.id, r]));
-    for (const row of record.allocations) {
+    for (const row of definitions(record, source.regions)) {
       const r = regions.get(row.regionId); if (!r || r.wildlife) throw Error('Conflicting original wildlife habitat');
       for (const p of row.pools) {
         if (!(r.stocks[p.foodKey] + EPS >= p.originalMassKg)) throw Error('Unfunded original wildlife matter');
@@ -68,8 +148,8 @@
     if (!r.wildlife) return;
     Object.assign(r.wildlife, { initializedAt: at, pending: [], serial: 0, lastDemographyAt: at });
     for (const pool of r.wildlife.pools) Object.assign(pool, {
-      cohorts: [{ id: `${pool.id}:original`, count: pool.originalCount, massKg: profiles[pool.guild].adultKg,
-        bornAt: at - profiles[pool.guild].adultDays * DAY, health: 1, hazard: 0, mortalityBalance: Life.random(`${pool.id}:mortality`) }],
+      cohorts: [{ id: `${pool.id}:original`, count: pool.originalCount, massKg: profile(pool).adultKg,
+        bornAt: at - profile(pool).adultDays * DAY, health: 1, hazard: 0, mortalityBalance: Life.random(`${pool.id}:mortality`) }],
       broods: [], bornCount: 0, deadCount: 0, huntedCount: 0, fundedKg: 0, discardedKg: 0,
       maintenanceKg: 0, maintenanceWaterL: 0, wasteKg: 0, attempts: 0, catches: 0,
       carcass: { initialMassKg: 0, massKg: 0, edibleKg: 0, consumedKg: 0, decomposedKg: 0, lastAt: at } });
@@ -77,7 +157,7 @@
   function plan(r, month, at) {
     if (!r.wildlife) return;
     for (const pool of r.wildlife.pools) {
-      const p = profiles[pool.guild], days = (month.end - at) / DAY;
+      const p = profile(pool), days = (month.end - at) / DAY;
       const adults = pool.cohorts.reduce((n, c) => n + (at - c.bornAt >= p.adultDays * DAY && c.massKg >= p.adultKg * .95 && c.health >= .6 ? c.count : 0), 0);
       const condition = Math.min(1, ...['renewableBiomass', ...(p.waterDay ? ['freshwaterQuantity', 'freshwaterQuality'] : [])]
         .map(k => r.ecology?.referenceCondition[k] > 0 ? r.condition[k] / r.ecology.referenceCondition[k] : 1));
@@ -94,7 +174,7 @@
     if (!r.wildlife) return [];
     const requests = []; rate.wildlifeMaintenance = []; rate.wildlifeRates = [];
     for (const pool of r.wildlife.pools) {
-      const p = profiles[pool.guild];
+      const p = profile(pool);
       for (const c of pool.cohorts) if (c.count) {
         const scale = c.count * (c.massKg / p.adultKg) ** .75 * (at - c.bornAt < p.adultDays * DAY ? 1.5 : 1);
         const food = p.foodDay * scale, water = p.waterDay * scale;
@@ -115,14 +195,14 @@
     return requests;
   }
   function fed(r, q, rate) {
-    const pool = r.wildlife.pools.find(p => p.id === q.poolId), p = profiles[pool.guild];
+    const pool = r.wildlife.pools.find(p => p.id === q.poolId), p = profile(pool);
     return suitable(r, pool) && (rate.supply[pool.foodKey] ?? 0) >= 1 && (!p.waterDay || (rate.supply.waterL ?? 0) >= 1);
   }
   function next(r, rate, at) {
     if (!r.wildlife) return Infinity;
     let end = Infinity;
     for (const pool of r.wildlife.pools) {
-      const p = profiles[pool.guild];
+      const p = profile(pool);
       for (const c of pool.cohorts) {
         if (c.bornAt + p.adultDays * DAY > at + EPS) end = Math.min(end, c.bornAt + p.adultDays * DAY);
         const missing = Math.max(suitable(r, pool) ? 0 : 1, 1 - (rate.supply[pool.foodKey] ?? 0), p.waterDay ? 1 - (rate.supply.waterL ?? 0) : 0);
@@ -144,7 +224,7 @@
     if (!r.wildlife) return;
     const days = (to - from) / DAY;
     for (const q of rate.wildlifeMaintenance || []) {
-      const pool = r.wildlife.pools.find(p => p.id === q.poolId), c = pool.cohorts.find(c => c.id === q.cohortId), p = profiles[pool.guild];
+      const pool = r.wildlife.pools.find(p => p.id === q.poolId), c = pool.cohorts.find(c => c.id === q.cohortId), p = profile(pool);
       if (!c?.count) continue;
       const food = q.food * (rate.supply[pool.foodKey] ?? 0) * days, water = q.water * (rate.supply.waterL ?? 0) * days;
       pool.maintenanceKg += food; pool.maintenanceWaterL += water;
@@ -173,7 +253,7 @@
     }
   }
   function lose(r, pool, c, n, hunted, at) {
-    const p = profiles[pool.guild]; n = Math.min(c.count, n);
+    const p = profile(pool); n = Math.min(c.count, n);
     if (!p.externalBrood && n && at - c.bornAt >= p.adultDays * DAY && c.massKg >= p.adultKg * .95) {
       const adults = pool.cohorts.reduce((v, c) => v + (at - c.bornAt >= p.adultDays * DAY && c.massKg >= p.adultKg * .95 ? c.count : 0), 0);
       const surviving = Math.max(0, 1 - n / Math.max(1, adults));
@@ -193,7 +273,7 @@
   function boundary(r, at, daily) {
     if (!r.wildlife) return;
     for (const pool of r.wildlife.pools) {
-      const p = profiles[pool.guild];
+      const p = profile(pool);
       for (const c of pool.cohorts) {
         if (c.health <= EPS) lose(r, pool, c, c.count, false, at);
         else if (daily && c.count) {
@@ -225,14 +305,14 @@
     if (daily) r.wildlife.lastDemographyAt = at;
   }
   function begin(r, g, c, a, at, position, credited = 0) {
-    if (!r.wildlife || c.contactBusyUntil > at || !a.life.will || a.life.willing === false || a.health < a.maxHealth * .3
+    if (!r.wildlife || r.wildlife.pools.some(p => p.spatial) || c.contactBusyUntil > at || !a.life.will || a.life.willing === false || a.health < a.maxHealth * .3
       || !Bodies.capable(a, a.bodyPhysics.mode) || Bodies.wounded(a, /head|torso|limb|leg|wing|fin/) >= .65
       || a.bodyPhysics.stamina < 2 || !position || g.transit || r.contactBarriers?.length) return false;
     const scavenge = g.speciesId === 'beast:carrion-lantern', p = Biology.lifecycle[g.speciesId], n = c.ranges.reduce((n, [lo, hi]) => n + hi - lo, 0);
     if (!n || !scavenge && (g.foodWebPlan.huntingRemaining + credited < n || Life.random(`${g.id}:${at}:wildlife-search`) >= Math.min(1, p.huntsDay))) return false;
     const aquatic = ['swimming', 'drifting'].includes(a.bodyPhysics.mode);
     if (!aquatic && position.altitudeM > 2) return false;
-    const guilds = r.wildlife.pools.filter(pool => aquatic === (pool.guild === 'fish') && suitable(r, pool) && profiles[pool.guild].adultKg < c.massKg * .5);
+    const guilds = r.wildlife.pools.filter(pool => aquatic === (pool.guild === 'fish') && suitable(r, pool) && profile(pool).adultKg < c.massKg * .5);
     if (!guilds.length) return false; // A habitat cue, not selection of a hidden rich destination.
     const b = Bodies.profiles[g.speciesId], mode = a.bodyPhysics.mode;
     const passive = mode === 'drifting' || mode === 'flight' && b.form === 'aerostat';
@@ -307,15 +387,36 @@
   function guilds(r, c, a) {
     const aquatic = ['swimming', 'drifting'].includes(a.bodyPhysics.mode);
     if (aquatic && Bodies.profiles[a.speciesId].modes.includes('walking') && Bodies.height(a) >= 0) return [];
-    return (r.wildlife?.pools || []).filter(pool => aquatic === (pool.guild === 'fish') && suitable(r, pool)
-      && profiles[pool.guild].adultKg < c.massKg * .5).map(pool => pool.id);
+    const pools = (r.wildlife?.pools || []).filter(pool => aquatic === (pool.guild === 'fish') && suitable(r, pool)
+      && profile(pool).adultKg < c.massKg * .5);
+    // A large hunter tries suitable larger prey first, not millions of insects
+    // merely because that ledger was inserted first. This is an intrinsic size
+    // preference, not knowledge of where unseen herds are or how many remain.
+    if (pools.some(p => p.spatial)) pools.sort((a, b) => profile(b).adultKg - profile(a).adultKg || a.id.localeCompare(b.id));
+    return pools.map(pool => pool.id);
+  }
+  function encounterFraction(pool, q) {
+    if (!pool.spatial) return Math.min(1, q.areaHa / pool.areaHa)
+      * (pool.habitatDepthM > 0 ? Math.min(1, q.depthM / pool.habitatDepthM) : 1);
+    const p = q.position, site = pool.spatial;
+    if (!p || !['eastM', 'northM', 'altitudeM'].every(k => Number.isFinite(p[k]))) return 0;
+    const a = Math.sqrt(q.areaHa * 10000 / Math.PI), b = site.radiusM, d = Math.hypot(p.eastM - site.eastM, p.northM - site.northM);
+    if (!(a > 0 && b > 0) || d >= a + b) return 0;
+    const overlap = d <= Math.abs(a - b) ? Math.PI * Math.min(a, b) ** 2
+      : a * a * Math.acos(Math.max(-1, Math.min(1, (d * d + a * a - b * b) / (2 * d * a))))
+        + b * b * Math.acos(Math.max(-1, Math.min(1, (d * d + b * b - a * a) / (2 * d * b))))
+        - .5 * Math.sqrt(Math.max(0, (-d + a + b) * (d + a - b) * (d - a + b) * (d + a + b)));
+    const depth = pool.habitatDepthM > 0 ? Math.max(0, Math.min(-p.altitudeM + q.depthM / 2, site.depthTopM + pool.habitatDepthM)
+      - Math.max(0, -p.altitudeM - q.depthM / 2, site.depthTopM)) / pool.habitatDepthM : 1;
+    return Math.min(1, overlap / (pool.areaHa * 10000)) * depth;
   }
   function capture(r, g, c, q, maximumKg, at) {
     const claims = []; let room = maximumKg;
     for (const id of q.guilds) {
       const pool = r.wildlife.pools.find(p => p.id === id); if (!pool || !suitable(r, pool) || !(room > EPS)) continue;
       pool.attempts += q.memberCount;
-      const fraction = Math.min(1, q.areaHa / pool.areaHa) * (pool.habitatDepthM > 0 ? Math.min(1, q.depthM / pool.habitatDepthM) : 1);
+      if (pool.spatial && q.position?.regionId !== r.id) continue;
+      const fraction = encounterFraction(pool, q);
       const encounteredKg = Math.max(0, pool.carcass.edibleKg - (pool.carcass.reservedKg || 0)) * fraction;
       let caughtKg = 0;
       if (!q.scavenge) for (const prey of pool.cohorts) {
@@ -331,10 +432,16 @@
   function validDefinition(r) {
     if (!r.wildlife) return true;
     const w = r.wildlife;
-    return Array.isArray(w.pools) && new Set(w.pools.map(p => p.id)).size === w.pools.length && w.pools.every(p => profiles[p.guild]
+    return Array.isArray(w.pools) && new Set(w.pools.map(p => p.id)).size === w.pools.length && w.pools.every(p => profile(p)
       && typeof p.id === 'string' && p.id && ['forageKg', 'organicKg', 'planktonKg'].includes(p.foodKey)
       && p.areaHa > 0 && p.areaHa <= r.areaHa && finite(p.habitatDepthM) && integer(p.originalCount) && integer(p.capacityCount)
-      && p.capacityCount >= p.originalCount && finite(p.originalMassKg) && Math.abs(p.originalMassKg - p.originalCount * profiles[p.guild].adultKg) < EPS);
+      && p.capacityCount >= p.originalCount && finite(p.originalMassKg) && Math.abs(p.originalMassKg - p.originalCount * profile(p).adultKg) < EPS
+      && Boolean(p.spatial) === Boolean(p.sizeClass)
+      && (!p.spatial || p.sizeClass && ['eastM', 'northM'].every(k => Number.isFinite(p.spatial[k]))
+        && p.spatial.radiusM > 0 && finite(p.spatial.radiusM) && finite(p.spatial.depthTopM)
+        && Math.abs(Math.PI * p.spatial.radiusM ** 2 / 10000 - p.areaHa) < 1e-6 * Math.max(1, p.areaHa)
+        && Math.hypot(p.spatial.eastM, p.spatial.northM) + p.spatial.radiusM <= Math.sqrt(r.areaHa * 10000 / Math.PI) + EPS
+        && (p.guild !== 'fish' || p.spatial.depthTopM + p.habitatDepthM <= r.depthM + EPS)));
   }
   function valid(r, at, group, clock = at) {
     if (!r.wildlife) return true;
@@ -350,10 +457,10 @@
         || !finite(pool.plan.plannedAt) || pool.plan.plannedAt > at + EPS || !(pool.plan.end > pool.plan.plannedAt)) return false;
       if (pool.catches !== pool.huntedCount || !integer(total(pool))) return false;
       if (new Set(pool.cohorts.map(c => c.id)).size !== pool.cohorts.length || new Set(pool.broods.map(b => b.id)).size !== pool.broods.length) return false;
-      if (pool.cohorts.some(c => typeof c.id !== 'string' || !c.id || !integer(c.count) || !(c.massKg > 0) || !finite(c.massKg) || c.massKg > profiles[pool.guild].adultKg + EPS
+      if (pool.cohorts.some(c => typeof c.id !== 'string' || !c.id || !integer(c.count) || !(c.massKg > 0) || !finite(c.massKg) || c.massKg > profile(pool).adultKg + EPS
         || !Number.isFinite(c.bornAt) || c.bornAt > at + EPS || !finite(c.health) || c.health > 1 || !finite(c.hazard) || !finite(c.mortalityBalance))) return false;
       if (pool.broods.some(b => typeof b.id !== 'string' || !b.id || !integer(b.monthIndex) || !integer(b.targetCount) || !finite(b.investedKg) || !finite(b.dueAt)
-        || b.investedKg > b.targetCount * profiles[pool.guild].newbornKg + EPS)) return false;
+        || b.investedKg > b.targetCount * profile(pool).newbornKg + EPS)) return false;
       const row = pool.carcass;
       if (!row || !Object.values(row).every(finite) || row.edibleKg > row.massKg + EPS || row.lastAt > at + EPS
         || Math.abs(row.initialMassKg - row.massKg - row.consumedKg - row.decomposedKg) > 1e-6 * Math.max(1, row.initialMassKg)) return false;
@@ -384,7 +491,7 @@
     return rate.wildlifeRates.every(q => {
       const pool = r.wildlife.pools.find(p => p.id === q.poolId);
       return pool && finite(q.perDay) && finite(q.factor) && q.factor <= 1 && finite(q.remainingKg)
-        && q.assimilation === profiles[pool.guild].assimilation && q.inputs && Object.values(q.inputs).every(finite)
+        && q.assimilation === profile(pool).assimilation && q.inputs && Object.values(q.inputs).every(finite)
         && (q.kind === 'wildlifeGrowth' ? pool.cohorts.some(c => c.id === q.cohortId)
           : q.kind === 'wildlifeBrood' && pool.broods.some(b => b.id === q.broodId));
     }) && rate.wildlifeMaintenance.every(q => r.wildlife.pools.some(p => p.id === q.poolId && p.cohorts.some(c => c.id === q.cohortId))
@@ -402,6 +509,6 @@
     }
     return result;
   }
-  return { profiles, allocate, apply, initialize, plan, prepare, fed, next, integrate, boundary, begin, finish, cancel,
+  return { profiles, sizeClasses, profile, feedingGround, initialPosition, encounterFraction, definitions, allocate, apply, initialize, plan, prepare, fed, next, integrate, boundary, begin, finish, cancel,
     validDefinition, valid, validRates, summary, total, mass, guilds, capture, DURATION };
 });

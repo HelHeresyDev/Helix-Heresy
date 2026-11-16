@@ -20,10 +20,18 @@ function run({ seed = 'source-small', days, progress = () => {}, engine = P } = 
   const lossesByCause = {};
   for (const loss of [...account.losses, ...account.lossBatches])
     lossesByCause[loss.cause] = (lossesByCause[loss.cause] || 0) + (loss.count ?? 1);
+  const shortfalls = {};
+  for (const issue of result.report.issues) if (issue.kind === 'performedResourceShortfall')
+    shortfalls[issue.resource] = (shortfalls[issue.resource] || 0) + issue.missingAmount;
+  const lossesBySpecies = {};
+  for (const loss of [...account.losses, ...account.lossBatches]) {
+    const row = lossesBySpecies[loss.speciesId] ||= {};
+    row[loss.cause] = (row[loss.cause] || 0) + (loss.count ?? 1);
+  }
   return { milliseconds: Math.round(performance.now() - started), executionMilliseconds, days: endDays, regions: account.regions.length,
     groups: account.groups.length, bindingBytes: JSON.stringify(record.physicalBinding).length,
     accountBytes: JSON.stringify(account).length, ...result.report, issues: result.report.issues.length,
-    issueKinds: byKind(result.report.issues), sourceIssueKinds: byKind(result.report.sourceAvailability), lossesByCause,
+    issueKinds: byKind(result.report.issues), sourceIssueKinds: byKind(result.report.sourceAvailability), lossesByCause, lossesBySpecies, shortfalls,
     sourceAvailability: result.report.sourceAvailability.length, populations: result.report.populations.length };
 }
 if (require.main === module) {

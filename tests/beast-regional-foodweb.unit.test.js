@@ -15,6 +15,17 @@ function fixture(rows) {
   P.removeStock(s, 'ground', 'waterL', 0, 0, 'initial-hunger-established'); return s;
 }
 function valid(s) { assert.ok(P.normalize(s, binding)); P.audit(s); }
+test('airborne bodies over ocean retain their actual mode rather than gaining unsupported swimming', () => {
+  const src = source([['storm-kite', 0, 1], ['reef-wyrm', 2, 1]]), r = src.regions[0];
+  Object.assign(r, { kind: 'waterColumn', floor: false, depthM: 100 });
+  r.stocks.seawaterL = r.capacity.seawaterL = r.areaHa * 10000 * 1000 * r.depthM;
+  src.groups[1].home.depthM = 15;
+  const s = P.create(src, binding);
+  const actors = s.groups.map(g => F.actor(g, g.cohorts[0], 0, s.regions[0], 0));
+  assert.equal(actors[0].bodyPhysics.mode, 'flight'); assert.equal(actors[0].bodyPhysics.altitudeM, 0);
+  assert.equal(actors[1].bodyPhysics.mode, 'swimming'); assert.equal(actors[1].bodyPhysics.altitudeM, -15);
+  valid(s);
+});
 test('monthly intentions have finite authored attempt budgets and accrue no upfront kills, food or remote knowledge', () => {
   const s = fixture(), before = clone(s.foodWeb), p = D.lifecycle['beast:glasswing-roc'];
   assert.equal(s.groups[0].foodWebPlan.huntingRemaining, Math.floor(2 * p.huntsDay * 29));

@@ -12,10 +12,20 @@
   const EPS = 1e-8, copy = x => JSON.parse(JSON.stringify(x));
   const channels = Data.ledgers.map(([id]) => id), vector = n => Object.fromEntries(channels.map(k => [k, n]));
   const actionFor = Object.fromEntries(Object.entries(Work.actions).map(([action, species]) => [species, action]));
-  function allocate(original, map) {
+  function allocate(original, map, options = {}) {
     const source = copy(original), regions = new Map(source.regions.map(r => [r.id, r]));
     const binding = { basis: 'Original geography, finite material partitions and existing life histories',
       transfers: [], capacities: [], rainfallShares: [], workSites: [], nurseries: [], groupBindings: [], issues: [] };
+    // Small uncharted ponds occupy a partition of this same catchment. Their
+    // original 15 L/m² surface-water share is already in the raw pond account;
+    // filling the deeper basin must debit its actual neighboring surface stock.
+    for (const pond of source.regions.filter(r => r.source?.catchmentPond)) {
+      const catchment = source.regions.find(r => r.cellId === pond.cellId && r.kind === 'surface');
+      const amount = Math.max(0, pond.capacity.waterL - pond.stocks.waterL);
+      if (!catchment || !(amount > 0) || catchment.stocks.waterL < amount) throw Error('Unfunded catchment pond');
+      catchment.stocks.waterL -= amount; pond.stocks.waterL += amount;
+      (binding.catchmentTransfers ||= []).push({ fromRegionId: catchment.id, toRegionId: pond.id, amount });
+    }
     function transfer(r, from, to, amount, basis) {
       const n = Math.max(0, Math.min(r.stocks[from] || 0, amount));
       if (!(n > EPS)) return 0;
@@ -135,6 +145,8 @@
         const matureMale = g.cohorts.some(c => c.role === 'male' && c.count > 0 && c.ageDays >= p.fertileDays);
         const nursery = { id: `nursery:${g.id}`, speciesId: g.speciesId, capacity, reservedAreaHa, slotAreaHa,
           habitatSuitable, mateAccess: matureMale, phases,
+          ...(options.positions && g.home?.patchId === r.id ? { position: { regionId: r.id, eastM: g.home.eastKm * 1000,
+            northM: g.home.northKm * 1000, altitudeM: -g.home.depthM || 0 } } : {}),
           ...(g.speciesId === 'beast:ember-ant' ? { colonyId: `${g.id}:hive`, furnaceKg: 0,
             workSiteId: workSite?.id || null } : {}) };
         binding.nurseries.push({ regionId: r.id, nursery });
@@ -169,6 +181,13 @@
   }
   function apply(source, binding, map) {
     const regions = new Map(source.regions.map(r => [r.id, r]));
+    for (const t of binding.catchmentTransfers || []) {
+      const from = regions.get(t.fromRegionId), to = regions.get(t.toRegionId);
+      if (!from || !to || from.cellId !== to.cellId || from.kind !== 'surface' || !to.source?.catchmentPond
+        || !(t.amount > 0) || !Number.isFinite(t.amount) || from.stocks.waterL + EPS < t.amount
+        || to.stocks.waterL + t.amount > to.capacity.waterL + EPS) throw Error('Unfunded catchment pond');
+      from.stocks.waterL = Math.max(0, from.stocks.waterL - t.amount); to.stocks.waterL += t.amount;
+    }
     for (const t of binding.transfers) {
       const r = regions.get(t.regionId);
       if (!(t.amount >= 0) || !Number.isFinite(t.amount) || !(r.stocks[t.from] + EPS >= t.amount)) throw Error('Unfunded original habitat allocation');

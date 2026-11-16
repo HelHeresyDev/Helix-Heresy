@@ -15,8 +15,12 @@ pregnancy for every animal. Actual funded births still have integer counts.
 | Guild | Adult / newborn kg | Adult days | Food kg/day | Freshwater L/day | Potential offspring/day | Incubation days | Adult mortality/day | Assimilation | Birth success |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Insects | 0.002 / 0.0001 | 14 | 0.0002 | 0 | 0.05 | 3 | 0.01 | 25% | 60% |
-| Small animals | 2 / 0.05 | 90 | 0.1 | 0.1 | 0.004 | 20 | 0.001 | 30% | 70% |
-| Fish | 0.25 / 0.005 | 120 | 0.0125 | 0 | 0.05 | 7 | 0.002 | 25% | 50% |
+| Land animals, small | 2 / 0.05 | 90 | 0.1 | 0.1 | 0.004 | 20 | 0.001 | 30% | 70% |
+| Land animals, medium | 10 / 0.25 | 180 | 0.34 | 0.5 | 0.002 | 45 | 0.0006 | 30% | 70% |
+| Land animals, large | 100 / 5 | 365 | 1.9 | 3 | 0.001 | 90 | 0.0002 | 30% | 70% |
+| Fish, small | 0.25 / 0.005 | 120 | 0.0125 | 0 | 0.05 | 7 | 0.002 | 25% | 50% |
+| Fish, medium | 2.5 / 0.01 | 240 | 0.07 | 0 | 0.025 | 10 | 0.001 | 25% | 50% |
+| Fish, large | 25 / 0.05 | 365 | 0.4 | 0 | 0.02 | 14 | 0.0005 | 25% | 50% |
 
 Maintenance scales with body mass to the 0.75 power and has a 1.5 juvenile
 multiplier. Juvenile mortality is twice the adult hazard. Food is organic matter
@@ -24,24 +28,46 @@ for insects, forage for small animals, plankton for marine fish and organic
 matter for freshwater fish. Fish need an actual oxygenated water column deeper
 than 0.5 m, not a drinking-water ration. Small animals need real freshwater.
 These are explicit balancing approximations, not measured or final biology.
+The existing internal `smallAnimals` guild ID now includes the three land size
+classes; it is not three new catalog species. Legacy definitions without class
+or position retain their original 2 kg animal / 250 g fish profiles and spatial
+model when loaded. New physical proposals archive the classed definitions.
 
 ## Generation and conservation
 
 New proposals archive `backgroundWildlife` allocations derived from their actual
 regional food, seasonal renewal and water. Initial abundance uses at most 5% of
 the minimum seasonal food/water throughput and 2% of available standing food
-mass, with seeded variation. Initial animal body matter is **removed from that
+mass, with seeded variation. Small/medium/large classes split those same guild
+ceilings 25%/35%/40%; they do not each receive another 5% or 2% allocation.
+Initial animal body matter is **removed from that
 same standing stock** rather than created alongside it. Carrying-count ceilings
 start at 1.5 times initial abundance and shrink with the existing local habitat
 condition. There are no underground pools or automatic meat/carrion renewals.
+
+New physical proposals refine each populated region into one seeded finite
+feeding-ground footprint shared by its anonymous guilds: 0.025% of the regional
+area, wholly inside the regional geometric envelope. Fish schools occupy at
+most 15 m of the actual water column, starting no deeper than 5 m. Initial
+strategic family homes use that same procedural geography rather than unrelated
+points tens of kilometres away. This is founding-site allocation, not a runtime
+animal map or a promise about a future destination. The footprint does not add
+food or water: all size classes still compete for the same original regional
+stocks and renewal. Their source catchment remains the regional account; forage
+transport within a feeding ground is not individually simulated.
 
 The reusable world holds immutable definitions, not mutable animals. A fresh run
 creates its own cohort/food/carcass accounts; continuing a run retains them.
 Old archived proposals without wildlife stay unchanged and gain none on load.
 Source validation reconstructs allocations and rejects re-signed altered counts.
+New spatial definitions store a seed and seven count columns per regional row,
+not repeated IDs, profile labels, body masses and geometry. Expansion reconstructs
+the same finite definitions before any runtime body partition. This keeps the
+10,242-cell world archive inside the tested browser storage quota; it is not a
+claim that an expanded all-world run account already fits native game saves.
 
 Each region owns integer age cohorts, paid brood investment and one finite
-carcass ledger per guild. Maintenance competes with strategic creatures for the
+carcass ledger per guild/size class. Maintenance competes with strategic creatures for the
 same stocks and renewal. Surplus funds growth and embryos through cached rates
 over elapsed time, with assimilation waste and exact funding boundaries.
 No age timer supplies missing body mass. Monthly reproductive budgets respect
@@ -89,14 +115,23 @@ rest, and eating/handling are not simultaneous rest. An eight-hour bout can
 continue after a partial meal until reserves are full or its budget is spent.
 Running out of food during a search does not create an early capture or reroll.
 Passive aerostats without an established current search only their
-stationary sensing footprint. Search area uses a homogeneous-field overlap
-approximation, `area × (1 − exp(−summed footprint / area))`; fish additionally use
-the fraction of their water-column habitat within sensing depth. This is coarse
+stationary sensing footprint. Search area uses the bounded swept-area
+approximation `area × (1 − exp(−summed footprint / area))`. For new classed
+herds/schools, its equivalent local circle must actually intersect the finite
+feeding-ground circle, in the same regional coordinate frame. Encounter density
+uses their intersection, not a region-wide dense field. Fish additionally
+require overlap between actual hunter depth/sensing reach and the school's
+water band. A distant or vertically unreachable school supplies no meal.
+Legacy homogeneous definitions retain their previous area/depth fraction.
+This is coarse
 statistical foraging, **not** individually simulated fish, known prey coordinates,
 guaranteed success or a strategic duel multiplied over a population.
 
 On completion, actual local density and the authored hunter success ceiling
 produce seeded integer catches, capped by surviving prey and feeding capacity.
+Hunters prefer eligible larger prey before smaller classes, an intrinsic size
+preference rather than a census or remote location hint. The original size
+limit still excludes adult prey at least half the hunter's current body mass.
 Prey are not reserved when the search begins. Captures remove their bodies before
 their edible tissue can feed the searching cohort. A catch grants a single-owner
 claim against that same carcass, not an instant stomach refill or a second food
@@ -127,12 +162,15 @@ them. Regional clocks still leave unrelated accounts untouched.
 
 ## Verification and limits
 
-The 21 wildlife and 17 foraging focused unit checks cover matter/count
+The wildlife, spatial-wildlife and foraging focused unit checks cover matter/count
 conservation, paid recruitment and growth, parent loss, shared food/feeding time,
 starvation, drying fish habitat,
 locality, density-limited catches, marine reach, scavenging, interrupted searches,
 save/continued independence, malformed claims/budgets/actions, million-member
-scaling and unchanged archives. Sufficient finite land and marine fixtures keep
+scaling and unchanged archives. Spatial checks additionally cover shared class
+budgets, bounded horizontal/vertical reach, profile-specific growth/recruitment,
+loss of the actual water column, corrupt geometry and partial saved searches.
+Sufficient finite land and marine fixtures keep
 their original predators healthy through all 120 calendar days, including paid
 juvenile growth; deficient/blocked/refusing cases genuinely starve. Prepared
 feeding fixtures suppress unrelated natural-death thresholds only, not prey loss,
@@ -142,31 +180,37 @@ independent branches without disclosing private state. Named food-web/regional-
 clock and generated-source storage browser checks also pass. The full test suite
 is not run under the repository's focused-testing policy.
 
-The `source-small` 120-day generated replay starts with 329 wildlife cohorts
-representing roughly 97 billion small animals/insects/fish across 213 regions.
-Cohort work, not one object per animal, handles that headcount. With elapsed
-feeding routines, roughly 70.8 billion recruits, 99.6 billion natural/scarcity
-deaths and 1,146,887 caught animals reconcile to 68.5 billion survivors in 969
-wildlife cohorts. Actual wildlife ingestion increases from the previous
-five-minute implementation's **42.2 kg to 26,123 kg**; no generic meat renewal
-or increased prey allocation pays for the difference.
+The current `source-small` 120-day generated replay uses source
+`beast-habitat-source:be09b6d3`, 334 physical regions, 2,615 strategic groups and
+89 original source populations spanning all 24 strategic species. Its final
+accounts reconcile independently:
 
-The 56,186 original strategic beasts remain separate: 104,994 paid births
-reconcile to 91,494 living and 69,686 dead (69,181 background deaths, 501
-starvation and four dehydration). This still leaves 151 performed resource-
-shortfall records and two unlocated-original records. At the endpoint 58,923
-living originals/descendants lack established contact positions; the sample has
-no original-beast duels. Recorded source gaps remain 196 unsupported work media,
-512 unsupported nurseries, 33 missing work sites, one unverified furnace-metal
-source and 32 unverified dream-participant sources. These are diagnostic counts,
-not player knowledge or grounds for declaring those sources harmless.
+| Account | Original | Paid births | Living | Dead | Hunted separately |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Strategic bodies | 56,243 | 191,180 | 131,131 | 116,292 | Included in dead |
+| Anonymous wildlife | 97,503,071,748 | 72,182,820,365 | 67,135,170,228 | 102,543,581,664 | 7,140,221 |
 
-The measured elapsed-routine replay takes roughly three minutes, with 182,676
-boundaries, 18.1 million cohort integration visits and about 36 MB serialized
-account state. This costs more than the earlier roughly 53-second, barely-feeding
-sample; it is **not** a native-game performance certificate. The opt-in benchmark
-now reports issue/source-gap kinds and death causes alongside conservation and
-feeding totals. Run it with:
+Strategic deaths comprise 116,034 background losses, 252 starvation and six
+dehydration losses. All living strategic bodies retain stationary formations or
+positioned journeys; 10,750 are travelling. Wildlife ends in 3,318 cohorts, not
+billions of individual objects. Actual wildlife ingestion is **3,860,117 kg**,
+compared with 43,886 kg in the earlier pond-enabled uniform-tiny-prey replay.
+Classes share the original guild food/water ceilings; the increase is not funded
+by extra meat renewal or another wildlife budget.
+
+The replay still records 81 performed resource-shortfall records and no
+original-beast duels. Source gaps remain 42 missing work sites, four unverified
+furnace-metal sources and 32 unverified dream-participant sources. An exact-depth
+marine-medium fix removes the former 123 false Brine Cathedral starvation
+deaths without changing their plankton supply. Remaining scarcity is real
+diagnostic failure, not grounds for declaring the source healthy or exhausted.
+
+Measured execution takes roughly 152 seconds, 246,985 event boundaries, ten
+million cohort integration visits and 50.4 MB serialized expanded account state.
+The compact immutable world definitions pass default-resolution browser
+save/reload, but this expanded run account is **not** a native-game performance
+or save-capacity certificate. The opt-in benchmark reports issue/source-gap
+kinds and deaths by cause/species alongside conservation and feeding totals:
 
 ```sh
 node scripts/benchmark-generated-beast-habitats.js --days=120
@@ -177,4 +221,6 @@ sustained feeding in supplied fixtures, not all-species generated food-web or
 opposition viability, all original habitat/formation sources or native encounter adoption. The full
 cycle is diagnostic evidence, not a healthy-world or performance certificate.
 No world is activated or relabelled exhausted to bypass those remaining D
-requirements, and no new queue item is added.
+requirements, and no new queue item is added. Physical placement, paid catchment
+ponds, nursery/maternal formations and positioned journeys are recorded in
+[population location continuity](BEAST_POPULATIONS.md#habitat-placement-and-location-continuity).

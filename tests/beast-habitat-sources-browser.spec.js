@@ -21,6 +21,9 @@ test('browser generation, compressed world storage and reload preserve private r
       private: !JSON.stringify(world.generatedData.strategicMap.publicBeastAtlas || {}).includes('foodAllocations'),
       workSites: source.physicalBinding.workSites.length, nurseries: source.physicalBinding.nurseries.length,
       physicalDigest: window.HelixStrategicWorld.stableHash(source.physicalBinding),
+      wildlifeDigest: window.HelixStrategicWorld.stableHash(source.backgroundWildlife),
+      preyClasses: [...new Set(window.HelixBackgroundWildlife.definitions(source.backgroundWildlife, S.expand(source, world.generatedData.strategicMap).regions)
+        .flatMap(a => a.pools.map(p => p.sizeClass)))].sort(),
       validated: S.validate(source, world.generatedData.strategicMap, world.worldSeed).id === source.id };
   });
   expect(original.species).toBe(24); expect(original.private).toBe(true); expect(original.validated).toBe(true);
@@ -28,6 +31,7 @@ test('browser generation, compressed world storage and reload preserve private r
   expect(original.journeyGroups).toBeGreaterThan(0); expect(original.travellingDays).toBeGreaterThan(0);
   expect(original.blanketUnverified).toBe(false);
   expect(original.workSites).toBeGreaterThan(0); expect(original.nurseries).toBeGreaterThan(0);
+  expect(original.preyClasses).toEqual(['large', 'medium', 'small']);
   await page.reload(); await page.locator('#titleWorldLibraryBtn').click();
   await expect(page.locator('body')).toContainText(original.name);
   await expect(page.locator('body')).not.toContainText('unfundedPrey');
@@ -49,6 +53,7 @@ test('browser generation, compressed world storage and reload preserve private r
       workSites: map.beastHabitatSources.physicalBinding.workSites.length,
       nurseries: map.beastHabitatSources.physicalBinding.nurseries.length,
       physicalDigest: window.HelixStrategicWorld.stableHash(map.beastHabitatSources.physicalBinding),
+      wildlifeDigest: window.HelixStrategicWorld.stableHash(map.beastHabitatSources.backgroundWildlife),
       diagnosticOnly: continued.account.diagnosticOnly, status: continued.report.status,
       continuationMatches: JSON.stringify(continued.report.counts) === JSON.stringify(direct.report.counts)
         && Object.entries(direct.report.work).every(([key, n]) => Math.abs(continued.report.work[key] - n) <= 1e-8 * Math.max(1, n)),
@@ -56,6 +61,7 @@ test('browser generation, compressed world storage and reload preserve private r
   }, original.id);
   expect(loaded).toEqual({ digest: original.digest, sourceId: original.sourceId, unavailable: true,
     workSites: original.workSites, nurseries: original.nurseries, physicalDigest: original.physicalDigest,
+    wildlifeDigest: original.wildlifeDigest,
     diagnosticOnly: true, status: 'incomplete', continuationMatches: true, paidWork: true, unchanged: true });
   expect(errors).toEqual([]);
 });

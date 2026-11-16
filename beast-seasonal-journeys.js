@@ -99,7 +99,7 @@
     }
     return events;
   }
-  function depart(g, at, region, speedKmDay) {
+  function depart(g, at, region, speedKmDay, spatial = null) {
     const events = [], intention = g.intention;
     if (!intention || intention.departAt > at + EPS || g.transit) return events;
     g.intention = null;
@@ -108,8 +108,11 @@
       events.push({ kind: 'blockedDeparture', at, groupId: g.id, destination: intention.destination });
       events.push(...blocked(g, at, 'Actual encountered edge or body capability prevents passage')); return events;
     }
+    const approach = spatial?.approachKm || 0, final = spatial?.finalKm || 0;
     g.transit = { path: [g.regionId, intention.destination], edgeIndex: 0, departedAt: at,
-      edgeStartedAt: at, crossAt: at + edge.distanceKm / speedKmDay * DAY / 2, edgeArriveAt: at + edge.distanceKm / speedKmDay * DAY };
+      edgeStartedAt: at, crossAt: at + (approach + edge.distanceKm / 2) / speedKmDay * DAY,
+      edgeArriveAt: at + (approach + edge.distanceKm + final) / speedKmDay * DAY,
+      ...(spatial ? { spatial: { ...copy(spatial), speedKmDay } } : {}) };
     if (intention.seasonalLegId && g.seasonal?.active?.id === intention.seasonalLegId) g.seasonal.active.status = 'travelling';
     events.push({ kind: 'departure', at, groupId: g.id, from: g.regionId, destination: intention.destination }); return events;
   }

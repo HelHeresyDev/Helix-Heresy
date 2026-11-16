@@ -28,11 +28,56 @@ test('initial work materials partition original matter and water rather than add
   const water = r => ['waterL', 'atmosphericWaterL', 'flowWaterL'].reduce((n, k) => n + (r.stocks[k] || 0), 0);
   for (let i = 0; i < source.regions.length; i++) {
     const bodyKg = (source.regions[i].wildlife?.pools || []).reduce((n, p) => n + p.originalMassKg, 0);
-    approx(kg(source.regions[i]) + bodyKg, kg(raw.regions[i])); approx(water(source.regions[i]), water(raw.regions[i]));
+    const id = source.regions[i].id;
+    const moved = (record.physicalBinding.catchmentTransfers || []).reduce((n, t) => n + (t.toRegionId === id ? t.amount : 0) - (t.fromRegionId === id ? t.amount : 0), 0);
+    approx(kg(source.regions[i]) + bodyKg, kg(raw.regions[i])); approx(water(source.regions[i]), water(raw.regions[i]) + moved);
     assert.equal(source.regions[i].stocks.seawaterL, raw.regions[i].stocks.seawaterL);
     assert.equal(source.regions[i].stocks.meatKg, undefined); assert.equal(source.regions[i].stocks.carrionKg, undefined);
     for (const season of source.regions[i].seasons) assert.equal(season.renewal.mineralsKg, 0);
   }
+});
+test('sub-hex ponds partition actual land and finite catchment water without adding rainfall or editing biome geography', () => {
+  const { source, record, map } = fixture(), raw = S.expand(record, map, { raw: true });
+  assert.ok(record.physicalBinding.catchmentTransfers.length > 0);
+  for (const t of record.physicalBinding.catchmentTransfers) {
+    const from = raw.regions.find(r => r.id === t.fromRegionId), to = raw.regions.find(r => r.id === t.toRegionId);
+    assert.equal(from.cellId, to.cellId); assert.equal(from.kind, 'surface'); assert.equal(to.source.catchmentPond, true);
+    approx(to.capacity.waterL - to.stocks.waterL, t.amount); assert.ok(t.amount <= from.stocks.waterL);
+    const baseline = S.expandPatch(map, [from.source.cellIndex, 0, from.areaHa + to.areaHa], record.calendar, true);
+    approx(from.stocks.waterL + to.stocks.waterL, baseline.stocks.waterL);
+    approx(from.source.rainfallLPerDay + to.source.rainfallLPerDay, baseline.source.rainfallLPerDay);
+    assert.equal(to.biome, map.biomes.classes[to.source.cellIndex]); assert.ok(to.areaHa < from.areaHa * .002);
+    const filled = source.regions.find(r => r.id === to.id); approx(filled.depthM, 4);
+    assert.ok(filled.stocks.waterL <= filled.capacity.waterL);
+  }
+  const B = require('../beast-habitat-bindings'), bad = clone(raw), transfer = record.physicalBinding.catchmentTransfers[0];
+  bad.regions.find(r => r.id === transfer.fromRegionId).stocks.waterL = 0;
+  assert.throws(() => B.apply(bad, record.physicalBinding, map), /Unfunded catchment pond/);
+});
+test('positioned proposals reject unusable starts while retaining original population counts and unavailable abilities', () => {
+  const { source, record, map } = fixture(), species = new Map(require('../strategic-beast-ecology').BEAST_SPECIES.map(s => [s.id, s]));
+  assert.equal(source.spatialContinuity, true); assert.equal(record.unlocated.length, 0);
+  for (const g of source.groups) {
+    const r = source.regions.find(r => r.id === g.regionId); assert.ok(S.usableHabitat(species.get(g.speciesId), r));
+    const site = r.nurseries.find(n => n.id === g.breeding?.siteId);
+    if (site) { assert.ok(site.capacity > 0); assert.equal(site.position.regionId, r.id); }
+  }
+  assert.ok(!record.physicalBinding.issues.some(i => ['unsupportedPhysicalNursery', 'unsupportedPhysicalWorkMedium'].includes(i.kind)));
+  const before = clone(map), legacy = S.generate(record.seed, map, { physicalPlacement: false });
+  assert.equal(legacy.physicalPlacement, undefined); assert.equal(legacy.physicalBinding.catchmentTransfers, undefined);
+  assert.ok(S.validate(legacy, map)); assert.deepEqual(map, before);
+  const prior = S.expand(legacy, map); assert.equal(prior.spatialContinuity, undefined);
+  assert.ok(prior.regions.every(r => !r.source.catchmentPond));
+});
+test('a coarse seed without mapped warm wetlands retains all species using paid sub-hex catchments', () => {
+  const world = L.createWorld({ id: 'pond-required', worldSeed: 'beast-catalog-first', generationVersion: 8, createdAt: 'test',
+    creationSettings: { strategicMap: { refinementLevel: 2 } } });
+  const map = world.generatedData.strategicMap, record = map.beastHabitatSources, original = JSON.stringify(world);
+  const source = S.expand(record, map), populations = source.groups.filter(g => ['beast:mire-choir', 'beast:rivercoil', 'beast:marsh-hydra'].includes(g.speciesId));
+  assert.equal(new Set(source.groups.map(g => g.speciesId)).size, 24); assert.equal(record.unlocated.length, 0);
+  assert.ok(populations.some(g => source.regions.find(r => r.id === g.regionId).source.catchmentPond));
+  assert.ok(record.physicalBinding.catchmentTransfers.length > 0); assert.ok(S.validate(record, map));
+  assert.equal(L.normalizeWorld(world).canonicalDigest, world.canonicalDigest); assert.equal(JSON.stringify(world), original);
 });
 test('atmospheric and river rainfall shares are deducted from the same original catchment input', () => {
   for (const r of fixture().source.regions) for (const season of r.seasons) {
@@ -115,7 +160,8 @@ test('re-signed inflated physical sites, materials or receiving capacity cannot 
   }
 });
 test('archived sources without recorded bindings load unchanged and cannot silently acquire new sites or a diagnostic upgrade', () => {
-  const { record, world } = fixture(), old = clone(world), archived = clone(record);
+  const { world, map: originalMap } = fixture(), old = clone(world);
+  const archived = S.generate(world.worldSeed, originalMap, { physicalPlacement: false });
   delete archived.physicalBinding; archived.id = ''; archived.id = `beast-habitat-source:${W.stableHash(archived)}`;
   old.generatedData.strategicMap.beastHabitatSources = archived; delete old.canonicalDigest;
   const loaded = L.normalizeWorld(old), map = loaded.generatedData.strategicMap, before = JSON.stringify(loaded);

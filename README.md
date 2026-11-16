@@ -2276,7 +2276,11 @@ The sample remains rejected/unverified—not a claim of native gameplay scaling.
 See [recorded source execution and its limits](BEAST_POPULATIONS.md#recorded-physical-source-execution).
 
 New habitat proposals also archive finite [background wildlife](BACKGROUND_WILDLIFE.md):
-ordinary insects, small animals and fish in compact age cohorts. Original bodies
+ordinary insects, three land-animal sizes and three fish sizes in compact age
+cohorts. Seeded finite herd/school footprints require actual horizontal and
+water-depth overlap; distant prey are not a dense field everywhere in a region.
+Compact immutable archive rows retain their exact counts and derived geometry
+within the tested default-resolution browser world-storage quota. Original bodies
 partition standing matter; maintenance and paid growth/recruitment share the same
 regional resources. Monthly per-cohort search/handling/eating/rest budgets drive
 repeated elapsed local actions; catches claim finite carcass tissue and longer
@@ -2286,6 +2290,15 @@ paid juvenile growth; deficient habitats can still starve. Partial searches,
 meals and losses survive saves/continued branches; archived worlds gain no
 wildlife on load. The full seasonal sample still rejects activation, so this does
 not claim a balanced generated ecosystem or completed native encounters.
+
+New generated populations now prefer usable founding temperatures and water
+conditions before history, then retain source-backed nursery/maternal formations
+and paid route/arrival positions. Small sub-hex ponds draw finite water from
+their surrounding catchments without changing globe biome labels or duplicating
+rainfall. Earlier archived source records retain their original allocations.
+The seasonal replay now distinguishes positioned travellers from unknown bodies;
+its remaining feeding/viability failures and unfinished native adoption remain
+documented in [the population model](BEAST_POPULATIONS.md#habitat-placement-and-location-continuity).
 
 Local predators now pursue actually sensed prey within a finite attempt budget
 through existing combat, movement and injury rules. Carrion Lanterns scavenge

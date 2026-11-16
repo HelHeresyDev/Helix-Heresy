@@ -101,8 +101,13 @@
   function wet(site, r, c) {
     if (!site?.water) return true;
     const w = site.water, body = Bodies.profiles[site.speciesId], scale = c ? Math.cbrt(c.massKg / Data.lifecycle[c.speciesId].adultKg) : 1;
+    const water = r.stocks[w.stockKey] || 0, threshold = waterThreshold(site, c);
+    // Marine work does not consume its seawater medium. An exactly deep-enough
+    // column is supported, just as in local body physics. Freshwater recipes
+    // withdraw water and still stop at their depletion boundary, before they
+    // could spend the minimum viable column during a cached work interval.
     return w.areaM2 >= (body?.lengthM || 0) * (body?.widthM || 0) * scale ** 2
-      && (r.stocks[w.stockKey] || 0) > waterThreshold(site, c) + EPS;
+      && (w.stockKey === 'seawaterL' ? water >= threshold && water > 0 : water > threshold + EPS);
   }
   function available(s, g, c, site, at) {
     const r = G.region(s, Journeys.location(g)), action = g.ecologicalPlan?.action;

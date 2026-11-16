@@ -87,6 +87,7 @@
   function validateSource(source) {
     if (!id(source?.id) || !Array.isArray(source.groups) || !Array.isArray(source.regions)) throw Error('Missing population source');
     Foodweb.validateSource(source);
+    if (source.spatialContinuity != null && typeof source.spatialContinuity !== 'boolean') throw Error('Invalid physical continuity declaration');
     monthAt(source.calendar, 0);
     if (source.unlocated && (!Array.isArray(source.unlocated) || source.unlocated.some(row => !id(row.populationId)
       || !Biology.lifecycle[row.speciesId] || row.count != null && !integer(row.count)))) throw Error('Invalid original unlocated capacity');
@@ -128,6 +129,7 @@
     const s = { ...binding, sourceId: source.id, calendar: copy(source.calendar), clock: at, appliedAt: at,
       ...(token === diagnosticToken ? { diagnosticOnly: true } : {}), unlocated: copy(source.unlocated || []),
       ...(source.regionalFoodWeb === true ? { regionalFoodWeb: true } : {}),
+      ...(source.spatialContinuity === true ? { spatialContinuity: true } : {}),
       regions: copy(source.regions), groups: source.groups.map(g => ({ ...copy(g), cohorts: g.cohorts.map(c => cohort(c, at)),
         knowledge: copy(g.knowledge || []), choiceSerial: 0, intention: null, transit: null, observedShortage: false })),
       details: {}, losses: [], lossBatches: [], births: [], plans: [], events: [], nextEventAt: at,
@@ -464,6 +466,7 @@
       mortalityBalance: Life.random(`${c.id}:mortality-offset`), batchHazard: 0, batchMembers: n });
     g.cohorts.push(c);
     if (s.foodWeb) Foodweb.initial(c, at);
+    Foodweb.birthPosition(s, g, parent, c, brood, at);
     let birth = s.births.find(b => b.originId === originId);
     if (!birth) { birth = { originId, populationId: g.populationId, count: 0, firstAt: at, lastAt: at, parentOrigins: [] }; s.births.push(birth); }
     birth.count += n; birth.lastAt = at;
@@ -499,10 +502,15 @@
       if (!g.cohorts.some(c => count(c))) { g.regionId = location(g); g.intention = null; g.transit = null; continue; }
       if (g.intention && g.intention.departAt <= at + EPS) {
         Foodweb.cancelForaging(s, g, at);
-        for (const event of Journeys.depart(g, at, s.regions.find(r => r.id === g.regionId), Biology.lifecycle[g.speciesId].travelKmDay))
+        const r = Demography.region(s, g.regionId), edge = r.edges.find(e => e.id === g.intention.destination);
+        for (const event of Journeys.depart(g, at, r, Biology.lifecycle[g.speciesId].travelKmDay, Foodweb.travelPlan(s, g, r, edge, at)))
           record(s, event.kind, event.at, event);
       }
-      for (const event of Journeys.arrive(g, at)) record(s, event.kind, event.at, event);
+      const spatial = g.transit?.spatial;
+      for (const event of Journeys.arrive(g, at)) {
+        if (event.kind === 'arrival') Foodweb.arrived(g, spatial, at);
+        record(s, event.kind, event.at, event);
+      }
     }
     plan(s, at, false);
     const demographicTick = at + EPS >= (s.nextDemographyAt ?? Infinity);
@@ -795,6 +803,7 @@
   function normalize(value, binding) {
     try {
       if (!id(value?.worldId) || !id(value.runId) || binding && (value.worldId !== binding.worldId || value.runId !== binding.runId)
+        || value.spatialContinuity != null && typeof value.spatialContinuity !== 'boolean'
         || value.diagnosticOnly != null && typeof value.diagnosticOnly !== 'boolean'
         || !nonnegative(value.clock) || !nonnegative(value.appliedAt) || value.appliedAt > value.clock + EPS
         || !nonnegative(value.nextEventAt) || value.nextEventAt <= value.clock - EPS

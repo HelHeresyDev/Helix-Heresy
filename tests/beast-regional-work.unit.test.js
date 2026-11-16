@@ -130,6 +130,19 @@ test('destroyed feeding structures and marine-medium loss cannot be repaired by 
     assert.equal(region(s).ecologicalAccount.nurturing.wetlandReefHabitat, 0);
   }
 });
+test('an exactly supported marine column permits filtration without requiring or consuming extra seawater', () => {
+  const s = fixture('filterPlankton', src => {
+    const r = src.regions[0], w = r.ecology.workSites[0].water;
+    r.stocks.seawaterL = w.areaM2 * w.minDepthM * 1000;
+  }), r = region(s), water = r.stocks.seawaterL;
+  assert.equal(worker(s).intake.foodKg, 1);
+  P.advance(s, DAY, true, true); approx(r.stocks.seawaterL, water);
+  approx(r.stocks.planktonKg, 960000); assert.ok(P.normalize(s));
+  P.removeStock(s, r.id, 'seawaterL', 1, s.clock, 'actual-loss-below-minimum-depth');
+  assert.equal(worker(s).intake.foodKg, 0);
+  const plankton = r.stocks.planktonKg; P.advance(s, 2 * DAY, true, true);
+  assert.equal(r.stocks.planktonKg, plankton); assert.ok(P.normalize(s));
+});
 test('malformed medium, non-original sleepers, wrong colonies and cyclic/remote watercourses are rejected', () => {
   for (const [action, change] of [['cultivateReef', src => src.regions[0].ecology.workSites[0].water.stockKey = 'waterL'],
     ['dreamWeather', src => src.regions[0].ecology.workSites[0].participantGroupIds = ['invented-sleeper']],

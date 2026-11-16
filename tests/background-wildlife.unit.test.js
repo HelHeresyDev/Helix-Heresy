@@ -216,12 +216,12 @@ test('headcount stays batched and final death freezes all background effects', (
 test('new generated worlds archive reproducible wildlife allocations; old archives acquire nothing on load', () => {
   const world = L.createWorld({ id: binding.worldId, worldSeed: 'source-small', generationVersion: 8, createdAt: 'test', creationSettings: { strategicMap: { refinementLevel: 2 } } });
   const map = world.generatedData.strategicMap, record = map.beastHabitatSources, before = clone(world);
-  assert.ok(record.backgroundWildlife.allocations.length); assert.ok(S.validate(record, map));
+  assert.ok(record.backgroundWildlife.spatialRows.length); assert.ok(S.validate(record, map));
   assert.deepEqual(S.generate(world.worldSeed, map), record); assert.deepEqual(world, before);
   const old = S.generate(world.worldSeed, map, { backgroundWildlife: false }), archivedMap = clone(map); archivedMap.beastHabitatSources = old;
   assert.equal(old.backgroundWildlife, undefined); S.validate(old, archivedMap);
   assert.ok(S.expand(old, archivedMap).regions.every(r => !r.wildlife));
-  const corrupt = clone(record); corrupt.backgroundWildlife.allocations[0].pools[0].originalCount++;
+  const corrupt = clone(record); corrupt.backgroundWildlife.spatialRows[0][1]++;
   const SW = require('../strategic-world'); corrupt.id = ''; corrupt.id = `beast-habitat-source:${SW.stableHash(corrupt)}`;
   assert.throws(() => S.validate(corrupt, map), /physical accounts/);
   assert.equal(record.assessment.status, 'rejected'); assert.throws(() => S.runtimeSource(record, map), /Rejected/);

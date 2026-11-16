@@ -49,24 +49,25 @@
       lifecycle: Biology.lifecycle, rates: Biology.rates, antagonisms: Biology.antagonisms });
   }
   const patchId = (index, kind) => `habitat:${index}:${KINDS[kind]}`;
-  function patchesForCell(map, index, topology) {
+  function patchesForCell(map, index, topology, ponds = false) {
     const area = Math.round(cellAreaHa(map, index, topology) * 10000) / 10000;
     if (map.surface.classes[index] === 'W') return [[index, 3, area]];
     const wet = map.hydrology.wetlandClasses[index] !== '.' || map.hydrology.riverClasses[index] !== '.'
       || map.hydrology.lakeByCell[index] >= 0;
     const shore = map.relief.coastClasses[index] !== '.';
-    const wetFraction = wet ? .12 : 0, shoreFraction = shore ? .04 : 0;
+    const pond = !wet && ponds && map.climate.precipitationMm[index] > 0;
+    const wetFraction = wet ? .12 : pond ? .001 : 0, shoreFraction = shore ? .04 : 0;
     // Surface fractions partition the hex. Subsurface is a separate finite
     // volume, not a second copy of the hex's food or rainfall.
     return [[index, 0, area * (1 - wetFraction - shoreFraction)],
-      ...(wet ? [[index, 1, area * wetFraction]] : []), ...(shore ? [[index, 2, area * shoreFraction]] : []),
+      ...(wet ? [[index, 1, area * wetFraction]] : pond ? [[index, 1, area * wetFraction, 4]] : []), ...(shore ? [[index, 2, area * shoreFraction]] : []),
       [index, 4, area]];
   }
   function expandPatch(map, row, calendar, physical = false) {
     const [index, kind, areaHa] = row, id = patchId(index, kind), land = map.surface.classes[index] === 'L';
     const biome = map.biomes.classes[index], latitude = World.cellSnapshot(map, index).latitude;
     const yearDays = calendar.monthDays.reduce((n, d) => n + d, 0), areaM2 = areaHa * 10000;
-    const wet = kind === 1, marine = kind === 3, underground = kind === 4;
+    const wet = kind === 1, marine = kind === 3, underground = kind === 4, catchmentPond = wet && row[3] === 4;
     const lakeDepthM = map.hydrology.lakeByCell[index] >= 0 ? Math.max(0, map.hydrology.flowSurfaceM[index] - map.relief.elevationM[index]) : 0;
     const depthM = marine ? Math.max(1, -map.relief.elevationM[index]) : wet ? physical && lakeDepthM > 0 ? lakeDepthM : 4 : underground ? 8 : 0;
     const deposit = map.geology.surfaceDepositClasses[index];
@@ -104,13 +105,14 @@
     capacity.heatMJ += underground ? mineralKg * .0008 * (20 + thermal * 100) : 0;
     const stocks = Object.fromEntries(STOCKS.map(key => [key, capacity[key] * .5]));
     stocks.mineralsKg = mineralKg;
-    if (physical && wet) stocks.waterL = capacity.waterL;
+    if (physical && wet) stocks.waterL = catchmentPond ? areaM2 * .015 * 1000 : capacity.waterL;
     if (physical && marine) stocks.seawaterL = capacity.seawaterL = areaM2 * depthM * 1000;
     return { id, cellId: World.cellId(index), kind: KINDS[kind], areaHa, biome,
       floor: !marine, depthM, oxygen: true, densityKgM3, accessibleMineralDepthM: weatheredM,
       latitude, stocks, capacity, seasons, renewalPerDay: copy(seasons[0].renewal), edges: [],
       condition: Object.fromEntries(Biology.ledgers.map(([id]) => [id, 75])), exhausted: false,
       source: { cellIndex: index, surfaceDeposit: deposit, rainfallLPerDay: rainLDay,
+        ...(catchmentPond ? { catchmentPond: true } : {}),
         mineralRenewalKg: 0, meatRenewalKg: 0, plantAllocation: [.7, .1, .2], waterKind: marine ? 'seawater' : 'freshwater',
         mineralBasis: marine ? 'Finite dissolved salts in the original upper water column' : 'Finite accessible weathered substrate; not a new ore deposit' } };
   }
@@ -123,6 +125,17 @@
     if (s.id === 'beast:burrowing-furnace' && patch.kind !== 'subsurface') return false;
     if (physical && (s.realm === 'ocean' || s.waterAffinity)
       && patch.depthM < (Bodies.profiles[s.id].minWaterDepthM || 0)) return false;
+    return true;
+  }
+  function usableHabitat(s, patch) {
+    if (!compatible(s, patch, true)) return false;
+    const p = Biology.lifecycle[s.id], b = Bodies.profiles[s.id];
+    if (!patch.seasons.some(season => season.temperatureC >= p.minC && season.temperatureC <= p.maxC)) return false;
+    if (patch.kind === 'subsurface' && s.id !== 'beast:burrowing-furnace') return false; // No established underground prey/exit source.
+    if (patch.kind === 'wetland' && !s.movementModes.some(mode => ['swimming', 'flight', 'levitation'].includes(mode))) return false;
+    if (s.id === 'beast:ironroot-colossus' && (!patch.floor || ['I', 'A'].includes(patch.biome) || patch.source.surfaceDeposit === 'n')) return false;
+    // A water affinity does not make a dry or too-shallow patch a nursery.
+    if (s.waterAffinity || s.realm === 'ocean') return patch.depthM >= b.minWaterDepthM;
     return true;
   }
   function originalCount(s, p, habitatHa, seed, calibration) {
@@ -178,6 +191,9 @@
           ...(juveniles ? [cohort('young', juveniles, 0, profile.newbornKg, 'juvenile')] : [])];
       const extentKm = Math.min(10, Math.sqrt(patch.areaHa / Math.PI) / 10);
       const offset = [random(`${record.seed}:${groupId}:x`) * extentKm, random(`${record.seed}:${groupId}:y`) * extentKm];
+      if (record.physicalPlacement) {
+        const local = Wildlife.initialPosition(patch, record.seed, groupId); offset[0] = local.eastM / 1000; offset[1] = local.northM / 1000;
+      }
       const migration = migrations.get(population.id);
       const outboundRoute = migration && migration.cellPath.map(cellId => {
         const candidates = (patchByCell.get(cellId) || []).filter(p => traversableHabitat(s, p, physical));
@@ -191,7 +207,8 @@
       return { id: groupId, populationId: population.id, speciesId: s.id, regionId: patch.id, cohorts, dietKeys,
         home: { patchId: patch.id, cellId: patch.cellId, eastKm: offset[0], northKm: offset[1],
           depthM: s.movementModes.some(mode => ['flight', 'levitation'].includes(mode)) ? 0
-            : patch.kind === 'waterColumn' ? Math.min(patch.depthM - .1, Bodies.profiles[s.id].heightM * 1.2) : patch.kind === 'subsurface' ? .5 : 0 },
+            : patch.kind === 'waterColumn' || record.physicalPlacement && patch.kind === 'wetland'
+              ? Math.min(patch.depthM - .1, Bodies.profiles[s.id].heightM * 1.2) : patch.kind === 'subsurface' ? .5 : 0 },
         resources: { foodKg: foodKey, waterL: 'waterL', mineralsKg: 'mineralsKg' },
         countingBasis: colony ? 'One original queen, actual males, workers and brood' : s.socialPattern === 'superorganism' ? 'One whole original organism per member' : 'Actual individuals; not abundance or an encounter cap',
         knowledge: [], instinct: migration ? { mode: 'instinctive', sourceMigrationId: migration.id,
@@ -226,12 +243,17 @@
             || [patch.kind, other.kind].every(kind => ['surface', 'shore'].includes(kind)))).map(s => s.id);
         if (!allowedSpecies.length) continue;
         patch.edges.push({ id: other.id, distanceKm: local ? .5 : World.greatCircleDistanceKm(map, index, World.cellIndex(other.cellId)),
-          traversable: true, allowedSpecies });
+          traversable: true, allowedSpecies,
+          ...(record.physicalPlacement ? {
+            departurePosition: { regionId: patch.id, eastM: 0, northM: 0, altitudeM: 0 },
+            arrivalPosition: { regionId: other.id, eastM: 0, northM: 0, altitudeM: 0 }
+          } : {}) });
       }
     }
     const groups = expandGroups(record, map, regions, Boolean(record.physicalBinding || options.physical));
     const result = { id: record.id, calendar: copy(record.calendar), regions, groups, diagnosticOnly: true,
-      unlocated: copy(record.unlocated || []), regionalFoodWeb: Boolean(record.physicalBinding) };
+      unlocated: copy(record.unlocated || []), regionalFoodWeb: Boolean(record.physicalBinding),
+      ...(record.physicalPlacement ? { spatialContinuity: true } : {}) };
     if (record.physicalBinding && !options.raw) Bindings.apply(result, record.physicalBinding, map);
     if (record.backgroundWildlife && !options.raw) Wildlife.apply(result, record.backgroundWildlife);
     return result;
@@ -402,7 +424,7 @@
       policy: 'Private generator feasibility only; original-body residence and supply replay, no performed nurturing, future meat stock, safe destination reservation or perpetual equilibrium guarantee',
       seasonalJourneys: residence.journeys, seasons };
   }
-  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false) {
+  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false) {
     const calendar = { epochAt: 0, monthDays: Local.PHASES.map(() => Local.PHASE_DAYS) };
     const patches = patchRows.map(row => expandPatch(map, row, calendar, physical)), groupRows = [], populations = [], unlocated = [];
     const worldPopulations = populationsFor(map);
@@ -410,11 +432,14 @@
     for (let pi = 0; pi < worldPopulations.length; pi++) {
       const p = worldPopulations[pi], s = Ecology.BEAST_SPECIES.find(s => s.id === p.speciesId);
       const mask = Uint8Array.from(atob(p.territory.rangeMask), c => c.charCodeAt(0));
-      const eligible = patches.map((patch, index) => ({ patch, index })).filter(({ patch }) => {
+      const originalHabitat = patches.map((patch, index) => ({ patch, index })).filter(({ patch }) => {
         const index = World.cellIndex(patch.cellId);
         return Boolean(mask[index >> 3] & (1 << (index & 7))) && compatible(s, patch, physical);
       });
-      const n = originalCount(s, p, eligible.reduce((n, row) => n + row.patch.areaHa, 0), seed, calibration);
+      const eligible = physicalPlacement ? originalHabitat.filter(({ patch }) => usableHabitat(s, patch)) : originalHabitat;
+      // Placement repair cannot change the original source count to hide a
+      // difficult population. Unsupported sources retain their unlocated count.
+      const n = originalCount(s, p, originalHabitat.reduce((n, row) => n + row.patch.areaHa, 0), seed, calibration);
       populations.push({ populationId: p.id, speciesId: s.id, units: n,
         basis: ORIGINAL_COUNTS.includes(s.id) ? 'Existing authoritative individual units' : s.socialPattern === 'hiveColony' ? 'Explicit original hive count; workers/breeders allocated separately' : 'Seeded habitat/territory-density calibration; not populationIndex or devotional units' });
       if (!eligible.length || n == null) { unlocated.push({ populationId: p.id, speciesId: s.id, count: n, reason: 'Missing supported original count or compatible physical habitat' }); continue; }
@@ -426,7 +451,12 @@
       const homeCandidates = migration ? eligible.filter(({ patch }) => patch.cellId === migration.homeCellId) : [];
       const surfaceHome = homeCandidates.filter(({ patch }) => patch.kind === 'surface');
       const reefs = physical && s.id === 'beast:reef-wyrm' ? eligible.filter(({ patch }) => patch.biome === 'h') : [];
-      const placementCandidates = surfaceHome.length ? surfaceHome : homeCandidates.length ? homeCandidates : reefs.length ? reefs : supplied.length ? supplied : eligible;
+      let placementCandidates = surfaceHome.length ? surfaceHome : homeCandidates.length ? homeCandidates : reefs.length ? reefs : supplied.length ? supplied : eligible;
+      if (physicalPlacement) {
+        const yearRound = placementCandidates.filter(({ patch }) => patch.seasons.every(season => season.temperatureC >= Biology.lifecycle[s.id].minC
+          && season.temperatureC <= Biology.lifecycle[s.id].maxC));
+        if (yearRound.length) placementCandidates = yearRound;
+      }
       let left = n, ordinal = 0;
       while (left > 0) {
         const size = Math.min(left, groupSize(s));
@@ -441,9 +471,10 @@
         left -= size; ordinal++;
       }
     }
-    const record = { id: '', seed, sourceDigest: sourceDigest(map), calendar, patchRows, groupRows, populations, unlocated, calibration };
+    const record = { id: '', seed, sourceDigest: sourceDigest(map), calendar, patchRows, groupRows, populations, unlocated, calibration,
+      ...(physicalPlacement ? { physicalPlacement: true } : {}) };
     const expanded = expand(record, map, { physical, raw: true });
-    if (physical) { record.physicalBinding = Bindings.allocate(expanded, map); Bindings.apply(expanded, record.physicalBinding, map); }
+    if (physical) { record.physicalBinding = Bindings.allocate(expanded, map, { positions: physicalPlacement }); Bindings.apply(expanded, record.physicalBinding, map); }
     if (wildlife) { record.backgroundWildlife = Wildlife.allocate(expanded, seed); Wildlife.apply(expanded, record.backgroundWildlife); }
     const assessment = assess(expanded, map);
     for (const p of populations) {
@@ -468,11 +499,11 @@
     if (!map || !populationsFor(map) || !map.geology || !map.arcaneGeography) throw Error('Actual physical world and canonical populations are required');
     if (!Ecology.BEAST_SPECIES.every(s => populationsFor(map).some(p => p.speciesId === s.id))) throw Error('Every authored strategic species must retain its canonical source population');
     const topology = World.topologyForMap(map), patchRows = [];
-    for (let i = 0; i < topology.cellCount; i++) patchRows.push(...patchesForCell(map, i, topology));
+    for (let i = 0; i < topology.cellCount; i++) patchRows.push(...patchesForCell(map, i, topology, options.physicalPlacement !== false));
     let best = null;
     const attempts = Number.isInteger(options.attempts) ? clamp(options.attempts, 1, 3) : 3;
     for (let calibration = 0; calibration < attempts; calibration++) {
-      const record = candidate(seed, map, patchRows, calibration, true, options.backgroundWildlife !== false);
+      const record = candidate(seed, map, patchRows, calibration, true, options.backgroundWildlife !== false, options.physicalPlacement !== false);
       if (!best || record.assessment.issues.length < best.assessment.issues.length) best = record;
       if (record.assessment.status === 'feasibleInitialCycle') break;
     }
@@ -484,8 +515,8 @@
     const saved = copy(record); saved.id = '';
     if (record.id !== `beast-habitat-source:${World.stableHash(saved)}`) throw Error('Habitat source identity is invalid');
     const topology = World.topologyForMap(map), patchRows = [];
-    for (let i = 0; i < topology.cellCount; i++) patchRows.push(...patchesForCell(map, i, topology));
-    const expected = candidate(record.seed, map, patchRows, record.calibration, Boolean(record.physicalBinding), Boolean(record.backgroundWildlife));
+    for (let i = 0; i < topology.cellCount; i++) patchRows.push(...patchesForCell(map, i, topology, record.physicalPlacement === true));
+    const expected = candidate(record.seed, map, patchRows, record.calibration, Boolean(record.physicalBinding), Boolean(record.backgroundWildlife), record.physicalPlacement === true);
     const physical = value => { const result = copy(value); delete result.id; delete result.assessment; delete result.groupRows; return result; };
     if (World.stableHash(physical(expected)) !== World.stableHash(physical(record))) throw Error('Habitat source physical accounts were changed');
     if (record.physicalBinding && World.stableHash(expected.groupRows) !== World.stableHash(record.groupRows)) throw Error('Original bound habitat placement was changed');
@@ -553,6 +584,6 @@
     next.beastHabitatSources = generate(seed, next);
     return World.finalizeStrategicMap(next);
   }
-  return { KINDS, STOCKS, ORIGINAL_COUNTS, cellAreaHa, compatible, sourceDigest, expandPatch,
+  return { KINDS, STOCKS, ORIGINAL_COUNTS, cellAreaHa, compatible, usableHabitat, sourceDigest, expandPatch,
     expand, assess, generate, validate, runtimeSource, replay, attach, populationsFor };
 });

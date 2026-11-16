@@ -548,6 +548,66 @@ regional contacts were added: this is
 **not** a claim of acceptable native-game scaling. Expensive replay is opt-in,
 not a world-creation or ordinary-save operation.
 
+### Habitat placement and location continuity
+
+New pristine populations select usable temperature/water settings before human
+history is generated. Their original rows, identities and counts then remain
+authoritative. Physical source placement filters those ranges for usable medium,
+rootable ground and a receiving season, preferring year-round habitat where it
+exists. It does not move an archived population or change an animal's traditional
+itinerary using hidden destination food. When no compatible allocation exists,
+its original count stays explicitly unlocated; it is not deleted to pass a test.
+
+Approved catchment-funded ponds can occupy 0.1% of a rainy land cell lacking a
+mapped wetland. This area is deducted from the surface partition; the globe's
+biome/hydrology labels do not change. A four-metre basin starts with only its
+original 15 L/m² surface-water share. Filling it debits the neighboring surface
+catchment for the remainder before nurseries or wildlife use it. Rainfall is
+partitioned over the same area, not copied, and material/receiving capacities
+remain finite. These are explicit initial sub-hex allocations, not runtime ponds
+created to rescue a starving population or discoveries automatically given to
+the scientist. Sources without the new placement declaration load unchanged.
+
+Hatched cohorts with a real positioned nursery retain a compact ordinal grid
+at that nursery; live births retain snapshots of their actual maternal family
+formations. Neither creates one actor per birth or puts all offspring at the
+group's centre. Missing receiving positions remain unknown. Different formation histories
+cannot be averaged together by cohort compaction. The existing detailed-body
+handoff can claim that same original child with its paid mass, needs and wounds;
+its corpse stays with the detailed owner rather than being copied regionally.
+
+Authored regional edges retain departure/arrival frames. Journeys pay for the
+original local approach, the edge and any familiar final home approach. Their
+partial route progress survives saves, with no stationary encounter while still
+in transit. Arrival translates the same formations and individual retreat
+positions after the actual travel time; it grants neither food nor a new nursery.
+An unpositioned or blocked edge cannot grant coordinates. Diagnostics now report
+positioned travelling bodies separately instead of counting all travellers as
+unlocated. This remains a coarse regional geometry, not a claim that every body
+can simultaneously fit on the native local grid.
+
+The current `source-small` 120-day replay retains all 24 species, 89 source
+populations and 56,243 located original individuals, with no unlocated original
+source rows. Its 191,180 paid births reconcile to 131,131 living and 116,292
+dead. All living bodies have a stationary formation or a positioned journey
+(10,750 travelling at the endpoint). Approved size-classed herds/schools now
+provide 3.86 million kg of actual ingested wildlife instead of the earlier
+43,886 kg uniform-tiny-prey result. Marine filtration also accepts an exactly
+deep-enough original seawater column, consistent with body physics, without
+requiring or consuming imaginary extra seawater. Freshwater work still stops at
+its consumptive depth boundary. See [current replay accounting](BACKGROUND_WILDLIFE.md#verification-and-limits).
+
+**This is still not D acceptance.** The replay has 252 starvation and six
+dehydration deaths, 81 resource-shortfall records and no original-beast duels;
+source repair, effective ecological opposition and native integration remain
+unfinished. Unsupported work-medium/nursery warnings are gone; 42 missing work
+sites, four unverified furnace-metal sources and 32 unverified dream-participant
+sources remain unavailable. Positioned travel is not on-route feeding, and
+birth geometry is not a completed dependent-young care model. The roughly
+50.4 MB expanded account and 2.5-minute replay are not a native-game performance
+certificate. The browser nursery handoff check uses the account/shared-body APIs,
+not an ordinary-play or native game-save adoption certificate.
+
 ### Regional feeding and ecological conflict
 
 `beast-regional-foodweb.js` connects generated bound sources to the same conserved

@@ -43,6 +43,13 @@
   function position(g, r, c = null, ordinal = 0) {
     if (g.transit) return null;
     if (c?.regionalPosition?.regionId === r.id) return copy(c.regionalPosition);
+    const localFormation = c?.regionalFormation;
+    if (localFormation?.anchor.regionId === r.id) return formationPosition(localFormation, ordinal);
+    if (g.regionalPosition?.regionId === r.id && point(g.regionalPosition) && c) {
+      const formation = g.regionalFormation?.[c.originId]; if (!formation) return null;
+      return { ...copy(g.regionalPosition), eastM: g.regionalPosition.eastM + formation.offsetM + ordinal % formation.columns * formation.eastSpacingM,
+        northM: g.regionalPosition.northM + Math.floor(ordinal / formation.columns) * formation.northSpacingM };
+    }
     if (g.regionalPosition?.regionId === r.id && point(g.regionalPosition)) return copy(g.regionalPosition);
     if (g.home?.patchId !== r.id || !Number.isFinite(g.home.eastKm) || !Number.isFinite(g.home.northKm)) return null;
     const p = { regionId: r.id, eastM: g.home.eastKm * 1000, northM: g.home.northKm * 1000, altitudeM: -g.home.depthM || 0 };
@@ -52,6 +59,94 @@
       p.northM += Math.floor(ordinal / formation.columns) * formation.northSpacingM;
     }
     return p;
+  }
+  function formationPosition(f, ordinal) {
+    let anchor = f.anchor, slot = ordinal - f.firstOrdinal;
+    if (f.mother) {
+      const index = slot + f.mother.childOffset, rank = Math.floor(index / f.mother.offspring);
+      let remaining = rank, maternalOrdinal = null;
+      for (const [lo, hi] of f.mother.ranges) { if (remaining < hi - lo) { maternalOrdinal = lo + remaining; break; } remaining -= hi - lo; }
+      if (maternalOrdinal == null) return null;
+      anchor = formationPosition(f.mother.layout, maternalOrdinal); if (!anchor) return null;
+      slot = index % f.mother.offspring;
+    }
+    return { ...copy(anchor), eastM: anchor.eastM + slot % f.columns * f.eastSpacingM,
+      northM: anchor.northM + Math.floor(slot / f.columns) * f.northSpacingM };
+  }
+  function birthPosition(s, g, parent, c, brood, at) {
+    if (!s.spatialContinuity || !s.foodWeb) return;
+    const r = Demography.region(s, g.regionId), nursery = r?.nurseries?.find(n => n.id === brood.nurseryId);
+    // A paid birth does not reveal a location that its actual receiving source
+    // lacks. Detailed births immediately transfer to their existing local owner.
+    if (!nursery || brood.regionId !== r.id) return;
+    const body = Bodies.profiles[c.speciesId], scale = Math.cbrt(c.massKg / body.massKg), n = size(c);
+    let maternal = null;
+    if (/live birth/i.test(Data.lifecycle[c.speciesId].method) && brood.successful?.length) {
+      if (parent.regionalFormation) maternal = copy(parent.regionalFormation);
+      else if (parent.regionalPosition?.regionId === r.id) maternal = { anchor: copy(parent.regionalPosition), firstOrdinal: brood.successful[0][0],
+        columns: 1, eastSpacingM: 1, northSpacingM: 1, establishedAt: at, nurseryId: nursery.id };
+      else {
+        const base = position(g, r), f = g.regionalFormation?.[parent.originId];
+        if (base && f) maternal = { anchor: { ...base, eastM: base.eastM + f.offsetM }, firstOrdinal: 0,
+          columns: f.columns, eastSpacingM: f.eastSpacingM, northSpacingM: f.northSpacingM, establishedAt: at, nurseryId: nursery.id };
+      }
+      if (!maternal) return;
+    }
+    const anchor = maternal?.anchor || nursery.position;
+    if (!point(anchor) || anchor.regionId !== r.id) return;
+    c.regionalFormation = { anchor: copy(anchor), firstOrdinal: c.ranges[0][0],
+      columns: Math.max(1, Math.ceil(Math.sqrt(n))), eastSpacingM: body.lengthM * scale * 1.1,
+      northSpacingM: body.widthM * scale * 1.1, establishedAt: at, nurseryId: nursery.id,
+      ...(maternal ? { mother: { layout: maternal, ranges: copy(brood.successful), childOffset: brood.offspringOffset || 0,
+        parentOriginId: parent.originId, offspring: Data.lifecycle[c.speciesId].offspring } } : {}) };
+  }
+  function travelPlan(s, g, r, edge, at) {
+    if (!s.spatialContinuity || !edge?.departurePosition || !edge.arrivalPosition) return null;
+    const origin = position(g, r); if (!origin) return null;
+    const arrival = copy(edge.arrivalPosition);
+    // A familiar home has a known final approach, not a free relocation from
+    // the route endpoint to its old nest. Other arrivals use the authored route.
+    if (g.home?.patchId === edge.id) Object.assign(arrival, { eastM: g.home.eastKm * 1000,
+      northM: g.home.northKm * 1000, altitudeM: -g.home.depthM || 0 });
+    else if (r.kind === Demography.region(s, edge.id)?.kind) arrival.altitudeM = origin.altitudeM;
+    const distance = (a, b) => Math.hypot(a.eastM - b.eastM, a.northM - b.northM, a.altitudeM - b.altitudeM) / 1000;
+    const approachKm = distance(origin, edge.departurePosition), finalKm = distance(arrival, edge.arrivalPosition);
+    return { origin, departure: copy(edge.departurePosition), endpoint: copy(edge.arrivalPosition), arrival,
+      approachKm, finalKm, routeKm: edge.distanceKm, establishedAt: at, formations: g.cohorts.filter(c => size(c)).map(c => ({ id: c.id,
+        ...(c.regionalPosition ? { position: copy(c.regionalPosition) } : {}),
+        ...(c.regionalFormation ? { formation: copy(c.regionalFormation) } : {}) })) };
+  }
+  function arrived(g, spatial, at) {
+    if (!spatial) return;
+    g.regionalPosition = { ...copy(spatial.arrival), establishedAt: at };
+    const translate = point => ({ ...copy(point), regionId: spatial.arrival.regionId,
+      eastM: spatial.arrival.eastM + point.eastM - spatial.origin.eastM,
+      northM: spatial.arrival.northM + point.northM - spatial.origin.northM,
+      altitudeM: spatial.arrival.altitudeM + point.altitudeM - spatial.origin.altitudeM });
+    for (const entry of spatial.formations) {
+      const c = g.cohorts.find(c => c.id === entry.id); if (!c) continue;
+      if (entry.position) c.regionalPosition = translate(entry.position);
+      if (entry.formation) {
+        c.regionalFormation = copy(entry.formation);
+        const move = f => { f.anchor = translate(f.anchor); if (f.mother) move(f.mother.layout); };
+        move(c.regionalFormation);
+      }
+    }
+  }
+  function transitPosition(g, at) {
+    const t = g.transit, frame = t?.spatial; if (!frame || !(at >= t.departedAt)) return null;
+    const travelledKm = Math.min(frame.approachKm + frame.routeKm + frame.finalKm,
+      (at - t.departedAt) / DAY * frame.speedKmDay);
+    const interpolate = (from, to, fraction) => ({ regionId: from.regionId,
+      eastM: from.eastM + (to.eastM - from.eastM) * fraction,
+      northM: from.northM + (to.northM - from.northM) * fraction,
+      altitudeM: from.altitudeM + (to.altitudeM - from.altitudeM) * fraction });
+    if (travelledKm < frame.approachKm) return { phase: 'approach', travelledKm,
+      position: interpolate(frame.origin, frame.departure, travelledKm / frame.approachKm) };
+    if (travelledKm < frame.approachKm + frame.routeKm) return { phase: 'route', travelledKm,
+      path: copy(t.path), fraction: (travelledKm - frame.approachKm) / frame.routeKm };
+    return { phase: 'finalApproach', travelledKm,
+      position: interpolate(frame.endpoint, frame.arrival, frame.finalKm ? (travelledKm - frame.approachKm - frame.routeKm) / frame.finalKm : 1) };
   }
   function environment(r, season = 0) {
     const marine = r.kind === 'waterColumn', water = marine ? r.stocks.seawaterL : r.stocks.waterL;
@@ -156,7 +251,8 @@
     a.maxHealth = Math.max(1, a.maxHealth * Math.min(1, Math.sqrt(c.massKg / Data.lifecycle[c.speciesId].adultKg)));
     b.altitudeM = pos.altitudeM; b.stamina = state.stamina; b.mana = state.mana; b.parts = copy(state.parts);
     if (r.kind === 'subsurface') b.mode = 'burrowing';
-    else if (r.kind === 'waterColumn' || r.kind === 'wetland' && Bodies.profiles[c.speciesId].modes.includes('swimming')
+    else if (['waterColumn', 'wetland'].includes(r.kind) && pos.altitudeM <= 0
+      && Bodies.profiles[c.speciesId].modes.some(mode => ['swimming', 'drifting'].includes(mode))
       && environment(r).waterDepthM >= Bodies.profiles[c.speciesId].minWaterDepthM)
       b.mode = Bodies.profiles[c.speciesId].modes.includes('drifting') ? 'drifting' : 'swimming';
     else if (Bodies.profiles[c.speciesId].modes.includes('walking') || Bodies.profiles[c.speciesId].modes.includes('charging')) b.mode = 'walking';
@@ -506,7 +602,7 @@
         Foraging.step(s, r, g, c, at, { actor: a, position: pos,
           usable: Boolean(a && pos && Behavior.conscious(a, at) && Bodies.wounded(a, /head|torso|limb|leg|wing|fin/) < .65
             && !Bodies.habitatReason(a, a.mapCell, a.bodyPhysics.mode, Bodies.height(a), ctx)),
-          guilds: actor => Wildlife.guilds(r, c, actor), capture: (q, maximum) => Wildlife.capture(r, g, c, q, maximum, at) });
+          guilds: actor => Wildlife.guilds(r, c, actor), capture: (q, maximum) => Wildlife.capture(r, g, c, { ...q, position: pos }, maximum, at) });
       }
     }
   }
@@ -555,11 +651,48 @@
       || !Number.isSafeInteger(w.serial) || w.serial < 0 || !Object.values(w.receipts).every(finite)
       || !Object.values(w.work).every(finite) || !Array.isArray(w.events) || !Array.isArray(w.pending)) return false;
     for (const g of s.groups) {
+      const located = p => point(p) && s.regions.some(r => r.id === p.regionId);
+      const layout = f => f && located(f.anchor) && Number.isSafeInteger(f.firstOrdinal) && f.firstOrdinal >= 0
+        && Number.isSafeInteger(f.columns) && f.columns > 0 && finite(f.eastSpacingM) && f.eastSpacingM > 0
+        && finite(f.northSpacingM) && f.northSpacingM > 0 && finite(f.establishedAt) && f.establishedAt <= s.clock
+        && s.regions.some(r => r.nurseries?.some(n => n.id === f.nurseryId))
+        && (!f.mother || Number.isSafeInteger(f.mother.childOffset) && f.mother.childOffset >= 0
+          && f.mother.offspring === Data.lifecycle[g.speciesId].offspring && f.mother.offspring > 0
+          && s.origins[f.mother.parentOriginId]?.speciesId === g.speciesId && Array.isArray(f.mother.ranges) && f.mother.ranges.length > 0
+          && f.mother.ranges.every(([lo, hi], i) => Number.isSafeInteger(lo) && Number.isSafeInteger(hi) && hi > lo && lo >= 0
+            && hi <= s.origins[f.mother.parentOriginId].count && (!i || lo >= f.mother.ranges[i - 1][1]))
+          && layout(f.mother.layout));
+      if (g.regionalPosition && (!located(g.regionalPosition) || !finite(g.regionalPosition.establishedAt) || g.regionalPosition.establishedAt > s.clock)) return false;
+      const travel = g.transit?.spatial;
+      if (travel && (!s.spatialContinuity || ![travel.origin, travel.departure, travel.endpoint, travel.arrival].every(located)
+        || travel.origin.regionId !== g.transit.path[0] || travel.departure.regionId !== g.transit.path[0]
+        || travel.arrival.regionId !== g.transit.path[1] || travel.endpoint.regionId !== g.transit.path[1]
+        || !finite(travel.approachKm) || !finite(travel.finalKm) || !(travel.routeKm > 0) || !finite(travel.routeKm)
+        || travel.speedKmDay !== Data.lifecycle[g.speciesId].travelKmDay || !finite(travel.establishedAt)
+        || travel.establishedAt !== g.transit.departedAt || !Array.isArray(travel.formations)
+        || new Set(travel.formations.map(f => f.id)).size !== travel.formations.length
+        || travel.formations.some(f => typeof f.id !== 'string' || !f.id || f.position && !located(f.position) || f.formation && !layout(f.formation)))) return false;
+      if (travel) {
+        const distance = (a, b) => Math.hypot(a.eastM - b.eastM, a.northM - b.northM, a.altitudeM - b.altitudeM) / 1000;
+        const edge = s.regions.find(r => r.id === g.transit.path[0])?.edges.find(e => e.id === g.transit.path[1]);
+        if (travel.routeKm !== edge?.distanceKm || Math.abs(travel.approachKm - distance(travel.origin, travel.departure)) > EPS
+          || Math.abs(travel.finalKm - distance(travel.endpoint, travel.arrival)) > EPS
+          || Math.abs(g.transit.crossAt - g.transit.departedAt - (travel.approachKm + travel.routeKm / 2) / travel.speedKmDay * DAY) > 1e-6
+          || Math.abs(g.transit.edgeArriveAt - g.transit.departedAt - (travel.approachKm + travel.routeKm + travel.finalKm) / travel.speedKmDay * DAY) > 1e-6) return false;
+      }
       if (!g.foodWebPlan || !Number.isSafeInteger(g.foodWebPlan.huntingRemaining) || g.foodWebPlan.huntingRemaining < 0) return false;
       if (!g.regionalFormation || Object.entries(g.regionalFormation).some(([key, f]) => !s.origins[key]
         || !Number.isSafeInteger(f.columns) || f.columns < 1 || !finite(f.offsetM) || !(f.eastSpacingM > 0) || !finite(f.eastSpacingM)
         || !(f.northSpacingM > 0) || !finite(f.northSpacingM))) return false;
       for (const c of g.cohorts) {
+        const f = c.regionalFormation;
+        if (f && (!s.spatialContinuity || !c.generated || !layout(f)
+          || f.firstOrdinal >= s.origins[c.originId].count || c.ranges.some(([lo]) => lo < f.firstOrdinal)
+          || !Number.isSafeInteger(f.columns) || f.columns < 1 || !(f.eastSpacingM > 0) || !finite(f.eastSpacingM)
+          || !(f.northSpacingM > 0) || !finite(f.northSpacingM) || !finite(f.establishedAt) || f.establishedAt > s.clock
+          || !s.regions.some(r => r.nurseries?.some(n => n.id === f.nurseryId)))) return false;
+        if (f?.mother && f.mother.childOffset + (c.ranges.at(-1)?.[1] ?? f.firstOrdinal) - f.firstOrdinal
+          > Demography.size(f.mother.ranges) * f.mother.offspring) return false;
         const x = c.regional;
         const appliedAt = s.regionClocks?.[g.transit ? g.transit.path[g.transit.edgeIndex] : g.regionId]?.appliedAt ?? s.appliedAt;
         if (!x || x.originalTissueAccounted !== true || !finite(x.at) || x.at > appliedAt || !finite(x.stamina) || x.stamina > 300 || !finite(x.mana)
@@ -609,9 +742,12 @@
     if (!s.foodWeb) return null;
     const regions = new Map(s.regions.map(r => [r.id, r]));
     return { ...copy(s.foodWeb.receipts), work: copy(s.foodWeb.work), pending: s.foodWeb.pending.length, wildlife: Wildlife.summary(s), foraging: Foraging.summary(s),
-      unlocatedLiving: s.groups.reduce((n, g) => n + g.cohorts.reduce((v, c) => v + (c.ranges.length
+      travellingLiving: s.groups.reduce((n, g) => n + (g.transit ? g.cohorts.reduce((n, c) => n + size(c), 0) : 0), 0),
+      positionedTravellingLiving: s.groups.reduce((n, g) => n + (g.transit?.spatial ? g.cohorts.reduce((n, c) => n + size(c), 0) : 0), 0),
+      unlocatedLiving: s.groups.reduce((n, g) => n + g.cohorts.reduce((v, c) => v + (c.ranges.length && !g.transit?.spatial
         && !position(g, regions.get(g.regionId), c, c.ranges[0][0]) ? size(c) : 0), 0), 0),
       unlocatedRemainsKg: s.regions.reduce((n, r) => n + Object.values(r.remainsBatches || {}).reduce((v, row) => v + (!row.position ? row.edibleKg : 0), 0), 0) };
   }
-  return { initialize, initial, plan, advance, finish, foragers, cancelForaging, next, validate, validateSource, position, environment, context, actor, split, addRemains, decay, cancel, handoff, noteFeeding, summary, LIMIT, DURATION };
+  return { initialize, initial, plan, advance, finish, foragers, cancelForaging, next, validate, validateSource, position, birthPosition, travelPlan, arrived, transitPosition,
+    environment, context, actor, split, addRemains, decay, cancel, handoff, noteFeeding, summary, LIMIT, DURATION };
 });
