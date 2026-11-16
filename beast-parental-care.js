@@ -16,6 +16,17 @@
   const mode = id => id === 'beast:ember-ant' ? 'colony' : family.has(id) ? 'family' : 'self';
   const n = c => D.size(c.ranges), finite = x => Number.isFinite(x) && x >= 0;
   const dependent = (c, at) => Boolean(c.dependency && at - c.bornAt < Data.lifecycle[c.speciesId].independentDays * DAY);
+  function target(c, key) {
+    const p = Data.lifecycle[c.speciesId], scale = (c.massKg / p.adultKg) ** .75 * p.juvenileMultiplier;
+    return Math.min(c.massKg * (key === 'foodKg' ? .25 : .1), p[key === 'foodKg' ? 'foodKgDay' : 'waterLDay'] * scale * 2);
+  }
+  function review(c, at, key, deficit) {
+    if (!dependent(c, at) || !['foodKg', 'waterL'].includes(key) || !(deficit > EPS)) return Infinity;
+    const remaining = c.stores[key] - target(c, key) * .5;
+    // Growth changes the threshold slightly. A one-minute review floor avoids
+    // asymptotic micro-events without awarding a single second of future care.
+    return remaining > EPS ? at + Math.max(60, remaining / deficit * DAY) : Infinity;
+  }
   const reach = c => Math.max(20, Bodies.profiles[c.speciesId].lengthM * 4,
     Bodies.profiles[c.speciesId].hearingM, Bodies.profiles[c.speciesId].scentM);
   function attach(g, child, at, origins = null) {
@@ -52,6 +63,9 @@
         const p = Data.lifecycle[child.speciesId], need = p.foodKgDay * (child.massKg / p.adultKg) ** .75 * p.juvenileMultiplier * n(child);
         if (count) for (const c of donors) c.provisioningDemandKgDay = (c.provisioningDemandKgDay || 0) + need / count / EFFICIENCY;
       }
+      for (const c of g.cohorts) if (c.provisioningDemandKgDay > 0 && c.foraging?.phase === 'idle' && !c.foraging.action
+        && c.stores.foodKg < (c.needs.foodKg || 0) / Math.max(1, n(c)) + c.provisioningDemandKgDay)
+        c.foraging.nextAt = Math.min(c.foraging.nextAt, at + 60);
     }
   }
   function cancel(g, c, at) {
@@ -66,14 +80,16 @@
   function finish(s, at) {
     for (const g of s.groups) for (const c of g.cohorts) if (c.caregiving?.until <= at + EPS) cancel(g, c, at);
   }
-  function start(s, at, bounds, restore = () => {}, capable = () => true) {
+  function start(s, at, bounds, restore = () => {}, capable = () => true, onlyGroup = null, onlyDonor = null) {
     const month = Journeys.monthAt(s.calendar, at);
     for (const g of s.groups) {
+      if (onlyGroup && g.id !== onlyGroup) continue;
       if (!['family', 'colony'].includes(g.parentalCare) || Journeys.moving(g) || g.will === false || g.willing === false) continue;
       const r = D.region(s, Journeys.location(g)), assigned = new Set(g.cohorts.filter(c => c.caregiving).map(c => c.caregiving.childId));
       const children = g.cohorts.filter(child => dependent(child, at) && n(child) && !assigned.has(child.id));
       if (!children.length) continue;
       for (const donor of g.cohorts) {
+        if (onlyDonor && donor.id !== onlyDonor) continue;
         if (children.some(child => eligible(g, donor, child, at))) restore(donor, g, r, at);
         if (!n(donor) || donor.caregiving || donor.contactBusyUntil > at || donor.foraging?.action
           || donor.regional?.stamina < 2 || !Foraging.canRest(donor, g, r) || g.activityState?.sleeping || !capable(donor, g, r, at)) continue;
@@ -81,13 +97,12 @@
           && eligible(g, donor, child, at) && near(g, donor, child, r, bounds)) {
           const p = Data.lifecycle[donor.speciesId], budget = ledger(donor, month, at), count = n(donor), children = n(child);
           const scale = (donor.massKg / p.adultKg) ** .75;
-          const childScale = (child.massKg / p.adultKg) ** .75 * p.juvenileMultiplier;
-          const foodTarget = Math.min(child.massKg * .25, p.foodKgDay * childScale * 2), waterTarget = Math.min(child.massKg * .1, p.waterLDay * childScale * 2);
+          const foodTarget = target(child, 'foodKg'), waterTarget = target(child, 'waterL');
           // Hysteresis: complete a useful feeding, then wait for actual hunger
           // or thirst. Metabolism/growth cannot trigger a fresh top-up action
           // for every microscopic gap below a full stomach.
-          if (!(foodTarget > 0 && child.stores.foodKg < foodTarget * .5
-            || waterTarget > 0 && child.stores.waterL < waterTarget * .5)) continue;
+          if (!(foodTarget > 0 && child.stores.foodKg <= foodTarget * .5 + EPS
+            || waterTarget > 0 && child.stores.waterL <= waterTarget * .5 + EPS)) continue;
           const food = Math.max(0, foodTarget - child.stores.foodKg) * children / EFFICIENCY;
           const water = Math.max(0, waterTarget - child.stores.waterL) * children / WATER_EFFICIENCY;
           if (!(food + water > EPS)) continue;
@@ -95,6 +110,10 @@
           const foodSource = spare > EPS ? 'stores' : 'regional';
           const availableFood = foodSource === 'stores' ? spare : r.stocks[g.resources?.foodKg || 'foodKg'] || 0;
           const availableWater = r.stocks[g.resources?.waterL || 'waterL'] || 0;
+          // Missing food must not trigger endless microscopic WATER top-ups
+          // that prevent a caregiver from obtaining the missing food itself.
+          if (!(child.stores.foodKg <= foodTarget * .5 + EPS && availableFood > EPS
+            || child.stores.waterL <= waterTarget * .5 + EPS && availableWater > EPS)) continue;
           const foodRate = p.foodKgDay * scale * DAY / 600 * count, waterRate = p.waterLDay * scale * DAY / 600 * count;
           const needed = Math.max(foodRate ? Math.min(food, availableFood) / foodRate * DAY : 0,
             waterRate ? Math.min(water, availableWater) / waterRate * DAY : 0);
@@ -163,6 +182,39 @@
     receipts(r).memberSeconds += seconds * n(c);
   }
   const intake = (c, key) => c.careIntake?.[key] || 0;
+  function waiting(s, g, at, bounds, capable) {
+    if (g.will === false || g.willing === false || g.activityState?.sleeping) return false;
+    const r = D.region(s, Journeys.location(g)), month = Journeys.monthAt(s.calendar, at);
+    for (const child of g.cohorts) if (n(child) && dependent(child, at)) {
+      const p = Data.lifecycle[child.speciesId], scale = (child.massKg / p.adultKg) ** .75 * p.juvenileMultiplier;
+      const food = child.stores.foodKg + child.stores.fatKg < Math.min(child.massKg * .125, p.foodKgDay * scale * .5);
+      const water = child.stores.waterL < Math.min(child.massKg * .05, p.waterLDay * scale * .5);
+      for (const donor of g.cohorts) if (eligible(g, donor, child, at) && near(g, donor, child, r, bounds)
+        && donor.regional?.stamina >= 2 && capable(donor, g, r, at)
+        && (donor.parentalLedger?.monthIndex !== month.index || donor.parentalLedger.usedSeconds + 1 < donor.parentalLedger.limitSeconds)) {
+        if (donor.caregiving) return true;
+        const spare = donor.stores.foodKg > (donor.needs.foodKg || 0) / n(donor) + EPS;
+        if (food && (spare || (r.stocks[g.resources?.foodKg || 'foodKg'] || 0) > EPS)
+          || water && (r.stocks[g.resources?.waterL || 'waterL'] || 0) > EPS) return true;
+      }
+    }
+    return false;
+  }
+  function situation(s, g, child, at, bounds, capable) {
+    const r = D.region(s, Journeys.location(g)), month = Journeys.monthAt(s.calendar, at);
+    const guardians = g.cohorts.filter(c => n(c) && child.dependency?.guardians.includes(c.originId));
+    const local = guardians.filter(c => eligible(g, c, child, at) && near(g, c, child, r, bounds));
+    const able = local.filter(c => c.regional?.stamina >= 2 && capable(c, g, r, at));
+    const total = rows => rows.reduce((sum, c) => sum + n(c), 0);
+    return { guardians: total(guardians), local: total(local), capable: total(able),
+      free: total(able.filter(c => !c.caregiving && !c.foraging?.action && !(c.contactBusyUntil > at))),
+      remainingMemberSeconds: able.reduce((sum, c) => sum + n(c) * (c.parentalLedger?.monthIndex === month.index
+        ? Math.max(0, c.parentalLedger.limitSeconds - c.parentalLedger.usedSeconds) : (month.end - at) / 12), 0),
+      availableFoodKg: (r.stocks[g.resources?.foodKg || 'foodKg'] || 0) + local.reduce((sum, c) => sum
+        + Math.max(0, c.stores.foodKg - (c.needs.foodKg || 0) / n(c)) * n(c), 0),
+      availableWaterL: r.stocks[g.resources?.waterL || 'waterL'] || 0,
+      willing: g.will !== false && g.willing !== false, sleeping: g.activityState?.sleeping === true };
+  }
   function valid(s) {
     for (const r of s.regions) if (r.careReceipts && (!['foodInputKg', 'waterInputL', 'givenFoodKg', 'givenWaterL', 'memberSeconds'].every(k => finite(r.careReceipts[k]))
       || Math.abs(r.careReceipts.givenFoodKg - r.careReceipts.foodInputKg * EFFICIENCY) > 1e-6 * Math.max(1, r.careReceipts.foodInputKg)
@@ -205,5 +257,5 @@
     for (const g of s.groups) for (const c of g.cohorts) if (dependent(c, s.clock)) result.dependentLiving += n(c);
     return result;
   }
-  return { mode, dependent, attach, initialize, demand, start, finish, cancelAffected, requests, prepare, integrate, effort, intake, valid, summary, EFFICIENCY, WATER_EFFICIENCY };
+  return { mode, dependent, attach, initialize, demand, start, finish, cancelAffected, requests, prepare, integrate, effort, intake, waiting, review, situation, valid, summary, EFFICIENCY, WATER_EFFICIENCY };
 });

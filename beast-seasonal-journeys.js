@@ -173,7 +173,7 @@
       || t.pausedSeconds.beforeCross + t.pausedSeconds.afterCross > at - t.departedAt + EPS)) return false;
     if (t?.nextStopCheckAt != null && (!t.spatial || !finite(t.nextStopCheckAt))) return false;
     if (t?.stop && (!t.spatial || !t.pausedSeconds || !finite(t.stop.startedAt) || t.stop.startedAt > at + EPS
-      || !(t.stop.until > at - EPS) || t.stop.until - t.stop.startedAt > DAY / 4 + EPS
+      || !(t.stop.until > at - EPS) || t.stop.until - at > DAY / 4 + EPS
       || t.stop.startedAt >= t.edgeArriveAt || t.stop.position?.regionId !== location(g)
       || !['eastM', 'northM', 'altitudeM'].every(k => Number.isFinite(t.stop.position[k]))
       || !['hunger', 'thirst', 'fatigue'].includes(t.stop.reason))) return false;

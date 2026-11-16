@@ -180,6 +180,11 @@
         if (f.mealIds.length) { action(c, 'handling', at, Math.min(60, room(f, 'handling'))); return; }
       }
     }
+    // A completed bout must yield before scheduling another one. The caller
+    // may start actual local care, retaining paid captures and meal custody;
+    // an unfinished search/eating action never earns an early completion.
+    ctx.beforeNext?.();
+    if (c.caregiving) { f.nextAt = c.caregiving.until; return; }
     if (f.availableUntil <= at + EPS) { f.nextAt = at + 1e-6; return; }
     f.mealIds = f.mealIds.filter(id => {
       const meal = r.foraging.meals[id]; if (meal?.kg > EPS) return true;
@@ -203,8 +208,13 @@
       && (c.stores.fatKg < Math.max(EPS, c.massKg * .05) || (c.provisioningDemandKgDay || 0) > 0);
     if (!wantsFood) {
       f.shortageAt = null;
-      const use = (c.needs.foodKg || 0) / n * (1 - (s.rates[r.id].supply[g.resources.foodKg] ?? 0));
-      const untilHungry = use > EPS ? Math.max(0, c.stores.foodKg - need, c.stores.foodKg + c.stores.fatKg - c.massKg * .05) / use * DAY : DAY;
+      const provision = c.provisioningDemandKgDay || 0;
+      const use = (c.needs.foodKg || 0) / n * (1 - (s.rates[r.id].supply[g.resources.foodKg] ?? 0)) + provision;
+      // Personal fat can sustain the adult, not refill a child's food store.
+      // A caregiver schedules the next hunt before its shareable meal runs out.
+      const buffer = provision > 0 ? Math.max(0, c.stores.foodKg - need)
+        : Math.max(0, c.stores.foodKg - need, c.stores.foodKg + c.stores.fatKg - c.massKg * .05);
+      const untilHungry = use > EPS ? buffer / use * DAY : DAY;
       f.bout = null; f.nextAt = Math.min(f.plan.end, at + Math.max(60, untilHungry)); return;
     }
     if (room(f, 'search') < 1 || room(f, 'eating') < 1 || room(f, 'handling') < 60 || f.plan.end <= at + EPS) {
@@ -230,7 +240,13 @@
     const cycleActive = Math.min(300, c.regional.stamina * .5 / effortRate, manaRate > 0 ? c.regional.mana / manaRate : Infinity);
     if (cycleActive < 1) { f.nextAt = Math.min(f.plan.end, at + HOUR); return; }
     const cycleRest = supported(c, g, s.rates[r.id]) && canRest(c, g, r) ? cycleActive * effortRate / .5 : 0;
-    const seconds = Math.min(HOUR, f.bout.until - at, room(f, 'search') * (cycleActive + cycleRest) / cycleActive,
+    const activeRoom = room(f, 'search');
+    // Invert the actual active/rest waveform, not its average duty fraction.
+    // A clipped final interval starts ACTIVE; using the average would spend
+    // more search seconds than remain in the real monthly budget.
+    const fullCycles = Math.max(0, Math.ceil(activeRoom / cycleActive) - 1);
+    const searchWindow = fullCycles * (cycleActive + cycleRest) + activeRoom - fullCycles * cycleActive;
+    const seconds = Math.min(HOUR, f.bout.until - at, searchWindow,
       cycleRest ? Infinity : cycleActive);
     const senseM = (aquatic ? Math.max(b.pressureM || 0, b.sightM || 0) : Math.max(b.sightM || 0, b.scentM || 0))
       * Math.max(0, 1 - Bodies.wounded(a, /head|eye|antenna|pressure organ/));

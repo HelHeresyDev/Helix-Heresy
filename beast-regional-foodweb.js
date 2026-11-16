@@ -166,7 +166,11 @@
     const approachKm = distance(origin, departure), finalKm = distance(arrival, endpoint);
     const routeFrames = edge.routeFrames && { exit: { ...copy(edge.routeFrames.exit), altitudeM: departure.altitudeM },
       entry: { ...copy(edge.routeFrames.entry), altitudeM: endpoint.altitudeM } };
-    return { origin, departure, endpoint, arrival, ...(routeFrames ? { routeFrames } : {}),
+    const pace = g.cohorts.filter(c => size(c)).map(c => ({ originId: c.originId, massKg: c.massKg,
+      juvenile: at - c.bornAt < Data.lifecycle[c.speciesId].adultDays * DAY,
+      mobility: Math.max(.1, 1 - Math.max(0, ...Object.entries(c.regional?.parts || {}).filter(([key]) => /leg|limb|fin|tail|wing/.test(key))
+        .map(([, health]) => 1 - health / 100)) * .8) }));
+    return { origin, departure, endpoint, arrival, ...(routeFrames ? { routeFrames } : {}), pace,
       approachKm, finalKm, routeKm: edge.distanceKm, establishedAt: at, formations: g.cohorts.filter(c => size(c)).map(c => ({ id: c.id,
         ...(c.regionalPosition ? { position: copy(c.regionalPosition) } : {}),
         ...(c.regionalFormation ? { formation: copy(c.regionalFormation) } : {}) })) };
@@ -280,9 +284,9 @@
     if (canRest && c.speciesId !== 'beast:mirror-ape' && state.mana < manaCapacity) {
       const stockKey = g.resources?.foodKg || 'foodKg';
       if (Behavior.foodKeys({ speciesId: c.speciesId }).includes(stockKey)) {
-        const kg = Math.min((r.stocks[stockKey] || 0) / n, p.foodKgDay * elapsed / 600,
-          Math.max(0, (manaCapacity - state.mana) * .01 - c.stores.foodKg));
-        if (kg > 0) { r.stocks[stockKey] -= kg * n; c.stores.foodKg += kg; c.massKg += kg; }
+        const totalKg = Math.min(r.stocks[stockKey] || 0, p.foodKgDay * elapsed / 600 * n,
+          Math.max(0, (manaCapacity - state.mana) * .01 - c.stores.foodKg) * n);
+        if (totalKg > 0) { const kg = totalKg / n; r.stocks[stockKey] -= totalKg; c.stores.foodKg += kg; c.massKg += kg; }
       }
     }
     const food = p.foodKgDay === 0 || c.stores.foodKg + c.stores.fatKg > EPS;
@@ -292,15 +296,18 @@
     // Same paid food-to-mana conversion as local resting biology. No personal
     // mana is inferred from a region's gross magical maintenance throughput.
     if (canRest && food && water && c.speciesId !== 'beast:mirror-ape') {
-      const mana = Math.min(Math.max(0, manaCapacity - state.mana), elapsed / 10, c.stores.foodKg / .01);
-      state.mana += mana; c.stores.foodKg -= mana * .01; c.massKg -= mana * .01;
-      r.outputs ||= {}; r.outputs.manaRecoveryWasteKg = (r.outputs.manaRecoveryWasteKg || 0) + mana * .01 * size(c);
+      // Bill the bounded original material, not food/.01*.01: that round trip
+      // can exceed the final real ration by an ulp and corrupt a later save.
+      const kg = Math.min(c.stores.foodKg, Math.max(0, manaCapacity - state.mana) * .01, elapsed / 10 * .01);
+      state.mana = Math.min(manaCapacity, state.mana + kg / .01);
+      c.stores.foodKg -= kg; c.massKg -= kg;
+      r.outputs ||= {}; r.outputs.manaRecoveryWasteKg = (r.outputs.manaRecoveryWasteKg || 0) + kg * size(c);
     }
     if (canRest && p.otherDay > 0) {
       const key = c.speciesId === 'beast:burrowing-furnace' ? 'heatMJ' : 'chargeMJ', ref = reference(c.speciesId);
       const kgScale = Math.min(1, c.massKg / p.adultKg), capacity = ref.energy[key] * kgScale;
-      const amount = Math.min((r.stocks[key] || 0) / n, p.otherDay * elapsed / 600, Math.max(0, capacity - state.energy[key]));
-      state.energy[key] += amount; if (amount) r.stocks[key] -= amount * n;
+      const total = Math.min(r.stocks[key] || 0, p.otherDay * elapsed / 600 * n, Math.max(0, capacity - state.energy[key]) * n);
+      state.energy[key] = Math.min(capacity, state.energy[key] + total / n); if (total) r.stocks[key] -= total;
     }
     state.at = at;
   }
@@ -679,7 +686,7 @@
         Wildlife.begin(r, g, c, a, at, position(g, r, c, ordinal), hunting ? 1 : 0);
     }
   }
-  function foragers(s, at, month, onlyGroup = null) {
+  function foragers(s, at, month, onlyGroup = null, beforeNext = null) {
     if (!s.foodWeb) return;
     const regions = new Map(s.regions.map(r => [r.id, r]));
     for (const g of s.groups) {
@@ -692,6 +699,11 @@
         const a = actor(g, c, c.ranges[0][0], r, at), pos = position(g, r, c, c.ranges[0][0]);
         if (c.foraging.nextAt <= at + EPS || c.foraging.action) restore(c, g, r, at);
         const ctx = a && context(r, [a], month.season);
+        // Regional terrain is explicitly identical at every cell, with no body
+        // occupants. Apply its same depth/clearance/load rules once, rather
+        // than tessellating hundreds of identical tiles on every care event.
+        // Native heterogeneous terrain and multi-body contacts are unchanged.
+        if (ctx) ctx.tileSizeM = Math.max(1, ...Object.values(a.bodyPhysics.dimensions)) * 2;
         if (a && c.foraging.phase === 'idle' && !c.contactBusyUntil && size(c) === 1
           && c.stores.foodKg < Math.max(Data.lifecycle[c.speciesId].foodKgDay, c.needs.foodKg || 0)) {
           const rows = [...Object.values(r.remains || {}), ...Object.values(r.remainsBatches || {})]
@@ -699,6 +711,7 @@
           feed(s, g, c, a, r, rows, at, true);
         }
         Foraging.step(s, r, g, c, at, { actor: a, position: pos, until: g.transit?.stop?.until,
+          beforeNext: beforeNext && (() => beforeNext(g, c)),
           usable: Boolean(a && pos && Behavior.conscious(a, at) && Bodies.wounded(a, /head|torso|limb|leg|wing|fin/) < .65
             && !Bodies.habitatReason(a, a.mapCell, a.bodyPhysics.mode, Bodies.height(a), ctx)),
           guilds: actor => Wildlife.guilds(r, c, actor), capture: (q, maximum) => Wildlife.capture(r, g, c, { ...q, position: pos }, maximum, at) });
@@ -767,11 +780,16 @@
         || travel.origin.regionId !== g.transit.path[0] || travel.departure.regionId !== g.transit.path[0]
         || travel.arrival.regionId !== g.transit.path[1] || travel.endpoint.regionId !== g.transit.path[1]
         || !finite(travel.approachKm) || !finite(travel.finalKm) || !(travel.routeKm > 0) || !finite(travel.routeKm)
-        || travel.speedKmDay !== Data.lifecycle[g.speciesId].travelKmDay || !finite(travel.establishedAt)
+        || !finite(travel.speedKmDay) || !(travel.speedKmDay > 0) || !finite(travel.establishedAt)
         || travel.establishedAt !== g.transit.departedAt || !Array.isArray(travel.formations)
         || new Set(travel.formations.map(f => f.id)).size !== travel.formations.length
         || travel.formations.some(f => typeof f.id !== 'string' || !f.id || f.position && !located(f.position) || f.formation && !layout(f.formation)))) return false;
       if (travel) {
+        if (travel.pace && (!Array.isArray(travel.pace) || !travel.pace.length
+          || travel.pace.some(p => s.origins[p.originId]?.speciesId !== g.speciesId || !finite(p.massKg) || !(p.massKg > 0) || typeof p.juvenile !== 'boolean'
+            || !finite(p.mobility) || p.mobility < .1 || p.mobility > 1))) return false;
+        const factor = travel.pace ? Math.min(1, ...travel.pace.map(p => (p.juvenile ? Math.cbrt(p.massKg / Data.lifecycle[g.speciesId].adultKg) : 1) * p.mobility)) : 1;
+        if (Math.abs(travel.speedKmDay - Data.lifecycle[g.speciesId].travelKmDay * factor) > EPS) return false;
         const distance = (a, b) => Math.hypot(a.eastM - b.eastM, a.northM - b.northM, a.altitudeM - b.altitudeM) / 1000;
         const edge = s.regions.find(r => r.id === g.transit.path[0])?.edges.find(e => e.id === g.transit.path[1]);
         if (travel.routeKm !== edge?.distanceKm || Math.abs(travel.approachKm - distance(travel.origin, travel.departure)) > EPS

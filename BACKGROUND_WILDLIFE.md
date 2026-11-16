@@ -157,7 +157,11 @@ held meals at their origin rather than copying them across a journey. Timed
 stops can reuse these same feeding routines at an actual route position, with
 frozen progress and paid arrival delay; moving bodies still cannot forage.
 Dependent family young require actual provisioning rather than receiving a
-shared regional meal. See [route feeding and dependent care](BEAST_POPULATIONS.md#route-feeding-and-dependent-care).
+shared regional meal. Completed bouts now yield to real care, and caregivers
+schedule another hunt from their shareable ration rather than relying on fat
+that their young cannot eat. Active/rest search intervals are clipped by their
+actual waveform so a final partial cycle cannot overspend the monthly ceiling.
+See [route feeding and dependent care](BEAST_POPULATIONS.md#route-feeding-and-dependent-care).
 Spent
 effort is not refunded. Actual unmet maintenance can trigger the existing
 knowledge-limited dispersal; an empty generic meat stock alone cannot send a
@@ -186,38 +190,42 @@ clock and generated-source storage browser checks also pass. The full test suite
 is not run under the repository's focused-testing policy.
 
 The current care-and-route-stop `source-small` 120-day generated replay uses source
-`beast-habitat-source:be09b6d3`, 334 physical regions, 2,615 strategic groups and
+`beast-habitat-source:8d9290e7`, 334 physical regions, 2,615 strategic groups and
 89 original source populations spanning all 24 strategic species. Its final
 accounts reconcile independently:
 
 | Account | Original | Paid births | Living | Dead | Hunted separately |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Strategic bodies | 56,243 | 191,024 | 130,360 | 116,907 | Included in dead |
-| Anonymous wildlife | 97,503,071,748 | 72,176,483,140 | 67,145,748,250 | 102,525,878,073 | 7,928,565 |
+| Strategic bodies | 56,243 | 190,892 | 130,906 | 116,229 | Included in dead |
+| Anonymous wildlife | 97,503,071,748 | 72,177,231,821 | 67,144,369,462 | 102,524,782,773 | 11,151,334 |
 
-Strategic deaths comprise 116,028 background losses, 246 starvation and 633
+Strategic deaths comprise 116,028 background losses, 191 starvation and ten
 dehydration losses. All living strategic bodies retain stationary formations or
-positioned journeys; 11,786 are travelling. Wildlife ends in 3,324 cohorts, not
-billions of individual objects. Actual wildlife ingestion is **4,469,905 kg**,
+positioned journeys; 20,808 are travelling. Wildlife ends in 3,339 cohorts, not
+billions of individual objects. Actual wildlife ingestion is **4,936,838 kg**,
 compared with 43,886 kg in the earlier pond-enabled uniform-tiny-prey replay.
 Classes share the original guild food/water ceilings; the increase is not funded
 by extra meat renewal or another wildlife budget.
 
-The replay still records 59 performed resource-shortfall records and no
-original-beast duels. Source gaps remain 42 missing work sites, four unverified
+The replay still records 32 performed resource-shortfall records and no
+original-beast duels. Source gaps remain 38 missing work sites, eight unverified
 furnace-metal sources and 32 unverified dream-participant sources. An exact-depth
 marine-medium fix removes the former 123 false Brine Cathedral starvation
 deaths without changing their plankton supply. Remaining scarcity is real
 diagnostic failure, not grounds for declaring the source healthy or exhausted.
-Dependent young no longer receive regional rations directly, and health damage
-uses their actual scaled needs rather than an adult's denominator. Thus the
-larger dependent-death total is not directly comparable to the former
-pre-provisioning baseline. Actual care delivers 8,484,558 kg of food and
-15,982,803 litres of water, yet 636 dependent scarcity deaths remain; aggregate
-receipts do not prove that all families can feed their young.
+Actual care delivers 9,732,180 kg of food and 18,817,597 litres of water. Dependent
+scarcity deaths decrease from 636 to thirteen compared with the previous
+care/stop baseline; Thunderback scarcity deaths decrease from 562 to zero and
+Rivercoil starvation is removed. Remaining food/care failures are not excused
+by these improvements or by aggregate receipts.
 
-Measured execution takes roughly 457 seconds, 253,775 event boundaries, 44.0
-million cohort integration visits and 52.3 MB serialized expanded account state.
+This run reaches 371,551 event boundaries, 96.1 million cohort integration
+visits and 52.9 MB serialized expanded account state. The initial 100 days took
+roughly 796 seconds with checkpoint/validation enabled; the saved day-100 state
+then continued for roughly 335 seconds using the equivalent enclosing-tile
+checks for uniform regional foraging habitat. This is not a fresh whole-cycle
+timing measurement of the optimized kernel. Both the intermediate checkpoints
+and final account validate without weakening the nonnegative-store checks.
 The compact immutable world definitions pass default-resolution browser
 save/reload, but this expanded run account is **not** a native-game performance
 or save-capacity certificate. The opt-in benchmark reports issue/source-gap
@@ -227,6 +235,15 @@ alongside conservation and feeding totals:
 ```sh
 node scripts/benchmark-generated-beast-habitats.js --days=120
 ```
+
+The benchmark checks normalization at ten-day endpoints. For diagnosis, an
+explicit `--checkpoint-dir=/absolute/existing/directory` writes private
+`day-N.json` snapshots before those checks, using exclusive creation so nothing
+is overwritten. `--resume=/absolute/path/day-N.json --days=120` continues a valid
+whole-day diagnostic snapshot with the same source/binding; it does not activate
+the rejected source, repair invalid saves or rewrite the immutable world. The
+reported execution time then covers only the continued interval, not its saved
+prefix. These expanded private snapshots belong outside the repository.
 
 **The tested generated ecosystem remains rejected.** These routines establish
 sustained feeding in supplied fixtures, not all-species generated food-web or

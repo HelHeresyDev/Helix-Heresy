@@ -13,6 +13,16 @@ function until(s, phase, maximumDays = 20) {
   assert.fail(`No actual ${phase} phase before day ${maximumDays}`);
 }
 function valid(s) { assert.ok(P.normalize(s), `invalid at ${s.clock / DAY}`); }
+test('a clipped final active/rest cycle cannot overrun a scavenger cohort monthly search ceiling', () => {
+  const s = fixture({ species: 'carrion-lantern', count: 1000000, members: 6, cohorts: 2 });
+  for (let day = 1; day <= 30; day++) {
+    P.advance(s, day * DAY, true, true);
+    for (const c of s.groups[0].cohorts) {
+      const p = c.foraging?.plan; if (p) assert.ok(p.used.search <= p.limits.search + 1e-7);
+    }
+    valid(s);
+  }
+});
 test('all eligible land cohorts sustain a full seasonal cycle on finite prey without generic meat income', () => {
   const s = fixture(); P.advance(s, 120 * DAY, true, true);
   assert.equal(P.audit(s)['population-0'].background, 6);

@@ -128,13 +128,17 @@
       && patch.depthM < (Bodies.profiles[s.id].minWaterDepthM || 0)) return false;
     return true;
   }
-  function usableHabitat(s, patch) {
+  function usableHabitat(s, patch, access = true) {
     if (!compatible(s, patch, true)) return false;
     const p = Biology.lifecycle[s.id], b = Bodies.profiles[s.id];
     if (!patch.seasons.some(season => season.temperatureC >= p.minC && season.temperatureC <= p.maxC)) return false;
     if (patch.kind === 'subsurface' && s.id !== 'beast:burrowing-furnace') return false; // No established underground prey/exit source.
     if (patch.kind === 'wetland' && !s.movementModes.some(mode => ['swimming', 'flight', 'levitation'].includes(mode))) return false;
     if (s.id === 'beast:ironroot-colossus' && (!patch.floor || ['I', 'A'].includes(patch.biome) || patch.source.surfaceDeposit === 'n')) return false;
+    // Passage through air is not a resting/nesting site. Test the original
+    // young as well as adults; the region has no invented dry bank or perch.
+    if (access && patch.kind === 'wetland' && !Bodies.profiles[s.id].modes.some(mode => ['swimming', 'drifting'].includes(mode))
+      && b.form !== 'aerostat' && patch.depthM > b.heightM * Math.cbrt(Math.min(1, p.newbornKg / b.massKg)) * .5) return false;
     // A water affinity does not make a dry or too-shallow patch a nursery.
     if (s.waterAffinity || s.realm === 'ocean') return patch.depthM >= b.minWaterDepthM;
     return true;
@@ -176,6 +180,7 @@
   }
   function expandGroups(record, map, patches, physical = false) {
     const populations = populationsFor(map);
+    const feeding = new Map((record.feedingRows || []).map(([pi, ordinal, key]) => [`${pi}:${ordinal}`, key]));
     const migrations = new Map((ecologyFor(map).migrations || []).map(m => [m.populationId, m]));
     const patchByCell = new Map();
     for (const p of patches) {
@@ -210,7 +215,8 @@
       const route = migration && [...migration.cellPath.slice(1), ...migration.cellPath.slice(0, -1).reverse()]
         .map(cellId => (patchByCell.get(cellId) || []).find(p => p.kind === patch.kind && compatible(s, p))?.id || null);
       const dietKeys = Behavior.foodKeys({ speciesId: s.id });
-      const foodKey = [...dietKeys].sort((a, b) => foodPotential(patch, b, record.calendar) - foodPotential(patch, a, record.calendar)
+      const foodKey = feeding.get(`${pi}:${ordinal}`)
+        || [...dietKeys].sort((a, b) => foodPotential(patch, b, record.calendar) - foodPotential(patch, a, record.calendar)
         || dietKeys.indexOf(a) - dietKeys.indexOf(b))[0] || 'foodKg';
       return { id: groupId, populationId: population.id, speciesId: s.id, regionId: patch.id, cohorts, dietKeys,
         ...(record.physicalPlacement ? { parentalCare: Care.mode(s.id) } : {}),
@@ -439,10 +445,10 @@
       policy: 'Private generator feasibility only; original-body residence and supply replay, no performed nurturing, future meat stock, safe destination reservation or perpetual equilibrium guarantee',
       seasonalJourneys: residence.journeys, seasons };
   }
-  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false) {
+  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false, habitatAccess = false) {
     const calendar = { epochAt: 0, monthDays: Local.PHASES.map(() => Local.PHASE_DAYS) };
     const patches = patchRows.map(row => expandPatch(map, row, calendar, physical)), groupRows = [], populations = [], unlocated = [];
-    const worldPopulations = populationsFor(map);
+    const worldPopulations = populationsFor(map), foodUse = new Map(), feedingRows = [];
     const migrations = new Map((ecologyFor(map).migrations || []).map(m => [m.populationId, m]));
     for (let pi = 0; pi < worldPopulations.length; pi++) {
       const p = worldPopulations[pi], s = Ecology.BEAST_SPECIES.find(s => s.id === p.speciesId);
@@ -451,7 +457,7 @@
         const index = World.cellIndex(patch.cellId);
         return Boolean(mask[index >> 3] & (1 << (index & 7))) && compatible(s, patch, physical);
       });
-      const eligible = physicalPlacement ? originalHabitat.filter(({ patch }) => usableHabitat(s, patch)) : originalHabitat;
+      const eligible = physicalPlacement ? originalHabitat.filter(({ patch }) => usableHabitat(s, patch, habitatAccess)) : originalHabitat;
       // Placement repair cannot change the original source count to hide a
       // difficult population. Unsupported sources retain their unlocated count.
       const n = originalCount(s, p, originalHabitat.reduce((n, row) => n + row.patch.areaHa, 0), seed, calibration);
@@ -475,7 +481,22 @@
       let left = n, ordinal = 0;
       while (left > 0) {
         const size = Math.min(left, groupSize(s));
-        const selected = placementCandidates[Math.floor(random(`${seed}:${p.id}:${ordinal}:home:${calibration}`) * placementCandidates.length)];
+        let selected = placementCandidates[Math.floor(random(`${seed}:${p.id}:${ordinal}:home:${calibration}`) * placementCandidates.length)];
+        if (habitatAccess && plantFoods.length) {
+          const profile = Biology.lifecycle[s.id], young = s.socialPattern === 'superorganism' ? 0 : Math.floor(size / 4);
+          const need = (size - young) * profile.foodKgDay + young * (profile.foodKgDay * (profile.newbornKg / profile.adultKg) ** .75
+            * profile.juvenileMultiplier + Math.max(0, profile.adultKg - profile.newbornKg) * .8 / Math.max(1, profile.adultDays) / profile.assimilation);
+          // Private INITIAL allocation only. Spend a shared seasonal food budget
+          // across groups/species rather than repeatedly selecting one tiny pond.
+          // No stock is credited, and a deficit remains a rejected proposal.
+          const choices = placementCandidates.flatMap(row => plantFoods.map(key => ({ ...row, key,
+            remaining: foodPotential(row.patch, key, calendar) - (foodUse.get(`${row.index}:${key}`) || 0),
+            tie: random(`${seed}:${p.id}:${ordinal}:${row.index}:${key}`) })))
+            .sort((a, b) => Number(b.remaining >= need) - Number(a.remaining >= need)
+              || b.remaining / Math.max(1, need) - a.remaining / Math.max(1, need) || a.tie - b.tie);
+          selected = choices[0]; feedingRows.push([pi, ordinal, selected.key]);
+          const key = `${selected.index}:${selected.key}`; foodUse.set(key, (foodUse.get(key) || 0) + need);
+        }
         if (s.socialPattern === 'hiveColony') {
           const workers = 200 + Math.floor(random(`${seed}:${p.id}:${ordinal}:workers`) * 1800);
           groupRows.push([pi, ordinal, selected.index, workers, Math.floor(workers / 5)]);
@@ -487,7 +508,7 @@
       }
     }
     const record = { id: '', seed, sourceDigest: sourceDigest(map), calendar, patchRows, groupRows, populations, unlocated, calibration,
-      ...(physicalPlacement ? { physicalPlacement: true } : {}) };
+      ...(physicalPlacement ? { physicalPlacement: true } : {}), ...(habitatAccess ? { habitatAccess: true, feedingRows } : {}) };
     const expanded = expand(record, map, { physical, raw: true });
     if (physical) { record.physicalBinding = Bindings.allocate(expanded, map, { positions: physicalPlacement }); Bindings.apply(expanded, record.physicalBinding, map); }
     if (wildlife) { record.backgroundWildlife = Wildlife.allocate(expanded, seed); Wildlife.apply(expanded, record.backgroundWildlife); }
@@ -518,7 +539,8 @@
     let best = null;
     const attempts = Number.isInteger(options.attempts) ? clamp(options.attempts, 1, 3) : 3;
     for (let calibration = 0; calibration < attempts; calibration++) {
-      const record = candidate(seed, map, patchRows, calibration, true, options.backgroundWildlife !== false, options.physicalPlacement !== false);
+      const record = candidate(seed, map, patchRows, calibration, true, options.backgroundWildlife !== false, options.physicalPlacement !== false,
+        options.physicalPlacement !== false && options.habitatAccess !== false);
       if (!best || record.assessment.issues.length < best.assessment.issues.length) best = record;
       if (record.assessment.status === 'feasibleInitialCycle') break;
     }
@@ -531,7 +553,8 @@
     if (record.id !== `beast-habitat-source:${World.stableHash(saved)}`) throw Error('Habitat source identity is invalid');
     const topology = World.topologyForMap(map), patchRows = [];
     for (let i = 0; i < topology.cellCount; i++) patchRows.push(...patchesForCell(map, i, topology, record.physicalPlacement === true));
-    const expected = candidate(record.seed, map, patchRows, record.calibration, Boolean(record.physicalBinding), Boolean(record.backgroundWildlife), record.physicalPlacement === true);
+    const expected = candidate(record.seed, map, patchRows, record.calibration, Boolean(record.physicalBinding), Boolean(record.backgroundWildlife), record.physicalPlacement === true,
+      record.habitatAccess === true);
     const physical = value => { const result = copy(value); delete result.id; delete result.assessment; delete result.groupRows; return result; };
     if (World.stableHash(physical(expected)) !== World.stableHash(physical(record))) throw Error('Habitat source physical accounts were changed');
     if (record.physicalBinding && World.stableHash(expected.groupRows) !== World.stableHash(record.groupRows)) throw Error('Original bound habitat placement was changed');

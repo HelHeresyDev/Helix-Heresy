@@ -281,7 +281,17 @@
         r.demand[stockKey] = (r.demand[stockKey] || 0) + need;
       }
       if (g.intention) next = Math.min(next, g.intention.departAt);
-      if (g.transit) next = Math.min(next, Journeys.next(g));
+      if (g.transit) {
+        if (Journeys.moving(g) && g.transit.nextStopCheckAt != null) for (const c of g.cohorts) if (count(c) && Care.dependent(c, at)) {
+          // Review before a small dependent body's own reserve is exhausted,
+          // not six hours later just because the adults have larger stores.
+          for (const key of ['foodKg', 'waterL']) {
+            const use = (c.needs[key] || 0) / count(c), stored = c.stores[key] + (key === 'foodKg' ? c.stores.fatKg : 0);
+            if (use > EPS) g.transit.nextStopCheckAt = Math.min(g.transit.nextStopCheckAt, at + Math.max(60, stored / use * DAY * .5));
+          }
+        }
+        next = Math.min(next, Journeys.next(g));
+      }
       if (!Journeys.moving(g) && Demography.region(s, location(g))?.foraging)
         for (const c of g.cohorts) if (count(c)) next = Math.min(next, Foraging.next(c));
     }
@@ -366,6 +376,7 @@
         const deficit = Math.max(0, need * (1 - (rate.supply[g.resources?.[key] || key] ?? 0) * c.intake[key]) / n
           - (key === 'foodKg' ? Foraging.intake(c) : 0) - Care.intake(c, key));
         if (!(deficit > EPS)) continue;
+        next = Math.min(next, Care.review(c, at, key, deficit));
         const stored = (c.stores[key] || 0) + (key === 'foodKg' ? c.stores.fatKg : 0);
         if (stored > EPS) next = Math.min(next, at + stored / deficit * DAY);
         else {
@@ -412,7 +423,7 @@
         const n = count(c); if (!n) continue;
         Foraging.integrate(s.accountRoot || s, r, g, c, from, to, rate);
         Care.effort(c, to - from, r);
-        if (g.transit && c.regional) c.regional.at = to; // Travel is not banked supplied rest.
+        if (Journeys.moving(g) && c.regional) c.regional.at = to; // Moving travel is not banked supplied rest; an actual stop can earn it.
         if (c.aggregateMortality) {
           if (c.batchMembers !== n) { c.batchMembers = n; c.batchHazard = 0; }
           const hazard = hazardIntegral(c, from, to);
@@ -481,6 +492,7 @@
   function loseBatch(s, g, c, amount, cause, at) {
     const ranges = Demography.take(c.ranges, Math.min(amount, count(c)), true), n = Demography.size(ranges);
     if (!n) return;
+    const scarcity = ['starvation', 'dehydration', 'mineralDeficiency'].includes(cause) ? scarcityContext(s, g, c, at) : null;
     Care.cancelAffected(g, c, at);
     Foodweb.cancel(s, g.id, c.id, ranges, at);
     Ecology.lostContributor(s, g, c, n, at, cause, `loss-batch:${c.originId}:${location(g)}:${cause}`);
@@ -491,7 +503,7 @@
     if (!b) { b = { id: batchId, populationId: g.populationId, speciesId: g.speciesId, originId: c.originId,
       groupId: g.id, regionId: location(g), cause, ranges: [], count: 0, firstAt: at, lastAt: at, massKg: 0 }; s.lossBatches.push(b); }
     b.ranges = Demography.union([...b.ranges, ...ranges]); b.count += n; b.lastAt = at; b.massKg += c.massKg * n;
-    if (['starvation', 'dehydration', 'mineralDeficiency'].includes(cause)) b.context = scarcityContext(s, g, c, at);
+    if (scarcity) b.context = scarcity;
     const r = s.regions.find(r => r.id === location(g));
     if (s.foodWeb) Foodweb.addRemains(s, r, batchId, g, c, n, at, cause, n === 1 ? Foodweb.position(g, r, c, ranges[0][0]) : null);
     else {
@@ -520,13 +532,14 @@
     return c;
   }
   function lose(s, g, c, ordinal, cause, at) {
+    const scarcity = ['starvation', 'dehydration', 'mineralDeficiency'].includes(cause) ? scarcityContext(s, g, c, at) : null;
     if (!remove(c, ordinal)) return false;
     Care.cancelAffected(g, c, at);
     Foodweb.cancel(s, g.id, c.id, [[ordinal, ordinal + 1]], at);
     Ecology.lostContributor(s, g, c, 1, at, cause, cohortKey(c, ordinal));
     const loss = { memberId: cohortKey(c, ordinal), populationId: g.populationId, speciesId: g.speciesId,
       groupId: g.id, originId: c.originId || c.id, ordinal, regionId: location(g), cause, at, massKg: c.massKg };
-    if (['starvation', 'dehydration', 'mineralDeficiency'].includes(cause)) loss.context = scarcityContext(s, g, c, at);
+    if (scarcity) loss.context = scarcity;
     s.losses.push(loss);
     const r = s.regions.find(r => r.id === loss.regionId);
     // Remains are real finite matter and are not renewable generic prey.
@@ -540,6 +553,7 @@
       afterPersonalArrival: g.knowledge.some(k => k.source === 'personalArrival' && k.at <= at),
       firstFailure: copy(c.firstScarcity || null),
       knownLivingCaregivers: c.dependency ? g.cohorts.filter(d => c.dependency.guardians.includes(d.originId)).reduce((v, d) => v + count(d), 0) : 0,
+      ...(Care.dependent(c, at) ? { careAccess: Care.situation(s, g, c, at, Foodweb.bounds, Foodweb.careCapable) } : {}),
       monthlySearchSeconds: c.foraging?.plan.used.search || 0,
       monthlyCareSeconds: c.parentalLedger?.usedSeconds || 0,
       ...(g.transit?.spatial ? { routeProgress: Foodweb.transitPosition(g, at) } : {}) };
@@ -560,17 +574,34 @@
       }
       if (!g.cohorts.some(c => count(c))) { g.regionId = location(g); g.intention = null; g.transit = null; continue; }
       if (g.intention && g.intention.departAt <= at + EPS) {
-        for (const c of g.cohorts) Care.cancelAffected(g, c, at);
-        Foodweb.cancelForaging(s, g, at);
-        const r = Demography.region(s, g.regionId), edge = r.edges.find(e => e.id === g.intention.destination);
-        for (const event of Journeys.depart(g, at, r, Biology.lifecycle[g.speciesId].travelKmDay, Foodweb.travelPlan(s, g, r, edge, at)))
-          record(s, event.kind, event.at, event);
+        const caringUntil = Math.max(at, ...g.cohorts.map(c => c.caregiving?.until || at));
+        if (caringUntil > at + EPS) {
+          // Preserve this same chosen destination. Finish already-started local
+          // care rather than repeatedly cancelling it at an arbitrary window.
+          g.intention.departAt = caringUntil;
+        } else {
+          for (const c of g.cohorts) Care.cancelAffected(g, c, at);
+          Foodweb.cancelForaging(s, g, at);
+          const r = Demography.region(s, g.regionId), edge = r.edges.find(e => e.id === g.intention.destination);
+          const spatial = Foodweb.travelPlan(s, g, r, edge, at), p = Biology.lifecycle[g.speciesId];
+          const pace = spatial?.pace ? Math.min(1, ...spatial.pace.map(c => (c.juvenile ? Math.cbrt(c.massKg / p.adultKg) : 1) * c.mobility)) : 1;
+          for (const event of Journeys.depart(g, at, r, p.travelKmDay * pace, spatial))
+            record(s, event.kind, event.at, event);
+        }
       }
       if (g.transit?.stop?.until <= at + EPS) {
-        Foodweb.foragers(s, at, monthAt(s.calendar, at), g.id); // Resolve earned work before releasing unfinished custody.
-        Foodweb.cancelForaging(s, g, at);
-        for (const c of g.cohorts) Care.cancelAffected(g, c, at);
-        const event = Journeys.resume(g, at); if (event) record(s, event.kind, at, event);
+        const budget = travelCarePlan(g, monthAt(s.calendar, at), at), remaining = Math.min(600,
+          budget.limitSeconds - budget.usedSeconds, budget.end - at);
+        if (remaining >= 60 && Care.waiting(s, g, at, Foodweb.bounds, Foodweb.careCapable)) {
+          // Same position, same pause, same finite monthly time owner. This is
+          // a local unfinished feeding, not a destination-capacity forecast.
+          g.transit.stop.until = at + remaining;
+        } else {
+          Foodweb.foragers(s, at, monthAt(s.calendar, at), g.id); // Resolve earned work before releasing unfinished custody.
+          Foodweb.cancelForaging(s, g, at);
+          for (const c of g.cohorts) Care.cancelAffected(g, c, at);
+          const event = Journeys.resume(g, at); if (event) record(s, event.kind, at, event);
+        }
       }
       const spatial = g.transit?.spatial;
       for (const event of Journeys.arrive(g, at)) {
@@ -589,7 +620,8 @@
     if (s.accountRoot) Foodweb.finish(s.accountRoot, at, foodApi, s.regionIds);
     else Foodweb.advance(s, at, monthAt(s.calendar, at), foodApi);
     if (s.foodWeb) Care.demand(s, at, Foodweb.bounds);
-    Foodweb.foragers(s, at, monthAt(s.calendar, at));
+    Foodweb.foragers(s, at, monthAt(s.calendar, at), null,
+      (g, c) => Care.start(s, at, Foodweb.bounds, Foodweb.restore, Foodweb.careCapable, g.id, c.id));
     if (s.foodWeb) Care.start(s, at, Foodweb.bounds, Foodweb.restore, Foodweb.careCapable);
     for (const g of s.groups) {
       for (const c of [...g.cohorts]) {

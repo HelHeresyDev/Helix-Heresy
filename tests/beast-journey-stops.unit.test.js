@@ -83,3 +83,64 @@ test('a dependent traveller triggers care stops despite ample regional water tha
   assert.equal(s.rates.ground.supply.waterL, 1); assert.equal(child.intake.waterL, 0);
   assert.equal(g.transit.stop.reason, 'thirst'); valid(s);
 });
+function familyJourney(children = 1) {
+  const src = require('./helpers/beast-care-sources').familySource({ species: 'thunderback-grazer', parents: 2, children });
+  src.groups[0].cohorts[1].massKg = 200; src.groups[0].cohorts[1].ageDays = 20;
+  const r = src.regions[0], to = copy(r); to.id = 'away'; src.regions.push(to);
+  r.edges = [copy(source().regions[0].edges[0])]; to.edges = [];
+  const s = P.create(src, binding), g = s.groups[0];
+  for (const c of g.cohorts) { c.deathThreshold = 1e12; c.regional.stamina = 300; }
+  return { s, g };
+}
+test('the original family journey is paced by its smaller member and reviews reserves before a fixed adult-sized interval', () => {
+  const { s, g } = familyJourney(); g.intention = { destination: 'away', chosenAt: 0, departAt: 10 };
+  P.removeStock(s, 'ground', 'waterL', 0, 0, 'actual-family-route'); P.advance(s, 10, true, true);
+  const adultPace = require('../creature-biology').lifecycle[g.speciesId].travelKmDay;
+  assert.ok(g.transit.spatial.speedKmDay < adultPace / 2);
+  assert.ok(g.transit.nextStopCheckAt - s.clock < DAY / 4);
+  const saved = P.normalize(copy(s), binding); assert.ok(saved);
+  P.advance(s, g.transit.nextStopCheckAt, true, true); P.advance(saved, saved.groups[0].transit.nextStopCheckAt, true, true);
+  assert.deepEqual(s.groups, saved.groups); valid(s);
+  const bad = copy(saved); bad.groups[0].transit.spatial.speedKmDay = adultPace;
+  assert.equal(P.normalize(bad, binding), null);
+});
+test('a chosen departure waits for already-started care without cancelling it or choosing a different destination', () => {
+  const { s, g } = familyJourney();
+  for (let i = 0; i < 1000 && !g.cohorts.some(c => c.caregiving); i++) P.advance(s, s.nextEventAt, true, true);
+  const donor = g.cohorts.find(c => c.caregiving); assert.ok(donor);
+  const until = donor.caregiving.until, at = s.clock;
+  g.intention = { destination: 'away', chosenAt: at, departAt: at + 1 };
+  P.removeStock(s, 'ground', 'waterL', 0, at, 'actual-departure'); P.advance(s, at + 1, true, true);
+  assert.equal(g.transit, null); assert.equal(g.intention.destination, 'away'); assert.equal(g.intention.chosenAt, at);
+  assert.equal(g.intention.departAt, until); assert.ok(donor.caregiving); valid(s);
+  P.advance(s, until, true, true); assert.ok(g.transit); assert.ok(donor.parentalLedger.usedSeconds > 0); valid(s);
+});
+test('an essential unfinished local feeding extends the same stop using only its remaining time and material budgets', () => {
+  const { s, g } = familyJourney(10); g.intention = { destination: 'away', chosenAt: 0, departAt: 10 };
+  P.removeStock(s, 'ground', 'waterL', 0, 0, 'actual-family-route'); P.advance(s, 10, true, true);
+  const at = s.clock, pos = F.transitPosition(g, at).position, arrival = g.transit.edgeArriveAt;
+  const child = g.cohorts[1], removed = child.stores.waterL * P.count(child);
+  child.massKg -= child.stores.waterL; child.stores.waterL = 0;
+  s.regions[0].outputs ||= {}; s.regions[0].outputs.preparedWaterRemovalKg = removed;
+  assert.ok(J.pause(g, at, pos, at + 60, 'thirst'));
+  P.removeStock(s, 'ground', 'waterL', 0, at, 'actual-short-stop'); P.advance(s, at + 60, true, true);
+  assert.ok(g.transit.stop); assert.ok(g.transit.stop.until > at + 60);
+  assert.equal(g.transit.stop.startedAt, at); assert.deepEqual(g.transit.stop.position, pos); valid(s);
+  for (let i = 0; i < 20 && g.transit.stop; i++) P.advance(s, g.transit.stop.until, true, true);
+  assert.equal(g.transit.stop, undefined);
+  assert.equal(g.transit.edgeArriveAt, arrival + s.clock - at);
+  assert.ok(g.travelCare.usedSeconds > 60); assert.ok(g.travelCare.usedSeconds <= g.travelCare.limitSeconds);
+  assert.ok(require('../beast-parental-care').summary(s).givenWaterL > 0); valid(s);
+});
+test('exhausted non-foraging guardians earn actual supplied rest while stopped instead of having their rest clock erased', () => {
+  const { s, g } = familyJourney(); for (const c of g.cohorts) c.regional.stamina = 0;
+  g.intention = { destination: 'away', chosenAt: 0, departAt: 10 };
+  P.removeStock(s, 'ground', 'waterL', 0, 0, 'actual-exhausted-family-route'); P.advance(s, 10, true, true);
+  P.advance(s, g.transit.nextStopCheckAt, true, true); assert.ok(g.transit.stop);
+  const stoppedAt = s.clock; assert.equal(g.cohorts[0].regional.stamina, 0);
+  P.advance(s, g.transit.stop.until, true, true);
+  assert.ok(g.cohorts[0].regional.stamina > 0);
+  assert.ok(require('../beast-parental-care').summary(s).givenWaterL > 0);
+  assert.ok(g.travelCare.usedSeconds > 0 && g.travelCare.usedSeconds <= s.clock - stoppedAt);
+  assert.ok(g.cohorts[1].health > .99); valid(s);
+});

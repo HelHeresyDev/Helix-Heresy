@@ -14,6 +14,19 @@ function fixture() {
   return cached;
 }
 const binding = { worldId: 'generated-binding-world', runId: 'private-source-check' };
+test('new access allocations require resting habitat and share finite feeding budgets without rewriting archived placement', () => {
+  const { map, record, source } = fixture(); assert.equal(record.habitatAccess, true);
+  assert.ok(record.feedingRows.length > 0);
+  const rocs = source.groups.filter(g => g.speciesId === 'beast:glasswing-roc'); assert.ok(rocs.length > 0);
+  assert.ok(rocs.every(g => source.regions.find(r => r.id === g.regionId).kind !== 'wetland'));
+  const coils = source.groups.filter(g => g.speciesId === 'beast:rivercoil');
+  assert.ok(new Set(coils.map(g => g.regionId)).size > 1);
+  assert.ok(coils.every(g => g.dietKeys.includes(g.resources.foodKg)));
+  const legacy = S.generate(record.seed, map, { habitatAccess: false }), archived = JSON.stringify(legacy), geography = JSON.stringify(map);
+  assert.equal(legacy.habitatAccess, undefined); assert.equal(legacy.feedingRows, undefined);
+  assert.ok(S.validate(legacy, map)); assert.equal(JSON.stringify(legacy), archived); assert.equal(JSON.stringify(map), geography);
+  assert.deepEqual(legacy.populations.map(p => p.originalIndividualCount), record.populations.map(p => p.originalIndividualCount));
+});
 test('normal generation archives typed original regions, work sites and nurseries for the fixed source roster', () => {
   const { source, record } = fixture(); assert.equal(P.validateSource(source), source);
   assert.equal(new Set(source.groups.map(g => g.speciesId)).size, 24);

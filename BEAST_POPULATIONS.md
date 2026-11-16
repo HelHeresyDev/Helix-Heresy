@@ -568,6 +568,17 @@ remain finite. These are explicit initial sub-hex allocations, not runtime ponds
 created to rescue a starving population or discoveries automatically given to
 the scientist. Sources without the new placement declaration load unchanged.
 
+New proposals also record `habitatAccess: true` and compact `feedingRows`.
+Winged passage over a deep wetland is not a dry resting/nesting place for the
+original adults and young. Initial plant/organic-feeding placement spends a
+shared estimate of the actual seasonal food budget across candidate regions,
+compatible foods and previously allocated groups instead of repeatedly filling
+one small pond. The estimate includes young maintenance and growth; it neither
+credits food nor certifies sustained viability. Original source counts remain
+unchanged, and insufficient habitat stays unavailable/rejected. Sources without
+this declaration reproduce their former placement/food selection exactly;
+validation, import and ordinary reads do not relocate archived groups.
+
 Hatched cohorts with a real positioned nursery retain a compact ordinal grid
 at that nursery; live births retain snapshots of their actual maternal family
 formations. Neither creates one actor per birth or puts all offspring at the
@@ -588,26 +599,27 @@ can simultaneously fit on the native local grid.
 
 The current `source-small` 120-day replay retains all 24 species, 89 source
 populations and 56,243 located original individuals, with no unlocated original
-source rows. Its 191,024 paid births reconcile to 130,360 living and 116,907
+source rows. Its 190,892 paid births reconcile to 130,906 living and 116,229
 dead. All living bodies have a stationary formation or a positioned journey
-(11,786 travelling at the endpoint). Approved size-classed herds/schools provide
-4.47 million kg of actual ingested wildlife. Marine filtration accepts an
+(20,808 travelling at the endpoint). Approved size-classed herds/schools provide
+4.94 million kg of actual ingested wildlife. Marine filtration accepts an
 exactly deep-enough original seawater column, consistent with body physics,
 without requiring or consuming imaginary extra seawater. Freshwater work still
 stops at its consumptive depth boundary. See [current replay accounting](BACKGROUND_WILDLIFE.md#verification-and-limits).
 
-**This is not D acceptance.** The replay records 246 starvation and 633
-dehydration deaths, 59 resource-shortfall records and no original-beast duels;
+**This is not D acceptance.** The replay records 191 starvation and ten
+dehydration deaths, 32 resource-shortfall records and no original-beast duels;
 source repair, effective ecological opposition and native integration remain
-unfinished. Compared with the pre-provisioning baseline, dependent young can no
-longer independently consume regional food/water, and their health loss uses
-their actual scaled requirements. Increased dependent losses therefore expose
-failures formerly hidden by those shortcuts, not a successful healthy-start
-certificate. Unsupported work-medium/nursery warnings are gone; 42 missing work
-sites, four unverified furnace-metal sources and 32 unverified dream-participant
-sources remain unavailable. The roughly 52.3 MB expanded account and 7.6-minute
-replay are not native-game performance acceptance. Browser checks use the
-account/shared-body APIs, not ordinary play or native game-save adoption.
+unfinished. Dependent scarcity deaths fall from 636 in the previous care/stop
+baseline to thirteen; Thunderback scarcity deaths fall from 562 to zero, and
+Rivercoil starvation disappears. Those improvements do not certify healthy
+starts or excuse the remaining failures. Unsupported work-medium/nursery
+warnings are gone; 38 missing work sites, eight unverified furnace-metal sources
+and 32 unverified dream-participant sources remain unavailable. The roughly
+52.9 MB expanded account and lengthy replay are not native-game performance
+acceptance; checkpoint/timing details are in the linked accounting. Browser
+checks use the account/shared-body APIs, not ordinary play or native game-save
+adoption.
 
 ### Route feeding and dependent care
 
@@ -618,8 +630,12 @@ and destination-side frames. Route fractions without physical frames cannot
 become feeding coordinates. The midpoint still transfers actual residence;
 an approach, route leg or final home approach is not a teleport to a prey field.
 
-Checks occur at six-hour travel boundaries and stops last at most six hours,
-bounded by the actual remaining month's 16-hours/day stop ceiling. These are
+Travel reviews occur at most six hours apart, earlier when a dependent body's
+own reserves require it, with a one-minute scheduling floor. Initial stops last
+at most six hours. An essential unfinished local feeding can extend that same
+positioned stop in ten-minute increments while an actual local, capable
+guardian, compatible material and care time remain available. All stopped time
+is bounded by the actual remaining month's 16-hours/day stop ceiling. These are
 time ceilings, not free rest or food. Progress freezes while stopped; resumption
 adds exactly elapsed stop time to crossing/arrival clocks. Arrival windows can
 be missed. A stop uses current bodily needs and actual local medium, never
@@ -629,6 +645,18 @@ reuse their existing monthly budgets and the same finite prey/corpse owners.
 Resumption releases unfinished meals locally. Winged bodies cannot regain
 stamina by resting in unsupported air over deep water; aquatic bodies and real
 buoyant aerostats retain their appropriate resting media.
+Only actual movement advances the no-rest clock. Non-foraging grazers stopped
+on supported supplied ground accrue real rest before they can provide care;
+retaining a transit record does not itself erase those earned intervals.
+
+Departures wait for already-started care to finish without changing the chosen
+destination. Each new positioned leg records its actual member pace snapshots:
+juvenile pace is conservatively body-length-scaled from its current mass, and
+limb/wing injuries use the shared mobility reduction. The slowest member caps
+the group's authored regional pace. Paid older legs retain their saved pace;
+growth, reloads and arbitrary reads cannot retrospectively shorten them. This
+is a coarse regional pace ceiling, not proof of native per-step locomotion,
+available wind/current or safe terrain along every metre of a traditional route.
 
 `beast-parental-care.js` distinguishes food-provisioning modes for the fixed
 strategic roster. This does not replace human/laboratory care or add populations:
@@ -667,6 +695,21 @@ age alone cannot. Caregivers finish a useful feeding and wait for real hunger
 or thirst instead of repeatedly topping up microscopic gaps. Family feeding
 demand can motivate additional hunting but supplies neither knowledge nor food.
 
+Completed foraging actions yield before another bout starts so nearby young
+can actually receive care. Handling/captures already earned remain owned once;
+an unfinished search is not completed early. Care targets schedule reviews
+before the dependent's food/water stores empty, rather than waiting for health
+damage to reveal the need. Reviews have a one-minute floor to avoid numerical
+micro-events as a growing body's target changes. Missing food cannot trigger
+endless tiny water top-ups that occupy the caregiver. A parent's next hunt
+accounts for its shareable ration and actual provisioning demand: personal fat
+can sustain the adult but cannot feed a child by proxy. Monthly search ceilings
+also clip the actual active/rest waveform, not its mean duty fraction.
+Food-to-mana and shared-charge recovery debit bounded original material totals
+before converting or dividing them among members. Spending the last real ration
+cannot leave a negative store through divide/multiply rounding; save validation
+still rejects negative stores rather than silently repairing them.
+
 Actual shortages damage health in proportion to the individual's own scaled
 requirement, not a full adult's ration. Losing a caregiver can therefore kill
 an orphan even when inaccessible regional food remains. Interrupted work keeps
@@ -676,7 +719,12 @@ detailing a caregiver removes that original member and interrupts background
 care without creating another food owner. Final death freezes the run.
 
 Private scarcity diagnostics retain first failure, age/dependence, current
-travel/stop phase, personal-arrival history and known living caregivers.
+travel/stop phase, personal-arrival history and known living caregivers. For a
+dependent death they also snapshot actual local/capable/free guardians,
+remaining member-time, accessible food/water, willingness and sleep before the
+lost child's membership is removed. Orphaning, separation, unavailable material
+and an available-but-unserved family are distinguishable circumstances, not
+automatic verdicts that a death was justified or an implementation bug.
 They distinguish causes to investigate; they do not automatically certify a
 bad starting allocation, excuse a failure as normal migration, relabel a region
 exhausted or expose a public census. The generated source remains diagnostic
@@ -684,15 +732,15 @@ until existing ecological/opposition, natural-formation and native-adoption
 requirements actually pass. Prepared care/journey browser checks exercise model
 saves, not ordinary-game encounter adoption.
 
-In the current 120-day generated replay, caregivers spend 158.0 million actual
-member-seconds and process 10.61 million kg of food plus 16.82 million litres of
-water, delivering 8.48 million kg and 15.98 million litres after recorded waste.
-Those real receipts do not establish sufficient care everywhere: 636 dependent
-young still die from scarcity, including travelling and stopped families with
-living guardians. Stationary Glasswing Roc and Rivercoil failures also remain.
-These observations require source/route/care repair inside D; neither surviving
-caregivers nor aggregate regional food are evidence that an individual could
-actually receive a meal, drink or safe resting place.
+In the current 120-day generated replay, caregivers spend 240.2 million actual
+member-seconds and process 12.17 million kg of food plus 19.81 million litres of
+water, delivering 9.73 million kg and 18.82 million litres after recorded waste.
+Thirteen dependent scarcity deaths remain, among Rimefang and Frostwake groups
+with missing food and/or no currently capable caregiver. Carrion Lantern,
+Rimefang, Reef Wyrm, Frostwake and two travelling Glasswing Roc starvation
+failures still require investigation inside D. Neither surviving caregivers nor
+aggregate regional food prove that an individual could actually receive a meal,
+drink or safe resting place, and no failed region is automatically exhausted.
 
 ### Regional feeding and ecological conflict
 

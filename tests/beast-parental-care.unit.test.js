@@ -30,7 +30,7 @@ test('caregiver loss stops future provisioning and orphans can genuinely starve 
   assert.ok(s.regions[0].stocks.meatKg > 0); valid(s);
   const losses = [...s.losses, ...s.lossBatches].filter(l => ['starvation', 'dehydration'].includes(l.cause));
   assert.ok(losses.some(l => l.context?.dependent && l.context.knownLivingCaregivers === 0
-    && l.context.phase === 'stationary' && !l.context.afterPersonalArrival));
+    && l.context.phase === 'stationary' && !l.context.afterPersonalArrival && l.context.careAccess.guardians === 0));
 });
 test('distant families, blocked paths and refusing caregivers provide no teleported care', () => {
   for (const change of [s => s.groups[0].willing = false,
@@ -122,4 +122,29 @@ test('a predator with healthy fat reserves hunts for its real dependent family i
   assert.ok(parent.stores.fatKg >= parent.massKg * .05); assert.ok(parent.provisioningDemandKgDay > 0);
   P.advance(s, 2 * DAY, true, true);
   assert.ok(Care.summary(s).givenFoodKg > 0); assert.ok(cubs.health > .99); assert.equal(P.count(cubs), 2); valid(s);
+});
+test('repeated real hunts yield to dependent care instead of occupying every feeding opportunity', () => {
+  const src = require('./helpers/sustenance-source').source({ members: 5, cohorts: 2, count: 100000 });
+  src.spatialContinuity = true; const g = src.groups[0]; g.parentalCare = 'family';
+  g.cohorts[0].role = 'female';
+  g.cohorts.push({ id: 'nearby-cub', speciesId: g.speciesId, count: 1, massKg: 1.5, ageDays: 0, role: 'juvenile' });
+  const s = P.create(src, binding), cub = s.groups[0].cohorts[2];
+  for (const c of s.groups[0].cohorts) c.deathThreshold = 1e12;
+  P.advance(s, 10 * DAY, true, true);
+  assert.ok(Care.summary(s).givenFoodKg > 0); assert.ok(Care.summary(s).givenWaterL > 0);
+  assert.equal(P.count(cub), 1); assert.ok(cub.health > .99);
+  assert.ok(s.regions[0].foraging.receipts.searches > 10);
+  assert.ok(s.groups[0].cohorts.some(c => c.parentalLedger?.usedSeconds > 0)); valid(s);
+});
+test('private care circumstances distinguish separation, refusal and missing material without deciding that a death was justified', () => {
+  const s = fixture(), g = s.groups[0], donor = untilCare(s), child = g.cohorts[1];
+  P.advance(s, donor.caregiving.until, true, true);
+  const before = JSON.stringify(s), read = () => Care.situation(s, g, child, s.clock, F.bounds, F.careCapable);
+  assert.ok(read().local > 0); assert.ok(read().availableFoodKg > 0); assert.equal(JSON.stringify(s), before);
+  child.regionalPosition = { regionId: g.regionId, eastM: 10000, northM: 0, altitudeM: 0 };
+  assert.ok(read().guardians > 0); assert.equal(read().local, 0);
+  g.willing = false; assert.equal(read().willing, false);
+  delete child.regionalPosition; s.regions[0].stocks.meatKg = 0;
+  for (const c of g.cohorts) c.stores.foodKg = 0;
+  assert.ok(read().local > 0); assert.equal(read().availableFoodKg, 0);
 });

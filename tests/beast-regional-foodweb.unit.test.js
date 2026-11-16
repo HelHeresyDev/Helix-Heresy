@@ -15,6 +15,22 @@ function fixture(rows) {
   P.removeStock(s, 'ground', 'waterL', 0, 0, 'initial-hunger-established'); return s;
 }
 function valid(s) { assert.ok(P.normalize(s, binding)); P.audit(s); }
+test('one enclosing regional tile preserves the actual uniform habitat constraints without per-square body checks', () => {
+  const Bodies = require('../beast-bodies'), s = fixture([['frostwake-leviathan', 0, 1]]), g = s.groups[0], r = s.regions[0];
+  Object.assign(r, { kind: 'waterColumn', floor: false, depthM: 100 }); g.home.depthM = 12;
+  const a = F.actor(g, g.cohorts[0], 0, r, 0);
+  for (const [depth, oxygen] of [[100, true], [9, true], [100, false]]) {
+    r.stocks.seawaterL = depth * r.areaHa * 10000 * 1000; r.oxygen = oxygen;
+    const result = tileSizeM => {
+      const ctx = F.context(r, [a], 0), terrain = ctx.terrain; let reads = 0;
+      ctx.tileSizeM = tileSizeM; ctx.terrain = cell => { reads++; return terrain(cell); };
+      return { reason: Bodies.habitatReason(a, a.mapCell, a.bodyPhysics.mode, Bodies.height(a), ctx), reads };
+    };
+    const fine = result(1), coarse = result(Math.max(...Object.values(a.bodyPhysics.dimensions)) * 2);
+    assert.equal(coarse.reason, fine.reason);
+    if (!fine.reason) { assert.ok(fine.reads > 100); assert.ok(coarse.reads <= 4); }
+  }
+});
 test('airborne bodies over ocean retain their actual mode rather than gaining unsupported swimming', () => {
   const src = source([['storm-kite', 0, 1], ['reef-wyrm', 2, 1]]), r = src.regions[0];
   Object.assign(r, { kind: 'waterColumn', floor: false, depthM: 100 });
@@ -205,6 +221,24 @@ test('personal mana and stored-charge recovery consume actual compatible materia
   assert.ok(kite.regional.energy.chargeMJ > 0); approx(beforeCharge - r.stocks.chargeMJ, kite.regional.energy.chargeMJ);
   const before = JSON.stringify(s); P.normalize(s); P.advance(s, DAY, true, true); assert.equal(JSON.stringify(s), before); valid(s);
   const imported = clone(s); delete imported.groups[0].cohorts[0].regional; assert.equal(P.normalize(imported), null);
+});
+test('spending the last real food-to-mana ration cannot create a negative store by round-trip rounding', () => {
+  const s = fixture([['ley-manta', 0, 1]]), g = s.groups[0], c = g.cohorts[0], r = s.regions[0];
+  P.advance(s, 2000, true, true);
+  g.resources.foodKg = 'organicKg'; c.stores.foodKg = 1.4; c.massKg += 1.4;
+  P.removeStock(s, r.id, 'organicKg', r.stocks.organicKg, s.clock, 'prepared-last-carried-ration');
+  const mass = c.massKg, mana = c.regional.mana;
+  F.restore(c, g, r, s.clock);
+  assert.equal(c.stores.foodKg, 0); approx(c.massKg, mass - 1.4); approx(c.regional.mana - mana, 140);
+  approx(r.outputs.manaRecoveryWasteKg, 1.4); valid(s);
+});
+test('a shared cohort cannot overdraw the last regional food or charge by divide-multiply rounding', () => {
+  const s = fixture([['ironroot-colossus', 0, 7], ['storm-kite', 200, 7]]), r = s.regions[0];
+  P.advance(s, 2000, true, true);
+  s.groups[0].resources.foodKg = 'organicKg';
+  r.stocks.organicKg = .03; r.stocks.chargeMJ = .03;
+  for (const g of s.groups) F.restore(g.cohorts[0], g, r, s.clock);
+  assert.equal(r.stocks.organicKg, 0); assert.equal(r.stocks.chargeMJ, 0); valid(s);
 });
 test('ordinary source classification cannot attack through solid rock or turn an adult behemoth into roc prey', () => {
   const s = fixture([['glasswing-roc', 0, 1], ['ashhorn-behemoth', 1, 1]]);

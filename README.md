@@ -2295,7 +2295,10 @@ New generated populations now prefer usable founding temperatures and water
 conditions before history, then retain source-backed nursery/maternal formations
 and paid route/arrival positions. Small sub-hex ponds draw finite water from
 their surrounding catchments without changing globe biome labels or duplicating
-rainfall. Earlier archived source records retain their original allocations.
+rainfall. New access-aware proposals also exclude unsupported wetland resting
+sites and share initial compatible food budgets across groups; this is private
+placement, not destination knowledge granted to animals. Earlier archived source
+records retain their original allocations.
 The seasonal replay now distinguishes positioned travellers from unknown bodies;
 its remaining feeding/viability failures and unfinished native adoption remain
 documented in [the population model](BEAST_POPULATIONS.md#habitat-placement-and-location-continuity).
@@ -2304,7 +2307,11 @@ Hungry travellers can now stop at actual route positions to feed or rest, paying
 elapsed delay without changing their original destination using unseen supply.
 Dependent family young and colony larvae receive finite, timed provisioning
 from actual capable caregivers; orphaning, refusal and interrupted care have
-real consequences. These [care and journey accounts](BEAST_POPULATIONS.md#route-feeding-and-dependent-care)
+real consequences. Completed foraging yields to care, feeding is reviewed before
+stores empty, and the parent's next hunt accounts for its young's actual needs.
+Family departures finish already-started care; actual juvenile size/injury caps
+regional group pace, while essential local feeding can extend a stop within its
+remaining time/material limits. These [care and journey accounts](BEAST_POPULATIONS.md#route-feeding-and-dependent-care)
 save and branch with their source populations. They do not yet establish
 all-species ecological viability or ordinary-game encounter adoption.
 
