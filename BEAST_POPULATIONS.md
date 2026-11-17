@@ -361,6 +361,16 @@ feeding/approach; an airborne scavenger must physically descend to reach ground
 remains. Each corpse retains one finite ledger of initial edible tissue, tissue
 eaten and tissue decomposed. Eating and decomposition also reduce that same
 physical body's mass. Neither creates a second regional meat/carrion stock.
+
+The approved [tissue-class extension](CARCASS_TISSUES.md) now separates flesh,
+named organs, fluids, tough tissues and hard remains in that same inventory.
+Ordinary meat eaters leave non-flesh remains; Lanterns consume all animal
+classes, excluding wood, equipment and non-biological minerals. Specific tissue
+claims and decaying structural hold reservations prevent competing owners from
+spending the same matter. New deaths use typed quantities; old untyped remains
+retain only their disclosed remainder, without reconstructed bones or refills.
+The existing generated-control measurements below predate this extension and
+are not a new ecosystem-viability result.
 Freezing suspends only actual frozen time; thaw, chunked updates and repeated
 reads cannot recreate meat. Per-eater feeding timestamps prevent duplicate
 elapsed feeding across both repeated calls and different corpses. Existing

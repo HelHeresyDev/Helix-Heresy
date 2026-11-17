@@ -81,8 +81,13 @@ cannot keep funding them. Failed or unsupported broods retain their material as
 discarded output, never a refund. Persistent shortages or unsuitable medium
 reduce normalized health by 0.2/day at a full deficit and can kill the remaining
 cohort. Mortality integrates elapsed hazards and settles integer losses daily.
-Bodies move to the same finite carcass owner, then decay at the shared 0.1/day
-hazard into actual detritus, retaining receiving overflow separately.
+Bodies move to the same finite carcass owner. New deaths retain separate flesh,
+named organs, fluids, tough tissue and hard remains, with tissue-specific decay
+hazards into actual detritus and separately retained overflow. Predators finishing
+the flesh leave other classes for compatible scavengers. The fixed-size batch
+schema, numeric yields, legacy-save limits and actual structural feeding custody
+are specified in [Carcass tissues](CARCASS_TISSUES.md); no individual organ objects
+or additional animal bodies are generated.
 
 Audits reconcile original + born = living + natural/scarcity dead + hunted, and
 original body matter + assimilated investment = living + invested embryos +

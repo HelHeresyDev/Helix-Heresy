@@ -123,6 +123,26 @@ test('predators and scavengers spend one shared edible mass; repeated calls cann
   assert.ok(r.consumedKg <= original); assert.ok(F.validRemains(corpse));
   assert.ok(corpse.bodyPhysics.massKg < .08);
 });
+test('a native predator finishing the flesh leaves a usable corpse for a Lantern, including hard remains', () => {
+  const wolf = actor('rimefang-pack'), lantern = actor('carrion-lantern'), corpse = actor('storm-kite', 'real-corpse');
+  corpse.status = 'dead'; corpse.health = 0; corpse.diedAt = 0;
+  const ctx = context([wolf, lantern, corpse]), row = F.remains(corpse, 0);
+  assert.equal(C.consumeRemains(wolf, corpse, 600, 600, ctx), true);
+  approx(row.tissues.flesh.kg, 0); assert.ok(row.tissues.hard.kg > 0); assert.ok(row.tissues.liver.kg > 0);
+  assert.equal(F.carcass(wolf, 600, ctx), null); assert.equal(F.carcass(lantern, 600, ctx), corpse);
+  assert.equal(C.consumeRemains(lantern, corpse, 600, 1200, ctx), true);
+  assert.ok(row.tissues.hard.consumedKg > 0); approx(row.edibleKg, 0);
+  approx(row.massKg + row.consumedKg + row.decomposedKg, row.massKgAtDeath);
+  assert.ok(lantern.life.emitted.carrionMineralsKg > 0); assert.ok(F.validRemains(corpse));
+});
+test('native scavenging cannot consume another owner\'s reserved organs or turn wood into carrion', () => {
+  const lantern = actor('carrion-lantern'), corpse = actor('storm-kite', 'reserved-corpse'), wood = actor('ironroot-colossus');
+  corpse.status = wood.status = 'dead'; corpse.health = wood.health = 0;
+  const ctx = context([lantern, corpse, wood]), row = F.remains(corpse, 0);
+  const claims = F.tissues.reserve(row, { carrionDiet: F.tissues.animalKeys }, 100);
+  assert.ok(claims.length > 1); assert.equal(C.consumeRemains(lantern, corpse, 600, 600, ctx), false);
+  assert.equal(C.consumeRemains(lantern, wood, 600, 1200, ctx), false); approx(row.consumedKg, 0);
+});
 test('one eater cannot claim the same elapsed feeding time from two different corpses', () => {
   const a = actor('carrion-lantern'), x = actor('rimefang-pack', 'x'), y = actor('rimefang-pack', 'y'), c = context([a, x, y]);
   for (const body of [x, y]) { body.status = 'dead'; body.health = 0; body.diedAt = 0; }

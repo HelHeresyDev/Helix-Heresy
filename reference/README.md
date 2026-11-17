@@ -1,7 +1,7 @@
 # Creature reference
 
 For Linux, open **[creature-catalog.ods](creature-catalog.ods)** in LibreOffice Calc.
-This is the native OpenDocument format, with all eight sheets, formatting, filters
+This is the native OpenDocument format, with all nine sheets, formatting, filters
 and frozen headers. Double-click the file, or run this from the repository root:
 
 ```sh
@@ -15,6 +15,7 @@ and other compatible applications. Both workbooks contain:
 - **Ecological rates: numeric initial balance values for all 36 entries.** Columns E–P contain separate nurturing/destruction rates for soil/cover, freshwater quantity, freshwater quality, wetland/reef habitat, renewable biomass and arcane stability. Columns C/D identify the counting basis and initial-tuning status. These are real number cells, including explicit zeroes and fractional worker rates, not prose descriptions.
 - **Lifecycle & resource use: numeric consumption, reproduction, maturity and mortality for all 36 entries.** It also includes body masses, juvenile intake factors, parental/queen counting units, gestation/incubation, birth material investment, reserves, ageing, travel, temperature, habitat and predation. Existing implemented care values are cited; new demographic values are labeled initial tuning.
 - Production detail: per-creature ingredients, process costs, equipment, utilities and care.
+- **Carcass tissues:** numeric animal-mass shares, class-specific decay, ingestion multipliers, organic/water/mineral yields and Lantern food/light fractions. Values come directly from the shared runtime inventory; bone is not ordinary meat. See [accounting and limits](../CARCASS_TISSUES.md).
 - Beast ecology: decoded biomes, comparative prevalence, threat, movement and social traits, plus seven numeric physical columns **T–Z** (length/width/height/spread wings in metres, adult kg, base m/s, natural reach in metres). Shared bodies and individual abilities/needs are consumed; additional population-backed encounters remain pending.
 - Planned creatures: no active proposals. Bone Skitter was shelved, not implemented or replaced; its existing tab remains intentionally empty.
 - Other life & forms: explicit dog lore and divine, avatar, scientist and receiver distinctions.
@@ -49,7 +50,8 @@ For the new life-history numbers, select **Lifecycle & resource use**:
 Carrion Lantern's corrected row now shows **0.05 kg food-equivalent/day**, **0.03 L
 water/day**, **60 nominal food-reserve days** and **20 water-reserve days**.
 The additional numeric columns **Atmospheric uptake ceiling** and **Wet carrion
-fraction allocated to water** show **0.06 L/day** and **0.5**; other families use
+fraction allocated to water** show **0.06 L/day** and **0.5** (the legacy untyped
+meal default; typed meals use the new Carcass tissues sheet); other families use
 `N/A`, not an invented collection ability. Notes specify the 70% RH/20°C reference,
 surface/injury limits, finite source debit, 8× actual-exertion multiplier, passive
 drift exception and 3 kg wet-tissue/600 s ingestion ceiling. The multiplier is not
@@ -101,7 +103,7 @@ Rebuild the snapshots with:
 
 ```sh
 node scripts/build-creature-biology.js
-python3 scripts/build-creature-catalog.py --as-of 2026-11-13
+python3 scripts/build-creature-catalog.py --as-of 2026-11-16
 PYTHONDONTWRITEBYTECODE=1 python3 tests/creature-catalog.test.py
 ```
 

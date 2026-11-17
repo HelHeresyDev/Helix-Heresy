@@ -88,7 +88,10 @@ def sheet_definitions(data, as_of):
          data['headers'], data['planned'], catalog_widths, 'BA751B'),
         ('Other life & forms', 'OTHER LIFE / Lore examples and identity states', 'These rows are not additional implemented species or ordinary manufacturing recipes.',
          ['Name / form', 'Classification', 'Status', 'Research tier', 'Production tier', 'Production cost', 'Habitat / rarity limits', 'Identity / design notes', 'Source'],
-         data['forms'], [40, 48, 55, 50, 50, 75, 95, 120, 75], '725585')
+         data['forms'], [40, 48, 55, 50, 50, 75, 95, 120, 75], '725585'),
+        ('Carcass tissues', 'CARCASS TISSUES / Finite animal remains and selective feeding',
+         'Runtime initial tuning, per wet kg. Body shares sum to one; legacy composition is unknown. Wood/equipment/non-biological minerals are not animal tissue.',
+         data['tissueHeaders'], data['tissues'], [24] + [27] * 9 + [100, 32], '725585')
     ]
 
 

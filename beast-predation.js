@@ -2,10 +2,11 @@
 (function (root, factory) {
   const node = typeof module === 'object' && module.exports;
   const api = factory(node ? require('./beast-bodies') : root.HelixBeastBodies,
-    node ? require('./creature-life') : root.HelixCreatureLife);
+    node ? require('./creature-life') : root.HelixCreatureLife,
+    node ? require('./carcass-tissues') : root.HelixCarcassTissues);
   if (node) module.exports = api;
   root.HelixBeastPredation = api;
-})(globalThis, function (Bodies, Life) {
+})(globalThis, function (Bodies, Life, Tissues) {
   'use strict';
   const DAY = Life.DAY, copy = x => JSON.parse(JSON.stringify(x));
   const alive = a => a?.status !== 'dead' && a?.health > 0;
@@ -78,18 +79,22 @@
   function remains(a, at) {
     if (a?.status !== 'dead' || !a.life || !a.bodyPhysics) return null;
     // Preserve legacy remaining mass, never reconstruct already eaten tissue.
-    const r = a.life.remains ||= { edibleKg: a.speciesId === 'beast:ironroot-colossus' ? 0 : a.bodyPhysics.massKg * .6, lastAt: at };
+    if (!a.life.remains) {
+      const r = a.life.remains = { massKg: 0, edibleKg: 0, consumedKg: 0, decomposedKg: 0, lastAt: at };
+      Tissues.add(r, a.bodyPhysics.massKg, a.speciesId, Tissues.inertMatter(a));
+    }
+    const r = a.life.remains;
     r.consumedKg ??= 0; r.decomposedKg ??= 0;
     r.initialEdibleKg ??= r.edibleKg + r.consumedKg + r.decomposedKg;
     r.massKgAtDeath ??= a.bodyPhysics.massKg + r.consumedKg + r.decomposedKg;
+    r.massKg ??= a.bodyPhysics.massKg;
     return r;
   }
   function decay(a, at, ctx) {
     if (ctx.alive === false || ctx.local === false) return 0;
     const r = remains(a, at); if (!r || at <= r.lastAt) return 0;
     const seconds = Math.max(0, at - Math.max(r.lastAt, r.frozenUntil || 0)); r.lastAt = at;
-    const kg = r.edibleKg * -Math.expm1(-seconds / DAY * .1);
-    r.edibleKg -= kg; r.decomposedKg += kg;
+    const kg = Tissues.decay(r, seconds / DAY);
     Life.changeMass(a, -kg); if (kg > 0) ctx.waste?.(a, 'detritusKg', kg);
     return kg;
   }
@@ -97,13 +102,13 @@
     if (!a.life?.will || !hungry(a) || !(ctx.foodKeys?.(a) || []).some(k => ['meatKg', 'carrionKg'].includes(k))) return null;
     return (ctx.actors || []).filter(t => t.status === 'dead' && t.speciesId !== 'beast:ironroot-colossus'
       && !ctx.protectedTarget?.(a, t) && sensed(a, t, ctx, true)
-      && (t.life?.remains?.edibleKg ?? t.bodyPhysics?.massKg * .6) > 1e-8).sort((x, y) =>
+      && Tissues.available(remains(t, at), a) > 1e-8).sort((x, y) =>
         Math.hypot(a.mapCell.x - x.mapCell.x, a.mapCell.y - x.mapCell.y)
         - Math.hypot(a.mapCell.x - y.mapCell.x, a.mapCell.y - y.mapCell.y) || x.id.localeCompare(y.id))[0] || null;
   }
   function validRemains(a) {
     const r = a?.life?.remains;
-    return !r || a.status === 'dead' && ['edibleKg', 'lastAt'].every(k => finite(r[k]))
+    return !r || a.status === 'dead' && Tissues.valid(r) && ['edibleKg', 'lastAt'].every(k => finite(r[k]))
       && (r.initialEdibleKg == null || ['initialEdibleKg', 'consumedKg', 'decomposedKg'].every(k => finite(r[k]))
         && finite(r.massKgAtDeath) && r.initialEdibleKg <= r.massKgAtDeath + 1e-7
         && Math.abs(r.edibleKg + r.consumedKg + r.decomposedKg - r.initialEdibleKg) < Math.max(1e-7, r.initialEdibleKg * 1e-10));
@@ -115,5 +120,5 @@
       && h.lastCell && ['x', 'y', 'z'].every(k => Number.isInteger(h.lastCell[k]))
       && (h.endedAt == null || finite(h.endedAt) && h.endedAt >= h.startedAt && typeof h.outcome === 'string');
   }
-  return { sensed, hungry, eligible, huntingTarget, remains, decay, carcass, validRemains, validHunt };
+  return { sensed, hungry, eligible, huntingTarget, remains, decay, carcass, validRemains, validHunt, tissues: Tissues };
 });

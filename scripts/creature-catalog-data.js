@@ -13,6 +13,7 @@ const Wilderness = require('../wilderness-beasts');
 const Bodies = require('../beast-bodies');
 const EcologyDesign = require('./creature-ecology-design');
 const Lifecycle = require('./creature-lifecycle-data');
+const Carcass = require('../carcass-tissues');
 const resolveSource = file => file === 'DESIGN_BIBLE.md' && !fs.existsSync(path.join(root, file)) ? 'reference/DESIGN_BIBLE.md' : file;
 const text = file => fs.readFileSync(path.join(root, resolveSource(file)), 'utf8');
 const humanize = s => String(s).replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase());
@@ -418,6 +419,7 @@ function buildCatalog() {
       ...EcologyDesign.rateCells(design.id), profile.notes, 'reference/CREATURE_ECOLOGY_MATRIX.md', design.id];
   });
   const guide = [
+    ['Carcass tissues', 'The Carcass tissues tab reads the shared runtime initial tuning: finite animal mass shares, selective diets, decay, ingestion multipliers, organic/water/mineral fractions. Lanterns consume all animal classes, not wood, equipment or non-biological minerals. Legacy untyped meals retain their old yields.'],
     ['Purpose', 'Developer reference for authored creature definitions and current design proposals. This is not the scientist’s in-game knowledge or a live world census.'],
     ['Coverage', `${rows.length} current catalog entries, including humans, implemented laboratory creature families and all ${Ecology.BEAST_SPECIES.length} strategic beast species. ${planned.length ? `${planned.length} proposed creatures are on a separate tab.` : 'There are no active creature proposals; withdrawn ideas are not existing species.'} Explicit dog lore and divine/receiver states are separate from species.`],
     ['Research tier', 'Difficulty of discovering a reproducible formation method. Numeric values appear only where authored; they are not combat ratings or compulsory campaign chapters.'],
@@ -446,6 +448,14 @@ function buildCatalog() {
     ['Editing / rebuild', 'The workbook is editable. Generated files are snapshots; rebuilding replaces them. To retain design annotations across rebuilds, update scripts/creature-catalog-data.js. Run python3 scripts/build-creature-catalog.py. No gameplay definitions are changed.']
   ];
   return { headers: HEADERS, creatures: rows, planned, ecology: ecologyRows, production, forms, guide,
+    tissueHeaders: ['Tissue class', 'Original animal mass fraction', 'Decay hazard / day', 'Ingestion rate multiplier',
+      'Organic kg / wet kg', 'Water L / wet kg', 'Mineral kg / wet kg', 'Rejected solid kg / wet kg',
+      'Lantern food kg / wet kg', 'Lantern light substrate kg / wet kg', 'Diet / scope', 'Source'],
+    tissues: Object.entries(Carcass.profiles).map(([key, p]) => [key, key === 'legacy' ? 'N/A — unknown' : p.share,
+      p.decayDay, p.handling, p.food, p.water, p.minerals, 1 - p.food - p.water - p.minerals,
+      p.food - .05, .05, key === 'legacy' ? 'Only disclosed old untyped remainder; never restores lost tissues'
+        : key === 'flesh' ? 'Ordinary meat eaters and Carrion Lanterns'
+          : 'Carrion Lanterns; explicit tissue-specific diets can accept individual organs', 'carcass-tissues.js']),
     lifecycleHeaders: Lifecycle.headers, lifecycles: Lifecycle.rows(), lifecycleWidths: Lifecycle.widths,
     lifecycleReference: Lifecycle.renderReference(),
     rateHeaders: ['Creature', 'Environmental disposition', 'Counting basis', 'Rate status', ...RATE_HEADERS, 'Limits / calibration', 'Source', 'Stable ID'], rates,

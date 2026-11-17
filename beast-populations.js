@@ -540,7 +540,7 @@
     else {
       r.remainsBatches ||= {};
       const remains = r.remainsBatches[batchId] ||= { count: 0, massKg: 0, edibleKg: 0, firstAt: at, lastAt: at };
-      remains.count += n; remains.massKg += c.massKg * n; remains.edibleKg += c.massKg * n * .6; remains.lastAt = at;
+      remains.count += n; Predation.tissues.add(remains, c.massKg * n, c.speciesId, Predation.tissues.inertMatter(c) * n); remains.lastAt = at;
     }
   }
   function recordBirth(s, g, parent, brood, role, n, at) {
@@ -575,7 +575,10 @@
     const r = s.regions.find(r => r.id === loss.regionId);
     // Remains are real finite matter and are not renewable generic prey.
     if (s.foodWeb) Foodweb.addRemains(s, r, loss.memberId, g, c, 1, at, cause, Foodweb.position(g, r, c, ordinal));
-    else { r.remains ||= {}; r.remains[loss.memberId] = { massKg: c.massKg, edibleKg: c.massKg * .6, at, cause }; }
+    else {
+      r.remains ||= {}; const remains = r.remains[loss.memberId] = { massKg: 0, edibleKg: 0, at, cause };
+      Predation.tissues.add(remains, c.massKg, c.speciesId, Predation.tissues.inertMatter(c));
+    }
     record(s, 'loss', at, { memberId: loss.memberId, cause }); return true;
   }
   function scarcityContext(s, g, c, at) {

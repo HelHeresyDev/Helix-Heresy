@@ -368,12 +368,15 @@
     }
     return fed > 0;
   }
-  function eatCarrion(a, amount, ctx) {
-    const meal = Lantern.partition(amount, a.life.waterCapacityL - a.life.stores.waterL);
+  function eatCarrion(a, amount, ctx, tissue) {
+    const meal = Lantern.partition(amount, a.life.waterCapacityL - a.life.stores.waterL, tissue);
     Life.feed(a, 'foodKg', meal.food); Life.feed(a, 'waterL', meal.water);
     a.life.energy.lightKg += meal.light; Life.changeMass(a, meal.light);
     a.life.emitted.carrionWaterWasteL = (a.life.emitted.carrionWaterWasteL || 0) + meal.wasteWater;
     if (meal.wasteWater) ctx.waste?.(a, 'carrionWaterWasteL', meal.wasteWater);
+    for (const [key, amount] of [['carrionMineralsKg', meal.minerals], ['carrionSolidsKg', meal.solids]]) if (amount) {
+      a.life.emitted[key] = (a.life.emitted[key] || 0) + amount; ctx.waste?.(a, key, amount);
+    }
   }
   function consumeRemains(a, corpse, seconds, at, ctx) {
     if (!(seconds > 0) || !conscious(a, at) || !ctx.alive || !ctx.local
@@ -391,11 +394,12 @@
       a.life.remainsFedAt ?? at - seconds, corpse.diedAt ?? at - seconds)));
     r.feedingAt[a.id] = Math.max(at, r.feedingAt[a.id] || 0);
     a.life.remainsFedAt = Math.max(at, a.life.remainsFedAt || 0);
-    const amount = Math.min(r.edibleKg, (Lantern.is(a) ? Life.profile(a).mealKg : Life.profile(a).foodKgDay) * elapsed / 600,
+    const maximum = Math.min((Lantern.is(a) ? Life.profile(a).mealKg : Life.profile(a).foodKgDay) * elapsed / 600,
       (a.life.foodCapacityKg - a.life.stores.foodKg) / (Lantern.is(a) ? Lantern.foodFraction() : 1));
+    const tissue = Predation.tissues.take(r, a, maximum), amount = tissue.kg;
     if (!(amount > 0)) return false;
-    r.edibleKg -= amount; r.consumedKg += amount; Life.changeMass(corpse, -amount);
-    if (Lantern.is(a)) eatCarrion(a, amount, ctx); else Life.feed(a, 'foodKg', amount);
+    Life.changeMass(corpse, -amount);
+    if (Lantern.is(a)) eatCarrion(a, amount, ctx, tissue); else Life.feed(a, 'foodKg', amount);
     event(a, 'fedFromRemains', at, { corpseId: corpse.id, kg: amount }); return true;
   }
   function regenerate(a, seconds, at, ctx) {

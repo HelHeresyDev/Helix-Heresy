@@ -4,10 +4,11 @@
   const api = factory(node ? require('./creature-life') : root.HelixCreatureLife,
     node ? require('./creature-biology') : root.HelixCreatureBiology,
     node ? require('./beast-bodies') : root.HelixBeastBodies,
-    node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology);
+    node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology,
+    node ? require('./carcass-tissues') : root.HelixCarcassTissues);
   if (node) module.exports = api;
   root.HelixBackgroundWildlife = api;
-})(globalThis, function (Life, Biology, Bodies, Lantern) {
+})(globalThis, function (Life, Biology, Bodies, Lantern, Tissues) {
   'use strict';
   const DAY = 86400, EPS = 1e-8, DURATION = 300, copy = x => JSON.parse(JSON.stringify(x));
   // Initial guild tuning, not additional researchable/strategic creature species.
@@ -243,11 +244,8 @@
       } else pool.broods.find(b => b.id === q.broodId).investedKg += gain;
     }
     for (const pool of r.wildlife.pools) {
-      const row = pool.carcass, elapsed = Math.max(0, to - row.lastAt) / DAY, fraction = -Math.expm1(-elapsed * .1);
-      const reserved = row.reservedKg || 0;
-      const kg = Math.max(0, row.massKg - reserved) * fraction;
-      row.massKg -= kg; row.edibleKg -= Math.max(0, row.edibleKg - reserved) * fraction;
-      row.decomposedKg += kg; row.lastAt = to;
+      const row = pool.carcass, elapsed = Math.max(0, to - Math.max(row.lastAt, row.frozenUntil || 0)) / DAY;
+      const kg = Tissues.decay(row, elapsed); row.lastAt = to;
       const accepted = Math.min(kg, Math.max(0, (r.capacity.detritusKg || 0) - (r.stocks.detritusKg || 0)));
       if (accepted) r.stocks.detritusKg = (r.stocks.detritusKg || 0) + accepted;
       output(r, 'wildlifeDetritusOverflowKg', kg - accepted);
@@ -268,7 +266,7 @@
     const kg = c.massKg * n; c.count -= n; c.hazard = 0;
     c.mortalityBalance *= c.count / Math.max(1, c.count + n);
     pool[hunted ? 'huntedCount' : 'deadCount'] += n;
-    pool.carcass.initialMassKg += kg; pool.carcass.massKg += kg; pool.carcass.edibleKg += kg * .6;
+    Tissues.add(pool.carcass, kg);
     return n;
   }
   function boundary(r, at, daily) {
@@ -359,7 +357,7 @@
         const pool = r.wildlife.pools.find(p => p.id === id); pool.attempts += n;
         if (!suitable(r, pool)) continue;
         const encountered = Math.min(1, q.areaHa / pool.areaHa) * (pool.habitatDepthM > 0 ? Math.min(1, q.depthM / pool.habitatDepthM) : 1);
-        const encounteredCarrionKg = pool.carcass.edibleKg * encountered; let caughtEdibleKg = 0;
+        const encounteredCarrionKg = Tissues.available(pool.carcass, c) * encountered; let caughtEdibleKg = 0;
         if (!q.scavenge && room > EPS && intakeLeft > EPS) {
           for (const prey of pool.cohorts) {
             const expected = prey.count * encountered * q.success;
@@ -371,15 +369,17 @@
         }
         // Carcass tissue has one owner. Searches encounter only a local fraction;
         // newly caught tissue is reachable by the same hunting batch.
-        const available = Math.min(pool.carcass.edibleKg, encounteredCarrionKg + caughtEdibleKg);
-        const kg = Math.min(room, available, intakeLeft);
+        const available = Math.min(Tissues.available(pool.carcass, c), encounteredCarrionKg + caughtEdibleKg);
+        const tissue = Tissues.take(pool.carcass, c, Math.min(room, available, intakeLeft)), kg = tissue.kg;
         if (!(kg > 0)) continue;
-        pool.carcass.edibleKg -= kg; pool.carcass.massKg -= kg; pool.carcass.consumedKg += kg;
         if (q.scavenge) {
-          const meal = Lantern.partition(kg / n, Lantern.waterCapacity(c.massKg) - c.stores.waterL);
+          const nutrients = Object.fromEntries(Object.entries(tissue).map(([key, value]) => [key, value / n]));
+          const meal = Lantern.partition(kg / n, Lantern.waterCapacity(c.massKg) - c.stores.waterL, nutrients);
           c.stores.foodKg += meal.food; c.stores.waterL += meal.water; c.regional.energy.lightKg += meal.light;
           c.massKg += meal.food + meal.water + meal.light;
           r.outputs ||= {}; r.outputs.carrionWaterWasteL = (r.outputs.carrionWaterWasteL || 0) + meal.wasteWater * n;
+          r.outputs.carrionMineralsKg = (r.outputs.carrionMineralsKg || 0) + meal.minerals * n;
+          r.outputs.carrionSolidsKg = (r.outputs.carrionSolidsKg || 0) + meal.solids * n;
         } else { c.stores.foodKg += kg / n; c.massKg += kg / n; }
         room -= kg; intakeLeft -= kg;
       }
@@ -421,14 +421,17 @@
       pool.attempts += q.memberCount;
       if (pool.spatial && q.position?.regionId !== r.id) continue;
       const fraction = encounterFraction(pool, q);
-      const encounteredKg = Math.max(0, pool.carcass.edibleKg - (pool.carcass.reservedKg || 0)) * fraction;
+      const eater = { speciesId: q.scavenge ? Lantern.ID : q.speciesId, carrionDiet: q.carrionDiet };
+      const encounteredKg = Tissues.available(pool.carcass, eater) * fraction;
       let caughtKg = 0;
       if (!q.scavenge) for (const prey of pool.cohorts) {
         const n = Math.min(prey.count, Math.floor(prey.count * fraction * q.success + Life.random(`${q.id}:${prey.id}:catch`)),
           Math.max(0, Math.ceil((room - encounteredKg - caughtKg) / Math.max(EPS, prey.massKg * .6))));
-        caughtKg += prey.massKg * n * .6; pool.catches += lose(r, pool, prey, n, true, at);
+        const before = Tissues.available(pool.carcass, eater);
+        pool.catches += lose(r, pool, prey, n, true, at);
+        caughtKg += Tissues.available(pool.carcass, eater) - before;
       }
-      const kg = Math.min(room, encounteredKg + caughtKg, Math.max(0, pool.carcass.edibleKg - (pool.carcass.reservedKg || 0)));
+      const kg = Math.min(room, encounteredKg + caughtKg, Tissues.available(pool.carcass, eater));
       if (kg > EPS) { claims.push({ sourceId: pool.id, kg }); room -= kg; }
     }
     poolCleanup(r); return claims;
@@ -466,7 +469,8 @@
       if (pool.broods.some(b => typeof b.id !== 'string' || !b.id || !integer(b.monthIndex) || !integer(b.targetCount) || !finite(b.investedKg) || !finite(b.dueAt)
         || b.investedKg > b.targetCount * profile(pool).newbornKg + EPS)) return false;
       const row = pool.carcass;
-      if (!row || !Object.values(row).every(finite) || row.edibleKg > row.massKg + EPS || row.lastAt > at + EPS
+      if (!row || !Tissues.valid(row) || !['initialMassKg', 'massKg', 'edibleKg', 'consumedKg', 'decomposedKg', 'lastAt'].every(k => finite(row[k]))
+        || row.edibleKg > row.massKg + EPS || row.lastAt > at + EPS
         || Math.abs(row.initialMassKg - row.massKg - row.consumedKg - row.decomposedKg) > 1e-6 * Math.max(1, row.initialMassKg)) return false;
       if (total(pool) + pool.deadCount + pool.huntedCount !== pool.originalCount + pool.bornCount) return false;
       const accounted = mass(pool) + pool.broods.reduce((n, b) => n + b.investedKg, 0) + row.initialMassKg + pool.discardedKg;

@@ -18,6 +18,7 @@
 })(globalThis, function (Data, Life, Bodies, Behavior, Predation, Wilderness, Demography, Wildlife, Foraging, Journeys, Wind, Lantern) {
   'use strict';
   const DAY = Life.DAY, EPS = 1e-8, BIN = 128, LIMIT = 16, DURATION = 300;
+  const Tissues = Predation.tissues;
   const copy = x => JSON.parse(JSON.stringify(x)), size = c => Demography.size(c.ranges);
   const finite = n => Number.isFinite(n) && n >= 0;
   const point = p => p && ['eastM', 'northM', 'altitudeM'].every(k => Number.isFinite(p[k]));
@@ -459,14 +460,13 @@
       initialEdibleKg: 0, consumedKg: 0, decomposedKg: 0, lastAt: at, firstAt: at, speciesId: c.speciesId, groupId: g.id,
       position: pos && copy(pos), cause, sourceKey: key };
     decay(s, r, row, at);
-    const kg = c.massKg * n, edible = c.speciesId === 'beast:ironroot-colossus' ? 0 : kg * .6;
-    row.count += n; row.massKg += kg; row.edibleKg += edible; row.initialEdibleKg += edible;
+    const kg = c.massKg * n;
+    row.count += n; Tissues.add(row, kg, c.speciesId, Tissues.inertMatter(c) * n);
     row.lastDeathAt = at;
   }
   function decay(s, r, row, at) {
     const elapsed = Math.max(0, at - Math.max(row.lastAt, row.frozenUntil || 0)); row.lastAt = at;
-    const kg = Math.max(0, row.edibleKg - (row.reservedKg || 0)) * -Math.expm1(-elapsed / DAY * .1);
-    row.edibleKg -= kg; row.massKg -= kg; row.decomposedKg += kg; put(r, 'detritusKg', kg);
+    const kg = Tissues.decay(row, elapsed / DAY); put(r, 'detritusKg', kg);
     s.foodWeb.receipts.decomposedKg += kg;
   }
   function feed(s, g, c, a, r, rows, at, foraging = false) {
@@ -487,7 +487,7 @@
       const capacity = Math.min(c.massKg * .25, Math.max(p.foodKgDay * (p.foodReserveDays || 1), p.newbornKg || 0));
       // Only this original contact member feeds. Other members do not receive
       // food remotely merely because their cohort shares a strategic patch.
-      const amount = Math.min(Math.max(0, row.edibleKg - (row.reservedKg || 0)),
+      const amount = Math.min(Tissues.available(row, c),
         managed ? Math.max(0, Foraging.capacity(c) - c.stores.foodKg) : p.foodKgDay * DURATION / 600,
         Math.max(0, (managed ? Foraging.capacity(c) : capacity) - c.stores.foodKg));
       if (!(amount > EPS)) return;
@@ -498,15 +498,17 @@
           eater.foraging.nextAt = at; return true;
         }
       }
-      row.edibleKg -= amount; row.massKg -= amount; row.consumedKg += amount;
+      const tissue = Tissues.take(row, eater, amount), eaten = tissue.kg;
       if (Lantern.is(eater)) {
-        const meal = Lantern.partition(amount, Lantern.waterCapacity(eater.massKg) - eater.stores.waterL);
+        const meal = Lantern.partition(eaten, Lantern.waterCapacity(eater.massKg) - eater.stores.waterL, tissue);
         eater.stores.foodKg += meal.food; eater.stores.waterL += meal.water; eater.regional.energy.lightKg += meal.light;
         eater.massKg += meal.food + meal.water + meal.light;
         r.outputs ||= {}; r.outputs.carrionWaterWasteL = (r.outputs.carrionWaterWasteL || 0) + meal.wasteWater;
-      } else { eater.stores.foodKg += amount; eater.massKg += amount; }
-      s.foodWeb.receipts.consumedKg += amount;
-      event(s, at, 'fedFromRemains', { groupId: g.id, memberId: `${eater.originId}:${ordinal}`, sourceKey: row.sourceKey, kg: amount }); return true;
+        r.outputs.carrionMineralsKg = (r.outputs.carrionMineralsKg || 0) + meal.minerals;
+        r.outputs.carrionSolidsKg = (r.outputs.carrionSolidsKg || 0) + meal.solids;
+      } else { eater.stores.foodKg += eaten; eater.massKg += eaten; }
+      s.foodWeb.receipts.consumedKg += eaten;
+      event(s, at, 'fedFromRemains', { groupId: g.id, memberId: `${eater.originId}:${ordinal}`, sourceKey: row.sourceKey, kg: eaten }); return true;
     }
   }
   function split(g, c, ordinal, at) {
@@ -743,7 +745,7 @@
             let left = maximum - claims.reduce((sum, claim) => sum + claim.kg, 0);
             if (g.windDriven) for (const [sourceId, row] of [...Object.entries(r.remains || {}), ...Object.entries(r.remainsBatches || {})]) {
               if (!row.position || !(left > EPS) || Wind.extent(g, c, pos, row.position) > Bodies.profiles[c.speciesId].reachM) continue;
-              const kg = Math.min(left, row.edibleKg - (row.reservedKg || 0));
+              const kg = Math.min(left, Tissues.available(row, c));
               if (kg > EPS) { claims.push({ kind: 'beast', sourceId, kg }); left -= kg; }
             }
             return claims;
@@ -890,7 +892,7 @@
     for (const r of s.regions) for (const row of [...Object.values(r.remains || {}), ...Object.values(r.remainsBatches || {})]) {
       const source = sources.get(row.sourceKey);
       if (!source || source.speciesId !== row.speciesId || source.groupId !== row.groupId || source.regionId !== r.id) return false;
-      if (!['massKg', 'edibleKg', 'initialEdibleKg', 'consumedKg', 'decomposedKg', 'lastAt'].every(k => finite(row[k]))
+      if (!Tissues.valid(row) || !['massKg', 'edibleKg', 'initialEdibleKg', 'consumedKg', 'decomposedKg', 'lastAt'].every(k => finite(row[k]))
         || row.edibleKg > row.massKg + EPS || Math.abs(row.initialEdibleKg - row.edibleKg - row.consumedKg - row.decomposedKg) > 1e-6 * Math.max(1, row.initialEdibleKg)
         || row.position && !point(row.position)) return false;
       assigned.set(row.sourceKey, (assigned.get(row.sourceKey) || 0) + row.initialEdibleKg);
@@ -898,8 +900,8 @@
       consumed += row.consumedKg; decomposed += row.decomposedKg;
     }
     for (const [key, loss] of sources) {
-      const expected = loss.speciesId === 'beast:ironroot-colossus' ? 0 : loss.massKg * .6;
-      if (Math.abs((assigned.get(key) || 0) - expected) > 1e-6 * Math.max(1, expected)
+      const edible = assigned.get(key) || 0;
+      if (edible > loss.massKg + EPS || loss.speciesId === 'beast:ironroot-colossus' && edible > EPS
         || Math.abs((assignedMass.get(key) || 0) - loss.massKg) > 1e-6 * Math.max(1, loss.massKg)) return false;
     }
     if (Math.abs(consumed - w.receipts.consumedKg) > 1e-6 * Math.max(1, consumed) || Math.abs(decomposed - w.receipts.decomposedKg) > 1e-6 * Math.max(1, decomposed)) return false;

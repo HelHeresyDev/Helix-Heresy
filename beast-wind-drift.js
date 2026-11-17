@@ -10,6 +10,8 @@
   const point = p => p && typeof p.regionId === 'string' && ['eastM', 'northM', 'altitudeM'].every(k => Number.isFinite(p[k]));
   const enabled = g => g.windDriven === true;
   const moving = c => Boolean(c.windDrift && Math.hypot(c.windDrift.velocity.x, c.windDrift.velocity.y) > 0);
+  const anchorMass = (body, meal) => Math.max(0, body.massKg - body.edibleKg)
+    + (meal.anchors || []).reduce((n, p) => n + p.kg, 0);
   const windAt = (r, season) => r.seasons?.[season]?.wind ?? r.wind ?? null;
   const flow = w => w == null || Number.isFinite(w.x) && Number.isFinite(w.y);
   const layoutValid = f => f && Number.isSafeInteger(f.firstOrdinal) && f.firstOrdinal >= 0
@@ -61,9 +63,9 @@
     for (const id of c.foraging.mealIds) {
       const meal = r.foraging?.meals[id], body = meal?.kind === 'beast' && (r.remains?.[meal.sourceId] || r.remainsBatches?.[meal.sourceId]);
       const p = body && Bodies.profiles[body.speciesId]; if (!body?.position || !p || !(meal.kg > EPS)) continue;
-      // Only surviving inedible structure is relied on, not edible tissue that
-      // this or another mouth can consume during the hold. No field-wide mass.
-      if (Math.max(0, body.massKg - body.edibleKg) * 9.81 * .5 < drag * n) continue;
+      // Typed structure is exclusively claimed, still decays, and cannot also
+      // feed another mouth. Leave a worst-case decay margin for a 2-hour meal.
+      if (anchorMass(body, meal) * Math.exp(-.02 * 7200 / 86400) * 9.81 * .5 < drag * n) continue;
       const scale = Math.cbrt(body.massKg / p.massKg), radius = Math.hypot(p.lengthM, p.widthM) * scale * .5 + b.reachM;
       const far = extent(g, c, position, body.position);
       if (far <= radius) return { mealId: id, effortRate: drag / (c.massKg * 9.81) * .1,
@@ -195,7 +197,7 @@
           if (c.ranges.length) {
             const corpse = region.remains?.[meal.sourceId] || region.remainsBatches?.[meal.sourceId], p = Bodies.profiles[corpse?.speciesId];
             if (!region.floor || !corpse?.position || !p || h.members < c.ranges.reduce((n, [lo, hi]) => n + hi - lo, 0)
-              || Math.max(0, corpse.massKg - corpse.edibleKg) * 9.81 * .5 + EPS < drag * h.members
+              || anchorMass(corpse, meal) * 9.81 * .5 + EPS < drag * h.members
               || extent(g, c, c.regionalPosition, corpse.position) > Math.hypot(p.lengthM, p.widthM) * Math.cbrt(corpse.massKg / p.massKg) * .5 + b.reachM + EPS) return false;
           }
         }

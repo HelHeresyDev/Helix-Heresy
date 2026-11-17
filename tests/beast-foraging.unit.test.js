@@ -71,7 +71,7 @@ test('search effort, handling and ingestion are earned over time; a catch grants
 test('the same corpse tissue cannot be claimed or eaten by two owners', () => {
   const s = fixture({ members: 2, cohorts: 2 }), first = until(s, 'handling'), r = s.regions[0];
   const meal = r.foraging.meals[first.foraging.mealIds[0]], source = r.wildlife.pools[0].carcass;
-  const free = source.edibleKg - source.reservedKg;
+  const free = require('../carcass-tissues').available(source, first);
   const other = s.groups[0].cohorts.find(c => c !== first);
   const id = F.claim(r, s.groups[0], other, 'wildlife', meal.sourceId, source.edibleKg * 2, s.clock, meal.position);
   if (id) approx(r.foraging.meals[id].kg, free);

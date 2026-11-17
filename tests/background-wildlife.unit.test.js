@@ -122,7 +122,7 @@ test('search outcomes use local density, do not reserve prey, and cannot spend t
   const s = fixture({ count: 10, hunters: 20 }), p = pool(s), q = pending(s);
   const before = W.total(p); p.cohorts[0].count = 0; p.deadCount += before;
   const kg = before * p.cohorts[0].massKg;
-  Object.assign(p.carcass, { initialMassKg: p.carcass.initialMassKg + kg, massKg: p.carcass.massKg + kg, edibleKg: p.carcass.edibleKg + kg * .6 });
+  require('../carcass-tissues').add(p.carcass, kg);
   P.removeStock(s, 'ground', 'waterL', 0, s.clock, 'actual-prey-loss-before-arrival');
   P.advance(s, q.dueAt + 660, true, true);
   assert.equal(p.huntedCount, 0); assert.ok(p.carcass.consumedKg <= p.carcass.initialMassKg * .6);

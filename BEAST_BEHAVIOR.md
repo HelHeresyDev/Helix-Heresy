@@ -51,6 +51,12 @@ eating/decomposition ledger, with timed feeding, physical approach/descent and
 no duplicate meat stock. See [population status](BEAST_POPULATIONS.md) for the
 original-body handoff and the still-unfinished generated regional integration.
 
+Corpses now use [typed animal tissue accounts](CARCASS_TISSUES.md). Ordinary
+flesh-eaters leave organs, fluids, hide and hard remains; Lanterns accept all
+animal classes, not wood or non-biological minerals. Named-organ diets are
+representable without adding a new species. Tissue-specific decay, handling and
+Lantern water/organic/mineral yields debit the same native/regional inventory.
+
 `creature-life.js` consumes the approved numeric life histories. Actual compatible
 food, water and minerals leave finite local stocks, enter body stores/mass and
 become recorded outputs. Fat and water initially belong to the original body,

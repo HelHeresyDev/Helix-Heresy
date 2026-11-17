@@ -14,6 +14,15 @@ spec.loader.exec_module(builder)
 
 
 class CreatureCatalogTests(unittest.TestCase):
+    def test_runtime_tissue_numbers_and_selective_diets_are_exported(self):
+        rows = {r[0]: r for r in self.data['tissues']}
+        self.assertAlmostEqual(sum(r[1] for k, r in rows.items() if k != 'legacy'), 1)
+        self.assertEqual(rows['hard'][2:7], [.005, .1, .15, .1, .65])
+        self.assertAlmostEqual(rows['hard'][8], .1)
+        self.assertEqual(rows['flesh'][1], .6)
+        self.assertIn('unknown', rows['legacy'][1])
+        self.assertEqual(len(rows), 9)
+
     @classmethod
     def setUpClass(cls):
         cls.data = builder.load_data()
@@ -115,7 +124,7 @@ class CreatureCatalogTests(unittest.TestCase):
 
     def test_numeric_ecological_rates_are_real_numbers_in_both_workbooks(self):
         definitions = builder.sheet_definitions(self.data, '2026-11-12')
-        self.assertEqual(len(definitions), 8)
+        self.assertEqual(len(definitions), 9)
         rate_index = next(i for i, d in enumerate(definitions, 1) if d[0] == 'Ecological rates')
         expected = self.data['rates']
         self.assertEqual(len(expected), 36)
@@ -211,7 +220,7 @@ class OdsArtifactTests(unittest.TestCase):
         with ZipFile(ROOT / 'reference/creature-catalog.ods') as archive:
             content = ET.fromstring(archive.read('content.xml'))
             ranges = content.findall('.//table:database-range', builder.ODF)
-            self.assertEqual(len(ranges), 8)
+            self.assertEqual(len(ranges), 9)
             for database, definition in zip(ranges, definitions):
                 name, _, _, headers, rows, _, _ = definition
                 self.assertEqual(database.get(builder.odf_name('table:target-range-address')),
@@ -222,7 +231,7 @@ class OdsArtifactTests(unittest.TestCase):
                 self.assertEqual(style.get(builder.odf_name('fo:wrap-option')), 'wrap')
             settings = ET.fromstring(archive.read('settings.xml'))
             panes = settings.findall('.//config:config-item-map-named/config:config-item-map-entry', builder.ODF)
-            self.assertEqual(len(panes), 8)
+            self.assertEqual(len(panes), len(definitions))
             for pane, definition in zip(panes, definitions):
                 self.assertEqual(pane.get(builder.odf_name('config:name')), definition[0])
                 values = {item.get(builder.odf_name('config:name')): item.text for item in pane}

@@ -5,12 +5,13 @@
     node ? require('./creature-biology') : root.HelixCreatureBiology,
     node ? require('./beast-bodies') : root.HelixBeastBodies,
     node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys,
-    node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology);
+    node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology,
+    node ? require('./carcass-tissues') : root.HelixCarcassTissues);
   if (node) module.exports = api;
   root.HelixBeastForaging = api;
-})(globalThis, function (Life, Data, Bodies, Journeys, Lantern) {
+})(globalThis, function (Life, Data, Bodies, Journeys, Lantern, Tissues) {
   'use strict';
-  const DAY = 86400, HOUR = 3600, EPS = 1e-8, DECAY = .1, copy = x => JSON.parse(JSON.stringify(x));
+  const DAY = 86400, HOUR = 3600, EPS = 1e-8, copy = x => JSON.parse(JSON.stringify(x));
   const count = c => c.ranges.reduce((n, [lo, hi]) => n + hi - lo, 0);
   const finite = n => Number.isFinite(n) && n >= 0;
   const integer = n => Number.isSafeInteger(n) && n >= 0;
@@ -35,23 +36,34 @@
   function claim(r, g, c, kind, sourceId, kg, at, position) {
     if (!r.foraging || !(kg > EPS)) return null;
     const candidate = { kind, sourceId }, source = row(r, candidate); if (!source) return null;
-    kg = Math.min(kg, Math.max(0, source.edibleKg - (source.reservedKg || 0))); if (!(kg > EPS)) return null;
-    const id = `forage-meal:${r.id}:${r.foraging.serial++}`;
-    r.foraging.meals[id] = { id, kind, sourceId, groupId: g.id, cohortId: c.id, kg, initialKg: kg,
-      consumedKg: 0, decomposedKg: 0, lastAt: at, position: copy(position) };
-    if (g.windDriven && kind === 'wildlife') {
-      const pool = r.wildlife.pools.find(p => p.id === sourceId), site = pool.spatial;
-      r.foraging.meals[id].field = site ? { eastM: site.eastM, northM: site.northM, radiusM: site.radiusM }
-        : { eastM: 0, northM: 0, radiusM: Math.sqrt(r.areaHa * 10000 / Math.PI) };
+    let first = null;
+    for (const portion of Tissues.reserve(source, c, kg)) {
+      const { tissue, kg } = portion, id = `forage-meal:${r.id}:${r.foraging.serial++}`;
+      first ||= id;
+      r.foraging.meals[id] = { id, kind, sourceId, groupId: g.id, cohortId: c.id, tissue, kg, initialKg: kg,
+        consumedKg: 0, decomposedKg: 0, lastAt: at, position: copy(position) };
+      if (g.windDriven && kind === 'wildlife') {
+        const pool = r.wildlife.pools.find(p => p.id === sourceId), site = pool.spatial;
+        r.foraging.meals[id].field = site ? { eastM: site.eastM, northM: site.northM, radiusM: site.radiusM }
+          : { eastM: 0, northM: 0, radiusM: Math.sqrt(r.areaHa * 10000 / Math.PI) };
+      }
+      c.foraging.mealIds.push(id);
     }
-    source.reservedKg = (source.reservedKg || 0) + kg;
-    c.foraging.mealIds.push(id); return id;
+    if (first && g.windDriven && kind === 'beast') {
+      r.foraging.meals[first].anchors = Tissues.reserve(source, { carrionDiet: ['hard', 'tough'] }, source.massKg)
+        .map(part => ({ ...part, initialKg: part.kg, decomposedKg: 0 }));
+    }
+    return first;
+  }
+  function releaseMeal(source, meal) {
+    Tissues.release(source, meal.tissue, meal.kg);
+    for (const part of meal.anchors || []) Tissues.release(source, part.tissue, part.kg);
   }
   function release(r, c) {
     const f = c.foraging; if (!f || !r.foraging) return;
     for (const id of f.mealIds) {
       const meal = r.foraging.meals[id]; if (!meal) continue;
-      const source = row(r, meal); if (source) source.reservedKg = Math.max(0, (source.reservedKg || 0) - meal.kg);
+      const source = row(r, meal); if (source) releaseMeal(source, meal);
       delete r.foraging.meals[id];
     }
     f.mealIds = [];
@@ -97,20 +109,24 @@
   function decayMeal(s, r, meal, at, ratePerDay = 0) {
     const source = row(r, meal), dt = Math.max(0, at - meal.lastAt) / DAY;
     if (!source || !(dt > 0)) return 0;
+    const decayRate = Tissues.profiles[meal.tissue || 'legacy'].decayDay;
     const frozen = Math.min(dt, Math.max(0, (source.frozenUntil || 0) - meal.lastAt) / DAY);
+    let anchorDecay = 0;
+    for (const part of meal.anchors || []) {
+      const kg = part.kg * -Math.expm1(-Tissues.profiles[part.tissue].decayDay * (dt - frozen));
+      Tissues.debit(source, part.tissue, 0, kg, true); part.kg -= kg; part.decomposedKg += kg; anchorDecay += kg;
+    }
     const frozenConsumed = Math.min(meal.kg, ratePerDay * frozen), afterFrozen = meal.kg - frozenConsumed;
-    const duration = ratePerDay > 0 ? Math.min(dt - frozen, Math.log1p(DECAY * afterFrozen / ratePerDay) / DECAY) : dt - frozen;
+    const duration = ratePerDay > 0 ? Math.min(dt - frozen, Math.log1p(decayRate * afterFrozen / ratePerDay) / decayRate) : dt - frozen;
     const consumed = frozenConsumed + ratePerDay * duration;
-    const remaining = Math.max(0, afterFrozen * Math.exp(-DECAY * duration) - ratePerDay / DECAY * -Math.expm1(-DECAY * duration));
+    const remaining = Math.max(0, afterFrozen * Math.exp(-decayRate * duration) - ratePerDay / decayRate * -Math.expm1(-decayRate * duration));
     const decomposed = Math.max(0, meal.kg - consumed - remaining);
-    source.reservedKg = Math.max(0, (source.reservedKg || 0) - consumed - decomposed);
-    source.edibleKg = Math.max(0, source.edibleKg - consumed - decomposed);
-    source.massKg = Math.max(0, source.massKg - consumed - decomposed);
-    source.consumedKg += consumed; source.decomposedKg += decomposed;
-    if (meal.kind === 'beast' && s.foodWeb) { s.foodWeb.receipts.consumedKg += consumed; s.foodWeb.receipts.decomposedKg += decomposed; }
-    const accepted = Math.min(decomposed, Math.max(0, (r.capacity.detritusKg || 0) - (r.stocks.detritusKg || 0)));
+    Tissues.debit(source, meal.tissue || 'legacy', consumed, decomposed, true);
+    const totalDecay = decomposed + anchorDecay;
+    if (meal.kind === 'beast' && s.foodWeb) { s.foodWeb.receipts.consumedKg += consumed; s.foodWeb.receipts.decomposedKg += totalDecay; }
+    const accepted = Math.min(totalDecay, Math.max(0, (r.capacity.detritusKg || 0) - (r.stocks.detritusKg || 0)));
     if (accepted) r.stocks.detritusKg = (r.stocks.detritusKg || 0) + accepted;
-    if (decomposed > accepted) { r.outputs ||= {}; r.outputs.forageDecayOverflowKg = (r.outputs.forageDecayOverflowKg || 0) + decomposed - accepted; }
+    if (totalDecay > accepted) { r.outputs ||= {}; r.outputs.forageDecayOverflowKg = (r.outputs.forageDecayOverflowKg || 0) + totalDecay - accepted; }
     meal.kg = remaining; meal.consumedKg += consumed; meal.decomposedKg += decomposed; meal.lastAt = at;
     return consumed;
   }
@@ -156,10 +172,13 @@
           // Ingestion and this interval's maintenance are simultaneous flows.
           // Include water actually consumed in the same interval so a full
           // store does not trigger geometrically shrinking refill events.
-          const meal = Lantern.partition(eaten / n, Lantern.waterCapacity(c.massKg) - c.stores.waterL + (c.needs.waterL || 0) / n * seconds / DAY);
-          c.stores.foodKg += meal.food; c.stores.waterL += meal.water; c.regional.energy.lightKg += meal.light;
-          c.massKg += meal.food + meal.water + meal.light;
-          r.outputs ||= {}; r.outputs.carrionWaterWasteL = (r.outputs.carrionWaterWasteL || 0) + meal.wasteWater * n;
+          const part = Lantern.partition(eaten / n, Lantern.waterCapacity(c.massKg) - c.stores.waterL + (c.needs.waterL || 0) / n * seconds / DAY,
+            Tissues.nutrition(meal.tissue, eaten / n));
+          c.stores.foodKg += part.food; c.stores.waterL += part.water; c.regional.energy.lightKg += part.light;
+          c.massKg += part.food + part.water + part.light;
+          r.outputs ||= {};
+          for (const [key, amount] of [['carrionWaterWasteL', part.wasteWater], ['carrionMineralsKg', part.minerals], ['carrionSolidsKg', part.solids]])
+            r.outputs[key] = (r.outputs[key] || 0) + amount * n;
         } else { c.stores.foodKg += eaten / n; c.massKg += eaten / n; }
         r.foraging.receipts.eatenKg += eaten;
       }
@@ -173,8 +192,8 @@
     return a?.phase === 'search' ? a.cycleActive / (a.cycleActive + a.cycleRest) : 0;
   }
   const intake = (c, key = 'foodKg') => c.foraging?.phase !== 'eating' ? 0 : key === 'waterL'
-    ? Lantern.is(c) ? c.foraging.action.intakePerDay * Lantern.profile().carrionWaterFraction : 0
-    : c.foraging.action.intakePerDay * (Lantern.is(c) ? Lantern.foodFraction() : 1);
+    ? Lantern.is(c) ? c.foraging.action.intakePerDay * (c.foraging.action.waterFraction ?? Lantern.profile().carrionWaterFraction) : 0
+    : c.foraging.action.intakePerDay * (Lantern.is(c) ? (c.foraging.action.foodFraction ?? Lantern.foodFraction()) : 1);
   function step(s, r, g, c, at, ctx) {
     const f = c.foraging; if (!f || !r.foraging || !count(c)) return;
     f.availableUntil = Math.min(f.plan.end, ctx.until ?? Infinity);
@@ -216,16 +235,18 @@
         : c.windDrift?.hold?.mealId === id || Math.hypot(ctx.position.eastM - meal.position.eastM, ctx.position.northM - meal.position.northM,
           ctx.position.altitudeM - meal.position.altitudeM) <= Bodies.profiles[c.speciesId].reachM);
       if (meal?.kg > EPS && near) return true;
-      if (meal) { const source = row(r, meal); source.reservedKg = Math.max(0, source.reservedKg - meal.kg); delete r.foraging.meals[id]; }
+      if (meal) { releaseMeal(row(r, meal), meal); delete r.foraging.meals[id]; }
       return false;
     });
     if (f.mealIds.length && c.stores.foodKg < capacity(c) - EPS && room(f, 'eating') > EPS) {
-      const meal = r.foraging.meals[f.mealIds[0]], perDay = Lantern.is(c) ? Lantern.mealPerDay() : p.foodKgDay * DAY / 600;
+      const meal = r.foraging.meals[f.mealIds[0]], tissue = Tissues.profiles[meal.tissue || 'legacy'];
+      const perDay = (Lantern.is(c) ? Lantern.mealPerDay() : p.foodKgDay * DAY / 600) * tissue.handling;
+      const foodFraction = Lantern.is(c) ? Math.max(0, tissue.food - .05) : 1, waterFraction = Lantern.is(c) ? tissue.water : 0;
       const outflow = (c.needs.foodKg || 0) / n * (1 - (s.rates[r.id].supply[g.resources.foodKg] ?? 0));
-      const net = perDay * (Lantern.is(c) ? Lantern.foodFraction() : 1) - outflow;
+      const net = perDay * foodFraction - outflow;
       const frozenDays = Math.max(0, (row(r, meal).frozenUntil || 0) - at) / DAY;
       const untilEmpty = meal.kg <= perDay * n * frozenDays ? meal.kg / (perDay * n) * DAY
-        : (frozenDays + Math.log1p(DECAY * (meal.kg - perDay * n * frozenDays) / (perDay * n)) / DECAY) * DAY;
+        : (frozenDays + Math.log1p(tissue.decayDay * (meal.kg - perDay * n * frozenDays) / (perDay * n)) / tissue.decayDay) * DAY;
       const untilFull = net > 0 ? (capacity(c) - c.stores.foodKg) / net * DAY : HOUR;
       let contactTime = Infinity;
       const hold = g.windDriven && ctx.canHold?.();
@@ -239,7 +260,7 @@
         }
       }
       action(c, 'eating', at, Math.min(room(f, 'eating'), untilEmpty, untilFull, 2 * HOUR, contactTime,
-        hold?.effortRate > 0 ? c.regional.stamina / hold.effortRate : Infinity), { mealId: meal.id, intakePerDay: perDay }); return;
+        hold?.effortRate > 0 ? c.regional.stamina / hold.effortRate : Infinity), { mealId: meal.id, intakePerDay: perDay, foodFraction, waterFraction }); return;
     }
     if (f.mealIds.length) release(r, c);
     if (Lantern.is(c)) {
@@ -309,7 +330,7 @@
     for (const r of s.regions) {
       const x = r.foraging; if (!x) continue;
       if (!integer(x.serial) || !x.meals || !x.receipts || !Object.values(x.receipts).every(finite)) return false;
-      const sums = new Map();
+      const sums = new Map(), tissueSums = new Map();
       for (const [id, meal] of Object.entries(x.meals)) {
         const g = getGroup(meal.groupId), c = g?.cohorts.find(c => c.id === meal.cohortId), source = row(r, meal);
         if (meal.id !== id || !c?.foraging?.mealIds.includes(id) || !source || Journeys.location(g) !== r.id || Journeys.moving(g)
@@ -324,10 +345,25 @@
             : { eastM: 0, northM: 0, radiusM: Math.sqrt(r.areaHa * 10000 / Math.PI) };
           if (JSON.stringify(meal.field) !== JSON.stringify(field)) return false;
         } else if (meal.field != null) return false;
+        const tissue = meal.tissue || 'legacy';
+        if (!Object.hasOwn(Tissues.profiles, tissue) || source.tissues && !source.tissues[tissue]
+          || !Tissues.diet(c).includes(tissue)) return false;
         owned.set(id, c); sums.set(source, (sums.get(source) || 0) + meal.kg);
+        const byTissue = tissueSums.get(source) || {}; byTissue[tissue] = (byTissue[tissue] || 0) + meal.kg; tissueSums.set(source, byTissue);
+        if (meal.anchors != null) {
+          if (!g.windDriven || meal.kind !== 'beast' || !Array.isArray(meal.anchors) || meal.anchors.length > 2 || meal.anchors.some(p => !p)
+            || new Set(meal.anchors.map(p => p.tissue)).size !== meal.anchors.length) return false;
+          for (const part of meal.anchors) {
+            if (!['hard', 'tough'].includes(part.tissue) || !source.tissues?.[part.tissue]
+              || !['kg', 'initialKg', 'decomposedKg'].every(k => finite(part[k]))
+              || Math.abs(part.initialKg - part.kg - part.decomposedKg) > 1e-6 * Math.max(1, part.initialKg)) return false;
+            byTissue[part.tissue] = (byTissue[part.tissue] || 0) + part.kg; sums.set(source, sums.get(source) + part.kg);
+          }
+        }
       }
       for (const source of [...Object.values(r.remains || {}), ...Object.values(r.remainsBatches || {}), ...(r.wildlife?.pools || []).map(p => p.carcass)])
-        if (!finite(source.reservedKg || 0) || (source.reservedKg || 0) > source.edibleKg + EPS
+        if (!Tissues.valid(source) || source.tissues && Object.entries(source.tissues).some(([key, t]) => Math.abs((tissueSums.get(source)?.[key] || 0) - t.reservedKg) > 1e-6 * Math.max(1, t.kg))
+          || !finite(source.reservedKg || 0) || (source.reservedKg || 0) > source.edibleKg + EPS
           || Math.abs((sums.get(source) || 0) - (source.reservedKg || 0)) > 1e-6 * Math.max(1, source.edibleKg)) return false;
     }
     for (const g of s.groups) for (const c of g.cohorts) if (c.foraging) {
@@ -354,9 +390,13 @@
         || a && (Journeys.moving(g) || g.transit?.stop && a.dueAt > g.transit.stop.until + EPS)) return false;
       // Already scheduled pre-correction Lantern meals keep their slower
       // earned clock; the next action uses the new independent meal ceiling.
-      const intakeValid = a?.intakePerDay === (Lantern.is(c) ? Lantern.mealPerDay() : Data.lifecycle[c.speciesId].foodKgDay * DAY / 600)
+      const meal = a?.phase === 'eating' && s.regions.find(r => r.id === Journeys.location(g))?.foraging?.meals[a.mealId];
+      const tissue = Tissues.profiles[meal?.tissue || 'legacy'];
+      const intakeValid = a?.intakePerDay === (Lantern.is(c) ? Lantern.mealPerDay() : Data.lifecycle[c.speciesId].foodKgDay * DAY / 600) * tissue.handling
         || Lantern.is(c) && a?.intakePerDay === 1.5 * DAY / 600;
       if (a?.phase === 'eating' && (!f.mealIds.includes(a.mealId) || !intakeValid
+        || (meal?.tissue || a.foodFraction != null) && a.foodFraction !== (Lantern.is(c) ? Math.max(0, tissue.food - .05) : 1)
+        || (meal?.tissue || a.waterFraction != null) && a.waterFraction !== (Lantern.is(c) ? tissue.water : 0)
         || a.dueAt - a.startedAt > 2 * HOUR + EPS)) return false;
       if (a?.phase === 'handling' && a.dueAt - a.startedAt > 60 + EPS) return false;
       if (a?.phase === 'search') {

@@ -17,9 +17,12 @@
       * clamp((env.humidity - 20) / 50, 0, 1) * clamp((env.temperatureC + 5) / 25, 0, 1)
       * clamp((parts?.membrane ?? 0) / 100, 0, 1);
   }
-  function partition(kg, waterRoom) {
-    const water = Math.min(kg * profile().carrionWaterFraction, Math.max(0, waterRoom));
-    return { food: kg * foodFraction(), light: kg * .05, water, wasteWater: kg * profile().carrionWaterFraction - water };
+  function partition(kg, waterRoom, tissue) {
+    const fluid = tissue ? tissue.water : kg * profile().carrionWaterFraction;
+    const light = Math.min(kg * .05, tissue ? tissue.food : kg * .5);
+    const water = Math.min(fluid, Math.max(0, waterRoom));
+    return { food: tissue ? tissue.food - light : kg * foodFraction(), light, water, wasteWater: fluid - water,
+      ...(tissue ? { minerals: tissue.minerals, solids: tissue.solids } : {}) };
   }
   const active = a => ['seekCarrion', 'approachCarrion', 'feed', 'feeding'].includes(a.life?.activity);
   // A narrow compatibility projection for source proposals captured before the
