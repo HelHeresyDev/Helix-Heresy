@@ -499,6 +499,17 @@ detail is copied into public beast reports or the world-library interface.
 
 ### Recorded physical source execution
 
+New [established work-site bindings](ESTABLISHED_HABITATS.md) share finite
+positioned work faces and site-local construction/metal/fuel accounts, reuse
+original nurseries and support paid construction-only starting history. Dam
+outlets may use actual drainage below the visible-river threshold, never an
+invented terminal-basin outlet. Dream sites remain dormant without actual
+participants and independently recorded sleep/consent. The source-small control
+has no missing physical sites, but eight hives still lack refined metal and 32
+tortoise groups have no recorded participants. Its generated assessment remains
+rejected. Earlier complete seasonal measurements below are historical controls,
+not a seasonal replay of this new allocation.
+
 `beast-habitat-bindings.js` partitions existing pools rather than creating another
 material budget. Supporting substrate receives 0.1% of original minerals; marine
 calcium receives 1% of remaining dissolved salts. Rootable soil and loose

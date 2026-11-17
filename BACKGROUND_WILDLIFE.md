@@ -468,3 +468,10 @@ This honest result does not certify the generated scavenger allocation or
 invalidate the supplied local-feeding/holding controls. Exact batching,
 conservation, processing bounds and replay results are in
 [spatial wildlife carcasses](WILDLIFE_CARCASSES.md). No new package is added.
+
+That 120-day control predates the [established work-site allocation](ESTABLISHED_HABITATS.md).
+The newer source records paid construction history before allocating remaining
+standing matter to wildlife; its original wildlife counts are therefore derived
+from that remaining matter, not copied from the older source. Its short replay
+and still-rejected seasonal allocation are documented separately. No current
+all-species 120-day success is claimed.

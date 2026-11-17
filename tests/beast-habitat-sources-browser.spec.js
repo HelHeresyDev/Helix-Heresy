@@ -20,6 +20,7 @@ test('browser generation, compressed world storage and reload preserve private r
       blanketUnverified: source.assessment.issues.some(i => i.kind === 'seasonalResidenceUnverified'),
       private: !JSON.stringify(world.generatedData.strategicMap.publicBeastAtlas || {}).includes('foodAllocations'),
       workSites: source.physicalBinding.workSites.length, nurseries: source.physicalBinding.nurseries.length,
+      establishedHabitats: source.establishedHabitats === true, initialConstruction: source.physicalBinding.initialWork.length,
       physicalDigest: window.HelixStrategicWorld.stableHash(source.physicalBinding),
       wildlifeDigest: window.HelixStrategicWorld.stableHash(source.backgroundWildlife),
       wildlifeDistribution: source.backgroundWildlife.distribution,
@@ -32,6 +33,7 @@ test('browser generation, compressed world storage and reload preserve private r
   expect(original.journeyGroups).toBeGreaterThan(0); expect(original.travellingDays).toBeGreaterThan(0);
   expect(original.blanketUnverified).toBe(false);
   expect(original.workSites).toBeGreaterThan(0); expect(original.nurseries).toBeGreaterThan(0);
+  expect(original.establishedHabitats).toBe(true); expect(original.initialConstruction).toBeGreaterThan(0);
   expect(original.preyClasses).toEqual(['large', 'medium', 'small']);
   expect(original.wildlifeDistribution).toBe('habitatPatches');
   await page.reload(); await page.locator('#titleWorldLibraryBtn').click();

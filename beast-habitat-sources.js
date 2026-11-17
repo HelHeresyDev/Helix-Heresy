@@ -470,7 +470,7 @@
       policy: 'Private generator feasibility only; original-body residence and supply replay, no performed nurturing, future meat stock, safe destination reservation or perpetual equilibrium guarantee',
       seasonalJourneys: residence.journeys, seasons };
   }
-  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false, habitatAccess = false, windTransport = false, lanternMoisture = false, wildlifeDistribution = false, wildlifeCarcasses = false) {
+  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false, habitatAccess = false, windTransport = false, lanternMoisture = false, wildlifeDistribution = false, wildlifeCarcasses = false, establishedHabitats = false) {
     const calendar = { epochAt: 0, monthDays: Local.PHASES.map(() => Local.PHASE_DAYS) };
     const patches = patchRows.map(row => expandPatch(map, row, calendar, physical)), groupRows = [], populations = [], unlocated = [];
     const worldPopulations = populationsFor(map), foodUse = new Map(), feedingRows = [];
@@ -537,8 +537,9 @@
       ...(windTransport ? { windTransport: true } : {}), ...(lanternMoisture ? { lanternMoisture: true } : {}),
       ...(wildlifeDistribution ? { wildlifeDistribution: true } : {}) };
     if (wildlifeCarcasses) record.wildlifeCarcasses = true;
+    if (establishedHabitats) record.establishedHabitats = true;
     const expanded = expand(record, map, { physical, raw: true });
-    if (physical) { record.physicalBinding = Bindings.allocate(expanded, map, { positions: physicalPlacement }); Bindings.apply(expanded, record.physicalBinding, map); }
+    if (physical) { record.physicalBinding = Bindings.allocate(expanded, map, { positions: physicalPlacement, established: establishedHabitats }); Bindings.apply(expanded, record.physicalBinding, map); }
     if (wildlife) { record.backgroundWildlife = Wildlife.allocate(expanded, seed, { distributed: wildlifeDistribution, carcassBatches: wildlifeCarcasses }); Wildlife.apply(expanded, record.backgroundWildlife); }
     const assessment = assess(expanded, map);
     for (const p of populations) {
@@ -571,7 +572,8 @@
         options.physicalPlacement !== false && options.habitatAccess !== false, options.physicalPlacement !== false && options.windTransport !== false,
         options.physicalPlacement !== false && options.lanternMoisture !== false,
         options.backgroundWildlife !== false && options.physicalPlacement !== false && options.wildlifeDistribution !== false,
-        options.backgroundWildlife !== false && options.physicalPlacement !== false && options.wildlifeDistribution !== false && options.wildlifeCarcasses !== false);
+        options.backgroundWildlife !== false && options.physicalPlacement !== false && options.wildlifeDistribution !== false && options.wildlifeCarcasses !== false,
+        options.physicalPlacement !== false && options.establishedHabitats !== false);
       if (!best || record.assessment.issues.length < best.assessment.issues.length) best = record;
       if (record.assessment.status === 'feasibleInitialCycle') break;
     }
@@ -586,7 +588,7 @@
     const topology = World.topologyForMap(map), patchRows = [];
     for (let i = 0; i < topology.cellCount; i++) patchRows.push(...patchesForCell(map, i, topology, record.physicalPlacement === true));
     const expected = candidate(record.seed, map, patchRows, record.calibration, Boolean(record.physicalBinding), Boolean(record.backgroundWildlife), record.physicalPlacement === true,
-      record.habitatAccess === true, record.windTransport === true, record.lanternMoisture === true, record.wildlifeDistribution === true, record.wildlifeCarcasses === true);
+      record.habitatAccess === true, record.windTransport === true, record.lanternMoisture === true, record.wildlifeDistribution === true, record.wildlifeCarcasses === true, record.establishedHabitats === true);
     if (record.sourceDigest === legacyDigest) expected.sourceDigest = record.sourceDigest;
     const physical = value => { const result = copy(value); delete result.id; delete result.assessment; delete result.groupRows; return result; };
     if (World.stableHash(physical(expected)) !== World.stableHash(physical(record))) throw Error('Habitat source physical accounts were changed');

@@ -43,7 +43,10 @@ test('initial work materials partition original matter and water rather than add
     const bodyKg = (source.regions[i].wildlife?.pools || []).reduce((n, p) => n + p.originalMassKg, 0);
     const id = source.regions[i].id;
     const moved = (record.physicalBinding.catchmentTransfers || []).reduce((n, t) => n + (t.toRegionId === id ? t.amount : 0) - (t.fromRegionId === id ? t.amount : 0), 0);
-    approx(kg(source.regions[i]) + bodyKg, kg(raw.regions[i])); approx(water(source.regions[i]), water(raw.regions[i]) + moved);
+    const structures = (record.physicalBinding.initialWork || []).filter(w => w.regionId === id).reduce((n, w) => n + w.structure.kg, 0);
+    const waste = suffix => Object.entries(source.regions[i].outputs || {}).filter(([k]) => k.endsWith(suffix)).reduce((n, [, v]) => n + v, 0);
+    approx(kg(source.regions[i]) + bodyKg + structures + waste('Kg'), kg(raw.regions[i]));
+    approx(water(source.regions[i]) + waste('waterL'), water(raw.regions[i]) + moved);
     assert.equal(source.regions[i].stocks.seawaterL, raw.regions[i].stocks.seawaterL);
     assert.equal(source.regions[i].stocks.meatKg, undefined); assert.equal(source.regions[i].stocks.carrionKg, undefined);
     for (const season of source.regions[i].seasons) assert.equal(season.renewal.mineralsKg, 0);
@@ -111,7 +114,10 @@ test('work bindings retain original group identities, species, location, workfor
   for (const g of source.groups) if (g.ecology && g.ecology.action !== 'graze') {
     const r = regions.get(g.regionId), site = r.ecology.workSites.find(site => site.id === g.ecology.siteId);
     assert.equal(site.speciesId, g.speciesId); assert.equal(site.areaHa, r.areaHa);
-    assert.ok(site.maxWorkers <= g.cohorts.reduce((n, c) => n + c.count, 0));
+    const body = require('../beast-bodies').profiles[g.speciesId];
+    assert.ok(site.maxWorkers <= Math.floor(site.footprintHa * 10000 / (body.lengthM * body.widthM)));
+    assert.equal(site.position.regionId, g.home.patchId);
+    approx(site.position.eastM, g.home.eastKm * 1000); approx(site.position.northM, g.home.northKm * 1000);
   }
   assert.ok(source.groups.some(g => g.speciesId === 'beast:thunderback-grazer' && g.ecology?.action === 'graze'));
   for (const p of record.populations) {
@@ -139,10 +145,16 @@ test('nurseries reserve shared finite receiving area and do not invent a mate, q
 });
 test('missing refined metal or original dream consent stays unavailable instead of being manufactured from potential', () => {
   const { source, record } = fixture();
-  assert.ok(record.physicalBinding.issues.some(i => i.kind === 'unverifiedOriginalFurnaceMetal'));
-  assert.ok(record.physicalBinding.issues.some(i => i.kind === 'unverifiedDreamParticipants'));
-  assert.ok(source.groups.filter(g => g.speciesId === 'beast:dreaming-tortoise').every(g => !g.ecology && !g.activityState));
-  for (const r of source.regions) assert.equal(r.stocks.metalKg, undefined);
+  assert.ok(record.physicalBinding.issues.some(i => i.kind === 'unavailableOriginalFurnaceMetal'));
+  assert.ok(record.physicalBinding.issues.some(i => i.kind === 'dormantDreamWeather'));
+  assert.ok(source.groups.filter(g => g.speciesId === 'beast:dreaming-tortoise').every(g => g.ecology && !g.activityState));
+  for (const r of source.regions) {
+    assert.equal(r.stocks.metalKg || 0, 0);
+    for (const site of r.ecology.workSites) {
+      if (site.action === 'buildFurnace') assert.equal(r.stocks[site.inputKeys.metalKg], 0);
+      if (site.action === 'dreamWeather') assert.deepEqual(site.participantGroupIds, []);
+    }
+  }
   for (const r of source.regions) for (const n of r.nurseries.filter(n => n.speciesId === 'beast:ember-ant')) assert.equal(n.furnaceKg, 0);
 });
 test('real drainage bindings follow canonical adjacent outlets and partition rather than duplicate flow', () => {

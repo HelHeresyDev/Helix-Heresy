@@ -2329,6 +2329,14 @@ The seasonal replay now distinguishes positioned travellers from unknown bodies;
 its remaining feeding/viability failures and unfinished native adoption remain
 documented in [the population model](BEAST_POPULATIONS.md#habitat-placement-and-location-continuity).
 
+New [established habitat bindings](ESTABLISHED_HABITATS.md) share finite physical
+work faces, reuse original nurseries and fund starting dams/furnaces only from
+recorded material, mature labor and maintenance. Actual below-threshold drainage
+can support dams; raw ore cannot become furnace metal. Dream participation and
+consent remain explicit, revocable and physically local. The sample's 38 missing
+site assignments are resolved, but metal and dream consent remain unavailable
+where unsourced. The generated ecology is still rejected; #3.38-D stays open.
+
 Hungry travellers can now stop at actual route positions to feed or rest, paying
 elapsed delay without changing their original destination using unseen supply.
 Dependent family young and colony larvae receive finite, timed provisioning

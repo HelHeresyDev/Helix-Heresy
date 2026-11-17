@@ -100,7 +100,7 @@
           || p.action !== 'graze' && !site || p.action === 'graze' && g.activityState?.sleeping) continue;
         const spec = Work.spec(p.action);
         const scale = Math.min(1, c.massKg / life.adultKg) * c.health;
-        ecological.push({ kind: 'ecology', g, c, recipe: spec?.costs || {}, perDay: n * scale,
+        ecological.push({ kind: 'ecology', g, c, recipe: Work.recipe(site, p.action), perDay: n * scale,
           action: p.action, siteId: site?.id || null, effortFraction: p.effortFraction,
           outputs: spec?.outputs || {}, channels: spec?.channels || channels.filter(k => k !== 'arcaneStability') });
       }
@@ -309,9 +309,10 @@
     }
     for (const q of s.extraRates || []) if (q.kind === 'ecology') {
       const g = Demography.group(s, q.groupId), spec = Work.spec(q.action), plan = g?.ecologicalPlan;
+      const site = g && Demography.region(s, Journeys.location(g))?.ecology?.workSites.find(site => site.id === q.siteId);
       if (!plan || q.action !== plan.action || q.workPerDay > q.perDay * q.factor + EPS
         || JSON.stringify(q.outputs) !== JSON.stringify(spec?.outputs || {})
-        || JSON.stringify(q.recipe) !== JSON.stringify(spec?.costs || {})
+        || JSON.stringify(q.recipe) !== JSON.stringify(Work.recipe(site, q.action))
         || JSON.stringify(q.channels) !== JSON.stringify(spec?.channels || channels.filter(k => k !== 'arcaneStability'))) return false;
     }
     return true;

@@ -28,7 +28,16 @@
   function validateSite(site, r) {
     if (!id(site.id) || actions[site.action] !== site.speciesId || site.areaHa !== r.areaHa
       || !nonnegative(site.maxWorkers) || site.destroyedAt != null && !nonnegative(site.destroyedAt)
-      || site.performedWorkDays != null && !nonnegative(site.performedWorkDays)) throw Error('Invalid original regional work site');
+      || site.performedWorkDays != null && !nonnegative(site.performedWorkDays)
+      || site.historicalWorkerDays != null && !nonnegative(site.historicalWorkerDays)) throw Error('Invalid original regional work site');
+    if (site.position != null && (!id(site.featureId) || !(site.footprintHa > 0 && site.footprintHa <= r.areaHa)
+      || site.position.regionId !== r.id || !['eastM', 'northM', 'altitudeM'].every(k => Number.isFinite(site.position[k]))
+      || Math.hypot(site.position.eastM, site.position.northM) + Math.sqrt(site.footprintHa * 10000 / Math.PI) > Math.sqrt(r.areaHa * 10000 / Math.PI) + EPS
+      || site.maxWorkers > Math.floor(site.footprintHa * 10000 / (Bodies.profiles[site.speciesId].lengthM * Bodies.profiles[site.speciesId].widthM))))
+      throw Error('Work face lacks finite original geometry');
+    if (site.inputKeys && (typeof site.inputKeys !== 'object' || Array.isArray(site.inputKeys) || Object.entries(site.inputKeys).some(([key, actual]) =>
+      !Object.hasOwn(spec(site.action).costs, key) || !id(actual) || key !== actual && !Object.hasOwn(r.stocks, actual)
+      || key !== actual && actual !== `${site.id}:${key}`))) throw Error('Invalid local work material binding');
     if (site.action === 'rootStabilize') {
       if (typeof site.rootable !== 'boolean' || !id(site.substrateKey) || !(site.minSubstrateKg > 0)
         || !Number.isFinite(site.minSubstrateKg) || !nonnegative(site.vitrifiedKg)) throw Error('Invalid rooted substrate');
@@ -38,18 +47,45 @@
         || !nonnegative(w.minDepthM) || !Object.hasOwn(r.capacity, w.stockKey)) throw Error('Missing actual water-column geometry');
       if (['cultivateReef', 'filterPlankton'].includes(site.action) && w.stockKey !== 'seawaterL') throw Error('Marine work requires its actual marine medium');
       if (site.action === 'buildDam' && (!id(site.watercourseId) || !nonnegative(site.damKg)
-        || !nonnegative(site.maxDamKg) || site.damKg > site.maxDamKg || !(site.retentionLPerKgDay > 0)
+        || !nonnegative(site.maxDamKg) || site.damKg > site.maxDamKg + EPS || !(site.retentionLPerKgDay > 0)
         || !Number.isFinite(site.retentionLPerKgDay))) throw Error('Invalid actual dam');
     } else if (site.action === 'buildFurnace') {
       if (!id(site.colonyId) || typeof site.oxygen !== 'boolean' || !nonnegative(site.waterDepthM)
-        || !nonnegative(site.furnaceKg) || !nonnegative(site.maxFurnaceKg) || site.furnaceKg > site.maxFurnaceKg) throw Error('Invalid original colony workface');
+        || !nonnegative(site.furnaceKg) || !nonnegative(site.maxFurnaceKg) || site.furnaceKg > site.maxFurnaceKg + EPS) throw Error('Invalid original colony workface');
     } else if (site.action === 'filterMana' && site.medium !== 'air') throw Error('Missing original mana-current medium');
     if (['growBlooms', 'dreamWeather'].includes(site.action) && (!Array.isArray(site.phases)
       || site.phases.some(i => !Number.isSafeInteger(i) || i < 0))) throw Error('Missing actual seasonal window');
-    if (site.action === 'dreamWeather' && (!Array.isArray(site.participantGroupIds) || !site.participantGroupIds.length
+    if (site.action === 'dreamWeather' && (!Array.isArray(site.participantGroupIds)
+      || !site.participantGroupIds.length && site.allowDormantParticipants !== true
       || site.participantGroupIds.some(v => !id(v)) || new Set(site.participantGroupIds).size !== site.participantGroupIds.length)) throw Error('Missing original dream participants');
     if (site.action === 'cultivateReef' && !Object.hasOwn(r.capacity, 'livingReefKg')
       || site.action === 'growBlooms' && !Object.hasOwn(r.capacity, 'bloomKg')) throw Error('Missing physical growth capacity');
+  }
+  function recipe(site, action) {
+    return Object.fromEntries(Object.entries(spec(action)?.costs || {}).map(([key, amount]) => [site?.inputKeys?.[key] || key, amount]));
+  }
+  function inReach(g, c, site) {
+    if (!site.position) return true;
+    // Resolve at execution time: the browser loads the shared spatial adapter
+    // after source-allocation modules. Reuse its maternal/personal/arrival
+    // formations rather than inventing a second set of body positions.
+    const spatial = typeof module === 'object' && module.exports ? require('./beast-regional-foodweb') : globalThis.HelixBeastRegionalFoodweb;
+    if (!spatial) return false;
+    const r = { id: site.position.regionId };
+    let box = spatial.bounds(g, r, c);
+    if (!box && !g.transit && !g.regionalFormation && !c.regionalFormation) {
+      const p = spatial.position(g, r, c) || spatial.position(g, r);
+      if (p) box = { regionId: p.regionId, min: p, max: p };
+    }
+    if (!box || box.regionId !== r.id) return false;
+    const radius = Math.sqrt(site.footprintHa * 10000 / Math.PI);
+    // Other original sleepers (including humans) can have a recorded position
+    // without a beast body profile. Require that exact level rather than
+    // inventing an unknown body's vertical reach.
+    const height = Bodies.profiles[g.speciesId]?.heightM, verticalReach = Number.isFinite(height) ? Math.max(1, height) : 0;
+    return [box.min.altitudeM, box.max.altitudeM].every(z => Math.abs(z - site.position.altitudeM) <= verticalReach)
+      && [box.min.eastM, box.max.eastM].every(x => [box.min.northM, box.max.northM].every(y =>
+        Math.hypot(x - site.position.eastM, y - site.position.northM) <= radius));
   }
   function validateGroup(g, r) {
     const e = g.ecology;
@@ -111,7 +147,7 @@
   }
   function available(s, g, c, site, at) {
     const r = G.region(s, Journeys.location(g)), action = g.ecologicalPlan?.action;
-    if (!site || site.destroyedAt != null || !wet(site, r, c) || g.activityState?.sleeping && action !== 'dreamWeather') return false;
+    if (!site || site.destroyedAt != null || !wet(site, r, c) || !inReach(g, c, site) || g.activityState?.sleeping && action !== 'dreamWeather') return false;
     if (action === 'rootStabilize') return site.rootable && (r.stocks[site.substrateKey] || 0) >= site.minSubstrateKg
       && (!site.vitrifiedKg || r.stocks.soilSeedKg > 0);
     if (action === 'tendWetland') return r.stocks.wetlandBedKg > EPS;
@@ -124,11 +160,12 @@
     if (action === 'filterPlankton') return towers(c) > 0;
     if (action === 'dreamWeather') return g.activityState?.sleeping === true
       && g.activityState.dreamConsent === true && site.phases.includes(Journeys.monthAt(s.calendar, at).season)
+      && site.participantGroupIds.length > 0
       && site.participantGroupIds.every(id => {
         const other = G.group(s, id);
         return other && other.id !== g.id && other.regionId === r.id && !other.transit && other.will !== false && other.willing !== false
           && other.activityState?.sleeping === true && other.activityState.dreamConsent === true
-          && other.cohorts.some(c => G.size(c.ranges) && c.health > .3);
+          && other.cohorts.some(c => G.size(c.ranges) && c.health > .3 && inReach(other, c, site));
       });
     return action === 'filterMana';
   }
@@ -263,12 +300,16 @@
     if (site.action === 'cultivateReef') stockKey = 'livingReefKg';
     if (site.action === 'growBlooms') stockKey = 'bloomKg';
     r.outputs ||= {};
+    for (const [logical, actual] of Object.entries(site.inputKeys || {})) if (actual !== logical) {
+      const n = r.stocks[actual] || 0; r.stocks[actual] = 0;
+      r.outputs[`destroyedWorkSite:${actual}`] = (r.outputs[`destroyedWorkSite:${actual}`] || 0) + n;
+    }
     if (stockKey) { const n = r.stocks[stockKey] || 0; r.stocks[stockKey] = 0; r.outputs[`destroyedWorkSite:${stockKey}`] = (r.outputs[`destroyedWorkSite:${stockKey}`] || 0) + n; }
     for (const key of ['damKg', 'furnaceKg']) if (site[key] > 0) {
       r.outputs[`destroyedWorkSite:${key}`] = (r.outputs[`destroyedWorkSite:${key}`] || 0) + site[key]; site[key] = 0;
     }
     site.destroyedAt = at; return true;
   }
-  return { actions, diets, spec, towersValid, towers, validateSite, validateGroup, validateLinks, order, siteFor, wet, available,
+  return { actions, diets, spec, recipe, inReach, towersValid, towers, validateSite, validateGroup, validateLinks, order, siteFor, wet, available,
     intake, outputKeys, limitFlow, prepareOutputs, addFlowDemand, route, boundaries, integrateWork, integrateRegion, integrateWater, validRates, destroySite };
 });

@@ -66,3 +66,59 @@ test('all eight browser work adapters retain paid transfers and original structu
   expect(results.find(r => r.action === 'buildDam').passed).toBeCloseTo(2000);
   expect(errors).toEqual([]);
 });
+
+test('physical work-face stocks and explicit dream participation survive browser storage without refills or renewed consent', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const sources = ['buildDam', 'dreamWeather'].map(action => {
+    const src = workSource(action), site = src.regions[0].ecology.workSites[0];
+    Object.assign(site, { featureId: 'original-feature', footprintHa: 1,
+      position: { regionId: 'workface', eastM: 0, northM: 0, altitudeM: 0 } });
+    for (const g of src.groups) g.home = { patchId: 'workface', eastKm: 0, northKm: 0, depthM: 0 };
+    if (action === 'buildDam') {
+      site.inputKeys = { constructionKg: `${site.id}:constructionKg` };
+      src.regions[0].stocks[site.inputKeys.constructionKg] = 100;
+      src.regions[0].capacity[site.inputKeys.constructionKg] = 100;
+    } else {
+      site.participantGroupIds = []; site.allowDormantParticipants = true;
+      src.groups[1].activityState = { sleeping: false, dreamConsent: false };
+    }
+    return src;
+  });
+  await page.goto(pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href);
+  await page.waitForFunction(() => window.helixHeresyDebug && window.HelixBeastPopulations);
+  await page.evaluate(sources => {
+    const P = window.HelixBeastPopulations;
+    const records = sources.map(src => {
+      const s = P.create(src, { worldId: 'browser-world', runId: src.id });
+      P.advance(s, P.DAY / 4, true, true);
+      if (s.groups[0].ecology.action === 'dreamWeather') {
+        const site = s.regions[0].ecology.workSites[0];
+        if (!P.setDreamParticipants(s, 'workface', site.id, ['original-sleepers'], s.clock, 'actual-presence')) throw Error('Participant not bound');
+        P.advance(s, P.DAY / 2, true, true);
+        if (s.regions[0].ecologicalReceipts?.dreamWeather) throw Error('Invented consent');
+        P.setEcologicalActivity(s, 'original-sleepers', { sleeping: true, dreamConsent: true }, s.clock, 'explicit-consent');
+        P.advance(s, 3 * P.DAY / 4, true, true);
+        P.setEcologicalActivity(s, 'original-sleepers', { sleeping: true, dreamConsent: false }, s.clock, 'refusal');
+      }
+      return s;
+    });
+    localStorage.setItem('physical-work-account-test', JSON.stringify(records));
+  }, sources);
+  await page.reload(); await page.waitForFunction(() => window.HelixBeastPopulations);
+  const loaded = await page.evaluate(() => {
+    const P = window.HelixBeastPopulations;
+    return JSON.parse(localStorage.getItem('physical-work-account-test')).map(saved => {
+      const s = P.normalize(saved); if (!s) throw Error('Physical work did not normalize');
+      const branch = P.rebind(s, { worldId: s.worldId, runId: s.runId }, { worldId: s.worldId, runId: 'continued' });
+      P.advance(branch, 2 * P.DAY, true, true);
+      const r = branch.regions[0], site = r.ecology.workSites[0];
+      return { action: site.action, valid: Boolean(P.normalize(branch)), work: r.ecologicalReceipts[site.action],
+        local: r.stocks[site.inputKeys?.constructionKg] ?? null, global: r.stocks.constructionKg,
+        atmosphere: r.stocks.atmosphericWaterL, consent: branch.groups[1]?.activityState.dreamConsent ?? null };
+    });
+  });
+  expect(loaded.every(r => r.valid)).toBe(true);
+  expect(loaded[0].work).toBeCloseTo(1); expect(loaded[0].local).toBeCloseTo(0); expect(loaded[0].global).toBe(1000);
+  expect(loaded[1].work).toBeCloseTo(.25); expect(loaded[1].atmosphere).toBeCloseTo(99750); expect(loaded[1].consent).toBe(false);
+  expect(errors).toEqual([]);
+});

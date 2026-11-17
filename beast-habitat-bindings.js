@@ -81,7 +81,7 @@
     const courseByRegion = new Map();
     for (const r of source.regions.filter(r => r.kind === 'wetland')) {
       const index = r.source.cellIndex, downstream = map.hydrology.downstreamByCell[index];
-      if (map.hydrology.riverClasses[index] === '.' || downstream < 0) continue;
+      if ((!options.established && map.hydrology.riverClasses[index] === '.') || downstream < 0) continue;
       const choices = patchByCell.get(World.cellId(downstream)) || [];
       const target = choices.find(p => p.kind === 'wetland') || choices.find(p => p.kind === 'waterColumn') || choices.find(p => p.kind === 'surface');
       if (!target || !r.edges.some(edge => edge.id === target.id)) {
@@ -159,7 +159,142 @@
     }
     binding.watercourses = [...courseByRegion].map(([regionId, course]) => ({ regionId, course }));
     binding.environments = source.regions.map(r => ({ regionId: r.id, ...environment(r, map) }));
+    if (options.established) establish(source, binding, map);
     return binding;
+  }
+  function establish(source, binding, map) {
+    binding.establishedHabitats = true;
+    binding.availability = []; binding.initialWork = []; binding.initialOutputs = [];
+    const groups = new Map(source.groups.map(g => [g.id, g])), regions = new Map(source.regions.map(r => [r.id, r]));
+    const original = new Map(binding.workSites.map(row => [row.site.id, row]));
+    const shared = new Map(), workerDays = new Map();
+    for (const g of source.groups) for (const c of g.cohorts)
+      workerDays.set(c.id, c.count * Math.min(source.calendar.monthDays.at(-1), Math.max(0, c.ageDays - Data.lifecycle[g.speciesId].adultDays)));
+    function stock(r, site, key) {
+      if (!['constructionKg', 'metalKg', 'fuelKg'].includes(key)) return key;
+      const local = `${site.id}:${key}`, amount = (r.stocks[key] || 0) * site.footprintHa / r.areaHa;
+      r.stocks[key] = (r.stocks[key] || 0) - amount; r.stocks[local] = amount;
+      binding.transfers.push({ regionId: r.id, from: key, to: local, amount,
+        basis: 'Finite material share at the original physical work face; no ore-to-metal conversion' });
+      binding.capacities.push({ regionId: r.id, key: local, amount });
+      return local;
+    }
+    function feature(r, action, template) {
+      const key = `${r.id}:${action}`; if (shared.has(key)) return shared.get(key);
+      const body = Bodies.profiles[Work.actions[action]], id = `habitat-work:${key}`;
+      const footprintHa = Math.min(1, r.areaHa * .01), radiusM = Math.sqrt(footprintHa * 10000 / Math.PI);
+      const extent = Math.max(0, Math.sqrt(r.areaHa * 10000 / Math.PI) - radiusM);
+      const roll = token => parseInt(World.stableHash(`${map.geology.digest}:${id}:${token}`), 16) / 4294967296;
+      const angle = roll('angle') * 2 * Math.PI, distance = extent * .35 * Math.sqrt(roll('radius'));
+      let point = { regionId: r.id, eastM: Math.cos(angle) * distance, northM: Math.sin(angle) * distance,
+        altitudeM: ['waterColumn', 'wetland'].includes(r.kind) ? -Math.min(r.depthM - .1, body.heightM * 1.2) : 0 };
+      const course = binding.watercourses.find(c => c.regionId === r.id);
+      if (action === 'buildDam' && course) {
+        const edge = r.edges.find(e => e.id === course.course.downstreamRegionId), exit = edge?.routeFrames?.exit || edge?.departurePosition;
+        if (exit) {
+          const length = Math.hypot(exit.eastM, exit.northM), scale = length > extent ? extent / length : 1;
+          point = { ...point, eastM: exit.eastM * scale, northM: exit.northM * scale };
+        }
+      }
+      const site = { ...copy(template), id, featureId: id, footprintHa, position: point,
+        maxWorkers: Math.floor(footprintHa * 10000 / (body.lengthM * body.widthM)), inputKeys: {} };
+      if (action === 'dreamWeather') { site.participantGroupIds = []; site.allowDormantParticipants = true; }
+      for (const name of Object.keys(Work.spec(action).costs)) site.inputKeys[name] = stock(r, site, name);
+      if (action === 'buildDam') site.maxDamKg = Math.min(1000, r.stocks[site.inputKeys.constructionKg] || 0);
+      shared.set(key, { regionId: r.id, site }); return shared.get(key);
+    }
+    const retained = [];
+    for (const gb of binding.groupBindings) {
+      const g = groups.get(gb.groupId), r = regions.get(g.regionId), action = actionFor[g.speciesId];
+      if (!action) continue;
+      const old = gb.ecology && original.get(gb.ecology.siteId);
+      if (!old && action !== 'dreamWeather') {
+        binding.availability.push({ groupId: g.id, action, status: 'unavailable', reason: action === 'buildDam'
+          ? 'No actual adjoining drainage outlet' : 'No compatible physical substrate or medium' });
+        continue;
+      }
+      const phases = r.seasons.flatMap((s, i) => s.temperatureC >= Data.lifecycle[g.speciesId].minC
+        && s.temperatureC <= Data.lifecycle[g.speciesId].maxC ? [i] : []);
+      const template = old?.site || { action, speciesId: g.speciesId, areaHa: r.areaHa, phases };
+      // A furnace belongs to one colony, not to every hive sharing the region.
+      let row;
+      if (action === 'buildFurnace') {
+        const base = feature(r, action, template), site = { ...copy(base.site), id: `habitat-work:${g.id}`,
+          featureId: base.site.featureId, colonyId: `${g.id}:hive`, maxWorkers: Math.min(base.site.maxWorkers, g.cohorts.reduce((n, c) => n + c.count, 0)) };
+        // Each original colony has a disjoint face/material share. Do not copy
+        // the first colony's stock account into every subsequent hive.
+        const siblings = source.groups.filter(x => x.regionId === r.id && x.speciesId === g.speciesId).length;
+        site.footprintHa /= siblings; site.maxWorkers = Math.floor(site.maxWorkers / siblings);
+        site.inputKeys = {};
+        for (const name of Object.keys(Work.spec(action).costs)) {
+          const from = base.site.inputKeys[name], to = `${site.id}:${name}`;
+          const amount = (binding.capacities.find(c => c.regionId === r.id && c.key === from)?.amount || 0) / siblings;
+          r.stocks[from] = Math.max(0, r.stocks[from] - amount); r.stocks[to] = amount;
+          binding.transfers.push({ regionId: r.id, from, to, amount, basis: 'Disjoint original colony workface allocation' });
+          binding.capacities.push({ regionId: r.id, key: to, amount }); site.inputKeys[name] = to;
+        }
+        row = { regionId: r.id, site }; retained.push(row);
+      } else row = feature(r, action, template);
+      gb.ecology = { action, siteId: row.site.id, regionId: r.id, effortFraction: 1 };
+      gb.home = { ...g.home, eastKm: row.site.position.eastM / 1000, northKm: row.site.position.northM / 1000,
+        depthM: -row.site.position.altitudeM || 0 };
+      const nursery = binding.nurseries.find(n => n.regionId === r.id && n.nursery.id === g.breeding?.siteId)
+        || binding.nurseries.find(n => n.nursery.id === gb.breeding?.siteId);
+      if (nursery) { nursery.nursery.position = copy(row.site.position); if (action === 'buildFurnace') nursery.nursery.workSiteId = row.site.id; }
+      const localMetal = r.stocks[row.site.inputKeys.metalKg] || 0;
+      binding.availability.push({ groupId: g.id, action, siteId: row.site.id,
+        status: action === 'dreamWeather' || action === 'buildFurnace' && !localMetal ? 'dormant' : 'bound',
+        ...(action === 'dreamWeather' ? { reason: 'No recorded present willing sleepers' }
+          : action === 'buildFurnace' && !localMetal ? { reason: 'No recorded refined-metal stock; geological potential is not metal' } : {}) });
+    }
+    binding.workSites = [...shared.values()].filter(row => row.site.action !== 'buildFurnace').concat(retained);
+    // Construction-only starting history. Do not credit hypothetical past
+    // nurturing, rainfall, offspring or future mining/smelting capacity.
+    for (const row of binding.workSites.filter(row => ['buildDam', 'buildFurnace'].includes(row.site.action))) {
+      const { site } = row, r = regions.get(row.regionId), action = site.action, spec = Work.spec(action);
+      const builders = binding.groupBindings.filter(g => g.ecology?.siteId === site.id).flatMap(gb => {
+        const g = groups.get(gb.groupId); return g.cohorts.filter(c => action !== 'buildFurnace' || c.role === 'worker')
+          .map(c => ({ g, c, days: workerDays.get(c.id) || 0 }));
+      });
+      const output = action === 'buildDam' ? 'damKg' : 'furnaceKg', limit = action === 'buildDam' ? site.maxDamKg : site.maxFurnaceKg;
+      const life = Data.lifecycle[site.speciesId], previous = r.seasons.at(-1);
+      if (previous.temperatureC < life.minC || previous.temperatureC > life.maxC) continue;
+      const elapsedDays = Math.min(source.calendar.monthDays.at(-1), Math.max(0, ...builders.map(b => b.c.ageDays - life.adultDays)));
+      let days = Math.min(builders.reduce((n, c) => n + c.days, 0), site.maxWorkers * elapsedDays, limit * .25 / spec.outputs[output]);
+      const costs = { ...spec.costs }, g = builders[0]?.g;
+      if (!g) continue;
+      costs[g.resources.foodKg] = (costs[g.resources.foodKg] || 0) + life.foodKgDay;
+      for (const [key, amount] of [['waterL', life.waterLDay], ['mineralsKg', life.mineralsKgDay], ['excessMana', life.manaDay], ['chargeMJ', life.otherDay]])
+        if (amount > 0) costs[key] = (costs[key] || 0) + amount;
+      for (const [key, cost] of Object.entries(costs)) if (cost > 0) days = Math.min(days, (r.stocks[site.inputKeys[key] || key] || 0) / cost);
+      if (!(days > EPS)) continue;
+      const inputs = {};
+      for (const [key, cost] of Object.entries(costs)) {
+        const actual = site.inputKeys[key] || key, amount = cost * days; if (!amount) continue;
+        r.stocks[actual] -= amount; inputs[actual] = amount;
+        binding.transfers.push({ regionId: r.id, from: actual, to: `history-spent:${site.id}:${key}`, amount, basis: 'Paid original construction and worker maintenance' });
+      }
+      // Transfer destinations remain audit-only until apply moves them into
+      // the actual structure and recorded metabolic outputs below.
+      const workers = []; let left = days;
+      for (const b of builders) { const used = Math.min(left, b.days); if (used) workers.push({ cohortId: b.c.id, workerDays: used });
+        workerDays.set(b.c.id, b.days - used); left -= used; }
+      site[output] = (site[output] || 0) + spec.outputs[output] * days;
+      site.historicalWorkerDays = (site.historicalWorkerDays || 0) + days;
+      binding.initialWork.push({ regionId: r.id, siteId: site.id, action, fromDaysBeforeStart: elapsedDays, toDaysBeforeStart: 0,
+        workerDays: days, workers, inputs,
+        structure: { key: output, kg: spec.outputs[output] * days } });
+      for (const [key, cost] of Object.entries(costs)) {
+        const waste = (cost - (spec.costs[key] || 0)) * days;
+        if (waste > 0) binding.initialOutputs.push({ regionId: r.id, key: `originalWorkWaste:${key}`, amount: waste });
+      }
+    }
+    // Keep explicit unsupported inputs in availability. They are not evidence
+    // that every optional ability must run continuously for a region to live.
+    binding.issues = binding.issues.filter(i => !['missingPhysicalWorkSite', 'unverifiedOriginalFurnaceMetal', 'unverifiedDreamParticipants'].includes(i.kind));
+    binding.issues.push(...binding.availability.filter(a => a.status !== 'bound').map(a => ({ ...a,
+      kind: a.action === 'dreamWeather' ? 'dormantDreamWeather' : a.action === 'buildFurnace' ? 'unavailableOriginalFurnaceMetal' : 'unavailablePhysicalWorkSite',
+      optionalWork: true })));
   }
   function environment(r, map) {
     const index = r.source.cellIndex, marine = r.kind === 'waterColumn', underground = r.kind === 'subsurface';
@@ -190,11 +325,20 @@
     }
     for (const t of binding.transfers) {
       const r = regions.get(t.regionId);
-      if (!(t.amount >= 0) || !Number.isFinite(t.amount) || !(r.stocks[t.from] + EPS >= t.amount)) throw Error('Unfunded original habitat allocation');
-      r.stocks[t.from] = Math.max(0, r.stocks[t.from] - t.amount); r.stocks[t.to] = (r.stocks[t.to] || 0) + t.amount;
+      if (!(t.amount >= 0) || !Number.isFinite(t.amount) || !((r.stocks[t.from] || 0) + EPS >= t.amount)) throw Error('Unfunded original habitat allocation');
+      if (Object.hasOwn(r.stocks, t.from)) r.stocks[t.from] = Math.max(0, r.stocks[t.from] - t.amount);
+      r.stocks[t.to] = (r.stocks[t.to] || 0) + t.amount;
       r.capacity[t.to] = Math.max(r.capacity[t.to] || 0, r.stocks[t.to]);
     }
     for (const c of binding.capacities) regions.get(c.regionId).capacity[c.key] = c.amount;
+    if (binding.establishedHabitats) {
+      for (const t of binding.transfers) if (t.to.startsWith('history-spent:')) {
+        delete regions.get(t.regionId).stocks[t.to]; delete regions.get(t.regionId).capacity[t.to];
+      }
+      for (const output of binding.initialOutputs) {
+        const r = regions.get(output.regionId); r.outputs ||= {}; r.outputs[output.key] = (r.outputs[output.key] || 0) + output.amount;
+      }
+    }
     for (const row of binding.rainfallShares) {
       const r = regions.get(row.regionId), key = row.flowFraction != null ? 'flowWaterL' : 'atmosphericWaterL', fraction = row.flowFraction ?? row.fraction;
       for (const season of r.seasons) { const n = season.renewal.waterL * fraction; season.renewal.waterL -= n; season.renewal[key] = (season.renewal[key] || 0) + n; }
@@ -216,7 +360,8 @@
       if (aggregateMortality) for (const c of g.cohorts) c.aggregateMortality = true;
       if (initialNurseryId) for (const c of g.cohorts) if (c.ageDays < Data.lifecycle[c.speciesId].independentDays) c.nurseryId = initialNurseryId;
     }
-    source.physicalBinding = { basis: binding.basis, issues: copy(binding.issues) };
+    source.physicalBinding = { basis: binding.basis, issues: copy(binding.issues),
+      ...(binding.establishedHabitats ? { establishedHabitats: true, availability: copy(binding.availability), initialWork: copy(binding.initialWork) } : {}) };
     return source;
   }
   return { allocate, apply, channels, vector };

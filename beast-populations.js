@@ -886,6 +886,22 @@
     g.activityState = { sleeping: state.sleeping, dreamConsent: state.dreamConsent };
     record(s, 'ecologicalActivityChanged', at, { groupId, ...g.activityState, cause }); rebuild(s, at, location(g)); return true;
   }
+  function setDreamParticipants(s, regionId, siteId, participantGroupIds, at, cause) {
+    if (!id(cause) || !nonnegative(at) || at < s.clock || !Array.isArray(participantGroupIds)
+      || participantGroupIds.some(v => !id(v)) || new Set(participantGroupIds).size !== participantGroupIds.length) return false;
+    advanceLocal(s, at, [regionId]);
+    const r = Demography.region(s, regionId), site = r?.ecology?.workSites.find(site => site.id === siteId && site.action === 'dreamWeather');
+    if (!site || site.destroyedAt != null || participantGroupIds.some(id => {
+      const g = Demography.group(s, id);
+      return !g || g.regionId !== regionId || g.transit || g.will === false || g.willing === false
+        || ['slime', 'mudlet', 'cinderling', 'zephyrMote', 'quartzShardling', 'rootling', 'sporecap', 'lanternWisp'].includes(g.speciesId)
+        || !g.cohorts.some(c => count(c) && c.health > .3 && Ecology.Work.inReach(g, c, site));
+    })) return false;
+    if (!participantGroupIds.length && site.allowDormantParticipants !== true) return false;
+    site.participantGroupIds = [...participantGroupIds];
+    record(s, 'dreamParticipantsChanged', at, { regionId, siteId, participantGroupIds: [...participantGroupIds], cause });
+    rebuild(s, at, regionId); return true;
+  }
   function damageFeedingTower(s, groupId, cohortId, towerIndex, damage, at, cause) {
     if (!id(cause) || !nonnegative(at) || at < s.clock || !integer(towerIndex) || towerIndex >= 4 || !(damage > 0) || !Number.isFinite(damage)) return false;
     advanceLocal(s, at, () => groupRegions(s, groupId));
@@ -1033,5 +1049,5 @@
   }
   return { DAY, count, cohortKey, monthAt, hazardIntegral, validateSource, create, createDiagnostic, chooseDestination,
     advance, settleRegions, detail, claimLocal, settleLocalLoss, registerLocalBirth, recordDetailedLoss, removeStock, destroyNursery, destroyRenewalSite, foodWebSummary: Foodweb.summary,
-    destroyEcologicalWorkSite, setEcologicalActivity, damageFeedingTower, kill, audit, rebind, normalize };
+    destroyEcologicalWorkSite, setEcologicalActivity, setDreamParticipants, damageFeedingTower, kill, audit, rebind, normalize };
 });
