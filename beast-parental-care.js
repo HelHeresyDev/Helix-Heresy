@@ -127,23 +127,44 @@
           const waterPerDay = Math.min(waterRate, water / seconds * DAY, availableWater / seconds * DAY);
           if (!(foodPerDay + waterPerDay > EPS)) continue;
           donor.caregiving = { childId: child.id, memberCount: count, childCount: children, startedAt: at, until: at + seconds,
-            foodSource, foodPerDay, waterPerDay, reserveKg: reserve };
+            foodSource, foodPerDay, waterPerDay, reserveKg: reserve, independentResources: true };
           donor.contactBusyUntil = at + seconds; assigned.add(child.id); break;
         }
       }
     }
   }
-  function requests(s, g, c, at, capable = () => true) {
+  function materialRates(a, resource) {
+    return { foodKg: !resource || resource === 'foodKg' ? a.foodPerDay : 0,
+      waterL: !resource || resource === 'waterL' ? a.waterPerDay : 0 };
+  }
+  function recipe(g, a, resource) {
+    const rates = materialRates(a, resource);
+    return { ...(a.foodSource === 'regional' && rates.foodKg > 0 ? { [g.resources?.foodKg || 'foodKg']: rates.foodKg } : {}),
+      ...(rates.waterL > 0 ? { [g.resources?.waterL || 'waterL']: rates.waterL } : {}) };
+  }
+  // Nutrition limits recovery and eventually health, not the ability to hand
+  // over water while still conscious and physically capable. A protected food
+  // reserve limits only the food transfer, never its companion water request.
+  function fundable(q) {
+    const a = q.c.caregiving;
+    return !(a.foodSource === 'stores' && materialRates(a, q.resource).foodKg > 0
+      && q.c.stores.foodKg <= a.reserveKg + EPS);
+  }
+  function requests(s, g, c, at, capable = () => true, bounds = null) {
     const a = c.caregiving, child = a && D.cohort(s, g.id, a.childId);
+    const r = D.region(s, Journeys.location(g));
     if (!a || a.until <= at + EPS || !child || !n(child) || Journeys.moving(g) || g.will === false || g.willing === false
-      || n(c) !== a.memberCount || n(child) !== a.childCount || !dependent(child, at) || !Foraging.supported(c, g, s.rates[Journeys.location(g)])
-      || c.health <= .3 || g.activityState?.sleeping || !capable(c, g, D.region(s, Journeys.location(g)), at)
-      || a.foodSource === 'stores' && c.stores.foodKg <= a.reserveKg + EPS) {
+      || n(c) !== a.memberCount || n(child) !== a.childCount || !dependent(child, at) || !eligible(g, c, child, at)
+      || !(c.regional?.stamina > EPS) || c.foraging?.action || !Foraging.canRest(c, g, r)
+      || bounds && !near(g, c, child, r, bounds)
+      || g.activityState?.sleeping || !capable(c, g, r, at)) {
       if (a) cancel(g, c, at); return [];
     }
-    return [{ kind: 'care', g, c, perDay: 1, childId: child.id, recipe: {
-      ...(a.foodSource === 'regional' && a.foodPerDay > 0 ? { [g.resources?.foodKg || 'foodKg']: a.foodPerDay } : {}),
-      ...(a.waterPerDay > 0 ? { [g.resources?.waterL || 'waterL']: a.waterPerDay } : {}) } }];
+    // Old saved mixed requests retain their already-paid funding interval.
+    // New actions have disjoint material requests but one shared action/budget.
+    const resources = a.independentResources ? ['foodKg', 'waterL'].filter(k => materialRates(a, k)[k] > 0) : [null];
+    return resources.map(resource => ({ kind: 'care', g, c, perDay: 1, childId: child.id,
+      ...(resource ? { resource } : {}), recipe: recipe(g, a, resource) }));
   }
   function delivered(s, q) {
     const g = q.g || D.group(s, q.groupId), c = q.c || D.cohort(s, g.id, q.cohortId), a = c.caregiving;
@@ -153,20 +174,23 @@
     for (const g of s.groups) for (const c of g.cohorts) if (c.careIntake) { c.careIntake.foodKg = 0; c.careIntake.waterL = 0; }
     for (const q of list) if (q.kind === 'care') {
       const { g, c, a, child } = delivered(s, q), count = n(c);
+      const material = materialRates(a, q.resource);
       child.careIntake ||= { foodKg: 0, waterL: 0 };
-      next = Math.min(next, a.until, child.bornAt + Data.lifecycle[child.speciesId].independentDays * DAY);
-      child.careIntake.foodKg += a.foodPerDay * q.factor * EFFICIENCY / n(child);
-      child.careIntake.waterL += a.waterPerDay * q.factor * WATER_EFFICIENCY / n(child);
-      if (a.foodSource === 'stores' && a.foodPerDay * q.factor > EPS) {
-        const rate = rates[Journeys.location(g)], ownUse = (c.needs.foodKg || 0) * (1 - (rate.supply[g.resources?.foodKg || 'foodKg'] ?? 0));
-        next = Math.min(next, at + Math.max(0, c.stores.foodKg - a.reserveKg) * count / (a.foodPerDay * q.factor + ownUse) * DAY);
+      next = Math.min(next, a.until, at + c.regional.stamina / .1,
+        child.bornAt + Data.lifecycle[child.speciesId].independentDays * DAY);
+      child.careIntake.foodKg += material.foodKg * q.factor * EFFICIENCY / n(child);
+      child.careIntake.waterL += material.waterL * q.factor * WATER_EFFICIENCY / n(child);
+      if (a.foodSource === 'stores' && material.foodKg * q.factor > EPS) {
+        const rate = rates[Journeys.location(g)], ownUse = Math.max(0, (c.needs.foodKg || 0)
+          * (1 - (rate.supply[g.resources?.foodKg || 'foodKg'] ?? 0) * (c.intake.foodKg ?? 1)) - Foraging.intake(c, 'foodKg') * count);
+        next = Math.min(next, at + Math.max(0, c.stores.foodKg - a.reserveKg) * count / (material.foodKg * q.factor + ownUse) * DAY);
       }
     }
     return next;
   }
   function integrate(s, q, days) {
     const { g, c, a, child } = delivered(s, q), r = D.region(s, Journeys.location(g)), count = n(c), children = n(child);
-    const food = a.foodPerDay * q.factor * days, water = a.waterPerDay * q.factor * days;
+    const material = materialRates(a, q.resource), food = material.foodKg * q.factor * days, water = material.waterL * q.factor * days;
     if (a.foodSource === 'stores') { c.stores.foodKg = Math.max(0, c.stores.foodKg - food / count); c.massKg -= food / count; }
     child.stores.foodKg += food * EFFICIENCY / children; child.stores.waterL += water * WATER_EFFICIENCY / children;
     child.massKg += (food * EFFICIENCY + water * WATER_EFFICIENCY) / children;
@@ -236,6 +260,7 @@
         if (a && (!b || !finite(a.startedAt) || a.startedAt > s.clock || !(a.until > s.clock - EPS) || a.until - a.startedAt > 600 + EPS
           || c.contactBusyUntil !== a.until || Journeys.moving(g) || a.memberCount !== n(c) || !['regional', 'stores'].includes(a.foodSource)
           || !['foodPerDay', 'waterPerDay', 'reserveKg'].every(k => finite(a[k]))
+          || a.independentResources != null && a.independentResources !== true
           || c.foraging?.action || children.has(a.childId)
           || a.foodPerDay > Data.lifecycle[c.speciesId].foodKgDay * DAY / 600 * n(c) * 2 + EPS
           || a.waterPerDay > Data.lifecycle[c.speciesId].waterLDay * DAY / 600 * n(c) * 2 + EPS
@@ -243,11 +268,19 @@
         if (a) children.add(a.childId);
       }
     }
+    const cached = new Map();
     for (const q of s.extraRates || []) if (q.kind === 'care') {
-      const { g, a } = delivered(s, q); if (!a) return false;
-      const expected = { ...(a.foodSource === 'regional' && a.foodPerDay > 0 ? { [g.resources?.foodKg || 'foodKg']: a.foodPerDay } : {}),
-        ...(a.waterPerDay > 0 ? { [g.resources?.waterL || 'waterL']: a.waterPerDay } : {}) };
+      const { g, c, a } = delivered(s, q); if (!a) return false;
+      if (a.independentResources ? !['foodKg', 'waterL'].includes(q.resource) || !(materialRates(a, q.resource)[q.resource] > 0) : q.resource != null) return false;
+      const seen = cached.get(c) || new Set();
+      if (seen.has(q.resource)) return false;
+      seen.add(q.resource); cached.set(c, seen);
+      const expected = recipe(g, a, q.resource);
       if (Object.keys(q.inputs).length !== Object.keys(expected).length || Object.entries(expected).some(([k, amount]) => q.inputs[k] !== amount)) return false;
+    }
+    for (const g of s.groups) for (const c of g.cohorts) if (c.caregiving) {
+      const a = c.caregiving, expected = a.independentResources ? Number(a.foodPerDay > 0) + Number(a.waterPerDay > 0) : 1;
+      if (cached.get(c)?.size !== expected) return false;
     }
     return true;
   }
@@ -257,5 +290,5 @@
     for (const g of s.groups) for (const c of g.cohorts) if (dependent(c, s.clock)) result.dependentLiving += n(c);
     return result;
   }
-  return { mode, dependent, attach, initialize, demand, start, finish, cancelAffected, requests, prepare, integrate, effort, intake, waiting, review, situation, valid, summary, EFFICIENCY, WATER_EFFICIENCY };
+  return { mode, dependent, attach, initialize, demand, start, finish, cancelAffected, requests, fundable, prepare, integrate, effort, intake, waiting, review, situation, valid, summary, EFFICIENCY, WATER_EFFICIENCY };
 });

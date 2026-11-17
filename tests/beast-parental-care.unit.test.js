@@ -102,7 +102,7 @@ test('tiny original colony broods receive real handling time and new larvae are 
   Care.attach(s.groups[0], child, s.clock, ['imaginary-queen', 'imaginary-male']);
   assert.deepEqual(child.dependency.guardians, ['original-0']);
 });
-test('incapacity, sleep or a newly missing ration interrupts future care without refunding already supplied material', () => {
+test('incapacity and sleep interrupt future care without refunding already supplied material', () => {
   for (const change of [s => s.groups[0].cohorts[0].regional.parts.head = 0,
     s => s.groups[0].activityState = { sleeping: true, dreamConsent: false }]) {
     const s = fixture(), donor = untilCare(s); P.advance(s, (s.clock + donor.caregiving.until) / 2, true, true);

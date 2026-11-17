@@ -41,3 +41,37 @@ test('browser reload and continued branches preserve partial route stops and act
   await expect(page.locator('body')).not.toContainText('knownLivingCaregivers');
   await expect(page.locator('body')).not.toContainText('firstScarcity');
 });
+
+test('browser reload retains independent water delivery during a real food shortage and charges shared care once', async ({ page }) => {
+  const errors = []; page.on('pageerror', error => errors.push(error.message));
+  await page.goto(pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href);
+  await page.waitForFunction(() => window.HelixBeastParentalCare && window.HelixBeastPopulations);
+  const before = await page.evaluate(source => {
+    const P = window.HelixBeastPopulations, C = window.HelixBeastParentalCare;
+    const s = P.create(source, { worldId: 'independent-care-browser', runId: 'original' });
+    for (const c of s.groups[0].cohorts) c.deathThreshold = 1e12;
+    for (let i = 0; i < 2000 && !s.groups[0].cohorts.some(c => c.caregiving); i++) P.advance(s, s.nextEventAt, true, true);
+    const donor = s.groups[0].cohorts.find(c => c.caregiving);
+    P.removeStock(s, 'ground', 'meatKg', s.regions[0].stocks.meatKg, s.clock, 'actual-food-loss');
+    P.advance(s, s.clock + 10, true, true);
+    localStorage.setItem('focused-independent-care', JSON.stringify(s));
+    return { paid: C.summary(s), rates: s.extraRates.filter(q => q.kind === 'care'), stamina: donor.regional.stamina };
+  }, familySource());
+  expect(before.rates.map(q => [q.resource, q.factor])).toEqual([['foodKg', 0], ['waterL', 1]]);
+  await page.reload(); await page.waitForFunction(() => window.HelixBeastPopulations);
+  const after = await page.evaluate(() => {
+    const P = window.HelixBeastPopulations, C = window.HelixBeastParentalCare;
+    const s = P.normalize(JSON.parse(localStorage.getItem('focused-independent-care')));
+    if (!s) return { valid: false };
+    const paid = C.summary(s), rates = s.extraRates.filter(q => q.kind === 'care');
+    const branch = P.rebind(s, s, { worldId: s.worldId, runId: 'continued' }), donor = s.groups[0].cohorts[0];
+    P.advance(s, s.clock + 15, true, true); P.advance(branch, branch.clock + 15, true, true);
+    return { valid: !!P.normalize(s), paid, rates, afterPaid: C.summary(s), stamina: donor.regional.stamina,
+      same: JSON.stringify(C.summary(s)) === JSON.stringify(C.summary(branch)) && JSON.stringify(P.audit(s)) === JSON.stringify(P.audit(branch)) };
+  });
+  expect(after).toMatchObject({ valid: true, same: true, paid: before.paid, rates: before.rates });
+  expect(after.afterPaid.foodInputKg).toBe(before.paid.foodInputKg);
+  expect(after.afterPaid.waterInputL).toBeGreaterThan(before.paid.waterInputL);
+  expect(after.afterPaid.memberSeconds - before.paid.memberSeconds).toBeCloseTo(30, 8);
+  expect(before.stamina - after.stamina).toBeCloseTo(1.5, 8); expect(errors).toEqual([]);
+});

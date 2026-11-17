@@ -314,7 +314,7 @@
       if (!Journeys.moving(g) && Demography.region(s, location(g))?.foraging)
         for (const c of g.cohorts) if (count(c)) next = Math.min(next, Foraging.next(c));
     }
-    const extra = Ecology.requests(s, at, s.groups.flatMap(g => g.cohorts.flatMap(c => [...Demography.requests(s, g, c, at), ...Care.requests(s, g, c, at, Foodweb.careCapable)])));
+    const extra = Ecology.requests(s, at, s.groups.flatMap(g => g.cohorts.flatMap(c => [...Demography.requests(s, g, c, at), ...Care.requests(s, g, c, at, Foodweb.careCapable, Foodweb.bounds)])));
     const requestsByRegion = new Map();
     for (const request of extra) {
       const key = location(request.g);
@@ -340,7 +340,7 @@
       for (const request of list) {
         request.factor = Math.min(1, ...Object.entries(request.inputs).filter(([, n]) => n > 0).map(([key]) =>
           (r.stocks[key] || 0) > EPS ? 1 : Math.min(1, Math.max(0, (rate.renewal[key] || 0) - (rate.demand[key] || 0)) / requested[key])));
-        if (request.poolId ? !Wildlife.fed(r, request, rate) : request.kind === 'care' ? !Foraging.supported(request.c, request.g, rate) : Object.entries(request.c.needs).some(([k, n]) => n > 0
+        if (request.poolId ? !Wildlife.fed(r, request, rate) : request.kind === 'care' ? !Care.fundable(request) : Object.entries(request.c.needs).some(([k, n]) => n > 0
           && !(request.storeFunded && k === 'foodKg')
           && !(request.g.ecology?.action === 'filterPlankton' && k === 'foodKg')
           && (rate.supply[request.g.resources?.[k] || k] ?? 0) < 1)) request.factor = 0;
@@ -413,7 +413,12 @@
         const room = Lantern.waterCapacity(c.massKg) - c.stores.waterL;
         if (waterNet > EPS && room > EPS) next = Math.min(next, at + room / waterNet * DAY);
       }
-      if (c.healthLossPerDay > 0) next = Math.min(next, at + c.health / c.healthLossPerDay * DAY);
+      if (c.healthLossPerDay > 0) {
+        next = Math.min(next, at + c.health / c.healthLossPerDay * DAY);
+        // Hunger does not instantly prohibit care, but declining health must
+        // interrupt it at incapacity, not continue until the death boundary.
+        if (c.caregiving && c.health > .3) next = Math.min(next, at + (c.health - .3) / c.healthLossPerDay * DAY);
+      }
     }
     for (const g of s.groups) if (!g.transit && !g.observedShortage && g.cohorts.some(c => count(c))
       && Object.entries(g.needs).some(([key, need]) => need > 0 && !(key === 'foodKg' && g.cohorts.some(c => c.foraging))

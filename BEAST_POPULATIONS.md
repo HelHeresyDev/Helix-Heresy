@@ -708,7 +708,7 @@ use actual maternal formations where the recorded nursery supports them; they
 do not fabricate caregivers or alter original counts. Newborn colony larvae
 link to actual living same-colony workers, not merely the queen/mate origins.
 
-An actual willing, conscious, capable and supplied caregiver must be present.
+An actual willing, conscious and physically capable caregiver must be present.
 Conservative whole-cohort position envelopes must fit local reach; missing
 positions, unresolved barriers, sleep, incapacitation, lost guardians or an
 unsuitable medium cannot supply remote care. Each caregiver has a remaining-
@@ -726,6 +726,29 @@ feeding promise, offsets missing maintenance. Supplied surplus can fund growth;
 age alone cannot. Caregivers finish a useful feeding and wait for real hunger
 or thirst instead of repeatedly topping up microscopic gaps. Family feeding
 demand can motivate additional hunting but supplies neither knowledge nor food.
+
+New provisioning actions fund food and water independently. Each has its own
+finite material request and cached funding factor: missing food does not stop
+available water, nor does missing water stop available food. Both share one
+handling interval, monthly care budget, stamina cost and ordinary active-body
+maintenance bill; splitting the material requests does not double any of these.
+Stored food transfers stop at the caregiver's protected ration. The depletion
+boundary includes the caregiver's own unmet intake, even if regional food exists
+but this body cannot consume it directly. Water can continue after that boundary.
+
+Care does not require the nutritional conditions needed to recover by resting.
+A hungry caregiver can still deliver while actual health, stamina, body parts,
+medium, proximity and willingness permit it. Empty reserves earn no unfed rest
+recovery; starvation/dehydration still damage the caregiver normally. Declining
+health interrupts care at its existing 30% incapacity threshold; reduced stamina
+clips the remaining interval at actual exhaustion. Separation, blocked access,
+sleep, travel or incapacity interrupts both transfers without refunding delivery.
+Resource identities, exact inputs and independent funding factors survive partial
+saves and continued branches; duplicate or missing material requests are rejected.
+Previously saved mixed actions retain their cached paid interval and are not
+retroactively split or refunded. Their next newly started action uses independent
+funding. These are focused care corrections, not a new all-species viability
+measurement or an upgrade of archived source availability.
 
 Completed foraging actions yield before another bout starts so nearby young
 can actually receive care. Handling/captures already earned remain owned once;
