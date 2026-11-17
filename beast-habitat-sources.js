@@ -11,10 +11,11 @@
     node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys,
     node ? require('./beast-habitat-bindings') : root.HelixBeastHabitatBindings,
     node ? require('./background-wildlife') : root.HelixBackgroundWildlife,
-    node ? require('./beast-parental-care') : root.HelixBeastParentalCare);
+    node ? require('./beast-parental-care') : root.HelixBeastParentalCare,
+    node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology);
   if (node) module.exports = api;
   root.HelixBeastHabitatSources = api;
-})(globalThis, function (World, Ecology, Biology, Local, Bodies, Behavior, Journeys, Bindings, Wildlife, Care) {
+})(globalThis, function (World, Ecology, Biology, Local, Bodies, Behavior, Journeys, Bindings, Wildlife, Care, Lantern) {
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x)), clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
   const random = s => parseInt(World.stableHash(s), 16) / 4294967296;
@@ -43,11 +44,11 @@
     }
     return steradians * map.topology.planetRadiusKm ** 2 * 100;
   }
-  function sourceDigest(map) {
+  function sourceDigest(map, legacyLantern = false) {
     return World.stableHash({ topology: map.topology, surface: map.surface, relief: map.relief,
       climate: map.climate, hydrology: map.hydrology, biomes: map.biomes, geology: map.geology,
       arcane: map.arcaneGeography, ecology: map.beastEcology, pristineEcology: map.pristineBeastEcology,
-      lifecycle: Biology.lifecycle, rates: Biology.rates, antagonisms: Biology.antagonisms });
+      lifecycle: legacyLantern ? Lantern.legacyLifecycle() : Biology.lifecycle, rates: Biology.rates, antagonisms: Biology.antagonisms });
   }
   const patchId = (index, kind) => `habitat:${index}:${KINDS[kind]}`;
   function patchesForCell(map, index, topology, ponds = false) {
@@ -285,6 +286,22 @@
       ...(record.physicalPlacement ? { spatialContinuity: true } : {}) };
     if (record.physicalBinding && !options.raw) Bindings.apply(result, record.physicalBinding, map);
     if (record.backgroundWildlife && !options.raw) Wildlife.apply(result, record.backgroundWildlife);
+    if (record.lanternMoisture) for (const r of result.regions) if (r.kind !== 'subsurface') {
+      const index = r.source.cellIndex;
+      // An explicit climate proxy, not measured daily weather or an animal's
+      // knowledge. Existing atmospheric stock remains shared with other work.
+      const humidity = r.kind === 'waterColumn' ? 75 : clamp(20 + map.climate.aridityIndexPermille[index] * .04, 10, 90);
+      r.humidity = humidity; r.seasons.forEach(season => { season.humidity = humidity; });
+      if (r.kind === 'waterColumn') {
+        const minimumDepth = Math.max(0, ...groups.filter(g => g.regionId === r.id).map(g => Bodies.profiles[g.speciesId].minWaterDepthM || 0));
+        const before = r.stocks.seawaterL, minimum = r.areaHa * 10000 * minimumDepth * 1000;
+        const target = Math.min(before * .000001, r.areaHa * 10000 * .001, Math.max(0, before - minimum));
+        r.stocks.seawaterL = Math.max(minimum, before - target);
+        const litres = before - r.stocks.seawaterL; // Transfer the representable debit, not a rounded promise.
+        r.stocks.atmosphericWaterL = litres; r.capacity.atmosphericWaterL = litres;
+        r.source.evaporatedSeawaterL = litres; // Finite initial evaporation, no renewed ocean or fresh-water spring.
+      }
+    }
     return result;
   }
   function distance(a, b, map) {
@@ -453,7 +470,7 @@
       policy: 'Private generator feasibility only; original-body residence and supply replay, no performed nurturing, future meat stock, safe destination reservation or perpetual equilibrium guarantee',
       seasonalJourneys: residence.journeys, seasons };
   }
-  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false, habitatAccess = false, windTransport = false) {
+  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false, habitatAccess = false, windTransport = false, lanternMoisture = false) {
     const calendar = { epochAt: 0, monthDays: Local.PHASES.map(() => Local.PHASE_DAYS) };
     const patches = patchRows.map(row => expandPatch(map, row, calendar, physical)), groupRows = [], populations = [], unlocated = [];
     const worldPopulations = populationsFor(map), foodUse = new Map(), feedingRows = [];
@@ -517,7 +534,7 @@
     }
     const record = { id: '', seed, sourceDigest: sourceDigest(map), calendar, patchRows, groupRows, populations, unlocated, calibration,
       ...(physicalPlacement ? { physicalPlacement: true } : {}), ...(habitatAccess ? { habitatAccess: true, feedingRows } : {}),
-      ...(windTransport ? { windTransport: true } : {}) };
+      ...(windTransport ? { windTransport: true } : {}), ...(lanternMoisture ? { lanternMoisture: true } : {}) };
     const expanded = expand(record, map, { physical, raw: true });
     if (physical) { record.physicalBinding = Bindings.allocate(expanded, map, { positions: physicalPlacement }); Bindings.apply(expanded, record.physicalBinding, map); }
     if (wildlife) { record.backgroundWildlife = Wildlife.allocate(expanded, seed); Wildlife.apply(expanded, record.backgroundWildlife); }
@@ -549,21 +566,24 @@
     const attempts = Number.isInteger(options.attempts) ? clamp(options.attempts, 1, 3) : 3;
     for (let calibration = 0; calibration < attempts; calibration++) {
       const record = candidate(seed, map, patchRows, calibration, true, options.backgroundWildlife !== false, options.physicalPlacement !== false,
-        options.physicalPlacement !== false && options.habitatAccess !== false, options.physicalPlacement !== false && options.windTransport !== false);
+        options.physicalPlacement !== false && options.habitatAccess !== false, options.physicalPlacement !== false && options.windTransport !== false,
+        options.physicalPlacement !== false && options.lanternMoisture !== false);
       if (!best || record.assessment.issues.length < best.assessment.issues.length) best = record;
       if (record.assessment.status === 'feasibleInitialCycle') break;
     }
     return best;
   }
   function validate(record, map, seed = record?.seed) {
-    if (!record || record.seed !== seed || record.sourceDigest !== sourceDigest(map)
+    const currentDigest = sourceDigest(map), legacyDigest = record?.lanternMoisture == null ? sourceDigest(map, true) : null;
+    if (!record || record.seed !== seed || record.sourceDigest !== currentDigest && record.sourceDigest !== legacyDigest
       || !Number.isInteger(record.calibration) || record.calibration < 0 || record.calibration > 2) throw Error('Habitat source does not match its physical world or authored biology');
     const saved = copy(record); saved.id = '';
     if (record.id !== `beast-habitat-source:${World.stableHash(saved)}`) throw Error('Habitat source identity is invalid');
     const topology = World.topologyForMap(map), patchRows = [];
     for (let i = 0; i < topology.cellCount; i++) patchRows.push(...patchesForCell(map, i, topology, record.physicalPlacement === true));
     const expected = candidate(record.seed, map, patchRows, record.calibration, Boolean(record.physicalBinding), Boolean(record.backgroundWildlife), record.physicalPlacement === true,
-      record.habitatAccess === true, record.windTransport === true);
+      record.habitatAccess === true, record.windTransport === true, record.lanternMoisture === true);
+    if (record.sourceDigest === legacyDigest) expected.sourceDigest = record.sourceDigest;
     const physical = value => { const result = copy(value); delete result.id; delete result.assessment; delete result.groupRows; return result; };
     if (World.stableHash(physical(expected)) !== World.stableHash(physical(record))) throw Error('Habitat source physical accounts were changed');
     if (record.physicalBinding && World.stableHash(expected.groupRows) !== World.stableHash(record.groupRows)) throw Error('Original bound habitat placement was changed');

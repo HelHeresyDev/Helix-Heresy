@@ -56,6 +56,17 @@ test('new drift records use canonical climate direction while older source recor
   assert.equal(JSON.stringify(legacy), before);
   assert.deepEqual(legacy.groupRows, record.groupRows);
 });
+test('the explicit passive-biology correction preserves old source identities and cannot silently add moisture', () => {
+  const { map, record } = fixture();
+  const legacy = S.generate(record.seed, map, { lanternMoisture: false });
+  legacy.sourceDigest = S.sourceDigest(map, true); legacy.id = '';
+  legacy.id = `beast-habitat-source:${W.stableHash(legacy)}`;
+  const before = JSON.stringify(legacy); S.validate(legacy, map);
+  const source = S.expand(legacy, map);
+  assert.equal(JSON.stringify(legacy), before); assert.ok(source.regions.every(r => r.humidity == null));
+  const forged = clone(legacy); forged.lanternMoisture = true; forged.id = '';
+  forged.id = `beast-habitat-source:${W.stableHash(forged)}`; assert.throws(() => S.validate(forged, map));
+});
 test('spherical habitat areas cover the actual globe once at the surface, with separate underground volumes', () => {
   const { map, record } = fixture();
   const globe = 4 * Math.PI * map.topology.planetRadiusKm ** 2 * 100;

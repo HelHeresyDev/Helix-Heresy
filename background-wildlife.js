@@ -3,10 +3,11 @@
   const node = typeof module === 'object' && module.exports;
   const api = factory(node ? require('./creature-life') : root.HelixCreatureLife,
     node ? require('./creature-biology') : root.HelixCreatureBiology,
-    node ? require('./beast-bodies') : root.HelixBeastBodies);
+    node ? require('./beast-bodies') : root.HelixBeastBodies,
+    node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology);
   if (node) module.exports = api;
   root.HelixBackgroundWildlife = api;
-})(globalThis, function (Life, Biology, Bodies) {
+})(globalThis, function (Life, Biology, Bodies, Lantern) {
   'use strict';
   const DAY = 86400, EPS = 1e-8, DURATION = 300, copy = x => JSON.parse(JSON.stringify(x));
   // Initial guild tuning, not additional researchable/strategic creature species.
@@ -374,9 +375,12 @@
         const kg = Math.min(room, available, intakeLeft);
         if (!(kg > 0)) continue;
         pool.carcass.edibleKg -= kg; pool.carcass.massKg -= kg; pool.carcass.consumedKg += kg;
-        const light = q.scavenge ? kg * .05 : 0;
-        c.stores.foodKg += (kg - light) / n; c.massKg += kg / n;
-        if (light) c.regional.energy.lightKg += light / n;
+        if (q.scavenge) {
+          const meal = Lantern.partition(kg / n, Lantern.waterCapacity(c.massKg) - c.stores.waterL);
+          c.stores.foodKg += meal.food; c.stores.waterL += meal.water; c.regional.energy.lightKg += meal.light;
+          c.massKg += meal.food + meal.water + meal.light;
+          r.outputs ||= {}; r.outputs.carrionWaterWasteL = (r.outputs.carrionWaterWasteL || 0) + meal.wasteWater * n;
+        } else { c.stores.foodKg += kg / n; c.massKg += kg / n; }
         room -= kg; intakeLeft -= kg;
       }
       poolCleanup(r);

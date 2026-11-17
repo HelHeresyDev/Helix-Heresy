@@ -22,6 +22,7 @@
         return Number.isFinite(b.offsetM) && b.offsetM > 0 && [b.normal, b.exit, b.entry].every(p => p
           && (p === b.normal ? [p.x, p.y] : [p.eastM, p.northM]).every(Number.isFinite))
           && Math.abs(Math.hypot(b.normal.x, b.normal.y) - 1) < 1e-6
+          && Math.hypot(b.entry.eastM, b.entry.northM) > EPS
           && Math.abs(b.exit.eastM * b.normal.x + b.exit.northM * b.normal.y - b.offsetM) < 1e-5;
       })())) && s.groups.every(g => g.windDriven == null || s.regionalFoodWeb === true
         && g.windDriven === true && g.speciesId === 'beast:carrion-lantern' && !g.transit && !g.intention);
@@ -70,18 +71,36 @@
     }
     return null;
   }
-  function plan(g, c, r, at, month, position, actor) {
+  function convergence(r, edge, actor, season, region) {
+    if (!edge?.windBoundary || !region) return null;
+    const other = region(edge.id), wind = other && windAt(other, season), a = Bodies.flowVelocity(actor, windAt(r, season)), b = Bodies.flowVelocity(actor, wind);
+    const normal = edge.windBoundary.normal, entry = edge.windBoundary.entry, length = Math.hypot(entry.eastM, entry.northM);
+    return a && b && length > 0 && a.x * normal.x + a.y * normal.y > EPS
+      && (b.x * entry.eastM + b.y * entry.northM) / length > EPS ? { neighborId: edge.id, thereFlow: copy(wind) } : null;
+  }
+  function frontMargin(g, c) {
+    const f = c.windDrift?.layout || c.regionalFormation || g.regionalFormation?.[c.originId];
+    const last = Math.max(c.windDrift?.layout?.firstOrdinal || 0, ...c.ranges.map(([, hi]) => hi - 1));
+    // The cohort anchor is its first surviving ordinal. Losing that ordinal
+    // rebases the anchor within the same retained formation, not a new voyage.
+    return f ? .001 + Math.hypot(f.columns * f.eastSpacingM, (1 + Math.floor(last / f.columns)) * f.northSpacingM) : .001;
+  }
+  function plan(g, c, r, at, month, position, actor, region) {
     if (!enabled(g) || !position || !actor) return Infinity;
     const wind = windAt(r, month.season), hold = holding(g, c, r, wind, position);
-    const velocity = hold ? { x: 0, y: 0 } : Bodies.flowVelocity(actor, wind) || { x: 0, y: 0 };
-    const signature = JSON.stringify([wind, velocity, r.id, hold?.mealId]);
+    const edge = r.edges.find(e => e.traversable && e.windBoundary && (!e.allowedSpecies || e.allowedSpecies.includes(g.speciesId))
+      && Math.abs(e.windBoundary.offsetM - position.eastM * e.windBoundary.normal.x - position.northM * e.windBoundary.normal.y) <= frontMargin(g, c)
+      && convergence(r, e, actor, month.season, region));
+    const front = edge && !hold ? convergence(r, edge, actor, month.season, region) : null;
+    const velocity = hold || front ? { x: 0, y: 0 } : Bodies.flowVelocity(actor, wind) || { x: 0, y: 0 };
+    const signature = JSON.stringify([wind, velocity, r.id, hold?.mealId, ...(front ? [front] : [])]);
     let d = c.windDrift;
     if (d && d.until > at + EPS && d.signature === signature) return d.until;
     const f = c.regionalFormation || g.regionalFormation?.[c.originId];
     d = c.windDrift = { anchor: copy(position), startedAt: at, appliedAt: at,
       layout: { firstOrdinal: c.ranges[0][0], columns: f.columns, eastSpacingM: f.eastSpacingM, northSpacingM: f.northSpacingM },
       until: Math.min(month.end, at + HOUR), velocity, known: wind !== null, signature, flow: copy(wind),
-      ...(hold ? { hold } : {}) };
+      ...(hold ? { hold } : {}), ...(front ? { front } : {}) };
     c.regionalPosition = copy(position);
     const fAction = c.foraging?.action;
     if (fAction && ['eating', 'handling'].includes(fAction.phase)) {
@@ -116,8 +135,11 @@
   }
   function entry(c) {
     const d = c.windDrift, b = d.crossing.boundary, p = c.regionalPosition;
-    return { regionId: d.crossing.destination, eastM: p.eastM - b.exit.eastM + b.entry.eastM,
-      northM: p.northM - b.exit.northM + b.entry.northM, altitudeM: p.altitudeM };
+    const tangent = -(p.eastM - b.exit.eastM) * b.normal.y + (p.northM - b.exit.northM) * b.normal.x;
+    const forward = (p.eastM - b.exit.eastM) * b.normal.x + (p.northM - b.exit.northM) * b.normal.y;
+    const length = Math.hypot(b.entry.eastM, b.entry.northM), x = b.entry.eastM / length, y = b.entry.northM / length;
+    return { regionId: d.crossing.destination, eastM: b.entry.eastM + tangent * y - forward * x,
+      northM: b.entry.northM - tangent * x - forward * y, altitudeM: p.altitudeM };
   }
   function valid(s) {
     if (!validDefinition(s)) return false;
@@ -136,10 +158,20 @@
           || !Number.isFinite(d.velocity?.x) || !Number.isFinite(d.velocity?.y)
           || Math.hypot(d.velocity.x, d.velocity.y) > Bodies.profiles[g.speciesId].speed + EPS
           || d.velocity.x && d.velocity.y || !d.known && (d.velocity.x || d.velocity.y)) return false;
-        if (d.signature !== JSON.stringify([d.flow, d.velocity, g.regionId, d.hold?.mealId])) return false;
+        if (d.signature !== JSON.stringify([d.flow, d.velocity, g.regionId, d.hold?.mealId, ...(d.front ? [d.front] : [])])) return false;
         const raw = d.flow, magnitude = raw && Math.hypot(raw.x, raw.y);
         if (c.ranges.length && JSON.stringify(raw) !== JSON.stringify(windAt(s.regions.find(r => r.id === g.regionId), s.plans.at(-1).season))) return false;
-        if (c.ranges.length && !d.hold && magnitude > .001) {
+        if (d.front) {
+          const region = s.regions.find(r => r.id === g.regionId), edge = region.edges.find(e => e.id === d.front.neighborId), b = edge?.windBoundary;
+          const incoming = d.front.thereFlow, length = b && Math.hypot(b.entry.eastM, b.entry.northM);
+          if (!b || edge.allowedSpecies && !edge.allowedSpecies.includes(g.speciesId)
+            || !flow(incoming) || !incoming || !(Math.hypot(incoming.x, incoming.y) > .001) || d.hold || d.velocity.x || d.velocity.y || !(magnitude > .001)
+            || Math.abs(b.offsetM - d.anchor.eastM * b.normal.x - d.anchor.northM * b.normal.y) > frontMargin(g, c)
+            || !((Math.abs(raw.x) >= Math.abs(raw.y) ? Math.sign(raw.x) * b.normal.x : Math.sign(raw.y) * b.normal.y) > 0)
+            || !((Math.abs(incoming.x) >= Math.abs(incoming.y) ? Math.sign(incoming.x) * b.entry.eastM : Math.sign(incoming.y) * b.entry.northM) / length > 0)
+            || c.ranges.length && JSON.stringify(incoming) !== JSON.stringify(windAt(s.regions.find(r => r.id === edge.id), s.plans.at(-1).season))) return false;
+        }
+        if (c.ranges.length && !d.hold && !d.front && magnitude > .001) {
           const buoyant = Object.entries(c.regional.parts).every(([part, health]) =>
             !(/bladder|membrane|buoyancy/.test(part) && health <= 40 || /torso|core|thorax|trunk|^bell$|bladder|forebody/.test(part) && health <= 5));
           if (buoyant !== Boolean(d.velocity.x || d.velocity.y)) return false;
@@ -176,5 +208,5 @@
     }
     return true;
   }
-  return { enabled, moving, plan, integrate, destinations, entry, valid, validDefinition, windAt, holding, contactSeconds, extent };
+  return { enabled, moving, plan, integrate, destinations, entry, valid, validDefinition, windAt, holding, contactSeconds, extent, convergence };
 });

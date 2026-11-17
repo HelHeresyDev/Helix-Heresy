@@ -2282,6 +2282,15 @@ saves and local handoff; wind cannot steer toward unseen food. Archived sources
 are unchanged. This remains internal #3.38-D work, not native encounter adoption
 or an ecological-health certificate. See [wind-driven scavenging](BEAST_POPULATIONS.md#wind-driven-carrion-lanterns).
 
+Carrion Lanterns now have the approved low-metabolism physiology: 50 g basal
+food-equivalent and 30 mL water daily, nominal 60-day adult fasting reserves,
+passive sensing, paid feeding exertion, tissue water and finite atmospheric
+moisture collection. Humidity alone does not create water. Numeric food/water,
+reserve and uptake values are synchronized to the Linux ODS and other catalog
+exports. The isolated generated control improves early survival but still finds
+no carrion and loses all originals by day 80; D's food-distribution and native
+adoption acceptance remains open. See [biology and conservation](BEAST_POPULATIONS.md#passive-metabolism-and-finite-moisture).
+
 New habitat proposals also archive finite [background wildlife](BACKGROUND_WILDLIFE.md):
 ordinary insects, three land-animal sizes and three fish sizes in compact age
 cohorts. Seeded finite herd/school footprints require actual horizontal and

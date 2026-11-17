@@ -11,10 +11,11 @@
     node ? require('./background-wildlife') : root.HelixBackgroundWildlife,
     node ? require('./beast-foraging') : root.HelixBeastForaging,
     node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys,
-    node ? require('./beast-wind-drift') : root.HelixBeastWindDrift);
+    node ? require('./beast-wind-drift') : root.HelixBeastWindDrift,
+    node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology);
   if (node) module.exports = api;
   root.HelixBeastRegionalFoodweb = api;
-})(globalThis, function (Data, Life, Bodies, Behavior, Predation, Wilderness, Demography, Wildlife, Foraging, Journeys, Wind) {
+})(globalThis, function (Data, Life, Bodies, Behavior, Predation, Wilderness, Demography, Wildlife, Foraging, Journeys, Wind, Lantern) {
   'use strict';
   const DAY = Life.DAY, EPS = 1e-8, BIN = 128, LIMIT = 16, DURATION = 300;
   const copy = x => JSON.parse(JSON.stringify(x)), size = c => Demography.size(c.ranges);
@@ -498,9 +499,12 @@
         }
       }
       row.edibleKg -= amount; row.massKg -= amount; row.consumedKg += amount;
-      const light = c.speciesId === 'beast:carrion-lantern' ? amount * .05 : 0;
-      eater.stores.foodKg += amount - light; eater.massKg += amount;
-      eater.regional.energy.lightKg += light;
+      if (Lantern.is(eater)) {
+        const meal = Lantern.partition(amount, Lantern.waterCapacity(eater.massKg) - eater.stores.waterL);
+        eater.stores.foodKg += meal.food; eater.stores.waterL += meal.water; eater.regional.energy.lightKg += meal.light;
+        eater.massKg += meal.food + meal.water + meal.light;
+        r.outputs ||= {}; r.outputs.carrionWaterWasteL = (r.outputs.carrionWaterWasteL || 0) + meal.wasteWater;
+      } else { eater.stores.foodKg += amount; eater.massKg += amount; }
       s.foodWeb.receipts.consumedKg += amount;
       event(s, at, 'fedFromRemains', { groupId: g.id, memberId: `${eater.originId}:${ordinal}`, sourceKey: row.sourceKey, kg: amount }); return true;
     }

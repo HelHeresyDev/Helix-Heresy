@@ -46,6 +46,17 @@ than unknown. Supply, damage, season and performed work still limit achieved rat
 
 For the new life-history numbers, select **Lifecycle & resource use**:
 
+Carrion Lantern's corrected row now shows **0.05 kg food-equivalent/day**, **0.03 L
+water/day**, **60 nominal food-reserve days** and **20 water-reserve days**.
+The additional numeric columns **Atmospheric uptake ceiling** and **Wet carrion
+fraction allocated to water** show **0.06 L/day** and **0.5**; other families use
+`N/A`, not an invented collection ability. Notes specify the 70% RH/20°C reference,
+surface/injury limits, finite source debit, 8× actual-exertion multiplier, passive
+drift exception and 3 kg wet-tissue/600 s ingestion ceiling. The multiplier is not
+charged merely for being carried by wind. Tissue water is not counted again as
+food; nominal fasting reserves do not guarantee survival without water or during
+growth/exertion.
+
 - **G–K:** food/organic kg/day, direct water L/day, mineral kg/day, fuel units/day and routine mana/day. Other energy demands and their units are in L/M. Minerals/fuel/mana are not interchangeable food kilograms; marine bodies still need seawater/oxygen even with zero direct freshwater drinking.
 - **O–Q:** earliest independent care, adult body and reproductive eligibility in days. These are different clocks; natural maturation is not replaced by a fast laboratory formation timer.
 - **S–AB:** actual reproductive counting unit, parental/queen body and mortality, attempts per **365 elapsed game days**, success fraction, offspring per successful event, gestation/incubation and cooldown. Never multiply queen recruitment by worker count or whole-colony recruitment by polyp count.

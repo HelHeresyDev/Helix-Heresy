@@ -152,7 +152,11 @@ test('temporary tracks, cached kills and ice wakes conserve source water and tha
 test('carrion light is funded by one actual corpse, affects only vulnerable visible observers and never moves them', () => {
   const a = actor('carrion-lantern'), corpse = actor('rimefang-pack', 'dead'), observer = actor('rimefang-pack', 'observer'), c = context([a, corpse, observer]);
   corpse.status = 'dead'; corpse.health = 0; observer.mapCell = cell(2);
-  const old = corpse.bodyPhysics.massKg; assert.equal(C.consumeRemains(a, corpse, 600, 0, c), true);
+  const old = corpse.bodyPhysics.massKg, before = a.bodyPhysics.massKg;
+  assert.equal(C.consumeRemains(a, corpse, 600, 0, c), true);
+  const wet = old - corpse.bodyPhysics.massKg;
+  assert.ok(Math.abs(a.life.stores.foodKg - wet * .45) < 1e-10);
+  assert.ok(Math.abs(wet - (a.bodyPhysics.massKg - before) - a.life.emitted.carrionWaterWasteL) < 1e-10);
   assert.ok(corpse.bodyPhysics.massKg < old && a.life.energy.lightKg > 0);
   run(a, 'corpseLight', null, c); C.advanceVitals(a, 2, 2, { ...c, lightAt: () => 5 });
   assert.ok(C.activeConditions(observer, 3).some(e => e.kind === 'misled')); assert.deepEqual(observer.mapCell, cell(2));

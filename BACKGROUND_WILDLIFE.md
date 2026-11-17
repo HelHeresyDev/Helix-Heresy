@@ -123,6 +123,12 @@ uses their intersection, not a region-wide dense field. Fish additionally
 require overlap between actual hunter depth/sensing reach and the school's
 water band. A distant or vertically unreachable school supplies no meal.
 Legacy homogeneous definitions retain their previous area/depth fraction.
+
+Carrion Lanterns now use saved passive observation instead of the active-search
+effort cycle above. Their food/water demand, wet-tissue partition and finite
+atmospheric uptake are described in [passive biology](BEAST_POPULATIONS.md#passive-metabolism-and-finite-moisture).
+The ordinary daily-ration-per-600-seconds ingestion rule has a Lantern exception:
+3 kg wet tissue per 600 seconds, independent of their much lower basal demand.
 This is coarse
 statistical foraging, **not** individually simulated fish, known prey coordinates,
 guaranteed success or a strategic duel multiplied over a population.
@@ -247,6 +253,9 @@ node scripts/benchmark-generated-beast-habitats.js --days=120
 
 ### Wind-enabled replay
 
+This full-ecosystem snapshot predates the passive-metabolism/moisture correction.
+It is preserved for comparison, not presented as a current corrected-biology run.
+
 The newer fresh `source-small` 120-day execution uses
 `beast-habitat-source:6702be10`. It retains 334 regions and 89 original
 populations; conserved cohort divisions bring the group count to 2,631.
@@ -285,6 +294,28 @@ scheduler, demography, parental care, the regional food web, habitat sources and
 bindings: 155 checks pass. Four browser cases cover partial wind/meal reload,
 both native body renderers and generated-source compressed storage/continuation.
 The full suite was not run under the focused-testing policy.
+
+### Corrected-biology isolated control
+
+The focused generated-geography control runs only the original 120 Carrion
+Lanterns against unchanged finite anonymous wildlife, water, climate and winds.
+Other strategic species and their work/competition are deliberately excluded;
+this is **not** another full-ecosystem or native-game viability certificate.
+It validates saved state every 20 days and runs the complete 120-day interval.
+Survivors are 116 at day 20, 66 at days 40 and 60, and zero by day 80. There are
+no births; 91 starvation, 24 dehydration and five background losses reconcile
+all originals. Actual atmospheric uptake is 141.966 L. This particular drift
+history encounters **zero food**: longer fasting is demonstrated, not sustained
+generated carrion access. No carcasses, safe destinations or rescue births were
+added to make it pass.
+
+The corrected control completes in about ten seconds with 34,936 boundaries,
+236,642 cohort integration visits and 45 final strategic cohorts. It retains
+zero active-search seconds. The new warm-humid prepared fixture survives 30 days
+without food, while dry, missing-vapour and competing-mouth controls remain
+resource-limited. Independent partial saves, real tissue-water conservation,
+native demand, wind-front interruption/rebasing and spreadsheet values have
+focused checks. The full regression suite was not run.
 
 The benchmark checks normalization at ten-day endpoints. For diagnosis, an
 explicit `--checkpoint-dir=/absolute/existing/directory` writes private

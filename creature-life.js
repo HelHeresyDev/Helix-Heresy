@@ -1,8 +1,10 @@
 (function (root, factory) {
-  const api = factory(typeof module === 'object' && module.exports ? require('./creature-biology') : root.HelixCreatureBiology);
+  const node = typeof module === 'object' && module.exports;
+  const api = factory(node ? require('./creature-biology') : root.HelixCreatureBiology,
+    node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology);
   if (typeof module === 'object' && module.exports) module.exports = api;
   root.HelixCreatureLife = api;
-})(globalThis, function (Data) {
+})(globalThis, function (Data, Lantern) {
   'use strict';
   const DAY = 86400, copy = x => JSON.parse(JSON.stringify(x));
   const finite = x => Number.isFinite(x) && x >= 0;
@@ -33,6 +35,7 @@
   function valid(a) {
     const l = a?.life;
     return Boolean(l && profile(a) && Number.isFinite(l.bornAt) && finite(l.lastAt) && finite(l.ageDays)
+      && (l.airWaterTakenL == null || finite(l.airWaterTakenL))
       && finite(l.structuralKg) && Object.values(l.stores || {}).every(finite) && l.events && Array.isArray(l.memories));
   }
   function emit(a, amounts, ctx) {
@@ -48,7 +51,8 @@
     const p = profile(a); if (!p || !valid(a)) return null;
     const juvenile = a.life.ageDays < p.adultDays;
     const mass = a.bodyPhysics.massKg / p.adultKg;
-    const factor = mass ** .75 * (juvenile ? p.juvenileMultiplier : 1) * (travelling ? p.travelMultiplier : 1) * seconds / DAY;
+    const working = Lantern.is(a) ? Lantern.active(a) : travelling;
+    const factor = mass ** .75 * (juvenile ? p.juvenileMultiplier : 1) * (working ? p.travelMultiplier : 1) * seconds / DAY;
     return { foodKg: p.foodKgDay * factor, waterL: p.waterLDay * factor, mineralsKg: p.mineralsKgDay * factor,
       mana: p.manaDay * factor, other: p.otherDay * factor };
   }
@@ -72,6 +76,16 @@
     if (!l.wasLocal) { l.wasLocal = true; return false; }
     l.ageDays = Math.max(l.ageDays, (at - l.bornAt) / DAY);
     const needs = demand(a, seconds, ctx.travelling), b = a.bodyPhysics;
+    if (Lantern.is(a)) {
+      const patch = ctx.patch?.(a.mapCell), source = patch?.resources;
+      const amount = Math.min(source?.atmosphericWaterL || 0, Lantern.airRate(a.bodyPhysics.massKg, a.bodyPhysics.parts, patch) * seconds / DAY,
+        Math.max(0, l.waterCapacityL - l.stores.waterL) + needs.waterL);
+      if (amount > 0) {
+        source.atmosphericWaterL -= amount; patch.transfers ||= {};
+        patch.transfers.atmosphericWaterL = (patch.transfers.atmosphericWaterL || 0) - amount;
+        l.stores.waterL += amount; changeMass(a, amount); l.airWaterTakenL = (l.airWaterTakenL || 0) + amount;
+      }
+    }
     l.foodCapacityKg = Math.min(b.massKg * .25, Math.max(p.foodKgDay * (p.foodReserveDays || 1), p.newbornKg || 0));
     l.fatCapacityKg = Math.min(b.massKg * .1, p.foodKgDay * (p.foodReserveDays || 0));
     for (const resource of ['foodKg', 'waterL', 'mineralsKg']) {
@@ -94,7 +108,9 @@
       const paid = Math.min(b.mana, needs.mana); b.mana -= paid; b.spentMana += paid;
       l.energyStarved = paid + 1e-10 < needs.mana;
     }
-    if (ctx.resting && !b.motion && !b.turn && !['flight', 'levitation', 'falling', 'landing'].includes(b.mode)) {
+    const passiveDrift = Lantern.is(a) && !Lantern.active(a) && b.mode === 'flight'
+      && ['bladder', 'membrane', 'buoyancy'].every(k => b.parts[k] > 40);
+    if (passiveDrift || ctx.resting && !b.motion && !b.turn && !['flight', 'levitation', 'falling', 'landing'].includes(b.mode)) {
       const nourishment = p.foodKgDay === 0 || l.stores.fatKg + l.stores.foodKg > 0;
       const hydrated = p.waterLDay === 0 || l.stores.waterL > 0;
       if (nourishment && hydrated) {

@@ -100037,6 +100037,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       raw.tileAreaM2 = map.tileSizeM ** 2;
       BeastHabitat.patch(raw, cell, map.tileSizeM);
       if (!Number.isFinite(raw.temperatureC)) raw.temperatureC = tileEnvironmentAtCell(cell)?.temperatureC ?? 20;
+      if (!Number.isFinite(raw.humidity)) raw.humidity = tileEnvironmentAtCell(cell)?.humidity;
       raw.protected = c.terrain(cell).protected;
       return raw;
     };

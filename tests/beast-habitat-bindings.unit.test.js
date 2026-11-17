@@ -101,7 +101,8 @@ test('atmospheric and river rainfall shares are deducted from the same original 
 });
 test('marine medium is its original column volume, not freshwater; living reefs require original reef-shelf geography', () => {
   for (const r of fixture().source.regions.filter(r => r.kind === 'waterColumn')) {
-    approx(r.stocks.seawaterL, r.areaHa * 10000 * r.depthM * 1000); assert.equal(r.stocks.waterL, 0);
+    approx(r.stocks.seawaterL + (r.source.evaporatedSeawaterL || 0), r.areaHa * 10000 * r.depthM * 1000); assert.equal(r.stocks.waterL, 0);
+    approx(r.stocks.atmosphericWaterL || 0, r.source.evaporatedSeawaterL || 0);
     if (r.stocks.livingReefKg > 0) assert.equal(r.biome, 'h');
   }
 });

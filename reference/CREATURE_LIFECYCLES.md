@@ -43,7 +43,7 @@ Generated from `scripts/creature-lifecycle-data.js` by the existing creature-cat
 | Rimefang Pack | 120 / 1.5 | 4 | 5 | 0 | 0 | 0 | 0 N/A |
 | Sunspine Basilisk | 400 / 0.3 | 5 | 3 | 0 | 0 | 0 | 0 N/A |
 | Ley Manta | 2000 / 10 | 0.2 | 0 | 0.02 | 0 | 60 | 0 N/A |
-| Carrion Lantern | 30 / 0.2 | 1.5 | 0.3 | 0 | 0 | 0 | 0 N/A |
+| Carrion Lantern | 30 / 0.2 | 0.05 | 0.03 | 0 | 0 | 0 | 0 N/A |
 | Brine Cathedral | 2000000 / 100 | 40000 | 0 | 200 | 0 | 0 | 0 N/A |
 | Reef Wyrm | 50000 / 30 | 800 | 0 | 20 | 0 | 0 | 0 N/A |
 | Abyssal Bell | 80000 / 100 | 600 | 0 | 0 | 0 | 0 | 0 N/A |
@@ -125,7 +125,7 @@ Generated from `scripts/creature-lifecycle-data.js` by the existing creature-cat
 | Rimefang Pack | 0.8 / 0.06 | 3650 / 730 | 7 / 2 | 25 / 1.5 | 1000 | -40 / 20 |
 | Sunspine Basilisk | 2 / 0.03 | 10950 / 2190 | 30 / 7 | 8 / 1.5 | 1200 | 10 / 50 |
 | Ley Manta | 0.3 / 0.02 | 10950 / 2190 | 7 / N/A | 100 / 1.5 | 100000 | -10 / 40 |
-| Carrion Lantern | 3 / 0.15 | 1095 / 365 | 5 / 2 | 30 / 1.5 | 500 | 0 / 40 |
+| Carrion Lantern | 3 / 0.15 | 1095 / 365 | 60 / 20 | 30 / 8 | 500 | 0 / 40 |
 | Brine Cathedral | 0.1 / 0.002 | 182500 / 36500 | 30 / N/A | 5 / 1.5 | 200000 | 8 / 32 |
 | Reef Wyrm | 1 / 0.01 | 36500 / 7300 | 14 / N/A | 30 / 1.5 | 50000 | 12 / 32 |
 | Abyssal Bell | 2 / 0.008 | 54750 / 10950 | 45 / N/A | 12 / 1.5 | 100000 | -2 / 12 |
@@ -166,7 +166,7 @@ Generated from `scripts/creature-lifecycle-data.js` by the existing creature-cat
 | Rimefang Pack | Initial lifecycle balance values; not implemented population behavior | N/A | Existing local health/combat/identity stay unchanged. Cold expenditure is conditional actual use; freezing does not create drinking water. | scripts/creature-lifecycle-data.js (initial tuning) |
 | Sunspine Basilisk | Initial lifecycle balance values; not implemented population behavior | N/A | Initial life-history tuning; preserve actual anatomy, resources, agency, received knowledge and habitat constraints. | scripts/creature-lifecycle-data.js (initial tuning) |
 | Ley Manta | Initial lifecycle balance values; not implemented population behavior | N/A | Mana feeding supplies energy, not matter. Offspring require actual parental/material mass investment; direct drinking is zero, not permission to create body water or ignore source moisture. | scripts/creature-lifecycle-data.js (initial tuning) |
-| Carrion Lantern | Initial lifecycle balance values; not implemented population behavior | N/A | Travel is a wind-dependent reference, never guaranteed directed flight. Corpse-light spends actual carrion-derived substrate; no ghosts, soul feeding or resurrection. | scripts/creature-lifecycle-data.js (initial tuning) |
+| Carrion Lantern | Initial lifecycle balance values; not implemented population behavior | N/A | Initial passive-aerostat tuning: 0.05 kg/day basal food-equivalent, 0.03 L/day water, 3 kg adult fat = nominal 60-day fasting reserve. Ordinary wind drift and passive sensing do not multiply metabolism. Actual feeding exertion uses the 8x active multiplier, not powered long-range flight. Air uptake ceiling 0.06 L/day at 70% RH/20 C, scaled by body surface and intact membrane; unknown/dry air supplies none and finite atmospheric water is debited. Wet carrion partitions 50% water, 5% light substrate, 45% food; excess water is emitted, never counted again as food. Meal intake ceiling 3 kg wet tissue/600 s is independent of basal metabolism. Growth, reproduction and light still spend original matter. Travel is only a wind-dependent reference; no soul powers. | scripts/creature-lifecycle-data.js (initial tuning) |
 | Brine Cathedral | Initial lifecycle balance values; not implemented population behavior | N/A | Zero freshwater drinking is not zero seawater dependence. Flowing/processed seawater is not consumed freshwater. Module/member damage reduces actual throughput; one polyp does not carry a whole colony reproductive rate. | scripts/creature-lifecycle-data.js (initial tuning) |
 | Reef Wyrm | Initial lifecycle balance values; not implemented population behavior | N/A | Initial life-history tuning; preserve actual anatomy, resources, agency, received knowledge and habitat constraints. | scripts/creature-lifecycle-data.js (initial tuning) |
 | Abyssal Bell | Initial lifecycle balance values; not implemented population behavior | N/A | Initial life-history tuning; preserve actual anatomy, resources, agency, received knowledge and habitat constraints. | scripts/creature-lifecycle-data.js (initial tuning) |

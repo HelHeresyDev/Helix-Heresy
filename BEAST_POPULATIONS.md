@@ -766,7 +766,7 @@ Crossing time belongs to the cohort anchor; retained formation offsets are not
 individually tiled edge passages. This does not certify native terrain, drinking
 access or every member's fine-scale travel residence.
 
-Search earns elapsed effort, but only tissue within the body's current feeding
+Lantern sensing earns elapsed observation, not active-search exertion. Only tissue within the body's current feeding
 reach can be claimed. Anonymous carcass fields retain their finite spatial
 footprints; a whole cohort must fit before receiving a shared meal. Leaving the
 field, cancelling a foraging action, crossing an edge or detailing releases unconsumed
@@ -797,9 +797,56 @@ strong gusts, damaged buoyancy, finite effort/custody, crossings, formation
 spacing, million-member batching, malformed saves and independent continuations.
 A browser case reloads partial drift through the actual index dependency order,
 continues a finite meal independently and checks the final-death freeze.
-The fresh 120-day source replay still loses every original Lantern by day 20;
-wind correctness is not food/water viability. Exact conserved totals, failure
-causes and timing are in [the wind-enabled replay](BACKGROUND_WILDLIFE.md#wind-enabled-replay).
+That initial full-ecosystem replay preceded the approved passive-metabolism
+correction. Its totals remain historical evidence, not a current survival claim.
+See [the recorded replays](BACKGROUND_WILDLIFE.md#wind-enabled-replay).
+
+### Passive metabolism and finite moisture
+
+`carrion-lantern-biology.js` shares the corrected biology across native bodies,
+regional cohorts and authored reference data. Adult basal demand is 0.05 kg
+food-equivalent and 0.03 L water per day. A full 3 kg adult fat reserve is a
+nominal 60-day fasting budget; mass scaling, youth, exertion and existing reserve
+loss still matter. No saved body receives a refill. Ordinary drift and passive
+carrion sensing stay at basal metabolism; actual feeding/holding uses the 8×
+active multiplier and retains its separate finite gripping-stamina bill.
+
+Passive observation is saved as elapsed sensing, with zero active-search seconds
+and no search-effort debit. It cannot capture future tissue or steer toward
+unseen food. Contact, handling, ingestion and actual custody still constrain
+meals. Wet-tissue ingestion has its own 3 kg/600 s ceiling, independent of basal
+demand: 45% becomes food, 5% light substrate and up to 50% stored water. Excess
+water is recorded waste. The tissue is debited once; water does not also enter
+the food store. Simultaneous drinking/maintenance at a full store does not create
+geometrically shrinking refill events.
+
+Atmospheric uptake has a 0.06 L/day adult ceiling at 70% relative humidity and
+20°C. Initial tuning multiplies body surface scaling, intact membrane fraction,
+`clamp((RH − 20)/50, 0, 1)` and `clamp((temperature + 5)/25, 0, 1)`.
+Unknown humidity/temperature or missing actual inventory supplies nothing.
+Collectors share and debit the existing finite `atmosphericWaterL` pool with
+other users; regional airborne bodies do not remotely drink ground water.
+Native patches use their actual humidity and existing finite atmospheric stock,
+including attributable vapour outputs, without inventing an inventory from a
+humidity label. Store replenishment, maintenance, mass and receipts remain saved.
+
+New proposals explicitly declare `lanternMoisture`; old reusable worlds receive
+no new pools or humidity on load. New regional humidity is a stated climate proxy:
+75% over marine columns, otherwise clamped `20 + 0.04 × aridityIndexPermille`.
+Existing land atmospheric inventories/rainfall shares remain shared. Marine
+initial vapour partitions at most 0.001 L/m² from original seawater, bounded by
+surplus above original inhabitants' minimum depth. No marine renewal or fresh
+spring is added. The narrow legacy-biology digest projection validates older
+source identities without rewriting them. Old earned meal clocks retain their
+slower throughput; the next action uses the corrected ceiling.
+
+Longer survival exposed a pre-existing discontinuous-wind boundary loop.
+Crossings now rotate the anchor's tangential offset into the receiving frame.
+Opposing normal flows form a saved coarse convergence front rather than repeated
+0.0001-second crossings. Its two actual wind sources are scheduler dependencies;
+changed wind releases it. First-survivor rebasing stays within retained formation
+width, without moving surviving bodies, steering toward food or granting effort.
+This is coarse regional flow handling, not resolved atmospheric turbulence.
 
 ### Regional feeding and ecological conflict
 

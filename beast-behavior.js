@@ -4,10 +4,11 @@
     node ? require('./creature-life') : root.HelixCreatureLife,
     node ? require('./beast-bodies') : root.HelixBeastBodies,
     node ? require('./beast-habitat') : root.HelixBeastHabitat,
-    node ? require('./beast-predation') : root.HelixBeastPredation);
+    node ? require('./beast-predation') : root.HelixBeastPredation,
+    node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology);
   if (node) module.exports = api;
   root.HelixBeastBehavior = api;
-})(globalThis, function (Data, Life, Bodies, Habitat, Predation) {
+})(globalThis, function (Data, Life, Bodies, Habitat, Predation, Lantern) {
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x)), DAY = 86400;
   const alive = a => a && a.status !== 'dead' && a.health > 0;
@@ -332,16 +333,16 @@
     if (p.oxygen === false || a.speciesId === 'beast:brine-cathedral' && !(p.waterDepthM > 0)) return false;
     let fed = 0;
     const towers = a.speciesId === 'beast:brine-cathedral' ? Object.entries(a.bodyPhysics.parts).filter(([k]) => /feeding tower/.test(k)).reduce((n, [, health]) => n + health / 100, 0) / 4 : 1;
-    const ceiling = Math.max(lp.foodKgDay, a.bodyPhysics.massKg * .001) * seconds / 600 * towers;
+    const ceiling = (Lantern.is(a) ? lp.mealKg : Math.max(lp.foodKgDay, a.bodyPhysics.massKg * .001)) * seconds / 600 * towers;
     for (const key of foodKeys(a)) {
       const amount = Math.min(p.resources[key] || 0, ceiling, Math.max(0, l.foodCapacityKg - l.stores.foodKg));
       if (amount > 0 && Habitat.take(p, { [key]: amount })) {
-        let food = amount;
-        if (a.speciesId === 'beast:carrion-lantern' && ['meatKg', 'carrionKg'].includes(key)) { const light = amount * .05; l.energy.lightKg += light; Life.changeMass(a, light); food -= light; }
-        Life.feed(a, 'foodKg', food); fed += amount;
+        if (Lantern.is(a)) eatCarrion(a, amount, ctx);
+        else Life.feed(a, 'foodKg', amount);
+        fed += amount;
       }
     }
-    const water = Math.min(p.resources.waterL || 0, lp.waterLDay * seconds / 600, Math.max(0, l.waterCapacityL - l.stores.waterL));
+    const water = Lantern.is(a) ? 0 : Math.min(p.resources.waterL || 0, lp.waterLDay * seconds / 600, Math.max(0, l.waterCapacityL - l.stores.waterL));
     if (water > 0 && Habitat.take(p, { waterL: water })) { Life.feed(a, 'waterL', water); fed += water; }
     const mineral = Math.min(p.resources.mineralsKg || 0, lp.mineralsKgDay * seconds / 600,
       Math.max(0, Math.max(lp.mineralsKgDay * 10, lp.newbornKg || 0) - l.stores.mineralsKg));
@@ -367,6 +368,13 @@
     }
     return fed > 0;
   }
+  function eatCarrion(a, amount, ctx) {
+    const meal = Lantern.partition(amount, a.life.waterCapacityL - a.life.stores.waterL);
+    Life.feed(a, 'foodKg', meal.food); Life.feed(a, 'waterL', meal.water);
+    a.life.energy.lightKg += meal.light; Life.changeMass(a, meal.light);
+    a.life.emitted.carrionWaterWasteL = (a.life.emitted.carrionWaterWasteL || 0) + meal.wasteWater;
+    if (meal.wasteWater) ctx.waste?.(a, 'carrionWaterWasteL', meal.wasteWater);
+  }
   function consumeRemains(a, corpse, seconds, at, ctx) {
     if (!(seconds > 0) || !conscious(a, at) || !ctx.alive || !ctx.local
       || !permitted(a, { ...ctx, actionId: 'feed' })
@@ -383,12 +391,12 @@
       a.life.remainsFedAt ?? at - seconds, corpse.diedAt ?? at - seconds)));
     r.feedingAt[a.id] = Math.max(at, r.feedingAt[a.id] || 0);
     a.life.remainsFedAt = Math.max(at, a.life.remainsFedAt || 0);
-    const amount = Math.min(r.edibleKg, Life.profile(a).foodKgDay * elapsed / 600, a.life.foodCapacityKg - a.life.stores.foodKg);
+    const amount = Math.min(r.edibleKg, (Lantern.is(a) ? Life.profile(a).mealKg : Life.profile(a).foodKgDay) * elapsed / 600,
+      (a.life.foodCapacityKg - a.life.stores.foodKg) / (Lantern.is(a) ? Lantern.foodFraction() : 1));
     if (!(amount > 0)) return false;
     r.edibleKg -= amount; r.consumedKg += amount; Life.changeMass(corpse, -amount);
-    let food = amount;
-    if (a.speciesId === 'beast:carrion-lantern') { const light = amount * .05; food -= light; a.life.energy.lightKg += light; Life.changeMass(a, light); }
-    Life.feed(a, 'foodKg', food); event(a, 'fedFromRemains', at, { corpseId: corpse.id, kg: amount }); return true;
+    if (Lantern.is(a)) eatCarrion(a, amount, ctx); else Life.feed(a, 'foodKg', amount);
+    event(a, 'fedFromRemains', at, { corpseId: corpse.id, kg: amount }); return true;
   }
   function regenerate(a, seconds, at, ctx) {
     const part = Object.keys(a.life.heads).find(k => a.life.heads[k].lost); if (!part || !alive(a)) return false;

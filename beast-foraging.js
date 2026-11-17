@@ -4,10 +4,11 @@
   const api = factory(node ? require('./creature-life') : root.HelixCreatureLife,
     node ? require('./creature-biology') : root.HelixCreatureBiology,
     node ? require('./beast-bodies') : root.HelixBeastBodies,
-    node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys);
+    node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys,
+    node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology);
   if (node) module.exports = api;
   root.HelixBeastForaging = api;
-})(globalThis, function (Life, Data, Bodies, Journeys) {
+})(globalThis, function (Life, Data, Bodies, Journeys, Lantern) {
   'use strict';
   const DAY = 86400, HOUR = 3600, EPS = 1e-8, DECAY = .1, copy = x => JSON.parse(JSON.stringify(x));
   const count = c => c.ranges.reduce((n, [lo, hi]) => n + hi - lo, 0);
@@ -117,7 +118,12 @@
     const f = c.foraging; if (!f || !r.foraging || !(to > from) || !count(c)) return;
     const a = f.action, seconds = to - from, n = count(c), restOK = supported(c, g, rate) && canRest(c, g, r);
     let active = 0, rest = 0;
-    if (f.phase === 'search' && a) {
+    if (f.phase === 'search' && a?.passive) {
+      // Sensing while drifting is not six hours of muscular searching. It
+      // earns elapsed observation only, with no capture before real contact.
+      a.earnedSeconds += seconds;
+      if (restOK) { rest = seconds; c.regional.stamina = Math.min(300, c.regional.stamina + seconds * .5); }
+    } else if (f.phase === 'search' && a) {
       const earned = activeAt(a, Math.max(0, to - a.startedAt)) - activeAt(a, Math.max(0, from - a.startedAt));
       rest = restOK ? Math.max(0, seconds - earned) : 0;
       active = Math.min(earned, (c.regional.stamina + rest * .5) / Math.max(.001, a.effortRate),
@@ -146,9 +152,15 @@
       const meal = r.foraging.meals[id]; if (!meal) continue;
       const eaten = decayMeal(s, r, meal, to, f.phase === 'eating' && a?.mealId === id ? a.intakePerDay * n : 0);
       if (eaten > 0) {
-        const light = g.speciesId === 'beast:carrion-lantern' ? eaten * .05 : 0;
-        c.stores.foodKg += (eaten - light) / n; c.massKg += eaten / n;
-        if (light) c.regional.energy.lightKg += light / n;
+        if (Lantern.is(c)) {
+          // Ingestion and this interval's maintenance are simultaneous flows.
+          // Include water actually consumed in the same interval so a full
+          // store does not trigger geometrically shrinking refill events.
+          const meal = Lantern.partition(eaten / n, Lantern.waterCapacity(c.massKg) - c.stores.waterL + (c.needs.waterL || 0) / n * seconds / DAY);
+          c.stores.foodKg += meal.food; c.stores.waterL += meal.water; c.regional.energy.lightKg += meal.light;
+          c.massKg += meal.food + meal.water + meal.light;
+          r.outputs ||= {}; r.outputs.carrionWaterWasteL = (r.outputs.carrionWaterWasteL || 0) + meal.wasteWater * n;
+        } else { c.stores.foodKg += eaten / n; c.massKg += eaten / n; }
         r.foraging.receipts.eatenKg += eaten;
       }
     }
@@ -157,9 +169,12 @@
   function decay(s, r, at) { for (const meal of Object.values(r.foraging?.meals || {})) decayMeal(s, r, meal, at); }
   function travelScale(c) {
     const a = c.foraging?.action;
+    if (Lantern.is(c)) return ['eating', 'handling'].includes(a?.phase) ? 1 : 0;
     return a?.phase === 'search' ? a.cycleActive / (a.cycleActive + a.cycleRest) : 0;
   }
-  const intake = c => c.foraging?.phase === 'eating' ? c.foraging.action.intakePerDay * (c.speciesId === 'beast:carrion-lantern' ? .95 : 1) : 0;
+  const intake = (c, key = 'foodKg') => c.foraging?.phase !== 'eating' ? 0 : key === 'waterL'
+    ? Lantern.is(c) ? c.foraging.action.intakePerDay * Lantern.profile().carrionWaterFraction : 0
+    : c.foraging.action.intakePerDay * (Lantern.is(c) ? Lantern.foodFraction() : 1);
   function step(s, r, g, c, at, ctx) {
     const f = c.foraging; if (!f || !r.foraging || !count(c)) return;
     f.availableUntil = Math.min(f.plan.end, ctx.until ?? Infinity);
@@ -179,7 +194,7 @@
       if (old.phase === 'search' && old.earnedSeconds > 0) {
         // Wind moves the body, not an abstract omnidirectional search disk. A
         // completed search may claim only tissue reachable at its actual end.
-        const footprint = g.windDriven ? Math.PI * Bodies.profiles[c.speciesId].reachM ** 2 / 10000
+        const footprint = Lantern.is(c) ? Math.PI * Bodies.profiles[c.speciesId].reachM ** 2 / 10000
           : (Math.PI * old.senseM ** 2 + old.speed * old.earnedSeconds * Math.min(100, old.senseM) * 2) / 10000;
         const areaHa = r.areaHa * -Math.expm1(-footprint * n / r.areaHa);
         const claims = ctx.capture({ id: old.id, areaHa, depthM: old.depthM, scavenge: old.scavenge,
@@ -205,9 +220,9 @@
       return false;
     });
     if (f.mealIds.length && c.stores.foodKg < capacity(c) - EPS && room(f, 'eating') > EPS) {
-      const meal = r.foraging.meals[f.mealIds[0]], perDay = p.foodKgDay * DAY / 600;
+      const meal = r.foraging.meals[f.mealIds[0]], perDay = Lantern.is(c) ? Lantern.mealPerDay() : p.foodKgDay * DAY / 600;
       const outflow = (c.needs.foodKg || 0) / n * (1 - (s.rates[r.id].supply[g.resources.foodKg] ?? 0));
-      const net = perDay * (g.speciesId === 'beast:carrion-lantern' ? .95 : 1) - outflow;
+      const net = perDay * (Lantern.is(c) ? Lantern.foodFraction() : 1) - outflow;
       const frozenDays = Math.max(0, (row(r, meal).frozenUntil || 0) - at) / DAY;
       const untilEmpty = meal.kg <= perDay * n * frozenDays ? meal.kg / (perDay * n) * DAY
         : (frozenDays + Math.log1p(DECAY * (meal.kg - perDay * n * frozenDays) / (perDay * n)) / DECAY) * DAY;
@@ -227,6 +242,15 @@
         hold?.effortRate > 0 ? c.regional.stamina / hold.effortRate : Infinity), { mealId: meal.id, intakePerDay: perDay }); return;
     }
     if (f.mealIds.length) release(r, c);
+    if (Lantern.is(c)) {
+      if (room(f, 'eating') < 1 || room(f, 'handling') < 60) { f.nextAt = f.plan.end; return; }
+      const actor = ctx.actor, body = Bodies.profiles[c.speciesId];
+      if (!actor || ctx.position.altitudeM > 2 || r.contactBarriers?.length) { f.nextAt = Math.min(f.plan.end, at + HOUR); return; }
+      action(c, 'search', at, Math.min(HOUR, ctx.contactTime?.(HOUR) ?? HOUR), { id: `${g.id}:${c.id}:passive:${f.serial++}`,
+        passive: true, guilds: ctx.guilds(actor), scavenge: true, cycleActive: 300, cycleRest: 0, effortRate: 0,
+        manaRate: 0, speed: 0, senseM: Math.max(body.sightM, body.scentM), depthM: 0, earnedSeconds: 0 });
+      delete c.contactBusyUntil; return;
+    }
     const need = Math.max(p.foodKgDay * .5, (c.needs.foodKg || 0) / n) + (c.provisioningDemandKgDay || 0);
     const continuingBout = f.bout && at < f.bout.until - EPS && c.stores.foodKg < capacity(c) - EPS;
     const wantsFood = continuingBout || c.stores.foodKg < need
@@ -323,18 +347,23 @@
         || ['shortageAt', 'reactedShortageAt'].some(k => f[k] != null && (!finite(f[k]) || f[k] > s.clock + EPS))) return false;
       if (f.phase === 'idle' ? f.action != null : !f.action || f.action.phase !== f.phase || f.action.dueAt !== f.nextAt || !finite(f.action.startedAt)
         || f.action.startedAt > (s.regionClocks?.[Journeys.location(g)]?.appliedAt ?? s.appliedAt) + EPS) return false;
-      if (['search', 'eating', 'handling'].includes(f.phase) && c.contactBusyUntil !== f.nextAt) return false;
+      if (['search', 'eating', 'handling'].includes(f.phase) && !f.action?.passive && c.contactBusyUntil !== f.nextAt) return false;
       const a = f.action;
       if (a && (!finite(a.dueAt) || !(a.dueAt > a.startedAt) || a.dueAt > plan.end + EPS)) return false;
       if (f.availableUntil != null && (!finite(f.availableUntil) || f.availableUntil > plan.end + EPS)
         || a && (Journeys.moving(g) || g.transit?.stop && a.dueAt > g.transit.stop.until + EPS)) return false;
-      if (a?.phase === 'eating' && (!f.mealIds.includes(a.mealId) || a.intakePerDay !== Data.lifecycle[c.speciesId].foodKgDay * DAY / 600
+      // Already scheduled pre-correction Lantern meals keep their slower
+      // earned clock; the next action uses the new independent meal ceiling.
+      const intakeValid = a?.intakePerDay === (Lantern.is(c) ? Lantern.mealPerDay() : Data.lifecycle[c.speciesId].foodKgDay * DAY / 600)
+        || Lantern.is(c) && a?.intakePerDay === 1.5 * DAY / 600;
+      if (a?.phase === 'eating' && (!f.mealIds.includes(a.mealId) || !intakeValid
         || a.dueAt - a.startedAt > 2 * HOUR + EPS)) return false;
       if (a?.phase === 'handling' && a.dueAt - a.startedAt > 60 + EPS) return false;
       if (a?.phase === 'search') {
         const r = s.regions.find(r => r.id === Journeys.location(g)), b = Bodies.profiles[c.speciesId];
+        if (a.passive != null && (a.passive !== true || !Lantern.is(c) || a.effortRate !== 0 || a.speed !== 0 || a.manaRate !== 0 || c.contactBusyUntil)) return false;
         if (typeof a.id !== 'string' || !['cycleActive', 'cycleRest', 'effortRate', 'manaRate', 'speed', 'senseM', 'depthM', 'earnedSeconds'].every(k => finite(a[k]))
-          || !(a.cycleActive >= 1 && a.cycleActive <= 300) || !(a.effortRate > 0) || a.speed > b.speed + EPS
+          || !(a.cycleActive >= 1 && a.cycleActive <= 300) || !(a.effortRate > 0 || a.passive === true && Lantern.is(c) && a.effortRate === 0) || a.speed > b.speed + EPS
           || a.dueAt - a.startedAt > HOUR + EPS || typeof a.scavenge !== 'boolean'
           || a.earnedSeconds > activeAt(a, Math.max(0, f.lastAt - a.startedAt)) + 1e-5
           || !Array.isArray(a.guilds) || new Set(a.guilds).size !== a.guilds.length

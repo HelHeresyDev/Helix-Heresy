@@ -15,10 +15,11 @@
     node ? require('./background-wildlife') : root.HelixBackgroundWildlife,
     node ? require('./beast-foraging') : root.HelixBeastForaging,
     node ? require('./beast-parental-care') : root.HelixBeastParentalCare,
-    node ? require('./beast-wind-drift') : root.HelixBeastWindDrift);
+    node ? require('./beast-wind-drift') : root.HelixBeastWindDrift,
+    node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology);
   if (node) module.exports = api;
   root.HelixBeastPopulations = api;
-})(globalThis, function (Biology, Life, Journeys, Wilderness, Predation, Bodies, Demography, Ecology, Foodweb, Scheduler, Wildlife, Foraging, Care, Wind) {
+})(globalThis, function (Biology, Life, Journeys, Wilderness, Predation, Bodies, Demography, Ecology, Foodweb, Scheduler, Wildlife, Foraging, Care, Wind, Lantern) {
   'use strict';
   const DAY = 86400, EPS = 1e-8, copy = x => JSON.parse(JSON.stringify(x));
   const diagnosticToken = Symbol('private generated-source replay');
@@ -106,6 +107,7 @@
         || r.nurseries.some(n => !id(n.id) || !Biology.lifecycle[n.speciesId] || !integer(n.capacity)
           || !Array.isArray(n.phases) || n.phases.some(i => !integer(i) || i >= source.calendar.monthDays.length)))) throw Error('Invalid sourced nursery');
       if (!Wildlife.validDefinition(r)) throw Error('Invalid original background wildlife');
+      if ([r, ...(r.seasons || [])].some(env => env.humidity != null && (!Number.isFinite(env.humidity) || env.humidity < 0 || env.humidity > 100))) throw Error('Invalid actual air humidity');
       Ecology.validate(r); regions.add(r.id);
     }
     for (const r of source.regions) for (const edge of r.edges) if (!regions.has(edge.id) || !(edge.distanceKm > 0) || !Number.isFinite(edge.distanceKm)
@@ -236,6 +238,7 @@
     references: (g, at) => {
       const refs = new Set();
       for (const c of g.cohorts) {
+        if (count(c) && c.windDrift?.front) refs.add(c.windDrift.front.neighborId);
         for (const b of c.demography?.broods || []) refs.add(b.regionId);
         if (c.nurseryId && count(c) && at - (c.birthSpan?.[1] ?? c.bornAt) < Biology.lifecycle[c.speciesId].independentDays * DAY) refs.add(g.regionId);
       }
@@ -267,16 +270,26 @@
         Demography.synchronize(s, g, c, at);
         const p = Biology.lifecycle[c.speciesId], juvenile = at - c.bornAt < p.adultDays * DAY;
         if (Wind.enabled(g) && count(c)) next = Math.min(next, Wind.plan(g, c, Demography.region(s, g.regionId), at, month,
-          Foodweb.position(g, Demography.region(s, g.regionId), c, c.ranges[0][0]), Foodweb.actor(g, c, c.ranges[0][0], Demography.region(s, g.regionId), at)));
-        const scale = count(c) * (c.massKg / p.adultKg) ** .75 * (juvenile ? p.juvenileMultiplier : 1)
-          * (Journeys.moving(g) ? p.travelMultiplier : c.foraging?.action
-            ? 1 + (p.travelMultiplier - 1) * Foraging.travelScale(c) : c.contactBusyUntil > at ? p.travelMultiplier : 1);
+          Foodweb.position(g, Demography.region(s, g.regionId), c, c.ranges[0][0]), Foodweb.actor(g, c, c.ranges[0][0], Demography.region(s, g.regionId), at),
+          id => Demography.region(s.accountRoot || s, id)));
+        const activity = Lantern.is(c) ? 1 + (p.travelMultiplier - 1) * Foraging.travelScale(c)
+          : Journeys.moving(g) ? p.travelMultiplier : c.foraging?.action
+            ? 1 + (p.travelMultiplier - 1) * Foraging.travelScale(c) : c.contactBusyUntil > at ? p.travelMultiplier : 1;
+        const scale = count(c) * (c.massKg / p.adultKg) ** .75 * (juvenile ? p.juvenileMultiplier : 1) * activity;
         c.needs = {}; c.intake = {};
         for (const key of ['foodKg', 'waterL', 'mineralsKg']) {
           const need = p[({ foodKg: 'foodKgDay', waterL: 'waterLDay', mineralsKg: 'mineralsKgDay' })[key]] * scale;
           c.needs[key] = need;
           c.intake[key] = Care.dependent(c, at) && ['foodKg', 'waterL'].includes(key) ? 0 : Ecology.Work.intake(s, g, c, key);
+          if (Lantern.is(c) && key === 'waterL') c.intake[key] = 0; // No remote ground-water drinking while airborne.
           g.needs[key] = (g.needs[key] || 0) + need * c.intake[key];
+        }
+        if (Lantern.is(c)) {
+          const region = Demography.region(s, location(g)), env = region.seasons?.[month.season] || region;
+          const maximum = Lantern.airRate(c.massKg, c.regional?.parts, { ...region, ...env });
+          c.airReferenceKg = c.massKg;
+          c.airIntakeLDay = count(c) ? Math.min(maximum, c.stores.waterL >= Lantern.waterCapacity(c.massKg) - EPS ? c.needs.waterL / count(c) : Infinity) : 0;
+          r.demand.atmosphericWaterL = (r.demand.atmosphericWaterL || 0) + c.airIntakeLDay * count(c);
         }
         next = Math.min(next, nextDeath(c, at, until));
         if (c.bornAt + p.adultDays * DAY > at + EPS) next = Math.min(next, c.bornAt + p.adultDays * DAY);
@@ -380,7 +393,8 @@
       const rate = rates[location(g)];
       for (const [key, need] of Object.entries(c.needs)) {
         const deficit = Math.max(0, need * (1 - (rate.supply[g.resources?.[key] || key] ?? 0) * c.intake[key]) / n
-          - (key === 'foodKg' ? Foraging.intake(c) : 0) - Care.intake(c, key));
+          - (['foodKg', 'waterL'].includes(key) ? Foraging.intake(c, key) : 0)
+          - (key === 'waterL' ? (c.airIntakeLDay || 0) * (rate.supply.atmosphericWaterL || 0) : 0) - Care.intake(c, key));
         if (!(deficit > EPS)) continue;
         next = Math.min(next, Care.review(c, at, key, deficit));
         const stored = (c.stores[key] || 0) + (key === 'foodKg' ? c.stores.fatKg : 0);
@@ -393,6 +407,11 @@
           c.healthLossPerDay += deficit / daily * (key === 'waterL' ? .4 : .1);
           c.scarcityCause = key === 'waterL' ? 'dehydration' : key === 'foodKg' ? 'starvation' : 'mineralDeficiency';
         }
+      }
+      if (Lantern.is(c) && count(c)) {
+        const waterNet = (c.airIntakeLDay || 0) * (rate.supply.atmosphericWaterL || 0) + Foraging.intake(c, 'waterL') - c.needs.waterL / count(c);
+        const room = Lantern.waterCapacity(c.massKg) - c.stores.waterL;
+        if (waterNet > EPS && room > EPS) next = Math.min(next, at + room / waterNet * DAY);
       }
       if (c.healthLossPerDay > 0) next = Math.min(next, at + c.health / c.healthLossPerDay * DAY);
     }
@@ -427,6 +446,11 @@
       if (g.transit?.stop) g.travelCare.usedSeconds += to - from;
       for (const c of g.cohorts) {
         const n = count(c); if (!n) continue;
+        if (Lantern.is(c)) {
+          const water = (c.airIntakeLDay || 0) * (rate.supply.atmosphericWaterL || 0) * days;
+          c.stores.waterL += water; c.massKg += water;
+          r.airMoistureTakenL = (r.airMoistureTakenL || 0) + water * n;
+        }
         if (Wind.enabled(g)) Wind.integrate(c, to);
         Foraging.integrate(s.accountRoot || s, r, g, c, from, to, rate);
         Care.effort(c, to - from, r);
@@ -570,6 +594,9 @@
     Care.finish(s, at);
     for (const g of [...s.groups]) if (Wind.enabled(g)) for (const c of [...g.cohorts].reverse()) {
       if (!count(c) || !c.windDrift?.crossing || c.windDrift.until > at + EPS) continue;
+      const r = Demography.region(s, g.regionId), edge = r.edges.find(e => e.id === c.windDrift.crossing.destination);
+      if (Wind.convergence(r, edge, Foodweb.actor(g, c, c.ranges[0][0], r, at), monthAt(s.calendar, at).season,
+        id => Demography.region(s.accountRoot || s, id))) { delete c.windDrift.crossing; continue; }
       const position = Wind.entry(c), root = s.accountRoot || s;
       c.windCrossings = (c.windCrossings || 0) + 1;
       Foodweb.handoff(s, g.id, c.id, at, { region: id => Demography.region(s, id), group: id => Demography.group(s, id), lose: (...args) => lose(s, ...args) });
@@ -944,6 +971,7 @@
         diagnosticOnly: s.diagnosticOnly === true, unlocated: s.unlocated, regionalFoodWeb: s.regionalFoodWeb,
         groups: s.groups.map(g => ({ ...g, cohorts: g.cohorts.map(c => ({ ...c, count: count(c), ageDays: Math.max(0, (s.clock - c.bornAt) / DAY) })) })) });
       for (const r of s.regions) {
+        if (r.airMoistureTakenL != null && !nonnegative(r.airMoistureTakenL)) return null;
         if (r.unmetTotals && !Object.values(r.unmetTotals).every(nonnegative)) return null;
         const rate = s.rates[r.id];
         if (!Wildlife.valid(r, s.regionClocks?.[r.id]?.appliedAt ?? s.appliedAt, id => Demography.group(s, id), s.clock)
@@ -968,6 +996,10 @@
           || !c.stores || !Object.values(c.stores).every(nonnegative) || !nonnegative(c.health) || c.health > 1
           || !integer(c.deathSerial) || !nonnegative(c.deathExposure) || !nonnegative(c.deathThreshold)
           || !c.needs || !Object.values(c.needs).every(nonnegative) || !Ecology.Work.towersValid(c)
+          || c.airIntakeLDay != null && (!Lantern.is(c) || !nonnegative(c.airIntakeLDay) || !(c.airReferenceKg > 0) || !Number.isFinite(c.airReferenceKg)
+            || c.airReferenceKg > c.massKg * 2 || c.airReferenceKg < c.massKg / 2
+            || c.airIntakeLDay > Lantern.airRate(c.airReferenceKg, c.regional?.parts,
+              { ...Demography.region(s, location(g)), ...Demography.region(s, location(g)).seasons?.[s.plans.at(-1).season] }) + EPS)
           || c.intake && Object.values(c.intake).some(n => !nonnegative(n) || n > 1)) return null;
         for (const c of g.cohorts) if (c.firstScarcity && (!nonnegative(c.firstScarcity.at) || c.firstScarcity.at > s.clock
           || !s.regions.some(r => r.id === c.firstScarcity.regionId) || typeof c.firstScarcity.dependent !== 'boolean'

@@ -11,7 +11,7 @@ function fixture(options) {
 }
 const valid = s => assert.ok(P.normalize(s, binding), `invalid at ${s.clock}`);
 test('actual wind carries a scavenger into contact with one finite original corpse, with paid holding and ingestion', () => {
-  const s = fixture(), c = s.groups[0].cohorts[0]; P.advance(s, 1000, true, true);
+  const s = fixture(), c = s.groups[0].cohorts[0]; P.advance(s, 400, true, true);
   assert.ok(c.stores.foodKg > 0); assert.ok(c.regional.energy.lightKg > 0);
   assert.ok(Math.abs(c.regionalPosition.eastM - 100) < 1e-5); assert.ok(c.windDrift.hold);
   assert.ok(s.regions[0].foraging.receipts.eatenKg > 0); assert.equal(P.audit(s)['actual-prey-population'].dead, 1); valid(s);
@@ -130,4 +130,22 @@ test('large anonymous carcasses remain a finite field, not an anchoring body or 
   P.advance(s, at + 600, true, true);
   assert.ok(c.regionalPosition.eastM > 290); assert.ok(!c.windDrift.hold); assert.equal(c.foraging.mealIds.length, 0);
   assert.equal(region.wildlife.pools[0].huntedCount, 0); assert.ok(region.wildlife.pools[0].deadCount > 0); valid(s);
+});
+test('opposing airflows meet at a saved front instead of oscillating across a border in microscopic steps', () => {
+  const src = windSource({ preyX: 10000, members: 2 }), r = src.regions[0], other = copy(r);
+  other.id = 'opposing-air'; other.wind = { x: -.5, y: 0 }; other.edges = [];
+  other.wildlife.pools.forEach(p => p.id += ':opposing'); src.regions.push(other);
+  r.edges.push({ id: other.id, distanceKm: .2, traversable: true, windBoundary: { normal: { x: 1, y: 0 }, offsetM: 100,
+    exit: { eastM: 100, northM: 0 }, entry: { eastM: -100, northM: 0 } } });
+  const s = P.create(src, binding); P.advance(s, 500, true, true);
+  const c = s.groups[0].cohorts[0]; assert.equal(c.regionalPosition.eastM, 100); assert.ok(c.windDrift.front);
+  assert.equal(s.groups[0].regionId, r.id); assert.ok(s.work.boundaries < 100); valid(s);
+  const saved = P.normalize(s, binding); P.advance(saved, 1000, true, true); valid(saved);
+  const group = saved.groups[0], original = group.cohorts[0];
+  P.kill(saved, group.id, original.id, 0, saved.clock, 'actual-first-ordinal-loss');
+  P.advance(saved, 1100, true, true); assert.ok(original.windDrift.front); assert.ok(saved.work.boundaries < 200); valid(saved);
+  const bad = copy(saved); bad.groups[0].cohorts[0].windDrift.front.thereFlow.x = .5; assert.equal(P.normalize(bad), null);
+  saved.regions[1].wind = { x: .5, y: 0 };
+  P.removeStock(saved, other.id, 'waterL', 0, saved.clock, 'actual-wind-change');
+  P.advance(saved, 1500, true, true); assert.equal(saved.groups[0].regionId, other.id); valid(saved);
 });
