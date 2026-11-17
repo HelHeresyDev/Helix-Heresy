@@ -5,10 +5,11 @@
     node ? require('./beast-bodies') : root.HelixBeastBodies,
     node ? require('./beast-habitat') : root.HelixBeastHabitat,
     node ? require('./beast-predation') : root.HelixBeastPredation,
-    node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology);
+    node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology,
+    node ? require('./carrion-lantern-approach') : root.HelixCarrionLanternApproach);
   if (node) module.exports = api;
   root.HelixBeastBehavior = api;
-})(globalThis, function (Data, Life, Bodies, Habitat, Predation, Lantern) {
+})(globalThis, function (Data, Life, Bodies, Habitat, Predation, Lantern, Approach) {
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x)), DAY = 86400;
   const alive = a => a && a.status !== 'dead' && a.health > 0;
@@ -480,15 +481,16 @@
   function step(a, decision, target, at, seconds, ctx) {
     if (!Life.valid(a) || !alive(a) || !ctx.alive || !ctx.local || !(seconds > 0) || a.life.actedAt >= at) return false;
     a.life.actedAt = at;
-    if (a.life.pending) { a.life.activity = 'preparing'; return advanceAction(a, at, seconds, ctx); }
+    if (a.life.pending) { Approach.stop(a.life, at, 'interrupted'); a.life.activity = 'preparing'; return advanceAction(a, at, seconds, ctx); }
     if (a.life.chorusUntil > at) { a.life.activity = 'chorusSupport'; return true; }
-    if (!conscious(a, at) || ctx.incapacitated) return false;
-    if (!a.life.will) { a.life.activity = 'awaitingReceivedOrder'; return true; }
+    if (!conscious(a, at) || ctx.incapacitated) { Approach.stop(a.life, at, 'unable'); return false; }
+    if (!a.life.will) { Approach.stop(a.life, at, 'unable'); a.life.activity = 'awaitingReceivedOrder'; return true; }
     if (a.spellImitation?.pending || a.climbing && a.climbing.mode !== 'perched') return false;
     const seen = observe(a, at, ctx), actions = capabilities[a.speciesId], p = ctx.patch(a.mapCell);
     packContact(a, at, ctx);
     const danger = target && decision?.behavior === 'pursue';
-    if (!danger && (a.bodyPhysics.stamina < 100 || a.life.activity === 'rest' && a.bodyPhysics.stamina < 250)) { a.life.activity = 'rest'; return true; }
+    if (danger) Approach.stop(a.life, at, 'interrupted');
+    if (!danger && (a.bodyPhysics.stamina < 100 || a.life.activity === 'rest' && a.bodyPhysics.stamina < 250)) { Approach.stop(a.life, at, 'unable'); a.life.activity = 'rest'; return true; }
     if (!p) return false;
     const lure = activeConditions(a, at).find(effect => effect.kind === 'etherLure');
     const source = lure && (ctx.actors || []).find(t => t.id === lure.from && alive(t));
@@ -512,10 +514,28 @@
       decision.behavior = 'investigate'; decision.goal = copy(p.chemicalTrail.nextCell);
     }
     if (!danger) {
-      const corpse = Predation.carcass(a, at, { ...ctx, foodKeys });
+      const preferred = Lantern.is(a) && a.life.carrionApproach
+        && (ctx.actors || []).find(t => t.id === a.life.carrionApproach.target.id);
+      const corpse = preferred && Predation.carcass(a, at, { ...ctx, actors: [preferred], foodKeys })
+        || Predation.carcass(a, at, { ...ctx, foodKeys });
       if (corpse && actions.includes('iceCache') && !(corpse.life?.remains?.frozenUntil > at)
         && begin(a, 'iceCache', corpse, at, ctx).ok) return true;
-      if (corpse && consumeRemains(a, corpse, seconds, at, ctx)) { a.life.activity = 'feed'; return true; }
+      if (corpse && consumeRemains(a, corpse, seconds, at, ctx)) { Approach.stop(a.life, at, 'arrived'); a.life.activity = 'feed'; return true; }
+      if (Lantern.is(a)) {
+        const sensed = corpse && { id: corpse.id, cell: copy(corpse.mapCell), position: {
+          eastM: corpse.mapCell.x * (ctx.tileSizeM || 1), northM: corpse.mapCell.y * (ctx.tileSizeM || 1), altitudeM: Bodies.height(corpse) } };
+        const state = Approach.observe(a.life, at, sensed, a.life.willing !== false && Bodies.capable(a, 'flight')
+          && Boolean(ctx.terrain(a.mapCell)?.wind));
+        if (state) {
+          decision.behavior = 'investigate'; decision.goal = copy(state.target.cell);
+          a.bodyPhysics.goal = copy(state.target.cell); a.life.activity = 'approachCarrion'; return false;
+        }
+        if (corpse) {
+          // A failed/unknown-air pursuit cannot fall through to the generic
+          // landing shortcut and gain an unpaid controlled descent instead.
+          a.bodyPhysics.goal = null; decision.goal = null; a.life.activity = 'idle'; return true;
+        }
+      }
       if (corpse) {
         if (['flight', 'levitation'].includes(a.bodyPhysics.mode) && Bodies.height(a) > Bodies.height(corpse) + 2
           && Math.hypot(a.mapCell.x - corpse.mapCell.x, a.mapCell.y - corpse.mapCell.y) * (ctx.tileSizeM || 1) <= 2) {

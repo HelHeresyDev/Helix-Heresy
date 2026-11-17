@@ -87,6 +87,10 @@ This completes the approved tissue-class extension inside #3.38-D. It is not a
 new prompt, a completed generated ecosystem, a new full-ecosystem replay, native
 adoption of a rejected source, or newly implemented directed Lantern flight.
 
+The subsequent approved [sensed-approach extension](CARRION_LANTERN_APPROACH.md)
+implements bounded paid steering separately and records its targeted replay;
+it does not change the tissue quantities or certify ecosystem viability.
+
 Focused verification: 154 unit checks across carcass tissues, predation,
 individual behavior, regional food-web/foraging, wildlife, wind drift, Lantern
 biology and population loss accounts; twelve catalog/workbook checks; five

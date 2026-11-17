@@ -1,9 +1,10 @@
 (function (root, factory) {
   const api = factory(typeof module === 'object' && module.exports ? require('./strategic-beast-ecology') : root.HelixStrategicBeastEcology,
-    typeof module === 'object' && module.exports ? require('./creature-biology') : root.HelixCreatureBiology);
+    typeof module === 'object' && module.exports ? require('./creature-biology') : root.HelixCreatureBiology,
+    typeof module === 'object' && module.exports ? require('./carrion-lantern-approach') : root.HelixCarrionLanternApproach);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixBeastBodies = api;
-})(globalThis, function (Ecology, Biology) {
+})(globalThis, function (Ecology, Biology, Approach) {
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x));
   const key = p => `${p.x},${p.y},${p.z}`;
@@ -259,7 +260,7 @@
     const b = a.bodyPhysics, p = profiles[a.speciesId], from = a.mapCell, t = ctx.terrain(from);
     let choices;
     if (b.mode === 'drifting' || b.mode === 'flight' && p.form === 'aerostat') {
-      const flow = b.mode === 'drifting' ? t?.current : t?.wind;
+      const control = approachCourse(a, ctx), flow = control?.velocity || (b.mode === 'drifting' ? t?.current : t?.wind);
       if (!flow || Math.hypot(flow.x, flow.y) <= .001) return null;
       choices = [{ x: from.x + (Math.abs(flow.x) >= Math.abs(flow.y) ? Math.sign(flow.x) : 0), y: from.y + (Math.abs(flow.y) > Math.abs(flow.x) ? Math.sign(flow.y) : 0), z: from.z }];
     } else {
@@ -270,6 +271,13 @@
       choices = choices.filter(x => Math.hypot(x.x - b.goal.x, x.y - b.goal.y) < Math.hypot(from.x - b.goal.x, from.y - b.goal.y));
     }
     return choices.find(c => !habitatReason(a, c, b.mode, b.altitudeM, ctx)) || null;
+  }
+  function approachCourse(a, ctx) {
+    const state = a.speciesId === Approach.ID && a.life?.carrionApproach, b = a.bodyPhysics;
+    if (!state || !(b.stamina > 0) || b.lastAt >= state.deadlineAt || b.lastAt > state.lastSeenAt + Approach.LOST) return null;
+    return Approach.course(b.massKg, b.parts, ctx.terrain(a.mapCell)?.wind, {
+      eastM: state.target.position.eastM - a.mapCell.x * (ctx.tileSizeM || 1),
+      northM: state.target.position.northM - a.mapCell.y * (ctx.tileSizeM || 1), altitudeM: state.target.position.altitudeM - b.altitudeM });
   }
   // The same cardinal local-grid advection used by passive body steps. Unknown
   // flow is not calm, and neither a goal nor food can choose this direction.
@@ -329,12 +337,22 @@
     }
     if (b.mode === 'rooting') { b.blockedReason = habitatReason(a, a.mapCell, 'rooting', 0, ctx); return false; }
     if (!capable(a, b.mode) || ctx.incapacitated) { b.blockedReason = 'Bodily incapacity or reserve exhausted'; return false; }
+    if (a.speciesId === Approach.ID && a.life?.carrionApproach) remaining = Math.min(remaining, Math.max(0, at - a.life.carrionApproach.startedAt));
     // A finite caller-supplied elapsed interval is integrated in <=1 m steps;
     // interrupted segments retain earned progress, never jump through barriers.
     for (let iterations = 0; remaining > 1e-8 && iterations < 4096; iterations++) {
       if (!b.motion) {
         const to = next(a, ctx);
         if (!to) {
+          const control = approachCourse(a, ctx);
+          if (control && Math.abs(control.velocity.z) > 1e-8) {
+            const delta = a.life.carrionApproach.target.position.altitudeM - b.altitudeM;
+            const seconds = Math.min(remaining, Math.abs(delta / control.velocity.z), b.stamina / Math.max(1e-12, control.effortRate), Approach.REVIEW);
+            const altitude = b.altitudeM + control.velocity.z * seconds;
+            if (habitatReason(a, a.mapCell, 'flight', altitude, ctx)) { b.blockedReason = 'Approach descent lacks clearance'; break; }
+            b.altitudeM = altitude; b.stamina = Math.max(0, b.stamina - seconds * control.effortRate);
+            b.spentStamina += seconds * control.effortRate; remaining -= seconds; changed = true; continue;
+          }
           if (b.mode === 'levitation') {
             const used = Math.min(b.mana, remaining * p.levitationCost); b.mana -= used; b.spentMana += used;
             if (b.mana === 0 && b.altitudeM > 0) { b.pendingFallM = b.altitudeM; b.mode = 'falling'; }
@@ -351,17 +369,20 @@
         / (Math.max(1, ctx.movementFactor || 1) * (1 + (ctx.cargoKg?.(a) || 0) / b.massKg));
       speed *= Math.max(1, Math.min(2, ctx.speedMultiplier || 1));
       if (b.mode === 'burrowing') speed /= Math.max(1, ctx.terrain(m.to).hardness);
-      if (b.mode === 'drifting' || p.form === 'aerostat' && b.mode === 'flight') {
+      const control = b.mode === 'flight' && p.form === 'aerostat' ? approachCourse(a, ctx) : null;
+      if (control) speed = Math.hypot(control.velocity.x, control.velocity.y);
+      else if (b.mode === 'drifting' || p.form === 'aerostat' && b.mode === 'flight') {
         const flow = b.mode === 'drifting' ? ctx.terrain(a.mapCell).current : ctx.terrain(a.mapCell).wind;
         speed = Math.min(speed, Math.hypot(flow?.x || 0, flow?.y || 0));
       }
       if (!(speed > 0)) break;
       const passive = b.mode === 'drifting' || b.mode === 'flight' && p.form === 'aerostat';
-      const rate = passive ? 0 : (b.mode === 'flight' ? p.airCost : b.mode === 'burrowing' ? 3 : .5) * Math.max(1, Math.min(2, ctx.speedMultiplier || 1));
+      const rate = control ? control.effortRate : passive ? 0 : (b.mode === 'flight' ? p.airCost : b.mode === 'burrowing' ? 3 : .5) * Math.max(1, Math.min(2, ctx.speedMultiplier || 1));
       const manaRate = b.mode === 'levitation' ? p.levitationCost : 0;
       const seconds = Math.min(remaining, (m.distanceM - m.progressM) / speed, rate ? b.stamina / rate : Infinity, manaRate ? b.mana / manaRate : Infinity);
       if (!(seconds > 1e-8)) break;
-      const altitude = ['flight', 'levitation'].includes(b.mode) ? Math.min(6, b.altitudeM + seconds * .5) : b.altitudeM;
+      const altitude = control ? b.altitudeM + seconds * control.velocity.z
+        : ['flight', 'levitation'].includes(b.mode) ? Math.min(6, b.altitudeM + seconds * .5) : b.altitudeM;
       if (habitatReason(a, m.to, b.mode, altitude, ctx)) { b.blockedReason = 'Vertical sweep lacks physical clearance'; break; }
       if (b.mode === 'burrowing') {
         const old = new Set(cells(a, m.from, ctx.tileSizeM || 1).map(key));

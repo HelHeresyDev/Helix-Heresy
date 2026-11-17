@@ -302,6 +302,9 @@ The full suite was not run under the focused-testing policy.
 
 ### Corrected-biology isolated control
 
+This is the earlier passive-only control. The newer sensed-approach control is
+recorded below and in [the approach contract](CARRION_LANTERN_APPROACH.md).
+
 The focused generated-geography control runs only the original 120 Carrion
 Lanterns against unchanged finite anonymous wildlife, water, climate and winds.
 Other strategic species and their work/competition are deliberately excluded;
@@ -339,3 +342,27 @@ No world is activated or relabelled exhausted to bypass those remaining D
 requirements, and no new queue item is added. Physical placement, paid catchment
 ponds, nursery/maternal formations and positioned journeys are recorded in
 [population location continuity](BEAST_POPULATIONS.md#habitat-placement-and-location-continuity).
+
+### Sensed-approach isolated control
+
+The approved [approach controller](CARRION_LANTERN_APPROACH.md) now completes
+the same targeted 120-day generated-geography control with original source
+`beast-habitat-source:622013f8`. It records 31 original-weighted approach starts,
+2,093.1604 individual-seconds of paid approach, and **2.044763 kg of actual
+remains of other original Lanterns eaten**. No anonymous wildlife is hunted or ingested.
+Only the original 120 Lanterns are simulated alongside the unchanged finite
+background guilds, atmosphere, geography and winds; no rescue bodies are added.
+
+Living originals are 116 at day 20, 71 at days 40 and 60, and zero by day 80.
+There are no births; 96 starvation, nineteen dehydration and five background
+losses reconcile the originals. Atmospheric collection is 151.333673 L. All
+twenty-day checkpoints validate. The run takes about 21.1 seconds with focused
+checks also running: 53,830 boundaries, 587,094 cohort integrations, 102,860
+regional rebuilds and 45 final strategic cohorts. A fixed formation cannot
+repeatedly declare a zero-time arrival when only its anchor reaches a corpse;
+one physically sensing original can use existing contact separation instead.
+
+This demonstrates actual sensed feeding, **not sustained generated food access**.
+The earlier passive-only control also predates typed tissues, so these outcomes
+are not an isolated steering-only causal comparison. The source remains rejected
+and the existing D acceptance remains open. No additional prompt is created.

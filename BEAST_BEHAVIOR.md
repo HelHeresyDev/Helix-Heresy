@@ -57,6 +57,13 @@ animal classes, not wood or non-biological minerals. Named-organ diets are
 representable without adding a new species. Tissue-specific decay, handling and
 Lantern water/organic/mineral yields debit the same native/regional inventory.
 
+Lanterns now use [sensed, weak paid approaches](CARRION_LANTERN_APPROACH.md)
+instead of merely setting a goal that passive wind ignores. Actual wind can
+overpower thrust; descent and horizontal steps retain full-body clearance and
+elapsed effort. Losing sensory contact preserves only the last observed point
+for twelve seconds, within a nonrenewing five-minute pursuit. No tissue is
+reserved or received before real arrival.
+
 `creature-life.js` consumes the approved numeric life histories. Actual compatible
 food, water and minerals leave finite local stocks, enter body stores/mass and
 become recorded outputs. Fat and water initially belong to the original body,

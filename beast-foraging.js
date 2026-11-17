@@ -6,10 +6,11 @@
     node ? require('./beast-bodies') : root.HelixBeastBodies,
     node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys,
     node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology,
-    node ? require('./carcass-tissues') : root.HelixCarcassTissues);
+    node ? require('./carcass-tissues') : root.HelixCarcassTissues,
+    node ? require('./carrion-lantern-approach') : root.HelixCarrionLanternApproach);
   if (node) module.exports = api;
   root.HelixBeastForaging = api;
-})(globalThis, function (Life, Data, Bodies, Journeys, Lantern, Tissues) {
+})(globalThis, function (Life, Data, Bodies, Journeys, Lantern, Tissues, Approach) {
   'use strict';
   const DAY = 86400, HOUR = 3600, EPS = 1e-8, copy = x => JSON.parse(JSON.stringify(x));
   const count = c => c.ranges.reduce((n, [lo, hi]) => n + hi - lo, 0);
@@ -72,6 +73,7 @@
     const f = c?.foraging; if (!f) return;
     release(r, c); if (f.action) r.foraging.receipts.interrupted++;
     f.action = null; f.bout = null; f.phase = 'idle'; f.nextAt = at + 6 * HOUR;
+    Approach.stop(c, at, 'interrupted');
     delete c.contactBusyUntil;
   }
   function supported(c, g, rate) {
@@ -98,7 +100,7 @@
     const f = c.foraging;
     seconds = Math.max(1e-6, Math.min(seconds, (f.availableUntil ?? f.plan.end) - at));
     f.phase = phase; f.action = { phase, startedAt: at, dueAt: at + seconds, ...data }; f.nextAt = at + seconds;
-    if (phase === 'search' || phase === 'eating' || phase === 'handling') c.contactBusyUntil = f.nextAt;
+    if (['approach', 'search', 'eating', 'handling'].includes(phase)) c.contactBusyUntil = f.nextAt;
     else delete c.contactBusyUntil;
   }
   function activeAt(a, seconds) {
@@ -134,7 +136,12 @@
     const f = c.foraging; if (!f || !r.foraging || !(to > from) || !count(c)) return;
     const a = f.action, seconds = to - from, n = count(c), restOK = supported(c, g, rate) && canRest(c, g, r);
     let active = 0, rest = 0;
-    if (f.phase === 'search' && a?.passive) {
+    if (f.phase === 'approach' && a) {
+      const cost = c.windDrift?.control?.effortRate || 0;
+      c.regional.stamina = Math.max(0, c.regional.stamina - seconds * cost);
+      f.plan.used.search += seconds; r.foraging.receipts.searchSeconds += seconds * n;
+      r.foraging.receipts.approachSeconds = (r.foraging.receipts.approachSeconds || 0) + seconds * n;
+    } else if (f.phase === 'search' && a?.passive) {
       // Sensing while drifting is not six hours of muscular searching. It
       // earns elapsed observation only, with no capture before real contact.
       a.earnedSeconds += seconds;
@@ -188,7 +195,7 @@
   function decay(s, r, at) { for (const meal of Object.values(r.foraging?.meals || {})) decayMeal(s, r, meal, at); }
   function travelScale(c) {
     const a = c.foraging?.action;
-    if (Lantern.is(c)) return ['eating', 'handling'].includes(a?.phase) ? 1 : 0;
+    if (Lantern.is(c)) return ['approach', 'eating', 'handling'].includes(a?.phase) ? 1 : 0;
     return a?.phase === 'search' ? a.cycleActive / (a.cycleActive + a.cycleRest) : 0;
   }
   const intake = (c, key = 'foodKg') => c.foraging?.phase !== 'eating' ? 0 : key === 'waterL'
@@ -210,7 +217,7 @@
     if (!old && f.nextAt > at + EPS) return;
     if (old) {
       f.action = null; f.phase = 'idle'; delete c.contactBusyUntil;
-      if (old.phase === 'search' && old.earnedSeconds > 0) {
+      if (old.phase === 'search' && old.earnedSeconds > 0 && (!Lantern.is(c) || c.stores.foodKg < capacity(c) * .5)) {
         // Wind moves the body, not an abstract omnidirectional search disk. A
         // completed search may claim only tissue reachable at its actual end.
         const footprint = Lantern.is(c) ? Math.PI * Bodies.profiles[c.speciesId].reachM ** 2 / 10000
@@ -266,8 +273,30 @@
     if (Lantern.is(c)) {
       if (room(f, 'eating') < 1 || room(f, 'handling') < 60) { f.nextAt = f.plan.end; return; }
       const actor = ctx.actor, body = Bodies.profiles[c.speciesId];
-      if (!actor || ctx.position.altitudeM > 2 || r.contactBarriers?.length) { f.nextAt = Math.min(f.plan.end, at + HOUR); return; }
-      action(c, 'search', at, Math.min(HOUR, ctx.contactTime?.(HOUR) ?? HOUR), { id: `${g.id}:${c.id}:passive:${f.serial++}`,
+      const wantsFood = c.stores.foodKg < capacity(c) * .5;
+      const target = wantsFood || c.carrionApproach ? ctx.senseCarrion?.() : null;
+      if (target?.contact) Approach.stop(c, at, 'arrived');
+      else if (g.windDriven) {
+        const pursuit = Approach.observe(c, at, target, Boolean(actor && c.regional.stamina >= (c.carrionApproach ? .001 : 30)
+          && room(f, 'search') >= 1 && ctx.approachUsable));
+        if (pursuit) {
+          const control = ctx.approachCourse(pursuit.target.position);
+          const arrival = control && Approach.contactSeconds(ctx.position, control.velocity, pursuit.target.position, body.reachM * .5);
+          if (control && arrival > 1e-6) {
+            if (pursuit.startedAt === at) r.foraging.receipts.approaches = (r.foraging.receipts.approaches || 0) + n;
+            action(c, 'approach', at, Math.min(Approach.REVIEW, pursuit.deadlineAt - at, pursuit.lastSeenAt + Approach.LOST - at,
+              arrival,
+              room(f, 'search'), c.regional.stamina / Math.max(1e-12, control.effortRate)), { targetId: pursuit.target.id }); return;
+          }
+          Approach.stop(c, at, 'unable');
+        }
+      }
+      if (!actor || ctx.position.altitudeM > 2 || r.contactBarriers?.length) {
+        f.nextAt = Math.min(f.plan.end, at + (ctx.contactTime?.(HOUR) ?? HOUR)); return;
+      }
+      const recover = target && c.regional.stamina < 30 && supported(c, g, s.rates[r.id]) && canRest(c, g, r)
+        ? (30 - c.regional.stamina) / .5 : Infinity;
+      action(c, 'search', at, target?.contact ? .1 : Math.min(HOUR, recover, ctx.contactTime?.(HOUR) ?? HOUR), { id: `${g.id}:${c.id}:passive:${f.serial++}`,
         passive: true, guilds: ctx.guilds(actor), scavenge: true, cycleActive: 300, cycleRest: 0, effortRate: 0,
         manaRate: 0, speed: 0, senseM: Math.max(body.sightM, body.scentM), depthM: 0, earnedSeconds: 0 });
       delete c.contactBusyUntil; return;
@@ -369,7 +398,8 @@
     for (const g of s.groups) for (const c of g.cohorts) if (c.foraging) {
       const f = c.foraging, plan = f.plan;
       const dormant = !count(c) || Journeys.moving(g) || !s.regions.find(r => r.id === Journeys.location(g))?.foraging;
-      if (!['idle', 'search', 'handling', 'eating', 'rest'].includes(f.phase) || !finite(f.nextAt) || !dormant && f.nextAt <= s.clock - EPS
+      if (!Approach.valid(c, s.clock) || c.carrionApproach && (!Lantern.is(c) || !g.windDriven)
+        || !['idle', 'approach', 'search', 'handling', 'eating', 'rest'].includes(f.phase) || !finite(f.nextAt) || !dormant && f.nextAt <= s.clock - EPS
         || !finite(f.lastAt) || f.lastAt > s.clock + EPS || !finite(f.restPending) || !integer(f.serial)
         || !plan || !integer(plan.monthIndex) || !finite(plan.plannedAt) || !(plan.end > plan.plannedAt)
         || !plan.used || !['search', 'eating', 'handling', 'rest'].every(k => finite(plan.used[k]))
@@ -383,9 +413,12 @@
         || ['shortageAt', 'reactedShortageAt'].some(k => f[k] != null && (!finite(f[k]) || f[k] > s.clock + EPS))) return false;
       if (f.phase === 'idle' ? f.action != null : !f.action || f.action.phase !== f.phase || f.action.dueAt !== f.nextAt || !finite(f.action.startedAt)
         || f.action.startedAt > (s.regionClocks?.[Journeys.location(g)]?.appliedAt ?? s.appliedAt) + EPS) return false;
-      if (['search', 'eating', 'handling'].includes(f.phase) && !f.action?.passive && c.contactBusyUntil !== f.nextAt) return false;
+      if (['approach', 'search', 'eating', 'handling'].includes(f.phase) && !f.action?.passive && c.contactBusyUntil !== f.nextAt) return false;
       const a = f.action;
       if (a && (!finite(a.dueAt) || !(a.dueAt > a.startedAt) || a.dueAt > plan.end + EPS)) return false;
+      if (a?.phase === 'approach' && (!c.carrionApproach || a.targetId !== c.carrionApproach.target.id
+        || a.dueAt > c.carrionApproach.deadlineAt + EPS || a.dueAt > c.carrionApproach.lastSeenAt + Approach.LOST + EPS
+        || a.dueAt - a.startedAt > Approach.REVIEW + EPS || f.mealIds.length)) return false;
       if (f.availableUntil != null && (!finite(f.availableUntil) || f.availableUntil > plan.end + EPS)
         || a && (Journeys.moving(g) || g.transit?.stop && a.dueAt > g.transit.stop.until + EPS)) return false;
       // Already scheduled pre-correction Lantern meals keep their slower
@@ -413,7 +446,8 @@
     return true;
   }
   function summary(s) {
-    const result = { searches: 0, searchSeconds: 0, eatingSeconds: 0, handlingSeconds: 0, restSeconds: 0, eatenKg: 0, interrupted: 0, meals: 0 };
+    const result = { searches: 0, searchSeconds: 0, eatingSeconds: 0, handlingSeconds: 0, restSeconds: 0, eatenKg: 0,
+      interrupted: 0, meals: 0, approaches: 0, approachSeconds: 0 };
     for (const r of s.regions) if (r.foraging) {
       for (const key of Object.keys(r.foraging.receipts)) result[key] += r.foraging.receipts[key];
       result.meals += Object.keys(r.foraging.meals).length;

@@ -69,7 +69,7 @@ test('real wet tissue hydrates an empty body and a full store does not create in
   const s = P.create(windSource(), binding), g = s.groups[0], c = g.cohorts[0], r = s.regions[0];
   const removed = c.stores.waterL; c.stores.waterL = 0; c.massKg -= removed; r.outputs = { preparedWaterLossL: removed };
   P.kill(s, s.groups[1].id, s.groups[1].cohorts[0].id, 0, 0, 'original-carcass');
-  P.advance(s, 400, true, true); assert.ok(c.stores.waterL > .2); assert.ok(c.stores.foodKg > 0);
+  P.advance(s, 600, true, true); assert.ok(c.stores.waterL > .2); assert.ok(c.stores.foodKg > 0);
   P.advance(s, DAY, true, true); assert.ok(s.work.boundaries < 1000); valid(s);
 });
 test('forged air receipts, rates, passive flags and impossible humidity are rejected', () => {

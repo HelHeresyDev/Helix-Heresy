@@ -12,10 +12,11 @@
     node ? require('./beast-foraging') : root.HelixBeastForaging,
     node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys,
     node ? require('./beast-wind-drift') : root.HelixBeastWindDrift,
-    node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology);
+    node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology,
+    node ? require('./carrion-lantern-approach') : root.HelixCarrionLanternApproach);
   if (node) module.exports = api;
   root.HelixBeastRegionalFoodweb = api;
-})(globalThis, function (Data, Life, Bodies, Behavior, Predation, Wilderness, Demography, Wildlife, Foraging, Journeys, Wind, Lantern) {
+})(globalThis, function (Data, Life, Bodies, Behavior, Predation, Wilderness, Demography, Wildlife, Foraging, Journeys, Wind, Lantern, Approach) {
   'use strict';
   const DAY = Life.DAY, EPS = 1e-8, BIN = 128, LIMIT = 16, DURATION = 300;
   const Tissues = Predation.tissues;
@@ -710,10 +711,31 @@
       if (onlyGroup && g.id !== onlyGroup) continue;
       const r = regions.get(Journeys.location(g)); if (!r?.foraging || Journeys.moving(g)) continue;
       if (!Behavior.capabilities[g.speciesId]?.includes('hunt') && g.speciesId !== 'beast:carrion-lantern') continue;
-      for (const c of g.cohorts) {
+      for (let c of [...g.cohorts]) {
         if (!size(c) || c.dependency && at - c.bornAt < Data.lifecycle[c.speciesId].independentDays * DAY) continue;
         Foraging.plan(g, c, month, at);
-        const a = actor(g, c, c.ranges[0][0], r, at), pos = position(g, r, c, c.ranges[0][0]);
+        let a = actor(g, c, c.ranges[0][0], r, at), pos = position(g, r, c, c.ranges[0][0]);
+        const sensed = g.windDriven && size(c) > 1 && !c.foraging.mealIds.length
+          && (!c.foraging.action || c.foraging.action.passive) && c.stores.foodKg < Foraging.capacity(c) * .5
+          && at >= (c.carrionApproachCooldownUntil || 0) && sensedCarrion(r, g, c, pos);
+        if (sensed?.kind === 'beast') {
+          // One point corpse cannot feed a spatially extended formation.
+          // Separate one actually sensing original, using existing contact
+          // custody, rather than dragging everyone to the first member's nose
+          // or creating per-animal planners for the whole population.
+          const old = c, ordinal = c.ranges[0][0]; c = split(g, old, ordinal, at);
+          old.carrionApproachCooldownUntil = at + Approach.RETRY;
+          c.regionalPosition = copy(pos); delete c.windDrift;
+          a = actor(g, c, ordinal, r, at); pos = position(g, r, c, ordinal);
+          if (c.foraging.action?.passive) c.foraging.action.dueAt = c.foraging.nextAt = at;
+        }
+        // A real local change may expose carrion before the next coarse
+        // passive review. It wakes observation, never prepays approach or a
+        // future search/capture. Short already-earned reviews remain intact.
+        if (g.windDriven && c.foraging.action?.passive && c.foraging.nextAt > at + Approach.REVIEW
+          && c.stores.foodKg < Foraging.capacity(c) * .5
+          && at >= (c.carrionApproachCooldownUntil || 0) && sensedCarrion(r, g, c, pos))
+          c.foraging.action.dueAt = c.foraging.nextAt = at;
         if (c.foraging.nextAt <= at + EPS || c.foraging.action) restore(c, g, r, at);
         const ctx = a && context(r, [a], month.season);
         // Regional terrain is explicitly identical at every cell, with no body
@@ -731,7 +753,11 @@
           originalCarrion: g.windDriven && [...Object.values(r.remains || {}), ...Object.values(r.remainsBatches || {})].some(row => row.position && row.edibleKg > (row.reservedKg || 0)),
           canHold: () => Wind.holding(g, c, r, Wind.windAt(r, month.season), pos, true),
           clearance: Wind.enabled(g) ? Wind.extent(g, c, pos, pos) : 0,
-          contactTime: horizon => windContact(r, c, pos, horizon),
+          contactTime: horizon => windContact(r, g, c, pos, horizon),
+          senseCarrion: () => sensedCarrion(r, g, c, pos),
+          approachUsable: Boolean(g.windDriven && Wind.windAt(r, month.season) && !r.contactBarriers?.length && Bodies.capable(a, 'flight')),
+          approachCourse: target => Approach.course(c.massKg, c.regional.parts, Wind.windAt(r, month.season), {
+            eastM: target.eastM - pos.eastM, northM: target.northM - pos.northM, altitudeM: target.altitudeM - pos.altitudeM }),
           beforeNext: beforeNext && (() => beforeNext(g, c)),
           usable: Boolean(a && pos && Behavior.conscious(a, at) && Bodies.wounded(a, /head|torso|limb|leg|wing|fin/) < .65
             && (!g.windDriven || Bodies.wounded(a, /feeding organ/) < .65)
@@ -744,7 +770,8 @@
             const claims = Wildlife.capture(r, g, c, { ...q, guilds, position: pos }, maximum, at);
             let left = maximum - claims.reduce((sum, claim) => sum + claim.kg, 0);
             if (g.windDriven) for (const [sourceId, row] of [...Object.entries(r.remains || {}), ...Object.entries(r.remainsBatches || {})]) {
-              if (!row.position || !(left > EPS) || Wind.extent(g, c, pos, row.position) > Bodies.profiles[c.speciesId].reachM) continue;
+              if (!row.position || g.protectedGroupIds?.includes(row.groupId) || !(left > EPS)
+                || Wind.extent(g, c, pos, row.position) > Bodies.profiles[c.speciesId].reachM) continue;
               const kg = Math.min(left, Tissues.available(row, c));
               if (kg > EPS) { claims.push({ kind: 'beast', sourceId, kg }); left -= kg; }
             }
@@ -753,7 +780,36 @@
       }
     }
   }
-  function windContact(r, c, pos, horizon) {
+  function sensedCarrion(r, g, c, pos) {
+    if (!g.windDriven || !pos || r.contactBarriers?.length) return null;
+    const body = Bodies.profiles[c.speciesId], sense = Math.max(body.scentM, body.sightM);
+    const clearance = Wind.extent(g, c, pos, pos), targets = [];
+    for (const [sourceId, row] of [...Object.entries(r.remains || {}), ...Object.entries(r.remainsBatches || {})]) {
+      if (!row.position || g.protectedGroupIds?.includes(row.groupId) || row.position.altitudeM < 0
+        || Wind.extent(g, c, pos, row.position) > sense || Tissues.available(row, c) <= EPS) continue;
+      targets.push({ id: `beast:${sourceId}`, kind: 'beast', sourceId, position: copy(row.position),
+        contact: Wind.extent(g, c, pos, row.position) <= body.reachM });
+    }
+    for (const pool of r.wildlife?.pools || []) {
+      const site = pool.spatial; if (!site || pool.guild === 'fish' || clearance >= sense || clearance >= site.radiusM) continue;
+      const dx = pos.eastM - site.eastM, dy = pos.northM - site.northM, distance = Math.hypot(dx, dy);
+      if (Math.hypot(Math.max(0, distance - site.radiusM) + clearance, pos.altitudeM) > sense
+        || Tissues.available(pool.carcass, c) <= EPS) continue;
+      const contact = distance + clearance <= site.radiusM && pos.altitudeM <= body.reachM;
+      // Only the nearby edge is approached, never a remotely known field
+      // centre or an unsensed distant carcass. Wide cohorts cannot borrow one
+      // member's nose to move everybody.
+      const radius = Math.max(0, site.radiusM - clearance - body.reachM * .5);
+      const step = Math.min(sense - clearance, Math.max(0, distance - radius));
+      targets.push({ id: `wildlife:${pool.id}`, kind: 'wildlife', sourceId: pool.id, contact,
+        position: { regionId: r.id, eastM: pos.eastM - (distance ? dx / distance * step : 0),
+          northM: pos.northM - (distance ? dy / distance * step : 0), altitudeM: 0 } });
+    }
+    return targets.sort((a, b) => Number(b.id === c.carrionApproach?.target.id) - Number(a.id === c.carrionApproach?.target.id)
+      || Math.hypot(a.position.eastM - pos.eastM, a.position.northM - pos.northM, a.position.altitudeM - pos.altitudeM)
+      - Math.hypot(b.position.eastM - pos.eastM, b.position.northM - pos.northM, b.position.altitudeM - pos.altitudeM) || a.id.localeCompare(b.id))[0] || null;
+  }
+  function windContact(r, g, c, pos, horizon) {
     const v = c.windDrift?.velocity; if (!v || !pos || !(v.x * v.x + v.y * v.y > EPS)) return horizon;
     const speed2 = v.x * v.x + v.y * v.y;
     const sites = [...Object.values(r.remains || {}), ...Object.values(r.remainsBatches || {})]
@@ -762,6 +818,13 @@
       sites.push({ ...pool.spatial, altitudeM: 0 });
     let next = horizon;
     for (const site of sites) {
+      const sensedRadius = site.radiusM + Math.max(0, Bodies.profiles[c.speciesId].scentM - Wind.extent(g, c, pos, pos));
+      const sx = pos.eastM - site.eastM, sy = pos.northM - site.northM, sd = sx * v.x + sy * v.y;
+      const discriminant = sd * sd - speed2 * (sx * sx + sy * sy + pos.altitudeM ** 2 - sensedRadius ** 2);
+      if (discriminant >= 0) {
+        const enter = (-sd - Math.sqrt(discriminant)) / speed2;
+        if (enter > EPS && enter <= horizon) next = Math.min(next, Math.max(1, enter + 1));
+      }
       if (Math.abs(pos.altitudeM - site.altitudeM) > 2) continue;
       const x = pos.eastM - site.eastM, y = pos.northM - site.northM, dot = x * v.x + y * v.y;
       const d = dot * dot - speed2 * (x * x + y * y - site.radiusM ** 2); if (d < 0) continue;
@@ -936,5 +999,5 @@
       unlocatedRemainsKg: s.regions.reduce((n, r) => n + Object.values(r.remainsBatches || {}).reduce((v, row) => v + (!row.position ? row.edibleKg : 0), 0), 0) };
   }
   return { initialize, initial, plan, advance, finish, foragers, cancelForaging, next, validate, validateSource, position, bounds, birthPosition, travelPlan, arrived, transitPosition,
-    environment, context, actor, restore, careCapable, split, addRemains, decay, cancel, handoff, noteFeeding, summary, LIMIT, DURATION };
+    environment, context, actor, restore, careCapable, split, addRemains, decay, cancel, handoff, noteFeeding, sensedCarrion, summary, LIMIT, DURATION };
 });

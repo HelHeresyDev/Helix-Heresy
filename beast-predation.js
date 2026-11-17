@@ -99,7 +99,9 @@
     return kg;
   }
   function carcass(a, at, ctx) {
-    if (!a.life?.will || !hungry(a) || !(ctx.foodKeys?.(a) || []).some(k => ['meatKg', 'carrionKg'].includes(k))) return null;
+    const wantsFood = a.speciesId === 'beast:carrion-lantern'
+      ? a.life?.stores.foodKg < a.life?.foodCapacityKg * .5 : hungry(a);
+    if (!a.life?.will || !wantsFood || !(ctx.foodKeys?.(a) || []).some(k => ['meatKg', 'carrionKg'].includes(k))) return null;
     return (ctx.actors || []).filter(t => t.status === 'dead' && t.speciesId !== 'beast:ironroot-colossus'
       && !ctx.protectedTarget?.(a, t) && sensed(a, t, ctx, true)
       && Tissues.available(remains(t, at), a) > 1e-8).sort((x, y) =>

@@ -598,7 +598,7 @@
     for (const g of [...s.groups]) if (Wind.enabled(g)) for (const c of [...g.cohorts].reverse()) {
       if (!count(c) || !c.windDrift?.crossing || c.windDrift.until > at + EPS) continue;
       const r = Demography.region(s, g.regionId), edge = r.edges.find(e => e.id === c.windDrift.crossing.destination);
-      if (Wind.convergence(r, edge, Foodweb.actor(g, c, c.ranges[0][0], r, at), monthAt(s.calendar, at).season,
+      if (!c.windDrift.control && Wind.convergence(r, edge, Foodweb.actor(g, c, c.ranges[0][0], r, at), monthAt(s.calendar, at).season,
         id => Demography.region(s.accountRoot || s, id))) { delete c.windDrift.crossing; continue; }
       const position = Wind.entry(c), root = s.accountRoot || s;
       c.windCrossings = (c.windCrossings || 0) + 1;

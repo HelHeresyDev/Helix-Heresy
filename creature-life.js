@@ -1,10 +1,11 @@
 (function (root, factory) {
   const node = typeof module === 'object' && module.exports;
   const api = factory(node ? require('./creature-biology') : root.HelixCreatureBiology,
-    node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology);
+    node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology,
+    node ? require('./carrion-lantern-approach') : root.HelixCarrionLanternApproach);
   if (typeof module === 'object' && module.exports) module.exports = api;
   root.HelixCreatureLife = api;
-})(globalThis, function (Data, Lantern) {
+})(globalThis, function (Data, Lantern, Approach) {
   'use strict';
   const DAY = 86400, copy = x => JSON.parse(JSON.stringify(x));
   const finite = x => Number.isFinite(x) && x >= 0;
@@ -34,7 +35,11 @@
   }
   function valid(a) {
     const l = a?.life;
-    return Boolean(l && profile(a) && Number.isFinite(l.bornAt) && finite(l.lastAt) && finite(l.ageDays)
+    return Boolean(l && profile(a) && Approach.valid(l, Math.max(l.lastAt, a.bodyPhysics?.lastAt || 0, l.actedAt || 0))
+      && (!l.carrionApproach || Lantern.is(a) && l.carrionApproach.target.cell
+        && ['x', 'y', 'z'].every(k => Number.isInteger(l.carrionApproach.target.cell[k]))
+        && l.carrionApproach.target.cell.z === a.mapCell.z)
+      && Number.isFinite(l.bornAt) && finite(l.lastAt) && finite(l.ageDays)
       && (l.airWaterTakenL == null || finite(l.airWaterTakenL))
       && finite(l.structuralKg) && Object.values(l.stores || {}).every(finite) && l.events && Array.isArray(l.memories));
   }

@@ -30,7 +30,7 @@ test('actual index dependencies preserve partial wind drift, finite meals and in
       food: c.stores.foodKg, held: Boolean(c.windDrift.hold), meals: Object.keys(s.regions[0].foraging.meals).length };
   });
   expect(result.same).toBe(true); expect(result.valid).toBe(true); expect(result.frozen).toBe(true); expect(result.independent).toBe(true);
-  expect(result.east).toBeCloseTo(100, 5); expect(result.food).toBeGreaterThan(0); expect(result.held).toBe(true); expect(result.meals).toBe(1);
+  expect(Math.abs(result.east - 100)).toBeLessThanOrEqual(.5); expect(result.food).toBeGreaterThan(0); expect(result.held).toBe(true); expect(result.meals).toBe(1);
   expect(errors).toEqual([]);
 });
 test('passive biology and finite atmospheric water survive browser reload and continued bindings', async ({ page }) => {

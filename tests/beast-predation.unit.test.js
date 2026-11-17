@@ -196,12 +196,16 @@ test('an airborne scavenger descends through the actual body movement before rea
   const a = actor('carrion-lantern'), corpse = actor('rimefang-pack', 'ground-corpse'), c = context([a, corpse]);
   corpse.status = 'dead'; corpse.health = 0; corpse.diedAt = 0;
   a.bodyPhysics.altitudeM = 6;
+  const originalTerrain = c.terrain; c.terrain = () => ({ ...originalTerrain(), wind: { x: 0, y: 0 } });
   c.patch = c.terrain;
   const decision = { behavior: 'roam', goal: cell(10) };
   assert.equal(C.step(a, decision, null, 1, 1, c), false);
-  assert.equal(a.bodyPhysics.mode, 'landing'); assert.equal(a.bodyPhysics.altitudeM, 6);
+  assert.equal(a.bodyPhysics.mode, 'flight'); assert.equal(a.bodyPhysics.altitudeM, 6);
   assert.equal(a.life.stores.foodKg, 0);
-  assert.equal(B.advance(a, 10, c), true); assert.equal(a.bodyPhysics.altitudeM, 1);
-  C.step(a, decision, null, 11, 1, c);
+  for (let at = 2; at <= 24 && !a.life.stores.foodKg; at++) {
+    C.step(a, decision, null, at, 1, c); B.advance(a, at, c);
+  }
+  assert.ok(C.distance(a, corpse, c) <= 2);
+  assert.ok(a.bodyPhysics.spentStamina > 0, 'directed descent spends real effort');
   assert.ok(a.life.stores.foodKg > 0); assert.equal(a.life.activity, 'feed');
 });

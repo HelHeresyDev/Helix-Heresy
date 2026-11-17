@@ -760,12 +760,18 @@ speed as directed flight. Canonical prevailing bearing points **toward** travel
 (0° north, 90° east); strength maps to 10 m/s at 1,000 permille. This is a stated
 simulation conversion, not a measured weather speed. Seasonal wind overrides
 are consumed when present. Unknown flow and known calm remain distinct; neither
-creates movement. This is not yet an adapter for native local weather.
+creates passive movement. Known calm can support actual paid propulsion toward
+sensed carrion; unknown flow cannot be assumed calm. This is not yet an adapter
+for native local weather.
 
 `beast-wind-drift.js` saves absolute anchor/time/velocity segments of at most an
 hour, ending sooner at monthly changes or real adjoining-cell separating planes.
 Horizontal direction and the 0.5 m/s ceiling follow the existing native passive
-body rule. Neither carcass locations nor hidden destination food can steer it.
+body rule. Passive segments cannot steer toward carcass locations or hidden
+destination food. The approved [local approach controller](CARRION_LANTERN_APPROACH.md)
+now supplies separate, paid segments of at most five seconds toward actually
+sensed nearby carrion. Its weak thrust, descent, time/effort budgets and saved
+last observation do not grant intentional long-distance migration.
 Original ordinal spacing is retained. Actual edge crossings translate the local
 position frame, partition existing cohorts where needed and settle receiving
 accounts before transferring ownership. They do not create new individuals,
@@ -775,6 +781,15 @@ globe surface path or vertical buoyancy/fall simulation.
 Crossing time belongs to the cohort anchor; retained formation offsets are not
 individually tiled edge passages. This does not certify native terrain, drinking
 access or every member's fine-scale travel residence.
+
+Point corpses can separate one actually sensing original from a spatially
+extended formation through existing contact custody, with bounded retries for
+the remainder. A snapshot cohort loop prevents recursive per-animal expansion.
+Actual arrival, not merely arrival of a large formation's anchor, gates feeding.
+New claims/pursuits wait for half-empty food stores, preventing minute-by-minute
+microscopic ration handling. Saved approach effort and all original membership
+remain conserved. The new isolated control eats 2.044763 kg from real strategic
+remains but still loses all 120 originals by day 80; this is not source acceptance.
 
 Lantern sensing earns elapsed observation, not active-search exertion. Only tissue within the body's current feeding
 reach can be claimed. Anonymous carcass fields retain their finite spatial

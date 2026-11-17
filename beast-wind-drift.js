@@ -1,10 +1,11 @@
-// Saved cohort advection in actual regional air. No destination or food policy.
+// Saved advection and bounded sensed-food control in actual regional air.
 (function (root, factory) {
   const node = typeof module === 'object' && module.exports;
-  const api = factory(node ? require('./beast-bodies') : root.HelixBeastBodies);
+  const api = factory(node ? require('./beast-bodies') : root.HelixBeastBodies,
+    node ? require('./carrion-lantern-approach') : root.HelixCarrionLanternApproach);
   if (node) module.exports = api;
   root.HelixBeastWindDrift = api;
-})(globalThis, function (Bodies) {
+})(globalThis, function (Bodies, Approach) {
   'use strict';
   const EPS = 1e-8, HOUR = 3600, copy = x => JSON.parse(JSON.stringify(x));
   const point = p => p && typeof p.regionId === 'string' && ['eastM', 'northM', 'altitudeM'].every(k => Number.isFinite(p[k]));
@@ -55,7 +56,7 @@
   }
   function holding(g, c, r, wind, position, prospective = false) {
     if (!wind || !r.floor || !position || !prospective && !['handling', 'eating'].includes(c.foraging?.phase)
-      || !(c.regional?.stamina > 0)) return null;
+      || !(c.regional?.stamina >= .001)) return null;
     const b = Bodies.profiles[c.speciesId], n = c.ranges.reduce((sum, [a, z]) => sum + z - a, 0);
     const organs = (c.regional?.parts['feeding organs'] ?? 0) / 100;
     const drag = .5 * 1.225 * b.lengthM * b.heightM * (c.massKg / b.massKg) ** (2 / 3) * Math.hypot(wind.x, wind.y) ** 2;
@@ -90,19 +91,27 @@
   function plan(g, c, r, at, month, position, actor, region) {
     if (!enabled(g) || !position || !actor) return Infinity;
     const wind = windAt(r, month.season), hold = holding(g, c, r, wind, position);
+    const pursuit = c.foraging?.phase === 'approach' && c.carrionApproach;
+    const delta = pursuit && { eastM: pursuit.target.position.eastM - position.eastM,
+      northM: pursuit.target.position.northM - position.northM, altitudeM: pursuit.target.position.altitudeM - position.altitudeM };
+    const course = pursuit && c.regional.stamina >= .001 && Approach.course(c.massKg, c.regional.parts, wind, delta);
+    const control = course && { ...course, massKg: c.massKg, parts: copy(c.regional.parts), delta, targetId: pursuit.target.id };
     const edge = r.edges.find(e => e.traversable && e.windBoundary && (!e.allowedSpecies || e.allowedSpecies.includes(g.speciesId))
       && Math.abs(e.windBoundary.offsetM - position.eastM * e.windBoundary.normal.x - position.northM * e.windBoundary.normal.y) <= frontMargin(g, c)
       && convergence(r, e, actor, month.season, region));
-    const front = edge && !hold ? convergence(r, edge, actor, month.season, region) : null;
-    const velocity = hold || front ? { x: 0, y: 0 } : Bodies.flowVelocity(actor, wind) || { x: 0, y: 0 };
-    const signature = JSON.stringify([wind, velocity, r.id, hold?.mealId, ...(front ? [front] : [])]);
+    const front = edge && !hold && !control ? convergence(r, edge, actor, month.season, region) : null;
+    const velocity = hold || front ? { x: 0, y: 0 } : control?.velocity || Bodies.flowVelocity(actor, wind) || { x: 0, y: 0 };
+    const signature = JSON.stringify([wind, velocity, r.id, hold?.mealId, ...(front ? [front] : []), ...(control ? [control] : [])]);
     let d = c.windDrift;
-    if (d && d.until > at + EPS && d.signature === signature) return d.until;
+    // A newly scheduled meal/handling interval must recheck physical contact
+    // even if the airflow signature is unchanged since the previous segment.
+    if (d && d.until > at + EPS && d.signature === signature && !['handling', 'eating'].includes(c.foraging?.phase)) return d.until;
     const f = c.regionalFormation || g.regionalFormation?.[c.originId];
     d = c.windDrift = { anchor: copy(position), startedAt: at, appliedAt: at,
       layout: { firstOrdinal: c.ranges[0][0], columns: f.columns, eastSpacingM: f.eastSpacingM, northSpacingM: f.northSpacingM },
       until: Math.min(month.end, at + HOUR), velocity, known: wind !== null, signature, flow: copy(wind),
-      ...(hold ? { hold } : {}), ...(front ? { front } : {}) };
+      ...(hold ? { hold } : {}), ...(front ? { front } : {}), ...(control ? { control } : {}) };
+    if (control) d.until = Math.min(d.until, c.foraging.action.dueAt, at + c.regional.stamina / Math.max(1e-12, control.effortRate));
     c.regionalPosition = copy(position);
     const fAction = c.foraging?.action;
     if (fAction && ['eating', 'handling'].includes(fAction.phase)) {
@@ -129,7 +138,7 @@
   function integrate(c, to) {
     const d = c.windDrift; if (!d || !(to >= d.appliedAt)) return;
     c.regionalPosition = { ...copy(d.anchor), eastM: d.anchor.eastM + d.velocity.x * (to - d.startedAt),
-      northM: d.anchor.northM + d.velocity.y * (to - d.startedAt) };
+      northM: d.anchor.northM + d.velocity.y * (to - d.startedAt), altitudeM: d.anchor.altitudeM + (d.velocity.z || 0) * (to - d.startedAt) };
     d.appliedAt = to;
   }
   function destinations(g, at) {
@@ -160,7 +169,15 @@
           || !Number.isFinite(d.velocity?.x) || !Number.isFinite(d.velocity?.y)
           || Math.hypot(d.velocity.x, d.velocity.y) > Bodies.profiles[g.speciesId].speed + EPS
           || d.velocity.x && d.velocity.y || !d.known && (d.velocity.x || d.velocity.y)) return false;
-        if (d.signature !== JSON.stringify([d.flow, d.velocity, g.regionId, d.hold?.mealId, ...(d.front ? [d.front] : [])])) return false;
+        if (d.signature !== JSON.stringify([d.flow, d.velocity, g.regionId, d.hold?.mealId, ...(d.front ? [d.front] : []), ...(d.control ? [d.control] : [])])) return false;
+        if (d.control) {
+          const q = d.control, expected = Approach.course(q.massKg, q.parts, d.flow, q.delta);
+          if (!expected || d.front || d.hold || !Number.isFinite(d.velocity.z) || d.until - d.startedAt > Approach.REVIEW + EPS
+            || JSON.stringify(expected.velocity) !== JSON.stringify(d.velocity)
+            || ['forceN', 'maximumForceN', 'effortRate'].some(k => q[k] !== expected[k])
+            || c.ranges.length && (c.foraging?.phase !== 'approach' || q.targetId !== c.carrionApproach?.target.id
+              || ['eastM', 'northM', 'altitudeM'].some((k, i) => Math.abs(q.delta[k] - (c.carrionApproach.target.position[k] - d.anchor[k])) > 1e-6))) return false;
+        } else if (d.velocity.z != null) return false;
         const raw = d.flow, magnitude = raw && Math.hypot(raw.x, raw.y);
         if (c.ranges.length && JSON.stringify(raw) !== JSON.stringify(windAt(s.regions.find(r => r.id === g.regionId), s.plans.at(-1).season))) return false;
         if (d.front) {
@@ -173,17 +190,17 @@
             || !((Math.abs(incoming.x) >= Math.abs(incoming.y) ? Math.sign(incoming.x) * b.entry.eastM : Math.sign(incoming.y) * b.entry.northM) / length > 0)
             || c.ranges.length && JSON.stringify(incoming) !== JSON.stringify(windAt(s.regions.find(r => r.id === edge.id), s.plans.at(-1).season))) return false;
         }
-        if (c.ranges.length && !d.hold && !d.front && magnitude > .001) {
+        if (c.ranges.length && !d.control && !d.hold && !d.front && magnitude > .001) {
           const buoyant = Object.entries(c.regional.parts).every(([part, health]) =>
             !(/bladder|membrane|buoyancy/.test(part) && health <= 40 || /torso|core|thorax|trunk|^bell$|bladder|forebody/.test(part) && health <= 5));
           if (buoyant !== Boolean(d.velocity.x || d.velocity.y)) return false;
         }
-        if (!d.hold && magnitude > .001 && Math.hypot(d.velocity.x, d.velocity.y) > EPS) {
+        if (!d.control && !d.hold && magnitude > .001 && Math.hypot(d.velocity.x, d.velocity.y) > EPS) {
           const expected = Math.abs(raw.x) >= Math.abs(raw.y)
             ? { x: Math.sign(raw.x) * Math.min(Bodies.profiles[g.speciesId].speed, magnitude), y: 0 }
             : { x: 0, y: Math.sign(raw.y) * Math.min(Bodies.profiles[g.speciesId].speed, magnitude) };
           if (d.velocity.x !== expected.x || d.velocity.y !== expected.y) return false;
-        } else if (!d.hold && !(magnitude > .001) && (d.velocity.x || d.velocity.y)) return false;
+        } else if (!d.control && !d.hold && !(magnitude > .001) && (d.velocity.x || d.velocity.y)) return false;
         if (d.hold) {
           const h = d.hold, b = Bodies.profiles[c.speciesId], region = s.regions.find(r => r.id === g.regionId), meal = region?.foraging?.meals[h.mealId];
           const drag = .5 * 1.225 * b.lengthM * b.heightM * (h.bodyMassKg / b.massKg) ** (2 / 3) * magnitude ** 2;
@@ -203,7 +220,8 @@
         }
         const p = c.regionalPosition;
         if (!point(p) || p.regionId !== g.regionId || Math.abs(p.eastM - d.anchor.eastM - d.velocity.x * (d.appliedAt - d.startedAt)) > 1e-6
-          || Math.abs(p.northM - d.anchor.northM - d.velocity.y * (d.appliedAt - d.startedAt)) > 1e-6 || p.altitudeM !== d.anchor.altitudeM) return false;
+          || Math.abs(p.northM - d.anchor.northM - d.velocity.y * (d.appliedAt - d.startedAt)) > 1e-6
+          || Math.abs(p.altitudeM - d.anchor.altitudeM - (d.velocity.z || 0) * (d.appliedAt - d.startedAt)) > 1e-6) return false;
         if (d.crossing && !s.regions.find(r => r.id === g.regionId)?.edges.some(e => e.id === d.crossing.destination
           && JSON.stringify(e.windBoundary) === JSON.stringify(d.crossing.boundary))) return false;
       }
