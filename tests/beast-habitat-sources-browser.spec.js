@@ -62,6 +62,8 @@ test('browser generation, compressed world storage and reload preserve private r
       initialHistoryMatches: window.HelixBackgroundWildlife.summary(continued.account).startingDead
         === window.HelixBackgroundWildlife.summary(direct.account).startingDead,
       diagnosticOnly: continued.account.diagnosticOnly, status: continued.report.status,
+      assessmentStage: continued.report.viability.stage, preliminaryWarnings: continued.report.viability.warnings.length,
+      originalSpecies: continued.report.viability.coverage.species.length,
       continuationMatches: JSON.stringify(continued.report.counts) === JSON.stringify(direct.report.counts)
         && Object.entries(direct.report.work).every(([key, n]) => Math.abs(continued.report.work[key] - n) <= 1e-8 * Math.max(1, n)),
       paidWork: Object.values(continued.report.work).some(n => n > 0), unchanged: JSON.stringify(world) === before };
@@ -71,7 +73,9 @@ test('browser generation, compressed world storage and reload preserve private r
     workSites: original.workSites, nurseries: original.nurseries, physicalDigest: original.physicalDigest,
     wildlifeDigest: original.wildlifeDigest,
     startingDead: loaded.startingDead, initialHistoryMatches: true,
-    diagnosticOnly: true, status: 'incomplete', continuationMatches: true, paidWork: true, unchanged: true });
+    diagnosticOnly: true, status: 'incomplete', assessmentStage: 'measured', preliminaryWarnings: loaded.preliminaryWarnings,
+    originalSpecies: 24, continuationMatches: true, paidWork: true, unchanged: true });
+  expect(loaded.preliminaryWarnings).toBeGreaterThan(0);
   expect(errors).toEqual([]);
 });
 

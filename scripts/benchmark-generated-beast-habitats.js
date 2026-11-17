@@ -69,8 +69,18 @@ if (require.main === module) {
   const checkpointDir = process.argv.find(arg => arg.startsWith('--checkpoint-dir='))?.slice(17);
   if (checkpointDir && (!fs.lstatSync(checkpointDir).isDirectory() || fs.lstatSync(checkpointDir).isSymbolicLink()))
     throw Error('Use an existing real checkpoint directory; snapshots never overwrite files');
-  console.log(JSON.stringify(run({ days, engine, resume: resumePath ? JSON.parse(fs.readFileSync(resumePath, 'utf8')) : null,
-    checkpoint: checkpointDir ? (value, day) => fs.writeFileSync(path.join(checkpointDir, `day-${day}.json`), JSON.stringify(value), { flag: 'wx' }) : undefined,
-    progress: value => console.log(JSON.stringify(value)) })));
+  const finalOnly = process.argv.includes('--checkpoint-final-only'), saveReport = process.argv.includes('--save-report');
+  if ((finalOnly || saveReport) && !checkpointDir) throw Error('A real checkpoint directory is required');
+  const result = run({ days, engine, resume: resumePath ? JSON.parse(fs.readFileSync(resumePath, 'utf8')) : null,
+    checkpoint: checkpointDir ? (value, day) => {
+      const finalDay = days ?? value.account.calendar.monthDays.reduce((n, d) => n + d, 0);
+      if (!finalOnly || day === finalDay) fs.writeFileSync(path.join(checkpointDir, `day-${day}.json`), JSON.stringify(value), { flag: 'wx' });
+    } : undefined, progress: value => console.log(JSON.stringify(value)) });
+  if (saveReport) {
+    const reportPath = path.join(checkpointDir, 'report.json');
+    fs.writeFileSync(reportPath, JSON.stringify(result), { flag: 'wx' });
+    console.log(JSON.stringify({ sourceId: result.sourceId, status: result.status, viability: result.viability.status,
+      days: result.days, counts: result.counts, issueKinds: result.issueKinds, reportPath }));
+  } else console.log(JSON.stringify(result));
 }
 module.exports = { run };

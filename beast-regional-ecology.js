@@ -68,7 +68,9 @@
   function initialize(s) {
     for (const r of s.regions) if (r.ecology) {
       r.ecologicalAccount = { natural: vector(), nurturing: vector(), destruction: vector(),
-        sourceLosses: [], episodes: [], exhausted: false };
+        sourceLosses: [], episodes: [], exhausted: false,
+        viabilityHistory: { startedAt: s.clock, minimumCondition: { ...r.condition }, floorBreaches: {},
+          completedCycles: 0, lastCycleBalance: vector(), maintenanceFailures: {} } };
       // A source proposal's label is not a causal episode.
       r.exhausted = false;
     }
@@ -204,9 +206,35 @@
       const a = r.ecologicalAccount, e = s.rates[r.id].ecology;
       for (const k of channels) {
         for (const kind of ['natural', 'nurturing', 'destruction']) a[kind][k] += e[kind][k] * days;
+        const before = r.condition[k];
         r.condition[k] = Math.max(0, Math.min(100, r.condition[k] + e.net[k] * days));
+        // Retain transient lows even if later supplied work restores the field.
+        // Old snapshots without this history remain unverified, never backfilled.
+        const history = a.viabilityHistory, floor = r.ecology.viabilityFloors[k];
+        if (history) {
+          history.minimumCondition[k] = Math.min(history.minimumCondition[k], before, r.condition[k]);
+          if (Number.isFinite(floor) && Math.min(before, r.condition[k]) < floor - EPS) {
+            const start = before >= floor && e.net[k] < 0 ? Math.min(days, (before - floor) / -e.net[k]) : 0;
+            const end = before < floor && e.net[k] > 0 ? Math.min(days, (floor - before) / e.net[k]) : days;
+            const breach = history.floorBreaches[k] ||= { firstAt: to - (days - start) * DAY, belowDays: 0 };
+            breach.belowDays += Math.max(0, end - start);
+          }
+        }
       }
       for (const loss of a.sourceLosses) for (const k of loss.channels) loss.damageAfter[k] += e.destruction[k] * days;
+      const history = a.viabilityHistory, cycleSeconds = s.calendar.monthDays.reduce((n, d) => n + d, 0) * DAY;
+      const cycle = Math.round((to - s.calendar.epochAt) / cycleSeconds);
+      if (history && cycle > history.completedCycles && Math.abs(to - s.calendar.epochAt - cycle * cycleSeconds) < 1e-6) {
+        for (const k of channels) {
+          const balance = a.natural[k] + a.nurturing[k] - a.destruction[k], delta = balance - history.lastCycleBalance[k];
+          if (Object.hasOwn(r.ecology.viabilityFloors, k) && delta < -EPS) {
+            const failure = history.maintenanceFailures[k] ||= { firstAt: to, cycles: 0, missingEP: 0 };
+            failure.cycles++; failure.missingEP -= delta;
+          }
+          history.lastCycleBalance[k] = balance;
+        }
+        history.completedCycles = cycle;
+      }
       assessCondition(r, to, e);
       // Rejected water renewal remains actual water leaving the usable account,
       // not matter destroyed by a percentage score. Food is foregone production.
@@ -216,6 +244,12 @@
   }
   function assessCondition(r, at, rate) {
     const a = r.ecologicalAccount;
+    if (a.viabilityHistory) for (const k of channels) {
+      const history = a.viabilityHistory;
+      history.minimumCondition[k] = Math.min(history.minimumCondition[k], r.condition[k]);
+      if (r.condition[k] < r.ecology.viabilityFloors[k] - EPS)
+        history.floorBreaches[k] ||= { firstAt: at, belowDays: 0 };
+    }
     const causalLoss = a.sourceLosses.find(loss => Object.entries(r.ecology.viabilityFloors).some(([k, floor]) => loss.channels.includes(k)
       && r.condition[k] <= floor + EPS && loss.damageAfter[k] > EPS && r.condition[k] < loss.condition[k] - EPS));
     if (!a.exhausted && causalLoss) { a.exhausted = true; a.episodes.push({ exhaustedAt: at, lossId: causalLoss.id }); }
@@ -279,6 +313,21 @@
   function valid(s) {
     for (const r of s.regions) if (r.ecology) {
       const a = r.ecologicalAccount, e = s.rates[r.id]?.ecology;
+      const history = a?.viabilityHistory;
+      if (history && (!nonnegative(history.startedAt) || history.startedAt > s.appliedAt + EPS
+        || !validVector(history.minimumCondition) || channels.some(k => history.minimumCondition[k] > r.condition[k] + EPS)
+        || !history.floorBreaches || Object.entries(history.floorBreaches).some(([k, b]) =>
+          !Object.hasOwn(r.ecology.viabilityFloors, k) || !nonnegative(b.firstAt) || b.firstAt < history.startedAt - EPS
+          || b.firstAt > s.appliedAt + EPS || !nonnegative(b.belowDays)
+          || b.belowDays > (s.appliedAt - history.startedAt) / DAY + EPS
+          || history.minimumCondition[k] >= r.ecology.viabilityFloors[k] - EPS)
+        || !Number.isSafeInteger(history.completedCycles) || history.completedCycles < 0
+        || history.completedCycles > Math.floor((s.appliedAt - s.calendar.epochAt + EPS) / (s.calendar.monthDays.reduce((n, d) => n + d, 0) * DAY))
+        || !history.lastCycleBalance || channels.some(k => !Number.isFinite(history.lastCycleBalance[k]))
+        || !history.maintenanceFailures || Object.entries(history.maintenanceFailures).some(([k, b]) =>
+          !Object.hasOwn(r.ecology.viabilityFloors, k) || !nonnegative(b.firstAt) || b.firstAt > s.appliedAt + EPS
+          || !Number.isSafeInteger(b.cycles) || b.cycles < 1 || b.cycles > history.completedCycles
+          || !(b.missingEP > 0) || !Number.isFinite(b.missingEP)))) return false;
       if (!a || !e || !Work.validRates(r, s.rates[r.id]) || !['natural', 'nurturing', 'destruction'].every(k => validVector(a[k]) && validVector(e[k]))
         || !e.net || !channels.every(k => Number.isFinite(e.net[k])
           && Math.abs(e.net[k] - (e.natural[k] + e.nurturing[k] - e.destruction[k]) / r.areaHa) < EPS)

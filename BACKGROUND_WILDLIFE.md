@@ -474,4 +474,8 @@ The newer source records paid construction history before allocating remaining
 standing matter to wildlife; its original wildlife counts are therefore derived
 from that remaining matter, not copied from the older source. Its short replay
 and still-rejected seasonal allocation are documented separately. No current
-all-species 120-day success is claimed.
+all-species 120-day success is claimed. A subsequent complete
+[measured viability replay](SEASONAL_VIABILITY.md) now covers the established
+source: real background-prey ingestion can satisfy supplied controls without
+generic meat stock, but the generated food/access and wetland-soil failures
+remain rejected rather than being excused by regional biomass.

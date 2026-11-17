@@ -169,11 +169,11 @@ test('source geography uses real realm/depth and species-specific approaches ins
 });
 test('a physically supplied prepared herbivore region passes; a bad season is explicitly rejected, not called exhausted', () => {
   const { source, region, map } = prepared((g, c) => [g('beast:gravebloom-elk', 'original-elk', [c('beast:gravebloom-elk', 'elk-adults', 2)])]);
-  assert.equal(S.assess(source, map).status, 'feasibleInitialCycle');
+  assert.equal(S.forecast(source, map).status, 'feasibleInitialCycle');
   region.stocks.forageKg = 0; region.seasons[2].renewal.forageKg = 0;
-  assert.equal(S.assess(source, map).status, 'feasibleInitialCycle', 'actual accumulated summer stock can cover a seasonal low');
+  assert.equal(S.forecast(source, map).status, 'feasibleInitialCycle', 'actual accumulated summer stock can cover a seasonal low');
   region.capacity.forageKg = 0;
-  const bad = S.assess(source, map);
+  const bad = S.forecast(source, map);
   assert.equal(bad.status, 'rejected'); assert.ok(bad.issues.some(i => i.phase === 2 && i.resource === 'forageKg' && i.missingAmount > 0));
   assert.equal(region.exhausted, false);
 });
@@ -182,7 +182,7 @@ test('predator feasibility spends actual reachable prey bodies once, never a gen
     g('beast:rimefang-pack', 'hunters', [c('beast:rimefang-pack', 'wolves', 2)]),
     g('beast:gravebloom-elk', 'prey', [c('beast:gravebloom-elk', 'breeders', 2), c('beast:gravebloom-elk', 'calves', 200, true)])
   ]);
-  const before = clone(source), result = S.assess(source, map);
+  const before = clone(source), result = S.forecast(source, map);
   assert.equal(result.status, 'rejected'); assert.deepEqual(source, before);
   assert.ok(result.issues.some(i => i.resource === 'meatKg' && i.missingAmount > 0), 'hypothetical future kills do not refill actual stocks');
   assert.ok(result.foodAllocations.length);
@@ -191,14 +191,14 @@ test('predator feasibility spends actual reachable prey bodies once, never a gen
   assert.ok(paid.every(a => Number.isSafeInteger(a.individuals) && a.individuals >= 0));
   assert.ok(kills <= 200); assert.ok(food <= kills * D.lifecycle['beast:gravebloom-elk'].newbornKg * .6 + 1e-6);
   source.groups.pop(); region.condition.renewableBiomass = 100;
-  assert.ok(S.assess(source, map).issues.some(i => i.kind === 'unfundedPrey'));
+  assert.ok(S.forecast(source, map).issues.some(i => i.kind === 'unfundedPrey'));
 });
 test('live animals do not become a scavenger food source without actual carcasses or funded predation remnants', () => {
   const { source, map } = prepared((g, c) => [
     g('beast:carrion-lantern', 'scavenger', [c('beast:carrion-lantern', 'lantern', 1)]),
     g('beast:gravebloom-elk', 'living-prey', [c('beast:gravebloom-elk', 'calves', 200, true)])
   ]);
-  const result = S.assess(source, map);
+  const result = S.forecast(source, map);
   assert.equal(result.foodAllocations.length, 0); assert.ok(result.issues.some(i => i.kind === 'unfundedPrey'));
 });
 test('distant or unwilling nurturers do not provide opposition merely because a species label shares the hex', () => {
@@ -206,15 +206,15 @@ test('distant or unwilling nurturers do not provide opposition merely because a 
     g('beast:glasswing-roc', 'roc', [c('beast:glasswing-roc', 'roc-adult', 1)]),
     g('beast:ashhorn-behemoth', 'calving-herd', [c('beast:ashhorn-behemoth', 'calf', 10, true)])
   ]);
-  assert.ok(S.assess(source, map).opposition.some(o => o.edgeId === 'roc-ashhorn'));
-  source.groups[0].willing = false; assert.equal(S.assess(source, map).opposition.length, 0);
+  assert.ok(S.forecast(source, map).opposition.some(o => o.edgeId === 'roc-ashhorn'));
+  source.groups[0].willing = false; assert.equal(S.forecast(source, map).opposition.length, 0);
   source.groups[0].willing = true; source.groups[0].home.eastKm = 10000;
-  assert.equal(S.assess(source, map).opposition.length, 0);
+  assert.equal(S.forecast(source, map).opposition.length, 0);
 });
 test('rejected candidates cannot initialize active accounts or silently certify healthy/exhausted territory', () => {
   const { record, source, map } = fixture();
   assert.equal(record.assessment.status, 'rejected'); assert.ok(record.assessment.issues.length);
-  assert.throws(() => S.runtimeSource(record, map), /Rejected initial allocation/);
+  assert.throws(() => S.runtimeSource(record, map), /remains diagnostic/);
   assert.throws(() => P.create(source, { worldId: 'world', runId: 'run' }), /unaccepted generator proposal/);
   assert.ok(source.regions.every(r => r.exhausted === false));
   assert.ok(record.unlocated.every(p => p.reason && p.count !== 0));
@@ -236,7 +236,7 @@ test('traditional seasonal destinations stay fixed while concrete route and reso
     const patch = source.regions.find(r => r.id === patchId);
     patch.stocks = Object.fromEntries(S.STOCKS.map(key => [key, 0]));
   }
-  const result = S.assess(source, map);
+  const result = S.forecast(source, map);
   assert.deepEqual(g.instinct, before);
   const journey = result.seasonalJourneys.find(j => j.groupId === g.id);
   assert.ok(journey && journey.departures > 0);
@@ -264,12 +264,12 @@ test('all resident groups compete for one finite supply, and later renewal canno
   const ration = D.lifecycle['beast:gravebloom-elk'].foodKgDay;
   region.stocks.forageKg = ration * 6;
   region.seasons.forEach(s => s.renewal.forageKg = 0);
-  const failures = S.assess(source, map).issues.filter(i => i.resource === 'forageKg');
+  const failures = S.forecast(source, map).issues.filter(i => i.resource === 'forageKg');
   approx(failures.reduce((n, i) => n + i.missingAmount, 0), ration * 2);
   approx(failures[0].at, 3 * P.DAY);
   region.stocks.forageKg = ration / 2;
   region.seasons.slice(1).forEach(s => s.renewal.forageKg = ration * 100);
-  const earlier = S.assess(source, map).issues.filter(i => i.resource === 'forageKg');
+  const earlier = S.forecast(source, map).issues.filter(i => i.resource === 'forageKg');
   assert.equal(earlier.length, 1); assert.equal(earlier[0].phase, 0);
   approx(earlier[0].at, P.DAY / 4); approx(earlier[0].missingAmount, ration * 1.5);
 });
@@ -281,7 +281,7 @@ test('archived advisory diagnostics retain their original identity, but cannot b
   archived.assessment = { status: 'feasibleInitialCycle', issues: [] };
   archived.id = ''; archived.id = `beast-habitat-source:${W.stableHash(archived)}`;
   const claimed = clone(map); claimed.beastHabitatSources = archived;
-  assert.throws(() => S.runtimeSource(archived, claimed), /current physical residence checks/);
+  assert.throws(() => S.runtimeSource(archived, claimed), /remains diagnostic/);
 });
 test('a still-travelling original group misses its seasonal deadline even without an arrival event', () => {
   const { source, map, region } = prepared((g, c) => [g('beast:gravebloom-elk', 'slow-herd', [c('beast:gravebloom-elk', 'adults', 1)])]);
@@ -291,7 +291,7 @@ test('a still-travelling original group misses its seasonal deadline even withou
   away.edges = [{ ...region.edges[0], id: region.id }]; source.regions.push(away);
   source.groups[0].instinct = { mode: 'instinctive', seasonal: { outboundRoute: [region.id, away.id],
     phases: { outboundPhase: 'thaw', residencePhase: 'highSun', returnPhase: 'stormturn', homePhase: 'deepCold' } } };
-  const report = S.assess(source, map);
+  const report = S.forecast(source, map);
   assert.ok(report.issues.some(i => i.kind === 'lateSeasonalArrival' && i.at === 2 * P.DAY));
   assert.equal(report.seasonalJourneys[0].arrivals, 0); assert.equal(report.seasonalJourneys[0].transitAtCycleEnd, true);
 });

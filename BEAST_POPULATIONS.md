@@ -543,7 +543,12 @@ sources through `beast-populations.createDiagnostic` and the real elapsed-time
 model. It is separate from world creation and ordinary runtime activation. It
 records performed work, accumulated unmet resources (including those of animals
 that subsequently die), births and conserved original membership. An incomplete
-cycle stays incomplete; a completed replay with shortfalls stays rejected.
+cycle with no known failure stays incomplete; actual shortfalls can reject even
+a partial replay. [Measured seasonal viability](SEASONAL_VIABILITY.md) separates
+archived preliminary warnings from observed feeding, paid nurturing, transient
+habitat lows and completed-cycle maintenance deficits. Its current all-species
+120-day control remains rejected, with the exact causes recorded separately
+from the old forecast's pessimistic stock assumptions.
 Performed bounded regional contacts are reported separately from still-unverified
 sustained all-species food-web/opposition viability. Potential benefits are not
 credited as executed. Rejection cannot imply historical

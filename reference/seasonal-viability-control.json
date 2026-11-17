@@ -1,0 +1,187 @@
+{
+  "scope": "Private generated diagnostic, not native adoption or a perpetual equilibrium claim",
+  "sourceId": "beast-habitat-source:9b62d184",
+  "seed": "source-small",
+  "refinement": 2,
+  "days": 120,
+  "status": "rejected",
+  "measuredStatus": "rejected",
+  "coverage": {
+    "sourceId": "beast-habitat-source:9b62d184",
+    "from": 0,
+    "until": 10368000,
+    "cycleEnd": 10368000,
+    "species": [
+      "beast:abyssal-bell",
+      "beast:ashhorn-behemoth",
+      "beast:brine-cathedral",
+      "beast:burrowing-furnace",
+      "beast:candlecap-myriapod",
+      "beast:carrion-lantern",
+      "beast:dreaming-tortoise",
+      "beast:ember-ant",
+      "beast:frostwake-leviathan",
+      "beast:glasswing-roc",
+      "beast:gloam-prowler",
+      "beast:gravebloom-elk",
+      "beast:ironroot-colossus",
+      "beast:ley-manta",
+      "beast:marsh-hydra",
+      "beast:mire-choir",
+      "beast:mirror-ape",
+      "beast:nullmaw-stalker",
+      "beast:reef-wyrm",
+      "beast:rimefang-pack",
+      "beast:rivercoil",
+      "beast:storm-kite",
+      "beast:sunspine-basilisk",
+      "beast:thunderback-grazer"
+    ],
+    "catalogRequired": true,
+    "originalLocated": 56243
+  },
+  "regions": 334,
+  "populations": 89,
+  "originalStrategicBodies": 56243,
+  "born": 190892,
+  "counts": {
+    "background": 130979,
+    "detailed": 0,
+    "dead": 116156
+  },
+  "issueKinds": {
+    "performedResourceShortfall": 61,
+    "performedHabitatFloorBreach": 51,
+    "performedMaintenanceDeficit": 51,
+    "performedScarcityDeath": 55
+  },
+  "preliminaryWarningKinds": {
+    "lateSeasonalArrival": 57,
+    "seasonalResourceDeficit": 1333,
+    "seasonalDeficit": 242,
+    "unfundedPrey": 142,
+    "unverifiedOpposition": 5
+  },
+  "shortfalls": {
+    "meatKg": 574117.4101871649,
+    "waterL": 2139.6612941968096
+  },
+  "lossesByCause": {
+    "background": 115922,
+    "dehydration": 29,
+    "starvation": 205
+  },
+  "lossesBySpecies": {
+    "beast:carrion-lantern": {
+      "background": 5,
+      "starvation": 96,
+      "dehydration": 19
+    },
+    "beast:rimefang-pack": {
+      "dehydration": 10,
+      "starvation": 49,
+      "background": 1
+    },
+    "beast:reef-wyrm": {
+      "starvation": 23
+    },
+    "beast:mirror-ape": {
+      "background": 2
+    },
+    "beast:frostwake-leviathan": {
+      "starvation": 12
+    },
+    "beast:abyssal-bell": {
+      "starvation": 12
+    },
+    "beast:nullmaw-stalker": {
+      "starvation": 2
+    },
+    "beast:glasswing-roc": {
+      "starvation": 2
+    },
+    "beast:sunspine-basilisk": {
+      "starvation": 4
+    },
+    "beast:ashhorn-behemoth": {
+      "background": 1
+    },
+    "beast:rivercoil": {
+      "background": 4
+    },
+    "beast:marsh-hydra": {
+      "starvation": 5
+    },
+    "beast:mire-choir": {
+      "background": 164
+    },
+    "beast:candlecap-myriapod": {
+      "background": 106800
+    },
+    "beast:ember-ant": {
+      "background": 6045
+    },
+    "beast:storm-kite": {
+      "background": 2768
+    },
+    "beast:ley-manta": {
+      "background": 51
+    },
+    "beast:burrowing-furnace": {
+      "background": 34
+    },
+    "beast:thunderback-grazer": {
+      "background": 47
+    }
+  },
+  "work": {
+    "filterPlankton": 599.9999999994354,
+    "graze": 440834.67345509754,
+    "tendWetland": 250181.89999982278,
+    "filterMana": 86.41389535580028,
+    "rootStabilize": 9360.000000086786,
+    "buildDam": 11.976012000000004
+  },
+  "backgroundWildlife": {
+    "original": 97503071747,
+    "born": 76667460975,
+    "living": 67161361992,
+    "dead": 106998481391,
+    "hunted": 10689339,
+    "liveKg": 4751641308.005875,
+    "consumedKg": 503247.6940380989,
+    "pending": 0,
+    "cohorts": 12896,
+    "startingDead": 6497402846,
+    "startingCarcassKg": 24347335.806720365,
+    "startingDecomposedKg": 9606361.745279698
+  },
+  "sourceAvailability": {
+    "unavailableOriginalFurnaceMetal": 8,
+    "dormantDreamWeather": 32
+  },
+  "firstFailureSnapshots": 201,
+  "firstFailureEvidence": {
+    "regional-matter-present-access-or-compatibility-unresolved": 201
+  },
+  "firstFailurePhases": {
+    "meatKg:independent:stationary": 135,
+    "waterL:dependent:travelling": 37,
+    "meatKg:dependent:stationary": 13,
+    "meatKg:independent:travelling": 2,
+    "waterL:independent:stationary": 12,
+    "meatKg:independent:stopped": 2
+  },
+  "maintenanceDeficitChannels": {
+    "soilCover": 51
+  },
+  "habitatFinding": "All 51 floor breaches/maintenance deficits are wetland soil-cover failures; current overflow adapter drives extreme modeled erosion. Not proof of nurturer defeat or realistic flood calibration.",
+  "oppositionAndAdoption": [
+    "Bounded physical contacts do not establish sustained all-species food-web/opposition viability or native source adoption"
+  ],
+  "measuredHistoryGaps": [],
+  "executionMilliseconds": 1775646,
+  "accountBytes": 114887165,
+  "boundaries": 510906,
+  "cohortIntervals": 113845376
+}

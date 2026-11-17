@@ -384,7 +384,7 @@
     for (const regionId of budgets.keys()) settle(regionId, until);
     return { issues, journeys, totals, until };
   }
-  function assess(source, map) {
+  function forecast(source, map) {
     const residence = residenceAudit(source), issues = [...residence.issues], seasons = [], speciesById = new Map(Ecology.BEAST_SPECIES.map(s => [s.id, s]));
     const pById = new Map(source.regions.map(p => [p.id, p]));
     const groupsBySpecies = new Map();
@@ -541,7 +541,7 @@
     const expanded = expand(record, map, { physical, raw: true });
     if (physical) { record.physicalBinding = Bindings.allocate(expanded, map, { positions: physicalPlacement, established: establishedHabitats }); Bindings.apply(expanded, record.physicalBinding, map); }
     if (wildlife) { record.backgroundWildlife = Wildlife.allocate(expanded, seed, { distributed: wildlifeDistribution, carcassBatches: wildlifeCarcasses }); Wildlife.apply(expanded, record.backgroundWildlife); }
-    const assessment = assess(expanded, map);
+    const assessment = forecast(expanded, map);
     for (const p of populations) {
       p.locatedIndividualCount = expanded.groups.filter(g => g.populationId === p.populationId)
         .reduce((n, g) => n + g.cohorts.reduce((sum, c) => sum + c.count, 0), 0);
@@ -611,15 +611,88 @@
     // Activation below still recomputes current feasibility before use.
     return record;
   }
+  const assessmentToken = Symbol('normalized private replay');
+  function assess(source, map, options = {}) {
+    // The archived generator forecast remains reproducible advisory data. Its
+    // hypothetical kills, baseline stocks and natural-only ledger estimate are
+    // not observations of the executed food web or paid nurturing.
+    const preliminary = map && source.groups.every(g => g.home) ? forecast(source, map) : null;
+    const warnings = copy(preliminary?.issues || []);
+    const issues = copy(source.unlocated || []).map(row => ({ kind: 'unlocatedOriginals', ...row }));
+    const result = { stage: options.account ? 'measured' : 'preliminary', status: 'unverified',
+      prediction: preliminary?.status || 'unavailable', warnings, issues,
+      policy: 'Private elapsed-source assessment; forecasts are warnings, only performed supply/work and retained habitat history establish interval support; never native adoption' };
+    if (!options.account) return result;
+    const P = typeof module === 'object' && module.exports ? require('./beast-populations') : globalThis.HelixBeastPopulations;
+    const account = options.token === assessmentToken ? options.account : P?.normalize(options.account, options.binding);
+    if (!account) { result.status = 'rejected'; issues.push({ kind: 'invalidMeasuredAccount' }); return result; }
+    const originalCounts = {}, originalCohorts = source.groups.flatMap(g => g.cohorts.map(c => ({ g, c })));
+    for (const g of source.groups) originalCounts[g.populationId] = (originalCounts[g.populationId] || 0) + g.cohorts.reduce((n, c) => n + c.count, 0);
+    const same = (a, b) => a !== undefined && b !== undefined && World.stableHash(a) === World.stableHash(b);
+    if (account.sourceId !== source.id || !same(account.calendar, source.calendar)
+      || !same(account.originalCounts, originalCounts)
+      || !same(account.regions.map(r => r.id).sort(), source.regions.map(r => r.id).sort())
+      || originalCohorts.some(({ g, c }) => !same(account.origins[c.id], { populationId: g.populationId, speciesId: c.speciesId, count: c.count }))) {
+      result.status = 'rejected'; issues.push({ kind: 'measuredSourceScopeMismatch' }); return result;
+    }
+    const cycleEnd = source.calendar.epochAt + source.calendar.monthDays.reduce((n, d) => n + d, 0) * Journeys.DAY;
+    const unresolved = [], ecology = [];
+    if (account.appliedAt < account.clock - 1e-8 || Object.values(account.regionClocks || {}).some(c => c.appliedAt < account.clock - 1e-8))
+      unresolved.push('Regional accounts are not settled through the measured endpoint');
+    const species = [...new Set(source.groups.map(g => g.speciesId))].sort();
+    if (options.requireCatalog && Ecology.BEAST_SPECIES.some(s => !species.includes(s.id))) issues.push({ kind: 'missingOriginalCatalogSpecies' });
+    for (const r of account.regions) {
+      for (const [resource, missingAmount] of Object.entries(r.unmetTotals || {}))
+        if (missingAmount > 1e-8) issues.push({ kind: 'performedResourceShortfall', regionId: r.id, resource, missingAmount });
+      const a = r.ecologicalAccount, history = a?.viabilityHistory;
+      if (!r.ecology || !history || history.startedAt !== source.calendar.epochAt) {
+        unresolved.push(`No complete observed habitat history for ${r.id}`); continue;
+      }
+      if (account.clock >= cycleEnd && !history.completedCycles) unresolved.push(`No complete seasonal maintenance history for ${r.id}`);
+      const balanceEP = Object.fromEntries(Bindings.channels.map(k => [k, a.natural[k] + a.nurturing[k] - a.destruction[k]]));
+      const minimumCondition = Object.fromEntries(Bindings.channels.map(k => [k, Math.min(history.minimumCondition[k], r.condition[k])]));
+      ecology.push({ regionId: r.id, natural: copy(a.natural), nurturing: copy(a.nurturing), destruction: copy(a.destruction),
+        balanceEP, minimumCondition, condition: copy(r.condition), exhausted: r.exhausted });
+      for (const [channel, floor] of Object.entries(r.ecology.viabilityFloors)) {
+        if (minimumCondition[channel] < floor - 1e-8) issues.push({ kind: 'performedHabitatFloorBreach', regionId: r.id, channel,
+          floor, minimum: minimumCondition[channel], ...(history.floorBreaches[channel] || {}) });
+        // Seasonal buffers may cover a temporary low. A whole-cycle negative
+        // maintenance balance is not sustainable maintenance even above the floor.
+        if (history.maintenanceFailures[channel])
+          issues.push({ kind: 'performedMaintenanceDeficit', regionId: r.id, channel, ...copy(history.maintenanceFailures[channel]) });
+        else if (account.clock >= cycleEnd && balanceEP[channel] < -1e-8)
+          issues.push({ kind: 'performedMaintenanceDeficit', regionId: r.id, channel, missingEP: -balanceEP[channel], basis: 'Observed elapsed aggregate; cycle detail unavailable' });
+      }
+    }
+    const scarcity = [];
+    for (const g of account.groups) for (const c of g.cohorts) if (c.firstScarcity) scarcity.push({ speciesId: g.speciesId,
+      groupId: g.id, originId: c.originId, ...copy(c.firstScarcity) });
+    const deaths = new Map();
+    for (const loss of [...account.losses, ...(account.lossBatches || [])]) if (['starvation', 'dehydration'].includes(loss.cause)) {
+      const key = `${loss.speciesId}:${loss.regionId}:${loss.cause}`;
+      if (!deaths.has(key)) deaths.set(key, { kind: 'performedScarcityDeath', speciesId: loss.speciesId, regionId: loss.regionId, cause: loss.cause, count: 0 });
+      deaths.get(key).count += loss.count || 1;
+      if (loss.context?.firstFailure) scarcity.push({ speciesId: loss.speciesId, groupId: loss.groupId,
+        originId: loss.originId, ...copy(loss.context.firstFailure) });
+    }
+    issues.push(...deaths.values());
+    const firstFailures = [...new Map(scarcity.map(row => [`${row.originId}:${row.regionId}:${row.at}`, row])).values()];
+    for (const row of firstFailures) row.supplyEvidence = !row.inventory ? 'unrecorded'
+      : row.inventory.regionalStock > 1e-8 || row.inventory.regionalAnimalMatterKg > 1e-8 ? 'regional-matter-present-access-or-compatibility-unresolved'
+        : 'no-recorded-regional-stock-at-first-shortfall';
+    result.coverage = { sourceId: source.id, from: source.calendar.epochAt, until: account.clock, cycleEnd,
+      species, catalogRequired: options.requireCatalog === true, originalLocated: Object.values(originalCounts).reduce((n, v) => n + v, 0) };
+    result.ecology = ecology; result.firstFailures = firstFailures; result.unresolved = unresolved;
+    result.status = issues.length ? 'rejected' : account.clock < cycleEnd ? 'incomplete' : unresolved.length ? 'unverified' : 'supported';
+    return result;
+  }
   function runtimeSource(record, map) {
     validate(record, map);
     if (map.beastHabitatSources?.id !== record.id) throw Error('Active accounts require the exact archived original source');
-    if (record.assessment.status !== 'feasibleInitialCycle') throw Error('Rejected initial allocation is unavailable, not an exhausted or healthy region');
-    const result = expand(record, map);
-    if (assess(result, map).status !== 'feasibleInitialCycle') throw Error('Original allocation is not supported by current physical residence checks');
-    if (record.physicalBinding)
-      throw Error('Bound original allocation remains diagnostic: successful initial viability and native adoption are unfinished');
-    result.diagnosticOnly = false; return result;
+    if (!record.physicalBinding) throw Error('Archived source lacks recorded physical bindings; activation cannot silently upgrade it');
+    // Neither a positive nor a negative preliminary forecast is a measured
+    // verdict. Native adoption is still unfinished even for a supported replay.
+    throw Error('Original allocation remains diagnostic: measured seasonal viability and native adoption are required');
   }
   function replay(record, map, options = {}) {
     validate(record, map);
@@ -634,9 +707,8 @@
     const until = options.until ?? cycleEnd;
     if (!Number.isFinite(until) || until < account.clock) throw Error('Invalid elapsed replay endpoint');
     P.advance(account, until, true, true);
-    const issues = copy(record.unlocated || []).map(row => ({ kind: 'unlocatedOriginals', ...row }));
-    for (const r of account.regions) for (const [resource, missingAmount] of Object.entries(r.unmetTotals || {}))
-      if (missingAmount > 1e-8) issues.push({ kind: 'performedResourceShortfall', regionId: r.id, resource, missingAmount });
+    const viability = assess(expand(record, map), map, { account, token: assessmentToken, requireCatalog: true });
+    const issues = viability.issues;
     const work = {};
     for (const r of account.regions) for (const [action, amount] of Object.entries(r.ecologicalReceipts || {})) work[action] = (work[action] || 0) + amount;
     const audit = P.audit(account), counts = Object.values(audit).reduce((sum, row) => {
@@ -644,8 +716,8 @@
     }, { background: 0, detailed: 0, dead: 0 });
     const unresolved = ['Bounded physical contacts do not establish sustained all-species food-web/opposition viability or native source adoption'];
     const report = { diagnosticOnly: true, sourceId: record.id, until, cycleEnd,
-      status: until < cycleEnd ? 'incomplete' : issues.length ? 'rejected' : 'unverified',
-      issues, unresolved, work, counts, initialLocated: Object.values(account.originalCounts).reduce((n, v) => n + v, 0),
+      status: viability.status === 'supported' ? 'unverified' : viability.status,
+      issues, unresolved, viability, work, counts, initialLocated: Object.values(account.originalCounts).reduce((n, v) => n + v, 0),
       born: account.births.reduce((n, b) => n + b.count, 0), populations: copy(record.populations), sourceAvailability: copy(record.physicalBinding.issues),
       foodWeb: P.foodWebSummary(account), backgroundWildlife: Wildlife.summary(account),
       boundaries: account.work.boundaries, cohortIntervals: account.work.cohortIntervals };
@@ -658,5 +730,5 @@
     return World.finalizeStrategicMap(next);
   }
   return { KINDS, STOCKS, ORIGINAL_COUNTS, cellAreaHa, compatible, usableHabitat, sourceDigest, expandPatch,
-    expand, assess, generate, validate, runtimeSource, replay, attach, populationsFor };
+    expand, forecast, assess, generate, validate, runtimeSource, replay, attach, populationsFor };
 });

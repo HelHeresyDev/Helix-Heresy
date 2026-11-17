@@ -473,9 +473,15 @@
             g.observedShortage = true;
             if (key === 'foodKg' && c.foraging) c.foraging.shortageAt ??= to;
             c.unmet ||= {}; c.unmet[key] = (c.unmet[key] || 0) + missing / n;
-            c.firstScarcity ||= { at: from, regionId: location(g),
-              phase: g.transit?.stop ? 'stopped' : g.transit ? 'travelling' : 'stationary',
-              dependent: Care.dependent(c, from), afterPersonalArrival: g.knowledge.some(k => k.source === 'personalArrival' && k.at <= from) };
+            if (!c.firstScarcity) {
+              const animalMatterKg = key === 'foodKg' ? (r.wildlife?.pools || []).reduce((n, p) => n + Wildlife.mass(p) + p.carcass.edibleKg, 0)
+                + [...Object.values(r.remains || {}), ...Object.values(r.remainsBatches || {})].reduce((n, body) => n + (body.edibleKg || 0), 0) : 0;
+              c.firstScarcity = { at: from, regionId: location(g),
+                phase: g.transit?.stop ? 'stopped' : g.transit ? 'travelling' : 'stationary',
+                dependent: Care.dependent(c, from), afterPersonalArrival: g.knowledge.some(k => k.source === 'personalArrival' && k.at <= from),
+                inventory: { snapshotAt: to, resource: stockKey, regionalStock: r.stocks[stockKey] || 0,
+                  renewalPerDay: rate.renewal[stockKey] || 0, regionalAnimalMatterKg: animalMatterKg } };
+            }
             r.unmetTotals ||= {}; r.unmetTotals[stockKey] = (r.unmetTotals[stockKey] || 0) + missing;
           }
           // Real maintenance outputs remain matter, not ecological points.
@@ -1022,7 +1028,11 @@
           || c.intake && Object.values(c.intake).some(n => !nonnegative(n) || n > 1)) return null;
         for (const c of g.cohorts) if (c.firstScarcity && (!nonnegative(c.firstScarcity.at) || c.firstScarcity.at > s.clock
           || !s.regions.some(r => r.id === c.firstScarcity.regionId) || typeof c.firstScarcity.dependent !== 'boolean'
-          || typeof c.firstScarcity.afterPersonalArrival !== 'boolean' || !['stationary', 'travelling', 'stopped'].includes(c.firstScarcity.phase))) return null;
+          || typeof c.firstScarcity.afterPersonalArrival !== 'boolean' || !['stationary', 'travelling', 'stopped'].includes(c.firstScarcity.phase)
+          || c.firstScarcity.inventory && (!id(c.firstScarcity.inventory.resource)
+            || !nonnegative(c.firstScarcity.inventory.snapshotAt) || c.firstScarcity.inventory.snapshotAt < c.firstScarcity.at
+            || c.firstScarcity.inventory.snapshotAt > s.clock
+            || !['regionalStock', 'renewalPerDay', 'regionalAnimalMatterKg'].every(k => nonnegative(c.firstScarcity.inventory[k]))))) return null;
       }
       if (s.extraRates && (!Array.isArray(s.extraRates) || s.extraRates.some(r => {
         const g = s.groups.find(g => g.id === r.groupId), c = g?.cohorts.find(c => c.id === r.cohortId);

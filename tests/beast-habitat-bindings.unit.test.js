@@ -212,7 +212,7 @@ test('short actual generated-source execution records paid work/shortage and ret
   for (let i = 0; i < direct.account.regions.length; i++) for (const [key, n] of Object.entries(direct.account.regions[i].stocks)) approx(n, second.account.regions[i].stocks[key]);
   const fresh = S.replay(record, map, { binding: { ...binding, runId: 'fresh-replay' }, until: 0 });
   assert.equal(fresh.report.born, 0); assert.equal(fresh.report.counts.dead, 0); assert.deepEqual(fresh.report.work, {});
-  assert.equal(JSON.stringify(world), before); assert.throws(() => S.runtimeSource(record, map), /Rejected/);
+  assert.equal(JSON.stringify(world), before); assert.throws(() => S.runtimeSource(record, map), /remains diagnostic/);
   assert.throws(() => S.replay(record, map, { binding, account: { ...first.account, diagnosticOnly: false }, until: DAY }), /original diagnostic/);
   const frozen = JSON.stringify(first.account); P.advance(first.account, DAY, false, true); assert.equal(JSON.stringify(first.account), frozen);
 });

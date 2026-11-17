@@ -38,12 +38,19 @@ hectares for condition-point change. Use the actual calendar month, not an assum
 
 These are **initial authored throughput ceilings, not measured rates or
 proven final balance**. Local beast work consumes supported channels against finite
-resources; the regional monthly planner is still pending. The counting basis matters: Ember Ant rates are per active
+resources. The regional monthly planner is implemented, but generated ecological
+viability and native adoption are unfinished. The counting basis matters: Ember Ant rates are per active
 worker, Mire Choir per member, Brine Cathedral per whole mature superorganism, and
 Marsh Hydra per body rather than per head. Predation-based nurturers such as the
 Glasswing Roc have no imaginary direct repair bonus; their ecological benefit
 comes from actual control of destructive populations. Zero is deliberate rather
 than unknown. Supply, damage, season and performed work still limit achieved rates.
+
+The [measured seasonal control](seasonal-viability-control.json) records one
+all-species generated source, separately from these authored throughput ceilings.
+Its [assessment and limitations](../SEASONAL_VIABILITY.md) distinguish preliminary
+warnings, actual paid supply/work and unresolved access/model failures. It is
+not a balanced-world certificate or a replacement set of species rates.
 
 For the new life-history numbers, select **Lifecycle & resource use**:
 

@@ -110,7 +110,10 @@ none of those failures is excused or relabeled as exhausted territory.
 The earlier complete and isolated 120-day results in
 [spatial carcasses](WILDLIFE_CARCASSES.md) belong to source `5cddbb5e`, before
 this allocation correction. They are not current-source seasonal measurements.
-The all-species 120-day replay was not repeated in this pass. A focused prepared
+The all-species 120-day replay was not repeated in that work-site pass. The
+subsequent [measured viability correction](SEASONAL_VIABILITY.md) runs this
+current source through a complete cycle and records its still-rejected result.
+A focused prepared
 four-month control covers finite dam-material exhaustion and a 31-day consenting
 dream interval followed by withdrawal, with identical normalized continuation.
 It does not establish generated food-web balance.

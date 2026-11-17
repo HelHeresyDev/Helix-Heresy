@@ -4,6 +4,36 @@ const path = require('node:path');
 const { source } = require('../scripts/benchmark-beast-regional-ecology');
 const { source: workSource } = require('./helpers/regional-work-source');
 
+test('measured habitat lows survive browser reload and later supplied recovery without becoming a passing source', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const src = source(); src.groups[0].activityState = { sleeping: true, dreamConsent: false };
+  src.groups[1].cohorts[0].count = 20;
+  await page.goto(pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href);
+  await page.waitForFunction(() => window.helixHeresyDebug && window.HelixBeastHabitatSources);
+  await page.evaluate(src => {
+    const P = window.HelixBeastPopulations, s = P.create(src, { worldId: 'browser-world', runId: 'measured-control' });
+    for (const g of s.groups) for (const c of g.cohorts) c.deathThreshold = 1e12;
+    P.advance(s, 70 * P.DAY, true, true);
+    localStorage.setItem('measured-habitat-control', JSON.stringify({ src, s }));
+  }, src);
+  await page.reload(); await page.waitForFunction(() => window.HelixBeastHabitatSources);
+  const loaded = await page.evaluate(() => {
+    const P = window.HelixBeastPopulations, S = window.HelixBeastHabitatSources;
+    const { src, s: saved } = JSON.parse(localStorage.getItem('measured-habitat-control')), s = P.normalize(saved);
+    if (!s) throw Error('Measured history did not normalize');
+    P.setEcologicalActivity(s, 'root', { sleeping: false, dreamConsent: false }, s.clock, 'actual-recovery');
+    const branch = P.rebind(s, { worldId: s.worldId, runId: s.runId }, { worldId: s.worldId, runId: 'continued' });
+    P.advance(s, 120 * P.DAY, true, true); P.advance(branch, 120 * P.DAY, true, true);
+    const report = S.assess(src, null, { account: s }), continued = S.assess(src, null, { account: branch });
+    return { status: report.status, condition: s.regions[0].condition.soilCover, exhausted: s.regions[0].exhausted,
+      minimum: report.ecology[0].minimumCondition.soilCover, breach: report.issues.find(i => i.kind === 'performedHabitatFloorBreach'),
+      same: JSON.stringify(report) === JSON.stringify(continued), valid: Boolean(P.normalize(s)) };
+  });
+  expect(loaded.status).toBe('rejected'); expect(loaded.condition).toBe(100); expect(loaded.minimum).toBeCloseTo(24);
+  expect(loaded.breach.firstAt).toBeCloseTo(62.5 * 86400); expect(loaded.exhausted).toBe(false);
+  expect(loaded.same).toBe(true); expect(loaded.valid).toBe(true); expect(errors).toEqual([]);
+});
+
 test('browser dependency order and internal regional work survive a serialized partial-work continuation', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.goto(pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href);

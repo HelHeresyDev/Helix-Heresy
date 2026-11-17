@@ -2337,6 +2337,14 @@ consent remain explicit, revocable and physically local. The sample's 38 missing
 site assignments are resolved, but metal and dream consent remain unavailable
 where unsourced. The generated ecology is still rejected; #3.38-D stays open.
 
+[Measured seasonal assessment](SEASONAL_VIABILITY.md) now separates conservative
+generator warnings from actual food/work/condition history. Supplied hunting and
+restoration controls can pass; real scarcity, transient floor breaches and bad
+completed cycles remain failures after recovery or reload. One current-source
+120-day replay retains all species and rejects real shortages plus wetland
+overflow-driven soil collapse. No forecast, regional biomass total or optional
+unperformed ability can certify source adoption.
+
 Hungry travellers can now stop at actual route positions to feed or rest, paying
 elapsed delay without changing their original destination using unseen supply.
 Dependent family young and colony larvae receive finite, timed provisioning

@@ -5,7 +5,7 @@ test('private generated replay resumes an immutable whole-day checkpoint with th
   const first = run({ days: 1, checkpoint: value => { snapshot = JSON.parse(JSON.stringify(value)); } });
   const saved = JSON.stringify(snapshot), resumed = run({ days: 2, resume: snapshot }), direct = run({ days: 2 });
   assert.equal(first.diagnosticOnly, true); assert.equal(resumed.sourceId, first.sourceId);
-  for (const key of ['counts', 'born', 'work', 'foodWeb', 'backgroundWildlife', 'parentalCare', 'lossesByCause', 'shortfalls'])
+  for (const key of ['counts', 'born', 'work', 'foodWeb', 'backgroundWildlife', 'parentalCare', 'lossesByCause', 'shortfalls', 'viability', 'issueKinds'])
     assert.deepEqual(resumed[key], direct[key], key);
   assert.equal(JSON.stringify(snapshot), saved);
   const bad = JSON.parse(saved); bad.account.runId = 'another-run';
