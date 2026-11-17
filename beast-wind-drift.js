@@ -16,6 +16,7 @@
   const windAt = (r, season) => r.seasons?.[season]?.wind ?? r.wind ?? null;
   const flow = w => w == null || Number.isFinite(w.x) && Number.isFinite(w.y);
   const layoutValid = f => f && Number.isSafeInteger(f.firstOrdinal) && f.firstOrdinal >= 0
+    && (f.lastOrdinal == null || Number.isSafeInteger(f.lastOrdinal) && f.lastOrdinal >= f.firstOrdinal)
     && Number.isSafeInteger(f.columns) && f.columns > 0 && [f.eastSpacingM, f.northSpacingM].every(n => Number.isFinite(n) && n >= 0);
   function validDefinition(s) {
     const ids = new Set(s.regions.map(r => r.id));
@@ -83,7 +84,7 @@
   }
   function frontMargin(g, c) {
     const f = c.windDrift?.layout || c.regionalFormation || g.regionalFormation?.[c.originId];
-    const last = Math.max(c.windDrift?.layout?.firstOrdinal || 0, ...c.ranges.map(([, hi]) => hi - 1));
+    const last = Math.max(c.windDrift?.layout?.lastOrdinal ?? c.windDrift?.layout?.firstOrdinal ?? 0, ...c.ranges.map(([, hi]) => hi - 1));
     // The cohort anchor is its first surviving ordinal. Losing that ordinal
     // rebases the anchor within the same retained formation, not a new voyage.
     return f ? .001 + Math.hypot(f.columns * f.eastSpacingM, (1 + Math.floor(last / f.columns)) * f.northSpacingM) : .001;
@@ -108,7 +109,8 @@
     if (d && d.until > at + EPS && d.signature === signature && !['handling', 'eating'].includes(c.foraging?.phase)) return d.until;
     const f = c.regionalFormation || g.regionalFormation?.[c.originId];
     d = c.windDrift = { anchor: copy(position), startedAt: at, appliedAt: at,
-      layout: { firstOrdinal: c.ranges[0][0], columns: f.columns, eastSpacingM: f.eastSpacingM, northSpacingM: f.northSpacingM },
+      layout: { firstOrdinal: c.ranges[0][0], lastOrdinal: Math.max(...c.ranges.map(([, hi]) => hi - 1)),
+        columns: f.columns, eastSpacingM: f.eastSpacingM, northSpacingM: f.northSpacingM },
       until: Math.min(month.end, at + HOUR), velocity, known: wind !== null, signature, flow: copy(wind),
       ...(hold ? { hold } : {}), ...(front ? { front } : {}), ...(control ? { control } : {}) };
     if (control) d.until = Math.min(d.until, c.foraging.action.dueAt, at + c.regional.stamina / Math.max(1e-12, control.effortRate));
@@ -164,6 +166,8 @@
           || !Number.isFinite(d.until) || d.until < d.appliedAt - EPS || d.until - d.startedAt > HOUR + EPS
           || typeof d.known !== 'boolean' || typeof d.signature !== 'string'
           || !layoutValid(d.layout) || !flow(d.flow) || d.known !== (d.flow !== null)
+          || d.layout.lastOrdinal != null && (d.layout.lastOrdinal >= s.origins[c.originId || c.id].count
+            || c.ranges.some(([, hi]) => hi - 1 > d.layout.lastOrdinal))
           || c.windCrossings != null && (!Number.isSafeInteger(c.windCrossings) || c.windCrossings < 0)
           || !formation || ['columns', 'eastSpacingM', 'northSpacingM'].some(k => d.layout[k] !== formation[k])
           || !Number.isFinite(d.velocity?.x) || !Number.isFinite(d.velocity?.y)

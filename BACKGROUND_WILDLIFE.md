@@ -45,16 +45,34 @@ same standing stock** rather than created alongside it. Carrying-count ceilings
 start at 1.5 times initial abundance and shrink with the existing local habitat
 condition. There are no underground pools or automatic meat/carrion renewals.
 
-New physical proposals refine each populated region into one seeded finite
-feeding-ground footprint shared by its anonymous guilds: 0.025% of the regional
-area, wholly inside the regional geometric envelope. Fish schools occupy at
-most 15 m of the actual water column, starting no deeper than 5 m. Initial
-strategic family homes use that same procedural geography rather than unrelated
-points tens of kilometres away. This is founding-site allocation, not a runtime
-animal map or a promise about a future destination. The footprint does not add
-food or water: all size classes still compete for the same original regional
-stocks and renewal. Their source catchment remains the regional account; forage
-transport within a feeding ground is not individually simulated.
+New physical proposals mark `wildlifeDistribution` and split each guild/size
+class's existing integer count among three seeded habitat patches (70% total)
+and a lower-density regional background (30%). Each hotspot has 5% of the
+region's radius, or 0.25% of its area, wholly inside its envelope. Integer
+remainders stay in the final populated patch; count/carrying ceilings and total
+original body matter are partitioned, never multiplied. Guild/medium eligibility
+is unchanged. Fish occupy at most 15 m of the actual water column, starting no
+deeper than 5 m. Initial strategic homes select one of these habitat patches.
+This is founding-site allocation, not runtime knowledge or a promise about a
+future destination. All patches still compete for the same regional stocks and
+renewal. Background and hotspot fields contain different animals even where
+their geometry overlaps; forage transport is not individually simulated.
+
+Marked new allocations also record a seven-day **mortality/decomposition-only
+starting snapshot**, not a full historical ecosystem warm-up. Seven seeded daily
+adult-hazard losses debit original individuals and their already-funded body
+matter. Their tissues begin at ages 6.5, 5.5, …, 0.5 days under the normal
+class-specific decay hazards. No minimum death, future birth, extra body or food
+grant is imposed. Decomposed matter enters available finite detritus capacity;
+overflow remains an explicit output. The saved starting death/decomposition
+receipt is validated on import and never applied again to a continued run.
+
+Anonymous remains stay in their death patch's finite ledger, not at the
+scavenger's current position. This remains a coarse density field, not a set of
+individual corpse coordinates; actual original-beast corpses retain their own
+point positions. New layout/history is not retrofitted into old archives or runs:
+unmarked spatial allocations retain their single 0.025%-area feeding ground,
+original count, positions, source identity and pristine starting carcass account.
 
 The reusable world holds immutable definitions, not mutable animals. A fresh run
 creates its own cohort/food/carcass accounts; continuing a run retains them.
@@ -67,7 +85,7 @@ the same finite definitions before any runtime body partition. This keeps the
 claim that an expanded all-world run account already fits native game saves.
 
 Each region owns integer age cohorts, paid brood investment and one finite
-carcass ledger per guild/size class. Maintenance competes with strategic creatures for the
+carcass ledger per guild/size class/patch. Maintenance competes with strategic creatures for the
 same stocks and renewal. Surplus funds growth and embryos through cached rates
 over elapsed time, with assimilation waste and exact funding boundaries.
 No age timer supplies missing body mass. Monthly reproductive budgets respect
@@ -168,6 +186,14 @@ Only a reachable positioned original corpse with sufficient real structural
 weight can support a finite, stamina-paid feeding hold. Unknown/calm flow does
 not grant steering, and scavenging large remains does not grant a hunting power.
 See [the physical wind and holding contract](BEAST_POPULATIONS.md#wind-driven-carrion-lanterns).
+
+An encountered Lantern meal whose actual food yield cannot cover even its
+prospective handling metabolism is released uneaten. Paid observation is not
+refunded. Empty/uneconomic diffuse-field samples receive a saved one-hour review
+backoff, preventing trace quantities from scheduling repeated handling or tiny
+contact boundaries. An actually sensed original point corpse takes precedence
+over an overlapping diffuse cue and can still wake observation during that
+backoff. Neither rule grants distant knowledge, food, steering or free effort.
 
 Foraging needs no destination census or new migration adviser. The simulator's
 private density resolves physical encounter chances; it is not passed to animal
@@ -302,8 +328,8 @@ The full suite was not run under the focused-testing policy.
 
 ### Corrected-biology isolated control
 
-This is the earlier passive-only control. The newer sensed-approach control is
-recorded below and in [the approach contract](CARRION_LANTERN_APPROACH.md).
+This is the historical passive-only control. Both it and the sensed-approach
+control below predate the distributed starting-state correction recorded last.
 
 The focused generated-geography control runs only the original 120 Carrion
 Lanterns against unchanged finite anonymous wildlife, water, climate and winds.
@@ -345,7 +371,7 @@ ponds, nursery/maternal formations and positioned journeys are recorded in
 
 ### Sensed-approach isolated control
 
-The approved [approach controller](CARRION_LANTERN_APPROACH.md) now completes
+The approved [approach controller](CARRION_LANTERN_APPROACH.md) completed
 the same targeted 120-day generated-geography control with original source
 `beast-habitat-source:622013f8`. It records 31 original-weighted approach starts,
 2,093.1604 individual-seconds of paid approach, and **2.044763 kg of actual
@@ -366,3 +392,55 @@ This demonstrates actual sensed feeding, **not sustained generated food access**
 The earlier passive-only control also predates typed tissues, so these outcomes
 are not an isolated steering-only causal comparison. The source remains rejected
 and the existing D acceptance remains open. No additional prompt is created.
+
+### Distributed starting-state isolated control — 2026-11-17
+
+`node scripts/replay-carrion-lantern.js` now reproduces source
+`beast-habitat-source:b1c3df52`, seed `source-small`, refinement 2. Only the
+original 120 Lanterns and finite anonymous wildlife are simulated; other
+strategic species, their kills, competition and ecological work are excluded.
+No rescue bodies, refilled reserves or guaranteed survival are supplied.
+
+The unchanged 97,503,071,748 original anonymous individuals partition into
+91,005,668,902 living and 6,497,402,846 starting dead. Their funded remains retain
+24,347,335.806720 kg after 9,606,361.745280 kg of actual initial decomposition.
+There are 4,409 initial pooled wildlife cohorts, not individual animal objects.
+
+| Day | Living original Lanterns | Cumulative wet tissue eaten | Of which anonymous wildlife |
+| --- | ---: | ---: | ---: |
+| 20 | 116 | 0.343585 kg | 0.343585 kg |
+| 40 | 71 | 2.040194 kg | 0.343585 kg |
+| 60 | 70 | 2.040194 kg | 0.343585 kg |
+| 80–120 | 0 | 2.040194 kg | 0.343585 kg |
+
+The other 1.696609 kg eaten comes from real original Lantern corpses. There are
+39 original-weighted approaches and 2,530.2404 individual-seconds of paid
+approach. Lantern recruitment is zero. Losses reconcile as 95 starvation,
+nineteen dehydration and six background deaths. Atmospheric intake is
+151.461688 L. Anonymous wildlife has zero hunted individuals; its own paid
+recruitment totals 76,664,135,888, with 67,169,093,481 living at day 120.
+
+Every twenty-day normalization checkpoint passes, including historical airflow
+fronts after their last cohort member dies. Wind segments now retain their last
+represented ordinal, so validation uses the actual historical formation extent
+rather than a smaller, empty present-day formation. The run takes about 35.2 s:
+115,245 boundaries, 884,464 cohort integrations, 165,535 regional rebuilds and
+45 final strategic cohorts. These are measured costs, not a performance or
+all-species viability certificate.
+
+The supplied compact habitat separately sustains one Lantern through 120 days
+with actual anonymous-carrion ingestion and funded wildlife recruitment, without
+killing live prey; only unrelated strategic background mortality is suppressed
+in that food-sufficiency fixture. The generated control does **not** establish
+sustained scavenging: global corpse kilograms are not local accessible meals,
+and coarse patch fields still approximate corpse locations. Generated source
+acceptance/native adoption and the existing D checklist remain unresolved.
+Neither normal nor exhausted status is granted to bypass them. No new queue
+entry is added.
+
+Focused verification: 105 unit checks covering distribution, wildlife,
+foraging, generated-source compatibility, approaches and wind history; two
+Chromium cases cover generated-world compressed storage/continuation and
+partial native/regional approaches. The full suite was not run under repository
+policy. No creature/lifecycle values changed, so the reference spreadsheets
+require no regeneration.

@@ -40,6 +40,21 @@ test('new canonical worlds archive a private, reproducible source proposal witho
   assert.throws(() => S.attach(world.worldSeed, map), /overwrite/);
   assert.doesNotMatch(JSON.stringify(map.publicBeastAtlas || {}), /beast-habitat-source|groupRows|foodAllocations|originalIndividualCount/);
 });
+test('distributed wildlife markers reproduce new habitats while unmarked archives keep their original source identity', () => {
+  const { map, record, source } = fixture(), Wildlife = require('../background-wildlife');
+  assert.equal(record.wildlifeDistribution, true);
+  assert.equal(record.backgroundWildlife.distribution, 'habitatPatches');
+  assert.ok(source.regions.some(r => r.wildlife?.pools.some(p => p.habitatPatch === 'background')));
+  const old = S.generate(record.seed, map, { wildlifeDistribution: false }), archived = JSON.stringify(old);
+  assert.equal(old.wildlifeDistribution, undefined); assert.equal(old.backgroundWildlife.distribution, undefined);
+  assert.deepEqual(old.backgroundWildlife.spatialRows, record.backgroundWildlife.spatialRows);
+  S.validate(old, map); const expanded = S.expand(old, map);
+  assert.ok(expanded.regions.every(r => !r.wildlife || r.wildlife.pools.every(p => !p.establishedDays && !p.habitatPatch)));
+  const account = P.createDiagnostic(expanded, { worldId: 'old-layout', runId: 'original' });
+  assert.equal(Wildlife.summary(account).startingDead, 0);
+  assert.equal(JSON.stringify(old), archived);
+  assert.ok(P.normalize(account));
+});
 test('new drift records use canonical climate direction while older source records remain unchanged', () => {
   const { source, map, record } = fixture();
   assert.equal(record.windTransport, true);

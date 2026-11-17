@@ -732,9 +732,10 @@
         // A real local change may expose carrion before the next coarse
         // passive review. It wakes observation, never prepays approach or a
         // future search/capture. Short already-earned reviews remain intact.
-        if (g.windDriven && c.foraging.action?.passive && c.foraging.nextAt > at + Approach.REVIEW
+        const wake = g.windDriven && c.foraging.action?.passive && c.foraging.nextAt > at + Approach.REVIEW
           && c.stores.foodKg < Foraging.capacity(c) * .5
-          && at >= (c.carrionApproachCooldownUntil || 0) && sensedCarrion(r, g, c, pos))
+          && at >= (c.carrionApproachCooldownUntil || 0) && sensedCarrion(r, g, c, pos);
+        if (wake && (wake.kind === 'beast' || at >= (c.foraging.carrionFieldReviewAt || 0)))
           c.foraging.action.dueAt = c.foraging.nextAt = at;
         if (c.foraging.nextAt <= at + EPS || c.foraging.action) restore(c, g, r, at);
         const ctx = a && context(r, [a], month.season);
@@ -806,6 +807,7 @@
           northM: pos.northM - (distance ? dy / distance * step : 0), altitudeM: 0 } });
     }
     return targets.sort((a, b) => Number(b.id === c.carrionApproach?.target.id) - Number(a.id === c.carrionApproach?.target.id)
+      || Number(b.kind === 'beast') - Number(a.kind === 'beast')
       || Math.hypot(a.position.eastM - pos.eastM, a.position.northM - pos.northM, a.position.altitudeM - pos.altitudeM)
       - Math.hypot(b.position.eastM - pos.eastM, b.position.northM - pos.northM, b.position.altitudeM - pos.altitudeM) || a.id.localeCompare(b.id))[0] || null;
   }
@@ -814,7 +816,8 @@
     const speed2 = v.x * v.x + v.y * v.y;
     const sites = [...Object.values(r.remains || {}), ...Object.values(r.remainsBatches || {})]
       .filter(row => row.position && row.edibleKg > (row.reservedKg || 0)).map(row => ({ ...row.position, radiusM: Bodies.profiles[c.speciesId].reachM }));
-    for (const pool of r.wildlife?.pools || []) if (pool.spatial && pool.guild !== 'fish' && pool.carcass.edibleKg > (pool.carcass.reservedKg || 0))
+    for (const pool of r.wildlife?.pools || []) if ((c.foraging?.carrionFieldReviewAt || 0) <= (c.foraging?.lastAt || 0)
+      && pool.spatial && pool.guild !== 'fish' && pool.carcass.edibleKg > (pool.carcass.reservedKg || 0))
       sites.push({ ...pool.spatial, altitudeM: 0 });
     let next = horizon;
     for (const site of sites) {

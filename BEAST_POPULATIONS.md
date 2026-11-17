@@ -788,8 +788,12 @@ the remainder. A snapshot cohort loop prevents recursive per-animal expansion.
 Actual arrival, not merely arrival of a large formation's anchor, gates feeding.
 New claims/pursuits wait for half-empty food stores, preventing minute-by-minute
 microscopic ration handling. Saved approach effort and all original membership
-remain conserved. The new isolated control eats 2.044763 kg from real strategic
-remains but still loses all 120 originals by day 80; this is not source acceptance.
+remain conserved. The current distributed-starting-state control eats 2.040194 kg,
+including 0.343585 kg from anonymous wildlife, but still loses all 120 originals
+by day 80; this is not source acceptance. Exact current and historical results
+are in [background wildlife](BACKGROUND_WILDLIFE.md#distributed-starting-state-isolated-control--2026-11-17).
+Saved airflow segments retain the actual last represented ordinal so a dead
+cohort's historical frontier is not invalidated by its now-empty formation.
 
 Lantern sensing earns elapsed observation, not active-search exertion. Only tissue within the body's current feeding
 reach can be claimed. Anonymous carcass fields retain their finite spatial

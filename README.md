@@ -2293,8 +2293,11 @@ adoption acceptance remains open. See [biology and conservation](BEAST_POPULATIO
 
 New habitat proposals also archive finite [background wildlife](BACKGROUND_WILDLIFE.md):
 ordinary insects, three land-animal sizes and three fish sizes in compact age
-cohorts. Seeded finite herd/school footprints require actual horizontal and
-water-depth overlap; distant prey are not a dense field everywhere in a region.
+cohorts. New allocations split existing animals among three finite hotspots
+and a sparse background, with original-body-funded, aged starting mortality.
+Old sources/runs retain their layout and gain no reconstructed carcasses.
+Seeded fields require actual horizontal and water-depth overlap; distant prey
+are not a dense field everywhere in a region.
 Compact immutable archive rows retain their exact counts and derived geometry
 within the tested default-resolution browser world-storage quota. Original bodies
 partition standing matter; maintenance and paid growth/recruitment share the same
@@ -2306,6 +2309,10 @@ paid juvenile growth; deficient habitats can still starve. Partial searches,
 meals and losses survive saves/continued branches; archived worlds gain no
 wildlife on load. The full seasonal sample still rejects activation, so this does
 not claim a balanced generated ecosystem or completed native encounters.
+The current isolated 120-day Lantern control records 0.343585 kg of actual
+anonymous-wildlife ingestion, but no Lantern offspring or survivors by day 80.
+Its exact conservation, runtime and limitations are recorded in
+[the current control](BACKGROUND_WILDLIFE.md#distributed-starting-state-isolated-control--2026-11-17).
 
 New generated populations now prefer usable founding temperatures and water
 conditions before history, then retain source-backed nursery/maternal formations

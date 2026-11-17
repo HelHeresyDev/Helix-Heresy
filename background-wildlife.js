@@ -46,8 +46,23 @@
     return { eastM: Math.cos(angle) * distance, northM: Math.sin(angle) * distance,
       radiusM: regionRadiusM * Math.sqrt(.00025), depthTopM: Math.min(5, Math.max(0, r.depthM - 15)) };
   }
-  function initialPosition(r, seed, groupId) {
-    const ground = feedingGround(r, seed), angle = Life.random(`${seed}:${groupId}:within-ground:angle`) * Math.PI * 2;
+  const SETTLING_DAYS = 7, BACKGROUND_SHARE = .3;
+  function habitatPatches(r, seed) {
+    const radius = Math.sqrt(r.areaHa * 10000 / Math.PI), original = feedingGround(r, seed);
+    const angle = Life.random(`${seed}:${r.id}:habitat-patches:angle`) * Math.PI * 2;
+    return [{ id: 'background', share: BACKGROUND_SHARE, eastM: 0, northM: 0, radiusM: radius, depthTopM: original.depthTopM },
+      ...[0, 1, 2].map(i => {
+        const bearing = angle + i * Math.PI * 2 / 3;
+        const distance = radius * (.25 + .35 * Life.random(`${seed}:${r.id}:habitat-patches:${i}`));
+        return { id: `hotspot-${i}`, share: (1 - BACKGROUND_SHARE) / 3,
+          eastM: i === 0 ? original.eastM : Math.cos(bearing) * distance,
+          northM: i === 0 ? original.northM : Math.sin(bearing) * distance,
+          radiusM: radius * .05, depthTopM: original.depthTopM };
+      })];
+  }
+  function initialPosition(r, seed, groupId, distributed = false) {
+    const ground = distributed ? habitatPatches(r, seed)[1 + Math.floor(Life.random(`${seed}:${groupId}:habitat-patch`) * 3)] : feedingGround(r, seed);
+    const angle = Life.random(`${seed}:${groupId}:within-ground:angle`) * Math.PI * 2;
     const distance = ground.radiusM * .7 * Math.sqrt(Life.random(`${seed}:${groupId}:within-ground:radius`));
     return { eastM: ground.eastM + Math.cos(angle) * distance, northM: ground.northM + Math.sin(angle) * distance };
   }
@@ -61,8 +76,8 @@
     return ['waterColumn', 'wetland'].includes(r.kind) && (r.stocks[key] || 0) > r.areaHa * 10000 * 1000 * .5 + EPS;
   }
   const output = (r, key, kg) => { if (kg > 0) { r.outputs ||= {}; r.outputs[key] = (r.outputs[key] || 0) + kg; } };
-  function allocate(source, seed) {
-    if (source.spatialContinuity) return allocateSpatial(source, seed);
+  function allocate(source, seed, options = {}) {
+    if (source.spatialContinuity) return allocateSpatial(source, seed, options.distributed === true);
     const allocations = [];
     for (const r of source.regions) {
       const aquatic = ['wetland', 'waterColumn'].includes(r.kind);
@@ -86,7 +101,7 @@
     }
     return { basis: 'Finite adapted background guilds; original body matter partitioned from standing food stocks', allocations };
   }
-  function allocateSpatial(source, seed) {
+  function allocateSpatial(source, seed, distributed = false) {
     const allocations = [];
     for (const r of source.regions) {
       const aquatic = ['wetland', 'waterColumn'].includes(r.kind);
@@ -113,6 +128,7 @@
     // Immutable world archives need counts, not seven copies of derived IDs,
     // geometry, area, body mass and profile names for every geographic patch.
     return { basis: 'Finite size-classed spatial herds/schools; original matter and shared regional feeding budgets', seed,
+      ...(distributed ? { distribution: 'habitatPatches', settlingDays: SETTLING_DAYS } : {}),
       spatialRows: allocations.map(a => [a.regionId, ...CLASSES.map(([guild, size]) =>
         a.pools.find(p => p.guild === guild && p.sizeClass === size)?.originalCount || 0)]) };
   }
@@ -124,13 +140,30 @@
       const r = byId.get(row[0]);
       if (!r || seen.has(r.id) || row.length !== CLASSES.length + 1 || !row.slice(1).every(integer)) throw Error('Invalid original spatial wildlife row');
       seen.add(r.id);
-      return { regionId: r.id, pools: CLASSES.flatMap(([guild, sizeClass], i) => {
+      const pools = CLASSES.flatMap(([guild, sizeClass], i) => {
         const n = row[i + 1]; if (!n) return [];
         const p = sizeClasses[guild][sizeClass];
         return [{ id: `wildlife:${r.id}:${guild}:${sizeClass}`, guild, sizeClass,
           foodKey: guild === 'fish' ? r.kind === 'waterColumn' ? 'planktonKg' : 'organicKg' : guild === 'insects' ? 'organicKg' : 'forageKg',
           areaHa: r.areaHa * .00025, habitatDepthM: guild === 'fish' ? Math.min(r.depthM, 15) : 0,
           spatial: feedingGround(r, record.seed), capacityCount: Math.floor(n * 1.5), originalCount: n, originalMassKg: n * p.adultKg }];
+      });
+      if (record.distribution == null) return { regionId: r.id, pools };
+      if (record.distribution !== 'habitatPatches' || record.settlingDays !== SETTLING_DAYS) throw Error('Invalid established wildlife layout');
+      const sites = habitatPatches(r, record.seed);
+      return { regionId: r.id, pools: pools.flatMap(pool => {
+        let assigned = 0, capacity = 0;
+        return sites.flatMap((site, i) => {
+          const n = i === sites.length - 1 ? pool.originalCount - assigned : Math.floor(pool.originalCount * site.share);
+          const cap = i === sites.length - 1 ? pool.capacityCount - capacity
+            : n + Math.floor((pool.capacityCount - pool.originalCount) * site.share);
+          assigned += n; if (!n) return [];
+          capacity += cap;
+          return [{ ...pool, id: `${pool.id}:${site.id}`, habitatPatch: site.id, establishedDays: SETTLING_DAYS,
+            areaHa: site.id === 'background' ? r.areaHa : Math.PI * site.radiusM ** 2 / 10000,
+            spatial: { eastM: site.eastM, northM: site.northM, radiusM: site.radiusM, depthTopM: site.depthTopM },
+            originalCount: n, capacityCount: Math.max(n, cap), originalMassKg: n * profile(pool).adultKg }];
+        });
       }) };
     });
   }
@@ -155,6 +188,29 @@
       broods: [], bornCount: 0, deadCount: 0, huntedCount: 0, fundedKg: 0, discardedKg: 0,
       maintenanceKg: 0, maintenanceWaterL: 0, wasteKg: 0, attempts: 0, catches: 0,
       carcass: { initialMassKg: 0, massKg: 0, edibleKg: 0, consumedKg: 0, decomposedKg: 0, lastAt: at } });
+    for (const pool of r.wildlife.pools) if (pool.establishedDays) establish(r, pool);
+  }
+  function initialDeaths(pool) {
+    let living = pool.originalCount;
+    return Array.from({ length: SETTLING_DAYS }, (_, day) => {
+      const n = Math.min(living, Math.floor(living * -Math.expm1(-profile(pool).mortalityDay)
+        + Life.random(`${pool.id}:establishment:${day}`)));
+      living -= n; return n;
+    });
+  }
+  function establish(r, pool) {
+    const deaths = initialDeaths(pool), row = pool.carcass, p = profile(pool);
+    for (const n of deaths) { Tissues.decay(row, 1); Tissues.add(row, n * p.adultKg); }
+    Tissues.decay(row, .5);
+    pool.deadCount = deaths.reduce((n, v) => n + v, 0); pool.cohorts[0].count -= pool.deadCount;
+    pool.establishment = { days: SETTLING_DAYS, deaths, decomposedKg: row.decomposedKg };
+    const accepted = Math.min(row.decomposedKg, Math.max(0, (r.capacity.detritusKg || 0) - (r.stocks.detritusKg || 0)));
+    if (accepted) r.stocks.detritusKg = (r.stocks.detritusKg || 0) + accepted;
+    output(r, 'wildlifeEstablishmentDecayOverflowKg', row.decomposedKg - accepted);
+  }
+  function initialDecay(pool, deaths) {
+    return deaths.reduce((kg, n, i) => kg + n * profile(pool).adultKg * Tissues.animalKeys.reduce((fraction, key) =>
+      fraction + Tissues.profiles[key].share * -Math.expm1(-Tissues.profiles[key].decayDay * (SETTLING_DAYS - i - .5)), 0), 0);
   }
   function plan(r, month, at) {
     if (!r.wildlife) return;
@@ -440,6 +496,9 @@
     if (!r.wildlife) return true;
     const w = r.wildlife;
     return Array.isArray(w.pools) && new Set(w.pools.map(p => p.id)).size === w.pools.length && w.pools.every(p => profile(p)
+      && (p.establishedDays == null || p.spatial && p.sizeClass && p.establishedDays === SETTLING_DAYS
+        && ['background', 'hotspot-0', 'hotspot-1', 'hotspot-2'].includes(p.habitatPatch))
+      && (p.habitatPatch == null || p.establishedDays === SETTLING_DAYS)
       && typeof p.id === 'string' && p.id && ['forageKg', 'organicKg', 'planktonKg'].includes(p.foodKey)
       && p.areaHa > 0 && p.areaHa <= r.areaHa && finite(p.habitatDepthM) && integer(p.originalCount) && integer(p.capacityCount)
       && p.capacityCount >= p.originalCount && finite(p.originalMassKg) && Math.abs(p.originalMassKg - p.originalCount * profile(p).adultKg) < EPS
@@ -457,6 +516,13 @@
     if (!finite(w.initializedAt) || !finite(w.lastDemographyAt) || w.lastDemographyAt > at + EPS
       || !integer(w.serial) || !Array.isArray(w.pending)) return false;
     for (const pool of w.pools) {
+      if (pool.establishedDays) {
+        const e = pool.establishment, deaths = initialDeaths(pool);
+        if (!e || e.days !== SETTLING_DAYS || JSON.stringify(e.deaths) !== JSON.stringify(deaths)
+          || !finite(e.decomposedKg) || Math.abs(e.decomposedKg - initialDecay(pool, deaths)) > 1e-7 * Math.max(1, e.decomposedKg)
+          || e.decomposedKg > pool.carcass.decomposedKg + EPS
+          || pool.deadCount < deaths.reduce((n, v) => n + v, 0)) return false;
+      } else if (pool.establishment != null) return false;
       if (!['bornCount', 'deadCount', 'huntedCount', 'attempts', 'catches'].every(k => integer(pool[k]))
         || !['fundedKg', 'discardedKg', 'maintenanceKg', 'maintenanceWaterL', 'wasteKg'].every(k => finite(pool[k]))
         || !Array.isArray(pool.cohorts) || !Array.isArray(pool.broods) || !pool.plan
@@ -506,17 +572,24 @@
       && finite(q.food) && finite(q.water));
   }
   function summary(s) {
-    const result = { original: 0, born: 0, living: 0, dead: 0, hunted: 0, liveKg: 0, consumedKg: 0, pending: 0, cohorts: 0 };
+    const result = { original: 0, born: 0, living: 0, dead: 0, hunted: 0, liveKg: 0, consumedKg: 0, pending: 0, cohorts: 0,
+      startingDead: 0, startingCarcassKg: 0, startingDecomposedKg: 0 };
     for (const r of s.regions) if (r.wildlife) {
       result.pending += r.wildlife.pending.length;
       for (const pool of r.wildlife.pools) {
         result.original += pool.originalCount; result.born += pool.bornCount; result.living += total(pool);
         result.dead += pool.deadCount; result.hunted += pool.huntedCount; result.liveKg += mass(pool);
         result.consumedKg += pool.carcass.consumedKg; result.cohorts += pool.cohorts.length;
+        if (pool.establishment) {
+          const kg = pool.establishment.deaths.reduce((n, v) => n + v, 0) * profile(pool).adultKg;
+          result.startingDead += pool.establishment.deaths.reduce((n, v) => n + v, 0);
+          result.startingCarcassKg += kg - pool.establishment.decomposedKg;
+          result.startingDecomposedKg += pool.establishment.decomposedKg;
+        }
       }
     }
     return result;
   }
-  return { profiles, sizeClasses, profile, feedingGround, initialPosition, encounterFraction, definitions, allocate, apply, initialize, plan, prepare, fed, next, integrate, boundary, begin, finish, cancel,
+  return { profiles, sizeClasses, profile, feedingGround, habitatPatches, initialDeaths, initialPosition, encounterFraction, definitions, allocate, apply, initialize, plan, prepare, fed, next, integrate, boundary, begin, finish, cancel,
     validDefinition, valid, validRates, summary, total, mass, guilds, capture, DURATION };
 });

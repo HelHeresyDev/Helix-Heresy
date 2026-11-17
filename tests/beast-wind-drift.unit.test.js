@@ -150,3 +150,20 @@ test('opposing airflows meet at a saved front instead of oscillating across a bo
   P.removeStock(saved, other.id, 'waterL', 0, saved.clock, 'actual-wind-change');
   P.advance(saved, 1500, true, true); assert.equal(saved.groups[0].regionId, other.id); valid(saved);
 });
+test('a saved airflow front retains its actual historical formation extent after the final member dies', () => {
+  const src = windSource({ preyX: 10000, members: 4, cohorts: 1 }), r = src.regions[0], other = copy(r);
+  other.id = 'opposing-air'; other.wind = { x: -.5, y: 0 }; other.edges = [];
+  other.wildlife.pools.forEach(p => p.id += ':opposing'); src.regions.push(other);
+  r.edges.push({ id: other.id, distanceKm: .2, traversable: true, windBoundary: { normal: { x: 1, y: 0 }, offsetM: 100,
+    exit: { eastM: 100, northM: 0 }, entry: { eastM: -100, northM: 0 } } });
+  src.groups[0].home.eastKm = .096;
+  const s = P.create(src, binding), g = s.groups[0], c = g.cohorts[0];
+  assert.ok(c.windDrift.front); assert.equal(c.windDrift.layout.lastOrdinal, 3);
+  for (let ordinal = 3; ordinal >= 0; ordinal--) {
+    P.kill(s, g.id, c.id, ordinal, 10, 'actual-member-death'); valid(s);
+  }
+  const history = copy(c.windDrift); P.advance(s, 80 * P.DAY, true, true);
+  assert.deepEqual(c.windDrift, history); valid(s);
+  const forged = copy(s); forged.groups[0].cohorts[0].windDrift.layout.lastOrdinal = 4;
+  assert.equal(P.normalize(forged), null);
+});

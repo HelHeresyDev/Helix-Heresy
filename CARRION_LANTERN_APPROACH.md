@@ -67,9 +67,9 @@ handling of microscopic replacement rations. Passive reviews do not spend active
 search effort. Active reviews, including unsuccessful approaches, consume the
 existing monthly search/activity budget. Final death freezes further execution.
 
-## Targeted generated control
+## Historical targeted generated control
 
-Run `node scripts/replay-carrion-lantern.js` to reproduce the isolated
+These are the pre-distribution measurements of the isolated
 `source-small`, refinement-2, 120-day control. Source
 `beast-habitat-source:622013f8` supplies the original 120 Lanterns, unchanged finite
 anonymous wildlife, atmospheric water, geography and wind. Other strategic
@@ -111,3 +111,12 @@ native predation, existing wind/biology continuity, and partial native/regional
 approaches across reload and independent branches. Twelve catalog/artifact checks
 also confirm the existing reference workbooks remain consistent. The full suite was not run
 under repository policy.
+
+The replay script now uses the approved distributed habitat/aged starting
+remains correction. Its current source, exact ingestion split and continued
+failure to sustain generated Lanterns are recorded in
+[the distributed starting-state control](BACKGROUND_WILDLIFE.md#distributed-starting-state-isolated-control--2026-11-17).
+Empty/uneconomic diffuse samples use a one-hour review backoff; an actually
+sensed point corpse still takes precedence and can wake observation. Finite
+claims are released if their food yield cannot cover handling metabolism.
+These changes do not alter the approach thrust, physiology or original reserves.

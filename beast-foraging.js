@@ -227,7 +227,21 @@
           success: old.scavenge ? 1 : p.huntSuccess, memberCount: n, guilds: old.guilds }, Math.max(0, capacity(c) - c.stores.foodKg) * n);
         for (const entry of claims) claim(r, g, c, entry.kind || 'wildlife', entry.sourceId, entry.kg, at, ctx.position);
         r.foraging.receipts.searches += n;
+        if (Lantern.is(c) && f.mealIds.length) {
+          const food = f.mealIds.reduce((sum, id) => {
+            const meal = r.foraging.meals[id];
+            return sum + Lantern.partition(meal.kg, 0, Tissues.nutrition(meal.tissue, meal.kg)).food;
+          }, 0);
+          const juvenile = at - c.bornAt < p.adultDays * DAY ? p.juvenileMultiplier : 1;
+          const handlingFood = p.foodKgDay * (c.massKg / p.adultKg) ** .75 * juvenile * p.travelMultiplier
+            * Math.min(60, room(f, 'handling')) / DAY * n;
+          // A diffuse trace must not create an endless sixty-second handling
+          // loop whose actual food costs exceed the whole encountered meal.
+          // Declining it releases custody; it neither eats nor invents tissue.
+          if (food <= handlingFood) release(r, c);
+        }
         if (f.mealIds.length) { action(c, 'handling', at, Math.min(60, room(f, 'handling'))); return; }
+        if (Lantern.is(c)) f.carrionFieldReviewAt = at + HOUR;
       }
     }
     // A completed bout must yield before scheduling another one. The caller
@@ -274,7 +288,8 @@
       if (room(f, 'eating') < 1 || room(f, 'handling') < 60) { f.nextAt = f.plan.end; return; }
       const actor = ctx.actor, body = Bodies.profiles[c.speciesId];
       const wantsFood = c.stores.foodKg < capacity(c) * .5;
-      const target = wantsFood || c.carrionApproach ? ctx.senseCarrion?.() : null;
+      const observed = wantsFood || c.carrionApproach ? ctx.senseCarrion?.() : null;
+      const target = observed?.kind === 'wildlife' && at < (f.carrionFieldReviewAt || 0) ? null : observed;
       if (target?.contact) Approach.stop(c, at, 'arrived');
       else if (g.windDriven) {
         const pursuit = Approach.observe(c, at, target, Boolean(actor && c.regional.stamina >= (c.carrionApproach ? .001 : 30)
@@ -398,7 +413,8 @@
     for (const g of s.groups) for (const c of g.cohorts) if (c.foraging) {
       const f = c.foraging, plan = f.plan;
       const dormant = !count(c) || Journeys.moving(g) || !s.regions.find(r => r.id === Journeys.location(g))?.foraging;
-      if (!Approach.valid(c, s.clock) || c.carrionApproach && (!Lantern.is(c) || !g.windDriven)
+      if (!Approach.valid(c, s.clock) || f.carrionFieldReviewAt != null && !finite(f.carrionFieldReviewAt)
+        || c.carrionApproach && (!Lantern.is(c) || !g.windDriven)
         || !['idle', 'approach', 'search', 'handling', 'eating', 'rest'].includes(f.phase) || !finite(f.nextAt) || !dormant && f.nextAt <= s.clock - EPS
         || !finite(f.lastAt) || f.lastAt > s.clock + EPS || !finite(f.restPending) || !integer(f.serial)
         || !plan || !integer(plan.monthIndex) || !finite(plan.plannedAt) || !(plan.end > plan.plannedAt)
