@@ -68,9 +68,11 @@ overflow remains an explicit output. The saved starting death/decomposition
 receipt is validated on import and never applied again to a continued run.
 
 Anonymous remains stay in their death patch's finite ledger, not at the
-scavenger's current position. This remains a coarse density field, not a set of
-individual corpse coordinates; actual original-beast corpses retain their own
-point positions. New layout/history is not retrofitted into old archives or runs:
+scavenger's current position. Newly marked proposals additionally use
+[spatial carcass batches](WILDLIFE_CARCASSES.md): deterministic local death
+sites and positioned predator leftovers, rather than uniformly smeared carrion.
+Old unmarked accounts retain their coarse fields; actual original-beast corpses
+retain their own point positions. New layout/history is not retrofitted into old archives or runs:
 unmarked spatial allocations retain their single 0.025%-area feeding ground,
 original count, positions, source identity and pristine starting carcass account.
 
@@ -395,7 +397,11 @@ and the existing D acceptance remains open. No additional prompt is created.
 
 ### Distributed starting-state isolated control — 2026-11-17
 
-`node scripts/replay-carrion-lantern.js` now reproduces source
+This historical control predates spatial carcass batches. The replay script now
+uses the new model; [current measurements and limits](WILDLIFE_CARCASSES.md#targeted-120-day-generated-control)
+supersede these figures for current generation.
+
+The previous `node scripts/replay-carrion-lantern.js` execution used source
 `beast-habitat-source:b1c3df52`, seed `source-small`, refinement 2. Only the
 original 120 Lanterns and finite anonymous wildlife are simulated; other
 strategic species, their kills, competition and ecological work are excluded.
@@ -444,3 +450,21 @@ Chromium cases cover generated-world compressed storage/continuation and
 partial native/regional approaches. The full suite was not run under repository
 policy. No creature/lifecycle values changed, so the reference spreadsheets
 require no regeneration.
+
+### Spatial carcass correction
+
+The approved local-carcass correction is implemented within D. Each real
+natural death is allocated by a fixed spatial hierarchy, with actual tissue
+ages and lazily resolved local sites. Predator kills retain their performed
+positions. Local custody reconciles with the original aggregate inventory;
+scavengers find body-sized meals, not a fraction of a habitat-wide coating.
+Actual reach, one-body structural support, paid handling and interruptions
+still apply. No corpse appears because an animal needs food.
+
+The current isolated source `beast-habitat-source:5cddbb5e` validates all
+120 days but ingests zero anonymous wildlife and only 1.690274 kg of actual
+original Lantern remains. All originals still die by day 80, with no births.
+This honest result does not certify the generated scavenger allocation or
+invalidate the supplied local-feeding/holding controls. Exact batching,
+conservation, processing bounds and replay results are in
+[spatial wildlife carcasses](WILDLIFE_CARCASSES.md). No new package is added.

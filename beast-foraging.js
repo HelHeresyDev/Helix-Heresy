@@ -7,10 +7,11 @@
     node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys,
     node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology,
     node ? require('./carcass-tissues') : root.HelixCarcassTissues,
-    node ? require('./carrion-lantern-approach') : root.HelixCarrionLanternApproach);
+    node ? require('./carrion-lantern-approach') : root.HelixCarrionLanternApproach,
+    node ? require('./wildlife-carcasses') : root.HelixWildlifeCarcasses);
   if (node) module.exports = api;
   root.HelixBeastForaging = api;
-})(globalThis, function (Life, Data, Bodies, Journeys, Lantern, Tissues, Approach) {
+})(globalThis, function (Life, Data, Bodies, Journeys, Lantern, Tissues, Approach, Carcasses) {
   'use strict';
   const DAY = 86400, HOUR = 3600, EPS = 1e-8, copy = x => JSON.parse(JSON.stringify(x));
   const count = c => c.ranges.reduce((n, [lo, hi]) => n + hi - lo, 0);
@@ -31,43 +32,50 @@
     f.nextAt = Math.min(f.nextAt, at + 1e-6);
   }
   function row(r, meal) {
-    return meal.kind === 'wildlife' ? r.wildlife?.pools.find(p => p.id === meal.sourceId)?.carcass
+    return meal.kind === 'wildlife' ? Carcasses.source(r, meal.sourceId)
       : r.remains?.[meal.sourceId] || r.remainsBatches?.[meal.sourceId];
   }
   function claim(r, g, c, kind, sourceId, kg, at, position) {
     if (!r.foraging || !(kg > EPS)) return null;
     const candidate = { kind, sourceId }, source = row(r, candidate); if (!source) return null;
     let first = null;
-    for (const portion of Tissues.reserve(source, c, kg)) {
+    for (const portion of Carcasses.reserve(r, source, c, kg)) {
       const { tissue, kg } = portion, id = `forage-meal:${r.id}:${r.foraging.serial++}`;
       first ||= id;
       r.foraging.meals[id] = { id, kind, sourceId, groupId: g.id, cohortId: c.id, tissue, kg, initialKg: kg,
-        consumedKg: 0, decomposedKg: 0, lastAt: at, position: copy(position) };
-      if (g.windDriven && kind === 'wildlife') {
+        consumedKg: 0, decomposedKg: 0, lastAt: at, position: copy(source.poolId ? source.position : position) };
+      if (g.windDriven && kind === 'wildlife' && !source.poolId) {
         const pool = r.wildlife.pools.find(p => p.id === sourceId), site = pool.spatial;
         r.foraging.meals[id].field = site ? { eastM: site.eastM, northM: site.northM, radiusM: site.radiusM }
           : { eastM: 0, northM: 0, radiusM: Math.sqrt(r.areaHa * 10000 / Math.PI) };
       }
       c.foraging.mealIds.push(id);
     }
-    if (first && g.windDriven && kind === 'beast') {
-      r.foraging.meals[first].anchors = Tissues.reserve(source, { carrionDiet: ['hard', 'tough'] }, source.massKg)
+    if (first && g.windDriven && (kind === 'beast' || source.poolId)) {
+      r.foraging.meals[first].anchors = Carcasses.reserve(r, source, { carrionDiet: ['hard', 'tough'] }, Math.min(source.massKg, Carcasses.anchorLimit(source)))
         .map(part => ({ ...part, initialKg: part.kg, decomposedKg: 0 }));
     }
     return first;
   }
-  function releaseMeal(source, meal) {
-    Tissues.release(source, meal.tissue, meal.kg);
-    for (const part of meal.anchors || []) Tissues.release(source, part.tissue, part.kg);
+  function releaseMeal(r, source, meal) {
+    Carcasses.release(r, source, meal.tissue, meal.kg);
+    for (const part of meal.anchors || []) Carcasses.release(r, source, part.tissue, part.kg);
   }
   function release(r, c) {
     const f = c.foraging; if (!f || !r.foraging) return;
     for (const id of f.mealIds) {
       const meal = r.foraging.meals[id]; if (!meal) continue;
-      const source = row(r, meal); if (source) releaseMeal(source, meal);
+      const source = row(r, meal); if (source) releaseMeal(r, source, meal);
       delete r.foraging.meals[id];
     }
     f.mealIds = [];
+  }
+  function deferSites(r, c, at) {
+    const f = c.foraging, reviews = Object.entries(f.carrionSiteReviews || {}).filter(([, until]) => until > at);
+    for (const id of f.mealIds) {
+      const meal = r.foraging.meals[id]; if (row(r, meal)?.poolId) reviews.push([meal.sourceId, at + HOUR]);
+    }
+    f.carrionSiteReviews = Object.fromEntries(reviews.slice(-64));
   }
   function cancel(r, c, at) {
     const f = c?.foraging; if (!f) return;
@@ -98,8 +106,10 @@
   }
   function action(c, phase, at, seconds, data = {}) {
     const f = c.foraging;
+    const requiredSeconds = seconds;
     seconds = Math.max(1e-6, Math.min(seconds, (f.availableUntil ?? f.plan.end) - at));
-    f.phase = phase; f.action = { phase, startedAt: at, dueAt: at + seconds, ...data }; f.nextAt = at + seconds;
+    f.phase = phase; f.action = { phase, startedAt: at, dueAt: at + seconds,
+      ...(phase === 'handling' ? { requiredSeconds } : {}), ...data }; f.nextAt = at + seconds;
     if (['approach', 'search', 'eating', 'handling'].includes(phase)) c.contactBusyUntil = f.nextAt;
     else delete c.contactBusyUntil;
   }
@@ -116,14 +126,14 @@
     let anchorDecay = 0;
     for (const part of meal.anchors || []) {
       const kg = part.kg * -Math.expm1(-Tissues.profiles[part.tissue].decayDay * (dt - frozen));
-      Tissues.debit(source, part.tissue, 0, kg, true); part.kg -= kg; part.decomposedKg += kg; anchorDecay += kg;
+      Carcasses.debit(r, source, part.tissue, 0, kg, true); part.kg -= kg; part.decomposedKg += kg; anchorDecay += kg;
     }
     const frozenConsumed = Math.min(meal.kg, ratePerDay * frozen), afterFrozen = meal.kg - frozenConsumed;
     const duration = ratePerDay > 0 ? Math.min(dt - frozen, Math.log1p(decayRate * afterFrozen / ratePerDay) / decayRate) : dt - frozen;
     const consumed = frozenConsumed + ratePerDay * duration;
     const remaining = Math.max(0, afterFrozen * Math.exp(-decayRate * duration) - ratePerDay / decayRate * -Math.expm1(-decayRate * duration));
     const decomposed = Math.max(0, meal.kg - consumed - remaining);
-    Tissues.debit(source, meal.tissue || 'legacy', consumed, decomposed, true);
+    Carcasses.debit(r, source, meal.tissue || 'legacy', consumed, decomposed, true);
     const totalDecay = decomposed + anchorDecay;
     if (meal.kind === 'beast' && s.foodWeb) { s.foodWeb.receipts.consumedKg += consumed; s.foodWeb.receipts.decomposedKg += totalDecay; }
     const accepted = Math.min(totalDecay, Math.max(0, (r.capacity.detritusKg || 0) - (r.stocks.detritusKg || 0)));
@@ -217,6 +227,9 @@
     if (!old && f.nextAt > at + EPS) return;
     if (old) {
       f.action = null; f.phase = 'idle'; delete c.contactBusyUntil;
+      if (old.phase === 'handling' && old.requiredSeconds != null && at - old.startedAt < old.requiredSeconds - EPS) {
+        deferSites(r, c, at); release(r, c);
+      }
       if (old.phase === 'search' && old.earnedSeconds > 0 && (!Lantern.is(c) || c.stores.foodKg < capacity(c) * .5)) {
         // Wind moves the body, not an abstract omnidirectional search disk. A
         // completed search may claim only tissue reachable at its actual end.
@@ -238,7 +251,10 @@
           // A diffuse trace must not create an endless sixty-second handling
           // loop whose actual food costs exceed the whole encountered meal.
           // Declining it releases custody; it neither eats nor invents tissue.
-          if (food <= handlingFood) release(r, c);
+          if (food <= handlingFood) {
+            deferSites(r, c, at);
+            release(r, c);
+          }
         }
         if (f.mealIds.length) { action(c, 'handling', at, Math.min(60, room(f, 'handling'))); return; }
         if (Lantern.is(c)) f.carrionFieldReviewAt = at + HOUR;
@@ -252,11 +268,12 @@
     if (f.availableUntil <= at + EPS) { f.nextAt = at + 1e-6; return; }
     f.mealIds = f.mealIds.filter(id => {
       const meal = r.foraging.meals[id];
-      const near = !g.windDriven || meal && (meal.field ? Math.hypot(ctx.position.eastM - meal.field.eastM, ctx.position.northM - meal.field.northM) + (ctx.clearance || 0) <= meal.field.radiusM
+      const local = meal && row(r, meal)?.poolId;
+      const near = !g.windDriven && !local || meal && (meal.field ? Math.hypot(ctx.position.eastM - meal.field.eastM, ctx.position.northM - meal.field.northM) + (ctx.clearance || 0) <= meal.field.radiusM
         : c.windDrift?.hold?.mealId === id || Math.hypot(ctx.position.eastM - meal.position.eastM, ctx.position.northM - meal.position.northM,
           ctx.position.altitudeM - meal.position.altitudeM) <= Bodies.profiles[c.speciesId].reachM);
       if (meal?.kg > EPS && near) return true;
-      if (meal) { releaseMeal(row(r, meal), meal); delete r.foraging.meals[id]; }
+      if (meal) { releaseMeal(r, row(r, meal), meal); delete r.foraging.meals[id]; }
       return false;
     });
     if (f.mealIds.length && c.stores.foodKg < capacity(c) - EPS && room(f, 'eating') > EPS) {
@@ -383,7 +400,8 @@
           || meal.position.regionId !== r.id || meal.lastAt > (s.regionClocks?.[r.id]?.appliedAt ?? s.appliedAt) + EPS
           || Math.abs(meal.initialKg - meal.kg - meal.consumedKg - meal.decomposedKg) > 1e-6 * Math.max(1, meal.initialKg)) return false;
         if (owned.has(id)) return false;
-        if (g.windDriven && meal.kind === 'wildlife') {
+        if (source.poolId && JSON.stringify(meal.position) !== JSON.stringify(source.position)) return false;
+        if (g.windDriven && meal.kind === 'wildlife' && !source.poolId) {
           const pool = r.wildlife.pools.find(p => p.id === meal.sourceId), site = pool.spatial;
           const field = site ? { eastM: site.eastM, northM: site.northM, radiusM: site.radiusM }
             : { eastM: 0, northM: 0, radiusM: Math.sqrt(r.areaHa * 10000 / Math.PI) };
@@ -395,7 +413,7 @@
         owned.set(id, c); sums.set(source, (sums.get(source) || 0) + meal.kg);
         const byTissue = tissueSums.get(source) || {}; byTissue[tissue] = (byTissue[tissue] || 0) + meal.kg; tissueSums.set(source, byTissue);
         if (meal.anchors != null) {
-          if (!g.windDriven || meal.kind !== 'beast' || !Array.isArray(meal.anchors) || meal.anchors.length > 2 || meal.anchors.some(p => !p)
+          if (!g.windDriven || meal.kind !== 'beast' && !source.poolId || !Array.isArray(meal.anchors) || meal.anchors.length > 2 || meal.anchors.some(p => !p)
             || new Set(meal.anchors.map(p => p.tissue)).size !== meal.anchors.length) return false;
           for (const part of meal.anchors) {
             if (!['hard', 'tough'].includes(part.tissue) || !source.tissues?.[part.tissue]
@@ -405,7 +423,7 @@
           }
         }
       }
-      for (const source of [...Object.values(r.remains || {}), ...Object.values(r.remainsBatches || {}), ...(r.wildlife?.pools || []).map(p => p.carcass)])
+      for (const source of [...Object.values(r.remains || {}), ...Object.values(r.remainsBatches || {}), ...(r.wildlife?.pools || []).flatMap(Carcasses.rows)])
         if (!Tissues.valid(source) || source.tissues && Object.entries(source.tissues).some(([key, t]) => Math.abs((tissueSums.get(source)?.[key] || 0) - t.reservedKg) > 1e-6 * Math.max(1, t.kg))
           || !finite(source.reservedKg || 0) || (source.reservedKg || 0) > source.edibleKg + EPS
           || Math.abs((sums.get(source) || 0) - (source.reservedKg || 0)) > 1e-6 * Math.max(1, source.edibleKg)) return false;
@@ -414,6 +432,8 @@
       const f = c.foraging, plan = f.plan;
       const dormant = !count(c) || Journeys.moving(g) || !s.regions.find(r => r.id === Journeys.location(g))?.foraging;
       if (!Approach.valid(c, s.clock) || f.carrionFieldReviewAt != null && !finite(f.carrionFieldReviewAt)
+        || f.carrionSiteReviews != null && (!f.carrionSiteReviews || typeof f.carrionSiteReviews !== 'object'
+          || Object.keys(f.carrionSiteReviews).length > 64 || !Object.values(f.carrionSiteReviews).every(finite))
         || c.carrionApproach && (!Lantern.is(c) || !g.windDriven)
         || !['idle', 'approach', 'search', 'handling', 'eating', 'rest'].includes(f.phase) || !finite(f.nextAt) || !dormant && f.nextAt <= s.clock - EPS
         || !finite(f.lastAt) || f.lastAt > s.clock + EPS || !finite(f.restPending) || !integer(f.serial)
@@ -432,6 +452,8 @@
       if (['approach', 'search', 'eating', 'handling'].includes(f.phase) && !f.action?.passive && c.contactBusyUntil !== f.nextAt) return false;
       const a = f.action;
       if (a && (!finite(a.dueAt) || !(a.dueAt > a.startedAt) || a.dueAt > plan.end + EPS)) return false;
+      if (a?.requiredSeconds != null && (a.phase !== 'handling' || a.requiredSeconds !== 60
+        || a.dueAt - a.startedAt > a.requiredSeconds + EPS)) return false;
       if (a?.phase === 'approach' && (!c.carrionApproach || a.targetId !== c.carrionApproach.target.id
         || a.dueAt > c.carrionApproach.deadlineAt + EPS || a.dueAt > c.carrionApproach.lastSeenAt + Approach.LOST + EPS
         || a.dueAt - a.startedAt > Approach.REVIEW + EPS || f.mealIds.length)) return false;

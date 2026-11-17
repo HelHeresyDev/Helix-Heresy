@@ -5,10 +5,11 @@
     node ? require('./creature-biology') : root.HelixCreatureBiology,
     node ? require('./beast-bodies') : root.HelixBeastBodies,
     node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology,
-    node ? require('./carcass-tissues') : root.HelixCarcassTissues);
+    node ? require('./carcass-tissues') : root.HelixCarcassTissues,
+    node ? require('./wildlife-carcasses') : root.HelixWildlifeCarcasses);
   if (node) module.exports = api;
   root.HelixBackgroundWildlife = api;
-})(globalThis, function (Life, Biology, Bodies, Lantern, Tissues) {
+})(globalThis, function (Life, Biology, Bodies, Lantern, Tissues, Carcasses) {
   'use strict';
   const DAY = 86400, EPS = 1e-8, DURATION = 300, copy = x => JSON.parse(JSON.stringify(x));
   // Initial guild tuning, not additional researchable/strategic creature species.
@@ -77,7 +78,7 @@
   }
   const output = (r, key, kg) => { if (kg > 0) { r.outputs ||= {}; r.outputs[key] = (r.outputs[key] || 0) + kg; } };
   function allocate(source, seed, options = {}) {
-    if (source.spatialContinuity) return allocateSpatial(source, seed, options.distributed === true);
+    if (source.spatialContinuity) return allocateSpatial(source, seed, options.distributed === true, options.carcassBatches === true);
     const allocations = [];
     for (const r of source.regions) {
       const aquatic = ['wetland', 'waterColumn'].includes(r.kind);
@@ -101,7 +102,7 @@
     }
     return { basis: 'Finite adapted background guilds; original body matter partitioned from standing food stocks', allocations };
   }
-  function allocateSpatial(source, seed, distributed = false) {
+  function allocateSpatial(source, seed, distributed = false, carcassBatches = false) {
     const allocations = [];
     for (const r of source.regions) {
       const aquatic = ['wetland', 'waterColumn'].includes(r.kind);
@@ -129,6 +130,7 @@
     // geometry, area, body mass and profile names for every geographic patch.
     return { basis: 'Finite size-classed spatial herds/schools; original matter and shared regional feeding budgets', seed,
       ...(distributed ? { distribution: 'habitatPatches', settlingDays: SETTLING_DAYS } : {}),
+      ...(distributed && carcassBatches ? { carcassBatches: true } : {}),
       spatialRows: allocations.map(a => [a.regionId, ...CLASSES.map(([guild, size]) =>
         a.pools.find(p => p.guild === guild && p.sizeClass === size)?.originalCount || 0)]) };
   }
@@ -160,6 +162,7 @@
           assigned += n; if (!n) return [];
           capacity += cap;
           return [{ ...pool, id: `${pool.id}:${site.id}`, habitatPatch: site.id, establishedDays: SETTLING_DAYS,
+            ...(record.carcassBatches === true ? { spatialCarcasses: true } : {}),
             areaHa: site.id === 'background' ? r.areaHa : Math.PI * site.radiusM ** 2 / 10000,
             spatial: { eastM: site.eastM, northM: site.northM, radiusM: site.radiusM, depthTopM: site.depthTopM },
             originalCount: n, capacityCount: Math.max(n, cap), originalMassKg: n * profile(pool).adultKg }];
@@ -188,7 +191,10 @@
       broods: [], bornCount: 0, deadCount: 0, huntedCount: 0, fundedKg: 0, discardedKg: 0,
       maintenanceKg: 0, maintenanceWaterL: 0, wasteKg: 0, attempts: 0, catches: 0,
       carcass: { initialMassKg: 0, massKg: 0, edibleKg: 0, consumedKg: 0, decomposedKg: 0, lastAt: at } });
-    for (const pool of r.wildlife.pools) if (pool.establishedDays) establish(r, pool);
+    for (const pool of r.wildlife.pools) {
+      Carcasses.initialize(pool, r.id, at);
+      if (pool.establishedDays) establish(r, pool);
+    }
   }
   function initialDeaths(pool) {
     let living = pool.originalCount;
@@ -200,7 +206,10 @@
   }
   function establish(r, pool) {
     const deaths = initialDeaths(pool), row = pool.carcass, p = profile(pool);
-    for (const n of deaths) { Tissues.decay(row, 1); Tissues.add(row, n * p.adultKg); }
+    for (const [day, n] of deaths.entries()) {
+      Tissues.decay(row, 1); Tissues.add(row, n * p.adultKg);
+      Carcasses.record(pool, n, n * p.adultKg, row.lastAt - (SETTLING_DAYS - day - .5) * DAY);
+    }
     Tissues.decay(row, .5);
     pool.deadCount = deaths.reduce((n, v) => n + v, 0); pool.cohorts[0].count -= pool.deadCount;
     pool.establishment = { days: SETTLING_DAYS, deaths, decomposedKg: row.decomposedKg };
@@ -302,12 +311,13 @@
     for (const pool of r.wildlife.pools) {
       const row = pool.carcass, elapsed = Math.max(0, to - Math.max(row.lastAt, row.frozenUntil || 0)) / DAY;
       const kg = Tissues.decay(row, elapsed); row.lastAt = to;
+      Carcasses.advance(pool, elapsed, to);
       const accepted = Math.min(kg, Math.max(0, (r.capacity.detritusKg || 0) - (r.stocks.detritusKg || 0)));
       if (accepted) r.stocks.detritusKg = (r.stocks.detritusKg || 0) + accepted;
       output(r, 'wildlifeDetritusOverflowKg', kg - accepted);
     }
   }
-  function lose(r, pool, c, n, hunted, at) {
+  function lose(r, pool, c, n, hunted, at, point) {
     const p = profile(pool); n = Math.min(c.count, n);
     if (!p.externalBrood && n && at - c.bornAt >= p.adultDays * DAY && c.massKg >= p.adultKg * .95) {
       const adults = pool.cohorts.reduce((v, c) => v + (at - c.bornAt >= p.adultDays * DAY && c.massKg >= p.adultKg * .95 ? c.count : 0), 0);
@@ -323,6 +333,7 @@
     c.mortalityBalance *= c.count / Math.max(1, c.count + n);
     pool[hunted ? 'huntedCount' : 'deadCount'] += n;
     Tissues.add(pool.carcass, kg);
+    Carcasses.record(pool, n, kg, at, hunted ? point : null);
     return n;
   }
   function boundary(r, at, daily) {
@@ -478,6 +489,25 @@
       if (pool.spatial && q.position?.regionId !== r.id) continue;
       const fraction = encounterFraction(pool, q);
       const eater = { speciesId: q.scavenge ? Lantern.ID : q.speciesId, carrionDiet: q.carrionDiet };
+      if (pool.carcassSpace) {
+        const body = Bodies.profiles[eater.speciesId || g.speciesId];
+        const radius = Math.min(Math.sqrt(q.areaHa * 10000 / Math.PI), body?.reachM ?? 0);
+        const sites = Carcasses.query(pool, q.position, radius).sites;
+        let encountered = sites.reduce((n, site) => n + Tissues.available(site, eater), 0);
+        if (!q.scavenge) for (const prey of pool.cohorts) {
+          const n = Math.min(prey.count, Math.floor(prey.count * fraction * q.success + Life.random(`${q.id}:${prey.id}:catch`)),
+            Math.max(0, Math.ceil((room - encountered) / Math.max(EPS, prey.massKg * .6))));
+          pool.catches += lose(r, pool, prey, n, true, at, q.position);
+          encountered += n * prey.massKg * .6;
+        }
+        for (const site of Carcasses.query(pool, q.position, radius).sites) if (!sites.includes(site)) sites.push(site);
+        for (const site of sites) {
+          const available = Tissues.available(site, eater);
+          const kg = Math.min(room, available, q.scavenge ? available / site.count * Math.min(q.memberCount, site.count) : Infinity);
+          if (kg > EPS) { claims.push({ sourceId: site.id, kg }); room -= kg; }
+        }
+        continue;
+      }
       const encounteredKg = Tissues.available(pool.carcass, eater) * fraction;
       let caughtKg = 0;
       if (!q.scavenge) for (const prey of pool.cohorts) {
@@ -499,6 +529,7 @@
       && (p.establishedDays == null || p.spatial && p.sizeClass && p.establishedDays === SETTLING_DAYS
         && ['background', 'hotspot-0', 'hotspot-1', 'hotspot-2'].includes(p.habitatPatch))
       && (p.habitatPatch == null || p.establishedDays === SETTLING_DAYS)
+      && (p.spatialCarcasses == null || p.spatialCarcasses === true && p.spatial && p.establishedDays === SETTLING_DAYS)
       && typeof p.id === 'string' && p.id && ['forageKg', 'organicKg', 'planktonKg'].includes(p.foodKey)
       && p.areaHa > 0 && p.areaHa <= r.areaHa && finite(p.habitatDepthM) && integer(p.originalCount) && integer(p.capacityCount)
       && p.capacityCount >= p.originalCount && finite(p.originalMassKg) && Math.abs(p.originalMassKg - p.originalCount * profile(p).adultKg) < EPS
@@ -535,8 +566,9 @@
       if (pool.broods.some(b => typeof b.id !== 'string' || !b.id || !integer(b.monthIndex) || !integer(b.targetCount) || !finite(b.investedKg) || !finite(b.dueAt)
         || b.investedKg > b.targetCount * profile(pool).newbornKg + EPS)) return false;
       const row = pool.carcass;
+      if (!Carcasses.valid(pool, r.id, at, w.initializedAt)) return false;
       if (!row || !Tissues.valid(row) || !['initialMassKg', 'massKg', 'edibleKg', 'consumedKg', 'decomposedKg', 'lastAt'].every(k => finite(row[k]))
-        || row.edibleKg > row.massKg + EPS || row.lastAt > at + EPS
+        || row.edibleKg > row.massKg + 1e-6 * Math.max(1, row.massKg) || row.lastAt > at + EPS
         || Math.abs(row.initialMassKg - row.massKg - row.consumedKg - row.decomposedKg) > 1e-6 * Math.max(1, row.initialMassKg)) return false;
       if (total(pool) + pool.deadCount + pool.huntedCount !== pool.originalCount + pool.bornCount) return false;
       const accounted = mass(pool) + pool.broods.reduce((n, b) => n + b.investedKg, 0) + row.initialMassKg + pool.discardedKg;

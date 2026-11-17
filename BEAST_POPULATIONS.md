@@ -788,10 +788,10 @@ the remainder. A snapshot cohort loop prevents recursive per-animal expansion.
 Actual arrival, not merely arrival of a large formation's anchor, gates feeding.
 New claims/pursuits wait for half-empty food stores, preventing minute-by-minute
 microscopic ration handling. Saved approach effort and all original membership
-remain conserved. The current distributed-starting-state control eats 2.040194 kg,
-including 0.343585 kg from anonymous wildlife, but still loses all 120 originals
-by day 80; this is not source acceptance. Exact current and historical results
-are in [background wildlife](BACKGROUND_WILDLIFE.md#distributed-starting-state-isolated-control--2026-11-17).
+remain conserved. The current [spatial-carcass control](WILDLIFE_CARCASSES.md#targeted-120-day-generated-control)
+eats 1.690274 kg from actual original Lantern remains and zero anonymous
+wildlife, and still loses all 120 originals by day 80; this is not source
+acceptance. Earlier field-based feeding measurements remain historical results.
 Saved airflow segments retain the actual last represented ordinal so a dead
 cohort's historical frontier is not invalidated by its now-empty formation.
 
@@ -801,6 +801,16 @@ footprints; a whole cohort must fit before receiving a shared meal. Leaving the
 field, cancelling a foraging action, crossing an edge or detailing releases unconsumed
 claims at their original source. A large dead animal can be scavenged without
 making it legal live prey. No living wildlife is killed by this scavenger.
+
+New `wildlifeCarcasses` proposals use conserved, locally positioned wildlife
+carcass batches instead of the old anonymous fields. Actual deaths, tissue
+ages, specific class custody and aggregate matter reconcile; no new corpse is
+funded by the query itself. Local scent/feeding reach and existing effort
+limits gate encounters. Only one corpse's structural support may anchor a
+mouth, never the total batch weight. A clipped handling action releases its
+claim without awarding ingestion. New sites/history are not reconstructed
+into unmarked archived accounts. The full contract and focused verification
+are in [spatial carcasses](WILDLIFE_CARCASSES.md).
 
 A mouth can hold a **positioned original corpse**, not the combined mass of an
 anonymous field. The model requires a real floor, contacting cohort geometry,

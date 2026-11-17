@@ -112,11 +112,18 @@ approaches across reload and independent branches. Twelve catalog/artifact check
 also confirm the existing reference workbooks remain consistent. The full suite was not run
 under repository policy.
 
-The replay script now uses the approved distributed habitat/aged starting
-remains correction. Its current source, exact ingestion split and continued
-failure to sustain generated Lanterns are recorded in
-[the distributed starting-state control](BACKGROUND_WILDLIFE.md#distributed-starting-state-isolated-control--2026-11-17).
+The replay script now uses distributed habitat/aged starting remains and the
+approved spatial-carcass correction. Its current source, exact ingestion split
+and continued failure to sustain generated Lanterns are recorded in
+[the spatial-carcass control](WILDLIFE_CARCASSES.md#targeted-120-day-generated-control).
 Empty/uneconomic diffuse samples use a one-hour review backoff; an actually
 sensed point corpse still takes precedence and can wake observation. Finite
 claims are released if their food yield cannot cover handling metabolism.
 These changes do not alter the approach thrust, physiology or original reserves.
+
+New wildlife carcasses expose fixed nearby sites, not the edge of a diffuse
+field. The existing single-member point-contact split also applies to those
+sites. A current flow that cannot permit handling or a hold on one body's
+actual structure does not justify pursuing a tiny corpse. This is a local
+physical feasibility check, not permission to inspect distant food or future
+winds. Losing contact before handling finishes does not award a completed meal.

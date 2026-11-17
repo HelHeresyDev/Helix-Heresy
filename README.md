@@ -2309,10 +2309,13 @@ paid juvenile growth; deficient habitats can still starve. Partial searches,
 meals and losses survive saves/continued branches; archived worlds gain no
 wildlife on load. The full seasonal sample still rejects activation, so this does
 not claim a balanced generated ecosystem or completed native encounters.
-The current isolated 120-day Lantern control records 0.343585 kg of actual
-anonymous-wildlife ingestion, but no Lantern offspring or survivors by day 80.
-Its exact conservation, runtime and limitations are recorded in
-[the current control](BACKGROUND_WILDLIFE.md#distributed-starting-state-isolated-control--2026-11-17).
+New proposals also use [spatial carcass batches](WILDLIFE_CARCASSES.md): real
+deaths fund fixed local remains and predator leftovers, without per-animal
+objects or habitat-wide carrion coatings. Claims reconcile with the original
+inventory; actual reach, one-body anchoring and paid handling remain necessary.
+The current isolated 120-day Lantern control still has no offspring or survivors
+by day 80, and zero anonymous-wildlife ingestion. Exact results and limitations
+are recorded in the linked contract; this is not generated-source acceptance.
 
 New generated populations now prefer usable founding temperatures and water
 conditions before history, then retain source-backed nursery/maternal formations

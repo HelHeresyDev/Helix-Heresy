@@ -13,10 +13,11 @@
     node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys,
     node ? require('./beast-wind-drift') : root.HelixBeastWindDrift,
     node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology,
-    node ? require('./carrion-lantern-approach') : root.HelixCarrionLanternApproach);
+    node ? require('./carrion-lantern-approach') : root.HelixCarrionLanternApproach,
+    node ? require('./wildlife-carcasses') : root.HelixWildlifeCarcasses);
   if (node) module.exports = api;
   root.HelixBeastRegionalFoodweb = api;
-})(globalThis, function (Data, Life, Bodies, Behavior, Predation, Wilderness, Demography, Wildlife, Foraging, Journeys, Wind, Lantern, Approach) {
+})(globalThis, function (Data, Life, Bodies, Behavior, Predation, Wilderness, Demography, Wildlife, Foraging, Journeys, Wind, Lantern, Approach, Carcasses) {
   'use strict';
   const DAY = Life.DAY, EPS = 1e-8, BIN = 128, LIMIT = 16, DURATION = 300;
   const Tissues = Predation.tissues;
@@ -718,7 +719,7 @@
         const sensed = g.windDriven && size(c) > 1 && !c.foraging.mealIds.length
           && (!c.foraging.action || c.foraging.action.passive) && c.stores.foodKg < Foraging.capacity(c) * .5
           && at >= (c.carrionApproachCooldownUntil || 0) && sensedCarrion(r, g, c, pos);
-        if (sensed?.kind === 'beast') {
+        if (sensed?.kind === 'beast' || sensed?.kind === 'wildlifeBatch') {
           // One point corpse cannot feed a spatially extended formation.
           // Separate one actually sensing original, using existing contact
           // custody, rather than dragging everyone to the first member's nose
@@ -735,7 +736,7 @@
         const wake = g.windDriven && c.foraging.action?.passive && c.foraging.nextAt > at + Approach.REVIEW
           && c.stores.foodKg < Foraging.capacity(c) * .5
           && at >= (c.carrionApproachCooldownUntil || 0) && sensedCarrion(r, g, c, pos);
-        if (wake && (wake.kind === 'beast' || at >= (c.foraging.carrionFieldReviewAt || 0)))
+        if (wake && (wake.kind !== 'wildlife' || at >= (c.foraging.carrionFieldReviewAt || 0)))
           c.foraging.action.dueAt = c.foraging.nextAt = at;
         if (c.foraging.nextAt <= at + EPS || c.foraging.action) restore(c, g, r, at);
         const ctx = a && context(r, [a], month.season);
@@ -765,10 +766,15 @@
             && !Bodies.habitatReason(a, a.mapCell, a.bodyPhysics.mode, Bodies.height(a), ctx)),
           guilds: actor => Wildlife.guilds(r, c, actor), capture: (q, maximum) => {
             const guilds = g.windDriven ? q.guilds.filter(id => {
-              const site = r.wildlife.pools.find(p => p.id === id)?.spatial;
+              const pool = r.wildlife.pools.find(p => p.id === id), site = pool?.spatial;
+              if (pool?.carcassSpace) return true;
               return !site || Wind.extent(g, c, pos, site) + Bodies.profiles[c.speciesId].reachM <= site.radiusM;
             }) : q.guilds;
-            const claims = Wildlife.capture(r, g, c, { ...q, guilds, position: pos }, maximum, at);
+            const claims = Wildlife.capture(r, g, c, { ...q, guilds, position: pos }, maximum, at).filter(claim => {
+              const row = Carcasses.source(r, claim.sourceId);
+              return !g.windDriven || !row?.poolId || Wind.canFeedAt(g, c, r, row)
+                && Wind.extent(g, c, pos, row.position) <= Bodies.profiles[c.speciesId].reachM;
+            });
             let left = maximum - claims.reduce((sum, claim) => sum + claim.kg, 0);
             if (g.windDriven) for (const [sourceId, row] of [...Object.entries(r.remains || {}), ...Object.entries(r.remainsBatches || {})]) {
               if (!row.position || g.protectedGroupIds?.includes(row.groupId) || !(left > EPS)
@@ -781,6 +787,12 @@
       }
     }
   }
+  function localCarcasses(r, pos, range, end = pos, g = null, c = null) {
+    return (r.wildlife?.pools || []).filter(p => p.carcassSpace && p.guild !== 'fish')
+      .filter(p => !c || Wind.canFeedAt(g, c, r, { count: 1, tissues: {
+        hard: { kg: Wildlife.profile(p).adultKg * .1 }, tough: { kg: Wildlife.profile(p).adultKg * .1 } } }))
+      .flatMap(p => Carcasses.query(p, pos, range, end).sites);
+  }
   function sensedCarrion(r, g, c, pos) {
     if (!g.windDriven || !pos || r.contactBarriers?.length) return null;
     const body = Bodies.profiles[c.speciesId], sense = Math.max(body.scentM, body.sightM);
@@ -791,8 +803,15 @@
       targets.push({ id: `beast:${sourceId}`, kind: 'beast', sourceId, position: copy(row.position),
         contact: Wind.extent(g, c, pos, row.position) <= body.reachM });
     }
+    for (const row of localCarcasses(r, pos, sense, pos, g, c)) {
+      if (Wind.extent(g, c, pos, row.position) > sense || Tissues.available(row, c) <= EPS
+        || !Wind.canFeedAt(g, c, r, row)
+        || (c.foraging?.carrionSiteReviews?.[row.id] || 0) > (c.foraging?.lastAt || 0)) continue;
+      targets.push({ id: `wildlifeBatch:${row.id}`, kind: 'wildlifeBatch', sourceId: row.id, position: copy(row.position),
+        contact: Wind.extent(g, c, pos, row.position) <= body.reachM });
+    }
     for (const pool of r.wildlife?.pools || []) {
-      const site = pool.spatial; if (!site || pool.guild === 'fish' || clearance >= sense || clearance >= site.radiusM) continue;
+      const site = pool.spatial; if (pool.carcassSpace || !site || pool.guild === 'fish' || clearance >= sense || clearance >= site.radiusM) continue;
       const dx = pos.eastM - site.eastM, dy = pos.northM - site.northM, distance = Math.hypot(dx, dy);
       if (Math.hypot(Math.max(0, distance - site.radiusM) + clearance, pos.altitudeM) > sense
         || Tissues.available(pool.carcass, c) <= EPS) continue;
@@ -816,8 +835,15 @@
     const speed2 = v.x * v.x + v.y * v.y;
     const sites = [...Object.values(r.remains || {}), ...Object.values(r.remainsBatches || {})]
       .filter(row => row.position && row.edibleKg > (row.reservedKg || 0)).map(row => ({ ...row.position, radiusM: Bodies.profiles[c.speciesId].reachM }));
+    if (c.stores.foodKg < Foraging.capacity(c) * .5) {
+      const end = { ...pos, eastM: pos.eastM + v.x * horizon, northM: pos.northM + v.y * horizon };
+      for (const row of localCarcasses(r, pos, Bodies.profiles[c.speciesId].scentM, end, g, c))
+        if (Tissues.available(row, c) > EPS && Wind.canFeedAt(g, c, r, row)
+          && (c.foraging?.carrionSiteReviews?.[row.id] || 0) <= (c.foraging?.lastAt || 0))
+          sites.push({ ...row.position, radiusM: Bodies.profiles[c.speciesId].reachM });
+    }
     for (const pool of r.wildlife?.pools || []) if ((c.foraging?.carrionFieldReviewAt || 0) <= (c.foraging?.lastAt || 0)
-      && pool.spatial && pool.guild !== 'fish' && pool.carcass.edibleKg > (pool.carcass.reservedKg || 0))
+      && !pool.carcassSpace && pool.spatial && pool.guild !== 'fish' && pool.carcass.edibleKg > (pool.carcass.reservedKg || 0))
       sites.push({ ...pool.spatial, altitudeM: 0 });
     let next = horizon;
     for (const site of sites) {

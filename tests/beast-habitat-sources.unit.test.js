@@ -55,6 +55,17 @@ test('distributed wildlife markers reproduce new habitats while unmarked archive
   assert.equal(JSON.stringify(old), archived);
   assert.ok(P.normalize(account));
 });
+test('new spatial carcass proposals preserve pre-carcass archives without inventing local bodies on load', () => {
+  const { map, record } = fixture(), C = require('../wildlife-carcasses');
+  assert.equal(record.wildlifeCarcasses, true); assert.equal(record.backgroundWildlife.carcassBatches, true);
+  const old = S.generate(record.seed, map, { wildlifeCarcasses: false }), before = JSON.stringify(old);
+  S.validate(old, map); const source = S.expand(old, map);
+  const s = P.createDiagnostic(source, { worldId: 'old-carcass-fields', runId: 'original' });
+  assert.equal(old.wildlifeCarcasses, undefined); assert.equal(old.backgroundWildlife.carcassBatches, undefined);
+  assert.deepEqual(old.backgroundWildlife.spatialRows, record.backgroundWildlife.spatialRows);
+  assert.equal(C.summary(s).deathBatches, 0); assert.equal(C.summary(s).localSites, 0);
+  assert.equal(JSON.stringify(old), before); assert.ok(P.normalize(s));
+});
 test('new drift records use canonical climate direction while older source records remain unchanged', () => {
   const { source, map, record } = fixture();
   assert.equal(record.windTransport, true);

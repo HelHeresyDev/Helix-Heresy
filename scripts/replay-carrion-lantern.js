@@ -1,6 +1,6 @@
 // Targeted generated-geography control, not a full-ecosystem acceptance run.
 const Library = require('../world-run-library'), Sources = require('../beast-habitat-sources');
-const P = require('../beast-populations'), Wildlife = require('../background-wildlife'), Foraging = require('../beast-foraging');
+const P = require('../beast-populations'), Wildlife = require('../background-wildlife'), Foraging = require('../beast-foraging'), Carcasses = require('../wildlife-carcasses');
 const ID = 'beast:carrion-lantern';
 function replay({ checkpoints = [20, 40, 60, 80, 100, 120] } = {}) {
   const started = performance.now();
@@ -28,9 +28,10 @@ function replay({ checkpoints = [20, 40, 60, 80, 100, 120] } = {}) {
   const report = { sourceId: record.id, original, initialWildlife, milestones, causes,
     births: s.births.reduce((n, b) => n + b.count, 0), wildlife: Wildlife.summary(s),
     atmosphericWaterL: s.regions.reduce((n, r) => n + (r.airMoistureTakenL || 0), 0),
+    carcasses: Carcasses.summary(s),
     work: s.work, cohorts: s.groups.reduce((n, g) => n + g.cohorts.length, 0),
     milliseconds: Math.round(performance.now() - started),
-    scope: 'Only original Lantern groups; distributed finite wildlife with body-funded initial mortality/decay; no rescue bodies or other strategic species' };
+    scope: 'Only original Lantern groups; finite spatial carcass batches from actual wildlife deaths; no rescue bodies or other strategic species' };
   console.log(JSON.stringify(report)); return report;
 }
 if (require.main === module) replay();

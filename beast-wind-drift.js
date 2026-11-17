@@ -2,17 +2,32 @@
 (function (root, factory) {
   const node = typeof module === 'object' && module.exports;
   const api = factory(node ? require('./beast-bodies') : root.HelixBeastBodies,
-    node ? require('./carrion-lantern-approach') : root.HelixCarrionLanternApproach);
+    node ? require('./carrion-lantern-approach') : root.HelixCarrionLanternApproach,
+    node ? require('./wildlife-carcasses') : root.HelixWildlifeCarcasses);
   if (node) module.exports = api;
   root.HelixBeastWindDrift = api;
-})(globalThis, function (Bodies, Approach) {
+})(globalThis, function (Bodies, Approach, Carcasses) {
   'use strict';
   const EPS = 1e-8, HOUR = 3600, copy = x => JSON.parse(JSON.stringify(x));
   const point = p => p && typeof p.regionId === 'string' && ['eastM', 'northM', 'altitudeM'].every(k => Number.isFinite(p[k]));
   const enabled = g => g.windDriven === true;
   const moving = c => Boolean(c.windDrift && Math.hypot(c.windDrift.velocity.x, c.windDrift.velocity.y) > 0);
-  const anchorMass = (body, meal) => Math.max(0, body.massKg - body.edibleKg)
-    + (meal.anchors || []).reduce((n, p) => n + p.kg, 0);
+  const anchorMass = (body, meal) => Math.min(Carcasses.anchorLimit(body), Math.max(0, body.massKg - body.edibleKg)
+    + (meal.anchors || []).reduce((n, p) => n + p.kg, 0));
+  const corpse = (r, meal) => meal?.kind === 'beast' ? r.remains?.[meal.sourceId] || r.remainsBatches?.[meal.sourceId]
+    : meal?.kind === 'wildlife' ? Carcasses.source(r, meal.sourceId) : null;
+  const corpseProfile = body => body?.poolId ? Carcasses.body(body) : Bodies.profiles[body?.speciesId];
+  const bodyMass = body => body.poolId ? body.massKg / Math.max(1, body.count) : body.massKg;
+  function canFeedAt(g, c, r, body, seconds = 60) {
+    const flow = c.windDrift?.flow, v = c.windDrift?.velocity, b = Bodies.profiles[c.speciesId];
+    if (!v || Math.hypot(v.x, v.y) * seconds <= b.reachM * 2) return true;
+    if (!flow || !r.floor || (c.regional?.parts['feeding organs'] ?? 0) < 35) return false;
+    const drag = .5 * 1.225 * b.lengthM * b.heightM * (c.massKg / b.massKg) ** (2 / 3) * Math.hypot(flow.x, flow.y) ** 2;
+    const structure = ['hard', 'tough'].reduce((n, k) => n + Math.max(0, (body.tissues?.[k]?.kg || 0) - (body.tissues?.[k]?.reservedKg || 0)), 0)
+      / Math.max(1, body.count);
+    return drag <= c.massKg * 9.81 * .25 * (c.regional.parts['feeding organs'] / 100)
+      && structure * Math.exp(-.02 * seconds / 86400) * 9.81 * .5 >= drag;
+  }
   const windAt = (r, season) => r.seasons?.[season]?.wind ?? r.wind ?? null;
   const flow = w => w == null || Number.isFinite(w.x) && Number.isFinite(w.y);
   const layoutValid = f => f && Number.isSafeInteger(f.firstOrdinal) && f.firstOrdinal >= 0
@@ -63,12 +78,12 @@
     const drag = .5 * 1.225 * b.lengthM * b.heightM * (c.massKg / b.massKg) ** (2 / 3) * Math.hypot(wind.x, wind.y) ** 2;
     if (!n || organs < .35 || drag > c.massKg * 9.81 * .25 * organs) return null;
     for (const id of c.foraging.mealIds) {
-      const meal = r.foraging?.meals[id], body = meal?.kind === 'beast' && (r.remains?.[meal.sourceId] || r.remainsBatches?.[meal.sourceId]);
-      const p = body && Bodies.profiles[body.speciesId]; if (!body?.position || !p || !(meal.kg > EPS)) continue;
+      const meal = r.foraging?.meals[id], body = corpse(r, meal);
+      const p = corpseProfile(body); if (!body?.position || !p || !(meal.kg > EPS)) continue;
       // Typed structure is exclusively claimed, still decays, and cannot also
       // feed another mouth. Leave a worst-case decay margin for a 2-hour meal.
       if (anchorMass(body, meal) * Math.exp(-.02 * 7200 / 86400) * 9.81 * .5 < drag * n) continue;
-      const scale = Math.cbrt(body.massKg / p.massKg), radius = Math.hypot(p.lengthM, p.widthM) * scale * .5 + b.reachM;
+      const scale = Math.cbrt(bodyMass(body) / p.massKg), radius = Math.hypot(p.lengthM, p.widthM) * scale * .5 + b.reachM;
       const far = extent(g, c, position, body.position);
       if (far <= radius) return { mealId: id, effortRate: drag / (c.massKg * 9.81) * .1,
         bodyMassKg: c.massKg, organIntegrity: organs, members: n };
@@ -214,12 +229,12 @@
             || !Number.isSafeInteger(h.members) || h.members < 1 || !Number.isFinite(h.effortRate)
             || Math.abs(h.effortRate - drag / (h.bodyMassKg * 9.81) * .1) > EPS
             || drag > h.bodyMassKg * 9.81 * .25 * h.organIntegrity + EPS || d.velocity.x || d.velocity.y
-            || c.ranges.length && (!meal || meal.kind !== 'beast' || !c.foraging.mealIds.includes(h.mealId))) return false;
+            || c.ranges.length && (!meal || meal.kind !== 'beast' && !corpse(region, meal)?.poolId || !c.foraging.mealIds.includes(h.mealId))) return false;
           if (c.ranges.length) {
-            const corpse = region.remains?.[meal.sourceId] || region.remainsBatches?.[meal.sourceId], p = Bodies.profiles[corpse?.speciesId];
-            if (!region.floor || !corpse?.position || !p || h.members < c.ranges.reduce((n, [lo, hi]) => n + hi - lo, 0)
-              || anchorMass(corpse, meal) * 9.81 * .5 + EPS < drag * h.members
-              || extent(g, c, c.regionalPosition, corpse.position) > Math.hypot(p.lengthM, p.widthM) * Math.cbrt(corpse.massKg / p.massKg) * .5 + b.reachM + EPS) return false;
+            const remains = corpse(region, meal), p = corpseProfile(remains);
+            if (!region.floor || !remains?.position || !p || h.members < c.ranges.reduce((n, [lo, hi]) => n + hi - lo, 0)
+              || anchorMass(remains, meal) * 9.81 * .5 + EPS < drag * h.members
+              || extent(g, c, c.regionalPosition, remains.position) > Math.hypot(p.lengthM, p.widthM) * Math.cbrt(bodyMass(remains) / p.massKg) * .5 + b.reachM + EPS) return false;
           }
         }
         const p = c.regionalPosition;
@@ -232,5 +247,5 @@
     }
     return true;
   }
-  return { enabled, moving, plan, integrate, destinations, entry, valid, validDefinition, windAt, holding, contactSeconds, extent, convergence };
+  return { enabled, moving, plan, integrate, destinations, entry, valid, validDefinition, windAt, holding, contactSeconds, extent, convergence, canFeedAt };
 });

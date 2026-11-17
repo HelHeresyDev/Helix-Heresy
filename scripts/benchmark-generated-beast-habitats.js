@@ -1,5 +1,6 @@
 // Focused generated-source execution, not a native game or world-balance claim.
 const L = require('../world-run-library'), S = require('../beast-habitat-sources'), P = require('../beast-populations'), Care = require('../beast-parental-care');
+const Carcasses = require('../wildlife-carcasses');
 function run({ seed = 'source-small', days, progress = () => {}, checkpoint = () => {}, resume = null, engine = P } = {}) {
   const started = performance.now();
   const world = resume?.world || L.createWorld({ id: 'generated-habitat-benchmark', worldSeed: seed, createdAt: 'test', generationVersion: 8,
@@ -45,7 +46,7 @@ function run({ seed = 'source-small', days, progress = () => {}, checkpoint = ()
     groups: account.groups.length, bindingBytes: JSON.stringify(record.physicalBinding).length,
     accountBytes: JSON.stringify(account).length, ...result.report, issues: result.report.issues.length,
     issueKinds: byKind(result.report.issues), sourceIssueKinds: byKind(result.report.sourceAvailability), lossesByCause, lossesBySpecies, shortfalls,
-    parentalCare: Care.summary(account), scarcityPhases, scarcityExamples,
+    parentalCare: Care.summary(account), carcasses: Carcasses.summary(account), scarcityPhases, scarcityExamples,
     sourceAvailability: result.report.sourceAvailability.length, populations: result.report.populations.length };
 }
 if (require.main === module) {

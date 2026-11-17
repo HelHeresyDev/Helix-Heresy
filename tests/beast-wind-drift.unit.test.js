@@ -129,7 +129,7 @@ test('large anonymous carcasses remain a finite field, not an anchoring body or 
   const at = s.clock; region.wind = { x: .5, y: 0 }; P.removeStock(s, region.id, 'waterL', 0, at, 'actual-field-wind');
   P.advance(s, at + 600, true, true);
   assert.ok(c.regionalPosition.eastM > 1); assert.ok(!c.windDrift.hold);
-  assert.ok(region.foraging.receipts.approachSeconds > 0, 'returning toward sensed tissue costs propulsion, not an imaginary field anchor');
+  assert.equal(c.foraging.mealIds.length, 0, 'leaving the field releases custody rather than providing an imaginary anchor');
   assert.equal(region.wildlife.pools[0].huntedCount, 0); assert.ok(region.wildlife.pools[0].deadCount > 0); valid(s);
 });
 test('opposing airflows meet at a saved front instead of oscillating across a border in microscopic steps', () => {
