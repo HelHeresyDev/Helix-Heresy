@@ -67,6 +67,7 @@
   }
   function initialize(s) {
     for (const r of s.regions) if (r.ecology) {
+      Work.Flood.initialize(r, s.clock);
       r.ecologicalAccount = { natural: vector(), nurturing: vector(), destruction: vector(),
         sourceLosses: [], episodes: [], exhausted: false,
         viabilityHistory: { startedAt: s.clock, minimumCondition: { ...r.condition }, floorBreaches: {},
@@ -178,8 +179,7 @@
     }
     for (const r of s.regions) if (r.ecology) {
       const rate = rates[r.id];
-      if (r.ecology.floodable && (r.stocks.waterL || 0) >= (r.capacity.waterL || 0) - EPS && rate.net.waterL > 0)
-        rate.ecology.destruction.soilCover += rate.net.waterL / 10000 * r.areaHa;
+      rate.ecology.destruction.soilCover += rate.drainage?.erosionEPDay || 0;
     }
     for (const r of s.regions) if (r.ecology) for (const k of channels) {
       const e = rates[r.id].ecology, net = (e.natural[k] + e.nurturing[k] - e.destruction[k]) / r.areaHa;
@@ -290,16 +290,18 @@
       .reduce((n, site) => n + site.damKg, 0) || 0;
     if (!r || !Work.destroySite(r, site, at)) return false;
     if (originalDamKg > 0 && r.retainedWaterL > 0) {
-      const course = r.ecology.watercourses.find(c => c.id === site.watercourseId), down = Demography.region(s, course.downstreamRegionId);
+      const course = r.ecology.watercourses.find(c => c.id === site.watercourseId);
+      const obstructed = course.outlet?.blocked === true, down = obstructed ? r : Demography.region(s, course.downstreamRegionId);
       const released = Math.min(r.stocks.waterL || 0, r.retainedWaterL * originalDamKg / allDamKg);
       r.stocks.waterL -= released; r.retainedWaterL -= released;
       const overflow = Math.max(0, (down.stocks.waterL || 0) + released - (down.capacity.waterL || 0));
       down.stocks.waterL = Math.min(down.capacity.waterL || 0, (down.stocks.waterL || 0) + released);
-      down.outputs ||= {}; down.outputs.waterLOverflow = (down.outputs.waterLOverflow || 0) + overflow;
+      if (!down.ecology.floodable) { down.outputs ||= {}; down.outputs.waterLOverflow = (down.outputs.waterLOverflow || 0) + overflow; }
       r.watercourseReceipts ||= { passedL: 0, retainedL: 0, spilledL: 0 };
       r.watercourseReceipts.releasedL = (r.watercourseReceipts.releasedL || 0) + released;
+      if (obstructed) r.watercourseReceipts.blockedReleaseL = (r.watercourseReceipts.blockedReleaseL || 0) + released;
       if (overflow > 0 && down.ecology.floodable) {
-        const damage = overflow / 10000 * down.areaHa;
+        const damage = Work.Flood.addBreach(down, overflow, at);
         down.ecologicalAccount.destruction.soilCover += damage;
         down.condition.soilCover = Math.max(0, down.condition.soilCover - damage / down.areaHa);
         for (const loss of down.ecologicalAccount.sourceLosses) if (loss.channels.includes('soilCover')) loss.damageAfter.soilCover += damage;
@@ -328,7 +330,8 @@
           !Object.hasOwn(r.ecology.viabilityFloors, k) || !nonnegative(b.firstAt) || b.firstAt > s.appliedAt + EPS
           || !Number.isSafeInteger(b.cycles) || b.cycles < 1 || b.cycles > history.completedCycles
           || !(b.missingEP > 0) || !Number.isFinite(b.missingEP)))) return false;
-      if (!a || !e || !Work.validRates(r, s.rates[r.id]) || !['natural', 'nurturing', 'destruction'].every(k => validVector(a[k]) && validVector(e[k]))
+      if (!a || !e || !Work.validRates(r, s.rates[r.id]) || !Work.Flood.valid(r, s.rates[r.id], s.appliedAt)
+        || !['natural', 'nurturing', 'destruction'].every(k => validVector(a[k]) && validVector(e[k]))
         || !e.net || !channels.every(k => Number.isFinite(e.net[k])
           && Math.abs(e.net[k] - (e.natural[k] + e.nurturing[k] - e.destruction[k]) / r.areaHa) < EPS)
         || typeof a.exhausted !== 'boolean' || r.exhausted !== a.exhausted

@@ -434,7 +434,8 @@
       for (const [key, net] of Object.entries(rate.net)) {
         const before = r.stocks[key] || 0;
         const overflow = Math.max(0, before + days * net - (r.capacity[key] || 0));
-        if (overflow > 0) { r.outputs ||= {}; const k = `${key}Overflow`; r.outputs[k] = (r.outputs[k] || 0) + overflow; }
+        if (key === 'waterL' && r.ecology?.floodable) Ecology.Work.Flood.integrate(r, rate, days, overflow, to);
+        else if (overflow > 0) { r.outputs ||= {}; const k = `${key}Overflow`; r.outputs[k] = (r.outputs[k] || 0) + overflow; }
         r.stocks[key] = Math.max(0, Math.min(r.capacity[key] || 0, before + days * net));
         r.receipts[key] = (r.receipts[key] || 0) + r.stocks[key] - before;
       }
@@ -892,6 +893,15 @@
     g.activityState = { sleeping: state.sleeping, dreamConsent: state.dreamConsent };
     record(s, 'ecologicalActivityChanged', at, { groupId, ...g.activityState, cause }); rebuild(s, at, location(g)); return true;
   }
+  function setDrainageObstruction(s, regionId, blocked, at, cause) {
+    if (!id(cause) || !nonnegative(at) || at < s.clock || typeof blocked !== 'boolean') return false;
+    advanceLocal(s, at, [regionId]);
+    const course = Demography.region(s, regionId)?.ecology?.watercourses?.[0];
+    if (!course?.outlet || Boolean(course.outlet.blocked) === blocked) return false;
+    course.outlet.blocked = blocked;
+    record(s, 'drainageObstructionChanged', at, { regionId, courseId: course.id, blocked, cause });
+    rebuild(s, at, regionId); return true;
+  }
   function setDreamParticipants(s, regionId, siteId, participantGroupIds, at, cause) {
     if (!id(cause) || !nonnegative(at) || at < s.clock || !Array.isArray(participantGroupIds)
       || participantGroupIds.some(v => !id(v)) || new Set(participantGroupIds).size !== participantGroupIds.length) return false;
@@ -1059,5 +1069,5 @@
   }
   return { DAY, count, cohortKey, monthAt, hazardIntegral, validateSource, create, createDiagnostic, chooseDestination,
     advance, settleRegions, detail, claimLocal, settleLocalLoss, registerLocalBirth, recordDetailedLoss, removeStock, destroyNursery, destroyRenewalSite, foodWebSummary: Foodweb.summary,
-    destroyEcologicalWorkSite, setEcologicalActivity, setDreamParticipants, damageFeedingTower, kill, audit, rebind, normalize };
+    destroyEcologicalWorkSite, setEcologicalActivity, setDrainageObstruction, setDreamParticipants, damageFeedingTower, kill, audit, rebind, normalize };
 });

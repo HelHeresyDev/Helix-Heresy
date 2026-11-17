@@ -499,6 +499,12 @@ detail is copied into public beast reports or the world-library interface.
 
 ### Recorded physical source execution
 
+New [finite wetland drainage](WETLAND_DRAINAGE.md) shares original outlet
+capacity between river flow and bank/overbank discharge. Excess water remains
+conserved; area-scaled erosion distinguishes ordinary drainage from damaging
+inundation. The original animal roster and nurturing rates are unchanged.
+The focused generated hydrology control is not a complete food-web replay.
+
 New [established work-site bindings](ESTABLISHED_HABITATS.md) share finite
 positioned work faces and site-local construction/metal/fuel accounts, reuse
 original nurseries and support paid construction-only starting history. Dam

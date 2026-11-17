@@ -160,6 +160,19 @@
     binding.watercourses = [...courseByRegion].map(([regionId, course]) => ({ regionId, course }));
     binding.environments = source.regions.map(r => ({ regionId: r.id, ...environment(r, map) }));
     if (options.established) establish(source, binding, map);
+    if (options.drainage) {
+      for (const row of binding.watercourses) {
+        const r = regions.get(row.regionId), target = regions.get(row.course.downstreamRegionId);
+        const edge = r.edges.find(e => e.id === target.id), i = r.source.cellIndex, j = target.source.cellIndex;
+        const grade = Math.max(0, map.hydrology.flowSurfaceM[i] - map.hydrology.flowSurfaceM[j]) / (edge.distanceKm * 1000);
+        // Explicit coarse channel geometry/calibration, independent of animals
+        // or current rain demand. It cannot grant an outlet to a closed basin.
+        row.course.outlet = { widthM: Math.min(100, Math.sqrt(r.areaHa * 10000) * .02),
+          depthM: Math.min(2, r.depthM), velocityMps: Math.min(2, .05 + grade * 100), grade };
+      }
+      for (const row of binding.environments) if (row.ecology.floodable)
+        row.ecology.floodplain = { areaHa: regions.get(row.regionId).areaHa, safeDepthMm: 100, erosionPointsPerMm: .01 };
+    }
     return binding;
   }
   function establish(source, binding, map) {

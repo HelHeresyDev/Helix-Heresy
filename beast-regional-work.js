@@ -5,10 +5,11 @@
     node ? require('./beast-habitat') : root.HelixBeastHabitat,
     node ? require('./beast-demography') : root.HelixBeastDemography,
     node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys,
-    node ? require('./beast-bodies') : root.HelixBeastBodies);
+    node ? require('./beast-bodies') : root.HelixBeastBodies,
+    node ? require('./beast-regional-flood') : root.HelixBeastRegionalFlood);
   if (node) module.exports = api;
   root.HelixBeastRegionalWork = api;
-})(globalThis, function (Data, Habitat, G, Journeys, Bodies) {
+})(globalThis, function (Data, Habitat, G, Journeys, Bodies, Flood) {
   'use strict';
   const DAY = 86400, EPS = 1e-8;
   const actions = Object.freeze({ rootStabilize: 'beast:ironroot-colossus', tendWetland: 'beast:mire-choir',
@@ -96,6 +97,7 @@
   function validateLinks(s) {
     const regions = new Map(s.regions.map(r => [r.id, r])), groups = new Map(s.groups.map(g => [g.id, g]));
     for (const r of s.regions) {
+      Flood.validateDefinition(r);
       const courses = r.ecology?.watercourses || [];
       // One physical outlet per account. Branches need separately partitioned
       // source accounts, not duplicated copies of the same incoming flow.
@@ -224,6 +226,7 @@
     for (const c of r.ecology?.watercourses || []) rate.demand[c.sourceKey] = (rate.demand[c.sourceKey] || 0) + c.flowPerDay;
   }
   function route(s, r, rate, list, rates) {
+    let routed = false;
     for (const course of r.ecology?.watercourses || []) {
       const flow = course.flowPerDay * (rate.supply[course.sourceKey] ?? 0);
       const sites = r.ecology.workSites.filter(site => site.action === 'buildDam' && site.watercourseId === course.id && site.destroyedAt == null);
@@ -236,9 +239,10 @@
       const room = (r.stocks.waterL || 0) < capacity - EPS ? Infinity : Math.max(0, -(rate.net.waterL || 0));
       const retained = Math.min(capture, room), spill = capture - retained;
       rate.net.waterL = (rate.net.waterL || 0) + retained;
-      const down = rates[course.downstreamRegionId]; down.renewal.waterL = (down.renewal.waterL || 0) + flow - retained;
       rate.watercourse = { id: course.id, flowPerDay: flow, retainedPerDay: retained, spillPerDay: spill, downstreamRegionId: course.downstreamRegionId };
+      Flood.route(r, rate, rates, course, { through: flow - retained }, s.appliedAt); routed = true;
     }
+    if (!routed) Flood.route(r, rate, rates, null, { through: 0 }, s.appliedAt);
   }
   function boundaries(r, rate, at, list = []) {
     let next = Infinity;
@@ -249,7 +253,7 @@
         if (days > EPS && Number.isFinite(days)) next = Math.min(next, at + days * DAY);
       }
     }
-    return next;
+    return Math.min(next, Flood.boundary(r, rate, at));
   }
   function integrateWork(r, site, q, days) {
     const amount = q.workPerDay * days;
@@ -265,7 +269,7 @@
   function integrateRegion(r, rate, days) {
     if (rate.watercourse) {
       r.watercourseReceipts ||= { passedL: 0, retainedL: 0, spilledL: 0 };
-      r.watercourseReceipts.passedL += (rate.watercourse.flowPerDay - rate.watercourse.retainedPerDay) * days;
+      r.watercourseReceipts.passedL += (rate.watercourse.passedPerDay ?? rate.watercourse.flowPerDay - rate.watercourse.retainedPerDay) * days;
       r.watercourseReceipts.retainedL += rate.watercourse.retainedPerDay * days;
       r.watercourseReceipts.spilledL += rate.watercourse.spillPerDay * days;
     }
@@ -290,7 +294,9 @@
     return Boolean(cached && cached.id === course.id && cached.downstreamRegionId === course.downstreamRegionId
       && ['flowPerDay', 'retainedPerDay', 'spillPerDay'].every(k => nonnegative(cached[k]))
       && cached.flowPerDay <= course.flowPerDay + EPS && cached.retainedPerDay + cached.spillPerDay <= cached.flowPerDay + EPS
-      && Math.abs(cached.flowPerDay - course.flowPerDay * (rate.supply[course.sourceKey] || 0)) < EPS);
+      && Math.abs(cached.flowPerDay - course.flowPerDay * (rate.supply[course.sourceKey] || 0)) < EPS
+      && (cached.passedPerDay == null || nonnegative(cached.passedPerDay) && nonnegative(cached.blockedPerDay)
+        && Math.abs(cached.passedPerDay + cached.blockedPerDay + cached.retainedPerDay - cached.flowPerDay) <= EPS * Math.max(1, cached.flowPerDay)));
   }
   function destroySite(r, site, at) {
     if (!site || site.destroyedAt != null) return false;
@@ -310,6 +316,6 @@
     }
     site.destroyedAt = at; return true;
   }
-  return { actions, diets, spec, recipe, inReach, towersValid, towers, validateSite, validateGroup, validateLinks, order, siteFor, wet, available,
+  return { Flood, actions, diets, spec, recipe, inReach, towersValid, towers, validateSite, validateGroup, validateLinks, order, siteFor, wet, available,
     intake, outputKeys, limitFlow, prepareOutputs, addFlowDemand, route, boundaries, integrateWork, integrateRegion, integrateWater, validRates, destroySite };
 });

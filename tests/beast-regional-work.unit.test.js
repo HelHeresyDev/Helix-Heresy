@@ -97,7 +97,7 @@ test('dam construction redirects one finite original flow while downstream consu
   approx(r.watercourseReceipts.retainedL, 1000); approx(r.watercourseReceipts.passedL, 2000);
   assert.ok(P.normalize(s));
 });
-test('full upstream banks spill actual captured water downstream; downstream overflow can cause real flooding', () => {
+test('full upstream banks spill actual captured water downstream; shallow downstream excess is conserved without catastrophic erosion', () => {
   const s = fixture('buildDam', src => {
     src.regions[0].capacity.waterL = src.regions[0].stocks.waterL + 500;
     src.regions[1].capacity.waterL = src.regions[1].stocks.waterL; src.regions[1].ecology.floodable = true;
@@ -105,7 +105,7 @@ test('full upstream banks spill actual captured water downstream; downstream ove
   P.advance(s, DAY, true, true);
   approx(region(s).stocks.waterL, 1e10 + 500); approx(region(s).watercourseReceipts.retainedL, 500);
   approx(region(s).watercourseReceipts.spilledL, 500);
-  assert.ok(s.regions[1].condition.soilCover < 80); assert.ok(P.normalize(s));
+  approx(s.regions[1].condition.soilCover, 80); approx(s.regions[1].flood.waterL, 2500); assert.ok(P.normalize(s));
 });
 test('constructed dams retain physical hydraulic effects after their original builder is lost, without ongoing work credit', () => {
   const s = fixture('buildDam'); P.advance(s, DAY, true, true);
@@ -223,12 +223,28 @@ test('paid original bed destruction preserves its real material as debris and do
   P.advance(s, 3 * DAY, true, true); approx(region(s).stocks.livingReefKg, 0);
   assert.ok(region(s).ecologicalAccount.sourceLosses.some(loss => loss.kind === 'workSite')); assert.ok(P.normalize(s));
 });
+test('a breach cannot transfer its original retained water through a known blocked outlet', () => {
+  const s = fixture('buildDam', src => {
+    src.regions[0].ecology.floodable = true;
+    src.regions[0].ecology.watercourses[0].outlet = { widthM: 1, depthM: 1, velocityMps: 1, grade: 0 };
+  });
+  P.advance(s, DAY, true, true); approx(region(s).retainedWaterL, 1000);
+  P.setDrainageObstruction(s, 'workface', true, s.clock, 'actual-channel-obstruction');
+  const upstream = region(s).stocks.waterL, downstream = s.regions[1].stocks.waterL;
+  assert.ok(P.destroyEcologicalWorkSite(s, 'workface', 'original-work-site', s.clock, 'actual-dam-breach'));
+  approx(region(s).stocks.waterL, upstream); approx(s.regions[1].stocks.waterL, downstream);
+  approx(region(s).retainedWaterL, 0); approx(region(s).watercourseReceipts.blockedReleaseL, 1000);
+  assert.ok(P.normalize(s));
+});
 test('a real breach after a paid downstream nurturer loss classifies accumulated exhausted damage at the event, not the next day', () => {
   const s = fixture('buildDam', src => {
     const down = src.regions[1], speciesId = 'beast:mire-choir';
-    down.capacity.waterL = down.stocks.waterL + 1998; down.ecology.floodable = true; down.ecology.viabilityFloors.soilCover = 79.95;
+    down.areaHa = .001; down.stocks.waterL = 20000;
+    down.ecology.floodplain = { areaHa: down.areaHa, safeDepthMm: 0, erosionPointsPerMm: .01 };
+    down.capacity.waterL = down.stocks.waterL + 1998; down.ecology.floodable = true;
+    down.condition.soilCover = down.ecology.referenceCondition.soilCover = 100; down.ecology.viabilityFloors.soilCover = 99.95;
     down.ecology.workSites.push({ id: 'original-downstream-wetland', action: 'tendWetland', speciesId, areaHa: down.areaHa, maxWorkers: 1,
-      water: { stockKey: 'waterL', areaM2: 100000, minDepthM: 1.5 } });
+      water: { stockKey: 'waterL', areaM2: 10, minDepthM: 1.5 } });
     src.groups.push({ id: 'original-downstream-nurturer', populationId: 'downstream-nurturer', speciesId, regionId: down.id,
       resources: { foodKg: 'forageKg' }, ecology: { action: 'tendWetland', siteId: 'original-downstream-wetland', regionId: down.id, effortFraction: 1 },
       cohorts: [{ id: 'original-downstream-body', speciesId, count: 1, ageDays: D.lifecycle[speciesId].adultDays, massKg: 60 }] });
@@ -236,7 +252,10 @@ test('a real breach after a paid downstream nurturer loss classifies accumulated
   P.advance(s, DAY, true, true);
   P.kill(s, 'original-downstream-nurturer', 'original-downstream-body', 0, s.clock, 'actual-wetland-defender-loss');
   assert.equal(s.regions[1].exhausted, false);
+  const water = () => s.regions.reduce((n, r) => n + r.stocks.waterL + (r.flood?.waterL || 0) + (r.outputs?.waterLOverflow || 0), 0);
+  const before = water();
   P.destroyEcologicalWorkSite(s, 'workface', 'original-work-site', s.clock, 'actual-structure-breach');
+  approx(water(), before); assert.ok(s.regions[1].flood.breachReceivedL > 0);
   assert.equal(s.regions[1].exhausted, true);
   assert.equal(s.regions[1].ecologicalAccount.episodes[0].exhaustedAt, s.clock); assert.ok(P.normalize(s));
 });

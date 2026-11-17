@@ -80,6 +80,10 @@ adapter, not a new player-facing consent interface or weather system.
 
 ## Measured generated control and limits
 
+These figures describe the established-work-site allocation before the
+[finite drainage extension](WETLAND_DRAINAGE.md). Existing archived sources retain
+that original allocation; new records explicitly include their outlet geometry.
+
 For seed `source-small`, refinement 2, source
 `beast-habitat-source:9b62d184` retains all 24 species, 89 original populations,
 334 regions and 56,243 located strategic originals.

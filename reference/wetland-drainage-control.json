@@ -1,0 +1,40 @@
+{
+  "scope": "Hydrology-only diagnostic; no animal/wildlife consumption or ongoing nurturing; not food-web viability or source adoption",
+  "sourceId": "beast-habitat-source:a2ffef9d",
+  "seed": "source-small",
+  "days": 120,
+  "regions": 334,
+  "wetlands": 62,
+  "excludedOriginalStrategicBodies": 56243,
+  "actualOutlets": 62,
+  "noRecordedOutlet": 0,
+  "floodedWetlands": 50,
+  "erodedWetlands": 46,
+  "soilFloorBreaches": 1,
+  "breachedWetlands": [
+    {
+      "regionId": "habitat:117:wetland",
+      "areaHa": 67913.7690951,
+      "outletCapacityLDay": 944432504.2821068,
+      "endingFloodWaterL": 1006125047408.8574,
+      "minimumSoilCover": 0,
+      "erosionEP": 938211.2783137752,
+      "finalFloodGrowthLDay": 8676078421.797174
+    }
+  ],
+  "minimumSoilCover": 0,
+  "standingFloodL": 530412245014198.2,
+  "bankDischargedL": 5724526263741.661,
+  "floodDischargedL": 17491606734970.654,
+  "originalL": 1846562095599609.2,
+  "suppliedL": 57434611633334730,
+  "accountedL": 59281173728934380,
+  "errorL": 48,
+  "outletCapacityRangeLDay": [
+    865764888.5255696,
+    11171298212.598711
+  ],
+  "boundaries": 1403,
+  "regionIntervals": 42503,
+  "milliseconds": 3421
+}

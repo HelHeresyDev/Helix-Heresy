@@ -52,6 +52,11 @@ Its [assessment and limitations](../SEASONAL_VIABILITY.md) distinguish prelimina
 warnings, actual paid supply/work and unresolved access/model failures. It is
 not a balanced-world certificate or a replacement set of species rates.
 
+The separate [wetland drainage control](wetland-drainage-control.json) measures
+finite water routing and erosion without animal consumption or ongoing nurturing.
+See its [scope and calibration](../WETLAND_DRAINAGE.md); it is not a replacement
+all-species viability result.
+
 For the new life-history numbers, select **Lifecycle & resource use**:
 
 Carrion Lantern's corrected row now shows **0.05 kg food-equivalent/day**, **0.03 L

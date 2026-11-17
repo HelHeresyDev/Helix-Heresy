@@ -2340,10 +2340,18 @@ where unsourced. The generated ecology is still rejected; #3.38-D stays open.
 [Measured seasonal assessment](SEASONAL_VIABILITY.md) now separates conservative
 generator warnings from actual food/work/condition history. Supplied hunting and
 restoration controls can pass; real scarcity, transient floor breaches and bad
-completed cycles remain failures after recovery or reload. One current-source
+completed cycles remain failures after recovery or reload. The recorded pre-drainage
 120-day replay retains all species and rejects real shortages plus wetland
 overflow-driven soil collapse. No forecast, regional biomass total or optional
 unperformed ability can certify source adoption.
+
+[Finite wetland drainage](WETLAND_DRAINAGE.md) now conserves bank excess and
+overbank water, shares actual outlet capacity with river flow, and scales erosion
+by water depth and affected area. Ordinary discharge is not catastrophic flooding;
+real excessive inflow, obstruction and breaches retain consequences through saves.
+New outlet geometry is explicit and old source archives are unchanged. The focused
+hydrology-only seasonal control still finds one soil-floor breach and does not
+certify whole-food-web viability. No animal or nurturing-rate tuning is included.
 
 Hungry travellers can now stop at actual route positions to feed or rest, paying
 elapsed delay without changing their original destination using unseen supply.

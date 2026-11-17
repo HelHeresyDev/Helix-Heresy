@@ -72,12 +72,17 @@ the consumer needs carrion, or unavailable through an actual caregiver.
 exhaustion. Undocumented older snapshots remain `unrecorded`. None of these
 private snapshots enters animal knowledge or a public census.
 
-## Current generated 120-day control
+## Recorded pre-drainage generated 120-day control
 
-The one current-source complete replay uses `source-small`, refinement 2, source
+The recorded complete replay uses `source-small`, refinement 2, source
 `beast-habitat-source:9b62d184`: all 24 species, 89 original populations, 334
 regions and 56,243 strategic originals. Every ten-day normalization checkpoint
 and final assessment validates. The result is still **rejected**.
+
+These measurements precede the [finite drainage correction](WETLAND_DRAINAGE.md).
+That correction adds a separate hydrology-only control, not a new complete
+food-web result. The counts below remain historical measurements of this exact
+source and kernel; they are not regenerated or silently relabeled as new results.
 
 The compact recorded result is [seasonal-viability-control.json](reference/seasonal-viability-control.json).
 The 1,779 preliminary warnings remain advisory, separate from the measured
@@ -91,7 +96,7 @@ issues below; no warning is simply renamed as an observed failure.
 | Scarcity deaths, grouped by species/region/cause | 55 |
 
 The two sets of 51 habitat records concern the **same 51 wetland regions**, not
-102 different regions. Their soil-cover collapse is driven by the current
+102 different regions. Their soil-cover collapse was driven by the then-current
 overflow/flood-erosion adapter. For example, one final wetland rate reports
 87,573 soil-cover points lost per day while full banks receive about 876 million
 litres daily. This identifies a model/calibration problem to investigate, not

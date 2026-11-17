@@ -21,6 +21,7 @@ test('browser generation, compressed world storage and reload preserve private r
       private: !JSON.stringify(world.generatedData.strategicMap.publicBeastAtlas || {}).includes('foodAllocations'),
       workSites: source.physicalBinding.workSites.length, nurseries: source.physicalBinding.nurseries.length,
       establishedHabitats: source.establishedHabitats === true, initialConstruction: source.physicalBinding.initialWork.length,
+      wetlandDrainage: source.wetlandDrainage === true,
       physicalDigest: window.HelixStrategicWorld.stableHash(source.physicalBinding),
       wildlifeDigest: window.HelixStrategicWorld.stableHash(source.backgroundWildlife),
       wildlifeDistribution: source.backgroundWildlife.distribution,
@@ -34,6 +35,7 @@ test('browser generation, compressed world storage and reload preserve private r
   expect(original.blanketUnverified).toBe(false);
   expect(original.workSites).toBeGreaterThan(0); expect(original.nurseries).toBeGreaterThan(0);
   expect(original.establishedHabitats).toBe(true); expect(original.initialConstruction).toBeGreaterThan(0);
+  expect(original.wetlandDrainage).toBe(true);
   expect(original.preyClasses).toEqual(['large', 'medium', 'small']);
   expect(original.wildlifeDistribution).toBe('habitatPatches');
   await page.reload(); await page.locator('#titleWorldLibraryBtn').click();
