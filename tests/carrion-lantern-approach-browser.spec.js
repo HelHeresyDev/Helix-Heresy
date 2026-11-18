@@ -13,13 +13,14 @@ test('sensed regional and native approaches retain partial movement, paid effort
     P.advance(account, 20, true, true);
     if (account.groups[0].cohorts[0].foraging.phase !== 'approach' || !P.normalize(account)) throw Error('No valid earned regional approach');
     const a = W.actor('beast:carrion-lantern', 'native-lantern', { x: 0, y: 0, z: 6 }, 'original', 0);
-    const corpse = W.actor('beast:rimefang-pack', 'native-corpse', { x: 20, y: 0, z: 6 }, 'prey', 0);
+    const corpse = W.actor('beast:rimefang-pack', 'native-corpse', { x: 20, y: 12, z: 6 }, 'prey', 0);
     corpse.status = 'dead'; corpse.health = 0; corpse.diedAt = 0; a.life.stores.fatKg = 0;
     const terrain = () => ({ floor: true, ceilingM: 100, supportKg: 1e8, oxygen: true, wind: { x: 0, y: 0 }, resources: {} });
     const ctx = { alive: true, local: true, actors: [a, corpse], tileSizeM: 1, terrain, patch: terrain,
       signal: () => true, effectLine: () => true, lightAt: () => 100, blocked: () => false };
     for (let at = 1; at <= 20; at++) { C.step(a, { behavior: 'roam' }, null, at, 1, ctx); B.advance(a, at, ctx); }
     if (!a.life.carrionApproach || !(a.bodyPhysics.spentStamina > 0) || a.life.stores.foodKg) throw Error('Invalid partial native approach');
+    if (!(B.position(a).eastM > 0 && B.position(a).northM > 0 && B.valid(a))) throw Error('Native vector motion lost a component');
     localStorage.setItem('lantern-approach-test', JSON.stringify({ account, a, corpse }));
   }, windSource({ preyX: 20, wind: { x: 0, y: .2 } }));
   await page.reload(); await page.waitForFunction(() => window.HelixCarrionLanternApproach);

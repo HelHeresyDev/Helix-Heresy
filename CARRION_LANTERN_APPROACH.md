@@ -23,11 +23,79 @@ does not reserve or consume it.
 | Regional review | At most five seconds while actively approaching; clipped at actual arrival |
 
 Wind compensation is calculated against the **uncapped actual airflow** before
-the existing cardinal-grid/0.5 m/s horizontal ground-speed convention is applied.
+the existing 0.5 m/s horizontal ground-speed ceiling is applied to the full
+two-dimensional vector; its lateral component is no longer discarded.
 Thus a 20 m/s headwind is not secretly weakened to 0.5 m/s before thrust is
 calculated. Strong wind can carry a pursuing animal away from food. Unknown air
 is not assumed calm. This is a coarse terminal-drag controller, not a new fluid
 simulation or unlimited aerial pathfinder.
+
+## Two-dimensional movement and convergence
+
+Passive Lantern advection and paid approaches retain both horizontal components.
+The vector's magnitude, not each axis independently, receives the existing speed
+ceiling. Thrust, drag, stamina, injury, handling, tissue and sensory limits are
+unchanged. Unrelated aquatic current/grid movement is not revised.
+
+Native terrain addresses remain integer cells. A Lantern saves bounded signed
+`airOffset.x/y` cell fractions, each within half a cell, and `Bodies.position`
+converts them with the actual caller-supplied tile scale. Saved metadata cannot
+provide its own enlarged spatial scale. Body movement sweeps conservative full
+masks in quarter-cell steps, including both orthogonal neighbors at a diagonal
+corner and both vertical endpoints. Sensing, approach deltas and contact distance
+use actual fractional positions. Pending/refusing bodies get no directed thrust;
+passive wind can still carry them. Actual DOM/Canvas observations retain the
+earned offset and visible swept footprint through native game reloads.
+
+At a regional convergence front, inward normal transport stagnates but the
+horizontal tangent is retained. The neighboring wind is converted through the
+recorded boundary/entry frame; the two raw tangential components are averaged
+and then limited to the existing ground-speed ceiling. Exactly head-on flows
+have zero tangent and can still strand a creature. Two simultaneous nonparallel
+convergent planes have no common horizontal tangent and retain a stationary
+corner, rather than creating rapid repeated crossings. All participating wind
+sources are scheduler dependencies; a real change can release the corner.
+
+This is an explicitly coarse stationary-front rule, not a weather, turbulence
+or vertical-updraft simulation. Feeding holds and directed approaches still use
+the uncapped actual local wind for their force calculations; a front is not
+permission to weaken drag, anchor to an entire anonymous herd, or find food.
+Crossing and formation offsets use the actual two-dimensional separating plane.
+
+New regional segments record `vectorFlow: true`. Unmarked legacy cardinal
+segments validate with their original controller and retain cached trajectories
+on load/review; actual changed conditions or a subsequent segment can use the
+new geometry. Old native partial grid motion finishes its already-earned segment
+once before fractional advection begins. No historical distance, work, resources
+or positions are reconstructed or refunded.
+
+## Retained failing-window checks
+
+[lantern-vector-windows.json](reference/lantern-vector-windows.json) records two
+one-day continuations of the existing all-species `a2ffef9d` checkpoints, not a
+fresh full seasonal replay. Earlier paid history, all 56,243 strategic originals,
+actual other species, original wildlife, weather, geography and deaths remain.
+Both final accounts normalize; reusable worlds remain byte-identical and
+original-plus-born membership reconciles.
+
+- Day 10 to 11: 118 living Lanterns remain in 51 cohorts; all 51 have vector
+  segments with both components at the endpoint. The original checkpoint has
+  only legacy cardinal segments.
+- Day 60 to 61: 71 living Lanterns remain in 51 cohorts. The checkpoint's fifteen
+  stationary fronts become fifteen tangentially sliding fronts. The one-day
+  continuation does not restore lost creatures, reserves or expired meals.
+
+These windows remain rejected because prior performed scarcity/habitat failures
+are retained. Sliding is not a meal, and unchanged one-day survival does not
+establish long-term generated Lantern viability or native source adoption.
+The prior complete seasonal measurements below and in `SEASONAL_VIABILITY.md`
+remain historical, not silently relabeled as post-vector results.
+
+Focused verification for this correction covers 67 unit checks: the body,
+approach, drift and vector-motion files plus three named cases each for regional
+scheduler, shared behavior and predation. Three Chromium cases cover actual
+DOM/Canvas native pose/footprint reload and saved off-axis native/regional
+approaches. No full suite or new full-world seasonal replay was run.
 
 Existing native full-body terrain, obstruction and clearance checks still apply
 to every earned movement segment and descent. A pending action, incapacity,

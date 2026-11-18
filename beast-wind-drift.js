@@ -97,6 +97,26 @@
     return a && b && length > 0 && a.x * normal.x + a.y * normal.y > EPS
       && (b.x * entry.eastM + b.y * entry.northM) / length > EPS ? { neighborId: edge.id, thereFlow: copy(wind) } : null;
   }
+  function frontVelocity(raw, incoming, boundary, maximum) {
+    const n = boundary.normal, e = boundary.entry, length = Math.hypot(e.eastM, e.northM);
+    // The adjoining frame faces the opposite side of the shared plane. Blend
+    // only tangential air components in this frame; inward normal transport
+    // stagnates. This is a coarse stationary front, not a weather/fluid solver.
+    const hereTangent = -raw.x * n.y + raw.y * n.x;
+    const thereTangent = (incoming.x * e.northM - incoming.y * e.eastM) / length;
+    const speed = Math.max(-maximum, Math.min(maximum, (hereTangent + thereTangent) / 2));
+    return { x: -n.y * speed || 0, y: n.x * speed || 0 };
+  }
+  function frontMotion(r, raw, front, maximum) {
+    const edge = r.edges.find(e => e.id === front.neighborId), n = edge.windBoundary.normal;
+    // Two nonparallel convergent planes have no common horizontal tangent.
+    // Keep the corner rather than repeatedly crossing opposing source cells.
+    for (const other of front.others || []) {
+      const b = r.edges.find(e => e.id === other.neighborId)?.windBoundary;
+      if (!b || Math.abs(n.x * b.normal.y - n.y * b.normal.x) > EPS) return { x: 0, y: 0 };
+    }
+    return frontVelocity(raw, front.thereFlow, edge.windBoundary, maximum);
+  }
   function frontMargin(g, c) {
     const f = c.windDrift?.layout || c.regionalFormation || g.regionalFormation?.[c.originId];
     const last = Math.max(c.windDrift?.layout?.lastOrdinal ?? c.windDrift?.layout?.firstOrdinal ?? 0, ...c.ranges.map(([, hi]) => hi - 1));
@@ -112,18 +132,25 @@
       northM: pursuit.target.position.northM - position.northM, altitudeM: pursuit.target.position.altitudeM - position.altitudeM };
     const course = pursuit && c.regional.stamina >= .001 && Approach.course(c.massKg, c.regional.parts, wind, delta);
     const control = course && { ...course, massKg: c.massKg, parts: copy(c.regional.parts), delta, targetId: pursuit.target.id };
-    const edge = r.edges.find(e => e.traversable && e.windBoundary && (!e.allowedSpecies || e.allowedSpecies.includes(g.speciesId))
+    const edges = r.edges.filter(e => e.traversable && e.windBoundary && (!e.allowedSpecies || e.allowedSpecies.includes(g.speciesId))
       && Math.abs(e.windBoundary.offsetM - position.eastM * e.windBoundary.normal.x - position.northM * e.windBoundary.normal.y) <= frontMargin(g, c)
       && convergence(r, e, actor, month.season, region));
-    const front = edge && !hold && !control ? convergence(r, edge, actor, month.season, region) : null;
-    const velocity = hold || front ? { x: 0, y: 0 } : control?.velocity || Bodies.flowVelocity(actor, wind) || { x: 0, y: 0 };
+    const front = edges.length && !hold && !control ? { ...convergence(r, edges[0], actor, month.season, region),
+      ...(edges.length > 1 ? { others: edges.slice(1).map(e => convergence(r, e, actor, month.season, region)) } : {}) } : null;
+    const velocity = hold ? { x: 0, y: 0 } : front ? frontMotion(r, wind, front, Bodies.profiles[c.speciesId].speed)
+      : control?.velocity || Bodies.flowVelocity(actor, wind) || { x: 0, y: 0 };
     const signature = JSON.stringify([wind, velocity, r.id, hold?.mealId, ...(front ? [front] : []), ...(control ? [control] : [])]);
     let d = c.windDrift;
+    if (d && !d.vectorFlow && d.until > at + EPS && !d.control && !d.hold && !control && !hold
+      && !['handling', 'eating'].includes(c.foraging?.phase) && JSON.stringify(d.flow) === JSON.stringify(wind)
+      && (d.front ? front && JSON.stringify(d.front.thereFlow) === JSON.stringify(front.thereFlow)
+        : Boolean(d.velocity.x || d.velocity.y) === Boolean(Bodies.capable(actor, actor.bodyPhysics.mode) && wind && Math.hypot(wind.x, wind.y) > .001)))
+      return d.until; // Read/review does not reinterpret a cached legacy trajectory.
     // A newly scheduled meal/handling interval must recheck physical contact
     // even if the airflow signature is unchanged since the previous segment.
     if (d && d.until > at + EPS && d.signature === signature && !['handling', 'eating'].includes(c.foraging?.phase)) return d.until;
     const f = c.regionalFormation || g.regionalFormation?.[c.originId];
-    d = c.windDrift = { anchor: copy(position), startedAt: at, appliedAt: at,
+    d = c.windDrift = { anchor: copy(position), startedAt: at, appliedAt: at, vectorFlow: true,
       layout: { firstOrdinal: c.ranges[0][0], lastOrdinal: Math.max(...c.ranges.map(([, hi]) => hi - 1)),
         columns: f.columns, eastSpacingM: f.eastSpacingM, northSpacingM: f.northSpacingM },
       until: Math.min(month.end, at + HOUR), velocity, known: wind !== null, signature, flow: copy(wind),
@@ -187,10 +214,11 @@
           || !formation || ['columns', 'eastSpacingM', 'northSpacingM'].some(k => d.layout[k] !== formation[k])
           || !Number.isFinite(d.velocity?.x) || !Number.isFinite(d.velocity?.y)
           || Math.hypot(d.velocity.x, d.velocity.y) > Bodies.profiles[g.speciesId].speed + EPS
-          || d.velocity.x && d.velocity.y || !d.known && (d.velocity.x || d.velocity.y)) return false;
+          || d.vectorFlow != null && d.vectorFlow !== true
+          || !d.vectorFlow && d.velocity.x && d.velocity.y || !d.known && (d.velocity.x || d.velocity.y)) return false;
         if (d.signature !== JSON.stringify([d.flow, d.velocity, g.regionId, d.hold?.mealId, ...(d.front ? [d.front] : []), ...(d.control ? [d.control] : [])])) return false;
         if (d.control) {
-          const q = d.control, expected = Approach.course(q.massKg, q.parts, d.flow, q.delta);
+          const q = d.control, expected = Approach.course(q.massKg, q.parts, d.flow, q.delta, !d.vectorFlow);
           if (!expected || d.front || d.hold || !Number.isFinite(d.velocity.z) || d.until - d.startedAt > Approach.REVIEW + EPS
             || JSON.stringify(expected.velocity) !== JSON.stringify(d.velocity)
             || ['forceN', 'maximumForceN', 'effortRate'].some(k => q[k] !== expected[k])
@@ -200,22 +228,36 @@
         const raw = d.flow, magnitude = raw && Math.hypot(raw.x, raw.y);
         if (c.ranges.length && JSON.stringify(raw) !== JSON.stringify(windAt(s.regions.find(r => r.id === g.regionId), s.plans.at(-1).season))) return false;
         if (d.front) {
-          const region = s.regions.find(r => r.id === g.regionId), edge = region.edges.find(e => e.id === d.front.neighborId), b = edge?.windBoundary;
-          const incoming = d.front.thereFlow, length = b && Math.hypot(b.entry.eastM, b.entry.northM);
-          if (!b || edge.allowedSpecies && !edge.allowedSpecies.includes(g.speciesId)
-            || !flow(incoming) || !incoming || !(Math.hypot(incoming.x, incoming.y) > .001) || d.hold || d.velocity.x || d.velocity.y || !(magnitude > .001)
-            || Math.abs(b.offsetM - d.anchor.eastM * b.normal.x - d.anchor.northM * b.normal.y) > frontMargin(g, c)
-            || !((Math.abs(raw.x) >= Math.abs(raw.y) ? Math.sign(raw.x) * b.normal.x : Math.sign(raw.y) * b.normal.y) > 0)
-            || !((Math.abs(incoming.x) >= Math.abs(incoming.y) ? Math.sign(incoming.x) * b.entry.eastM : Math.sign(incoming.y) * b.entry.northM) / length > 0)
-            || c.ranges.length && JSON.stringify(incoming) !== JSON.stringify(windAt(s.regions.find(r => r.id === edge.id), s.plans.at(-1).season))) return false;
+          const region = s.regions.find(r => r.id === g.regionId);
+          if (d.front.others != null && (!d.vectorFlow || !Array.isArray(d.front.others) || !d.front.others.length)
+            || new Set([d.front, ...(d.front.others || [])].map(f => f.neighborId)).size !== 1 + (d.front.others?.length || 0)) return false;
+          for (const f of [d.front, ...(d.front.others || [])]) {
+            const edge = region.edges.find(e => e.id === f.neighborId), b = edge?.windBoundary;
+            const incoming = f.thereFlow, length = b && Math.hypot(b.entry.eastM, b.entry.northM);
+            if (!b || edge.allowedSpecies && !edge.allowedSpecies.includes(g.speciesId)
+              || !flow(incoming) || !incoming || !(Math.hypot(incoming.x, incoming.y) > .001) || d.hold || d.control
+              || !d.vectorFlow && (d.velocity.x || d.velocity.y) || !(magnitude > .001)
+              || Math.abs(b.offsetM - d.anchor.eastM * b.normal.x - d.anchor.northM * b.normal.y) > frontMargin(g, c)
+              || !(d.vectorFlow ? raw.x * b.normal.x + raw.y * b.normal.y > EPS
+                : (Math.abs(raw.x) >= Math.abs(raw.y) ? Math.sign(raw.x) * b.normal.x : Math.sign(raw.y) * b.normal.y) > 0)
+              || !(d.vectorFlow ? (incoming.x * b.entry.eastM + incoming.y * b.entry.northM) / length > EPS
+                : (Math.abs(incoming.x) >= Math.abs(incoming.y) ? Math.sign(incoming.x) * b.entry.eastM : Math.sign(incoming.y) * b.entry.northM) / length > 0)
+              || c.ranges.length && JSON.stringify(incoming) !== JSON.stringify(windAt(s.regions.find(r => r.id === edge.id), s.plans.at(-1).season))) return false;
+          }
+          if (d.vectorFlow) {
+            const expected = frontMotion(region, raw, d.front, Bodies.profiles[g.speciesId].speed);
+            if (d.velocity.x !== expected.x || d.velocity.y !== expected.y) return false;
+          }
         }
         if (c.ranges.length && !d.control && !d.hold && !d.front && magnitude > .001) {
           const buoyant = Object.entries(c.regional.parts).every(([part, health]) =>
             !(/bladder|membrane|buoyancy/.test(part) && health <= 40 || /torso|core|thorax|trunk|^bell$|bladder|forebody/.test(part) && health <= 5));
           if (buoyant !== Boolean(d.velocity.x || d.velocity.y)) return false;
         }
-        if (!d.control && !d.hold && magnitude > .001 && Math.hypot(d.velocity.x, d.velocity.y) > EPS) {
-          const expected = Math.abs(raw.x) >= Math.abs(raw.y)
+        if (!d.control && !d.hold && !d.front && magnitude > .001 && Math.hypot(d.velocity.x, d.velocity.y) > EPS) {
+          const speed = Math.min(Bodies.profiles[g.speciesId].speed, magnitude);
+          const expected = d.vectorFlow ? { x: raw.x * speed / magnitude, y: raw.y * speed / magnitude }
+            : Math.abs(raw.x) >= Math.abs(raw.y)
             ? { x: Math.sign(raw.x) * Math.min(Bodies.profiles[g.speciesId].speed, magnitude), y: 0 }
             : { x: 0, y: Math.sign(raw.y) * Math.min(Bodies.profiles[g.speciesId].speed, magnitude) };
           if (d.velocity.x !== expected.x || d.velocity.y !== expected.y) return false;

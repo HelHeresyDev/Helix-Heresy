@@ -1,0 +1,72 @@
+{
+  "scope": "Two one-day continuations of retained pre-vector checkpoints. Earlier history remains paid; no new full seasonal replay or source adoption.",
+  "originalStrategicBodies": 56243,
+  "windows": [
+    {
+      "fromDay": 10,
+      "toDay": 11,
+      "sourceId": "beast-habitat-source:a2ffef9d",
+      "before": {
+        "living": 118,
+        "cohorts": 51,
+        "vectorSegments": 0,
+        "fronts": 0,
+        "slidingFronts": 0,
+        "diagonalSegments": 0
+      },
+      "after": {
+        "living": 118,
+        "cohorts": 51,
+        "vectorSegments": 51,
+        "fronts": 0,
+        "slidingFronts": 0,
+        "diagonalSegments": 51
+      },
+      "counts": {
+        "background": 54435,
+        "detailed": 0,
+        "dead": 1808
+      },
+      "born": 0,
+      "status": "rejected",
+      "newBoundaries": 7606,
+      "newCohortIntervals": 387237,
+      "executionMilliseconds": 10756,
+      "normalized": true
+    },
+    {
+      "fromDay": 60,
+      "toDay": 61,
+      "sourceId": "beast-habitat-source:a2ffef9d",
+      "before": {
+        "living": 71,
+        "cohorts": 51,
+        "vectorSegments": 0,
+        "fronts": 15,
+        "slidingFronts": 0,
+        "diagonalSegments": 0
+      },
+      "after": {
+        "living": 71,
+        "cohorts": 51,
+        "vectorSegments": 51,
+        "fronts": 15,
+        "slidingFronts": 15,
+        "diagonalSegments": 51
+      },
+      "counts": {
+        "background": 91595,
+        "detailed": 0,
+        "dead": 40110
+      },
+      "born": 75462,
+      "status": "rejected",
+      "newBoundaries": 3540,
+      "newCohortIntervals": 675861,
+      "executionMilliseconds": 13588,
+      "normalized": true
+    }
+  ],
+  "unchangedReusableWorlds": true,
+  "membershipConserved": true
+}

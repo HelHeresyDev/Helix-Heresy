@@ -28,7 +28,7 @@
     else { a.lastSeenAt = at; a.target = copy(target); }
     return a;
   }
-  function course(massKg, parts, wind, delta) {
+  function course(massKg, parts, wind, delta, cardinal = false) {
     if (!(massKg > 0) || !parts || !wind || ![wind.x, wind.y].every(Number.isFinite) || !point(delta)) return null;
     const integrity = Math.min(...['bladder', 'membrane', 'buoyancy organs'].map(k => (parts[k] || 0) / 100));
     if (integrity <= .4) return null;
@@ -42,10 +42,12 @@
     const magnitude = Math.hypot(requested.x, requested.y, requested.z), scale = Math.min(1, airSpeed / Math.max(1e-12, magnitude));
     const raw = { x: wind.x + requested.x * scale, y: wind.y + requested.y * scale, z: requested.z * scale };
     const horizontal = Math.hypot(raw.x, raw.y), speed = Math.min(.5, horizontal);
-    // Retain the established cardinal horizontal grid convention. Real wind,
-    // not its capped drift speed, opposes thrust before this grid projection.
-    const velocity = Math.abs(raw.x) >= Math.abs(raw.y) ? { x: Math.sign(raw.x) * speed, y: 0, z: raw.z }
-      : { x: 0, y: Math.sign(raw.y) * speed, z: raw.z };
+    // Uncapped actual wind opposes thrust. Only the resulting ground velocity
+    // is capped, without discarding its lateral component. The old projection
+    // is used solely to validate already cached legacy regional segments.
+    const velocity = cardinal ? Math.abs(raw.x) >= Math.abs(raw.y) ? { x: Math.sign(raw.x) * speed, y: 0, z: raw.z }
+      : { x: 0, y: Math.sign(raw.y) * speed, z: raw.z }
+      : { x: horizontal ? raw.x * speed / horizontal : 0, y: horizontal ? raw.y * speed / horizontal : 0, z: raw.z };
     const forceN = drag * Math.min(magnitude, airSpeed) ** 2;
     return { velocity, forceN, maximumForceN, effortRate: .1 * forceN / maximumForceN };
   }

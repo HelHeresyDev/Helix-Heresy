@@ -25,8 +25,9 @@
       return body.heading ? { x: width, y: d.lengthM } : { x: d.lengthM, y: width };
     };
     const ad = bounds(a), bd = bounds(b), tile = ctx.tileSizeM || 1;
-    const x = Math.max(0, (a.mapCell.x - b.mapCell.x) * tile - bd.x, (b.mapCell.x - a.mapCell.x) * tile - ad.x);
-    const y = Math.max(0, (a.mapCell.y - b.mapCell.y) * tile - bd.y, (b.mapCell.y - a.mapCell.y) * tile - ad.y);
+    const ap = Bodies.position(a, tile), bp = Bodies.position(b, tile);
+    const x = Math.max(0, ap.eastM - bp.eastM - bd.x, bp.eastM - ap.eastM - ad.x);
+    const y = Math.max(0, ap.northM - bp.northM - bd.y, bp.northM - ap.northM - ad.y);
     return Math.hypot(x, y, gap);
   };
   const definitions = {
@@ -522,8 +523,7 @@
         && begin(a, 'iceCache', corpse, at, ctx).ok) return true;
       if (corpse && consumeRemains(a, corpse, seconds, at, ctx)) { Approach.stop(a.life, at, 'arrived'); a.life.activity = 'feed'; return true; }
       if (Lantern.is(a)) {
-        const sensed = corpse && { id: corpse.id, cell: copy(corpse.mapCell), position: {
-          eastM: corpse.mapCell.x * (ctx.tileSizeM || 1), northM: corpse.mapCell.y * (ctx.tileSizeM || 1), altitudeM: Bodies.height(corpse) } };
+        const sensed = corpse && { id: corpse.id, cell: copy(corpse.mapCell), position: Bodies.position(corpse, ctx.tileSizeM || 1) };
         const state = Approach.observe(a.life, at, sensed, a.life.willing !== false && Bodies.capable(a, 'flight')
           && Boolean(ctx.terrain(a.mapCell)?.wind));
         if (state) {

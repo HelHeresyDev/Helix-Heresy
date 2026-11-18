@@ -94,6 +94,8 @@
       && [0, 1].includes(b.heading ?? 0)
       && (!b.turn || [0, 1].includes(b.turn.to) && finite(b.turn.progress) && b.turn.progress < b.turn.seconds && b.turn.seconds > 0 && !b.motion)
       && ['walking', 'flight', 'levitation', 'swimming', 'drifting', 'burrowing', 'rooting', 'falling', 'landing', 'grounded'].includes(b.mode)
+      && (!b.airOffset || a.speciesId === Approach.ID
+        && ['x', 'y'].every(k => Number.isFinite(b.airOffset[k]) && Math.abs(b.airOffset[k]) <= .5 + 1e-8))
       && (!b.motion || cell(b.motion.from) && cell(b.motion.to) && b.motion.from.z === b.motion.to.z
         && same(a.mapCell, b.motion.from) && finite(b.motion.progressM) && b.motion.progressM < b.motion.distanceM
         && b.motion.distanceM > 0 && (Math.abs(b.motion.to.x - b.motion.from.x) + Math.abs(b.motion.to.y - b.motion.from.y) === 1
@@ -121,7 +123,14 @@
       exclusive: true, rotatable: false, loadM2: Math.min(tileSizeM ** 2, b.massKg / 1000 / mask.length) };
   }
   function cells(a, anchor = a.mapCell, tileSizeM = 1, mode) {
-    return footprint(a, tileSizeM, mode).mask.map(offset => ({ x: anchor.x + offset.x, y: anchor.y + offset.y, z: anchor.z }));
+    const base = footprint(a, tileSizeM, mode).mask, air = a.bodyPhysics?.airOffset;
+    const xs = air?.x ? [0, Math.sign(air.x)] : [0], ys = air?.y ? [0, Math.sign(air.y)] : [0];
+    return [...new Map(base.flatMap(offset => xs.flatMap(x => ys.map(y => ({ x: anchor.x + offset.x + x,
+      y: anchor.y + offset.y + y, z: anchor.z })))).map(p => [key(p), p])).values()];
+  }
+  function position(a, tileSizeM = 1) {
+    return { eastM: (a.mapCell.x + (a.bodyPhysics?.airOffset?.x || 0)) * tileSizeM,
+      northM: (a.mapCell.y + (a.bodyPhysics?.airOffset?.y || 0)) * tileSizeM, altitudeM: height(a) };
   }
   function occupied(a, tileSizeM = 1) {
     const current = cells(a, a.mapCell, tileSizeM), next = a.bodyPhysics?.motion && cells(a, a.bodyPhysics.motion.to, tileSizeM);
@@ -272,15 +281,17 @@
     }
     return choices.find(c => !habitatReason(a, c, b.mode, b.altitudeM, ctx)) || null;
   }
-  function approachCourse(a, ctx) {
+  function approachCourse(a, ctx, at = a.bodyPhysics.lastAt) {
     const state = a.speciesId === Approach.ID && a.life?.carrionApproach, b = a.bodyPhysics;
-    if (!state || !(b.stamina > 0) || b.lastAt >= state.deadlineAt || b.lastAt > state.lastSeenAt + Approach.LOST) return null;
+    if (!state || a.life.will === false || a.life.willing === false || a.life.pending || !(b.stamina > 0)
+      || at >= state.deadlineAt || at > state.lastSeenAt + Approach.LOST) return null;
+    const pos = position(a, ctx.tileSizeM || 1);
     return Approach.course(b.massKg, b.parts, ctx.terrain(a.mapCell)?.wind, {
-      eastM: state.target.position.eastM - a.mapCell.x * (ctx.tileSizeM || 1),
-      northM: state.target.position.northM - a.mapCell.y * (ctx.tileSizeM || 1), altitudeM: state.target.position.altitudeM - b.altitudeM });
+      eastM: state.target.position.eastM - pos.eastM,
+      northM: state.target.position.northM - pos.northM, altitudeM: state.target.position.altitudeM - b.altitudeM });
   }
-  // The same cardinal local-grid advection used by passive body steps. Unknown
-  // flow is not calm, and neither a goal nor food can choose this direction.
+  // Airborne Lanterns retain both components; unrelated aquatic locomotion
+  // keeps its existing grid convention. Neither a goal nor food chooses wind.
   function flowVelocity(a, flow) {
     if (!flow || !Number.isFinite(flow.x) || !Number.isFinite(flow.y)) return null;
     if (!valid(a) || !(a.bodyPhysics.mode === 'drifting'
@@ -289,7 +300,45 @@
     const magnitude = Math.hypot(flow.x, flow.y);
     if (magnitude <= .001) return { x: 0, y: 0 };
     const speed = Math.min(profiles[a.speciesId].speed, magnitude);
+    if (a.speciesId === Approach.ID) return { x: flow.x * speed / magnitude, y: flow.y * speed / magnitude };
     return Math.abs(flow.x) >= Math.abs(flow.y) ? { x: Math.sign(flow.x) * speed, y: 0 } : { x: 0, y: Math.sign(flow.y) * speed };
+  }
+  function advanceAir(a, at, remaining, ctx) {
+    const b = a.bodyPhysics, tile = ctx.tileSizeM || 1;
+    let changed = false;
+    // Conservative sub-cell sweeps retain integer terrain addresses. Both
+    // coordinate components earn the SAME elapsed interval, never two moves.
+    for (let i = 0; remaining > 1e-8 && i < 4096; i++) {
+      const cursor = at - remaining, control = approachCourse(a, ctx, cursor);
+      const velocity = control?.velocity || flowVelocity(a, ctx.terrain(a.mapCell)?.wind);
+      if (!velocity) break;
+      const speed = Math.hypot(velocity.x, velocity.y), vz = control?.velocity.z || 0;
+      if (!(speed > 0 || Math.abs(vz) > 0)) break;
+      const state = control && a.life.carrionApproach, from = position(a, tile);
+      const contact = state ? Approach.contactSeconds(from, velocity, state.target.position, profiles[a.speciesId].reachM) : Infinity;
+      const seconds = Math.min(remaining, tile / 4 / Math.max(speed, Math.abs(vz)), control ? Approach.REVIEW : Infinity,
+        control ? b.stamina / Math.max(1e-12, control.effortRate) : Infinity,
+        state ? state.deadlineAt - cursor : Infinity, state ? state.lastSeenAt + Approach.LOST - cursor : Infinity, contact);
+      if (!(seconds > 1e-8)) break;
+      const x = from.eastM + velocity.x * seconds, y = from.northM + velocity.y * seconds;
+      const to = { x: Math.floor(x / tile + .5), y: Math.floor(y / tile + .5), z: a.mapCell.z };
+      const offset = { x: x / tile - to.x, y: y / tile - to.y };
+      const altitude = control ? b.altitudeM + vz * seconds : Math.min(6, b.altitudeM + seconds * .5);
+      const originalCell = a.mapCell, originalOffset = b.airOffset;
+      // Test the whole old/new body volume at both vertical endpoints; a
+      // diagonal cannot slip between two blocked orthogonal grid neighbors.
+      let reason = habitatReason(a, originalCell, 'flight', altitude, ctx);
+      a.mapCell = to; b.airOffset = offset;
+      reason ||= habitatReason(a, to, 'flight', b.altitudeM, ctx) || habitatReason(a, to, 'flight', altitude, ctx);
+      if (reason) { a.mapCell = originalCell; if (originalOffset) b.airOffset = originalOffset; else delete b.airOffset;
+        b.blockedReason = reason; break; }
+      b.altitudeM = altitude; b.distanceM += speed * seconds;
+      const effort = (control?.effortRate || 0) * seconds;
+      b.stamina = Math.max(0, b.stamina - effort); b.spentStamina += effort;
+      remaining -= seconds; changed = true; b.blockedReason = '';
+      b.lastEvent = { kind: 'flight', at: at - remaining, cell: copy(to) };
+    }
+    return changed;
   }
   function advance(a, at, ctx) {
     if (!valid(a) || !finite(at) || at <= a.bodyPhysics.lastAt) return false;
@@ -341,6 +390,7 @@
     // A finite caller-supplied elapsed interval is integrated in <=1 m steps;
     // interrupted segments retain earned progress, never jump through barriers.
     for (let iterations = 0; remaining > 1e-8 && iterations < 4096; iterations++) {
+      if (a.speciesId === Approach.ID && b.mode === 'flight' && !b.motion) return advanceAir(a, at, remaining, ctx) || changed;
       if (!b.motion) {
         const to = next(a, ctx);
         if (!to) {
@@ -423,8 +473,8 @@
       : wounded(observer, organs[channel]) >= .75)) return false;
     const range = channel === 'sight' ? p.sightM : channel === 'hearing' ? p.hearingM : channel === 'scent' ? p.scentM
       : channel === 'vibration' ? p.vibrationM : channel === 'pressure' ? p.pressureM : channel === 'mana' ? p.manaSenseM : 0;
-    if (Math.hypot((observer.mapCell.x - target.mapCell.x) * (ctx.tileSizeM || 1),
-      (observer.mapCell.y - target.mapCell.y) * (ctx.tileSizeM || 1), height(observer) - height(target)) > range) return false;
+    const op = position(observer, ctx.tileSizeM || 1), tp = position(target, ctx.tileSizeM || 1);
+    if (Math.hypot(op.eastM - tp.eastM, op.northM - tp.northM, height(observer) - height(target)) > range) return false;
     if ((height(observer) < 0) !== (height(target) < 0) && !['sight', 'vibration'].includes(channel)) return false;
     if (channel === 'sight' && (ctx.light ?? 100) <= 0) return false;
     return Boolean(range && ctx.signal?.(observer, target, channel, b.altitudeM, height(target)));
@@ -432,8 +482,9 @@
   function observed(a) {
     if (!valid(a)) return null;
     return { mode: a.bodyPhysics.mode, altitudeM: height(a), dimensions: copy(a.bodyPhysics.dimensions),
+      ...(a.bodyPhysics.airOffset ? { airOffset: copy(a.bodyPhysics.airOffset) } : {}),
       heading: a.bodyPhysics.heading || 0, turning: Boolean(a.bodyPhysics.turn),
       motion: a.bodyPhysics.motion ? { from: copy(a.bodyPhysics.motion.from), to: copy(a.bodyPhysics.motion.to), fraction: a.bodyPhysics.motion.progressM / a.bodyPhysics.motion.distanceM } : null };
   }
-  return { profiles, anatomy, attach, valid, height, footprint, cells, occupied, wounded, capable, habitatReason, request, turn, transition, dive, breakIce, damagePart, advance, perceive, observed, key, flowVelocity };
+  return { profiles, anatomy, attach, valid, height, footprint, cells, occupied, wounded, capable, habitatReason, request, turn, transition, dive, breakIce, damagePart, advance, perceive, observed, key, flowVelocity, position };
 });

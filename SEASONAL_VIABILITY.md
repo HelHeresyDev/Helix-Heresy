@@ -140,6 +140,10 @@ The placement correction creates new source `beast-habitat-source:6fe013ab`;
 **that source has not received another complete seasonal replay**. The measured
 baseline remains its original archived `a2ffef9d` source, not a retroactively
 repaired world. The historical pre-drainage figures below are also retained.
+These full-season measurements also precede the
+[Lantern vector-motion correction](CARRION_LANTERN_APPROACH.md#two-dimensional-movement-and-convergence).
+Its two retained one-day windows verify motion/save continuity, not a replacement
+seasonal survival or maintenance result.
 
 Current focused verification covers 43 unit checks in the source, binding and
 hunting-habitat files, plus two named Chromium generation/storage/reload checks.

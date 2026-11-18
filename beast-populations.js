@@ -238,7 +238,8 @@
     references: (g, at) => {
       const refs = new Set();
       for (const c of g.cohorts) {
-        if (count(c) && c.windDrift?.front) refs.add(c.windDrift.front.neighborId);
+        if (count(c) && c.windDrift?.front)
+          for (const front of [c.windDrift.front, ...(c.windDrift.front.others || [])]) refs.add(front.neighborId);
         for (const b of c.demography?.broods || []) refs.add(b.regionId);
         if (c.nurseryId && count(c) && at - (c.birthSpan?.[1] ?? c.bornAt) < Biology.lifecycle[c.speciesId].independentDays * DAY) refs.add(g.regionId);
       }

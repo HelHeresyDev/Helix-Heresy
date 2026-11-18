@@ -56,6 +56,11 @@ not a balanced-world certificate or a replacement set of species rates.
 The [new hunting-placement correction](../HUNTING_HABITATS.md) preserves counts
 and prey and has focused local controls, not another full seasonal result.
 
+The [Lantern vector-motion windows](lantern-vector-windows.json) retain existing
+day-10/day-60 histories and continue each for one day. They verify corrected
+two-dimensional motion and tangential fronts, not new food, recovered losses or
+a successful full seasonal replay. See [the movement contract](../CARRION_LANTERN_APPROACH.md).
+
 The separate [wetland drainage control](wetland-drainage-control.json) measures
 finite water routing and erosion without animal consumption or ongoing nurturing.
 See its [scope and calibration](../WETLAND_DRAINAGE.md); it is not a replacement

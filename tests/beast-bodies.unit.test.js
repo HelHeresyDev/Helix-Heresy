@@ -7,13 +7,15 @@ const Lifecycle = require('../scripts/creature-lifecycle-data');
 const cell = (x = 0, y = 0) => ({ x, y, z: 6 });
 const body = (suffix, at = 0) => W.actor(`beast:${suffix}`, `original:${suffix}`, cell(), `original-population:${suffix}`, at);
 const clone = x => JSON.parse(JSON.stringify(x));
-test('regional passive flow uses native cardinal direction, finite speed and original buoyancy', () => {
+test('regional passive air retains both wind components, finite speed and original buoyancy', () => {
   const a = body('carrion-lantern');
   assert.equal(B.flowVelocity(body('rimefang-pack'), { x: 2, y: 0 }), null);
   assert.equal(B.flowVelocity(a, null), null);
   assert.deepEqual(B.flowVelocity(a, { x: 0, y: 0 }), { x: 0, y: 0 });
-  assert.deepEqual(B.flowVelocity(a, { x: -5, y: 2 }), { x: -.5, y: 0 });
-  assert.deepEqual(B.flowVelocity(a, { x: .1, y: -.2 }), { x: 0, y: -Math.hypot(.1, .2) });
+  const wind = B.flowVelocity(a, { x: -5, y: 2 });
+  assert.ok(Math.abs(Math.hypot(wind.x, wind.y) - .5) < 1e-12); assert.equal(wind.x / wind.y, -2.5);
+  const gentle = B.flowVelocity(a, { x: .1, y: -.2 });
+  assert.ok(Math.abs(gentle.x - .1) < 1e-12 && Math.abs(gentle.y + .2) < 1e-12);
   a.bodyPhysics.parts.bladder = 0;
   assert.deepEqual(B.flowVelocity(a, { x: -5, y: 2 }), { x: 0, y: 0 });
 });
@@ -70,7 +72,7 @@ test('catalog-wide movement families use their actual compatible medium, not one
     assert.ok(a.bodyPhysics.distanceM > 0, s.id);
     assert.ok(B.valid(a), s.id);
     assert.ok(s.id === 'beast:carrion-lantern' || a.bodyPhysics.stamina < 300, s.id);
-    assert.ok(a.bodyPhysics.motion || !same(before, a.mapCell), s.id);
+    assert.ok(a.bodyPhysics.motion || a.bodyPhysics.airOffset || !same(before, a.mapCell), s.id);
   }
   function same(a, b) { return B.key(a) === B.key(b); }
 });

@@ -16,14 +16,13 @@ async function place(page, species, id, position, options = {}) {
       const water = options.waterRows?.includes(y) || options.waterFromX !== undefined && x >= options.waterFromX;
       bodyTerrain[`${x},${y},6`] = { floor: true, waterDepthM: water ? 5 : 0, waterClarityM: 5,
         soilDepthM: 8, hardness: 1, densityKgM3: 1500, materialKg: 12000, supportKg: 100000,
-        wind: { x: 3, y: 0 }, current: { x: .1, y: 0 }, ceilingM: 100, oxygen: true };
+        wind: options.wind || { x: 3, y: 0 }, current: { x: .1, y: 0 }, ceilingM: 100, oxygen: true };
     }
     d.configureWildernessBeastsTest({ actors: [{ ...original, cell: position }], bodyTerrain, scientistCell: options.scientistCell || { x: 24, y: 12, z: 6 } });
     d.setMapOverlay('prospecting');
   }, { species, id, position, options });
 }
-for (const renderer of ['dom', 'canvas']) test(`${renderer}: physical flight, saved/imported original pose, water, colossal body and finite excavation`, async ({ page }) => {
-  const errors = []; page.on('pageerror', error => errors.push(error.message)); page.on('dialog', dialog => dialog.accept());
+async function setupPhysicalWilderness(page, renderer) {
   await startLifecycleRun(page, `bodies-${renderer}`);
   await page.evaluate(renderer => {
     const d = window.helixHeresyDebug; d.setMapRenderer(renderer);
@@ -33,6 +32,10 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: physical flight, sa
     ] }, context: { worldId: 'lifecycle-world', siteId: 'lab-test', strategicCellId: 'planet-cell:00009', seed: 'body-test', publicProspects: {}, truth: {} } });
     d.configureWildernessTest({ destination: { id: 'wilderness:planet-cell:00002', strategicCellId: 'planet-cell:00002', approachCellId: 'planet-cell:00001', label: 'Physical shoreline', temperatureC: 18, slopePercent: 5, precipitationMm: 500, terrain: 'ground', jurisdiction: 'Wilderness', description: 'Prepared original physical inputs.' }, mode: 'wilderness', autoCare: false });
   }, renderer);
+}
+for (const renderer of ['dom', 'canvas']) test(`${renderer}: physical flight, saved/imported original pose, water, colossal body and finite excavation`, async ({ page }) => {
+  const errors = []; page.on('pageerror', error => errors.push(error.message)); page.on('dialog', dialog => dialog.accept());
+  await setupPhysicalWilderness(page, renderer);
   await place(page, 'beast:ley-manta', 'original-manta', cell(25, 10), { mode: 'levitation', altitude: 4 });
   await page.locator('[data-workspace-tab="visits"]').click();
   expect((await snap(page, 'original-manta')).strikeReason).toMatch(/range|reach|outside/i);
@@ -106,6 +109,27 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: physical flight, sa
   await page.reload(); await page.locator('#loadLastSaveBtn').click();
   await page.evaluate(renderer => window.helixHeresyDebug.setMapRenderer(renderer), renderer);
   s = await snap(page, 'original-burrower'); expect(s.actor.bodyPhysics).toEqual(motion); expect(s.terrain).toEqual(soil);
+  expect((await page.evaluate(() => window.helixHeresyDebug.mapRendererSnapshot())).mode).toBe(renderer);
+  expect(errors).toEqual([]);
+});
+
+for (const renderer of ['dom', 'canvas']) test(`${renderer}: native Lantern vector pose and swept footprint survive actual game reload`, async ({ page }) => {
+  const errors = []; page.on('pageerror', error => errors.push(error.message));
+  await setupPhysicalWilderness(page, renderer);
+  await place(page, 'beast:carrion-lantern', 'original-vector-lantern', cell(26, 12), { wind: { x: .12, y: .09 } });
+  await page.locator('[data-workspace-tab="visits"]').click();
+  await page.evaluate(() => window.helixHeresyDebug.advanceWildernessBeastsForTest(2));
+  const s = await snap(page, 'original-vector-lantern'), offset = s.actor.bodyPhysics.airOffset;
+  expect(offset.x).toBeGreaterThan(0); expect(offset.y).toBeGreaterThan(0);
+  const seen = s.knowledge.sightings.find(a => a.id === 'original-vector-lantern');
+  expect(seen.physicalPose.airOffset).toEqual(offset); expect(seen.visibleBodyCells.length).toBeGreaterThan(1);
+  expect(JSON.stringify(await page.evaluate(() => window.helixHeresyDebug.mapSceneSnapshot()))).toContain('observed body footprint');
+  await expect(page.locator('[data-wilderness-beasts]')).toContainText('flight');
+  await page.reload(); await page.locator('#loadLastSaveBtn').click();
+  await page.evaluate(renderer => window.helixHeresyDebug.setMapRenderer(renderer), renderer);
+  const loaded = await snap(page, 'original-vector-lantern');
+  expect(loaded.actor.bodyPhysics).toEqual(s.actor.bodyPhysics);
+  expect(loaded.knowledge.sightings.find(a => a.id === 'original-vector-lantern').physicalPose.airOffset).toEqual(offset);
   expect((await page.evaluate(() => window.helixHeresyDebug.mapRendererSnapshot())).mode).toBe(renderer);
   expect(errors).toEqual([]);
 });

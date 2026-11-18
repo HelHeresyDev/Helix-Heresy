@@ -935,10 +935,16 @@ slower throughput; the next action uses the corrected ceiling.
 Longer survival exposed a pre-existing discontinuous-wind boundary loop.
 Crossings now rotate the anchor's tangential offset into the receiving frame.
 Opposing normal flows form a saved coarse convergence front rather than repeated
-0.0001-second crossings. Its two actual wind sources are scheduler dependencies;
-changed wind releases it. First-survivor rebasing stays within retained formation
+0.0001-second crossings. New vector segments retain the averaged tangential wind
+in the actual shared frame; exactly head-on fronts and nonparallel convergent
+corners can still trap bodies. Every participating wind source is a scheduler
+dependency; changed wind can release it. First-survivor rebasing stays within retained formation
 width, without moving surviving bodies, steering toward food or granting effort.
 This is coarse regional flow handling, not resolved atmospheric turbulence.
+The [two one-day retained-checkpoint controls](reference/lantern-vector-windows.json)
+verify saved vector motion and tangential fronts without replacing the recorded
+full-season failure with a new viability claim. Native fractional pose and
+unchanged thrust/feeding restrictions are in [the approach contract](CARRION_LANTERN_APPROACH.md).
 
 ### Regional feeding and ecological conflict
 

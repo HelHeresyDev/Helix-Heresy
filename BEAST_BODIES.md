@@ -45,6 +45,14 @@ Water depth, subterranean material and wind/current must be supplied by a real
 source; an ordinary dry patch does not silently become a sea or a mineral deposit.
 Small patches can legitimately be too small for a colossal animal.
 
+Carrion Lantern air movement retains both wind components and uses bounded
+fractional cell offsets while terrain/occupancy addresses stay integer. Full
+swept masks conservatively block corner cutting; sensing and contact distance
+use the actual sub-cell position. Native pose observations and saved bodies keep
+that earned offset. Existing aquatic grid locomotion is unchanged. See
+[sensed Lantern approaches](CARRION_LANTERN_APPROACH.md) for unchanged force limits,
+regional tangential fronts and the retained-checkpoint verification boundary.
+
 ## Existing behavior and persistence
 
 Rimefang and Gravebloom Elk keep their existing ground encounters. Mirror Apes
