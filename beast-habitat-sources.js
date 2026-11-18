@@ -493,7 +493,7 @@
       policy: 'Private generator feasibility only; original-body residence and supply replay, no performed nurturing, future meat stock, safe destination reservation or perpetual equilibrium guarantee',
       seasonalJourneys: residence.journeys, seasons };
   }
-  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false, habitatAccess = false, windTransport = false, lanternMoisture = false, wildlifeDistribution = false, wildlifeCarcasses = false, establishedHabitats = false, wetlandDrainage = false, huntingHabitatAccess = false) {
+  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false, habitatAccess = false, windTransport = false, lanternMoisture = false, wildlifeDistribution = false, wildlifeCarcasses = false, establishedHabitats = false, wetlandDrainage = false, huntingHabitatAccess = false, catchmentDrainage = false) {
     const calendar = { epochAt: 0, monthDays: Local.PHASES.map(() => Local.PHASE_DAYS) };
     const patches = patchRows.map(row => expandPatch(map, row, calendar, physical)), groupRows = [], populations = [], unlocated = [];
     const worldPopulations = populationsFor(map), foodUse = new Map(), feedingRows = [];
@@ -582,8 +582,9 @@
     if (establishedHabitats) record.establishedHabitats = true;
     if (wetlandDrainage) record.wetlandDrainage = true;
     if (huntingHabitatAccess) record.huntingHabitatAccess = true;
+    if (catchmentDrainage) record.catchmentDrainage = true;
     const expanded = expand(record, map, { physical, raw: true });
-    if (physical) { record.physicalBinding = Bindings.allocate(expanded, map, { positions: physicalPlacement, established: establishedHabitats, drainage: wetlandDrainage }); Bindings.apply(expanded, record.physicalBinding, map); }
+    if (physical) { record.physicalBinding = Bindings.allocate(expanded, map, { positions: physicalPlacement, established: establishedHabitats, drainage: wetlandDrainage, catchmentDrainage }); Bindings.apply(expanded, record.physicalBinding, map); }
     if (wildlife) { record.backgroundWildlife = Wildlife.allocate(expanded, seed, { distributed: wildlifeDistribution, carcassBatches: wildlifeCarcasses }); Wildlife.apply(expanded, record.backgroundWildlife); }
     const assessment = forecast(expanded, map);
     for (const p of populations) {
@@ -624,10 +625,12 @@
     }
     // Preserve the original calibration/count selection. Repair placement, not
     // the population total, and never upgrade an unmarked archived record.
-    if (options.huntingHabitatAccess !== false && best.habitatAccess && best.backgroundWildlife)
-      return candidate(seed, map, patchRows, best.calibration, true, true, true, true,
+    const hunting = options.huntingHabitatAccess !== false && best.habitatAccess && best.backgroundWildlife;
+    const catchment = options.catchmentDrainage !== false && best.wetlandDrainage === true;
+    if (hunting || catchment)
+      return candidate(seed, map, patchRows, best.calibration, true, Boolean(best.backgroundWildlife), best.physicalPlacement === true, best.habitatAccess === true,
         best.windTransport === true, best.lanternMoisture === true, best.wildlifeDistribution === true,
-        best.wildlifeCarcasses === true, best.establishedHabitats === true, best.wetlandDrainage === true, true);
+        best.wildlifeCarcasses === true, best.establishedHabitats === true, best.wetlandDrainage === true, Boolean(hunting), catchment);
     return best;
   }
   function validate(record, map, seed = record?.seed) {
@@ -639,7 +642,7 @@
     const topology = World.topologyForMap(map), patchRows = [];
     for (let i = 0; i < topology.cellCount; i++) patchRows.push(...patchesForCell(map, i, topology, record.physicalPlacement === true));
     const expected = candidate(record.seed, map, patchRows, record.calibration, Boolean(record.physicalBinding), Boolean(record.backgroundWildlife), record.physicalPlacement === true,
-      record.habitatAccess === true, record.windTransport === true, record.lanternMoisture === true, record.wildlifeDistribution === true, record.wildlifeCarcasses === true, record.establishedHabitats === true, record.wetlandDrainage === true, record.huntingHabitatAccess === true);
+      record.habitatAccess === true, record.windTransport === true, record.lanternMoisture === true, record.wildlifeDistribution === true, record.wildlifeCarcasses === true, record.establishedHabitats === true, record.wetlandDrainage === true, record.huntingHabitatAccess === true, record.catchmentDrainage === true);
     if (record.sourceDigest === legacyDigest) expected.sourceDigest = record.sourceDigest;
     const physical = value => { const result = copy(value); delete result.id; delete result.assessment; delete result.groupRows; return result; };
     if (World.stableHash(physical(expected)) !== World.stableHash(physical(record))) throw Error('Habitat source physical accounts were changed');

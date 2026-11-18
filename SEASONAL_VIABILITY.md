@@ -122,9 +122,12 @@ The remaining failures have distinct evidence and limits:
   placement, and no new food or wind-steering ability was supplied.
 - **Habitat maintenance:** all 37 negative completed-cycle balances concern soil
   cover. Only `habitat:117:wetland` crosses its floor, first around day 58.87,
-  reaching a minimum of zero. The earlier drainage control already identifies
-  its capacity-limited outlet. This is unresolved modeled flooding/maintenance,
-  not proof of defeated nurturers or permission to tune away the loss.
+  reaching a minimum of zero. Subsequent [catchment reconciliation](WETLAND_DRAINAGE.md#catchment-sized-generated-control-and-the-37-deficits)
+  traces 35 to flood-only soil destruction and two to dominant flooding plus
+  small paid Mire Choir soil costs. All 37 have positive recorded balances when
+  only flood erosion is excluded. New-world catchment-sized outlets remove that
+  erosion in the separate hydrology-only control, not in a repeated full food
+  web. These historical losses remain recorded, not proof of defeated nurturers.
 - **Opposition/adoption:** original-beast duel contacts remain zero. Eight hives
   still lack refined metal and 32 tortoise groups lack recorded willing dream
   participants. Optional dormant powers get no unperformed maintenance credit.
@@ -140,12 +143,18 @@ The placement correction creates new source `beast-habitat-source:6fe013ab`;
 **that source has not received another complete seasonal replay**. The measured
 baseline remains its original archived `a2ffef9d` source, not a retroactively
 repaired world. The historical pre-drainage figures below are also retained.
+The subsequent catchment correction creates `beast-habitat-source:e8a02b1f` with
+unchanged original counts, rainfall and authored maintenance rates. Its
+[120-day drainage control](reference/catchment-drainage-control.json) covers
+all 62 wetlands and explains the 37 historical soil deficits, but excludes animal
+consumption/ongoing nurturing in its private copy. It does not replace this
+rejected all-species baseline or establish source adoption.
 These full-season measurements also precede the
 [Lantern vector-motion correction](CARRION_LANTERN_APPROACH.md#two-dimensional-movement-and-convergence).
 Its two retained one-day windows verify motion/save continuity, not a replacement
 seasonal survival or maintenance result.
 
-Current focused verification covers 43 unit checks in the source, binding and
+The hunting-placement pass's focused verification covers 43 unit checks in the source, binding and
 hunting-habitat files, plus two named Chromium generation/storage/reload checks.
 The recorded report's source scope and population/death conservation also pass
 direct assertions. The full test suite was not run under `AGENTS.md`.

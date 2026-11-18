@@ -172,8 +172,49 @@
       }
       for (const row of binding.environments) if (row.ecology.floodable)
         row.ecology.floodplain = { areaHa: regions.get(row.regionId).areaHa, safeDepthMm: 100, erosionPointsPerMm: .01 };
+      if (options.catchmentDrainage) sizeCatchmentOutlets(source, binding);
     }
     return binding;
+  }
+  // Generation only. Infer a finite aggregate outlet cross-section from the
+  // ORIGINAL bound catchment, not live demand, animal counts or future floods.
+  // A broad wetland may drain through parallel channels: width is their summed
+  // cross-section, bounded by both patches and the actual connecting edge.
+  function sizeCatchmentOutlets(source, binding) {
+    const courses = new Map(binding.watercourses.map(row => [row.regionId, row.course]));
+    const regions = new Map(source.regions.map(r => [r.id, r])), arrivals = new Map(), upstream = new Map(), bankFractions = new Map();
+    // apply() partitions sequentially, so these fractions multiply. Index once
+    // rather than scanning every rainfall share for every globe region.
+    for (const share of binding.rainfallShares) bankFractions.set(share.regionId,
+      (bankFractions.get(share.regionId) ?? 1) * (1 - (share.flowFraction ?? share.fraction)));
+    const days = source.calendar.monthDays, yearDays = days.reduce((n, d) => n + d, 0);
+    const ordered = Work.order({ regions: source.regions.map(r => ({ id: r.id,
+      ecology: { watercourses: courses.has(r.id) ? [courses.get(r.id)] : [] } })) });
+    binding.catchmentDrainage = [];
+    for (const { id } of ordered) {
+      const r = regions.get(id), course = courses.get(id);
+      if (!course) continue; // A closed/unbound basin never acquires a drain.
+      const bankFraction = bankFractions.get(id) ?? 1;
+      const inflow = r.seasons.map((s, i) => (arrivals.get(id)?.[i] || 0)
+        + (s.renewal.waterL || 0) * bankFraction + (course?.flowPerDay || 0));
+      const normalLDay = inflow.reduce((n, q, i) => n + q * days[i], 0) / yearDays;
+      const target = regions.get(course.downstreamRegionId), edge = r.edges.find(e => e.id === target.id), o = course.outlet;
+      const widthLimitM = Math.min(Math.sqrt(r.areaHa * 10000), Math.sqrt(target.areaHa * 10000), edge.distanceKm * 1000);
+      const litresPerWidthDay = o.depthM * o.velocityMps * 1000 * 86400;
+      const requiredWidthM = normalLDay / litresPerWidthDay;
+      // Millimetre rounding is geometric precision, not storm headroom. Keep
+      // small existing channels; never exceed the finite geographic envelope.
+      o.widthM = Math.min(widthLimitM, Math.max(o.widthM, Math.ceil(requiredWidthM * 1000) / 1000));
+      const capacityLDay = o.widthM * litresPerWidthDay;
+      binding.catchmentDrainage.push({ regionId: id, upstreamRegionIds: upstream.get(id) || [],
+        normalLDay, seasonalLDay: inflow, widthLimitM, requiredWidthM, capacityLDay });
+      if (capacityLDay + normalLDay * 1e-12 < normalLDay)
+        binding.issues.push({ kind: 'unsupportedCatchmentDrainage', regionId: id, normalLDay, capacityLDay });
+      const down = course.downstreamRegionId, previous = arrivals.get(down) || inflow.map(() => 0);
+      arrivals.set(down, inflow.map((q, i) => q + previous[i]));
+      if (!upstream.has(down)) upstream.set(down, []);
+      upstream.get(down).push(id);
+    }
   }
   function establish(source, binding, map) {
     binding.establishedHabitats = true;
@@ -377,5 +418,5 @@
       ...(binding.establishedHabitats ? { establishedHabitats: true, availability: copy(binding.availability), initialWork: copy(binding.initialWork) } : {}) };
     return source;
   }
-  return { allocate, apply, channels, vector };
+  return { allocate, apply, channels, vector, sizeCatchmentOutlets };
 });

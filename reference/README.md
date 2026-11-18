@@ -61,10 +61,15 @@ day-10/day-60 histories and continue each for one day. They verify corrected
 two-dimensional motion and tangential fronts, not new food, recovered losses or
 a successful full seasonal replay. See [the movement contract](../CARRION_LANTERN_APPROACH.md).
 
-The separate [wetland drainage control](wetland-drainage-control.json) measures
+The historical [wetland drainage control](wetland-drainage-control.json) measures
 finite water routing and erosion without animal consumption or ongoing nurturing.
-See its [scope and calibration](../WETLAND_DRAINAGE.md); it is not a replacement
-all-species viability result.
+The new [catchment-sized drainage control](catchment-drainage-control.json)
+records finite new-world outlet geometry and the same 62 wetland accounts over
+120 days: no modeled erosion, soil deficits or floor breaches in that isolated
+control. Individual comparison rows explain all 37 historical full-food-web soil
+deficits (35 flood-only, two also carrying covered Mire Choir soil costs).
+See their [scope and calibration](../WETLAND_DRAINAGE.md); neither is a replacement
+all-species viability result, and old worlds/reports remain unchanged.
 
 For the new life-history numbers, select **Lifecycle & resource use**:
 

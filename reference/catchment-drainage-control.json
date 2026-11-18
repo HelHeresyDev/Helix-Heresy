@@ -1,0 +1,2089 @@
+{
+  "scope": "Hydrology-only diagnostic; no animal/wildlife consumption or ongoing nurturing; not food-web viability or source adoption",
+  "sourceId": "beast-habitat-source:e8a02b1f",
+  "seed": "source-small",
+  "days": 120,
+  "regions": 334,
+  "wetlands": 62,
+  "excludedOriginalStrategicBodies": 56243,
+  "actualOutlets": 62,
+  "noRecordedOutlet": 0,
+  "floodedWetlands": 17,
+  "erodedWetlands": 0,
+  "soilMaintenanceDeficits": 0,
+  "unsupportedCatchments": [],
+  "soilFloorBreaches": 0,
+  "breachedWetlands": [],
+  "minimumSoilCover": 0,
+  "minimumSoilCoverWithFloor": 10,
+  "standingFloodL": 1310364749.767725,
+  "bankDischargedL": 357324306835738.44,
+  "floodDischargedL": 200220186153937.22,
+  "originalL": 1846562095599609.2,
+  "suppliedL": 57434611633334730,
+  "accountedL": 59281173728934390,
+  "errorL": 56,
+  "outletCapacityRangeLDay": [
+    884667119.9580541,
+    1647137988729.4565
+  ],
+  "wetlandRecords": [
+    {
+      "regionId": "habitat:2:wetland",
+      "areaHa": 48298.4384898,
+      "outletWidthM": 100,
+      "outletCapacityLDay": 5900071406.115267,
+      "catchment": {
+        "regionId": "habitat:2:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 5714523786.927711,
+        "seasonalLDay": [
+          5714523857.27432,
+          5714523857.27432,
+          5714523857.27432,
+          5714523575.887886
+        ],
+        "widthLimitM": 21976.905717093116,
+        "requiredWidthM": 96.85516315963157,
+        "capacityLDay": 5900071406.115267
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 0,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 0
+    },
+    {
+      "regionId": "habitat:3:wetland",
+      "areaHa": 48298.4384898,
+      "outletWidthM": 105.951,
+      "outletCapacityLDay": 10464677497.479748,
+      "catchment": {
+        "regionId": "habitat:3:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 10464671992.503641,
+        "seasonalLDay": [
+          10464672062.85025,
+          10464672062.85025,
+          10464672062.85025,
+          10464671781.463818
+        ],
+        "widthLimitM": 21976.905717093116,
+        "requiredWidthM": 105.9509442641473,
+        "capacityLDay": 10464677497.479748
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 0,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 0
+    },
+    {
+      "regionId": "habitat:7:wetland",
+      "areaHa": 48298.4384898,
+      "outletWidthM": 102.146,
+      "outletCapacityLDay": 884667119.9580541,
+      "catchment": {
+        "regionId": "habitat:7:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 884667030.6970904,
+        "seasonalLDay": [
+          884667298.4909567,
+          884665624.7792934,
+          884666762.9032245,
+          884668436.6148876
+        ],
+        "widthLimitM": 21976.905717093116,
+        "requiredWidthM": 102.14598969369361,
+        "capacityLDay": 884667119.9580541
+      },
+      "finalFloodGrowthLDay": 178.53290259838104,
+      "endingFloodWaterL": 39499.70536005497,
+      "erosionEP": 0,
+      "soilNaturalEP": 397.92393494053414,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 10
+    },
+    {
+      "regionId": "habitat:8:wetland",
+      "areaHa": 48298.4384898,
+      "outletWidthM": 100,
+      "outletCapacityLDay": 11171298212.598711,
+      "catchment": {
+        "regionId": "habitat:8:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 4613753063.024124,
+        "seasonalLDay": [
+          4613763044.431861,
+          4613700660.633507,
+          4613743081.616387,
+          4613805465.4147415
+        ],
+        "widthLimitM": 21976.905717093116,
+        "requiredWidthM": 41.30006177635513,
+        "capacityLDay": 11171298212.598711
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 43816.34339794644,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75
+    },
+    {
+      "regionId": "habitat:9:wetland",
+      "areaHa": 48298.4384898,
+      "outletWidthM": 167.146,
+      "outletCapacityLDay": 13027026179.053661,
+      "catchment": {
+        "regionId": "habitat:9:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 13027018146.367836,
+        "seasonalLDay": [
+          13027018568.346048,
+          13027015930.982216,
+          13027017724.389622,
+          13027020361.753456
+        ],
+        "widthLimitM": 21976.905717093116,
+        "requiredWidthM": 167.14589693493457,
+        "capacityLDay": 13027026179.053663
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 1172.41009545526,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 1172.4100954552598,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 571828.0588881053,
+        "floodErosionEP": 571828.0588881053,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 1172.4100954552598,
+        "outletCapacityLDay": 7793800736.513983,
+        "minimumSoilCover": 63.184801276481174
+      }
+    },
+    {
+      "regionId": "habitat:11:wetland",
+      "areaHa": 48298.4384898,
+      "outletWidthM": 960.987,
+      "outletCapacityLDay": 8322926023.604747,
+      "catchment": {
+        "regionId": "habitat:11:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 8322921170.096987,
+        "seasonalLDay": [
+          8322921170.096987,
+          8322921170.096987,
+          8322921170.096987,
+          8322921170.096987
+        ],
+        "widthLimitM": 21976.905717093116,
+        "requiredWidthM": 960.9864396011873,
+        "capacityLDay": 8322926023.604747
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 86937.18928163992,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 86937.18928164018,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 828992.2982180606,
+        "floodErosionEP": 828992.2982180606,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 86937.18928164018,
+        "outletCapacityLDay": 866081021.2421964,
+        "minimumSoilCover": 59.63604348010014
+      }
+    },
+    {
+      "regionId": "habitat:21:wetland",
+      "areaHa": 71673.0119918,
+      "outletWidthM": 1688.417,
+      "outletCapacityLDay": 15993375537.074203,
+      "catchment": {
+        "regionId": "habitat:21:wetland",
+        "upstreamRegionIds": [
+          "habitat:91:wetland"
+        ],
+        "normalLDay": 15993373049.05923,
+        "seasonalLDay": [
+          15993372487.267792,
+          15993374246.207218,
+          15993372975.494122,
+          15993372487.267792
+        ],
+        "widthLimitM": 26771.815775512874,
+        "requiredWidthM": 1688.4167373408277,
+        "capacityLDay": 15993375537.074205
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 129011.4215852397,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 129011.42158523848,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 1541634.46821987,
+        "floodErosionEP": 1541634.46821987,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 129011.42158523848,
+        "outletCapacityLDay": 947240849.6878557,
+        "minimumSoilCover": 55.29072579234949
+      }
+    },
+    {
+      "regionId": "habitat:22:wetland",
+      "areaHa": 71673.0119918,
+      "outletWidthM": 205.666,
+      "outletCapacityLDay": 12134440858.101025,
+      "catchment": {
+        "regionId": "habitat:22:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 12134413477.295227,
+        "seasonalLDay": [
+          12134424170.852915,
+          12134357336.11736,
+          12134402783.737537,
+          12134469618.473095
+        ],
+        "widthLimitM": 26771.815775512874,
+        "requiredWidthM": 205.66553592416238,
+        "capacityLDay": 12134440858.101025
+      },
+      "finalFloodGrowthLDay": -16687.248109817505,
+      "endingFloodWaterL": 862811.158126831,
+      "erosionEP": 0,
+      "soilNaturalEP": 16277.555363440539,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 16277.55536344055,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 661531.2048578293,
+        "floodErosionEP": 661531.2048578293,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 16277.55536344055,
+        "outletCapacityLDay": 5900071406.115267,
+        "minimumSoilCover": 65.9972578023063
+      }
+    },
+    {
+      "regionId": "habitat:26:wetland",
+      "areaHa": 71673.0119918,
+      "outletWidthM": 100,
+      "outletCapacityLDay": 9004584353.218733,
+      "catchment": {
+        "regionId": "habitat:26:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 5446408408.823937,
+        "seasonalLDay": [
+          5446406096.703356,
+          5446420547.456989,
+          5446410720.944519,
+          5446396270.190885
+        ],
+        "widthLimitM": 26771.815775512874,
+        "requiredWidthM": 60.484839668108535,
+        "capacityLDay": 9004584353.21873
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 1754.5553335592613,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75
+    },
+    {
+      "regionId": "habitat:27:wetland",
+      "areaHa": 71673.0119918,
+      "outletWidthM": 100,
+      "outletCapacityLDay": 1569466201.1045768,
+      "catchment": {
+        "regionId": "habitat:27:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 1123576747.984391,
+        "seasonalLDay": [
+          1123576365.0394197,
+          1123578758.4454901,
+          1123577130.9293623,
+          1123574737.5232916
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 71.58973842148544,
+        "capacityLDay": 1569466201.1045766
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 541.8479706580074,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 10
+    },
+    {
+      "regionId": "habitat:30:wetland",
+      "areaHa": 71673.0119918,
+      "outletWidthM": 100,
+      "outletCapacityLDay": 5179976479.161459,
+      "catchment": {
+        "regionId": "habitat:30:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 881117294.9522778,
+        "seasonalLDay": [
+          881117641.770365,
+          881115474.1573199,
+          881116948.1341906,
+          881119115.7472357
+        ],
+        "widthLimitM": 26771.815775512874,
+        "requiredWidthM": 17.010063626677205,
+        "capacityLDay": 5179976479.161458
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 590.5037067987265,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 10
+    },
+    {
+      "regionId": "habitat:33:wetland",
+      "areaHa": 71673.0119918,
+      "outletWidthM": 4346.37,
+      "outletCapacityLDay": 40740203612.189125,
+      "catchment": {
+        "regionId": "habitat:33:wetland",
+        "upstreamRegionIds": [
+          "habitat:148:wetland",
+          "habitat:115:wetland"
+        ],
+        "normalLDay": 40740196077.9421,
+        "seasonalLDay": [
+          40740162896.259796,
+          40740270932.84292,
+          40740197467.9664,
+          40740153014.69927
+        ],
+        "widthLimitM": 26771.815775512874,
+        "requiredWidthM": 4346.369196208601,
+        "capacityLDay": 40740203612.189125
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0.00003814697265625,
+      "erosionEP": 0,
+      "soilNaturalEP": 72868.59974383694,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 72868.59974383596,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 843468.7795694752,
+        "floodErosionEP": 843468.7795694752,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 72868.59974383596,
+        "outletCapacityLDay": 937338597.7767453,
+        "minimumSoilCover": 64.24839129247454
+      }
+    },
+    {
+      "regionId": "habitat:34:wetland",
+      "areaHa": 8600761.439016,
+      "outletWidthM": 173887.981,
+      "outletCapacityLDay": 1647137988729.4565,
+      "catchment": {
+        "regionId": "habitat:34:wetland",
+        "upstreamRegionIds": [
+          "habitat:121:wetland"
+        ],
+        "normalLDay": 1647137980321.5994,
+        "seasonalLDay": [
+          1647129945648.568,
+          1647180162752.939,
+          1647146015348.3423,
+          1647095797536.5479
+        ],
+        "widthLimitM": 293270.54811242124,
+        "requiredWidthM": 173887.98011238442,
+        "capacityLDay": 1647137988729.4568
+      },
+      "finalFloodGrowthLDay": -8043080.888183594,
+      "endingFloodWaterL": 240283483.2216797,
+      "erosionEP": 0,
+      "soilNaturalEP": 4741722.649350086,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 4741722.649349918,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 184975299.1433358,
+        "floodErosionEP": 184975299.1433358,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 4741722.649349918,
+        "outletCapacityLDay": 947240849.6878556,
+        "minimumSoilCover": 54.04446277554167
+      }
+    },
+    {
+      "regionId": "habitat:36:wetland",
+      "areaHa": 71673.0119918,
+      "outletWidthM": 332.482,
+      "outletCapacityLDay": 3116482116.6600795,
+      "catchment": {
+        "regionId": "habitat:36:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 3116477973.34546,
+        "seasonalLDay": [
+          3116478033.9332557,
+          3116478033.9332557,
+          3116478033.9332557,
+          3116477791.582075
+        ],
+        "widthLimitM": 26771.815775512874,
+        "requiredWidthM": 332.4815579703398,
+        "capacityLDay": 3116482116.660079
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 0,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 0
+    },
+    {
+      "regionId": "habitat:40:wetland",
+      "areaHa": 71673.0119918,
+      "outletWidthM": 100,
+      "outletCapacityLDay": 5300985165.493088,
+      "catchment": {
+        "regionId": "habitat:40:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 3914780934.967337,
+        "seasonalLDay": [
+          3914778622.846755,
+          3914793073.600389,
+          3914783247.0879183,
+          3914768796.3342843
+        ],
+        "widthLimitM": 26771.815775512874,
+        "requiredWidthM": 73.85006395510618,
+        "capacityLDay": 5300985165.493088
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 1739.811171092377,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75
+    },
+    {
+      "regionId": "habitat:41:wetland",
+      "areaHa": 71673.0119918,
+      "outletWidthM": 248.19,
+      "outletCapacityLDay": 13156515082.237318,
+      "catchment": {
+        "regionId": "habitat:41:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 13156514379.52872,
+        "seasonalLDay": [
+          13156529191.551197,
+          13156436616.41073,
+          13156499567.506248,
+          13156592142.646715
+        ],
+        "widthLimitM": 26771.815775512874,
+        "requiredWidthM": 248.1899867438113,
+        "capacityLDay": 13156515082.237318
+      },
+      "finalFloodGrowthLDay": 14109.313879013062,
+      "endingFloodWaterL": 2311812.2770500183,
+      "erosionEP": 0,
+      "soilNaturalEP": 62588.969671925086,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 62588.96967192504,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 853654.2772467452,
+        "floodErosionEP": 853654.2772467452,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 62588.96967192504,
+        "outletCapacityLDay": 5300985165.493098,
+        "minimumSoilCover": 63.962856651464065
+      }
+    },
+    {
+      "regionId": "habitat:45:wetland",
+      "areaHa": 8149652.291412,
+      "outletWidthM": 154255.172,
+      "outletCapacityLDay": 1461168001940.263,
+      "catchment": {
+        "regionId": "habitat:45:wetland",
+        "upstreamRegionIds": [
+          "habitat:11:wetland"
+        ],
+        "normalLDay": 1461167998346.7593,
+        "seasonalLDay": [
+          1461167998346.7593,
+          1461167998346.7593,
+          1461167998346.7593,
+          1461167998346.7593
+        ],
+        "widthLimitM": 285475.95855714363,
+        "requiredWidthM": 154255.17162063462,
+        "capacityLDay": 1461168001940.2632
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 11735499.29963328,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 11735499.299633265,
+        "soilNurturingEP": 13360.176000000358,
+        "soilDestructionEP": 162913772.4946956,
+        "floodErosionEP": 162912102.47269714,
+        "nonFloodSoilDestructionEP": 1670.0219984650612,
+        "soilBalanceWithoutRecordedFloodEP": 11747189.4536348,
+        "outletCapacityLDay": 947240849.6878556,
+        "minimumSoilCover": 56.45136655972881
+      }
+    },
+    {
+      "regionId": "habitat:46:wetland",
+      "areaHa": 75085.5964265,
+      "outletWidthM": 500.228,
+      "outletCapacityLDay": 4688830120.886658,
+      "catchment": {
+        "regionId": "habitat:46:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 4688822173.715053,
+        "seasonalLDay": [
+          4688844124.976296,
+          4688706929.593525,
+          4688800222.45381,
+          4688937417.836581
+        ],
+        "widthLimitM": 27401.751116762593,
+        "requiredWidthM": 500.2271521557286,
+        "capacityLDay": 4688830120.886658
+      },
+      "finalFloodGrowthLDay": 14004.089638710022,
+      "endingFloodWaterL": 3218908.4984903336,
+      "erosionEP": 0,
+      "soilNaturalEP": 45257.30692038411,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 45257.306920383235,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 350756.4862138337,
+        "floodErosionEP": 350756.4862138337,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 45257.306920383235,
+        "outletCapacityLDay": 937338597.7767453,
+        "minimumSoilCover": 70.93132113437197
+      }
+    },
+    {
+      "regionId": "habitat:47:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 1281.153,
+      "outletCapacityLDay": 12135604563.001455,
+      "catchment": {
+        "regionId": "habitat:47:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 12135602391.00486,
+        "seasonalLDay": [
+          12135591436.754515,
+          12135563879.968487,
+          12135563879.968487,
+          12135690367.327953
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 1281.152770702816,
+        "capacityLDay": 12135604563.001453
+      },
+      "finalFloodGrowthLDay": -13126.246940612793,
+      "endingFloodWaterL": 2574129.7988090515,
+      "erosionEP": 0,
+      "soilNaturalEP": 71460.80823526692,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 71460.80823526668,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 1249325.4055605782,
+        "floodErosionEP": 1249325.4055605782,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 71460.80823526668,
+        "outletCapacityLDay": 947240849.6878557,
+        "minimumSoilCover": 57.656468444920016
+      }
+    },
+    {
+      "regionId": "habitat:62:wetland",
+      "areaHa": 8149652.291412,
+      "outletWidthM": 121257.328,
+      "outletCapacityLDay": 1145193619455.9678,
+      "catchment": {
+        "regionId": "habitat:62:wetland",
+        "upstreamRegionIds": [
+          "habitat:7:wetland"
+        ],
+        "normalLDay": 1145193619300.7551,
+        "seasonalLDay": [
+          1145200246890.0085,
+          1145158824457.175,
+          1145186991711.502,
+          1145228414144.3354
+        ],
+        "widthLimitM": 285475.95855714363,
+        "requiredWidthM": 121257.32798356548,
+        "capacityLDay": 1145193619455.968
+      },
+      "finalFloodGrowthLDay": 6627255.508056641,
+      "endingFloodWaterL": 1043801151.1914062,
+      "erosionEP": 0,
+      "soilNaturalEP": 6773059.595788343,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 6773059.595788347,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 125871037.37577744,
+        "floodErosionEP": 125871037.37577744,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 6773059.595788347,
+        "outletCapacityLDay": 944432504.2821066,
+        "minimumSoilCover": 60.38612771179294
+      }
+    },
+    {
+      "regionId": "habitat:64:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 148.373,
+      "outletCapacityLDay": 8976396929.823135,
+      "catchment": {
+        "regionId": "habitat:64:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 8976379782.612415,
+        "seasonalLDay": [
+          8976396350.916065,
+          8976292799.01826,
+          8976363214.308767,
+          8976466766.206572
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 148.37271656967533,
+        "capacityLDay": 8976396929.823135
+      },
+      "finalFloodGrowthLDay": -578.9070701599121,
+      "endingFloodWaterL": 2095091.5086574554,
+      "erosionEP": 0,
+      "soilNaturalEP": 16932.648989470898,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 16932.648989471352,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 274296.22715701896,
+        "floodErosionEP": 274296.22715701896,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 16932.648989471352,
+        "outletCapacityLDay": 6049885713.588818,
+        "minimumSoilCover": 71.21043594551419
+      }
+    },
+    {
+      "regionId": "habitat:67:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 110.453,
+      "outletCapacityLDay": 6516805870.196494,
+      "catchment": {
+        "regionId": "habitat:67:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 6516770070.949807,
+        "seasonalLDay": [
+          6516772079.229038,
+          6516759527.48385,
+          6516768062.670578,
+          6516780614.415766
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 110.45239324045042,
+        "capacityLDay": 6516805870.196496
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 2151.508204932768,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 2151.508204932767,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 3486.636084674833,
+        "floodErosionEP": 3486.636084674833,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 2151.508204932767,
+        "outletCapacityLDay": 5900071406.115267,
+        "minimumSoilCover": 74.9803408366587
+      }
+    },
+    {
+      "regionId": "habitat:76:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 841.553,
+      "outletCapacityLDay": 15308993484.039232,
+      "catchment": {
+        "regionId": "habitat:76:wetland",
+        "upstreamRegionIds": [
+          "habitat:92:wetland"
+        ],
+        "normalLDay": 15308980716.05999,
+        "seasonalLDay": [
+          15308979889.168348,
+          15308983745.138,
+          15308980968.281387,
+          15308978261.65222
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 841.5522981294789,
+        "capacityLDay": 15308993484.03923
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 122244.78437118,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 122244.78437118018,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 1265208.4717945817,
+        "floodErosionEP": 1265208.4717945817,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 122244.78437118018,
+        "outletCapacityLDay": 1819135988.3500185,
+        "minimumSoilCover": 58.1703687977759
+      }
+    },
+    {
+      "regionId": "habitat:81:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 100,
+      "outletCapacityLDay": 10515776521.306862,
+      "catchment": {
+        "regionId": "habitat:81:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 5810431577.807817,
+        "seasonalLDay": [
+          5810440888.920611,
+          5810382694.465647,
+          5810422266.695024,
+          5810480461.149987
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 55.25442240080733,
+        "capacityLDay": 10515776521.306864
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 16848.823994473474,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75
+    },
+    {
+      "regionId": "habitat:82:wetland",
+      "areaHa": 75085.5964265,
+      "outletWidthM": 100,
+      "outletCapacityLDay": 8516556646.869961,
+      "catchment": {
+        "regionId": "habitat:82:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 3692285066.8286347,
+        "seasonalLDay": [
+          3692287261.9547586,
+          3692273542.4164815,
+          3692282871.70251,
+          3692296591.240787
+        ],
+        "widthLimitM": 27401.751116762593,
+        "requiredWidthM": 43.35420076358722,
+        "capacityLDay": 8516556646.869961
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 2255.1422561010495,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75
+    },
+    {
+      "regionId": "habitat:83:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 214.933,
+      "outletCapacityLDay": 12562579381.53386,
+      "catchment": {
+        "regionId": "habitat:83:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 12562579004.614986,
+        "seasonalLDay": [
+          12562588452.65591,
+          12562529402.400137,
+          12562569556.574062,
+          12562628606.829836
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 214.93299355130014,
+        "capacityLDay": 12562579381.533857
+      },
+      "finalFloodGrowthLDay": 9071.122051239014,
+      "endingFloodWaterL": 1476758.880519867,
+      "erosionEP": 0,
+      "soilNaturalEP": 17435.598959455172,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 17435.59895945499,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 723498.7179468267,
+        "floodErosionEP": 723498.7179468267,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 17435.59895945499,
+        "outletCapacityLDay": 5844881605.678912,
+        "minimumSoilCover": 64.60353506519918
+      }
+    },
+    {
+      "regionId": "habitat:86:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 241.353,
+      "outletCapacityLDay": 2286194207.94713,
+      "catchment": {
+        "regionId": "habitat:86:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 2286193245.2358637,
+        "seasonalLDay": [
+          2286193245.2358637,
+          2286193245.2358637,
+          2286193245.2358637,
+          2286193245.2358637
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 241.3528983667916,
+        "capacityLDay": 2286194207.94713
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 733.4687062270809,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 10,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 733.468706227081,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 76648.40466651115,
+        "floodErosionEP": 76648.40466651115,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 733.468706227081,
+        "outletCapacityLDay": 947240849.6878556,
+        "minimumSoilCover": 8.882186381763333
+      }
+    },
+    {
+      "regionId": "habitat:91:wetland",
+      "areaHa": 75085.5964265,
+      "outletWidthM": 236.215,
+      "outletCapacityLDay": 2205472530.3014226,
+      "catchment": {
+        "regionId": "habitat:91:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 2205470555.7677784,
+        "seasonalLDay": [
+          2205469993.9763403,
+          2205471752.915765,
+          2205470482.202668,
+          2205469993.9763403
+        ],
+        "widthLimitM": 26771.815775512874,
+        "requiredWidthM": 236.21478851948578,
+        "capacityLDay": 2205472530.301423
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 783.4109335727757,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 10,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 783.4109335727727,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 59990.81002561858,
+        "floodErosionEP": 59990.81002561858,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 783.4109335727727,
+        "outletCapacityLDay": 933671667.8879083,
+        "minimumSoilCover": 9.21146795244523
+      }
+    },
+    {
+      "regionId": "habitat:92:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 340.118,
+      "outletCapacityLDay": 2944691518.171901,
+      "catchment": {
+        "regionId": "habitat:92:wetland",
+        "upstreamRegionIds": [
+          "habitat:27:wetland"
+        ],
+        "normalLDay": 2944683929.5979357,
+        "seasonalLDay": [
+          2944683102.706295,
+          2944686958.6759467,
+          2944684181.8193336,
+          2944681475.190167
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 340.1171235039107,
+        "capacityLDay": 2944691518.1719007
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 711.7265981496341,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 10,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 711.7265981496429,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 138302.22485393696,
+        "floodErosionEP": 138302.22485393696,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 711.7265981496429,
+        "outletCapacityLDay": 865785262.2242577,
+        "minimumSoilCover": 7.974041198285709
+      }
+    },
+    {
+      "regionId": "habitat:93:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 269.988,
+      "outletCapacityLDay": 13997081253.149773,
+      "catchment": {
+        "regionId": "habitat:93:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 13997074801.40169,
+        "seasonalLDay": [
+          13997065490.288895,
+          13997123684.743858,
+          13997084112.514482,
+          13997025918.05952
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 269.9878755530149,
+        "capacityLDay": 13997081253.149776
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0.00009059906005859375,
+      "erosionEP": 0,
+      "soilNaturalEP": 16848.82399447349,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 16848.82399447351,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 972293.7595981375,
+        "floodErosionEP": 972293.7595981375,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 16848.82399447351,
+        "outletCapacityLDay": 5184334582.703592,
+        "minimumSoilCover": 60.931498894343356
+      }
+    },
+    {
+      "regionId": "habitat:94:wetland",
+      "areaHa": 75085.5964265,
+      "outletWidthM": 348.973,
+      "outletCapacityLDay": 3295814443.1683965,
+      "catchment": {
+        "regionId": "habitat:94:wetland",
+        "upstreamRegionIds": [
+          "habitat:96:wetland"
+        ],
+        "normalLDay": 3295811130.275298,
+        "seasonalLDay": [
+          3295810258.61153,
+          3295814326.218085,
+          3295811447.007397,
+          3295808489.2641797
+        ],
+        "widthLimitM": 27401.751116762593,
+        "requiredWidthM": 348.97264921864894,
+        "capacityLDay": 3295814443.168397
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 788.6240192675301,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 10,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 788.6240192675317,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 142228.43135321437,
+        "floodErosionEP": 142228.43135321437,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 788.6240192675317,
+        "outletCapacityLDay": 944432504.2821068,
+        "minimumSoilCover": 8.11628575831576
+      }
+    },
+    {
+      "regionId": "habitat:95:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 168.022,
+      "outletCapacityLDay": 11722454480.170198,
+      "catchment": {
+        "regionId": "habitat:95:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 11722421185.793901,
+        "seasonalLDay": [
+          11722421267.308928,
+          11722421267.308928,
+          11722421267.308928,
+          11722420941.24882
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 168.0215227801734,
+        "capacityLDay": 11722454480.170198
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 0,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 0
+    },
+    {
+      "regionId": "habitat:96:wetland",
+      "areaHa": 75085.5964265,
+      "outletWidthM": 121.647,
+      "outletCapacityLDay": 1053177013.9446996,
+      "catchment": {
+        "regionId": "habitat:96:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 1053169556.441274,
+        "seasonalLDay": [
+          1053169140.1242505,
+          1053171742.1056478,
+          1053169972.7582977,
+          1053167370.7769003
+        ],
+        "widthLimitM": 27401.751116762593,
+        "requiredWidthM": 121.64613862256087,
+        "capacityLDay": 1053177013.9446998
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 595.450232689696,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 10
+    },
+    {
+      "regionId": "habitat:97:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 1365.191,
+      "outletCapacityLDay": 12770139808.478626,
+      "catchment": {
+        "regionId": "habitat:97:wetland",
+        "upstreamRegionIds": [
+          "habitat:95:wetland"
+        ],
+        "normalLDay": 12770132315.402452,
+        "seasonalLDay": [
+          12770125436.404238,
+          12770168939.611992,
+          12770139357.43072,
+          12770095528.162855
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 1365.1901989531586,
+        "capacityLDay": 12770139808.478628
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 6496.437112296998,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 6496.437112296996,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 744442.8554148123,
+        "floodErosionEP": 744442.8554148123,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 6496.437112296996,
+        "outletCapacityLDay": 935410488.9703072,
+        "minimumSoilCover": 64.13406768413695
+      }
+    },
+    {
+      "regionId": "habitat:100:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 1015.545,
+      "outletCapacityLDay": 9619657086.962536,
+      "catchment": {
+        "regionId": "habitat:100:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 9619653558.3646,
+        "seasonalLDay": [
+          9619642219.003887,
+          9619613977.577215,
+          9619613977.577215,
+          9619744059.300077
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 1015.5446274867223,
+        "capacityLDay": 9619657086.962536
+      },
+      "finalFloodGrowthLDay": -14867.958646774292,
+      "endingFloodWaterL": 2609170.1294822693,
+      "erosionEP": 0,
+      "soilNaturalEP": 71408.41761339338,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 71408.4176133931,
+        "soilNurturingEP": 6654.375999999924,
+        "soilDestructionEP": 948804.7575698632,
+        "floodErosionEP": 947972.9605698651,
+        "nonFloodSoilDestructionEP": 831.7969999981578,
+        "soilBalanceWithoutRecordedFloodEP": 77230.99661339488,
+        "outletCapacityLDay": 947240849.6878557,
+        "minimumSoilCover": 62.17871242373267
+      }
+    },
+    {
+      "regionId": "habitat:106:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 498.771,
+      "outletCapacityLDay": 6565985223.372602,
+      "catchment": {
+        "regionId": "habitat:106:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 6565973148.428332,
+        "seasonalLDay": [
+          6566003272.616785,
+          6565814996.438957,
+          6565943024.239881,
+          6566131300.4177065
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 498.7700827527288,
+        "capacityLDay": 6565985223.372603
+      },
+      "finalFloodGrowthLDay": 18049.24418258667,
+      "endingFloodWaterL": 4382311.35921669,
+      "erosionEP": 0,
+      "soilNaturalEP": 61611.37132307473,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 61611.37132307319,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 540035.3575123949,
+        "floodErosionEP": 540035.3575123949,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 61611.37132307319,
+        "outletCapacityLDay": 1316432836.586851,
+        "minimumSoilCover": 67.95541990138406
+      }
+    },
+    {
+      "regionId": "habitat:107:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 231.241,
+      "outletCapacityLDay": 2190409213.226694,
+      "catchment": {
+        "regionId": "habitat:107:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 2190400663.596665,
+        "seasonalLDay": [
+          2190428505.649628,
+          2190254492.8186073,
+          2190372821.5437016,
+          2190546834.374723
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 231.2400974175119,
+        "capacityLDay": 2190409213.2266946
+      },
+      "finalFloodGrowthLDay": 19292.42293405533,
+      "endingFloodWaterL": 4128634.4365935326,
+      "erosionEP": 0,
+      "soilNaturalEP": 26544.581749170473,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 26544.581749170484,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 65651.30487472068,
+        "floodErosionEP": 65651.30487472068,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 26544.581749170484,
+        "outletCapacityLDay": 947240849.6878556,
+        "minimumSoilCover": 74.424170920763
+      }
+    },
+    {
+      "regionId": "habitat:108:wetland",
+      "areaHa": 75085.5964265,
+      "outletWidthM": 170.212,
+      "outletCapacityLDay": 16367725831.370136,
+      "catchment": {
+        "regionId": "habitat:108:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 16367684349.819162,
+        "seasonalLDay": [
+          16367684538.265694,
+          16367683592.090641,
+          16367684235.489676,
+          16367685033.430637
+        ],
+        "widthLimitM": 27401.751116762593,
+        "requiredWidthM": 170.21156862316565,
+        "capacityLDay": 16367725831.370138
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 0,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 0
+    },
+    {
+      "regionId": "habitat:110:wetland",
+      "areaHa": 75085.5964265,
+      "outletWidthM": 100,
+      "outletCapacityLDay": 9869979806.984316,
+      "catchment": {
+        "regionId": "habitat:110:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 5086201280.159924,
+        "seasonalLDay": [
+          5086203475.286048,
+          5086189755.74777,
+          5086199085.033799,
+          5086212804.572076
+        ],
+        "widthLimitM": 27401.751116762593,
+        "requiredWidthM": 51.532033293125515,
+        "capacityLDay": 9869979806.984318
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 2301.480795609976,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75
+    },
+    {
+      "regionId": "habitat:111:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 100,
+      "outletCapacityLDay": 9706403796.748285,
+      "catchment": {
+        "regionId": "habitat:111:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 6791028743.770957,
+        "seasonalLDay": [
+          6791038054.883752,
+          6790979860.428787,
+          6791019432.658163,
+          6791077627.113128
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 69.96441613160582,
+        "capacityLDay": 9706403796.748285
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 17184.123974462982,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75
+    },
+    {
+      "regionId": "habitat:114:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 179.592,
+      "outletCapacityLDay": 10215084206.84201,
+      "catchment": {
+        "regionId": "habitat:114:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 10215061504.282465,
+        "seasonalLDay": [
+          10215058081.07923,
+          10215079476.099438,
+          10215064927.485697,
+          10215043532.465488
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 179.59160086495706,
+        "capacityLDay": 10215084206.84201
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 1508.8499099528497,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 1508.8499099528335,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 463148.69287985883,
+        "floodErosionEP": 463148.69287985883,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 1508.8499099528335,
+        "outletCapacityLDay": 5687939444.319351,
+        "minimumSoilCover": 68.20255893435098
+      }
+    },
+    {
+      "regionId": "habitat:115:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 2495.869,
+      "outletCapacityLDay": 21616247724.067398,
+      "catchment": {
+        "regionId": "habitat:115:wetland",
+        "upstreamRegionIds": [
+          "habitat:83:wetland"
+        ],
+        "normalLDay": 21616244340.45162,
+        "seasonalLDay": [
+          21616253788.492546,
+          21616194738.23677,
+          21616234892.410698,
+          21616293942.666473
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 2495.868609318794,
+        "capacityLDay": 21616247724.067398
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 73346.87062270788,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 73346.8706227058,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 1578306.580425366,
+        "floodErosionEP": 1578306.580425366,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 73346.8706227058,
+        "outletCapacityLDay": 866081021.2421964,
+        "minimumSoilCover": 52.840138607308866
+      }
+    },
+    {
+      "regionId": "habitat:116:wetland",
+      "areaHa": 75085.5964265,
+      "outletWidthM": 117.146,
+      "outletCapacityLDay": 6015482515.436424,
+      "catchment": {
+        "regionId": "habitat:116:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 6015479074.323756,
+        "seasonalLDay": [
+          6015476879.197632,
+          6015490598.7359085,
+          6015481269.44988,
+          6015467549.911603
+        ],
+        "widthLimitM": 27401.751116762593,
+        "requiredWidthM": 117.14593298748963,
+        "capacityLDay": 6015482515.436423
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 2316.926975446286,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 2316.926975446321,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 26116.475128211576,
+        "floodErosionEP": 26116.475128211576,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 2316.926975446321,
+        "outletCapacityLDay": 5135030231.87853,
+        "minimumSoilCover": 74.68303443955186
+      }
+    },
+    {
+      "regionId": "habitat:117:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 1572.768,
+      "outletCapacityLDay": 14853732208.947607,
+      "catchment": {
+        "regionId": "habitat:117:wetland",
+        "upstreamRegionIds": [
+          "habitat:9:wetland"
+        ],
+        "normalLDay": 14853728635.463415,
+        "seasonalLDay": [
+          14853728757.911346,
+          14853727214.260946,
+          14853728018.362617,
+          14853730551.318754
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 1572.7676216263021,
+        "capacityLDay": 14853732208.947607
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 718.7993321025383,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 10,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 718.7993321025388,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 938211.2698445903,
+        "floodErosionEP": 938211.2698445903,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 718.7993321025388,
+        "outletCapacityLDay": 944432504.2821068,
+        "minimumSoilCover": 0
+      }
+    },
+    {
+      "regionId": "habitat:121:wetland",
+      "areaHa": 75085.5964265,
+      "outletWidthM": 593.88,
+      "outletCapacityLDay": 5142011781.611914,
+      "catchment": {
+        "regionId": "habitat:121:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 5142004746.835257,
+        "seasonalLDay": [
+          5142004692.82443,
+          5142005428.317839,
+          5142005154.5578575,
+          5142003711.640901
+        ],
+        "widthLimitM": 27401.751116762593,
+        "requiredWidthM": 593.8791875138878,
+        "capacityLDay": 5142011781.611914
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 0,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 0
+    },
+    {
+      "regionId": "habitat:122:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 100,
+      "outletCapacityLDay": 4398819204.030212,
+      "catchment": {
+        "regionId": "habitat:122:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 4225002161.0288053,
+        "seasonalLDay": [
+          4225002159.602471,
+          4225002617.170636,
+          4225002561.2583165,
+          4225001306.0837975
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 96.04855223778792,
+        "capacityLDay": 4398819204.030212
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 0,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 0
+    },
+    {
+      "regionId": "habitat:124:wetland",
+      "areaHa": 75085.5964265,
+      "outletWidthM": 838.981,
+      "outletCapacityLDay": 7923609268.7510605,
+      "catchment": {
+        "regionId": "habitat:124:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 7923608188.073163,
+        "seasonalLDay": [
+          7923604479.066954,
+          7923627660.355766,
+          7923611897.079373,
+          7923588715.79056
+        ],
+        "widthLimitM": 27401.751116762593,
+        "requiredWidthM": 838.9808855738347,
+        "capacityLDay": 7923609268.751061
+      },
+      "finalFloodGrowthLDay": -4789.684106826782,
+      "endingFloodWaterL": 14009.173390388489,
+      "erosionEP": 0,
+      "soilNaturalEP": 1760.8645013391802,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 1760.8645013391608,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 735625.0232008802,
+        "floodErosionEP": 735625.0232008802,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 1760.8645013391608,
+        "outletCapacityLDay": 944432504.2821066,
+        "minimumSoilCover": 65.22629913557402
+      }
+    },
+    {
+      "regionId": "habitat:126:wetland",
+      "areaHa": 75085.5964265,
+      "outletWidthM": 173.154,
+      "outletCapacityLDay": 9497232616.793524,
+      "catchment": {
+        "regionId": "habitat:126:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 9497221532.978891,
+        "seasonalLDay": [
+          9497221478.573826,
+          9497222184.420416,
+          9497221912.552784,
+          9497220556.36854
+        ],
+        "widthLimitM": 27401.751116762593,
+        "requiredWidthM": 173.15379791936067,
+        "capacityLDay": 9497232616.793526
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 0,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 0
+    },
+    {
+      "regionId": "habitat:127:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 138.088,
+      "outletCapacityLDay": 12725439827.289738,
+      "catchment": {
+        "regionId": "habitat:127:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 12725439104.782696,
+        "seasonalLDay": [
+          12725439158.270247,
+          12725439158.270247,
+          12725439158.270247,
+          12725438944.320044
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 138.08799215983467,
+        "capacityLDay": 12725439827.289736
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 0,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 0
+    },
+    {
+      "regionId": "habitat:128:wetland",
+      "areaHa": 75085.5964265,
+      "outletWidthM": 298.458,
+      "outletCapacityLDay": 6034124973.142887,
+      "catchment": {
+        "regionId": "habitat:128:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 6034112131.700522,
+        "seasonalLDay": [
+          6034112301.065858,
+          6034112423.437831,
+          6034112423.437831,
+          6034111378.860572
+        ],
+        "widthLimitM": 27401.751116762593,
+        "requiredWidthM": 298.45736484059876,
+        "capacityLDay": 6034124973.142886
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 0,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 0
+    },
+    {
+      "regionId": "habitat:139:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 972.332,
+      "outletCapacityLDay": 8420500254.438409,
+      "catchment": {
+        "regionId": "habitat:139:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 8420495789.139382,
+        "seasonalLDay": [
+          8420475271.315003,
+          8420557342.61252,
+          8420475271.315003,
+          8420475271.315003
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 972.3314843829937,
+        "capacityLDay": 8420500254.438408
+      },
+      "finalFloodGrowthLDay": -24983.123405456543,
+      "endingFloodWaterL": 213657.82628631592,
+      "erosionEP": 0,
+      "soilNaturalEP": 72342.0184951768,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 72342.01849517757,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 813942.1538505561,
+        "floodErosionEP": 813942.1538505561,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 72342.01849517757,
+        "outletCapacityLDay": 866010812.6070529,
+        "minimumSoilCover": 64.08026832796148
+      }
+    },
+    {
+      "regionId": "habitat:140:wetland",
+      "areaHa": 75085.5964265,
+      "outletWidthM": 100,
+      "outletCapacityLDay": 5300985165.493088,
+      "catchment": {
+        "regionId": "habitat:140:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 2998419615.4228344,
+        "seasonalLDay": [
+          2998417420.2967105,
+          2998431139.8349876,
+          2998421810.548959,
+          2998408091.010682
+        ],
+        "widthLimitM": 27401.751116762593,
+        "requiredWidthM": 56.56344097963396,
+        "capacityLDay": 5300985165.493088
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 2471.3887738093736,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75
+    },
+    {
+      "regionId": "habitat:141:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 261.347,
+      "outletCapacityLDay": 15419659617.740047,
+      "catchment": {
+        "regionId": "habitat:141:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 15419630863.19187,
+        "seasonalLDay": [
+          15419611008.61312,
+          15419735099.730322,
+          15419650717.770624,
+          15419526626.653421
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 261.34651264067503,
+        "capacityLDay": 15419659617.740046
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 51761.934410882575,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 51761.93441088257,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 1057448.48084589,
+        "floodErosionEP": 1057448.48084589,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 51761.93441088257,
+        "outletCapacityLDay": 5900071406.115259,
+        "minimumSoilCover": 60.19171355330406
+      }
+    },
+    {
+      "regionId": "habitat:143:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 146.963,
+      "outletCapacityLDay": 10303655495.41551,
+      "catchment": {
+        "regionId": "habitat:143:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 10303640485.987272,
+        "seasonalLDay": [
+          10303658286.644085,
+          10303547032.539005,
+          10303622685.33046,
+          10303733939.435537
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 146.96278591766747,
+        "capacityLDay": 10303655495.41551
+      },
+      "finalFloodGrowthLDay": 2791.2285747528076,
+      "endingFloodWaterL": 2353320.6025276184,
+      "erosionEP": 0,
+      "soilNaturalEP": 53647.99679832352,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 53647.99679832364,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 318404.7157496657,
+        "floodErosionEP": 318404.7157496657,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 53647.99679832364,
+        "outletCapacityLDay": 7011054139.7600155,
+        "minimumSoilCover": 71.10157524049936
+      }
+    },
+    {
+      "regionId": "habitat:144:wetland",
+      "areaHa": 75085.5964265,
+      "outletWidthM": 2887.545,
+      "outletCapacityLDay": 26986866815.026398,
+      "catchment": {
+        "regionId": "habitat:144:wetland",
+        "upstreamRegionIds": [
+          "habitat:139:wetland",
+          "habitat:143:wetland"
+        ],
+        "normalLDay": 26986863673.354572,
+        "seasonalLDay": [
+          26986840873.62149,
+          26986892021.07598,
+          26986805272.30787,
+          26986916526.41295
+        ],
+        "widthLimitM": 27401.751116762593,
+        "requiredWidthM": 2887.544663846906,
+        "capacityLDay": 26986866815.026398
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 80108.90863954308,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 80108.90863954197,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 1701140.5750639397,
+        "floodErosionEP": 1701140.5750639397,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 80108.90863954197,
+        "outletCapacityLDay": 934595541.0227858,
+        "minimumSoilCover": 53.4108837969846
+      }
+    },
+    {
+      "regionId": "habitat:146:wetland",
+      "areaHa": 67913.7690951,
+      "outletWidthM": 164.94,
+      "outletCapacityLDay": 1557746972.562907,
+      "catchment": {
+        "regionId": "habitat:146:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 1557744498.4410632,
+        "seasonalLDay": [
+          1557744498.4410632,
+          1557744498.4410632,
+          1557744498.4410632,
+          1557744498.4410632
+        ],
+        "widthLimitM": 26060.270354526256,
+        "requiredWidthM": 164.93973803084575,
+        "capacityLDay": 1557746972.562907
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 733.4687062270809,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 10
+    },
+    {
+      "regionId": "habitat:147:wetland",
+      "areaHa": 75085.5964265,
+      "outletWidthM": 1164.707,
+      "outletCapacityLDay": 10999871487.648998,
+      "catchment": {
+        "regionId": "habitat:147:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 10999865020.899572,
+        "seasonalLDay": [
+          10999865020.899572,
+          10999865020.899572,
+          10999865020.899572,
+          10999865020.899572
+        ],
+        "widthLimitM": 27401.751116762593,
+        "requiredWidthM": 1164.7063152766982,
+        "capacityLDay": 10999871487.648998
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 135154.0735676999,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 135154.0735676999,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 1103760.2588089064,
+        "floodErosionEP": 1103760.2588089064,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 135154.0735676999,
+        "outletCapacityLDay": 944432504.2821068,
+        "minimumSoilCover": 62.09997347907656
+      }
+    },
+    {
+      "regionId": "habitat:148:wetland",
+      "areaHa": 75085.5964265,
+      "outletWidthM": 1391.359,
+      "outletCapacityLDay": 12046851839.516012,
+      "catchment": {
+        "regionId": "habitat:148:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 12046851694.624348,
+        "seasonalLDay": [
+          12046851694.624348,
+          12046851694.624348,
+          12046851694.624348,
+          12046851694.624348
+        ],
+        "widthLimitM": 26771.815775512874,
+        "requiredWidthM": 1391.3589832656426,
+        "capacityLDay": 12046851839.516014
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 135154.0735676999,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 135154.0735677018,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 1238404.967650173,
+        "floodErosionEP": 1238404.967650173,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 135154.0735677018,
+        "outletCapacityLDay": 865833464.9444187,
+        "minimumSoilCover": 60.3067572665228
+      }
+    },
+    {
+      "regionId": "habitat:149:wetland",
+      "areaHa": 75085.5964265,
+      "outletWidthM": 1196.193,
+      "outletCapacityLDay": 11297235505.947264,
+      "catchment": {
+        "regionId": "habitat:149:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 11297234016.987082,
+        "seasonalLDay": [
+          11297234016.987082,
+          11297234016.987082,
+          11297234016.987082,
+          11297234016.987082
+        ],
+        "widthLimitM": 27401.751116762593,
+        "requiredWidthM": 1196.1928423433994,
+        "capacityLDay": 11297235505.947262
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 135154.07356769993,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 135154.07356769987,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 1139375.8422840883,
+        "floodErosionEP": 1139375.8422840883,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 135154.07356769987,
+        "outletCapacityLDay": 944432504.2821068,
+        "minimumSoilCover": 61.62564038231477
+      }
+    },
+    {
+      "regionId": "habitat:150:wetland",
+      "areaHa": 75085.5964265,
+      "outletWidthM": 321.4,
+      "outletCapacityLDay": 16503987165.257595,
+      "catchment": {
+        "regionId": "habitat:150:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 16503978302.988195,
+        "seasonalLDay": [
+          16503978151.600187,
+          16503979097.775242,
+          16503978454.376205,
+          16503977508.20115
+        ],
+        "widthLimitM": 27401.751116762593,
+        "requiredWidthM": 321.39982741543866,
+        "capacityLDay": 16503987165.257595
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 0,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 0
+    },
+    {
+      "regionId": "habitat:152:wetland",
+      "areaHa": 75085.5964265,
+      "outletWidthM": 107.051,
+      "outletCapacityLDay": 5674757629.512006,
+      "catchment": {
+        "regionId": "habitat:152:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 5674739942.991153,
+        "seasonalLDay": [
+          5674737747.865028,
+          5674751467.403305,
+          5674742138.117276,
+          5674728418.5789995
+        ],
+        "widthLimitM": 27401.751116762593,
+        "requiredWidthM": 107.05066635407758,
+        "capacityLDay": 5674757629.512006
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 2502.2811334819876,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75
+    },
+    {
+      "regionId": "habitat:160:wetland",
+      "areaHa": 75085.5964265,
+      "outletWidthM": 149.45,
+      "outletCapacityLDay": 13777769017.529774,
+      "catchment": {
+        "regionId": "habitat:160:wetland",
+        "upstreamRegionIds": [],
+        "normalLDay": 13777706280.985735,
+        "seasonalLDay": [
+          13777716726.758326,
+          13777651440.679628,
+          13777695835.213142,
+          13777761121.291842
+        ],
+        "widthLimitM": 27401.751116762593,
+        "requiredWidthM": 149.44931948514346,
+        "capacityLDay": 13777769017.529772
+      },
+      "finalFloodGrowthLDay": 0,
+      "endingFloodWaterL": 0,
+      "erosionEP": 0,
+      "soilNaturalEP": 18906.124119641692,
+      "soilMaintenanceDeficit": false,
+      "minimumSoilCover": 75,
+      "historicalFullFoodWeb": {
+        "sourceId": "beast-habitat-source:a2ffef9d",
+        "soilNaturalEP": 18906.124119641063,
+        "soilNurturingEP": 0,
+        "soilDestructionEP": 461897.10767050274,
+        "floodErosionEP": 461897.10767050274,
+        "nonFloodSoilDestructionEP": 0,
+        "soilBalanceWithoutRecordedFloodEP": 18906.124119641063,
+        "outletCapacityLDay": 9218982280.046688,
+        "minimumSoilCover": 69.10018692487192
+      }
+    }
+  ],
+  "historicalComparison": {
+    "sourceId": "beast-habitat-source:a2ffef9d",
+    "days": 120,
+    "scope": "Retained full-food-web history compared with a new-source HYDROLOGY-ONLY control, not a repeated all-species result",
+    "soilDeficitRegions": 37,
+    "floodOnlyDestructionRegions": 35,
+    "otherSoilDestructionRegions": 2,
+    "positiveRecordedBalanceWithoutFloodRegions": 37
+  },
+  "boundaries": 1370,
+  "regionIntervals": 42380,
+  "milliseconds": 3687
+}

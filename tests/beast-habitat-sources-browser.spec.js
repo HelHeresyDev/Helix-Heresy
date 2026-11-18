@@ -22,6 +22,7 @@ test('browser generation, compressed world storage and reload preserve private r
       workSites: source.physicalBinding.workSites.length, nurseries: source.physicalBinding.nurseries.length,
       establishedHabitats: source.establishedHabitats === true, initialConstruction: source.physicalBinding.initialWork.length,
       wetlandDrainage: source.wetlandDrainage === true,
+      catchmentDrainage: source.catchmentDrainage === true, catchmentOutlets: source.physicalBinding.catchmentDrainage.length,
       huntingHabitatAccess: source.huntingHabitatAccess === true,
       physicalDigest: window.HelixStrategicWorld.stableHash(source.physicalBinding),
       wildlifeDigest: window.HelixStrategicWorld.stableHash(source.backgroundWildlife),
@@ -37,6 +38,7 @@ test('browser generation, compressed world storage and reload preserve private r
   expect(original.workSites).toBeGreaterThan(0); expect(original.nurseries).toBeGreaterThan(0);
   expect(original.establishedHabitats).toBe(true); expect(original.initialConstruction).toBeGreaterThan(0);
   expect(original.wetlandDrainage).toBe(true);
+  expect(original.catchmentDrainage).toBe(true); expect(original.catchmentOutlets).toBe(62);
   expect(original.huntingHabitatAccess).toBe(true);
   expect(original.preyClasses).toEqual(['large', 'medium', 'small']);
   expect(original.wildlifeDistribution).toBe('habitatPatches');
