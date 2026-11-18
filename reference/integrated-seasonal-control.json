@@ -1,0 +1,1573 @@
+{
+  "scope": "Fresh private all-species diagnostic after hunting placement, vector Lantern motion and catchment drainage; no balance tuning or native adoption",
+  "runtimeKernelCommit": "cb7383e",
+  "instrumentation": "Node-only observer; no simulation rule or game-account changes",
+  "sourceId": "beast-habitat-source:e8a02b1f",
+  "seed": "source-small",
+  "refinement": 2,
+  "days": 120,
+  "status": "rejected",
+  "measuredStatus": "rejected",
+  "coverage": {
+    "sourceId": "beast-habitat-source:e8a02b1f",
+    "from": 0,
+    "until": 10368000,
+    "cycleEnd": 10368000,
+    "species": [
+      "beast:abyssal-bell",
+      "beast:ashhorn-behemoth",
+      "beast:brine-cathedral",
+      "beast:burrowing-furnace",
+      "beast:candlecap-myriapod",
+      "beast:carrion-lantern",
+      "beast:dreaming-tortoise",
+      "beast:ember-ant",
+      "beast:frostwake-leviathan",
+      "beast:glasswing-roc",
+      "beast:gloam-prowler",
+      "beast:gravebloom-elk",
+      "beast:ironroot-colossus",
+      "beast:ley-manta",
+      "beast:marsh-hydra",
+      "beast:mire-choir",
+      "beast:mirror-ape",
+      "beast:nullmaw-stalker",
+      "beast:reef-wyrm",
+      "beast:rimefang-pack",
+      "beast:rivercoil",
+      "beast:storm-kite",
+      "beast:sunspine-basilisk",
+      "beast:thunderback-grazer"
+    ],
+    "catalogRequired": true,
+    "originalLocated": 56243
+  },
+  "regions": 334,
+  "populations": 89,
+  "original": 56243,
+  "born": 190892,
+  "counts": {
+    "background": 131047,
+    "detailed": 0,
+    "dead": 116088
+  },
+  "checkpointNormalization": "All twelve ten-day checkpoints passed the executing benchmark normalization before completion",
+  "reusableWorldIdenticalAcrossCheckpoints": true,
+  "canonicalWorldDigest": "world-776b4eea",
+  "species": {
+    "beast:ashhorn-behemoth": {
+      "original": 256,
+      "born": 0,
+      "living": 255,
+      "dead": 1
+    },
+    "beast:glasswing-roc": {
+      "original": 6,
+      "born": 0,
+      "living": 6,
+      "dead": 0
+    },
+    "beast:mire-choir": {
+      "original": 3000,
+      "born": 0,
+      "living": 2836,
+      "dead": 164
+    },
+    "beast:nullmaw-stalker": {
+      "original": 12,
+      "born": 0,
+      "living": 12,
+      "dead": 0
+    },
+    "beast:thunderback-grazer": {
+      "original": 6000,
+      "born": 0,
+      "living": 5953,
+      "dead": 47
+    },
+    "beast:candlecap-myriapod": {
+      "original": 12000,
+      "born": 183200,
+      "living": 88400,
+      "dead": 106800
+    },
+    "beast:ironroot-colossus": {
+      "original": 256,
+      "born": 0,
+      "living": 256,
+      "dead": 0
+    },
+    "beast:gloam-prowler": {
+      "original": 54,
+      "born": 0,
+      "living": 54,
+      "dead": 0
+    },
+    "beast:rimefang-pack": {
+      "original": 125,
+      "born": 0,
+      "living": 124,
+      "dead": 1
+    },
+    "beast:sunspine-basilisk": {
+      "original": 48,
+      "born": 0,
+      "living": 48,
+      "dead": 0
+    },
+    "beast:ley-manta": {
+      "original": 5000,
+      "born": 0,
+      "living": 4949,
+      "dead": 51
+    },
+    "beast:carrion-lantern": {
+      "original": 120,
+      "born": 0,
+      "living": 0,
+      "dead": 120
+    },
+    "beast:brine-cathedral": {
+      "original": 256,
+      "born": 0,
+      "living": 256,
+      "dead": 0
+    },
+    "beast:reef-wyrm": {
+      "original": 23,
+      "born": 0,
+      "living": 0,
+      "dead": 23
+    },
+    "beast:abyssal-bell": {
+      "original": 12,
+      "born": 0,
+      "living": 0,
+      "dead": 12
+    },
+    "beast:frostwake-leviathan": {
+      "original": 12,
+      "born": 0,
+      "living": 0,
+      "dead": 12
+    },
+    "beast:marsh-hydra": {
+      "original": 12,
+      "born": 0,
+      "living": 8,
+      "dead": 4
+    },
+    "beast:rivercoil": {
+      "original": 144,
+      "born": 0,
+      "living": 140,
+      "dead": 4
+    },
+    "beast:ember-ant": {
+      "original": 11182,
+      "born": 0,
+      "living": 5137,
+      "dead": 6045
+    },
+    "beast:dreaming-tortoise": {
+      "original": 128,
+      "born": 0,
+      "living": 128,
+      "dead": 0
+    },
+    "beast:mirror-ape": {
+      "original": 453,
+      "born": 0,
+      "living": 451,
+      "dead": 2
+    },
+    "beast:gravebloom-elk": {
+      "original": 144,
+      "born": 0,
+      "living": 144,
+      "dead": 0
+    },
+    "beast:storm-kite": {
+      "original": 12000,
+      "born": 7692,
+      "living": 16924,
+      "dead": 2768
+    },
+    "beast:burrowing-furnace": {
+      "original": 5000,
+      "born": 0,
+      "living": 4966,
+      "dead": 34
+    }
+  },
+  "milestones": [
+    {
+      "day": 10,
+      "livingBySpecies": {
+        "beast:ashhorn-behemoth": 256,
+        "beast:glasswing-roc": 6,
+        "beast:mire-choir": 2960,
+        "beast:nullmaw-stalker": 12,
+        "beast:thunderback-grazer": 5997,
+        "beast:candlecap-myriapod": 11155,
+        "beast:ironroot-colossus": 256,
+        "beast:gloam-prowler": 54,
+        "beast:rimefang-pack": 125,
+        "beast:sunspine-basilisk": 48,
+        "beast:ley-manta": 4999,
+        "beast:carrion-lantern": 118,
+        "beast:brine-cathedral": 256,
+        "beast:reef-wyrm": 23,
+        "beast:abyssal-bell": 12,
+        "beast:frostwake-leviathan": 12,
+        "beast:marsh-hydra": 12,
+        "beast:rivercoil": 144,
+        "beast:ember-ant": 10568,
+        "beast:dreaming-tortoise": 128,
+        "beast:mirror-ape": 453,
+        "beast:gravebloom-elk": 144,
+        "beast:storm-kite": 11817,
+        "beast:burrowing-furnace": 4998
+      },
+      "original": 56243,
+      "born": 0,
+      "living": 54553,
+      "dead": 1690,
+      "lanternIntake": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 0,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 16.687659065523277,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "lanternCondition": {
+        "minimumLivingHealth": 1,
+        "maximumLivingHealth": 1,
+        "storedFoodKg": 0,
+        "storedFatKg": 225.44447512930077,
+        "storedWaterL": 44.174522475062325
+      },
+      "soilFloorBreaches": 0,
+      "receiptsReconciled": true
+    },
+    {
+      "day": 20,
+      "livingBySpecies": {
+        "beast:ashhorn-behemoth": 256,
+        "beast:glasswing-roc": 6,
+        "beast:mire-choir": 2938,
+        "beast:nullmaw-stalker": 12,
+        "beast:thunderback-grazer": 5994,
+        "beast:candlecap-myriapod": 21488,
+        "beast:ironroot-colossus": 256,
+        "beast:gloam-prowler": 54,
+        "beast:rimefang-pack": 125,
+        "beast:sunspine-basilisk": 48,
+        "beast:ley-manta": 4994,
+        "beast:carrion-lantern": 116,
+        "beast:brine-cathedral": 256,
+        "beast:reef-wyrm": 0,
+        "beast:abyssal-bell": 12,
+        "beast:frostwake-leviathan": 0,
+        "beast:marsh-hydra": 12,
+        "beast:rivercoil": 144,
+        "beast:ember-ant": 10021,
+        "beast:dreaming-tortoise": 128,
+        "beast:mirror-ape": 452,
+        "beast:gravebloom-elk": 144,
+        "beast:storm-kite": 13127,
+        "beast:burrowing-furnace": 4994
+      },
+      "original": 56243,
+      "born": 13112,
+      "living": 65577,
+      "dead": 3778,
+      "lanternIntake": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 0,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 38.86488087850221,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "lanternCondition": {
+        "minimumLivingHealth": 0.18836030341888776,
+        "maximumLivingHealth": 1,
+        "storedFoodKg": 0,
+        "storedFatKg": 181.35036699766414,
+        "storedWaterL": 39.66318993101503
+      },
+      "soilFloorBreaches": 0,
+      "receiptsReconciled": true
+    },
+    {
+      "day": 30,
+      "livingBySpecies": {
+        "beast:ashhorn-behemoth": 256,
+        "beast:glasswing-roc": 6,
+        "beast:mire-choir": 2923,
+        "beast:nullmaw-stalker": 12,
+        "beast:thunderback-grazer": 5991,
+        "beast:candlecap-myriapod": 28654,
+        "beast:ironroot-colossus": 256,
+        "beast:gloam-prowler": 54,
+        "beast:rimefang-pack": 125,
+        "beast:sunspine-basilisk": 48,
+        "beast:ley-manta": 4990,
+        "beast:carrion-lantern": 90,
+        "beast:brine-cathedral": 256,
+        "beast:reef-wyrm": 0,
+        "beast:abyssal-bell": 0,
+        "beast:frostwake-leviathan": 0,
+        "beast:marsh-hydra": 12,
+        "beast:rivercoil": 144,
+        "beast:ember-ant": 9538,
+        "beast:dreaming-tortoise": 128,
+        "beast:mirror-ape": 452,
+        "beast:gravebloom-elk": 144,
+        "beast:storm-kite": 13953,
+        "beast:burrowing-furnace": 4989
+      },
+      "original": 56243,
+      "born": 26062,
+      "living": 73021,
+      "dead": 9284,
+      "lanternIntake": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 0,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 66.28480590703626,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "lanternCondition": {
+        "minimumLivingHealth": 1,
+        "maximumLivingHealth": 1,
+        "storedFoodKg": 0,
+        "storedFatKg": 137.9070185868838,
+        "storedWaterL": 40.60006325608704
+      },
+      "soilFloorBreaches": 0,
+      "receiptsReconciled": true
+    },
+    {
+      "day": 40,
+      "livingBySpecies": {
+        "beast:ashhorn-behemoth": 256,
+        "beast:glasswing-roc": 6,
+        "beast:mire-choir": 2907,
+        "beast:nullmaw-stalker": 12,
+        "beast:thunderback-grazer": 5987,
+        "beast:candlecap-myriapod": 33662,
+        "beast:ironroot-colossus": 256,
+        "beast:gloam-prowler": 54,
+        "beast:rimefang-pack": 125,
+        "beast:sunspine-basilisk": 48,
+        "beast:ley-manta": 4986,
+        "beast:carrion-lantern": 84,
+        "beast:brine-cathedral": 256,
+        "beast:reef-wyrm": 0,
+        "beast:abyssal-bell": 0,
+        "beast:frostwake-leviathan": 0,
+        "beast:marsh-hydra": 12,
+        "beast:rivercoil": 144,
+        "beast:ember-ant": 9195,
+        "beast:dreaming-tortoise": 128,
+        "beast:mirror-ape": 452,
+        "beast:gravebloom-elk": 144,
+        "beast:storm-kite": 14726,
+        "beast:burrowing-furnace": 4986
+      },
+      "original": 56243,
+      "born": 39382,
+      "living": 78426,
+      "dead": 17199,
+      "lanternIntake": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 0,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 92.98450155687048,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "lanternCondition": {
+        "minimumLivingHealth": 1,
+        "maximumLivingHealth": 1,
+        "storedFoodKg": 0,
+        "storedFatKg": 88.61015463406297,
+        "storedWaterL": 42.073966072563685
+      },
+      "soilFloorBreaches": 0,
+      "receiptsReconciled": true
+    },
+    {
+      "day": 50,
+      "livingBySpecies": {
+        "beast:ashhorn-behemoth": 256,
+        "beast:glasswing-roc": 6,
+        "beast:mire-choir": 2889,
+        "beast:nullmaw-stalker": 12,
+        "beast:thunderback-grazer": 5986,
+        "beast:candlecap-myriapod": 45210,
+        "beast:ironroot-colossus": 256,
+        "beast:gloam-prowler": 54,
+        "beast:rimefang-pack": 125,
+        "beast:sunspine-basilisk": 48,
+        "beast:ley-manta": 4983,
+        "beast:carrion-lantern": 84,
+        "beast:brine-cathedral": 256,
+        "beast:reef-wyrm": 0,
+        "beast:abyssal-bell": 0,
+        "beast:frostwake-leviathan": 0,
+        "beast:marsh-hydra": 12,
+        "beast:rivercoil": 144,
+        "beast:ember-ant": 8918,
+        "beast:dreaming-tortoise": 128,
+        "beast:mirror-ape": 452,
+        "beast:gravebloom-elk": 144,
+        "beast:storm-kite": 15367,
+        "beast:burrowing-furnace": 4983
+      },
+      "original": 56243,
+      "born": 61524,
+      "living": 90313,
+      "dead": 27454,
+      "lanternIntake": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 0,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 116.83856636047675,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "lanternCondition": {
+        "minimumLivingHealth": 1,
+        "maximumLivingHealth": 1,
+        "storedFoodKg": 0,
+        "storedFatKg": 49.02943640760243,
+        "storedWaterL": 42.17959994029435
+      },
+      "soilFloorBreaches": 0,
+      "receiptsReconciled": true
+    },
+    {
+      "day": 60,
+      "livingBySpecies": {
+        "beast:ashhorn-behemoth": 256,
+        "beast:glasswing-roc": 6,
+        "beast:mire-choir": 2873,
+        "beast:nullmaw-stalker": 12,
+        "beast:thunderback-grazer": 5980,
+        "beast:candlecap-myriapod": 47610,
+        "beast:ironroot-colossus": 256,
+        "beast:gloam-prowler": 54,
+        "beast:rimefang-pack": 124,
+        "beast:sunspine-basilisk": 48,
+        "beast:ley-manta": 4980,
+        "beast:carrion-lantern": 84,
+        "beast:brine-cathedral": 256,
+        "beast:reef-wyrm": 0,
+        "beast:abyssal-bell": 0,
+        "beast:frostwake-leviathan": 0,
+        "beast:marsh-hydra": 12,
+        "beast:rivercoil": 144,
+        "beast:ember-ant": 8595,
+        "beast:dreaming-tortoise": 128,
+        "beast:mirror-ape": 452,
+        "beast:gravebloom-elk": 144,
+        "beast:storm-kite": 15979,
+        "beast:burrowing-furnace": 4982
+      },
+      "original": 56243,
+      "born": 75280,
+      "living": 92975,
+      "dead": 38548,
+      "lanternIntake": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 0,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 140.3978478102205,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "lanternCondition": {
+        "minimumLivingHealth": 1,
+        "maximumLivingHealth": 1,
+        "storedFoodKg": 0,
+        "storedFatKg": 9.946672521322167,
+        "storedWaterL": 42.28922305826847
+      },
+      "soilFloorBreaches": 0,
+      "receiptsReconciled": true
+    },
+    {
+      "day": 70,
+      "livingBySpecies": {
+        "beast:ashhorn-behemoth": 256,
+        "beast:glasswing-roc": 6,
+        "beast:mire-choir": 2865,
+        "beast:nullmaw-stalker": 12,
+        "beast:thunderback-grazer": 5976,
+        "beast:candlecap-myriapod": 48107,
+        "beast:ironroot-colossus": 256,
+        "beast:gloam-prowler": 54,
+        "beast:rimefang-pack": 124,
+        "beast:sunspine-basilisk": 48,
+        "beast:ley-manta": 4977,
+        "beast:carrion-lantern": 84,
+        "beast:brine-cathedral": 256,
+        "beast:reef-wyrm": 0,
+        "beast:abyssal-bell": 0,
+        "beast:frostwake-leviathan": 0,
+        "beast:marsh-hydra": 12,
+        "beast:rivercoil": 144,
+        "beast:ember-ant": 8210,
+        "beast:dreaming-tortoise": 128,
+        "beast:mirror-ape": 451,
+        "beast:gravebloom-elk": 144,
+        "beast:storm-kite": 16477,
+        "beast:burrowing-furnace": 4982
+      },
+      "original": 56243,
+      "born": 87636,
+      "living": 93569,
+      "dead": 50310,
+      "lanternIntake": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 0,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 162.09168816407757,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "lanternCondition": {
+        "minimumLivingHealth": 0.23900261605731082,
+        "maximumLivingHealth": 0.28653997296985934,
+        "storedFoodKg": 0,
+        "storedFatKg": 0,
+        "storedWaterL": 40.75130187314743
+      },
+      "soilFloorBreaches": 0,
+      "receiptsReconciled": true
+    },
+    {
+      "day": 80,
+      "livingBySpecies": {
+        "beast:ashhorn-behemoth": 255,
+        "beast:glasswing-roc": 6,
+        "beast:mire-choir": 2851,
+        "beast:nullmaw-stalker": 12,
+        "beast:thunderback-grazer": 5975,
+        "beast:candlecap-myriapod": 53458,
+        "beast:ironroot-colossus": 256,
+        "beast:gloam-prowler": 54,
+        "beast:rimefang-pack": 124,
+        "beast:sunspine-basilisk": 48,
+        "beast:ley-manta": 4975,
+        "beast:carrion-lantern": 0,
+        "beast:brine-cathedral": 256,
+        "beast:reef-wyrm": 0,
+        "beast:abyssal-bell": 0,
+        "beast:frostwake-leviathan": 0,
+        "beast:marsh-hydra": 12,
+        "beast:rivercoil": 144,
+        "beast:ember-ant": 7755,
+        "beast:dreaming-tortoise": 128,
+        "beast:mirror-ape": 451,
+        "beast:gravebloom-elk": 144,
+        "beast:storm-kite": 16821,
+        "beast:burrowing-furnace": 4976
+      },
+      "original": 56243,
+      "born": 104150,
+      "living": 98701,
+      "dead": 61692,
+      "lanternIntake": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 0,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 166.47704405185843,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "lanternCondition": {
+        "minimumLivingHealth": null,
+        "maximumLivingHealth": null,
+        "storedFoodKg": 0,
+        "storedFatKg": 0,
+        "storedWaterL": 0
+      },
+      "soilFloorBreaches": 0,
+      "receiptsReconciled": true
+    },
+    {
+      "day": 90,
+      "livingBySpecies": {
+        "beast:ashhorn-behemoth": 255,
+        "beast:glasswing-roc": 6,
+        "beast:mire-choir": 2844,
+        "beast:nullmaw-stalker": 12,
+        "beast:thunderback-grazer": 5969,
+        "beast:candlecap-myriapod": 57665,
+        "beast:ironroot-colossus": 256,
+        "beast:gloam-prowler": 54,
+        "beast:rimefang-pack": 124,
+        "beast:sunspine-basilisk": 48,
+        "beast:ley-manta": 4969,
+        "beast:carrion-lantern": 0,
+        "beast:brine-cathedral": 256,
+        "beast:reef-wyrm": 0,
+        "beast:abyssal-bell": 0,
+        "beast:frostwake-leviathan": 0,
+        "beast:marsh-hydra": 12,
+        "beast:rivercoil": 142,
+        "beast:ember-ant": 7221,
+        "beast:dreaming-tortoise": 128,
+        "beast:mirror-ape": 451,
+        "beast:gravebloom-elk": 144,
+        "beast:storm-kite": 16981,
+        "beast:burrowing-furnace": 4974
+      },
+      "original": 56243,
+      "born": 119580,
+      "living": 102511,
+      "dead": 73312,
+      "lanternIntake": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 0,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 166.47704405185843,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "lanternCondition": {
+        "minimumLivingHealth": null,
+        "maximumLivingHealth": null,
+        "storedFoodKg": 0,
+        "storedFatKg": 0,
+        "storedWaterL": 0
+      },
+      "soilFloorBreaches": 0,
+      "receiptsReconciled": true
+    },
+    {
+      "day": 100,
+      "livingBySpecies": {
+        "beast:ashhorn-behemoth": 255,
+        "beast:glasswing-roc": 6,
+        "beast:mire-choir": 2841,
+        "beast:nullmaw-stalker": 12,
+        "beast:thunderback-grazer": 5961,
+        "beast:candlecap-myriapod": 65337,
+        "beast:ironroot-colossus": 256,
+        "beast:gloam-prowler": 54,
+        "beast:rimefang-pack": 124,
+        "beast:sunspine-basilisk": 48,
+        "beast:ley-manta": 4963,
+        "beast:carrion-lantern": 0,
+        "beast:brine-cathedral": 256,
+        "beast:reef-wyrm": 0,
+        "beast:abyssal-bell": 0,
+        "beast:frostwake-leviathan": 0,
+        "beast:marsh-hydra": 8,
+        "beast:rivercoil": 141,
+        "beast:ember-ant": 6606,
+        "beast:dreaming-tortoise": 128,
+        "beast:mirror-ape": 451,
+        "beast:gravebloom-elk": 144,
+        "beast:storm-kite": 17019,
+        "beast:burrowing-furnace": 4970
+      },
+      "original": 56243,
+      "born": 138774,
+      "living": 109580,
+      "dead": 85437,
+      "lanternIntake": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 0,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 166.47704405185843,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "lanternCondition": {
+        "minimumLivingHealth": null,
+        "maximumLivingHealth": null,
+        "storedFoodKg": 0,
+        "storedFatKg": 0,
+        "storedWaterL": 0
+      },
+      "soilFloorBreaches": 0,
+      "receiptsReconciled": true
+    },
+    {
+      "day": 110,
+      "livingBySpecies": {
+        "beast:ashhorn-behemoth": 255,
+        "beast:glasswing-roc": 6,
+        "beast:mire-choir": 2838,
+        "beast:nullmaw-stalker": 12,
+        "beast:thunderback-grazer": 5957,
+        "beast:candlecap-myriapod": 75677,
+        "beast:ironroot-colossus": 256,
+        "beast:gloam-prowler": 54,
+        "beast:rimefang-pack": 124,
+        "beast:sunspine-basilisk": 48,
+        "beast:ley-manta": 4956,
+        "beast:carrion-lantern": 0,
+        "beast:brine-cathedral": 256,
+        "beast:reef-wyrm": 0,
+        "beast:abyssal-bell": 0,
+        "beast:frostwake-leviathan": 0,
+        "beast:marsh-hydra": 8,
+        "beast:rivercoil": 140,
+        "beast:ember-ant": 5908,
+        "beast:dreaming-tortoise": 128,
+        "beast:mirror-ape": 451,
+        "beast:gravebloom-elk": 144,
+        "beast:storm-kite": 17005,
+        "beast:burrowing-furnace": 4968
+      },
+      "original": 56243,
+      "born": 162290,
+      "living": 119191,
+      "dead": 99342,
+      "lanternIntake": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 0,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 166.47704405185843,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "lanternCondition": {
+        "minimumLivingHealth": null,
+        "maximumLivingHealth": null,
+        "storedFoodKg": 0,
+        "storedFatKg": 0,
+        "storedWaterL": 0
+      },
+      "soilFloorBreaches": 0,
+      "receiptsReconciled": true
+    },
+    {
+      "day": 120,
+      "livingBySpecies": {
+        "beast:ashhorn-behemoth": 255,
+        "beast:glasswing-roc": 6,
+        "beast:mire-choir": 2836,
+        "beast:nullmaw-stalker": 12,
+        "beast:thunderback-grazer": 5953,
+        "beast:candlecap-myriapod": 88400,
+        "beast:ironroot-colossus": 256,
+        "beast:gloam-prowler": 54,
+        "beast:rimefang-pack": 124,
+        "beast:sunspine-basilisk": 48,
+        "beast:ley-manta": 4949,
+        "beast:carrion-lantern": 0,
+        "beast:brine-cathedral": 256,
+        "beast:reef-wyrm": 0,
+        "beast:abyssal-bell": 0,
+        "beast:frostwake-leviathan": 0,
+        "beast:marsh-hydra": 8,
+        "beast:rivercoil": 140,
+        "beast:ember-ant": 5137,
+        "beast:dreaming-tortoise": 128,
+        "beast:mirror-ape": 451,
+        "beast:gravebloom-elk": 144,
+        "beast:storm-kite": 16924,
+        "beast:burrowing-furnace": 4966
+      },
+      "original": 56243,
+      "born": 190892,
+      "living": 131047,
+      "dead": 116088,
+      "lanternIntake": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 0,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 166.47704405185843,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "lanternCondition": {
+        "minimumLivingHealth": null,
+        "maximumLivingHealth": null,
+        "storedFoodKg": 0,
+        "storedFatKg": 0,
+        "storedWaterL": 0
+      },
+      "soilFloorBreaches": 0,
+      "receiptsReconciled": true
+    }
+  ],
+  "issueKinds": {
+    "performedResourceShortfall": 33,
+    "performedScarcityDeath": 25
+  },
+  "shortfalls": {
+    "meatKg": 551091.8143880089,
+    "waterL": 2152.737295443966
+  },
+  "lossesByCause": {
+    "background": 115922,
+    "starvation": 160,
+    "dehydration": 6
+  },
+  "lossesBySpecies": {
+    "beast:carrion-lantern": {
+      "background": 5,
+      "starvation": 109,
+      "dehydration": 6
+    },
+    "beast:reef-wyrm": {
+      "starvation": 23
+    },
+    "beast:mirror-ape": {
+      "background": 2
+    },
+    "beast:frostwake-leviathan": {
+      "starvation": 12
+    },
+    "beast:abyssal-bell": {
+      "starvation": 12
+    },
+    "beast:rimefang-pack": {
+      "background": 1
+    },
+    "beast:ashhorn-behemoth": {
+      "background": 1
+    },
+    "beast:rivercoil": {
+      "background": 4
+    },
+    "beast:marsh-hydra": {
+      "starvation": 4
+    },
+    "beast:mire-choir": {
+      "background": 164
+    },
+    "beast:candlecap-myriapod": {
+      "background": 106800
+    },
+    "beast:ember-ant": {
+      "background": 6045
+    },
+    "beast:storm-kite": {
+      "background": 2768
+    },
+    "beast:ley-manta": {
+      "background": 51
+    },
+    "beast:burrowing-furnace": {
+      "background": 34
+    },
+    "beast:thunderback-grazer": {
+      "background": 47
+    }
+  },
+  "scarcityPhases": {
+    "stationary:independent:no-prior-arrival": 158,
+    "stationary:dependent:no-prior-arrival": 3,
+    "stopped:independent:no-prior-arrival": 4,
+    "travelling:independent:no-prior-arrival": 1
+  },
+  "scarcityAgeClasses": {
+    "beast:reef-wyrm": {
+      "independentJuvenile": 5,
+      "adult": 18
+    },
+    "beast:frostwake-leviathan": {
+      "dependent": 3,
+      "adult": 9
+    },
+    "beast:carrion-lantern": {
+      "independentJuvenile": 25,
+      "adult": 90
+    },
+    "beast:abyssal-bell": {
+      "adult": 12
+    },
+    "beast:marsh-hydra": {
+      "adult": 4
+    }
+  },
+  "scarcityExamples": {
+    "beast:reef-wyrm": [
+      {
+        "cause": "starvation",
+        "count": 1,
+        "ageDays": 10.605560055581856,
+        "dependent": false,
+        "phase": "stationary",
+        "afterPersonalArrival": false,
+        "firstFailure": {
+          "at": 52320.38880227482,
+          "regionId": "habitat:159:waterColumn",
+          "phase": "stationary",
+          "dependent": false,
+          "afterPersonalArrival": false,
+          "inventory": {
+            "snapshotAt": 54965.77105025306,
+            "resource": "meatKg",
+            "regionalStock": 0,
+            "renewalPerDay": 0,
+            "regionalAnimalMatterKg": 19461645.892788067
+          }
+        },
+        "knownLivingCaregivers": 0,
+        "monthlySearchSeconds": 11754.61775202176,
+        "monthlyCareSeconds": 0
+      },
+      {
+        "cause": "starvation",
+        "count": 1,
+        "ageDays": 10.605560055581856,
+        "dependent": false,
+        "phase": "stationary",
+        "afterPersonalArrival": false,
+        "firstFailure": {
+          "at": 52320.38880227482,
+          "regionId": "habitat:159:waterColumn",
+          "phase": "stationary",
+          "dependent": false,
+          "afterPersonalArrival": false,
+          "inventory": {
+            "snapshotAt": 54965.77105025306,
+            "resource": "meatKg",
+            "regionalStock": 0,
+            "renewalPerDay": 0,
+            "regionalAnimalMatterKg": 19461645.892788067
+          }
+        },
+        "knownLivingCaregivers": 0,
+        "monthlySearchSeconds": 11754.61775202176,
+        "monthlyCareSeconds": 0
+      }
+    ],
+    "beast:frostwake-leviathan": [
+      {
+        "cause": "starvation",
+        "count": 1,
+        "ageDays": 11.211518077448243,
+        "dependent": true,
+        "phase": "stationary",
+        "afterPersonalArrival": false,
+        "firstFailure": {
+          "at": 104675.1618915992,
+          "regionId": "habitat:35:waterColumn",
+          "phase": "stationary",
+          "dependent": true,
+          "afterPersonalArrival": false,
+          "inventory": {
+            "snapshotAt": 105845.37333254878,
+            "resource": "meatKg",
+            "regionalStock": 0,
+            "renewalPerDay": 0,
+            "regionalAnimalMatterKg": 4451137.267828867
+          }
+        },
+        "knownLivingCaregivers": 3,
+        "careAccess": {
+          "guardians": 3,
+          "local": 3,
+          "capable": 0,
+          "free": 0,
+          "remainingMemberSeconds": 0,
+          "availableFoodKg": 0,
+          "availableWaterL": 0,
+          "willing": true,
+          "sleeping": false
+        },
+        "monthlySearchSeconds": 0,
+        "monthlyCareSeconds": 0
+      },
+      {
+        "cause": "starvation",
+        "count": 1,
+        "ageDays": 11.211537685499438,
+        "dependent": true,
+        "phase": "stationary",
+        "afterPersonalArrival": false,
+        "firstFailure": {
+          "at": 104676.85602722155,
+          "regionId": "habitat:54:waterColumn",
+          "phase": "stationary",
+          "dependent": true,
+          "afterPersonalArrival": false,
+          "inventory": {
+            "snapshotAt": 105873.62803076238,
+            "resource": "meatKg",
+            "regionalStock": 0,
+            "renewalPerDay": 0,
+            "regionalAnimalMatterKg": 6062041.310498563
+          }
+        },
+        "knownLivingCaregivers": 3,
+        "careAccess": {
+          "guardians": 3,
+          "local": 3,
+          "capable": 0,
+          "free": 0,
+          "remainingMemberSeconds": 0,
+          "availableFoodKg": 0,
+          "availableWaterL": 0,
+          "willing": true,
+          "sleeping": false
+        },
+        "monthlySearchSeconds": 0,
+        "monthlyCareSeconds": 0
+      }
+    ],
+    "beast:carrion-lantern": [
+      {
+        "cause": "starvation",
+        "count": 1,
+        "ageDays": 21.88360303418888,
+        "dependent": false,
+        "phase": "stationary",
+        "afterPersonalArrival": false,
+        "firstFailure": {
+          "at": 1026743.3021539197,
+          "regionId": "habitat:45:shore",
+          "phase": "stationary",
+          "dependent": false,
+          "afterPersonalArrival": false,
+          "inventory": {
+            "snapshotAt": 1029588.0771799072,
+            "resource": "meatKg",
+            "regionalStock": 0,
+            "renewalPerDay": 0,
+            "regionalAnimalMatterKg": 7247717.073591902
+          }
+        },
+        "knownLivingCaregivers": 0,
+        "monthlySearchSeconds": 0,
+        "monthlyCareSeconds": 0
+      },
+      {
+        "cause": "starvation",
+        "count": 1,
+        "ageDays": 21.88360303418888,
+        "dependent": false,
+        "phase": "stationary",
+        "afterPersonalArrival": false,
+        "firstFailure": {
+          "at": 1026743.3021539197,
+          "regionId": "habitat:45:shore",
+          "phase": "stationary",
+          "dependent": false,
+          "afterPersonalArrival": false,
+          "inventory": {
+            "snapshotAt": 1029588.0771799072,
+            "resource": "meatKg",
+            "regionalStock": 0,
+            "renewalPerDay": 0,
+            "regionalAnimalMatterKg": 7247717.073591902
+          }
+        },
+        "knownLivingCaregivers": 0,
+        "monthlySearchSeconds": 0,
+        "monthlyCareSeconds": 0
+      }
+    ],
+    "beast:abyssal-bell": [
+      {
+        "cause": "starvation",
+        "count": 1,
+        "ageDays": 5497.504513022388,
+        "dependent": false,
+        "phase": "stationary",
+        "afterPersonalArrival": false,
+        "firstFailure": {
+          "at": 1080389.925134276,
+          "regionId": "habitat:138:waterColumn",
+          "phase": "stationary",
+          "dependent": false,
+          "afterPersonalArrival": false,
+          "inventory": {
+            "snapshotAt": 1081506.3655892094,
+            "resource": "meatKg",
+            "regionalStock": 0,
+            "renewalPerDay": 0,
+            "regionalAnimalMatterKg": 27611375.50684872
+          }
+        },
+        "knownLivingCaregivers": 0,
+        "monthlySearchSeconds": 232199.99832222203,
+        "monthlyCareSeconds": 0
+      },
+      {
+        "cause": "starvation",
+        "count": 1,
+        "ageDays": 5497.504513022388,
+        "dependent": false,
+        "phase": "stationary",
+        "afterPersonalArrival": false,
+        "firstFailure": {
+          "at": 1080389.925134276,
+          "regionId": "habitat:138:waterColumn",
+          "phase": "stationary",
+          "dependent": false,
+          "afterPersonalArrival": false,
+          "inventory": {
+            "snapshotAt": 1081506.3655892094,
+            "resource": "meatKg",
+            "regionalStock": 0,
+            "renewalPerDay": 0,
+            "regionalAnimalMatterKg": 27611375.50684872
+          }
+        },
+        "knownLivingCaregivers": 0,
+        "monthlySearchSeconds": 232199.99832222203,
+        "monthlyCareSeconds": 0
+      }
+    ],
+    "beast:marsh-hydra": [
+      {
+        "cause": "starvation",
+        "count": 1,
+        "ageDays": 1186.1401593491864,
+        "dependent": false,
+        "phase": "stationary",
+        "afterPersonalArrival": false,
+        "firstFailure": {
+          "at": 7009936.132218575,
+          "regionId": "habitat:100:wetland",
+          "phase": "stationary",
+          "dependent": false,
+          "afterPersonalArrival": false,
+          "inventory": {
+            "snapshotAt": 7010824.442307083,
+            "resource": "meatKg",
+            "regionalStock": 0,
+            "renewalPerDay": 0,
+            "regionalAnimalMatterKg": 214472.96225690172
+          }
+        },
+        "knownLivingCaregivers": 0,
+        "monthlySearchSeconds": 0,
+        "monthlyCareSeconds": 0
+      },
+      {
+        "cause": "starvation",
+        "count": 1,
+        "ageDays": 1192.0041626281861,
+        "dependent": false,
+        "phase": "stationary",
+        "afterPersonalArrival": false,
+        "firstFailure": {
+          "at": 7516940.980877102,
+          "regionId": "habitat:106:wetland",
+          "phase": "stationary",
+          "dependent": false,
+          "afterPersonalArrival": false,
+          "inventory": {
+            "snapshotAt": 7517133.668391505,
+            "resource": "meatKg",
+            "regionalStock": 0,
+            "renewalPerDay": 0,
+            "regionalAnimalMatterKg": 172915.356001337
+          }
+        },
+        "knownLivingCaregivers": 0,
+        "monthlySearchSeconds": 0,
+        "monthlyCareSeconds": 0
+      }
+    ]
+  },
+  "firstFailures": 166,
+  "firstFailureEvidence": {
+    "regional-matter-present-access-or-compatibility-unresolved": 166
+  },
+  "habitatFloorBreaches": [],
+  "maintenanceDeficits": [],
+  "maintenanceDeficitsByChannel": {},
+  "habitatFloorBreachesByChannel": {},
+  "exhaustedRegions": [],
+  "floodErosionEP": 0,
+  "erodedWetlands": 0,
+  "atmosphericWaterTakenL": 166.47704405191482,
+  "intakeAudit": {
+    "sourceId": "beast-habitat-source:e8a02b1f",
+    "from": 0,
+    "until": 10368000,
+    "bySpecies": {
+      "beast:abyssal-bell": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 0,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "beast:ashhorn-behemoth": {
+        "regionalFoodKg": 49116146.00013452,
+        "regionalWaterL": 294696876.00082463,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 3584136.7630643863,
+        "careWaterDeliveredL": 8997748.95141225,
+        "instantRemainsKg": 0
+      },
+      "beast:brine-cathedral": {
+        "regionalFoodKg": 1228800000.0003192,
+        "regionalWaterL": 0,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "beast:burrowing-furnace": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 9644422.894609468,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "beast:candlecap-myriapod": {
+        "regionalFoodKg": 57987.9285164744,
+        "regionalWaterL": 38658.61901103868,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "beast:carrion-lantern": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 0,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 166.47704405185843,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "beast:dreaming-tortoise": {
+        "regionalFoodKg": 8171879.18230777,
+        "regionalWaterL": 17511169.676390313,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "beast:ember-ant": {
+        "regionalFoodKg": 194.6642398331824,
+        "regionalWaterL": 97.3321199165912,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 0.09137339349445028,
+        "careWaterDeliveredL": 0.045407729722853674,
+        "instantRemainsKg": 0
+      },
+      "beast:frostwake-leviathan": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 0,
+        "foragedWetTissueKg": 21882.05481140875,
+        "foragedFoodEquivalentKg": 21882.05481140883,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "beast:glasswing-roc": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 89725.94519514605,
+        "foragedWetTissueKg": 443568.8109481645,
+        "foragedFoodEquivalentKg": 443568.8109481645,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "beast:gloam-prowler": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 72369.59875580083,
+        "foragedWetTissueKg": 55376.41699284298,
+        "foragedFoodEquivalentKg": 55376.4169928439,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 4583.513846949964,
+        "careWaterDeliveredL": 4674.981399771791,
+        "instantRemainsKg": 0
+      },
+      "beast:gravebloom-elk": {
+        "regionalFoodKg": 146302.67157281184,
+        "regionalWaterL": 292605.3431456237,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 23182.13267920817,
+        "careWaterDeliveredL": 33278.89923857302,
+        "instantRemainsKg": 0
+      },
+      "beast:ironroot-colossus": {
+        "regionalFoodKg": 9215999.99986836,
+        "regionalWaterL": 184319999.99960858,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "beast:ley-manta": {
+        "regionalFoodKg": 104554.95062777564,
+        "regionalWaterL": 0,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "beast:marsh-hydra": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 27824.10635588748,
+        "foragedWetTissueKg": 53548.87779612724,
+        "foragedFoodEquivalentKg": 53548.87779612687,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "beast:mire-choir": {
+        "regionalFoodKg": 634231.6496676938,
+        "regionalWaterL": 634231.6496676938,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "beast:mirror-ape": {
+        "regionalFoodKg": 90530.55372977337,
+        "regionalWaterL": 135795.83059614192,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 4915.89562191744,
+        "careWaterDeliveredL": 4955.113301911062,
+        "instantRemainsKg": 0
+      },
+      "beast:nullmaw-stalker": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 30169.89846290441,
+        "foragedWetTissueKg": 18576.09048913326,
+        "foragedFoodEquivalentKg": 18576.090489133112,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "beast:reef-wyrm": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 0,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "beast:rimefang-pack": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 71177.35954151371,
+        "foragedWetTissueKg": 64690.928291549884,
+        "foragedFoodEquivalentKg": 64690.92829154937,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 4558.998791488892,
+        "careWaterDeliveredL": 3498.3172080379727,
+        "instantRemainsKg": 0
+      },
+      "beast:rivercoil": {
+        "regionalFoodKg": 8157894.303120396,
+        "regionalWaterL": 0,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "beast:storm-kite": {
+        "regionalFoodKg": 1045.494043902078,
+        "regionalWaterL": 0,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "beast:sunspine-basilisk": {
+        "regionalFoodKg": 0,
+        "regionalWaterL": 18583.276604819497,
+        "foragedWetTissueKg": 30483.819631378414,
+        "foragedFoodEquivalentKg": 30483.81963137859,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 0,
+        "careWaterDeliveredL": 0,
+        "instantRemainsKg": 0
+      },
+      "beast:thunderback-grazer": {
+        "regionalFoodKg": 38732738.23637396,
+        "regionalWaterL": 88531973.11168282,
+        "foragedWetTissueKg": 0,
+        "foragedFoodEquivalentKg": 0,
+        "foragedCarrionWaterL": 0,
+        "atmosphericWaterL": 0,
+        "careFoodDeliveredKg": 6033269.689243572,
+        "careWaterDeliveredL": 9759802.56128633,
+        "instantRemainsKg": 0
+      }
+    },
+    "unattributedInstantRemainsKg": 0
+  },
+  "intakeLimits": "Direct maintenance uptake uses the executed cached supply rates; foraging and care use actual transfer receipts. Starting reserves are not new intake. Care is an internal transfer, not additional environmental production. Instant remains are wet kg, not inferred water or food-equivalent.",
+  "parentalCare": {
+    "foodInputKg": 12068308.855781704,
+    "waterInputL": 19793640.915005766,
+    "givenFoodKg": 9654647.0846267,
+    "givenWaterL": 18803958.869255815,
+    "memberSeconds": 240281571.3814428,
+    "dependentLiving": 1606
+  },
+  "foodWeb": {
+    "attempts": 74,
+    "contacts": 0,
+    "kills": 0,
+    "escapes": 0,
+    "interrupted": 0,
+    "consumedKg": 9378.114118402089,
+    "decomposedKg": 3571684.938597823,
+    "deferred": 28606328,
+    "work": {
+      "indexedGroups": 282584,
+      "candidateChecks": 1933436,
+      "combatSteps": 0
+    },
+    "pending": 0,
+    "wildlife": {
+      "original": 97503071747,
+      "born": 76663995846,
+      "living": 67168817844,
+      "dead": 106997876710,
+      "hunted": 373039,
+      "liveKg": 4751259952.619727,
+      "consumedKg": 683267.6822699892,
+      "pending": 0,
+      "cohorts": 12901,
+      "startingDead": 6497402846,
+      "startingCarcassKg": 24347335.806720365,
+      "startingDecomposedKg": 9606361.745279698
+    },
+    "foraging": {
+      "searches": 191831,
+      "searchSeconds": 61792075.22297973,
+      "eatingSeconds": 19693817.684533473,
+      "handlingSeconds": 1970760,
+      "restSeconds": 2838785274.2560067,
+      "eatenKg": 688126.998960605,
+      "interrupted": 333,
+      "meals": 20,
+      "approaches": 52,
+      "approachSeconds": 3641.2840863079764
+    },
+    "travellingLiving": 21192,
+    "stoppedTravellingLiving": 0,
+    "positionedTravellingLiving": 21192,
+    "unlocatedLiving": 0,
+    "unlocatedRemainsKg": 8234.307394080268
+  },
+  "carcasses": {
+    "deathBatches": 697500,
+    "localSites": 12544,
+    "positionedKg": 141203.5516364608,
+    "unresolvedKg": 96222268.13442755,
+    "queries": 2488766,
+    "nodeVisits": 4126804,
+    "limitedQueries": 0
+  },
+  "sourceIssueKinds": {
+    "unavailableOriginalFurnaceMetal": 8,
+    "dormantDreamWeather": 32
+  },
+  "executionMilliseconds": 1565344,
+  "boundaries": 330779,
+  "cohortIntervals": 115783374,
+  "accountBytes": 116336513
+}

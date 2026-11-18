@@ -46,15 +46,21 @@ Glasswing Roc have no imaginary direct repair bonus; their ecological benefit
 comes from actual control of destructive populations. Zero is deliberate rather
 than unknown. Supply, damage, season and performed work still limit achieved rates.
 
-The [post-drainage/post-care seasonal control](post-drainage-seasonal-control.json)
-records the latest complete all-species baseline. The earlier
-[pre-drainage control](seasonal-viability-control.json) remains historical,
-separate from these authored throughput ceilings. Neither result passes.
-Its [assessment and limitations](../SEASONAL_VIABILITY.md) distinguish preliminary
+The [integrated seasonal control](integrated-seasonal-control.json) records the
+latest complete all-species baseline: source `e8a02b1f`, 120 days, all 24 species
+and twelve validated checkpoints, with per-species membership/intake and retained
+failure evidence. Habitat maintenance passes in this sample; five feeding-loss
+species leave measured viability rejected. Zero original-beast contacts also
+leave opposition unverified; no source adoption is claimed.
+The [post-drainage/post-care control](post-drainage-seasonal-control.json) and
+[pre-drainage control](seasonal-viability-control.json) remain historical,
+separate from these authored throughput ceilings. Those earlier results also fail.
+The [assessment and limitations](../SEASONAL_VIABILITY.md) distinguish preliminary
 warnings, actual paid supply/work and unresolved access/model failures. It is
 not a balanced-world certificate or a replacement set of species rates.
-The [new hunting-placement correction](../HUNTING_HABITATS.md) preserves counts
-and prey and has focused local controls, not another full seasonal result.
+The [hunting-placement correction](../HUNTING_HABITATS.md) preserves counts
+and prey; its original local controls remain distinct from the newer integrated
+measurement, which also includes vector Lantern motion and catchment drainage.
 
 The [Lantern vector-motion windows](lantern-vector-windows.json) retain existing
 day-10/day-60 histories and continue each for one day. They verify corrected

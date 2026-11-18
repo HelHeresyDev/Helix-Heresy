@@ -1,7 +1,8 @@
 // Focused generated-source execution, not a native game or world-balance claim.
 const L = require('../world-run-library'), S = require('../beast-habitat-sources'), P = require('../beast-populations'), Care = require('../beast-parental-care');
 const Carcasses = require('../wildlife-carcasses');
-function run({ seed = 'source-small', days, progress = () => {}, checkpoint = () => {}, resume = null, engine = P } = {}) {
+const Intake = require('./replay-intake-audit');
+function run({ seed = 'source-small', days, progress = () => {}, checkpoint = () => {}, resume = null, engine = P, intakeAudit = true } = {}) {
   const started = performance.now();
   const world = resume?.world || L.createWorld({ id: 'generated-habitat-benchmark', worldSeed: seed, createdAt: 'test', generationVersion: 8,
     creationSettings: { strategicMap: { refinementLevel: 2 } } });
@@ -13,41 +14,45 @@ function run({ seed = 'source-small', days, progress = () => {}, checkpoint = ()
     throw Error('Resume requires this exact private source and a valid whole-day snapshot');
   S.validate(record, map);
   const executionStarted = performance.now();
-  for (let day = account.clock / engine.DAY + 1; day <= endDays; day++) {
-    engine.advance(account, day * engine.DAY, true, true);
-    if (day % 10 === 0 || day === endDays) checkpoint({ world, account }, day);
-    if ((day % 10 === 0 || day === endDays) && !engine.normalize(account, binding))
-      throw Error(`Generated account cannot normalize at day ${day}`);
-    if (day % 10 === 0 || day === endDays) progress({ day, milliseconds: Math.round(performance.now() - executionStarted),
-      ...account.work, cohorts: account.groups.reduce((n, g) => n + g.cohorts.length, 0) });
-  }
-  const executionMilliseconds = Math.round(performance.now() - executionStarted);
-  const result = S.replay(record, map, { binding, account, until: endDays * engine.DAY });
-  const byKind = rows => rows.reduce((counts, row) => { counts[row.kind] = (counts[row.kind] || 0) + 1; return counts; }, {});
-  const lossesByCause = {};
-  for (const loss of [...account.losses, ...account.lossBatches])
-    lossesByCause[loss.cause] = (lossesByCause[loss.cause] || 0) + (loss.count ?? 1);
-  const shortfalls = {};
-  for (const issue of result.report.issues) if (issue.kind === 'performedResourceShortfall')
-    shortfalls[issue.resource] = (shortfalls[issue.resource] || 0) + issue.missingAmount;
-  const lossesBySpecies = {};
-  const scarcityPhases = {}, scarcityExamples = {};
-  for (const loss of [...account.losses, ...account.lossBatches]) {
-    const row = lossesBySpecies[loss.speciesId] ||= {};
-    row[loss.cause] = (row[loss.cause] || 0) + (loss.count ?? 1);
-    if (loss.context) {
-      const c = loss.context, phase = `${c.phase}:${c.dependent ? 'dependent' : 'independent'}:${c.afterPersonalArrival ? 'after-arrival' : 'no-prior-arrival'}`;
-      scarcityPhases[phase] = (scarcityPhases[phase] || 0) + (loss.count ?? 1);
-      const examples = scarcityExamples[loss.speciesId] ||= [];
-      if (examples.length < 2) examples.push({ cause: loss.cause, count: loss.count ?? 1, ...c });
+  const observer = intakeAudit ? Intake.observe(account, resume?.intakeAudit) : null;
+  try {
+    for (let day = account.clock / engine.DAY + 1; day <= endDays; day++) {
+      engine.advance(account, day * engine.DAY, true, true);
+      if (day % 10 === 0 || day === endDays) checkpoint({ world, account, ...(observer ? { intakeAudit: observer.snapshot() } : {}) }, day);
+      if ((day % 10 === 0 || day === endDays) && !engine.normalize(account, binding))
+        throw Error(`Generated account cannot normalize at day ${day}`);
+      if (day % 10 === 0 || day === endDays) progress({ day, milliseconds: Math.round(performance.now() - executionStarted),
+        ...account.work, cohorts: account.groups.reduce((n, g) => n + g.cohorts.length, 0) });
     }
-  }
-  return { milliseconds: Math.round(performance.now() - started), executionMilliseconds, days: endDays, regions: account.regions.length,
-    groups: account.groups.length, bindingBytes: JSON.stringify(record.physicalBinding).length,
-    accountBytes: JSON.stringify(account).length, ...result.report, issues: result.report.issues.length,
-    issueKinds: byKind(result.report.issues), sourceIssueKinds: byKind(result.report.sourceAvailability), lossesByCause, lossesBySpecies, shortfalls,
-    parentalCare: Care.summary(account), carcasses: Carcasses.summary(account), scarcityPhases, scarcityExamples,
-    sourceAvailability: result.report.sourceAvailability.length, populations: result.report.populations.length };
+    const executionMilliseconds = Math.round(performance.now() - executionStarted);
+    const result = S.replay(record, map, { binding, account, until: endDays * engine.DAY });
+    const byKind = rows => rows.reduce((counts, row) => { counts[row.kind] = (counts[row.kind] || 0) + 1; return counts; }, {});
+    const lossesByCause = {};
+    for (const loss of [...account.losses, ...account.lossBatches])
+      lossesByCause[loss.cause] = (lossesByCause[loss.cause] || 0) + (loss.count ?? 1);
+    const shortfalls = {};
+    for (const issue of result.report.issues) if (issue.kind === 'performedResourceShortfall')
+      shortfalls[issue.resource] = (shortfalls[issue.resource] || 0) + issue.missingAmount;
+    const lossesBySpecies = {};
+    const scarcityPhases = {}, scarcityExamples = {};
+    for (const loss of [...account.losses, ...account.lossBatches]) {
+      const row = lossesBySpecies[loss.speciesId] ||= {};
+      row[loss.cause] = (row[loss.cause] || 0) + (loss.count ?? 1);
+      if (loss.context) {
+        const c = loss.context, phase = `${c.phase}:${c.dependent ? 'dependent' : 'independent'}:${c.afterPersonalArrival ? 'after-arrival' : 'no-prior-arrival'}`;
+        scarcityPhases[phase] = (scarcityPhases[phase] || 0) + (loss.count ?? 1);
+        const examples = scarcityExamples[loss.speciesId] ||= [];
+        if (examples.length < 2) examples.push({ cause: loss.cause, count: loss.count ?? 1, ...c });
+      }
+    }
+    return { milliseconds: Math.round(performance.now() - started), executionMilliseconds, days: endDays, regions: account.regions.length,
+      groups: account.groups.length, bindingBytes: JSON.stringify(record.physicalBinding).length,
+      accountBytes: JSON.stringify(account).length, ...result.report, issues: result.report.issues.length,
+      issueKinds: byKind(result.report.issues), sourceIssueKinds: byKind(result.report.sourceAvailability), lossesByCause, lossesBySpecies, shortfalls,
+      parentalCare: Care.summary(account), carcasses: Carcasses.summary(account), scarcityPhases, scarcityExamples,
+      ...(observer ? { intakeAudit: observer.snapshot() } : {}),
+      sourceAvailability: result.report.sourceAvailability.length, populations: result.report.populations.length };
+  } finally { observer?.stop(); }
 }
 if (require.main === module) {
   const fs = require('node:fs'), path = require('node:path');

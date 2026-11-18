@@ -72,9 +72,140 @@ the consumer needs carrion, or unavailable through an actual caregiver.
 exhaustion. Undocumented older snapshots remain `unrecorded`. None of these
 private snapshots enters animal knowledge or a public census.
 
-## Recorded post-drainage/post-care generated 120-day control
+## Current integrated 120-day control
 
-The latest measured baseline is
+[integrated-seasonal-control.json](reference/integrated-seasonal-control.json)
+records a **fresh** `source-small`, refinement-2 world with source
+`beast-habitat-source:e8a02b1f`. It combines hunting placement, vector Lantern
+motion and catchment drainage with the existing care, carcass and food-web
+systems. The simulation kernel is commit `cb7383e`; the only additions in this
+pass are private Node reporting/observation, focused checks and documentation.
+No rates, original counts, wildlife, wind, food, reserves or rules were tuned.
+
+All 24 species, 89 populations and 334 regions execute for 120 days. All twelve
+ten-day checkpoints normalize; the reusable world stays byte-identical across
+them and its canonical digest validates. This is not an isolated Lantern or
+hydrology control. **The measured result remains rejected.**
+
+Membership reconciles exactly, globally and per species:
+**56,243 originals + 190,892 births = 131,047 living + 116,088 dead**.
+Deaths are 115,922 background, 160 starvation and six dehydration. The published
+report retains all 24 species' membership and intake totals, twelve milestones,
+scarcity contexts and original-source provenance.
+
+| Measured result | Earlier complete baseline | Current integrated control |
+| --- | ---: | ---: |
+| Resource-shortfall records | 63 | 33 |
+| Grouped scarcity-death records | 58 | 25 |
+| Starvation / dehydration deaths | 213 / 29 | 160 / 6 |
+| Habitat-floor breaches | 1 | 0 |
+| Completed-cycle maintenance deficits | 37 | 0 |
+| Original-beast encounter contacts | 0 | 0 |
+
+These are different generated source records on the same original geography,
+with several corrections combined—not a single-variable causal experiment.
+Current cumulative unmet maintenance is 551,091.814388 kg in the hunting-food
+account and 2,152.737295 L water. A lower death count does not mean every unmet
+quantity improved. None of the 166 deduplicated first-failure snapshots proves
+a local meal: each retains some regional stock/animal matter, with actual
+access or compatibility still unresolved. No region is relabeled exhausted.
+
+### Feeding findings, without a pooled-intake shortcut
+
+| Species with scarcity losses | Living / original | Starvation / dehydration | Actual foraged wet tissue |
+| --- | ---: | ---: | ---: |
+| Carrion Lantern | 0 / 120 | 109 / 6 | 0 kg |
+| Reef Wyrm | 0 / 23 | 23 / 0 | 0 kg |
+| Frostwake Leviathan | 0 / 12 | 12 / 0 | 21,882.05 kg |
+| Abyssal Bell | 0 / 12 | 12 / 0 | 0 kg |
+| Marsh Hydra | 8 / 12 | 4 / 0 | 53,548.88 kg |
+
+There are no births in these five rows. Lanterns additionally lose five members
+to background mortality. A species-wide positive feeding total is not proof
+that every group or dependent ate: all Frostwakes die despite some ingestion.
+Three Frostwake scarcity losses are dependents with living known guardians;
+the audit records no delivered Frostwake food/water. Guardian presence alone
+does not prove capability, proximity or available rations. Of all 166 scarcity
+deaths, 158 are stationary independents, three stationary dependents, four
+stopped independents and one travelling independent. Age classes in the report
+are calendar-age bands, not certificates of adult body mass or skill.
+
+All Lanterns are dead by day 80, with **zero** observed wet-tissue ingestion,
+food-equivalent, carrion-water uptake or instant remains meals. They take
+166.477044 L from actual atmospheric water, not remote ground water. At day 70,
+84 are still alive but food/fat stores are exhausted and living health spans
+about 0.239–0.287. Survival on initial reserves and delayed death is not feeding
+viability. The full world's 688,126.999 kg of elapsed foraging cannot be credited
+to Lanterns. Their sensed approaches/motion are implemented, but access remains
+unresolved; no rescue food, special source placement or immunity is supplied.
+
+Conversely, 124 of 125 original Rimefangs survive; the one loss is background
+mortality, with no scarcity deaths. All twelve Nullmaws survive. Rimefangs
+actually ingest 64,690.93 kg and deliver 4,559.00 kg food/3,498.32 L water through
+care; Nullmaws ingest 18,576.09 kg. These complete-world observations strengthen
+the earlier isolated placement controls without certifying all predator starts.
+
+### Fixed remaining D accounting
+
+This is the same four-item [existing acceptance list](BEAST_POPULATIONS.md#fixed-d-acceptance-still-unfinished),
+not new prompts or additional prerequisites:
+
+| Existing requirement | What this run establishes; what remains |
+| --- | --- |
+| Source repair, seasonal viability and adoption | Habitat maintenance now passes in this sample, with zero flood erosion. The five feeding-loss species above remain unresolved, so this source is not accepted/adopted. |
+| Natural formation sites and sustained food-web/opposition integration | Performed food/care and existing work execute; zero original-beast contacts do not demonstrate opposition. Finite natural formation-site coverage remains existing implementation work. |
+| Native encounters, persistence, travel/logistics and dated observations | A diagnostic account is not a live encounter integration. This pass changes no native adoption, knowledge or human logistics. |
+| Focused native/source-class and strategic-output acceptance | The Node replay does not exercise native DOM/Canvas, whole-package source-class outputs or publication boundaries. The already-listed 3.35d-D/E integration stays with its existing owner. |
+
+Eight hives still lack refined metal and 32 tortoise groups lack willing dream
+participants. Those optional dormant abilities are not new blockers or credited
+as performed nurturing. No rate changes, formation features, opposition fixes
+or encounter changes were smuggled into this measurement pass. D stays open,
+the queue stays at eleven and the tutorial stays deferred.
+
+### Reporting method and reproduction
+
+The replay-only intake observer delegates to the unchanged integrators. Direct
+maintenance uptake comes from their executed cached supply rates; elapsed meals
+and care use actual transfer deltas. Starting reserves are not new intake;
+care delivery is an internal transfer, not extra environmental production.
+Instant remains are reported as wet kg without invented water/food conversion.
+The bounded event-ring fallback reports unattributed instant meals explicitly;
+this run has zero unattributed kg. Per-species foraging, atmosphere and care
+reconcile with the original pooled receipts at every checkpoint.
+
+Observation-on/off prepared accounts remain byte-identical. A positive Lantern
+meal control verifies that the meter can record real tissue, food and water.
+Saved observation resumes with the exact source/time and never reconstructs
+missing earlier intake; observers detach on success and failure. Audit data is
+outside the game account and reusable world. No browser runtime dependency is
+added. **Eleven focused unit checks pass; the full suite was not run.**
+
+Execution took 1,565.344 seconds (26.09 minutes), with 330,779 boundaries,
+115,783,374 cohort intervals and a 116,336,513-byte final expanded account. This
+is an observed diagnostic cost, not a controlled performance comparison or a
+proof that native/default-resolution saves fit browser quotas.
+
+Checkpoints and the full report are retained under the ignored
+`.replay-checkpoints/integrated-aU61avzq/`; only the compact reference is committed.
+An interrupted earlier `/tmp` execution was lost with its environment; none of
+its partial observations is substituted for this fresh completed run.
+
+To reproduce, create a fresh directory under `.replay-checkpoints/`, then run:
+
+```sh
+node scripts/benchmark-generated-beast-habitats.js --days=120 --checkpoint-dir=.replay-checkpoints/NEW_CONTROL --save-report
+node scripts/summarize-integrated-season.js .replay-checkpoints/NEW_CONTROL reference/NEW_REPORT.json RUNTIME_COMMIT
+```
+
+The directory must already exist and be real; snapshots/reports refuse to
+overwrite files. Preserve its `intakeAudit` alongside `world`/`account` when
+resuming. Repository-local ignored checkpoints survive environment resets;
+temporary-directory checkpoints are not durable evidence storage.
+
+## Historical post-drainage/post-care generated 120-day control
+
+The earlier measured baseline is
 [post-drainage-seasonal-control.json](reference/post-drainage-seasonal-control.json):
 seed `source-small`, refinement 2, source `beast-habitat-source:a2ffef9d`,
 runtime commit `f07bfe2`. It includes the drainage and independent care

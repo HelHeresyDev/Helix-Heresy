@@ -85,6 +85,14 @@ wind-driven scavenger access, seasonal travelling groups, retained flooding and
 opposition/native adoption remain separate existing D requirements. No second
 complete seasonal replay is implied by these local results.
 
+The later [integrated 120-day control](SEASONAL_VIABILITY.md#current-integrated-120-day-control)
+does execute all species together using source `e8a02b1f`, including this
+placement rule. It retains 124 of 125 original Rimefangs (one background death,
+no scarcity deaths) and all twelve Nullmaws, with actual foraging and Rimefang
+care. However, five other species retain scarcity losses, including three
+complete marine-predator losses and Lantern extinction. Placement is not a
+universal feeding-access certificate; the integrated source remains rejected.
+
 The focused source/binding/hunting files pass **43 unit checks**. Two named
 Chromium checks cover generated compressed-world storage/reload/continued
 execution and actual default-resolution 10,242-cell storage. The full suite is

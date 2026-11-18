@@ -135,6 +135,37 @@ handling of microscopic replacement rations. Passive reviews do not spend active
 search effort. Active reviews, including unsuccessful approaches, consume the
 existing monthly search/activity budget. Final death freezes further execution.
 
+## Current integrated generated control
+
+The [current complete ecosystem control](SEASONAL_VIABILITY.md#current-integrated-120-day-control)
+uses fresh source `beast-habitat-source:e8a02b1f` and kernel `cb7383e`. It retains
+all 24 species, original wildlife, weather, corpses, care and work. All twelve
+ten-day checkpoints normalize. This replaces neither the historical isolated
+control below nor the retained one-day vector windows with relabeled numbers.
+
+The species-attributed replay observer records **zero Lantern wet-tissue or
+food-equivalent ingestion**, zero carrion water and zero instant remains meals.
+Actual atmospheric uptake is 166.477044 L. Pooled ecosystem foraging of
+688,126.999 kg is not Lantern intake. A separate positive-meal control confirms
+the observer records real Lantern food/water when ingestion actually occurs.
+
+| Day | Living Lanterns | Cumulative wet tissue eaten |
+| --- | ---: | ---: |
+| 10 | 118 | 0 kg |
+| 20 | 116 | 0 kg |
+| 30 | 90 | 0 kg |
+| 40–70 | 84 | 0 kg |
+| 80–120 | 0 | 0 kg |
+
+At day 70 those 84 have exhausted food/fat and health is only 0.239–0.287.
+Delayed death is not successful scavenging. All 120 originals die with no
+offspring: 109 starvation, six dehydration, five background. Improved motion
+and atmospheric water do not establish reachable feeding. The source remains
+rejected; exact sensing/approach/contact opportunities and missing meals remain
+unresolved, not excused as natural extinction or supplied by a new mechanic.
+No controller, biology, food, wind or population rule changed in this measurement
+pass. See the existing D accounting in the linked seasonal report.
+
 ## Historical targeted generated control
 
 These are the pre-distribution measurements of the isolated

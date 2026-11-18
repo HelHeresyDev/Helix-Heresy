@@ -12,6 +12,7 @@ tmp-*.js
 tmp-*.mjs
 
 # Local saves / exported runs
+.replay-checkpoints/
 *.save.json
 helix-heresy-save*.json
 rogue-genesis-save*.json

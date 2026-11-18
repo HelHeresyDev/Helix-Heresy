@@ -1072,6 +1072,14 @@ positions. Those remain existing D limitations, not new queue entries.
 
 ## Fixed D acceptance still unfinished
 
+The [current integrated seasonal control](SEASONAL_VIABILITY.md#current-integrated-120-day-control)
+executes all 24 species for 120 days on source `e8a02b1f`, with conserved
+membership, reconciled species-level intake and twelve validated checkpoints.
+Habitat maintenance now passes in this sample, but five species retain feeding
+losses (including Lantern extinction), original-beast contacts remain zero and
+native adoption is unchanged. It remains rejected. The following four existing
+requirements are unchanged, not replaced with another prompt sequence.
+
 1. Successful source allocation repair and full seasonal initial viability,
    including supplied ecological opposition and original source adoption without
    duplicating the existing Rimefang/Elk/Mirror Ape consumers. Generated proposals
