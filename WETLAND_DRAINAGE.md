@@ -126,8 +126,11 @@ within D, not automatic proof of nurturer defeat or a new pending prompt.
 
 The historical [all-species seasonal result](SEASONAL_VIABILITY.md) belongs to
 pre-drainage source `9b62d184`; its 51 wetland failures must not be presented as
-new-source measurements. The complete food-web replay was not repeated in this
-pass, and feeding/access failures and native adoption remain unresolved.
+new-source measurements. The complete food-web replay was not repeated in the
+drainage-only pass. The subsequent [post-drainage/post-care baseline](SEASONAL_VIABILITY.md)
+records one floor breach and 37 negative soil-maintenance balances in the full
+food web. Feeding/access failures and native adoption remain unresolved; the
+separate hydrology-only numbers above are not relabeled as full-world results.
 
 ## Focused verification
 

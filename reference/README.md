@@ -46,11 +46,15 @@ Glasswing Roc have no imaginary direct repair bonus; their ecological benefit
 comes from actual control of destructive populations. Zero is deliberate rather
 than unknown. Supply, damage, season and performed work still limit achieved rates.
 
-The [measured seasonal control](seasonal-viability-control.json) records one
-all-species generated source, separately from these authored throughput ceilings.
+The [post-drainage/post-care seasonal control](post-drainage-seasonal-control.json)
+records the latest complete all-species baseline. The earlier
+[pre-drainage control](seasonal-viability-control.json) remains historical,
+separate from these authored throughput ceilings. Neither result passes.
 Its [assessment and limitations](../SEASONAL_VIABILITY.md) distinguish preliminary
 warnings, actual paid supply/work and unresolved access/model failures. It is
 not a balanced-world certificate or a replacement set of species rates.
+The [new hunting-placement correction](../HUNTING_HABITATS.md) preserves counts
+and prey and has focused local controls, not another full seasonal result.
 
 The separate [wetland drainage control](wetland-drainage-control.json) measures
 finite water routing and erosion without animal consumption or ongoing nurturing.

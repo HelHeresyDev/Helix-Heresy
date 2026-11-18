@@ -22,6 +22,7 @@ test('browser generation, compressed world storage and reload preserve private r
       workSites: source.physicalBinding.workSites.length, nurseries: source.physicalBinding.nurseries.length,
       establishedHabitats: source.establishedHabitats === true, initialConstruction: source.physicalBinding.initialWork.length,
       wetlandDrainage: source.wetlandDrainage === true,
+      huntingHabitatAccess: source.huntingHabitatAccess === true,
       physicalDigest: window.HelixStrategicWorld.stableHash(source.physicalBinding),
       wildlifeDigest: window.HelixStrategicWorld.stableHash(source.backgroundWildlife),
       wildlifeDistribution: source.backgroundWildlife.distribution,
@@ -36,6 +37,7 @@ test('browser generation, compressed world storage and reload preserve private r
   expect(original.workSites).toBeGreaterThan(0); expect(original.nurseries).toBeGreaterThan(0);
   expect(original.establishedHabitats).toBe(true); expect(original.initialConstruction).toBeGreaterThan(0);
   expect(original.wetlandDrainage).toBe(true);
+  expect(original.huntingHabitatAccess).toBe(true);
   expect(original.preyClasses).toEqual(['large', 'medium', 'small']);
   expect(original.wildlifeDistribution).toBe('habitatPatches');
   await page.reload(); await page.locator('#titleWorldLibraryBtn').click();
@@ -43,6 +45,7 @@ test('browser generation, compressed world storage and reload preserve private r
   await expect(page.locator('body')).not.toContainText('unfundedPrey');
   await expect(page.locator('body')).not.toContainText('foodAllocations');
   await expect(page.locator('body')).not.toContainText('seasonalResourceDeficit');
+  await expect(page.locator('body')).not.toContainText('huntingHabitatAccess');
   const loaded = await page.evaluate(id => {
     const L = window.HelixWorldRunLibrary, S = window.HelixBeastHabitatSources, P = window.HelixBeastPopulations;
     const world = L.createRepository(localStorage).getWorld(id), map = world.generatedData.strategicMap;
@@ -56,6 +59,7 @@ test('browser generation, compressed world storage and reload preserve private r
     let unavailable = false;
     try { S.runtimeSource(map.beastHabitatSources, map); } catch { unavailable = true; }
     return { digest: world.canonicalDigest, sourceId: map.beastHabitatSources.id, unavailable,
+      huntingHabitatAccess: map.beastHabitatSources.huntingHabitatAccess === true,
       workSites: map.beastHabitatSources.physicalBinding.workSites.length,
       nurseries: map.beastHabitatSources.physicalBinding.nurseries.length,
       physicalDigest: window.HelixStrategicWorld.stableHash(map.beastHabitatSources.physicalBinding),
@@ -72,6 +76,7 @@ test('browser generation, compressed world storage and reload preserve private r
   }, original.id);
   expect(loaded.startingDead).toBeGreaterThan(0);
   expect(loaded).toEqual({ digest: original.digest, sourceId: original.sourceId, unavailable: true,
+    huntingHabitatAccess: true,
     workSites: original.workSites, nurseries: original.nurseries, physicalDigest: original.physicalDigest,
     wildlifeDigest: original.wildlifeDigest,
     startingDead: loaded.startingDead, initialHistoryMatches: true,

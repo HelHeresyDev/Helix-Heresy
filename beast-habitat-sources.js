@@ -166,6 +166,29 @@
     return (patch.stocks[key] || 0) / calendar.monthDays.reduce((n, d) => n + d, 0)
       + Math.min(...patch.seasons.map(season => season.renewal[key] || 0));
   }
+  // Private INITIAL placement estimate, never a meal, reservation in a run,
+  // or information available to an animal choosing its next destination.
+  function huntingSupport(patch, pools, speciesId, groupId, adults, seed, calendar, used = new Map(), distributed = true) {
+    const p = Biology.lifecycle[speciesId], b = Bodies.profiles[speciesId];
+    const aquatic = ['waterColumn', 'wetland'].includes(patch.kind) && b.modes.some(m => ['swimming', 'drifting'].includes(m));
+    const local = Wildlife.initialPosition(patch, seed, groupId, distributed);
+    const position = { regionId: patch.id, ...local, altitudeM: aquatic ? -Math.min(patch.depthM - .1, b.heightM * 1.2) : 0 };
+    const senseM = aquatic ? Math.max(b.pressureM || 0, b.sightM || 0) : Math.max(b.sightM || 0, b.scentM || 0);
+    const footprintHa = (Math.PI * senseM ** 2 + b.speed * 6 * 3600 * Math.min(100, senseM) * 2) / 10000;
+    const areaHa = patch.areaHa * -Math.expm1(-footprintHa * adults / patch.areaHa);
+    const days = calendar.monthDays.reduce((n, d) => n + d, 0), candidates = [];
+    for (const pool of pools) {
+      const prey = Wildlife.profile(pool);
+      if (aquatic !== (pool.guild === 'fish') || !(prey.adultKg < p.adultKg * .5)) continue;
+      const fraction = Wildlife.encounterFraction(pool, { areaHa, position, depthM: aquatic ? Math.min(200, senseM * 2) : 0 });
+      const remainingKg = Math.max(0, pool.originalMassKg * .6 - (used.get(pool.id) || 0));
+      // Bound both encounter throughput and finite original flesh. Do not
+      // credit unborn prey or the whole region's plant budget as edible meat.
+      const foodKgDay = Math.min(remainingKg / days, remainingKg * fraction * p.huntSuccess);
+      if (foodKgDay > 0) candidates.push({ poolId: pool.id, foodKgDay });
+    }
+    return { foodKgDay: candidates.reduce((n, c) => n + c.foodKgDay, 0), candidates };
+  }
   function traversableHabitat(s, patch, physical = false) {
     // Flight over a sea is passage through its air, not a new ocean home or
     // permission to increase the species' original habitat/count allocation.
@@ -470,10 +493,13 @@
       policy: 'Private generator feasibility only; original-body residence and supply replay, no performed nurturing, future meat stock, safe destination reservation or perpetual equilibrium guarantee',
       seasonalJourneys: residence.journeys, seasons };
   }
-  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false, habitatAccess = false, windTransport = false, lanternMoisture = false, wildlifeDistribution = false, wildlifeCarcasses = false, establishedHabitats = false, wetlandDrainage = false) {
+  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false, habitatAccess = false, windTransport = false, lanternMoisture = false, wildlifeDistribution = false, wildlifeCarcasses = false, establishedHabitats = false, wetlandDrainage = false, huntingHabitatAccess = false) {
     const calendar = { epochAt: 0, monthDays: Local.PHASES.map(() => Local.PHASE_DAYS) };
     const patches = patchRows.map(row => expandPatch(map, row, calendar, physical)), groupRows = [], populations = [], unlocated = [];
     const worldPopulations = populationsFor(map), foodUse = new Map(), feedingRows = [];
+    const preyUse = new Map(), preyByRegion = huntingHabitatAccess ? new Map(Wildlife.definitions(
+      Wildlife.allocate({ spatialContinuity: true, regions: patches }, seed, { distributed: wildlifeDistribution, carcassBatches: wildlifeCarcasses }), patches)
+      .map(row => [row.regionId, row.pools])) : null;
     const migrations = new Map((ecologyFor(map).migrations || []).map(m => [m.populationId, m]));
     for (let pi = 0; pi < worldPopulations.length; pi++) {
       const p = worldPopulations[pi], s = Ecology.BEAST_SPECIES.find(s => s.id === p.speciesId);
@@ -522,6 +548,22 @@
           selected = choices[0]; feedingRows.push([pi, ordinal, selected.key]);
           const key = `${selected.index}:${selected.key}`; foodUse.set(key, (foodUse.get(key) || 0) + need);
         }
+        if (huntingHabitatAccess && !plantFoods.length && Behavior.capabilities[s.id]?.includes('hunt')) {
+          const profile = Biology.lifecycle[s.id], young = Math.floor(size / 4), adults = size - young;
+          const need = adults * profile.foodKgDay * profile.travelMultiplier + young * (profile.foodKgDay
+            * (profile.newbornKg / profile.adultKg) ** .75 * profile.juvenileMultiplier / Care.EFFICIENCY
+            + Math.max(0, profile.adultKg - profile.newbornKg) * .8 / Math.max(1, profile.adultDays) / profile.assimilation);
+          const groupId = `natural-group:${p.id}:${ordinal}`, choices = placementCandidates.map(row => ({ ...row,
+            support: huntingSupport(row.patch, preyByRegion.get(row.patch.id) || [], s.id, groupId, adults, seed, calendar, preyUse, wildlifeDistribution),
+            tie: random(`${seed}:${p.id}:${ordinal}:${row.index}:prey`) }))
+            .sort((a, b) => b.support.foodKgDay - a.support.foodKgDay || a.tie - b.tie);
+          selected = choices[0];
+          const days = calendar.monthDays.reduce((n, d) => n + d, 0);
+          // Share the finite compatible original flesh budget among all
+          // initially allocated hunters; bookkeeping supplies no actual kills.
+          for (const entry of selected.support.candidates) preyUse.set(entry.poolId, (preyUse.get(entry.poolId) || 0)
+            + entry.foodKgDay * days * Math.min(1, need / selected.support.foodKgDay));
+        }
         if (s.socialPattern === 'hiveColony') {
           const workers = 200 + Math.floor(random(`${seed}:${p.id}:${ordinal}:workers`) * 1800);
           groupRows.push([pi, ordinal, selected.index, workers, Math.floor(workers / 5)]);
@@ -539,6 +581,7 @@
     if (wildlifeCarcasses) record.wildlifeCarcasses = true;
     if (establishedHabitats) record.establishedHabitats = true;
     if (wetlandDrainage) record.wetlandDrainage = true;
+    if (huntingHabitatAccess) record.huntingHabitatAccess = true;
     const expanded = expand(record, map, { physical, raw: true });
     if (physical) { record.physicalBinding = Bindings.allocate(expanded, map, { positions: physicalPlacement, established: establishedHabitats, drainage: wetlandDrainage }); Bindings.apply(expanded, record.physicalBinding, map); }
     if (wildlife) { record.backgroundWildlife = Wildlife.allocate(expanded, seed, { distributed: wildlifeDistribution, carcassBatches: wildlifeCarcasses }); Wildlife.apply(expanded, record.backgroundWildlife); }
@@ -579,6 +622,12 @@
       if (!best || record.assessment.issues.length < best.assessment.issues.length) best = record;
       if (record.assessment.status === 'feasibleInitialCycle') break;
     }
+    // Preserve the original calibration/count selection. Repair placement, not
+    // the population total, and never upgrade an unmarked archived record.
+    if (options.huntingHabitatAccess !== false && best.habitatAccess && best.backgroundWildlife)
+      return candidate(seed, map, patchRows, best.calibration, true, true, true, true,
+        best.windTransport === true, best.lanternMoisture === true, best.wildlifeDistribution === true,
+        best.wildlifeCarcasses === true, best.establishedHabitats === true, best.wetlandDrainage === true, true);
     return best;
   }
   function validate(record, map, seed = record?.seed) {
@@ -590,7 +639,7 @@
     const topology = World.topologyForMap(map), patchRows = [];
     for (let i = 0; i < topology.cellCount; i++) patchRows.push(...patchesForCell(map, i, topology, record.physicalPlacement === true));
     const expected = candidate(record.seed, map, patchRows, record.calibration, Boolean(record.physicalBinding), Boolean(record.backgroundWildlife), record.physicalPlacement === true,
-      record.habitatAccess === true, record.windTransport === true, record.lanternMoisture === true, record.wildlifeDistribution === true, record.wildlifeCarcasses === true, record.establishedHabitats === true, record.wetlandDrainage === true);
+      record.habitatAccess === true, record.windTransport === true, record.lanternMoisture === true, record.wildlifeDistribution === true, record.wildlifeCarcasses === true, record.establishedHabitats === true, record.wetlandDrainage === true, record.huntingHabitatAccess === true);
     if (record.sourceDigest === legacyDigest) expected.sourceDigest = record.sourceDigest;
     const physical = value => { const result = copy(value); delete result.id; delete result.assessment; delete result.groupRows; return result; };
     if (World.stableHash(physical(expected)) !== World.stableHash(physical(record))) throw Error('Habitat source physical accounts were changed');
@@ -732,5 +781,5 @@
     return World.finalizeStrategicMap(next);
   }
   return { KINDS, STOCKS, ORIGINAL_COUNTS, cellAreaHa, compatible, usableHabitat, sourceDigest, expandPatch,
-    expand, forecast, assess, generate, validate, runtimeSource, replay, attach, populationsFor };
+    expand, forecast, assess, generate, validate, runtimeSource, replay, attach, populationsFor, huntingSupport };
 });

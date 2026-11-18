@@ -582,6 +582,14 @@ not a world-creation or ordinary-save operation.
 
 ### Habitat placement and location continuity
 
+New sources also apply [finite hunting-habitat allocation](HUNTING_HABITATS.md)
+to pure hunters. Actual compatible original wildlife, local encounter density
+and shared finite flesh budgets rank homes within the existing territory and
+thermal/traditional-home constraints. Calibration, original counts and prey
+allocations remain unchanged; archived worlds retain their original positions.
+Living prey never funds Carrion Lantern placement. The supplied local execution
+controls are not a new complete seasonal measurement or native adoption.
+
 New pristine populations select usable temperature/water settings before human
 history is generated. Their original rows, identities and counts then remain
 authoritative. Physical source placement filters those ranges for usable medium,

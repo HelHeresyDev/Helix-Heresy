@@ -72,7 +72,81 @@ the consumer needs carrion, or unavailable through an actual caregiver.
 exhaustion. Undocumented older snapshots remain `unrecorded`. None of these
 private snapshots enters animal knowledge or a public census.
 
-## Recorded pre-drainage generated 120-day control
+## Recorded post-drainage/post-care generated 120-day control
+
+The latest measured baseline is
+[post-drainage-seasonal-control.json](reference/post-drainage-seasonal-control.json):
+seed `source-small`, refinement 2, source `beast-habitat-source:a2ffef9d`,
+runtime commit `f07bfe2`. It includes the drainage and independent care
+corrections, all 24 species, 89 original populations and 334 regions. All twelve
+ten-day normalization checkpoints pass. The result remains **rejected**.
+
+| Measured issue | Records |
+| --- | ---: |
+| Actual resource shortfall | 63 |
+| Habitat-floor breach | 1 |
+| Completed-cycle maintenance deficit | 37 |
+| Scarcity deaths, grouped by species/region/cause | 58 |
+
+Membership reconciles exactly: **56,243 originals + 190,892 births = 130,971
+living + 116,164 dead**. Death causes are 115,922 background, 213 starvation and
+29 dehydration. Unmet maintenance totals are 574,510.181470 kg in the hunting-food
+account and 2,139.572604 L of water. The 205 deduplicated first-failure snapshots
+all retain positive regional stock or animal matter; none proves an accessible
+meal or caregiver delivery. No region is automatically relabeled exhausted.
+
+The remaining failures have distinct evidence and limits:
+
+- **Initial predator placement:** an actual Rimefang case starts with roughly
+  550 kg of background land animals across three million hectares despite better
+  compatible feeding grounds in its original territory. The implemented
+  [finite hunting-habitat correction](HUNTING_HABITATS.md) changes new-world
+  placement without changing original counts, prey, rates or migration knowledge.
+  The failing six-member family survives 15 days in the corrected site; all 19
+  coallocated groups retain 113 living originals without scarcity deaths after
+  30 days. These are deliberately isolated controls, not a full-world pass.
+- **Dependent care:** thirteen scarcity deaths concern stationary dependents.
+  Recorded Rimefang/Frostwake loss examples have living local guardians but no
+  currently capable, food-supplied caregiver. Independent water funding does not
+  restore an already incapacitated parent or make a food ration appear.
+- **Journey feeding/access:** 21 independent scarcity deaths occur while stopped
+  and thirteen while travelling. Those contexts do not, by themselves, establish
+  either a legitimate unavoidable loss or an implementation defect. Source
+  support, actual feeding opportunities and original routes remain separate.
+- **Wind-driven scavenging:** all 120 original Lanterns die (96 starvation,
+  nineteen dehydration, five background). Checkpoints include sea drift and
+  convergence-front stranding; their full feeding-access explanation remains
+  unresolved. The model records 37 approach starts and 2,445.16 earned approach
+  seconds, with no limited carcass queries. Pooled food receipts are not a
+  Lantern-specific ingestion measurement; living prey cannot fund scavenger
+  placement, and no new food or wind-steering ability was supplied.
+- **Habitat maintenance:** all 37 negative completed-cycle balances concern soil
+  cover. Only `habitat:117:wetland` crosses its floor, first around day 58.87,
+  reaching a minimum of zero. The earlier drainage control already identifies
+  its capacity-limited outlet. This is unresolved modeled flooding/maintenance,
+  not proof of defeated nurturers or permission to tune away the loss.
+- **Opposition/adoption:** original-beast duel contacts remain zero. Eight hives
+  still lack refined metal and 32 tortoise groups lack recorded willing dream
+  participants. Optional dormant powers get no unperformed maintenance credit.
+  Native encounter and strategic-output acceptance remains unfinished.
+
+Execution took 1,822.719 seconds (30.38 minutes), with 504,239 boundaries,
+114,005,146 cohort intervals and a 115,047,706-byte expanded final account.
+The finite anonymous wildlife ledger retains roughly 97.5 billion original
+animals without per-animal planners. Validated diagnostic snapshots do not
+establish that expanded run accounts fit native browser-save quotas.
+
+The placement correction creates new source `beast-habitat-source:6fe013ab`;
+**that source has not received another complete seasonal replay**. The measured
+baseline remains its original archived `a2ffef9d` source, not a retroactively
+repaired world. The historical pre-drainage figures below are also retained.
+
+Current focused verification covers 43 unit checks in the source, binding and
+hunting-habitat files, plus two named Chromium generation/storage/reload checks.
+The recorded report's source scope and population/death conservation also pass
+direct assertions. The full test suite was not run under `AGENTS.md`.
+
+## Historical pre-drainage generated 120-day control
 
 The recorded complete replay uses `source-small`, refinement 2, source
 `beast-habitat-source:9b62d184`: all 24 species, 89 original populations, 334
@@ -134,7 +208,7 @@ Execution took 1,775.646 seconds (about 29.6 minutes), with 510,906 boundaries,
 This is one focused seasonal diagnostic, not the full test suite or proof that
 expanded accounts fit native browser-save quotas.
 
-## Verification and reproduction
+## Historical assessment verification and reproduction
 
 The named assessment/source/binding/ecology/benchmark unit files pass 69 checks;
 the directly affected regional-work file passes 35. Three named foraging cases
@@ -154,3 +228,14 @@ command. The script writes a final source/account checkpoint and `report.json`
 without overwriting existing files, while still validating every ten-day boundary.
 Retained checkpoints can be re-assessed without repeating the seasonal simulation.
 No additional full replay was run for documentation or commits.
+
+That command on the current implementation generates the new hunting-placement
+source, not either historical baseline. Reproducing the post-drainage baseline
+from zero requires commit `f07bfe2` or its retained original world. The completed
+run's ten-day checkpoints and raw `report.json` remain in
+`/tmp/helix-current-seasonal.cxPzp2jL`; they are temporary local artifacts, not
+committed browser saves. A current-code assessment can reuse the exact saved
+world/account with `--resume=.../day-120.json --days=120` without advancing another
+cycle. Use a different real checkpoint directory if saving output: snapshots
+never overwrite existing files. Only the one approved full seasonal diagnostic
+was run in this pass; the full test suite was not run.

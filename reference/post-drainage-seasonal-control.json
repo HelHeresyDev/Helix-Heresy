@@ -1,0 +1,238 @@
+{
+  "scope": "Private all-species diagnostic after drainage and independent care; before initial hunting-placement correction. Not native adoption or a balanced-world claim.",
+  "baselineRuntimeCommit": "f07bfe2",
+  "sourceId": "beast-habitat-source:a2ffef9d",
+  "seed": "source-small",
+  "refinement": 2,
+  "days": 120,
+  "status": "rejected",
+  "measuredStatus": "rejected",
+  "coverage": {
+    "sourceId": "beast-habitat-source:a2ffef9d",
+    "from": 0,
+    "until": 10368000,
+    "cycleEnd": 10368000,
+    "species": [
+      "beast:abyssal-bell",
+      "beast:ashhorn-behemoth",
+      "beast:brine-cathedral",
+      "beast:burrowing-furnace",
+      "beast:candlecap-myriapod",
+      "beast:carrion-lantern",
+      "beast:dreaming-tortoise",
+      "beast:ember-ant",
+      "beast:frostwake-leviathan",
+      "beast:glasswing-roc",
+      "beast:gloam-prowler",
+      "beast:gravebloom-elk",
+      "beast:ironroot-colossus",
+      "beast:ley-manta",
+      "beast:marsh-hydra",
+      "beast:mire-choir",
+      "beast:mirror-ape",
+      "beast:nullmaw-stalker",
+      "beast:reef-wyrm",
+      "beast:rimefang-pack",
+      "beast:rivercoil",
+      "beast:storm-kite",
+      "beast:sunspine-basilisk",
+      "beast:thunderback-grazer"
+    ],
+    "catalogRequired": true,
+    "originalLocated": 56243
+  },
+  "regions": 334,
+  "populations": 89,
+  "born": 190892,
+  "counts": {
+    "background": 130971,
+    "detailed": 0,
+    "dead": 116164
+  },
+  "issueKinds": {
+    "performedResourceShortfall": 63,
+    "performedMaintenanceDeficit": 37,
+    "performedHabitatFloorBreach": 1,
+    "performedScarcityDeath": 58
+  },
+  "shortfalls": {
+    "meatKg": 574510.1814704671,
+    "waterL": 2139.5726041550106
+  },
+  "lossesByCause": {
+    "background": 115922,
+    "dehydration": 29,
+    "starvation": 213
+  },
+  "lossesBySpecies": {
+    "beast:carrion-lantern": {
+      "background": 5,
+      "starvation": 96,
+      "dehydration": 19
+    },
+    "beast:rimefang-pack": {
+      "dehydration": 10,
+      "starvation": 56,
+      "background": 1
+    },
+    "beast:reef-wyrm": {
+      "starvation": 23
+    },
+    "beast:mirror-ape": {
+      "background": 2
+    },
+    "beast:frostwake-leviathan": {
+      "starvation": 12
+    },
+    "beast:abyssal-bell": {
+      "starvation": 12
+    },
+    "beast:nullmaw-stalker": {
+      "starvation": 2
+    },
+    "beast:glasswing-roc": {
+      "starvation": 2
+    },
+    "beast:sunspine-basilisk": {
+      "starvation": 5
+    },
+    "beast:ashhorn-behemoth": {
+      "background": 1
+    },
+    "beast:rivercoil": {
+      "background": 4
+    },
+    "beast:marsh-hydra": {
+      "starvation": 5
+    },
+    "beast:mire-choir": {
+      "background": 164
+    },
+    "beast:candlecap-myriapod": {
+      "background": 106800
+    },
+    "beast:ember-ant": {
+      "background": 6045
+    },
+    "beast:storm-kite": {
+      "background": 2768
+    },
+    "beast:ley-manta": {
+      "background": 51
+    },
+    "beast:burrowing-furnace": {
+      "background": 34
+    },
+    "beast:thunderback-grazer": {
+      "background": 47
+    }
+  },
+  "scarcityPhases": {
+    "stationary:dependent:no-prior-arrival": 13,
+    "stopped:independent:no-prior-arrival": 21,
+    "stationary:independent:no-prior-arrival": 195,
+    "travelling:independent:no-prior-arrival": 13
+  },
+  "firstFailures": 205,
+  "firstFailureEvidence": {
+    "regional-matter-present-access-or-compatibility-unresolved": 205
+  },
+  "habitatFloorBreaches": 1,
+  "maintenanceDeficits": 37,
+  "parentalCare": {
+    "foodInputKg": 12072041.24948791,
+    "waterInputL": 19793597.918644723,
+    "givenFoodKg": 9657632.9995918,
+    "givenWaterL": 18803918.022713047,
+    "memberSeconds": 240213708.43071714,
+    "dependentLiving": 1606
+  },
+  "foodWeb": {
+    "attempts": 194,
+    "contacts": 0,
+    "kills": 0,
+    "escapes": 0,
+    "interrupted": 0,
+    "consumedKg": 9387.519294277095,
+    "decomposedKg": 3630102.1404842506,
+    "deferred": 28606328,
+    "work": {
+      "indexedGroups": 280939,
+      "candidateChecks": 721445,
+      "combatSteps": 0
+    },
+    "pending": 0,
+    "wildlife": {
+      "original": 97503071747,
+      "born": 76667461404,
+      "living": 67161435806,
+      "dead": 106998469860,
+      "hunted": 10627485,
+      "liveKg": 4751644011.768495,
+      "consumedKg": 501543.1524350584,
+      "pending": 0,
+      "cohorts": 12899,
+      "startingDead": 6497402846,
+      "startingCarcassKg": 24347335.806720365,
+      "startingDecomposedKg": 9606361.745279698
+    },
+    "foraging": {
+      "searches": 214502,
+      "searchSeconds": 117689023.03394343,
+      "eatingSeconds": 14338705.9850908,
+      "handlingSeconds": 4014586.4120123917,
+      "restSeconds": 2148680772.2540536,
+      "eatenKg": 506411.87430155626,
+      "interrupted": 246,
+      "meals": 39,
+      "approaches": 37,
+      "approachSeconds": 2445.1603999994695
+    },
+    "travellingLiving": 21198,
+    "stoppedTravellingLiving": 0,
+    "positionedTravellingLiving": 21198,
+    "unlocatedLiving": 0,
+    "unlocatedRemainsKg": 14836.916976315306
+  },
+  "carcasses": {
+    "deathBatches": 696919,
+    "localSites": 11637,
+    "positionedKg": 102241.76053202029,
+    "unresolvedKg": 96225626.6052559,
+    "queries": 4867990,
+    "nodeVisits": 11746643,
+    "limitedQueries": 0
+  },
+  "executionMilliseconds": 1822719,
+  "boundaries": 504239,
+  "cohortIntervals": 114005146,
+  "accountBytes": 115047706,
+  "sourceIssueKinds": {
+    "unavailableOriginalFurnaceMetal": 8,
+    "dormantDreamWeather": 32
+  },
+  "placementCorrection": {
+    "newSourceId": "beast-habitat-source:6fe013ab",
+    "fullCycleMeasured": false,
+    "sameOriginalCountsAndWildlife": true,
+    "localFamilyDays": 15,
+    "localFamilySurvivors": 6,
+    "sharedRegionDays": 30,
+    "sharedGroups": 19,
+    "sharedSurvivors": 113,
+    "sharedScarcityDeaths": 0
+  },
+  "maintenanceDeficitsByChannel": {
+    "soilCover": 37
+  },
+  "habitatFloorBreachRecords": [
+    {
+      "regionId": "habitat:117:wetland",
+      "channel": "soilCover",
+      "minimum": 0,
+      "firstAt": 5086238.053833455,
+      "belowDays": 61.13150400655724
+    }
+  ],
+  "exhaustedRegions": []
+}
