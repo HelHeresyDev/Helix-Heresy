@@ -39,7 +39,7 @@
   }
   function create(record, binding) {
     if (!record?.physicalBinding || !binding?.worldId || !binding.runId) throw Error('Native encounters require an original source and run');
-    return { ...binding, sourceId: record.id, clock: 0, ecology: 'unverified', deferredHabitats: true, patch: [], sites: {}, parcels: {} };
+    return { ...binding, sourceId: record.id, clock: 0, ecology: 'unverified', deferredHabitats: true, patch: [], sites: {}, parcels: {}, encounterClaims: [] };
   }
   function normalize(value, binding) {
     if (!value) return null;
@@ -48,6 +48,9 @@
       || !Array.isArray(value.patch) || value.deltaTree != null && (typeof value.deltaTree !== 'object'
         || Array.isArray(value.deltaTree) || value.patch.length)
       || !value.sites || Array.isArray(value.sites)
+      || value.encounterClaims != null && (!Array.isArray(value.encounterClaims)
+        || value.encounterClaims.some(id => typeof id !== 'string' || !id)
+        || new Set(value.encounterClaims).size !== value.encounterClaims.length)
       || binding && (value.worldId !== binding.worldId || value.runId !== binding.runId))
       throw Error('Native population binding is invalid');
     const result = copy(value); result.parcels ||= {}; result.ecology = 'unverified';
@@ -59,6 +62,27 @@
       || !['eastM', 'northM'].every(k => Number.isFinite(site.origin?.[k]))
       || Object.values(site.parcelIds || {}).some(id => !Object.hasOwn(result.parcels, id))) throw Error('Invalid native site binding');
     return result;
+  }
+  function encounteredPopulationIds(state) {
+    if (!state) return [];
+    if (!state.encounterClaims) {
+      // Older saves already store full native actors in details or returned
+      // personal cohorts. Recover only exact claims without opening the globe
+      // or treating an elapsed ecological baseline as an encounter.
+      const ids = new Set(), stack = state.deltaTree
+        ? [state.deltaTree.details, state.deltaTree.groups]
+        : state.patch.filter(([path]) => ['details', 'groups'].includes(path[0])).map(row => row[1]);
+      while (stack.length) {
+        const row = stack.pop();
+        if (!row || typeof row !== 'object') continue;
+        if (row.nativePopulation?.sourceId === state.sourceId && row.life?.originalMemberId && typeof row.populationId === 'string') {
+          ids.add(row.populationId); continue;
+        }
+        for (const value of Object.values(row)) if (value && typeof value === 'object') stack.push(value);
+      }
+      state.encounterClaims = [...ids].sort();
+    }
+    return state.encounterClaims;
   }
   function checkSite(state, site) {
     const old = state.sites[site.id], origin = { eastM: 0, northM: 0, ...site.origin };
@@ -234,7 +258,8 @@
       const n = d.actor?.nativePopulation;
       if (!n) return false;
       if (!n.background) return n.siteId === site.id && d.actor.roomId === site.roomId;
-      return !context.onlyActorId && d.status === 'dead' && regions.some(r => r.id === n.regionId) && n.sourcePosition
+      return !context.onlyActorId && !context.unavailablePopulations?.has(d.populationId)
+        && d.status === 'dead' && regions.some(r => r.id === n.regionId) && n.sourcePosition
         && n.sourcePosition.eastM >= box.x0 && n.sourcePosition.eastM < box.x1
         && n.sourcePosition.northM >= box.y0 && n.sourcePosition.northM < box.y1 && remainsFit(d.actor, n.sourcePosition)
         && P.claimCorpse(s, d.actorId, context.at);
@@ -279,6 +304,8 @@
         actors.push(actor);
       }
     }
+    const claims = encounteredPopulationIds(state);
+    for (const a of actors) if (!claims.includes(a.populationId)) claims.push(a.populationId);
     state.sites[site.id] ||= { cellId: site.cellId, kind: site.kind, origin: copy(frame) };
     return actors;
   }
@@ -394,5 +421,5 @@
   };
   const hasLocalActors = state => Object.values(cache.get(state)?.account.details || {}).some(d => d.actor?.nativePopulation && !d.actor.nativePopulation.background);
   return { create, normalize, open, pack, rebind, materialize, roadsideProbe, sync, nearby, terrain, bindTerrain, carrion, birth, capacity, diff, apply,
-    hasOpen, ready, prepare, advanceBudget, ownsLocal, hasLocalActors };
+    hasOpen, ready, prepare, advanceBudget, ownsLocal, hasLocalActors, encounteredPopulationIds };
 });

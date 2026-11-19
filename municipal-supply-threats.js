@@ -149,10 +149,11 @@
   }
   // Only an original, actually arrived body at this shared physical crossing
   // can intercept. Another route, unlocated claim or distant group cannot spawn here.
-  function candidates(s, quota, population, actors, sites, diplomacy = null) {
+  function candidates(s, quota, population, actors, sites, diplomacy = null, canAllocate = () => true) {
     if (!bound(s, quota) || !quota.order || !['outbound', 'inbound'].includes(quota.order.phase)) return [];
     const rows = [];
     for (const link of s.links) {
+      if (!canAllocate(link.population.populationId)) continue;
       if (link.population.speciesId === Apes.SPECIES) {
         if (!bound(diplomacy, s) || diplomacy.invalid) continue;
         for (const t of diplomacy.troops) for (const c of Apes.candidates(t, actors, sites, link)) {
@@ -283,7 +284,8 @@
   }
   function fact(s, quota, population, actors, at, context = {}) {
     if (!bound(s, quota) || !bound(population, s) || context.alive === false) return [];
-    return Population.facts(population, actors, at).filter(f => s.links.some(l => l.population.populationId === f.sourceId)).map(f => {
+    return Population.facts(population, actors, at, true, context.canAssess).filter(f => s.links.some(l => l.population.populationId === f.sourceId)).map(f => {
+      if (context.canAssess && !context.canAssess(f.sourceId)) return f;
       const { rule, succession, people, civic } = context;
       const dependent = rule && bound(rule, s) && rule.lastAt === at && quota.lastAt === at && rule.pilotProvisionId === quota.id
         && rule.source.cityId === quota.source.cityId && rule.handoverId === quota.handoverId && rule.plan

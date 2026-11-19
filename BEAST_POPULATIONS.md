@@ -1270,6 +1270,27 @@ reloaded an actual hold for that animal, and delivered the full original load
 with the same truck and driver. Its dated road account was only exposed after
 receipt at the dock and survived a second reload.
 
+### Original encounter ownership
+
+Survey, walking and grain encounters now check the same run-local ownership
+boundary. A native claim comes from an original individual whose body was
+actually allocated from the exact archived habitat source, not from opening
+the regional ecology or sighting an unclaimed body. The claim persists after
+the last attendant leaves. Older saves recover it from original actor custody,
+including a returned individual stored in a regional cohort. This does not
+require loading or replaying the whole globe.
+
+An original Rimefang or Gravebloom Elk ledger and a Mirror Ape troop reservation
+block new native allocations of the same population, even if the reserved apes
+are not on the map. A prior native claim likewise blocks legacy registration.
+Existing bodies, health, losses and dated reports stay with the account that
+recorded them. If both claims already exist, or the only record is an
+unattributed reservation, new allocations are blocked; the disputed legacy
+roster cannot supply current strategic proof. A route link by itself does not
+own a population. No historical records are merged, no dormant capacity is
+counted as a casualty, and this does not establish ecological viability or full
+cross-engine demographic integration.
+
 Focused native unit controls exercise actual originals across all 24 body
 families using suitable source regions and explicitly supplied physical contexts;
 they do not establish that ordinary travel reaches every family. Browser controls

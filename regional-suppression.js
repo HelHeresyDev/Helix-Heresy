@@ -106,10 +106,11 @@
           .map(o => ({ id: o.id, condition: o.condition, capable: o.capable })), text: String(r.text || '') }));
     return s;
   }
-  function register(s, source, regional, knownActors, seed, at) {
+  function register(s, source, regional, knownActors, seed, at, ownership = null) {
     if (!s || !validSource(source) || !regional || !time(at) || s.worldId !== regional.worldId || s.runId !== regional.runId) return null;
     const old = s.populations.find(p => p.source.populationId === source.populationId);
     if (old) return old.source.speciesId === source.speciesId && old.source.individualCount === source.individualCount ? old : null;
+    if (ownership && !ownership.canAllocateLegacy(source.populationId)) return null;
     const claims = regional.members.filter(m => m.populationId === source.populationId), known = new Map(knownActors.map(a => [a.id, a]));
     if (claims.length > source.individualCount || claims.some(m => m.speciesId !== source.speciesId)
       || knownActors.some(a => a.populationId === source.populationId && (a.speciesId !== source.speciesId || !claims.some(m => m.actorId === a.id)))) return null;
@@ -138,7 +139,7 @@
     s.populations.push(p); regional.beasts.materialized = true; return p;
   }
   const capable = a => a && a.status !== 'dead' && a.health > 0 && a.health >= a.maxHealth * .3;
-  function advance(s, regional, actors, at, alive = true, speedFactor = () => 1, journal = null, canMove = () => true) {
+  function advance(s, regional, actors, at, alive = true, speedFactor = () => 1, journal = null, canMove = () => true, canAssess = () => true) {
     if (!s || !alive || !time(at) || at < s.lastAt) return false;
     const byId = new Map(actors.map(a => [a.id, a])); let changed = false;
     for (const p of s.populations) {
@@ -193,14 +194,15 @@
             fromCellId: home.cellId, at: arrivalAt, cause: 'Original hunting group reached its source-backed corridor approach; danger displaced, not erased.' });
         }
       }
-      const result = assess(p, actors, at, speedFactor);
+      const assessable = canAssess(p.source.populationId);
+      const result = assessable ? assess(p, actors, at, speedFactor) : { status: 'unverified' };
       // Physical travel boundaries are exact even during coarse catch-up.
       // Externally supplied wounds/missing identities are first known at this
       // consumer tick, so never backdate them into an unseen fight.
       const travelTransition = previous?.status === 'suppressed' && before.status === 'suppressed'
         && result.status === 'capable' && edges.length;
       const transitionAt = stamp(travelTransition ? Math.min(...edges) : at);
-      if (!previous || previous.status !== result.status) emit('pressure', `${transitionAt}:${result.status}`, transitionAt,
+      if (assessable && (!previous || previous.status !== result.status)) emit('pressure', `${transitionAt}:${result.status}`, transitionAt,
         previous?.status || null, result.status, [], p.source.id);
       p.lastAssessment = { at, status: result.status };
       if (result.status === 'suppressed') { if (p.suppressedSince == null) p.suppressedSince = at; }
@@ -243,13 +245,13 @@
         ' Unseen replacements and wider regional renewal remain unverified. No extinction or permanently safe corridor is certified.' }); return true;
   }
   function publicView(s) { return { reports: copy(normalize(s)?.reports || []), scope: SCOPE }; }
-  function facts(s, actors, at, alive = true) {
+  function facts(s, actors, at, alive = true, canAssess = () => true) {
     if (!s || !alive || !time(at) || at < s.lastAt) return [];
     const byId = new Map(), counts = new Map();
     for (const a of actors) { byId.set(a.id, a); counts.set(a.populationId, (counts.get(a.populationId) || 0) + 1); }
     return s.populations.map(p => {
       const ids = new Set(p.members.map(m => m.id)), bodies = p.members.map(m => byId.get(m.id));
-      const intact = validSource(p.source) && time(p.createdAt) && p.createdAt <= at
+      const intact = canAssess(p.source.populationId) && validSource(p.source) && time(p.createdAt) && p.createdAt <= at
         && ids.size === p.source.individualCount && bodies.length === p.source.individualCount
         && counts.get(p.source.populationId) === ids.size && bodies.every(a => a
           && a.populationId === p.source.populationId && a.speciesId === p.source.speciesId && Number.isFinite(a.health) && a.health >= 0

@@ -15,7 +15,8 @@
     const s = create({ worldId: value.worldId, runId: value.runId });
     s.managedPopulationIds = [...new Set((Array.isArray(value.managedPopulationIds) ? value.managedPopulationIds : []).filter(valid))];
     for (const m of value.members || []) if (valid(m?.actorId) && valid(m.populationId) && valid(m.source)
-      && Wild.PROFILES[m.speciesId] && !s.members.some(r => r.actorId === m.actorId)) s.members.push({ actorId: m.actorId, populationId: m.populationId, speciesId: m.speciesId, source: m.source });
+      && Wild.PROFILES[m.speciesId] && !s.members.some(r => r.actorId === m.actorId)) s.members.push({ actorId: m.actorId, populationId: m.populationId, speciesId: m.speciesId, source: m.source,
+        ...(m.native === true ? { native: true } : {}) });
     s.decisions = [...new Set((value.decisions || []).filter(valid))];
     s.routes = (value.routes || []).filter(r => valid(r?.id) && Number.isFinite(r.distanceKm) && r.distanceKm > 0 && time(r.at)).map(r => ({ id: r.id, distanceKm: r.distanceKm, at: r.at }));
     s.losses = (value.losses || []).filter(r => valid(r?.actorId) && valid(r.populationId) && time(r.at)).map(r => ({ actorId: r.actorId, populationId: r.populationId, at: r.at }));
@@ -29,10 +30,26 @@
     const members = new Set(s.members.map(m => m.actorId)), losses = new Set(s.losses.map(r => r.actorId));
     for (const a of actors || []) {
       if (!valid(a?.id) || !valid(a.populationId) || !Wild.PROFILES[a.speciesId]) continue;
-      if (!members.has(a.id)) { s.members.push({ actorId: a.id, populationId: a.populationId, speciesId: a.speciesId, source }); members.add(a.id); }
+      if (!members.has(a.id)) { s.members.push({ actorId: a.id, populationId: a.populationId, speciesId: a.speciesId, source,
+        ...(a.nativePopulation ? { native: true } : {}) }); members.add(a.id); }
       if ((a.status === 'dead' || a.health <= 0) && !losses.has(a.id)) { s.losses.push({ actorId: a.id, populationId: a.populationId, at: time(a.diedAt) ? a.diedAt : at }); losses.add(a.id); }
     }
     return s;
+  }
+  function ownership({ binding, region, suppression, diplomacy, nativeIds = [] }) {
+    const bound = s => s && s.worldId === binding.worldId && s.runId === binding.runId;
+    const native = new Set(nativeIds);
+    const legacy = new Set(), reserved = new Set();
+    if (bound(region)) {
+      for (const m of region.members) (m.native || m.actorId.startsWith('native:') ? native : legacy).add(m.populationId);
+      for (const id of region.managedPopulationIds) reserved.add(id);
+    }
+    if (bound(suppression)) for (const p of suppression.populations) legacy.add(p.source.populationId);
+    if (bound(diplomacy)) for (const troop of diplomacy.troops || []) legacy.add(troop.source.populationId);
+    const status = id => native.has(id) ? legacy.has(id) ? 'conflict' : 'native'
+      : legacy.has(id) ? 'legacy' : reserved.has(id) ? 'unverified' : 'unclaimed';
+    const unavailableToNative = new Set([...legacy, ...[...reserved].filter(id => !native.has(id))]);
+    return { status, unavailableToNative, canAllocateLegacy: id => ['legacy', 'unclaimed'].includes(status(id)) };
   }
   const remaining = (s, populationId) => s.managedPopulationIds?.includes(populationId) ? 0 : Math.max(0, CAP - s.members.filter(m => m.populationId === populationId).length);
   function claim(s, actor, source, at) {
@@ -124,5 +141,5 @@
     const s = normalize(value);
     return s && s.worldId === from?.worldId && s.runId === from?.runId && valid(to?.worldId) && valid(to?.runId) ? normalize({ ...s, ...to }) : s;
   }
-  return { CAP, create, normalize, adopt, remaining, claim, route, positions, place, syncLocal, depart, follow, rebind };
+  return { CAP, create, normalize, adopt, ownership, remaining, claim, route, positions, place, syncLocal, depart, follow, rebind };
 });

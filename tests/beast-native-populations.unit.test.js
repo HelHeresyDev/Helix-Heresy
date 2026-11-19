@@ -4,6 +4,9 @@ const F = require('../beast-regional-foodweb'), B = require('../beast-bodies'), 
 const Carrion = require('../wildlife-carcasses');
 const Road = require('../roadside-stops');
 const Supply = require('../municipal-supply-threats');
+const Regional = require('../regional-encounters'), Suppression = require('../regional-suppression'), Diplomacy = require('../beast-diplomacy');
+const { fixture: suppressionSource } = require('./helpers/regional-suppression-source');
+const { sourceFixture: apeSource } = require('./helpers/beast-diplomacy-source');
 const copy = x => JSON.parse(JSON.stringify(x));
 let fixture;
 function original() {
@@ -339,6 +342,80 @@ test('an external population owner prevents a second native body claim', () => {
   const { g, site, ctx } = context(s, 'beast:rimefang-pack');
   assert.deepEqual(N.materialize(state, record, map, site, { ...ctx, unavailablePopulations: new Set([g.populationId]) }), []);
   assert.deepEqual(s.details, {});
+});
+for (const species of [...Suppression.SUPPORTED_SPECIES, Diplomacy.SPECIES]) {
+  test(`original encounter ownership works in both orders after reload: ${species}`, () => {
+    const { map, binding } = original(), record = map.beastHabitatSources;
+    const native = N.create(record, binding), account = N.open(native, record, map);
+    const { g, site, ctx } = context(account, species), id = g.populationId;
+    const count = record.populations.find(p => p.populationId === id).originalIndividualCount;
+    const ape = species === Diplomacy.SPECIES;
+    const fixture = ape ? apeSource('ownership-road', 2, count) : suppressionSource(count, 1, species, { crossingOnly: true });
+    const source = { ...fixture.source, populationId: id }, habitat = fixture.habitat && { ...fixture.habitat, populationId: id };
+    const register = (s, region, owned) => ape
+      ? Diplomacy.register(s, source, region, region.beasts.actors, 'ownership', 0, habitat, owned)
+      : Suppression.register(s, source, region, region.beasts.actors, 'ownership', 0, owned);
+    const createLegacy = () => (ape ? Diplomacy : Suppression).create(binding);
+    const owner = (native, region, s) => Regional.ownership({ binding, region, nativeIds: N.encounteredPopulationIds(native),
+      ...(ape ? { diplomacy: s } : { suppression: s }) });
+
+    const legacy = createLegacy(), region = Regional.create(binding);
+    const first = register(legacy, region, owner(native, region, legacy)); assert.ok(first);
+    const wounded = region.beasts.actors[0]; wounded.health *= .75;
+    if (ape) {
+      assert.ok(first.pool.groups.length > 0);
+      assert.ok(first.pool.groups.every(g => g.materializedAt === null));
+      // The reserved source must block native claims even without its local
+      // representative records (e.g. only the original troop was restored).
+      const reserved = owner(native, null, Diplomacy.normalize(copy(legacy)));
+      assert.equal(reserved.status(id), 'legacy');
+      assert.ok(reserved.unavailableToNative.has(id));
+    }
+    const savedLegacy = (ape ? Diplomacy : Suppression).normalize(copy(legacy)), savedRegion = Regional.normalize(copy(region));
+    const legacyOwned = owner(native, savedRegion, savedLegacy);
+    assert.equal(legacyOwned.status(id), 'legacy');
+    assert.deepEqual(N.materialize(native, record, map, site, { ...ctx, unavailablePopulations: legacyOwned.unavailableToNative }), []);
+    assert.equal(savedRegion.beasts.actors.find(a => a.id === wounded.id).health, wounded.health);
+
+    const [originalBody] = N.materialize(native, record, map, site, ctx);
+    assert.equal(originalBody.populationId, id);
+    originalBody.health *= .8;
+    N.sync(native, record, map, [originalBody], 0, true, { activeSiteIds: new Set() });
+    N.pack(native, record, map);
+    const serialized = copy(native);
+    delete serialized.encounterClaims; // Older compact saves predate the new fast index.
+    const restored = N.normalize(serialized, binding), unused = createLegacy(), empty = Regional.create(binding);
+    assert.equal(N.hasOpen(restored), false);
+    assert.equal(owner(restored, empty, unused).status(id), 'native');
+    assert.equal(register(unused, empty, owner(restored, empty, unused)), null);
+    assert.deepEqual(empty.members, []);
+    const [sameBody] = N.materialize(restored, record, map, site, ctx);
+    assert.equal(sameBody.id, originalBody.id); assert.equal(sameBody.health, originalBody.health);
+
+    const conflict = owner(restored, savedRegion, savedLegacy);
+    assert.equal(conflict.status(id), 'conflict');
+    assert.equal(conflict.canAllocateLegacy(id), false);
+    assert.ok(conflict.unavailableToNative.has(id));
+    assert.equal(N.materialize(restored, record, map, site, { ...ctx,
+      unavailablePopulations: conflict.unavailableToNative })[0].id, sameBody.id, 'existing local actor is not erased');
+    N.sync(restored, record, map, [sameBody], 0, true, { activeSiteIds: new Set() });
+    assert.deepEqual(N.materialize(restored, record, map, site, { ...ctx, unavailablePopulations: conflict.unavailableToNative }), []);
+    if (!ape) {
+      for (const a of savedRegion.beasts.actors) { a.status = 'dead'; a.health = 0; }
+      assert.equal(Suppression.facts(savedLegacy, savedRegion.beasts.actors, 0)[0].state, 'qualifying');
+      const canAssess = id => conflict.status(id) === 'legacy';
+      assert.equal(Suppression.facts(savedLegacy, savedRegion.beasts.actors, 0, true, canAssess)[0].state, 'unverified');
+    }
+    assert.equal(Regional.ownership({ binding: { ...binding, runId: 'independent-run' }, region: savedRegion,
+      suppression: ape ? null : savedLegacy, diplomacy: ape ? savedLegacy : null }).status(id), 'unclaimed');
+  });
+}
+test('a managed encounter without attributable identity is not a free second allocation', () => {
+  const binding = { worldId: 'world', runId: 'run' }, region = Regional.create(binding), id = 'original-unknown';
+  region.managedPopulationIds.push(id);
+  const owner = Regional.ownership({ binding, region });
+  assert.equal(owner.status(id), 'unverified'); assert.equal(owner.canAllocateLegacy(id), false);
+  assert.ok(owner.unavailableToNative.has(id));
 });
 test('an unfunded local child cannot enter original native membership', () => {
   const { map, binding } = original(), record = map.beastHabitatSources, state = N.create(record, binding), s = N.open(state, record, map);

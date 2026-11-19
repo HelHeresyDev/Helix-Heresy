@@ -258,6 +258,7 @@
   const observedWildlifeCarrion = new WeakMap();
   const walkingHabitatAreas = new WeakMap();
   const nativeGrainRoads = new WeakMap();
+  const nativeEncounterSourceIds = new WeakMap();
   let nativePopulationJob = null;
   const BeastBodies = window.HelixBeastBodies;
   const CreatureBiology = window.HelixCreatureBiology;
@@ -15452,11 +15453,13 @@
       configureMunicipalSupplyTest: links => {
         const q = state.cityProvisioning;
         if (!state.sovereignBargains?.testFixture || !q || q.order || !Array.isArray(links)) return false;
+        const ownership = beastEncounterOwnership();
+        if (links.some(l => !ownership.canAllocateLegacy(l?.population?.populationId))) return false;
         const traffic = MunicipalSupplyThreats.create(q, q.source, links, state.clock); if (!traffic) return false;
         q.supplyTraffic = traffic; q.supplyTrafficChecked = true;
         const region = ensureRegionalEncounters();
         state.regionalSuppression ||= Suppression.create({ worldId: q.worldId, runId: q.runId });
-        for (const l of links) if (!Suppression.register(currentSuppression(), l.population, region, suppressionActors(), activeWorldRecord.worldSeed, state.clock)) return false;
+        for (const l of links) if (!Suppression.register(currentSuppression(), l.population, region, suppressionActors(), activeWorldRecord.worldSeed, state.clock, ownership)) return false;
         persist(); render(); return true;
       },
       configureCityProvisioningTest: source => {
@@ -84244,10 +84247,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const s = ensureSupremacy(); if (!s) return false;
     const facts = [];
     const q = state.cityProvisioning;
-    const population = currentSuppression(), animals = suppressionActors();
-    const beasts = new Map(Suppression.facts(population, animals, state.clock).map(f => [f.sourceId, f]));
+    const population = currentSuppression(), animals = suppressionActors(), ownership = beastEncounterOwnership();
+    const canAssess = id => ownership.status(id) === 'legacy';
+    const beasts = new Map(Suppression.facts(population, animals, state.clock, true, canAssess).map(f => [f.sourceId, f]));
     if (q?.supplyTraffic) for (const f of MunicipalSupplyThreats.fact(q.supplyTraffic, q, population, animals, state.clock, {
-      alive: !scientistIsDead(), rule: state.cityRule, succession: state.citySuccession, people: cityRulePeople(), civic: cityRuleContext(), incapacitated: actorIsIncapacitated
+      alive: !scientistIsDead(), rule: state.cityRule, succession: state.citySuccession, people: cityRulePeople(), civic: cityRuleContext(), incapacitated: actorIsIncapacitated, canAssess
     })) beasts.set(f.sourceId, f);
     facts.push(...beasts.values());
     const chapters = new Map();
@@ -92223,8 +92227,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       distance: (a, b) => StrategicWorld.greatCircleDistanceKm(map, StrategicWorld.cellIndex(a), StrategicWorld.cellIndex(b)),
       land: id => map.surface.classes[StrategicWorld.cellIndex(id)] === 'L',
       neighbors: id => topology.neighbors[StrategicWorld.cellIndex(id)].map(StrategicWorld.cellId) };
+    const ownership = beastEncounterOwnership();
     const links = MunicipalSupplyThreats.sources(map, q.source, geometry, state.strategicJourneys?.routes || [])
-      .filter(l => !checked.includes(l.population.speciesId));
+      .filter(l => !checked.includes(l.population.speciesId) && ownership.canAllocateLegacy(l.population.populationId));
     q.supplyTrafficChecked = true;
     q.supplyTrafficCheckedSpecies = species;
     if (!links.length) return;
@@ -92233,15 +92238,23 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       q.supplyTraffic.links.push(clonePlainObject(l));
     const region = ensureRegionalEncounters();
     state.regionalSuppression ||= Suppression.create({ worldId: q.worldId, runId: q.runId });
-    for (const l of links) Suppression.register(currentSuppression(), l.population, region, suppressionActors(), activeWorldRecord.worldSeed, state.clock);
+    for (const l of links) Suppression.register(currentSuppression(), l.population, region, suppressionActors(), activeWorldRecord.worldSeed, state.clock, ownership);
   }
   function municipalSupplyCandidates(q) {
-    return MunicipalSupplyThreats.candidates(q.supplyTraffic, q, currentSuppression(), suppressionActors(), state.roadsideStops?.sites || [], currentBeastDiplomacy());
+    if (!q.supplyTraffic) return [];
+    const ownership = beastEncounterOwnership();
+    return MunicipalSupplyThreats.candidates(q.supplyTraffic, q, currentSuppression(), suppressionActors(), state.roadsideStops?.sites || [],
+      currentBeastDiplomacy(), id => ownership.status(id) === 'legacy');
   }
   function nativeGrainRoad(q) {
-    if (!q || q.supplyTraffic?.links?.length || !(q.source.distanceKm >= 1)) return null;
-    // Existing legacy route owners keep their encounters. The shared journey
-    // planner rounds sub-kilometre approaches up; those aren't exact spans.
+    if (!q || !(q.source.distanceKm >= 1)) return null;
+    // A route link alone is not ownership, notably before any original Ape
+    // troop has been reserved. Existing legacy route owners keep their encounters.
+    if (q.supplyTraffic?.links?.length) {
+      const ownership = beastEncounterOwnership();
+      if (q.supplyTraffic.links.some(l => ownership.status(l.population.populationId) === 'legacy')) return null;
+    }
+    // The shared journey planner rounds sub-kilometre approaches up.
     if (nativeGrainRoads.has(q)) return nativeGrainRoads.get(q);
     const map = activeWorldRecord?.generatedData?.strategicMap, record = map?.beastHabitatSources;
     if (!record?.physicalPlacement || !NativeBeastPopulations.capacity(record).supported) return null;
@@ -94628,10 +94641,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         state.intercityMarch.operation.plan.homeCityId, geometry, plan.id) : [];
     if (!sources.length || state.beastDiplomacy?.invalid) return;
     state.beastDiplomacy ||= BeastDiplomacy.create({ worldId: activeWorldRecord.id, runId: activeRunRecord.id });
+    const ownership = beastEncounterOwnership();
     for (const source of sources) BeastDiplomacy.register(currentBeastDiplomacy(), source, region, suppressionActors(),
       saved?.testSeed || activeWorldRecord.worldSeed, state.clock,
       saved?.testSources ? saved.testPopulationHabitats?.find(h => h.populationId === source.populationId && h.routeId === source.routeId)
-        : MirrorApePopulations.habitat(map, source, geometry));
+        : MirrorApePopulations.habitat(map, source, geometry), ownership);
   }
   function mirrorPopulationTroops() {
     const s = currentBeastDiplomacy(), populations = activeWorldRecord?.generatedData?.strategicMap?.beastEcology?.populations;
@@ -94640,7 +94654,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         && p.devotionalUnitCount === t.source.originalCount));
   }
   function mirrorPopulationPositions(routeId) {
-    return scientistIsDead() ? [] : mirrorPopulationTroops().flatMap(t => MirrorApePopulations.positions(t, routeId));
+    if (scientistIsDead()) return [];
+    const ownership = beastEncounterOwnership();
+    return mirrorPopulationTroops().filter(t => ownership.status(t.source.populationId) === 'legacy')
+      .flatMap(t => MirrorApePopulations.positions(t, routeId));
   }
   function regionalEncounterPositions(routeId) {
     const region = currentRegionalEncounters();
@@ -94649,10 +94666,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function materializeMirrorPopulationGroups(site) {
     if (scientistIsDead()) return 0;
     const region = currentRegionalEncounters(), map = ensureLabMap(); if (!region || !site) return 0;
-    return mirrorPopulationTroops().reduce((n, t) => n + MirrorApePopulations.materialize(t, region, site, state.clock,
-      (cell, actor) => !sameMapCell(cell, scientistMapCell()) && !allWildernessBeasts().some(a => sameMapCell(a.mapCell, cell))
-        && labMapCellIsWalkable(cell, map) && !labMapCellIsPathBlocked(cell, { map, actor, skipPlacement: true })
-        && canActorOccupyTile(actor, cell)), 0);
+    const ownership = beastEncounterOwnership();
+    return mirrorPopulationTroops().filter(t => ownership.status(t.source.populationId) === 'legacy')
+      .reduce((n, t) => n + MirrorApePopulations.materialize(t, region, site, state.clock,
+        (cell, actor) => !sameMapCell(cell, scientistMapCell()) && !allWildernessBeasts().some(a => sameMapCell(a.mapCell, cell))
+          && labMapCellIsWalkable(cell, map) && !labMapCellIsPathBlocked(cell, { map, actor, skipPlacement: true })
+          && canActorOccupyTile(actor, cell)), 0);
   }
   function beastDialogueContext(a) {
     const s = currentBeastDiplomacy(), troop = BeastDiplomacy.troop(s, a);
@@ -94780,14 +94799,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!sources.length) return;
     state.regionalSuppression ||= Suppression.create({ worldId: activeWorldRecord.id, runId: activeRunRecord.id });
     const ledger = currentSuppression(); if (!ledger) return;
-    for (const source of sources) Suppression.register(ledger, source, region, suppressionActors(), activeWorldRecord.worldSeed, state.clock);
+    const ownership = beastEncounterOwnership();
+    for (const source of sources) Suppression.register(ledger, source, region, suppressionActors(), activeWorldRecord.worldSeed, state.clock, ownership);
     updateSuppression();
   }
   function updateSuppression() {
     const s = currentSuppression(); if (!s || scientistIsDead()) return false;
-    const journal = ensureRegionalChange();
+    const journal = ensureRegionalChange(), ownership = beastEncounterOwnership();
     const changed = Suppression.advance(s, currentRegionalEncounters(), suppressionActors(), state.clock, true,
-      a => 1 + injuryEffectTotals(a).movement, journal, a => !actorIsIncapacitated(a));
+      a => 1 + injuryEffectTotals(a).movement, journal, a => !actorIsIncapacitated(a), id => ownership.status(id) === 'legacy');
     return updateRegionalChanges() || changed;
   }
   function ensureRegionalChange() {
@@ -99937,6 +99957,17 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const s = state?.regionalEncounters;
     return s?.worldId === activeWorldRecord?.id && s?.runId === activeRunRecord?.id ? s : null;
   }
+  function beastEncounterOwnership(region = currentRegionalEncounters()) {
+    const binding = { worldId: activeWorldRecord?.id, runId: activeRunRecord?.id };
+    const record = activeWorldRecord?.generatedData?.strategicMap?.beastHabitatSources, saved = state?.nativeBeastPopulations;
+    let nativeIds = [];
+    if (record && saved?.sourceId === record.id && saved.worldId === binding.worldId && saved.runId === binding.runId) {
+      let ids = nativeEncounterSourceIds.get(record);
+      if (!ids) { ids = new Set(record.populations?.map(p => p.populationId)); nativeEncounterSourceIds.set(record, ids); }
+      nativeIds = NativeBeastPopulations.encounteredPopulationIds(saved).filter(id => ids.has(id));
+    }
+    return RegionalEncounters.ownership({ binding, region, suppression: currentSuppression(), diplomacy: currentBeastDiplomacy(), nativeIds });
+  }
   function ensureRegionalEncounters() {
     if (!activeWorldRecord || !activeRunRecord) return null;
     let s = currentRegionalEncounters();
@@ -99989,7 +100020,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (ledger) {
       // Native originals already have exclusive cohort ownership. The legacy
       // representative cap must not discard a body after that transfer.
-      beasts.actors = beasts.actors.filter(a => a.nativePopulation || RegionalEncounters.claim(ledger, a, survival.destination.id, state.clock));
+      const ownership = beastEncounterOwnership(ledger);
+      beasts.actors = beasts.actors.filter(a => a.nativePopulation || ownership.canAllocateLegacy(a.populationId)
+        && RegionalEncounters.claim(ledger, a, survival.destination.id, state.clock));
       beasts.tracks = beasts.tracks.filter(t => t.observedAt != null || beasts.actors.some(a => t.id === `track:${a.id}`));
       for (const a of beasts.actors.filter(a => a.nativePopulation))
         if (!ledger.managedPopulationIds.includes(a.populationId)) ledger.managedPopulationIds.push(a.populationId);
@@ -100079,12 +100112,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     existing.bodyTerrain = saved.bodyTerrain;
     try {
       const physicalContext = beastBodyContext({ id: 'native-placement', roomId, mapCell: { ...site.bounds }, bodyPhysics: { altitudeM: 0, dimensions: { heightM: 0 } } });
-      const ledger = ensureRegionalEncounters();
-      const unavailablePopulations = new Set((ledger?.members || []).filter(m => !m.actorId.startsWith('native:')).map(m => m.populationId));
-      for (const p of currentSuppression()?.populations || []) unavailablePopulations.add(p.source.populationId);
+      const { unavailableToNative } = beastEncounterOwnership(ensureRegionalEncounters());
       saved.actors = NativeBeastPopulations.materialize(owner, map.beastHabitatSources, map, site, {
         at: state.clock, alive: !scientistIsDead(), local: true, tileSizeM: ensureLabMap().tileSizeM,
-        unavailablePopulations, requireVisitedTerrain: Boolean(visited),
+        unavailablePopulations: unavailableToNative, requireVisitedTerrain: Boolean(visited),
         terrain: physicalContext.terrain,
         blocked: physicalContext.blocked });
       if (visited) {
@@ -107113,8 +107144,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     prepareSuppressionPopulations(plan);
     prepareBeastDiplomacy(plan);
     if (nativeWalkingLeg(plan)) return;
-    const managed = new Set(currentSuppression()?.populations.map(p => p.source.populationId) || []);
-    RegionalEncounters.route(s, plan, populations.filter(p => !managed.has(p.id)), activeWorldRecord.worldSeed, state.clock);
+    const ownership = beastEncounterOwnership(s);
+    RegionalEncounters.route(s, plan, populations.filter(p => ownership.canAllocateLegacy(p.id)), activeWorldRecord.worldSeed, state.clock);
   }
   function placeRegionalBeasts(site) {
     const s = ensureRegionalEncounters(); if (!s || scientistIsDead()) return 0;
@@ -107178,10 +107209,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return RoadsideStops.nativeWindow(leg, site.positionKm, site.entry.z, site.roomId);
   }
   function roadsideUnavailablePopulations() {
-    const ledger = currentRegionalEncounters();
-    const unavailable = new Set((ledger?.members || []).filter(m => !m.actorId.startsWith('native:')).map(m => m.populationId));
-    for (const p of currentSuppression()?.populations || []) unavailable.add(p.source.populationId);
-    return unavailable;
+    return beastEncounterOwnership().unavailableToNative;
   }
   function nativeRoadContact(leg, at, km, direction, unavailablePopulations) {
     const owner = state.nativeBeastPopulations, map = activeWorldRecord.generatedData.strategicMap;
@@ -110421,7 +110449,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }
       }
       const ledger = ensureRegionalEncounters();
-      CorridorBeasts.provision(smuggling, route, ledger ? populations.filter(p => RegionalEncounters.remaining(ledger, p.id) > 0) : populations, state.seed, state.clock);
+      const ownership = beastEncounterOwnership(ledger);
+      CorridorBeasts.provision(smuggling, route, populations.filter(p => ownership.canAllocateLegacy(p.id)
+        && (!ledger || RegionalEncounters.remaining(ledger, p.id) > 0)), state.seed, state.clock);
       if (ledger) {
         const site = smuggling.corridorBeasts.find(s => s.routeId === route.id);
         if (site) site.actors = site.actors.filter(a => RegionalEncounters.claim(ledger, a, `corridor:${site.routeId}`, state.clock));

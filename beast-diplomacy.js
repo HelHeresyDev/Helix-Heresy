@@ -63,10 +63,11 @@
       return { worldId: s.worldId, runId: s.runId, invalid: true };
     const result = copy(s); result.troops.forEach(Populations.normalize); return result;
   }
-  function register(s, source, region, actors, seed, at, habitat = null) {
+  function register(s, source, region, actors, seed, at, habitat = null, ownership = null) {
     if (!s || s.invalid || !validSource(source) || !bound(s, region) || !time(at)) return null;
     const old = s.troops.find(t => t.source.populationId === source.populationId);
     if (old) return same(old.source, source) ? old : null;
+    if (ownership && !ownership.canAllocateLegacy(source.populationId)) return null;
     if (region.managedPopulationIds.includes(source.populationId)) return null;
     const claimed = region.members.filter(m => m.populationId === source.populationId);
     if (claimed.length > source.originalCount || claimed.some(m => m.speciesId !== SPECIES || !actors.some(a => a.id === m.actorId))) return null;
