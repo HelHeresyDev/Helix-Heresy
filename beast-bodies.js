@@ -457,7 +457,10 @@
       b.mana = Math.max(0, b.mana - manaRate * seconds); b.spentMana += manaRate * seconds;
       b.altitudeM = altitude;
       changed = true; b.blockedReason = '';
-      if (m.progressM + 1e-8 >= m.distanceM) { a.mapCell = copy(m.to); b.motion = null; b.lastEvent = { kind: b.mode, at, cell: copy(a.mapCell) }; }
+      if (m.progressM + 1e-8 >= m.distanceM) {
+        a.mapCell = copy(m.to); b.motion = null; b.lastEvent = { kind: b.mode, at, cell: copy(a.mapCell) };
+        if (ctx.finishCurrentStep) break;
+      }
       if (!capable(a, b.mode)) {
         if (b.altitudeM > 0) { b.pendingFallM = b.altitudeM; b.mode = 'falling'; b.motion = null; } break;
       }

@@ -1236,6 +1236,40 @@ It passed unseen ground without registering a site, then encountered the
 original Nullmaw, saved its wound, withdrew, and met the same wounded body on
 the return. This verifies custody and observation, not ordinary sighting rates.
 
+### Native encounters on the municipal grain road
+
+One bounded interior land span of a supported agricultural quota road uses the
+same native population owner as wilderness and walking encounters. Its metres
+come from the ordered original city–farm cell path and a recorded approach
+anchor where present. Distance-only records use one fixed local transect in the
+selected source habitat. Endpoint cities, other legs, and routes already using
+legacy suppression or Mirror Ape encounters are not converted by this adapter.
+
+The existing truck checks only ground it actually reaches, in chronological
+metre steps inside the span. A visible off-lane animal does not hold the truck
+or materialize a roadside visit. A body occupying its forward lane can hold the
+original truck and driver with their original load. The actual animal is claimed
+at its position, can move using its real body and reserves, and returns to the
+regional account when the last actual attendant leaves. A neutral animal that
+still sees the stopped truck waits on the verge instead of immediately resuming
+its patrol across the lane. Tired walkers settle a committed stride or turn
+before resting; a blocked movement earns no refund. A short clear interval
+lets an operable original carrier resume without backfilled distance, fuel or
+cargo credit. There is no new detour, contact teleporter or roadwide guarantee.
+
+The witnessed position, wait and observed cargo outcome belong to the driver's
+dated account. The report becomes available through the existing received dock
+receipt only after actual return. Neither a held truck nor a late truck exposes
+a live beast position, driver health, cargo verdict or city-power conclusion.
+The scene itself is not added to the scientist's known roads unless personally
+reached. Legacy contacts, military consequences and authority consumers retain
+their previous ownership and scope.
+
+The focused Chromium trip passed a visible original Nullmaw without stopping,
+reloaded an actual hold for that animal, and delivered the full original load
+with the same truck and driver. Its dated road account was only exposed after
+receipt at the dock and survived a second reload.
+
 Focused native unit controls exercise actual originals across all 24 body
 families using suitable source regions and explicitly supplied physical contexts;
 they do not establish that ordinary travel reaches every family. Browser controls

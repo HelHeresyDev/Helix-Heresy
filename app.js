@@ -257,6 +257,7 @@
   const NativeBeastPopulations = window.HelixBeastNativePopulations;
   const observedWildlifeCarrion = new WeakMap();
   const walkingHabitatAreas = new WeakMap();
+  const nativeGrainRoads = new WeakMap();
   let nativePopulationJob = null;
   const BeastBodies = window.HelixBeastBodies;
   const CreatureBiology = window.HelixCreatureBiology;
@@ -15465,6 +15466,7 @@
       advanceCityProvisioningForTest: (seconds, quiet = false) => {
         let left = Math.max(0, seconds);
         while (left > 0 && !scientistIsDead()) {
+          if (!prepareMunicipalNativeHistory()) break;
           // Isolate this component's fixture clock. Its model already walks
           // chronological event/handling boundaries internally. Only batch
           // fixed, injury-free scenes without scientist movement or combat;
@@ -19348,6 +19350,7 @@
     lastTickAt = Date.now();
     syncStartupShell();
     prepareRoadsidePopulation();
+    prepareMunicipalNativeHistory();
     if (options.focus !== false) window.requestAnimationFrame(() => dom.pauseBtn?.focus());
   }
 
@@ -25257,7 +25260,7 @@
   }
 
   function advanceTime(seconds, options = {}) {
-    if (scientistIsDead() || nativePopulationLoading() || !prepareRoadsidePopulation()) return 0;
+    if (scientistIsDead() || nativePopulationLoading() || !prepareRoadsidePopulation() || !prepareMunicipalNativeHistory()) return 0;
     const advanceStartedAt = performance.now();
     const elapsed = Math.max(0, Number(seconds) || 0);
     if (!options.wardResearchStep && elapsed > 1 && outerApproachGates().some(g => g.outerApproach.scientificCompact?.job)) {
@@ -92190,7 +92193,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!actor?.roomId) return null;
     const s = state.cityProvisioning?.supplyTraffic;
     return (state.roadsideStops?.sites || []).find(p => p.roomId === actor.roomId
-      && (s?.encounters.some(e => e.siteId === p.id && e.endedAt == null)
+        && (s?.encounters.some(e => e.siteId === p.id && e.endedAt == null) || MunicipalSupplyThreats.activeNative(state.cityProvisioning)?.siteId === p.id
         || state.networkInterdiction?.units?.some(u => u.deployment?.siteId === p.id))) || null;
   }
   function localMunicipalSupplySite() {
@@ -92235,6 +92238,120 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function municipalSupplyCandidates(q) {
     return MunicipalSupplyThreats.candidates(q.supplyTraffic, q, currentSuppression(), suppressionActors(), state.roadsideStops?.sites || [], currentBeastDiplomacy());
   }
+  function nativeGrainRoad(q) {
+    if (!q || q.supplyTraffic?.links?.length || !(q.source.distanceKm >= 1)) return null;
+    // Existing legacy route owners keep their encounters. The shared journey
+    // planner rounds sub-kilometre approaches up; those aren't exact spans.
+    if (nativeGrainRoads.has(q)) return nativeGrainRoads.get(q);
+    const map = activeWorldRecord?.generatedData?.strategicMap, record = map?.beastHabitatSources;
+    if (!record?.physicalPlacement || !NativeBeastPopulations.capacity(record).supported) return null;
+    const topology = StrategicWorld.topologyForMap(map), settlements = new Set((map.humanGeography?.cities || []).map(c => c.cellId));
+    const area = surfaceHabitatAreas(record);
+    const span = MunicipalSupplyThreats.nativeSpan(q.source, { adjacent: (a, b) => topology.neighbors[StrategicWorld.cellIndex(a)]?.includes(StrategicWorld.cellIndex(b)),
+      distance: (a, b) => StrategicWorld.greatCircleDistanceKm(map, StrategicWorld.cellIndex(a), StrategicWorld.cellIndex(b)),
+      areaHa: id => area.get(id), settlement: id => settlements.has(id) });
+    const leg = span && RoadsideStops.nativeLeg({ id: span.routeId, legs: [{ distanceKm: span.lengthKm }] },
+      span.cellId, span.areaHa, span.anchor, ensureLabMap().tileSizeM);
+    const result = leg ? { span, leg } : null;
+    nativeGrainRoads.set(q, result); return result;
+  }
+  function prepareMunicipalNativeHistory() {
+    const q = state?.cityProvisioning;
+    if ((!q?.order && !q?.standing) || !nativeGrainRoad(q)) return true;
+    if (state.nativeBeastPopulations && NativeBeastPopulations.hasOpen(state.nativeBeastPopulations)) return !nativePopulationLoading();
+    return prepareNativePopulationHistory(true);
+  }
+  function nativeGrainTerrain(cellId) {
+    const map = activeWorldRecord.generatedData.strategicMap, i = StrategicWorld.cellIndex(cellId);
+    return { sourceCellId: cellId, biomeCode: map.biomes.classes[i], slopePercent: PlanetaryRelief.cellReliefSnapshot(map, i)?.slopePercent || 0 };
+  }
+  function nativeGrainContact(q, road, previousMeter, at) {
+    if (!road || !q.order || !(q.order.meterKm > previousMeter) || q.roadContactId || scientistIsDead()) return;
+    const owner = state.nativeBeastPopulations, map = activeWorldRecord.generatedData.strategicMap;
+    if (!owner || !NativeBeastPopulations.hasOpen(owner)) return;
+    const { leg, span } = road, p = MunicipalSupplyThreats.nativePosition(span, q); if (!p) return;
+    const known = state.roadsideStops?.sites.find(s => s.routeId === leg.routeId && Math.abs(s.positionKm - p.km) < 1e-9);
+    const window = RoadsideStops.nativeWindow(leg, known?.positionKm ?? p.km, known?.entry.z ?? 21, known?.roomId);
+    const entry = known?.entry || { x: 10, y: 10, z: 21 }, truckOrDriver = c => c.x === entry.x && [entry.y, entry.y + 1].includes(c.y);
+    let draft;
+    const source = () => draft ||= known || RoadsideStops.blueprint(q.worldId, leg.routeId, p.km, at, entry.z, {}, nativeGrainTerrain(leg.cellId));
+    const lit = surfaceDaylightIntensity(at) > 0;
+    const id = NativeBeastPopulations.roadsideProbe(owner, map.beastHabitatSources, map, window, {
+      at, alive: true, local: true, tileSizeM: leg.tile, unavailablePopulations: roadsideUnavailablePopulations(), blocked: truckOrDriver,
+      terrain: (cell, r) => {
+        const surface = source().baseline.some(t => sameMapCell(t.cell, cell));
+        if (!surface || known && !labMapCellHasFloor(cell)) return null;
+        const obstacle = source().climbSurfaces.find(f => f.condition > 0 && sameMapCell(f.cell, cell));
+        return { floor: true, oxygen: r.oxygen, obstacleHeightM: known && (constructedWallAtCell(cell) || propertyOpaqueFixtureAtCell(cell)) ? 4 : obstacle?.heightM || 0,
+          supportKg: Math.max(1, (r.stocks.mineralsKg || 0) * leg.tile ** 2 / (r.areaHa * 10000) * 10) };
+      },
+      perceived: body => {
+        const cells = BeastBodies.occupied(body, leg.tile), clear = c => (!known || sensoryLineOfSight(entry, c))
+          && BeastClimbing.lineClear(entry, 1.8, c, 1.2, source().climbSurfaces);
+        const visible = lit && RoadsideStops.perceived(entry, cells, true, clear, leg.tile);
+        const blocking = MunicipalSupplyThreats.nativeObstruction(entry, cells, p.direction)
+          && (visible || RoadsideStops.perceived(entry, cells, false, clear, leg.tile, p.direction));
+        if (blocking) return true;
+        if (visible) MunicipalSupplyThreats.nativeReport(q, { id: body.id, name: WildernessBeasts.PROFILES[body.speciesId].name }, at, p.outwardKm, false);
+        return false;
+      }
+    });
+    if (!id) return;
+    const z = Math.max(20, ...Object.keys(ensureLabMap().layers).map(Number).filter(Number.isFinite)) + 1;
+    const result = RoadsideStops.ensure(state.roadsideStops, { worldId: q.worldId, runId: q.runId }, leg.routeId, p.km, at, z, {}, nativeGrainTerrain(leg.cellId));
+    if (!result) return;
+    state.roadsideStops = result.state; const site = result.site;
+    site.carrierOnly = true; materializeRoadsideSite(site);
+    if (![site.entry, { ...site.entry, y: site.entry.y + 1 }].every(c => labMapCellIsWalkable(c)
+      && !labMapCellIsPathBlocked(c, { actor: q.driver, skipPlacement: true }))) return;
+    const previous = supplySimulationSite; supplySimulationSite = site;
+    try {
+      materializeNativeRoadside(site, id, { at, leg, blocked: truckOrDriver });
+      const animal = site.beasts?.actors.find(a => a.id === id);
+      if (animal) {
+        const e = MunicipalSupplyThreats.startNative(q, site, animal, p, at);
+        if (e && !lit) e.name = 'an unidentified obstruction';
+      }
+    } finally { supplySimulationSite = previous; }
+  }
+  function updateNativeGrainContact(q, at) {
+    const e = MunicipalSupplyThreats.activeNative(q); if (!e || at <= e.lastAt) return;
+    const site = state.roadsideStops?.sites.find(s => s.id === e.siteId), animal = site && localBeastActors(site.beasts).find(a => a.id === e.actorId);
+    if (!animal) return; // Lost or conflicting custody is not an empty road.
+    const previous = supplySimulationSite; supplySimulationSite = site;
+    try {
+      const elapsed = at - e.lastAt, v = q.vehicle;
+      if (animal.status !== 'dead') {
+        const context = beastBehaviorContext(animal, elapsed);
+        BeastBehavior.advanceVitals(animal, at, elapsed, context);
+        const sees = animal.status !== 'dead' && !beastDialogueProtected(animal, v.id)
+          && WildernessBeasts.distance(animal.mapCell, v.mapCell) <= WildernessBeasts.PROFILES[animal.speciesId].sight
+          && beastClimbingLine(animal, v);
+        const decision = WildernessBeasts.decide(animal, v.mapCell, at, sees, false);
+        if (sees && ['roam', 'return'].includes(decision.behavior)) {
+          // A nonaggressive animal may step away from the vehicle. It must
+          // actually pay the normal body movement, clearance and effort.
+          const tile = ensureLabMap().tileSizeM;
+          const away = MunicipalSupplyThreats.nativeYieldGoal(site.entry, e.direction, animal, BeastBodies.occupied(animal, tile), tile,
+            c => !BeastBodies.habitatReason(animal, c, animal.bodyPhysics.mode, BeastBodies.height(animal), context));
+          if (away) { decision.behavior = 'investigate'; decision.goal = away; }
+        }
+        animal.behavior = decision.behavior; if (sees) animal.targetId = v.id;
+        if (!BeastBehavior.step(animal, decision, sees ? v : null, at, elapsed, context)) updateBeastBody(animal, decision, at);
+        const profile = WildernessBeasts.PROFILES[animal.speciesId];
+        if (sees && decision.behavior === 'pursue' && at >= animal.nextAttackAt && BeastBodies.capable(animal, animal.bodyPhysics.mode)
+          && BeastBehavior.distance(animal, v, context) <= BeastBodies.profiles[animal.speciesId].reachM) {
+          resolveSharedCombatAction(animal.id, 'strike', { kind: 'structure', id: v.id, cell: v.mapCell },
+            { baseDamage: profile.damage, damageTypes: profile.damageTypes, hideFeedback: !municipalSupplyVisible(animal.mapCell) });
+          animal.nextAttackAt = at + profile.recovery;
+        }
+      }
+      const occupied = MunicipalSupplyThreats.nativeObstruction(site.entry, BeastBodies.occupied(animal, ensureLabMap().tileSizeM), e.direction)
+        || animal.status !== 'dead' && animal.behavior === 'pursue' && animal.targetId === q.vehicle.id && beastClimbingLine(q.driver, animal);
+      MunicipalSupplyThreats.clearNative(q, at, occupied, !actorIsIncapacitated(q.driver));
+      syncNativeBeasts(at);
+    } finally { supplySimulationSite = previous; }
+  }
   function municipalSupplyContact(q, at) {
     const interdiction = state.networkInterdiction;
     const first = NetworkInterdiction.crossing(interdiction, q, q.order?.meterKm, q.order?.meterKm);
@@ -92265,6 +92382,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     MunicipalSupplyThreats.start(q.supplyTraffic, q, candidate, site, at);
   }
   function updateMunicipalSupplyContact(q, at) {
+    if (MunicipalSupplyThreats.activeNative(q)) { updateNativeGrainContact(q, at); return; }
     const e = MunicipalSupplyThreats.active(q.supplyTraffic, q);
     if (!e && NetworkInterdiction.tickCarrier(state.networkInterdiction, q, at, { sight: sensoryLineOfSight, incapacitated: actorIsIncapacitated,
       otherThreat: () => suppressionActors().some(a => a.status !== 'dead' && a.roomId === q.vehicle.roomId && a.behavior === 'pursue') })) return;
@@ -92326,11 +92444,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const s = state.cityProvisioning;
     if (!s || scientistIsDead()) return 0;
     prepareMunicipalSupplyThreats(); if (s.supplyTraffic) updateSuppression(); updateNetworkInterdiction();
+    if (!prepareMunicipalNativeHistory()) return 0;
+    const road = nativeGrainRoad(s);
     return CityProvisioning.advance(s, cityProvisioningContext(), state.clock, {
       // A missing/conflicting contact account cannot release still-present
       // original bodies through normalization or an imported binding failure.
       roadHeld: () => Boolean(s.roadContactId),
-      ...(s.supplyTraffic || state.networkInterdiction?.links?.length ? {
+      ...(road || s.supplyTraffic || state.networkInterdiction?.links?.length ? {
+        roadFine: () => Boolean(s.roadContactId || s.supplyTraffic || state.networkInterdiction?.links?.length),
         roadTick: (_, at) => updateMunicipalSupplyContact(s, at),
         roadBoundary: (_, at, dt) => {
           municipalSupplyContact(s, at);
@@ -92340,10 +92461,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           const end = LocalExchangeCarrier.distanceTravelled(j, at + dt), start = s.order.meterKm;
           const c = MunicipalSupplyThreats.crossing(s.supplyTraffic, s, municipalSupplyCandidates(s), start, end);
           const n = NetworkInterdiction.crossing(state.networkInterdiction, s, start, end);
-          const meters = [c?.meterKm, n?.meterKm].filter(Number.isFinite);
+          const meters = [c?.meterKm, n?.meterKm, MunicipalSupplyThreats.nativeBoundary(road?.span, s, start, end, road?.leg.tile)].filter(Number.isFinite);
           return meters.length && end > start ? dt * (Math.min(...meters) - start) / (end - start) : null;
         },
-        roadArrived: (_, at) => municipalSupplyContact(s, at)
+        roadArrived: (_, at, previousMeter) => { municipalSupplyContact(s, at); nativeGrainContact(s, road, previousMeter, at); }
       } : {}),
       move: (a, target) => moveDefenderParticipant(a, target, {
         blockedCellKeys: labMapBlockingCellKeys(ensureLabMap(), { actor: a, skipPlacement: true }), skipPlacement: true, ignoreDoors: false })
@@ -92372,6 +92493,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (action === 'recover') ok = CityProvisioning.recover(s, succession, office, c, at);
     if (action === 'rest') ok = CityProvisioning.rest(s, succession, office, c, at);
     if (action === 'standing' || action === 'stopStanding') ok = CityProvisioning.standing(s, succession, office, c, action === 'standing', at);
+    if (ok && ['dispatch', 'standing'].includes(action)) prepareMunicipalNativeHistory();
     if (['fuelReagent', 'fieldRation', 'drinkingWater'].includes(action)) ok = CityProvisioning.replenish(s, succession, office, c, action, ensurePhysicalItemStacks(), at);
     if (!ok) addEvent('The original municipal allocation, current authority, real attendance or finite support does not permit that provisioning action. No stock or command was created.');
     syncActorInventories(); syncPhysicalReadModels(); persist(); render(); return ok;
@@ -99828,14 +99950,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function allWildernessBeasts() {
     const list = [...localBeastActors(state?.wildernessBeasts), ...(currentRegionalEncounters()?.beasts.actors || []).filter(a => a.regionalPhase === 'local'),
       ...(currentRegionalEncounters()?.beasts.offspring || []),
-      ...overlandKnownStops().flatMap(site => localBeastActors(site.beasts)),
+      ...(state.roadsideStops?.sites || []).flatMap(site => localBeastActors(site.beasts)),
       ...(state?.penalFlights?.assistance?.cityApproach?.gates || []).flatMap(g => localBeastActors(g.foreignSurvey?.wilderness?.beasts))];
     return list.filter((a, i) => list.findIndex(b => b.id === a.id) === i);
   }
   function localBeastActors(saved) { return [...(saved?.actors || []), ...(saved?.offspring || [])]; }
   function wildernessBeast(id) { return allWildernessBeasts().find(beast => beast.id === id) || currentRegionalEncounters()?.beasts.actors.find(a => a.id === id) || state?.unsupportedExcursions?.boundary?.beasts?.actors.find((beast) => beast.id === id) || state?.unsupportedExcursions?.remote?.beasts?.actors.find((beast) => beast.id === id) || null; }
   function ensureWildernessBeasts() {
-    const stop = overlandStopSite();
+    const stop = supplySimulationSite || localMunicipalSupplySite() || overlandStopSite();
     if (stop?.beasts) {
       const owner = state.nativeBeastPopulations;
       if (owner?.sites[stop.id]?.parcelIds) stop.beasts.bodyTerrain = NativeBeastPopulations.bindTerrain(owner, stop.id);
@@ -99980,18 +100102,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function nativeBeastSites() {
     return [...new Set([state.wildernessBeasts, state.regionalEncounters?.beasts,
       state.unsupportedExcursions?.boundary?.beasts, state.unsupportedExcursions?.remote?.beasts,
-      ...overlandKnownStops().map(site => site.beasts),
+      ...(state.roadsideStops?.sites || []).map(site => site.beasts),
       ...(state.penalFlights?.assistance?.cityApproach?.gates || [])
         .flatMap(g => foreignWildernessPatches(g.foreignSurvey?.wilderness).map(w => w.beasts))].filter(Boolean))];
   }
-  function syncNativeBeasts() {
+  function syncNativeBeasts(at = state.clock) {
     const owner = state.nativeBeastPopulations, map = activeWorldRecord?.generatedData?.strategicMap;
     if (!owner || !map?.beastHabitatSources || nativePopulationLoading() || !NativeBeastPopulations.hasOpen(owner)) return;
     if (scientistIsDead()) return;
     const sites = nativeBeastSites(), actors = sites.flatMap(localBeastActors).filter(a => a.nativePopulation);
     if (!actors.length && !sites.some(site => site.nativeRoomId && site.materialized) && !NativeBeastPopulations.hasLocalActors(owner)) return;
     const activeSiteIds = new Set(), retainedActorIds = new Set();
-    const people = [state.scientist, ensureExpeditionEscorts().actor, state.medicalExtraction?.medic, currentFieldCharter()?.driver,
+    const people = [state.scientist, ensureExpeditionEscorts().actor, state.medicalExtraction?.medic, currentFieldCharter()?.driver, state.cityProvisioning?.driver,
       ...fieldEmployeeStates().map(s => s.actor), ...fieldForceMembers().map(s => s.actor),
       ...(state.penalFlights?.actors || []), ...foundingWorksActors(), ...fieldInterdictionActors(), ...producerDriverActors()]
       .filter(a => a && a.status !== 'dead' && a.roomId);
@@ -100002,7 +100124,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       if (a.custody?.holderId || a.custody?.containerId
         || a.transport?.carrierId || a.transport?.containerId || a.regionalPhase === 'following') retainedActorIds.add(a.id);
     }
-    NativeBeastPopulations.sync(owner, map.beastHabitatSources, map, actors, state.clock, true, { activeSiteIds, retainedActorIds });
+    NativeBeastPopulations.sync(owner, map.beastHabitatSources, map, actors, at, true, { activeSiteIds, retainedActorIds });
     for (const site of sites) {
       const count = localBeastActors(site).length;
       const keep = a => !a.nativePopulation || NativeBeastPopulations.ownsLocal(owner, a.id);
@@ -100169,13 +100291,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function beastElevation(a) { return a?.climbing ? BeastClimbing.height(a) : BeastBodies.height(a); }
   function recordedBeastTerrainAt(c) {
     const k = mapCellKey(c);
-    return state?.wildernessBeasts?.bodyTerrain?.[k] || state?.regionalEncounters?.beasts?.bodyTerrain?.[k]
+    const road = supplySimulationSite?.entry.z === c.z ? supplySimulationSite : (state.roadsideStops?.sites || []).find(s => s.beasts && s.entry.z === c.z);
+    return road?.beasts?.bodyTerrain?.[k] || state?.wildernessBeasts?.bodyTerrain?.[k] || state?.regionalEncounters?.beasts?.bodyTerrain?.[k]
       || state?.unsupportedExcursions?.boundary?.beasts?.bodyTerrain?.[k] || state?.unsupportedExcursions?.remote?.beasts?.bodyTerrain?.[k]
       || state?.penalFlights?.assistance?.cityApproach?.gates?.map(g => g.foreignSurvey?.wilderness?.beasts?.bodyTerrain?.[k]).find(Boolean);
   }
   function beastTerrainContext(roomId, map = ensureLabMap()) {
     const allowed = new Set((map.rooms[roomId]?.cells || []).map(mapCellKey));
-    const roads = overlandKnownStops().find(site => site.roomId === roomId && site.beasts);
+    const roads = (state.roadsideStops?.sites || []).find(site => site.roomId === roomId && site.beasts);
     const parcels = roads && state.nativeBeastPopulations ? NativeBeastPopulations.bindTerrain(state.nativeBeastPopulations, roads.id) : {};
     const active = roomId === activeWildernessRoom() ? activeWildernessSite() : null;
     const foreign = active && foreignWildernessLocal() === active ? visitedForeignBeastPatches(active) : null;
@@ -100204,9 +100327,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     // rebuild every person's state and every other footprint per candidate cell.
     const people = [...fieldEmployeeStates(), ...fieldForceMembers()].map(s => s.actor)
       .concat(ensureExpeditionEscorts().actor || [], state.medicalExtraction?.medic || [], currentFieldCharter()?.driver || [],
-        state.penalFlights?.actors || [], foundingWorksActors(), fieldInterdictionActors(), producerDriverActors());
+        state.penalFlights?.actors || [], foundingWorksActors(), fieldInterdictionActors(), producerDriverActors(), state.cityProvisioning?.driver || []);
     const peopleCells = new Set(people.filter(other => other.id !== a.id && other.roomId === a.roomId).map(other => mapCellKey(other.mapCell)));
     peopleCells.add(mapCellKey(scientistMapCell()));
+    const grainTruck = state.cityProvisioning?.vehicle;
+    if (grainTruck?.roomId === a.roomId && grainTruck.mapCell) peopleCells.add(mapCellKey(grainTruck.mapCell));
     const bodyVolumes = new Map();
     for (const other of allWildernessBeasts().filter(other => other.id !== a.id && other.roomId === a.roomId)) {
       const low = beastElevation(other), high = low + (other.bodyPhysics?.dimensions.heightM || 1.8);
@@ -100513,6 +100638,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     for (const beast of localBeastActors(saved)) {
       const supplySite = municipalSupplySiteForActor(beast);
       if (supplySite && (state.cityProvisioning?.supplyTraffic?.encounters.some(e => e.siteId === supplySite.id && e.endedAt == null)
+        || MunicipalSupplyThreats.activeNative(state.cityProvisioning)?.siteId === supplySite.id
         || state.networkInterdiction?.units?.some(u => u.deployment?.siteId === supplySite.id
           && u.actors.some(a => a.status === 'alive' && a.roomId === supplySite.roomId)))) continue; // Exactly one physical AI owner.
       if (roadside && beast.roomId !== roadside.roomId) {
@@ -106899,8 +107025,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function overlandKnownStops() {
     const s = state?.roadsideStops;
     return s && s.worldId === activeWorldRecord?.id && s.runId === activeRunRecord?.id ? s.sites.filter(p =>
-      (!state.cityProvisioning?.supplyTraffic?.encounters.some(e => e.siteId === p.id)
-        && !state.networkInterdiction?.unvisitedSites?.includes(p.id)) || p.visits > 1 || scientistRoomId() === p.roomId) : [];
+      scientistRoomId() === p.roomId || !p.carrierOnly && ((!state.cityProvisioning?.supplyTraffic?.encounters.some(e => e.siteId === p.id)
+        && !state.networkInterdiction?.unvisitedSites?.includes(p.id)) || p.visits > 1)) : [];
   }
   function ensureIntercityMarch() {
     if (!activeWorldRecord || !activeRunRecord) return null;
@@ -107035,9 +107161,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (currentRegionalEncounters()?.beasts.actors.some(a => a.routeId === route.id)) return null;
     const home = state.strategicJourneys?.destinations.find(d => d.id === route.homeId);
     if (!home?.cellId || home.id !== state.strategicJourneys.homeDestinationId) return null;
+    return RoadsideStops.nativeLeg(route, home.cellId, surfaceHabitatAreas(record).get(home.cellId), home.walkingAnchor, ensureLabMap().tileSizeM);
+  }
+  function surfaceHabitatAreas(record) {
     let areas = walkingHabitatAreas.get(record);
     if (!areas) { areas = new Map(record.patchRows.filter(([, kind]) => kind === 0).map(([i, , area]) => [StrategicWorld.cellId(i), area])); walkingHabitatAreas.set(record, areas); }
-    return RoadsideStops.nativeLeg(route, home.cellId, areas.get(home.cellId), home.walkingAnchor, ensureLabMap().tileSizeM);
+    return areas;
   }
   function prepareRoadsidePopulation() {
     if (!OverlandExpedition.active(state?.overlandExpedition) || !overlandOnRoad()) return true;
@@ -107087,19 +107216,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
     });
   }
-  function materializeNativeRoadside(site, onlyActorId) {
-    const window = nativeRoadsideWindow(site), owner = state.nativeBeastPopulations, map = activeWorldRecord.generatedData.strategicMap;
+  function materializeNativeRoadside(site, onlyActorId, options = {}) {
+    const window = nativeRoadsideWindow(site, options.leg), owner = state.nativeBeastPopulations, map = activeWorldRecord.generatedData.strategicMap;
     if (!window || !owner || !NativeBeastPopulations.hasOpen(owner)) return;
     const saved = site.beasts ||= { ...WildernessBeasts.defaultState(), siteId: site.id, nativeRoomId: site.roomId };
-    const tile = ensureLabMap().tileSizeM;
+    const tile = ensureLabMap().tileSizeM, at = options.at ?? state.clock;
     const cells = ensureLabMap().rooms[site.roomId].cells.filter(c => labMapCellHasFloor(c));
-    saved.bodyTerrain = NativeBeastPopulations.terrain(owner, map.beastHabitatSources, map, window, cells, state.clock, tile);
+    saved.bodyTerrain = NativeBeastPopulations.terrain(owner, map.beastHabitatSources, map, window, cells, at, tile);
     const physical = beastBodyContext({ id: 'native-road-placement', roomId: site.roomId, mapCell: site.entry });
     const children = new Set(saved.offspring.map(a => a.id));
-    const actors = NativeBeastPopulations.materialize(owner, map.beastHabitatSources, map, window, { ...physical, at: state.clock, groundOnly: true,
+    const actors = NativeBeastPopulations.materialize(owner, map.beastHabitatSources, map, window, { ...physical, at, groundOnly: true,
+      blocked: (cell, low, high, actor) => options.blocked?.(cell) || physical.blocked(cell, low, high, actor),
       requireVisitedTerrain: true, onlyActorId, unavailablePopulations: roadsideUnavailablePopulations() });
     saved.actors = actors.filter(a => !children.has(a.id)); saved.offspring = actors.filter(a => children.has(a.id));
-    saved.materialized = true; saved.nativeDormant = false; saved.lastAt = state.clock;
+    saved.materialized = true; saved.nativeDormant = false; saved.lastAt = at;
     const ledger = ensureRegionalEncounters();
     for (const a of actors) {
       if (ledger && !ledger.managedPopulationIds.includes(a.populationId)) ledger.managedPopulationIds.push(a.populationId);

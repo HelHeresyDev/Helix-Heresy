@@ -518,6 +518,19 @@
       && ctx.lightAt?.(t.mapCell) < 30 && ctx.effectLine?.(a, t, 'corpseLight') && ctx.vulnerable?.(t)) condition(t, 'misled', a.id, at, 3);
     return true;
   }
+  function rest(a, at, seconds, ctx) {
+    const b = a.bodyPhysics;
+    a.life.activity = 'rest';
+    if (b.mode !== 'walking' || b.motion?.transition) return true;
+    // An exhausted walker can settle its committed turn or stride, but must
+    // not start another. A blocked stride is abandoned without refunding effort.
+    b.lastAt = Math.max(b.lastAt, at - seconds);
+    if ((b.turn || b.motion) && !Bodies.advance(a, at, { ...ctx, finishCurrentStep: true })) {
+      b.turn = null; b.motion = null;
+    }
+    b.lastAt = at; b.goal = null;
+    return true;
+  }
   function step(a, decision, target, at, seconds, ctx) {
     if (!Life.valid(a) || !alive(a) || !ctx.alive || !ctx.local || !(seconds > 0) || a.life.actedAt >= at) return false;
     a.life.actedAt = at;
@@ -533,7 +546,7 @@
     const danger = target && decision?.behavior === 'pursue';
     if (danger) { Approach.stop(a.life, at, 'interrupted'); delete a.life.wildlifeContact; }
     if (!danger && (a.bodyPhysics.stamina < 100 || a.life.activity === 'rest' && a.bodyPhysics.stamina < 250)) {
-      Approach.stop(a.life, at, 'unable'); delete a.life.wildlifeContact; a.life.activity = 'rest'; return true;
+      Approach.stop(a.life, at, 'unable'); delete a.life.wildlifeContact; return rest(a, at, seconds, ctx);
     }
     if (!p) { delete a.life.wildlifeContact; return false; }
     const lure = activeConditions(a, at).find(effect => effect.kind === 'etherLure');
@@ -603,7 +616,7 @@
         thirsty = lp.waterLDay > 0 && a.life.stores.waterL < a.life.waterCapacityL * .5;
       const selectiveFeeder = ['beast:ley-manta', 'beast:brine-cathedral', 'beast:burrowing-furnace'].includes(a.speciesId);
       if ((hungry || thirsty || selectiveFeeder) && feed(a, seconds, at, ctx)) { a.life.activity = 'feed'; return true; }
-      if (a.bodyPhysics.stamina < 100 || a.life.activity === 'rest' && a.bodyPhysics.stamina < 250) { a.life.activity = 'rest'; return true; }
+      if (a.bodyPhysics.stamina < 100 || a.life.activity === 'rest' && a.bodyPhysics.stamina < 250) return rest(a, at, seconds, ctx);
       if (actions.includes('regenerateHead') && regenerate(a, seconds, at, ctx)) { a.life.activity = 'regenerate'; return true; }
       if (actions.includes('toolUse') && ctx.acquireTool?.(a)) { a.life.activity = 'handleTool'; return true; }
       if (a.life.opportunities >= 1 && !a.life.reproduction) {

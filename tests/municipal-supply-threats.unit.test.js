@@ -51,6 +51,26 @@ function hooks(f) {
       return { ok: true };
     } };
 }
+test('native grain checks only a reached metre of a real interior land span, in either direction', () => {
+  const source = { cityId: 'city', satelliteId: 'farm', distanceKm: .2, routeCellIds: ['farm', 'wood', 'city'], nativeRoad: { cellId: 'wood', eastM: -100, northM: 700 } };
+  const geometry = { adjacent: (a, b) => a === 'wood' || b === 'wood', distance: () => .1,
+    areaHa: id => id === 'wood' ? 1000 : null, settlement: () => false };
+  const span = M.nativeSpan(source, geometry), q = { source, order: { phase: 'outbound' } };
+  assert.equal(span.cellId, 'wood'); assert.equal(span.lengthKm, .064); assert.deepEqual(span.anchor, { eastM: -100, northM: 700 });
+  assert.equal(M.nativePosition(span, q, .03), null);
+  assert.equal(M.nativeBoundary(span, q, 0, .04), null);
+  assert.equal(M.nativeBoundary(span, q, .06, .07), span.startKm);
+  assert.equal(M.nativeBoundary(span, q, .1, .2), .101);
+  q.order.phase = 'inbound'; assert.equal(M.nativePosition(span, q, .11).direction, -1);
+  assert.ok(Math.abs(M.nativePosition(span, q, .11).outwardKm - .09) < 1e-9);
+  assert.equal(M.nativeSpan(source, { ...geometry, adjacent: () => false }), null);
+  assert.equal(M.nativeSpan(source, { ...geometry, settlement: () => true }), null);
+  const entry = { x: 10, y: 10, z: 21 };
+  assert.equal(M.nativeObstruction(entry, [{ ...entry, x: 12, y: 11 }], 1), false);
+  assert.equal(M.nativeObstruction(entry, [{ ...entry, x: 12 }], -1), false);
+  assert.equal(M.nativeObstruction(entry, [{ ...entry, x: 12 }], 1), true);
+  assert.deepEqual(M.nativeLaneExits(entry, { lengthM: 3, widthM: 1.2 }, 1), [7, 11]);
+});
 test('elk habitat overlap supplies original territorial bodies without a migration warning or wolf statistics', () => {
   const f = fixture(5, .1, Population.ELK);
   assert.equal(f.map.beastEcology.waveProfiles.length, 0); assert.equal(f.links.length, 1);

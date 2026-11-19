@@ -79,6 +79,28 @@ test('starvation, dehydration, real rest and nonattendance/death have separate p
   const starving = actor('sunspine-basilisk'); C.advanceVitals(starving, 100 * L.DAY, 100 * L.DAY, c);
   assert.ok(starving.health < starving.maxHealth); assert.ok(starving.life.shortages.foodKg > 0);
 });
+test('a tired walker finishes only its committed turn or stride before recovering', () => {
+  const a = actor('nullmaw-stalker'), c = context([a]), b = a.bodyPhysics;
+  const goal = { behavior: 'investigate', goal: cell(0, 8) };
+  b.stamina = 100;
+  assert.ok(B.turn(a, 1, c).ok);
+  B.advance(a, .25, c);
+  assert.ok(b.turn && b.stamina < 100);
+  const spent = b.spentStamina;
+  C.step(a, goal, null, 2, 1.75, c);
+  assert.equal(b.turn, null); assert.equal(b.heading, 1);
+  assert.deepEqual(a.mapCell, cell()); assert.ok(b.spentStamina > spent);
+  const tired = b.stamina;
+  C.advanceVitals(a, 3, 1, c);
+  assert.ok(b.stamina > tired);
+  assert.ok(B.request(a, 'walking', goal.goal, c).ok);
+  B.advance(a, 2.1, c);
+  assert.ok(b.motion?.progressM > 0);
+  const nextCell = clone(b.motion.to);
+  C.step(a, goal, null, 10, 7, c);
+  assert.deepEqual(a.mapCell, nextCell); assert.equal(b.motion, null);
+  assert.equal(b.goal, null); assert.equal(b.lastAt, 10);
+});
 test('radiant fan preparation pays once, can be interrupted, damages and temporarily paralyses through real line of effect', () => {
   const a = actor('sunspine-basilisk'), target = actor('rimefang-pack'), c = context([a, target]); target.mapCell = cell(3);
   const old = a.bodyPhysics.mana;

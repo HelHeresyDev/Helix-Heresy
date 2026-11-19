@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const P = require('../city-provisioning');
 const World = require('../strategic-world');
+const Threats = require('../municipal-supply-threats');
 const copy = x => JSON.parse(JSON.stringify(x));
 function fixture() {
   const source = { cityId: 'a', cityName: 'Aster', populationSourceId: 'population:a', cityPopulation: 3000,
@@ -32,6 +33,46 @@ function complete(f) {
   assert.equal(f.s.order, null);
 }
 const total = s => s.stores.cityKg + s.stores.farmKg + s.vehicle.cargoKg + s.demand.suppliedKg;
+test('native witness or hold reaches returned dock reports only with the same delivery, driver, truck and conserved cargo', () => {
+  for (const hold of [false, true]) {
+    const f = fixture(); order(f);
+    const driver = f.s.driver.id, truck = f.s.vehicle.id, report = copy(f.s.report);
+    const animal = { id: 'PRIVATE-NATIVE-IDENTITY', name: 'Nullmaw Stalker', speciesId: 'beast:nullmaw-stalker', nativePopulation: {}, roomId: 'true-road' };
+    const site = { id: 'original-road', roomId: 'true-road', entry: { x: 10, y: 10, z: 21 } };
+    let witnessed = false, start, fuel, cargo, returnedAt;
+    const h = { move,
+      roadBoundary: () => null, roadFine: s => Boolean(s.roadContactId), roadHeld: s => Boolean(s.roadContactId),
+      roadArrived: (s, at) => {
+        if (witnessed || s.order.phase !== 'inbound' || s.order.meterKm < 2) return;
+        witnessed = true;
+        if (hold) {
+          start = Threats.startNative(s, site, animal, { outwardKm: s.source.distanceKm - s.order.meterKm, direction: -1 }, at);
+          assert.ok(start); cargo = s.vehicle.cargoKg; fuel = s.vehicle.fuelKm; assert.ok(cargo > 0);
+        } else assert.ok(Threats.nativeReport(s, animal, at, 8, false));
+      },
+      roadTick: (s, at) => {
+        const e = Threats.activeNative(s); if (!e) return;
+        assert.equal(s.order.meterKm, start.meterKm); assert.equal(s.vehicle.cargoKg, cargo); assert.equal(s.vehicle.fuelKm, fuel);
+        if (Threats.clearNative(s, at, at < start.at + 7, true)) returnedAt = at;
+      }
+    };
+    for (let i = 0; i < 260 && f.s.order; i++) {
+      if (f.s.network.journeys.find(j => j.id === f.s.order.journeyId)?.status === 'stranded')
+        assert.ok(P.recover(f.s, f.succession, f.office, f.c, f.at));
+      step(f, 15, h);
+      if (Threats.activeNative(f.s)) f.s = P.normalize(copy(f.s));
+    }
+    assert.equal(f.s.order, null); assert.equal(witnessed, true);
+    if (hold) assert.ok(returnedAt >= start.at + 36);
+    assert.deepEqual(f.s.report, report); assert.equal(f.s.receipts.length, 1);
+    assert.equal(f.s.driver.id, driver); assert.equal(f.s.vehicle.id, truck); assert.equal(f.s.vehicle.cargoKg, 0);
+    assert.equal(f.s.receipts[0].loadedKg, f.s.receipts[0].deliveredKg);
+    assert.ok(Math.abs(total(f.s) - f.s.stores.initialKg - f.s.stores.harvestedKg) < 1e-7);
+    assert.ok(P.receive(f.s, f.c, f.at));
+    assert.match(f.s.report.receipts[0].encounterReports[0].description, hold ? /held for.*cleared/ : /noticed.*continued/);
+    assert.ok(!JSON.stringify(f.s.report).includes(animal.id));
+  }
+});
 test('standing priority requires original local authority; later pickups use the same finite worker, driver, truck and quota without a remote report', () => {
   for (const mutate of [f => f.c.local = false, f => f.c.atCounter = false, f => f.c.workerPresent = false, f => f.c.bodyEpoch++]) {
     const f = fixture(); mutate(f); assert.equal(P.standing(f.s, f.succession, f.office, f.c, true, 0), false);

@@ -12,6 +12,96 @@
   const copy = x => JSON.parse(JSON.stringify(x));
   const SCOPE = 'Original municipal grain traffic on a genuinely shared road crossing. Original animals, driver, truck, cargo and losses only. An overdue carrier is not a casualty report. A safe shipment is not population-wide safety, political submission or world domination.';
   const bound = (s, b) => s && b && s.worldId === b.worldId && s.runId === b.runId;
+  // One surveyed interior part of this original farm road. The route geometry
+  // fixes the span before any query of wildlife or traffic outcomes.
+  function nativeSpan(source, geometry) {
+    if (!source?.routeCellIds || source.routeCellIds.length < 3 || !(source.distanceKm > 0)) return null;
+    const path = [...source.routeCellIds].reverse(), km = [0], recorded = source.nativeRoad;
+    for (let i = 1; i < path.length; i++) {
+      if (!geometry.adjacent(path[i - 1], path[i])) return null;
+      km.push(km[i - 1] + geometry.distance(path[i - 1], path[i]));
+    }
+    const total = km.at(-1);
+    if (!(total > 0) || !Number.isFinite(total)) return null;
+    const i = path.findIndex((id, i) => i > 0 && i < path.length - 1 && (!recorded || id === recorded.cellId)
+      && geometry.areaHa(id) > 0 && !geometry.settlement(id));
+    if (i < 1) return null;
+    const scale = source.distanceKm / total, center = km[i] * scale;
+    const lengthKm = Math.min(.064, (km[i] - km[i - 1]) * scale, (km[i + 1] - km[i]) * scale);
+    if (!(lengthKm >= .012)) return null;
+    const startKm = center - lengthKm / 2, endKm = center + lengthKm / 2;
+    return { cellId: path[i], startKm, endKm, lengthKm, areaHa: geometry.areaHa(path[i]),
+      routeId: `${source.cityId}:${source.satelliteId}:original-grain-road`,
+      anchor: recorded ? { eastM: recorded.eastM, northM: recorded.northM } : null };
+  }
+  function nativePosition(span, quota, meter = quota.order?.meterKm) {
+    if (!span || !Number.isFinite(meter)) return null;
+    const direction = quota.order?.phase === 'inbound' ? -1 : 1;
+    const outwardKm = direction > 0 ? meter : quota.source.distanceKm - meter;
+    return outwardKm < span.startKm - 1e-9 || outwardKm > span.endKm + 1e-9 ? null : {
+      direction, outwardKm, km: Math.max(0, Math.min(span.lengthKm, outwardKm - span.startKm))
+    };
+  }
+  function nativeBoundary(span, quota, from, to, tile = 1) {
+    if (!span || !(to > from)) return null;
+    const incoming = quota.order?.phase === 'inbound';
+    const enter = incoming ? quota.source.distanceKm - span.endKm : span.startKm;
+    const leave = incoming ? quota.source.distanceKm - span.startKm : span.endKm;
+    if (from >= leave - 1e-9 || to < enter - 1e-9) return null;
+    return from < enter - 1e-9 ? enter : Math.min(leave, from + tile / 1000);
+  }
+  function nativeObstruction(entry, occupied, direction) {
+    return occupied.some(c => c.z === entry.z && c.y === entry.y
+      && (c.x - entry.x) * direction >= 0 && (c.x - entry.x) * direction <= 4);
+  }
+  function nativeLaneExits(entry, body, tile) {
+    // A side step can turn the long axis toward the verge. Leave space for
+    // the largest ground dimension, not just the current anchor or heading.
+    return [entry.y - Math.ceil(Math.max(body.lengthM, body.widthM) / tile), entry.y + 1];
+  }
+  function nativeYieldGoal(entry, direction, actor, occupied, tile, canEnter) {
+    // While aware of the halted carrier, don't immediately patrol back into
+    // the lane from the verge. No movement is credited by this decision.
+    if (!nativeObstruction(entry, occupied, direction)) return copy(actor.mapCell);
+    return nativeLaneExits(entry, actor.bodyPhysics.dimensions, tile)
+      .map(y => ({ ...actor.mapCell, y })).find(canEnter);
+  }
+  function nativeReport(q, animal, at, outwardKm, held, outcome = null) {
+    const o = q.order; if (!o) return false;
+    const key = `${o.phase}:${animal.id}:${held ? 'held' : 'seen'}`;
+    o.nativeRoadReports ||= [];
+    if (o.nativeRoadReports.includes(key)) return false;
+    o.nativeRoadReports.push(key);
+    o.encounterReports ||= [];
+    o.encounterReports.push({ at, contacts: [], description: `Original driver ${held ? 'held for' : 'noticed'} ${animal.name} at ${outwardKm.toFixed(3)} km from the city. ${held
+      ? `The road cleared after ${Math.round(outcome.seconds)} seconds; ${outcome.cargoKg.toFixed(1)} kg remained aboard at departure.`
+      : 'The lane was clear at the sighting and the truck continued.'} This is a dated account of one passage.` });
+    return true;
+  }
+  function startNative(q, site, animal, position, at) {
+    if (q.roadContactId || !q.order || !['outbound', 'inbound'].includes(q.order.phase) || q.vehicle.mapCell
+      || !animal?.nativePopulation || animal.roomId !== site.roomId) return null;
+    const e = { id: `${q.order.id}:native-road:${at}`, orderId: q.order.id, phase: q.order.phase, siteId: site.id,
+      actorId: animal.id, at, lastAt: at, clearSeconds: 0, meterKm: q.order.meterKm, ...position, name: Wild.PROFILES[animal.speciesId].name };
+    q.nativeRoadContact = e; q.roadContactId = e.id;
+    q.vehicle.mapCell = copy(site.entry); q.vehicle.roomId = site.roomId;
+    q.driver.mapCell = { ...site.entry, y: site.entry.y + 1 }; q.driver.roomId = site.roomId;
+    return e;
+  }
+  function activeNative(q) {
+    const e = q?.nativeRoadContact;
+    return e && q.roadContactId === e.id && q.order?.id === e.orderId && q.order.phase === e.phase
+      && q.order.meterKm === e.meterKm ? e : null;
+  }
+  function clearNative(q, at, occupied, able) {
+    const e = activeNative(q); if (!e || !(at > e.lastAt)) return false;
+    e.clearSeconds = occupied ? 0 : e.clearSeconds + at - e.lastAt; e.lastAt = at;
+    if (e.clearSeconds < 30 || !able || q.driver.status !== 'alive' || q.driver.health < 50 || q.vehicle.condition < 50) return false;
+    nativeReport(q, { id: e.actorId, name: e.name }, e.at, e.outwardKm, true, { seconds: at - e.at, cargoKg: q.vehicle.cargoKg });
+    q.roadContactId = null; q.nativeRoadContact = null;
+    q.driver.mapCell = null; q.driver.roomId = ''; q.vehicle.mapCell = null; q.vehicle.roomId = '';
+    return true;
+  }
   function sources(map, quota, geometry, routes = []) {
     if (!quota?.routeCellIds?.length || !geometry) return [];
     const path = [...quota.routeCellIds].reverse(), lengths = [0];
@@ -218,5 +308,6 @@
   function rebind(s, quota, from, to) {
     s = normalize(s, quota); return bound(s, from) ? { ...s, ...to } : null;
   }
-  return { SCOPE, sources, validLink, create, normalize, candidates, crossing, start, active, step, vehicleImpact, observe, fact, rebind };
+  return { SCOPE, sources, validLink, create, normalize, candidates, crossing, start, active, step, vehicleImpact, observe, fact, rebind,
+    nativeSpan, nativePosition, nativeBoundary, nativeObstruction, nativeLaneExits, nativeYieldGoal, nativeReport, startNative, activeNative, clearNative };
 });

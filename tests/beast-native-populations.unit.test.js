@@ -3,6 +3,7 @@ const L = require('../world-run-library'), N = require('../beast-native-populati
 const F = require('../beast-regional-foodweb'), B = require('../beast-bodies'), S = require('../beast-habitat-sources');
 const Carrion = require('../wildlife-carcasses');
 const Road = require('../roadside-stops');
+const Supply = require('../municipal-supply-threats');
 const copy = x => JSON.parse(JSON.stringify(x));
 let fixture;
 function original() {
@@ -60,6 +61,28 @@ test('roadside sensing can find an original body but an empty, hidden or unsuppo
   const [seenAgain] = materialize(at);
   assert.equal(seenAgain.id, id); assert.ok(Math.abs(seenAgain.health - wounded) < 1e-8);
   assert.ok(P.normalize(s, binding));
+});
+test('a sideways original must clear with its turned footprint before a grain truck can leave', () => {
+  const { map, binding } = original(), record = map.beastHabitatSources, state = N.create(record, binding), s = N.open(state, record, map);
+  const r = s.regions.find(r => r.id === 'habitat:41:surface'), at = 5000;
+  const leg = Road.nativeLeg({ id: 'grain', legs: [{ distanceKm: .064 }] }, r.cellId, r.areaHa, { eastM: -42560, northM: -149824 });
+  const site = Road.nativeWindow(leg, .028, 21, 'grain-road');
+  const road = Road.blueprint(binding.worldId, leg.routeId, .028, at, 21, {}, null, site.roomId);
+  const terrain = N.terrain(state, record, map, site, road.baseline.map(row => row.cell), at);
+  const ctx = { alive: true, local: true, at, tileSizeM: 1, terrain: cell => terrain[B.key(cell)],
+    blocked: cell => cell.x === road.entry.x && [road.entry.y, road.entry.y + 1].includes(cell.y) };
+  const [actor] = N.materialize(state, record, map, site, { ...ctx, groundOnly: true });
+  const occupied = () => Supply.nativeObstruction(road.entry, B.occupied(actor, 1), 1);
+  assert.equal(occupied(), true);
+  assert.ok(B.turn(actor, 1, ctx).ok); B.advance(actor, at + 3, ctx);
+  const yieldGoal = () => Supply.nativeYieldGoal(road.entry, 1, actor, B.occupied(actor, 1), 1,
+    c => !B.habitatReason(actor, c, 'walking', 0, ctx));
+  const goal = yieldGoal();
+  assert.equal(goal.y, 7);
+  assert.ok(B.request(actor, 'walking', goal, ctx).ok); B.advance(actor, at + 14, ctx);
+  assert.equal(actor.mapCell.y, 7); assert.equal(occupied(), false);
+  assert.deepEqual(yieldGoal(), actor.mapCell, 'the visible stopped carrier does not cause immediate re-entry');
+  assert.ok(actor.bodyPhysics.spentStamina > 0);
 });
 test('one foreign habitat owner claims the full original footprint only after the adjoining terrain opens', () => {
   const { map, binding } = original(), record = map.beastHabitatSources, state = N.create(record, binding), s = N.open(state, record, map);

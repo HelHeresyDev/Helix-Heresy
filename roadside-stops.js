@@ -27,6 +27,7 @@
         createdAt: s.createdAt, lastVisitedAt: s.lastVisitedAt, visits: Math.max(1, Math.floor(Number(s.visits) || 1)),
         baseline: s.baseline.map(t => ({ cell: copy(t.cell), terrainId: t.terrainId })), shelter,
         climbSurfaces: Climbing.normalizeSurfaces(s.climbSurfaces || [], s) || [],
+        ...(s.carrierOnly === true ? { carrierOnly: true } : {}),
         ...(s.beasts?.nativeRoomId === s.roomId && s.beasts.siteId === s.id ? { beasts: Wild.normalizeState(s.beasts) } : {}),
         destination: { temperatureC: Number.isFinite(s.destination?.temperatureC) ? s.destination.temperatureC : 18,
           precipitationMm: Number.isFinite(s.destination?.precipitationMm) ? s.destination.precipitationMm : 0 } });
