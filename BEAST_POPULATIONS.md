@@ -1179,6 +1179,33 @@ Larger real encounter geometry, ordinary marine/subsurface access,
 route/logistics and strategic consumers remain in the existing D acceptance.
 The bounded adapter is **not completion of catalog-wide ordinary-play encounters**.
 
+### Foreign survey ground and adjoining seams
+
+The foreign survey uses one metre-based regional frame and one native owner for
+its existing connected local patches. An entrance with a recorded approach
+position uses it. Where the route specifies only neighboring hexes, the
+entrance uses a fixed interior offset on the approach-facing side of the land
+habitat. That calculation depends on geography, not animal positions. The frame
+is saved at the original entrance; the next patch does not choose a new origin.
+
+Opening a seam to walk across does not expose the next patch's terrain or
+inhabitants. After the physical crossing, the materialized floors join the
+same site and only newly visited terrain draws from the original habitat
+parcel budget. A full-size beast may occupy both sides once its footprint has
+ground support and clearance throughout. Existing local actors keep their
+timers and condition, and regional remains are not made into new corpses.
+Withdrawal returns unattended individuals to the regional account. Reload and
+return keep the original site and terrain; encounters still depend on who is
+actually there. This is terrestrial access along the existing survey itinerary,
+not all-family travel access, live background wildlife spawning or a new
+strategic safety report.
+
+The focused browser itinerary books and rides the survey vehicle, walks the
+recorded entrance and eastern seam, and shows the original roughly 500 kg
+Nullmaw in both Canvas and DOM. It also checks reload, withdrawal and return.
+The recorded-entrance fixture makes that contact repeatable; it does not
+measure how often an unspecified ordinary entrance yields a sighting.
+
 Focused native unit controls exercise actual originals across all 24 body
 families using suitable source regions and explicitly supplied physical contexts;
 they do not establish that ordinary travel reaches every family. Browser controls

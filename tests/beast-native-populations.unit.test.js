@@ -32,6 +32,31 @@ test('native activation checks original source integrity without declaring ecolo
   assert.equal(source.diagnosticOnly, undefined); assert.equal(JSON.stringify(map), before);
   assert.throws(() => S.runtimeSource({ ...map.beastHabitatSources, id: 'wrong' }, map));
 });
+test('one foreign habitat owner claims the full original footprint only after the adjoining terrain opens', () => {
+  const { map, binding } = original(), record = map.beastHabitatSources, state = N.create(record, binding), s = N.open(state, record, map);
+  const site = { id: 'foreign-seam', cellId: 'planet-cell:00041', kind: 'surface', roomId: 'foreign-wilderness',
+    bounds: { x: 21, y: 8, z: 23, width: 32, height: 24 }, origin: { eastM: -42543.346, northM: -149826.258 } };
+  const at = 5000, cells = Array.from({ length: 32 * 12 }, (_, i) => ({ x: 21 + i % 32, y: 8 + Math.floor(i / 32), z: 23 }));
+  let terrain = N.terrain(state, record, map, site, cells.filter(c => c.x < 37), at);
+  const ctx = { at, alive: true, local: true, requireVisitedTerrain: true, tileSizeM: 1, terrain: cell => terrain[B.key(cell)] };
+  assert.deepEqual(N.materialize(state, record, map, site, ctx), []);
+  assert.equal(Object.keys(state.parcels).length, 16 * 12);
+  const originalParcel = terrain['36,10,23'];
+  terrain = N.terrain(state, record, map, site, cells, at);
+  assert.equal(terrain['36,10,23'], originalParcel);
+  const [actor] = N.materialize(state, record, map, site, ctx);
+  assert.equal(actor.speciesId, 'beast:nullmaw-stalker');
+  assert.ok(actor.bodyPhysics.massKg > 490);
+  const footprint = B.occupied(actor, 1);
+  assert.ok(footprint.some(c => c.x < 37) && footprint.some(c => c.x >= 37));
+  actor.health -= 1; actor.nextAttackAt = at + 123;
+  const again = N.materialize(state, record, map, site, ctx);
+  assert.deepEqual(again, [actor]); assert.equal(again[0], actor);
+  assert.equal(again[0].nextAttackAt, at + 123);
+  assert.equal(Object.keys(s.details).length, 1);
+  assert.equal(Object.keys(state.parcels).length, 32 * 12);
+  assert.ok(P.normalize(s, binding));
+});
 test('visited wildlife remains share the original regional debit after reload and independent continue', () => {
   const { map, binding } = original(), record = map.beastHabitatSources, owner = N.create(record, binding), s = N.open(owner, record, map);
   const eater = { speciesId: 'beast:carrion-lantern' };

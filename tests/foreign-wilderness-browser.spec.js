@@ -1,11 +1,101 @@
 const { test, expect } = require('@playwright/test');
 const Carrier = require('../municipal-carrier');
+const Library = require('../world-run-library'), World = require('../strategic-world'), Bodies = require('../beast-bodies');
+const { lifecycleWorld } = require('./helpers/lifecycle-world');
 const { openForeignWorkspace, advance, wa, finish } = require('./helpers/foreign-assay-visit');
 test.setTimeout(540000);
 const snap = page => page.evaluate(() => window.helixHeresyDebug.foreignSurveySnapshot());
 const wild = page => page.evaluate(() => window.helixHeresyDebug.foreignWildernessSnapshot());
 const act = (page, action, options = {}) => page.evaluate(({ action, options }) => window.helixHeresyDebug.foreignSurveyAction(action, options), { action, options });
 async function reload(page) { await page.reload(); await page.locator('#loadLastSaveBtn').click(); await page.locator('[data-workspace-tab="visits"]').click(); }
+let seamWorld;
+function originalSeamWorld() {
+  if (seamWorld) return seamWorld;
+  const w = Library.createWorld({ id: 'native-survey', worldSeed: 'native-encounters', createdAt: 'test', generationVersion: 8,
+    creationSettings: { strategicMap: { refinementLevel: 2 } } });
+  const map = w.generatedData.strategicMap, catalog = JSON.parse(JSON.stringify(lifecycleWorld().generatedData.strategicMap.strategicStartingSites));
+  delete catalog.digest;
+  for (const c of catalog.scenarioRows[0].candidates) c.strategicCellId = World.cellId(map.surface.classes.indexOf('L'));
+  catalog.digest = `strategic-starting-sites-${World.stableHash(catalog)}`;
+  map.strategicStartingSites = catalog; map.publicStartingSiteDirectory = JSON.parse(JSON.stringify(catalog));
+  seamWorld = Library.createWorld({ ...w, generatedData: { ...w.generatedData, strategicMap: World.finalizeStrategicMap(map) } });
+  return seamWorld;
+}
+test('Canvas and DOM: ordinary foreign survey claims an original full-size beast across the opened seam', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message)); page.on('dialog', d => d.accept());
+  const world = originalSeamWorld(), field = 'planet-cell:00143', wildCell = 'planet-cell:00041';
+  await openForeignWorkspace(page, 'original-seam', 'canvas', false, false, 0, 'wilderness', false, null, null, world);
+  expect(await wa(page, 'return')).toBe(true); await finish(page);
+  const source = { cityId: 'b', administrationId: 'admin:b', worksId: 'works:b', charterId: 'charter:b', populationSourceId: 'population:b',
+    cellId: field, name: 'Birch Survey Approach', placeId: 'foreign-survey:b' };
+  const carrier = Carrier.fromWorld({ strategicPlayableSettlementState: { cityRows: [{ cityId: 'b', assetId: 'population:b', currentPopulation: 100, physicalCondition: 'intact', services: { transport: 'functional' } }] },
+    cityGovernments: { governments: [{ cityId: 'b', roleAssignments: { publicWorksAndProvisioning: 'works:b' }, institutions: [{ id: 'works:b', capacityBand: 'functional' }] }] } }, 'b', 0);
+  const map = world.generatedData.strategicMap, origin = World.cellSnapshot(map, World.cellIndex(field)), destination = World.cellSnapshot(map, World.cellIndex(wildCell));
+  // Catalog fixture: this entrance is recorded before booking, in the original
+  // globe's habitat. No debug actor, body resize, edited reserves, teleport or
+  // runtime search for a nearby population is used during the trip.
+  const candidates = [{ ...destination, slopePercent: .6, temperatureC: 17, approachArrival: { eastM: -42542.346, northM: -149822.258 } }];
+  expect(await page.evaluate(({ source, carrier, origin, candidates }) => {
+    const d = window.helixHeresyDebug, context = d.foreignSurveySnapshot().surveys.context;
+    return d.setForeignSurveyTestSource(source, carrier, { ...context, siteId: source.placeId, strategicCellId: source.cellId })
+      && d.setForeignWildernessTestSource({ origin, candidates, occupied: [], context });
+  }, { source, carrier, origin, candidates })).toBe(true);
+  expect(await act(page, 'quote')).toBe(true); expect(await act(page, 'accept', { expected: (await snap(page)).excursion.quote })).toBe(true);
+  expect(await act(page, 'book')).toBe(true); await advance(page, 120);
+  expect(await act(page, 'board')).toBe(true); await finish(page); await advance(page, 600);
+  expect(await act(page, 'disembark')).toBe(true); await finish(page);
+  expect(await act(page, 'enterWilderness')).toBe(true);
+  const walk = s => page.evaluate(s => window.helixHeresyDebug.advanceAdjoiningWildernessForTest(s), s);
+  const completeWalk = async () => {
+    for (let i = 0; i < 12; i++) {
+      const s = await wild(page), task = s.tasks.find(t => !t.reason);
+      if (!task) { expect(s.tasks).toHaveLength(0); return; }
+      await walk(Math.max(1, task.dueAt - s.clock + 1));
+    }
+    throw Error('Survey walk did not finish');
+  };
+  await completeWalk();
+  await page.waitForFunction(() => window.helixHeresyDebug.foreignWildernessSnapshot().site.beasts?.materialized, null, { timeout: 120000 });
+  let w = await wild(page);
+  const frame = w.site.discovery.baseline.populationFrame;
+  expect(frame).toEqual({ eastM: -42543.346, northM: -149826.258 });
+  const rootId = w.site.destination.id;
+  expect(w.site.beasts.actors).toHaveLength(0); expect(w.site.extension).toBeUndefined();
+  expect(await act(page, 'walkLocalEdge', { direction: 'east' })).toBe(true); await completeWalk();
+  expect((await wild(page)).knowledge.sightings).toHaveLength(0);
+  expect(await act(page, 'crossLocalConnection', { direction: 'east' })).toBe(true); await completeWalk();
+  w = await wild(page); expect(w.site.extension.materialized).toBe(true);
+  const seam = w.site.extension.bounds.x, [a] = w.site.beasts.actors;
+  expect(w.site.beasts.actors).toHaveLength(1);
+  expect(a).toMatchObject({ speciesId: 'beast:nullmaw-stalker', nativePopulation: { siteId: rootId, regionId: 'habitat:41:surface' } });
+  expect(a.life.originalMemberId).toBe('natural-group:beast-population:nullmaw-stalker:01:2:males:0');
+  expect(a.bodyPhysics.massKg).toBeGreaterThan(490);
+  const body = Bodies.occupied(a, 1);
+  expect(body.some(c => c.x < seam) && body.some(c => c.x >= seam)).toBe(true);
+  for (const renderer of ['canvas', 'dom']) {
+    const scene = await page.evaluate(({ id, name, renderer }) => {
+      const d = window.helixHeresyDebug; d.setMapRenderer(renderer); d.setMapOverlay('prospecting');
+      const observation = d.foreignWildernessSnapshot().knowledge.sightings.find(b => b.id === id);
+      return { render: d.mapRendererSnapshot().mode, observation, shown: d.mapSceneSnapshot().cells.filter(c => c.overlay?.label?.includes(name)).map(c => c.cell) };
+    }, { id: a.id, name: a.name, renderer });
+    expect(scene.render).toBe(renderer); expect(scene.observation.current).toBe(true);
+    expect(scene.shown.some(c => c.x < seam) && scene.shown.some(c => c.x >= seam)).toBe(true);
+  }
+  await reload(page); w = await wild(page);
+  expect(w.site.beasts.actors).toEqual([a]);
+  expect(w.site.discovery.baseline.populationFrame).toEqual(frame);
+  expect(w.cell).toEqual(w.site.extension.entry); // Already at its west seam.
+  expect(await act(page, 'crossLocalConnection', { direction: 'west' })).toBe(true); await completeWalk();
+  expect(await act(page, 'withdraw')).toBe(true); await completeWalk();
+  w = await wild(page); expect(w.site.beasts.actors).toHaveLength(0);
+  expect(w.knowledge.sightings.find(s => s.id === a.id)?.current).toBe(false);
+  expect(await act(page, 'enterWilderness')).toBe(true); await completeWalk();
+  w = await wild(page); expect(w.site.discovery.baseline.populationFrame).toEqual(frame);
+  expect(w.site.extension.materialized).toBe(true);
+  expect(w.site.beasts.actors.every(b => b.life.originalMemberId === a.life.originalMemberId)).toBe(true);
+  expect(w.site.beasts.actors.length).toBeLessThanOrEqual(1);
+  expect(errors).toEqual([]);
+});
 test('canvas foreign wilderness physically discovers, shelters, samples and withdraws without extending municipal rights or resetting original sites across real saves', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message)); page.on('dialog', d => d.accept());
   await openForeignWorkspace(page, 'foreign-wilderness', 'canvas', false, false, 0, 'wilderness');

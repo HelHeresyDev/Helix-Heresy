@@ -99840,13 +99840,18 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function materializeWildernessBeasts() {
     const saved = ensureWildernessBeasts(), survival = activeWildernessSite();
-    if (saved.materialized || scientistIsDead() || !survival.materialized || !survival.discovery?.baseline || survival.discovery.placeId !== survival.destination?.id) return saved;
+    if (scientistIsDead() || !survival.materialized || !survival.discovery?.baseline || survival.discovery.placeId !== survival.destination?.id) return saved;
     const map = activeWorldRecord?.generatedData?.strategicMap, index = StrategicWorld.cellIndex(survival.destination.strategicCellId);
-    const populations = (map?.beastEcology?.populations || []).filter((population) => StrategicBeastEcology.maskIncludes(population.territory.rangeMask, index));
     const native = map?.beastHabitatSources?.physicalPlacement && NativeBeastPopulations.capacity(map.beastHabitatSources).supported;
+    const foreign = foreignWildernessLocal() === survival;
+    const visited = native && foreign ? visitedForeignBeastPatches(survival) : null;
+    const signature = visited?.map(p => p.destination.id).sort().join('|');
+    if (saved.materialized && (!visited || !saved.nativeRoomId || saved.nativeTerrainPatches === signature)) return saved;
+    if (visited && !bindForeignBeastFrame(survival, map, index)) return saved;
     if (native && !prepareNativePopulationHistory()) return saved;
+    const populations = native ? [] : (map?.beastEcology?.populations || []).filter(p => StrategicBeastEcology.maskIncludes(p.territory.rangeMask, index));
     const beasts = native
-      ? materializeNativeBeasts(survival, map)
+      ? materializeNativeBeasts(survival, map, visited, signature)
       : WildernessBeasts.materialize(state.seed, survival.destination.id, populations, ensureLabMap().rooms[activeWildernessRoom()].cells, state.clock);
     const ledger = ensureRegionalEncounters();
     if (ledger) {
@@ -99905,18 +99910,36 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const baseline = survival?.discovery?.baseline;
     if (!baseline?.bounds || !survival.destination) return null;
     return { id: survival.destination.id, cellId: survival.destination.strategicCellId,
-      roomId, kind: baseline.habitatKind || 'surface', bounds: baseline.bounds,
+      roomId, kind: baseline.habitatKind || 'surface', bounds: baseline.populationBounds || baseline.bounds,
       origin: baseline.populationFrame || { eastM: baseline.bounds.x * tile, northM: baseline.bounds.y * tile } };
   }
-  function materializeNativeBeasts(survival, map) {
+  function visitedForeignBeastPatches(survival) {
+    return foreignWildernessPatches(survival).filter(p => p.materialized && p.discovery?.baseline);
+  }
+  function bindForeignBeastFrame(survival, map, index) {
+    const baseline = survival.discovery.baseline;
+    if (baseline.populationBounds && baseline.populationFrame) return true;
+    const areaHa = map.beastHabitatSources.patchRows.find(([i, kind]) => i === index && kind === 0)?.[2];
+    const approach = StrategicWorld.cellSnapshot(map, StrategicWorld.cellIndex(survival.destination.approachCellId));
+    const destination = StrategicWorld.cellSnapshot(map, index);
+    if (!approach?.neighborIds.includes(destination?.id) || destination?.surfaceClass !== 'land') return false;
+    const frame = ForeignWilderness.populationWindow(survival, approach, destination, areaHa, ensureLabMap().tileSizeM);
+    if (!frame) return false;
+    const existing = state.nativeBeastPopulations?.sites?.[survival.destination.id];
+    baseline.populationFrame = existing?.origin ? clonePlainObject(existing.origin) : frame.origin;
+    baseline.populationBounds = frame.bounds;
+    return true;
+  }
+  function materializeNativeBeasts(survival, map, visited = null, signature = null) {
     const owner = nativeBeastPopulationState(), roomId = activeWildernessRoom(), live = ensureLabMap(), room = live.rooms[roomId];
     // Keep the actual visited footprint, rocks and property. Oversized bodies
     // are unavailable here; do not resize them or fabricate a larger clearing.
-    const cells = room.cells;
+    const cells = visited ? room.cells.filter(c => visited.some(p => ForeignWilderness.contains(p.bounds, c))) : room.cells;
     const site = nativeBeastWindow(survival, roomId, live.tileSizeM);
     const existing = ensureWildernessBeasts();
     const saved = { ...WildernessBeasts.defaultState(), ...existing, actors: [], offspring: [],
-      materialized: true, nativeDormant: false, nativeRoomId: roomId, siteId: site.id, lastAt: state.clock };
+      materialized: true, nativeDormant: false, nativeRoomId: roomId, siteId: site.id,
+      ...(visited ? { nativeTerrainPatches: signature } : {}), lastAt: visited && existing.materialized ? existing.lastAt : state.clock };
     saved.bodyTerrain = NativeBeastPopulations.terrain(owner, map.beastHabitatSources, map, site, cells, state.clock, ensureLabMap().tileSizeM);
     // The placement validator must see these exact funded tiles, not a freshly
     // chosen free spawn square or an invented marine/burrow medium.
@@ -99929,9 +99952,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       for (const p of currentSuppression()?.populations || []) unavailablePopulations.add(p.source.populationId);
       saved.actors = NativeBeastPopulations.materialize(owner, map.beastHabitatSources, map, site, {
         at: state.clock, alive: !scientistIsDead(), local: true, tileSizeM: ensureLabMap().tileSizeM,
-        unavailablePopulations,
+        unavailablePopulations, requireVisitedTerrain: Boolean(visited),
         terrain: physicalContext.terrain,
         blocked: physicalContext.blocked });
+      if (visited) {
+        const children = new Set((existing.offspring || []).map(a => a.id));
+        saved.offspring = saved.actors.filter(a => children.has(a.id));
+        saved.actors = saved.actors.filter(a => !children.has(a.id));
+      }
     } finally { existing.bodyTerrain = previousTerrain; }
     saved.tracks = [...(existing.tracks || [])];
     for (const a of saved.actors) if (!saved.tracks.some(t => t.id === `track:${a.id}`))
@@ -100134,16 +100162,20 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function beastTerrainContext(roomId, map = ensureLabMap()) {
     const allowed = new Set((map.rooms[roomId]?.cells || []).map(mapCellKey));
-    const baseline = roomId === activeWildernessRoom() ? activeWildernessSite()?.discovery?.baseline : null;
+    const active = roomId === activeWildernessRoom() ? activeWildernessSite() : null;
+    const foreign = active && foreignWildernessLocal() === active ? visitedForeignBeastPatches(active) : null;
+    const baseline = active?.discovery?.baseline;
     const bounds = baseline?.bounds;
     return c => {
       const inSource = bounds && c.z === bounds.z && c.x >= bounds.x && c.x < bounds.x + bounds.width
         && c.y >= bounds.y && c.y < bounds.y + bounds.height;
-      if (!allowed.has(mapCellKey(c)) && !inSource) return null;
+      const patch = foreign?.find(p => ForeignWilderness.contains(p.bounds, c));
+      if (foreign ? !patch : !allowed.has(mapCellKey(c)) && !inSource) return null;
       const raw = recordedBeastTerrainAt(c) || {};
       const door = labMapDoorAtCell(c, map), wall = constructedWallAtCell(c, map);
-      const outcrop = baseline?.rocks?.some(p => sameMapCell(p, c));
+      const outcrop = (patch?.discovery.baseline || baseline)?.rocks?.some(p => sameMapCell(p, c));
       return { floor: labMapCellHasFloor(c, map), waterDepthM: 0, soilDepthM: 0, ...raw,
+        ...(foreign ? { floor: allowed.has(mapCellKey(c)) && labMapCellHasFloor(c, map) && raw.floor !== false } : {}),
         protected: sameMapCell(c, WildernessSurvival.GATE) || sameMapCell(c, foreignWildernessLocal()?.gate),
         obstacleHeightM: wall || door && !doorFixtureAllowsPassage(door) || propertyOpaqueFixtureAtCell(c) ? 4 : Math.max(outcrop ? 2 : 0, raw.obstacleHeightM || 0),
         foundation: Boolean(wall || door || raw.foundation),
@@ -102832,7 +102864,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const w = s?.wilderness;
     if (!w || scientistIsDead()) return;
     if (!w.materialized || scientistRoomId() !== w.roomId) { w.wasPresent = false; return; }
-    if (!w.wasPresent && w.beasts?.materialized) {
+    if (!w.wasPresent && w.beasts?.materialized && !w.beasts.nativeRoomId) {
       const absent = Math.max(0, state.clock - w.beasts.lastAt);
       for (const b of w.beasts.actors) { b.nextMoveAt += absent; b.nextAttackAt += absent; }
       w.beasts.lastAt = state.clock;
@@ -102846,7 +102878,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       roomById(w.roomId).geometry.floorAreaM2 = baseline.cells.length; roomById(w.roomId).geometry.volumeM3 = baseline.cells.length * 3;
       bumpNavigationRevision('topology');
     }
-    materializeWildernessBeasts();
     WildernessDiscovery.observe(w.discovery, state.clock, scientistMapCell(), cell => sensoryLineOfSight(scientistMapCell(), cell), cell => labMapCellHasFloor(cell));
     const graph = ensureForeignLocalGraph(w);
     if (graph) w.patchGraph = LocalPatchGraph.observe(graph, scientistMapCell(), state.clock);
@@ -102860,12 +102891,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...baseline.cells]);
         roomById(w.roomId).geometry.floorAreaM2 = room.cells.length; roomById(w.roomId).geometry.volumeM3 = room.cells.length * 3;
         ext.materialized = true; ext.visitedAt = state.clock; bumpNavigationRevision('topology');
-        // One original ecology roster covers all contiguous patches. Crossing
-        // never materializes replacement animals or resets pursuit/cooldowns.
+        // The shared native site below reads the newly visited terrain; the
+        // seam never replaces its existing actors or their pursuit clocks.
       }
       if (ext.materialized) WildernessDiscovery.observe(ext.discovery, state.clock, scientistMapCell(),
         cell => sensoryLineOfSight(scientistMapCell(), cell), cell => labMapCellHasFloor(cell));
     }
+    materializeWildernessBeasts();
   }
   function enterForeignWilderness() {
     const s = foreignSurveyAtField(), c = foreignSurveyContext(); c.otherBusy = surveyBusy();

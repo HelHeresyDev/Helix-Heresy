@@ -31,6 +31,18 @@ test('foreign boundary refuses invented cross-world or wrong-site resource conte
   for (const wrong of [{ worldId: 'other' }, { siteId: 'home' }, { strategicCellId: 'city-cell' }, { truth: null }])
     expect(Foreign.create(f.excursion, f.origin, f.candidates, ['city'], d => ({ ...f.contextFor(d), ...wrong }))).toBeNull();
 });
+test('foreign population windows use the original approach and keep one metre frame across all patches', () => {
+  const f = fixture(), w = f.sector, from = { ...f.origin, latitude: 0, longitude: 179 }, to = { ...f.candidates[0], latitude: 0, longitude: -179 };
+  const frame = Foreign.populationWindow(w, from, to, 100, 1);
+  expect(frame.bounds).toEqual({ ...w.bounds, width: 32, height: 24 });
+  expect(frame.origin.eastM).toBeLessThan(-300); expect(frame.origin.northM).toBe(-4);
+  expect(Foreign.populationWindow(copy(w), from, to, 100, 1)).toEqual(frame);
+  expect(Foreign.populationWindow(w, { ...from, id: 'wrong-city' }, to, 100, 1)).toBeNull();
+  const arrival = { eastM: -140.125, northM: 250.25 };
+  const recorded = Foreign.create(f.excursion, f.origin, [{ ...f.candidates[0], approachArrival: arrival }], [], f.contextFor);
+  expect(Foreign.populationWindow(recorded, from, to, 100, 1).origin).toEqual({ eastM: -141.125, northM: 246.25 });
+  expect(Foreign.populationWindow({ ...recorded, approachArrival: { eastM: 998, northM: 0 } }, from, to, 100, 1)).toBeNull();
+});
 test('under-equipped departure and expired municipal permission do not prevent voluntary wilderness entry', () => {
   const f = fixture();
   expect(Survival.warnings([]).length).toBeGreaterThan(0);

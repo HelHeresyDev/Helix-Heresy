@@ -34,9 +34,37 @@
     if (!context?.truth || context.siteId !== destination.id || context.strategicCellId !== destination.strategicCellId
       || context.worldId !== excursion.context.worldId) return null;
     const z = excursion.entry.z;
+    const arrival = candidates.find(c => c.id === destination.strategicCellId)?.approachArrival;
     return { destination, context: copy(context), roomId: `${excursion.roomId}-wilderness`, materialized: false,
       entry: { x: 22, y: 12, z }, gate: { x: 20, y: 12, z }, bounds: { x: 21, y: 8, z, width: 16, height: 12 },
+      ...(arrival && Number.isFinite(arrival.eastM) && Number.isFinite(arrival.northM)
+        ? { approachArrival: { eastM: arrival.eastM, northM: arrival.northM } } : {}),
       discovery: null, shelter: null, beasts: null };
+  }
+  // One north/east frame for all four existing on-foot patches. On a route
+  // known only to the hex, locate the entrance inside its approach-facing side.
+  // The disk is the same equal-area habitat approximation used by the account.
+  function populationWindow(sector, from, to, areaHa, tile) {
+    if (!sector?.bounds || !sector.entry || !(areaHa > 0) || !(tile > 0)
+      || from?.id !== sector.destination?.approachCellId || to?.id !== sector.destination?.strategicCellId) return null;
+    const b = sector.bounds, bounds = { ...b, width: b.width * 2, height: b.height * 2 };
+    const radius = Math.sqrt(areaHa * 10000 / Math.PI), room = Math.hypot(bounds.width, bounds.height) * tile;
+    if (!(radius > room)) return null;
+    let entry = sector.approachArrival;
+    if (entry) {
+      if (!Number.isFinite(entry.eastM) || !Number.isFinite(entry.northM)
+        || Math.hypot(entry.eastM, entry.northM) + room > radius) return null;
+    } else {
+      if (![from.latitude, from.longitude, to.latitude, to.longitude].every(Number.isFinite)) return null;
+      const rad = Math.PI / 180, start = to.latitude * rad, end = from.latitude * rad, delta = (from.longitude - to.longitude) * rad;
+      const east = Math.sin(delta) * Math.cos(end), north = Math.cos(start) * Math.sin(end) - Math.sin(start) * Math.cos(end) * Math.cos(delta);
+      const length = Math.hypot(east, north), distance = (radius - room) * .7;
+      if (!(length > 1e-12)) return null;
+      entry = { eastM: east / length * distance, northM: north / length * distance };
+    }
+    const m = n => Math.round(n * 1000) / 1000; // Stable metre frame, to the millimetre.
+    return { bounds, origin: { eastM: m(entry.eastM - (sector.entry.x - b.x) * tile),
+      northM: m(entry.northM - (sector.entry.y - b.y) * tile) } };
   }
   // Ground access is not permission or a supply checklist for the wild.
   function entryReason(excursion, sector, c) {
@@ -53,5 +81,5 @@
     if (!['reconnaissance', 'surfaceSample', 'shallowCore', 'arcaneSurvey'].includes(method)) return 'Unknown local survey method.';
     return '';
   }
-  return { create, contains, extensionPlan, extensionReason, entryReason, sampleReason };
+  return { create, contains, populationWindow, extensionPlan, extensionReason, entryReason, sampleReason };
 });

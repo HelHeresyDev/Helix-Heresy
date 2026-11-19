@@ -189,18 +189,23 @@
     P.settleRegions(s, context.at, regions.map(r => r.id)); state.clock = s.clock;
     const frame = { eastM: 0, northM: 0, ...site.origin }, tile = context.tileSizeM || 1, b = site.bounds;
     const box = { x0: frame.eastM, x1: frame.eastM + b.width * tile, y0: frame.northM, y1: frame.northM + b.height * tile };
+    const localCell = point => ({ x: b.x + Math.floor((point.eastM - frame.eastM) / tile),
+      y: b.y + Math.floor((point.northM - frame.northM) / tile), z: b.z });
+    const remainsFit = (a, point) => !context.requireVisitedTerrain || Bodies.cells(a, localCell(point), tile).every(cell => {
+      const t = context.terrain(cell);
+      return t?.floor && !t.protected && !t.foundation && !(t.obstacleHeightM > 0);
+    });
     const actors = Object.values(s.details).filter(d => {
       const n = d.actor?.nativePopulation;
       if (!n) return false;
       if (!n.background) return n.siteId === site.id && d.actor.roomId === site.roomId;
       return d.status === 'dead' && regions.some(r => r.id === n.regionId) && n.sourcePosition
         && n.sourcePosition.eastM >= box.x0 && n.sourcePosition.eastM < box.x1
-        && n.sourcePosition.northM >= box.y0 && n.sourcePosition.northM < box.y1
+        && n.sourcePosition.northM >= box.y0 && n.sourcePosition.northM < box.y1 && remainsFit(d.actor, n.sourcePosition)
         && P.claimCorpse(s, d.actorId, context.at);
     }).map(d => {
       const a = d.actor, n = a.nativePopulation;
-      if (d.status === 'dead' && n.background) a.mapCell = { x: b.x + Math.floor((n.sourcePosition.eastM - frame.eastM) / tile),
-        y: b.y + Math.floor((n.sourcePosition.northM - frame.northM) / tile), z: b.z };
+      if (d.status === 'dead' && n.background) a.mapCell = localCell(n.sourcePosition);
       a.roomId = site.roomId; Object.assign(n, { siteId: site.id, frame: copy(frame), bounds: copy(b), tileSizeM: tile, background: false });
       return a;
     }), byId = new Map(regions.map(r => [r.id, r]));
@@ -218,7 +223,7 @@
           point = Food.position(group, r, cohort, ordinal);
           if (!point || point.eastM < box.x0 || point.eastM >= box.x1 || point.northM < box.y0 || point.northM >= box.y1
             || point.altitudeM < 0 && modes.every(m => ['flight', 'levitation'].includes(m))) return null;
-          const cell = { x: b.x + Math.floor((point.eastM - frame.eastM) / tile), y: b.y + Math.floor((point.northM - frame.northM) / tile), z: b.z };
+          const cell = localCell(point);
           const mode = point.altitudeM > 0 && modes.some(m => ['flight', 'levitation'].includes(m))
             ? modes.find(m => ['flight', 'levitation'].includes(m))
             : (r.kind === 'waterColumn' || r.kind === 'wetland') && modes.some(m => ['swimming', 'drifting'].includes(m))
