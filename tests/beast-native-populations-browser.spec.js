@@ -2,9 +2,9 @@ const { test, expect } = require('@playwright/test');
 const { startLifecycleRun } = require('./helpers/start-lifecycle-run');
 const { lifecycleWorld } = require('./helpers/lifecycle-world');
 const L = require('../world-run-library'), W = require('../strategic-world');
-function nodeWorld(renderer) {
+function nodeWorld(compact) {
   const w = L.createWorld({ id: 'native-browser', worldSeed: 'native-encounters', createdAt: 'test', generationVersion: 8,
-    ...(renderer === 'canvas' ? { creationSettings: { strategicMap: { refinementLevel: 2 } } } : {}) });
+    ...(compact ? { creationSettings: { strategicMap: { refinementLevel: 2 } } } : {}) });
   const m = w.generatedData.strategicMap, catalog = JSON.parse(JSON.stringify(lifecycleWorld().generatedData.strategicMap.strategicStartingSites));
   delete catalog.digest;
   for (const c of catalog.scenarioRows[0].candidates) c.strategicCellId = W.cellId(m.surface.classes.indexOf('L'));
@@ -12,12 +12,14 @@ function nodeWorld(renderer) {
   m.strategicStartingSites = catalog; m.publicStartingSiteDirectory = JSON.parse(JSON.stringify(catalog));
   return L.createWorld({ ...w, generatedData: { ...w.generatedData, strategicMap: W.finalizeStrategicMap(m) } });
 }
-for (const renderer of ['dom', 'canvas']) test(`${renderer}: generated original population handoff persists through game save and continued import`, async ({ page }) => {
-  test.setTimeout(renderer === 'dom' ? 600000 : 300000);
+for (const [renderer, returnToBackground] of [['dom', false], ['canvas', false], ['dom', true], ['canvas', true]]) {
+test(`${renderer}: ${returnToBackground ? 'wounded original returns after absence, reload and continued import' : 'generated original population handoff persists through game save and continued import'}`, async ({ page }) => {
+  const compact = renderer === 'canvas' || returnToBackground;
+  test.setTimeout(compact ? 300000 : 600000);
   const errors = []; page.on('pageerror', e => errors.push(e.message)); page.on('dialog', d => d.accept());
   // Node-created canonical source exercises portability, not just two reloads
   // in the engine that generated it. DOM also uses the actual default globe.
-  const world = nodeWorld(renderer);
+  const world = nodeWorld(compact);
   await page.goto(require('node:url').pathToFileURL(require('node:path').resolve(__dirname, '..', 'index.html')).href);
   const portabilityError = await page.evaluate(world => {
     try { window.HelixWorldRunLibrary.normalizeWorld(world); return null; }
@@ -57,10 +59,20 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: generated original 
   expect(sceneEvidence).toBe(true);
   expect((await page.evaluate(() => window.helixHeresyDebug.mapRendererSnapshot())).mode).toBe(renderer);
   await page.evaluate(() => window.helixHeresyDebug.advanceWildernessBeastsForTest(1));
+  if (returnToBackground) expect(await page.evaluate(id => window.helixHeresyDebug.woundNativeBeastForTest(id), actor.id)).toBe(true);
   const before = await page.evaluate(id => window.helixHeresyDebug.beastBodySnapshot(id), actor.id);
+  if (returnToBackground) {
+    await page.evaluate(() => {
+      const d = window.helixHeresyDebug; d.nativeBeastVisitForTest(false); d.advanceWildernessBeastsForTest(60);
+    });
+    const away = await page.evaluate(id => window.helixHeresyDebug.beastBodySnapshot(id), actor.id);
+    expect(away.actor).toBeNull();
+    expect(away.knowledge.sightings.find(a => a.id === actor.id)).toMatchObject({ current: false,
+      observedAt: before.knowledge.sightings.find(a => a.id === actor.id).observedAt });
+  }
   await page.reload(); await page.locator('#loadLastSaveBtn').click();
   const loaded = await page.evaluate(id => window.helixHeresyDebug.beastBodySnapshot(id), actor.id);
-  expect(loaded.actor).toEqual(before.actor); expect(loaded.terrain).toEqual(before.terrain);
+  expect(loaded.actor).toEqual(returnToBackground ? null : before.actor); expect(loaded.terrain).toEqual(before.terrain);
   expect(errors).toEqual([]);
   const bundle = await page.evaluate(() => ({ format: 'helix-heresy-run-bundle', version: 2,
     ...window.helixHeresyDebug.currentWorldRunSnapshot() }));
@@ -71,11 +83,22 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: generated original 
   await page.locator('#titleImportFileInput').setInputFiles(importPath);
   await expect(page.locator('#setupOverlay')).toHaveClass(/hidden/, { timeout: renderer === 'dom' ? 120000 : 60000 });
   const continued = await page.evaluate(id => window.helixHeresyDebug.beastBodySnapshot(id), actor.id);
-  expect(continued.actor).toEqual(before.actor); expect(continued.terrain).toEqual(before.terrain);
+  expect(continued.actor).toEqual(returnToBackground ? null : before.actor); expect(continued.terrain).toEqual(before.terrain);
+  if (returnToBackground) {
+    await page.evaluate(() => window.helixHeresyDebug.nativeBeastVisitForTest(true));
+    await page.waitForFunction(id => window.helixHeresyDebug.beastBodySnapshot(id).actor, actor.id, { timeout: 120000 });
+    const revisited = await page.evaluate(id => window.helixHeresyDebug.beastBodySnapshot(id), actor.id);
+    expect(revisited.actor.life.originalMemberId).toBe(before.actor.life.originalMemberId);
+    expect(revisited.actor.life.ageDays).toBeGreaterThan(before.actor.life.ageDays);
+    expect(revisited.actor.health).toBeCloseTo(before.actor.health, 8);
+    expect(revisited.actor.bodyPhysics.parts).toEqual(before.actor.bodyPhysics.parts);
+    expect(revisited.terrain).toEqual(before.terrain);
+  }
   const branch = await page.evaluate(() => window.helixHeresyDebug.currentWorldRunSnapshot());
   expect(branch.run.id).not.toBe(oldRun);
   expect(branch.run.state.nativeBeastPopulations.runId).toBe(branch.run.id);
   expect(branch.world.canonicalDigest).toBe(bundle.world.canonicalDigest);
-  if (renderer === 'dom') expect(branch.world.generatedData.strategicMap.topology.cellCount).toBe(10242);
+  if (!compact) expect(branch.world.generatedData.strategicMap.topology.cellCount).toBe(10242);
   expect(errors).toEqual([]);
 });
+}

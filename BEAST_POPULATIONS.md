@@ -1154,8 +1154,23 @@ This is a storage representation change, not world regeneration or permission to
 delete branches. Finite browser quota still exists; no season-long storage bound
 or unlimited number of independent runs is claimed.
 
-Unvisited detailed-body/background return, wildlife/local meal custody,
-larger real encounter geometry, ordinary marine/subsurface access, route/logistics
+When the last attendant leaves a native wilderness site, free animals return
+to the regional account. A returned original is one sparse cohort entry with its
+individual memories and learned abilities; unencountered animals remain batched.
+Regional work consumes finite supplies, ages the animal, and can move or kill it.
+Revisiting claims the same original only if its current position and body fit the
+visited window. Its injuries, reserves, funded brood and cooldowns carry forward;
+no pending local attack or spell is replayed as a catch-up action. Staff actually
+present and existing physical custody keep their respective bodies local.
+
+An unattended corpse transfers its remaining tissues to the regional food web.
+Regional feeding and decay debit that inventory, and a revisit can take local
+ownership only of what remains physically present and unreserved. Previous
+player sightings remain dated observations, not a feed of remote health, deaths
+or movements. Native terrain parcels are not redebited or refilled on reentry.
+
+Anonymous wildlife/local meal custody, larger real encounter geometry,
+ordinary marine/subsurface access, route/logistics
 and strategic consumers remain in the existing D acceptance. The bounded adapter
 is **not completion of catalog-wide ordinary-play encounters**.
 

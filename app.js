@@ -18485,6 +18485,17 @@
         updateWildernessBeasts(0); persist(); render(); return true;
       },
       advanceWildernessBeastsForTest: (seconds) => { for (let i = 0; i < seconds; i++) { state.clock++; updateWildernessBeasts(1); } persist(); render(); },
+      nativeBeastVisitForTest: (returning) => {
+        // Exercise the same attendance and handoff path without depending on
+        // the travel prerequisites of this controlled original habitat window.
+        const room = returning ? WildernessSurvival.ROOM : MAIN_ROOM_ID;
+        moveSurveyScientist(room, returning ? WildernessSurvival.ENTRY : labMapRoomAnchor(room));
+        updateWildernessBeasts(0); observeWildernessBeasts(); persist(); render();
+      },
+      woundNativeBeastForTest: id => {
+        const a = wildernessBeast(id);
+        return Boolean(a?.nativePopulation && damageWildernessBeast(a, a.maxHealth * .15, 'scientist'));
+      },
       beastBodyRequestForTest: (id, mode, goal, transition = false) => {
         const actor = wildernessBeast(id); if (!actor) return { ok: false };
         const result = transition ? BeastBodies.transition(actor, mode, goal, beastBodyContext(actor)) : BeastBodies.request(actor, mode, goal, beastBodyContext(actor));
@@ -99841,7 +99852,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       // Native originals already have exclusive cohort ownership. The legacy
       // representative cap must not discard a body after that transfer.
       beasts.actors = beasts.actors.filter(a => a.nativePopulation || RegionalEncounters.claim(ledger, a, survival.destination.id, state.clock));
-      beasts.tracks = beasts.tracks.filter(t => beasts.actors.some(a => t.id === `track:${a.id}`));
+      beasts.tracks = beasts.tracks.filter(t => t.observedAt != null || beasts.actors.some(a => t.id === `track:${a.id}`));
       for (const a of beasts.actors.filter(a => a.nativePopulation))
         if (!ledger.managedPopulationIds.includes(a.populationId)) ledger.managedPopulationIds.push(a.populationId);
     }
@@ -99898,11 +99909,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const site = { id: survival.destination.id, cellId: survival.destination.strategicCellId,
       roomId, kind: baseline.habitatKind || 'surface', bounds: baseline.bounds,
       origin: baseline.populationFrame || { eastM: baseline.bounds.x * ensureLabMap().tileSizeM, northM: baseline.bounds.y * ensureLabMap().tileSizeM } };
-    const saved = { ...WildernessBeasts.defaultState(), materialized: true, siteId: site.id, lastAt: state.clock };
+    const existing = ensureWildernessBeasts();
+    const saved = { ...WildernessBeasts.defaultState(), ...existing, actors: [], offspring: [],
+      materialized: true, nativeDormant: false, nativeRoomId: roomId, siteId: site.id, lastAt: state.clock };
     saved.bodyTerrain = NativeBeastPopulations.terrain(owner, map.beastHabitatSources, map, site, cells, state.clock, ensureLabMap().tileSizeM);
     // The placement validator must see these exact funded tiles, not a freshly
     // chosen free spawn square or an invented marine/burrow medium.
-    const existing = ensureWildernessBeasts(), previousTerrain = existing.bodyTerrain;
+    const previousTerrain = existing.bodyTerrain;
     existing.bodyTerrain = saved.bodyTerrain;
     try {
       const physicalContext = beastBodyContext({ id: 'native-placement', roomId, mapCell: { ...site.bounds }, bodyPhysics: { altitudeM: 0, dimensions: { heightM: 0 } } });
@@ -99915,16 +99928,45 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         terrain: physicalContext.terrain,
         blocked: physicalContext.blocked });
     } finally { existing.bodyTerrain = previousTerrain; }
-    saved.tracks = saved.actors.map(a => ({ id: `track:${a.id}`, cell: clonePlainObject(a.mapCell),
-      label: WildernessBeasts.PROFILES[a.speciesId].track, observedAt: null }));
+    saved.tracks = [...(existing.tracks || [])];
+    for (const a of saved.actors) if (!saved.tracks.some(t => t.id === `track:${a.id}`))
+      saved.tracks.push({ id: `track:${a.id}`, cell: clonePlainObject(a.mapCell),
+        label: WildernessBeasts.PROFILES[a.speciesId].track, observedAt: null });
     return saved;
+  }
+  function nativeBeastSites() {
+    return [...new Set([state.wildernessBeasts, state.regionalEncounters?.beasts,
+      state.unsupportedExcursions?.boundary?.beasts, state.unsupportedExcursions?.remote?.beasts,
+      ...(state.penalFlights?.assistance?.cityApproach?.gates || [])
+        .flatMap(g => foreignWildernessPatches(g.foreignSurvey?.wilderness).map(w => w.beasts))].filter(Boolean))];
   }
   function syncNativeBeasts() {
     const owner = state.nativeBeastPopulations, map = activeWorldRecord?.generatedData?.strategicMap;
     if (!owner || !map?.beastHabitatSources || nativePopulationLoading() || !NativeBeastPopulations.hasOpen(owner)) return;
-    const actors = [...allWildernessBeasts(), ...localBeastActors(state.unsupportedExcursions?.boundary?.beasts),
-      ...localBeastActors(state.unsupportedExcursions?.remote?.beasts)];
-    NativeBeastPopulations.sync(owner, map.beastHabitatSources, map, actors, state.clock);
+    if (scientistIsDead()) return;
+    const sites = nativeBeastSites(), actors = sites.flatMap(localBeastActors).filter(a => a.nativePopulation);
+    if (!actors.length && !sites.some(site => site.nativeRoomId && site.materialized) && !NativeBeastPopulations.hasLocalActors(owner)) return;
+    const activeSiteIds = new Set(), retainedActorIds = new Set();
+    const people = [state.scientist, ensureExpeditionEscorts().actor, state.medicalExtraction?.medic, currentFieldCharter()?.driver,
+      ...fieldEmployeeStates().map(s => s.actor), ...fieldForceMembers().map(s => s.actor),
+      ...(state.penalFlights?.actors || []), ...foundingWorksActors(), ...fieldInterdictionActors(), ...producerDriverActors()]
+      .filter(a => a && a.status !== 'dead' && a.roomId);
+    const attendedRooms = new Set(people.map(p => p.roomId));
+    for (const site of sites) if (site.nativeRoomId && attendedRooms.has(site.nativeRoomId)) activeSiteIds.add(site.siteId);
+    for (const a of actors) {
+      if (attendedRooms.has(a.roomId)) activeSiteIds.add(a.nativePopulation.siteId);
+      if (a.custody?.holderId || a.custody?.containerId
+        || a.transport?.carrierId || a.transport?.containerId || a.regionalPhase === 'following') retainedActorIds.add(a.id);
+    }
+    NativeBeastPopulations.sync(owner, map.beastHabitatSources, map, actors, state.clock, true, { activeSiteIds, retainedActorIds });
+    for (const site of sites) {
+      const count = localBeastActors(site).length;
+      const keep = a => !a.nativePopulation || NativeBeastPopulations.ownsLocal(owner, a.id);
+      site.actors = (site.actors || []).filter(keep); site.offspring = (site.offspring || []).filter(keep);
+      if (localBeastActors(site).length < count || site.nativeRoomId && !activeSiteIds.has(site.siteId)) {
+        site.materialized = false; site.nativeDormant = true;
+      }
+    }
   }
   function wildernessBeastVisible(beast) {
     const visibleDepth = beast && (beastElevation(beast) >= 0 || ['swimming', 'drifting'].includes(beast.bodyPhysics?.mode)
@@ -100368,7 +100410,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return true;
   }
   function updateWildernessBeasts(elapsed = 0) {
-    const saved = ensureWildernessBeasts();
+    syncNativeBeasts();
+    let saved = ensureWildernessBeasts();
+    if (saved.nativeDormant && scientistInWilderness()) saved = materializeWildernessBeasts();
     if (!saved.materialized || scientistIsDead()) return 0;
     const roadside = overlandStopSite() || fieldCharterLocalSite();
     if (roadside) placeRegionalBeasts(roadside);

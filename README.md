@@ -2257,7 +2257,10 @@ not labelled healthy or exhausted. The [bounded native adapter](BEAST_POPULATION
 retains actual original bodies and sparse run history in supported wilderness
 windows. Default-globe opening now defers empty habitat history until a real
 read, arrival or dependency, without freezing distant named groups or refilling
-resources. Catalog-wide ordinary-play access and long-run adoption remain
+resources. Free native animals at unattended sites return to regional simulation.
+Revisits reveal only originals still physically present, with their individual
+wounds and elapsed biology intact; previous sightings remain dated.
+Catalog-wide ordinary-play access and long-run adoption remain
 unfinished. Successful seasonal
 allocation repair and native encounter integration remain D work, not additional
 ordinary-play encounter coverage.

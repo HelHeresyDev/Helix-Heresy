@@ -101,6 +101,56 @@ test('population deltas reload exact depleted bodies without replacements and re
   const corrupt = copy(state); corrupt.deltaTree = JSON.parse('{"__proto__":{"polluted":[true]}}');
   assert.throws(() => N.open(corrupt, record, map), /delta path/);
 });
+test('native absence returns a moved wounded original, preserves parcel custody and reclaims its saved identity', () => {
+  const { map, binding } = original(), record = map.beastHabitatSources, state = N.create(record, binding), s = N.open(state, record, map);
+  const { site, ctx } = context(s, 'beast:gravebloom-elk'), [a] = N.materialize(state, record, map, site, ctx);
+  a.health -= 3; a.mapCell.x++; a.name = 'Marked original';
+  a.life.memories.push({ id: 'scientist', cell: copy(a.mapCell), at: 0 });
+  const cells = [copy(a.mapCell)]; N.terrain(state, record, map, site, cells, 0);
+  const parcel = Object.values(state.parcels)[0], resources = copy(parcel.resources), before = copy(a);
+  N.sync(state, record, map, [a], 0, true, { activeSiteIds: new Set(), retainedActorIds: new Set() });
+  assert.equal(N.ownsLocal(state, a.id), false);
+  assert.equal(P.returnLocal(s, a.id, 0, {}), false);
+  let loops = 0; while (!N.advanceBudget(state, record, map, 900, 32)) assert.ok(++loops < 200);
+  assert.deepEqual(parcel.resources, resources);
+  N.pack(state, record, map);
+  const saved = copy(state), restored = N.open(saved, record, map);
+  assert.equal(Object.keys(restored.details).length, 0);
+  const [returned] = N.materialize(saved, record, map, site, { ...ctx, at: 900 });
+  assert.ok(returned); assert.equal(returned.id, a.id); assert.equal(returned.life.originalMemberId, before.life.originalMemberId);
+  assert.equal(returned.name, before.name); assert.equal(returned.health, before.health);
+  assert.deepEqual(returned.life.memories, before.life.memories); assert.deepEqual(returned.mapCell, before.mapCell);
+  assert.ok(returned.life.ageDays > before.life.ageDays);
+  assert.deepEqual(N.bindTerrain(saved, site.id)[`${a.mapCell.x},${a.mapCell.y},${a.mapCell.z}`].resources, resources);
+  assert.equal(P.audit(restored)[a.populationId].detailed, 1);
+});
+test('actual site attendance and explicit external custody retain local ownership, while final death freezes handoffs', () => {
+  const { map, binding } = original(), record = map.beastHabitatSources, state = N.create(record, binding), s = N.open(state, record, map);
+  const { site, ctx } = context(s, 'beast:gravebloom-elk'), [a] = N.materialize(state, record, map, site, ctx);
+  for (const locality of [{ activeSiteIds: new Set([site.id]) }, { activeSiteIds: new Set(), retainedActorIds: new Set([a.id]) }]) {
+    N.sync(state, record, map, [a], 0, true, locality); assert.equal(N.ownsLocal(state, a.id), true);
+  }
+  const before = JSON.stringify(s);
+  assert.equal(N.sync(state, record, map, [a], 1, false, { activeSiteIds: new Set() }), false);
+  assert.equal(JSON.stringify(s), before);
+});
+test('an absent native corpse decays once without a second death, refill or duplicate regional carcass', () => {
+  const { map, binding } = original(), record = map.beastHabitatSources, state = N.create(record, binding), s = N.open(state, record, map);
+  const { site, ctx, r } = context(s, 'beast:gravebloom-elk'), [a] = N.materialize(state, record, map, site, ctx);
+  a.status = 'dead'; a.health = 0; a.diedAt = 0;
+  N.sync(state, record, map, [a], 0, true, { activeSiteIds: new Set() });
+  const initial = a.life.remains.edibleKg;
+  while (!N.advanceBudget(state, record, map, P.DAY, 32)) {}
+  assert.ok(a.life.remains.edibleKg < initial);
+  const after = a.life.remains.edibleKg; N.advanceBudget(state, record, map, P.DAY);
+  assert.equal(a.life.remains.edibleKg, after);
+  assert.equal(s.losses.filter(l => l.memberId === a.life.originalMemberId).length, 1);
+  assert.equal(Object.values(r.remainsBatches || {}).filter(row => row.sourceKey === a.life.originalMemberId).length, 1);
+  assert.equal(N.materialize(state, record, map, site, { ...ctx, at: P.DAY })[0].status, 'dead');
+  assert.ok(!Object.values(r.remainsBatches || {}).some(row => row.sourceKey === a.life.originalMemberId));
+  assert.ok(!N.materialize(state, record, map, { ...site, id: 'overlap' }, { ...ctx, at: P.DAY }).some(other => other.id === a.id));
+  assert.ok(P.normalize(s));
+});
 test('source positions and actual footprint reject remote, undersized and wrong-medium encounters', () => {
   const { map, binding } = original(), record = map.beastHabitatSources, state = N.create(record, binding), s = N.open(state, record, map);
   const { site, ctx } = context(s, 'beast:brine-cathedral');

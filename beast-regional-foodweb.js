@@ -329,10 +329,17 @@
   }
   function actor(g, c, ordinal, r, at) {
     const pos = position(g, r, c, ordinal); if (!pos || !size(c)) return null;
-    const a = Wilderness.actor(c.speciesId, `${c.originId}:${ordinal}`, { x: Math.round(pos.eastM), y: Math.round(pos.northM), z: 0 }, g.populationId, at,
+    const a = c.personalActor ? copy(c.personalActor) : Wilderness.actor(c.speciesId, `${c.originId}:${ordinal}`, { x: Math.round(pos.eastM), y: Math.round(pos.northM), z: 0 }, g.populationId, at,
       { massKg: c.massKg, ageDays: Math.max(0, (at - c.bornAt) / DAY), role: c.role, colonyId: c.colonyId, will: g.will, willing: g.willing });
+    if (c.personalActor) {
+      a.id = `${c.originId}:${ordinal}`; delete a.roomId;
+      a.mapCell = { x: Math.round(pos.eastM), y: Math.round(pos.northM), z: 0 };
+      a.bodyPhysics.massKg = c.massKg;
+      const scale = c.personalActor.life.structuralKg > 0 ? Math.cbrt(c.structuralKg / c.personalActor.life.structuralKg) : 1;
+      for (const key of Object.keys(a.bodyPhysics.dimensions)) a.bodyPhysics.dimensions[key] *= scale;
+    }
     const state = initial(c, at), b = a.bodyPhysics;
-    a.maxHealth = Math.max(1, a.maxHealth * Math.min(1, Math.sqrt(c.massKg / Data.lifecycle[c.speciesId].adultKg)));
+    if (!c.personalActor) a.maxHealth = Math.max(1, a.maxHealth * Math.min(1, Math.sqrt(c.massKg / Data.lifecycle[c.speciesId].adultKg)));
     b.altitudeM = pos.altitudeM; b.stamina = state.stamina; b.mana = state.mana; b.parts = copy(state.parts);
     if (r.kind === 'subsurface') b.mode = 'burrowing';
     else if (['waterColumn', 'wetland'].includes(r.kind) && pos.altitudeM <= 0
@@ -611,7 +618,7 @@
       c.health = Math.min(c.health, a.health / a.maxHealth); c.massKg = a.bodyPhysics.massKg;
       c.structuralKg = Math.min(c.structuralKg, Math.max(0, c.massKg - Object.values(c.stores).reduce((n, v) => n + v, 0)));
       const d = Behavior.definitions[g.ecology?.action];
-      c.regional = { at, stamina: a.bodyPhysics.stamina, mana: a.bodyPhysics.mana, energy: copy(a.life.energy),
+      c.regional = { at, stamina: a.bodyPhysics.stamina, mana: c.personalActor && a.spellImitation ? a.spellImitation.mana : a.bodyPhysics.mana, energy: copy(a.life.energy),
         parts: copy(a.bodyPhysics.parts), armourKg: a.life.armourKg, conditions: copy(a.beastConditions || []), cooldowns: copy(a.life.cooldowns),
         originalTissueAccounted: true, workBlocked: Boolean(d?.parts && Bodies.wounded(a, d.parts) >= .65) };
       c.regionalPosition = { ...actorPoint(a), regionId: r.id };
@@ -997,6 +1004,11 @@
       const edible = assigned.get(key) || 0;
       if (edible > loss.massKg + EPS || loss.speciesId === 'beast:ironroot-colossus' && edible > EPS
         || Math.abs((assignedMass.get(key) || 0) - loss.massKg) > 1e-6 * Math.max(1, loss.massKg)) return false;
+    }
+    for (const d of Object.values(s.details)) if (d.regionalReceipt) {
+      if (d.status !== 'dead' || d.regionalCorpse || !s.losses.some(l => l.memberId === d.memberId && l.detailOwner === d.actorId)
+        || !['consumedKg', 'decomposedKg'].every(k => finite(d.regionalReceipt[k]) && d.regionalReceipt[k] <= d.actor.life.remains[k] + EPS)) return false;
+      consumed += d.regionalReceipt.consumedKg; decomposed += d.regionalReceipt.decomposedKg;
     }
     if (Math.abs(consumed - w.receipts.consumedKg) > 1e-6 * Math.max(1, consumed) || Math.abs(decomposed - w.receipts.decomposedKg) > 1e-6 * Math.max(1, decomposed)) return false;
     const reserved = new Set();

@@ -143,7 +143,8 @@
   function advanceBudget(state, record, map, at, budget = 32) {
     const account = open(state, record, map);
     if (account.clock >= at) return true;
-    const done = P.advanceBudget(account, at, budget); state.clock = account.clock; return done;
+    const done = P.advanceBudget(account, at, budget); state.clock = account.clock;
+    advanceRemains(account); return done;
   }
   async function prepare(state, record, map, at, options = {}) {
     const wait = options.yield || (() => new Promise(resolve => setTimeout(resolve, 0)));
@@ -187,31 +188,52 @@
     P.settleRegions(s, context.at, regions.map(r => r.id)); state.clock = s.clock;
     const frame = { eastM: 0, northM: 0, ...site.origin }, tile = context.tileSizeM || 1, b = site.bounds;
     const box = { x0: frame.eastM, x1: frame.eastM + b.width * tile, y0: frame.northM, y1: frame.northM + b.height * tile };
-    const actors = Object.values(s.details).filter(d => d.actor?.nativePopulation?.siteId === site.id
-      && d.actor.roomId === site.roomId).map(d => d.actor), byId = new Map(regions.map(r => [r.id, r]));
-    for (const g of s.groups) {
+    const actors = Object.values(s.details).filter(d => {
+      const n = d.actor?.nativePopulation;
+      if (!n) return false;
+      if (!n.background) return n.siteId === site.id && d.actor.roomId === site.roomId;
+      return d.status === 'dead' && regions.some(r => r.id === n.regionId) && n.sourcePosition
+        && n.sourcePosition.eastM >= box.x0 && n.sourcePosition.eastM < box.x1
+        && n.sourcePosition.northM >= box.y0 && n.sourcePosition.northM < box.y1
+        && P.claimCorpse(s, d.actorId, context.at);
+    }).map(d => {
+      const a = d.actor, n = a.nativePopulation;
+      if (d.status === 'dead' && n.background) a.mapCell = { x: b.x + Math.floor((n.sourcePosition.eastM - frame.eastM) / tile),
+        y: b.y + Math.floor((n.sourcePosition.northM - frame.northM) / tile), z: b.z };
+      a.roomId = site.roomId; Object.assign(n, { siteId: site.id, frame: copy(frame), bounds: copy(b), tileSizeM: tile, background: false });
+      return a;
+    }), byId = new Map(regions.map(r => [r.id, r]));
+    const groups = [...s.groups].sort((a, b) => Number(b.cohorts.some(c => c.personalActor)) - Number(a.cohorts.some(c => c.personalActor)));
+    for (const g of groups) {
       if (context.unavailablePopulations?.has(g.populationId)) continue;
       const r = byId.get(Journeys.location(g)); if (!r) continue;
-      for (const c of [...g.cohorts]) for (const ordinal of nearby(g, c, r, box)) {
-        const memberId = `${c.originId}:${ordinal}`, actorId = `native:${record.id}:${memberId}`;
+      const cohorts = [...g.cohorts].sort((a, b) => Number(Boolean(b.personalActor)) - Number(Boolean(a.personalActor)));
+      for (const c of cohorts) for (const ordinal of nearby(g, c, r, box)) {
+        const memberId = `${c.originId}:${ordinal}`, actorId = c.personalActor?.id || `native:${record.id}:${memberId}`;
         if (s.details[actorId] || actors.length >= (context.limit || 8)) continue;
-        const p = Food.position(g, r, c, ordinal); if (!p) continue;
-        const cell = { x: b.x + Math.floor((p.eastM - frame.eastM) / tile), y: b.y + Math.floor((p.northM - frame.northM) / tile), z: b.z };
         const modes = Bodies.profiles[g.speciesId].modes;
-        if (p.altitudeM < 0 && modes.every(m => ['flight', 'levitation'].includes(m))) continue;
-        const mode = (r.kind === 'waterColumn' || r.kind === 'wetland') && modes.some(m => ['swimming', 'drifting'].includes(m)) ? modes.find(m => ['swimming', 'drifting'].includes(m))
-          : r.kind === 'subsurface' ? 'burrowing' : Bodies.profiles[g.speciesId].modes.includes('walking') ? 'walking'
-            : p.altitudeM > 0 ? Bodies.profiles[g.speciesId].modes.includes('levitation') ? 'levitation' : 'flight' : 'grounded';
-        if (!mode) continue;
+        let point;
+        const originalPosition = (group, cohort, ordinal) => {
+          point = Food.position(group, r, cohort, ordinal);
+          if (!point || point.eastM < box.x0 || point.eastM >= box.x1 || point.northM < box.y0 || point.northM >= box.y1
+            || point.altitudeM < 0 && modes.every(m => ['flight', 'levitation'].includes(m))) return null;
+          const cell = { x: b.x + Math.floor((point.eastM - frame.eastM) / tile), y: b.y + Math.floor((point.northM - frame.northM) / tile), z: b.z };
+          const mode = point.altitudeM > 0 && modes.some(m => ['flight', 'levitation'].includes(m))
+            ? modes.find(m => ['flight', 'levitation'].includes(m))
+            : (r.kind === 'waterColumn' || r.kind === 'wetland') && modes.some(m => ['swimming', 'drifting'].includes(m))
+              ? modes.find(m => ['swimming', 'drifting'].includes(m))
+              : r.kind === 'subsurface' ? 'burrowing' : modes.includes('walking') ? 'walking' : 'grounded';
+          return { regionId: r.id, cell, altitudeM: point.altitudeM, mode };
+        };
         const actor = P.claimLocal(s, g.id, c.id, ordinal, actorId, context.at, {
           ...context, blocked: (cell, low, high, body) => context.blocked?.(cell, low, high, body)
             || actors.some(a => Bodies.occupied(a, tile).some(c => c.x === cell.x && c.y === cell.y && c.z === cell.z)
               && a.bodyPhysics.altitudeM < high && a.bodyPhysics.altitudeM + a.bodyPhysics.dimensions.heightM > low),
-          originalPosition: () => ({ regionId: r.id, cell, altitudeM: p.altitudeM, mode }),
-          originalReserves: () => c.regional && ({ mana: c.regional.mana, stamina: c.regional.stamina, energy: copy(c.regional.energy) }) });
+          originalPosition,
+          originalReserves: (_, cohort) => cohort.regional && ({ mana: cohort.regional.mana, stamina: cohort.regional.stamina, energy: copy(cohort.regional.energy) }) });
         if (!actor) continue;
         actor.roomId = site.roomId; actor.nativePopulation = { sourceId: record.id, regionId: r.id, siteId: site.id,
-          sourcePosition: copy(p), frame: copy(frame), bounds: copy(b) };
+          sourcePosition: copy(point), frame: copy(frame), bounds: copy(b), tileSizeM: tile, background: false };
         actors.push(actor);
       }
     }
@@ -267,18 +289,53 @@
     if (!P.registerLocalBirth(s, parent.id, child, at)) return false;
     child.nativePopulation = copy(parent.nativePopulation); state.clock = s.clock; return true;
   }
-  function sync(state, record, map, actors, at, alive = true) {
+  function advanceRemains(s) {
+    // The regional food web owns the matter; refresh only the private corpse
+    // representation after its regular event processing.
+    for (const d of Object.values(s.details)) if (d.regionalCorpse && d.actor?.nativePopulation?.background) {
+      const r = s.regions.find(r => r.id === d.regionId), row = r.remainsBatches?.[d.remainsKey], a = d.actor;
+      a.nativePopulation.corpseGone = !row || row.massKg <= 1e-8;
+      if (row && row.massKg > 1e-8) {
+        const loss = s.losses.find(l => l.memberId === d.memberId);
+        a.life.remains = { ...copy(row), massKgAtDeath: loss.massKg }; a.bodyPhysics.massKg = row.massKg;
+        a.nativePopulation.sourcePosition = copy(row.position);
+      }
+    }
+  }
+  function sync(state, record, map, actors, at, alive = true, locality = null) {
     if (!alive) return false;
     const s = open(state, record, map);
     for (const actor of actors) {
       if (!actor.nativePopulation) continue;
       const d = s.details[actor.id];
+      if (actor.nativePopulation.background) continue;
       if (!d || d.memberId !== actor.life?.originalMemberId || actor.nativePopulation.sourceId !== record.id) throw Error('Local body lost its original population claim');
       d.actor = actor;
       if (actor.status === 'dead' && d.status !== 'dead') P.settleLocalLoss(s, actor.id, Math.max(at, s.clock), 'native-physical-death');
     }
+    if (locality) for (const d of Object.values(s.details)) {
+      const a = d.actor, n = a?.nativePopulation;
+      if (!n || n.background || locality.activeSiteIds?.has(n.siteId) || locality.retainedActorIds?.has(a.id)) continue;
+      if (!a.mapCell || at < s.clock) continue;
+      const tile = n.tileSizeM || 1;
+      const pos = { regionId: n.regionId, eastM: n.frame.eastM + (a.mapCell.x - n.bounds.x + .5) * tile,
+        northM: n.frame.northM + (a.mapCell.y - n.bounds.y + .5) * tile, altitudeM: a.bodyPhysics.altitudeM };
+      // Keep sub-tile precision for an original that hasn't changed cells.
+      for (const [key, cell, origin] of [['eastM', 'x', n.frame.eastM], ['northM', 'y', n.frame.northM]])
+        if (Math.floor((n.sourcePosition?.[key] - origin) / tile) === a.mapCell[cell] - n.bounds[cell]) pos[key] = n.sourcePosition[key];
+      if (d.status === 'dead') {
+        if (!P.releaseCorpse(s, a.id, at, pos)) throw Error('Original corpse could not transfer its remaining matter');
+        n.background = true; n.sourcePosition = pos; continue;
+      }
+      if (!P.returnLocal(s, a.id, at, pos)) throw Error('Original local body could not return to background ownership');
+      n.background = true;
+    }
     state.clock = s.clock; return true;
   }
+  const ownsLocal = (state, actorId) => {
+    const d = cache.get(state)?.account.details[actorId]; return Boolean(d && !d.actor?.nativePopulation?.background);
+  };
+  const hasLocalActors = state => Object.values(cache.get(state)?.account.details || {}).some(d => d.actor?.nativePopulation && !d.actor.nativePopulation.background);
   return { create, normalize, open, pack, rebind, materialize, sync, nearby, terrain, bindTerrain, birth, capacity, diff, apply,
-    hasOpen, ready, prepare, advanceBudget };
+    hasOpen, ready, prepare, advanceBudget, ownsLocal, hasLocalActors };
 });

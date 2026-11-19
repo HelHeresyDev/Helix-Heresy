@@ -144,7 +144,7 @@
       const destroyed = external(Data.lifecycle[c.speciesId]) && nursery?.destroyedAt != null;
       const before = size(brood.parents), next = c.health > .3 && !destroyed ? intersect(brood.parents, c.ranges) : [];
       const remaining = size(next), fraction = before ? remaining / before : 0;
-      const waste = brood.investedKg * (1 - fraction);
+      const waste = Math.max(0, brood.investedKg - (brood.emitted?.length || 0) * Data.lifecycle[c.speciesId].newbornKg) * (1 - fraction);
       if (waste > 0) {
         const r = region(s, brood.regionId); r.outputs ||= {};
         r.outputs.failedRecruitmentKg = (r.outputs.failedRecruitmentKg || 0) + waste;
@@ -223,16 +223,17 @@
       const units = size(b.parents);
       if (at + EPS < b.dueAt || b.investedKg + EPS < b.requiredKg * units || b.investedMana + EPS < b.requiredMana * units
         || !site(s, g, at) || g.regionId !== b.regionId) return true;
-      const born = size(b.successful) * p.offspring;
+      const born = Math.max(0, size(b.successful) * p.offspring - (b.emitted?.length || 0));
       const females = Math.floor(born / 2 + Life.random(`${b.id}:sex`));
       const roles = c.role === 'queen' ? [['worker', born]] : b.fragment || /propagule/i.test(p.method) ? [['individual', born]]
         : [['female', females], ['male', born - females]];
-      let offspringOffset = 0;
+      let offspringOffset = b.emitted?.length || 0;
       for (const [role, count] of roles) if (count) {
         hooks.birth(g, c, { ...b, offspringOffset }, role, count, at); offspringOffset += count;
       }
       const r = region(s, b.regionId); r.outputs ||= {};
-      r.outputs.reproductiveWasteKg = (r.outputs.reproductiveWasteKg || 0) + Math.max(0, b.investedKg - born * p.newbornKg);
+      r.outputs.reproductiveWasteKg = (r.outputs.reproductiveWasteKg || 0)
+        + Math.max(0, b.investedKg - (born + (b.emitted?.length || 0)) * p.newbornKg);
       return false;
     });
   }
@@ -245,7 +246,7 @@
     const bins = new Map(), retained = [];
     for (const c of g.cohorts) {
       if (!size(c.ranges)) { if (!c.generated && !c.contactSplit) retained.push(c); continue; }
-      if (!c.generated) { retained.push(c); continue; }
+      if (!c.generated || c.personalActor) { retained.push(c); continue; }
       const p = Data.lifecycle[c.speciesId], age = Math.max(DAY, at - c.bornAt);
       const base = Math.max(DAY, p.adultDays * DAY / 12);
       const width = base * 2 ** Math.max(0, Math.floor(Math.log2(age / (base * 12))));
@@ -294,10 +295,10 @@
     }
     for (const b of d.broods) if (contains(b.parents, ordinal)) {
       const n = size(b.parents);
-      result.broods.push({ id: `${b.id}:parent:${ordinal}`, startedAt: b.startedAt, dueAt: b.dueAt,
-        parentIds: [`${c.originId}:${ordinal}`, ...(b.mateOriginId ? [b.mateOriginId] : [])],
+      result.broods.push({ id: b.localId || `${b.id}:parent:${ordinal}`, startedAt: b.startedAt, dueAt: b.dueAt,
+        parentIds: b.localId ? copy(b.parentIds) : [`${c.originId}:${ordinal}`, ...(b.mateOriginId ? [b.mateOriginId] : [])],
         investedKg: b.investedKg / n, requiredKg: b.requiredKg, investedMana: b.investedMana / n, requiredMana: b.requiredMana,
-        fragment: b.fragment, materialRecipe: copy(b.materialRecipe), success: contains(b.successful, ordinal), emitted: [], ready: false,
+        fragment: b.fragment, materialRecipe: copy(b.materialRecipe), success: contains(b.successful, ordinal), emitted: copy(b.emitted || []), ready: false,
         externalNursery: external(Data.lifecycle[c.speciesId]), sourceRegionId: b.regionId, sourceNurseryId: b.nurseryId });
       b.investedKg *= (n - 1) / n; b.investedMana *= (n - 1) / n;
       b.parents = subtract(b.parents, [[ordinal, ordinal + 1]]); b.successful = subtract(b.successful, [[ordinal, ordinal + 1]]);
@@ -321,6 +322,9 @@
         || !['startedAt', 'dueAt', 'investedKg', 'investedMana', 'requiredKg', 'requiredMana'].every(k => nonnegative(b[k]))
         || b.dueAt < b.startedAt || b.investedKg > b.requiredKg * size(b.parents) + 1e-6
         || b.investedMana > b.requiredMana * size(b.parents) + 1e-6 || !b.fragment && !recipeValid(b.materialRecipe)) return false;
+      if (b.emitted && (!Array.isArray(b.emitted) || size(b.parents) !== 1 || !b.localId
+        || b.emitted.length > Data.lifecycle[c.speciesId].offspring || new Set(b.emitted).size !== b.emitted.length
+        || b.emitted.some(id => typeof id !== 'string' || !id.startsWith(`${b.localId}:`)))) return false;
       seen.add(b.id);
     }
     return true;

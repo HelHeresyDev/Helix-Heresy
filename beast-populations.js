@@ -16,10 +16,13 @@
     node ? require('./beast-foraging') : root.HelixBeastForaging,
     node ? require('./beast-parental-care') : root.HelixBeastParentalCare,
     node ? require('./beast-wind-drift') : root.HelixBeastWindDrift,
-    node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology);
+    node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology,
+    node ? require('./beast-behavior') : root.HelixBeastBehavior,
+    node ? require('./beast-spell-imitation') : root.HelixBeastSpellImitation,
+    node ? require('./carrion-lantern-approach') : root.HelixCarrionLanternApproach);
   if (node) module.exports = api;
   root.HelixBeastPopulations = api;
-})(globalThis, function (Biology, Life, Journeys, Wilderness, Predation, Bodies, Demography, Ecology, Foodweb, Scheduler, Wildlife, Foraging, Care, Wind, Lantern) {
+})(globalThis, function (Biology, Life, Journeys, Wilderness, Predation, Bodies, Demography, Ecology, Foodweb, Scheduler, Wildlife, Foraging, Care, Wind, Lantern, Behavior, Spell, Approach) {
   'use strict';
   const DAY = 86400, EPS = 1e-8;
   // Accounts can exceed the engine's single-string limit at globe resolution.
@@ -611,6 +614,10 @@
     return c;
   }
   function lose(s, g, c, ordinal, cause, at) {
+    const region = Demography.region(s, location(g));
+    const stored = c.personalActor?.nativePopulation && c.personalActor;
+    const pos = stored && (Foodweb.position(g, region, c, ordinal) || Foodweb.transitPosition(g, at)?.position);
+    const personal = pos?.regionId === region.id && (Foodweb.actor(g, c, ordinal, region, at) || copy(stored));
     const scarcity = ['starvation', 'dehydration', 'mineralDeficiency'].includes(cause) ? scarcityContext(s, g, c, at) : null;
     if (!remove(c, ordinal)) return false;
     Care.cancelAffected(g, c, at);
@@ -622,11 +629,31 @@
     s.losses.push(loss);
     const r = s.regions.find(r => r.id === loss.regionId);
     // Remains are real finite matter and are not renewable generic prey.
-    if (s.foodWeb) Foodweb.addRemains(s, r, loss.memberId, g, c, 1, at, cause, Foodweb.position(g, r, c, ordinal));
+    if (personal) {
+      const a = personal, n = stored.nativePopulation;
+      a.id = stored.id; a.roomId = stored.roomId; a.status = 'dead'; a.health = 0; a.diedAt = at;
+      a.bodyPhysics.massKg = c.massKg; a.bodyPhysics.altitudeM = pos.altitudeM;
+      a.bodyPhysics.parts = copy(c.regional.parts); a.life.armourKg = c.regional.armourKg; a.life.energy = copy(c.regional.energy);
+      a.life.originalGroupId = g.id; a.life.originalMemberId = loss.memberId;
+      a.life.bornAt = c.bornAt; a.life.ageDays = Math.max(0, (at - c.bornAt) / DAY); a.life.lastAt = at;
+      a.nativePopulation = { ...copy(n), regionId: r.id, sourcePosition: copy(pos), background: true };
+      const tile = n.tileSizeM || 1;
+      a.mapCell = { x: n.bounds.x + Math.floor((pos.eastM - n.frame.eastM) / tile),
+        y: n.bounds.y + Math.floor((pos.northM - n.frame.northM) / tile), z: n.bounds.z };
+      Predation.remains(a, at);
+      const detail = { actorId: a.id, memberId: loss.memberId, populationId: g.populationId, speciesId: g.speciesId,
+        groupId: g.id, cohortId: c.id, ordinal, regionId: r.id, detailedAt: at, diedAt: at, status: 'dead', actor: a };
+      (s.accountRoot || s).details[a.id] = detail; s.details[a.id] = detail;
+      Foodweb.addRemains(s, r, loss.memberId, g, c, 1, at, cause, pos);
+      detail.regionalCorpse = true;
+      detail.remainsKey = Object.keys(r.remainsBatches).find(key => r.remainsBatches[key].sourceKey === loss.memberId);
+      Scheduler.noteDetail(s.accountRoot || s, a.id);
+    } else if (s.foodWeb) Foodweb.addRemains(s, r, loss.memberId, g, c, 1, at, cause, Foodweb.position(g, r, c, ordinal));
     else {
       r.remains ||= {}; const remains = r.remains[loss.memberId] = { massKg: 0, edibleKg: 0, at, cause };
       Predation.tissues.add(remains, c.massKg, c.speciesId, Predation.tissues.inertMatter(c));
     }
+    if (c.personalActor) delete c.personalActor;
     record(s, 'loss', at, { memberId: loss.memberId, cause }); return true;
   }
   function scarcityContext(s, g, c, at) {
@@ -788,6 +815,12 @@
     Care.cancelAffected(g, c, at);
     Foodweb.handoff(s, groupId, cohortId, at, { region: id => Demography.region(s, id), group: id => Demography.group(s, id), lose: (...args) => lose(s, ...args) });
     if (!c.ranges.some(([lo, hi]) => ordinal >= lo && ordinal < hi)) { rebuild(s, at, location(g)); return null; }
+    // Save only the original metadata needed to resume the same work/care
+    // stream. Do not copy the entire cohort's membership or the personal body.
+    const returnCohort = s.nativeEncounters || c.personalActor ? copy(Object.fromEntries(
+      ['sex', 'deathSerial', 'deathExposure', 'deathThreshold', 'contactSplit', 'nurseryId', 'dependency',
+        'parentalLedger', 'feedingTowers', 'foraging', 'ecologyHistory', 'unmet', 'firstScarcity', 'windCrossings'].map(key => [key, c[key]]))) : null;
+    const returnGroup = returnCohort ? copy({ ...g, cohorts: [] }) : null;
     const demographicHandoff = Demography.handoff(c, ordinal, at);
     if (!remove(c, ordinal)) return null;
     const memberId = cohortKey(c, ordinal);
@@ -800,7 +833,8 @@
       ...(c.parentalLedger ? { parentalLedger: copy(c.parentalLedger) } : {}),
       ...(c.feedingTowers ? { feedingTowers: copy(c.feedingTowers) } : {}),
       ...(c.nurseryId ? { nurseryId: c.nurseryId } : {}),
-      ...(demographicHandoff ? { demography: demographicHandoff } : {}), ...(c.birthSpan ? { birthSpan: copy(c.birthSpan) } : {}) };
+      ...(demographicHandoff ? { demography: demographicHandoff } : {}), ...(c.birthSpan ? { birthSpan: copy(c.birthSpan) } : {}),
+      ...(returnCohort ? { returnCohort, returnGroup } : {}) };
     s.details[actorId] = result; Scheduler.noteDetail(s, actorId); rebuild(s, at, location(g)); return copy(result);
   }
   // A local source adapter must supply the original body's established position
@@ -820,15 +854,23 @@
     }
     if (!position || position.regionId !== location(g) || !position.cell
       || !['x', 'y', 'z'].every(k => Number.isInteger(position.cell[k]))) return null;
-    const a = Wilderness.actor(g.speciesId, actorId, position.cell, g.populationId, at,
+    const personal = c.personalActor;
+    if (personal && personal.id !== actorId) return null;
+    const a = personal ? copy(personal) : Wilderness.actor(g.speciesId, actorId, position.cell, g.populationId, at,
       { ageDays: (at - c.bornAt) / DAY, massKg: c.massKg, role: c.role, colonyId: c.colonyId, will: g.will, willing: g.willing });
+    if (personal) {
+      a.mapCell = copy(position.cell); a.homeCell = copy(position.cell);
+      const scale = personal.life.structuralKg > 0 ? Math.cbrt(c.structuralKg / personal.life.structuralKg) : 1;
+      for (const key of Object.keys(a.bodyPhysics.dimensions)) a.bodyPhysics.dimensions[key] *= scale;
+      a.bodyPhysics.massKg = c.massKg;
+    }
     if (Number.isFinite(position.altitudeM)) a.bodyPhysics.altitudeM = position.altitudeM;
     if (position.mode) a.bodyPhysics.mode = position.mode;
     const reserves = ctx.originalReserves?.(g, c, ordinal, at), manaOwner = a.spellImitation || a.bodyPhysics;
     // A caller must supply attributable personal reserves, including any saved
     // regional contact history; never create a freshly full pool on handoff.
-    if (!reserves || !nonnegative(reserves.mana) || reserves.mana > manaOwner.mana
-      || !nonnegative(reserves.stamina) || reserves.stamina > a.bodyPhysics.stamina
+    if (!reserves || !nonnegative(reserves.mana) || reserves.mana > (personal ? Biology.lifecycle[g.speciesId].manaCapacity : manaOwner.mana)
+      || !nonnegative(reserves.stamina) || reserves.stamina > (personal ? 300 : a.bodyPhysics.stamina)
       || !reserves.energy || !Object.keys(a.life.energy).every(k => nonnegative(reserves.energy[k]))) return null;
     manaOwner.mana = reserves.mana; a.bodyPhysics.stamina = reserves.stamina;
     a.life.energy = copy(reserves.energy);
@@ -838,7 +880,7 @@
       || a.bodyPhysics.mode === 'grounded' && modes.includes('flight'))
       || Bodies.habitatReason(a, a.mapCell, a.bodyPhysics.mode === 'grounded' ? 'walking' : a.bodyPhysics.mode, Bodies.height(a), ctx)) return null;
     const d = detail(s, groupId, cohortId, ordinal, actorId, at); if (!d) return null;
-    a.maxHealth = Math.max(1, a.maxHealth * Math.min(1, Math.sqrt(d.massKg / Biology.lifecycle[g.speciesId].adultKg)));
+    if (!personal) a.maxHealth = Math.max(1, a.maxHealth * Math.min(1, Math.sqrt(d.massKg / Biology.lifecycle[g.speciesId].adultKg)));
     a.health = a.maxHealth * d.health;
     a.life.stores = copy(d.stores); a.life.structuralKg = d.structuralKg;
     if (c.regional) {
@@ -847,21 +889,144 @@
       a.beastConditions = copy(c.regional.conditions); a.life.cooldowns = copy(c.regional.cooldowns);
     }
     a.life.bornAt = at - d.ageDays * DAY;
+    a.life.ageDays = d.ageDays; a.life.lastAt = at; a.life.wasLocal = true;
+    a.life.physicalAt = at;
+    a.bodyPhysics.lastAt = at; a.bodyPhysics.wasLocal = true;
     a.life.originalMemberId = d.memberId;
     a.life.originalGroupId = groupId;
     if (d.dependency) a.life.parentalDependency = copy(d.dependency);
     if (d.demography) {
       a.life.opportunities = d.demography.opportunities;
-      a.life.lastAttemptAt = d.demography.lastAttemptAt;
+      a.life.lastAttemptAt = d.demography.lastAttemptAt ?? a.life.lastAttemptAt;
       a.life.populationBroods = copy(d.demography.broods);
     }
+    a.life.reproduction = null;
+    if (personal) delete c.personalActor;
     s.details[actorId].actor = a; Scheduler.noteDetail(s, actorId); return a;
+  }
+  function returnLocal(s, actorId, at, position) {
+    const d = s.details[actorId], a = d?.actor;
+    if (!a || d.status !== 'detailed' || a.status === 'dead' || !(a.health > 0)
+      || !Life.valid(a) || !Bodies.valid(a) || !nonnegative(at) || at < s.clock
+      || !position || !['eastM', 'northM', 'altitudeM'].every(k => Number.isFinite(position[k]))
+      || !Demography.region(s, position.regionId)) return false;
+    advanceLocal(s, at, [position.regionId, d.regionId]);
+    const lastDamageAt = a.life.lastDamageAt;
+    Behavior.interrupt(a, at, 'Returning to regional physical ownership');
+    if (lastDamageAt == null) delete a.life.lastDamageAt; else a.life.lastDamageAt = lastDamageAt;
+    Spell.interrupt(a, 'Local channel ended at physical handoff', at);
+    Approach.stop(a.life, at, 'interrupted');
+    a.life.lastAt = at;
+    if (a.life.hunt && a.life.hunt.endedAt == null) {
+      a.life.hunt.endedAt = at; a.life.hunt.outcome = 'local pursuit interrupted';
+    }
+    a.bodyPhysics.motion = null; a.bodyPhysics.turn = null;
+    const original = Demography.group(s, d.groupId);
+    if (!original) return false;
+    const template = d.returnCohort || original.cohorts.find(c => c.id === d.cohortId)
+      || { deathSerial: 0, ...Object.fromEntries(['nurseryId', 'dependency', 'parentalLedger', 'feedingTowers']
+        .filter(key => d[key] != null).map(key => [key, d[key]])) };
+    const originalKnowledge = d.returnGroup?.knowledge || [];
+    let g = original;
+    if (location(g) !== position.regionId || g.transit
+      || JSON.stringify(g.knowledge) !== JSON.stringify(originalKnowledge)) {
+      const previous = Demography.group(s, `returned-group:${d.memberId}`);
+      const groupId = previous ? `returned-group:${d.memberId}:${at}` : `returned-group:${d.memberId}`;
+      g = Demography.group(s, groupId);
+      if (!g) {
+        g = { ...copy(d.returnGroup || { ...original, cohorts: [] }), id: groupId, cohorts: [], regionId: position.regionId,
+          home: { patchId: position.regionId, cellId: Demography.region(s, position.regionId).cellId || 'original-region',
+            eastKm: position.eastM / 1000, northKm: position.northM / 1000, depthM: -position.altitudeM },
+          knowledge: copy(originalKnowledge), regionalPosition: { ...copy(position), establishedAt: at },
+          intention: null, transit: null, seasonal: null };
+        if (g.ecology?.regionId && g.ecology.regionId !== g.regionId) delete g.ecology;
+        const month = monthAt(s.calendar, at), hunts = Math.min(original.foodWebPlan?.huntingRemaining || 0,
+          Math.floor(Biology.lifecycle[g.speciesId].huntsDay * (month.end - at) / DAY));
+        if (original.foodWebPlan) original.foodWebPlan.huntingRemaining -= hunts;
+        g.foodWebPlan = { monthIndex: month.index, plannedAt: at, huntingRemaining: hunts, contactPulses: 0 };
+        g.demographicPlan = { monthIndex: month.index, regionId: g.regionId, siteId: g.breeding?.siteId || null,
+          requestedReproduction: Boolean(g.breeding), ratePerDay: Biology.lifecycle[g.speciesId].attempts365 / 365 };
+        s.groups.push(g); Scheduler.registerGroup(s, g, at);
+      }
+    }
+    const c = copy(template), p = Biology.lifecycle[d.speciesId], workParts = Behavior.definitions[g.ecology?.action]?.parts;
+    Object.assign(c, { id: `returned:${d.memberId}`, originId: d.memberId.slice(0, d.memberId.lastIndexOf(':')),
+      speciesId: d.speciesId, ranges: [[d.ordinal, d.ordinal + 1]], generated: false, contactSplit: true,
+      bornAt: a.life.bornAt, massKg: a.bodyPhysics.massKg, structuralKg: a.life.structuralKg,
+      stores: copy(a.life.stores), health: a.health / a.maxHealth, role: a.life.role, colonyId: a.life.colonyId,
+      regionalPosition: copy(position), personalActor: copy(a),
+      regional: { at, stamina: a.bodyPhysics.stamina, mana: (a.spellImitation || a.bodyPhysics).mana,
+        energy: copy(a.life.energy), parts: copy(a.bodyPhysics.parts), armourKg: a.life.armourKg,
+        conditions: copy(a.beastConditions || []), cooldowns: copy(a.life.cooldowns || {}), originalTissueAccounted: true,
+        workBlocked: Boolean(workParts && Bodies.wounded(a, workParts) >= .65) } });
+    if (!template.contactSplit) { c.deathExposure = 0; c.deathThreshold = exponential(`${d.memberId}:personal-background`); }
+    for (const key of ['aggregateMortality', 'mortalityBalance', 'batchHazard', 'batchMembers', 'birthSpan', 'regionalFormation', 'contactBusyUntil', 'caregiving', 'windDrift']) delete c[key];
+    if (c.feedingTowers) c.feedingTowers = c.feedingTowers.map((_, i) => a.bodyPhysics.parts[`feeding tower ${i + 1}`]);
+    c.demography = { credit: a.life.opportunities || 0, serial: a.life.attemptSerial || 0,
+      cooldowns: a.life.lastAttemptAt != null && a.life.lastAttemptAt + p.cooldownDays * DAY > at
+        ? [{ ranges: copy(c.ranges), until: a.life.lastAttemptAt + p.cooldownDays * DAY }] : [], broods: [] };
+    for (const b of [...(a.life.populationBroods || []), ...(a.life.reproduction ? [a.life.reproduction] : [])]) if (b.disposedAt == null) {
+      c.demography.broods.push({ ...copy(b), localId: b.id, parents: copy(c.ranges), successful: b.success ? copy(c.ranges) : [],
+        parentOriginId: c.originId, mateOriginId: null, regionId: b.sourceRegionId || position.regionId,
+        nurseryId: b.sourceNurseryId || g.breeding?.siteId || null, manaStockKey: g.breeding?.manaStockKey || null,
+        materialRecipe: b.materialRecipe || { [g.resources?.foodKg || 'foodKg']: 1 } });
+    }
+    c.personalActor.life.populationBroods = []; c.personalActor.life.reproduction = null;
+    if (c.foraging) {
+      c.foraging.mealIds = []; c.foraging.action = null; c.foraging.bout = null; c.foraging.phase = 'idle';
+      c.foraging.lastAt = at; c.foraging.nextAt = at + 1e-6;
+      Foraging.plan(g, c, monthAt(s.calendar, at), at);
+    }
+    c.personalActor.life.originalGroupId = g.id;
+    g.cohorts = g.cohorts.filter(old => old.id !== c.id || count(old));
+    g.cohorts.push(c); delete s.details[actorId]; Scheduler.noteDetail(s, actorId);
+    rebuild(s, at, [g.regionId, d.regionId]);
+    record(s, 'returnedToBackground', at, { actorId, memberId: d.memberId, regionId: position.regionId });
+    return true;
   }
   function settleLocalLoss(s, actorId, at, cause) {
     const d = s.details[actorId], a = d?.actor;
     if (!a || a.status !== 'dead' || a.health > 0 || !id(cause) || !nonnegative(at) || at < s.clock) return false;
     const r = Predation.remains(a, at);
     if (!recordDetailedLoss(s, actorId, at, cause, r.massKgAtDeath)) return false;
+    return true;
+  }
+  function releaseCorpse(s, actorId, at, position) {
+    const d = s.details[actorId], a = d?.actor;
+    if (!d || d.status !== 'dead' || !a || !s.foodWeb || !nonnegative(at) || at < s.clock
+      || !position || position.regionId !== d.regionId) return false;
+    if (d.regionalCorpse) return true;
+    advanceLocal(s, at, [d.regionId]);
+    const r = Demography.region(s, d.regionId), loss = s.losses.find(l => l.memberId === d.memberId);
+    if (!loss || loss.detailOwner !== actorId) return false;
+    const body = Predation.remains(a, at), key = `native-corpse:${d.memberId}`;
+    for (const b of [...(a.life.populationBroods || []), ...(a.life.reproduction ? [a.life.reproduction] : [])]) if (b.disposedAt == null) {
+      r.outputs ||= {};
+      r.outputs.failedRecruitmentKg = (r.outputs.failedRecruitmentKg || 0)
+        + Math.max(0, b.investedKg - Biology.lifecycle[d.speciesId].newbornKg * b.emitted.length);
+      b.disposedAt = at;
+    }
+    r.remainsBatches ||= {};
+    r.remainsBatches[key] = { ...copy(body), count: 1, sourceKey: d.memberId, speciesId: d.speciesId, groupId: d.groupId,
+      position: copy(position), firstAt: loss.at, lastDeathAt: loss.at, cause: loss.cause };
+    for (const k of ['consumedKg', 'decomposedKg']) s.foodWeb.receipts[k] += body[k] - (d.regionalReceipt?.[k] || 0);
+    delete d.regionalReceipt; delete loss.detailOwner;
+    d.regionalCorpse = true; d.remainsKey = key;
+    return true;
+  }
+  function claimCorpse(s, actorId, at) {
+    const d = s.details[actorId];
+    if (!d || d.status !== 'dead' || !nonnegative(at) || at < s.clock) return false;
+    if (!d.regionalCorpse) return true;
+    advanceLocal(s, at, [d.regionId]);
+    const r = Demography.region(s, d.regionId), body = r.remainsBatches?.[d.remainsKey];
+    if (!body || body.massKg <= EPS || body.reservedKg > EPS) return false;
+    const loss = s.losses.find(l => l.memberId === d.memberId);
+    d.actor.life.remains = { ...copy(body), massKgAtDeath: loss.massKg };
+    d.actor.bodyPhysics.massKg = body.massKg;
+    d.regionalReceipt = { consumedKg: body.consumedKg, decomposedKg: body.decomposedKg };
+    loss.detailOwner = actorId; delete r.remainsBatches[d.remainsKey];
+    delete d.regionalCorpse; delete d.remainsKey;
     return true;
   }
   function registerLocalBirth(s, parentActorId, child, at) {
@@ -1085,6 +1250,9 @@
           || !nonnegative(g.transit.departedAt) || !(g.transit.edgeArriveAt > (g.transit.stop?.startedAt ?? s.clock) - EPS)
           || !(g.transit.crossAt > g.transit.departedAt) || !(g.transit.edgeArriveAt > g.transit.crossAt)
           || g.transit.path.some(id => !s.regions.some(r => r.id === id)))) return null;
+        for (const c of g.cohorts) if (c.personalActor && (count(c) !== 1 || !Life.valid(c.personalActor) || !Bodies.valid(c.personalActor)
+          || c.personalActor.status === 'dead' || c.personalActor.speciesId !== g.speciesId || c.personalActor.populationId !== g.populationId
+          || c.personalActor.life.originalGroupId !== g.id || c.personalActor.life.originalMemberId !== cohortKey(c, c.ranges[0][0]))) return null;
         for (const c of g.cohorts) if (!Demography.valid(c) || !Number.isFinite(c.bornAt) || !nonnegative(c.structuralKg) || c.massKg + EPS < c.structuralKg
           || !c.stores || !Object.values(c.stores).every(nonnegative) || !nonnegative(c.health) || c.health > 1
           || !integer(c.deathSerial) || !nonnegative(c.deathExposure) || !nonnegative(c.deathThreshold)
@@ -1120,12 +1288,15 @@
           || !nonnegative(d.actor.health) || !(d.actor.maxHealth > 0) || !Number.isFinite(d.actor.maxHealth) || d.actor.health > d.actor.maxHealth
           || d.actor.life?.originalMemberId !== d.memberId || d.actor.life.originalGroupId !== d.groupId || !Life.valid(d.actor) || !Bodies.valid(d.actor)
           || !Predation.validRemains(d.actor) || !Predation.validHunt(d.actor) || d.status === 'dead' && d.actor.status !== 'dead')) return null;
+        if (d.regionalCorpse && (d.status !== 'dead' || !d.actor?.nativePopulation?.background || d.regionalReceipt
+          || Demography.region(s, d.regionId)?.remainsBatches?.[d.remainsKey]?.sourceKey !== d.memberId
+          || !s.losses.some(l => l.memberId === d.memberId && !l.detailOwner))) return null;
       }
       if (!Ecology.valid(s) || !Foodweb.validate(s) || !Scheduler.validate(s) || !Foraging.valid(s, id => Demography.group(s, id)) || !Care.valid(s) || !Wind.valid(s)) return null;
       audit(s); Demography.prepare(s, s.clock); Scheduler.restore(s, schedulerOps); return s; // Restore indexes, never paid rates or choices.
     } catch { return null; }
   }
   return { DAY, count, cohortKey, monthAt, hazardIntegral, validateSource, create, createDiagnostic, chooseDestination,
-    advance, advanceBudget, settleRegions, detail, claimLocal, settleLocalLoss, registerLocalBirth, recordDetailedLoss, removeStock, destroyNursery, destroyRenewalSite, foodWebSummary: Foodweb.summary,
+    advance, advanceBudget, settleRegions, detail, claimLocal, returnLocal, releaseCorpse, claimCorpse, settleLocalLoss, registerLocalBirth, recordDetailedLoss, removeStock, destroyNursery, destroyRenewalSite, foodWebSummary: Foodweb.summary,
     destroyEcologicalWorkSite, setEcologicalActivity, setDrainageObstruction, setDreamParticipants, damageFeedingTower, kill, audit, rebind, normalize };
 });
