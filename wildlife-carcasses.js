@@ -105,7 +105,7 @@
     const t = length ? Math.max(0, Math.min(1, ((p.eastM - a.eastM) * dx + (p.northM - a.northM) * dy + (p.altitudeM - a.altitudeM) * dz) / length)) : 0;
     return Math.hypot(p.eastM - a.eastM - t * dx, p.northM - a.northM - t * dy, p.altitudeM - a.altitudeM - t * dz);
   }
-  function query(pool, start, range, end = start, budget = QUERY_LIMIT) {
+  function query(pool, start, range, end = start, budget = QUERY_LIMIT, includeReserved = false) {
     const space = pool.carcassSpace, result = { sites: [], visits: 0, complete: true };
     if (!space || start.regionId !== space.regionId || end.regionId !== space.regionId) return result;
     const snap = p => ({ ...p, eastM: (Math.floor(p.eastM / CELL_M) + .5) * CELL_M,
@@ -114,11 +114,12 @@
     const cache = index(pool), key = JSON.stringify([space.count, pool.huntedCount, a, z, expanded, budget]);
     cache.queriesMade++;
     const cached = cache.queries.get(key);
-    if (cached) return { ...cached, visits: 0, sites: cached.sites.filter(row => distance(row.position, start, end) <= range
-      && row.edibleKg > (row.reservedKg || 0) + EPS) };
+    const visible = row => distance(row.position, start, end) <= range
+      && (includeReserved ? row.massKg > EPS : row.edibleKg > (row.reservedKg || 0) + EPS);
+    if (cached) return { ...cached, visits: 0, sites: cached.sites.filter(visible) };
     const altitude = pool.guild === 'fish' ? -pool.spatial.depthTopM - pool.habitatDepthM / 2 : 0;
-    if (Math.min(start.altitudeM, end.altitudeM) - range > altitude || Math.max(start.altitudeM, end.altitudeM) + range < altitude) return result;
-    const pending = [{ node: node(pool, ''), count: space.count }];
+    const pending = Math.min(a.altitudeM, z.altitudeM) - expanded > altitude || Math.max(a.altitudeM, z.altitudeM) + expanded < altitude
+      ? [] : [{ node: node(pool, ''), count: space.count }];
     while (pending.length && result.visits < budget) {
       const item = pending.pop(), entry = item.node, b = entry.bounds; result.visits++;
       if (!item.count) continue;
@@ -144,7 +145,7 @@
     if (cache.queries.size > 32) cache.queries.clear();
     cache.queries.set(key, result);
     if (cache.nodes.size > 32768) cache.nodes.clear();
-    return { ...result, sites: result.sites.filter(row => distance(row.position, start, end) <= range && row.edibleKg > (row.reservedKg || 0) + EPS) };
+    return { ...result, sites: result.sites.filter(visible) };
   }
   function source(r, id) {
     for (const p of r.wildlife?.pools || []) {
@@ -177,6 +178,41 @@
     + ['hard', 'tough'].reduce((n, k) => n + (row.tissues?.[k]?.kg || 0), 0);
   // Never anchor with the combined weight of a batch of scattered corpses.
   const anchorLimit = row => row.poolId ? structuralKg(row) / Math.max(1, row.count) : Infinity;
+  const freeAnchorKg = row => Math.min(anchorLimit(row), ['hard', 'tough'].reduce((n, k) => n
+    + Math.max(0, (row.tissues?.[k]?.kg || 0) - (row.tissues?.[k]?.reservedKg || 0)), 0) / Math.max(1, row.count));
+  function take(r, row, actor, maximum) {
+    return T.take(row, actor, maximum, (key, kg) => debit(r, row, key, kg, 0, false));
+  }
+  // A view is never a second saved actor or food stock. All operations
+  // resolve to the existing spatial row and its finite parent inventory.
+  function window(r, site, observer, range, tile, terrain, includeReserved = false) {
+    const b = site.bounds, frame = site.origin;
+    if (observer.cell.z !== b.z || !(range > 0) || !(tile > 0)) return [];
+    const point = { regionId: r.id, eastM: frame.eastM + (observer.cell.x - b.x) * tile + (observer.offsetM?.x || 0),
+      northM: frame.northM + (observer.cell.y - b.y) * tile + (observer.offsetM?.y || 0), altitudeM: observer.altitudeM };
+    let budget = QUERY_LIMIT;
+    const candidates = [];
+    for (const pool of r.wildlife?.pools || []) {
+      if (budget <= 0 || !pool.carcassSpace) continue;
+      const batch = query(pool, point, range, point, budget, includeReserved); budget -= batch.visits;
+      for (const row of batch.sites) {
+        const p = row.position, x = b.x + (p.eastM - frame.eastM) / tile, y = b.y + (p.northM - frame.northM) / tile;
+        if (x < b.x || x >= b.x + b.width || y < b.y || y >= b.y + b.height) continue;
+        const mapCell = { x: Math.floor(x), y: Math.floor(y), z: b.z }, t = terrain(mapCell);
+        if (!t || t.known === false || t.protected || t.warded || t.foundation || t.obstacleHeightM > Math.max(0, p.altitudeM)
+          || (p.altitudeM < 0 ? !(t.waterDepthM >= -p.altitudeM) : !t.floor)) continue;
+        const shape = body(row);
+        candidates.push({ id: row.id, actorKind: 'wildlifeRemains', status: 'dead', roomId: site.roomId, mapCell,
+          wildlifePosition: { eastM: x * tile, northM: y * tile, altitudeM: p.altitudeM },
+          bodyPhysics: { dimensions: shape, altitudeM: p.altitudeM, mode: p.altitudeM < 0 ? 'swimming' : 'grounded' },
+          ...(includeReserved ? {} : { wildlifeCarrion: {
+            inventory: () => row, take: (actor, kg) => take(r, row, actor, kg), anchorKg: () => freeAnchorKg(row)
+          } }),
+          distanceM: distance(row.position, point) });
+      }
+    }
+    return candidates.sort((a, b) => a.distanceM - b.distanceM || a.id.localeCompare(b.id)).slice(0, 64);
+  }
   function summary(s) {
     const result = { deathBatches: 0, localSites: 0, positionedKg: 0, unresolvedKg: 0,
       queries: 0, nodeVisits: 0, limitedQueries: 0 };
@@ -252,5 +288,5 @@
         return ['consumedKg', 'reservedKg'].includes(field) ? close(n, root) : n <= root + 1e-6 * Math.max(1, root);
       }));
   }
-  return { CELL_M, QUERY_LIMIT, initialize, record, advance, query, source, reserve, release, debit, rows, body, anchorLimit, valid, countAt, summary };
+  return { CELL_M, QUERY_LIMIT, initialize, record, advance, query, source, reserve, release, debit, rows, body, anchorLimit, freeAnchorKg, take, window, valid, countAt, summary };
 });

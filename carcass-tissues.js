@@ -96,12 +96,12 @@
     return { kg, food: kg * p.food, water: kg * p.water, minerals: kg * p.minerals,
       solids: kg * (1 - p.food - p.water - p.minerals) };
   }
-  function take(r, actor, maximum) {
+  function take(r, actor, maximum, pay = (key, kg) => debit(r, key, kg)) {
     ensure(r); const result = { kg: 0, food: 0, water: 0, minerals: 0, solids: 0 };
     for (const key of diet(actor)) {
       const t = r.tissues[key]; if (!t) continue;
       const kg = Math.min(maximum * profiles[key].handling, Math.max(0, t.kg - t.reservedKg)); if (!(kg > EPS)) continue;
-      debit(r, key, kg); const part = nutrition(key, kg);
+      pay(key, kg); const part = nutrition(key, kg);
       for (const k of Object.keys(result)) result[k] += part[k];
       maximum -= kg / profiles[key].handling;
     }

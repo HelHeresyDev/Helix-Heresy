@@ -1169,10 +1169,15 @@ ownership only of what remains physically present and unreserved. Previous
 player sightings remain dated observations, not a feed of remote health, deaths
 or movements. Native terrain parcels are not redebited or refilled on reentry.
 
-Anonymous wildlife/local meal custody, larger real encounter geometry,
-ordinary marine/subsurface access, route/logistics
-and strategic consumers remain in the existing D acceptance. The bounded adapter
-is **not completion of catalog-wide ordinary-play encounters**.
+Within a visited native window, [positioned anonymous wildlife remains](WILDLIFE_CARCASSES.md#visited-native-terrain)
+are available to local scavengers that sense and physically reach them. Local
+feeding spends the same unreserved tissues regional feeders use. Overlapping
+windows, reloads and continued runs preserve the depletion without spawning a
+local copy. The scientist sees only remains actually in sight.
+
+Larger real encounter geometry, ordinary marine/subsurface access,
+route/logistics and strategic consumers remain in the existing D acceptance.
+The bounded adapter is **not completion of catalog-wide ordinary-play encounters**.
 
 Focused native unit controls exercise actual originals across all 24 body
 families using suitable source regions and explicitly supplied physical contexts;

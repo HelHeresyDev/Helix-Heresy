@@ -916,6 +916,7 @@
     if (lastDamageAt == null) delete a.life.lastDamageAt; else a.life.lastDamageAt = lastDamageAt;
     Spell.interrupt(a, 'Local channel ended at physical handoff', at);
     Approach.stop(a.life, at, 'interrupted');
+    delete a.life.wildlifeContact;
     a.life.lastAt = at;
     if (a.life.hunt && a.life.hunt.endedAt == null) {
       a.life.hunt.endedAt = at; a.life.hunt.outcome = 'local pursuit interrupted';

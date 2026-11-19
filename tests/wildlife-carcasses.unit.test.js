@@ -1,6 +1,8 @@
 const test = require('node:test'), assert = require('node:assert/strict');
 const W = require('../background-wildlife'), C = require('../wildlife-carcasses'), T = require('../carcass-tissues');
 const P = require('../beast-populations'), F = require('../beast-foraging'), Wind = require('../beast-wind-drift');
+const Behavior = require('../beast-behavior'), Predation = require('../beast-predation'), Beasts = require('../wilderness-beasts');
+const Approach = require('../carrion-lantern-approach');
 const { source } = require('./helpers/carcass-source');
 const DAY = P.DAY, binding = { worldId: 'local-carcass-batches', runId: 'original' }, copy = x => JSON.parse(JSON.stringify(x));
 const near = (a, b) => assert.ok(Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(a), Math.abs(b)), `${a} != ${b}`);
@@ -10,6 +12,82 @@ function points(s, guild = 'smallAnimals', sizeClass = 'large') {
   const site = pool.spatial, point = { regionId: r.id, eastM: site.eastM, northM: site.northM, altitudeM: 0 };
   return { r, pool, result: C.query(pool, point, site.radiusM * 2) };
 }
+const ground = () => ({ floor: true, waterDepthM: 0, wind: { x: 0, y: 0 } });
+function frame(row, x = 10) {
+  const cell = { x: 7 + x, y: 7, z: 6 };
+  return { site: { roomId: 'visited-wilds', bounds: { x, y: 0, z: 6, width: 16, height: 16 },
+    origin: { eastM: row.position.eastM - 7.25, northM: row.position.northM - 7.25 } }, observer: { cell, altitudeM: 0 } };
+}
+function feeding(species, cell) {
+  const actor = Beasts.actor(`beast:${species}`, 'forager', cell, `original:${species}`, 0);
+  actor.life.stores.foodKg = 0; actor.life.stores.fatKg = 0;
+  return { actor, context: { alive: true, local: true, tileSizeM: 1, terrain: ground,
+    signal: () => true, effectLine: () => true, foodKeys: Behavior.foodKeys } };
+}
+test('visited carcasses use local reach, senses and the same unreserved inventory across overlapping windows', () => {
+  const s = P.create(source(), binding), { r, pool, result } = points(s), row = result.sites[0];
+  const { site, observer } = frame(row), overlapping = frame(row, 80);
+  const view = (window = { site, observer }, terrain = ground, observe = false) =>
+    C.window(r, window.site, window.observer, 4, 1, terrain, observe).find(p => p.id === row.id);
+  const body = view(), second = view(overlapping), { actor, context } = feeding('rimefang-pack', observer.cell);
+  assert.equal(body.wildlifeCarrion.inventory(), row); assert.equal(second.wildlifeCarrion.inventory(), row);
+  assert.equal(second.mapCell.x - body.mapCell.x, 70);
+  assert.equal(view({ site: { ...site, bounds: { ...site.bounds, width: 5 } }, observer }), undefined);
+  assert.equal(view(undefined, () => ({ ...ground(), protected: true })), undefined);
+  assert.equal(view(undefined, undefined, true).wildlifeCarrion, undefined);
+  const held = C.reserve(r, row, { speciesId: 'beast:carrion-lantern' }, 1e9);
+  assert.ok(held.length); assert.equal(view(), undefined); assert.ok(view(undefined, undefined, true));
+  assert.equal(Behavior.consumeRemains(actor, body, 1, 1, context), false);
+  for (const p of held) C.release(r, row, p.tissue, p.kg);
+  const ctx = { ...context, wildlifeCarrion: () => [body] };
+  assert.equal(Predation.carcass(actor, 1, { ...ctx, signal: () => false }), null);
+  assert.equal(Predation.carcass(actor, 1, ctx), body);
+  assert.equal(Behavior.consumeRemains(actor, body, 1, 1, { ...ctx, effectLine: () => false }), false);
+  actor.mapCell = { ...observer.cell, x: observer.cell.x + 3 };
+  assert.equal(Behavior.consumeRemains(actor, body, 1, 1, ctx), false);
+  actor.mapCell = observer.cell;
+  const depletedAt = row.consumedKg, aggregate = pool.carcass.consumedKg;
+  assert.equal(Behavior.consumeRemains(actor, body, 1, 1, ctx), true); near(row.consumedKg, depletedAt);
+  assert.equal(Behavior.step(actor, { behavior: 'roam' }, null, 2, 1, { ...ctx, patch: () => ({}) }), true);
+  assert.ok(row.consumedKg > depletedAt);
+  const spent = row.consumedKg;
+  near(second.wildlifeCarrion.inventory().consumedKg, spent); near(pool.carcass.consumedKg - aggregate, spent - depletedAt);
+  Behavior.consumeRemains(actor, body, 1, 2, ctx); near(row.consumedKg, spent);
+  const named = Beasts.actor('beast:rimefang-pack', 'named-death', observer.cell, 'local-test', 0);
+  named.status = 'dead'; named.diedAt = 0;
+  assert.equal(Behavior.consumeRemains(actor, named, 1, 2, ctx), false);
+  valid(s);
+  const restored = P.normalize(copy(s), binding);
+  near(C.source(restored.regions[0], row.id).consumedKg, spent);
+});
+test('a local Lantern must finish continuous handling and cannot anchor with reserved or combined bodies', () => {
+  const s = P.create(source(), binding), { r, result } = points(s), row = result.sites[0], { site, observer } = frame(row);
+  const body = C.window(r, site, observer, 4, 1, ground).find(p => p.id === row.id);
+  const { actor, context } = feeding('carrion-lantern', observer.cell);
+  actor.bodyPhysics.altitudeM = .2;
+  assert.ok(body.wildlifeCarrion.anchorKg() > 0);
+  near(body.wildlifeCarrion.anchorKg(), (row.tissues.hard.kg + row.tissues.tough.kg) / Math.max(1, row.count));
+  const held = C.reserve(r, row, { carrionDiet: ['hard', 'tough'] }, 1e9);
+  near(body.wildlifeCarrion.anchorKg(), 0);
+  assert.equal(Behavior.consumeRemains(actor, body, 1, 0, context), false);
+  for (const p of held) C.release(r, row, p.tissue, p.kg);
+  const consumed = row.consumedKg;
+  assert.equal(Behavior.consumeRemains(actor, body, 1, 1, context), true);
+  assert.equal(Behavior.consumeRemains(actor, body, 30, 31, context), true);
+  actor.bodyPhysics.lastAt = 31;
+  Approach.observe(actor.life, 31, { id: body.id, cell: body.mapCell, position: body.wildlifePosition });
+  assert.equal(Behavior.step(actor, { behavior: 'roam' }, null, 32, 1, { ...context,
+    patch: () => ({}), wildlifeCarrion: () => [body], terrain: () => ({ ...ground(), wind: { x: 100, y: 0 } }) }), true);
+  assert.equal(actor.life.wildlifeContact, undefined);
+  assert.equal(actor.life.carrionApproachOutcome.reason, 'unable');
+  const breezy = { ...context, terrain: () => ({ ...ground(), wind: { x: .1, y: 0 } }) };
+  const stamina = actor.bodyPhysics.stamina;
+  assert.equal(Behavior.consumeRemains(actor, body, 60, 92, breezy), true);
+  assert.equal(Behavior.consumeRemains(actor, body, 60, 152, breezy), true);
+  near(row.consumedKg, consumed); assert.ok(actor.bodyPhysics.stamina < stamina);
+  assert.equal(Behavior.consumeRemains(actor, body, 1, 153, breezy), true);
+  assert.ok(row.consumedKg > consumed); valid(s);
+});
 test('initial and subsequent local corpses partition real original deaths and preserve all tissue ages', () => {
   const s = P.create(source(), binding), { r, pool, result } = points(s);
   assert.equal(result.complete, true); assert.ok(result.sites.length);

@@ -77,6 +77,7 @@
     return target;
   }
   function remains(a, at) {
+    if (a?.wildlifeCarrion) return a.wildlifeCarrion.inventory();
     if (a?.status !== 'dead' || !a.life || !a.bodyPhysics) return null;
     // Preserve legacy remaining mass, never reconstruct already eaten tissue.
     if (!a.life.remains) {
@@ -91,7 +92,7 @@
     return r;
   }
   function decay(a, at, ctx) {
-    if (ctx.alive === false || ctx.local === false) return 0;
+    if (ctx.alive === false || ctx.local === false || a?.wildlifeCarrion) return 0;
     const r = remains(a, at); if (!r || at <= r.lastAt) return 0;
     const seconds = Math.max(0, at - Math.max(r.lastAt, r.frozenUntil || 0)); r.lastAt = at;
     const kg = Tissues.decay(r, seconds / DAY);
@@ -102,7 +103,7 @@
     const wantsFood = a.speciesId === 'beast:carrion-lantern'
       ? a.life?.stores.foodKg < a.life?.foodCapacityKg * .5 : hungry(a);
     if (!a.life?.will || !wantsFood || !(ctx.foodKeys?.(a) || []).some(k => ['meatKg', 'carrionKg'].includes(k))) return null;
-    return (ctx.actors || []).filter(t => t.status === 'dead' && t.speciesId !== 'beast:ironroot-colossus'
+    return [...(ctx.actors || []), ...(ctx.wildlifeCarrion?.() || [])].filter(t => t.status === 'dead' && t.speciesId !== 'beast:ironroot-colossus'
       && !ctx.protectedTarget?.(a, t) && sensed(a, t, ctx, true)
       && Tissues.available(remains(t, at), a) > 1e-8).sort((x, y) =>
         Math.hypot(a.mapCell.x - x.mapCell.x, a.mapCell.y - x.mapCell.y)

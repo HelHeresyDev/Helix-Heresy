@@ -255,6 +255,7 @@
   const WildernessDiscovery = window.HelixWildernessDiscovery;
   const WildernessBeasts = window.HelixWildernessBeasts;
   const NativeBeastPopulations = window.HelixBeastNativePopulations;
+  const observedWildlifeCarrion = new WeakMap();
   let nativePopulationJob = null;
   const BeastBodies = window.HelixBeastBodies;
   const CreatureBiology = window.HelixCreatureBiology;
@@ -99900,15 +99901,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     });
     markStateDirty(); return false;
   }
+  function nativeBeastWindow(survival, roomId, tile) {
+    const baseline = survival?.discovery?.baseline;
+    if (!baseline?.bounds || !survival.destination) return null;
+    return { id: survival.destination.id, cellId: survival.destination.strategicCellId,
+      roomId, kind: baseline.habitatKind || 'surface', bounds: baseline.bounds,
+      origin: baseline.populationFrame || { eastM: baseline.bounds.x * tile, northM: baseline.bounds.y * tile } };
+  }
   function materializeNativeBeasts(survival, map) {
-    const owner = nativeBeastPopulationState(), baseline = survival.discovery.baseline;
-    const roomId = activeWildernessRoom(), live = ensureLabMap(), room = live.rooms[roomId];
+    const owner = nativeBeastPopulationState(), roomId = activeWildernessRoom(), live = ensureLabMap(), room = live.rooms[roomId];
     // Keep the actual visited footprint, rocks and property. Oversized bodies
     // are unavailable here; do not resize them or fabricate a larger clearing.
     const cells = room.cells;
-    const site = { id: survival.destination.id, cellId: survival.destination.strategicCellId,
-      roomId, kind: baseline.habitatKind || 'surface', bounds: baseline.bounds,
-      origin: baseline.populationFrame || { eastM: baseline.bounds.x * ensureLabMap().tileSizeM, northM: baseline.bounds.y * ensureLabMap().tileSizeM } };
+    const site = nativeBeastWindow(survival, roomId, live.tileSizeM);
     const existing = ensureWildernessBeasts();
     const saved = { ...WildernessBeasts.defaultState(), ...existing, actors: [], offspring: [],
       materialized: true, nativeDormant: false, nativeRoomId: roomId, siteId: site.id, lastAt: state.clock };
@@ -99977,7 +99982,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function wildernessBeastKnowledge() {
     const saved = ensureWildernessBeasts();
-    return WildernessBeasts.publicKnowledge(saved, localBeastActors(saved).filter(wildernessBeastVisible).map((beast) => beast.id));
+    return { ...WildernessBeasts.publicKnowledge(saved, localBeastActors(saved).filter(wildernessBeastVisible).map((beast) => beast.id)),
+      wildlifeRemains: scientistInWilderness() && !scientistIsDead() ? observedWildlifeCarrion.get(saved) || [] : [] };
+  }
+  function localWildlifeCarrion(a, rangeM, terrain, observationOnly = false) {
+    const owner = state.nativeBeastPopulations, map = activeWorldRecord?.generatedData?.strategicMap;
+    if (!owner || !map?.beastHabitatSources || nativePopulationLoading() || !NativeBeastPopulations.hasOpen(owner)
+      || scientistIsDead() || a.roomId !== activeWildernessRoom()) return [];
+    const tile = ensureLabMap().tileSizeM, site = nativeBeastWindow(activeWildernessSite(), a.roomId, tile), saved = ensureWildernessBeasts();
+    if (!site || !saved.materialized || saved.siteId !== site.id) return [];
+    const offset = a.bodyPhysics?.airOffset;
+    return NativeBeastPopulations.carrion(owner, map.beastHabitatSources, map, site, {
+      cell: a.mapCell, altitudeM: beastElevation(a), ...(offset ? { offsetM: { x: offset.x * tile, y: offset.y * tile } } : {})
+    }, { alive: true, local: true, at: state.clock, tileSizeM: tile, rangeM, terrain, observationOnly });
   }
   function pauseForWildernessThreat(message) {
     ensureWildernessBeasts().noticeSerial++;
@@ -99987,6 +100004,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function observeWildernessBeasts() {
     const saved = ensureWildernessBeasts();
     if (!scientistInWilderness()) return 0;
+    if (state.nativeBeastPopulations?.sites?.[saved.siteId] && !scientistIsDead()) {
+      const observer = { roomId: scientistRoomId(), mapCell: scientistMapCell() }, terrain = beastTerrainContext(observer.roomId);
+      const visible = localWildlifeCarrion(observer, 8, terrain, true).filter(body => beastClimbingLine(observer, body)
+        && perceptionLightLevelAtCell(body.mapCell) > 0);
+      observedWildlifeCarrion.set(saved, visible.map(body => ({ cell: cleanMapCell(body.mapCell), observedAt: state.clock })));
+    } else observedWildlifeCarrion.delete(saved);
     let changed = 0;
     for (const beast of localBeastActors(saved)) {
       if (!wildernessBeastVisible(beast)) { if (saved.sightings[beast.id]) saved.sightings[beast.id].threatVisible = false; continue; }
@@ -100109,9 +100132,26 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       || state?.unsupportedExcursions?.boundary?.beasts?.bodyTerrain?.[k] || state?.unsupportedExcursions?.remote?.beasts?.bodyTerrain?.[k]
       || state?.penalFlights?.assistance?.cityApproach?.gates?.map(g => g.foreignSurvey?.wilderness?.beasts?.bodyTerrain?.[k]).find(Boolean);
   }
+  function beastTerrainContext(roomId, map = ensureLabMap()) {
+    const allowed = new Set((map.rooms[roomId]?.cells || []).map(mapCellKey));
+    const baseline = roomId === activeWildernessRoom() ? activeWildernessSite()?.discovery?.baseline : null;
+    const bounds = baseline?.bounds;
+    return c => {
+      const inSource = bounds && c.z === bounds.z && c.x >= bounds.x && c.x < bounds.x + bounds.width
+        && c.y >= bounds.y && c.y < bounds.y + bounds.height;
+      if (!allowed.has(mapCellKey(c)) && !inSource) return null;
+      const raw = recordedBeastTerrainAt(c) || {};
+      const door = labMapDoorAtCell(c, map), wall = constructedWallAtCell(c, map);
+      const outcrop = baseline?.rocks?.some(p => sameMapCell(p, c));
+      return { floor: labMapCellHasFloor(c, map), waterDepthM: 0, soilDepthM: 0, ...raw,
+        protected: sameMapCell(c, WildernessSurvival.GATE) || sameMapCell(c, foreignWildernessLocal()?.gate),
+        obstacleHeightM: wall || door && !doorFixtureAllowsPassage(door) || propertyOpaqueFixtureAtCell(c) ? 4 : Math.max(outcrop ? 2 : 0, raw.obstacleHeightM || 0),
+        foundation: Boolean(wall || door || raw.foundation),
+        ceilingM: labMapCellHasFloor({ ...c, z: c.z + 1 }, map) ? map.layerHeightM : raw.ceilingM };
+    };
+  }
   function beastBodyContext(a) {
-    const map = ensureLabMap(), saved = ensureWildernessBeasts(), room = map.rooms[a.roomId];
-    const allowed = new Set((room?.cells || []).map(mapCellKey));
+    const map = ensureLabMap(), saved = ensureWildernessBeasts(), terrain = beastTerrainContext(a.roomId, map);
     // One synchronous body step sees one physical occupancy snapshot. Do not
     // rebuild every person's state and every other footprint per candidate cell.
     const people = [...fieldEmployeeStates(), ...fieldForceMembers()].map(s => s.actor)
@@ -100127,21 +100167,6 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         bodyVolumes.get(k).push({ low, high });
       }
     }
-    const baseline = a.roomId === activeWildernessRoom() ? activeWildernessSite()?.discovery?.baseline : null;
-    const bounds = baseline?.bounds;
-    const terrain = c => {
-      const inSource = bounds && c.z === bounds.z && c.x >= bounds.x && c.x < bounds.x + bounds.width
-        && c.y >= bounds.y && c.y < bounds.y + bounds.height;
-      if (!allowed.has(mapCellKey(c)) && !inSource) return null;
-      const raw = recordedBeastTerrainAt(c) || {};
-      const door = labMapDoorAtCell(c, map), wall = constructedWallAtCell(c, map);
-      const outcrop = baseline?.rocks?.some(p => sameMapCell(p, c));
-      return { floor: labMapCellHasFloor(c, map), waterDepthM: 0, soilDepthM: 0, ...raw,
-        protected: sameMapCell(c, WildernessSurvival.GATE) || sameMapCell(c, foreignWildernessLocal()?.gate),
-        obstacleHeightM: wall || door && !doorFixtureAllowsPassage(door) || propertyOpaqueFixtureAtCell(c) ? 4 : Math.max(outcrop ? 2 : 0, raw.obstacleHeightM || 0),
-        foundation: Boolean(wall || door || raw.foundation),
-        ceilingM: labMapCellHasFloor({ ...c, z: c.z + 1 }, map) ? map.layerHeightM : raw.ceilingM };
-    };
     return { tileSizeM: map.tileSizeM, alive: !scientistIsDead(), local: a.roomId === activeWildernessRoom(),
       incapacitated: actorIsIncapacitated(a), movementFactor: 1 + injuryEffectTotals(a).movement, terrain,
       cargoKg: actor => ensurePhysicalItemStacks().filter(s => s.carriedBy === actor.id)
@@ -100242,6 +100267,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return sensoryLineOfSight(observer.mapCell, target.mapCell);
     };
     const context = { ...c, seconds, actors, patch, native, signal,
+      wildlifeCarrion: () => localWildlifeCarrion(a, Math.max(BeastBodies.profiles[a.speciesId]?.sightM || 0,
+        BeastBodies.profiles[a.speciesId]?.scentM || 0), c.terrain),
       lightAt: cell => perceptionLightLevelAtCell(cell, map),
       sunlightFluxMJ: surfaceEnvelopeAtCell(a.mapCell).openSky ? surfaceDaylightIntensity(state.clock) / 100 * .001 : 0,
       cloudCover: (patch(a.mapCell)?.cloudCover || 0), focusAngle: 1,
@@ -100519,7 +100546,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
             }
           }
           const mode = beast.bodyPhysics.mode;
-          if (BeastBehavior.definitions[beast.life.pending?.action]?.mobile || ['flight', 'levitation', 'drifting', 'landing', 'falling'].includes(mode)) {
+          if (beast.speciesId === 'beast:carrion-lantern' && beast.life.wildlifeContact?.at === state.clock) {
+            beast.bodyPhysics.lastAt = state.clock; beast.bodyPhysics.motion = null;
+          } else if (BeastBehavior.definitions[beast.life.pending?.action]?.mobile || ['flight', 'levitation', 'drifting', 'landing', 'falling'].includes(mode)) {
             if (beast.life.activity === 'rest' && mode === 'flight') { beast.bodyPhysics.mode = 'landing'; beast.bodyPhysics.motion = null; }
             updateBeastBody(beast, decision, state.clock);
           } else beast.bodyPhysics.lastAt = state.clock;
@@ -100610,6 +100639,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const panel = document.createElement("section"); panel.className = "subpanel"; panel.dataset.wildernessBeasts = "true";
     panel.append(textEl("strong", "Local Beast Encounters"), textEl("p", `Rimefang and Gravebloom Elk ground encounters, Mirror Ape contact, bounded natural-surface climbing and Soul Lash imitation are implemented. Apes can independently climb original grippable trees and rock faces, spending finite stamina and risking real falls. One complete perceived Soul Lash release can teach that technique; hearing or suffering damage alone cannot. Their own finite mana and ability, casting limbs, real range and barriers constrain reproduction. Preparing a cast takes two seconds and spends mana without an interruption refund; moving the target can break preparation. Learning grants neither hostility nor cooperation, and individual compacts still apply. Height affects sight, cover and physical attack reach, not the map's floor number. Ordinary walls, roofs, wards and other floors grant no climbing route. Other spell imitation, unsupported vertical routes and flying, burrowing or colossal encounters remain unverified; absence is not a safety assessment. ${unsupportedActive() || overlandStopSite() ? "There is no warded entrance here." : "The municipal warded entrance excludes beasts and blocks attacks across it; wilderness refuges do not inherit that ward."} Temporary shelter offers no concealment. Actual opaque walls and closed doors obstruct sight and attacks. Pursuing animals may attempt a physically reachable unreinforced wooden barrier while they retain target memory; masonry, metal and wards exceed these species' breach capability. An outpost has no automatic attack timer or guaranteed safety.`));
     const knowledge = wildernessBeastKnowledge();
+    for (const cell of new Set(knowledge.wildlifeRemains.map(({ cell }) => `${cell.x},${cell.y}`)))
+      panel.append(textEl('p', `Wildlife remains in sight at ${cell}.`));
     panel.dataset.beastClimbing = 'true';
     panel.dataset.beastSpellImitation = 'true';
     panel.dataset.mirrorApePopulations = 'true';

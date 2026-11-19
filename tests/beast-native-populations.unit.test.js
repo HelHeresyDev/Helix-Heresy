@@ -1,6 +1,7 @@
 const test = require('node:test'), assert = require('node:assert/strict');
 const L = require('../world-run-library'), N = require('../beast-native-populations'), P = require('../beast-populations');
 const F = require('../beast-regional-foodweb'), B = require('../beast-bodies'), S = require('../beast-habitat-sources');
+const Carrion = require('../wildlife-carcasses');
 const copy = x => JSON.parse(JSON.stringify(x));
 let fixture;
 function original() {
@@ -30,6 +31,44 @@ test('native activation checks original source integrity without declaring ecolo
   assert.equal(source.nativeEncounters, true); assert.equal(source.ecologicalStatus, 'unverified');
   assert.equal(source.diagnosticOnly, undefined); assert.equal(JSON.stringify(map), before);
   assert.throws(() => S.runtimeSource({ ...map.beastHabitatSources, id: 'wrong' }, map));
+});
+test('visited wildlife remains share the original regional debit after reload and independent continue', () => {
+  const { map, binding } = original(), record = map.beastHabitatSources, owner = N.create(record, binding), s = N.open(owner, record, map);
+  const eater = { speciesId: 'beast:carrion-lantern' };
+  let region, row;
+  for (const r of s.regions) {
+    if (r.kind !== 'surface' || !r.floor) continue;
+    for (const pool of r.wildlife?.pools || []) {
+      if (!pool.carcassSpace?.count || pool.guild === 'fish') continue;
+      const { eastM, northM, radiusM } = pool.spatial;
+      row = Carrion.query(pool, { regionId: r.id, eastM, northM, altitudeM: 0 }, radiusM * 2).sites[0];
+      if (row) { region = r; break; }
+    }
+    if (row) break;
+  }
+  assert.ok(row, 'real original wildlife death');
+  const site = { id: 'carcass-visit', cellId: region.cellId, kind: region.kind, roomId: 'wildernessSurveySector',
+    bounds: { x: 0, y: 0, z: 6, width: 16, height: 16 }, origin: { eastM: row.position.eastM - 8, northM: row.position.northM - 8 } };
+  const overlap = { ...site, id: 'overlapping-visit', bounds: { ...site.bounds, x: 20 } };
+  const context = { at: 0, rangeM: 4, tileSizeM: 1, alive: true, local: true, terrain: () => ({ floor: true, waterDepthM: 0 }) };
+  const view = (state, frame = site, ctx = context) => N.carrion(state, record, map, frame, {
+    cell: { x: frame.bounds.x + 8, y: 8, z: 6 }, altitudeM: 0
+  }, ctx).find(body => body.id === row.id)?.wildlifeCarrion;
+  assert.equal(view(owner), undefined, 'unvisited terrain cannot expose a food source');
+  N.terrain(owner, record, map, site, [], 0); N.terrain(owner, record, map, overlap, [], 0);
+  assert.equal(view(owner, site, { ...context, local: false }), undefined);
+  assert.equal(view(owner, overlap).inventory(), row);
+  assert.ok(view(owner).take(eater, .001).kg > 0);
+  const remaining = row.massKg, spent = row.consumedKg;
+  assert.equal(view(owner, overlap).inventory().massKg, remaining);
+  N.pack(owner, record, map);
+  const saved = copy(owner), continued = N.rebind(saved, binding, { ...binding, runId: 'carrion-branch' });
+  N.open(saved, record, map); N.open(continued, record, map);
+  assert.equal(view(saved).inventory().consumedKg, spent);
+  assert.equal(view(continued, overlap).inventory().massKg, remaining);
+  assert.ok(view(continued).take(eater, .001).kg > 0);
+  assert.equal(view(saved).inventory().consumedKg, spent);
+  assert.ok(view(continued).inventory().massKg < remaining);
 });
 test('deferred generated habitats match the eager original at an elapsed ecological read', () => {
   const { map, binding } = original(), record = map.beastHabitatSources;

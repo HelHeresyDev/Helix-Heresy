@@ -5,9 +5,10 @@
     node ? require('./beast-populations') : root.HelixBeastPopulations,
     node ? require('./beast-regional-foodweb') : root.HelixBeastRegionalFoodweb,
     node ? require('./beast-bodies') : root.HelixBeastBodies,
-    node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys);
+    node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys,
+    node ? require('./wildlife-carcasses') : root.HelixWildlifeCarcasses);
   if (node) module.exports = api; root.HelixBeastNativePopulations = api;
-})(globalThis, function (Sources, P, Food, Bodies, Journeys) {
+})(globalThis, function (Sources, P, Food, Bodies, Journeys, Carcasses) {
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x)), cache = new WeakMap();
   const capacity = record => ({ supported: Array.isArray(record?.patchRows) && Boolean(record.physicalBinding),
@@ -282,6 +283,18 @@
   function bindTerrain(state, siteId) {
     return Object.fromEntries(Object.entries(state.sites[siteId]?.parcelIds || {}).map(([key, id]) => [key, mineralOwner(state.parcels[id])]));
   }
+  function carrion(state, record, map, site, observer, context) {
+    if (!context.alive || !context.local || !Object.hasOwn(state.sites, site.id) || !hasOpen(state)) return [];
+    checkSite(state, site);
+    const s = open(state, record, map), entry = cache.get(state);
+    entry.habitats ||= new Map(s.regions.map(r => [`${r.cellId}:${r.kind}`, r]));
+    const r = entry.habitats.get(`${site.cellId}:${site.kind}`);
+    if (!r || r.deferred || !r.wildlife?.pools.some(p => p.carcassSpace)
+      || !P.settleRegions(s, context.at, [r.id])) return [];
+    state.clock = s.clock;
+    return Carcasses.window(r, site, observer, context.rangeM, context.tileSizeM || 1,
+      context.terrain, context.observationOnly);
+  }
   function birth(state, record, map, parent, child, at) {
     const s = open(state, record, map), detail = s.details[parent.id];
     if (!detail || detail.memberId !== parent.life.originalMemberId) return false;
@@ -336,6 +349,6 @@
     const d = cache.get(state)?.account.details[actorId]; return Boolean(d && !d.actor?.nativePopulation?.background);
   };
   const hasLocalActors = state => Object.values(cache.get(state)?.account.details || {}).some(d => d.actor?.nativePopulation && !d.actor.nativePopulation.background);
-  return { create, normalize, open, pack, rebind, materialize, sync, nearby, terrain, bindTerrain, birth, capacity, diff, apply,
+  return { create, normalize, open, pack, rebind, materialize, sync, nearby, terrain, bindTerrain, carrion, birth, capacity, diff, apply,
     hasOpen, ready, prepare, advanceBudget, ownsLocal, hasLocalActors };
 });

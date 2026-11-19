@@ -193,3 +193,26 @@ native-adoption and strategic-output requirements actually pass. Failure is
 not automatically exhaustion. The queue remains at eleven active packages;
 the tutorial stays deferred and no replacement prompt is added. No species or
 lifecycle spreadsheet values change in this pass.
+
+## Visited native terrain
+
+When the scientist visits a population-backed wilderness window, a forager can
+encounter only existing carcasses at actual positions in that window's mapped
+terrain: the right layer and depth, unobstructed and outside protected
+ground. Sight or scent can attract a beast, but feeding also requires its own
+reach and a clear line of effect. The scientist's encounter panel lists only
+remains in sight, not unsensed bodies, held tissue or regional food totals.
+
+The local target is a transient view of a regional row, not a new corpse actor.
+A bite debits the same spatial row and its aggregate pool and cannot spend
+tissues reserved by a regional feeder. Regional decay remains the sole owner of
+decay for that row; local wildlife remains are not separately decay-ticked or
+placeable in ice caches. Re-entering or overlapping a window does not regenerate
+matter; a continued branch inherits the saved remainder and then spends it
+independently. Unpositioned legacy stock remains unavailable and this doesn't
+spawn live wildlife.
+
+A local Carrion Lantern needs sixty seconds of continuous supported handling
+before it can ingest. Current wind, bodily effort and what remains of at most
+one body's unreserved structure determine whether it can hold. This does not
+change regional starting supply or seasonal viability.

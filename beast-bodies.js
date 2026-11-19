@@ -101,7 +101,8 @@
         && b.motion.distanceM > 0 && (Math.abs(b.motion.to.x - b.motion.from.x) + Math.abs(b.motion.to.y - b.motion.from.y) === 1
           || b.motion.transition?.vertical && same(b.motion.to, b.motion.from))));
   }
-  const height = a => a?.bodyPhysics ? valid(a) ? a.bodyPhysics.altitudeM : Infinity : 0;
+  const height = a => a?.actorKind === 'wildlifeRemains' ? a.wildlifePosition.altitudeM
+    : a?.bodyPhysics ? valid(a) ? a.bodyPhysics.altitudeM : Infinity : 0;
   const maskCache = new Map();
   function footprint(a, tileSizeM = 1, mode = a?.bodyPhysics?.mode) {
     const b = a?.bodyPhysics, p = profiles[a?.speciesId];
@@ -129,6 +130,7 @@
       y: anchor.y + offset.y + y, z: anchor.z })))).map(p => [key(p), p])).values()];
   }
   function position(a, tileSizeM = 1) {
+    if (a.actorKind === 'wildlifeRemains') return copy(a.wildlifePosition);
     return { eastM: (a.mapCell.x + (a.bodyPhysics?.airOffset?.x || 0)) * tileSizeM,
       northM: (a.mapCell.y + (a.bodyPhysics?.airOffset?.y || 0)) * tileSizeM, altitudeM: height(a) };
   }

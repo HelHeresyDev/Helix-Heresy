@@ -380,13 +380,52 @@
       a.life.emitted[key] = (a.life.emitted[key] || 0) + amount; ctx.waste?.(a, key, amount);
     }
   }
+  function wildlifeContact(a, corpse, at, seconds, ctx) {
+    const l = a.life, prior = l.wildlifeContact;
+    const elapsed = prior?.id === corpse.id && at - prior.at <= seconds + 1e-8 ? Math.max(0, at - prior.at) : 0;
+    const handled = elapsed > 0 || prior?.at === at && prior.id === corpse.id ? prior.handled : 0;
+    if (Lantern.is(a)) {
+      const t = ctx.terrain?.(corpse.mapCell), wind = ctx.terrain?.(a.mapCell)?.wind, b = a.bodyPhysics;
+      if (!t?.floor || t.waterDepthM > .01 || !wind || ![wind.x, wind.y].every(Number.isFinite) || b.mode !== 'flight'
+        || (b.parts['feeding organs'] || 0) < 35 || !Bodies.capable(a, 'flight')) { delete l.wildlifeContact; return null; }
+      const drag = .5 * 1.225 * b.dimensions.lengthM * b.dimensions.heightM * Math.hypot(wind.x, wind.y) ** 2;
+      const grip = b.massKg * 9.81 * .25 * b.parts['feeding organs'] / 100;
+      // This row may represent many deaths. Only one body's unreserved
+      // structure can resist the current air; no combined batch anchoring.
+      const structure = corpse.wildlifeCarrion.anchorKg();
+      if (!(structure > 0) || drag > grip || drag > structure * 9.81 * .5) { delete l.wildlifeContact; return null; }
+      const effort = elapsed * .1 * drag / grip;
+      if (effort > b.stamina) { delete l.wildlifeContact; return null; }
+      b.stamina -= effort; b.spentStamina += effort;
+    }
+    const remaining = Lantern.is(a) ? Math.max(0, 60 - handled) : 0;
+    l.wildlifeContact = { id: corpse.id, at, handled: Math.min(60, handled + elapsed) };
+    return Math.max(0, Math.min(elapsed - remaining, at - (l.remainsFedAt ?? at - elapsed)));
+  }
   function consumeRemains(a, corpse, seconds, at, ctx) {
     if (!(seconds > 0) || !conscious(a, at) || !ctx.alive || !ctx.local
       || !permitted(a, { ...ctx, actionId: 'feed' })
-      || !corpse?.life || corpse.status !== 'dead' || distance(a, corpse, ctx) > 2
+      || !(corpse?.life || corpse?.wildlifeCarrion) || corpse.status !== 'dead'
+      || distance(a, corpse, ctx) > (corpse.wildlifeCarrion ? Bodies.profiles[a.speciesId].reachM : 2)
       || ctx.protectedTarget?.(a, corpse) || !Predation.sensed(a, corpse, ctx, true) || !ctx.effectLine?.(a, corpse, 'feed')) return false;
     if (!foodKeys(a).some(k => ['meatKg', 'carrionKg'].includes(k))) return false;
     if (corpse.speciesId === 'beast:ironroot-colossus') return false;
+    if (corpse.wildlifeCarrion) {
+      if (!(Predation.tissues.available(corpse.wildlifeCarrion.inventory(), a) > 1e-8)) { delete a.life.wildlifeContact; return false; }
+      const elapsed = wildlifeContact(a, corpse, at, seconds, ctx);
+      if (elapsed == null) return false;
+      const available = Math.max(0, a.life.foodCapacityKg - a.life.stores.foodKg);
+      const maximum = Math.min((Lantern.is(a) ? Life.profile(a).mealKg : Life.profile(a).foodKgDay) * elapsed / 600,
+        available / (Lantern.is(a) ? Lantern.foodFraction() : 1));
+      const tissue = corpse.wildlifeCarrion.take(a, maximum);
+      if (tissue.kg > 0) {
+        a.life.remainsFedAt = at;
+        if (Lantern.is(a)) eatCarrion(a, tissue.kg, ctx, tissue); else Life.feed(a, 'foodKg', tissue.kg);
+        event(a, 'fedFromRemains', at, { corpseId: corpse.id, kg: tissue.kg });
+      }
+      a.life.activity = tissue.kg > 0 ? 'feed' : 'handleCarrion';
+      return true;
+    }
     Predation.decay(corpse, at, ctx);
     const r = Predation.remains(corpse, at);
     r.feedingAt ||= {};
@@ -482,6 +521,8 @@
   function step(a, decision, target, at, seconds, ctx) {
     if (!Life.valid(a) || !alive(a) || !ctx.alive || !ctx.local || !(seconds > 0) || a.life.actedAt >= at) return false;
     a.life.actedAt = at;
+    if (a.life.pending || a.life.chorusUntil > at || !conscious(a, at) || ctx.incapacitated || !a.life.will
+      || a.spellImitation?.pending || a.climbing && a.climbing.mode !== 'perched') delete a.life.wildlifeContact;
     if (a.life.pending) { Approach.stop(a.life, at, 'interrupted'); a.life.activity = 'preparing'; return advanceAction(a, at, seconds, ctx); }
     if (a.life.chorusUntil > at) { a.life.activity = 'chorusSupport'; return true; }
     if (!conscious(a, at) || ctx.incapacitated) { Approach.stop(a.life, at, 'unable'); return false; }
@@ -490,9 +531,11 @@
     const seen = observe(a, at, ctx), actions = capabilities[a.speciesId], p = ctx.patch(a.mapCell);
     packContact(a, at, ctx);
     const danger = target && decision?.behavior === 'pursue';
-    if (danger) Approach.stop(a.life, at, 'interrupted');
-    if (!danger && (a.bodyPhysics.stamina < 100 || a.life.activity === 'rest' && a.bodyPhysics.stamina < 250)) { Approach.stop(a.life, at, 'unable'); a.life.activity = 'rest'; return true; }
-    if (!p) return false;
+    if (danger) { Approach.stop(a.life, at, 'interrupted'); delete a.life.wildlifeContact; }
+    if (!danger && (a.bodyPhysics.stamina < 100 || a.life.activity === 'rest' && a.bodyPhysics.stamina < 250)) {
+      Approach.stop(a.life, at, 'unable'); delete a.life.wildlifeContact; a.life.activity = 'rest'; return true;
+    }
+    if (!p) { delete a.life.wildlifeContact; return false; }
     const lure = activeConditions(a, at).find(effect => effect.kind === 'etherLure');
     const source = lure && (ctx.actors || []).find(t => t.id === lure.from && alive(t));
     if (a.bodyPhysics.mode === 'swimming' && (!a.bodyPhysics.motion || a.life.pressureDangerAt && at - a.life.pressureDangerAt <= 10 && a.bodyPhysics.motion.transition?.dive)) {
@@ -500,13 +543,13 @@
         const safe = -Math.min(Bodies.profiles[a.speciesId].depthToleranceM, p.waterDepthM);
         a.bodyPhysics.motion = null;
         if (Bodies.dive(a, Math.min(-a.bodyPhysics.dimensions.heightM, safe), ctx).ok) {
-          a.life.activity = 'escapePressure'; Bodies.advance(a, at, ctx); return true;
+          delete a.life.wildlifeContact; a.life.activity = 'escapePressure'; Bodies.advance(a, at, ctx); return true;
         }
       } else if (source && ['hearing', 'pressure', 'sight'].some(channel => canSense(a, source, channel, ctx))) {
         decision.behavior = 'investigate'; decision.goal = copy(source.mapCell);
         if (distance(a, source, ctx) <= 4 && Bodies.height(source) < Bodies.height(a)
           && Bodies.dive(a, Bodies.height(source), ctx).ok) {
-          a.life.activity = 'investigateLure'; Bodies.advance(a, at, ctx); return true;
+          delete a.life.wildlifeContact; a.life.activity = 'investigateLure'; Bodies.advance(a, at, ctx); return true;
         }
       }
     }
@@ -517,12 +560,22 @@
     if (!danger) {
       const preferred = Lantern.is(a) && a.life.carrionApproach
         && (ctx.actors || []).find(t => t.id === a.life.carrionApproach.target.id);
-      const corpse = preferred && Predation.carcass(a, at, { ...ctx, actors: [preferred], foodKeys })
+      const corpse = preferred && Predation.carcass(a, at, { ...ctx, actors: [preferred], wildlifeCarrion: null, foodKeys })
         || Predation.carcass(a, at, { ...ctx, foodKeys });
-      if (corpse && actions.includes('iceCache') && !(corpse.life?.remains?.frozenUntil > at)
+      if (!corpse?.wildlifeCarrion || corpse.id !== a.life.wildlifeContact?.id) delete a.life.wildlifeContact;
+      if (corpse && !corpse.wildlifeCarrion && actions.includes('iceCache') && !(corpse.life?.remains?.frozenUntil > at)
         && begin(a, 'iceCache', corpse, at, ctx).ok) return true;
-      if (corpse && consumeRemains(a, corpse, seconds, at, ctx)) { Approach.stop(a.life, at, 'arrived'); a.life.activity = 'feed'; return true; }
+      if (corpse && consumeRemains(a, corpse, seconds, at, ctx)) {
+        Approach.stop(a.life, at, 'arrived'); if (!corpse.wildlifeCarrion) a.life.activity = 'feed'; return true;
+      }
+      delete a.life.wildlifeContact;
       if (Lantern.is(a)) {
+        if (corpse?.wildlifeCarrion && distance(a, corpse, ctx) <= Bodies.profiles[a.speciesId].reachM) {
+          // Failed contact is not a hold. Drop directed approach so the next
+          // body update uses ambient drift instead of stopping at the target.
+          Approach.stop(a.life, at, 'unable');
+          a.bodyPhysics.goal = null; decision.goal = null; a.life.activity = 'idle'; return true;
+        }
         const sensed = corpse && { id: corpse.id, cell: copy(corpse.mapCell), position: Bodies.position(corpse, ctx.tileSizeM || 1) };
         const state = Approach.observe(a.life, at, sensed, a.life.willing !== false && Bodies.capable(a, 'flight')
           && Boolean(ctx.terrain(a.mapCell)?.wind));
