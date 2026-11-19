@@ -59,6 +59,22 @@ test('crossings split existing cohorts without duplicating originals, positions,
   const round = x => JSON.parse(JSON.stringify(x, (key, value) => typeof value === 'number' ? Number(value.toPrecision(10)) : value));
   assert.deepEqual(round(s.groups), round(split.groups)); valid(s); valid(split);
 });
+test('a common globe border leads to surface air without inventing a shore landing', () => {
+  const src = windSource({ preyX: 10000 }), r = src.regions[0];
+  const boundary = { normal: { x: 1, y: 0 }, offsetM: 100,
+    exit: { eastM: 100, northM: 0 }, entry: { eastM: -100, northM: 0 } };
+  for (const kind of ['surface', 'shore']) {
+    const next = { ...copy(r), id: `atmosphere:${kind}`, kind, edges: [] };
+    next.wildlife.pools.forEach(p => p.id += `:${kind}`); src.regions.push(next);
+    r.edges.push({ id: next.id, distanceKm: .2, traversable: true, windBoundary: boundary });
+  }
+  const s = P.create(src, binding); P.advance(s, 500, true, true);
+  const group = s.groups.find(g => g.windDriven);
+  assert.equal(group.regionId, 'atmosphere:surface');
+  assert.equal(group.cohorts[0].windCrossings, 1);
+  assert.ok(group.cohorts[0].regionalPosition.eastM > -100);
+  valid(s);
+});
 test('wind, boundary planes, layout and held effort cannot be forged on import', () => {
   const s = fixture(); P.advance(s, 400, true, true); valid(s);
   for (const mutate of [x => x.groups[0].cohorts[0].windDrift.layout.columns = 0,

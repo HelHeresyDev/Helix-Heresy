@@ -80,7 +80,29 @@ test('new drift records use canonical climate direction while older source recor
   const old = S.expand(legacy, map);
   assert.ok(old.groups.every(g => !g.windDriven)); assert.ok(old.regions.every(r => r.wind == null && r.edges.every(e => !e.windBoundary)));
   assert.equal(JSON.stringify(legacy), before);
-  assert.deepEqual(legacy.groupRows, record.groupRows);
+  assert.deepEqual(legacy.groupRows, S.generate(record.seed, map, { lanternHabitatAccess: false }).groupRows);
+});
+test('new Lantern starts cross existing large-animal habitat without changing any population or wildlife budgets', () => {
+  const { map, record, source } = fixture(), old = S.generate(record.seed, map, { lanternHabitatAccess: false });
+  const saved = JSON.stringify(old); S.validate(old, map);
+  assert.deepEqual(old.populations, record.populations);
+  assert.deepEqual(old.backgroundWildlife, record.backgroundWildlife);
+  assert.deepEqual(old.groupRows.map(([p, g, , adults, young]) => [p, g, adults, young]),
+    record.groupRows.map(([p, g, , adults, young]) => [p, g, adults, young]));
+  assert.notEqual(record.id, old.id); assert.equal(JSON.stringify(old), saved);
+  assert.ok(record.lanternDriftRows.length >= 2);
+  for (const [pi, ordinal, position] of record.lanternDriftRows) {
+    const id = S.populationsFor(map)[pi].id, g = source.groups.find(g => g.id === `natural-group:${id}:${ordinal}`);
+    const r = source.regions.find(r => r.id === g.regionId);
+    assert.equal(g.speciesId, 'beast:carrion-lantern');
+    approx(g.originalPosition.eastM, position.eastM); approx(g.originalPosition.northM, position.northM);
+    assert.ok(r.wildlife.pools.some(p => p.guild === 'smallAnimals' && p.habitatPatch !== 'background'
+      && Math.hypot(p.spatial.eastM - position.eastM, p.spatial.northM - position.northM) < p.spatial.radiusM
+      && (p.spatial.eastM - position.eastM) * r.wind.x + (p.spatial.northM - position.northM) * r.wind.y > 0));
+  }
+  const forged = clone(record); forged.lanternDriftRows[0][2].eastM += 1;
+  forged.id = ''; forged.id = `beast-habitat-source:${W.stableHash(forged)}`;
+  assert.throws(() => S.validate(forged, map), /physical accounts/);
 });
 test('the explicit passive-biology correction preserves old source identities and cannot silently add moisture', () => {
   const { map, record } = fixture();

@@ -135,6 +135,54 @@ handling of microscopic replacement rations. Passive reviews do not spend active
 search effort. Active reviews, including unsuccessful approaches, consume the
 existing monthly search/activity budget. Final death freezes further execution.
 
+## Downwind contact and grip allocation
+
+A Lantern can use its existing thrust to aim for a sensed downwind carcass
+instead of spending nearly all of it braking. It cannot fight an overpowering
+headwind. The live approach can stop inside actual feeding reach; once the
+body reaches a point corpse it can start handling immediately, but only
+continuous handling followed by elapsed eating debits food. Old saved
+approach segments still validate against the course that earned them.
+
+A compact flock's lead observer can peel off on its own when it detects a
+point corpse; the rest do not inherit that knowledge. Crossing a shared
+globe border takes the air over the next land surface, rather than choosing
+an overlapping shore patch merely due to edge order. For newly generated
+sources, initial drift lines prefer existing large-wildlife habitat within
+the original territory and winds in which an adult could physically hold on
+to such a carcass. This screening does not place or reserve a meal, predict
+an individual corpse, or alter wildlife counts, wind or original creature
+reserves. Unmarked archives keep their prior placement.
+
+After reaching a carcass, the regional meal claim reserves its grip *before*
+taking edible tissue from the same corpse. Trace data found a 27.05 kg
+Lantern in 5.82 m/s wind touching a single aged carcass with about 11.21 kg
+of structure. It needed 11.07 kg to hold, but the former food-first order
+left about 8.53 kg for its grip. Handling ended after about 1.87 seconds
+instead of the required 60. The corrected claim sets aside the real
+structure, with a bounded allowance for decay and the Lantern's growing
+mass, then eats only from what remains. Tiny or depleted carcasses still
+cannot anchor a feeding Lantern.
+
+Use `node scripts/replay-lantern-meals.js 20 40 65 85 120` for the isolated
+generated-world meal trace. It records sensed and reached sources,
+interrupted handling, and actual wet tissue debits by source and flock.
+
+The updated isolated `source-small` control (`c08cce7f`) retained 120
+original Lanterns and the same wildlife counts and starting carrion mass.
+Before the grip-order fix, the revised placements produced no ingestion over
+120 days. Afterward, one original flock finished the sixty-second hold and
+ate **0.320140 kg of wet tissue** from one actual wildlife carcass on day
+61.34. This reconciles with the wildlife ledger and does not include any
+initial Lantern reserves or tissue from another Lantern. The replay had
+111 approach starts, 90 living originals at day 65, none at day 85, no
+births, and final losses of 115 starvation and five background mortality.
+
+The target of repeated feeding from independent carcasses in at least two
+original flocks was **not** met. The isolated result is an access and
+custody improvement, not evidence of sustained feeding, and the all-species
+replay below was not repeated for this change.
+
 ## Current integrated generated control
 
 The [current complete ecosystem control](SEASONAL_VIABILITY.md#current-integrated-120-day-control)

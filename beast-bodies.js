@@ -288,7 +288,7 @@
     if (!state || a.life.will === false || a.life.willing === false || a.life.pending || !(b.stamina > 0)
       || at >= state.deadlineAt || at > state.lastSeenAt + Approach.LOST) return null;
     const pos = position(a, ctx.tileSizeM || 1);
-    return Approach.course(b.massKg, b.parts, ctx.terrain(a.mapCell)?.wind, {
+    return Approach.intercept(b.massKg, b.parts, ctx.terrain(a.mapCell)?.wind, {
       eastM: state.target.position.eastM - pos.eastM,
       northM: state.target.position.northM - pos.northM, altitudeM: state.target.position.altitudeM - b.altitudeM });
   }

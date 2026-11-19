@@ -35,9 +35,22 @@
     return meal.kind === 'wildlife' ? Carcasses.source(r, meal.sourceId)
       : r.remains?.[meal.sourceId] || r.remainsBatches?.[meal.sourceId];
   }
-  function claim(r, g, c, kind, sourceId, kg, at, position) {
+  function claim(r, g, c, kind, sourceId, kg, at, position, requiredAnchorKg = null) {
     if (!r.foraging || !(kg > EPS)) return null;
     const candidate = { kind, sourceId }, source = row(r, candidate); if (!source) return null;
+    let anchors = null;
+    if (requiredAnchorKg != null) {
+      // Feed only from what's left after keeping a real grip. This matters
+      // on old remains: most available tissue can also be the anchor.
+      const inert = Math.max(0, source.massKg - source.edibleKg), needed = Math.max(0, requiredAnchorKg - inert);
+      const free = Carcasses.freeAnchorKg(source), limit = Carcasses.anchorLimit(source);
+      if (requiredAnchorKg > limit + EPS || needed > free + EPS) return null;
+      // Keep a margin for the reserved tissue's decay and the feeding
+      // animal's increasing mass; this is still the same one-body matter.
+      const guarded = Math.min(free, Math.max(0, Math.min(limit, requiredAnchorKg * 1.15) - inert));
+      anchors = Carcasses.reserve(r, source, { carrionDiet: ['hard', 'tough'] }, guarded)
+        .map(part => ({ ...part, initialKg: part.kg, decomposedKg: 0 }));
+    }
     let first = null;
     for (const portion of Carcasses.reserve(r, source, c, kg)) {
       const { tissue, kg } = portion, id = `forage-meal:${r.id}:${r.foraging.serial++}`;
@@ -52,9 +65,10 @@
       c.foraging.mealIds.push(id);
     }
     if (first && g.windDriven && (kind === 'beast' || source.poolId)) {
-      r.foraging.meals[first].anchors = Carcasses.reserve(r, source, { carrionDiet: ['hard', 'tough'] }, Math.min(source.massKg, Carcasses.anchorLimit(source)))
+      r.foraging.meals[first].anchors = anchors ?? Carcasses.reserve(r, source, { carrionDiet: ['hard', 'tough'] }, Math.min(source.massKg, Carcasses.anchorLimit(source)))
         .map(part => ({ ...part, initialKg: part.kg, decomposedKg: 0 }));
     }
+    if (!first) for (const part of anchors || []) Carcasses.release(r, source, part.tissue, part.kg);
     return first;
   }
   function releaseMeal(r, source, meal) {
@@ -211,6 +225,29 @@
   const intake = (c, key = 'foodKg') => c.foraging?.phase !== 'eating' ? 0 : key === 'waterL'
     ? Lantern.is(c) ? c.foraging.action.intakePerDay * (c.foraging.action.waterFraction ?? Lantern.profile().carrionWaterFraction) : 0
     : c.foraging.action.intakePerDay * (Lantern.is(c) ? (c.foraging.action.foodFraction ?? Lantern.foodFraction()) : 1);
+  function beginHandling(r, g, c, at, ctx, query) {
+    const f = c.foraging, n = count(c), p = Data.lifecycle[c.speciesId];
+    const claims = ctx.capture(query, Math.max(0, capacity(c) - c.stores.foodKg) * n);
+    for (const entry of claims) {
+      const kind = entry.kind || 'wildlife', body = row(r, { kind, sourceId: entry.sourceId });
+      claim(r, g, c, kind, entry.sourceId, entry.kg, at, ctx.position,
+        Lantern.is(c) && count(c) === 1 ? ctx.anchorNeed?.(body) : null);
+    }
+    r.foraging.receipts.searches += n;
+    if (Lantern.is(c) && f.mealIds.length) {
+      const food = f.mealIds.reduce((sum, id) => {
+        const meal = r.foraging.meals[id];
+        return sum + Lantern.partition(meal.kg, 0, Tissues.nutrition(meal.tissue, meal.kg)).food;
+      }, 0);
+      const juvenile = at - c.bornAt < p.adultDays * DAY ? p.juvenileMultiplier : 1;
+      const handlingFood = p.foodKgDay * (c.massKg / p.adultKg) ** .75 * juvenile * p.travelMultiplier
+        * Math.min(60, room(f, 'handling')) / DAY * n;
+      // A trace too small to pay for its sixty-second handling is released.
+      if (food <= handlingFood) { deferSites(r, c, at); release(r, c); }
+    }
+    if (!f.mealIds.length) return false;
+    action(c, 'handling', at, Math.min(60, room(f, 'handling'))); return true;
+  }
   function step(s, r, g, c, at, ctx) {
     const f = c.foraging; if (!f || !r.foraging || !count(c)) return;
     f.availableUntil = Math.min(f.plan.end, ctx.until ?? Infinity);
@@ -236,27 +273,8 @@
         const footprint = Lantern.is(c) ? Math.PI * Bodies.profiles[c.speciesId].reachM ** 2 / 10000
           : (Math.PI * old.senseM ** 2 + old.speed * old.earnedSeconds * Math.min(100, old.senseM) * 2) / 10000;
         const areaHa = r.areaHa * -Math.expm1(-footprint * n / r.areaHa);
-        const claims = ctx.capture({ id: old.id, areaHa, depthM: old.depthM, scavenge: old.scavenge,
-          success: old.scavenge ? 1 : p.huntSuccess, memberCount: n, guilds: old.guilds }, Math.max(0, capacity(c) - c.stores.foodKg) * n);
-        for (const entry of claims) claim(r, g, c, entry.kind || 'wildlife', entry.sourceId, entry.kg, at, ctx.position);
-        r.foraging.receipts.searches += n;
-        if (Lantern.is(c) && f.mealIds.length) {
-          const food = f.mealIds.reduce((sum, id) => {
-            const meal = r.foraging.meals[id];
-            return sum + Lantern.partition(meal.kg, 0, Tissues.nutrition(meal.tissue, meal.kg)).food;
-          }, 0);
-          const juvenile = at - c.bornAt < p.adultDays * DAY ? p.juvenileMultiplier : 1;
-          const handlingFood = p.foodKgDay * (c.massKg / p.adultKg) ** .75 * juvenile * p.travelMultiplier
-            * Math.min(60, room(f, 'handling')) / DAY * n;
-          // A diffuse trace must not create an endless sixty-second handling
-          // loop whose actual food costs exceed the whole encountered meal.
-          // Declining it releases custody; it neither eats nor invents tissue.
-          if (food <= handlingFood) {
-            deferSites(r, c, at);
-            release(r, c);
-          }
-        }
-        if (f.mealIds.length) { action(c, 'handling', at, Math.min(60, room(f, 'handling'))); return; }
+        if (beginHandling(r, g, c, at, ctx, { id: old.id, areaHa, depthM: old.depthM, scavenge: old.scavenge,
+          success: old.scavenge ? 1 : p.huntSuccess, memberCount: n, guilds: old.guilds })) return;
         if (Lantern.is(c)) f.carrionFieldReviewAt = at + HOUR;
       }
     }
@@ -307,13 +325,21 @@
       const wantsFood = c.stores.foodKg < capacity(c) * .5;
       const observed = wantsFood || c.carrionApproach ? ctx.senseCarrion?.() : null;
       const target = observed?.kind === 'wildlife' && at < (f.carrionFieldReviewAt || 0) ? null : observed;
-      if (target?.contact) Approach.stop(c, at, 'arrived');
+      if (target?.contact) {
+        Approach.stop(c, at, 'arrived');
+        // The approach already earned this reached instant. A delayed passive
+        // search would miss a brief downwind contact before handling starts.
+        if (wantsFood && n === 1 && ['beast', 'wildlifeBatch'].includes(target.kind) && beginHandling(r, g, c, at, ctx, {
+          id: `${g.id}:${c.id}:reached:${f.serial++}`, areaHa: Math.PI * body.reachM ** 2 / 10000,
+          depthM: 0, scavenge: true, success: 1, memberCount: n, guilds: ctx.guilds(actor), target
+        })) return;
+      }
       else if (g.windDriven) {
         const pursuit = Approach.observe(c, at, target, Boolean(actor && c.regional.stamina >= (c.carrionApproach ? .001 : 30)
           && room(f, 'search') >= 1 && ctx.approachUsable));
         if (pursuit) {
           const control = ctx.approachCourse(pursuit.target.position);
-          const arrival = control && Approach.contactSeconds(ctx.position, control.velocity, pursuit.target.position, body.reachM * .5);
+          const arrival = control && Approach.contactSeconds(ctx.position, control.velocity, pursuit.target.position, body.reachM * (1 - 1e-5));
           if (control && arrival > 1e-6) {
             if (pursuit.startedAt === at) r.foraging.receipts.approaches = (r.foraging.receipts.approaches || 0) + n;
             action(c, 'approach', at, Math.min(Approach.REVIEW, pursuit.deadlineAt - at, pursuit.lastSeenAt + Approach.LOST - at,

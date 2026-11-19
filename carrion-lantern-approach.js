@@ -28,7 +28,7 @@
     else { a.lastSeenAt = at; a.target = copy(target); }
     return a;
   }
-  function course(massKg, parts, wind, delta, cardinal = false) {
+  function course(massKg, parts, wind, delta, cardinal = false, intercept = false) {
     if (!(massKg > 0) || !parts || !wind || ![wind.x, wind.y].every(Number.isFinite) || !point(delta)) return null;
     const integrity = Math.min(...['bladder', 'membrane', 'buoyancy organs'].map(k => (parts[k] || 0) / 100));
     if (integrity <= .4) return null;
@@ -37,8 +37,29 @@
     const drag = .5 * 1.225 * 1.4 * 2 * (massKg / 30) ** (2 / 3);
     const maximumForceN = massKg * 9.81 * .0025 * integrity;
     const airSpeed = Math.sqrt(maximumForceN / drag);
-    const requested = { x: delta.eastM / length * .25 - wind.x,
+    let requested = { x: delta.eastM / length * .25 - wind.x,
       y: delta.northM / length * .25 - wind.y, z: delta.altitudeM / length * .25 };
+    const airflow = Math.hypot(wind.x, wind.y);
+    if (intercept && airflow > airSpeed && Math.hypot(requested.x, requested.y, requested.z) > airSpeed) {
+      // In uncancellable wind, spend force on an attainable intercept instead
+      // of wasting it mostly braking toward an impossible .25 m/s course.
+      const along = { x: wind.x / airflow, y: wind.y / airflow };
+      const target = { x: delta.eastM / length, y: delta.northM / length, z: delta.altitudeM / length };
+      const projection = target.x * along.x + target.y * along.y;
+      if (projection > 0) {
+        const side = { x: target.x - projection * along.x, y: target.y - projection * along.y, z: target.z };
+        const lateral = Math.hypot(side.x, side.y, side.z), sine = airSpeed / airflow;
+        const cosine = Math.sqrt(1 - sine ** 2);
+        const q = lateral <= sine && projection >= cosine
+          ? Math.max(.25, airflow * projection - Math.sqrt(Math.max(0, airSpeed ** 2 - (airflow * lateral) ** 2)))
+          : airflow * cosine;
+        const aim = lateral <= sine && projection >= cosine ? target : {
+          x: along.x * cosine + side.x / lateral * sine,
+          y: along.y * cosine + side.y / lateral * sine, z: side.z / lateral * sine
+        };
+        requested = { x: q * aim.x - wind.x, y: q * aim.y - wind.y, z: q * aim.z };
+      }
+    }
     const magnitude = Math.hypot(requested.x, requested.y, requested.z), scale = Math.min(1, airSpeed / Math.max(1e-12, magnitude));
     const raw = { x: wind.x + requested.x * scale, y: wind.y + requested.y * scale, z: requested.z * scale };
     const horizontal = Math.hypot(raw.x, raw.y), speed = Math.min(.5, horizontal);
@@ -47,10 +68,12 @@
     // is used solely to validate already cached legacy regional segments.
     const velocity = cardinal ? Math.abs(raw.x) >= Math.abs(raw.y) ? { x: Math.sign(raw.x) * speed, y: 0, z: raw.z }
       : { x: 0, y: Math.sign(raw.y) * speed, z: raw.z }
-      : { x: horizontal ? raw.x * speed / horizontal : 0, y: horizontal ? raw.y * speed / horizontal : 0, z: raw.z };
+      : { x: horizontal ? raw.x * speed / horizontal : 0, y: horizontal ? raw.y * speed / horizontal : 0,
+        z: intercept && horizontal > speed ? raw.z * speed / horizontal : raw.z };
     const forceN = drag * Math.min(magnitude, airSpeed) ** 2;
     return { velocity, forceN, maximumForceN, effortRate: .1 * forceN / maximumForceN };
   }
+  const intercept = (mass, parts, wind, delta) => course(mass, parts, wind, delta, false, true);
   function contactSeconds(position, velocity, target, radius) {
     const d = [position.eastM - target.eastM, position.northM - target.northM, position.altitudeM - target.altitudeM];
     const v = [velocity.x, velocity.y, velocity.z || 0], speed2 = v.reduce((n, x) => n + x * x, 0);
@@ -69,5 +92,5 @@
         && a.startedAt <= a.lastSeenAt && a.lastSeenAt <= at && a.lastSeenAt <= a.deadlineAt
         && a.target && typeof a.target.id === 'string' && point(a.target.position));
   }
-  return { ID, WINDOW, LOST, RETRY, REVIEW, stop, observe, course, contactSeconds, valid, point };
+  return { ID, WINDOW, LOST, RETRY, REVIEW, stop, observe, course, intercept, contactSeconds, valid, point };
 });

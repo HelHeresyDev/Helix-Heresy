@@ -169,6 +169,41 @@ test('one real large corpse can support a paid feeding hold and leaving it relea
   assert.ok(!c.windDrift.hold); assert.equal(c.foraging.mealIds.length, 0);
   assert.ok(F.summary(s).eatenKg - eaten < .01); valid(s);
 });
+test('a brief downwind arrival starts a real hold, not a free meal or a delayed search', () => {
+  const raw = source({ animals: true, wind: { x: 4.3, y: 0 } }), probe = P.create(copy(raw), binding);
+  const site = points(probe).result.sites[0];
+  Object.assign(raw.groups[0].home, { eastKm: (site.position.eastM - 1.6) / 1000, northKm: (site.position.northM + .43) / 1000 });
+  const s = P.create(raw, binding), g = s.groups[0], c = g.cohorts[0], r = s.regions[0];
+  P.advance(s, 20, true, true);
+  assert.equal(c.foraging.phase, 'handling'); assert.ok(c.windDrift.hold); near(F.summary(s).eatenKg, 0);
+  assert.ok(c.regional.stamina < 300);
+  const resume = P.normalize(copy(s), binding);
+  P.advance(s, 100, true, true); P.advance(resume, 100, true, true);
+  assert.ok(F.summary(s).eatenKg > 0); near(F.summary(s).eatenKg, F.summary(resume).eatenKg);
+  assert.ok(C.source(r, site.id).consumedKg > 0);
+  valid(s); valid(resume);
+});
+test('aged wildlife remains reserve the necessary grip before food uses the same tissue', () => {
+  const s = P.create(source({ animals: true, wind: { x: 5.82, y: 0 } }), binding), { r, result } = points(s);
+  const g = s.groups[0], c = g.cohorts[0], body = result.sites.find(row => row.count === 1 && C.anchorLimit(row) > 15);
+  assert.ok(body);
+  c.regional.stamina = 300;
+  const needed = Wind.anchorNeed(c, r, r.wind, body), initialStructure = C.anchorLimit(body);
+  for (const [tissue, cell] of Object.entries(body.tissues)) {
+    const keep = tissue === 'hard' || tissue === 'tough' ? cell.kg * needed * 1.01 / initialStructure
+      : tissue === 'flesh' ? .32 : 0;
+    C.debit(r, body, tissue, 0, cell.kg - keep);
+  }
+  const original = body.massKg, before = body.consumedKg;
+  assert.ok(F.claim(r, g, c, 'wildlife', body.id, 3, 0, body.position));
+  assert.equal(Wind.holding(g, c, r, r.wind, body.position, true), null, 'food-first custody consumes the needed grip');
+  F.cancel(r, c, 0);
+  const id = F.claim(r, g, c, 'wildlife', body.id, 3, 0, body.position, needed);
+  assert.ok(id); assert.ok(Wind.holding(g, c, r, r.wind, body.position, true));
+  assert.ok(r.foraging.meals[id].anchors.reduce((kg, p) => kg + p.kg, 0) >= needed);
+  near(body.massKg, original); near(body.consumedKg, before);
+  F.cancel(r, c, 0); near(body.reservedKg, 0);
+});
 test('many tiny corpses cannot supply a collective anchor or turn clipped handling into earned ingestion', () => {
   const raw = source({ animals: true, wind: { x: .5, y: 0 } }), probe = P.create(copy(raw), binding);
   const site = points(probe, 'insects', 'small').result.sites[0], g = raw.groups[0];

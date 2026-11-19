@@ -18,6 +18,14 @@
     : meal?.kind === 'wildlife' ? Carcasses.source(r, meal.sourceId) : null;
   const corpseProfile = body => body?.poolId ? Carcasses.body(body) : Bodies.profiles[body?.speciesId];
   const bodyMass = body => body.poolId ? body.massKg / Math.max(1, body.count) : body.massKg;
+  const gripFloorKg = drag => drag / (9.81 * .5) / Math.exp(-.02 * 7200 / 86400);
+  function anchorNeed(c, r, wind, body) {
+    const part = (c.regional?.parts['feeding organs'] || 0) / 100, b = Bodies.profiles[c.speciesId];
+    if (!wind || !body?.position || !r.floor || part < .35) return null;
+    const drag = .5 * 1.225 * b.lengthM * b.heightM * (c.massKg / b.massKg) ** (2 / 3) * Math.hypot(wind.x, wind.y) ** 2;
+    if (drag > c.massKg * 9.81 * .25 * part) return Infinity;
+    return gripFloorKg(drag);
+  }
   function canFeedAt(g, c, r, body, seconds = 60) {
     const flow = c.windDrift?.flow, v = c.windDrift?.velocity, b = Bodies.profiles[c.speciesId];
     if (!v || Math.hypot(v.x, v.y) * seconds <= b.reachM * 2) return true;
@@ -82,7 +90,7 @@
       const p = corpseProfile(body); if (!body?.position || !p || !(meal.kg > EPS)) continue;
       // Typed structure is exclusively claimed, still decays, and cannot also
       // feed another mouth. Leave a worst-case decay margin for a 2-hour meal.
-      if (anchorMass(body, meal) * Math.exp(-.02 * 7200 / 86400) * 9.81 * .5 < drag * n) continue;
+      if (anchorMass(body, meal) + EPS < gripFloorKg(drag * n)) continue;
       const scale = Math.cbrt(bodyMass(body) / p.massKg), radius = Math.hypot(p.lengthM, p.widthM) * scale * .5 + b.reachM;
       const far = extent(g, c, position, body.position);
       if (far <= radius) return { mealId: id, effortRate: drag / (c.massKg * 9.81) * .1,
@@ -130,8 +138,8 @@
     const pursuit = c.foraging?.phase === 'approach' && c.carrionApproach;
     const delta = pursuit && { eastM: pursuit.target.position.eastM - position.eastM,
       northM: pursuit.target.position.northM - position.northM, altitudeM: pursuit.target.position.altitudeM - position.altitudeM };
-    const course = pursuit && c.regional.stamina >= .001 && Approach.course(c.massKg, c.regional.parts, wind, delta);
-    const control = course && { ...course, massKg: c.massKg, parts: copy(c.regional.parts), delta, targetId: pursuit.target.id };
+    const course = pursuit && c.regional.stamina >= .001 && Approach.intercept(c.massKg, c.regional.parts, wind, delta);
+    const control = course && { ...course, massKg: c.massKg, parts: copy(c.regional.parts), delta, targetId: pursuit.target.id, intercept: true };
     const edges = r.edges.filter(e => e.traversable && e.windBoundary && (!e.allowedSpecies || e.allowedSpecies.includes(g.speciesId))
       && Math.abs(e.windBoundary.offsetM - position.eastM * e.windBoundary.normal.x - position.northM * e.windBoundary.normal.y) <= frontMargin(g, c)
       && convergence(r, e, actor, month.season, region));
@@ -175,7 +183,16 @@
       if (!(speed > EPS)) continue;
       const remaining = b.offsetM - position.eastM * b.normal.x - position.northM * b.normal.y;
       const crossing = at + Math.max(.0001, remaining / speed);
-      if (crossing <= d.until) { d.until = crossing; d.crossing = { destination: edge.id, boundary: copy(b) }; }
+      const prior = d.crossing?.boundary;
+      // A single globe border may have an edge for the next cell's surface
+      // and for its small wetland/shore patches. Winding up over a wetland
+      // cannot be inferred from crossing the same plane at the same instant.
+      const preferSurface = prior && crossing === d.until && prior.offsetM === b.offsetM
+        && prior.normal.x === b.normal.x && prior.normal.y === b.normal.y
+        && region(edge.id)?.kind === 'surface' && region(d.crossing.destination)?.kind !== 'surface';
+      if (crossing < d.until || crossing === d.until && (!prior || preferSurface)) {
+        d.until = crossing; d.crossing = { destination: edge.id, boundary: copy(b) };
+      }
     }
     return d.until;
   }
@@ -218,8 +235,11 @@
           || !d.vectorFlow && d.velocity.x && d.velocity.y || !d.known && (d.velocity.x || d.velocity.y)) return false;
         if (d.signature !== JSON.stringify([d.flow, d.velocity, g.regionId, d.hold?.mealId, ...(d.front ? [d.front] : []), ...(d.control ? [d.control] : [])])) return false;
         if (d.control) {
-          const q = d.control, expected = Approach.course(q.massKg, q.parts, d.flow, q.delta, !d.vectorFlow);
+          const q = d.control, expected = q.intercept === true
+            ? Approach.intercept(q.massKg, q.parts, d.flow, q.delta)
+            : Approach.course(q.massKg, q.parts, d.flow, q.delta, !d.vectorFlow);
           if (!expected || d.front || d.hold || !Number.isFinite(d.velocity.z) || d.until - d.startedAt > Approach.REVIEW + EPS
+            || q.intercept != null && (q.intercept !== true || !d.vectorFlow)
             || JSON.stringify(expected.velocity) !== JSON.stringify(d.velocity)
             || ['forceN', 'maximumForceN', 'effortRate'].some(k => q[k] !== expected[k])
             || c.ranges.length && (c.foraging?.phase !== 'approach' || q.targetId !== c.carrionApproach?.target.id
@@ -289,5 +309,5 @@
     }
     return true;
   }
-  return { enabled, moving, plan, integrate, destinations, entry, valid, validDefinition, windAt, holding, contactSeconds, extent, convergence, canFeedAt };
+  return { enabled, moving, plan, integrate, destinations, entry, valid, validDefinition, windAt, holding, contactSeconds, extent, convergence, canFeedAt, anchorNeed };
 });

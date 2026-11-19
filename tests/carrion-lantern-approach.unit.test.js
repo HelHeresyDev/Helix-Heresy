@@ -33,6 +33,21 @@ test('weak thrust can correct a mild crosswind but real strong wind overpowers i
   assert.equal(A.course(30, { ...parts, membrane: 40 }, { x: 0, y: 0 }, delta), null);
   assert.ok(A.course(30, { ...parts, membrane: 50 }, { x: -1, y: 0 }, delta).maximumForceN < strong.maximumForceN);
 });
+test('a sensed downwind carcass can be intercepted without strengthening thrust or reach', () => {
+  const position = { eastM: -62038.178923377985, northM: 179108.36589905585, altitudeM: 0 };
+  const food = { eastM: -62039.77420242373, northM: 179107.8996253887, altitudeM: 0 };
+  const goal = Object.fromEntries(Object.keys(position).map(k => [k, food[k] - position[k]]));
+  const wind = { x: -6.459016110710287, y: -.11274254558485139 }, reach = B.profiles[A.ID].reachM;
+  const original = A.course(30, parts, wind, goal), corrected = A.intercept(30, parts, wind, goal);
+  assert.equal(A.contactSeconds(position, original.velocity, food, reach * .5), Infinity);
+  assert.ok(A.contactSeconds(position, corrected.velocity, food, reach) < A.REVIEW);
+  assert.equal(corrected.maximumForceN, original.maximumForceN);
+  assert.ok(corrected.forceN <= corrected.maximumForceN + 1e-9);
+  near(Math.hypot(corrected.velocity.x, corrected.velocity.y), .5);
+  const upwind = { ...food, eastM: position.eastM + 3 };
+  const towardUpwind = Object.fromEntries(Object.keys(position).map(k => [k, upwind[k] - position[k]]));
+  assert.equal(A.contactSeconds(position, A.intercept(30, parts, wind, towardUpwind).velocity, upwind, reach), Infinity);
+});
 test('a bounded last-seen pursuit neither tracks hidden new coordinates nor resets its time budget', () => {
   const owner = {}, target = { id: 'original', position: copy(delta) };
   A.observe(owner, 0, target); A.observe(owner, 5, null);
@@ -109,6 +124,18 @@ test('saved partial approach, elapsed effort and last observation continue indep
     const bad = copy(before); change(bad); assert.equal(P.normalize(bad), null);
   }
 });
+test('an already earned legacy approach segment still validates with its own recorded course', () => {
+  const s = fixture(); P.advance(s, 20, true, true);
+  const d = s.groups[0].cohorts[0].windDrift, q = d.control;
+  assert.ok(q.intercept);
+  delete q.intercept;
+  d.signature = JSON.stringify([d.flow, d.velocity, s.groups[0].regionId, null, q]);
+  valid(s);
+  const resumed = P.normalize(copy(s), binding);
+  P.advance(resumed, 250, true, true);
+  assert.ok(resumed.groups[0].cohorts[0].stores.foodKg > 0);
+  valid(resumed);
+});
 test('unknown air, severe injury, refusal, obstacles and unsensed distant corpses supply no propulsion', () => {
   for (const change of [s => { s.regions[0].wind = null; },
     s => { s.groups[0].cohorts[0].regional.parts.membrane = 20; },
@@ -131,6 +158,16 @@ test('a point corpse separates one actual sensing original instead of trapping a
   assert.equal(s.groups[0].cohorts.length, 2);
   assert.ok(s.groups[0].cohorts.some(c => c.stores.foodKg > 0));
   assert.ok(s.work.boundaries < 200); valid(s);
+});
+test('one lead observer can notice a point corpse beyond the rest of its compact flock', () => {
+  const s = fixture({ members: 2, preyX: -39, wind: { x: 0, y: .2 } });
+  P.advance(s, 10, true, true);
+  const cohorts = s.groups[0].cohorts;
+  assert.equal(cohorts.length, 2);
+  assert.ok(!cohorts[0].carrionApproach);
+  assert.equal(cohorts[1].carrionApproach.target.position.eastM, -39);
+  assert.equal(P.audit(s)['population-0'].background, 2);
+  valid(s);
 });
 test('starting without effort requires actual supported recovery before propulsion', () => {
   const s = fixture({ wind: { x: 0, y: 0 } }), c = s.groups[0].cohorts[0]; c.regional.stamina = 0;
