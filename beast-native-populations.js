@@ -1,0 +1,235 @@
+// Population-owned local encounters. Health assessment is deliberately separate.
+(function (root, factory) {
+  const node = typeof module === 'object' && module.exports;
+  const api = factory(node ? require('./beast-habitat-sources') : root.HelixBeastHabitatSources,
+    node ? require('./beast-populations') : root.HelixBeastPopulations,
+    node ? require('./beast-regional-foodweb') : root.HelixBeastRegionalFoodweb,
+    node ? require('./beast-bodies') : root.HelixBeastBodies,
+    node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys);
+  if (node) module.exports = api; root.HelixBeastNativePopulations = api;
+})(globalThis, function (Sources, P, Food, Bodies, Journeys) {
+  'use strict';
+  const copy = x => JSON.parse(JSON.stringify(x)), cache = new WeakMap();
+  // The aggregate diagnostic engine still expands wildlife in every habitat.
+  // Bound this adapter's working set until that engine supports cold regions;
+  // never freeze a default globe or substitute invented encounter bodies.
+  const MAX_PATCHES = 512;
+  const capacity = record => ({ supported: Array.isArray(record?.patchRows) && record.patchRows.length <= MAX_PATCHES,
+    patches: record?.patchRows?.length || 0, limit: MAX_PATCHES });
+  function snapshot(value) {
+    return Object.fromEntries(Object.entries(value).map(([key, part]) => [key,
+      Array.isArray(part) ? { array: part.map(p => JSON.stringify(p)) }
+        : part && typeof part === 'object' ? { object: Object.fromEntries(Object.entries(part).map(([k, p]) => [k, JSON.stringify(p)])) }
+          : { scalar: JSON.stringify(part) }]));
+  }
+  function changes(base, value) {
+    const out = [];
+    for (const key of Object.keys(base)) if (!Object.hasOwn(value, key)) out.push([[key]]);
+    for (const [key, part] of Object.entries(value)) {
+      const old = base[key];
+      if (!old) { out.push([[key], copy(part)]); continue; }
+      if (old.array && Array.isArray(part) && old.array.length === part.length)
+        part.forEach((p, i) => diff(JSON.parse(old.array[i]), copy(p), [key, String(i)], out));
+      else if (old.object && part && typeof part === 'object' && !Array.isArray(part)) {
+        for (const k of Object.keys(old.object)) if (!Object.hasOwn(part, k)) out.push([[key, k]]);
+        for (const [k, p] of Object.entries(part)) {
+          if (!Object.hasOwn(old.object, k)) out.push([[key, k], copy(p)]);
+          else diff(JSON.parse(old.object[k]), copy(p), [key, k], out);
+        }
+      } else diff(old.array ? old.array.map(JSON.parse) : old.object ? Object.fromEntries(Object.entries(old.object).map(([k, p]) => [k, JSON.parse(p)])) : JSON.parse(old.scalar), copy(part), [key], out);
+    }
+    return out;
+  }
+  function create(record, binding) {
+    if (!record?.physicalBinding || !binding?.worldId || !binding.runId) throw Error('Native encounters require an original source and run');
+    return { ...binding, sourceId: record.id, clock: 0, ecology: 'unverified', patch: [], sites: {}, parcels: {} };
+  }
+  function normalize(value, binding) {
+    if (!value) return null;
+    if (!value.worldId || !value.runId || !value.sourceId || !Number.isFinite(value.clock) || value.clock < 0
+      || !Array.isArray(value.patch) || !value.sites || Array.isArray(value.sites)
+      || binding && (value.worldId !== binding.worldId || value.runId !== binding.runId))
+      throw Error('Native population binding is invalid');
+    const result = copy(value); result.parcels ||= {}; result.ecology = 'unverified';
+    for (const p of Object.values(result.parcels)) if (!p?.sourceRegionId || !(p.areaHa > 0) || !p.resources
+      || !Object.values(p.resources).every(n => Number.isFinite(n) && n >= 0)
+      || p.materialKg !== (p.resources.mineralsKg || 0)) throw Error('Invalid native terrain custody');
+    for (const site of Object.values(result.sites)) if (!site?.cellId
+      || !['surface', 'wetland', 'shore', 'waterColumn', 'subsurface'].includes(site.kind)
+      || !['eastM', 'northM'].every(k => Number.isFinite(site.origin?.[k]))
+      || Object.values(site.parcelIds || {}).some(id => !Object.hasOwn(result.parcels, id))) throw Error('Invalid native site binding');
+    return result;
+  }
+  function checkSite(state, site) {
+    const old = state.sites[site.id], origin = { eastM: 0, northM: 0, ...site.origin };
+    if (old && (old.cellId !== site.cellId || old.kind !== site.kind
+      || old.origin.eastM !== origin.eastM || old.origin.northM !== origin.northM)) throw Error('A native site cannot relocate its original geographic window');
+  }
+  // Sparse changes against the reproducible original account, not an expanded
+  // second copy of immutable habitat, wildlife definitions or actor templates.
+  function diff(a, b, path = [], out = []) {
+    if (a === b) return out;
+    if (!a || !b || typeof a !== 'object' || typeof b !== 'object' || Array.isArray(a) !== Array.isArray(b)
+      || Array.isArray(a) && a.length !== b.length) { out.push([path, copy(b)]); return out; }
+    for (const key of Object.keys(a)) if (!Object.hasOwn(b, key)) out.push([[...path, key]]);
+    for (const key of Object.keys(b)) {
+      if (!Object.hasOwn(a, key)) out.push([[...path, key], copy(b[key])]); else diff(a[key], b[key], [...path, key], out);
+    }
+    return out;
+  }
+  function apply(base, patch) {
+    for (const row of patch) {
+      if (!Array.isArray(row) || !Array.isArray(row[0]) || !row[0].length || row[0].some(k =>
+        typeof k !== 'string' || ['__proto__', 'prototype', 'constructor'].includes(k))) throw Error('Invalid population delta');
+      const path = row[0], last = path.at(-1); let target = base;
+      for (const k of path.slice(0, -1)) { if (!Object.hasOwn(target, k) || !target[k] || typeof target[k] !== 'object') throw Error('Missing population delta parent'); target = target[k]; }
+      if (row.length === 1) delete target[last]; else if (row.length === 2)
+        Object.defineProperty(target, last, { value: copy(row[1]), writable: true, enumerable: true, configurable: true });
+      else throw Error('Invalid population delta value');
+    }
+    return base;
+  }
+  function open(state, record, map) {
+    if (state.sourceId !== record.id) throw Error('Native encounters cannot change their original world source');
+    if (!capacity(record).supported) throw Error('Native habitat working set exceeds the current bounded account capacity');
+    if (cache.has(state)) return cache.get(state).account;
+    const source = Sources.runtimeSource(record, map), binding = { worldId: state.worldId, runId: state.runId };
+    const initial = P.create(source, binding), baseline = snapshot(initial);
+    const originalCounts = JSON.stringify(initial.originalCounts);
+    const account = state.patch.length ? P.normalize(apply(initial, state.patch), binding) : initial;
+    if (!account || account.sourceId !== record.id || account.clock !== state.clock
+      || JSON.stringify(account.originalCounts) !== originalCounts || account.nativeEncounters !== true) throw Error('Native population history is invalid');
+    for (const [id, origin] of Object.entries(baseline.origins.object))
+      if (JSON.stringify(account.origins[id]) !== origin) throw Error('Original creature identity was changed');
+    cache.set(state, { account, baseline }); return account;
+  }
+  function pack(state, record, map) {
+    const account = open(state, record, map), entry = cache.get(state);
+    state.clock = account.clock; state.patch = changes(entry.baseline, account);
+    return state;
+  }
+  function rebind(value, from, to) {
+    if (!value) return null;
+    const s = normalize(value, from); return { ...s, ...to, patch: s.patch.map(row => {
+      if (row[0].length === 1 && ['worldId', 'runId'].includes(row[0][0])) return [row[0], to[row[0][0]]];
+      return row;
+    }) };
+  }
+  function intersects(a, b) { return a && a.max.eastM >= b.x0 && a.min.eastM <= b.x1 && a.max.northM >= b.y0 && a.min.northM <= b.y1; }
+  function mineralOwner(p) {
+    Object.defineProperty(p, 'materialKg', { enumerable: true, configurable: true,
+      get() { return this.resources.mineralsKg || 0; }, set(n) { this.resources.mineralsKg = n; } });
+    return p;
+  }
+  function nearby(g, c, r, box, limit = 8) {
+    const result = [], pending = c.ranges.map(range => [...range]); let queries = 0;
+    while (pending.length && result.length < limit && queries++ < 4096) {
+      const [lo, hi] = pending.pop();
+      if (!intersects(Food.bounds(g, r, { ...c, ranges: [[lo, hi]] }), box)) continue;
+      if (hi - lo === 1) { result.push(lo); continue; }
+      const mid = Math.floor((lo + hi) / 2); pending.push([mid, hi], [lo, mid]);
+    }
+    return result;
+  }
+  function materialize(state, record, map, site, context) {
+    if (!context.alive || !context.local) return [];
+    checkSite(state, site);
+    const s = open(state, record, map), regions = s.regions.filter(r => r.cellId === site.cellId && r.kind === site.kind);
+    if (!regions.length) return [];
+    P.settleRegions(s, context.at, regions.map(r => r.id)); state.clock = s.clock;
+    const frame = { eastM: 0, northM: 0, ...site.origin }, tile = context.tileSizeM || 1, b = site.bounds;
+    const box = { x0: frame.eastM, x1: frame.eastM + b.width * tile, y0: frame.northM, y1: frame.northM + b.height * tile };
+    const actors = Object.values(s.details).filter(d => d.actor?.nativePopulation?.siteId === site.id
+      && d.actor.roomId === site.roomId).map(d => d.actor), byId = new Map(regions.map(r => [r.id, r]));
+    for (const g of s.groups) {
+      if (context.unavailablePopulations?.has(g.populationId)) continue;
+      const r = byId.get(Journeys.location(g)); if (!r) continue;
+      for (const c of [...g.cohorts]) for (const ordinal of nearby(g, c, r, box)) {
+        const memberId = `${c.originId}:${ordinal}`, actorId = `native:${record.id}:${memberId}`;
+        if (s.details[actorId] || actors.length >= (context.limit || 8)) continue;
+        const p = Food.position(g, r, c, ordinal); if (!p) continue;
+        const cell = { x: b.x + Math.floor((p.eastM - frame.eastM) / tile), y: b.y + Math.floor((p.northM - frame.northM) / tile), z: b.z };
+        const modes = Bodies.profiles[g.speciesId].modes;
+        if (p.altitudeM < 0 && modes.every(m => ['flight', 'levitation'].includes(m))) continue;
+        const mode = (r.kind === 'waterColumn' || r.kind === 'wetland') && modes.some(m => ['swimming', 'drifting'].includes(m)) ? modes.find(m => ['swimming', 'drifting'].includes(m))
+          : r.kind === 'subsurface' ? 'burrowing' : Bodies.profiles[g.speciesId].modes.includes('walking') ? 'walking'
+            : p.altitudeM > 0 ? Bodies.profiles[g.speciesId].modes.includes('levitation') ? 'levitation' : 'flight' : 'grounded';
+        if (!mode) continue;
+        const actor = P.claimLocal(s, g.id, c.id, ordinal, actorId, context.at, {
+          ...context, blocked: (cell, low, high, body) => context.blocked?.(cell, low, high, body)
+            || actors.some(a => Bodies.occupied(a, tile).some(c => c.x === cell.x && c.y === cell.y && c.z === cell.z)
+              && a.bodyPhysics.altitudeM < high && a.bodyPhysics.altitudeM + a.bodyPhysics.dimensions.heightM > low),
+          originalPosition: () => ({ regionId: r.id, cell, altitudeM: p.altitudeM, mode }),
+          originalReserves: () => c.regional && ({ mana: c.regional.mana, stamina: c.regional.stamina, energy: copy(c.regional.energy) }) });
+        if (!actor) continue;
+        actor.roomId = site.roomId; actor.nativePopulation = { sourceId: record.id, regionId: r.id, siteId: site.id,
+          sourcePosition: copy(p), frame: copy(frame), bounds: copy(b) };
+        actors.push(actor);
+      }
+    }
+    state.sites[site.id] ||= { cellId: site.cellId, kind: site.kind, origin: copy(frame) };
+    return actors;
+  }
+  function terrain(state, record, map, site, cells, at, tile = 1) {
+    if (!Number.isFinite(at) || at < state.clock || !Number.isFinite(tile) || tile <= 0)
+      throw Error('Native terrain requires current time and a real tile area');
+    checkSite(state, site);
+    const s = open(state, record, map), r = s.regions.find(r => r.cellId === site.cellId && r.kind === site.kind);
+    if (!r) return {};
+    P.settleRegions(s, at, [r.id]); state.clock = s.clock;
+    const origin = { eastM: 0, northM: 0, ...site.origin }, area = tile * tile, totals = {}, result = {}, parcelIds = {};
+    const reserved = {};
+    for (const site of r.ecology?.renewalSites || []) if (site.destroyedAt == null)
+      for (const [k, n] of Object.entries(site.materials)) reserved[k] = (reserved[k] || 0) + n;
+    for (const c of cells) {
+      const east = origin.eastM + (c.x - site.bounds.x) * tile, north = origin.northM + (c.y - site.bounds.y) * tile;
+      if (Math.hypot(east + tile / 2, north + tile / 2) > Math.sqrt(r.areaHa * 10000 / Math.PI)) continue;
+      const id = `${r.id}:${east}:${north}:${tile}`, key = `${c.x},${c.y},${c.z}`;
+      parcelIds[key] = id;
+      if (state.parcels[id]) { result[key] = mineralOwner(state.parcels[id]); continue; }
+      const resources = {};
+      for (const [k, amount] of Object.entries(r.stocks)) {
+        if (k.includes(':')) continue; // Reserved workfaces are not uniform terrain.
+        const available = Math.max(0, amount - (reserved[k] || 0));
+        const moved = Math.min(available - (totals[k] || 0), available * area / (r.areaHa * 10000));
+        if (moved > 0) { resources[k] = moved; totals[k] = (totals[k] || 0) + moved; }
+      }
+      const wet = ['wetland', 'waterColumn'].includes(r.kind), sea = r.kind === 'waterColumn';
+      const p = { sourceRegionId: r.id, resources, transfers: {}, areaHa: area / 10000, condition: copy(r.condition),
+        floor: r.floor, oxygen: r.oxygen, waterKind: sea ? 'seawater' : 'freshwater', waterAccounted: wet,
+        waterDepthM: wet ? (resources[sea ? 'seawaterL' : 'waterL'] || 0) / (area * 1000) : 0,
+        soilDepthM: r.accessibleMineralDepthM || 0, densityKgM3: r.densityKgM3, materialKg: resources.mineralsKg || 0,
+        hardness: 1, supportKg: Math.max(1, (resources.mineralsKg || 0) * 10), ...(r.wind ? { wind: copy(r.wind) } : {}),
+        humidity: r.humidity, temperatureC: r.seasons[P.monthAt(s.calendar, at).season].temperatureC };
+      state.parcels[id] = mineralOwner(p); result[key] = p;
+    }
+    for (const [key, amount] of Object.entries(totals))
+      if (!P.removeStock(s, r.id, key, amount, at, 'native-local-terrain-custody')) throw Error('Native terrain transfer was not funded');
+    state.sites[site.id] = { cellId: site.cellId, kind: site.kind, origin: copy(origin),
+      parcelIds: { ...state.sites[site.id]?.parcelIds, ...parcelIds } };
+    return result;
+  }
+  function bindTerrain(state, siteId) {
+    return Object.fromEntries(Object.entries(state.sites[siteId]?.parcelIds || {}).map(([key, id]) => [key, mineralOwner(state.parcels[id])]));
+  }
+  function birth(state, record, map, parent, child, at) {
+    const s = open(state, record, map), detail = s.details[parent.id];
+    if (!detail || detail.memberId !== parent.life.originalMemberId) return false;
+    detail.actor = parent;
+    if (!P.registerLocalBirth(s, parent.id, child, at)) return false;
+    child.nativePopulation = copy(parent.nativePopulation); state.clock = s.clock; return true;
+  }
+  function sync(state, record, map, actors, at, alive = true) {
+    if (!alive) return false;
+    const s = open(state, record, map);
+    for (const actor of actors) {
+      if (!actor.nativePopulation) continue;
+      const d = s.details[actor.id];
+      if (!d || d.memberId !== actor.life?.originalMemberId || actor.nativePopulation.sourceId !== record.id) throw Error('Local body lost its original population claim');
+      d.actor = actor;
+      if (actor.status === 'dead' && d.status !== 'dead') P.settleLocalLoss(s, actor.id, Math.max(at, s.clock), 'native-physical-death');
+    }
+    state.clock = s.clock; return true;
+  }
+  return { create, normalize, open, pack, rebind, materialize, sync, nearby, terrain, bindTerrain, birth, capacity, diff, apply };
+});

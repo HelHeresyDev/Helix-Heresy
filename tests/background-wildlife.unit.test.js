@@ -224,5 +224,5 @@ test('new generated worlds archive reproducible wildlife allocations; old archiv
   const corrupt = clone(record); corrupt.backgroundWildlife.spatialRows[0][1]++;
   const SW = require('../strategic-world'); corrupt.id = ''; corrupt.id = `beast-habitat-source:${SW.stableHash(corrupt)}`;
   assert.throws(() => S.validate(corrupt, map), /physical accounts/);
-  assert.equal(record.assessment.status, 'rejected'); assert.throws(() => S.runtimeSource(record, map), /Rejected/);
+  assert.equal(record.assessment.status, 'rejected'); assert.equal(S.runtimeSource(record, map).ecologicalStatus, 'unverified');
 });

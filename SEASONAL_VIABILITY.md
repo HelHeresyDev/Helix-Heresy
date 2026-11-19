@@ -24,8 +24,11 @@ with forecast **warnings**, not fictitious performed failures.
 `assess(source, map, { account, binding })` validates and assesses the actual
 population account. The existing `replay` uses this same assessment and requires
 the full catalog. Its `report.viability` separates measured support from the
-remaining opposition/native-adoption limitations. `runtimeSource` cannot promote
-an archived forecast or even a supported private control into active encounters.
+remaining opposition/native-adoption limitations. `runtimeSource` now explicitly
+separates integrity-checked encounter activation from ecological viability; it
+cannot turn an archived forecast or private control into a healthy-ecosystem
+certificate. The [bounded native adapter](BEAST_POPULATIONS.md#bounded-native-encounter-adapter)
+does not resolve the measured feeding failures or complete D.
 
 ## What the measured assessment checks
 

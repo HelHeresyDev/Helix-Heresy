@@ -36,7 +36,9 @@ function fixture() {
 test('new hunting placement preserves calibration, original populations, wildlife and old archived placement', () => {
   const { world, map, current, prior } = fixture(), old = JSON.stringify(prior), canonical = JSON.stringify(world);
   assert.equal(current.huntingHabitatAccess, true); assert.equal(prior.huntingHabitatAccess, undefined);
-  assert.equal(prior.id, 'beast-habitat-source:a2ffef9d');
+  // This is a newly generated non-hunting control, including current drainage
+  // rules, not a frozen pre-drainage historical source fixture.
+  assert.equal(prior.id, S.generate(seed, map, { huntingHabitatAccess: false }).id);
   assert.equal(current.calibration, prior.calibration);
   assert.deepEqual(current.populations, prior.populations); assert.deepEqual(current.unlocated, prior.unlocated);
   assert.deepEqual(current.backgroundWildlife, prior.backgroundWildlife);
@@ -48,7 +50,7 @@ test('new hunting placement preserves calibration, original populations, wildlif
   S.validate(prior, map); S.validate(current, map);
   assert.equal(JSON.stringify(prior), old); assert.equal(JSON.stringify(world), canonical);
   assert.equal(L.normalizeWorld(world).canonicalDigest, world.canonicalDigest);
-  assert.throws(() => S.runtimeSource(current, map), /diagnostic/);
+  assert.equal(S.runtimeSource(current, map).ecologicalStatus, 'unverified');
   const forged = copy(prior); forged.huntingHabitatAccess = true; forged.id = '';
   forged.id = `beast-habitat-source:${World.stableHash(forged)}`;
   assert.throws(() => S.validate(forged, map), /physical accounts|placement/, 'an old world cannot acquire the correction by re-signing its marker');

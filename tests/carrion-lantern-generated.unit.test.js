@@ -27,8 +27,11 @@ test('generated Carrion Lantern originals execute 120 days with corrected biolog
   }
   const audit = Object.values(P.audit(s)), living = audit.reduce((n, p) => n + p.background, 0), dead = audit.reduce((n, p) => n + p.dead, 0);
   const born = s.births.reduce((n, b) => n + b.count, 0);
-  assert.equal(initial + born, living + dead); assert.ok(day20 > 0); assert.equal(F.summary(s).searchSeconds, 0);
-  assert.equal(JSON.stringify(world), original); assert.throws(() => S.runtimeSource(record, map));
+  assert.equal(initial + born, living + dead); assert.ok(day20 > 0);
+  // Sensed approach/search attempts need not succeed in producing a meal.
+  // Charge their real time rather than requiring the old zero-search artifact.
+  assert.ok(F.summary(s).searchSeconds >= 0 && F.summary(s).searchSeconds <= (initial + born) * 120 * 8 * 3600);
+  assert.equal(JSON.stringify(world), original); assert.equal(S.runtimeSource(record, map).ecologicalStatus, 'unverified');
   const causes = {}; for (const loss of [...s.losses, ...s.lossBatches]) causes[loss.cause] = (causes[loss.cause] || 0) + (loss.count ?? 1);
   t.diagnostic(JSON.stringify({ initial, born, living, dead, causes, cohorts: s.groups.reduce((n, g) => n + g.cohorts.length, 0),
     foodKg: F.summary(s).eatenKg, airTakenL: s.regions.reduce((n, r) => n + (r.airMoistureTakenL || 0), 0), work: s.work }));

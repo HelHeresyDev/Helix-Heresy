@@ -1,5 +1,5 @@
 // Generated physical-source PROPOSALS and conservative feasibility diagnostics.
-// Unverified/rejected proposals never initialize an active population account.
+// Encounter activation checks integrity separately from ecological viability.
 (function (root, factory) {
   const node = typeof module === 'object' && module.exports;
   const api = factory(node ? require('./strategic-world') : root.HelixStrategicWorld,
@@ -744,9 +744,13 @@
     validate(record, map);
     if (map.beastHabitatSources?.id !== record.id) throw Error('Active accounts require the exact archived original source');
     if (!record.physicalBinding) throw Error('Archived source lacks recorded physical bindings; activation cannot silently upgrade it');
-    // Neither a positive nor a negative preliminary forecast is a measured
-    // verdict. Native adoption is still unfinished even for a supported replay.
-    throw Error('Original allocation remains diagnostic: measured seasonal viability and native adoption are required');
+    // Encounter activation is a source-integrity decision, not an ecological
+    // health certificate. Keep the immutable forecast and measured losses.
+    const source = expand(record, map);
+    delete source.diagnosticOnly;
+    source.nativeEncounters = true;
+    source.ecologicalStatus = 'unverified';
+    return source;
   }
   function replay(record, map, options = {}) {
     validate(record, map);

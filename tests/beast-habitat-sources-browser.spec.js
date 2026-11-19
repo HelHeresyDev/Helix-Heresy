@@ -58,9 +58,8 @@ test('browser generation, compressed world storage and reload preserve private r
     const branch = P.rebind(saved, binding, branchBinding);
     const continued = S.replay(map.beastHabitatSources, map, { binding: branchBinding, account: branch, until: P.DAY / 4 });
     const direct = S.replay(map.beastHabitatSources, map, { binding, until: P.DAY / 4 });
-    let unavailable = false;
-    try { S.runtimeSource(map.beastHabitatSources, map); } catch { unavailable = true; }
-    return { digest: world.canonicalDigest, sourceId: map.beastHabitatSources.id, unavailable,
+    const nativeStatus = S.runtimeSource(map.beastHabitatSources, map).ecologicalStatus;
+    return { digest: world.canonicalDigest, sourceId: map.beastHabitatSources.id, nativeStatus,
       huntingHabitatAccess: map.beastHabitatSources.huntingHabitatAccess === true,
       workSites: map.beastHabitatSources.physicalBinding.workSites.length,
       nurseries: map.beastHabitatSources.physicalBinding.nurseries.length,
@@ -77,7 +76,7 @@ test('browser generation, compressed world storage and reload preserve private r
       paidWork: Object.values(continued.report.work).some(n => n > 0), unchanged: JSON.stringify(world) === before };
   }, original.id);
   expect(loaded.startingDead).toBeGreaterThan(0);
-  expect(loaded).toEqual({ digest: original.digest, sourceId: original.sourceId, unavailable: true,
+  expect(loaded).toEqual({ digest: original.digest, sourceId: original.sourceId, nativeStatus: 'unverified',
     huntingHabitatAccess: true,
     workSites: original.workSites, nurseries: original.nurseries, physicalDigest: original.physicalDigest,
     wildlifeDigest: original.wildlifeDigest,
@@ -99,9 +98,15 @@ test('default-resolution generated bindings fit actual compressed browser world 
     const world = L.createWorld({ id: 'default-binding-storage', worldSeed: 'source-small', generationVersion: 8, createdAt: 'test' });
     const map = world.generatedData.strategicMap;
     L.createRepository(localStorage).putWorld(world);
-    return { id: world.id, digest: world.canonicalDigest, cells: map.topology.cellCount, sourceId: map.beastHabitatSources.id };
+    const N = window.HelixBeastNativePopulations, capacity = N.capacity(map.beastHabitatSources);
+    let refused = false;
+    try { N.open(N.create(map.beastHabitatSources, { worldId: world.id, runId: 'bounded-native' }), map.beastHabitatSources, map); }
+    catch (e) { refused = /working set/.test(e.message); }
+    return { id: world.id, digest: world.canonicalDigest, cells: map.topology.cellCount, sourceId: map.beastHabitatSources.id,
+      bounded: !capacity.supported && refused };
   });
   expect(original.cells).toBe(10242);
+  expect(original.bounded).toBe(true);
   await page.reload(); await page.waitForFunction(() => window.HelixWorldRunLibrary);
   const loaded = await page.evaluate(id => {
     const world = window.HelixWorldRunLibrary.createRepository(localStorage).getWorld(id);

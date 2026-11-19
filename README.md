@@ -2251,8 +2251,12 @@ fixed multi-edge itineraries and queued return windows; initial-cycle checks
 charge actual residence/travel against shared finite stocks, timed seasonal
 renewal and capacity-limited carryover. Blocked routes, missed arrival windows
 and exact shortages replace blanket unverified-journey labels, without changing
-animal choices using hidden destination data. Rejected proposals cannot activate
-ordinary population gameplay; they are not labelled healthy or exhausted. Successful seasonal
+animal choices using hidden destination data. Encounter activation now checks
+source integrity separately from ecological viability; rejected forecasts are
+not labelled healthy or exhausted. The [bounded native adapter](BEAST_POPULATIONS.md#bounded-native-encounter-adapter)
+retains actual original bodies and sparse run history in supported wilderness
+windows, but default-globe capacity and catalog-wide ordinary-play access remain
+unfinished. Successful seasonal
 allocation repair and native encounter integration remain D work, not additional
 ordinary-play encounter coverage.
 

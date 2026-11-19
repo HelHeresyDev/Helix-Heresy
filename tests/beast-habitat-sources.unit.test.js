@@ -211,10 +211,10 @@ test('distant or unwilling nurturers do not provide opposition merely because a 
   source.groups[0].willing = true; source.groups[0].home.eastKm = 10000;
   assert.equal(S.forecast(source, map).opposition.length, 0);
 });
-test('rejected candidates cannot initialize active accounts or silently certify healthy/exhausted territory', () => {
+test('raw diagnostic proposals cannot activate; explicit encounter activation does not certify healthy/exhausted territory', () => {
   const { record, source, map } = fixture();
   assert.equal(record.assessment.status, 'rejected'); assert.ok(record.assessment.issues.length);
-  assert.throws(() => S.runtimeSource(record, map), /remains diagnostic/);
+  assert.equal(S.runtimeSource(record, map).ecologicalStatus, 'unverified');
   assert.throws(() => P.create(source, { worldId: 'world', runId: 'run' }), /unaccepted generator proposal/);
   assert.ok(source.regions.every(r => r.exhausted === false));
   assert.ok(record.unlocated.every(p => p.reason && p.count !== 0));
@@ -281,7 +281,7 @@ test('archived advisory diagnostics retain their original identity, but cannot b
   archived.assessment = { status: 'feasibleInitialCycle', issues: [] };
   archived.id = ''; archived.id = `beast-habitat-source:${W.stableHash(archived)}`;
   const claimed = clone(map); claimed.beastHabitatSources = archived;
-  assert.throws(() => S.runtimeSource(archived, claimed), /remains diagnostic/);
+  assert.equal(S.runtimeSource(archived, claimed).ecologicalStatus, 'unverified');
 });
 test('a still-travelling original group misses its seasonal deadline even without an arrival event', () => {
   const { source, map, region } = prepared((g, c) => [g('beast:gravebloom-elk', 'slow-herd', [c('beast:gravebloom-elk', 'adults', 1)])]);

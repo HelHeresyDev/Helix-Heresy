@@ -21,7 +21,18 @@
   root.HelixBeastPopulations = api;
 })(globalThis, function (Biology, Life, Journeys, Wilderness, Predation, Bodies, Demography, Ecology, Foodweb, Scheduler, Wildlife, Foraging, Care, Wind, Lantern) {
   'use strict';
-  const DAY = 86400, EPS = 1e-8, copy = x => JSON.parse(JSON.stringify(x));
+  const DAY = 86400, EPS = 1e-8;
+  // Accounts can exceed the engine's single-string limit at globe resolution.
+  // Clone their large collections record-by-record, preserving JSON semantics.
+  function copy(x) {
+    if (Array.isArray(x) && x.length > 256) return x.map(v => v === undefined ? null : copy(v));
+    if (x && typeof x === 'object' && Object.keys(x).length > 256)
+      return Object.fromEntries(Object.entries(x).filter(([, v]) => v !== undefined).map(([k, v]) => [k, copy(v)]));
+    if (x && typeof x === 'object' && !Array.isArray(x)
+      && (Array.isArray(x.regions) || Array.isArray(x.groups)))
+      return Object.fromEntries(Object.entries(x).filter(([, v]) => v !== undefined).map(([k, v]) => [k, copy(v)]));
+    return JSON.parse(JSON.stringify(x));
+  }
   const diagnosticToken = Symbol('private generated-source replay');
   const nonnegative = n => Number.isFinite(n) && n >= 0;
   const integer = n => Number.isSafeInteger(n) && n >= 0;
@@ -117,7 +128,7 @@
         || !Array.isArray(g.cohorts) || !Biology.lifecycle[g.speciesId]) throw Error('Invalid population group');
       groups.add(g.id);
       Ecology.validateGroup(g, source.regions);
-      if (!Journeys.validSpec(g, source.calendar, source.diagnosticOnly === true)) throw Error('Invalid original seasonal route');
+      if (!Journeys.validSpec(g, source.calendar, source.diagnosticOnly === true || source.nativeEncounters === true)) throw Error('Invalid original seasonal route');
       for (const c of g.cohorts) {
         if (c.speciesId !== g.speciesId || cohorts.has(c.id)) throw Error('Conflicting cohort source');
         if (c.role === 'queen' && (!id(c.colonyId) || !nonnegative(Biology.lifecycle[c.speciesId].breederMortality)
@@ -133,6 +144,7 @@
     if (!id(binding?.worldId) || !id(binding.runId) || !nonnegative(at)) throw Error('Missing run binding');
     const s = { ...binding, sourceId: source.id, calendar: copy(source.calendar), clock: at, appliedAt: at,
       ...(token === diagnosticToken ? { diagnosticOnly: true } : {}), unlocated: copy(source.unlocated || []),
+      ...(source.nativeEncounters === true ? { nativeEncounters: true } : {}),
       ...(source.regionalFoodWeb === true ? { regionalFoodWeb: true } : {}),
       ...(source.spatialContinuity === true ? { spatialContinuity: true } : {}),
       regions: copy(source.regions), groups: source.groups.map(g => ({ ...copy(g), cohorts: g.cohorts.map(c => cohort(c, at)),
@@ -794,8 +806,9 @@
     a.life.energy = copy(reserves.energy);
     if (c.feedingTowers) c.feedingTowers.forEach((health, i) => { a.bodyPhysics.parts[`feeding tower ${i + 1}`] = health; });
     const modes = Bodies.profiles[g.speciesId].modes;
-    if (!Bodies.valid(a) || !(modes.includes(a.bodyPhysics.mode) || a.bodyPhysics.mode === 'walking' && modes.includes('charging'))
-      || Bodies.habitatReason(a, a.mapCell, a.bodyPhysics.mode, Bodies.height(a), ctx)) return null;
+    if (!Bodies.valid(a) || !(modes.includes(a.bodyPhysics.mode) || a.bodyPhysics.mode === 'walking' && modes.includes('charging')
+      || a.bodyPhysics.mode === 'grounded' && modes.includes('flight'))
+      || Bodies.habitatReason(a, a.mapCell, a.bodyPhysics.mode === 'grounded' ? 'walking' : a.bodyPhysics.mode, Bodies.height(a), ctx)) return null;
     const d = detail(s, groupId, cohortId, ordinal, actorId, at); if (!d) return null;
     a.maxHealth = Math.max(1, a.maxHealth * Math.min(1, Math.sqrt(d.massKg / Biology.lifecycle[g.speciesId].adultKg)));
     a.health = a.maxHealth * d.health;
@@ -1002,6 +1015,7 @@
       if (!id(value?.worldId) || !id(value.runId) || binding && (value.worldId !== binding.worldId || value.runId !== binding.runId)
         || value.spatialContinuity != null && typeof value.spatialContinuity !== 'boolean'
         || value.diagnosticOnly != null && typeof value.diagnosticOnly !== 'boolean'
+        || value.nativeEncounters != null && typeof value.nativeEncounters !== 'boolean'
         || !nonnegative(value.clock) || !nonnegative(value.appliedAt) || value.appliedAt > value.clock + EPS
         || !nonnegative(value.nextEventAt) || value.nextEventAt <= value.clock - EPS
         || !Array.isArray(value.losses) || !Array.isArray(value.births) || !Array.isArray(value.plans)
@@ -1009,7 +1023,7 @@
       const s = copy(value);
       if (s.nextDemographyAt != null && !nonnegative(s.nextDemographyAt)) return null;
       validateSource({ id: s.sourceId, calendar: s.calendar, regions: s.regions,
-        diagnosticOnly: s.diagnosticOnly === true, unlocated: s.unlocated, regionalFoodWeb: s.regionalFoodWeb,
+        diagnosticOnly: s.diagnosticOnly === true, nativeEncounters: s.nativeEncounters === true, unlocated: s.unlocated, regionalFoodWeb: s.regionalFoodWeb,
         groups: s.groups.map(g => ({ ...g, cohorts: g.cohorts.map(c => ({ ...c, count: count(c), ageDays: Math.max(0, (s.clock - c.bornAt) / DAY) })) })) });
       for (const r of s.regions) {
         if (r.airMoistureTakenL != null && !nonnegative(r.airMoistureTakenL)) return null;
@@ -1022,7 +1036,7 @@
       }
       for (const g of s.groups) {
         if (!integer(g.choiceSerial) || !Array.isArray(g.knowledge) || !g.needs || !Object.values(g.needs).every(nonnegative)) return null;
-        if (!Journeys.validState(g, s.calendar, s.clock, s.diagnosticOnly === true)) return null;
+        if (!Journeys.validState(g, s.calendar, s.clock, s.diagnosticOnly === true || s.nativeEncounters === true)) return null;
         if (g.travelCare && (!s.spatialContinuity || !Number.isInteger(g.travelCare.monthIndex) || !nonnegative(g.travelCare.plannedAt)
           || g.travelCare.plannedAt > s.clock || !(g.travelCare.end > g.travelCare.plannedAt) || !integer(g.travelCare.stops)
           || !nonnegative(g.travelCare.usedSeconds) || g.travelCare.usedSeconds > g.travelCare.limitSeconds + EPS

@@ -254,6 +254,7 @@
   if (!HiddenWorkshop) throw new Error('Hidden workshop must load before app.js');
   const WildernessDiscovery = window.HelixWildernessDiscovery;
   const WildernessBeasts = window.HelixWildernessBeasts;
+  const NativeBeastPopulations = window.HelixBeastNativePopulations;
   const BeastBodies = window.HelixBeastBodies;
   const CreatureBiology = window.HelixCreatureBiology;
   const CreatureLife = window.HelixCreatureLife;
@@ -18429,6 +18430,38 @@
       remoteDiscoverySnapshot: (from = scientistMapCell(), to = UnsupportedExcursions.LANDING) => clonePlainObject({ discovery: wildernessDiscoveryFor("remote"), public: WildernessDiscovery.publicView(wildernessDiscoveryFor("remote")), cells: ensureLabMap().rooms[UnsupportedExcursions.ROOM]?.cells || [], path: labMapPathBetweenCells(from, to, { actor: state.scientist, ignoreDoors: true }), sight: sensoryLineOfSight(from, to) }),
       advanceBoundaryTravelForTest: (seconds) => { let remaining = seconds; while (remaining > 0) { const step = Math.min(remaining, 10); state.clock += step; remaining -= step; updateScientistMovementTask(); completeDueTasks(); updateSurveyExpedition(); updateUnsupportedExcursion(); } persist(); render(); },
       wildernessBeastSnapshot: () => clonePlainObject({ ...ensureWildernessBeasts(), knowledge: wildernessBeastKnowledge(), injuries: state.injuries, clock: state.clock, scientistCell: scientistMapCell(), health: scientistVital("health").current, mana: scientistVital("mana").current }),
+      configureNativeBeastSiteForTest: (speciesId) => {
+        // Select an original geographic window, not an injected actor, reserve,
+        // wound, successful claim or public observation. This is a controlled
+        // source-context check, not evidence of an ordinary itinerary here.
+        const map = activeWorldRecord.generatedData.strategicMap, record = map.beastHabitatSources;
+        const owner = nativeBeastPopulationState(), account = NativeBeastPopulations.open(owner, record, map);
+        const group = account.groups.find(g => g.speciesId === speciesId && g.home.depthM === 0);
+        if (!group) return false;
+        const region = account.regions.find(r => r.id === group.regionId), cohort = group.cohorts[0];
+        const position = window.HelixBeastRegionalFoodweb.position(group, region, cohort, cohort.ranges[0][0]);
+        materializeSurveySpaces();
+        const survival = ensureWildernessSurvival();
+        survival.destination = { id: `native-test:${region.id}`, strategicCellId: region.cellId,
+          label: 'Original native habitat window', temperatureC: region.seasons[0].temperatureC,
+          slopePercent: 0, jurisdiction: 'Wilderness', description: 'Controlled geographic source window.' };
+        survival.context = { ...clonePlainObject(ensureResourceSurveys().context), siteId: survival.destination.id, strategicCellId: region.cellId };
+        survival.materialized = false; materializeWilderness();
+        survival.discovery = WildernessDiscovery.create(survival.destination);
+        const baseline = WildernessDiscovery.materialize(survival.discovery, activeWorldRecord.id,
+          activeWorldRecord.worldSeed, survival.destination, state.clock);
+        baseline.habitatKind = region.kind;
+        baseline.populationFrame = { eastM: position.eastM - 4 * ensureLabMap().tileSizeM,
+          northM: position.northM - 4 * ensureLabMap().tileSizeM };
+        ensureLabMap().rooms[WildernessSurvival.ROOM].cells = clonePlainObject(baseline.cells);
+        bumpNavigationRevision('topology');
+        syncNativeBeasts(); state.wildernessBeasts = WildernessBeasts.defaultState();
+        state.surveyExpeditions.phase = 'field'; survival.mode = 'wilderness'; survival.autoCare = false; state.tasks = [];
+        moveSurveyScientist(WildernessSurvival.ROOM, WildernessSurvival.ENTRY);
+        materializeWildernessBeasts(); updateWildernessBeasts(0); persist(); render();
+        return clonePlainObject({ sourceId: record.id, populationId: group.populationId,
+          memberId: `${cohort.originId}:${cohort.ranges[0]?.[0] ?? 0}`, position });
+      },
       configureWildernessBeastsTest: (options = {}) => {
         materializeSurveySpaces(); materializeWilderness();
         state.surveyExpeditions.phase = "field"; state.wildernessSurvival.autoCare = false; state.tasks = [];
@@ -21401,6 +21434,8 @@
     importedState.regionalEncounters = RegionalEncounters.rebind(importedState.regionalEncounters,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.beastDiplomacy = BeastDiplomacy.rebind(importedState.beastDiplomacy,
+      { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
+    importedState.nativeBeastPopulations = NativeBeastPopulations.rebind(importedState.nativeBeastPopulations,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
     importedState.fieldCharter = FieldCharter.rebind(importedState.fieldCharter,
       { worldId: candidate.run.worldId, runId: candidate.run.id }, { worldId: world.id, runId: importedRunId });
@@ -99771,22 +99806,80 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function ensureWildernessBeasts() {
     if (supplySimulationSite || localMunicipalSupplySite() || overlandStopSite() || fieldCharterLocalSite()) return ensureRegionalEncounters()?.beasts || WildernessBeasts.defaultState();
     const s = porterSimulationExcursion || (escortSimulationState?.source ? escortExcursion(escortSimulationState) : foreignSurveyAtField());
-    return s ? s.wilderness ? s.wilderness.beasts ||= WildernessBeasts.defaultState() : WildernessBeasts.defaultState() : state.wildernessBeasts ||= WildernessBeasts.defaultState();
+    const beasts = s ? s.wilderness ? s.wilderness.beasts ||= WildernessBeasts.defaultState() : WildernessBeasts.defaultState() : state.wildernessBeasts ||= WildernessBeasts.defaultState();
+    if (state.nativeBeastPopulations?.sites[beasts.siteId]?.parcelIds)
+      beasts.bodyTerrain = NativeBeastPopulations.bindTerrain(state.nativeBeastPopulations, beasts.siteId);
+    return beasts;
   }
   function materializeWildernessBeasts() {
     const saved = ensureWildernessBeasts(), survival = activeWildernessSite();
-    if (saved.materialized || !survival.materialized || !survival.discovery?.baseline || survival.discovery.placeId !== survival.destination?.id) return saved;
+    if (saved.materialized || scientistIsDead() || !survival.materialized || !survival.discovery?.baseline || survival.discovery.placeId !== survival.destination?.id) return saved;
     const map = activeWorldRecord?.generatedData?.strategicMap, index = StrategicWorld.cellIndex(survival.destination.strategicCellId);
     const populations = (map?.beastEcology?.populations || []).filter((population) => StrategicBeastEcology.maskIncludes(population.territory.rangeMask, index));
-    const beasts = WildernessBeasts.materialize(state.seed, survival.destination.id, populations, ensureLabMap().rooms[activeWildernessRoom()].cells, state.clock);
+    const native = map?.beastHabitatSources?.physicalPlacement && NativeBeastPopulations.capacity(map.beastHabitatSources).supported;
+    const beasts = native
+      ? materializeNativeBeasts(survival, map)
+      : WildernessBeasts.materialize(state.seed, survival.destination.id, populations, ensureLabMap().rooms[activeWildernessRoom()].cells, state.clock);
+    if (map?.beastHabitatSources?.physicalPlacement && !native)
+      beasts.nativeUnavailable = 'Catalog-wide population-backed encounters are not yet available at this globe resolution. Existing ground encounter representatives remain a separate system, not native population claims.';
     const ledger = ensureRegionalEncounters();
     if (ledger) {
-      beasts.actors = beasts.actors.filter(a => RegionalEncounters.claim(ledger, a, survival.destination.id, state.clock));
+      // Native originals already have exclusive cohort ownership. The legacy
+      // representative cap must not discard a body after that transfer.
+      beasts.actors = beasts.actors.filter(a => a.nativePopulation || RegionalEncounters.claim(ledger, a, survival.destination.id, state.clock));
       beasts.tracks = beasts.tracks.filter(t => beasts.actors.some(a => t.id === `track:${a.id}`));
+      for (const a of beasts.actors.filter(a => a.nativePopulation))
+        if (!ledger.managedPopulationIds.includes(a.populationId)) ledger.managedPopulationIds.push(a.populationId);
     }
     for (const beast of beasts.actors) beast.roomId = activeWildernessRoom();
     if (foreignWildernessLocal()) survival.beasts = beasts; else state.wildernessBeasts = beasts;
     return beasts;
+  }
+  function nativeBeastPopulationState() {
+    const map = activeWorldRecord?.generatedData?.strategicMap, record = map?.beastHabitatSources;
+    if (!record?.physicalPlacement || !activeRunRecord) return null;
+    const binding = { worldId: activeWorldRecord.id, runId: activeRunRecord.id };
+    if (!state.nativeBeastPopulations) state.nativeBeastPopulations = NativeBeastPopulations.create(record, binding);
+    if (state.nativeBeastPopulations.worldId !== binding.worldId || state.nativeBeastPopulations.runId !== binding.runId)
+      throw Error('Native creature populations belong to another run');
+    return state.nativeBeastPopulations;
+  }
+  function materializeNativeBeasts(survival, map) {
+    const owner = nativeBeastPopulationState(), baseline = survival.discovery.baseline;
+    const roomId = activeWildernessRoom(), live = ensureLabMap(), room = live.rooms[roomId];
+    // Keep the actual visited footprint, rocks and property. Oversized bodies
+    // are unavailable here; do not resize them or fabricate a larger clearing.
+    const cells = room.cells;
+    const site = { id: survival.destination.id, cellId: survival.destination.strategicCellId,
+      roomId, kind: baseline.habitatKind || 'surface', bounds: baseline.bounds,
+      origin: baseline.populationFrame || { eastM: baseline.bounds.x * ensureLabMap().tileSizeM, northM: baseline.bounds.y * ensureLabMap().tileSizeM } };
+    const saved = { ...WildernessBeasts.defaultState(), materialized: true, siteId: site.id, lastAt: state.clock };
+    saved.bodyTerrain = NativeBeastPopulations.terrain(owner, map.beastHabitatSources, map, site, cells, state.clock, ensureLabMap().tileSizeM);
+    // The placement validator must see these exact funded tiles, not a freshly
+    // chosen free spawn square or an invented marine/burrow medium.
+    const existing = ensureWildernessBeasts(), previousTerrain = existing.bodyTerrain;
+    existing.bodyTerrain = saved.bodyTerrain;
+    try {
+      const physicalContext = beastBodyContext({ id: 'native-placement', roomId, mapCell: { ...site.bounds }, bodyPhysics: { altitudeM: 0, dimensions: { heightM: 0 } } });
+      const ledger = ensureRegionalEncounters();
+      const unavailablePopulations = new Set((ledger?.members || []).filter(m => !m.actorId.startsWith('native:')).map(m => m.populationId));
+      for (const p of currentSuppression()?.populations || []) unavailablePopulations.add(p.source.populationId);
+      saved.actors = NativeBeastPopulations.materialize(owner, map.beastHabitatSources, map, site, {
+        at: state.clock, alive: !scientistIsDead(), local: true, tileSizeM: ensureLabMap().tileSizeM,
+        unavailablePopulations,
+        terrain: physicalContext.terrain,
+        blocked: physicalContext.blocked });
+    } finally { existing.bodyTerrain = previousTerrain; }
+    saved.tracks = saved.actors.map(a => ({ id: `track:${a.id}`, cell: clonePlainObject(a.mapCell),
+      label: WildernessBeasts.PROFILES[a.speciesId].track, observedAt: null }));
+    return saved;
+  }
+  function syncNativeBeasts() {
+    const owner = state.nativeBeastPopulations, map = activeWorldRecord?.generatedData?.strategicMap;
+    if (!owner || !map?.beastHabitatSources) return;
+    const actors = [...allWildernessBeasts(), ...localBeastActors(state.unsupportedExcursions?.boundary?.beasts),
+      ...localBeastActors(state.unsupportedExcursions?.remote?.beasts)];
+    NativeBeastPopulations.sync(owner, map.beastHabitatSources, map, actors, state.clock);
   }
   function wildernessBeastVisible(beast) {
     const visibleDepth = beast && (beastElevation(beast) >= 0 || ['swimming', 'drifting'].includes(beast.bodyPhysics?.mode)
@@ -99858,6 +99951,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (beast.climbing && climbSite && !options.climbFall) BeastClimbing.interrupt(beast, climbSite, beastClimbingContext(beast, climbSite), state.clock, damage);
     if (!beast.health) { beast.status = "dead"; beast.behavior = "dead"; beast.diedAt = state.clock; beast.deathCause = "Physical trauma";
       if (beast.bodyPhysics?.altitudeM > 0 && beast.bodyPhysics.mode !== 'grounded') { beast.bodyPhysics.pendingFallM = beast.bodyPhysics.altitudeM; beast.bodyPhysics.mode = 'falling'; beast.bodyPhysics.motion = null; beast.bodyPhysics.turn = null; } }
+    if (beast.nativePopulation && state.nativeBeastPopulations) {
+      const map = activeWorldRecord.generatedData.strategicMap;
+      NativeBeastPopulations.sync(state.nativeBeastPopulations, map.beastHabitatSources, map, [beast], state.clock);
+    }
     if (!scientistIsDead()) ensureRegionalEncounters();
     observeWildernessBeasts();
     return true;
@@ -100085,7 +100182,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         }
       },
       changed: (cell, p) => {
-        if (p.waterAccounted) p.waterDepthM = (p.resources.waterL || 0) / (map.tileSizeM ** 2 * 1000);
+        if (p.waterAccounted) p.waterDepthM = (p.resources[p.waterKind === 'seawater' ? 'seawaterL' : 'waterL'] || 0) / (map.tileSizeM ** 2 * 1000);
         const env = tileEnvironmentAtCell(cell); if (env && p.resources.airborneGasKg > 0) {
           const fresh = p.resources.airborneGasKg - (p.gasDispersedKg || 0);
           if (fresh > 0) { env.airborne ||= {}; env.airborne['beast-geological-gas'] = (env.airborne['beast-geological-gas'] || 0) + fresh; p.gasDispersedKg = p.resources.airborneGasKg; }
@@ -100120,6 +100217,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
           const medium = parent.bodyPhysics.mode;
           if (['swimming', 'burrowing'].includes(medium)) { child.bodyPhysics.mode = medium; child.bodyPhysics.altitudeM = medium === 'swimming' ? -child.bodyPhysics.dimensions.heightM : -child.bodyPhysics.dimensions.heightM - .2; }
           if (BeastBodies.habitatReason(child, cell, child.bodyPhysics.mode, child.bodyPhysics.altitudeM, beastBodyContext(child))) continue;
+          if (parent.nativePopulation) {
+            const map = activeWorldRecord.generatedData.strategicMap;
+            if (!NativeBeastPopulations.birth(state.nativeBeastPopulations, map.beastHabitatSources, map, parent, child, state.clock)) continue;
+          }
           saved.offspring.push(child); return true;
         }
         return false;
@@ -100240,7 +100341,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         if (CreatureLife.valid(beast)) BeastBehavior.advanceVitals(beast, state.clock, 0, { alive: true, local: false });
         if (beast.bodyPhysics) { beast.bodyPhysics.lastAt = state.clock; beast.bodyPhysics.wasLocal = false; }
         if (beast.climbing) { beast.climbing.lastAt = state.clock; beast.climbing.wasReady = false; } }
-      saved.lastAt = state.clock; return 0;
+      saved.lastAt = state.clock; syncNativeBeasts(); return 0;
     }
     const map = ensureLabMap(), working = Boolean(scientistInWilderness() && firstScientistQueueTask() && firstScientistQueueTask().type !== "rest");
     const sector = new Set(map.rooms[activeWildernessRoom()].cells.map(mapCellKey));
@@ -100413,6 +100514,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     saved.lastAt = state.clock;
     if (roadside) RegionalEncounters.syncLocal(currentRegionalEncounters(), roadside, state.clock);
     else ensureRegionalEncounters();
+    syncNativeBeasts();
     return changed + observeWildernessBeasts();
   }
   function renderWildernessBeastsPanel() {
@@ -100422,7 +100524,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.dataset.beastClimbing = 'true';
     panel.dataset.beastSpellImitation = 'true';
     panel.dataset.mirrorApePopulations = 'true';
-    panel.append(textEl('p', 'All 24 authored beasts have shared physical bodies: actual dimensions, occupied volumes, anatomy, finite movement reserves and habitat constraints. Observed body footprints use the same physics in both maps. Additional species’ authored abilities and population-backed encounters remain pending; a profile is not a completed encounter or a safety assessment.'));
+    panel.append(textEl('p', 'All 24 authored beasts share physical bodies and abilities. Population-backed encounters retain original individuals, injuries and finite reserves where actual position and habitat permit contact. Unknown or unsuitable terrain supplies no creature, and absence is not a safety assessment. Only personally observed signs and bodies are reported here.'));
+    if (ensureWildernessBeasts().nativeUnavailable) panel.append(textEl('p', ensureWildernessBeasts().nativeUnavailable));
     panel.append(textEl('p', 'Other original Mirror Ape groups may occupy source-backed habitat along a measured approach. Actual travel can encounter them; another individual’s compact does not bind them, and they learn spells only from their own observations. Quiet travel or defeating an encountered group is not a population census or strategic safety proof.'));
     for (const f of overlandStopSite()?.climbSurfaces || []) if (sensoryLineOfSight(scientistMapCell(), f.cell)
       && WildernessBeasts.distance(scientistMapCell(), f.cell) <= 8)
@@ -115012,6 +115115,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function currentRunRecord(savedAt = new Date().toISOString()) {
     updateExpansionAtlas();
     if (!activeRunRecord || !activeWorldRecord) throw new Error("No world-backed run is active.");
+    if (state.nativeBeastPopulations) {
+      syncNativeBeasts();
+      const map = activeWorldRecord.generatedData.strategicMap;
+      NativeBeastPopulations.pack(state.nativeBeastPopulations, map.beastHabitatSources, map);
+    }
     const ended = Boolean(state.runEnded);
     return WorldRunLibrary.createRun({
       ...activeRunRecord,
@@ -115126,6 +115234,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     next.covertFunctionsInitialized = candidate?.covertFunctionsInitialized === true || Boolean(next.covertFunctions);
     next.outerApproachVisit = candidate?.outerApproachVisit ? clonePlainObject(candidate.outerApproachVisit) : null;
     next.wildernessBeasts = WildernessBeasts.normalizeState(candidate?.wildernessBeasts);
+    next.nativeBeastPopulations = NativeBeastPopulations.normalize(candidate?.nativeBeastPopulations,
+      { worldId: next.worldReference.worldId, runId: next.runIdentity.runId });
     next.expeditionEscorts = ExpeditionEscorts.normalizeState(candidate?.expeditionEscorts);
     const opening = candidate?.themeContent?.opening;
     next.themeContent = {

@@ -28,11 +28,12 @@
     p.resources ||= {};
     p.transfers ||= {};
     // This is the original volume of an actual water column, not a new spring.
+    const waterKey = p.waterKind === 'seawater' ? 'seawaterL' : 'waterL';
     if (p.waterDepthM > 0 && !p.waterAccounted) {
-      p.resources.waterL = p.waterDepthM * tileM * tileM * 1000;
+      p.resources[waterKey] = p.waterDepthM * tileM * tileM * 1000;
       p.waterAccounted = true;
     }
-    if (p.waterAccounted) p.waterDepthM = (p.resources.waterL || 0) / (tileM * tileM * 1000);
+    if (p.waterAccounted) p.waterDepthM = (p.resources[waterKey] || 0) / (tileM * tileM * 1000);
     return p;
   }
   function has(p, costs) {
