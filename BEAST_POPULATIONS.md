@@ -64,8 +64,8 @@ group retains its last physical residence rather than reverting to its origin.
 Unrelated regions gain no refresh, knowledge, resources or replacement bodies.
 
 The supplied calendar's monthly planning and scheduled daily demographic/food-web
-pulses still visit the world. This is event localization, not skipped physiology
-or reduced populations. A large connected river/care component can still be
+pulses still visit every active original group. This is event localization, not
+skipped physiology or reduced populations. A large connected river/care component can still be
 expensive. Local contact resolution visits its affected accounts; the scheduled
 daily contact search retains its existing bounded spatial index and budgets.
 
@@ -73,7 +73,19 @@ Saved `regionClocks` hold each region's `appliedAt`, `nextEventAt` and daily-wor
 flag. Root `clock` is processed time; root `appliedAt` is the oldest regional
 settlement, **not a claim that every account has the same timestamp**.
 `settleRegions` reads selected dependencies; `advance(..., true, true)` explicitly
-settles a whole snapshot. Neither read recalculates rates or rerolls choices.
+settles a whole snapshot. Reads of active accounts do not recalculate rates or
+reroll choices.
+Empty native-source components may retain only original-recipe headers until a
+read, arrival or actual dependency requires them. All named beast groups remain
+active, including distant ones. Water-linked components, original occupied
+nurseries and named dream participants are included at initialization. Before
+an empty component joins execution, the same eager engine runs its original
+anonymous-wildlife, water, seasonal and ecological history from the epoch to the
+actual contact time. It is not reset, refilled, granted food or treated as known
+to a migrant. A full diagnostic read explicitly warms every component and can
+still be expensive. These headers require their validated original source loader
+on restore; they are not standalone complete ecological snapshots.
+
 JSON/continued branches restore recorded rates/times and rebuild only disposable
 indexes/queues. Inconsistent coupled clocks and invalid event metadata are
 rejected. The cache is a WeakMap; bounded lazy heaps retain event/clock metadata,
@@ -1101,7 +1113,10 @@ rubble rather than leaving a second edible/minable copy. Moving the same parcel
 into detail does not grant extraction rights or reveal a private regional census.
 
 Saved native state contains sparse changes against the unchanged original source,
-plus visited parcels. It does not embed the expanded diagnostic account. Reload
+plus visited parcels. New saves share repeated delta paths in a prefix tree;
+existing path-row saves remain readable. Every assigned value and deletion is
+retained exactly, without rounding or skipping cached earned work. It does not
+embed the expanded diagnostic account. Reload
 reconstructs the exact source and validates changed history; continued import
 rebinds the copied run only. Existing bodies, depleted reserves and actual dead
 members persist without a new claim or healthy replacement. Independent starts
@@ -1111,15 +1126,35 @@ populations are not claimed again, and native-claimed populations cannot receive
 new legacy representatives. Full legacy census/source reconciliation remains
 unfinished; these safeguards are not a completed migration of those consumers.
 
-**Capacity and scope remain explicit.** A zero-time default-resolution measurement
-(10,242 cells, 18,526 habitat regions, 2,683 groups) needed about 54 seconds and
-3.41 GB RSS for account opening/packing. Its expanded region JSON alone was
-736,671,943 bytes. The adapter therefore refuses sources above 512 patches before
-expansion; ordinary play at those resolutions retains its existing ground
-representatives with an explicit unavailable notice, not a claim of catalog-wide
-native activation. A small zero-change native save is 162 bytes, but that is not
-a measurement of a season-long default-world run. Cold-region/lazy account
-execution, unvisited detailed-body/background return, wildlife/local meal custody,
+**Default-world activation and remaining scope.** The former 512-patch gate is
+removed. On the measured default source (10,242 cells, 18,526 habitat regions,
+2,683 groups), 712 initially occupied/dependent regions are initialized; other
+regions retain their unchanged original recipes. Zero-time opening/packing took
+about six seconds and added about 466 MB of live heap. This is incremental heap,
+**not total process RSS**: world generation had already reserved substantial
+memory. The former eager native opening/packing took about 54 seconds, with
+3.41 GB total RSS and 736,671,943 bytes of expanded region JSON. These are
+zero-time controls, not a demonstrated season-long default-world memory bound.
+Growing visited/dependency coverage can still expand the active account.
+
+First activation paints an explicit paused elapsed-history notice before source
+initialization. Earned event work then resumes in bounded event batches; loading
+does not advance the game clock, manufacture a replacement or certify safety.
+New runs use a `deferredHabitats` storage-strategy marker. Older eager sparse
+deltas retain their original baseline instead of being interpreted as lazy saves.
+An unopened account can be saved without synchronously expanding its source.
+
+The actual default-world continued-import control also exposed browser storage
+quota pressure, not just an upload-size limit in the test harness. Large library
+records now use a lossless variable-width packed LZW dictionary; small records
+keep the existing encoding. Plain JSON and old `lz16:` records remain readable.
+Saving a run may losslessly re-encode only its referenced large legacy world;
+canonical bytes after decompression, world identities and other runs are retained.
+This is a storage representation change, not world regeneration or permission to
+delete branches. Finite browser quota still exists; no season-long storage bound
+or unlimited number of independent runs is claimed.
+
+Unvisited detailed-body/background return, wildlife/local meal custody,
 larger real encounter geometry, ordinary marine/subsurface access, route/logistics
 and strategic consumers remain in the existing D acceptance. The bounded adapter
 is **not completion of catalog-wide ordinary-play encounters**.
@@ -1127,14 +1162,22 @@ is **not completion of catalog-wide ordinary-play encounters**.
 Focused native unit controls exercise actual originals across all 24 body
 families using suitable source regions and explicitly supplied physical contexts;
 they do not establish that ordinary travel reaches every family. Browser controls
-use a browser-generated source, an authored public test starting parcel and a
+use a Node-generated source, an authored public test starting parcel and a
 controlled geographic window, then the actual field/render/save/import paths.
+The DOM control uses the default 10,242-cell globe; Canvas uses a compact globe.
+Both preserve the observed body and terrain through reload and continued import,
+and initialization itself earns no game time.
 Neither kind of control certifies the generated ecosystem or all itineraries.
-Already materialized legacy sites keep their actual bodies on load. The browser
-controls generate their source in-browser: a Node-generated `native-encounters`
-archive was refused by Chromium's exact rebuilt physical-account hash. Cross-runtime
-source portability remains unverified; no archive was rewritten and strict source
-validation was not relaxed to bypass that failure.
+Already materialized legacy sites keep their actual bodies on load. Node/browser
+portability validation allows only derived east/north coordinate roundoff: ten
+nanometres near zero, or two floating-point epsilons for large coordinates. It
+does not change the archived values or source hash. Counts, resource budgets,
+areas, membership and non-coordinate fields remain exact. Original positional
+anchors use recorded nursery coordinates rather than recomputed trigonometry.
+Focused controls compare eager/lazy generated history for one day, empty wildlife
+and hydraulic components across a monthly boundary, actual migration, partial
+event saves, cancellation and legacy eager deltas. They are execution-equivalence
+checks, not new ecological viability certificates.
 
 ## Fixed D acceptance still unfinished
 
@@ -1160,7 +1203,8 @@ requirements are unchanged, not replaced with another prompt sequence.
 3. Native integration with world/run persistence, ordinary travel, supported human
    logistics, correctly sized/mediated physical encounters and legitimate dated
    observations. The bounded wilderness adapter above connects original claims
-   and run persistence, but default-globe capacity, ordinary all-family access,
+   and run persistence with default-globe opening, but long-run default-world
+   execution, ordinary all-family access,
    route/logistics, source-owner reconciliation and strategic outputs are unfinished.
 4. Focused native DOM/Canvas, source-class, save/import, death/knowledge and
    strategic-output acceptance for the whole package. World-domination evaluator

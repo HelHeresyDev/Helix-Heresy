@@ -99,14 +99,15 @@ test('default-resolution generated bindings fit actual compressed browser world 
     const map = world.generatedData.strategicMap;
     L.createRepository(localStorage).putWorld(world);
     const N = window.HelixBeastNativePopulations, capacity = N.capacity(map.beastHabitatSources);
-    let refused = false;
-    try { N.open(N.create(map.beastHabitatSources, { worldId: world.id, runId: 'bounded-native' }), map.beastHabitatSources, map); }
-    catch (e) { refused = /working set/.test(e.message); }
+    const state = N.create(map.beastHabitatSources, { worldId: world.id, runId: 'native-default' });
+    const account = N.open(state, map.beastHabitatSources, map); N.pack(state, map.beastHabitatSources, map);
     return { id: world.id, digest: world.canonicalDigest, cells: map.topology.cellCount, sourceId: map.beastHabitatSources.id,
-      bounded: !capacity.supported && refused };
+      native: capacity.supported, deferred: account.regions.filter(r => r.deferred).length,
+      nativeBytes: JSON.stringify(state).length };
   });
   expect(original.cells).toBe(10242);
-  expect(original.bounded).toBe(true);
+  expect(original.native).toBe(true); expect(original.deferred).toBeGreaterThan(17000);
+  expect(original.nativeBytes).toBeLessThan(1024);
   await page.reload(); await page.waitForFunction(() => window.HelixWorldRunLibrary);
   const loaded = await page.evaluate(id => {
     const world = window.HelixWorldRunLibrary.createRepository(localStorage).getWorld(id);

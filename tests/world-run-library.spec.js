@@ -18,11 +18,14 @@ function memoryStorage() {
 test('large world and run records use transparent compressed storage while plain JSON remains readable', () => {
   const storage = memoryStorage();
   const repository = Library.createRepository(storage);
-  const world = Library.createWorld({ id: 'compressed-world', worldSeed: 'world-seed-one', worldTheme: 'unbound', createdAt: 'test' });
+  // Storage format is independent of globe resolution; actual default-globe
+  // storage and native persistence have dedicated browser controls.
+  const world = Library.createWorld({ id: 'compressed-world', worldSeed: 'source-small', generationVersion: 8, worldTheme: 'unbound', createdAt: 'test',
+    creationSettings: { strategicMap: { refinementLevel: 2 } } });
   repository.putWorld(world);
 
   const storedWorld = storage.getItem(`${Library.WORLD_KEY_PREFIX}${world.id}`);
-  expect(storedWorld.startsWith('lz16:')).toBe(true);
+  expect(storedWorld.startsWith('lzp:')).toBe(true);
   expect(storedWorld.length).toBeLessThan(JSON.stringify(world).length / 4);
   expect(repository.getWorld(world.id)).toEqual(world);
   expect(Library.decompressStorageText(Library.compressStorageText('magic, machinery, and 🛰️ relays'))).toBe('magic, machinery, and 🛰️ relays');

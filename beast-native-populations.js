@@ -10,12 +10,8 @@
 })(globalThis, function (Sources, P, Food, Bodies, Journeys) {
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x)), cache = new WeakMap();
-  // The aggregate diagnostic engine still expands wildlife in every habitat.
-  // Bound this adapter's working set until that engine supports cold regions;
-  // never freeze a default globe or substitute invented encounter bodies.
-  const MAX_PATCHES = 512;
-  const capacity = record => ({ supported: Array.isArray(record?.patchRows) && record.patchRows.length <= MAX_PATCHES,
-    patches: record?.patchRows?.length || 0, limit: MAX_PATCHES });
+  const capacity = record => ({ supported: Array.isArray(record?.patchRows) && Boolean(record.physicalBinding),
+    patches: record?.patchRows?.length || 0, execution: 'deferredIndependentRegions' });
   function snapshot(value) {
     return Object.fromEntries(Object.entries(value).map(([key, part]) => [key,
       Array.isArray(part) ? { array: part.map(p => JSON.stringify(p)) }
@@ -42,12 +38,15 @@
   }
   function create(record, binding) {
     if (!record?.physicalBinding || !binding?.worldId || !binding.runId) throw Error('Native encounters require an original source and run');
-    return { ...binding, sourceId: record.id, clock: 0, ecology: 'unverified', patch: [], sites: {}, parcels: {} };
+    return { ...binding, sourceId: record.id, clock: 0, ecology: 'unverified', deferredHabitats: true, patch: [], sites: {}, parcels: {} };
   }
   function normalize(value, binding) {
     if (!value) return null;
     if (!value.worldId || !value.runId || !value.sourceId || !Number.isFinite(value.clock) || value.clock < 0
-      || !Array.isArray(value.patch) || !value.sites || Array.isArray(value.sites)
+      || value.deferredHabitats != null && typeof value.deferredHabitats !== 'boolean'
+      || !Array.isArray(value.patch) || value.deltaTree != null && (typeof value.deltaTree !== 'object'
+        || Array.isArray(value.deltaTree) || value.patch.length)
+      || !value.sites || Array.isArray(value.sites)
       || binding && (value.worldId !== binding.worldId || value.runId !== binding.runId))
       throw Error('Native population binding is invalid');
     const result = copy(value); result.parcels ||= {}; result.ecology = 'unverified';
@@ -89,14 +88,39 @@
     }
     return base;
   }
+  // Share path prefixes without quantizing numbers or omitting earned state.
+  // A leaf [] deletes; [value] assigns, including arrays/objects as values.
+  function compactPatch(rows) {
+    const tree = Object.create(null);
+    for (const row of rows) {
+      const path = row[0]; let node = tree;
+      for (const key of path.slice(0, -1)) node = node[key] ||= Object.create(null);
+      node[path.at(-1)] = row.slice(1);
+    }
+    return tree;
+  }
+  function applyTree(base, tree, path = []) {
+    if (!tree || typeof tree !== 'object' || Array.isArray(tree)) throw Error('Invalid population delta tree');
+    for (const [key, value] of Object.entries(tree)) {
+      if (['__proto__', 'prototype', 'constructor'].includes(key)) throw Error('Invalid population delta path');
+      const child = [...path, key];
+      if (Array.isArray(value)) apply(base, [[child, ...value]]);
+      else applyTree(base, value, child);
+    }
+    return base;
+  }
   function open(state, record, map) {
     if (state.sourceId !== record.id) throw Error('Native encounters cannot change their original world source');
-    if (!capacity(record).supported) throw Error('Native habitat working set exceeds the current bounded account capacity');
+    if (state.deltaTree && state.patch.length) throw Error('Ambiguous native population history');
+    if (!capacity(record).supported) throw Error('Native encounters require original physical habitats');
     if (cache.has(state)) return cache.get(state).account;
-    const source = Sources.runtimeSource(record, map), binding = { worldId: state.worldId, runId: state.runId };
+    // Existing bounded saves keep their eager baseline/delta meaning. This is
+    // a storage strategy, not a regeneration or a change to their originals.
+    const source = Sources.runtimeSource(record, map, { deferUnused: state.deferredHabitats === true }), binding = { worldId: state.worldId, runId: state.runId };
     const initial = P.create(source, binding), baseline = snapshot(initial);
     const originalCounts = JSON.stringify(initial.originalCounts);
-    const account = state.patch.length ? P.normalize(apply(initial, state.patch), binding) : initial;
+    const account = state.patch.length || state.deltaTree
+      ? P.normalize(state.deltaTree ? applyTree(initial, state.deltaTree) : apply(initial, state.patch), binding, initial._deferredLoader) : initial;
     if (!account || account.sourceId !== record.id || account.clock !== state.clock
       || JSON.stringify(account.originalCounts) !== originalCounts || account.nativeEncounters !== true) throw Error('Native population history is invalid');
     for (const [id, origin] of Object.entries(baseline.origins.object))
@@ -104,13 +128,37 @@
     cache.set(state, { account, baseline }); return account;
   }
   function pack(state, record, map) {
+    // An unopened restored account has no new kernel changes. Saving it need
+    // not synchronously initialize an entire source before the loading UI paints.
+    if (!cache.has(state)) return state;
     const account = open(state, record, map), entry = cache.get(state);
-    state.clock = account.clock; state.patch = changes(entry.baseline, account);
+    state.clock = account.clock;
+    const rows = changes(entry.baseline, account);
+    state.patch = [];
+    if (rows.length) state.deltaTree = compactPatch(rows); else delete state.deltaTree;
     return state;
+  }
+  const hasOpen = state => cache.has(state);
+  const ready = (state, at) => (cache.get(state)?.account.clock ?? -1) >= at;
+  function advanceBudget(state, record, map, at, budget = 32) {
+    const account = open(state, record, map);
+    if (account.clock >= at) return true;
+    const done = P.advanceBudget(account, at, budget); state.clock = account.clock; return done;
+  }
+  async function prepare(state, record, map, at, options = {}) {
+    const wait = options.yield || (() => new Promise(resolve => setTimeout(resolve, 0)));
+    await wait(); // Let the real paused/loading state paint before initialization.
+    do {
+      if (options.continue && !options.continue()) return false;
+      if (advanceBudget(state, record, map, at, options.budget || 32)) return true;
+      await wait();
+    } while (true);
   }
   function rebind(value, from, to) {
     if (!value) return null;
-    const s = normalize(value, from); return { ...s, ...to, patch: s.patch.map(row => {
+    const s = normalize(value, from);
+    for (const key of ['worldId', 'runId']) if (s.deltaTree?.[key]) s.deltaTree[key] = [to[key]];
+    return { ...s, ...to, patch: s.patch.map(row => {
       if (row[0].length === 1 && ['worldId', 'runId'].includes(row[0][0])) return [row[0], to[row[0][0]]];
       return row;
     }) };
@@ -231,5 +279,6 @@
     }
     state.clock = s.clock; return true;
   }
-  return { create, normalize, open, pack, rebind, materialize, sync, nearby, terrain, bindTerrain, birth, capacity, diff, apply };
+  return { create, normalize, open, pack, rebind, materialize, sync, nearby, terrain, bindTerrain, birth, capacity, diff, apply,
+    hasOpen, ready, prepare, advanceBudget };
 });

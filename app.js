@@ -255,6 +255,7 @@
   const WildernessDiscovery = window.HelixWildernessDiscovery;
   const WildernessBeasts = window.HelixWildernessBeasts;
   const NativeBeastPopulations = window.HelixBeastNativePopulations;
+  let nativePopulationJob = null;
   const BeastBodies = window.HelixBeastBodies;
   const CreatureBiology = window.HelixCreatureBiology;
   const CreatureLife = window.HelixCreatureLife;
@@ -18435,15 +18436,26 @@
         // wound, successful claim or public observation. This is a controlled
         // source-context check, not evidence of an ordinary itinerary here.
         const map = activeWorldRecord.generatedData.strategicMap, record = map.beastHabitatSources;
-        const owner = nativeBeastPopulationState(), account = NativeBeastPopulations.open(owner, record, map);
-        const group = account.groups.find(g => g.speciesId === speciesId && g.home.depthM === 0);
+        const populations = window.HelixBeastHabitatSources.populationsFor(map);
+        const bindings = new Map(record.physicalBinding.groupBindings.map(b => [b.groupId, b]));
+        const nurseries = new Map(record.physicalBinding.nurseries.map(n => [n.nursery.id, n.nursery.position]));
+        let group, region, position;
+        for (const row of record.groupRows) {
+          const p = populations[row[0]]; if (p.speciesId !== speciesId) continue;
+          const id = `natural-group:${p.id}:${row[1]}`, b = bindings.get(id), patch = record.patchRows[row[2]];
+          const point = b?.home ? { regionId: b.home.patchId, eastM: b.home.eastKm * 1000,
+            northM: b.home.northKm * 1000, altitudeM: -b.home.depthM || 0 } : nurseries.get(b?.initialNurseryId);
+          if (!point || point.altitudeM !== 0) continue;
+          group = { populationId: p.id };
+          region = { id: point.regionId, cellId: StrategicWorld.cellId(patch[0]),
+            kind: ['surface', 'wetland', 'shore', 'waterColumn', 'subsurface'][patch[1]] };
+          position = clonePlainObject(point); break;
+        }
         if (!group) return false;
-        const region = account.regions.find(r => r.id === group.regionId), cohort = group.cohorts[0];
-        const position = window.HelixBeastRegionalFoodweb.position(group, region, cohort, cohort.ranges[0][0]);
         materializeSurveySpaces();
         const survival = ensureWildernessSurvival();
         survival.destination = { id: `native-test:${region.id}`, strategicCellId: region.cellId,
-          label: 'Original native habitat window', temperatureC: region.seasons[0].temperatureC,
+          label: 'Original native habitat window', temperatureC: map.climate.temperatureTenthsC[StrategicWorld.cellIndex(region.cellId)] / 10,
           slopePercent: 0, jurisdiction: 'Wilderness', description: 'Controlled geographic source window.' };
         survival.context = { ...clonePlainObject(ensureResourceSurveys().context), siteId: survival.destination.id, strategicCellId: region.cellId };
         survival.materialized = false; materializeWilderness();
@@ -18460,7 +18472,7 @@
         moveSurveyScientist(WildernessSurvival.ROOM, WildernessSurvival.ENTRY);
         materializeWildernessBeasts(); updateWildernessBeasts(0); persist(); render();
         return clonePlainObject({ sourceId: record.id, populationId: group.populationId,
-          memberId: `${cohort.originId}:${cohort.ranges[0]?.[0] ?? 0}`, position });
+          position });
       },
       configureWildernessBeastsTest: (options = {}) => {
         materializeSurveySpaces(); materializeWilderness();
@@ -24322,6 +24334,8 @@
 
   function tick() {
     const now = Date.now();
+    if (state?.started && !startupOverlayOpen && !scientistIsDead() && state.nativeBeastPopulations
+      && !prepareNativePopulationHistory()) { lastTickAt = now; maybeAutosave(now); return; }
     const changed = commitRealtimeElapsed(now);
     if (!state?.started || startupOverlayOpen || state.paused) {
       maybeAutosave(now);
@@ -24338,7 +24352,7 @@
   function renderClockReadout() {
     if (!dom.clockReadout) return;
     dom.clockReadout.textContent = formatClock(state.clock);
-    dom.pauseReadout.textContent = state.runEnded ? "Scientist dead" : currentDetentionRaid() ? state.paused ? "Detained · Paused" : "Detained · Running" : state.paused ? "Paused" : "Running";
+    dom.pauseReadout.textContent = nativePopulationLoading() ? nativePopulationJob.failed ? 'Habitat history unavailable' : 'Resolving elapsed habitat history' : state.runEnded ? "Scientist dead" : currentDetentionRaid() ? state.paused ? "Detained · Paused" : "Detained · Running" : state.paused ? "Paused" : "Running";
     dom.speedReadout.textContent = `Speed ${currentTimeSpeed().label}`;
     for (const element of document.querySelectorAll("[data-task-remaining]")) {
       const task = state.tasks.find((candidate) => candidate.id === element.dataset.taskRemaining);
@@ -24423,6 +24437,7 @@
   }
 
   function togglePause() {
+    if (nativePopulationLoading()) return;
     const now = Date.now();
     if (!state.paused) commitRealtimeElapsed(now);
     if (scientistIsDead()) return;
@@ -25227,7 +25242,7 @@
   }
 
   function advanceTime(seconds, options = {}) {
-    if (scientistIsDead()) return 0;
+    if (scientistIsDead() || nativePopulationLoading()) return 0;
     const advanceStartedAt = performance.now();
     const elapsed = Math.max(0, Number(seconds) || 0);
     if (!options.wardResearchStep && elapsed > 1 && outerApproachGates().some(g => g.outerApproach.scientificCompact?.job)) {
@@ -99817,11 +99832,10 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const map = activeWorldRecord?.generatedData?.strategicMap, index = StrategicWorld.cellIndex(survival.destination.strategicCellId);
     const populations = (map?.beastEcology?.populations || []).filter((population) => StrategicBeastEcology.maskIncludes(population.territory.rangeMask, index));
     const native = map?.beastHabitatSources?.physicalPlacement && NativeBeastPopulations.capacity(map.beastHabitatSources).supported;
+    if (native && !prepareNativePopulationHistory()) return saved;
     const beasts = native
       ? materializeNativeBeasts(survival, map)
       : WildernessBeasts.materialize(state.seed, survival.destination.id, populations, ensureLabMap().rooms[activeWildernessRoom()].cells, state.clock);
-    if (map?.beastHabitatSources?.physicalPlacement && !native)
-      beasts.nativeUnavailable = 'Catalog-wide population-backed encounters are not yet available at this globe resolution. Existing ground encounter representatives remain a separate system, not native population claims.';
     const ledger = ensureRegionalEncounters();
     if (ledger) {
       // Native originals already have exclusive cohort ownership. The legacy
@@ -99843,6 +99857,37 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (state.nativeBeastPopulations.worldId !== binding.worldId || state.nativeBeastPopulations.runId !== binding.runId)
       throw Error('Native creature populations belong to another run');
     return state.nativeBeastPopulations;
+  }
+  function nativePopulationLoading() {
+    return Boolean(nativePopulationJob && nativePopulationJob.owner === state?.nativeBeastPopulations);
+  }
+  function prepareNativePopulationHistory() {
+    const owner = nativeBeastPopulationState(), map = activeWorldRecord?.generatedData?.strategicMap;
+    if (!owner) return true;
+    if (nativePopulationLoading()) return false;
+    if (NativeBeastPopulations.hasOpen(owner)
+      && NativeBeastPopulations.advanceBudget(owner, map.beastHabitatSources, map, state.clock, 32)) return true;
+    const saved = ensureWildernessBeasts(), job = { owner, at: state.clock };
+    nativePopulationJob = job; state.paused = true;
+    saved.nativePending = 'Resolving elapsed habitat history. Simulation is paused; this is not an absence or safety assessment.';
+    saved.noticeSerial++;
+    renderClockReadout();
+    NativeBeastPopulations.prepare(owner, map.beastHabitatSources, map, job.at, {
+      budget: 32, continue: () => nativePopulationJob === job && state.nativeBeastPopulations === owner && !scientistIsDead()
+    }).then(done => {
+      if (nativePopulationJob !== job) return;
+      nativePopulationJob = null;
+      if (!done || state.nativeBeastPopulations !== owner || scientistIsDead()) return;
+      delete saved.nativePending;
+      materializeWildernessBeasts(); observeWildernessBeasts();
+      persist(); render();
+    }).catch(() => {
+      if (nativePopulationJob !== job || state.nativeBeastPopulations !== owner) return;
+      job.failed = true;
+      saved.nativePending = 'The original habitat history could not be resolved. The simulation remains paused; no replacement animals or resources were created.';
+      persist(); render();
+    });
+    markStateDirty(); return false;
   }
   function materializeNativeBeasts(survival, map) {
     const owner = nativeBeastPopulationState(), baseline = survival.discovery.baseline;
@@ -99876,7 +99921,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function syncNativeBeasts() {
     const owner = state.nativeBeastPopulations, map = activeWorldRecord?.generatedData?.strategicMap;
-    if (!owner || !map?.beastHabitatSources) return;
+    if (!owner || !map?.beastHabitatSources || nativePopulationLoading() || !NativeBeastPopulations.hasOpen(owner)) return;
     const actors = [...allWildernessBeasts(), ...localBeastActors(state.unsupportedExcursions?.boundary?.beasts),
       ...localBeastActors(state.unsupportedExcursions?.remote?.beasts)];
     NativeBeastPopulations.sync(owner, map.beastHabitatSources, map, actors, state.clock);
@@ -100526,6 +100571,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     panel.dataset.mirrorApePopulations = 'true';
     panel.append(textEl('p', 'All 24 authored beasts share physical bodies and abilities. Population-backed encounters retain original individuals, injuries and finite reserves where actual position and habitat permit contact. Unknown or unsuitable terrain supplies no creature, and absence is not a safety assessment. Only personally observed signs and bodies are reported here.'));
     if (ensureWildernessBeasts().nativeUnavailable) panel.append(textEl('p', ensureWildernessBeasts().nativeUnavailable));
+    if (ensureWildernessBeasts().nativePending) panel.append(textEl('p', ensureWildernessBeasts().nativePending));
     panel.append(textEl('p', 'Other original Mirror Ape groups may occupy source-backed habitat along a measured approach. Actual travel can encounter them; another individual’s compact does not bind them, and they learn spells only from their own observations. Quiet travel or defeating an encountered group is not a population census or strategic safety proof.'));
     for (const f of overlandStopSite()?.climbSurfaces || []) if (sensoryLineOfSight(scientistMapCell(), f.cell)
       && WildernessBeasts.distance(scientistMapCell(), f.cell) <= 8)
@@ -116217,6 +116263,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         if (startupOverlayOpen) dom.titleImportStatus.textContent = "Import validated.";
         applyImportedState(candidate);
       } catch (error) {
+        console.warn('Run import failed', error);
         reportImportFailure();
       } finally {
         input.value = "";

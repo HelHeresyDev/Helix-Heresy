@@ -26,6 +26,22 @@
   const dot = (a, b) => a.reduce((n, x, i) => n + x * b[i], 0);
   const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
   const pristineCache = new WeakMap();
+  const validatedSources = new WeakMap();
+  function samePhysical(a, b, key = '') {
+    if (a === b) return true;
+    // ECMAScript transcendental implementations can differ by one last bit.
+    // Only derived spatial coordinates get a roundoff comparison. Subtracting
+    // large anchors can amplify relative error near zero; allow ten nanometres
+    // there, or two epsilons for large coordinates. Counts,
+    // materials, budgets, flags and archived identity remain exact.
+    if (typeof a === 'number' && typeof b === 'number') return ['eastM', 'northM', 'eastKm', 'northKm'].includes(key)
+      && Number.isFinite(a) && Number.isFinite(b)
+      && Math.abs(a - b) <= Math.max(key.endsWith('Km') ? 1e-11 : 1e-8,
+        Number.EPSILON * 2 * Math.max(1, Math.abs(a), Math.abs(b)));
+    if (!a || !b || typeof a !== 'object' || typeof b !== 'object' || Array.isArray(a) !== Array.isArray(b)) return false;
+    const keys = Object.keys(a);
+    return keys.length === Object.keys(b).length && keys.every(k => Object.hasOwn(b, k) && samePhysical(a[k], b[k], k));
+  }
   function ecologyFor(map) {
     if (map.beastEcology) return map.beastEcology;
     if (!map.pristineBeastEcology) return null;
@@ -308,7 +324,7 @@
       unlocated: copy(record.unlocated || []), regionalFoodWeb: Boolean(record.physicalBinding),
       ...(record.physicalPlacement ? { spatialContinuity: true } : {}) };
     if (record.physicalBinding && !options.raw) Bindings.apply(result, record.physicalBinding, map);
-    if (record.backgroundWildlife && !options.raw) Wildlife.apply(result, record.backgroundWildlife);
+    if (record.backgroundWildlife && !options.raw && !options.deferUnused) Wildlife.apply(result, record.backgroundWildlife);
     if (record.lanternMoisture) for (const r of result.regions) if (r.kind !== 'subsurface') {
       const index = r.source.cellIndex;
       // An explicit climate proxy, not measured daily weather or an animal's
@@ -325,7 +341,47 @@
         r.source.evaporatedSeawaterL = litres; // Finite initial evaporation, no renewed ocean or fresh-water spring.
       }
     }
-    return result;
+    return options.deferUnused && !options.raw ? deferUnused(result, record) : result;
+  }
+  // Empty, disconnected habitat has no outside consumer until a real arrival,
+  // local read or dependency reaches it. Retain its immutable original recipe;
+  // the population engine will execute elapsed history before admitting it.
+  function deferUnused(source, record) {
+    const originals = new Map(source.regions.map(r => [r.id, r]));
+    const hot = new Set(source.groups.map(g => g.regionId));
+    const nurseries = new Set(source.groups.flatMap(g => g.cohorts.map(c => c.nurseryId).filter(Boolean)));
+    for (const r of source.regions) if (r.nurseries?.some(n => nurseries.has(n.id))
+      || r.ecology?.workSites.some(site => site.participantGroupIds?.length)) hot.add(r.id);
+    const water = source.regions.flatMap(r => (r.ecology?.watercourses || []).map(c => [r.id, c.downstreamRegionId]));
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const [a, b] of water) if (hot.has(a) || hot.has(b)) {
+        if (!hot.has(a) || !hot.has(b)) changed = true;
+        hot.add(a); hot.add(b);
+      }
+    }
+    const wildlife = record.backgroundWildlife;
+    const loader = {
+      header(id) {
+        const original = originals.get(id); if (!original) throw Error('Unknown original deferred habitat');
+        return Object.assign(Object.create(original), { id, deferred: true });
+      },
+      load(ids) {
+        const selected = new Set(ids), regions = ids.map(id => {
+          const r = originals.get(id); if (!r) throw Error('Unknown original habitat'); return copy(r);
+        });
+        if (wildlife) Wildlife.apply({ regions }, { ...wildlife,
+          ...(wildlife.spatialRows ? { spatialRows: wildlife.spatialRows.filter(row => selected.has(row[0])) } : {}),
+          ...(wildlife.allocations ? { allocations: wildlife.allocations.filter(row => selected.has(row.regionId)) } : {}) });
+        return regions;
+      },
+      initialWarm: hot.size, total: originals.size
+    };
+    const ready = new Map(loader.load([...hot]).map(r => [r.id, r]));
+    source.regions = source.regions.map(r => ready.get(r.id) || loader.header(r.id));
+    Object.defineProperty(source, '_deferredLoader', { value: loader });
+    return source;
   }
   function distance(a, b, map) {
     const horizontal = a.home.cellId === b.home.cellId
@@ -639,13 +695,15 @@
       || !Number.isInteger(record.calibration) || record.calibration < 0 || record.calibration > 2) throw Error('Habitat source does not match its physical world or authored biology');
     const saved = copy(record); saved.id = '';
     if (record.id !== `beast-habitat-source:${World.stableHash(saved)}`) throw Error('Habitat source identity is invalid');
+    if (validatedSources.get(map)?.get(record.id) === currentDigest) return record;
     const topology = World.topologyForMap(map), patchRows = [];
     for (let i = 0; i < topology.cellCount; i++) patchRows.push(...patchesForCell(map, i, topology, record.physicalPlacement === true));
     const expected = candidate(record.seed, map, patchRows, record.calibration, Boolean(record.physicalBinding), Boolean(record.backgroundWildlife), record.physicalPlacement === true,
       record.habitatAccess === true, record.windTransport === true, record.lanternMoisture === true, record.wildlifeDistribution === true, record.wildlifeCarcasses === true, record.establishedHabitats === true, record.wetlandDrainage === true, record.huntingHabitatAccess === true, record.catchmentDrainage === true);
     if (record.sourceDigest === legacyDigest) expected.sourceDigest = record.sourceDigest;
     const physical = value => { const result = copy(value); delete result.id; delete result.assessment; delete result.groupRows; return result; };
-    if (World.stableHash(physical(expected)) !== World.stableHash(physical(record))) throw Error('Habitat source physical accounts were changed');
+    if (World.stableHash(physical(expected)) !== World.stableHash(physical(record)) && !samePhysical(physical(expected), physical(record)))
+      throw Error('Habitat source physical accounts were changed');
     if (record.physicalBinding && World.stableHash(expected.groupRows) !== World.stableHash(record.groupRows)) throw Error('Original bound habitat placement was changed');
     const templates = new Map(expected.groupRows.map(row => [`${row[0]}:${row[1]}`, row]));
     const masks = new Map(), populations = populationsFor(map), patches = patchRows.map(row => expandPatch(map, row, record.calendar));
@@ -662,7 +720,9 @@
       || !['rejected', 'feasibleInitialCycle'].includes(record.assessment.status)) throw Error('Incomplete original source proposal');
     // Archived diagnostics are immutable advisory results, not live capacity
     // certificates. Replaying improved diagnostics must not rewrite a world.
-    // Activation below still recomputes current feasibility before use.
+    // Activation checks integrity separately; feasibility remains diagnostic.
+    if (!validatedSources.has(map)) validatedSources.set(map, new Map());
+    validatedSources.get(map).set(record.id, currentDigest);
     return record;
   }
   const assessmentToken = Symbol('normalized private replay');
@@ -740,13 +800,13 @@
     result.status = issues.length ? 'rejected' : account.clock < cycleEnd ? 'incomplete' : unresolved.length ? 'unverified' : 'supported';
     return result;
   }
-  function runtimeSource(record, map) {
+  function runtimeSource(record, map, options = {}) {
     validate(record, map);
     if (map.beastHabitatSources?.id !== record.id) throw Error('Active accounts require the exact archived original source');
     if (!record.physicalBinding) throw Error('Archived source lacks recorded physical bindings; activation cannot silently upgrade it');
     // Encounter activation is a source-integrity decision, not an ecological
     // health certificate. Keep the immutable forecast and measured losses.
-    const source = expand(record, map);
+    const source = expand(record, map, options);
     delete source.diagnosticOnly;
     source.nativeEncounters = true;
     source.ecologicalStatus = 'unverified';

@@ -228,6 +228,27 @@ test('source validation derives area/counts from physical truth, not a re-signed
   assert.throws(() => S.validate(record, altered), /physical world/);
   assert.throws(() => S.validate(record, map, 'a-different-world-seed'), /physical world/);
 });
+test('portable coordinate roundoff does not relax physical budgets, membership or cached world validation', () => {
+  const { record, map } = fixture(), sign = r => {
+    r.id = ''; r.id = `beast-habitat-source:${W.stableHash(r)}`; return r;
+  };
+  const portable = clone(record), position = portable.physicalBinding.nurseries.find(n => n.nursery.position).nursery.position;
+  position.eastM += 1e-10;
+  const before = JSON.stringify(sign(portable));
+  assert.equal(S.validate(portable, map), portable); assert.equal(JSON.stringify(portable), before);
+  const moved = clone(record); moved.physicalBinding.nurseries[0].nursery.position.eastM += .001;
+  assert.throws(() => S.validate(sign(moved), map), /changed/);
+  const area = clone(record); area.patchRows[0][2] += 1e-5;
+  assert.throws(() => S.validate(sign(area), map), /changed/);
+  const count = clone(record); count.groupRows[0][3]++;
+  assert.throws(() => S.validate(sign(count), map), /changed/);
+  S.validate(record, map); const rainfall = map.climate.precipitationMm[0];
+  try {
+    map.climate.precipitationMm[0]++;
+    assert.throws(() => S.validate(record, map), /physical world/);
+  } finally { map.climate.precipitationMm[0] = rainfall; }
+  assert.equal(S.validate(record, map), record);
+});
 test('traditional seasonal destinations stay fixed while concrete route and resource checks replace blanket unverified labels', () => {
   const { record, map } = fixture(), source = S.expand(record, map);
   const g = source.groups.find(g => g.instinct); assert.ok(g);

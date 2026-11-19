@@ -31,6 +31,49 @@ test('native activation checks original source integrity without declaring ecolo
   assert.equal(source.diagnosticOnly, undefined); assert.equal(JSON.stringify(map), before);
   assert.throws(() => S.runtimeSource({ ...map.beastHabitatSources, id: 'wrong' }, map));
 });
+test('deferred generated habitats match the eager original at an elapsed ecological read', () => {
+  const { map, binding } = original(), record = map.beastHabitatSources;
+  const eager = P.create(S.runtimeSource(record, map), binding);
+  const state = N.create(record, binding), lazy = N.open(state, record, map), until = P.DAY;
+  assert.ok(lazy.regions.some(r => r.deferred));
+  P.advance(eager, until, true, true); P.advance(lazy, until, true, true);
+  assert.deepEqual(lazy.groups, eager.groups);
+  assert.deepEqual(lazy.regions, eager.regions);
+  assert.deepEqual(P.audit(lazy), P.audit(eager));
+  N.pack(state, record, map);
+  assert.deepEqual(N.open(copy(state), record, map).regions, lazy.regions);
+});
+test('legacy eager deltas retain their baseline and unopened or cancelled work does not initialize', async () => {
+  const { map, binding } = original(), record = map.beastHabitatSources;
+  const unopened = N.create(record, binding), before = JSON.stringify(unopened);
+  assert.equal(N.pack(unopened, record, map), unopened); assert.equal(N.hasOpen(unopened), false);
+  assert.equal(await N.prepare(unopened, record, map, P.DAY, { continue: () => false, yield: async () => {} }), false);
+  assert.equal(JSON.stringify(unopened), before); assert.equal(N.hasOpen(unopened), false);
+  let yields = 0;
+  const interrupted = N.create(record, binding);
+  assert.equal(await N.prepare(interrupted, record, map, P.DAY, {
+    budget: 1, continue: () => yields < 2, yield: async () => { yields++; }
+  }), false);
+  assert.ok(interrupted.clock < P.DAY);
+  N.pack(interrupted, record, map);
+  const stopped = JSON.stringify(interrupted);
+  assert.equal(await N.prepare(interrupted, record, map, P.DAY, { continue: () => false, yield: async () => {} }), false);
+  assert.equal(JSON.stringify(interrupted), stopped);
+  assert.equal(N.open(copy(interrupted), record, map).clock, interrupted.clock);
+  const old = N.create(record, binding); delete old.deferredHabitats;
+  const eager = N.open(old, record, map); assert.ok(eager.regions.every(r => !r.deferred));
+  assert.equal(P.removeStock(eager, eager.regions[0].id, 'waterL', 1, 0, 'actual-original-loss'), true);
+  N.pack(old, record, map); const restored = N.open(copy(old), record, map);
+  assert.deepEqual(restored.regions, eager.regions);
+  const legacyRows = [], visit = (tree, path = []) => {
+    for (const [key, value] of Object.entries(tree)) {
+      if (Array.isArray(value)) legacyRows.push([[...path, key], ...value]);
+      else visit(value, [...path, key]);
+    }
+  };
+  visit(old.deltaTree); old.patch = legacyRows; delete old.deltaTree;
+  assert.deepEqual(N.open(copy(old), record, map).regions, eager.regions);
+});
 test('all authored body families can claim their actual original members in appropriate physical habitat', () => {
   const { map, binding } = original(), record = map.beastHabitatSources, state = N.create(record, binding), s = N.open(state, record, map);
   for (const species of Object.keys(B.profiles)) {
@@ -55,6 +98,8 @@ test('population deltas reload exact depleted bodies without replacements and re
   assert.equal(N.open(branch, record, map).runId, 'continued');
   assert.throws(() => N.normalize(saved, { ...binding, runId: 'wrong' }));
   assert.throws(() => N.apply({}, [[['__proto__', 'polluted'], true]]));
+  const corrupt = copy(state); corrupt.deltaTree = JSON.parse('{"__proto__":{"polluted":[true]}}');
+  assert.throws(() => N.open(corrupt, record, map), /delta path/);
 });
 test('source positions and actual footprint reject remote, undersized and wrong-medium encounters', () => {
   const { map, binding } = original(), record = map.beastHabitatSources, state = N.create(record, binding), s = N.open(state, record, map);
@@ -108,11 +153,11 @@ test('a local original death is counted once, remains dead after reload, and doe
   assert.deepEqual(N.materialize(saved, record, map, site, { ...ctx, at: P.DAY, alive: false }), []);
   assert.equal(JSON.stringify(saved), frozen);
 });
-test('oversized sources are refused before expansion rather than exhausting the browser working set', () => {
+test('source capacity is not an arbitrary patch-count gate and forged larger archives still fail integrity checks', () => {
   const { map, binding } = original(), record = map.beastHabitatSources;
   const large = { ...record, patchRows: Array.from({ length: 513 }, () => record.patchRows[0]) };
-  assert.equal(N.capacity(large).supported, false);
-  assert.throws(() => N.open(N.create(large, binding), large, map), /working set/);
+  assert.equal(N.capacity(large).supported, true);
+  assert.throws(() => N.open(N.create(large, binding), large, map), /identity|physical/);
 });
 test('a million-member formation is queried in bounded ranges, not a per-animal scan', () => {
   const { map, binding } = original(), record = map.beastHabitatSources, state = N.create(record, binding), s = N.open(state, record, map);

@@ -75,7 +75,8 @@
     }
     if (g.regionalPosition?.regionId === r.id && point(g.regionalPosition)) return copy(g.regionalPosition);
     if (g.home?.patchId !== r.id || !Number.isFinite(g.home.eastKm) || !Number.isFinite(g.home.northKm)) return null;
-    const p = { regionId: r.id, eastM: g.home.eastKm * 1000, northM: g.home.northKm * 1000, altitudeM: -g.home.depthM || 0 };
+    const p = g.originalPosition?.regionId === r.id ? copy(g.originalPosition)
+      : { regionId: r.id, eastM: g.home.eastKm * 1000, northM: g.home.northKm * 1000, altitudeM: -g.home.depthM || 0 };
     if (c) {
       const formation = g.regionalFormation?.[c.originId]; if (!formation) return null;
       p.eastM += formation.offsetM + ordinal % formation.columns * formation.eastSpacingM;
@@ -364,7 +365,7 @@
     s.foodWeb = { nextAt: (Math.floor(s.clock / DAY) + 1) * DAY, lastAt: s.clock, pending: [],
       serial: 0, receipts: { attempts: 0, contacts: 0, kills: 0, escapes: 0, interrupted: 0, consumedKg: 0, decomposedKg: 0, deferred: 0 },
       work: { indexedGroups: 0, candidateChecks: 0, combatSteps: 0 }, events: [] };
-    for (const r of s.regions) Foraging.initialize(r);
+    for (const r of s.regions) if (!r.deferred) Foraging.initialize(r);
     for (const g of s.groups) {
       g.regionalFormation = {}; let offsetM = 0;
       for (const c of g.cohorts) {
@@ -627,7 +628,7 @@
     const due = web.pending.filter(c => c.dueAt <= at + EPS && (!regionIds || regionIds.has(c.regionId)));
     const claimed = new Set(due); web.pending = web.pending.filter(c => !claimed.has(c));
     for (const c of due) resolve(s, c, at, api);
-    for (const r of s.regions) if (!regionIds || regionIds.has(r.id)) Wildlife.finish(r, at, { ...api,
+    for (const r of s.regions) if (!r.deferred && (!regionIds || regionIds.has(r.id))) Wildlife.finish(r, at, { ...api,
       canForage(g, c) {
         const a = actor(g, c, c.ranges[0]?.[0], r, at); if (!a) return false;
         const ctx = context(r, [a], s.plans.at(-1).season);
@@ -643,6 +644,7 @@
     web.nextAt = (Math.floor((at + EPS) / DAY) + 1) * DAY; web.lastAt = at;
     const regionMap = new Map(s.regions.map(r => [r.id, r])), rows = [], harms = new Map();
     for (const r of s.regions) {
+      if (r.deferred) continue;
       r.contactHarms = (r.contactHarms || []).filter(h => at - h.at <= 60);
       const byGroup = new Map(); harms.set(r.id, byGroup);
       for (const h of r.contactHarms) { if (!byGroup.has(h.groupId)) byGroup.set(h.groupId, []); byGroup.get(h.groupId).push(h); }

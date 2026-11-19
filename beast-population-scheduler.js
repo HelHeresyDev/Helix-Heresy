@@ -153,6 +153,17 @@
     const c = caches.get(s); removeUnits(c, ids);
     s.nextDemographyAt = Math.max(s.nextDemographyAt, (Math.floor((at + EPS) / DAY) + 1) * DAY);
     for (const part of components(c, ids)) {
+      if ([...part].every(id => c.regions.get(id).deferred)) {
+        const empty = { renewal: {}, demand: {}, supply: {}, net: {} };
+        const v = { appliedAt: 0, nextEventAt: Number.MAX_VALUE, dailyNeeded: false, groups: [], extraRates: [],
+          rates: Object.fromEntries([...part].map(id => [id, { ...empty }])) };
+        store(s, part, v); continue;
+      }
+      // A newly established care/drift reference can join a previously empty
+      // component during rebuilding, before its first local event. Execute
+      // that component's original history before it joins a live work unit.
+      const deferred = [...part].filter(id => c.regions.get(id).deferred);
+      if (deferred.length) c.ops.activateDeferred(s, deferred, at);
       const v = view(s, part, at); c.ops.rebuild(v, at); store(s, part, v);
     }
     refresh(s);
@@ -181,6 +192,7 @@
     refresh(s);
   }
   function integrateUnit(s, u, at) {
+    if (u.ids.every(id => caches.get(s).regions.get(id).deferred)) return;
     if (at <= u.at) return;
     const c = caches.get(s), v = view(s, new Set(u.ids), u.at);
     c.ops.integrate(v, at); u.at = at;
@@ -192,6 +204,11 @@
   function settle(s, ids, at) {
     const c = caches.get(s), affected = closure(c, ids, true), units = new Set([...affected].map(id => c.byRegion.get(id)));
     for (const u of units) if (u) integrateUnit(s, u, at);
+    const deferred = [...affected].filter(id => c.regions.get(id).deferred);
+    if (deferred.length) {
+      c.ops.activateDeferred(s, deferred, at);
+      rebuildParts(s, new Set(deferred), at);
+    }
     refresh(s); return affected;
   }
   function settleAll(s, at) {
@@ -203,14 +220,18 @@
     for (const id of affected) for (const gid of c.resident.get(id) || []) updateGroup(s, c.groups.get(gid), at);
     rebuildParts(s, closure(c, affected, true), at);
   }
-  function advance(s, at, settleRead) {
+  function advance(s, at, settleRead, budget = Infinity) {
     const c = caches.get(s);
+    let completed = 0, processedAt = s.clock;
     while (s.nextEventAt <= at + EPS) {
+      if (completed++ >= budget) { s.clock = processedAt; refresh(s); return false; }
       const event = c.events.peek(e => c.units.has(e.unit.id)), global = globalAt(s, c);
       if (global <= (event?.at ?? Infinity) + EPS) {
         settleAll(s, global); c.ops.boundary(s, global);
+        processedAt = global;
       } else {
         const time = event.at, seeds = new Set(event.unit.ids);
+        processedAt = time;
         const initial = view(s, seeds, event.unit.at);
         for (const g of initial.groups) for (const id of c.ops.movingDestinations(g, time)) seeds.add(id);
         const affected = settle(s, seeds, time), v = view(s, affected, time);
@@ -225,8 +246,11 @@
         } else rebuildParts(s, closure(c, affected, true), time);
       }
     }
-    if (settleRead) settleAll(s, at);
-    s.clock = at; refresh(s);
+    if (settleRead) {
+      if (s._deferredLoader) settle(s, s.regions.map(r => r.id), at);
+      else settleAll(s, at);
+    }
+    s.clock = at; refresh(s); return true;
   }
   function validate(s) {
     if (!s.regionClocks) return true; // A pre-clock account can retain its recorded global cache.

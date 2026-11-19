@@ -2255,7 +2255,9 @@ animal choices using hidden destination data. Encounter activation now checks
 source integrity separately from ecological viability; rejected forecasts are
 not labelled healthy or exhausted. The [bounded native adapter](BEAST_POPULATIONS.md#bounded-native-encounter-adapter)
 retains actual original bodies and sparse run history in supported wilderness
-windows, but default-globe capacity and catalog-wide ordinary-play access remain
+windows. Default-globe opening now defers empty habitat history until a real
+read, arrival or dependency, without freezing distant named groups or refilling
+resources. Catalog-wide ordinary-play access and long-run adoption remain
 unfinished. Successful seasonal
 allocation repair and native encounter integration remain D work, not additional
 ordinary-play encounter coverage.

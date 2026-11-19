@@ -108,6 +108,10 @@
       || !Biology.lifecycle[row.speciesId] || row.count != null && !integer(row.count)))) throw Error('Invalid original unlocated capacity');
     const regions = new Set(), groups = new Set(), cohorts = new Set();
     for (const r of source.regions) {
+      if (r.deferred === true && source._deferredLoader) {
+        if (!id(r.id) || regions.has(r.id) || !source._deferredLoader.header(r.id)) throw Error('Invalid deferred original region');
+        regions.add(r.id); continue;
+      }
       if (!id(r.id) || regions.has(r.id) || !(r.areaHa > 0) || !Number.isFinite(r.areaHa) || !r.stocks || !r.capacity || !r.renewalPerDay
         || !Object.values(r.stocks).every(nonnegative) || !Object.values(r.capacity).every(nonnegative)
         || !Object.values(r.renewalPerDay).every(nonnegative) || !Array.isArray(r.edges)) throw Error('Invalid physical region');
@@ -147,18 +151,20 @@
       ...(source.nativeEncounters === true ? { nativeEncounters: true } : {}),
       ...(source.regionalFoodWeb === true ? { regionalFoodWeb: true } : {}),
       ...(source.spatialContinuity === true ? { spatialContinuity: true } : {}),
-      regions: copy(source.regions), groups: source.groups.map(g => ({ ...copy(g), cohorts: g.cohorts.map(c => cohort(c, at)),
+      regions: source._deferredLoader ? source.regions : copy(source.regions), groups: source.groups.map(g => ({ ...copy(g), cohorts: g.cohorts.map(c => cohort(c, at)),
         knowledge: copy(g.knowledge || []), choiceSerial: 0, intention: null, transit: null, observedShortage: false })),
       details: {}, losses: [], lossBatches: [], births: [], plans: [], events: [], nextEventAt: at,
       nextDemographyAt: (Math.floor(at / DAY) + 1) * DAY, work: { boundaries: 0, cohortIntervals: 0 } };
+    if (source._deferredLoader) Object.defineProperty(s, '_deferredLoader', { value: source._deferredLoader });
     s.originalCounts = {};
     for (const g of source.groups) s.originalCounts[g.populationId] = (s.originalCounts[g.populationId] || 0) + g.cohorts.reduce((n, c) => n + c.count, 0);
     s.origins = Object.fromEntries(source.groups.flatMap(g => g.cohorts.map(c => [c.id,
       { populationId: g.populationId, speciesId: c.speciesId, count: c.count }])));
-    for (const r of s.regions) Wildlife.initialize(r, at);
+    for (const r of s.regions) if (!r.deferred) Wildlife.initialize(r, at);
     Ecology.initialize(s); Foodweb.initialize(s, source.regionalFoodWeb === true); Care.initialize(s);
     if (s.foodWeb) Care.demand(s, at, Foodweb.bounds);
-    plan(s, at);
+    plan(s, at, !s._deferredLoader);
+    s.rates ||= {};
     Scheduler.initialize(s, schedulerOps); return s;
   }
   function createDiagnostic(source, binding, at = 0) {
@@ -193,7 +199,7 @@
     const month = monthAt(s.calendar, at);
     if (s.plans.some(p => p.index === month.index)) return;
     s.plans.push({ ...month, plannedAt: at });
-    for (const r of s.regions) Wildlife.plan(r, month, at);
+    for (const r of s.regions) if (!r.deferred) Wildlife.plan(r, month, at);
     Foodweb.plan(s, { ...month, plannedAt: at });
     for (const g of s.groups) {
       if (s.spatialContinuity) travelCarePlan(g, month, at);
@@ -241,7 +247,24 @@
     const event = Journeys.pause(g, at, pos, at + seconds, reason);
     if (event) { budget.stops++; record(s, event.kind, at, event); }
   }
-  const schedulerOps = { location, rebuild: rebuildKernel, integrate, boundary,
+  function activateDeferred(s, ids, at) {
+    const set = new Set(ids), regions = s._deferredLoader.load(ids);
+    const edges = new Map(regions.map(r => [r.id, r.edges]));
+    // No named group has entered this disconnected component yet. Outside
+    // traversal edges cannot affect its anonymous wildlife or internal water.
+    for (const r of regions) r.edges = r.edges.filter(e => set.has(e.id));
+    const past = create({ id: s.sourceId, calendar: s.calendar, regions, groups: [],
+      nativeEncounters: true, regionalFoodWeb: s.regionalFoodWeb, spatialContinuity: s.spatialContinuity },
+    { worldId: s.worldId, runId: s.runId });
+    advance(past, at, true, true);
+    for (const r of past.regions) {
+      r.edges = edges.get(r.id);
+      const header = Demography.region(s, r.id);
+      delete header.deferred; Object.setPrototypeOf(header, Object.prototype); Object.assign(header, r);
+    }
+    for (const [key, n] of Object.entries(past.work)) s.work[key] = (s.work[key] || 0) + n;
+  }
+  const schedulerOps = { location, rebuild: rebuildKernel, integrate, boundary, activateDeferred,
     refreshGroups: (s, groups) => Demography.refreshGroups(s, groups),
     dailyNeeded: s => Boolean(s.regions.some(r => r.ecology || r.wildlife) || s.groups.some(g => g.cohorts.some(c => count(c) && (c.aggregateMortality || c.demography)) || g.breeding) || s.extraRates?.length),
     movingDestinations: (g, at) => [g.intention?.departAt <= at + EPS ? g.intention.destination : null,
@@ -692,7 +715,7 @@
     plan(s, at, false);
     const demographicTick = at + EPS >= (s.nextDemographyAt ?? Infinity);
     if (demographicTick) s.nextDemographyAt = (Math.floor((at + EPS) / DAY) + 1) * DAY;
-    for (const r of s.regions) Wildlife.boundary(r, at, demographicTick);
+    for (const r of s.regions) if (!r.deferred) Wildlife.boundary(r, at, demographicTick);
     const foodApi = {
       region: id => Demography.region(s, id), group: id => Demography.group(s, id), lose: (...args) => lose(s, ...args)
     };
@@ -741,6 +764,11 @@
     if (!alive || !nonnegative(at) || at < s.clock) return false;
     if (!Scheduler.active(s)) Scheduler.restore(s, schedulerOps);
     Scheduler.advance(s, at, settle); return true;
+  }
+  function advanceBudget(s, at, budget = 32) {
+    if (!nonnegative(at) || at < s.clock || !Number.isSafeInteger(budget) || budget < 1) throw Error('Invalid elapsed-work budget');
+    if (!Scheduler.active(s)) Scheduler.restore(s, schedulerOps);
+    return Scheduler.advance(s, at, false, budget);
   }
   function advanceLocal(s, at, regions) {
     advance(s, at, true, false);
@@ -1007,10 +1035,14 @@
   }
   function rebind(s, from, to) {
     const result = copy(s);
+    if (s._deferredLoader) {
+      result.regions = result.regions.map(r => r.deferred ? s._deferredLoader.header(r.id) : r);
+      Object.defineProperty(result, '_deferredLoader', { value: s._deferredLoader });
+    }
     if (s.worldId === from?.worldId && s.runId === from?.runId && id(to?.worldId) && id(to.runId)) Object.assign(result, to);
     return result;
   }
-  function normalize(value, binding) {
+  function normalize(value, binding, loader = value?._deferredLoader) {
     try {
       if (!id(value?.worldId) || !id(value.runId) || binding && (value.worldId !== binding.worldId || value.runId !== binding.runId)
         || value.spatialContinuity != null && typeof value.spatialContinuity !== 'boolean'
@@ -1021,11 +1053,17 @@
         || !Array.isArray(value.losses) || !Array.isArray(value.births) || !Array.isArray(value.plans)
         || !value.originalCounts || !Object.values(value.originalCounts).every(integer)) return null;
       const s = copy(value);
+      if (s.regions.some(r => r.deferred)) {
+        if (!loader) return null;
+        s.regions = s.regions.map(r => r.deferred ? loader.header(r.id) : r);
+      }
+      if (loader) Object.defineProperty(s, '_deferredLoader', { value: loader });
       if (s.nextDemographyAt != null && !nonnegative(s.nextDemographyAt)) return null;
       validateSource({ id: s.sourceId, calendar: s.calendar, regions: s.regions,
-        diagnosticOnly: s.diagnosticOnly === true, nativeEncounters: s.nativeEncounters === true, unlocated: s.unlocated, regionalFoodWeb: s.regionalFoodWeb,
+        diagnosticOnly: s.diagnosticOnly === true, nativeEncounters: s.nativeEncounters === true, _deferredLoader: loader, unlocated: s.unlocated, regionalFoodWeb: s.regionalFoodWeb,
         groups: s.groups.map(g => ({ ...g, cohorts: g.cohorts.map(c => ({ ...c, count: count(c), ageDays: Math.max(0, (s.clock - c.bornAt) / DAY) })) })) });
       for (const r of s.regions) {
+        if (r.deferred) continue;
         if (r.airMoistureTakenL != null && !nonnegative(r.airMoistureTakenL)) return null;
         if (r.unmetTotals && !Object.values(r.unmetTotals).every(nonnegative)) return null;
         const rate = s.rates[r.id];
@@ -1084,10 +1122,10 @@
           || !Predation.validRemains(d.actor) || !Predation.validHunt(d.actor) || d.status === 'dead' && d.actor.status !== 'dead')) return null;
       }
       if (!Ecology.valid(s) || !Foodweb.validate(s) || !Scheduler.validate(s) || !Foraging.valid(s, id => Demography.group(s, id)) || !Care.valid(s) || !Wind.valid(s)) return null;
-      audit(s); Demography.prepare(s, s.appliedAt); Scheduler.restore(s, schedulerOps); return s; // Restore indexes, never paid rates or choices.
+      audit(s); Demography.prepare(s, s.clock); Scheduler.restore(s, schedulerOps); return s; // Restore indexes, never paid rates or choices.
     } catch { return null; }
   }
   return { DAY, count, cohortKey, monthAt, hazardIntegral, validateSource, create, createDiagnostic, chooseDestination,
-    advance, settleRegions, detail, claimLocal, settleLocalLoss, registerLocalBirth, recordDetailedLoss, removeStock, destroyNursery, destroyRenewalSite, foodWebSummary: Foodweb.summary,
+    advance, advanceBudget, settleRegions, detail, claimLocal, settleLocalLoss, registerLocalBirth, recordDetailedLoss, removeStock, destroyNursery, destroyRenewalSite, foodWebSummary: Foodweb.summary,
     destroyEcologicalWorkSite, setEcologicalActivity, setDrainageObstruction, setDreamParticipants, damageFeedingTower, kill, audit, rebind, normalize };
 });

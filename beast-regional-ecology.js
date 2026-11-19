@@ -66,7 +66,7 @@
     if (e.action !== 'graze') Work.validateGroup(g, r);
   }
   function initialize(s) {
-    for (const r of s.regions) if (r.ecology) {
+    for (const r of s.regions) if (r.ecology && !r.deferred) {
       Work.Flood.initialize(r, s.clock);
       r.ecologicalAccount = { natural: vector(), nurturing: vector(), destruction: vector(),
         sourceLosses: [], episodes: [], exhausted: false,
@@ -313,24 +313,25 @@
     return true;
   }
   function valid(s) {
-    for (const r of s.regions) if (r.ecology) {
+    for (const r of s.regions) if (r.ecology && !r.deferred) {
+      const at = s.regionClocks?.[r.id]?.appliedAt ?? s.appliedAt;
       const a = r.ecologicalAccount, e = s.rates[r.id]?.ecology;
       const history = a?.viabilityHistory;
-      if (history && (!nonnegative(history.startedAt) || history.startedAt > s.appliedAt + EPS
+      if (history && (!nonnegative(history.startedAt) || history.startedAt > at + EPS
         || !validVector(history.minimumCondition) || channels.some(k => history.minimumCondition[k] > r.condition[k] + EPS)
         || !history.floorBreaches || Object.entries(history.floorBreaches).some(([k, b]) =>
           !Object.hasOwn(r.ecology.viabilityFloors, k) || !nonnegative(b.firstAt) || b.firstAt < history.startedAt - EPS
-          || b.firstAt > s.appliedAt + EPS || !nonnegative(b.belowDays)
-          || b.belowDays > (s.appliedAt - history.startedAt) / DAY + EPS
+          || b.firstAt > at + EPS || !nonnegative(b.belowDays)
+          || b.belowDays > (at - history.startedAt) / DAY + EPS
           || history.minimumCondition[k] >= r.ecology.viabilityFloors[k] - EPS)
         || !Number.isSafeInteger(history.completedCycles) || history.completedCycles < 0
-        || history.completedCycles > Math.floor((s.appliedAt - s.calendar.epochAt + EPS) / (s.calendar.monthDays.reduce((n, d) => n + d, 0) * DAY))
+        || history.completedCycles > Math.floor((at - s.calendar.epochAt + EPS) / (s.calendar.monthDays.reduce((n, d) => n + d, 0) * DAY))
         || !history.lastCycleBalance || channels.some(k => !Number.isFinite(history.lastCycleBalance[k]))
         || !history.maintenanceFailures || Object.entries(history.maintenanceFailures).some(([k, b]) =>
-          !Object.hasOwn(r.ecology.viabilityFloors, k) || !nonnegative(b.firstAt) || b.firstAt > s.appliedAt + EPS
+          !Object.hasOwn(r.ecology.viabilityFloors, k) || !nonnegative(b.firstAt) || b.firstAt > at + EPS
           || !Number.isSafeInteger(b.cycles) || b.cycles < 1 || b.cycles > history.completedCycles
           || !(b.missingEP > 0) || !Number.isFinite(b.missingEP)))) return false;
-      if (!a || !e || !Work.validRates(r, s.rates[r.id]) || !Work.Flood.valid(r, s.rates[r.id], s.appliedAt)
+      if (!a || !e || !Work.validRates(r, s.rates[r.id]) || !Work.Flood.valid(r, s.rates[r.id], at)
         || !['natural', 'nurturing', 'destruction'].every(k => validVector(a[k]) && validVector(e[k]))
         || !e.net || !channels.every(k => Number.isFinite(e.net[k])
           && Math.abs(e.net[k] - (e.natural[k] + e.nurturing[k] - e.destruction[k]) / r.areaHa) < EPS)
@@ -338,7 +339,7 @@
         || !Array.isArray(a.episodes) || !Array.isArray(a.sourceLosses)
         || new Set(a.sourceLosses.map(l => l.id)).size !== a.sourceLosses.length
         || a.sourceLosses.some(l => !validVector(l.condition) || !validVector(l.damageAfter) || !nonnegative(l.firstAt) || !nonnegative(l.lastAt)
-          || l.lastAt < l.firstAt || l.lastAt > s.appliedAt + EPS || !(l.count > 0) || !Number.isSafeInteger(l.count)
+          || l.lastAt < l.firstAt || l.lastAt > at + EPS || !(l.count > 0) || !Number.isSafeInteger(l.count)
           || !Array.isArray(l.channels) || l.channels.some(k => !channels.includes(k))
           || !(l.kind === 'renewalSite' && r.ecology.renewalSites.some(site => site.id === l.siteId && site.destroyedAt != null)
             || l.kind === 'workSite' && r.ecology.workSites.some(site => site.id === l.siteId && site.destroyedAt != null && site.performedWorkDays > 0)
@@ -347,7 +348,7 @@
                 .reduce((n, dead) => n + (dead.count || 1), 0)))
         || a.exhausted && !a.episodes.length
         || a.episodes.some(e => !nonnegative(e.exhaustedAt) || !a.sourceLosses.some(l => l.id === e.lossId)
-          || e.exhaustedAt > s.appliedAt + EPS
+          || e.exhaustedAt > at + EPS
           || e.recoveredAt != null && (!nonnegative(e.recoveredAt) || e.recoveredAt < e.exhaustedAt))) return false;
     }
     for (const g of s.groups) {

@@ -111,6 +111,12 @@ test('marine medium is its original column volume, not freshwater; living reefs 
 });
 test('work bindings retain original group identities, species, location, workforce and body counting basis', () => {
   const { source, record } = fixture(), regions = new Map(source.regions.map(r => [r.id, r]));
+  for (const g of source.groups.filter(g => g.originalPosition)) {
+    const binding = record.physicalBinding.groupBindings.find(b => b.groupId === g.id);
+    assert.equal(binding.home, undefined);
+    assert.deepEqual(g.originalPosition, record.physicalBinding.nurseries.find(n => n.nursery.id === binding.initialNurseryId).nursery.position);
+  }
+  assert.ok(source.groups.some(g => g.originalPosition));
   for (const g of source.groups) if (g.ecology && g.ecology.action !== 'graze') {
     const r = regions.get(g.regionId), site = r.ecology.workSites.find(site => site.id === g.ecology.siteId);
     assert.equal(site.speciesId, g.speciesId); assert.equal(site.areaHa, r.areaHa);

@@ -408,8 +408,12 @@
     for (const { regionId, nursery } of binding.nurseries) regions.get(regionId).nurseries.push(copy(nursery));
     for (const { regionId, course } of binding.watercourses) regions.get(regionId).ecology.watercourses = [copy(course)];
     const groups = new Map(source.groups.map(g => [g.id, g]));
+    const nurseryPositions = new Map(binding.nurseries.filter(n => n.nursery.position).map(n => [n.nursery.id, n.nursery.position]));
     for (const { groupId, feedingTowers, aggregateMortality, initialNurseryId, ...fields } of binding.groupBindings) {
       const g = groups.get(groupId); Object.assign(g, copy(fields));
+      // Prefer the exact archived physical anchor to re-running trigonometry
+      // in a different JS engine. This does not move or regenerate the archive.
+      if (!fields.home && nurseryPositions.has(initialNurseryId)) g.originalPosition = copy(nurseryPositions.get(initialNurseryId));
       if (feedingTowers) for (const c of g.cohorts) c.feedingTowers = copy(feedingTowers);
       if (aggregateMortality) for (const c of g.cohorts) c.aggregateMortality = true;
       if (initialNurseryId) for (const c of g.cohorts) if (c.ageDays < Data.lifecycle[c.speciesId].independentDays) c.nurseryId = initialNurseryId;

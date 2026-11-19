@@ -571,10 +571,44 @@
   const LZW_CLEAR_CODE = 256;
   const LZW_FIRST_SEQUENCE_CODE = 257;
   const LZW_MAX_CODE = 65535;
+  const PACKED_STORAGE_PREFIX = 'lzp:';
+  const PACKED_MAX_CODE = 1048575;
+
+  // Large physical worlds outgrow the old 16-bit dictionary repeatedly. Keep
+  // longer repeated paths, packing variable-width codes into UTF-16 storage
+  // units without UTF-8 conversion (which would corrupt surrogate code units).
+  function compressPackedStorage(input) {
+    const dictionary = new Map(), words = [];
+    let nextCode = LZW_FIRST_SEQUENCE_CODE, phrase = String.fromCharCode(input[0]);
+    let buffer = 0, bits = 0, count = 0;
+    const emit = code => {
+      const width = Math.min(20, Math.ceil(Math.log2(nextCode)));
+      buffer = buffer * 2 ** width + code; bits += width; count++;
+      while (bits >= 16) {
+        bits -= 16; const scale = 2 ** bits;
+        words.push(Math.floor(buffer / scale)); buffer %= scale;
+      }
+    };
+    const code = value => value.length === 1 ? value.charCodeAt(0) : dictionary.get(value);
+    for (let i = 1; i < input.length; i++) {
+      const character = String.fromCharCode(input[i]), combined = phrase + character;
+      if (dictionary.has(combined)) { phrase = combined; continue; }
+      emit(code(phrase));
+      if (nextCode <= PACKED_MAX_CODE) dictionary.set(combined, nextCode++);
+      else { emit(LZW_CLEAR_CODE); dictionary.clear(); nextCode = LZW_FIRST_SEQUENCE_CODE; }
+      phrase = character;
+    }
+    emit(code(phrase));
+    if (bits) words.push(buffer * 2 ** (16 - bits));
+    let packed = `${PACKED_STORAGE_PREFIX}${count}:`;
+    for (let i = 0; i < words.length; i += 8192) packed += String.fromCharCode(...words.slice(i, i + 8192));
+    return packed;
+  }
 
   function compressStorageText(text) {
     const input = new TextEncoder().encode(String(text || ""));
     if (!input.length) return COMPRESSED_STORAGE_PREFIX;
+    if (input.length >= 1048576) return compressPackedStorage(input);
     const dictionary = new Map();
     const output = [];
     let nextCode = LZW_FIRST_SEQUENCE_CODE;
@@ -607,16 +641,31 @@
 
   function decompressStorageText(value) {
     const packed = String(value || "");
-    if (!packed.startsWith(COMPRESSED_STORAGE_PREFIX)) return packed;
-    const codes = packed.slice(COMPRESSED_STORAGE_PREFIX.length);
+    const wide = packed.startsWith(PACKED_STORAGE_PREFIX);
+    if (!wide && !packed.startsWith(COMPRESSED_STORAGE_PREFIX)) return packed;
+    const separator = wide ? packed.indexOf(':', PACKED_STORAGE_PREFIX.length) : -1;
+    const codes = packed.slice(wide ? separator + 1 : COMPRESSED_STORAGE_PREFIX.length);
+    const count = wide ? Number(packed.slice(PACKED_STORAGE_PREFIX.length, separator)) : codes.length;
+    if (wide && (separator < 0 || !Number.isSafeInteger(count) || count < 1 || count > Math.floor(codes.length * 16 / 9)))
+      throw new Error('A packed library record is corrupt.');
     if (!codes.length) return "";
     let dictionary = new Map();
     let nextCode = LZW_FIRST_SEQUENCE_CODE;
     let phrase = "";
     const byteChunks = [];
     let byteCount = 0;
-    for (let index = 0; index < codes.length; index += 1) {
-      const code = codes.charCodeAt(index);
+    let cursor = 0, buffer = 0, bits = 0;
+    for (let index = 0; index < count; index += 1) {
+      let code;
+      if (wide) {
+        const width = Math.min(20, Math.ceil(Math.log2(nextCode + (phrase ? 1 : 0))));
+        while (bits < width) {
+          if (cursor >= codes.length) throw new Error('A packed library record is truncated.');
+          buffer = buffer * 65536 + codes.charCodeAt(cursor++); bits += 16;
+        }
+        bits -= width; const scale = 2 ** bits;
+        code = Math.floor(buffer / scale); buffer %= scale;
+      } else code = codes.charCodeAt(index);
       if (code === LZW_CLEAR_CODE) {
         dictionary = new Map();
         nextCode = LZW_FIRST_SEQUENCE_CODE;
@@ -628,7 +677,7 @@
         : (dictionary.get(code) || (code === nextCode && phrase ? phrase + phrase[0] : null));
       if (entry === null) throw new Error("A compressed library record is corrupt.");
       if (phrase) {
-        if (nextCode <= LZW_MAX_CODE) {
+        if (nextCode <= (wide ? PACKED_MAX_CODE : LZW_MAX_CODE)) {
           dictionary.set(nextCode, phrase + entry[0]);
           nextCode += 1;
         }
@@ -637,9 +686,10 @@
       byteCount += entry.length;
       phrase = entry;
     }
+    if (wide && (cursor !== codes.length || buffer !== 0)) throw new Error('A packed library record has invalid padding.');
     const bytes = new Uint8Array(byteCount);
-    let cursor = 0;
-    for (const chunk of byteChunks) for (let index = 0; index < chunk.length; index += 1) bytes[cursor++] = chunk.charCodeAt(index);
+    let byteCursor = 0;
+    for (const chunk of byteChunks) for (let index = 0; index < chunk.length; index += 1) bytes[byteCursor++] = chunk.charCodeAt(index);
     return new TextDecoder().decode(bytes);
   }
 
@@ -759,6 +809,16 @@
         next.lastPlayedRunId = run.id;
       } else if (next.activeRunId === run.id && run.status !== "active") {
         next.activeRunId = null;
+      }
+      const worldKey = `${WORLD_KEY_PREFIX}${world.id}`, originalWorldText = storage.getItem(worldKey);
+      if (originalWorldText?.startsWith(COMPRESSED_STORAGE_PREFIX) && originalWorldText.length >= 1048576) {
+        // Re-encode only this referenced world, losslessly, before adding its
+        // run. Never discard another run to make room or regenerate world facts.
+        const compactWorldText = compressStorageText(decompressStorageText(originalWorldText));
+        if (compactWorldText.length < originalWorldText.length) {
+          storage.setItem(worldKey, compactWorldText);
+          rememberWorld(world.id, compactWorldText, world);
+        }
       }
       storage.setItem(`${RUN_KEY_PREFIX}${run.id}`, compressStorageText(JSON.stringify(run)));
       writeManifest(next);
