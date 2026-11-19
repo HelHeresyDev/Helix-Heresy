@@ -64,6 +64,7 @@
     if (c.bodyEpoch !== s.trip.bodyEpoch || !c.atRoad) { s.trip.status = 'interrupted'; s.trip.reason = 'Original body or physical road position changed; no relocation or inherited journey.'; return result; }
     for (; s.trip.lastAt + 1 <= at; ) {
       const t = s.trip, walking = t.status === 'walking' && c.capable && !c.busy && c.routeOpen && c.speedKph > 0;
+      const fromKm = t.positionKm;
       if (t.status === 'walking') t.reason = !c.capable ? 'The scientist cannot currently walk.' : !c.routeOpen ? 'The received approach is not currently traversable.' : c.busy ? 'Other physically attended work pauses walking.' : '';
       const halted = c.playableStops && t.status === 'walking' && (!c.capable || !c.routeOpen);
       if (halted) t.status = 'stopped';
@@ -90,6 +91,10 @@
         destination: c.weather || null, sheltered: !walking && Boolean(c.sheltered), carriedRadioIds: c.carriedRadioIds || [] });
       result.needs = n.state; result.damage += n.damage; result.warning ||= n.warning; t.lastAt++;
       if (c.health != null && result.damage >= c.health) { t.status = 'stopped'; t.reason = 'Physiological failure stopped walking.'; break; }
+      if (t.positionKm !== fromKm && c.roadContact) {
+        result.contact = c.roadContact(t.positionKm, t.lastAt, t.direction);
+        if (result.contact) { t.status = 'stopped'; t.reason = 'Stopped after noticing a beast on the reached roadside ground.'; break; }
+      }
       if (reachedStop) { t.status = 'stopped'; t.reason = 'Reached a route stopping point. Continue on actual roadside ground and resume explicitly from its physical entry.'; break; }
       if (halted) break;
       const endpoint = t.direction > 0 ? 'ground' : 'home', reached = t.direction > 0 ? t.positionKm >= s.route.distanceKm - 1e-9 : t.positionKm <= 1e-9;

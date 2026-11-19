@@ -2,6 +2,7 @@ const test = require('node:test'), assert = require('node:assert/strict');
 const L = require('../world-run-library'), N = require('../beast-native-populations'), P = require('../beast-populations');
 const F = require('../beast-regional-foodweb'), B = require('../beast-bodies'), S = require('../beast-habitat-sources');
 const Carrion = require('../wildlife-carcasses');
+const Road = require('../roadside-stops');
 const copy = x => JSON.parse(JSON.stringify(x));
 let fixture;
 function original() {
@@ -31,6 +32,34 @@ test('native activation checks original source integrity without declaring ecolo
   assert.equal(source.nativeEncounters, true); assert.equal(source.ecologicalStatus, 'unverified');
   assert.equal(source.diagnosticOnly, undefined); assert.equal(JSON.stringify(map), before);
   assert.throws(() => S.runtimeSource({ ...map.beastHabitatSources, id: 'wrong' }, map));
+});
+test('roadside sensing can find an original body but an empty, hidden or unsupported reach creates no site or claim', () => {
+  const { map, binding } = original(), record = map.beastHabitatSources, state = N.create(record, binding), s = N.open(state, record, map);
+  const r = s.regions.find(r => r.id === 'habitat:41:surface');
+  const leg = Road.nativeLeg({ id: 'real-approach', legs: [{ distanceKm: .08 }] }, r.cellId, r.areaHa, { eastM: -42552, northM: -149825 });
+  const window = km => Road.nativeWindow(leg, km, 23, 'actual-road');
+  const entry = { x: 10, y: 10, z: 23 }, at = 5000;
+  const ctx = { alive: true, local: true, at, tileSizeM: 1,
+    terrain: () => ({ floor: true, oxygen: true, supportKg: 300 }), blocked: c => B.key(c) === B.key(entry),
+    perceived: a => Road.perceived(entry, B.occupied(a), true, () => true) };
+  const probe = (km, extra = {}) => N.roadsideProbe(state, record, map, window(km), { ...ctx, ...extra });
+  assert.equal(probe(.006), null); assert.equal(probe(.019, { perceived: () => false }), null);
+  assert.equal(probe(.019, { terrain: () => ({ floor: true, oxygen: true, supportKg: 1 }) }), null);
+  const id = probe(.019);
+  assert.match(id, /nullmaw-stalker:01:2:males:0$/);
+  assert.deepEqual(state.sites, {}); assert.deepEqual(state.parcels, {}); assert.deepEqual(s.details, {});
+  const site = window(.019), cells = Road.blueprint(binding.worldId, leg.routeId, .019, at, 23, {}).baseline.map(p => p.cell);
+  const terrain = N.terrain(state, record, map, site, cells, at);
+  const materialize = clock => N.materialize(state, record, map, site, { ...ctx, at: clock, groundOnly: true,
+    onlyActorId: id, terrain: c => terrain[B.key(c)] });
+  const [a] = materialize(at); assert.equal(a.id, id);
+  a.health *= .8; const wounded = a.health;
+  N.sync(state, record, map, [a], at, true, { activeSiteIds: new Set() });
+  assert.equal(s.details[id], undefined);
+  assert.equal(probe(.019), id);
+  const [seenAgain] = materialize(at);
+  assert.equal(seenAgain.id, id); assert.ok(Math.abs(seenAgain.health - wounded) < 1e-8);
+  assert.ok(P.normalize(s, binding));
 });
 test('one foreign habitat owner claims the full original footprint only after the adjoining terrain opens', () => {
   const { map, binding } = original(), record = map.beastHabitatSources, state = N.create(record, binding), s = N.open(state, record, map);

@@ -24,6 +24,20 @@ test('bounded baseline supplies only deterministic ground, no shelter, goods, re
   expect(ensure().site.baseline).toEqual(s.baseline);
   expect(Stops.normalize({ ...ensure().state, hidden: 'SECRET' }).hidden).toBeUndefined();
 });
+test('roadside probes use one metre grid and only sight or forward collision can stop a walk', () => {
+  const leg = Stops.nativeLeg(route, 'original-surface', 100000);
+  const a = Stops.nativeWindow(leg, .12, 24), b = Stops.nativeWindow(leg, .123, 25);
+  expect(b.origin.eastM - a.origin.eastM).toBe(3);
+  expect(a.origin.northM).toBe(b.origin.northM); expect(Stops.nativeWindow(leg, 1.1, 24)).toBeNull();
+  expect(Stops.nativeLeg(route, 'original-surface', 1)).toBeNull();
+  const entry = { x: 10, y: 10, z: 24 }, nearby = [{ ...entry, x: 14 }], ahead = [{ ...entry, x: 11 }], offRoad = [{ ...entry, y: 11 }];
+  expect(Stops.perceived(entry, nearby, true, () => false)).toBe(false);
+  expect(Stops.perceived(entry, nearby, true, () => true)).toBe(true);
+  expect(Stops.perceived(entry, nearby, false, () => true, 1, 1)).toBe(false);
+  expect(Stops.perceived(entry, offRoad, false, () => true, 1, 1)).toBe(false);
+  expect(Stops.perceived(entry, ahead, false, () => true, 1, -1)).toBe(false);
+  expect(Stops.perceived(entry, ahead, false, () => true, 1, 1)).toBe(true);
+});
 test('normalization rejects missing/duplicate geometry instead of rerolling it and imports rebind only the continued copy', () => {
   const a = ensure().state, before = JSON.stringify(a), to = { worldId: 'copy-world', runId: 'copy-run' };
   expect(Stops.normalize({ ...a, sites: [{ ...a.sites[0], baseline: [] }] }).sites).toEqual([]);

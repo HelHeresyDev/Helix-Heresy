@@ -26,6 +26,17 @@ test('distance, elapsed walking and body needs are identical through chunking an
   expect(partial).toEqual(whole); expect(s).toEqual(before); expect(whole.state.trip.walkedKm).toBeCloseTo(whole.state.trip.positionKm, 10);
   expect(whole.needs.exertion).toBeGreaterThan(0); expect(whole.needs.thirst).toBeGreaterThan(0);
 });
+test('road contact stops only on a reached step with a perception result, not on a future animal coordinate', () => {
+  const reached = [];
+  const result = advance(start(), Survival.defaultState(), 30, { roadContact: (km, at) => {
+    reached.push([km, at]); return at === 8 ? 'private-original' : null;
+  } });
+  expect(reached.map(([, at]) => at)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  expect(result.state.trip).toMatchObject({ status: 'stopped', positionKm: reached.at(-1)[0], lastAt: 8 });
+  expect(result.contact).toBe('private-original'); expect(JSON.stringify(result.state)).not.toContain('private-original');
+  expect(advance(start(), Survival.defaultState(), 30, { roadContact: () => null }).state.trip.status).toBe('walking');
+  expect(advance(start(), Survival.defaultState(), 30, { busy: true, roadContact: () => { throw Error('Did not reach new ground'); } }).state.trip.positionKm).toBe(0);
+});
 test('slower loaded/injured pace and poor terrain spend actual extra time, not a fixed arrival timer', () => {
   const s = start(), n = Survival.defaultState(), ordinary = advance(s, n, 600), impaired = advance(s, n, 600, { speedKph: 2 });
   expect(impaired.state.trip.positionKm).toBeLessThan(ordinary.state.trip.positionKm);

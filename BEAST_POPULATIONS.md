@@ -1206,6 +1206,36 @@ Nullmaw in both Canvas and DOM. It also checks reload, withdrawal and return.
 The recorded-entrance fixture makes that contact repeatable; it does not
 measure how often an unspecified ordinary entrance yields a sighting.
 
+### Population-backed local walking encounters
+
+The home-side leg of the existing local municipal survey walk can now read the
+same surface account as wilderness visits. It uses the saved measured route
+and a recorded approach position when supplied. A distance-only leg inside its
+origin habitat uses a fixed east–west transect on the habitat's metre grid.
+An unplaced leg is not a search for a nearby group. Intercity marches, charter
+vehicles, the other leg, and roads already carrying legacy originals do not
+transfer ownership under this adapter.
+
+Travel samples only distance actually walked. A fresh roadside stop requires a
+lit, unobstructed sighting or a body occupying the traveler's immediate forward
+lane. An off-lane hidden beast is not a stop, sound cue, scouting report or
+known location. Existing known camps and other ordinary stopping reasons still
+work. The private check uses the reached habitat's group index and skips empty
+formation envelopes. It does not materialize a preview body, charge terrain or
+write a sighting when there is no contact.
+
+At a physical stop the encounter claims the actual original with the same
+habitat ledger, body footprint and reserves as a wilderness claim. Adjacent
+roadside views share terrain parcels. Withdrawing returns unattended animals
+at their last actual positions, keeping wounds and elapsed history. The local
+map shows only current observations; a known stopping point is no guarantee of
+recontact or road safety. Existing legacy owners and identities stay intact.
+
+The focused Chromium itinerary used a recorded approach in a generated world.
+It passed unseen ground without registering a site, then encountered the
+original Nullmaw, saved its wound, withdrew, and met the same wounded body on
+the return. This verifies custody and observation, not ordinary sighting rates.
+
 Focused native unit controls exercise actual originals across all 24 body
 families using suitable source regions and explicitly supplied physical contexts;
 they do not establish that ordinary travel reaches every family. Browser controls

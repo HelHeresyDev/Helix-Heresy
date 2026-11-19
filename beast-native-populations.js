@@ -181,6 +181,41 @@
     }
     return result;
   }
+  const reservesFor = (_, cohort) => cohort.regional && ({ mana: cohort.regional.mana, stamina: cohort.regional.stamina, energy: copy(cohort.regional.energy) });
+  // Only reached ground is probed, never an animal's future road kilometre.
+  // Settlement is earned simulation time; the candidate has no custody or
+  // observation record until its pose fits and the traveller can perceive it.
+  function roadsideProbe(state, record, map, site, context) {
+    if (!context.alive || !context.local || !hasOpen(state)) return null;
+    const s = open(state, record, map), r = habitat(state, s, site);
+    if (!r || !P.advance(s, context.at)) return null;
+    state.clock = s.clock;
+    const b = site.bounds, tile = context.tileSizeM || 1, { eastM, northM } = site.origin;
+    const box = { x0: eastM, x1: eastM + b.width * tile, y0: northM, y1: northM + b.height * tile };
+    const eligible = g => !context.unavailablePopulations?.has(g.populationId) && Bodies.profiles[g.speciesId]?.modes.includes('walking');
+    // Scheduled movement is already current. Do not settle an entire habitat
+    // for every empty road metre; read its recorded formation envelopes first.
+    if (!P.groupsForRegion(s, r.id).some(g => eligible(g) && g.cohorts.some(c => intersects(Food.bounds(g, r, c), box)))
+      || !P.settleRegions(s, context.at, [r.id])) return null;
+    for (const g of P.groupsForRegion(s, r.id)) {
+      if (!eligible(g)) continue;
+      for (const c of g.cohorts) {
+        if (c.contactBusyUntil > context.at) continue; // Do not interrupt an unseen body merely to test sight.
+        for (const ordinal of nearby(g, c, r, box)) {
+          const point = Food.position(g, r, c, ordinal);
+          if (!point || point.altitudeM !== 0 || point.eastM < box.x0 || point.eastM >= box.x1 || point.northM < box.y0 || point.northM >= box.y1) continue;
+          const id = c.personalActor?.id || `native:${record.id}:${c.originId}:${ordinal}`;
+          if (s.details[id]) continue;
+          const cell = { x: b.x + Math.floor((point.eastM - eastM) / tile), y: b.y + Math.floor((point.northM - northM) / tile), z: b.z };
+          const pose = P.previewLocal(g, c, ordinal, id, context.at, {
+            ...context, terrain: cell => context.terrain(cell, r), originalReserves: reservesFor
+          }, { regionId: r.id, cell, altitudeM: 0, mode: 'walking' });
+          if (pose && context.perceived(pose)) return id;
+        }
+      }
+    }
+    return null;
+  }
   function materialize(state, record, map, site, context) {
     if (!context.alive || !context.local) return [];
     checkSite(state, site);
@@ -199,7 +234,7 @@
       const n = d.actor?.nativePopulation;
       if (!n) return false;
       if (!n.background) return n.siteId === site.id && d.actor.roomId === site.roomId;
-      return d.status === 'dead' && regions.some(r => r.id === n.regionId) && n.sourcePosition
+      return !context.onlyActorId && d.status === 'dead' && regions.some(r => r.id === n.regionId) && n.sourcePosition
         && n.sourcePosition.eastM >= box.x0 && n.sourcePosition.eastM < box.x1
         && n.sourcePosition.northM >= box.y0 && n.sourcePosition.northM < box.y1 && remainsFit(d.actor, n.sourcePosition)
         && P.claimCorpse(s, d.actorId, context.at);
@@ -216,12 +251,13 @@
       const cohorts = [...g.cohorts].sort((a, b) => Number(Boolean(b.personalActor)) - Number(Boolean(a.personalActor)));
       for (const c of cohorts) for (const ordinal of nearby(g, c, r, box)) {
         const memberId = `${c.originId}:${ordinal}`, actorId = c.personalActor?.id || `native:${record.id}:${memberId}`;
-        if (s.details[actorId] || actors.length >= (context.limit || 8)) continue;
+        if (s.details[actorId] || context.onlyActorId && actorId !== context.onlyActorId || actors.length >= (context.limit || 8)) continue;
         const modes = Bodies.profiles[g.speciesId].modes;
+        if (context.groundOnly && !modes.includes('walking')) continue;
         let point;
         const originalPosition = (group, cohort, ordinal) => {
           point = Food.position(group, r, cohort, ordinal);
-          if (!point || point.eastM < box.x0 || point.eastM >= box.x1 || point.northM < box.y0 || point.northM >= box.y1
+          if (!point || context.groundOnly && point.altitudeM !== 0 || point.eastM < box.x0 || point.eastM >= box.x1 || point.northM < box.y0 || point.northM >= box.y1
             || point.altitudeM < 0 && modes.every(m => ['flight', 'levitation'].includes(m))) return null;
           const cell = localCell(point);
           const mode = point.altitudeM > 0 && modes.some(m => ['flight', 'levitation'].includes(m))
@@ -236,7 +272,7 @@
             || actors.some(a => Bodies.occupied(a, tile).some(c => c.x === cell.x && c.y === cell.y && c.z === cell.z)
               && a.bodyPhysics.altitudeM < high && a.bodyPhysics.altitudeM + a.bodyPhysics.dimensions.heightM > low),
           originalPosition,
-          originalReserves: (_, cohort) => cohort.regional && ({ mana: cohort.regional.mana, stamina: cohort.regional.stamina, energy: copy(cohort.regional.energy) }) });
+          originalReserves: reservesFor });
         if (!actor) continue;
         actor.roomId = site.roomId; actor.nativePopulation = { sourceId: record.id, regionId: r.id, siteId: site.id,
           sourcePosition: copy(point), frame: copy(frame), bounds: copy(b), tileSizeM: tile, background: false };
@@ -288,12 +324,15 @@
   function bindTerrain(state, siteId) {
     return Object.fromEntries(Object.entries(state.sites[siteId]?.parcelIds || {}).map(([key, id]) => [key, mineralOwner(state.parcels[id])]));
   }
+  function habitat(state, s, site) {
+    const entry = cache.get(state);
+    entry.habitats ||= new Map(s.regions.map(r => [`${r.cellId}:${r.kind}`, r]));
+    return entry.habitats.get(`${site.cellId}:${site.kind}`);
+  }
   function carrion(state, record, map, site, observer, context) {
     if (!context.alive || !context.local || !Object.hasOwn(state.sites, site.id) || !hasOpen(state)) return [];
     checkSite(state, site);
-    const s = open(state, record, map), entry = cache.get(state);
-    entry.habitats ||= new Map(s.regions.map(r => [`${r.cellId}:${r.kind}`, r]));
-    const r = entry.habitats.get(`${site.cellId}:${site.kind}`);
+    const s = open(state, record, map), r = habitat(state, s, site);
     if (!r || r.deferred || !r.wildlife?.pools.some(p => p.carcassSpace)
       || !P.settleRegions(s, context.at, [r.id])) return [];
     state.clock = s.clock;
@@ -354,6 +393,6 @@
     const d = cache.get(state)?.account.details[actorId]; return Boolean(d && !d.actor?.nativePopulation?.background);
   };
   const hasLocalActors = state => Object.values(cache.get(state)?.account.details || {}).some(d => d.actor?.nativePopulation && !d.actor.nativePopulation.background);
-  return { create, normalize, open, pack, rebind, materialize, sync, nearby, terrain, bindTerrain, carrion, birth, capacity, diff, apply,
+  return { create, normalize, open, pack, rebind, materialize, roadsideProbe, sync, nearby, terrain, bindTerrain, carrion, birth, capacity, diff, apply,
     hasOpen, ready, prepare, advanceBudget, ownsLocal, hasLocalActors };
 });

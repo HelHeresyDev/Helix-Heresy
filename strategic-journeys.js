@@ -113,7 +113,9 @@
       label: String(candidate.label || id).slice(0, 120), cellId: cleanId(candidate.cellId), supportComponentId: cleanId(candidate.supportComponentId),
       known: candidate.known !== false, reachable: Boolean(candidate.reachable), distanceBand: String(candidate.distanceBand || ""),
       localDistanceKm: Math.max(0, finite(candidate.localDistanceKm, 0)), routeContinuity: String(candidate.routeContinuity || ""),
-      dangerBand: String(candidate.dangerBand || "unknown"), jurisdiction: clone(candidate.jurisdiction || { kind: "none" })
+      dangerBand: String(candidate.dangerBand || "unknown"), jurisdiction: clone(candidate.jurisdiction || { kind: "none" }),
+      ...(['eastM', 'northM'].every(k => Number.isFinite(candidate.walkingAnchor?.[k]))
+        ? { walkingAnchor: { eastM: candidate.walkingAnchor.eastM, northM: candidate.walkingAnchor.northM } } : {})
     };
   }
   function normalizeRoute(candidate) {

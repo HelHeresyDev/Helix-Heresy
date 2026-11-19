@@ -268,5 +268,9 @@
   const active = s => caches.has(s);
   const inspect = s => { const c = caches.get(s); return c ? { units: c.units.size, eventEntries: c.events.items.length, appliedEntries: c.applied.items.length } : null; };
   const detailsForRegion = (s, id) => [...(caches.get(s)?.detailsAt.get(id) || [])].map(key => s.details[key]);
-  return { initialize, restore, active, advance, settle, settleAll, invalidate, rebuildAll, noteDetail, detailsForRegion, validate, inspect, Heap, registerGroup };
+  function groupsForRegion(s, id) {
+    const c = caches.get(s);
+    return c ? [...(c.resident.get(id) || [])].map(gid => c.groups.get(gid)).filter(Boolean) : [];
+  }
+  return { initialize, restore, active, advance, settle, settleAll, invalidate, rebuildAll, noteDetail, detailsForRegion, groupsForRegion, validate, inspect, Heap, registerGroup };
 });
