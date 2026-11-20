@@ -54,6 +54,13 @@
       || binding && (value.worldId !== binding.worldId || value.runId !== binding.runId))
       throw Error('Native population binding is invalid');
     const result = copy(value); result.parcels ||= {}; result.ecology = 'unverified';
+    if (result.windSchedules != null && (typeof result.windSchedules !== 'object' || Array.isArray(result.windSchedules)
+      || Object.values(result.windSchedules).some(s => !Number.isFinite(s?.calendar?.epochAt)
+        || !Array.isArray(s.calendar.monthDays) || !s.calendar.monthDays.length
+        || s.calendar.monthDays.some(n => !Number.isFinite(n) || n <= 0)
+        || !Array.isArray(s.vectors) || s.vectors.length !== s.calendar.monthDays.length
+        || s.vectors.some(v => !Number.isFinite(v?.x) || !Number.isFinite(v?.y)))))
+      throw Error('Invalid native seasonal wind');
     for (const p of Object.values(result.parcels)) if (!p?.sourceRegionId || !(p.areaHa > 0) || !p.resources
       || !Object.values(p.resources).every(n => Number.isFinite(n) && n >= 0)
       || p.materialKg !== (p.resources.mineralsKg || 0)) throw Error('Invalid native terrain custody');
@@ -190,9 +197,12 @@
     }) };
   }
   function intersects(a, b) { return a && a.max.eastM >= b.x0 && a.min.eastM <= b.x1 && a.max.northM >= b.y0 && a.min.northM <= b.y1; }
-  function mineralOwner(p) {
+  function mineralOwner(p, state) {
     Object.defineProperty(p, 'materialKg', { enumerable: true, configurable: true,
       get() { return this.resources.mineralsKg || 0; }, set(n) { this.resources.mineralsKg = n; } });
+    // Keep a single saved schedule per visited region, not a copy per tile.
+    const schedule = state.windSchedules?.[p.sourceRegionId];
+    if (schedule && p.windSchedule !== schedule) Object.defineProperty(p, 'windSchedule', { configurable: true, value: schedule });
     return p;
   }
   function nearby(g, c, r, box, limit = 8) {
@@ -316,6 +326,11 @@
     const s = open(state, record, map), r = s.regions.find(r => r.cellId === site.cellId && r.kind === site.kind);
     if (!r) return {};
     P.settleRegions(s, at, [r.id]); state.clock = s.clock;
+    if (r.seasons.some(p => p.wind)) {
+      state.windSchedules ||= {};
+      state.windSchedules[r.id] ??= { calendar: { epochAt: s.calendar.epochAt, monthDays: [...s.calendar.monthDays] },
+        vectors: r.seasons.map(p => copy(p.wind ?? r.wind)) };
+    }
     const origin = { eastM: 0, northM: 0, ...site.origin }, area = tile * tile, totals = {}, result = {}, parcelIds = {};
     const reserved = {};
     for (const site of r.ecology?.renewalSites || []) if (site.destroyedAt == null)
@@ -325,7 +340,7 @@
       if (Math.hypot(east + tile / 2, north + tile / 2) > Math.sqrt(r.areaHa * 10000 / Math.PI)) continue;
       const id = `${r.id}:${east}:${north}:${tile}`, key = `${c.x},${c.y},${c.z}`;
       parcelIds[key] = id;
-      if (state.parcels[id]) { result[key] = mineralOwner(state.parcels[id]); continue; }
+      if (state.parcels[id]) { result[key] = mineralOwner(state.parcels[id], state); continue; }
       const resources = {};
       for (const [k, amount] of Object.entries(r.stocks)) {
         if (k.includes(':')) continue; // Reserved workfaces are not uniform terrain.
@@ -343,7 +358,7 @@
         hardness: 1, supportKg: Math.max(1, (resources.mineralsKg || 0) * 10), ...(r.wind ? { wind: copy(r.wind) } : {}),
         ...(nearbyLee ? { windShelter: copy(lee), windParcelCenter: { eastM: wx, northM: wy } } : {}),
         humidity: r.humidity, temperatureC: r.seasons[P.monthAt(s.calendar, at).season].temperatureC };
-      state.parcels[id] = mineralOwner(p); result[key] = p;
+      state.parcels[id] = mineralOwner(p, state); result[key] = p;
     }
     for (const [key, amount] of Object.entries(totals))
       if (!P.removeStock(s, r.id, key, amount, at, 'native-local-terrain-custody')) throw Error('Native terrain transfer was not funded');
@@ -352,7 +367,7 @@
     return result;
   }
   function bindTerrain(state, siteId) {
-    return Object.fromEntries(Object.entries(state.sites[siteId]?.parcelIds || {}).map(([key, id]) => [key, mineralOwner(state.parcels[id])]));
+    return Object.fromEntries(Object.entries(state.sites[siteId]?.parcelIds || {}).map(([key, id]) => [key, mineralOwner(state.parcels[id], state)]));
   }
   function habitat(state, s, site) {
     const entry = cache.get(state);

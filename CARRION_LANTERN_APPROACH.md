@@ -215,13 +215,42 @@ mortality (4). The positive and exposed-wind controls use the same real
 body; only the lee case finishes a meal. This demonstrates access, not a
 viable season or stable reproduction.
 
-The matching all-species replay with kernel `9aebc87` has validated through
-day 80 of 120. It records **43.754141 kg** of wet tissue and **17.199929 kg**
-of food-equivalent, with no new ingestion after day 40 at this checkpoint.
-Seven original Lanterns remain at day 80 (none in the pre-shelter run), with
-no births and 113 losses: 90 starvation, 19 dehydration and four background
-mortality. This is an interim checkpoint, not a completed season or a
-viability finding.
+The matching all-species replay with kernel `9aebc87` completed all 120 days
+and validated all twelve checkpoints. It records **43.754141 kg** of wet
+tissue and **17.199929 kg** of food-equivalent, with no new ingestion after
+day 40. Seven original Lanterns remained at day 80 (none in the pre-shelter
+run), and one remained at day 120. There were no births; 96 died of
+starvation, 19 of dehydration and four of background mortality. The source
+remains rejected. This is the shelter-only comparison, not a seasonal-wind
+replay.
+
+## Seasonal coastal air
+
+New worlds archive two wind vectors per hex: the peak warm and cold phases
+of the existing game calendar, with the hemispheres offset by two phases.
+The opening and other shoulder phases retain the prevailing climate wind.
+In the peak phases it turns and changes strength by latitude, and a bounded
+land–sea component derived from the coastline and climate seasonal range
+can turn exposed coastal winds onshore or offshore. Subsurface patches have
+no seasonal airflow. This does not change the weather used for the original
+rain, wildlife or habitat resource budgets. Worlds archived without seasonal
+rows keep their old winds and placements.
+
+An elapsed regional or local wind segment stops at the phase boundary and
+resumes at the same position under the new air. Existing terrain shadows
+still only work with airflow from the sheltered direction. Lanterns do not
+know the next phase or steer toward land. On a real crossing, they release
+old contact claims and may only sense from the position reached. Native
+terrain stores one schedule per visited region instead of a copy per tile.
+
+Focused controls verify that an onshore turn carries a Lantern back to a
+finite real carcass it can feed on, while the same starting position and
+carcass give no intake when the air continues offshore. They also verify
+save/reload across the turn and no retroactive native motion. The generated
+`source-small` map has 29 sea-to-surface borders where the component toward
+land changes sign across the year. This does not establish recurrent
+feeding, reproduction or ecosystem viability. No new full-season replay
+was run for this change.
 
 ## Pre-shelter integrated generated control
 

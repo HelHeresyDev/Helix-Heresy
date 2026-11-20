@@ -77,6 +77,13 @@ private snapshots enters animal knowledge or a public census.
 
 ## Current integrated 120-day control
 
+The later [shelter-only comparison](CARRION_LANTERN_APPROACH.md#terrain-backed-lee-air)
+also finished 120 days with all 24 species and twelve valid checkpoints. It
+improved Lantern access from zero ingestion to 43.754141 kg wet tissue, but
+only one original Lantern survived, with no births. Its measured source
+result was still rejected. The archived comparison below remains the
+pre-shelter reference; seasonal winds were not included in either full replay.
+
 [integrated-seasonal-control.json](reference/integrated-seasonal-control.json)
 records a **fresh** `source-small`, refinement-2 world with source
 `beast-habitat-source:e8a02b1f`. It combines hunting placement, vector Lantern

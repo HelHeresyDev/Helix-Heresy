@@ -219,6 +219,36 @@
     const x = dot(b, e), y = dot(b, north), n = Math.hypot(x, y);
     return n > 1e-8 ? [x / n, y / n] : [1, 0];
   }
+  function seasonalWindRows(map, topology) {
+    return topology.vertices.map((point, i) => {
+      const base = Shelters.axis(map.climate.windBearingDeg[i]), speed = map.climate.windStrengthPermille[i] / 100;
+      const land = map.surface.classes[i] === 'L', phaseSign = point[1] < 0 ? -1 : 1;
+      const contrast = clamp(map.climate.seasonalRangeTenthsC[i] / 180, 0, 1);
+      let coastX = 0, coastY = 0;
+      for (const j of topology.neighbors[i]) if ((map.surface.classes[j] === 'L') !== land) {
+        const [x, y] = routeDirection(topology, i, j), sense = land ? -1 : 1;
+        coastX += sense * x; coastY += sense * y;
+      }
+      const coastLength = Math.hypot(coastX, coastY);
+      // A seasonal circulation model, not a forecast of prey. A coherent
+      // coastline adds a warm-phase landward component and reverses it in
+      // the cold phase. Mixed shoreline directions cancel in this frame.
+      const coastal = Math.min(9, speed * 1.7) * contrast * Math.min(1, coastLength / 2);
+      const latitudeBand = 2 * Math.abs(point[1]) * Math.sqrt(Math.max(0, 1 - point[1] ** 2));
+      const vector = sign => {
+        const turn = sign * .25 * latitudeBand;
+        const prevailing = speed * (1 + sign * .12 * latitudeBand);
+        const x = prevailing * (base.x * Math.cos(turn) + base.y * Math.sin(turn))
+          + (coastLength > 0 ? sign * coastal * coastX / coastLength : 0);
+        const y = prevailing * (base.y * Math.cos(turn) - base.x * Math.sin(turn))
+          + (coastLength > 0 ? sign * coastal * coastY / coastLength : 0);
+        return [Math.round(x * 1000) || 0, Math.round(y * 1000) || 0];
+      };
+      // Archive integer millimetres/sec for the two seasonal peaks only.
+      // Thaw and Stormturn keep the actual prevailing vector.
+      return [i, ...vector(phaseSign), ...vector(-phaseSign)];
+    });
+  }
   function expandGroups(record, map, patches, physical = false) {
     const populations = populationsFor(map);
     const feeding = new Map((record.feedingRows || []).map(([pi, ordinal, key]) => [`${pi}:${ordinal}`, key]));
@@ -281,11 +311,16 @@
     const regions = record.patchRows.map(row => expandPatch(map, row, record.calendar, Boolean(record.physicalBinding || options.physical)));
     const topology = World.topologyForMap(map), byCell = new Map();
     const lee = new Map(record.windShelterRows || []);
+    const peakWind = new Map((record.seasonalWindRows || []).map(([i, ...vectors]) => [i, vectors]));
     for (const patch of regions) {
       const index = World.cellIndex(patch.cellId);
       if (record.windTransport && patch.kind !== 'subsurface') {
         const angle = map.climate.windBearingDeg[index] * Math.PI / 180, speed = map.climate.windStrengthPermille[index] / 100;
         patch.wind = { x: Math.sin(angle) * speed, y: Math.cos(angle) * speed };
+        const vectors = peakWind.get(index);
+        if (vectors) for (const [season, j] of [[1, 0], [3, 2]]) {
+          patch.seasons[season].wind = { x: vectors[j] / 1000, y: vectors[j + 1] / 1000 };
+        }
       }
       if (lee.has(patch.id)) patch.windShelter = copy(lee.get(patch.id));
       if (!byCell.has(index)) byCell.set(index, []);
@@ -614,7 +649,7 @@
         tie: random(`${salt}:${pool.id}:tie`) }];
     });
   }
-  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false, habitatAccess = false, windTransport = false, lanternMoisture = false, wildlifeDistribution = false, wildlifeCarcasses = false, establishedHabitats = false, wetlandDrainage = false, huntingHabitatAccess = false, catchmentDrainage = false, lanternHabitatAccess = false, windShelters = false) {
+  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false, habitatAccess = false, windTransport = false, lanternMoisture = false, wildlifeDistribution = false, wildlifeCarcasses = false, establishedHabitats = false, wetlandDrainage = false, huntingHabitatAccess = false, catchmentDrainage = false, lanternHabitatAccess = false, windShelters = false, seasonalWind = false) {
     const calendar = { epochAt: 0, monthDays: Local.PHASES.map(() => Local.PHASE_DAYS) };
     const patches = patchRows.map(row => expandPatch(map, row, calendar, physical)), groupRows = [], populations = [], unlocated = [];
     const worldPopulations = populationsFor(map), foodUse = new Map(), feedingRows = [];
@@ -723,6 +758,7 @@
     if (huntingHabitatAccess) record.huntingHabitatAccess = true;
     if (lanternHabitatAccess) record.lanternDriftRows = driftRows;
     if (windShelters) record.windShelterRows = [...lee];
+    if (seasonalWind) record.seasonalWindRows = seasonalWindRows(map, World.topologyForMap(map));
     if (catchmentDrainage) record.catchmentDrainage = true;
     const expanded = expand(record, map, { physical, raw: true });
     if (physical) { record.physicalBinding = Bindings.allocate(expanded, map, { positions: physicalPlacement, established: establishedHabitats, drainage: wetlandDrainage, catchmentDrainage }); Bindings.apply(expanded, record.physicalBinding, map); }
@@ -769,11 +805,12 @@
     const hunting = options.huntingHabitatAccess !== false && best.habitatAccess && best.backgroundWildlife;
     const catchment = options.catchmentDrainage !== false && best.wetlandDrainage === true;
     const lanternDrift = options.lanternHabitatAccess !== false && best.windTransport && best.wildlifeCarcasses;
-    if (hunting || catchment || lanternDrift)
+    const seasonalWind = best.windTransport === true && options.seasonalWind !== false;
+    if (hunting || catchment || lanternDrift || seasonalWind)
       return candidate(seed, map, patchRows, best.calibration, true, Boolean(best.backgroundWildlife), best.physicalPlacement === true, best.habitatAccess === true,
         best.windTransport === true, best.lanternMoisture === true, best.wildlifeDistribution === true,
         best.wildlifeCarcasses === true, best.establishedHabitats === true, best.wetlandDrainage === true, Boolean(hunting), catchment, Boolean(lanternDrift),
-        Boolean(lanternDrift && options.windShelters !== false));
+        Boolean(lanternDrift && options.windShelters !== false), seasonalWind);
     return best;
   }
   function validate(record, map, seed = record?.seed) {
@@ -786,7 +823,7 @@
     const topology = World.topologyForMap(map), patchRows = [];
     for (let i = 0; i < topology.cellCount; i++) patchRows.push(...patchesForCell(map, i, topology, record.physicalPlacement === true));
     const expected = candidate(record.seed, map, patchRows, record.calibration, Boolean(record.physicalBinding), Boolean(record.backgroundWildlife), record.physicalPlacement === true,
-      record.habitatAccess === true, record.windTransport === true, record.lanternMoisture === true, record.wildlifeDistribution === true, record.wildlifeCarcasses === true, record.establishedHabitats === true, record.wetlandDrainage === true, record.huntingHabitatAccess === true, record.catchmentDrainage === true, Array.isArray(record.lanternDriftRows), Array.isArray(record.windShelterRows));
+      record.habitatAccess === true, record.windTransport === true, record.lanternMoisture === true, record.wildlifeDistribution === true, record.wildlifeCarcasses === true, record.establishedHabitats === true, record.wetlandDrainage === true, record.huntingHabitatAccess === true, record.catchmentDrainage === true, Array.isArray(record.lanternDriftRows), Array.isArray(record.windShelterRows), Array.isArray(record.seasonalWindRows));
     if (record.sourceDigest === legacyDigest) expected.sourceDigest = record.sourceDigest;
     const physical = value => { const result = copy(value); delete result.id; delete result.assessment; delete result.groupRows; return result; };
     if (World.stableHash(physical(expected)) !== World.stableHash(physical(record)) && !samePhysical(physical(expected), physical(record)))

@@ -132,6 +132,37 @@ test('generated lee shelters use real upwind relief and never retrofit an unshel
   assert.throws(() => S.validate(forged, map), /physical accounts/);
   assert.equal(JSON.stringify(old), before);
 });
+test('seasonal wind comes from physical geography and does not rewrite the original placements or archived winds', () => {
+  const { map, record, source } = fixture(), Wind = require('../beast-wind-drift');
+  const archived = S.generate(record.seed, map, { seasonalWind: false }), before = JSON.stringify(archived);
+  assert.equal(archived.seasonalWindRows, undefined);
+  assert.deepEqual(archived.groupRows, record.groupRows);
+  assert.deepEqual(archived.lanternDriftRows, record.lanternDriftRows);
+  assert.deepEqual(archived.backgroundWildlife, record.backgroundWildlife);
+  assert.deepEqual(archived.windShelterRows, record.windShelterRows);
+  const fixed = S.expand(S.validate(archived, map), map);
+  const regions = new Map(source.regions.map(r => [r.id, r]));
+  for (const r of fixed.regions) {
+    assert.ok(r.seasons.every(s => !s.wind));
+    assert.deepEqual(regions.get(r.id).wind, r.wind);
+  }
+  const toward = (r, e, phase) => {
+    const { x, y } = Wind.windAt(r, phase);
+    return x * e.windBoundary.normal.x + y * e.windBoundary.normal.y;
+  };
+  assert.ok(source.regions.some(r => r.kind === 'waterColumn' && r.edges.some(e => {
+    const land = regions.get(e.id);
+    if (land.kind !== 'surface' || !e.windBoundary) return false;
+    const back = land.edges.find(b => b.id === r.id);
+    return [1, 3].some(phase => toward(r, e, phase) > 0 && toward(land, back, phase) < 0
+      && toward(r, e, 4 - phase) < 0);
+  })), 'generated coastline must permit an onshore phase without a convergent border');
+  assert.ok(source.regions.filter(r => r.kind === 'subsurface').every(r => r.seasons.every(p => !p.wind)));
+  assert.equal(JSON.stringify(archived), before);
+  const forged = clone(record); forged.seasonalWindRows[0][1] += 1;
+  forged.id = ''; forged.id = `beast-habitat-source:${W.stableHash(forged)}`;
+  assert.throws(() => S.validate(forged, map), /physical accounts/);
+});
 test('the explicit passive-biology correction preserves old source identities and cannot silently add moisture', () => {
   const { map, record } = fixture();
   const legacy = S.generate(record.seed, map, { lanternMoisture: false });

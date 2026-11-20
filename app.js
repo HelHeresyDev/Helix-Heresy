@@ -100344,6 +100344,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const door = labMapDoorAtCell(c, map), wall = constructedWallAtCell(c, map);
       const outcrop = (patch?.discovery.baseline || baseline)?.rocks?.some(p => sameMapCell(p, c));
       return { floor: labMapCellHasFloor(c, map), waterDepthM: 0, soilDepthM: 0, ...raw,
+        ...(raw.windSchedule ? { windSchedule: raw.windSchedule } : {}),
         ...(foreign || roads ? { floor: allowed.has(mapCellKey(c)) && labMapCellHasFloor(c, map) && raw.floor !== false } : {}),
         protected: sameMapCell(c, WildernessSurvival.GATE) || sameMapCell(c, foreignWildernessLocal()?.gate),
         obstacleHeightM: wall || door && !doorFixtureAllowsPassage(door) || propertyOpaqueFixtureAtCell(c) ? 4 : Math.max(outcrop ? 2 : 0, raw.obstacleHeightM || 0,

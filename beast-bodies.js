@@ -2,10 +2,11 @@
   const api = factory(typeof module === 'object' && module.exports ? require('./strategic-beast-ecology') : root.HelixStrategicBeastEcology,
     typeof module === 'object' && module.exports ? require('./creature-biology') : root.HelixCreatureBiology,
     typeof module === 'object' && module.exports ? require('./carrion-lantern-approach') : root.HelixCarrionLanternApproach,
-    typeof module === 'object' && module.exports ? require('./wind-shelters') : root.HelixWindShelters);
+    typeof module === 'object' && module.exports ? require('./wind-shelters') : root.HelixWindShelters,
+    typeof module === 'object' && module.exports ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixBeastBodies = api;
-})(globalThis, function (Ecology, Biology, Approach, Shelters) {
+})(globalThis, function (Ecology, Biology, Approach, Shelters, Journeys) {
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x));
   const key = p => `${p.x},${p.y},${p.z}`;
@@ -289,7 +290,7 @@
     if (!state || a.life.will === false || a.life.willing === false || a.life.pending || !(b.stamina > 0)
       || at >= state.deadlineAt || at > state.lastSeenAt + Approach.LOST) return null;
     const pos = position(a, ctx.tileSizeM || 1);
-    return Approach.intercept(b.massKg, b.parts, localAir(a, ctx), {
+    return Approach.intercept(b.massKg, b.parts, localAir(a, ctx, undefined, at), {
       eastM: state.target.position.eastM - pos.eastM,
       northM: state.target.position.northM - pos.northM, altitudeM: state.target.position.altitudeM - b.altitudeM });
   }
@@ -312,8 +313,10 @@
     return { eastM: terrain.windParcelCenter.eastM + (b.airOffset?.x || 0) * tile,
       northM: terrain.windParcelCenter.northM + (b.airOffset?.y || 0) * tile, altitudeM: b.altitudeM };
   }
-  function localAir(a, ctx, terrain = ctx.terrain(a.mapCell)) {
-    return Shelters.at(terrain?.wind, terrain?.windShelter, shelterPosition(a, ctx, terrain));
+  const airMonth = (terrain, at) => terrain?.windSchedule ? Journeys.monthAt(terrain.windSchedule.calendar, at) : null;
+  const ambientAir = (terrain, month) => terrain?.windSchedule?.vectors[month?.season] ?? terrain?.wind;
+  function localAir(a, ctx, terrain = ctx.terrain(a.mapCell), at = a.bodyPhysics.lastAt) {
+    return Shelters.at(ambientAir(terrain, airMonth(terrain, at)), terrain?.windShelter, shelterPosition(a, ctx, terrain));
   }
   function advanceAir(a, at, remaining, ctx) {
     const b = a.bodyPhysics, tile = ctx.tileSizeM || 1;
@@ -322,16 +325,22 @@
     // coordinate components earn the SAME elapsed interval, never two moves.
     for (let i = 0; remaining > 1e-8 && i < 4096; i++) {
       const cursor = at - remaining, control = approachCourse(a, ctx, cursor);
-      const terrain = ctx.terrain(a.mapCell), velocity = control?.velocity || flowVelocity(a, localAir(a, ctx, terrain));
-      if (!velocity) break;
-      const speed = Math.hypot(velocity.x, velocity.y), vz = control?.velocity.z || 0;
-      if (!(speed > 0 || Math.abs(vz) > 0)) break;
+      const terrain = ctx.terrain(a.mapCell), month = airMonth(terrain, cursor), ambient = ambientAir(terrain, month);
+      const untilAirChange = month ? month.end - cursor : Infinity;
+      const shelterPos = shelterPosition(a, ctx, terrain);
+      const velocity = control?.velocity || flowVelocity(a, Shelters.at(ambient, terrain?.windShelter, shelterPos));
+      const speed = velocity ? Math.hypot(velocity.x, velocity.y) : 0, vz = control?.velocity.z || 0;
+      if (!(speed > 0 || Math.abs(vz) > 0)) {
+        // The elapsed calm interval earned no displacement, but a later
+        // phase in this same update may carry the body.
+        if (untilAirChange > 0 && untilAirChange < remaining) { remaining -= untilAirChange; continue; }
+        break;
+      }
       const state = control && a.life.carrionApproach, from = position(a, tile);
       const contact = state ? Approach.contactSeconds(from, velocity, state.target.position, profiles[a.speciesId].reachM) : Infinity;
-      const shelterPos = shelterPosition(a, ctx, terrain);
-      const boundary = shelterPos ? Shelters.boundarySeconds(terrain.wind, terrain.windShelter, shelterPos,
+      const boundary = shelterPos ? Shelters.boundarySeconds(ambient, terrain.windShelter, shelterPos,
         { ...velocity, z: control ? vz : b.altitudeM < 6 ? .5 : 0 }) : Infinity;
-      const seconds = Math.min(remaining, tile / 4 / Math.max(speed, Math.abs(vz)), control ? Approach.REVIEW : Infinity,
+      const seconds = Math.min(remaining, untilAirChange, tile / 4 / Math.max(speed, Math.abs(vz)), control ? Approach.REVIEW : Infinity,
         control ? b.stamina / Math.max(1e-12, control.effortRate) : Infinity,
         state ? state.deadlineAt - cursor : Infinity, state ? state.lastSeenAt + Approach.LOST - cursor : Infinity, contact, boundary);
       if (!(seconds > 1e-8)) break;
@@ -504,5 +513,5 @@
       heading: a.bodyPhysics.heading || 0, turning: Boolean(a.bodyPhysics.turn),
       motion: a.bodyPhysics.motion ? { from: copy(a.bodyPhysics.motion.from), to: copy(a.bodyPhysics.motion.to), fraction: a.bodyPhysics.motion.progressM / a.bodyPhysics.motion.distanceM } : null };
   }
-  return { profiles, anatomy, attach, valid, height, footprint, cells, occupied, wounded, capable, habitatReason, request, turn, transition, dive, breakIce, damagePart, advance, perceive, observed, key, flowVelocity, position, localAir };
+  return { profiles, anatomy, attach, valid, height, footprint, cells, occupied, wounded, capable, habitatReason, request, turn, transition, dive, breakIce, damagePart, advance, perceive, observed, key, flowVelocity, position, localAir, airMonth };
 });

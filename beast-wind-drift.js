@@ -4,10 +4,11 @@
   const api = factory(node ? require('./beast-bodies') : root.HelixBeastBodies,
     node ? require('./carrion-lantern-approach') : root.HelixCarrionLanternApproach,
     node ? require('./wildlife-carcasses') : root.HelixWildlifeCarcasses,
-    node ? require('./wind-shelters') : root.HelixWindShelters);
+    node ? require('./wind-shelters') : root.HelixWindShelters,
+    node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys);
   if (node) module.exports = api;
   root.HelixBeastWindDrift = api;
-})(globalThis, function (Bodies, Approach, Carcasses, Shelters) {
+})(globalThis, function (Bodies, Approach, Carcasses, Shelters, Journeys) {
   'use strict';
   const EPS = 1e-8, HOUR = 3600, copy = x => JSON.parse(JSON.stringify(x));
   const point = p => p && typeof p.regionId === 'string' && ['eastM', 'northM', 'altitudeM'].every(k => Number.isFinite(p[k]));
@@ -253,9 +254,10 @@
               || ['eastM', 'northM', 'altitudeM'].some((k, i) => Math.abs(q.delta[k] - (c.carrionApproach.target.position[k] - d.anchor[k])) > 1e-6))) return false;
         } else if (d.velocity.z != null) return false;
         const raw = d.flow, magnitude = raw && Math.hypot(raw.x, raw.y);
-        if (c.ranges.length && JSON.stringify(raw) !== JSON.stringify(windAt(s.regions.find(r => r.id === g.regionId), s.plans.at(-1).season, d.anchor))) return false;
+        const region = s.regions.find(r => r.id === g.regionId), month = Journeys.monthAt(s.calendar, d.startedAt);
+        if (d.until > month.end + EPS
+          || c.ranges.length && JSON.stringify(raw) !== JSON.stringify(windAt(region, month.season, d.anchor))) return false;
         if (d.front) {
-          const region = s.regions.find(r => r.id === g.regionId);
           if (d.front.others != null && (!d.vectorFlow || !Array.isArray(d.front.others) || !d.front.others.length)
             || new Set([d.front, ...(d.front.others || [])].map(f => f.neighborId)).size !== 1 + (d.front.others?.length || 0)) return false;
           for (const f of [d.front, ...(d.front.others || [])]) {
@@ -269,7 +271,7 @@
                 : (Math.abs(raw.x) >= Math.abs(raw.y) ? Math.sign(raw.x) * b.normal.x : Math.sign(raw.y) * b.normal.y) > 0)
               || !(d.vectorFlow ? (incoming.x * b.entry.eastM + incoming.y * b.entry.northM) / length > EPS
                 : (Math.abs(incoming.x) >= Math.abs(incoming.y) ? Math.sign(incoming.x) * b.entry.eastM : Math.sign(incoming.y) * b.entry.northM) / length > 0)
-              || c.ranges.length && JSON.stringify(incoming) !== JSON.stringify(windAt(s.regions.find(r => r.id === edge.id), s.plans.at(-1).season))) return false;
+              || c.ranges.length && JSON.stringify(incoming) !== JSON.stringify(windAt(s.regions.find(r => r.id === edge.id), month.season))) return false;
           }
           if (d.vectorFlow) {
             const expected = frontMotion(region, raw, d.front, Bodies.profiles[g.speciesId].speed);

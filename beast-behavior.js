@@ -382,12 +382,16 @@
   }
   function wildlifeContact(a, corpse, at, seconds, ctx) {
     const l = a.life, prior = l.wildlifeContact;
-    const elapsed = prior?.id === corpse.id && at - prior.at <= seconds + 1e-8 ? Math.max(0, at - prior.at) : 0;
-    const handled = elapsed > 0 || prior?.at === at && prior.id === corpse.id ? prior.handled : 0;
+    let elapsed = prior?.id === corpse.id && at - prior.at <= seconds + 1e-8 ? Math.max(0, at - prior.at) : 0;
+    let handled = elapsed > 0 || prior?.at === at && prior.id === corpse.id ? prior.handled : 0;
     if (Lantern.is(a)) {
-      const t = ctx.terrain?.(corpse.mapCell), wind = ctx.terrain && Bodies.localAir(a, ctx), b = a.bodyPhysics;
+      const t = ctx.terrain?.(corpse.mapCell), air = ctx.terrain?.(a.mapCell), b = a.bodyPhysics;
+      const wind = air && Bodies.localAir(a, ctx, air, at);
       if (!t?.floor || t.waterDepthM > .01 || !wind || ![wind.x, wind.y].every(Number.isFinite) || b.mode !== 'flight'
         || (b.parts['feeding organs'] || 0) < 35 || !Bodies.capable(a, 'flight')) { delete l.wildlifeContact; return null; }
+      // A batched local interval cannot retrospectively certify grip in
+      // another wind phase. Reestablish contact at the observed time.
+      if (elapsed && air.windSchedule && prior.at < Bodies.airMonth(air, at).start) { elapsed = 0; handled = 0; }
       const drag = .5 * 1.225 * b.dimensions.lengthM * b.dimensions.heightM * Math.hypot(wind.x, wind.y) ** 2;
       const grip = b.massKg * 9.81 * .25 * b.parts['feeding organs'] / 100;
       // This row may represent many deaths. Only one body's unreserved
@@ -591,7 +595,7 @@
         }
         const sensed = corpse && { id: corpse.id, cell: copy(corpse.mapCell), position: Bodies.position(corpse, ctx.tileSizeM || 1) };
         const state = Approach.observe(a.life, at, sensed, a.life.willing !== false && Bodies.capable(a, 'flight')
-          && Boolean(Bodies.localAir(a, ctx)));
+          && Boolean(Bodies.localAir(a, ctx, undefined, at)));
         if (state) {
           decision.behavior = 'investigate'; decision.goal = copy(state.target.cell);
           a.bodyPhysics.goal = copy(state.target.cell); a.life.activity = 'approachCarrion'; return false;

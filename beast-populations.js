@@ -692,6 +692,12 @@
         Scheduler.registerGroup(root, owner, at);
       }
       owner.regionId = position.regionId; c.regionalPosition = position; delete c.windDrift;
+      // Crossing releases the old meal and cancels its actions. In a world
+      // with seasonal circulation, observe from the actual new airspace
+      // immediately instead of carrying that handoff's six-hour idle delay
+      // through a narrow coastal feeding window.
+      if (c.foraging && (r.seasons?.some(p => p.wind)
+        || Demography.region(root, position.regionId)?.seasons?.some(p => p.wind))) c.foraging.nextAt = at;
       record(s, 'windCrossing', at, { groupId: owner.id, cohortId: c.id, regionId: owner.regionId });
     }
     for (const g of s.groups) {
