@@ -207,10 +207,13 @@ a separate water-cap event.
 In the isolated generated `source-small` replay (`071aaf33`), by day 0.12
 five original flocks had eaten from 12–33 distinct wildlife carcass sites each,
 debiting **0.169369 kg** of wet tissue in total. All 120 originals were alive
-at that early checkpoint. By day 10 the isolated wildlife ledger recorded
-**25.147816 kg** eaten; it stayed at that figure at day 20. The positive and
-exposed-wind controls use the same real body; only the lee case finishes a
-meal. This demonstrates access, not a viable season or stable reproduction.
+at that early checkpoint. The isolated wildlife ledger recorded **25.147816 kg**
+eaten at day 10 and **43.754141 kg** at day 40, with no additional intake by
+day 120. Seven originals remained at day 85 and one at day 120, with no births.
+The other 119 were lost to starvation (96), dehydration (19) and background
+mortality (4). The positive and exposed-wind controls use the same real
+body; only the lee case finishes a meal. This demonstrates access, not a
+viable season or stable reproduction.
 
 ## Current integrated generated control
 
