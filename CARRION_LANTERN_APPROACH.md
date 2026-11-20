@@ -215,9 +215,17 @@ mortality (4). The positive and exposed-wind controls use the same real
 body; only the lee case finishes a meal. This demonstrates access, not a
 viable season or stable reproduction.
 
-## Current integrated generated control
+The matching all-species replay with kernel `9aebc87` has validated through
+day 80 of 120. It records **43.754141 kg** of wet tissue and **17.199929 kg**
+of food-equivalent, with no new ingestion after day 40 at this checkpoint.
+Seven original Lanterns remain at day 80 (none in the pre-shelter run), with
+no births and 113 losses: 90 starvation, 19 dehydration and four background
+mortality. This is an interim checkpoint, not a completed season or a
+viability finding.
 
-The [current complete ecosystem control](SEASONAL_VIABILITY.md#current-integrated-120-day-control)
+## Pre-shelter integrated generated control
+
+The [complete pre-shelter ecosystem control](SEASONAL_VIABILITY.md#current-integrated-120-day-control)
 uses fresh source `beast-habitat-source:e8a02b1f` and kernel `cb7383e`. It retains
 all 24 species, original wildlife, weather, corpses, care and work. All twelve
 ten-day checkpoints normalize. This replaces neither the historical isolated
