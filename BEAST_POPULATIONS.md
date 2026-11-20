@@ -1206,6 +1206,37 @@ Nullmaw in both Canvas and DOM. It also checks reload, withdrawal and return.
 The recorded-entrance fixture makes that contact repeatable; it does not
 measure how often an unspecified ordinary entrance yields a sighting.
 
+### Wetland banks on ordinary foreign surveys
+
+A mapped wetland can supply a dry-bank approach to the existing on-foot
+survey. The approach uses the original area and the bank of an archived
+wetland bed where present, otherwise the mapped basin's west rim. It does
+not query residents or relocate them. Recorded arrivals and previously
+visited frames take precedence. Uncharted catchment ponds do not reroute a
+survey.
+
+Visited bank and water tiles share the same local metre frame but each
+draws only from its own source account. The wet side takes actual water
+from the wetland; it does not refill when revisited or overlap the dry
+parcel debit. Unfunded or insufficiently deep water cannot take custody of
+a swimmer. Existing navigation treats deep water as unwalkable to the
+scientist. The encounter does not add a swimming mode, boats or new
+strategic connections.
+
+The swimmer must fit its original water, depth and full visited footprint.
+It stays in the wetland account on withdrawal; this pass does not support
+inter-habitat movement across the bank. Study views mark only perceived
+water and bodies. Light, cover and the parcel's freshwater condition
+constrain sighting; a submerged animal does not create dry tracks. An empty,
+unvisited, dry or obscured window is not a population or safety report.
+
+The focused Chromium itinerary reaches an original Mire Choir bed without
+a local arrival override, refuses a walk into deep water, and shows the
+original swimmer and observed water in Canvas and DOM. Reload, withdrawal
+and return retain the same original identity. The matching terrain check
+claims no swimmer from dry or unvisited tiles and does not debit water
+again when those tiles are revisited.
+
 ### Population-backed local walking encounters
 
 The home-side leg of the existing local municipal survey walk can now read the

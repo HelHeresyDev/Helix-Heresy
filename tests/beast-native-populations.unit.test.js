@@ -333,6 +333,57 @@ test('native terrain keeps the generated lee frame and seasonal air after reload
   const malformed = copy(saved); malformed.windSchedules[r.id].vectors[1].x = 'east';
   assert.throws(() => N.normalize(malformed, binding), /seasonal wind/);
 });
+test('wetland bank parcels debit their own source and dry or unvisited water never supplies a swimmer', () => {
+  const Foreign = require('../foreign-wilderness'), World = require('../strategic-world');
+  const world = L.createWorld({ id: 'wetland-bank', worldSeed: 'source-small', generationVersion: 8, createdAt: 'test',
+    creationSettings: { strategicMap: { refinementLevel: 2 } } });
+  const map = world.generatedData.strategicMap, record = map.beastHabitatSources, binding = { worldId: world.id, runId: 'survey' };
+  const bank = Foreign.wetlandBank(record, 45), from = World.cellSnapshot(map, 11), to = World.cellSnapshot(map, 45);
+  assert.deepEqual(Foreign.wetlandBank({ ...record, groupRows: [] }, 45), bank);
+  const sector = { bounds: { x: 21, y: 8, z: 6, width: 16, height: 12 }, entry: { x: 22, y: 12, z: 6 },
+    destination: { approachCellId: from.id, strategicCellId: to.id } };
+  const frame = Foreign.populationWindow(sector, from, to, record.patchRows.find(([i, k]) => i === 45 && k === 0)[2], 1, bank);
+  const site = { ...frame, id: 'wetland-bank', roomId: 'survey-field', cellId: to.id, kind: 'surface' };
+  const state = N.create(record, binding), s = N.open(state, record, map);
+  const dry = { x: 30, y: 12, z: 6 }, fields = [dry, ...Array.from({ length: 72 }, (_, i) => ({ x: 31 + i % 8, y: 9 + Math.floor(i / 8), z: 6 }))];
+  const cellKey = ({ x, y, z }) => `${x},${y},${z}`, mire = a => a.speciesId === 'beast:mire-choir';
+  const ctx = { alive: true, local: true, requireVisitedTerrain: true, at: 0, tileSizeM: 1,
+    terrain: c => N.bindTerrain(state, site.id)[cellKey(c)] };
+  N.terrain(state, record, map, site, [dry], 0);
+  assert.ok(!N.materialize(state, record, map, site, ctx).some(mire));
+  const r = s.regions.find(r => r.id === 'habitat:45:wetland'), before = r.stocks.waterL;
+  const funded = N.terrain(state, record, map, site, fields, 0);
+  assert.equal(funded[cellKey(dry)].sourceRegionId, 'habitat:45:surface');
+  assert.equal(funded[cellKey(dry)].waterDepthM, 0);
+  const water = Object.values(funded).filter(p => p.fieldWetland);
+  assert.ok(water.length > 0);
+  assert.ok(water.every(p => p.sourceRegionId === r.id && p.waterDepthM > 1.8));
+  assert.ok(Math.abs(before - r.stocks.waterL - water.reduce((n, p) => n + p.resources.waterL, 0)) < before * 1e-12);
+  const stock = r.stocks.waterL;
+  N.terrain(state, record, map, site, fields, 0);
+  assert.equal(r.stocks.waterL, stock);
+  const dryCtx = { ...ctx, terrain: c => {
+    const p = funded[cellKey(c)];
+    return p?.fieldWetland ? { ...p, waterDepthM: 0 } : p;
+  } };
+  assert.ok(!N.materialize(state, record, map, site, dryCtx).some(mire));
+  const actor = N.materialize(state, record, map, site, ctx).find(mire);
+  assert.equal(actor?.bodyPhysics.mode, 'swimming');
+  assert.equal(actor.nativePopulation.regionId, r.id);
+  assert.equal(N.materialize(state, record, map, site, ctx).find(a => a.id === actor.id), actor);
+  N.pack(state, record, map); const saved = N.normalize(copy(state), binding);
+  assert.deepEqual(saved.sites[site.id].wetlandBank, bank);
+  const savedAccount = N.open(saved, record, map), original = savedAccount.details[actor.id];
+  assert.equal(original.memberId, actor.life.originalMemberId);
+  N.sync(saved, record, map, [original.actor], 0, true, { activeSiteIds: new Set(), retainedActorIds: new Set() });
+  assert.equal(N.ownsLocal(saved, actor.id), false);
+  const visited = N.bindTerrain(saved, site.id);
+  const returning = N.materialize(saved, record, map, site, { ...ctx, terrain: c => visited[cellKey(c)] }).filter(a => a.id === actor.id);
+  assert.equal(returning.length, 1);
+  assert.equal(returning[0].life.originalMemberId, actor.life.originalMemberId);
+  assert.equal(returning[0].bodyPhysics.altitudeM, actor.bodyPhysics.altitudeM);
+  assert.equal(savedAccount.regions.find(r => r.id === actor.nativePopulation.regionId).stocks.waterL, stock);
+});
 test('a local original death is counted once, remains dead after reload, and does not infect an independent run', () => {
   const { map, binding } = original(), record = map.beastHabitatSources, state = N.create(record, binding), s = N.open(state, record, map);
   const { site, ctx } = context(s, 'beast:rimefang-pack'), [a] = N.materialize(state, record, map, site, ctx);

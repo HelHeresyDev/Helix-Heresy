@@ -41,10 +41,24 @@
         ? { approachArrival: { eastM: arrival.eastM, northM: arrival.northM } } : {}),
       discovery: null, shelter: null, beasts: null };
   }
-  // One north/east frame for all four existing on-foot patches. On a route
-  // known only to the hex, locate the entrance inside its approach-facing side.
-  // The disk is the same equal-area habitat approximation used by the account.
-  function populationWindow(sector, from, to, areaHa, tile) {
+  function wetlandBank(record, cellIndex) {
+    const row = record?.patchRows?.find(([i, kind, , basis]) => i === cellIndex && kind === 1 && basis !== 4);
+    if (!row) return null; // An uncharted catchment pond is not a mapped approach.
+    const radiusM = Math.sqrt(row[2] * 10000 / Math.PI);
+    const bed = record.physicalBinding?.workSites?.find(r => r.regionId === `habitat:${cellIndex}:wetland`
+      && r.site.action === 'tendWetland')?.site;
+    // Existing workface geometry can mark a bank even when all of the original
+    // workers are absent. Do not read a group, census or live position here.
+    return { radiusM, edgeEastM: bed ? bed.position.eastM - Math.min(2, Math.sqrt(bed.footprintHa * 10000) / 10) : -radiusM,
+      accessNorthM: bed?.position.northM ?? 0 };
+  }
+  const wetlandAt = (bank, eastM, northM) => Boolean(bank && eastM >= bank.edgeEastM && Math.hypot(eastM, northM) <= bank.radiusM);
+  const validBank = bank => Boolean(bank && Number.isFinite(bank.radiusM) && bank.radiusM > 0
+    && Number.isFinite(bank.edgeEastM) && Number.isFinite(bank.accessNorthM)
+    && [bank.edgeEastM, bank.accessNorthM].every(n => Math.abs(n) <= bank.radiusM));
+  // One north/east frame for all four existing on-foot patches. A mapped
+  // wetland can supply a dry bank approach; recorded route anchors win.
+  function populationWindow(sector, from, to, areaHa, tile, bank = null) {
     if (!sector?.bounds || !sector.entry || !(areaHa > 0) || !(tile > 0)
       || from?.id !== sector.destination?.approachCellId || to?.id !== sector.destination?.strategicCellId) return null;
     const b = sector.bounds, bounds = { ...b, width: b.width * 2, height: b.height * 2 };
@@ -54,6 +68,8 @@
     if (entry) {
       if (!Number.isFinite(entry.eastM) || !Number.isFinite(entry.northM)
         || Math.hypot(entry.eastM, entry.northM) + room > radius) return null;
+    } else if (validBank(bank) && Math.hypot(bank.edgeEastM - 9 * tile, bank.accessNorthM) + room <= radius) {
+      entry = { eastM: bank.edgeEastM - 9 * tile, northM: bank.accessNorthM };
     } else {
       if (![from.latitude, from.longitude, to.latitude, to.longitude].every(Number.isFinite)) return null;
       const rad = Math.PI / 180, start = to.latitude * rad, end = from.latitude * rad, delta = (from.longitude - to.longitude) * rad;
@@ -63,8 +79,16 @@
       entry = { eastM: east / length * distance, northM: north / length * distance };
     }
     const m = n => Math.round(n * 1000) / 1000; // Stable metre frame, to the millimetre.
-    return { bounds, origin: { eastM: m(entry.eastM - (sector.entry.x - b.x) * tile),
-      northM: m(entry.northM - (sector.entry.y - b.y) * tile) } };
+    const origin = { eastM: m(entry.eastM - (sector.entry.x - b.x) * tile),
+      northM: m(entry.northM - (sector.entry.y - b.y) * tile) };
+    // Do not turn an existing route entry into a swim. The scientist starts
+    // from supported dry ground and can observe the reached water from it.
+    const wet = (x, y) => wetlandAt(bank, origin.eastM + (x + .5) * tile, origin.northM + (y + .5) * tile);
+    const entryDry = validBank(bank) && Array.from({ length: sector.entry.x - b.x + 1 }, (_, x) => x)
+      .every(x => !wet(x, sector.entry.y - b.y));
+    const entersBank = entryDry && Array.from({ length: bounds.height }, (_, y) => y)
+      .some(y => Array.from({ length: bounds.width }, (_, x) => x).some(x => wet(x, y)));
+    return { bounds, origin, ...(entersBank ? { wetlandBank: copy(bank) } : {}) };
   }
   // Ground access is not permission or a supply checklist for the wild.
   function entryReason(excursion, sector, c) {
@@ -81,5 +105,5 @@
     if (!['reconnaissance', 'surfaceSample', 'shallowCore', 'arcaneSurvey'].includes(method)) return 'Unknown local survey method.';
     return '';
   }
-  return { create, contains, populationWindow, extensionPlan, extensionReason, entryReason, sampleReason };
+  return { create, contains, populationWindow, wetlandBank, wetlandAt, validBank, extensionPlan, extensionReason, entryReason, sampleReason };
 });

@@ -9,18 +9,96 @@ const wild = page => page.evaluate(() => window.helixHeresyDebug.foreignWilderne
 const act = (page, action, options = {}) => page.evaluate(({ action, options }) => window.helixHeresyDebug.foreignSurveyAction(action, options), { action, options });
 async function reload(page) { await page.reload(); await page.locator('#loadLastSaveBtn').click(); await page.locator('[data-workspace-tab="visits"]').click(); }
 let seamWorld;
-function originalSeamWorld() {
-  if (seamWorld) return seamWorld;
-  const w = Library.createWorld({ id: 'native-survey', worldSeed: 'native-encounters', createdAt: 'test', generationVersion: 8,
+function originalSeamWorld(worldSeed = 'native-encounters') {
+  if (seamWorld && worldSeed === 'native-encounters') return seamWorld;
+  const w = Library.createWorld({ id: 'native-survey', worldSeed, createdAt: 'test', generationVersion: 8,
     creationSettings: { strategicMap: { refinementLevel: 2 } } });
   const map = w.generatedData.strategicMap, catalog = JSON.parse(JSON.stringify(lifecycleWorld().generatedData.strategicMap.strategicStartingSites));
   delete catalog.digest;
   for (const c of catalog.scenarioRows[0].candidates) c.strategicCellId = World.cellId(map.surface.classes.indexOf('L'));
   catalog.digest = `strategic-starting-sites-${World.stableHash(catalog)}`;
   map.strategicStartingSites = catalog; map.publicStartingSiteDirectory = JSON.parse(JSON.stringify(catalog));
-  seamWorld = Library.createWorld({ ...w, generatedData: { ...w.generatedData, strategicMap: World.finalizeStrategicMap(map) } });
-  return seamWorld;
+  const result = Library.createWorld({ ...w, generatedData: { ...w.generatedData, strategicMap: World.finalizeStrategicMap(map) } });
+  if (worldSeed === 'native-encounters') seamWorld = result;
+  return result;
 }
+test('ordinary wetland bank survey observes a conserved original Mire Choir member from dry ground', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message)); page.on('dialog', d => d.accept());
+  const world = originalSeamWorld('source-small'), field = 'planet-cell:00011', wetland = 'planet-cell:00045';
+  await openForeignWorkspace(page, 'wetland-bank', 'canvas', false, false, 0, 'wilderness', false, null, null, world);
+  expect(await wa(page, 'return')).toBe(true); await finish(page);
+  const source = { cityId: 'b', administrationId: 'admin:b', worksId: 'works:b', charterId: 'charter:b', populationSourceId: 'population:b',
+    cellId: field, name: 'Wetland Survey Approach', placeId: 'foreign-survey:b' };
+  const carrier = Carrier.fromWorld({ strategicPlayableSettlementState: { cityRows: [{ cityId: 'b', assetId: 'population:b', currentPopulation: 100, physicalCondition: 'intact', services: { transport: 'functional' } }] },
+    cityGovernments: { governments: [{ cityId: 'b', roleAssignments: { publicWorksAndProvisioning: 'works:b' }, institutions: [{ id: 'works:b', capacityBand: 'functional' }] }] } }, 'b', 0);
+  const map = world.generatedData.strategicMap, origin = World.cellSnapshot(map, World.cellIndex(field));
+  // Select an original mapped wetland in the itinerary. There is no recorded
+  // local arrival override, debug body, or runtime search for a resident.
+  const destination = World.cellSnapshot(map, World.cellIndex(wetland));
+  expect(await page.evaluate(({ source, carrier, origin, destination }) => {
+    const d = window.helixHeresyDebug, context = d.foreignSurveySnapshot().surveys.context;
+    return d.setForeignSurveyTestSource(source, carrier, { ...context, siteId: source.placeId, strategicCellId: source.cellId })
+      && d.setForeignWildernessTestSource({ origin, candidates: [{ ...destination, slopePercent: .6, temperatureC: 17 }], occupied: [], context });
+  }, { source, carrier, origin, destination })).toBe(true);
+  expect(await act(page, 'quote')).toBe(true); expect(await act(page, 'accept', { expected: (await snap(page)).excursion.quote })).toBe(true);
+  expect(await act(page, 'book')).toBe(true); await advance(page, 120);
+  expect(await act(page, 'board')).toBe(true); await finish(page); await advance(page, 600);
+  expect(await act(page, 'disembark')).toBe(true); await finish(page);
+  let w = await wild(page);
+  expect(w.site.beasts?.materialized ?? false).toBe(false);
+  expect(w.site.beasts?.actors ?? []).toHaveLength(0);
+  expect(w.knowledge.sightings.filter(a => a.speciesId === 'beast:mire-choir')).toHaveLength(0);
+  const walk = s => page.evaluate(s => window.helixHeresyDebug.advanceAdjoiningWildernessForTest(s), s);
+  async function finishWalk() {
+    for (let i = 0; i < 12; i++) {
+      const s = await wild(page), t = s.tasks.find(t => !t.reason);
+      if (!t) { expect(s.tasks).toHaveLength(0); return; }
+      await walk(Math.max(1, t.dueAt - s.clock + 1));
+    }
+    throw new Error('Wetland survey walk did not finish');
+  }
+  expect(await act(page, 'enterWilderness')).toBe(true); await finishWalk();
+  await page.waitForFunction(() => window.helixHeresyDebug.foreignWildernessSnapshot().site.beasts?.materialized, null, { timeout: 120000 });
+  w = await wild(page);
+  expect(w.site.discovery.baseline.populationWetlandBank).toBeTruthy();
+  const terrain = w.site.beasts.bodyTerrain;
+  const dry = { ...w.site.entry, x: w.site.entry.x + 8 }, wet = { ...dry, x: dry.x + 1 };
+  const key = ({ x, y, z }) => `${x},${y},${z}`;
+  expect(terrain[key(dry)]).toMatchObject({ sourceRegionId: 'habitat:45:surface', waterDepthM: 0 });
+  expect(terrain[key(wet)]).toMatchObject({ sourceRegionId: 'habitat:45:wetland', fieldWetland: true });
+  expect(terrain[key(wet)].waterDepthM).toBeGreaterThan(.9);
+  expect(w.knowledge.sightings.filter(a => a.speciesId === 'beast:mire-choir')).toHaveLength(0);
+  const start = cell => page.evaluate(({ room, cell }) => Boolean(window.helixHeresyDebug.startScientistMove(room, { toCell: cell })),
+    { room: w.site.roomId, cell });
+  expect(await start(wet)).toBe(false);
+  expect(await start(dry)).toBe(true); await finishWalk();
+  w = await wild(page);
+  expect(w.cell).toEqual(dry);
+  const sighting = w.knowledge.sightings.find(a => a.speciesId === 'beast:mire-choir' && a.current);
+  expect(sighting).toBeTruthy();
+  const actor = w.site.beasts.actors.find(a => a.id === sighting.id);
+  expect(actor.nativePopulation.regionId).toBe('habitat:45:wetland');
+  expect(actor.life.originalMemberId).toBeTruthy();
+  expect(actor.bodyPhysics.mode).toBe('swimming');
+  for (const renderer of ['canvas', 'dom']) {
+    const labels = await page.evaluate(renderer => {
+      const d = window.helixHeresyDebug; d.setMapRenderer(renderer); d.setMapOverlay('prospecting');
+      return d.mapSceneSnapshot().cells.map(c => c.overlay?.label);
+    }, renderer);
+    expect(labels).toContain('Observed wetland water');
+    expect(labels.some(label => label?.includes(actor.name))).toBe(true);
+  }
+  await reload(page); w = await wild(page);
+  expect(w.site.beasts.actors.find(a => a.id === actor.id)?.life.originalMemberId).toBe(actor.life.originalMemberId);
+  expect(await act(page, 'withdraw')).toBe(true); await finishWalk();
+  w = await wild(page);
+  expect(w.site.beasts.actors).toHaveLength(0);
+  expect(w.knowledge.sightings.find(a => a.id === actor.id)?.current).toBe(false);
+  expect(await act(page, 'enterWilderness')).toBe(true); await finishWalk();
+  w = await wild(page);
+  expect(w.site.beasts.actors.filter(a => a.life.originalMemberId === actor.life.originalMemberId).map(a => a.id)).toEqual([actor.id]);
+  expect(errors).toEqual([]);
+});
 test('Canvas and DOM: ordinary foreign survey claims an original full-size beast across the opened seam', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message)); page.on('dialog', d => d.accept());
   const world = originalSeamWorld(), field = 'planet-cell:00143', wildCell = 'planet-cell:00041';

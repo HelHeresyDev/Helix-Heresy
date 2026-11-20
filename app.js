@@ -72139,6 +72139,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!ensureWildernessBeasts().materialized) return assignments;
     const knowledge = wildernessBeastKnowledge();
     const markers = [
+      ...observedSurveyWater().map(cell => ({ cell, value: '≈', label: 'Observed wetland water' })),
       ...knowledge.sightings.flatMap(entry => (entry.visibleBodyCells || []).filter(cell => !sameMapCell(cell, entry.cell)).map(cell => ({ cell,
         value: entry.status === 'dead' ? '†' : entry.current ? 'B' : '?',
         label: `${entry.name}: ${entry.current ? `${entry.verticalActivity}; ${formatDecimal(entry.heightM || 0, 2)} m relative to ground; observed body footprint` : 'dated body footprint; current location unknown'}` }))),
@@ -100029,6 +100030,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     for (const beast of beasts.actors) beast.roomId = activeWildernessRoom();
     if (foreignWildernessLocal()) survival.beasts = beasts; else state.wildernessBeasts = beasts;
+    if (survival.discovery.baseline.populationWetlandBank && Object.values(beasts.bodyTerrain || {}).some(p => p.fieldWetland))
+      bumpNavigationRevision('topology');
     return beasts;
   }
   function nativeBeastPopulationState() {
@@ -100076,6 +100079,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!baseline?.bounds || !survival.destination) return null;
     return { id: survival.destination.id, cellId: survival.destination.strategicCellId,
       roomId, kind: baseline.habitatKind || 'surface', bounds: baseline.populationBounds || baseline.bounds,
+      ...(baseline.populationWetlandBank ? { wetlandBank: baseline.populationWetlandBank } : {}),
       origin: baseline.populationFrame || { eastM: baseline.bounds.x * tile, northM: baseline.bounds.y * tile } };
   }
   function visitedForeignBeastPatches(survival) {
@@ -100088,11 +100092,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const approach = StrategicWorld.cellSnapshot(map, StrategicWorld.cellIndex(survival.destination.approachCellId));
     const destination = StrategicWorld.cellSnapshot(map, index);
     if (!approach?.neighborIds.includes(destination?.id) || destination?.surfaceClass !== 'land') return false;
-    const frame = ForeignWilderness.populationWindow(survival, approach, destination, areaHa, ensureLabMap().tileSizeM);
+    const bank = ForeignWilderness.wetlandBank(map.beastHabitatSources, index);
+    const frame = ForeignWilderness.populationWindow(survival, approach, destination, areaHa, ensureLabMap().tileSizeM, bank);
     if (!frame) return false;
     const existing = state.nativeBeastPopulations?.sites?.[survival.destination.id];
     baseline.populationFrame = existing?.origin ? clonePlainObject(existing.origin) : frame.origin;
     baseline.populationBounds = frame.bounds;
+    const nativeBank = existing ? existing.wetlandBank : frame.wetlandBank;
+    if (nativeBank) baseline.populationWetlandBank = clonePlainObject(nativeBank);
     return true;
   }
   function materializeNativeBeasts(survival, map, visited = null, signature = null) {
@@ -100125,7 +100132,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
     } finally { existing.bodyTerrain = previousTerrain; }
     saved.tracks = [...(existing.tracks || [])];
-    for (const a of saved.actors) if (!saved.tracks.some(t => t.id === `track:${a.id}`))
+    for (const a of saved.actors) if (!(site.wetlandBank && a.bodyPhysics.altitudeM < 0)
+      && !saved.tracks.some(t => t.id === `track:${a.id}`))
       saved.tracks.push({ id: `track:${a.id}`, cell: clonePlainObject(a.mapCell),
         label: WildernessBeasts.PROFILES[a.speciesId].track, observedAt: null });
     return saved;
@@ -100170,8 +100178,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       && (beastBodyContext(beast).terrain(beast.mapCell)?.waterClarityM || 0) >= -beastElevation(beast));
     return Boolean(beast && scientistInWilderness() && visibleDepth
       && BeastBodies.occupied(beast, ensureLabMap().tileSizeM).some(c => WildernessBeasts.distance(scientistMapCell(), c) <= 8
-        && (!beast.nativePopulation || !overlandStopSite() || perceptionLightLevelAtCell(c) > 0)
+        && (!beast.nativePopulation || !overlandStopSite() && !recordedBeastTerrainAt(c)?.fieldWetland || perceptionLightLevelAtCell(c) > 0)
         && sensoryLineOfSight(scientistMapCell(), c)) && beastClimbingLine(state.scientist, beast));
+  }
+  function observedSurveyWater() {
+    const site = foreignWildernessLocal();
+    if (!site?.discovery?.baseline?.populationWetlandBank || !scientistInWilderness() || scientistIsDead()) return [];
+    const here = scientistMapCell();
+    return Object.entries(site.beasts?.bodyTerrain || {}).flatMap(([key, p]) => {
+      if (!p.fieldWetland || !(p.waterDepthM > .01)) return [];
+      const [x, y, z] = key.split(',').map(Number), cell = { x, y, z };
+      return z === here.z && WildernessBeasts.distance(here, cell) <= 8
+        && labMapCellHasFloor(cell) && sensoryLineOfSight(here, cell) && perceptionLightLevelAtCell(cell) > 0 ? [cell] : [];
+    });
   }
   function wildernessBeastKnowledge() {
     const saved = ensureWildernessBeasts();
@@ -100345,6 +100364,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const outcrop = (patch?.discovery.baseline || baseline)?.rocks?.some(p => sameMapCell(p, c));
       return { floor: labMapCellHasFloor(c, map), waterDepthM: 0, soilDepthM: 0, ...raw,
         ...(raw.windSchedule ? { windSchedule: raw.windSchedule } : {}),
+        ...(raw.fieldWetland ? { waterClarityM: Math.min(raw.waterDepthM, Math.max(0, (raw.condition?.freshwaterQuality || 0) * .03)) } : {}),
         ...(foreign || roads ? { floor: allowed.has(mapCellKey(c)) && labMapCellHasFloor(c, map) && raw.floor !== false } : {}),
         protected: sameMapCell(c, WildernessSurvival.GATE) || sameMapCell(c, foreignWildernessLocal()?.gate),
         obstacleHeightM: wall || door && !doorFixtureAllowsPassage(door) || propertyOpaqueFixtureAtCell(c) ? 4 : Math.max(outcrop ? 2 : 0, raw.obstacleHeightM || 0,
@@ -100379,6 +100399,11 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       blocked: (c, low, high, actor) => {
         const k = mapCellKey(c);
         if (low < 1.8 && high > 0 && peopleCells.has(k)) return true;
+        // This dry-bank encounter does not transfer a wetland original into
+        // the surface account. Its full position remains in the funded water.
+        const origin = actor?.nativePopulation;
+        if (origin?.regionId?.endsWith(':wetland') && activeWildernessSite()?.discovery?.baseline?.populationWetlandBank
+          && terrain(c)?.sourceRegionId !== origin.regionId) return true;
         return bodyVolumes.get(k)?.some(other => other.low < high && other.high > low) || false;
       },
       excavate: (actor, c, volume, t) => {
