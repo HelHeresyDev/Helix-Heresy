@@ -45,6 +45,39 @@
       return 'Personally attend the original free capable body and original clerk at the shared powered reception desk.';
     return '';
   }
+  function recordSighting(s, sighting, original, place, bodyEpoch) {
+    if (s?.phase !== 'field' || !s.trip || s.trip.bodyEpoch !== bodyEpoch
+      || !original?.sourceId || !original.populationId || !original.memberId
+      || !place?.siteId || !place.strategicCellId || place.worldId !== s.context.worldId
+      || !sighting?.speciesId || !sighting.name || !sighting.condition || !Number.isFinite(sighting.observedAt)
+      || sighting.observedAt < s.trip.bookedAt || !['x', 'y', 'z'].every(k => Number.isInteger(sighting.cell?.[k]))) return false;
+    const id = JSON.stringify([original.sourceId, original.populationId, original.memberId, place.siteId]);
+    const rows = s.fieldSightings ||= {};
+    if (rows[id]?.account.observedAt >= sighting.observedAt) return false;
+    // Keep only the latest firsthand note per original and patch, not a per-tick trail.
+    rows[id] = { id, original: { ...original }, account: {
+      witness: { actorId: 'scientist', bodyEpoch }, tripId: s.trip.id,
+      place: { ...place }, observedAt: sighting.observedAt, cell: { ...sighting.cell },
+      speciesId: sighting.speciesId, name: sighting.name, condition: sighting.condition,
+      activity: sighting.activity || ''
+    } };
+    return true;
+  }
+  function sightingReceipt(g, id, observedAt) {
+    return g?.fieldSightingReceipts?.find(r => r.noteId === id && r.account.observedAt === observedAt) || null;
+  }
+  function shareSighting(g, s, c, now, expected) {
+    const row = expected && Object.hasOwn(s?.fieldSightings || {}, expected.id) && s.fieldSightings[expected.id];
+    if (!row || row.account.observedAt !== expected.observedAt || row.account.observedAt > now
+      || row.account.witness.bodyEpoch !== c.bodyEpoch || contactReason(g, s, c)
+      || sightingReceipt(g, row.id, row.account.observedAt)) return false;
+    // The receiving institution owns a snapshot, not a pointer into private notes or live ecology.
+    (g.fieldSightingReceipts ||= []).push({ kind: 'firsthandBeastSighting', noteId: row.id, receivedAt: now,
+      recipient: { clerkId: g.clerk.id, institutionId: g.institutionId, cityId: g.cityId },
+      original: copy(row.original), account: copy(row.account) });
+    g.receptionWorkSeconds -= 60; g.powerSeconds -= 60;
+    return true;
+  }
   function note(s, now, summary) { s.history.push({ at: now, summary }); s.history = s.history.slice(-30); }
   function action(g, s, c, now, kind, expected, wallet) {
     if (!s || !c.alive) return false;
@@ -123,5 +156,6 @@
       trip: copy(s.trip), leg: s.leg ? { progressKm: s.leg.progressKm, km: s.leg.km, reason: s.leg.reason } : null, history: copy(s.history) };
     return s?.observation ? copy(s.observation) : null;
   }
-  return { SCOPE, WINDOW, COLLECTION, DISTANCE, sourceFromWorld, create, current, permit, contactReason, action, boardingReason, board, disembark, advance, sampleReason, observe };
+  return { SCOPE, WINDOW, COLLECTION, DISTANCE, sourceFromWorld, create, current, permit, contactReason, recordSighting, sightingReceipt,
+    shareSighting, action, boardingReason, board, disembark, advance, sampleReason, observe };
 });

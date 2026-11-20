@@ -18257,7 +18257,7 @@
         tools: surfaceStoneTools(), stamina: scientistVital('stamina').current, stacks: ensurePhysicalItemStacks(),
         tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) }),
       foreignSurveySnapshot: () => { const g = passengerReceptionGate(); updateForeignSurvey(g); return clonePlainObject({ excursion: g?.foreignSurvey,
-        context: foreignSurveyContext(g), clock: state.clock, money: ensureEconomy().money, stacks: ensurePhysicalItemStacks(),
+        sightingReceipts: g?.fieldSightingReceipts || [], context: foreignSurveyContext(g), clock: state.clock, money: ensureEconomy().money, stacks: ensurePhysicalItemStacks(),
         diagnostics: ensureDiagnosticState(), surveys: ensureResourceSurveys(), passenger: state.intercityPassenger,
         tasks: scientistQueueTasks().map(t => ({ ...t, reason: taskBlockReason(t) })) }); },
       setForeignSurveyTestSource: (source, carrier, context) => {
@@ -84436,6 +84436,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function renderJournal() {
     renderCampaign();
     dom.journalContent.textContent = "";
+    const fieldNotes = document.createElement("section"); fieldNotes.className = "subpanel"; fieldNotes.dataset.fieldSightingJournal = "true";
+    for (const gate of state.penalFlights?.assistance?.cityApproach?.gates || []) {
+      for (const note of foreignSurveySightingNotes(gate.foreignSurvey)) {
+        fieldNotes.append(textEl("p", foreignSurveySightingText(note.account)));
+      }
+    }
+    if (fieldNotes.childElementCount) {
+      fieldNotes.prepend(textEl("h3", "Private wildlife field notes"), textEl("p", "Last firsthand sightings only. Unseen ground is not confirmed clear."));
+      dom.journalContent.append(fieldNotes);
+    }
     if (state.journalMode === "none") {
       dom.journalContent.append(emptyText("Genetic notes disabled."));
       return;
@@ -100173,14 +100183,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
     }
   }
-  function wildernessBeastVisible(beast) {
+  function visibleWildernessBeastCell(beast) {
     const visibleDepth = beast && (beastElevation(beast) >= 0 || ['swimming', 'drifting'].includes(beast.bodyPhysics?.mode)
       && (beastBodyContext(beast).terrain(beast.mapCell)?.waterClarityM || 0) >= -beastElevation(beast));
-    return Boolean(beast && scientistInWilderness() && visibleDepth
-      && BeastBodies.occupied(beast, ensureLabMap().tileSizeM).some(c => WildernessBeasts.distance(scientistMapCell(), c) <= 8
+    if (!beast || !scientistInWilderness() || !visibleDepth) return null;
+    const cell = BeastBodies.occupied(beast, ensureLabMap().tileSizeM).find(c => WildernessBeasts.distance(scientistMapCell(), c) <= 8
         && (!beast.nativePopulation || !overlandStopSite() && !recordedBeastTerrainAt(c)?.fieldWetland || perceptionLightLevelAtCell(c) > 0)
-        && sensoryLineOfSight(scientistMapCell(), c)) && beastClimbingLine(state.scientist, beast));
+        && sensoryLineOfSight(scientistMapCell(), c));
+    return cell && beastClimbingLine(state.scientist, beast) ? cell : null;
   }
+  function wildernessBeastVisible(beast) { return Boolean(visibleWildernessBeastCell(beast)); }
   function observedSurveyWater() {
     const site = foreignWildernessLocal();
     if (!site?.discovery?.baseline?.populationWetlandBank || !scientistInWilderness() || scientistIsDead()) return [];
@@ -100223,9 +100235,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         && perceptionLightLevelAtCell(body.mapCell) > 0);
       observedWildlifeCarrion.set(saved, visible.map(body => ({ cell: cleanMapCell(body.mapCell), observedAt: state.clock })));
     } else observedWildlifeCarrion.delete(saved);
+    const excursion = !supplySimulationSite && !porterSimulationExcursion && !escortSimulationState?.source
+      && !scientistIsDead() && passengerBodyCurrent() && foreignSurveyAtField();
+    const fieldPatches = excursion?.wilderness?.beasts === saved ? visitedForeignBeastPatches(excursion.wilderness) : [];
     let changed = 0;
     for (const beast of localBeastActors(saved)) {
-      if (!wildernessBeastVisible(beast)) { if (saved.sightings[beast.id]) saved.sightings[beast.id].threatVisible = false; continue; }
+      const visibleCell = visibleWildernessBeastCell(beast);
+      if (!visibleCell) { if (saved.sightings[beast.id]) saved.sightings[beast.id].threatVisible = false; continue; }
       const previous = saved.sightings[beast.id];
       const threat = beast.status !== "dead" && (beast.behavior === "pursue" || WildernessBeasts.distance(scientistMapCell(), beast.mapCell) <= 3);
       if (threat && !previous?.threatVisible) pauseForWildernessThreat(`${beast.name} is an immediate visible threat. Guard, fight, or withdraw${unsupportedActive() || state.penalFlights?.fieldActive ? " to safer local ground; there is no defended gate here" : " through the secured entrance"}.`);
@@ -100240,6 +100256,19 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         spellEvent: BeastSpellImitation.observedEvent(beast, previous, state.clock),
         castingActivity: BeastSpellImitation.visiblePreparation(beast) };
       BeastPowers.observe(currentBeastPowers(), saved.sightings[beast.id], saved.siteId || scientistRoomId(), !scientistIsDead());
+      if (beast.nativePopulation?.sourceId && beast.life?.originalMemberId && beast.roomId === scientistRoomId()) {
+        const patch = fieldPatches.find(p => ForeignWilderness.contains(p.bounds, visibleCell));
+        if (patch) {
+          const sighting = saved.sightings[beast.id];
+          ForeignSurveyExcursion.recordSighting(excursion, {
+            name: sighting.name, speciesId: sighting.speciesId, observedAt: sighting.observedAt, cell: cleanMapCell(visibleCell),
+            condition: sighting.condition,
+            activity: sighting.status === 'dead' ? '' : sighting.naturalActivity || (sighting.verticalActivity === 'swimming' ? 'Swimming' : '')
+          }, { sourceId: beast.nativePopulation.sourceId, populationId: beast.populationId, memberId: beast.life.originalMemberId },
+          { worldId: patch.context.worldId, siteId: patch.context.siteId, strategicCellId: patch.destination.strategicCellId,
+            label: patch.destination.label }, ensureScientistIdentity().bodyEpoch);
+        }
+      }
       changed++;
     }
     for (const track of saved.tracks) if (track.observedAt == null && WildernessBeasts.distance(scientistMapCell(), track.cell) <= 3 && sensoryLineOfSight(scientistMapCell(), track.cell)) {
@@ -103172,6 +103201,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     const s = ensureForeignSurvey(g); if (!s) return false;
     updateForeignSurvey(g); const c = foreignSurveyContext(g); c.otherBusy ||= surveyBusy(); let ok = false;
     if (['quote', 'accept', 'book'].includes(action)) ok = ForeignSurveyExcursion.action(g, s, c, state.clock, action, options.expected, ensureEconomy());
+    else if (action === 'shareSighting') {
+      ok = ForeignSurveyExcursion.shareSighting(g, s, c, state.clock, options.expected);
+      surveyEvent(ok ? 'The municipal clerk received a copy of this dated firsthand sighting. No future sightings are shared.'
+        : 'This sighting was not shared. The original witness and available municipal clerk must be at the desk with an unfiled dated note.');
+      persist(); render(); return ok;
+    }
     else if (action === 'walkVehicle' && !c.otherBusy && s.phase === 'field') ok = Boolean(startScientistMove(s.roomId, { toCell: s.entry, allowMultiRoom: true }));
     else if (['board', 'disembark'].includes(action) && !(action === 'board' && ForeignExpeditionEscort.active(s.escort)) && !ForeignSurveyExcursion.boardingReason(s, c, state.clock, action))
       ok = Boolean(queueSurveyWork('foreignSurveyTravel', action === 'disembark' ? s.cabinEntry : s.phase === 'field' ? s.entry : { x: 10, y: 7, z: g.z },
@@ -103200,6 +103235,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     updateForeignSurvey(g);
   }
+  function foreignSurveySightingNotes(s) {
+    return Object.values(s?.fieldSightings || {}).sort((a, b) => b.account.observedAt - a.account.observedAt);
+  }
+  function foreignSurveySightingText(a) {
+    return `${formatClock(a.observedAt)} — ${a.name}, ${a.place.label} (${a.cell.x}, ${a.cell.y}, ${a.cell.z}): ${a.condition}${a.activity ? `; ${a.activity}` : ''}. Firsthand sighting by the scientist, not a current position.`;
+  }
   function renderForeignSurvey() {
     const panel = document.createElement('section'); panel.className = 'subpanel'; panel.dataset.foreignSurvey = 'true';
     panel.append(textEl('h3', 'Foreign Municipal Surface-Survey Excursion'), textEl('p', ForeignSurveyExcursion.SCOPE));
@@ -103213,6 +103254,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       button('Review foreign municipal sampling terms', 'quote', reason || busy);
       if (s.quote) button('Accept exact foreign sampling access', 'accept', reason || busy, { expected: clonePlainObject(s.quote) });
       button('Book original foreign municipal round trip (94 marks)', 'book', reason || busy || s.phase !== 'depot' || !ForeignSurveyExcursion.permit(s, c, state.clock)); }
+    const notes = foreignSurveySightingNotes(s);
+    if (notes.length) {
+      const filed = document.createElement('details'); filed.dataset.foreignFieldSightings = 'true'; filed.open = c.atDesk;
+      filed.append(textEl('summary', 'Private wildlife field notes'), textEl('p', 'Only the chosen dated sighting is given to this clerk. A quiet survey does not confirm absence or safety.'));
+      for (const { id, account } of notes) {
+        const receipt = ForeignSurveyExcursion.sightingReceipt(g, id, account.observedAt);
+        const row = document.createElement('div'); row.append(textEl('p', foreignSurveySightingText(account)));
+        if (receipt) row.append(textEl('p', `Copy received by the municipal clerk at ${formatClock(receipt.receivedAt)}.`));
+        else if (c.atDesk) {
+          const label = `Share ${account.name} sighting with municipal clerk`;
+          const b = storesActionButton(label, label, () => foreignSurveyAction('shareSighting', { expected: { id, observedAt: account.observedAt } }));
+          b.disabled = Boolean(busy || account.witness.bodyEpoch !== c.bodyEpoch || ForeignSurveyExcursion.contactReason(g, s, c));
+          row.append(b);
+        }
+        filed.append(row);
+      }
+      panel.append(filed);
+    }
     if (v) panel.append(textEl('p', `${formatClock(v.at)} — personally received excursion record: ${v.phase}; ${v.leg ? `${v.leg.progressKm.toFixed(2)}/${v.leg.km} km; ${v.leg.reason}` : 'original vehicle parked or at depot'}. Records away stay dated.`));
     if (s.permission) panel.append(textEl('p', `Separate ground permission ends ${formatClock(s.permission.endsAt)}. Expiry stops sampling, not the already paid return or belongings retrieval.`));
     if (c.atStand || c.atFieldEntry) button('Board original foreign survey vehicle', 'board', busy || ForeignExpeditionEscort.active(s.escort) || ForeignSurveyExcursion.boardingReason(s, c, state.clock, 'board'));

@@ -1237,6 +1237,29 @@ and return retain the same original identity. The matching terrain check
 claims no swimmer from dry or unvisited tiles and does not debit water
 again when those tiles are revisited.
 
+#### Private field notes and received copies
+
+An original creature actually seen on an ordinary foreign survey supplies a
+private, dated field note. It records the scientist's witnessing body, the
+survey trip, the visited patch and a visible point on the creature, and its
+observed condition or activity. The Journal retains the latest note per
+original and patch when the scientist returns home. A note is not a trail:
+leaving sight, leaving the site, or loading a save does not advance its date.
+Hidden beasts, tracks alone, and quiet or unvisited ground create no sighting
+and cannot certify safety. Older surveys are not backfilled from saved
+population facts.
+
+The original witness can share a chosen copy in person with the existing
+municipal sampling clerk at the powered desk. No sampling permit is needed
+to give the clerk an old note. This spends existing reception work and
+power and stores the exact observed account at the receiving institution
+with a separate receipt date. No recipient sees private notes or their
+updates before handoff, and future sightings cannot alter a received copy.
+Original population, source and member keys bind the account internally;
+the readable note does not reveal a hidden position, reserves, a census, or
+anything about the rest of that population. Authority responses and victory
+evaluation remain outside this handoff.
+
 ### Population-backed local walking encounters
 
 The home-side leg of the existing local municipal survey walk can now read the

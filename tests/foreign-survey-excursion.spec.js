@@ -93,3 +93,37 @@ test('dated observations remain unchanged away, while death freezes original wor
   Foreign.board(f.s, { ...f.c, atFieldEntry: true }, 800); const frozen = copy(f.s); f.c.alive = false;
   expect(Foreign.advance(f.s, f.c, 100000)).toBe(false); expect(f.s).toEqual(frozen);
 });
+
+test('firsthand field notes stay private; the original clerk receives only the exact submitted snapshot', () => {
+  const f = fixture(); field(f);
+  const place = { worldId: 'world', siteId: 'boundary-wetland', strategicCellId: 'planet-cell:00002', label: 'Wetland bank' };
+  const original = { sourceId: 'original-source', populationId: 'original-population', memberId: 'original-member' };
+  const sighting = { name: 'Mire Choir', speciesId: 'beast:mire-choir', cell: { x: 30, y: 12, z: 24 },
+    observedAt: 725, condition: 'No visible wounds', activity: 'Swimming', hiddenReserves: 100 };
+  const record = (data = sighting, origin = original, at = place, body = 0) => Foreign.recordSighting(f.s, data, origin, at, body);
+  expect(record(sighting, {})).toBe(false);
+  expect(record(sighting, original, { ...place, worldId: 'another-world' })).toBe(false);
+  expect(record(sighting, original, place, 1)).toBe(false);
+  expect(record()).toBe(true); expect(record()).toBe(false);
+  const row = Object.values(f.s.fieldSightings)[0], expected = { id: row.id, observedAt: 725 };
+  expect(row.account).not.toHaveProperty('hiddenReserves');
+  expect(f.g.fieldSightingReceipts).toBeUndefined();
+  const share = (c, note = expected, now = 900) => Foreign.shareSighting(f.g, f.s, c, now, note);
+  expect(share(f.c)).toBe(false);
+  const atDesk = { ...f.c, atDesk: true, atField: false, visitId: 'later-visit' };
+  expect(share({ ...atDesk, bodyEpoch: 1 })).toBe(false);
+  expect(share({ ...atDesk, clerkPresent: false })).toBe(false);
+  expect(share(atDesk, { ...expected, observedAt: 726 })).toBe(false);
+  expect(share(atDesk, expected, 724)).toBe(false);
+  expect(f.g.fieldSightingReceipts).toBeUndefined();
+  const work = f.g.receptionWorkSeconds, power = f.g.powerSeconds;
+  expect(share(atDesk)).toBe(true); expect(share(atDesk)).toBe(false);
+  expect(f.g.receptionWorkSeconds).toBe(work - 60); expect(f.g.powerSeconds).toBe(power - 60);
+  const receipt = copy(Foreign.sightingReceipt(f.g, row.id, 725));
+  expect(receipt).toMatchObject({ receivedAt: 900, recipient: { clerkId: 'clerk:b', institutionId: 'admin:b', cityId: 'b' }, original,
+    account: { observedAt: 725, place, witness: { actorId: 'scientist', bodyEpoch: 0 } } });
+  expect(record({ ...sighting, observedAt: 1000, condition: 'Visibly wounded' })).toBe(true);
+  expect(Object.values(f.s.fieldSightings)).toHaveLength(1);
+  expect(share(atDesk, expected, 1100)).toBe(false);
+  expect(copy(f.g).fieldSightingReceipts).toEqual([receipt]);
+});

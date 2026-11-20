@@ -49,6 +49,7 @@ test('ordinary wetland bank survey observes a conserved original Mire Choir memb
   expect(w.site.beasts?.actors ?? []).toHaveLength(0);
   expect(w.knowledge.sightings.filter(a => a.speciesId === 'beast:mire-choir')).toHaveLength(0);
   const walk = s => page.evaluate(s => window.helixHeresyDebug.advanceAdjoiningWildernessForTest(s), s);
+  const notes = async () => Object.values((await snap(page)).excursion.fieldSightings || {});
   async function finishWalk() {
     for (let i = 0; i < 12; i++) {
       const s = await wild(page), t = s.tasks.find(t => !t.reason);
@@ -68,6 +69,7 @@ test('ordinary wetland bank survey observes a conserved original Mire Choir memb
   expect(terrain[key(wet)]).toMatchObject({ sourceRegionId: 'habitat:45:wetland', fieldWetland: true });
   expect(terrain[key(wet)].waterDepthM).toBeGreaterThan(.9);
   expect(w.knowledge.sightings.filter(a => a.speciesId === 'beast:mire-choir')).toHaveLength(0);
+  expect((await notes()).filter(n => n.account.speciesId === 'beast:mire-choir')).toHaveLength(0);
   const start = cell => page.evaluate(({ room, cell }) => Boolean(window.helixHeresyDebug.startScientistMove(room, { toCell: cell })),
     { room: w.site.roomId, cell });
   expect(await start(wet)).toBe(false);
@@ -80,6 +82,12 @@ test('ordinary wetland bank survey observes a conserved original Mire Choir memb
   expect(actor.nativePopulation.regionId).toBe('habitat:45:wetland');
   expect(actor.life.originalMemberId).toBeTruthy();
   expect(actor.bodyPhysics.mode).toBe('swimming');
+  const readSighting = async () => (await notes()).find(n => n.original.memberId === actor.life.originalMemberId);
+  const observed = await readSighting();
+  expect(observed).toMatchObject({ account: { observedAt: sighting.observedAt, speciesId: actor.speciesId,
+    place: { strategicCellId: wetland }, witness: { actorId: 'scientist' } } });
+  expect((await snap(page)).sightingReceipts).toHaveLength(0);
+  expect(await act(page, 'shareSighting', { expected: { id: observed.id, observedAt: observed.account.observedAt } })).toBe(false);
   for (const renderer of ['canvas', 'dom']) {
     const labels = await page.evaluate(renderer => {
       const d = window.helixHeresyDebug; d.setMapRenderer(renderer); d.setMapOverlay('prospecting');
@@ -94,9 +102,31 @@ test('ordinary wetland bank survey observes a conserved original Mire Choir memb
   w = await wild(page);
   expect(w.site.beasts.actors).toHaveLength(0);
   expect(w.knowledge.sightings.find(a => a.id === actor.id)?.current).toBe(false);
+  const withdrawn = await readSighting();
+  expect(withdrawn.account.observedAt).toBeLessThan(w.clock);
+  await reload(page);
+  expect(await readSighting()).toEqual(withdrawn);
   expect(await act(page, 'enterWilderness')).toBe(true); await finishWalk();
   w = await wild(page);
   expect(w.site.beasts.actors.filter(a => a.life.originalMemberId === actor.life.originalMemberId).map(a => a.id)).toEqual([actor.id]);
+  expect(await act(page, 'withdraw')).toBe(true); await finishWalk();
+  const finalNote = await readSighting();
+  expect(await act(page, 'board')).toBe(true); await finish(page); await advance(page, 600);
+  expect(await act(page, 'disembark')).toBe(true); await finish(page);
+  expect((await snap(page)).context.atDesk).toBe(true);
+  expect(await readSighting()).toEqual(finalNote);
+  expect((await snap(page)).sightingReceipts).toHaveLength(0);
+  const panel = page.locator('[data-foreign-field-sightings]');
+  await expect(panel).toContainText('not a current position');
+  const shareButton = panel.getByRole('button', { name: `Share ${actor.name} sighting with municipal clerk`, exact: true });
+  await shareButton.click();
+  const [receipt] = (await snap(page)).sightingReceipts;
+  expect(receipt).toMatchObject({ account: finalNote.account, recipient: { cityId: 'b', institutionId: 'admin:b' } });
+  expect(receipt.receivedAt).toBeGreaterThan(finalNote.account.observedAt);
+  expect(await act(page, 'shareSighting', { expected: { id: finalNote.id, observedAt: finalNote.account.observedAt } })).toBe(false);
+  await reload(page);
+  expect((await snap(page)).sightingReceipts).toEqual([receipt]);
+  await expect(panel).toContainText('Copy received by the municipal clerk');
   expect(errors).toEqual([]);
 });
 test('Canvas and DOM: ordinary foreign survey claims an original full-size beast across the opened seam', async ({ page }) => {
