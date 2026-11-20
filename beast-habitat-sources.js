@@ -12,10 +12,11 @@
     node ? require('./beast-habitat-bindings') : root.HelixBeastHabitatBindings,
     node ? require('./background-wildlife') : root.HelixBackgroundWildlife,
     node ? require('./beast-parental-care') : root.HelixBeastParentalCare,
-    node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology);
+    node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology,
+    node ? require('./wind-shelters') : root.HelixWindShelters);
   if (node) module.exports = api;
   root.HelixBeastHabitatSources = api;
-})(globalThis, function (World, Ecology, Biology, Local, Bodies, Behavior, Journeys, Bindings, Wildlife, Care, Lantern) {
+})(globalThis, function (World, Ecology, Biology, Local, Bodies, Behavior, Journeys, Bindings, Wildlife, Care, Lantern, Shelters) {
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x)), clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
   const random = s => parseInt(World.stableHash(s), 16) / 4294967296;
@@ -279,12 +280,14 @@
   function expand(record, map, options = {}) {
     const regions = record.patchRows.map(row => expandPatch(map, row, record.calendar, Boolean(record.physicalBinding || options.physical)));
     const topology = World.topologyForMap(map), byCell = new Map();
+    const lee = new Map(record.windShelterRows || []);
     for (const patch of regions) {
       const index = World.cellIndex(patch.cellId);
       if (record.windTransport && patch.kind !== 'subsurface') {
         const angle = map.climate.windBearingDeg[index] * Math.PI / 180, speed = map.climate.windStrengthPermille[index] / 100;
         patch.wind = { x: Math.sin(angle) * speed, y: Math.cos(angle) * speed };
       }
+      if (lee.has(patch.id)) patch.windShelter = copy(lee.get(patch.id));
       if (!byCell.has(index)) byCell.set(index, []);
       byCell.get(index).push(patch);
     }
@@ -551,27 +554,67 @@
       policy: 'Private generator feasibility only; original-body residence and supply replay, no performed nurturing, future meat stock, safe destination reservation or perpetual equilibrium guarantee',
       seasonalJourneys: residence.journeys, seasons };
   }
-  function lanternDrifts(row, pools, map, salt) {
+  function terrainShelter(r, pools, map, topology) {
+    if (r.kind !== 'surface' || !r.floor) return null;
+    const cell = r.source.cellIndex, bearing = map.climate.windBearingDeg[cell], a = Shelters.axis(bearing);
+    const higher = topology.neighbors[cell].flatMap(i => {
+      const rise = map.relief.elevationM[i] - map.relief.elevationM[cell];
+      if (map.surface.classes[i] !== 'L' || rise < 80) return [];
+      const [x, y] = routeDirection(topology, cell, i);
+      const alignment = -(x * a.x + y * a.y);
+      return alignment >= .7 ? [{ i, rise, alignment }] : [];
+    }).sort((a, b) => b.rise * b.alignment - a.rise * a.alignment || a.i - b.i);
+    if (!higher.length) return null;
+    const ridge = higher[0], radius = Math.sqrt(r.areaHa * 10000 / Math.PI);
+    // The relief map does not resolve individual ridgelines. Locate one lee
+    // strip on this lower surface, preferring the upwind-side grounds already
+    // shared by real wildlife. Nothing here sees bodies, deaths or forecasts.
+    const sites = (pools || []).filter(p => p.sizeClass === 'small' && p.guild === 'smallAnimals' && p.habitatPatch !== 'background');
+    sites.sort((p, q) => (p.spatial.eastM - q.spatial.eastM) * a.x + (p.spatial.northM - q.spatial.northM) * a.y || p.id.localeCompare(q.id));
+    const site = sites[0]?.spatial || { eastM: -a.x * radius * .25, northM: -a.y * radius * .25, radiusM: radius * .05 };
+    const lengthM = Math.floor(Math.min(site.radiusM * 2, radius * .1, ridge.rise * 24));
+    const widthM = Math.floor(Math.min(site.radiusM * 1.25, radius * .06, ridge.rise * 12));
+    const heightM = Math.round(clamp(ridge.rise / 40, 8, 48));
+    return { ridgeCell: ridge.i, bearingDeg: bearing, eastM: site.eastM - a.x * lengthM / 2,
+      northM: site.northM - a.y * lengthM / 2, lengthM, widthM, heightM,
+      flowPermille: Math.round(clamp(45 - heightM * .6, 15, 40)) };
+  }
+  function lanternDrifts(row, pools, map, salt, shelter) {
     const r = row.patch, cell = r.source.cellIndex, bearing = map.climate.windBearingDeg[cell] * Math.PI / 180;
     const speed = map.climate.windStrengthPermille[cell] / 100;
     const b = Bodies.profiles[Lantern.ID], drag = .5 * 1.225 * b.lengthM * b.heightM * speed ** 2;
-    if (!r.floor || drag > b.massKg * 9.81 * .25) return [];
-    const x = Math.sin(bearing), y = Math.cos(bearing);
+    if (!r.floor || !shelter && drag > b.massKg * 9.81 * .25) return [];
+    const x = Math.sin(bearing), y = Math.cos(bearing), air = { x, y };
     return pools.flatMap(pool => {
       if (pool.guild !== 'smallAnimals' || pool.habitatPatch === 'background' || !(pool.spatial.radiusM > 2)) return [];
       const prey = Wildlife.profile(pool);
+      const site = pool.spatial;
+      if (shelter) {
+        // Start some actual downwind lines near the windward edge of the
+        // wildlife overlap. Overlap is checked spatially, not by region tag.
+        const distance = Math.min(site.radiusM, shelter.lengthM / 2);
+        const lateral = (random(`${salt}:${pool.id}:lee`) - .5) * Math.min(site.radiusM, shelter.widthM * .8);
+        const upstream = Math.min(distance, Math.sqrt(site.radiusM ** 2 - lateral ** 2)) * .94;
+        const position = { eastM: site.eastM - x * upstream - y * lateral, northM: site.northM - y * upstream + x * lateral };
+        if (Shelters.at(air, shelter, { ...position, altitudeM: b.heightM }) !== air) {
+          const shelterDrag = drag * (shelter.flowPermille / 1000) ** 2;
+          if (prey.adultKg * .2 * 9.81 * .5 >= shelterDrag)
+            return [{ ...row, poolId: `${r.id}:lee`, opportunity: pool.originalCount * prey.mortalityDay / site.radiusM,
+              sheltered: true, position, tie: random(`${salt}:${pool.id}:tie`) }];
+        }
+      }
       // An isolated adult, not a ledger of scattered animal matter, must
       // support a hold. This ranks existing wildlife habitat; no kill, food
       // reservation, weather change or carcass coordinate is used.
-      if (prey.adultKg * .2 * 9.81 * .5 < drag) return [];
-      const site = pool.spatial, lateral = (random(`${salt}:${pool.id}:offset`) - .5) * .8 * site.radiusM;
+      if (drag > b.massKg * 9.81 * .25 || prey.adultKg * .2 * 9.81 * .5 < drag) return [];
+      const lateral = (random(`${salt}:${pool.id}:offset`) - .5) * .8 * site.radiusM;
       const upstream = Math.sqrt(site.radiusM ** 2 - lateral ** 2) * .97;
       return [{ ...row, poolId: pool.id, opportunity: pool.originalCount * prey.mortalityDay / site.radiusM,
         position: { eastM: site.eastM - x * upstream - y * lateral, northM: site.northM - y * upstream + x * lateral },
         tie: random(`${salt}:${pool.id}:tie`) }];
     });
   }
-  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false, habitatAccess = false, windTransport = false, lanternMoisture = false, wildlifeDistribution = false, wildlifeCarcasses = false, establishedHabitats = false, wetlandDrainage = false, huntingHabitatAccess = false, catchmentDrainage = false, lanternHabitatAccess = false) {
+  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false, habitatAccess = false, windTransport = false, lanternMoisture = false, wildlifeDistribution = false, wildlifeCarcasses = false, establishedHabitats = false, wetlandDrainage = false, huntingHabitatAccess = false, catchmentDrainage = false, lanternHabitatAccess = false, windShelters = false) {
     const calendar = { epochAt: 0, monthDays: Local.PHASES.map(() => Local.PHASE_DAYS) };
     const patches = patchRows.map(row => expandPatch(map, row, calendar, physical)), groupRows = [], populations = [], unlocated = [];
     const worldPopulations = populationsFor(map), foodUse = new Map(), feedingRows = [];
@@ -579,6 +622,14 @@
     const preyUse = new Map(), preyByRegion = huntingHabitatAccess || lanternHabitatAccess ? new Map(Wildlife.definitions(
       Wildlife.allocate({ spatialContinuity: true, regions: patches }, seed, { distributed: wildlifeDistribution, carcassBatches: wildlifeCarcasses }), patches)
       .map(row => [row.regionId, row.pools])) : null;
+    const lee = new Map();
+    if (windShelters) {
+      const topology = World.topologyForMap(map);
+      for (const patch of patches) {
+        const shelter = terrainShelter(patch, preyByRegion?.get(patch.id), map, topology);
+        if (shelter && Shelters.valid(shelter)) lee.set(patch.id, shelter);
+      }
+    }
     const migrations = new Map((ecologyFor(map).migrations || []).map(m => [m.populationId, m]));
     for (let pi = 0; pi < worldPopulations.length; pi++) {
       const p = worldPopulations[pi], s = Ecology.BEAST_SPECIES.find(s => s.id === p.speciesId);
@@ -644,9 +695,9 @@
             + entry.foodKgDay * days * Math.min(1, need / selected.support.foodKgDay));
         }
         if (lanternHabitatAccess && s.id === Lantern.ID) {
-          const choices = placementCandidates.flatMap(row => lanternDrifts(row, preyByRegion.get(row.patch.id) || [], map, `${seed}:${p.id}:${ordinal}`));
+          const choices = placementCandidates.flatMap(row => lanternDrifts(row, preyByRegion.get(row.patch.id) || [], map, `${seed}:${p.id}:${ordinal}`, lee.get(row.patch.id)));
           const score = a => a.opportunity / (1 + (driftUse.get(a.poolId) || 0));
-          choices.sort((a, b) => score(b) - score(a) || a.tie - b.tie);
+          choices.sort((a, b) => Number(Boolean(b.sheltered)) - Number(Boolean(a.sheltered)) || score(b) - score(a) || a.tie - b.tie);
           if (choices.length) {
             selected = choices[0]; driftUse.set(selected.poolId, (driftUse.get(selected.poolId) || 0) + size);
             driftRows.push([pi, ordinal, selected.position]);
@@ -671,6 +722,7 @@
     if (wetlandDrainage) record.wetlandDrainage = true;
     if (huntingHabitatAccess) record.huntingHabitatAccess = true;
     if (lanternHabitatAccess) record.lanternDriftRows = driftRows;
+    if (windShelters) record.windShelterRows = [...lee];
     if (catchmentDrainage) record.catchmentDrainage = true;
     const expanded = expand(record, map, { physical, raw: true });
     if (physical) { record.physicalBinding = Bindings.allocate(expanded, map, { positions: physicalPlacement, established: establishedHabitats, drainage: wetlandDrainage, catchmentDrainage }); Bindings.apply(expanded, record.physicalBinding, map); }
@@ -720,7 +772,8 @@
     if (hunting || catchment || lanternDrift)
       return candidate(seed, map, patchRows, best.calibration, true, Boolean(best.backgroundWildlife), best.physicalPlacement === true, best.habitatAccess === true,
         best.windTransport === true, best.lanternMoisture === true, best.wildlifeDistribution === true,
-        best.wildlifeCarcasses === true, best.establishedHabitats === true, best.wetlandDrainage === true, Boolean(hunting), catchment, Boolean(lanternDrift));
+        best.wildlifeCarcasses === true, best.establishedHabitats === true, best.wetlandDrainage === true, Boolean(hunting), catchment, Boolean(lanternDrift),
+        Boolean(lanternDrift && options.windShelters !== false));
     return best;
   }
   function validate(record, map, seed = record?.seed) {
@@ -733,7 +786,7 @@
     const topology = World.topologyForMap(map), patchRows = [];
     for (let i = 0; i < topology.cellCount; i++) patchRows.push(...patchesForCell(map, i, topology, record.physicalPlacement === true));
     const expected = candidate(record.seed, map, patchRows, record.calibration, Boolean(record.physicalBinding), Boolean(record.backgroundWildlife), record.physicalPlacement === true,
-      record.habitatAccess === true, record.windTransport === true, record.lanternMoisture === true, record.wildlifeDistribution === true, record.wildlifeCarcasses === true, record.establishedHabitats === true, record.wetlandDrainage === true, record.huntingHabitatAccess === true, record.catchmentDrainage === true, Array.isArray(record.lanternDriftRows));
+      record.habitatAccess === true, record.windTransport === true, record.lanternMoisture === true, record.wildlifeDistribution === true, record.wildlifeCarcasses === true, record.establishedHabitats === true, record.wetlandDrainage === true, record.huntingHabitatAccess === true, record.catchmentDrainage === true, Array.isArray(record.lanternDriftRows), Array.isArray(record.windShelterRows));
     if (record.sourceDigest === legacyDigest) expected.sourceDigest = record.sourceDigest;
     const physical = value => { const result = copy(value); delete result.id; delete result.assessment; delete result.groupRows; return result; };
     if (World.stableHash(physical(expected)) !== World.stableHash(physical(record)) && !samePhysical(physical(expected), physical(record)))

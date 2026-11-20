@@ -385,7 +385,7 @@
     const elapsed = prior?.id === corpse.id && at - prior.at <= seconds + 1e-8 ? Math.max(0, at - prior.at) : 0;
     const handled = elapsed > 0 || prior?.at === at && prior.id === corpse.id ? prior.handled : 0;
     if (Lantern.is(a)) {
-      const t = ctx.terrain?.(corpse.mapCell), wind = ctx.terrain?.(a.mapCell)?.wind, b = a.bodyPhysics;
+      const t = ctx.terrain?.(corpse.mapCell), wind = ctx.terrain && Bodies.localAir(a, ctx), b = a.bodyPhysics;
       if (!t?.floor || t.waterDepthM > .01 || !wind || ![wind.x, wind.y].every(Number.isFinite) || b.mode !== 'flight'
         || (b.parts['feeding organs'] || 0) < 35 || !Bodies.capable(a, 'flight')) { delete l.wildlifeContact; return null; }
       const drag = .5 * 1.225 * b.dimensions.lengthM * b.dimensions.heightM * Math.hypot(wind.x, wind.y) ** 2;
@@ -591,7 +591,7 @@
         }
         const sensed = corpse && { id: corpse.id, cell: copy(corpse.mapCell), position: Bodies.position(corpse, ctx.tileSizeM || 1) };
         const state = Approach.observe(a.life, at, sensed, a.life.willing !== false && Bodies.capable(a, 'flight')
-          && Boolean(ctx.terrain(a.mapCell)?.wind));
+          && Boolean(Bodies.localAir(a, ctx)));
         if (state) {
           decision.behavior = 'investigate'; decision.goal = copy(state.target.cell);
           a.bodyPhysics.goal = copy(state.target.cell); a.life.activity = 'approachCarrion'; return false;

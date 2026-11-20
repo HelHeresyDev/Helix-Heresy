@@ -183,6 +183,35 @@ original flocks was **not** met. The isolated result is an access and
 custody improvement, not evidence of sustained feeding, and the all-species
 replay below was not repeated for this change.
 
+## Terrain-backed lee air
+
+New worlds can archive one finite ground-level wind shadow in a lower land
+patch when the mapped upwind neighbor is at least 80 m higher. The coarse
+relief locates a bounded lee strip rather than pretending to resolve every
+ridge. It prefers the windward side of existing wildlife grounds when present.
+Relief bounds the strip's length, width and height. Only low air inside that
+footprint slows, only while the wind comes from the sheltered direction, and
+the remaining flow is nonzero. The rest of the hex keeps its ambient wind.
+Older source records with no shelter rows keep their original layout.
+
+Passive drift meets the boundary at an elapsed physical position; Lanterns
+cannot seek a shelter or see past a change of flow. Local terrain projects the
+same geometry, including fractional tile movement and height. New placements
+prefer downwind lines through the actual overlap of shelter and existing
+wildlife, without modifying reserves, biology, carcass inventory or wildlife
+counts. A reached but unusable corpse is set aside for a bounded local retry
+instead of triggering back-to-back thrust and rechecks. Water from meals still
+overflows through the real ingestion ledger; only atmospheric uptake predicts
+a separate water-cap event.
+
+In the isolated generated `source-small` replay (`071aaf33`), by day 0.12
+five original flocks had eaten from 12–33 distinct wildlife carcass sites each,
+debiting **0.169369 kg** of wet tissue in total. All 120 originals were alive
+at that early checkpoint. By day 10 the isolated wildlife ledger recorded
+**25.147816 kg** eaten; it stayed at that figure at day 20. The positive and
+exposed-wind controls use the same real body; only the lee case finishes a
+meal. This demonstrates access, not a viable season or stable reproduction.
+
 ## Current integrated generated control
 
 The [current complete ecosystem control](SEASONAL_VIABILITY.md#current-integrated-120-day-control)

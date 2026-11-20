@@ -334,11 +334,14 @@
         if (moved > 0) { resources[k] = moved; totals[k] = (totals[k] || 0) + moved; }
       }
       const wet = ['wetland', 'waterColumn'].includes(r.kind), sea = r.kind === 'waterColumn';
+      const wx = east + tile / 2, wy = north + tile / 2, lee = r.windShelter;
+      const nearbyLee = lee && Math.hypot(wx - lee.eastM, wy - lee.northM) <= Math.hypot(lee.lengthM, lee.widthM / 2) + tile * 2;
       const p = { sourceRegionId: r.id, resources, transfers: {}, areaHa: area / 10000, condition: copy(r.condition),
         floor: r.floor, oxygen: r.oxygen, waterKind: sea ? 'seawater' : 'freshwater', waterAccounted: wet,
         waterDepthM: wet ? (resources[sea ? 'seawaterL' : 'waterL'] || 0) / (area * 1000) : 0,
         soilDepthM: r.accessibleMineralDepthM || 0, densityKgM3: r.densityKgM3, materialKg: resources.mineralsKg || 0,
         hardness: 1, supportKg: Math.max(1, (resources.mineralsKg || 0) * 10), ...(r.wind ? { wind: copy(r.wind) } : {}),
+        ...(nearbyLee ? { windShelter: copy(lee), windParcelCenter: { eastM: wx, northM: wy } } : {}),
         humidity: r.humidity, temperatureC: r.seasons[P.monthAt(s.calendar, at).season].temperatureC };
       state.parcels[id] = mineralOwner(p); result[key] = p;
     }

@@ -3,10 +3,11 @@
   const node = typeof module === 'object' && module.exports;
   const api = factory(node ? require('./beast-bodies') : root.HelixBeastBodies,
     node ? require('./carrion-lantern-approach') : root.HelixCarrionLanternApproach,
-    node ? require('./wildlife-carcasses') : root.HelixWildlifeCarcasses);
+    node ? require('./wildlife-carcasses') : root.HelixWildlifeCarcasses,
+    node ? require('./wind-shelters') : root.HelixWindShelters);
   if (node) module.exports = api;
   root.HelixBeastWindDrift = api;
-})(globalThis, function (Bodies, Approach, Carcasses) {
+})(globalThis, function (Bodies, Approach, Carcasses, Shelters) {
   'use strict';
   const EPS = 1e-8, HOUR = 3600, copy = x => JSON.parse(JSON.stringify(x));
   const point = p => p && typeof p.regionId === 'string' && ['eastM', 'northM', 'altitudeM'].every(k => Number.isFinite(p[k]));
@@ -26,9 +27,10 @@
     if (drag > c.massKg * 9.81 * .25 * part) return Infinity;
     return gripFloorKg(drag);
   }
-  function canFeedAt(g, c, r, body, seconds = 60) {
-    const flow = c.windDrift?.flow, v = c.windDrift?.velocity, b = Bodies.profiles[c.speciesId];
-    if (!v || Math.hypot(v.x, v.y) * seconds <= b.reachM * 2) return true;
+  function canFeedAt(g, c, r, body, seconds = 60, air) {
+    const flow = air === undefined ? c.windDrift?.flow : air, v = c.windDrift?.velocity, b = Bodies.profiles[c.speciesId];
+    const speed = air ? Math.min(b.speed, Math.hypot(air.x, air.y)) : v && Math.hypot(v.x, v.y);
+    if (speed == null || speed * seconds <= b.reachM * 2) return true;
     if (!flow || !r.floor || (c.regional?.parts['feeding organs'] ?? 0) < 35) return false;
     const drag = .5 * 1.225 * b.lengthM * b.heightM * (c.massKg / b.massKg) ** (2 / 3) * Math.hypot(flow.x, flow.y) ** 2;
     const structure = ['hard', 'tough'].reduce((n, k) => n + Math.max(0, (body.tissues?.[k]?.kg || 0) - (body.tissues?.[k]?.reservedKg || 0)), 0)
@@ -36,7 +38,10 @@
     return drag <= c.massKg * 9.81 * .25 * (c.regional.parts['feeding organs'] / 100)
       && structure * Math.exp(-.02 * seconds / 86400) * 9.81 * .5 >= drag;
   }
-  const windAt = (r, season) => r.seasons?.[season]?.wind ?? r.wind ?? null;
+  const ambientWind = (r, season) => r.seasons?.[season]?.wind ?? r.wind ?? null;
+  const windAt = (r, season, position) => Shelters.at(ambientWind(r, season), r.windShelter, position);
+  const shelterBoundary = (r, season, position, velocity) =>
+    Shelters.boundarySeconds(ambientWind(r, season), r.windShelter, position, velocity);
   const flow = w => w == null || Number.isFinite(w.x) && Number.isFinite(w.y);
   const layoutValid = f => f && Number.isSafeInteger(f.firstOrdinal) && f.firstOrdinal >= 0
     && (f.lastOrdinal == null || Number.isSafeInteger(f.lastOrdinal) && f.lastOrdinal >= f.firstOrdinal)
@@ -44,6 +49,7 @@
   function validDefinition(s) {
     const ids = new Set(s.regions.map(r => r.id));
     return s.regions.every(r => [r.wind, ...(r.seasons || []).map(p => p.wind)].every(flow)
+      && (!Object.hasOwn(r, 'windShelter') || r.floor && Shelters.valid(r.windShelter))
       && r.edges.every(e => !e.windBoundary || ids.has(e.id) && e.traversable && (() => {
         const b = e.windBoundary;
         return Number.isFinite(b.offsetM) && b.offsetM > 0 && [b.normal, b.exit, b.entry].every(p => p
@@ -134,7 +140,7 @@
   }
   function plan(g, c, r, at, month, position, actor, region) {
     if (!enabled(g) || !position || !actor) return Infinity;
-    const wind = windAt(r, month.season), hold = holding(g, c, r, wind, position);
+    const wind = windAt(r, month.season, position), hold = holding(g, c, r, wind, position);
     const pursuit = c.foraging?.phase === 'approach' && c.carrionApproach;
     const delta = pursuit && { eastM: pursuit.target.position.eastM - position.eastM,
       northM: pursuit.target.position.northM - position.northM, altitudeM: pursuit.target.position.altitudeM - position.altitudeM };
@@ -164,6 +170,7 @@
       until: Math.min(month.end, at + HOUR), velocity, known: wind !== null, signature, flow: copy(wind),
       ...(hold ? { hold } : {}), ...(front ? { front } : {}), ...(control ? { control } : {}) };
     if (control) d.until = Math.min(d.until, c.foraging.action.dueAt, at + c.regional.stamina / Math.max(1e-12, control.effortRate));
+    d.until = Math.min(d.until, at + shelterBoundary(r, month.season, position, velocity));
     c.regionalPosition = copy(position);
     const fAction = c.foraging?.action;
     if (fAction && ['eating', 'handling'].includes(fAction.phase)) {
@@ -246,7 +253,7 @@
               || ['eastM', 'northM', 'altitudeM'].some((k, i) => Math.abs(q.delta[k] - (c.carrionApproach.target.position[k] - d.anchor[k])) > 1e-6))) return false;
         } else if (d.velocity.z != null) return false;
         const raw = d.flow, magnitude = raw && Math.hypot(raw.x, raw.y);
-        if (c.ranges.length && JSON.stringify(raw) !== JSON.stringify(windAt(s.regions.find(r => r.id === g.regionId), s.plans.at(-1).season))) return false;
+        if (c.ranges.length && JSON.stringify(raw) !== JSON.stringify(windAt(s.regions.find(r => r.id === g.regionId), s.plans.at(-1).season, d.anchor))) return false;
         if (d.front) {
           const region = s.regions.find(r => r.id === g.regionId);
           if (d.front.others != null && (!d.vectorFlow || !Array.isArray(d.front.others) || !d.front.others.length)
@@ -309,5 +316,5 @@
     }
     return true;
   }
-  return { enabled, moving, plan, integrate, destinations, entry, valid, validDefinition, windAt, holding, contactSeconds, extent, convergence, canFeedAt, anchorNeed };
+  return { enabled, moving, plan, integrate, destinations, entry, valid, validDefinition, windAt, shelterBoundary, holding, contactSeconds, extent, convergence, canFeedAt, anchorNeed };
 });

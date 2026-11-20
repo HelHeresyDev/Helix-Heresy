@@ -84,12 +84,16 @@
     }
     f.mealIds = [];
   }
-  function deferSites(r, c, at) {
-    const f = c.foraging, reviews = Object.entries(f.carrionSiteReviews || {}).filter(([, until]) => until > at);
-    for (const id of f.mealIds) {
-      const meal = r.foraging.meals[id]; if (row(r, meal)?.poolId) reviews.push([meal.sourceId, at + HOUR]);
-    }
+  function deferSite(f, sourceId, at) {
+    const reviews = Object.entries(f.carrionSiteReviews || {}).filter(([id, until]) => id !== sourceId && until > at);
+    reviews.push([sourceId, at + HOUR]);
     f.carrionSiteReviews = Object.fromEntries(reviews.slice(-64));
+  }
+  function deferSites(r, c, at) {
+    const f = c.foraging;
+    for (const id of f.mealIds) {
+      const meal = r.foraging.meals[id]; if (row(r, meal)?.poolId) deferSite(f, meal.sourceId, at);
+    }
   }
   function cancel(r, c, at) {
     const f = c?.foraging; if (!f) return;
@@ -324,15 +328,20 @@
       const actor = ctx.actor, body = Bodies.profiles[c.speciesId];
       const wantsFood = c.stores.foodKg < capacity(c) * .5;
       const observed = wantsFood || c.carrionApproach ? ctx.senseCarrion?.() : null;
-      const target = observed?.kind === 'wildlife' && at < (f.carrionFieldReviewAt || 0) ? null : observed;
+      let target = observed?.kind === 'wildlife' && at < (f.carrionFieldReviewAt || 0) ? null : observed;
       if (target?.contact) {
         Approach.stop(c, at, 'arrived');
         // The approach already earned this reached instant. A delayed passive
         // search would miss a brief downwind contact before handling starts.
-        if (wantsFood && n === 1 && ['beast', 'wildlifeBatch'].includes(target.kind) && beginHandling(r, g, c, at, ctx, {
-          id: `${g.id}:${c.id}:reached:${f.serial++}`, areaHa: Math.PI * body.reachM ** 2 / 10000,
-          depthM: 0, scavenge: true, success: 1, memberCount: n, guilds: ctx.guilds(actor), target
-        })) return;
+        if (wantsFood && n === 1 && ['beast', 'wildlifeBatch'].includes(target.kind)) {
+          if (beginHandling(r, g, c, at, ctx, {
+            id: `${g.id}:${c.id}:reached:${f.serial++}`, areaHa: Math.PI * body.reachM ** 2 / 10000,
+            depthM: 0, scavenge: true, success: 1, memberCount: n, guilds: ctx.guilds(actor), target
+          })) return;
+          // An ungrippable or insufficient trace is an observed failure.
+          // Do not thrust back toward the same point every tenth of a second.
+          deferSite(f, target.sourceId, at); target = null;
+        }
       }
       else if (g.windDriven) {
         const pursuit = Approach.observe(c, at, target, Boolean(actor && c.regional.stamina >= (c.carrionApproach ? .001 : 30)

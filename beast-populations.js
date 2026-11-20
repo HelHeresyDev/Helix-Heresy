@@ -448,7 +448,11 @@
         }
       }
       if (Lantern.is(c) && count(c)) {
-        const waterNet = (c.airIntakeLDay || 0) * (rate.supply.atmosphericWaterL || 0) + Foraging.intake(c, 'waterL') - c.needs.waterL / count(c);
+        // Carrion overflow is already resolved during ingestion, against the
+        // actual stored water and the simultaneous maintenance. Its nominal
+        // intake overstates retention and must not schedule repeated, tiny
+        // speculative cap events. Only uncapped atmospheric intake needs this.
+        const waterNet = (c.airIntakeLDay || 0) * (rate.supply.atmosphericWaterL || 0) - c.needs.waterL / count(c);
         const room = Lantern.waterCapacity(c.massKg) - c.stores.waterL;
         if (waterNet > EPS && room > EPS) next = Math.min(next, at + room / waterNet * DAY);
       }

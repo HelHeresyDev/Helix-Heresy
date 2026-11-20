@@ -728,7 +728,7 @@
         const sensed = g.windDriven && pos && size(c) > 1 && !c.foraging.mealIds.length
           && (!c.foraging.action || c.foraging.action.passive) && c.stores.foodKg < Foraging.capacity(c) * .5
           && at >= (c.carrionApproachCooldownUntil || 0)
-          && sensedCarrion(r, g, c, pos, Wind.extent(g, c, pos, pos) <= Bodies.profiles[c.speciesId].scentM);
+          && sensedCarrion(r, g, c, pos, Wind.extent(g, c, pos, pos) <= Bodies.profiles[c.speciesId].scentM, month.season);
         if (sensed?.kind === 'beast' || sensed?.kind === 'wildlifeBatch') {
           // One point corpse cannot feed a spatially extended formation.
           // Separate one actually sensing original, using existing contact
@@ -745,7 +745,7 @@
         // future search/capture. Short already-earned reviews remain intact.
         const wake = g.windDriven && c.foraging.action?.passive && c.foraging.nextAt > at + Approach.REVIEW
           && c.stores.foodKg < Foraging.capacity(c) * .5
-          && at >= (c.carrionApproachCooldownUntil || 0) && sensedCarrion(r, g, c, pos);
+          && at >= (c.carrionApproachCooldownUntil || 0) && sensedCarrion(r, g, c, pos, false, month.season);
         if (wake && (wake.kind !== 'wildlife' || at >= (c.foraging.carrionFieldReviewAt || 0)))
           c.foraging.action.dueAt = c.foraging.nextAt = at;
         if (c.foraging.nextAt <= at + EPS || c.foraging.action) restore(c, g, r, at);
@@ -763,13 +763,13 @@
         }
         Foraging.step(s, r, g, c, at, { actor: a, position: pos, until: g.transit?.stop?.until,
           originalCarrion: g.windDriven && [...Object.values(r.remains || {}), ...Object.values(r.remainsBatches || {})].some(row => row.position && row.edibleKg > (row.reservedKg || 0)),
-          canHold: () => Wind.holding(g, c, r, Wind.windAt(r, month.season), pos, true),
-          anchorNeed: body => body && Wind.anchorNeed(c, r, Wind.windAt(r, month.season), body),
+          canHold: () => Wind.holding(g, c, r, Wind.windAt(r, month.season, pos), pos, true),
+          anchorNeed: body => body && Wind.anchorNeed(c, r, Wind.windAt(r, month.season, pos), body),
           clearance: Wind.enabled(g) ? Wind.extent(g, c, pos, pos) : 0,
-          contactTime: horizon => windContact(r, g, c, pos, horizon),
-          senseCarrion: () => sensedCarrion(r, g, c, pos),
-          approachUsable: Boolean(g.windDriven && Wind.windAt(r, month.season) && !r.contactBarriers?.length && Bodies.capable(a, 'flight')),
-          approachCourse: target => Approach.intercept(c.massKg, c.regional.parts, Wind.windAt(r, month.season), {
+          contactTime: horizon => windContact(r, g, c, pos, horizon, month.season),
+          senseCarrion: () => sensedCarrion(r, g, c, pos, false, month.season),
+          approachUsable: Boolean(g.windDriven && Wind.windAt(r, month.season, pos) && !r.contactBarriers?.length && Bodies.capable(a, 'flight')),
+          approachCourse: target => Approach.intercept(c.massKg, c.regional.parts, Wind.windAt(r, month.season, pos), {
             eastM: target.eastM - pos.eastM, northM: target.northM - pos.northM, altitudeM: target.altitudeM - pos.altitudeM }),
           beforeNext: beforeNext && (() => beforeNext(g, c)),
           usable: Boolean(a && pos && Behavior.conscious(a, at) && Bodies.wounded(a, /head|torso|limb|leg|wing|fin/) < .65
@@ -785,7 +785,7 @@
             const claims = Wildlife.capture(r, g, c, { ...q, guilds, position: pos }, maximum, at).filter(claim => {
               if (q.target && claim.sourceId !== q.target.sourceId) return false;
               const row = Carcasses.source(r, claim.sourceId);
-              return !g.windDriven || !row?.poolId || Wind.canFeedAt(g, c, r, row)
+              return !g.windDriven || !row?.poolId || Wind.canFeedAt(g, c, r, row, 60, shelterAir(r, pos, month.season))
                 && Wind.extent(g, c, pos, row.position) <= Bodies.profiles[c.speciesId].reachM;
             });
             let left = maximum - claims.reduce((sum, claim) => sum + claim.kg, 0);
@@ -801,13 +801,14 @@
       }
     }
   }
-  function localCarcasses(r, pos, range, end = pos, g = null, c = null) {
+  const shelterAir = (r, pos, season) => r.windShelter ? Wind.windAt(r, season, pos) : undefined;
+  function localCarcasses(r, pos, range, end = pos, g = null, c = null, air) {
     return (r.wildlife?.pools || []).filter(p => p.carcassSpace && p.guild !== 'fish')
       .filter(p => !c || Wind.canFeedAt(g, c, r, { count: 1, tissues: {
-        hard: { kg: Wildlife.profile(p).adultKg * .1 }, tough: { kg: Wildlife.profile(p).adultKg * .1 } } }))
+        hard: { kg: Wildlife.profile(p).adultKg * .1 }, tough: { kg: Wildlife.profile(p).adultKg * .1 } } }, 60, air))
       .flatMap(p => Carcasses.query(p, pos, range, end).sites);
   }
-  function sensedCarrion(r, g, c, pos, leadingObserver = false) {
+  function sensedCarrion(r, g, c, pos, leadingObserver = false, season) {
     if (!g.windDriven || !pos || r.contactBarriers?.length) return null;
     const body = Bodies.profiles[c.speciesId], sense = Math.max(body.scentM, body.sightM);
     const clearance = Wind.extent(g, c, pos, pos), targets = [];
@@ -818,13 +819,15 @@
       : Wind.extent(g, c, pos, p);
     for (const [sourceId, row] of [...Object.entries(r.remains || {}), ...Object.entries(r.remainsBatches || {})]) {
       if (!row.position || g.protectedGroupIds?.includes(row.groupId) || row.position.altitudeM < 0
+        || (c.foraging?.carrionSiteReviews?.[sourceId] || 0) > (c.foraging?.lastAt || 0)
         || distance(row.position) > sense || Tissues.available(row, c) <= EPS) continue;
       targets.push({ id: `beast:${sourceId}`, kind: 'beast', sourceId, position: copy(row.position),
         contact: distance(row.position) <= body.reachM });
     }
-    for (const row of localCarcasses(r, pos, sense, pos, g, c)) {
+    const air = shelterAir(r, pos, season);
+    for (const row of localCarcasses(r, pos, sense, pos, g, c, air)) {
       if (distance(row.position) > sense || Tissues.available(row, c) <= EPS
-        || !Wind.canFeedAt(g, c, r, row)
+        || !Wind.canFeedAt(g, c, r, row, 60, air)
         || (c.foraging?.carrionSiteReviews?.[row.id] || 0) > (c.foraging?.lastAt || 0)) continue;
       targets.push({ id: `wildlifeBatch:${row.id}`, kind: 'wildlifeBatch', sourceId: row.id, position: copy(row.position),
         contact: distance(row.position) <= body.reachM });
@@ -849,15 +852,24 @@
       || Math.hypot(a.position.eastM - pos.eastM, a.position.northM - pos.northM, a.position.altitudeM - pos.altitudeM)
       - Math.hypot(b.position.eastM - pos.eastM, b.position.northM - pos.northM, b.position.altitudeM - pos.altitudeM) || a.id.localeCompare(b.id))[0] || null;
   }
-  function windContact(r, g, c, pos, horizon) {
+  function windContact(r, g, c, pos, horizon, season) {
     const v = c.windDrift?.velocity; if (!v || !pos || !(v.x * v.x + v.y * v.y > EPS)) return horizon;
+    const air = shelterAir(r, pos, season);
+    if (r.windShelter) {
+      // If the air has changed, do not extrapolate from the segment that
+      // just ended. Observations at the real position are still allowed.
+      if (air?.x !== c.windDrift.flow?.x || air?.y !== c.windDrift.flow?.y) return horizon;
+      horizon = Math.min(horizon, Wind.shelterBoundary(r, season, pos, v));
+    }
     const speed2 = v.x * v.x + v.y * v.y;
-    const sites = [...Object.values(r.remains || {}), ...Object.values(r.remainsBatches || {})]
-      .filter(row => row.position && row.edibleKg > (row.reservedKg || 0)).map(row => ({ ...row.position, radiusM: Bodies.profiles[c.speciesId].reachM }));
+    const sites = [...Object.entries(r.remains || {}), ...Object.entries(r.remainsBatches || {})]
+      .filter(([id, row]) => row.position && row.edibleKg > (row.reservedKg || 0)
+        && (c.foraging?.carrionSiteReviews?.[id] || 0) <= (c.foraging?.lastAt || 0))
+      .map(([, row]) => ({ ...row.position, radiusM: Bodies.profiles[c.speciesId].reachM }));
     if (c.stores.foodKg < Foraging.capacity(c) * .5) {
       const end = { ...pos, eastM: pos.eastM + v.x * horizon, northM: pos.northM + v.y * horizon };
-      for (const row of localCarcasses(r, pos, Bodies.profiles[c.speciesId].scentM, end, g, c))
-        if (Tissues.available(row, c) > EPS && Wind.canFeedAt(g, c, r, row)
+      for (const row of localCarcasses(r, pos, Bodies.profiles[c.speciesId].scentM, end, g, c, air))
+        if (Tissues.available(row, c) > EPS && Wind.canFeedAt(g, c, r, row, 60, air)
           && (c.foraging?.carrionSiteReviews?.[row.id] || 0) <= (c.foraging?.lastAt || 0))
           sites.push({ ...row.position, radiusM: Bodies.profiles[c.speciesId].reachM });
     }

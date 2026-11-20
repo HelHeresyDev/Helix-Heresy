@@ -82,7 +82,7 @@ test('new drift records use canonical climate direction while older source recor
   assert.equal(JSON.stringify(legacy), before);
   assert.deepEqual(legacy.groupRows, S.generate(record.seed, map, { lanternHabitatAccess: false }).groupRows);
 });
-test('new Lantern starts cross existing large-animal habitat without changing any population or wildlife budgets', () => {
+test('new Lantern starts cross existing wildlife habitat without changing any population or wildlife budgets', () => {
   const { map, record, source } = fixture(), old = S.generate(record.seed, map, { lanternHabitatAccess: false });
   const saved = JSON.stringify(old); S.validate(old, map);
   assert.deepEqual(old.populations, record.populations);
@@ -103,6 +103,34 @@ test('new Lantern starts cross existing large-animal habitat without changing an
   const forged = clone(record); forged.lanternDriftRows[0][2].eastM += 1;
   forged.id = ''; forged.id = `beast-habitat-source:${W.stableHash(forged)}`;
   assert.throws(() => S.validate(forged, map), /physical accounts/);
+});
+test('generated lee shelters use real upwind relief and never retrofit an unsheltered archive', () => {
+  const { map, record, source } = fixture(), Wind = require('../beast-wind-drift');
+  const old = S.generate(record.seed, map, { windShelters: false }), before = JSON.stringify(old);
+  S.validate(old, map);
+  assert.equal(old.windShelterRows, undefined);
+  assert.ok(S.expand(old, map).regions.every(r => !r.windShelter));
+  assert.deepEqual(old.backgroundWildlife, record.backgroundWildlife);
+  assert.deepEqual(old.populations, record.populations);
+  assert.ok(record.windShelterRows.length > 0);
+  for (const [id, lee] of record.windShelterRows) {
+    const r = source.regions.find(r => r.id === id), cell = W.cellIndex(r.cellId);
+    assert.equal(r.kind, 'surface');
+    assert.ok(W.topologyForMap(map).neighbors[cell].includes(lee.ridgeCell));
+    assert.ok(map.relief.elevationM[lee.ridgeCell] >= map.relief.elevationM[cell] + 80);
+    assert.ok(lee.lengthM * lee.widthM < r.areaHa * 10000 * .01);
+    assert.deepEqual(Wind.windAt(r, 0, { eastM: lee.eastM, northM: lee.northM, altitudeM: lee.heightM }), r.wind);
+  }
+  const within = source.groups.filter(g => g.windDriven && (() => {
+    const r = source.regions.find(r => r.id === g.regionId);
+    return Wind.windAt(r, 0, g.originalPosition) !== r.wind;
+  })());
+  assert.ok(within.length >= 2);
+  S.validate(record, map);
+  const forged = clone(record); forged.windShelterRows[0][1].lengthM *= 2;
+  forged.id = ''; forged.id = `beast-habitat-source:${W.stableHash(forged)}`;
+  assert.throws(() => S.validate(forged, map), /physical accounts/);
+  assert.equal(JSON.stringify(old), before);
 });
 test('the explicit passive-biology correction preserves old source identities and cannot silently add moisture', () => {
   const { map, record } = fixture();

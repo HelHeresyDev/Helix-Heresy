@@ -1,10 +1,11 @@
 (function (root, factory) {
   const api = factory(typeof module === 'object' && module.exports ? require('./strategic-beast-ecology') : root.HelixStrategicBeastEcology,
     typeof module === 'object' && module.exports ? require('./creature-biology') : root.HelixCreatureBiology,
-    typeof module === 'object' && module.exports ? require('./carrion-lantern-approach') : root.HelixCarrionLanternApproach);
+    typeof module === 'object' && module.exports ? require('./carrion-lantern-approach') : root.HelixCarrionLanternApproach,
+    typeof module === 'object' && module.exports ? require('./wind-shelters') : root.HelixWindShelters);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixBeastBodies = api;
-})(globalThis, function (Ecology, Biology, Approach) {
+})(globalThis, function (Ecology, Biology, Approach, Shelters) {
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x));
   const key = p => `${p.x},${p.y},${p.z}`;
@@ -271,7 +272,7 @@
     const b = a.bodyPhysics, p = profiles[a.speciesId], from = a.mapCell, t = ctx.terrain(from);
     let choices;
     if (b.mode === 'drifting' || b.mode === 'flight' && p.form === 'aerostat') {
-      const control = approachCourse(a, ctx), flow = control?.velocity || (b.mode === 'drifting' ? t?.current : t?.wind);
+      const control = approachCourse(a, ctx), flow = control?.velocity || (b.mode === 'drifting' ? t?.current : localAir(a, ctx, t));
       if (!flow || Math.hypot(flow.x, flow.y) <= .001) return null;
       choices = [{ x: from.x + (Math.abs(flow.x) >= Math.abs(flow.y) ? Math.sign(flow.x) : 0), y: from.y + (Math.abs(flow.y) > Math.abs(flow.x) ? Math.sign(flow.y) : 0), z: from.z }];
     } else {
@@ -288,7 +289,7 @@
     if (!state || a.life.will === false || a.life.willing === false || a.life.pending || !(b.stamina > 0)
       || at >= state.deadlineAt || at > state.lastSeenAt + Approach.LOST) return null;
     const pos = position(a, ctx.tileSizeM || 1);
-    return Approach.intercept(b.massKg, b.parts, ctx.terrain(a.mapCell)?.wind, {
+    return Approach.intercept(b.massKg, b.parts, localAir(a, ctx), {
       eastM: state.target.position.eastM - pos.eastM,
       northM: state.target.position.northM - pos.northM, altitudeM: state.target.position.altitudeM - b.altitudeM });
   }
@@ -305,6 +306,15 @@
     if (a.speciesId === Approach.ID) return { x: flow.x * speed / magnitude, y: flow.y * speed / magnitude };
     return Math.abs(flow.x) >= Math.abs(flow.y) ? { x: Math.sign(flow.x) * speed, y: 0 } : { x: 0, y: Math.sign(flow.y) * speed };
   }
+  function shelterPosition(a, ctx, terrain) {
+    if (a.speciesId !== Approach.ID || !terrain?.windShelter || !terrain.windParcelCenter) return null;
+    const b = a.bodyPhysics, tile = ctx.tileSizeM || 1;
+    return { eastM: terrain.windParcelCenter.eastM + (b.airOffset?.x || 0) * tile,
+      northM: terrain.windParcelCenter.northM + (b.airOffset?.y || 0) * tile, altitudeM: b.altitudeM };
+  }
+  function localAir(a, ctx, terrain = ctx.terrain(a.mapCell)) {
+    return Shelters.at(terrain?.wind, terrain?.windShelter, shelterPosition(a, ctx, terrain));
+  }
   function advanceAir(a, at, remaining, ctx) {
     const b = a.bodyPhysics, tile = ctx.tileSizeM || 1;
     let changed = false;
@@ -312,15 +322,18 @@
     // coordinate components earn the SAME elapsed interval, never two moves.
     for (let i = 0; remaining > 1e-8 && i < 4096; i++) {
       const cursor = at - remaining, control = approachCourse(a, ctx, cursor);
-      const velocity = control?.velocity || flowVelocity(a, ctx.terrain(a.mapCell)?.wind);
+      const terrain = ctx.terrain(a.mapCell), velocity = control?.velocity || flowVelocity(a, localAir(a, ctx, terrain));
       if (!velocity) break;
       const speed = Math.hypot(velocity.x, velocity.y), vz = control?.velocity.z || 0;
       if (!(speed > 0 || Math.abs(vz) > 0)) break;
       const state = control && a.life.carrionApproach, from = position(a, tile);
       const contact = state ? Approach.contactSeconds(from, velocity, state.target.position, profiles[a.speciesId].reachM) : Infinity;
+      const shelterPos = shelterPosition(a, ctx, terrain);
+      const boundary = shelterPos ? Shelters.boundarySeconds(terrain.wind, terrain.windShelter, shelterPos,
+        { ...velocity, z: control ? vz : b.altitudeM < 6 ? .5 : 0 }) : Infinity;
       const seconds = Math.min(remaining, tile / 4 / Math.max(speed, Math.abs(vz)), control ? Approach.REVIEW : Infinity,
         control ? b.stamina / Math.max(1e-12, control.effortRate) : Infinity,
-        state ? state.deadlineAt - cursor : Infinity, state ? state.lastSeenAt + Approach.LOST - cursor : Infinity, contact);
+        state ? state.deadlineAt - cursor : Infinity, state ? state.lastSeenAt + Approach.LOST - cursor : Infinity, contact, boundary);
       if (!(seconds > 1e-8)) break;
       const x = from.eastM + velocity.x * seconds, y = from.northM + velocity.y * seconds;
       const to = { x: Math.floor(x / tile + .5), y: Math.floor(y / tile + .5), z: a.mapCell.z };
@@ -491,5 +504,5 @@
       heading: a.bodyPhysics.heading || 0, turning: Boolean(a.bodyPhysics.turn),
       motion: a.bodyPhysics.motion ? { from: copy(a.bodyPhysics.motion.from), to: copy(a.bodyPhysics.motion.to), fraction: a.bodyPhysics.motion.progressM / a.bodyPhysics.motion.distanceM } : null };
   }
-  return { profiles, anatomy, attach, valid, height, footprint, cells, occupied, wounded, capable, habitatReason, request, turn, transition, dive, breakIce, damagePart, advance, perceive, observed, key, flowVelocity, position };
+  return { profiles, anatomy, attach, valid, height, footprint, cells, occupied, wounded, capable, habitatReason, request, turn, transition, dive, breakIce, damagePart, advance, perceive, observed, key, flowVelocity, position, localAir };
 });

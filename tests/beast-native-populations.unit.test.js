@@ -306,6 +306,25 @@ test('terrain custody is finite, shared across overlapping visits and never turn
   assert.throws(() => N.terrain(saved, record, map, site, cells, 0, 0), /tile area/);
   assert.equal(JSON.stringify(saved), unchanged);
 });
+test('native terrain keeps the generated lee frame and exposed air after reload', () => {
+  const { map, binding } = original(), record = map.beastHabitatSources, state = N.create(record, binding);
+  const Wind = require('../beast-wind-drift'), Lee = require('../wind-shelters');
+  const r = S.expand(record, map).regions.find(r => r.windShelter), lee = r.windShelter, a = Lee.axis(lee.bearingDeg);
+  const inside = { eastM: lee.eastM + a.x * lee.lengthM / 2, northM: lee.northM + a.y * lee.lengthM / 2 };
+  const site = { id: 'lee-parcel', cellId: r.cellId, kind: 'surface',
+    bounds: { x: 0, y: 0, z: 6, width: 3, height: 3 }, origin: { eastM: inside.eastM - .5, northM: inside.northM - .5 } };
+  const cell = { x: 0, y: 0, z: 6 }, parcel = N.terrain(state, record, map, site, [cell], 0)['0,0,6'];
+  assert.deepEqual(parcel.windShelter, lee);
+  assert.deepEqual(parcel.wind, r.wind);
+  const actor = require('../wilderness-beasts').actor('beast:carrion-lantern', 'local-lee', cell, 'original', 0);
+  const expected = Wind.windAt(r, 0, { ...inside, altitudeM: actor.bodyPhysics.altitudeM });
+  assert.notDeepEqual(expected, r.wind);
+  N.pack(state, record, map); const saved = N.normalize(copy(state), binding);
+  const terrain = N.bindTerrain(saved, site.id);
+  assert.deepEqual(B.localAir(actor, { terrain: () => terrain['0,0,6'] }), expected);
+  actor.bodyPhysics.altitudeM = lee.heightM + 1;
+  assert.deepEqual(B.localAir(actor, { terrain: () => terrain['0,0,6'] }), r.wind);
+});
 test('a local original death is counted once, remains dead after reload, and does not infect an independent run', () => {
   const { map, binding } = original(), record = map.beastHabitatSources, state = N.create(record, binding), s = N.open(state, record, map);
   const { site, ctx } = context(s, 'beast:rimefang-pack'), [a] = N.materialize(state, record, map, site, ctx);
