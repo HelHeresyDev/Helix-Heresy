@@ -261,3 +261,37 @@ node scripts/benchmark-generated-beast-habitats.js --days=40 \
   --resume=.replay-checkpoints/current-source-small-VaeaU47X/day-30.json \
   --checkpoint-dir=.replay-checkpoints/NEW_CONTROL --checkpoint-final-only --save-report
 ```
+
+## Browser field time skip
+
+The ordinary **Skip** button writes the final field state once, after the
+requested interval or at the second when a new threat interrupts it. Field
+simulation and threat detection still run in one-second steps; only routine
+writes at the end of those steps are deferred. Explicit saves and real-time
+autosaves keep their own triggers. Lab skips use the existing path.
+
+The focused Chromium/Canvas check starts from the same saved lab and opens a
+deterministic active field encounter with a Rimefang. It profiles eight quiet
+seconds at the lab, eight in the field, and an eight-second request interrupted
+by an attack on second four. It verifies that the field clock is saved after
+completion, reloads through the title screen after interruption, and checks
+that the actor, scientist health and injuries survived. This uses the ordinary
+gameplay button with a controlled field fixture, not the separate native
+population smoke test above.
+
+| Game time advanced | Save calls, before → after | Save time | Simulation and dispatch | Final redraw | Total |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Lab, 8 seconds | 2 → 2 | 0.14 → 0.14 s | 1.18 → 1.29 s | 4.43 → 4.79 s | 5.75 → 6.21 s |
+| Field, 8 seconds | 9 → 1 | 0.79 → 0.09 s | 9.94 → 10.57 s | 4.96 → 5.07 s | 15.68 → 15.73 s |
+| Field attack, 4 of 8 seconds | 5 → 1 | 0.45 → 0.09 s | 4.96 → 5.27 s | 5.09 → 5.15 s | 10.50 → 10.52 s |
+
+This one paired sample establishes fewer writes and less time spent saving,
+not an end-to-end speedup. Simulation and dispatch is the synchronous button
+time excluding measured save and redraw time. Scheduled systems accounted for
+over 98% of that time in the completed field skip after the change; the redraw
+was also material. These measurements do not include asynchronous painting or
+certify native ecology throughput.
+
+```sh
+npx playwright test tests/field-skip-performance.spec.js --project=chromium --workers=1
+```

@@ -22126,9 +22126,11 @@
 
     dom.skipTimeBtn.addEventListener("click", () => {
       const amount = Math.max(1, Math.floor(Number(dom.skipAmountInput.value) || 1));
-      advanceTime(amount);
+      advanceTime(amount, { callerSavesFieldSkip: true });
       persist();
+      const renderStartedAt = performance.now();
       render();
+      recordPerformanceSample(simulationPerformance.render, performance.now() - renderStartedAt);
     });
 
     dom.skipNextEventBtn.addEventListener("click", () => {
@@ -25618,16 +25620,20 @@
       }
       return changed;
     }
-    // Keep both sides physically responsive during field time skips. Stop at a newly perceived threat.
+    // Check every second for new threats, but defer routine substep saves.
+    // Explicit saves (for example, a custody transition) still write immediately.
     if (!annexAway() && !options.fieldStep && elapsed > 1 && (state.surveyExpeditions?.phase === "field" || foreignSurveyAtField()) && (escortContractActive() || rescueMissionPhysical() || ensureWildernessBeasts().actors.some((beast) => beast.status !== "dead"))) {
-      let changed = 0, remaining = elapsed;
+      const startedAt = state.clock;
+      let changed = 0, remaining = elapsed, interrupted = false;
       while (remaining > 0 && !scientistIsDead()) {
-        const notice = ensureWildernessBeasts().noticeSerial;
+        const notice = ensureWildernessBeasts().noticeSerial, before = state.clock;
         const step = Math.min(1, remaining);
         changed += advanceTime(step, { ...options, quiet: true, fieldStep: true });
         remaining -= step;
-        if (ensureWildernessBeasts().noticeSerial !== notice) break;
+        interrupted = ensureWildernessBeasts().noticeSerial !== notice;
+        if (interrupted || state.clock <= before) break;
       }
+      if (!options.realtime && !options.callerSavesFieldSkip && (changed || interrupted || (!options.quiet && state.clock > startedAt))) persist();
       return changed;
     }
     if (elapsed > 0 && !options.realtime) {
@@ -25643,9 +25649,7 @@
       addEvent(`Advanced ${formatDuration(elapsed)}.`);
     }
     const changed = simulationChangeCount(changes);
-    if (!options.quiet || changed) {
-      if (!options.realtime) persist();
-    }
+    if (!options.realtime && !options.fieldStep && (!options.quiet || changed)) persist();
     simulationPerformance.lastAdvanceMs = performance.now() - advanceStartedAt;
     simulationPerformance.maxAdvanceMs = Math.max(simulationPerformance.maxAdvanceMs, simulationPerformance.lastAdvanceMs);
     return changed;
