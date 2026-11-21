@@ -171,8 +171,9 @@
       });
     return action === 'filterMana';
   }
-  function intake(s, g, c, key) {
+  function intake(s, g, c, key, at = s.clock) {
     if (key !== 'foodKg' || g.ecology?.action !== 'filterPlankton') return 1;
+    if (c.contactBusyUntil > at) return 0;
     const r = G.region(s, Journeys.location(g)), site = r?.ecology?.workSites.find(site => site.id === g.ecology.siteId);
     return site && site.destroyedAt == null && wet(site, r, c) ? towers(c) : 0;
   }

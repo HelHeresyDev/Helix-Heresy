@@ -27,6 +27,9 @@
   const energyKeys = ['heatMJ', 'chargeMJ', 'focus', 'crownKg', 'lightKg'];
   const referenceCache = new Map();
   const harmIndexes = new WeakMap();
+  const REEF_WYRM = 'beast:reef-wyrm', CATHEDRAL = 'beast:brine-cathedral', REEF_DEFENSE = 'wyrm-cathedral';
+  const reefTowerParts = Bodies.profiles[CATHEDRAL].parts.filter(part => part.startsWith('feeding tower '));
+  const contactDuration = reefTower => reefTower ? Wilderness.PROFILES[REEF_WYRM].recovery : DURATION;
   function noteFeeding(g, c, r, at) {
     r.contactHarms ||= [];
     let index = harmIndexes.get(r);
@@ -38,6 +41,8 @@
     let row = index.byCohort.get(key);
     if (!row) { row = { groupId: g.id, cohortId: c.id }; r.contactHarms.push(row); index.byCohort.set(key, row); }
     Object.assign(row, { at, position: c.regionalPosition || position(g, r), kind: 'feeding' });
+    if (g.speciesId === CATHEDRAL && g.resources.foodKg === 'planktonKg')
+      Object.assign(row, { resource: 'planktonKg', position: position(g, r, c, c.ranges[0][0]) });
   }
   function reference(speciesId) {
     if (!referenceCache.has(speciesId)) {
@@ -252,6 +257,51 @@
     });
   }
   const actorPoint = a => ({ eastM: a.mapCell.x, northM: a.mapCell.y, altitudeM: Bodies.height(a) });
+  const separation = (a, b) => Math.hypot(a.eastM - b.eastM, a.northM - b.northM, a.altitudeM - b.altitudeM);
+  function bodyPoint(a, length, width, height, anchor = actorPoint(a)) {
+    const b = a.bodyPhysics, d = b.dimensions;
+    return { eastM: anchor.eastM + (b.heading ? width * d.widthM : length * d.lengthM),
+      northM: anchor.northM + (b.heading ? length * d.lengthM : width * d.widthM),
+      altitudeM: anchor.altitudeM + height * d.heightM };
+  }
+  function reefStrikeLine(r, g, wyrm, cathedral, ctx, { signal, part } = {}) {
+    if (r.kind !== 'waterColumn' || !(r.stocks.livingReefKg > EPS) || g.will === false || g.willing === false
+      || g.ecology?.action !== 'cultivateReef' || wyrm.bodyPhysics.mode !== 'swimming' || !Bodies.capable(wyrm, 'swimming')
+      || !Bodies.capable(cathedral, cathedral.bodyPhysics.mode) || ctx.protectedTarget(wyrm, cathedral)) return null;
+    // Uniform regional water is already the physical context. Test the
+    // entire original body there without enumerating thousands of tiles.
+    for (const a of [wyrm, cathedral]) if (Bodies.habitatReason(a, a.mapCell, a.bodyPhysics.mode, Bodies.height(a), {
+      ...ctx, tileSizeM: Math.max(a.bodyPhysics.dimensions.lengthM, a.bodyPhysics.dimensions.widthM)
+    })) return null;
+    const site = r.ecology?.workSites.find(s => s.id === g.ecology.siteId && s.destroyedAt == null);
+    if (!point(site?.position) || site.position.regionId !== r.id || !(site.footprintHa > 0)) return null;
+    const radius = Math.sqrt(site.footprintHa * 10000 / Math.PI), water = ctx.terrain().waterDepthM;
+    const inReef = p => Math.hypot(p.eastM - site.position.eastM, p.northM - site.position.northM) <= radius;
+    const submerged = p => p.altitudeM < 0 && p.altitudeM >= -water;
+    const from = bodyPoint(wyrm, 1, .5, .5);
+    if (!inReef(from) || !submerged(from)) return null;
+    // Four separate exposed modules around the existing whole body's rim.
+    // Both the bite and the observation use physical points, not
+    // the distance to the Cathedral's regional anchor or a random body part.
+    const positions = [[.03, .5], [.5, .03], [.97, .5], [.5, .97]];
+    const projected = (a, p) => ({ ...a, mapCell: { x: p.eastM, y: p.northM, z: a.mapCell.z },
+      bodyPhysics: { ...a.bodyPhysics, altitudeM: p.altitudeM, motion: null, airOffset: null } });
+    return reefTowerParts.flatMap((tower, i) => {
+      if (!(cathedral.bodyPhysics.parts[tower] > 0) || part && tower !== part) return [];
+      const [length, width] = positions[i], p = bodyPoint(cathedral, length, width, .7);
+      const distance = separation(from, p);
+      if (distance > Bodies.profiles[REEF_WYRM].reachM || !inReef(p) || !submerged(p) || blocked(r, from, p)) return [];
+      // Today's pulse may only respond to the recorded point of actual
+      // intake. A change of position cannot serve as a new feeding cue.
+      const cue = signal ? bodyPoint(cathedral, length, width, .7, signal) : p;
+      if (!inReef(cue) || !submerged(cue) || blocked(r, from, cue)) return [];
+      const seen = projected(cathedral, cue), observer = projected(wyrm, from);
+      if (!['sight', 'hearing', 'scent'].some(channel => Bodies.perceive(observer, seen, channel, {
+        light: ctx.lightAt(), signal: () => true
+      }))) return [];
+      return [{ part: tower, from, point: p, distance }];
+    }).sort((a, b) => a.distance - b.distance)[0] || null;
+  }
   function context(r, actors, season) {
     const terrain = environment(r, season), patch = { ...terrain, resources: r.stocks, transfers: {}, events: [],
       waterAccounted: true, areaHa: r.areaHa, condition: null };
@@ -545,13 +595,15 @@
     if (c.demography) { chosen.demography.credit /= n; c.demography.credit *= (n - 1) / n; partition(chosen.demography, ranges); partition(c.demography, rest); }
     g.cohorts.push(chosen); return chosen;
   }
-  function harm(s, r, g, c, a, target, at, ctx, sequence, damage, type) {
-    if (target.status === 'dead' || !Behavior.conscious(a, at) || !ctx.effectLine(a, target)) return false;
+  function harm(s, r, g, c, a, target, at, ctx, sequence, damage, type, aim = null) {
+    if (target.status === 'dead' || !Behavior.conscious(a, at)
+      || (aim ? blocked(r, aim.from, aim.point) : !ctx.effectLine(a, target))) return false;
     const mods = Behavior.modifiers(a, at), score = 58 + a.health / a.maxHealth * 18 - mods.attack - 24;
     if (score + (Life.random(`${s.sourceId}:${a.id}:${target.id}:${sequence}`) * 16 - 8) < 0) return false;
     const actual = Behavior.absorb(target, damage, type, at, ctx);
     target.health = Math.max(0, target.health - actual);
-    const parts = Object.keys(target.bodyPhysics.parts), part = parts[Math.floor(Life.random(`${a.id}:${target.id}:part:${sequence}`) * parts.length)];
+    const parts = Object.keys(target.bodyPhysics.parts);
+    const part = aim?.part ?? parts[Math.floor(Life.random(`${a.id}:${target.id}:part:${sequence}`) * parts.length)];
     Bodies.damagePart(target, part, actual, at); Behavior.interrupt(target, at, 'Regional physical contact');
     if (!target.health) { target.status = 'dead'; target.diedAt = at; }
     return true;
@@ -565,10 +617,25 @@
       s.foodWeb.receipts.interrupted++; for (const m of participants) if (m.c) delete m.c.contactBusyUntil; return;
     }
     const ctx = context(r, participants.map(m => m.a), contact.season), [hunter, prey] = participants;
-    let t = contact.startedAt, steps = 0, result = 'timeBudgetSpent';
+    let t = contact.startedAt, steps = 0, result = 'timeBudgetSpent', towerOutcome;
     ctx.strike = (a, target, hit) => harm(s, r, hunter.g, hunter.c, a, target, t, ctx, ++steps, hit.damage, hit.type);
     ctx.damage = (target, amount) => { target.health = Math.max(0, target.health - amount); if (!target.health) target.status = 'dead'; };
-    for (; t < at && steps < 96 && hunter.a.status !== 'dead' && prey.a.status !== 'dead'; steps++) {
+    if (contact.reefTower) {
+      // A passing tower gets one committed bite. The body is not pulled closer
+      // and the Wyrm cannot chew through the other modules in the same contact.
+      const a = hunter.a, b = prey.a, profile = Wilderness.PROFILES[a.speciesId];
+      const aim = reefStrikeLine(r, hunter.g, a, b, ctx, { part: contact.reefTower });
+      if (!aim) result = 'lostContact';
+      else if (a.nextAttackAt <= at && a.life.will && Behavior.conscious(a, a.nextAttackAt) && Behavior.pay(a, { stamina: 1 })) {
+        const health = b.bodyPhysics.parts[aim.part];
+        const scale = Math.min(1, Math.sqrt(a.bodyPhysics.massKg / Data.lifecycle[a.speciesId].adultKg));
+        harm(s, r, hunter.g, hunter.c, a, b, a.nextAttackAt, ctx, ++steps, profile.damage * scale, 'physical', aim);
+        const damage = health - b.bodyPhysics.parts[aim.part];
+        result = damage > 0 ? 'feedingTowerWounded' : 'feedingTowerUnharmed';
+        towerOutcome = { tower: aim.part, towerHealthLost: damage, staminaSpent: 1 };
+      }
+    }
+    for (; !contact.reefTower && t < at && steps < 96 && hunter.a.status !== 'dead' && prey.a.status !== 'dead'; steps++) {
       const a = hunter.a, b = prey.a, distance = Behavior.distance(a, b, ctx);
       if (!Predation.sensed(a, b, ctx) || !Behavior.conscious(a, t) || !Bodies.capable(a, a.bodyPhysics.mode)) { result = 'lostContact'; break; }
       const reach = Bodies.profiles[a.speciesId].reachM;
@@ -627,7 +694,7 @@
       if (a.status === 'dead') { api.lose(g, c, m.ordinal, contact.kind === 'hunt' ? 'regionalPredation' : 'regionalConflict', at); s.foodWeb.receipts.kills++; result = 'actualDeath'; }
     }
     if (result === 'escaped' || result === 'lostContact') s.foodWeb.receipts.escapes++;
-    event(s, at, 'contactEnded', { id: contact.id, kind: contact.kind, outcome: result, startedAt: contact.startedAt });
+    event(s, at, 'contactEnded', { id: contact.id, kind: contact.kind, outcome: result, startedAt: contact.startedAt, ...towerOutcome });
   }
   function finish(s, at, api, regionIds = null) {
     if (!s.foodWeb) return;
@@ -689,24 +756,31 @@
         ctx.actors = [a, target, ...helpers.map(m => m.a)];
         if (Bodies.habitatReason(target, target.mapCell, target.bodyPhysics.mode, Bodies.height(target), ctx)) continue;
         const antagonism = Data.antagonisms.find(e => e.nurturer === g.speciesId && e.destroyer === other.g.speciesId);
-        const damage = (harms.get(r.id).get(other.g.id) || []).some(h => point(h.position)
+        const observations = harms.get(r.id).get(other.g.id) || [];
+        const isReefDefense = antagonism?.id === REEF_DEFENSE;
+        const reefTower = isReefDefense && a.bodyPhysics.stamina >= 1 && observations
+          .filter(h => h.cohortId === targetC.id && h.at <= at && h.kind === 'feeding' && h.resource === 'planktonKg' && point(h.position))
+          .map(h => reefStrikeLine(r, g, a, target, ctx, { signal: h.position })).find(Boolean)?.part;
+        const damage = observations.some(h => point(h.position)
           && Math.hypot(h.position.eastM - a.mapCell.x, h.position.northM - a.mapCell.y) <= Math.max(Bodies.profiles[a.speciesId].sightM, Bodies.profiles[a.speciesId].hearingM));
-        const defends = antagonism && damage && Predation.sensed(a, target, ctx) && !ctx.protectedTarget(a, target)
+        const defends = isReefDefense ? Boolean(reefTower) : antagonism && damage && Predation.sensed(a, target, ctx) && !ctx.protectedTarget(a, target)
           && !(['roc-ashhorn', 'roc-furnace'].includes(antagonism.id) && at - targetC.bornAt >= Data.lifecycle[targetC.speciesId].adultDays * DAY);
         const hunts = hunting && Predation.eligible(a, target, ctx);
-        if (!hunts && !defends || !Behavior.conscious(a, at) || !ctx.effectLine(a, target)) continue;
+        if (!hunts && !defends || !Behavior.conscious(a, at) || (!reefTower && !ctx.effectLine(a, target))) continue;
         // A contact consumes one actual opportunity, never a species-wide kill
         // multiplier. The authored success ceiling can also end a hunt empty.
         if (hunts && Life.random(`${g.id}:${at}:opportunity`) >= p.huntSuccess) { event(s, at, 'failedHunt', { groupId: g.id }); break; }
         const claims = [[g, c, ordinal], [other.g, targetC, targetC.ranges[0][0]], ...helpers.map(m => [m.g, m.c, m.ordinal])];
+        const dueAt = at + contactDuration(reefTower);
         const members = claims.map(([group, co, ord]) => {
           // Earlier claims may have split the same source cohort.
           co = group.cohorts.find(c => c.originId === co.originId && c.ranges.some(([lo, hi]) => ord >= lo && ord < hi));
-          const one = split(group, co, ord, at); one.contactBusyUntil = at + DURATION;
+          const one = split(group, co, ord, at); one.contactBusyUntil = dueAt;
           return { groupId: group.id, cohortId: one.id, ordinal: ord };
         });
         web.pending.push({ id: `regional-contact:${web.serial++}`, regionId: r.id, kind: hunts ? 'hunt' : 'defense',
-          antagonismId: defends ? antagonism.id : null, startedAt: at, dueAt: at + DURATION, season: month.season, members });
+          antagonismId: defends ? antagonism.id : null, startedAt: at, dueAt, season: month.season, members,
+          ...(reefTower ? { reefTower } : {}) });
         web.receipts.contacts++; break;
       }
       if (!r.foraging && !c.contactBusyUntil && Behavior.conscious(a, at) && Predation.hungry(a)
@@ -1035,8 +1109,11 @@
     if (Math.abs(consumed - w.receipts.consumedKg) > 1e-6 * Math.max(1, consumed) || Math.abs(decomposed - w.receipts.decomposedKg) > 1e-6 * Math.max(1, decomposed)) return false;
     const reserved = new Set();
     return w.pending.every(p => finite(p.startedAt) && p.startedAt <= (s.regionClocks?.[p.regionId]?.appliedAt ?? s.appliedAt)
-      && finite(p.dueAt) && p.dueAt > s.clock && p.dueAt === p.startedAt + DURATION
+      && finite(p.dueAt) && p.dueAt > s.clock && p.dueAt === p.startedAt + contactDuration(p.reefTower)
       && ['hunt', 'defense'].includes(p.kind) && s.regions.some(r => r.id === p.regionId) && p.members.length >= 2 && p.members.length <= 9
+      && (p.reefTower == null || p.kind === 'defense' && p.antagonismId === REEF_DEFENSE && reefTowerParts.includes(p.reefTower)
+        && p.members.length === 2 && [REEF_WYRM, CATHEDRAL].every((speciesId, i) =>
+          Demography.group(s, p.members[i].groupId)?.speciesId === speciesId))
       && p.members.every(m => {
         const key = `${m.groupId}:${m.cohortId}:${m.ordinal}`;
         if (reserved.has(key)) return false; reserved.add(key);

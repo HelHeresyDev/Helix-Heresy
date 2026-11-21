@@ -160,6 +160,86 @@ test('an approved antagonism needs personally sensed recent damage, not labels o
     assert.equal(s.foodWeb.pending.length, harms[0]?.groupId === 'group-1' && harms[0].position.eastM === 1 ? 1 : 0); valid(s);
   }
 });
+function reefDefenseFixture({ cathedralEast = 28, cathedralDepth = 22, plankton = 1e6, barrier = false, reef = 100 } = {}) {
+  const { source: workSource } = require('./helpers/regional-work-source');
+  const src = workSource('cultivateReef'), r = src.regions[0], wyrm = src.groups[0], reefSite = r.ecology.workSites[0];
+  const filterSource = workSource('filterPlankton'), cathedral = filterSource.groups[0], filterSite = filterSource.regions[0].ecology.workSites[0];
+  const home = (x, y, depth) => ({ patchId: r.id, cellId: 'reef-cell', eastKm: x / 1000, northKm: y / 1000, depthM: depth });
+  const position = (eastM, northM, altitudeM) => ({ regionId: r.id, eastM, northM, altitudeM });
+  src.regionalFoodWeb = true; src.regions = [r]; r.edges = [];
+  Object.assign(r, { kind: 'waterColumn', floor: false, oxygen: true, biome: 'h', depthM: 70 });
+  r.stocks.seawaterL = r.capacity.seawaterL = r.areaHa * 10000 * 1000 * r.depthM;
+  r.stocks.planktonKg = plankton; r.stocks.livingReefKg = reef;
+  wyrm.home = home(0, 33, 10);
+  reefSite.position = position(20, 35, -10); reefSite.footprintHa = 1; reefSite.featureId = reefSite.id;
+  cathedral.id = 'original-cathedral'; cathedral.populationId = 'original-filter-population'; cathedral.home = home(cathedralEast, 0, cathedralDepth);
+  cathedral.cohorts[0].id = 'original-filter'; filterSite.id = cathedral.ecology.siteId = 'original-filter-site';
+  filterSite.position = position(cathedralEast, 0, -cathedralDepth); filterSite.footprintHa = 1; filterSite.featureId = filterSite.id;
+  r.ecology.workSites.push(filterSite); src.groups.push(cathedral);
+  if (barrier) r.contactBarriers = [{ minEastM: 26, maxEastM: 27, minNorthM: 31, maxNorthM: 40, bottomM: -12, topM: -4 }];
+  return P.create(src, binding);
+}
+test('a Reef Wyrm wounds the reachable feeding tower on the same original and reduces actual subsequent filtration', () => {
+  const s = reefDefenseFixture(), intact = reefDefenseFixture({ barrier: true }), r = s.regions[0], body = () => s.groups[1].cohorts[0];
+  P.advance(s, DAY, true, true); P.advance(intact, DAY, true, true);
+  approx(r.stocks.planktonKg, intact.regions[0].stocks.planktonKg);
+  assert.ok(r.stocks.planktonKg < 1e6, 'the Cathedral has paid and performed its filtration before the response');
+  assert.equal(s.foodWeb.pending.length, 1);
+  const [contact] = s.foodWeb.pending;
+  assert.equal(contact.kind, 'defense'); assert.equal(contact.reefTower, 'feeding tower 1');
+  assert.deepEqual(body().feedingTowers, [100, 100, 100, 100], 'a pending bite has paid no damage upfront');
+  const stamina = s.groups[0].cohorts[0].regional.stamina;
+  P.advance(s, DAY + 5, true, true); valid(s);
+  approx(r.stocks.planktonKg, intact.regions[0].stocks.planktonKg, 1e-11);
+  const saved = P.normalize(clone(s), binding), reloaded = P.rebind(saved, binding, { ...binding, runId: 'continued-reef-defense' });
+  const unspent = clone(reloaded), invalid = clone(reloaded); invalid.foodWeb.pending[0].reefTower = 'core';
+  assert.equal(P.normalize(invalid), null);
+  P.advance(s, contact.dueAt, true, true); P.advance(reloaded, contact.dueAt, true, true);
+  const [wounded, ...others] = body().feedingTowers;
+  assert.ok(wounded > 0 && wounded < 100); assert.deepEqual(others, [100, 100, 100]);
+  assert.equal(s.groups[0].cohorts[0].regional.stamina, stamina - 1);
+  assert.equal(body().regional.parts.core, 100);
+  assert.equal(body().regional.parts['feeding tower 1'], wounded);
+  assert.equal(s.foodWeb.events.at(-1).outcome, 'feedingTowerWounded');
+  assert.equal(s.foodWeb.events.at(-1).towerHealthLost, 100 - wounded);
+  approx(body().intake.foodKg, (wounded + 300) / 400);
+  assert.deepEqual(P.audit(s)['original-filter-population'], { background: 1, detailed: 0, dead: 0 });
+  assert.deepEqual(reloaded.groups[1].cohorts, s.groups[1].cohorts);
+  assert.deepEqual(reloaded.foodWeb.events, s.foodWeb.events);
+  assert.deepEqual(unspent.groups[1].cohorts[0].feedingTowers, [100, 100, 100, 100]);
+  P.advance(intact, contact.dueAt, true, true);
+  const before = r.stocks.planktonKg, intactBefore = intact.regions[0].stocks.planktonKg;
+  const at = contact.dueAt + DAY / 2;
+  P.advance(s, at, true, true); P.advance(reloaded, at, true, true); P.advance(intact, at, true, true);
+  const eaten = before - r.stocks.planktonKg, intactIntake = intactBefore - intact.regions[0].stocks.planktonKg;
+  assert.ok(intactIntake > eaten);
+  assert.ok(eaten > 0, 'the wounded superorganism still feeds');
+  approx(eaten, body().needs.foodKg * body().intake.foodKg / 2, .001); // Once, accounting for small mass changes.
+  assert.equal(reloaded.regions[0].stocks.planktonKg, r.stocks.planktonKg);
+  assert.ok(r.ecologicalAccount.nurturing.wetlandReefHabitat < intact.regions[0].ecologicalAccount.nurturing.wetlandReefHabitat,
+    'less filtration also means less Cathedral shelter; the strike does not grant reef restoration');
+  valid(s); assert.ok(P.normalize(reloaded));
+});
+test('a reef nursery gets no defensive bite from an unseen, unreachable or nonfeeding Cathedral, or without living reef', () => {
+  for (const config of [{ barrier: true }, { cathedralEast: 100 }, { cathedralEast: 30 }, { cathedralDepth: 40 }, { plankton: 0 }, { reef: 0 }]) {
+    const s = reefDefenseFixture(config);
+    P.advance(s, DAY + 300, true, true);
+    assert.equal(s.foodWeb.receipts.contacts, 0, JSON.stringify(config));
+    assert.deepEqual(s.groups[1].cohorts[0].feedingTowers, [100, 100, 100, 100]);
+    assert.ok(s.groups.every(g => g.knowledge.length === 0)); valid(s);
+  }
+});
+test('handing off the original Cathedral before the bite resolves preserves the intact tower', () => {
+  const s = reefDefenseFixture(); P.advance(s, DAY, true, true);
+  const [contact] = s.foodWeb.pending, [wyrm, cathedral] = contact.members;
+  const before = s.groups[0].cohorts[0].regional.stamina;
+  const d = P.detail(s, cathedral.groupId, cathedral.cohortId, cathedral.ordinal, 'original-local-cathedral', DAY + 5);
+  assert.ok(d); assert.deepEqual(d.feedingTowers, [100, 100, 100, 100]);
+  assert.equal(s.foodWeb.pending.length, 0);
+  assert.equal(s.groups[0].cohorts.find(c => c.id === wyrm.cohortId).regional.stamina, before);
+  assert.deepEqual(P.audit(s)['original-filter-population'], { background: 0, detailed: 1, dead: 0 });
+  valid(s);
+});
 test('a partial local handoff settles only elapsed contact and preserves wounds without a duplicate background member', () => {
   const s = fixture([['rimefang-pack', 0, 8], ['gravebloom-elk', 3, 1]]);
   for (let i = 0; Life.random(`${s.groups[0].id}:${DAY}:opportunity`) >= .4; i++) s.groups[0].id = `local-pack-${i}`;

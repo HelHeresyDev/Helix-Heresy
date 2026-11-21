@@ -1085,6 +1085,35 @@ check. Neither those old observations nor the new bounded comparison establishes
 full-cycle viability, acceptable default-world/native cost or resolved body
 positions. Those remain existing D limitations, not new queue entries.
 
+### Reef Wyrm defense against a feeding Cathedral
+
+On the existing regional contact pulse, a Wyrm can defend its living reef
+workface when it senses a nearby original Brine Cathedral's actual recent
+plankton intake. The feeding record belongs to that original cohort and
+position. Only a submerged tower within the reef footprint and the Wyrm's
+bite reach can be targeted; the Wyrm senses from its head and checks the
+line to the tower, not to the whole Cathedral's anchor. No pursuit into
+neighboring water, relocation, hidden census or new local map behavior is
+implied.
+
+The contact commits one bite at the existing attack recovery boundary and
+spends real stamina. Range and the clear line are checked again at resolution.
+A handoff before the bite earns no damage. The Cathedral does not filter
+during the contact. The actual surviving tower fractions then reduce its
+future plankton intake and its own shelter contribution through the existing
+filtration ledger. A wounded tower is not an organism kill, restoration
+credit or verified regional safety. The wound and in-progress contact survive
+save/continued import; the private contact event is not a player observation.
+
+The focused control uses one supplied reef and two original bodies in valid
+water geometry. It verifies a wound on only the reached tower, less actual
+plankton debited and reduced Cathedral shelter relative to the intact control,
+and no bite in blocked, distant, deep, nonfeeding or reef-loss controls.
+Initial placement in `native-encounters` (refinement 2), `ocean` (refinement 1)
+and `source-small` (refinement 2) put no Wyrm and Cathedral in the same water
+account. Natural overlap, season-long opposition and open-water patrols
+remain unverified; no source placement was forced to meet the test.
+
 ## Bounded native encounter adapter
 
 `beast-native-populations.js` connects original regional membership to existing

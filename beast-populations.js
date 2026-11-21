@@ -319,7 +319,7 @@
         for (const key of ['foodKg', 'waterL', 'mineralsKg']) {
           const need = p[({ foodKg: 'foodKgDay', waterL: 'waterLDay', mineralsKg: 'mineralsKgDay' })[key]] * scale;
           c.needs[key] = need;
-          c.intake[key] = Care.dependent(c, at) && ['foodKg', 'waterL'].includes(key) ? 0 : Ecology.Work.intake(s, g, c, key);
+          c.intake[key] = Care.dependent(c, at) && ['foodKg', 'waterL'].includes(key) ? 0 : Ecology.Work.intake(s, g, c, key, at);
           if (Lantern.is(c) && key === 'waterL') c.intake[key] = 0; // No remote ground-water drinking while airborne.
           g.needs[key] = (g.needs[key] || 0) + need * c.intake[key];
         }
