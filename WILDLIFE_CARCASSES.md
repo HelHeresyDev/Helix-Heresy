@@ -275,9 +275,10 @@ deterministic active field encounter with a Rimefang. It profiles eight quiet
 seconds at the lab, eight in the field, and an eight-second request interrupted
 by an attack on second four. It verifies that the field clock is saved after
 completion, reloads through the title screen after interruption, and checks
-that the actor, scientist health and injuries survived. This uses the ordinary
-gameplay button with a controlled field fixture, not the separate native
-population smoke test above.
+that the actor, scientist health and injuries survived. The fixture invokes
+the Skip button's handler programmatically in the field: it lives in Tasks,
+which is hidden during a survey. Player-accessible field timing is covered by
+the separate keyboard check below.
 
 | Game time advanced | Save calls, before → after | Save time | Simulation and dispatch | Final redraw | Total |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -313,4 +314,32 @@ which of those routines dominates or that the whole bucket can run less often.
 
 ```sh
 FIELD_SKIP_POPULATED_LAB=1 npx playwright test tests/field-skip-performance.spec.js --project=chromium --workers=1
+```
+
+### Field Next Event shortcut
+
+The visible field map accepted a real `.` keypress with Tasks hidden. The
+populated fixture used the game's mana-recovery event to request 9.375 game
+seconds. An otherwise identical encounter interrupted that request at second
+four. The warning appeared in the compact message feed and keyboard focus
+remained on the map after both requests.
+
+| Synchronous redraw (Chromium, Canvas) | Completed | Interrupted |
+| --- | ---: | ---: |
+| Full redraw | 7.223 s | 7.257 s |
+| Map drawing preparation, including replacing the viewport | 0.857 s | 0.764 s |
+| Scene calculation within that map time | 0.837 s | 0.744 s |
+| Remaining map work, including teardown and mounting | 0.020 s | 0.020 s |
+| Everything outside the map surface | 6.366 s | 6.493 s |
+
+The mounted-Canvas refresh would still calculate the scene. Even eliminating
+all remaining map work would save only about 20 ms in this profile, so the
+renderer was left unchanged. The 6.4 s remainder includes the other
+panels and shared UI work; it does not identify which specific function is
+slow. The measurements exclude asynchronous drawing and browser painting.
+Simulation and save behavior were not changed; this shortcut still made two
+save calls in each sample, unlike the separate timed Skip button path above.
+
+```sh
+npx playwright test tests/field-skip-performance.spec.js --project=chromium --workers=1 --grep 'field Next Event shortcut'
 ```

@@ -5054,6 +5054,7 @@
   const simulationPerformance = {
     systems: {},
     render: { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 },
+    mapSurface: { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 },
     mapScene: { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 },
     canvasDraw: { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 },
     save: { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 },
@@ -16685,7 +16686,7 @@
       groupPopulationBenchmark: (count = 250) => GroupBehavior.benchmarkPopulation(count),
       resetSimulationPerformance: () => {
         simulationPerformance.systems = {};
-        for (const key of ["render", "mapScene", "canvasDraw", "save"]) {
+        for (const key of ["render", "mapSurface", "mapScene", "canvasDraw", "save"]) {
           simulationPerformance[key] = { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 };
         }
         simulationPerformance.lastAdvanceMs = 0;
@@ -22128,9 +22129,7 @@
       const amount = Math.max(1, Math.floor(Number(dom.skipAmountInput.value) || 1));
       advanceTime(amount, { callerSavesFieldSkip: true });
       persist();
-      const renderStartedAt = performance.now();
-      render();
-      recordPerformanceSample(simulationPerformance.render, performance.now() - renderStartedAt);
+      renderTimeSkipResult();
     });
 
     dom.skipNextEventBtn.addEventListener("click", () => {
@@ -24508,14 +24507,20 @@
     if (!event) {
       addEvent(emptyMessage);
       persist();
-      render();
+      renderTimeSkipResult();
       return;
     }
     const delta = Math.max(0, event.time - state.clock);
     advanceTime(delta, { quiet: true });
     addEvent(delta > 0 ? `Skipped to ${event.label}.` : `${event.label} was ready.`);
     persist();
+    renderTimeSkipResult();
+  }
+
+  function renderTimeSkipResult() {
+    const startedAt = performance.now();
     render();
+    recordPerformanceSample(simulationPerformance.render, performance.now() - startedAt);
   }
 
   function nextQueueEvent() {
@@ -63031,6 +63036,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }])),
       systems: Object.fromEntries(SIMULATION_SYSTEM_DEFS.map((definition) => [definition.id, performanceBucketSnapshot(simulationPerformance.systems[definition.id])])),
       render: performanceBucketSnapshot(simulationPerformance.render),
+      mapSurface: performanceBucketSnapshot(simulationPerformance.mapSurface),
       mapScene: performanceBucketSnapshot(simulationPerformance.mapScene),
       canvasDraw: performanceBucketSnapshot(simulationPerformance.canvasDraw),
       mapRenderer: {
@@ -81911,12 +81917,14 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function renderMapSurface() {
+    const startedAt = performance.now();
     destroyActiveCanvasMapRenderer();
     dom.roomList.textContent = "";
     dom.roomList.append(labMapPanelEl(), selectionInspectorEl());
     scheduleMapViewportMeasurement();
     const mapSummary = roomMapSummary();
     dom.roomSummary.textContent = `${state.rooms.length} mapped room${state.rooms.length === 1 ? "" : "s"}; current location: ${roomName(scientistRoomId())}${mapSummary ? `; ${mapSummary}` : ""}`;
+    recordPerformanceSample(simulationPerformance.mapSurface, performance.now() - startedAt);
   }
 
   function renderMapInteraction() {
