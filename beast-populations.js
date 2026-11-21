@@ -1311,6 +1311,9 @@
           || !s.losses.some(l => l.memberId === d.memberId && !l.detailOwner))) return null;
       }
       if (!Ecology.valid(s) || !Foodweb.validate(s) || !Scheduler.validate(s) || !Foraging.valid(s, id => Demography.group(s, id)) || !Care.valid(s) || !Wind.valid(s)) return null;
+      // Compact only after verifying the saved custody, so removing
+      // disposable old observations cannot hide forged or lost matter.
+      for (const r of s.regions) if (!r.deferred) Wildlife.compactCarcasses(r);
       audit(s); Demography.prepare(s, s.clock); Scheduler.restore(s, schedulerOps); return s; // Restore indexes, never paid rates or choices.
     } catch { return null; }
   }

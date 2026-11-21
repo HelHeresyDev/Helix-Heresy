@@ -100324,6 +100324,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const observer = { roomId: scientistRoomId(), mapCell: scientistMapCell() }, terrain = beastTerrainContext(observer.roomId);
       const visible = localWildlifeCarrion(observer, 8, terrain, true).filter(body => beastClimbingLine(observer, body)
         && perceptionLightLevelAtCell(body.mapCell) > 0);
+      for (const body of visible) body.rememberWildlifeRemains?.();
       observedWildlifeCarrion.set(saved, visible.map(body => ({ cell: cleanMapCell(body.mapCell), observedAt: state.clock })));
     } else observedWildlifeCarrion.delete(saved);
     const excursion = !supplySimulationSite && !porterSimulationExcursion && !escortSimulationState?.source

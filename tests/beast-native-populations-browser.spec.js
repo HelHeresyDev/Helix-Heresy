@@ -58,7 +58,15 @@ test(`${renderer}: ${returnToBackground ? 'wounded original returns after absenc
   }, { name: actor.name, cells: observation.knowledge.sightings.find(a => a.id === actor.id).visibleBodyCells });
   expect(sceneEvidence).toBe(true);
   expect((await page.evaluate(() => window.helixHeresyDebug.mapRendererSnapshot())).mode).toBe(renderer);
-  await page.evaluate(() => window.helixHeresyDebug.advanceWildernessBeastsForTest(1));
+  if (renderer === 'canvas' && !returnToBackground) {
+    const elapsed = await page.evaluate(() => {
+      const d = window.helixHeresyDebug, at = d.wildernessBeastSnapshot().clock, started = performance.now();
+      d.advanceTestRunTime(1); // Use the ordinary path without skipping an encounter pause.
+      return { elapsedMs: Math.round(performance.now() - started), gameSeconds: d.wildernessBeastSnapshot().clock - at };
+    });
+    expect(elapsed.gameSeconds).toBe(1);
+    console.log(`Ordinary native-site time advance: ${elapsed.gameSeconds} game seconds in ${elapsed.elapsedMs} ms`);
+  } else await page.evaluate(() => window.helixHeresyDebug.advanceWildernessBeastsForTest(1));
   if (returnToBackground) expect(await page.evaluate(id => window.helixHeresyDebug.woundNativeBeastForTest(id), actor.id)).toBe(true);
   const before = await page.evaluate(id => window.helixHeresyDebug.beastBodySnapshot(id), actor.id);
   if (returnToBackground) {

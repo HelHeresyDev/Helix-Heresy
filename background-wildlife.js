@@ -539,7 +539,10 @@
           pool.catches += lose(r, pool, prey, n, true, at, q.position);
           encountered += n * prey.massKg * .6;
         }
-        for (const site of Carcasses.query(pool, q.position, radius).sites) if (!sites.includes(site)) sites.push(site);
+        if (!q.scavenge) {
+          const originalIds = new Set(sites.map(site => site.id));
+          for (const site of Carcasses.query(pool, q.position, radius).sites) if (!originalIds.has(site.id)) sites.push(site);
+        }
         for (const site of sites) {
           const available = Tissues.available(site, eater);
           const kg = Math.min(room, available, q.scavenge ? available / site.count * Math.min(q.memberCount, site.count) : Infinity);
@@ -663,5 +666,6 @@
     return result;
   }
   return { profiles, sizeClasses, profile, feedingGround, habitatPatches, initialDeaths, initialPosition, encounterFraction, definitions, allocate, apply, initialize, plan, prepare, fed, next, integrate, boundary, begin, finish, cancel, REEF_SCHOOL_MAX_RADIUS_M, validReefSite,
+    compactCarcasses(r) { for (const pool of r.wildlife?.pools || []) Carcasses.compact(pool); },
     validDefinition, valid, validRates, summary, total, mass, guilds, capture, DURATION };
 });

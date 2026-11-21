@@ -7,15 +7,16 @@
   root.HelixWildlifeCarcasses = api;
 })(globalThis, function (Life, T) {
   'use strict';
-  const DAY = 86400, EPS = 1e-8, CELL_M = 16, KILL_M = .1, QUERY_LIMIT = 4096;
+  const DAY = 86400, EPS = 1e-8, CELL_M = 16, KILL_M = .1, QUERY_LIMIT = 4096, VIEW_LIMIT = 256;
   const finite = n => Number.isFinite(n) && n >= 0, integer = n => Number.isSafeInteger(n) && n >= 0;
   const keys = ['initialMassKg', 'massKg', 'edibleKg', 'initialEdibleKg', 'inertKg', 'consumedKg', 'decomposedKg', 'reservedKg'];
+  const ordinarySiteKeys = new Set([...keys, 'id', 'poolId', 'path', 'count', 'referenceBodyKg', 'lastAt', 'position', 'tissues']);
   const close = (a, b) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(a), Math.abs(b));
   const empty = at => ({ initialMassKg: 0, massKg: 0, edibleKg: 0, consumedKg: 0, decomposedKg: 0, lastAt: at });
   const indexes = new WeakMap();
   function index(pool) {
     let value = indexes.get(pool);
-    if (!value) { value = { nodes: new Map(), queries: new Map(), queriesMade: 0, nodeVisits: 0, limitedQueries: 0 }; indexes.set(pool, value); }
+    if (!value) { value = { nodes: new Map(), queries: new Map(), views: new Map(), queriesMade: 0, nodeVisits: 0, limitedQueries: 0 }; indexes.set(pool, value); }
     return value;
   }
   function initialize(pool, regionId, at = 0) {
@@ -24,7 +25,9 @@
   // Prefix allocation is monotone: later deaths cannot relocate earlier ones.
   // Four equal-area polar sectors get integer counts and seeded remainder order.
   function countAt(pool, n, path) {
-    for (const rank of node(pool, path).ranks) { if (!n) break; n = Math.floor(n / 4) + Number(n % 4 > rank); }
+    const entry = node(pool, path);
+    if (entry.stride) return n <= entry.first ? 0 : Math.floor((n - 1 - entry.first) / entry.stride) + 1;
+    for (const rank of entry.ranks) { if (!n) break; n = Math.floor(n / 4) + Number(n % 4 > rank); }
     return n;
   }
   function node(pool, path) {
@@ -34,8 +37,11 @@
     const size = parent ? parent.cell.size / 2 : 1;
     const cell = parent ? { u: parent.cell.u + i % 2 * size, v: parent.cell.v + Math.floor(i / 2) * size, size } : { u: 0, v: 0, size: 1 };
     const offset = Math.floor(Life.random(`${pool.id}:${path}`) * 4);
-    const ranks = parent ? [...parent.ranks, (i - parent.offset + 4) % 4] : [];
-    const value = { path, cell, offset, ranks, bounds: box(pool, cell) };
+    const rank = parent ? (i - parent.offset + 4) % 4 : 0;
+    const ranks = parent ? [...parent.ranks, rank] : [];
+    const stride = path.length <= 26 ? 4 ** path.length : null;
+    const first = stride ? parent ? parent.first + rank * parent.stride : 0 : null;
+    const value = { path, cell, offset, ranks, first, stride, bounds: box(pool, cell) };
     cache.set(path, value); return value;
   }
   function sector(path) {
@@ -63,17 +69,57 @@
     T.add(row, n * kg);
     for (const k of T.animalKeys) T.debit(row, k, 0, n * kg * T.profiles[k].share * -Math.expm1(-T.profiles[k].decayDay * (at - born) / DAY));
   }
-  function naturalSite(pool, path, at) {
-    const space = pool.carcassSpace, id = `${pool.id}:corpse:${path}`;
-    if (space.sites[id]) return space.sites[id];
-    const row = { ...empty(at), id, poolId: pool.id, path, count: 0, referenceBodyKg: Infinity, position: position(pool, path) };
-    let prior = 0;
-    for (const [born, total, kg] of space.events) {
-      const n = countAt(pool, total, path) - countAt(pool, prior, path); prior = total;
+  function growView(pool, path, at, row = null, from = 0) {
+    const { events, count } = pool.carcassSpace, entry = node(pool, path), finalCount = countAt(pool, count, path);
+    if (!finalCount) return null;
+    row ||= { ...empty(at), id: `${pool.id}:corpse:${path}`, poolId: pool.id, path, count: 0,
+      referenceBodyKg: Infinity, position: position(pool, path) };
+    if (row.lastAt < at) { T.decay(row, (at - row.lastAt) / DAY); row.lastAt = at; }
+    while (row.count < finalCount && from < events.length) {
+      // This leaf gets a death every stride bodies, in the same prefix order
+      // as the old path traversal. Skip intervening batches with no local deaths.
+      if (entry.stride) {
+        const next = entry.first + row.count * entry.stride + 1;
+        let hi = events.length - 1;
+        while (from < hi) {
+          const mid = from + Math.floor((hi - from) / 2);
+          if (events[mid][1] < next) from = mid + 1; else hi = mid;
+        }
+      }
+      const [born, total, kg] = events[from++], n = countAt(pool, total, path) - row.count;
       if (n) { addAged(row, n, kg, born, at); row.count += n; row.referenceBodyKg = Math.min(row.referenceBodyKg, kg); }
     }
-    if (!row.count) return null;
-    space.sites[id] = row; return row;
+    return row;
+  }
+  function naturalSite(pool, path) {
+    const id = `${pool.id}:corpse:${path}`, space = pool.carcassSpace;
+    if (Object.hasOwn(space.sites, id)) return space.sites[id];
+    // Disposable last-read projections. Geometry and mass are reproducible
+    // from immutable prefixes and elapsed age; do not tick this cache.
+    const views = index(pool).views, previous = views.get(path);
+    const row = growView(pool, path, pool.carcass.lastAt, previous?.row, previous?.eventCount);
+    if (!row) return null;
+    views.delete(path); views.set(path, { row, eventCount: space.events.length });
+    if (views.size > VIEW_LIMIT) views.delete(views.keys().next().value);
+    return row;
+  }
+  function compact(pool) {
+    const space = pool.carcassSpace;
+    if (!space) return;
+    for (const [id, row] of Object.entries(space.sites)) {
+      if (row.path == null || row.retained) continue;
+      if (!row.tissues || row.consumedKg > 0 || row.reservedKg > 0
+        || Object.keys(row).some(k => !ordinarySiteKeys.has(k))) { row.retained = true; continue; }
+      const projected = growView(pool, row.path, pool.carcass.lastAt);
+      // Older saves have no discovery flag. Only discard rows demonstrably
+      // equivalent to fresh projections; keep any nonstandard tissue change.
+      if (projected && row.inertKg === projected.inertKg && Object.entries(row.tissues).every(([k, t]) => {
+        const p = projected.tissues[k];
+        return p && ['kg', 'initialKg', 'decomposedKg'].every(field =>
+          Math.abs(t[field] - p[field]) <= 1e-9 * Math.max(1, t[field], p[field]));
+      }) && Object.keys(row.tissues).length === Object.keys(projected.tissues).length) delete space.sites[id];
+      else row.retained = true;
+    }
   }
   // The caller has already debited live membership and added the same body
   // matter to pool.carcass. These rows are reconciled local custody, not food.
@@ -116,7 +162,9 @@
     const cached = cache.queries.get(key);
     const visible = row => distance(row.position, start, end) <= range
       && (includeReserved ? row.massKg > EPS : row.edibleKg > (row.reservedKg || 0) + EPS);
-    if (cached) return { ...cached, visits: 0, sites: cached.sites.filter(visible) };
+    const read = entries => entries.filter(p => distance(p.position, start, end) <= range)
+      .map(p => p.path == null ? p : naturalSite(pool, p.path)).filter(p => p && visible(p));
+    if (cached) return { ...cached, visits: 0, sites: read(cached.sites) };
     const altitude = pool.guild === 'fish' ? -pool.spatial.depthTopM - pool.habitatDepthM / 2 : 0;
     const pending = Math.min(a.altitudeM, z.altitudeM) - expanded > altitude || Math.max(a.altitudeM, z.altitudeM) + expanded < altitude
       ? [] : [{ node: node(pool, ''), count: space.count }];
@@ -130,8 +178,7 @@
       if (Math.hypot(b.maxX - b.minX, b.maxY - b.minY) <= CELL_M || entry.path.length >= 48) {
         const p = position(pool, entry.path);
         if (distance(p, a, z) <= expanded) {
-          const row = naturalSite(pool, entry.path, pool.carcass.lastAt);
-          if (row) result.sites.push(row);
+          result.sites.push({ path: entry.path, position: p });
         }
       } else {
         const counts = [0, 1, 2, 3].map(i => Math.floor(item.count / 4) + Number((i - entry.offset + 4) % 4 < item.count % 4));
@@ -145,26 +192,58 @@
     if (cache.queries.size > 32) cache.queries.clear();
     cache.queries.set(key, result);
     if (cache.nodes.size > 32768) cache.nodes.clear();
-    return { ...result, sites: result.sites.filter(visible) };
+    return { ...result, sites: read(result.sites) };
   }
   function source(r, id) {
     for (const p of r.wildlife?.pools || []) {
       if (id === p.id) return p.carcassSpace ? null : p.carcass;
       if (p.carcassSpace && Object.hasOwn(p.carcassSpace.sites, id)) return p.carcassSpace.sites[id];
+      const prefix = `${p.id}:corpse:`;
+      if (p.carcassSpace && typeof id === 'string' && id.startsWith(prefix)) {
+        const path = id.slice(prefix.length);
+        if (!/^[0-3]{0,48}$/.test(path)) return null;
+        const leaf = path => { const b = node(p, path).bounds; return Math.hypot(b.maxX - b.minX, b.maxY - b.minY) <= CELL_M; };
+        return (path.length === 48 || leaf(path)) && (!path.length || !leaf(path.slice(0, -1))) ? naturalSite(p, path) : null;
+      }
     }
     return null;
   }
-  const parent = (r, row) => row.poolId && r.wildlife?.pools.find(p => p.id === row.poolId)?.carcass;
+  const owner = (r, row) => row.poolId && r.wildlife?.pools.find(p => p.id === row.poolId);
+  const parent = (r, row) => owner(r, row)?.carcass;
+  function retain(r, row) {
+    if (row.path == null) return row;
+    const pool = owner(r, row);
+    if (!pool) throw Error('Missing original natural carcass pool');
+    if (Object.hasOwn(pool.carcassSpace.sites, row.id)) {
+      const current = pool.carcassSpace.sites[row.id]; current.retained = true; return current;
+    }
+    const current = naturalSite(pool, row.path);
+    if (!current) throw Error('Missing original natural carcass site');
+    current.retained = true;
+    pool.carcassSpace.sites[current.id] = current;
+    index(pool).views.delete(row.path);
+    return current;
+  }
   function reserve(r, row, actor, kg) {
+    if (!(kg > EPS)) return [];
+    if (row.path != null) {
+      row = source(r, row.id);
+      if (!row) return [];
+    }
     const parts = T.reserve(row, actor, kg), root = parent(r, row);
+    if (parts.length && row.path != null) retain(r, row);
     if (root) for (const part of parts) {
       const paid = T.reserve(root, { carrionDiet: [part.tissue] }, part.kg).reduce((n, p) => n + p.kg, 0);
       if (!close(paid, part.kg)) throw Error('Unfunded local carcass custody');
     }
     return parts;
   }
-  function release(r, row, key, kg) { T.release(row, key, kg); const root = parent(r, row); if (root) T.release(root, key, kg); }
+  function release(r, row, key, kg) {
+    if (row.path != null) row = source(r, row.id);
+    T.release(row, key, kg); const root = parent(r, row); if (root) T.release(root, key, kg);
+  }
   function debit(r, row, key, consumed, decomposed, reserved) {
+    if (row.path != null && consumed + decomposed > 0) row = retain(r, row);
     T.debit(row, key, consumed, decomposed, reserved); const root = parent(r, row);
     if (root) T.debit(root, key, consumed, decomposed, reserved);
   }
@@ -181,6 +260,7 @@
   const freeAnchorKg = row => Math.min(anchorLimit(row), ['hard', 'tough'].reduce((n, k) => n
     + Math.max(0, (row.tissues?.[k]?.kg || 0) - (row.tissues?.[k]?.reservedKg || 0)), 0) / Math.max(1, row.count));
   function take(r, row, actor, maximum) {
+    if (row.path != null) row = source(r, row.id);
     return T.take(row, actor, maximum, (key, kg) => debit(r, row, key, kg, 0, false));
   }
   // A view is never a second saved actor or food stock. All operations
@@ -205,8 +285,8 @@
         candidates.push({ id: row.id, actorKind: 'wildlifeRemains', status: 'dead', roomId: site.roomId, mapCell,
           wildlifePosition: { eastM: x * tile, northM: y * tile, altitudeM: p.altitudeM },
           bodyPhysics: { dimensions: shape, altitudeM: p.altitudeM, mode: p.altitudeM < 0 ? 'swimming' : 'grounded' },
-          ...(includeReserved ? {} : { wildlifeCarrion: {
-            inventory: () => row, take: (actor, kg) => take(r, row, actor, kg), anchorKg: () => freeAnchorKg(row)
+          ...(includeReserved ? { rememberWildlifeRemains: () => retain(r, row) } : { wildlifeCarrion: {
+            inventory: () => source(r, row.id), take: (actor, kg) => take(r, row, actor, kg), anchorKg: () => freeAnchorKg(source(r, row.id))
           } }),
           distanceM: distance(row.position, point) });
       }
@@ -249,7 +329,8 @@
     let hunted = 0;
     const sums = Object.fromEntries(keys.map(k => [k, 0])), tissue = {};
     for (const [id, row] of Object.entries(space.sites)) {
-      if (row.id !== id || row.poolId !== pool.id || !integer(row.count) || !row.count || !finite(row.lastAt)
+      if (row.id !== id || row.poolId !== pool.id || row.retained != null && row.retained !== true
+        || !integer(row.count) || !row.count || !finite(row.lastAt)
         || row.lastAt > at + EPS || row.lastAt !== pool.carcass.lastAt
         || !(row.referenceBodyKg > 0) || !Number.isFinite(row.referenceBodyKg) || !row.position
         || row.position.regionId !== regionId || !['eastM', 'northM', 'altitudeM'].every(k => Number.isFinite(row.position[k]))
@@ -288,5 +369,5 @@
         return ['consumedKg', 'reservedKg'].includes(field) ? close(n, root) : n <= root + 1e-6 * Math.max(1, root);
       }));
   }
-  return { CELL_M, QUERY_LIMIT, initialize, record, advance, query, source, reserve, release, debit, rows, body, anchorLimit, freeAnchorKg, take, window, valid, countAt, summary };
+  return { CELL_M, QUERY_LIMIT, initialize, record, advance, query, source, reserve, release, debit, rows, body, anchorLimit, freeAnchorKg, take, window, compact, valid, countAt, summary };
 });

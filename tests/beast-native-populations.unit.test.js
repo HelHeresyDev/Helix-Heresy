@@ -212,9 +212,11 @@ test('visited wildlife remains share the original regional debit after reload an
   assert.equal(view(owner), undefined, 'unvisited terrain cannot expose a food source');
   N.terrain(owner, record, map, site, [], 0); N.terrain(owner, record, map, overlap, [], 0);
   assert.equal(view(owner, site, { ...context, local: false }), undefined);
-  assert.equal(view(owner, overlap).inventory(), row);
+  assert.deepEqual(view(owner, overlap).inventory(), row);
   assert.ok(view(owner).take(eater, .001).kg > 0);
-  const remaining = row.massKg, spent = row.consumedKg;
+  const durable = Carrion.source(region, row.id);
+  assert.ok(durable.retained && durable.consumedKg > 0);
+  const remaining = durable.massKg, spent = durable.consumedKg;
   assert.equal(view(owner, overlap).inventory().massKg, remaining);
   N.pack(owner, record, map);
   const saved = copy(owner), continued = N.rebind(saved, binding, { ...binding, runId: 'carrion-branch' });

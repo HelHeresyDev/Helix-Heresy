@@ -126,11 +126,46 @@ test('query order and elapsed-time partitions do not move remains or reroll thei
   const pa = points(a).pool, pb = points(b).pool;
   for (const site of sites.reverse()) C.query(pb, site.position, 1);
   for (const site of sites) {
-    const left = pa.carcassSpace.sites[site.id], right = pb.carcassSpace.sites[site.id];
+    const left = C.source(a.regions[0], site.id), right = C.source(b.regions[0], site.id);
     assert.equal(left.count, right.count); assert.deepEqual(left.position, right.position);
     for (const k of T.animalKeys) near(left.tissues[k].kg, right.tissues[k].kg);
   }
+  assert.deepEqual(pa.carcassSpace.sites, {}); assert.deepEqual(pb.carcassSpace.sites, {});
   valid(a); valid(b);
+});
+test('speculative searches leave no saved carcass rows; only real discovery makes a durable site', () => {
+  const s = P.create(source(), binding), before = JSON.stringify(s), { r, pool, result } = points(s);
+  const row = result.sites[0], { site, observer } = frame(row);
+  const observation = C.window(r, site, observer, 4, 1, ground, true).find(c => c.id === row.id);
+  assert.ok(observation); assert.equal(observation.wildlifeCarrion, undefined);
+  assert.equal(JSON.stringify(s), before, 'queries and render candidates do not amend the world ledger');
+  observation.rememberWildlifeRemains();
+  assert.deepEqual(Object.keys(pool.carcassSpace.sites), [row.id]);
+  const saved = P.normalize(copy(s), binding); assert.ok(saved);
+  assert.deepEqual(Object.keys(points(saved).pool.carcassSpace.sites), [row.id]);
+  P.advance(saved, 3 * DAY, true, true);
+  const aged = C.source(saved.regions[0], row.id);
+  assert.deepEqual(aged.position, row.position); assert.ok(aged.massKg < row.massKg);
+  valid(saved);
+});
+test('loading an older account drops only untouched projections and keeps real custody and tissue changes', () => {
+  const s = P.create(source({ animals: true }), binding), { r, pool, result } = points(s), [untouched, reserved, changed] = result.sites;
+  assert.ok(changed);
+  pool.carcassSpace.sites[untouched.id] = copy(untouched); // Old speculative representation.
+  const g = s.groups[0], c = g.cohorts[0];
+  const hold = F.claim(r, g, c, 'wildlife', reserved.id, .05, 0, reserved.position);
+  assert.ok(hold); const reservedKg = reserved.reservedKg;
+  C.debit(r, changed, 'flesh', 0, .01, false);
+  delete reserved.retained; delete changed.retained;
+  const old = JSON.stringify(s), saved = P.normalize(copy(s), binding); assert.ok(saved);
+  assert.equal(JSON.stringify(s), old);
+  const record = points(saved).pool;
+  assert.deepEqual(Object.keys(record.carcassSpace.sites).sort(), [reserved.id, changed.id].sort());
+  assert.ok(Object.values(record.carcassSpace.sites).every(row => row.retained));
+  assert.deepEqual(C.source(saved.regions[0], untouched.id), untouched);
+  near(C.source(saved.regions[0], reserved.id).reservedKg, reservedKg);
+  assert.deepEqual(C.source(saved.regions[0], changed.id).tissues, changed.tissues);
+  assert.deepEqual(record.carcass, pool.carcass); valid(saved);
 });
 test('a million-fold population increase changes counts, not the number of local sites or unqueried animals', () => {
   const work = [];
@@ -150,7 +185,9 @@ test('query budgets are explicit and cannot mint corpses outside the fixed origi
   assert.deepEqual(pool.carcass, at); valid(s);
 });
 test('forged spatial deaths, positions, tissue custody and counters are rejected on import', () => {
-  const s = P.create(source(), binding); points(s); valid(s);
+  const s = P.create(source(), binding), { r, result } = points(s), { site, observer } = frame(result.sites[0]);
+  C.window(r, site, observer, 4, 1, ground, true).find(c => c.id === result.sites[0].id).rememberWildlifeRemains();
+  valid(s);
   for (const mutate of [space => space.count++, space => space.events[0][1]++,
     space => { Object.values(space.sites)[0].position.eastM++; }, space => { Object.values(space.sites)[0].count++; },
     space => { Object.values(space.sites)[0].tissues.flesh.reservedKg++; }]) {

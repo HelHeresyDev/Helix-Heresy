@@ -22,14 +22,21 @@ seeded representative position; nearby bodies share that local batch. This is
 an explicit coarse positional approximation, not individually simulated bodies
 or a claim that their exact sub-cell locations are known.
 
-Only queried local leaves need expanded tissue rows. Unqueried deaths remain
-compact dated records. Materialization reconstructs their actual elapsed decay
-without adding bodies, depositing decomposition twice, rerolling positions or
-moving remains to an animal. Subsequent real deaths update already-resolved
-leaves from the same allocation. Growth cohorts dying on the same date may have
-different body masses; the dated records retain those separate contributions.
-Storage grows with death batches and visited occupied locations, not one object
-per represented creature. It is not a constant-size infinite-history database.
+Unclaimed natural carcasses are temporary search results, not saved rows.
+A query derives the same position, counts and aged tissue from its region's
+dated deaths. It skips death batches with no members in that leaf and checks
+elapsed decay only for the view it needs. Only actual discovery, consumption,
+reservation, another real tissue change or a positioned kill leaves a durable
+row. Later deaths update those rows from the same allocation. Nothing moves
+the remains to an animal, rolls a new body, or credits decomposition twice.
+Growth cohorts dying on the same date can have different masses; their dated
+records still retain those separate contributions.
+
+When an older account loads, custody is validated first. Only ordinary
+unconsumed, unreserved natural rows whose tissue matches a fresh projection
+are dropped. Changed tissue, active holds, recorded kills and already marked
+discoveries stay with their original inventory. Old saves did not persist
+sight-only carcass discoveries; their seeded positions remain reproducible.
 
 Actual predator catches instead leave a point batch at the performed catch's
 regional position. Positions within a 0.1 m Cartesian cell may share a row;
@@ -45,7 +52,8 @@ Immutable geometry and conservative broad-phase query caches are disposable;
 exact distance/depth and current available tissue are checked after the cache.
 Cache construction never grants animal knowledge or alters death allocation.
 Geometry caches are cleared above 32,768 entries, and query caches above 32.
-No per-animal strategic planning or per-frame corpse update is introduced.
+Up to 256 disposable tissue views per pool can reuse their last-read state.
+No speculative view is saved or visited by the regional decay tick.
 The measured isolated replay has **zero query-budget truncations**. A truncated
 query is incomplete evidence, not an empty-habitat or healthy-world certificate.
 
@@ -203,7 +211,9 @@ ground. Sight or scent can attract a beast, but feeding also requires its own
 reach and a clear line of effect. The scientist's encounter panel lists only
 remains in sight, not unsensed bodies, held tissue or regional food totals.
 
-The local target is a transient view of a regional row, not a new corpse actor.
+The local target is a transient view of a regional inventory, not a new corpse
+actor. A terrain candidate becomes a saved discovery only after actual sight
+and light checks; filtering a candidate out leaves no discovery row.
 A bite debits the same spatial row and its aggregate pool and cannot spend
 tissues reserved by a regional feeder. Regional decay remains the sole owner of
 decay for that row; local wildlife remains are not separately decay-ticked or
@@ -216,3 +226,38 @@ A local Carrion Lantern needs sixty seconds of continuous supported handling
 before it can ingest. Current wind, bodily effort and what remains of at most
 one body's unreserved structure determine whether it can hold. This does not
 change regional starting supply or seasonal viability.
+
+## Cost of retaining only consequential carcasses
+
+Both kernels resumed the exact saved day-30 `source-small` ecology
+(`beast-habitat-source:43996615`, world digest `world-ffaab29e`) and ran to
+day 40 on the same machine, serially. The baseline used `d6be1b7`; both
+runs kept the same original 24 species and weather, without re-generating
+the source or changing the simulation's feeding rules.
+
+| Day 30–40 measurement | Baseline | Temporary search views |
+| --- | ---: | ---: |
+| Replay interval including final checkpoint and validation | 448.635 s | 62.171 s |
+| Expanded population account at day 40 | 231,088,807 bytes | 59,467,999 bytes |
+| Saved positioned wildlife carcass rows | 101,711 | 1,514 |
+| Dated wildlife death batches | 160,670 | 160,670 |
+
+That's 7.2× faster and 74% less expanded state in this window. Both runs
+matched per-species membership, births, causes of death, feeding and water
+intake, and measured issue counts. They also matched scheduler boundaries and
+cohort interval counts. Both still reject the ecological source. This is a
+focused replay, not a new 120-day result or a compressed-save measurement.
+In one focused Chromium visit using Canvas, the ordinary game-time path
+processed one game second in 2,174 ms. That single active-site smoke
+measurement has no paired browser baseline and does not establish a
+player-facing speedup.
+
+Raw outputs are ignored under `.replay-checkpoints/carcass-baseline-1AsNEJJ4/`
+and `.replay-checkpoints/carcass-sparse-q53pvuNN/`. To repeat either side,
+use the relevant checkout and a fresh existing output directory:
+
+```sh
+node scripts/benchmark-generated-beast-habitats.js --days=40 \
+  --resume=.replay-checkpoints/current-source-small-VaeaU47X/day-30.json \
+  --checkpoint-dir=.replay-checkpoints/NEW_CONTROL --checkpoint-final-only --save-report
+```
