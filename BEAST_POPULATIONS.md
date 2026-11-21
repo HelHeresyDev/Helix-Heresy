@@ -1293,6 +1293,34 @@ preserved its identity and dated note through withdrawal, reload, and return.
 Focused native checks also cover a rotated shoreline, no refill, depth and
 clarity limits, and unmodified archived source counts and budgets.
 
+### Burrow mouths on dry-ground surveys
+
+A foreign surface survey can reach a volcanic fissure where the original
+geology supports an open dry rim. The cut and its rock screen come from the
+geographic site, not a lookup of nearby originals. The dry approach uses
+surface parcels; only the aperture can expose finite parcels of that cell's
+subsurface account. Solid or unstable geology does not open a view. No
+walkable tunnel, mining access, or new mineral reserves are granted.
+
+Only a body that physically fits the reached aperture can appear at that
+opening. The scientist must have light and a clear line to an exposed part
+above the lip. A visible fissure is a geological observation, not a report
+of occupancy. A blocked line, covered opening or entirely buried original
+does not earn a creature note. A sighting does not expose a body anchor,
+unseen brood, colony size, or the tunnels below.
+
+New worlds can place one already allocated Burrowing Furnace group near
+such an aperture in its original habitat. This positions the original group
+at world creation without adding individuals or mineral stock. Existing
+worlds and already established survey windows retain their placements.
+Visits do not pull residents toward the rim or move them through rock.
+
+The focused Chromium trip observed no creature behind the rock screen, then
+recorded one exposed original from the dry rim. The opening refused walking;
+withdrawal and reload retained the dated note, and the return used the same
+individual. Native checks also cover unsupported and covered openings,
+conserved minerals, and archived source compatibility.
+
 ### Population-backed local walking encounters
 
 The home-side leg of the existing local municipal survey walk can now read the

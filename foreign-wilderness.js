@@ -12,7 +12,7 @@
       && cell.x >= bounds.x && cell.x < bounds.x + bounds.width && cell.y >= bounds.y && cell.y < bounds.y + bounds.height);
   }
   function extensionPlan(sector) {
-    if (!sector?.materialized || sector.coast || !sector.discovery?.baseline || !sector.context?.truth || !sector.bounds || !sector.destination) return null;
+    if (!sector?.materialized || sector.coast || sector.mouth || !sector.discovery?.baseline || !sector.context?.truth || !sector.bounds || !sector.destination) return null;
     const b = sector.bounds, id = `${sector.destination.id}:adjoining-east`, bounds = { ...copy(b), x: b.x + b.width };
     return { id, parentSiteId: sector.context.siteId, roomId: sector.roomId, bounds,
       seam: { x: bounds.x - 1, y: sector.entry.y, z: bounds.z }, entry: { x: bounds.x, y: sector.entry.y, z: bounds.z },
@@ -114,6 +114,30 @@
   // body can be seen even in opaque water; nothing below the clear column is.
   const coastVisible = (altitudeM, heightM, clarityM) => Number.isFinite(altitudeM) && Number.isFinite(heightM)
     && Math.max(0, -(altitudeM + heightM)) <= Math.max(0, clarityM || 0);
+  function mouthReference(map, index, areaHa) {
+    const g = map?.geology;
+    // Refine an original stable, fractured volcanic dry site; do not read
+    // the groups, their reserves or any current hidden body location.
+    if (map?.surface?.classes?.[index] !== 'L' || g?.bedrockClasses?.[index] !== 'v'
+      || !(g.geothermalPermille[index] >= 800 && g.stabilityPermille[index] >= 350) || !(areaHa >= 1)
+      || map.hydrology?.lakeByCell?.[index] >= 0) return null;
+    const distance = Math.min(10000, Math.sqrt(areaHa * 10000 / Math.PI) * .25);
+    const roll = direction => parseInt(World.stableHash(`${g.digest}:${index}:open-fissure:${direction}`), 16) / 4294967296;
+    return { cellId: World.cellId(index), eastM: Math.round((roll('east') - .5) * distance),
+      northM: Math.round((roll('north') - .5) * distance) };
+  }
+  const validMouth = m => Boolean(m && /^planet-cell:\d+$/.test(m.cellId) && Number.isInteger(m.eastM) && Number.isInteger(m.northM));
+  const mouthLeft = b => b.x + 10, mouthTop = b => b.y + 3;
+  const mouthCell = (site, c) => Boolean(site?.mouth && contains(site.bounds, c)
+    && c.x >= mouthLeft(site.bounds) && c.x < mouthLeft(site.bounds) + 8
+    && c.y >= mouthTop(site.bounds) && c.y < mouthTop(site.bounds) + 4);
+  const mouthFrame = (site, tile) => ({
+    eastM: site.mouth.eastM - (mouthLeft(site.bounds) - site.bounds.x) * tile,
+    northM: site.mouth.northM - (mouthTop(site.bounds) - site.bounds.y) * tile
+  });
+  const mouthScreen = b => Array.from({ length: 4 }, (_, i) => ({ x: mouthLeft(b) - 2, y: mouthTop(b) + i, z: b.z }));
+  const mouthVisible = (t, altitudeM, heightM) => Boolean(t?.fieldBurrowMouth && !t.foundation && !t.protected
+    && !(t.obstacleHeightM > 0) && !Number.isFinite(t.ceilingM) && altitudeM + heightM > 0);
   // One north/east frame for all four existing on-foot patches. A mapped
   // wetland can supply a dry bank approach; recorded route anchors win.
   function populationWindow(sector, from, to, areaHa, tile, bank = null) {
@@ -164,5 +188,6 @@
     return '';
   }
   return { create, contains, populationWindow, wetlandBank, wetlandAt, validBank, coastReference, coastForLand, validCoast, coastEast, coastNorth,
-    coastSeaFrame, offset, relative, coastVisible, seawaterCell, extensionPlan, extensionReason, entryReason, sampleReason };
+    coastSeaFrame, offset, relative, coastVisible, seawaterCell, mouthReference, validMouth, mouthCell, mouthFrame, mouthScreen, mouthVisible,
+    extensionPlan, extensionReason, entryReason, sampleReason };
 });

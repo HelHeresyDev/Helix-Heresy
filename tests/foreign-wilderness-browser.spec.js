@@ -206,6 +206,69 @@ test('ordinary mapped shoreline survey observes an original Reef Wyrm only from 
   expect(w.site.beasts.actors.filter(a => a.life.originalMemberId === actor.life.originalMemberId).map(a => a.id)).toEqual([actor.id]);
   expect(errors).toEqual([]);
 });
+test('ordinary fissure survey records only the exposed original seen past a rock screen', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message)); page.on('dialog', d => d.accept());
+  const world = originalSeamWorld('atlas', 1), field = World.cellId(30), fissure = World.cellId(8);
+  await openForeignWorkspace(page, 'mapped-fissure', 'canvas', false, false, 0, 'wilderness', false, null, null, world);
+  expect(await wa(page, 'return')).toBe(true); await finish(page);
+  const source = { cityId: 'b', administrationId: 'admin:b', worksId: 'works:b', charterId: 'charter:b', populationSourceId: 'population:b',
+    cellId: field, name: 'Volcanic Approach', placeId: 'foreign-survey:b' };
+  const carrier = Carrier.fromWorld({ strategicPlayableSettlementState: { cityRows: [{ cityId: 'b', assetId: 'population:b', currentPopulation: 100, physicalCondition: 'intact', services: { transport: 'functional' } }] },
+    cityGovernments: { governments: [{ cityId: 'b', roleAssignments: { publicWorksAndProvisioning: 'works:b' }, institutions: [{ id: 'works:b', capacityBand: 'functional' }] }] } }, 'b', 0);
+  const map = world.generatedData.strategicMap, origin = World.cellSnapshot(map, World.cellIndex(field)), destination = World.cellSnapshot(map, World.cellIndex(fissure));
+  // The itinerary is controlled; the geology, placement and whole body come
+  // from the generated archive. There is no actor or tunnel injection.
+  expect(await page.evaluate(({ source, carrier, origin, destination }) => {
+    const d = window.helixHeresyDebug, context = d.foreignSurveySnapshot().surveys.context;
+    return d.setForeignSurveyTestSource(source, carrier, { ...context, siteId: source.placeId, strategicCellId: source.cellId })
+      && d.setForeignWildernessTestSource({ origin, candidates: [{ ...destination, slopePercent: .6, temperatureC: 17 }], occupied: [], context });
+  }, { source, carrier, origin, destination })).toBe(true);
+  expect(await act(page, 'quote')).toBe(true); expect(await act(page, 'accept', { expected: (await snap(page)).excursion.quote })).toBe(true);
+  expect(await act(page, 'book')).toBe(true); await advance(page, 120);
+  expect(await act(page, 'board')).toBe(true); await finish(page); await advance(page, 600);
+  expect(await act(page, 'disembark')).toBe(true); await finish(page);
+  async function finishWalk() {
+    for (let i = 0; i < 12; i++) {
+      const s = await wild(page), t = s.tasks.find(t => !t.reason);
+      if (!t) { expect(s.tasks).toHaveLength(0); return; }
+      await page.evaluate(s => window.helixHeresyDebug.advanceAdjoiningWildernessForTest(s), Math.max(1, t.dueAt - s.clock + 1));
+    }
+    throw new Error('Fissure walk did not finish');
+  }
+  const notes = async () => Object.values((await snap(page)).excursion.fieldSightings || {});
+  expect(await act(page, 'enterWilderness')).toBe(true); await finishWalk();
+  await page.waitForFunction(() => window.helixHeresyDebug.foreignWildernessSnapshot().site.beasts?.materialized, null, { timeout: 160000 });
+  let w = await wild(page);
+  expect(w.site.mouth.cellId).toBe(fissure);
+  const a = w.site.beasts.actors.find(a => a.speciesId === 'beast:burrowing-furnace');
+  expect(a?.nativePopulation.regionId).toBe('habitat:8:subsurface');
+  const start = cell => page.evaluate(({ room, cell }) => Boolean(window.helixHeresyDebug.startScientistMove(room, { toCell: cell })),
+    { room: w.site.roomId, cell });
+  const behind = { ...w.site.entry, x: 27 };
+  expect(await start(a.mapCell)).toBe(false);
+  expect(await start(behind)).toBe(true); await finishWalk();
+  w = await wild(page); expect(w.cell).toEqual(behind);
+  expect(w.knowledge.sightings.find(row => row.id === a.id)).toBeUndefined();
+  expect((await notes()).some(n => n.original.memberId === a.life.originalMemberId)).toBe(false);
+  const rim = { ...behind, x: 30, y: 10 };
+  expect(await start(rim)).toBe(true); await finishWalk();
+  w = await wild(page); expect(w.cell).toEqual(rim);
+  const seen = w.knowledge.sightings.find(row => row.id === a.id && row.current);
+  expect(seen).toMatchObject({ condition: 'Body partially exposed at the burrow mouth' });
+  expect(seen.physicalPose).toBeUndefined();
+  const note = (await notes()).find(n => n.original.memberId === a.life.originalMemberId);
+  expect(note.account).toMatchObject({ place: { strategicCellId: fissure }, cell: seen.cell });
+  expect(w.site.beasts.tracks.some(t => t.id === `track:${a.id}`)).toBe(false);
+  expect(await act(page, 'withdraw')).toBe(true); await finishWalk();
+  w = await wild(page); expect(w.site.beasts.actors).toHaveLength(0);
+  const last = (await notes()).find(n => n.id === note.id);
+  await reload(page);
+  expect((await notes()).find(n => n.id === note.id)).toEqual(last);
+  expect(await act(page, 'enterWilderness')).toBe(true); await finishWalk();
+  w = await wild(page);
+  expect(w.site.beasts.actors.filter(row => row.life.originalMemberId === a.life.originalMemberId).map(row => row.id)).toEqual([a.id]);
+  expect(errors).toEqual([]);
+});
 test('Canvas and DOM: ordinary foreign survey claims an original full-size beast across the opened seam', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message)); page.on('dialog', d => d.accept());
   const world = originalSeamWorld(), field = 'planet-cell:00143', wildCell = 'planet-cell:00041';

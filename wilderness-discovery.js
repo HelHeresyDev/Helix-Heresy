@@ -1,8 +1,9 @@
 (function (root, factory) {
-  const api = factory();
+  const node = typeof module === 'object' && module.exports;
+  const api = factory(node ? require('./foreign-wilderness') : root.HelixForeignWilderness);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HelixWildernessDiscovery = api;
-}(typeof globalThis !== "undefined" ? globalThis : this, function () {
+}(typeof globalThis !== "undefined" ? globalThis : this, function (Foreign) {
   "use strict";
   const BOUNDS = Object.freeze({ x: 21, y: 8, z: 6, width: 16, height: 12 });
   const ENTRY = Object.freeze({ x: 22, y: 12, z: 6 });
@@ -37,8 +38,9 @@
   function materialize(state, worldId, worldSeed, destination, clock, existingCells = null, layout = null) {
     if (!state || state.baseline) return state?.baseline;
     const remote = state.kind === "remote", adjoining = state.kind === 'adjoining', bounds = layout?.bounds || (remote ? REMOTE_BOUNDS : BOUNDS), entry = layout?.entry || (remote ? REMOTE_ENTRY : ENTRY);
-    const seed = hash(`${worldSeed}:${state.placeId}:${remote ? "remote" : "boundary"}-ground`), rocks = [];
-    const dry = cell => !layout?.coast || cell.x < bounds.x + 10;
+    const seed = hash(`${worldSeed}:${state.placeId}:${remote ? "remote" : "boundary"}-ground`);
+    const rocks = layout?.mouth ? Foreign.mouthScreen(bounds) : [];
+    const dry = cell => !Foreign.seawaterCell(layout, cell) && !Foreign.mouthCell(layout, cell);
     const broken = Number(destination.slopePercent) > 15;
     const clearing = { x: bounds.x + 9 + seed % 5, y: bounds.y + 1 + (seed >>> 5) % 2, z: bounds.z };
     const count = broken ? 14 : 6;
@@ -48,7 +50,9 @@
       const n = hash(`${seed}:rock:${i}`);
       const cell = { x: broken && i < 5 ? bounds.x + 7 + seed % 3 : bounds.x + 5 + n % 10, y: bounds.y + (n >>> 8) % bounds.height, z: bounds.z };
       const landingFootprint = remote && Math.abs(cell.x - entry.x) <= 1 && Math.abs(cell.y - entry.y) <= 1;
-      if (!dry(cell) || landingFootprint || cell.y === entry.y || key(cell) === key(clearing) || rocks.some(rock => key(rock) === key(cell))) continue;
+      if (!dry(cell) || landingFootprint || cell.y === entry.y
+        || layout?.mouth && cell.x >= bounds.x + 6 && cell.y === bounds.y + 2
+        || key(cell) === key(clearing) || rocks.some(rock => key(rock) === key(cell))) continue;
       if (connected(cellsWithout([...rocks, cell], bounds).filter(dry), entry)) rocks.push(cell);
     }
     // An already visited older save keeps its actual footprint, including

@@ -70,6 +70,7 @@
       || !['surface', 'wetland', 'shore', 'waterColumn', 'subsurface'].includes(site.kind)
       || site.wetlandBank != null && (site.kind !== 'surface' || !Foreign.validBank(site.wetlandBank))
       || site.coast != null && (site.kind !== 'shore' || site.cellId !== site.coast.landCellId || !Foreign.validCoast(site.coast))
+      || site.mouth != null && (site.kind !== 'surface' || site.cellId !== site.mouth.cellId || !Foreign.validMouth(site.mouth) || site.wetlandBank)
       || !['eastM', 'northM'].every(k => Number.isFinite(site.origin?.[k]))
       || Object.values(site.parcelIds || {}).some(id => !Object.hasOwn(result.parcels, id))) throw Error('Invalid native site binding');
     return result;
@@ -101,15 +102,19 @@
       throw Error('Invalid native wetland bank');
     if (site.coast != null && (site.kind !== 'shore' || site.cellId !== site.coast.landCellId || !Foreign.validCoast(site.coast)))
       throw Error('Invalid native shoreline');
+    if (site.mouth != null && (site.kind !== 'surface' || site.cellId !== site.mouth.cellId || !Foreign.validMouth(site.mouth) || site.wetlandBank))
+      throw Error('Invalid native burrow mouth');
     if (old && (old.cellId !== site.cellId || old.kind !== site.kind
       || old.origin.eastM !== origin.eastM || old.origin.northM !== origin.northM
       || ['radiusM', 'edgeEastM', 'accessNorthM'].some(k => old.wetlandBank?.[k] !== site.wetlandBank?.[k])
-      || !sameCoast(old.coast, site.coast)))
+      || !sameCoast(old.coast, site.coast) || !sameMouth(old.mouth, site.mouth)))
       throw Error('A native site cannot relocate its original geographic window');
   }
   const sameCoast = (a, b) => ['landCellId', 'seaCellId', 'axis', 'eastM', 'northM'].every(k => a?.[k] === b?.[k]);
+  const sameMouth = (a, b) => ['cellId', 'eastM', 'northM'].every(k => a?.[k] === b?.[k]);
   const siteRecord = (site, origin) => ({ cellId: site.cellId, kind: site.kind, origin: copy(origin),
-    ...(site.wetlandBank ? { wetlandBank: copy(site.wetlandBank) } : {}), ...(site.coast ? { coast: copy(site.coast) } : {}) });
+    ...(site.wetlandBank ? { wetlandBank: copy(site.wetlandBank) } : {}), ...(site.coast ? { coast: copy(site.coast) } : {}),
+    ...(site.mouth ? { mouth: copy(site.mouth) } : {}) });
   function siteRegions(state, s, site, map, record) {
     const primary = habitat(state, s, site);
     const bank = site.wetlandBank && habitat(state, s, { ...site, kind: 'wetland' });
@@ -124,9 +129,24 @@
       if (!sea || !primary || !sameCoast(site.coast, entry.coastalGeography.get(site.cellId)))
         throw Error('A shoreline must match its original mapped land and sea accounts');
     }
-    return [primary, bank, sea].filter(Boolean);
+    const burrow = site.mouth && habitat(state, s, { ...site, kind: 'subsurface' });
+    if (site.mouth) {
+      const entry = cache.get(state);
+      entry.mouthGeography ||= new Map();
+      if (!entry.mouthGeography.has(site.cellId))
+        entry.mouthGeography.set(site.cellId, Foreign.mouthReference(map, World.cellIndex(site.cellId), burrow?.areaHa));
+      if (!primary || !burrow || !sameMouth(site.mouth, entry.mouthGeography.get(site.cellId)))
+        throw Error('A burrow mouth must match its original mapped geology');
+    }
+    return [primary, bank, sea, burrow].filter(Boolean);
   }
-  const hasSeam = site => Boolean(site.coast || site.wetlandBank);
+  const hasSeam = site => Boolean(site.coast || site.wetlandBank || site.mouth);
+  function checkMouthFrame(site, tile) {
+    if (!site.mouth) return;
+    const frame = Foreign.mouthFrame(site, tile);
+    if (frame.eastM !== site.origin?.eastM || frame.northM !== site.origin?.northM)
+      throw Error('The burrow mouth window must use its original metre frame');
+  }
   const marineFrame = (site, tile) => site.coast && Foreign.coastSeaFrame(site.coast, site.bounds, tile);
   function windowBox(frame, bounds, tile) {
     const corners = [Foreign.offset(frame, 0, 0), Foreign.offset(frame, bounds.width * tile, 0),
@@ -291,6 +311,7 @@
   function materialize(state, record, map, site, context) {
     if (!context.alive || !context.local) return [];
     checkSite(state, site);
+    checkMouthFrame(site, context.tileSizeM || 1);
     const s = open(state, record, map), regions = siteRegions(state, s, site, map, record);
     if (!regions.length) return [];
     P.settleRegions(s, context.at, regions.map(r => r.id)); state.clock = s.clock;
@@ -306,7 +327,7 @@
     const inWindow = c => c.x >= b.x && c.x < b.x + b.width && c.y >= b.y && c.y < b.y + b.height;
     const remainsFit = (a, point, f) => !context.requireVisitedTerrain || Bodies.cells(a, localCell(point, f), tile).every(cell => {
       const t = context.terrain(cell);
-      return (t?.floor || t?.fieldSeawater) && !t.protected && !t.foundation && !(t.obstacleHeightM > 0)
+      return (t?.floor || t?.fieldSeawater || t?.fieldBurrowMouth) && !t.protected && !t.foundation && !(t.obstacleHeightM > 0)
         && (!hasSeam(site) || t.sourceRegionId === point.regionId && t.waterDepthM >= -point.altitudeM);
     });
     const actors = Object.values(s.details).filter(d => {
@@ -373,6 +394,7 @@
     if (!Number.isFinite(at) || at < state.clock || !Number.isFinite(tile) || tile <= 0)
       throw Error('Native terrain requires current time and a real tile area');
     checkSite(state, site);
+    checkMouthFrame(site, tile);
     const s = open(state, record, map), regions = siteRegions(state, s, site, map, record);
     if (!regions.length) return {};
     const origin = { eastM: 0, northM: 0, ...site.origin }, result = {}, parcelIds = {};
@@ -384,7 +406,8 @@
       const corner = marine ? Foreign.offset(sea, x + tile / 2, y + tile / 2) : null;
       const east = corner ? corner.eastM - tile / 2 : origin.eastM + x;
       const north = corner ? corner.northM - tile / 2 : origin.northM + y;
-      const kind = marine ? 'waterColumn' : Foreign.wetlandAt(site.wetlandBank, east + tile / 2, north + tile / 2) ? 'wetland' : site.kind;
+      const kind = marine ? 'waterColumn' : Foreign.mouthCell(site, c) ? 'subsurface'
+        : Foreign.wetlandAt(site.wetlandBank, east + tile / 2, north + tile / 2) ? 'wetland' : site.kind;
       sections.get(kind)?.push({ c, east, north });
     }
     P.settleRegions(s, at, regions.map(r => r.id)); state.clock = s.clock;
@@ -410,6 +433,7 @@
       if (state.parcels[id]) {
         if (site.wetlandBank && r.kind === 'wetland') state.parcels[id].fieldWetland = true;
         if (site.coast && r.kind === 'waterColumn') state.parcels[id].fieldSeawater = true;
+        if (site.mouth && r.kind === 'subsurface') { state.parcels[id].fieldBurrowMouth = true; state.parcels[id].floor = false; }
         result[key] = mineralOwner(state.parcels[id], state); continue;
       }
       const resources = {};
@@ -420,14 +444,16 @@
         if (moved > 0) { resources[k] = moved; totals[k] = (totals[k] || 0) + moved; }
       }
       const wet = ['wetland', 'waterColumn'].includes(r.kind), sea = r.kind === 'waterColumn';
+      const mouth = site.mouth && r.kind === 'subsurface';
       const wx = east + tile / 2, wy = north + tile / 2, lee = r.windShelter;
       const nearbyLee = lee && Math.hypot(wx - lee.eastM, wy - lee.northM) <= Math.hypot(lee.lengthM, lee.widthM / 2) + tile * 2;
       const p = { sourceRegionId: r.id, resources, transfers: {}, areaHa: area / 10000, condition: copy(r.condition),
-        floor: r.floor, oxygen: r.oxygen, waterKind: sea ? 'seawater' : 'freshwater', waterAccounted: wet,
+        floor: !mouth && r.floor, oxygen: r.oxygen, waterKind: sea ? 'seawater' : 'freshwater', waterAccounted: wet,
         ...(site.wetlandBank && r.kind === 'wetland' ? { fieldWetland: true } : {}),
         ...(site.coast && sea ? { fieldSeawater: true } : {}),
+        ...(mouth ? { fieldBurrowMouth: true } : {}),
         waterDepthM: wet ? (resources[sea ? 'seawaterL' : 'waterL'] || 0) / (area * 1000) : 0,
-        soilDepthM: r.accessibleMineralDepthM || 0, densityKgM3: r.densityKgM3, materialKg: resources.mineralsKg || 0,
+        soilDepthM: mouth ? r.depthM : r.accessibleMineralDepthM || 0, densityKgM3: r.densityKgM3, materialKg: resources.mineralsKg || 0,
         hardness: 1, supportKg: Math.max(1, (resources.mineralsKg || 0) * 10), ...(r.wind ? { wind: copy(r.wind) } : {}),
         ...(nearbyLee ? { windShelter: copy(lee), windParcelCenter: { eastM: wx, northM: wy } } : {}),
         humidity: r.humidity, temperatureC: r.seasons[P.monthAt(s.calendar, at).season].temperatureC };

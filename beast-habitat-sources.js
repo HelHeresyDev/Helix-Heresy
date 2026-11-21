@@ -255,6 +255,7 @@
     const feeding = new Map((record.feedingRows || []).map(([pi, ordinal, key]) => [`${pi}:${ordinal}`, key]));
     const driftOrigins = new Map((record.lanternDriftRows || []).map(([pi, ordinal, position]) => [`${pi}:${ordinal}`, position]));
     const reefOrigins = new Map((record.shoreReefOrigins || []).map(([pi, ordinal, position]) => [`${pi}:${ordinal}`, position]));
+    const fissureOrigins = new Map((record.burrowMouthOrigins || []).map(([pi, ordinal, position]) => [`${pi}:${ordinal}`, position]));
     const migrations = new Map((ecologyFor(map).migrations || []).map(m => [m.populationId, m]));
     const patchByCell = new Map();
     for (const p of patches) {
@@ -278,9 +279,9 @@
           ...(juveniles ? [cohort('young', juveniles, 0, profile.newbornKg, 'juvenile')] : [])];
       const extentKm = Math.min(10, Math.sqrt(patch.areaHa / Math.PI) / 10);
       const offset = [random(`${record.seed}:${groupId}:x`) * extentKm, random(`${record.seed}:${groupId}:y`) * extentKm];
-      const reef = reefOrigins.get(`${pi}:${ordinal}`);
+      const anchored = reefOrigins.get(`${pi}:${ordinal}`) || fissureOrigins.get(`${pi}:${ordinal}`);
       if (record.physicalPlacement) {
-        const local = reef || driftOrigins.get(`${pi}:${ordinal}`) || Wildlife.initialPosition(patch, record.seed, groupId, record.wildlifeDistribution === true);
+        const local = anchored || driftOrigins.get(`${pi}:${ordinal}`) || Wildlife.initialPosition(patch, record.seed, groupId, record.wildlifeDistribution === true);
         offset[0] = local.eastM / 1000; offset[1] = local.northM / 1000;
       }
       const migration = migrations.get(population.id);
@@ -298,7 +299,7 @@
         ...(record.physicalPlacement ? { parentalCare: Care.mode(s.id) } : {}),
         ...(record.windTransport && s.id === 'beast:carrion-lantern' ? { windDriven: true } : {}),
         home: { patchId: patch.id, cellId: patch.cellId, eastKm: offset[0], northKm: offset[1],
-          depthM: reef?.depthM ?? (s.movementModes.some(mode => ['flight', 'levitation'].includes(mode)) ? 0
+          depthM: anchored?.depthM ?? (s.movementModes.some(mode => ['flight', 'levitation'].includes(mode)) ? 0
             : patch.kind === 'waterColumn' || record.physicalPlacement && patch.kind === 'wetland'
               ? Math.min(patch.depthM - .1, Bodies.profiles[s.id].heightM * 1.2) : patch.kind === 'subsurface' ? .5 : 0) },
         resources: { foodKg: foodKey, waterL: 'waterL', mineralsKg: 'mineralsKg' },
@@ -652,7 +653,7 @@
         tie: random(`${salt}:${pool.id}:tie`) }];
     });
   }
-  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false, habitatAccess = false, windTransport = false, lanternMoisture = false, wildlifeDistribution = false, wildlifeCarcasses = false, establishedHabitats = false, wetlandDrainage = false, huntingHabitatAccess = false, catchmentDrainage = false, lanternHabitatAccess = false, windShelters = false, seasonalWind = false, coastalReefs = false) {
+  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false, habitatAccess = false, windTransport = false, lanternMoisture = false, wildlifeDistribution = false, wildlifeCarcasses = false, establishedHabitats = false, wetlandDrainage = false, huntingHabitatAccess = false, catchmentDrainage = false, lanternHabitatAccess = false, windShelters = false, seasonalWind = false, coastalReefs = false, burrowMouths = false) {
     const calendar = { epochAt: 0, monthDays: Local.PHASES.map(() => Local.PHASE_DAYS) };
     const patches = patchRows.map(row => expandPatch(map, row, calendar, physical)), groupRows = [], populations = [], unlocated = [];
     const worldPopulations = populationsFor(map), foodUse = new Map(), feedingRows = [];
@@ -776,6 +777,18 @@
         return [[pi, ordinal, { ...Foreign.offset(c, 4.5, .5), depthM: Math.min(3, p.depthM - .1) }]];
       });
     }
+    if (burrowMouths) {
+      const used = new Set();
+      const mappedWetlands = new Set(patchRows.filter(([, kind, , basis]) => kind === 1 && basis !== 4).map(([index]) => index));
+      record.burrowMouthOrigins = groupRows.flatMap(([pi, ordinal, index]) => {
+        const [cellIndex, kind, area] = patchRows[index];
+        if (populations[pi].speciesId !== 'beast:burrowing-furnace' || kind !== 4 || used.has(cellIndex) || mappedWetlands.has(cellIndex)) return [];
+        const mouth = Foreign.mouthReference(map, cellIndex, area);
+        if (!mouth) return [];
+        used.add(cellIndex);
+        return [[pi, ordinal, { eastM: mouth.eastM + .5, northM: mouth.northM + 1.5, depthM: 1 }]];
+      });
+    }
     if (catchmentDrainage) record.catchmentDrainage = true;
     const expanded = expand(record, map, { physical, raw: true });
     if (physical) {
@@ -833,11 +846,12 @@
     const lanternDrift = options.lanternHabitatAccess !== false && best.windTransport && best.wildlifeCarcasses;
     const seasonalWind = best.windTransport === true && options.seasonalWind !== false;
     const coastalReefs = best.physicalPlacement === true && options.coastalReefs !== false;
-    if (hunting || catchment || lanternDrift || seasonalWind || coastalReefs)
+    const burrowMouths = best.physicalPlacement === true && options.burrowMouths !== false;
+    if (hunting || catchment || lanternDrift || seasonalWind || coastalReefs || burrowMouths)
       return candidate(seed, map, patchRows, best.calibration, true, Boolean(best.backgroundWildlife), best.physicalPlacement === true, best.habitatAccess === true,
         best.windTransport === true, best.lanternMoisture === true, best.wildlifeDistribution === true,
         best.wildlifeCarcasses === true, best.establishedHabitats === true, best.wetlandDrainage === true, Boolean(hunting), catchment, Boolean(lanternDrift),
-        Boolean(lanternDrift && options.windShelters !== false), seasonalWind, coastalReefs);
+        Boolean(lanternDrift && options.windShelters !== false), seasonalWind, coastalReefs, burrowMouths);
     return best;
   }
   function validate(record, map, seed = record?.seed) {
@@ -850,7 +864,7 @@
     const topology = World.topologyForMap(map), patchRows = [];
     for (let i = 0; i < topology.cellCount; i++) patchRows.push(...patchesForCell(map, i, topology, record.physicalPlacement === true));
     const expected = candidate(record.seed, map, patchRows, record.calibration, Boolean(record.physicalBinding), Boolean(record.backgroundWildlife), record.physicalPlacement === true,
-      record.habitatAccess === true, record.windTransport === true, record.lanternMoisture === true, record.wildlifeDistribution === true, record.wildlifeCarcasses === true, record.establishedHabitats === true, record.wetlandDrainage === true, record.huntingHabitatAccess === true, record.catchmentDrainage === true, Array.isArray(record.lanternDriftRows), Array.isArray(record.windShelterRows), Array.isArray(record.seasonalWindRows), Array.isArray(record.shoreReefOrigins));
+      record.habitatAccess === true, record.windTransport === true, record.lanternMoisture === true, record.wildlifeDistribution === true, record.wildlifeCarcasses === true, record.establishedHabitats === true, record.wetlandDrainage === true, record.huntingHabitatAccess === true, record.catchmentDrainage === true, Array.isArray(record.lanternDriftRows), Array.isArray(record.windShelterRows), Array.isArray(record.seasonalWindRows), Array.isArray(record.shoreReefOrigins), Array.isArray(record.burrowMouthOrigins));
     if (record.sourceDigest === legacyDigest) expected.sourceDigest = record.sourceDigest;
     const physical = value => { const result = copy(value); delete result.id; delete result.assessment; delete result.groupRows; return result; };
     if (World.stableHash(physical(expected)) !== World.stableHash(physical(record)) && !samePhysical(physical(expected), physical(record)))
