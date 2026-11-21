@@ -5054,6 +5054,7 @@
   const simulationPerformance = {
     systems: {},
     render: { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 },
+    startupUi: { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 },
     mapSurface: { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 },
     mapScene: { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 },
     canvasDraw: { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 },
@@ -13412,7 +13413,6 @@
       state.currentGenome = randomGenome(seedRng(`${state.seed}:starter`));
     }
     installDebugHooks();
-    syncSetupForm();
     showStartupView("title", { focus: false });
     render();
     focusStartupView();
@@ -16686,7 +16686,7 @@
       groupPopulationBenchmark: (count = 250) => GroupBehavior.benchmarkPopulation(count),
       resetSimulationPerformance: () => {
         simulationPerformance.systems = {};
-        for (const key of ["render", "mapSurface", "mapScene", "canvasDraw", "save"]) {
+        for (const key of ["render", "startupUi", "mapSurface", "mapScene", "canvasDraw", "save"]) {
           simulationPerformance[key] = { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 };
         }
         simulationPerformance.lastAdvanceMs = 0;
@@ -20956,6 +20956,7 @@
   }
 
   function syncTitleContinue() {
+    const startedAt = performance.now();
     const inspection = continuationInspection();
     const reason = inspection.exists
       ? inspection.reason || "The active run is invalid."
@@ -20964,6 +20965,7 @@
     dom.loadLastSaveStatus.textContent = inspection.valid
       ? `Continue ${inspection.summary}`
       : reason;
+    recordPerformanceSample(simulationPerformance.startupUi, performance.now() - startedAt);
   }
 
   function libraryActionButton(label, action, id, options = {}) {
@@ -54082,7 +54084,6 @@
     renderSimulationPerformance();
     syncWorkspaceShell();
     refreshActionControls();
-    syncSetupForm();
     explainDisabledButtons();
     restoreWorkspaceScroll(scrollSnapshot);
     AccessibilityUI.linkTabs(document);
@@ -63036,6 +63037,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }])),
       systems: Object.fromEntries(SIMULATION_SYSTEM_DEFS.map((definition) => [definition.id, performanceBucketSnapshot(simulationPerformance.systems[definition.id])])),
       render: performanceBucketSnapshot(simulationPerformance.render),
+      startupUi: performanceBucketSnapshot(simulationPerformance.startupUi),
       mapSurface: performanceBucketSnapshot(simulationPerformance.mapSurface),
       mapScene: performanceBucketSnapshot(simulationPerformance.mapScene),
       canvasDraw: performanceBucketSnapshot(simulationPerformance.canvasDraw),
@@ -115708,6 +115710,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
 
   function renderStartingScenarioOptions() {
     if (!dom.startingScenarioList) return;
+    const startedAt = performance.now();
     const visible = STARTING_SCENARIO_DEFS.filter((scenario) => !scenario.debugOnly || debugToolsEnabled());
     if (!visible.some((scenario) => scenario.id === selectedStartingScenarioId)) {
       selectedStartingScenarioId = DEFAULT_STARTING_SCENARIO_ID;
@@ -115716,25 +115719,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     syncStartingScenarioSubmit();
     syncCompanyNameSetup();
     renderStartingSiteOptions();
-  }
-
-  function syncSetupForm() {
-    renderStartingScenarioOptions();
-    const preserveDraft = startupOverlayOpen && startupView === "setup";
-    if (!preserveDraft) {
-      dom.seedInput.value = state.seed;
-      if (dom.companyNameInput) {
-        dom.companyNameInput.value = state.started && state.siteIdentity?.kind === "frontCompany"
-          ? state.siteIdentity.legalName
-          : generatedCompanyName(state.seed);
-        dom.companyNameInput.dataset.generated = String(!state.started || state.siteIdentity?.nameSource !== "custom");
-        dom.companyNameInput.dataset.variant = "0";
-      }
-      dom.journalModeSelect.value = state.journalMode;
-      dom.complexitySelect.value = state.complexity;
-    }
-    syncCompanyNameSetup();
-    syncTitleContinue();
+    recordPerformanceSample(simulationPerformance.startupUi, performance.now() - startedAt);
   }
 
   function savePayload() {

@@ -343,3 +343,20 @@ save calls in each sample, unlike the separate timed Skip button path above.
 ```sh
 npx playwright test tests/field-skip-performance.spec.js --project=chromium --workers=1 --grep 'field Next Event shortcut'
 ```
+
+### Title and New Run refresh
+
+The normal gameplay redraw no longer rebuilds the hidden New Run form or
+looks up the saved run and world for the hidden Continue button. Opening
+Title checks the latest save; opening New Run prepares the scenario and site
+choices for the world being used. Gameplay still updates the map, messages,
+and its existing panels, and the same shortcuts and saves still run.
+
+The populated Chromium fixture above went from two startup refreshes to zero
+on both requests. The removed work was 37 ms on normal completion and 33 ms
+on the interruption. Full redraws measured 6.905 → 7.077 s and 7.038 →
+7.210 s respectively, so the pair does not show an end-to-end speedup.
+The field shortcut still stopped on second four with the warning and keyboard
+focus intact; returning to Title and selecting Continue loaded that exact
+clock, health, and injuries. The separate keyboard startup check covers world
+and site choices and an independent restart.

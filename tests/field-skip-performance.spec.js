@@ -156,6 +156,7 @@ test('field Next Event shortcut redraws the current map, preserves focus and sho
   const interrupted = await profile(true);
   const costs = [complete, interrupted].map(({ advanced, p }) => ({ advanced,
     saves: p.save.calls, saveMs: Math.round(p.save.totalMs), renderMs: Math.round(p.render.totalMs),
+    startupUiCalls: p.startupUi.calls, startupUiMs: Math.round(p.startupUi.totalMs),
     mapSurfaceMs: Math.round(p.mapSurface.totalMs), sceneMs: Math.round(p.mapScene.totalMs),
     otherRenderMs: Math.round(p.render.totalMs - p.mapSurface.totalMs)
   }));
@@ -166,5 +167,17 @@ test('field Next Event shortcut redraws the current map, preserves focus and sho
   expect(interrupted.notices).toBeGreaterThan(0);
   expect(interrupted.paused).toBe('Paused');
   expect(interrupted.feed).toMatch(/Rimefang.*(struck|attacked)/i);
+  if (process.env.FIELD_SKIP_STARTUP_BASELINE !== '1') {
+    expect(complete.p.startupUi.calls).toBe(0);
+    expect(interrupted.p.startupUi.calls).toBe(0);
+    await page.locator('#newRunBtn').click();
+    await expect(page.locator('#loadLastSaveBtn')).toBeEnabled();
+    await expect(page.locator('#loadLastSaveStatus')).toContainText('Chemistry Front');
+    await page.locator('#loadLastSaveBtn').click();
+    const continued = await page.evaluate(() => window.helixHeresyDebug.wildernessBeastSnapshot());
+    expect(continued.clock).toBe(interrupted.after.clock);
+    expect(continued.health).toBe(interrupted.after.health);
+    expect(continued.injuries).toEqual(interrupted.after.injuries);
+  }
   expect(errors).toEqual([]);
 });
