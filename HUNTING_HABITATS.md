@@ -97,3 +97,33 @@ The focused source/binding/hunting files pass **43 unit checks**. Two named
 Chromium checks cover generated compressed-world storage/reload/continued
 execution and actual default-resolution 10,242-cell storage. The full suite is
 not run under `AGENTS.md`.
+
+## Finite Reef Wyrm nursery schools
+
+On the generated `native-encounters` reef shelf (`habitat:88:waterColumn`),
+the mapped nursery put two original Wyrms on a real coastal reef, but the
+closest concentrated fish ground started over 229 km away. The existing
+regional search caught a handful of diffuse fish; the pair ate only 3.45 kg
+before starving. A mapped reef and fish elsewhere in the same hex are not a
+usable feeding ground.
+
+At established mapped Wyrm nurseries in new worlds, generation can allocate
+an original fish school wholly on the wet side of the coastal transect. Each
+size class draws from its own diffuse background pool in that same water
+column: at most 2% of its original fish, further bounded by a 200 m maximum
+school radius and a combined 1,200 kg of original fish per hectare. The
+same proportion of spare carrying capacity is moved with the fish. The original
+headcount, body matter, regional food resources and Wyrm locations are
+unchanged. The archived geography chooses the site; the Wyrm receives no
+school coordinates or special steering. Saved worlds without a reef school
+keep their prior layout.
+
+The existing regional search, depth overlap, finite catch, handling and
+ingestion path now feeds the same original on separate days at that site.
+In an isolated replay, the pair ate about 4,142 kg by day 4 and 5,648 kg by
+day 6. Catches debit each school, and a continued save preserves both the
+Wyrms and the fish accounts. With the same fish outside paid search reach,
+the Wyrms still searched but caught and ate nothing. The nearby school can
+be depleted: the pair in this isolated replay was already losing health by
+day 15. This is not a seasonal viability result, Brine Cathedral
+opposition, or detailed local-map hunting.

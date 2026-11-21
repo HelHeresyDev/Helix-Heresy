@@ -517,6 +517,94 @@ test('shoreline reef placement preserves archived habitat records, population co
   assert.deepEqual(archived.physicalBinding.transfers, active.physicalBinding.transfers);
   assert.deepEqual(archived.physicalBinding.capacities, active.physicalBinding.capacities);
 });
+test('coastal reef schools partition the original fish and capacity without retrofitting an archive', () => {
+  const { map } = original(), active = map.beastHabitatSources, World = require('../strategic-world');
+  const Foreign = require('../foreign-wilderness'), archived = S.generate(active.seed, map, { coastalSchools: false });
+  const before = JSON.stringify(archived);
+  assert.equal(S.validate(archived, map), archived);
+  assert.equal(S.validate(active, map), active);
+  assert.equal(archived.backgroundWildlife.reefSchoolRows, undefined);
+  assert.deepEqual(active.backgroundWildlife.spatialRows, archived.backgroundWildlife.spatialRows);
+  assert.deepEqual(active.shoreReefOrigins, archived.shoreReefOrigins);
+  assert.deepEqual(active.physicalBinding, archived.physicalBinding);
+  assert.deepEqual(active.groupRows, archived.groupRows);
+  assert.deepEqual(active.populations, archived.populations);
+  const current = S.expand(active, map), legacy = S.expand(archived, map);
+  const deferred = S.runtimeSource(active, map, { deferUnused: true });
+  const [regionId, site] = active.backgroundWildlife.reefSchoolRows[0];
+  const r = current.regions.find(r => r.id === regionId), old = legacy.regions.find(r => r.id === regionId);
+  const coast = Foreign.coastReference(map, r.source.cellIndex, r.areaHa);
+  assert.ok(Foreign.relative(coast, site.eastM, site.northM)[0] > site.radiusM);
+  assert.deepEqual(deferred.regions.find(r => r.id === regionId).wildlife, r.wildlife);
+  assert.deepEqual(Object.keys(r.stocks), Object.keys(old.stocks));
+  for (const k of Object.keys(r.stocks)) assert.ok(Math.abs(r.stocks[k] - old.stocks[k]) <= Math.abs(old.stocks[k]) * 1e-14);
+  for (const donor of old.wildlife.pools.filter(p => p.habitatPatch === 'background')) {
+    const next = r.wildlife.pools.find(p => p.id === donor.id);
+    const school = r.wildlife.pools.find(p => p.habitatPatch === 'reef-shelf' && p.sizeClass === donor.sizeClass);
+    assert.ok(school.originalCount > 0 && school.originalCount <= donor.originalCount * .02);
+    for (const k of ['originalCount', 'originalMassKg', 'capacityCount']) assert.equal(next[k] + school[k], donor[k]);
+  }
+  assert.ok(old.wildlife.pools.every(p => p.habitatPatch !== 'reef-shelf'));
+  assert.equal(JSON.stringify(archived), before);
+  const forged = copy(active); forged.backgroundWildlife.reefSchoolRows[0][1].eastM++;
+  forged.id = ''; forged.id = `beast-habitat-source:${World.stableHash(forged)}`;
+  assert.throws(() => S.validate(forged, map), /physical accounts/);
+});
+test('a generated reef feeds the same original twice, debits finite schools, and resumes without a catch reroll', () => {
+  const { map, binding } = original(), active = map.beastHabitatSources;
+  const source = S.expand(active, map), r = source.regions.find(r => r.id === 'habitat:88:waterColumn');
+  const group = source.groups.find(g => g.regionId === r.id && g.speciesId === 'beast:reef-wyrm'
+    && Math.abs(g.home.depthM - 3) < 1e-9);
+  assert.ok(group && r.wildlife.pools.some(p => p.habitatPatch === 'reef-shelf'));
+  assert.ok(r.ecology.workSites.some(site => site.action === 'cultivateReef'));
+  // Use the generated family and local schools unmodified. The isolated
+  // diagnostic does not evaluate other regions or assert world viability.
+  r.edges = [];
+  const diagnostic = { ...source, id: `reef-control:${source.id}`, groups: [group], regions: [r] };
+  const s = P.createDiagnostic(diagnostic, binding), current = () => s.regions[0];
+  const female = () => s.groups[0].cohorts.find(c => c.role === 'female'), member = copy(female().ranges);
+  const schoolLosses = x => x.regions[0].wildlife.pools.filter(p => p.habitatPatch === 'reef-shelf').reduce((n, p) => n + p.huntedCount, 0);
+  P.advance(s, 4 * P.DAY, true, true);
+  const firstCatch = schoolLosses(s), firstMeal = female().stores.foodKg;
+  assert.ok(firstCatch > 0 && firstMeal > 1000 && current().foraging.receipts.eatenKg > 1000);
+  P.advance(s, 5 * P.DAY, true, true);
+  const afterDigestion = female().stores.foodKg;
+  assert.ok(afterDigestion < firstMeal);
+  const saved = P.normalize(copy(s), binding); assert.ok(saved);
+  const branch = P.rebind(saved, binding, { ...binding, runId: 'continued-reef' });
+  let ateAgain = false, lastFood = afterDigestion;
+  for (let hour = 121; hour <= 144; hour++) {
+    P.advance(s, hour * 3600, true, true);
+    P.advance(branch, hour * 3600, true, true);
+    if (female().stores.foodKg > lastFood + 1 && schoolLosses(s) > firstCatch) ateAgain = true;
+    lastFood = female().stores.foodKg;
+  }
+  assert.ok(ateAgain, 'the same female gained fresh food after digesting her earlier meal');
+  assert.deepEqual(female().ranges, member);
+  assert.deepEqual(branch.groups[0].cohorts, s.groups[0].cohorts);
+  assert.deepEqual(branch.regions[0].wildlife, current().wildlife);
+  assert.deepEqual(branch.regions[0].foraging, current().foraging);
+  assert.ok(P.normalize(branch)); assert.ok(P.normalize(s));
+  for (const pool of current().wildlife.pools) {
+    const living = pool.cohorts.reduce((n, c) => n + c.count, 0);
+    assert.equal(living + pool.deadCount + pool.huntedCount, pool.originalCount + pool.bornCount);
+  }
+  assert.equal(current().stocks.meatKg || 0, 0, 'no regional meat stock supplied the meal');
+
+  // Same fish matter and depth, but the schools all lie at an existing
+  // distant position. The Wyrms still search and cannot use the hidden fish.
+  const missed = copy(diagnostic), far = r.wildlife.pools.find(p => p.habitatPatch === 'hotspot-2');
+  for (const pool of missed.regions[0].wildlife.pools) {
+    pool.spatial.eastM = far.spatial.eastM; pool.spatial.northM = far.spatial.northM;
+    if (pool.habitatPatch !== 'reef-shelf') { pool.areaHa = far.areaHa; pool.spatial.radiusM = far.spatial.radiusM; }
+  }
+  const control = P.createDiagnostic(missed, binding);
+  P.advance(control, 6 * P.DAY, true, true);
+  assert.ok(control.regions[0].foraging.receipts.searches > 0);
+  assert.equal(control.regions[0].foraging.receipts.eatenKg, 0);
+  assert.ok(control.regions[0].wildlife.pools.every(p => p.huntedCount === 0));
+  assert.ok(P.normalize(control));
+});
 test('a mapped burrow mouth spends original substrate and never reveals a covered or buried body', () => {
   const F = require('../foreign-wilderness'), W = require('../strategic-world');
   const world = L.createWorld({ id: 'burrow-mouth', worldSeed: 'atlas', createdAt: 'test', generationVersion: 8,

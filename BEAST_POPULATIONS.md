@@ -1287,6 +1287,11 @@ archived worlds. No survey searches for a beast or moves one to shore; an
 empty or unsuitable coast can stay empty. Marine anonymous carcass recovery
 and other marine survey methods are not opened by this encounter.
 
+Eligible new shelves can also have [finite nursery schools](HUNTING_HABITATS.md#finite-reef-wyrm-nursery-schools)
+partitioned from existing diffuse fish. This supports repeated regional
+feeding where the school is reachable; it does not reveal fish on a survey,
+grant player fishing, or make the nursery seasonally viable.
+
 The focused Chromium itinerary reached one generated shelf on foot, denied a
 step into seawater, showed the original Reef Wyrm in both renderers, and
 preserved its identity and dated note through withdrawal, reload, and return.

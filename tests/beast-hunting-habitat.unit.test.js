@@ -41,7 +41,10 @@ test('new hunting placement preserves calibration, original populations, wildlif
   assert.equal(prior.id, S.generate(seed, map, { huntingHabitatAccess: false }).id);
   assert.equal(current.calibration, prior.calibration);
   assert.deepEqual(current.populations, prior.populations); assert.deepEqual(current.unlocated, prior.unlocated);
-  assert.deepEqual(current.backgroundWildlife, prior.backgroundWildlife);
+  // A different coastal Wyrm placement may settle fish at a different
+  // original reef nursery, but cannot change the archived prey allocation.
+  const foundingWildlife = ({ reefSchoolRows, ...budgets }) => budgets;
+  assert.deepEqual(foundingWildlife(current.backgroundWildlife), foundingWildlife(prior.backgroundWildlife));
   const nextGroups = S.expand(current, map).groups, oldGroups = S.expand(prior, map).groups;
   assert.equal(new Set(nextGroups.map(g => g.speciesId)).size, 24);
   for (const g of nextGroups) if (!Behavior.capabilities[g.speciesId]?.includes('hunt')

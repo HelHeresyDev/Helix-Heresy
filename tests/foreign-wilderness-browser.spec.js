@@ -131,7 +131,10 @@ test('ordinary wetland bank survey observes a conserved original Mire Choir memb
 });
 test('ordinary mapped shoreline survey observes an original Reef Wyrm only from dry ground', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message)); page.on('dialog', d => d.accept());
-  const world = originalSeamWorld('atlas', 1), field = World.cellId(11), coast = World.cellId(21), sea = World.cellId(10);
+  // This mapped shelf has no competing inland fissure or wetland approach.
+  const world = originalSeamWorld('ocean', 1), field = World.cellId(3), coast = World.cellId(32), sea = World.cellId(33);
+  const seaRegion = `habitat:${World.cellIndex(sea)}:waterColumn`, shoreRegion = `habitat:${World.cellIndex(coast)}:shore`;
+  expect(world.generatedData.strategicMap.beastHabitatSources.backgroundWildlife.reefSchoolRows.some(([region]) => region === seaRegion)).toBe(true);
   await openForeignWorkspace(page, 'mapped-shore', 'canvas', false, false, 0, 'wilderness', false, null, null, world);
   expect(await wa(page, 'return')).toBe(true); await finish(page);
   const source = { cityId: 'b', administrationId: 'admin:b', worksId: 'works:b', charterId: 'charter:b', populationSourceId: 'population:b',
@@ -166,10 +169,10 @@ test('ordinary mapped shoreline survey observes an original Reef Wyrm only from 
   expect((await notes()).some(n => n.account.speciesId === 'beast:reef-wyrm')).toBe(false);
   const dry = { ...w.site.entry, x: 30 }, wet = { ...dry, x: 31 };
   const key = ({ x, y, z }) => `${x},${y},${z}`, terrain = w.site.beasts.bodyTerrain;
-  expect(terrain[key(dry)]).toMatchObject({ sourceRegionId: 'habitat:21:shore', waterDepthM: 0 });
-  expect(terrain[key(wet)]).toMatchObject({ sourceRegionId: 'habitat:10:waterColumn', fieldSeawater: true, waterKind: 'seawater', floor: false });
+  expect(terrain[key(dry)]).toMatchObject({ sourceRegionId: shoreRegion, waterDepthM: 0 });
+  expect(terrain[key(wet)]).toMatchObject({ sourceRegionId: seaRegion, fieldSeawater: true, waterKind: 'seawater', floor: false });
   const original = w.site.beasts.actors.find(a => a.speciesId === 'beast:reef-wyrm');
-  expect(original?.nativePopulation.regionId, 'Original full body must fit in the funded sea before it is seen').toBe('habitat:10:waterColumn');
+  expect(original?.nativePopulation.regionId, 'Original full body must fit in the funded sea before it is seen').toBe(seaRegion);
   const start = cell => page.evaluate(({ room, cell }) => Boolean(window.helixHeresyDebug.startScientistMove(room, { toCell: cell })),
     { room: w.site.roomId, cell });
   expect(await start(wet)).toBe(false);
@@ -185,7 +188,7 @@ test('ordinary mapped shoreline survey observes an original Reef Wyrm only from 
   const actor = w.site.beasts.actors.find(a => a.id === seen.id);
   expect(actor.bodyPhysics.mode).toBe('swimming');
   expect(actor.bodyPhysics.dimensions.lengthM).toBeGreaterThan(20);
-  expect(actor.nativePopulation.regionId).toBe('habitat:10:waterColumn');
+  expect(actor.nativePopulation.regionId).toBe(seaRegion);
   const note = (await notes()).find(n => n.original.memberId === actor.life.originalMemberId);
   expect(note.account).toMatchObject({ place: { strategicCellId: sea }, cell: seen.cell, observedAt: seen.observedAt });
   for (const renderer of ['canvas', 'dom']) {
