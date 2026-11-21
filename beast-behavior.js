@@ -545,6 +545,12 @@
     if (!conscious(a, at) || ctx.incapacitated) { Approach.stop(a.life, at, 'unable'); return false; }
     if (!a.life.will) { Approach.stop(a.life, at, 'unable'); a.life.activity = 'awaitingReceivedOrder'; return true; }
     if (a.spellImitation?.pending || a.climbing && a.climbing.mode !== 'perched') return false;
+    // An existing local retreat takes priority over a new hunt, forage or
+    // work task. Normal bodily movement still needs its actual finite effort.
+    if (decision?.behavior === 'flee' && decision.goal && Bodies.capable(a, a.bodyPhysics.mode)) {
+      Approach.stop(a.life, at, 'interrupted'); delete a.life.wildlifeContact;
+      a.life.activity = 'flee'; return false;
+    }
     const seen = observe(a, at, ctx), actions = capabilities[a.speciesId], p = ctx.patch(a.mapCell);
     packContact(a, at, ctx);
     const danger = target && decision?.behavior === 'pursue';

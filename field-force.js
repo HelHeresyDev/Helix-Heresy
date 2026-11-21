@@ -7,6 +7,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (Foreign, Escorts) {
   'use strict';
   const WATCH = 4 * 3600, DUTY = 12 * 3600, MARGIN = 300;
+  const DEFENDED_REACH = 3, CONTACT_MEMORY = 12;
   const copy = x => JSON.parse(JSON.stringify(x));
   const SCOPE = 'Two original consenting field guards: personally accompanied outward walk on the inspected route, a four-hour defensive refuge watch, then physical return. Defend the named refuge and people physically there, including one another; no assault, pursuit, arrest, seizure, hauling, divine endorsement or extra passenger seat. Finite original kit, individual wounds and skills, 12-hour original duty, prepaid travel/wait/watch/return time. Unsafe conditions or exhausted support prompt withdrawal, not a replacement or guaranteed rescue. Personal orders/reports only; absence does not end an accepted safe watch. One bounded operation at a time; further service needs fresh consent with the same spent bodies and property, never a hire reset or automatic renewal. Eight supplied off-duty hours at the original chapter shelters may restore duty, not health or equipment.';
   const active = s => Boolean(s?.operation && !['completed', 'returned'].includes(s.operation.phase));
@@ -91,8 +92,66 @@
     }
     s.quote = null; return true;
   }
-  function withdraw(s, now, reason) {
+  const distance = (a, b) => !a || !b || a.z !== b.z ? Infinity : Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+  const postDistance = (o, cells) => Math.min(...cells.flatMap(c => o.plan.posts.map(p => distance(c, p))));
+  const nativeKey = b => b?.nativePopulation?.sourceId && b.nativePopulation.regionId && b.populationId && b.life?.originalMemberId
+    && [b.nativePopulation.sourceId, b.populationId, b.life.originalMemberId].join('|');
+  function defenseContact(s, m, b) {
+    const key = nativeKey(b);
+    return key && s.operation.defenseContacts?.find(r => r.key === key && r.witnessId === m.actor.id);
+  }
+  function defending(s, m, now) {
+    return s?.operation?.phase === 'watch' && m.phase === 'watch' && s.members.includes(m)
+      && m.actor.status !== 'dead' && m.actor.roomId === s.operation.plan.roomId
+      && postDistance(s.operation, [m.actor.mapCell]) <= DEFENDED_REACH
+      && Number.isFinite(now) && now >= s.operation.watchStartedAt && now < s.operation.watchEndsAt;
+  }
+  // The caller supplies a firsthand view of an actual resolved attack on
+  // the scoped watch, never ordinary proximity, pursuit intent or a track.
+  function observeAttack(s, m, b, cells, now) {
+    if (!defending(s, m, now) || b.roomId !== s.operation.plan.roomId || postDistance(s.operation, cells) > DEFENDED_REACH) return false;
+    const key = nativeKey(b); if (!key || b.status === 'dead') return false;
+    const current = defenseContact(s, m, b);
+    if (current?.outcome) return false;
+    if (current && !current.lost && now - current.lastAt <= CONTACT_MEMORY) { current.lastAttackAt = current.lastAt = now; return true; }
+    const row = { key, actorId: b.id, sourceId: b.nativePopulation.sourceId, regionId: b.nativePopulation.regionId,
+      populationId: b.populationId, memberId: b.life.originalMemberId, witnessId: m.actor.id, name: b.name,
+      attackAt: now, lastAttackAt: now, lastAt: now, cell: copy(b.mapCell) };
+    const rows = s.operation.defenseContacts ||= [];
+    if (current) rows[rows.indexOf(current)] = row; else rows.push(row);
+    return true;
+  }
+  function observeWound(s, m, b, cells, now, healthLost, forcedRetreatThreshold) {
+    if (!defending(s, m, now) || !(healthLost > 0)) return false;
+    const row = defenseContact(s, m, b);
+    if (!row || row.lost || row.outcome || now < row.attackAt || now - row.lastAt > CONTACT_MEMORY
+      || b.roomId !== s.operation.plan.roomId || postDistance(s.operation, cells) > DEFENDED_REACH) return false;
+    row.woundedAt = row.lastAt = now;
+    row.retreatWound ||= Boolean(forcedRetreatThreshold);
+    row.hitDistance = postDistance(s.operation, cells);
+    row.cell = copy(b.mapCell);
+    return true;
+  }
+  function observeDefense(s, m, views, now) {
+    if (!defending(s, m, now)) return;
+    for (const row of s.operation.defenseContacts || []) {
+      if (row.witnessId !== m.actor.id || row.outcome || row.lost || now <= row.lastAt) continue;
+      const seen = views.find(({ beast }) => beast.id === row.actorId && nativeKey(beast) === row.key && beast.roomId === s.operation.plan.roomId);
+      if (!seen || now - row.lastAt > CONTACT_MEMORY) { row.lost = true; continue; }
+      const { beast, cells } = seen, d = postDistance(s.operation, cells);
+      const moved = distance(row.cell, beast.mapCell) > 0;
+      if (row.retreatWound && beast.status === 'alive' && beast.behavior === 'flee' && moved && Number.isFinite(d)
+        && d > Math.max(DEFENDED_REACH, row.hitDistance))
+        row.outcome = { kind: 'repelled', at: now, cell: copy(beast.mapCell) };
+      row.lastAt = now; row.cell = copy(beast.mapCell);
+    }
+  }
+  function withdraw(s, now, reason, underAttack = false) {
     if (!active(s) || !Number.isFinite(now) || s.operation.phase === 'returning') return false;
+    if (underAttack && s.operation.phase === 'watch') {
+      for (const row of s.operation.defenseContacts || [])
+        if (!row.outcome && !row.lost && now >= row.lastAttackAt && now - row.lastAttackAt <= CONTACT_MEMORY) row.withdrawing = true;
+    }
     s.operation.phase = 'returning'; s.operation.reason = reason;
     for (const m of s.members) if (!['returned', 'fatality'].includes(m.phase)) {
       m.phase = 'returning'; m.actor.order = 'withdraw'; m.contract.status = 'returning'; m.contract.returnReason = reason;
@@ -122,7 +181,11 @@
       members: reporters.map(m => ({ actorId: m.actor.id, name: m.actor.name, phase: m.phase, cell: copy(m.actor.mapCell),
         health: m.actor.health, needs: copy(m.actor.needs), dutySeconds: m.dutySeconds, earned: m.contract?.earned || 0,
         recovery: copy(m.recovery || null),
-        observations: copy(m.actor.observed || {}) })) }; return true;
+        observations: copy(m.actor.observed || {}),
+        ...(s.operation?.defenseContacts?.some(r => r.witnessId === m.actor.id && r.outcome) ? {
+          defenses: s.operation.defenseContacts.filter(r => r.witnessId === m.actor.id && r.outcome)
+            .map(r => ({ name: r.name, attackAt: r.attackAt, woundedAt: r.woundedAt ?? null, refugeId: s.operation.plan.id, ...copy(r.outcome) }))
+        } : {}) })) }; return true;
   }
   function settle(s, c, wallet, now) {
     const o = s?.operation;
@@ -153,18 +216,26 @@
       const earned = Math.min(k.wageReserve, Math.max(0, Math.min(now, a.diedAt ?? now) - k.startedAt) * k.hourly / 3600);
       a.money += Math.max(0, earned - k.earned); k.earned = earned;
       m.dutySeconds = Math.max(0, m.dutySeconds - dt);
-      if (a.status === 'dead') { m.phase = 'fatality'; k.status = 'fatality'; withdraw(s, now, 'An original member died; no replacement or automatic recovery.'); continue; }
+      if (a.status === 'dead') { m.phase = 'fatality'; k.status = 'fatality'; withdraw(s, now, 'An original member died; no replacement or automatic recovery.', true); continue; }
       h.physiology(m, now);
       const c = h.context(m), reason = Escorts.refusal(a, c.threatCount);
       if (reason || !c.supplied || m.dutySeconds <= o.plan.travelSeconds + MARGIN || k.earned >= k.wageReserve)
-        withdraw(s, now, reason || 'Finite supplies, wages or duty require withdrawal.');
+        withdraw(s, now, reason || 'Finite supplies, wages or duty require withdrawal.', c.threatCount > 0);
       h.defend(m, now); // Self/nearby defended people only; never a pursuit order.
       if (a.status === 'dead') continue;
       if (h.care(m, now)) continue;
       if (c.incapacitated) continue;
       if (o.phase === 'returning') {
         if (c.atHome) { m.phase = 'returned'; k.status = 'completed'; k.endedAt = now; a.order = 'hold'; }
-        else if (m.dutySeconds > 0) h.move(m, m.layout.meeting, now);
+        else if (m.dutySeconds > 0) {
+          const before = postDistance(o, [a.mapCell]);
+          h.move(m, m.layout.meeting, now);
+          const after = postDistance(o, [a.mapCell]);
+          if (before <= DEFENDED_REACH && Number.isFinite(after) && after > DEFENDED_REACH) {
+            for (const row of o.defenseContacts || []) if (row.witnessId === a.id && row.withdrawing && !row.outcome)
+              row.outcome = { kind: 'guardWithdrew', at: now, cell: copy(a.mapCell) };
+          }
+        }
       } else if (o.phase === 'outward' && c.accompanied) h.move(m, o.plan.posts[s.members.indexOf(m)], now);
     }
     if (o.phase === 'outward' && s.members.every(m => h.context(m).atPost)) {
@@ -174,5 +245,6 @@
     if (s.members.every(m => ['returned', 'fatality'].includes(m.phase))) o.phase = 'returned';
     o.earned = s.members.reduce((n, m) => n + m.contract.earned, 0); return 1;
   }
-  return { WATCH, DUTY, MARGIN, SCOPE, source, create, active, original, current, contact, restriction, refusal, review, accept, authorized, order, receive, settle, withdraw, advance };
+  return { WATCH, DUTY, MARGIN, SCOPE, source, create, active, original, current, contact, restriction, refusal, review, accept, authorized,
+    order, receive, settle, observeAttack, observeWound, observeDefense, withdraw, advance };
 });

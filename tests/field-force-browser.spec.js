@@ -170,6 +170,7 @@ test('Canvas disclosed restriction, real defensive combat, stranded original cas
   expect(battle.actors).toHaveLength(1); expect(battle.actors[0].health).toBeLessThan(1000);
   expect(s.saved.members.some(m => Object.values(m.gearCondition).some(c => c < 100))).toBe(true);
   expect(s.saved.members.some(m => m.actor.health < 100)).toBe(true); expect(s.injuries.some(i => ids.includes(i.actorId))).toBe(true);
+  expect(s.saved.operation.defenseContacts).toBeUndefined(); // Legacy combat is not proof about a population-owned original.
   expect(s.saved.report).toBeNull(); expect(await act(page, 'withdraw')).toBe(false);
   await page.evaluate(() => {
     const d = window.helixHeresyDebug, s = d.exportSurveyExpeditionTestState(), e = s.penalFlights.assistance.cityApproach.gates.find(g => g.cityId === 'b').foreignSurvey;

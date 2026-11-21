@@ -31,6 +31,81 @@ function context(s, species) {
       hardness: 1, densityKgM3: 1600, supportKg: 1e12, wind: r.wind } : null };
   return { g, c, r, site, ctx };
 }
+test('an existing refuge watch repels one wounded native original and keeps only the received dated outcome', () => {
+  const Force = require('../field-force'), Wild = require('../wilderness-beasts'), Life = require('../creature-life'), Behavior = require('../beast-behavior');
+  const { map, binding } = original(), record = map.beastHabitatSources;
+  let owner = N.create(record, binding), account = N.open(owner, record, map);
+  const { site, ctx } = context(account, 'beast:nullmaw-stalker');
+  let [beast] = N.materialize(owner, record, map, site, ctx);
+  assert.ok(beast?.life.originalMemberId);
+  const id = beast.id, memberId = beast.life.originalMemberId;
+  // The original starts without attributed effort. It rests using its
+  // actual inherited body supplies; neither a strike nor a reload refills it.
+  Life.advance(beast, 1, { ...ctx, resting: true });
+  Life.advance(beast, 25, { ...ctx, resting: true });
+  assert.ok(beast.bodyPhysics.stamina > 1);
+  const e = { source: { cityId: 'b', populationSourceId: 'people:b' }, roomId: 'ground', entry: { z: site.bounds.z },
+    wilderness: { roomId: site.roomId, gate: { x: 20, y: 12, z: site.bounds.z } } };
+  const backing = Force.source({ cityId: 'b', assetId: 'people:b', currentPopulation: 100, physicalCondition: 'intact' }, [
+    { standing: 'licensed', network: { id: 'military:b', category: 'military', roles: ['escortContracting', 'perimeterDefense'] },
+      branch: { id: 'chapter:b', publicName: 'Original guards', currentCityId: 'b', organizationForm: 'escortChapter', publicPhysicalPresence: true,
+        operationalStatus: 'active', physicalCondition: 'intact', capacityBand: 'functional' } }
+  ], e);
+  let watch = Force.create(backing, e, 'guarded-original', 25);
+  const post = { ...beast.mapCell, x: beast.mapCell.x - 1 }, posts = [post, { ...post, y: post.y + 1 }];
+  const caller = { source: backing, alive: true, capable: true, originalBody: true, originalTrip: true, near: true, atGround: true,
+    bodyEpoch: 1, visitId: 'visit', tripId: 'trip', supplied: true, routeOk: true, refugeValid: true,
+    plan: { id: 'original-refuge', roomId: site.roomId, home: { ...post, x: post.x - 6 }, posts, route: [{ ...post, x: post.x - 6 }, post], travelSeconds: 600 } };
+  const quote = Force.review(watch, caller, 25); assert.ok(Force.accept(watch, caller, quote, { money: 1000 }, 25));
+  const hooks = { alive: true, current: () => true, refugeValid: () => true, physiology() {}, defend() {}, care() {},
+    context: m => ({ supplied: true, threatCount: 0, accompanied: true, atPost: B.key(m.actor.mapCell) === B.key(posts[watch.members.indexOf(m)]) }),
+    move: (m, c) => { m.actor.mapCell = copy(c); m.actor.roomId = site.roomId; } };
+  Force.advance(watch, 26, hooks); assert.equal(watch.operation.phase, 'watch');
+  assert.ok(Force.receive(watch, caller, 26)); const initialReport = copy(watch.report);
+  let witness = watch.members[0], at = Math.max(27, Math.ceil(beast.nextAttackAt));
+  const before = Math.ceil(beast.maxHealth * .3) + 1, damage = 4, part = Object.keys(beast.bodyPhysics.parts)[0];
+  beast.health = before;
+  assert.equal(Wild.decide(beast, post, at, true, false).behavior, 'pursue');
+  assert.ok(Force.observeAttack(watch, witness, beast, B.cells(beast), at));
+  // The fixture starts the committed attack already injured. The guard's
+  // resolved wound drops health under the ordinary flee threshold.
+  beast.health = before - damage; B.damagePart(beast, part, damage, at);
+  const injury = beast.bodyPhysics.parts[part];
+  assert.ok(Force.observeWound(watch, witness, beast, B.cells(beast), at, damage,
+    !Wild.woundedEnoughToFlee(beast, before) && Wild.woundedEnoughToFlee(beast)));
+  N.sync(owner, record, map, [beast], at); N.pack(owner, record, map);
+  owner = N.normalize(copy(owner), binding); account = N.open(owner, record, map);
+  watch = copy(watch); witness = watch.members[0]; beast = account.details[id].actor;
+  assert.deepEqual(watch.report, initialReport);
+  assert.equal(beast.bodyPhysics.parts[part], injury);
+  const start = at;
+  for (; at < start + 30 && !watch.operation.defenseContacts[0].outcome; at++) {
+    const decision = Wild.decide(beast, post, at, true, false);
+    assert.equal(decision.behavior, 'flee'); beast.behavior = decision.behavior;
+    assert.equal(Behavior.step(beast, decision, null, at, 1, { ...ctx, patch: ctx.terrain }), false);
+    if (!beast.bodyPhysics.motion) B.request(beast, 'walking', { ...beast.mapCell, x: beast.mapCell.x + 3 }, ctx);
+    B.advance(beast, at, ctx);
+    Force.observeDefense(watch, witness, [{ beast, cells: B.cells(beast) }], at);
+  }
+  assert.equal(watch.operation.defenseContacts[0].outcome?.kind, 'repelled',
+    JSON.stringify({ cell: beast.mapCell, stamina: beast.bodyPhysics.stamina, blocked: beast.bodyPhysics.blockedReason }));
+  assert.deepEqual(watch.report, initialReport);
+  assert.ok(Force.receive(watch, { ...caller, reporterIds: [watch.members[1].actor.id] }, at));
+  assert.equal(watch.report.members[0].defenses, undefined);
+  assert.ok(Force.receive(watch, { ...caller, reporterIds: [witness.actor.id] }, at));
+  const received = copy(watch.report), [fact] = received.members[0].defenses;
+  assert.equal(fact.kind, 'repelled'); assert.equal(fact.refugeId, caller.plan.id);
+  assert.ok(fact.at > fact.woundedAt && received.at >= fact.at);
+  assert.ok(!JSON.stringify(received).includes(memberId));
+  N.sync(owner, record, map, [beast], at, true, { activeSiteIds: new Set(), retainedActorIds: new Set() });
+  assert.equal(N.ownsLocal(owner, id), false);
+  N.pack(owner, record, map); owner = N.normalize(copy(owner), binding); watch = copy(watch);
+  const returned = N.materialize(owner, record, map, site, { ...ctx, at, onlyActorId: id });
+  assert.equal(returned.length, 1); assert.equal(returned[0].id, id);
+  assert.equal(returned[0].life.originalMemberId, memberId); assert.equal(returned[0].health, beast.health);
+  assert.equal(returned[0].bodyPhysics.parts[part], injury);
+  assert.deepEqual(watch.report, received);
+});
 test('native activation checks original source integrity without declaring ecological viability', () => {
   const { map } = original(), before = JSON.stringify(map), source = S.runtimeSource(map.beastHabitatSources, map);
   assert.equal(source.nativeEncounters, true); assert.equal(source.ecologicalStatus, 'unverified');

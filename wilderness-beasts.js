@@ -75,12 +75,13 @@
     }
     return null;
   }
+  const woundedEnoughToFlee = (beast, health = beast.health) => health < beast.maxHealth * .3;
   function decide(beast, scientist, at, sees, hears) {
     const profile = PROFILES[beast.speciesId];
     if (beast.status === "dead") return { behavior: "dead", goal: null };
     if (sees) { beast.lastTarget = clone(scientist); beast.rememberedUntil = at + 12; }
     else if (hears && at >= beast.rememberedUntil) { beast.lastTarget = clone(scientist); beast.rememberedUntil = at + 6; }
-    const afraid = beast.health < beast.maxHealth * .3;
+    const afraid = woundedEnoughToFlee(beast);
     if (afraid && beast.lastTarget && at <= beast.rememberedUntil) return { behavior: "flee", goal: beast.lastTarget };
     const territorial = profile.disposition === "territorial";
     if (sees && (!territorial || distance(scientist, beast.homeCell) <= 3 || at < beast.provokedUntil)) return { behavior: "pursue", goal: beast.lastTarget };
@@ -109,5 +110,5 @@
     const visible = new Set(visibleIds);
     return { sightings: Object.values(state.sightings).map((entry) => ({ ...clone(entry), current: visible.has(entry.id) })), tracks: state.tracks.filter((track) => track.observedAt != null).map(clone), heard: state.heard ? clone(state.heard) : null };
   }
-  return { ROOM, PROFILES, defaultState, normalizeState, actor, materialize, nextStep, neighbors, decide, canBreach, barrierStrike, publicKnowledge, distance, key };
+  return { ROOM, PROFILES, defaultState, normalizeState, actor, materialize, nextStep, neighbors, decide, woundedEnoughToFlee, canBreach, barrierStrike, publicKnowledge, distance, key };
 });

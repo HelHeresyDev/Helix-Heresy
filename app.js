@@ -43444,6 +43444,8 @@
     if (actorId === 'scientist' && targetActor.legionId === state.penalLegion?.id) recordLegionConduct('attack', targetActor.id);
     const sequence = Math.max(1, Number(options.sequence) || state.combat.nextActionNumber++);
     observeCounterWatchAttack(actorId, target.id, actionId, sequence);
+    if (actionId === 'strike' && actor.nativePopulation && targetActor.actorKind === 'expeditionEscort')
+      recordRefugeAttack(actor, targetActor);
     const accuracy = combatActionAccuracy(actor, targetActor, action, sequence);
     if (!accuracy.hit) {
       if (!options.hideFeedback) emitMapFeedback("feedbackMiss", combatActorCell(targetActor), {
@@ -98972,6 +98974,26 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return (escortExcursion(m)?.wilderness?.beasts?.actors || []).filter(b => b.status !== 'dead' && b.roomId === m.actor.roomId
       && mapCellDistance(m.actor.mapCell, b.mapCell) <= 7 && sensoryLineOfSight(m.actor.mapCell, b.mapCell));
   }
+  function fieldForceNativeView(s, member, beast) {
+    const a = member.actor, room = s.operation.plan.roomId;
+    if (!beast.nativePopulation || beast.roomId !== room || a.roomId !== room || a.status === 'dead' || actorIsIncapacitated(a)
+      || beastElevation(beast) < 0 || !NativeBeastPopulations.ownsLocal(state.nativeBeastPopulations, beast.id)) return null;
+    const cells = BeastBodies.cells(beast, beast.mapCell, ensureLabMap().tileSizeM);
+    // The witness can see a physical part, but the tested defensive reach
+    // uses the body's real current footprint, not a planned motion.
+    return cells.some(c => mapCellDistance(a.mapCell, c) <= 7 && sensoryLineOfSight(a.mapCell, c)
+      && perceptionLightLevelAtCell(c) > 0) ? { beast, cells } : null;
+  }
+  function recordRefugeAttack(beast, target) {
+    const s = savedGuardOwner(target), o = s?.operation;
+    if (o?.phase !== 'watch' || target.roomId !== o.plan.roomId
+      || !o.plan.posts.some(c => mapCellDistance(c, target.mapCell) <= 3)) return;
+    for (const m of s.members) {
+      if (!sensoryLineOfSight(m.actor.mapCell, target.mapCell)) continue;
+      const view = fieldForceNativeView(s, m, beast);
+      if (view) FieldForce.observeAttack(s, m, beast, view.cells, state.clock);
+    }
+  }
   function fieldForceAccompanied(s, m, e) {
     const a = m.actor, room = scientistRoomId(), cell = scientistMapCell();
     if (s.operation.bodyEpoch !== ensureScientistIdentity().bodyEpoch || s.operation.visitId !== passengerVisitId()
@@ -99095,7 +99117,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
             a.needs = n.state; if (n.damage) damageExpeditionEscort(n.damage, { injuryProgress: true }, a);
           },
           defend: m => withEscortState(m, () => {
-            const a = m.actor, threats = fieldForceThreats(m); if (actorIsIncapacitated(a) || a.status === 'dead') return;
+            const a = m.actor, incapacitated = actorIsIncapacitated(a) || a.status === 'dead';
+            if (s.operation.defenseContacts?.some(r => r.witnessId === a.id && !r.outcome && !r.lost)) {
+              const views = incapacitated ? [] : localBeastActors(e.wilderness.beasts).map(b => fieldForceNativeView(s, m, b)).filter(Boolean);
+              FieldForce.observeDefense(s, m, views, state.clock);
+            }
+            if (incapacitated) return;
+            const threats = fieldForceThreats(m);
             state.combat.guarding[a.id] = { startedAt: state.clock };
             for (const b of threats) a.observed[b.id] = { ...a.observed[b.id], at: state.clock, name: b.name, cell: cleanMapCell(b.mapCell) };
             const attacker = threats.find(b => mapCellDistance(a.mapCell, b.mapCell) <= 1
@@ -99105,8 +99133,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
                   || state.fieldRefuge?.site?.layout.walls.some(c => sameMapCell(c, b.barrierContact.cell)))));
             if (attacker && state.clock >= a.nextAttackAt) {
               cancelEscortCare(); const weapon = escortGear('escortBaton');
-              resolveSharedCombatAction(a.id, 'strike', { kind: 'creature', id: attacker.id },
+              const before = attacker.health;
+              const view = attacker.nativePopulation && s.operation.phase === 'watch' && fieldForceNativeView(s, m, attacker);
+              const result = resolveSharedCombatAction(a.id, 'strike', { kind: 'creature', id: attacker.id },
                 { baseDamage: weapon ? 10 : 4, damageTypes: ['physical'], hideFeedback: !fieldPorterObserved(a) });
+              if (view && result.hit) FieldForce.observeWound(s, m, attacker, view.cells, state.clock, before - attacker.health,
+                !WildernessBeasts.woundedEnoughToFlee(attacker, before) && WildernessBeasts.woundedEnoughToFlee(attacker));
               if (weapon) m.gearCondition[weapon.id] = Math.max(0, m.gearCondition[weapon.id] - 1);
               a.nextAttackAt = state.clock + 5;
             }
@@ -99183,6 +99215,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (s.report) panel.append(textEl('p', `${formatClock(s.report.at)} — personal report: ${s.report.phase}; ${s.report.reason} ${s.report.members.map(m => `${m.name}: ${m.phase}, ${m.health}/100 health, earned ${formatMoney(m.earned)}; carried ${(m.supplies || []).map(i => `${i.quantity} ${i.key}`).join(', ') || 'not reported'}.`).join(' ')} ${s.report.partial ? 'Individual account only; other members are not present to report.' : ''} Dated, not a remote status feed.`));
     for (const m of s.report?.members || []) for (const sight of Object.values(m.observations || {})) {
       panel.append(textEl('p', `${m.name} personally saw ${sight.name} at ${sight.cell.x},${sight.cell.y} (${formatClock(sight.at)}).${sight.barrier ? ` Witnessed barrier attack at ${sight.barrier.cell.x},${sight.barrier.cell.y} (${formatClock(sight.barrier.at)}): ${sight.barrier.breached ? 'breached' : 'damaged, still obstructing'}.` : ''} Dated account; present conditions unknown without observation.`));
+    }
+    for (const m of s.report?.members || []) for (const outcome of m.defenses || []) {
+      const text = outcome.kind === 'repelled'
+        ? `${m.name} wounded an attacking ${outcome.name} and saw that individual retreat beyond the defended posts.`
+        : `${m.name} withdrew beyond the defended posts during an encountered attack by ${outcome.name}; the beast's later condition is unknown.`;
+      panel.append(textEl('p', `${formatClock(outcome.at)} — ${text} One episode at this refuge; no regional safety claim.`));
     }
     return panel;
   }
@@ -99398,7 +99436,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       for (const stack of actorInventoryStacks(actor.id)) { stack.carriedBy = ""; stack.cell = cleanMapCell(actor.mapCell); stack.roomId = actor.roomId; }
       if (ForeignEscortHauling.active(ensureExpeditionEscorts())) ForeignEscortHauling.stop(ensureExpeditionEscorts(), foreignEscortHaulingHooks(ensureExpeditionEscorts()), state.clock, 'The original professional died; actual possessions remain at the body.', 'interrupted', false);
       stopEscortDrag();
-      if (savedGuardOwner(actor)) FieldForce.withdraw(savedGuardOwner(actor), state.clock, 'An original guard died; no replacement or automatic evacuation.');
+      if (detachment) FieldForce.withdraw(detachment, state.clock, 'An original guard died; no replacement or automatic evacuation.',
+        Boolean(wildernessBeast(options.attackerId)?.nativePopulation));
       else if (escortObserved()) settleEscortContract(true);
       syncActorInventories(); syncPhysicalReadModels();
     }
@@ -100520,7 +100559,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!a.bodyPhysics || !WildernessBeasts.PROFILES[a.speciesId]?.bodyManaged) return false;
     const b = a.bodyPhysics, c = beastBodyContext(a);
     if (!b.motion && !b.turn && !['falling', 'landing'].includes(b.mode)) {
-      let goal = decision?.behavior === 'pursue' ? decision.goal : b.goal && !sameMapCell(b.goal, a.mapCell) ? b.goal : decision?.goal;
+      let goal = ['pursue', 'flee'].includes(decision?.behavior) ? decision.goal : b.goal && !sameMapCell(b.goal, a.mapCell) ? b.goal : decision?.goal;
       if ((!goal || sameMapCell(goal, a.mapCell)) && decision?.behavior === 'roam') goal = { ...a.homeCell, x: a.homeCell.x + (a.patrolIndex++ % 2 ? -2 : 2) };
       if (decision?.behavior === 'flee' && goal) goal = { ...a.mapCell, x: a.mapCell.x + Math.sign(a.mapCell.x - goal.x) * 2, y: a.mapCell.y + Math.sign(a.mapCell.y - goal.y) * 2 };
       const p = BeastBodies.profiles[a.speciesId];

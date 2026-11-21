@@ -160,3 +160,39 @@ test('a reunited survivor reports only their own dated account, never the unseen
   assert.equal(f.s.report.partial, true);
   assert.equal(f.s.report.members.some(m => m.health === 5), false);
 });
+test('quiet watches, superficial hits and interrupted sight do not certify a repelled original', () => {
+  for (const kind of ['quiet', 'noWound', 'noThreshold', 'lostView', 'stationary', 'unowned']) {
+    const f = fixture(); f.c.plan.roomId = 'wild'; hire(f); tick(f, 1);
+    const m = f.s.members[0]; m.actor.roomId = 'wild';
+    const b = { id: 'native:actor', name: 'Original predator', populationId: 'population:private', status: 'alive', roomId: 'wild',
+      nativePopulation: kind === 'unowned' ? undefined : { sourceId: 'source', regionId: 'region' }, life: { originalMemberId: 'member' },
+      mapCell: { ...m.actor.mapCell, y: m.actor.mapCell.y - 1 }, behavior: 'pursue' };
+    const view = () => [{ beast: b, cells: [b.mapCell] }];
+    if (kind !== 'quiet') assert.equal(Force.observeAttack(f.s, m, b, [b.mapCell], 2), kind !== 'unowned');
+    assert.equal(Force.observeWound(f.s, m, b, [b.mapCell], 2, kind === 'noWound' ? 0 : 7,
+      kind !== 'noThreshold'), !['quiet', 'unowned', 'noWound'].includes(kind));
+    if (kind === 'lostView') Force.observeDefense(f.s, m, [], 3);
+    if (kind !== 'stationary') { b.mapCell.y -= 5; b.behavior = 'flee'; }
+    Force.observeDefense(f.s, m, view(), 4);
+    assert(Force.receive(f.s, f.c, 4));
+    assert.equal(f.s.report.members[0].defenses, undefined, kind);
+  }
+});
+test('a guard ordered back under observed attack reports only their actual withdrawal, after leaving the posts', () => {
+  const f = fixture(); f.c.plan.roomId = 'wild'; hire(f); tick(f, 1);
+  const m = f.s.members[0]; m.actor.roomId = 'wild';
+  const b = { id: 'native:actor', name: 'Original predator', populationId: 'population:private', status: 'alive', roomId: 'wild',
+    nativePopulation: { sourceId: 'source', regionId: 'region' }, life: { originalMemberId: 'member' }, mapCell: copy(m.actor.mapCell) };
+  assert(Force.observeAttack(f.s, m, b, [b.mapCell], 2));
+  f.flags.blocked = true; f.flags.shortage = true; f.flags.threats = 1;
+  tick(f, 2); assert.equal(f.s.operation.phase, 'returning');
+  assert(Force.receive(f.s, f.c, 2)); const before = copy(f.s.report);
+  assert.equal(before.members[0].defenses, undefined); // An order or stranded guard is not a physical withdrawal.
+  f.s = copy(f.s); f.flags.blocked = false; tick(f, 4);
+  assert.deepEqual(f.s.report, before);
+  assert(Force.receive(f.s, f.c, 5));
+  const [fact] = f.s.report.members[0].defenses;
+  assert.equal(fact.kind, 'guardWithdrew'); assert.equal(fact.at, 3);
+  assert.equal(f.s.report.members[1].defenses, undefined);
+  assert(!JSON.stringify(f.s.report).includes('population:private'));
+});

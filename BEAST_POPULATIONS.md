@@ -1414,6 +1414,30 @@ separate cause reporting. The Chromium trip independently blocks the dock,
 reloads the missed window, and verifies that the player sees it only on
 receipt and still sees it after the full load arrives.
 
+### Refuge defense against a native original
+
+The existing two-person refuge watch can record a local defensive outcome
+against a population-owned individual. The guard must identify a real,
+resolved attack on a guard near the signed posts, inflict actual health
+loss that crosses the existing wound-driven flight threshold, and see that
+same original physically move its footprint outside the defended area while
+fleeing. A missed blow, an already fleeing or passing beast, or later
+unwitnessed movement does not qualify. Loss of sight leaves the outcome
+unconfirmed. A retreat uses the ordinary body movement and finite original
+effort; wounded flight is not replaced by a fresh hunt or work decision.
+
+When the existing operation has to withdraw during a witnessed attack, a
+surviving witness can report their own physical withdrawal after crossing
+the defended area. An order, an incapacitated guard stuck at a post, and the
+usual completed-watch return do not count. Existing injuries, cost, duty
+and custody remain unchanged. The original beast carries its wounds back
+to the same native account when unattended; there is no new encounter body.
+
+Only personally received guard accounts expose a dated account of the
+episode. One guard does not stand in for the other, and no observation
+refreshes the received copy on its own. Neither outcome certifies future
+refuge safety, strategic control, or suppression of the original population.
+
 ### Original encounter ownership
 
 Survey, walking and grain encounters now check the same run-local ownership
