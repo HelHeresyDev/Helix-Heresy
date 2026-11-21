@@ -34685,6 +34685,7 @@
 
   function labMapCellIsWalkable(cell, map = ensureLabMap(), excavatedKeys = null) {
     const physical = recordedBeastTerrainAt(cell);
+    if (physical?.fieldSeawater || state && ForeignWilderness.seawaterCell(foreignWildernessLocal(), cell)) return false;
     return labMapCellHasFloor(cell, map, excavatedKeys)
       && physical?.floor !== false && !(physical?.waterDepthM > .9) && physical?.supportKg !== 0
       && !beastClimbingSurfaceAt(cell)
@@ -72139,7 +72140,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (!ensureWildernessBeasts().materialized) return assignments;
     const knowledge = wildernessBeastKnowledge();
     const markers = [
-      ...observedSurveyWater().map(cell => ({ cell, value: '≈', label: 'Observed wetland water' })),
+      ...observedSurveyWater().map(({ cell, seawater }) => ({ cell, value: '≈', label: seawater ? 'Observed seawater' : 'Observed wetland water' })),
       ...knowledge.sightings.flatMap(entry => (entry.visibleBodyCells || []).filter(cell => !sameMapCell(cell, entry.cell)).map(cell => ({ cell,
         value: entry.status === 'dead' ? '†' : entry.current ? 'B' : '?',
         label: `${entry.name}: ${entry.current ? `${entry.verticalActivity}; ${formatDecimal(entry.heightM || 0, 2)} m relative to ground; observed body footprint` : 'dated body footprint; current location unknown'}` }))),
@@ -100040,7 +100041,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     }
     for (const beast of beasts.actors) beast.roomId = activeWildernessRoom();
     if (foreignWildernessLocal()) survival.beasts = beasts; else state.wildernessBeasts = beasts;
-    if (survival.discovery.baseline.populationWetlandBank && Object.values(beasts.bodyTerrain || {}).some(p => p.fieldWetland))
+    if ((survival.coast || survival.discovery.baseline.populationWetlandBank) && Object.values(beasts.bodyTerrain || {}).some(p => p.fieldWetland || p.fieldSeawater))
       bumpNavigationRevision('topology');
     return beasts;
   }
@@ -100090,6 +100091,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { id: survival.destination.id, cellId: survival.destination.strategicCellId,
       roomId, kind: baseline.habitatKind || 'surface', bounds: baseline.populationBounds || baseline.bounds,
       ...(baseline.populationWetlandBank ? { wetlandBank: baseline.populationWetlandBank } : {}),
+      ...(survival.coast ? { coast: survival.coast } : {}),
       origin: baseline.populationFrame || { eastM: baseline.bounds.x * tile, northM: baseline.bounds.y * tile } };
   }
   function visitedForeignBeastPatches(survival) {
@@ -100098,6 +100100,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function bindForeignBeastFrame(survival, map, index) {
     const baseline = survival.discovery.baseline;
     if (baseline.populationBounds && baseline.populationFrame) return true;
+    if (survival.coast) {
+      baseline.habitatKind = 'shore';
+      baseline.populationBounds = clonePlainObject(survival.bounds);
+      // The dry shore and the adjoining marine region have separate origins.
+      baseline.populationFrame = { eastM: 0, northM: 0 };
+      return true;
+    }
     const areaHa = map.beastHabitatSources.patchRows.find(([i, kind]) => i === index && kind === 0)?.[2];
     const approach = StrategicWorld.cellSnapshot(map, StrategicWorld.cellIndex(survival.destination.approachCellId));
     const destination = StrategicWorld.cellSnapshot(map, index);
@@ -100142,7 +100151,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
     } finally { existing.bodyTerrain = previousTerrain; }
     saved.tracks = [...(existing.tracks || [])];
-    for (const a of saved.actors) if (!(site.wetlandBank && a.bodyPhysics.altitudeM < 0)
+    for (const a of saved.actors) if (!a.nativePopulation?.regionId?.endsWith(':waterColumn') && !(site.wetlandBank && a.bodyPhysics.altitudeM < 0)
       && !saved.tracks.some(t => t.id === `track:${a.id}`))
       saved.tracks.push({ id: `track:${a.id}`, cell: clonePlainObject(a.mapCell),
         label: WildernessBeasts.PROFILES[a.speciesId].track, observedAt: null });
@@ -100183,25 +100192,40 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }
     }
   }
+  function coastalMarineBeast(beast) {
+    return Boolean(beast?.nativePopulation?.regionId?.endsWith(':waterColumn') && foreignWildernessLocal()?.coast);
+  }
   function visibleWildernessBeastCell(beast) {
-    const visibleDepth = beast && (beastElevation(beast) >= 0 || ['swimming', 'drifting'].includes(beast.bodyPhysics?.mode)
+    const marine = coastalMarineBeast(beast);
+    const visibleDepth = beast && (marine || beastElevation(beast) >= 0 || ['swimming', 'drifting'].includes(beast.bodyPhysics?.mode)
       && (beastBodyContext(beast).terrain(beast.mapCell)?.waterClarityM || 0) >= -beastElevation(beast));
     if (!beast || !scientistInWilderness() || !visibleDepth) return null;
-    const cell = BeastBodies.occupied(beast, ensureLabMap().tileSizeM).find(c => WildernessBeasts.distance(scientistMapCell(), c) <= 8
+    const footprint = marine ? BeastBodies.cells(beast, beast.mapCell, ensureLabMap().tileSizeM) : BeastBodies.occupied(beast, ensureLabMap().tileSizeM);
+    const terrain = marine && beastTerrainContext(beast.roomId);
+    const visibleMarine = c => {
+      const t = terrain(c);
+      return t?.fieldSeawater && perceptionLightLevelAtCell(c) > 0
+        && ForeignWilderness.coastVisible(beastElevation(beast), beast.bodyPhysics.dimensions.heightM, t.waterClarityM);
+    };
+    const cell = footprint.find(c => WildernessBeasts.distance(scientistMapCell(), c) <= 8 && (!marine || visibleMarine(c))
         && (!beast.nativePopulation || !overlandStopSite() && !recordedBeastTerrainAt(c)?.fieldWetland || perceptionLightLevelAtCell(c) > 0)
         && sensoryLineOfSight(scientistMapCell(), c));
-    return cell && beastClimbingLine(state.scientist, beast) ? cell : null;
+    // A coastal observation already tested the visible part. The ordinary
+    // climbing line is to the body anchor and would require seeing through its
+    // full depth even if the creature's back breaks the surface.
+    return cell && (marine || beastClimbingLine(state.scientist, beast)) ? cell : null;
   }
   function wildernessBeastVisible(beast) { return Boolean(visibleWildernessBeastCell(beast)); }
   function observedSurveyWater() {
     const site = foreignWildernessLocal();
-    if (!site?.discovery?.baseline?.populationWetlandBank || !scientistInWilderness() || scientistIsDead()) return [];
+    if (!(site?.coast || site?.discovery?.baseline?.populationWetlandBank) || !scientistInWilderness() || scientistIsDead()) return [];
     const here = scientistMapCell();
     return Object.entries(site.beasts?.bodyTerrain || {}).flatMap(([key, p]) => {
-      if (!p.fieldWetland || !(p.waterDepthM > .01)) return [];
+      if (!(p.fieldWetland || p.fieldSeawater) || !(p.waterDepthM > .01)) return [];
       const [x, y, z] = key.split(',').map(Number), cell = { x, y, z };
       return z === here.z && WildernessBeasts.distance(here, cell) <= 8
-        && labMapCellHasFloor(cell) && sensoryLineOfSight(here, cell) && perceptionLightLevelAtCell(cell) > 0 ? [cell] : [];
+        && labMapCellHasFloor(cell) && sensoryLineOfSight(here, cell) && perceptionLightLevelAtCell(cell) > 0
+        ? [{ cell, seawater: Boolean(p.fieldSeawater) }] : [];
     });
   }
   function wildernessBeastKnowledge() {
@@ -100243,10 +100267,15 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const visibleCell = visibleWildernessBeastCell(beast);
       if (!visibleCell) { if (saved.sightings[beast.id]) saved.sightings[beast.id].threatVisible = false; continue; }
       const previous = saved.sightings[beast.id];
+      const marine = coastalMarineBeast(beast);
       const threat = beast.status !== "dead" && (beast.behavior === "pursue" || WildernessBeasts.distance(scientistMapCell(), beast.mapCell) <= 3);
       if (threat && !previous?.threatVisible) pauseForWildernessThreat(`${beast.name} is an immediate visible threat. Guard, fight, or withdraw${unsupportedActive() || state.penalFlights?.fieldActive ? " to safer local ground; there is no defended gate here" : " through the secured entrance"}.`);
       else if (!previous) surveyEvent(`Sighted ${beast.name} on the wilderness trail.`);
-      saved.sightings[beast.id] = { id: beast.id, name: beast.name, speciesId: beast.speciesId, cell: cleanMapCell(beast.mapCell), observedAt: state.clock, status: beast.status, condition: beast.status === "dead" ? "Dead; physical remains" : beast.health < beast.maxHealth * .3 ? "Severely wounded" : beast.health < beast.maxHealth ? "Visibly wounded" : "No visible wounds", threatVisible: threat,
+      saved.sightings[beast.id] = marine ? {
+        id: beast.id, name: beast.name, speciesId: beast.speciesId, cell: cleanMapCell(visibleCell), observedAt: state.clock,
+        status: beast.status === 'dead' ? 'dead' : 'alive', condition: beast.status === 'dead' ? 'Visible remains' : 'Body partially visible from shore',
+        threatVisible: threat, verticalActivity: 'at the seawater surface', naturalActivity: beast.status === 'dead' ? '' : 'Seen from shore'
+      } : { id: beast.id, name: beast.name, speciesId: beast.speciesId, cell: cleanMapCell(beast.mapCell), observedAt: state.clock, status: beast.status, condition: beast.status === "dead" ? "Dead; physical remains" : beast.health < beast.maxHealth * .3 ? "Severely wounded" : beast.health < beast.maxHealth ? "Visibly wounded" : "No visible wounds", threatVisible: threat,
         heightM: beastElevation(beast), verticalActivity: beast.climbing?.mode || beast.bodyPhysics?.mode || 'ground',
         physicalPose: BeastBodies.observed(beast),
         naturalActivity: beast.life?.pending ? `Preparing ${BeastBehavior.definitions[beast.life.pending.action]?.label || 'an observed action'}` : beast.life?.activity,
@@ -100265,7 +100294,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
             condition: sighting.condition,
             activity: sighting.status === 'dead' ? '' : sighting.naturalActivity || (sighting.verticalActivity === 'swimming' ? 'Swimming' : '')
           }, { sourceId: beast.nativePopulation.sourceId, populationId: beast.populationId, memberId: beast.life.originalMemberId },
-          { worldId: patch.context.worldId, siteId: patch.context.siteId, strategicCellId: patch.destination.strategicCellId,
+          { worldId: patch.context.worldId, siteId: patch.context.siteId,
+            strategicCellId: patch.coast && beast.nativePopulation.regionId.endsWith(':waterColumn') ? patch.coast.seaCellId : patch.destination.strategicCellId,
             label: patch.destination.label }, ensureScientistIdentity().bodyEpoch);
         }
       }
@@ -100394,6 +100424,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return { floor: labMapCellHasFloor(c, map), waterDepthM: 0, soilDepthM: 0, ...raw,
         ...(raw.windSchedule ? { windSchedule: raw.windSchedule } : {}),
         ...(raw.fieldWetland ? { waterClarityM: Math.min(raw.waterDepthM, Math.max(0, (raw.condition?.freshwaterQuality || 0) * .03)) } : {}),
+        ...(raw.fieldSeawater ? { waterClarityM: Math.min(raw.waterDepthM, Math.max(0, (raw.condition?.wetlandReefHabitat || 0) * .025)) } : {}),
         ...(foreign || roads ? { floor: allowed.has(mapCellKey(c)) && labMapCellHasFloor(c, map) && raw.floor !== false } : {}),
         protected: sameMapCell(c, WildernessSurvival.GATE) || sameMapCell(c, foreignWildernessLocal()?.gate),
         obstacleHeightM: wall || door && !doorFixtureAllowsPassage(door) || propertyOpaqueFixtureAtCell(c) ? 4 : Math.max(outcrop ? 2 : 0, raw.obstacleHeightM || 0,
@@ -100433,6 +100464,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         const origin = actor?.nativePopulation;
         if (origin?.regionId?.endsWith(':wetland') && activeWildernessSite()?.discovery?.baseline?.populationWetlandBank
           && terrain(c)?.sourceRegionId !== origin.regionId) return true;
+        if (origin && activeWildernessSite()?.coast && terrain(c)?.sourceRegionId !== origin.regionId) return true;
         return bodyVolumes.get(k)?.some(other => other.low < high && other.high > low) || false;
       },
       excavate: (actor, c, volume, t) => {
@@ -102967,7 +102999,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return foreignWildernessPatches(w).find(p => ForeignWilderness.contains(p.bounds, cell)) || w;
   }
   function ensureForeignLocalGraph(w) {
-    if (!w || scientistIsDead()) return w?.patchGraph || null;
+    if (!w || w.coast || scientistIsDead()) return w?.patchGraph || null;
     if (!w.patchGraph) w.patchGraph = LocalPatchGraph.create(w);
     const graph = LocalPatchGraph.normalize(w.patchGraph, w);
     if (graph) w.patchGraph = graph;
@@ -102990,7 +103022,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function foreignLocalConnection(direction, fromId = '') {
     const s = foreignSurveyAtField(), w = s?.wilderness, graph = ensureForeignLocalGraph(w), c = foreignSurveyContext();
     const patch = w && foreignWildernessPatch(w, scientistMapCell());
-    const from = fromId || patch?.context.siteId, plan = graph && LocalPatchGraph.plan(graph, from, direction);
+    const from = fromId || patch?.context.siteId, plan = !w?.coast && graph && LocalPatchGraph.plan(graph, from, direction);
     const source = foreignWildernessPatches(w).find(p => p.context.siteId === from);
     const capable = Boolean(c.atWilderness && c.alive && c.capable && c.originalBody && !c.custodyActive && !surveyBusy()
       && !ForeignWilderness.sampleReason(s, w, c, 'reconnaissance'));
@@ -103072,13 +103104,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     s.wilderness = ForeignWilderness.create(s, origin, candidates, occupied, destination => test
       ? { ...clonePlainObject(test.context), siteId: destination.id, strategicCellId: destination.strategicCellId }
       : resourceSurveyContext(activeWorldRecord, { strategicLocation: { id: destination.id, strategicCellId: destination.strategicCellId } }, activeWorldRecord.worldSeed || state.seed));
+    const w = s.wilderness, record = map?.beastHabitatSources;
+    if (w && record?.physicalPlacement && !w.approachArrival) {
+      const index = StrategicWorld.cellIndex(w.destination.strategicCellId);
+      const coast = !ForeignWilderness.wetlandBank(record, index) && ForeignWilderness.coastForLand(map, index, record);
+      if (coast) {
+        w.coast = coast;
+        w.bounds = { ...w.bounds, width: 42, height: 18 };
+        w.destination.label = 'Mapped shoreline';
+        w.destination.description = 'Dry shore adjoining actual seawater. On-foot access ends at the water; unseen water and remote ground remain unknown.';
+      }
+    }
     return s.wilderness;
   }
   function materializeForeignWilderness(s) {
     const w = ensureForeignWilderness(s); if (!w || w.materialized) return Boolean(w?.materialized);
     const cells = [{ x: 21, y: 12, z: w.entry.z }, w.entry];
     const room = normalizeRoom({ id: w.roomId, name: w.destination.label, facilityClass: 'wilderness', purposeId: 'corridor',
-      connections: [s.roomId], description: w.destination.description, geometry: { lengthM: 16, widthM: 12, heightM: 3, floorAreaM2: 2, volumeM3: 6 } });
+      connections: [s.roomId], description: w.destination.description, geometry: { lengthM: w.bounds.width, widthM: w.bounds.height, heightM: 3, floorAreaM2: 2, volumeM3: 6 } });
     state.rooms = normalizeRooms([...state.rooms, room]); roomById(s.roomId).connections.push(w.roomId);
     const map = ensureLabMap(); map.rooms[w.roomId] = normalizeLabMapRoom({ ...w.bounds, roomId: w.roomId, cells, anchor: w.entry }, room);
     map.terrain.excavated = normalizeDigCells([...map.terrain.excavated, ...cells, w.gate]); state.roomStockpiles[w.roomId] = emptyRoomStockpile();
@@ -103133,7 +103176,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (ForeignWilderness.entryReason(s, w, c) || !materializeForeignWilderness(s)) return false;
     const path = labMapPathBetweenCells(scientistMapCell(), w.entry, { map: ensureLabMap(), actor: state.scientist, ignoreDoors: true });
     if (!path.length || pathAccessViolations(state.scientist, path).length) return false;
-    if (!window.confirm(`Estimated boundary walk: ${formatDuration(mapPathTravelDistanceMeters(path, ensureLabMap()) / scientistMoveSpeedMps())}. The municipal driver stays behind. No escort, clinic, rescue, ownership or extraction rights. Only supported terrestrial beasts are simulated; unseen ground is not safe.\n${WildernessSurvival.warnings(surveyCarriedStacks()).join('\n')}\nEnter foreign wilderness with the actual carried load?`)) return false;
+    if (!window.confirm(`Estimated boundary walk: ${formatDuration(mapPathTravelDistanceMeters(path, ensureLabMap()) / scientistMoveSpeedMps())}. The municipal driver stays behind. No escort, clinic, rescue, ownership or extraction rights. ${w.coast ? 'The route stays on dry ground; seawater is not walkable.' : 'Unseen ground is not safe.'}\n${WildernessSurvival.warnings(surveyCarriedStacks()).join('\n')}\nEnter foreign wilderness with the actual carried load?`)) return false;
     const task = queueSurveyWork('walkWilderness', w.entry, { label: 'Walk beyond the foreign defended boundary', foreignWildernessBodyEpoch: c.bodyEpoch, foreignWildernessTripId: s.trip.id });
     return Boolean(task);
   }
@@ -103286,7 +103329,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       for (const method of ['reconnaissance', 'surfaceSample']) button(ResourceSurveys.METHODS[method].label + ' at foreign selected ground', 'survey', busy || resourceSurveyPlan(method, mapCursorCell()).reason, { method, cell: mapCursorCell() });
       if (state.tasks.some(t => t.data?.foreignSurveyTripId === s.trip?.id)) button('Cancel foreign surface-sampling work', 'cancelSample');
     }
-    if (c.atWilderness) {
+    if (c.atWilderness && s.wilderness?.coast) {
+      panel.append(textEl('p', 'Stay on the dry shore. Sightings are limited to visible water and do not reveal nests, unseen relatives, or safe passage.'));
+    } else if (c.atWilderness) {
       panel.append(textEl('p', 'Connected local ground lies within this same globe hex, not across the planet-scale hex. Every internal seam is unprotected; the same beasts may pursue. Staff retain their exact original territory, including any specifically accepted adjoining escort patch, without automatic extension. Original supplies and clocks continue. The supported local area is bounded; further travel is not yet available, not a fictional world edge.'));
       button('Walk to eastern wilderness edge', 'walkWildernessEdge', busy || !c.capable || !c.originalBody || c.custodyActive);
       button(s.wilderness.extension?.materialized ? 'Walk back onto adjoining local ground' : 'Explore adjoining local ground', 'exploreAdjoining',
@@ -108629,6 +108674,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   function resourceSurveyCellReason(cell, methodId) {
     if (overlandOnRoad()) return 'Temporary roadside access supplies no resource survey or extraction scope.';
     const foreign = foreignSurveyAtField();
+    if (ForeignWilderness.seawaterCell(foreign?.wilderness, cell)) return 'This dry-ground survey cannot sample or excavate seawater.';
     if (foreign) return foreignSurveySampleReason(foreign, foreignSurveyContext(passengerReceptionGate()), state.clock, methodId)
       || (labMapCellRoomId(cell) !== scientistRoomId() || constructedFloorAtCell(cell) || surfaceGroundAtCell(cell)?.terrainId !== 'soil' ? 'Select exposed ground inside the scientist’s actual local field sector.' : '');
     const target = diagnosticTargetInfo("tile", "", cell);

@@ -170,7 +170,8 @@
       if (t.warded || t.protected) return 'Protected physical boundary';
       const low = altitudeM, high = altitudeM + b.dimensions.heightM;
       if (Number.isFinite(t.ceilingM) && high > t.ceilingM) return 'Insufficient overhead clearance';
-      if (t.obstacleHeightM > low && (t.obstacleBaseM ?? 0) < high) return 'Solid obstruction in body volume';
+      const obstacleBase = t.obstacleBaseM ?? 0;
+      if (t.obstacleHeightM > obstacleBase && t.obstacleHeightM > low && obstacleBase < high) return 'Solid obstruction in body volume';
       if (ctx.blocked?.(part, low, high, a)) return 'Another body occupies the swept volume';
       if (['walking', 'rooting'].includes(mode)) {
         if (!t.floor || t.solid || (t.waterDepthM || 0) > b.dimensions.heightM * .5) return 'No supported walkable ground';

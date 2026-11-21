@@ -9,10 +9,10 @@ const wild = page => page.evaluate(() => window.helixHeresyDebug.foreignWilderne
 const act = (page, action, options = {}) => page.evaluate(({ action, options }) => window.helixHeresyDebug.foreignSurveyAction(action, options), { action, options });
 async function reload(page) { await page.reload(); await page.locator('#loadLastSaveBtn').click(); await page.locator('[data-workspace-tab="visits"]').click(); }
 let seamWorld;
-function originalSeamWorld(worldSeed = 'native-encounters') {
+function originalSeamWorld(worldSeed = 'native-encounters', refinementLevel = 2) {
   if (seamWorld && worldSeed === 'native-encounters') return seamWorld;
   const w = Library.createWorld({ id: 'native-survey', worldSeed, createdAt: 'test', generationVersion: 8,
-    creationSettings: { strategicMap: { refinementLevel: 2 } } });
+    creationSettings: { strategicMap: { refinementLevel } } });
   const map = w.generatedData.strategicMap, catalog = JSON.parse(JSON.stringify(lifecycleWorld().generatedData.strategicMap.strategicStartingSites));
   delete catalog.digest;
   for (const c of catalog.scenarioRows[0].candidates) c.strategicCellId = World.cellId(map.surface.classes.indexOf('L'));
@@ -127,6 +127,83 @@ test('ordinary wetland bank survey observes a conserved original Mire Choir memb
   await reload(page);
   expect((await snap(page)).sightingReceipts).toEqual([receipt]);
   await expect(panel).toContainText('Copy received by the municipal clerk');
+  expect(errors).toEqual([]);
+});
+test('ordinary mapped shoreline survey observes an original Reef Wyrm only from dry ground', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message)); page.on('dialog', d => d.accept());
+  const world = originalSeamWorld('atlas', 1), field = World.cellId(11), coast = World.cellId(21), sea = World.cellId(10);
+  await openForeignWorkspace(page, 'mapped-shore', 'canvas', false, false, 0, 'wilderness', false, null, null, world);
+  expect(await wa(page, 'return')).toBe(true); await finish(page);
+  const source = { cityId: 'b', administrationId: 'admin:b', worksId: 'works:b', charterId: 'charter:b', populationSourceId: 'population:b',
+    cellId: field, name: 'Mapped Shelf Approach', placeId: 'foreign-survey:b' };
+  const carrier = Carrier.fromWorld({ strategicPlayableSettlementState: { cityRows: [{ cityId: 'b', assetId: 'population:b', currentPopulation: 100, physicalCondition: 'intact', services: { transport: 'functional' } }] },
+    cityGovernments: { governments: [{ cityId: 'b', roleAssignments: { publicWorksAndProvisioning: 'works:b' }, institutions: [{ id: 'works:b', capacityBand: 'functional' }] }] } }, 'b', 0);
+  const map = world.generatedData.strategicMap, origin = World.cellSnapshot(map, World.cellIndex(field)), destination = World.cellSnapshot(map, World.cellIndex(coast));
+  // Only book an original mapped dry itinerary. No fixture moves/resizes a body or supplies a local sea entry.
+  expect(await page.evaluate(({ source, carrier, origin, destination }) => {
+    const d = window.helixHeresyDebug, context = d.foreignSurveySnapshot().surveys.context;
+    return d.setForeignSurveyTestSource(source, carrier, { ...context, siteId: source.placeId, strategicCellId: source.cellId })
+      && d.setForeignWildernessTestSource({ origin, candidates: [{ ...destination, slopePercent: .6, temperatureC: 17 }], occupied: [], context });
+  }, { source, carrier, origin, destination })).toBe(true);
+  expect(await act(page, 'quote')).toBe(true); expect(await act(page, 'accept', { expected: (await snap(page)).excursion.quote })).toBe(true);
+  expect(await act(page, 'book')).toBe(true); await advance(page, 120);
+  expect(await act(page, 'board')).toBe(true); await finish(page); await advance(page, 600);
+  expect(await act(page, 'disembark')).toBe(true); await finish(page);
+  const walk = s => page.evaluate(s => window.helixHeresyDebug.advanceAdjoiningWildernessForTest(s), s);
+  async function finishWalk() {
+    for (let i = 0; i < 12; i++) {
+      const s = await wild(page), t = s.tasks.find(t => !t.reason);
+      if (!t) { expect(s.tasks).toHaveLength(0); return; }
+      await walk(Math.max(1, t.dueAt - s.clock + 1));
+    }
+    throw new Error('Shoreline walk did not finish');
+  }
+  const notes = async () => Object.values((await snap(page)).excursion.fieldSightings || {});
+  expect(await act(page, 'enterWilderness')).toBe(true); await finishWalk();
+  await page.waitForFunction(() => window.helixHeresyDebug.foreignWildernessSnapshot().site.beasts?.materialized, null, { timeout: 160000 });
+  let w = await wild(page);
+  expect(w.site.coast).toMatchObject({ landCellId: coast, seaCellId: sea });
+  expect((await notes()).some(n => n.account.speciesId === 'beast:reef-wyrm')).toBe(false);
+  const dry = { ...w.site.entry, x: 30 }, wet = { ...dry, x: 31 };
+  const key = ({ x, y, z }) => `${x},${y},${z}`, terrain = w.site.beasts.bodyTerrain;
+  expect(terrain[key(dry)]).toMatchObject({ sourceRegionId: 'habitat:21:shore', waterDepthM: 0 });
+  expect(terrain[key(wet)]).toMatchObject({ sourceRegionId: 'habitat:10:waterColumn', fieldSeawater: true, waterKind: 'seawater', floor: false });
+  const original = w.site.beasts.actors.find(a => a.speciesId === 'beast:reef-wyrm');
+  expect(original?.nativePopulation.regionId, 'Original full body must fit in the funded sea before it is seen').toBe('habitat:10:waterColumn');
+  const start = cell => page.evaluate(({ room, cell }) => Boolean(window.helixHeresyDebug.startScientistMove(room, { toCell: cell })),
+    { room: w.site.roomId, cell });
+  expect(await start(wet)).toBe(false);
+  expect(await start(dry)).toBe(true); await finishWalk();
+  w = await wild(page); expect(w.cell).toEqual(dry);
+  const seen = w.knowledge.sightings.find(a => a.speciesId === 'beast:reef-wyrm' && a.current);
+  const diagnostic = seen ? '' : await page.evaluate(id => {
+    const d = window.helixHeresyDebug, a = d.foreignWildernessSnapshot().site.beasts.actors.find(row => row.id === id);
+    return JSON.stringify({ actor: a && { cell: a.mapCell, altitudeM: a.bodyPhysics.altitudeM, light: d.lightingSnapshot(a.mapCell).lightLevel } });
+  }, original.id);
+  expect(seen, diagnostic).toMatchObject({ condition: 'Body partially visible from shore' });
+  expect(seen.physicalPose).toBeUndefined();
+  const actor = w.site.beasts.actors.find(a => a.id === seen.id);
+  expect(actor.bodyPhysics.mode).toBe('swimming');
+  expect(actor.bodyPhysics.dimensions.lengthM).toBeGreaterThan(20);
+  expect(actor.nativePopulation.regionId).toBe('habitat:10:waterColumn');
+  const note = (await notes()).find(n => n.original.memberId === actor.life.originalMemberId);
+  expect(note.account).toMatchObject({ place: { strategicCellId: sea }, cell: seen.cell, observedAt: seen.observedAt });
+  for (const renderer of ['canvas', 'dom']) {
+    const labels = await page.evaluate(renderer => {
+      const d = window.helixHeresyDebug; d.setMapRenderer(renderer); d.setMapOverlay('prospecting');
+      return d.mapSceneSnapshot().cells.map(c => c.overlay?.label);
+    }, renderer);
+    expect(labels).toContain('Observed seawater');
+    expect(labels.some(label => label?.includes(actor.name))).toBe(true);
+  }
+  expect(await act(page, 'withdraw')).toBe(true); await finishWalk();
+  w = await wild(page); expect(w.site.beasts.actors).toHaveLength(0);
+  const last = (await notes()).find(n => n.id === note.id);
+  await reload(page);
+  expect((await notes()).find(n => n.id === note.id)).toEqual(last);
+  expect(await act(page, 'enterWilderness')).toBe(true); await finishWalk();
+  w = await wild(page);
+  expect(w.site.beasts.actors.filter(a => a.life.originalMemberId === actor.life.originalMemberId).map(a => a.id)).toEqual([actor.id]);
   expect(errors).toEqual([]);
 });
 test('Canvas and DOM: ordinary foreign survey claims an original full-size beast across the opened seam', async ({ page }) => {

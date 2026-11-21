@@ -38,6 +38,7 @@
     if (!state || state.baseline) return state?.baseline;
     const remote = state.kind === "remote", adjoining = state.kind === 'adjoining', bounds = layout?.bounds || (remote ? REMOTE_BOUNDS : BOUNDS), entry = layout?.entry || (remote ? REMOTE_ENTRY : ENTRY);
     const seed = hash(`${worldSeed}:${state.placeId}:${remote ? "remote" : "boundary"}-ground`), rocks = [];
+    const dry = cell => !layout?.coast || cell.x < bounds.x + 10;
     const broken = Number(destination.slopePercent) > 15;
     const clearing = { x: bounds.x + 9 + seed % 5, y: bounds.y + 1 + (seed >>> 5) % 2, z: bounds.z };
     const count = broken ? 14 : 6;
@@ -47,8 +48,8 @@
       const n = hash(`${seed}:rock:${i}`);
       const cell = { x: broken && i < 5 ? bounds.x + 7 + seed % 3 : bounds.x + 5 + n % 10, y: bounds.y + (n >>> 8) % bounds.height, z: bounds.z };
       const landingFootprint = remote && Math.abs(cell.x - entry.x) <= 1 && Math.abs(cell.y - entry.y) <= 1;
-      if (landingFootprint || cell.y === entry.y || key(cell) === key(clearing) || rocks.some(rock => key(rock) === key(cell))) continue;
-      if (connected(cellsWithout([...rocks, cell], bounds), entry)) rocks.push(cell);
+      if (!dry(cell) || landingFootprint || cell.y === entry.y || key(cell) === key(clearing) || rocks.some(rock => key(rock) === key(cell))) continue;
+      if (connected(cellsWithout([...rocks, cell], bounds).filter(dry), entry)) rocks.push(cell);
     }
     // An already visited older save keeps its actual footprint, including
     // physical changes. Never insert new obstacles under bodies or property.
@@ -58,7 +59,7 @@
     const landmarks = [
       { id: remote ? "landing-ground" : "entrance-ground", cell: { ...entry, x: entry.x + 2 }, text: adjoining ? 'Unprotected adjoining wilderness ground within the same globe hex; no defended seam' : remote ? `${broken ? "Broken" : "Gentle"} ground near the unprotected landing point; no defended perimeter` : broken ? "Broken ground beyond the defended entrance" : "Gentle ground beyond the defended entrance" },
       { id: "bare-clearing", cell: clearing, text: "Bare surface clearing; appearance alone establishes no deposits" }
-    ].filter(row => cells.some(cell => key(cell) === key(row.cell)));
+    ].filter(row => dry(row.cell) && cells.some(cell => key(cell) === key(row.cell)));
     if (physicalRocks.length) landmarks.push({ id: "weathered-rock", cell: physicalRocks.at(-1), text: "Weathered rock outcrop; blocks walking and sight" });
     state.baseline = { worldId, placeId: state.placeId, bounds: copy(bounds), cells, rocks: physicalRocks, landmarks, terrain: broken ? "broken ground" : "gentle ground", materializedAt: clock };
     return state.baseline;

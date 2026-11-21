@@ -384,6 +384,64 @@ test('wetland bank parcels debit their own source and dry or unvisited water nev
   assert.equal(returning[0].bodyPhysics.altitudeM, actor.bodyPhysics.altitudeM);
   assert.equal(savedAccount.regions.find(r => r.id === actor.nativePopulation.regionId).stocks.waterL, stock);
 });
+test('a mapped shoreline preserves its original rotated offshore body, finite salt water, and surface visibility limits', () => {
+  const Foreign = require('../foreign-wilderness'), World = require('../strategic-world');
+  const { map, binding } = original(), record = map.beastHabitatSources, coast = Foreign.coastForLand(map, 4, record);
+  assert.equal(coast?.seaCellId, World.cellId(88)); assert.equal(coast.axis, 1);
+  assert.deepEqual(Foreign.coastForLand(map, 4, { ...record, groupRows: [] }), coast);
+  assert.equal(Foreign.coastReference(map, 4, 100), null); // A freshwater/land source is not sea.
+  const bounds = { x: 21, y: 8, z: 6, width: 48, height: 24 };
+  const site = { id: 'shore', roomId: 'field', cellId: coast.landCellId, kind: 'shore', origin: { eastM: 0, northM: 0 }, bounds, coast };
+  const cells = Array.from({ length: bounds.width * bounds.height }, (_, i) => ({
+    x: bounds.x + i % bounds.width, y: bounds.y + Math.floor(i / bounds.width), z: bounds.z
+  }));
+  const state = N.create(record, binding), account = N.open(state, record, map);
+  const r = account.regions.find(r => r.id === 'habitat:88:waterColumn'), originalWater = r.stocks.seawaterL;
+  const parcelTerrain = p => p && { ...p, obstacleHeightM: 0 };
+  const ctx = { alive: true, local: true, at: 0, requireVisitedTerrain: true, terrain: c => parcelTerrain(N.bindTerrain(state, site.id)[B.key(c)]) };
+  assert.throws(() => N.terrain(state, record, map, { ...site, coast: { ...coast, seaCellId: World.cellId(45) } }, cells, 0), /original mapped/);
+  N.terrain(state, record, map, site, cells.filter(c => c.x < Foreign.coastEast(bounds)), 0);
+  assert.equal(r.stocks.seawaterL, originalWater);
+  assert.ok(!N.materialize(state, record, map, site, ctx).some(a => a.speciesId === 'beast:reef-wyrm'));
+  const view = N.terrain(state, record, map, site, cells, 0), water = Object.values(view).filter(p => p.fieldSeawater);
+  assert.ok(water.every(p => p.sourceRegionId === r.id && p.waterKind === 'seawater' && p.resources.seawaterL > 0 && p.floor === false));
+  assert.ok(Object.values(view).some(p => p.sourceRegionId === 'habitat:4:shore' && p.floor && !p.fieldSeawater));
+  const remainder = r.stocks.seawaterL;
+  assert.ok(Math.abs(originalWater - remainder - water.reduce((n, p) => n + p.resources.seawaterL, 0)) < 8);
+  N.terrain(state, record, map, site, cells, 0);
+  assert.equal(r.stocks.seawaterL, remainder);
+  const originalActor = N.materialize(state, record, map, site, ctx).find(a => a.speciesId === 'beast:reef-wyrm');
+  assert.equal(originalActor?.bodyPhysics.mode, 'swimming');
+  assert.ok(B.occupied(originalActor).every(c => view[B.key(c)]?.sourceRegionId === r.id));
+  const { altitudeM, dimensions } = originalActor.bodyPhysics;
+  assert.match(B.habitatReason(originalActor, originalActor.mapCell, 'swimming', altitudeM, {
+    terrain: c => ({ ...ctx.terrain(c), obstacleBaseM: -4, obstacleHeightM: -2 })
+  }), /Solid obstruction/);
+  assert.equal(Foreign.coastVisible(altitudeM, dimensions.heightM, 0), true); // Physical breach.
+  assert.equal(Foreign.coastVisible(-20, dimensions.heightM, 2), false);
+  assert.equal(Foreign.coastVisible(-dimensions.heightM - .5, dimensions.heightM, 0), false);
+  assert.equal(Foreign.coastVisible(-dimensions.heightM - .5, dimensions.heightM, 1), true);
+  N.pack(state, record, map);
+  const saved = N.normalize(copy(state), binding), owner = N.open(saved, record, map);
+  N.sync(saved, record, map, [owner.details[originalActor.id].actor], 0, true, { activeSiteIds: new Set(), retainedActorIds: new Set() });
+  const parcels = N.bindTerrain(saved, site.id);
+  const again = N.materialize(saved, record, map, site, { ...ctx, terrain: c => parcelTerrain(parcels[B.key(c)]) }).find(a => a.id === originalActor.id);
+  assert.equal(again.life.originalMemberId, originalActor.life.originalMemberId);
+  assert.deepEqual(again.nativePopulation.sourcePosition, originalActor.nativePopulation.sourcePosition);
+});
+test('shoreline reef placement preserves archived habitat records, population counts, and resource budgets', () => {
+  const { map } = original(), active = map.beastHabitatSources;
+  const archived = S.generate(active.seed, map, { coastalReefs: false });
+  assert.equal(archived.shoreReefOrigins, undefined);
+  assert.ok(active.shoreReefOrigins.length > 0);
+  const before = JSON.stringify(archived);
+  assert.equal(S.validate(archived, map), archived);
+  assert.equal(JSON.stringify(archived), before);
+  assert.deepEqual(archived.groupRows, active.groupRows);
+  assert.deepEqual(archived.populations, active.populations);
+  assert.deepEqual(archived.physicalBinding.transfers, active.physicalBinding.transfers);
+  assert.deepEqual(archived.physicalBinding.capacities, active.physicalBinding.capacities);
+});
 test('a local original death is counted once, remains dead after reload, and does not infect an independent run', () => {
   const { map, binding } = original(), record = map.beastHabitatSources, state = N.create(record, binding), s = N.open(state, record, map);
   const { site, ctx } = context(s, 'beast:rimefang-pack'), [a] = N.materialize(state, record, map, site, ctx);

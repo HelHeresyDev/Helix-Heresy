@@ -1260,6 +1260,39 @@ the readable note does not reveal a hidden position, reserves, a census, or
 anything about the rest of that population. Authority responses and victory
 evaluation remain outside this handoff.
 
+### Mapped shoreline encounters
+
+The ordinary on-foot foreign survey can open a bounded dry shore beside a
+mapped ocean hex. The local transect refines the existing land–sea edge from
+globe geography, not from wild population positions. Saved approaches and
+mapped freshwater banks keep their own layouts. Dry ground debits the
+original shore account; the adjoining water debits the original saltwater
+column. The sea frame projects back into that column's original metre grid,
+including turns, withdrawal, and reload. A revisit does not refill either
+account. The scientist cannot enter those seawater tiles, and the survey
+does not create a boat, a route past the coast, or a dive.
+
+An original body must fit entirely in the funded water and retain its real
+depth and dimensions. From dry ground the scientist can mark one actually
+visible point on a creature that breaches or lies within the local clear
+column, subject to light and line of sight. The sighting or field note is
+dated and refers to the marine hex. It does not record the hidden anchor,
+body footprint, tracks, nest, family, or ongoing safety. A deeper figure can
+remain unobserved even when it physically occupies water near the shore.
+
+New-world generation can bind an already allocated Reef Wyrm group and
+its existing reef workface to a mapped shallow shelf in its own sea cell.
+This does not change individual counts, stock budgets, or the distribution of
+archived worlds. No survey searches for a beast or moves one to shore; an
+empty or unsuitable coast can stay empty. Marine anonymous carcass recovery
+and other marine survey methods are not opened by this encounter.
+
+The focused Chromium itinerary reached one generated shelf on foot, denied a
+step into seawater, showed the original Reef Wyrm in both renderers, and
+preserved its identity and dated note through withdrawal, reload, and return.
+Focused native checks also cover a rotated shoreline, no refill, depth and
+clarity limits, and unmodified archived source counts and budgets.
+
 ### Population-backed local walking encounters
 
 The home-side leg of the existing local municipal survey walk can now read the

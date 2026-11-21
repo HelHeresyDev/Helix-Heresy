@@ -1,8 +1,10 @@
 (function (root, factory) {
-  const api = factory(typeof module === 'object' && module.exports ? require('./wilderness-survival') : root.HelixWildernessSurvival);
+  const node = typeof module === 'object' && module.exports;
+  const api = factory(node ? require('./wilderness-survival') : root.HelixWildernessSurvival,
+    node ? require('./strategic-world') : root.HelixStrategicWorld);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.HelixForeignWilderness = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Survival) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Survival, World) {
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x));
   function contains(bounds, cell) {
@@ -10,7 +12,7 @@
       && cell.x >= bounds.x && cell.x < bounds.x + bounds.width && cell.y >= bounds.y && cell.y < bounds.y + bounds.height);
   }
   function extensionPlan(sector) {
-    if (!sector?.materialized || !sector.discovery?.baseline || !sector.context?.truth || !sector.bounds || !sector.destination) return null;
+    if (!sector?.materialized || sector.coast || !sector.discovery?.baseline || !sector.context?.truth || !sector.bounds || !sector.destination) return null;
     const b = sector.bounds, id = `${sector.destination.id}:adjoining-east`, bounds = { ...copy(b), x: b.x + b.width };
     return { id, parentSiteId: sector.context.siteId, roomId: sector.roomId, bounds,
       seam: { x: bounds.x - 1, y: sector.entry.y, z: bounds.z }, entry: { x: bounds.x, y: sector.entry.y, z: bounds.z },
@@ -56,6 +58,62 @@
   const validBank = bank => Boolean(bank && Number.isFinite(bank.radiusM) && bank.radiusM > 0
     && Number.isFinite(bank.edgeEastM) && Number.isFinite(bank.accessNorthM)
     && [bank.edgeEastM, bank.accessNorthM].every(n => Math.abs(n) <= bank.radiusM));
+  const validCoast = c => Boolean(c && /^planet-cell:\d+$/.test(c.landCellId) && /^planet-cell:\d+$/.test(c.seaCellId)
+    && c.landCellId !== c.seaCellId && [c.eastM, c.northM, c.axis].every(Number.isInteger) && c.axis >= 0 && c.axis < 4);
+  // One geographic transect per marine hex. Coarse cells have no metre-scale
+  // shoreline polygon; refine their actual mapped coast in the original area
+  // frame. Neither the survey nor the geography reads a creature location.
+  function coastReference(map, seaIndex, areaHa) {
+    if (map?.surface?.classes?.[seaIndex] !== 'W' || map.relief?.coastClasses?.[seaIndex] === '.' || !(areaHa > 0)) return null;
+    const sea = World.cellSnapshot(map, seaIndex), landId = sea.neighborIds.slice().sort()
+      .find(id => {
+        const i = World.cellIndex(id);
+        return map.surface.classes[i] === 'L' && map.relief.coastClasses[i] !== '.';
+      });
+    if (!landId) return null;
+    const land = World.cellSnapshot(map, World.cellIndex(landId)), rad = Math.PI / 180;
+    const a = sea.latitude * rad, b = land.latitude * rad, delta = (land.longitude - sea.longitude) * rad;
+    const east = Math.sin(delta) * Math.cos(b), north = Math.cos(a) * Math.sin(b) - Math.sin(a) * Math.cos(b) * Math.cos(delta);
+    const length = Math.hypot(east, north), radius = Math.sqrt(areaHa * 10000 / Math.PI);
+    if (!(length > 1e-12) || radius < 140) return null;
+    const axis = Math.abs(east) >= Math.abs(north) ? (east < 0 ? 0 : 2) : (north < 0 ? 1 : 3);
+    return { landCellId: landId, seaCellId: sea.id, axis, eastM: Math.round(east / length * (radius - 80)),
+      northM: Math.round(north / length * (radius - 80)) };
+  }
+  function coastForLand(map, landIndex, record) {
+    if (map?.surface?.classes?.[landIndex] !== 'L' || !record?.patchRows || map.relief?.coastClasses?.[landIndex] === '.') return null;
+    const land = World.cellSnapshot(map, landIndex);
+    const near = (id) => map.relief.elevationM[World.cellIndex(id)];
+    for (const id of land.neighborIds.slice().sort((a, b) => near(b) - near(a) || a.localeCompare(b))) {
+      const index = World.cellIndex(id), area = record.patchRows.find(([i, kind]) => i === index && kind === 3)?.[2];
+      const coast = coastReference(map, index, area);
+      if (coast?.landCellId === land.id) return coast;
+    }
+    return null;
+  }
+  const coastEast = (bounds) => bounds.x + 10;
+  const coastNorth = (bounds) => bounds.y + 8;
+  const seawaterCell = (sector, cell) => Boolean(sector?.coast && contains(sector.bounds, cell) && cell.x >= coastEast(sector.bounds));
+  function turn(x, y, axis = 0) {
+    if (axis === 1) return [-y, x];
+    if (axis === 2) return [-x, -y];
+    if (axis === 3) return [y, -x];
+    return [x, y];
+  }
+  function offset(frame, x, y) {
+    const [east, north] = turn(x, y, frame.axis);
+    return { eastM: frame.eastM + east, northM: frame.northM + north };
+  }
+  function relative(frame, east, north) {
+    return turn(east - frame.eastM, north - frame.northM, (4 - (frame.axis || 0)) % 4);
+  }
+  function coastSeaFrame(coast, bounds, tile) {
+    return { ...offset(coast, (bounds.x - coastEast(bounds)) * tile, (bounds.y - coastNorth(bounds)) * tile), axis: coast.axis };
+  }
+  // Optical depth is measured to the top of the actual body. An exposed
+  // body can be seen even in opaque water; nothing below the clear column is.
+  const coastVisible = (altitudeM, heightM, clarityM) => Number.isFinite(altitudeM) && Number.isFinite(heightM)
+    && Math.max(0, -(altitudeM + heightM)) <= Math.max(0, clarityM || 0);
   // One north/east frame for all four existing on-foot patches. A mapped
   // wetland can supply a dry bank approach; recorded route anchors win.
   function populationWindow(sector, from, to, areaHa, tile, bank = null) {
@@ -105,5 +163,6 @@
     if (!['reconnaissance', 'surfaceSample', 'shallowCore', 'arcaneSurvey'].includes(method)) return 'Unknown local survey method.';
     return '';
   }
-  return { create, contains, populationWindow, wetlandBank, wetlandAt, validBank, extensionPlan, extensionReason, entryReason, sampleReason };
+  return { create, contains, populationWindow, wetlandBank, wetlandAt, validBank, coastReference, coastForLand, validCoast, coastEast, coastNorth,
+    coastSeaFrame, offset, relative, coastVisible, seawaterCell, extensionPlan, extensionReason, entryReason, sampleReason };
 });
