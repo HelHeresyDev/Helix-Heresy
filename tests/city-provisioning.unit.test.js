@@ -73,6 +73,97 @@ test('native witness or hold reaches returned dock reports only with the same de
     assert.ok(!JSON.stringify(f.s.report).includes(animal.id));
   }
 });
+test('a native inbound hold misses the fixed dock deadline; the same cargo unloads later without rewriting the miss', () => {
+  const Bodies = require('../beast-bodies'), Wild = require('../wilderness-beasts');
+  const f = fixture(); order(f);
+  const { id, dueAt, requestedKg } = f.s.order, driver = f.s.driver.id, truck = f.s.vehicle.id;
+  assert.equal(dueAt, 2 * Math.ceil(10 / 38 * 3600) + 60 + 2 * P.HANDLE * requestedKg / P.CRATE_KG);
+  assert.equal(f.s.report.instruction.dueAt, dueAt);
+  const site = { id: 'original-road', roomId: 'true-road', entry: { x: 10, y: 10, z: 21 } };
+  const animal = Wild.actor('beast:nullmaw-stalker', 'PRIVATE-NATIVE-IDENTITY', { ...site.entry, x: 8 }, 'original-population', 0);
+  animal.roomId = site.roomId; animal.nativePopulation = { sourceId: 'habitat-source' };
+  let hold, fuel, cargo, clear, movingEta;
+  const h = { move, roadFine: s => Boolean(s.roadContactId), roadHeld: s => Boolean(s.roadContactId),
+    roadBoundary: s => {
+      // This case isolates the exact native obstacle, not random travel events.
+      const j = s.network.journeys.find(j => j.id === s.order?.journeyId);
+      for (const leg of j?.route.legs || []) leg.interruption = null;
+    },
+    roadArrived: (s, at) => {
+      if (hold || s.order.phase !== 'inbound' || s.order.meterKm < 2) return;
+      hold = Threats.startNative(s, site, animal, { outwardKm: s.source.distanceKm - s.order.meterKm, direction: -1 }, at);
+      assert.ok(hold); cargo = s.vehicle.cargoKg; fuel = s.vehicle.fuelKm;
+      movingEta = s.network.journeys.find(j => j.id === s.order.journeyId).exactArrivalAt;
+    },
+    roadTick: (s, at) => {
+      if (!Threats.activeNative(s)) return;
+      assert.equal(s.vehicle.cargoKg, cargo); assert.equal(s.vehicle.fuelKm, fuel);
+      assert.equal(s.order.meterKm, hold.meterKm);
+      // Model a finite original footprint occupying, then clearing, the lane.
+      if (at > dueAt + 60) animal.mapCell.y = site.entry.y + 10;
+      const occupied = Threats.nativeObstruction(site.entry, Bodies.occupied(animal), -1);
+      if (at <= dueAt) assert.equal(occupied, true);
+      if (Threats.clearNative(s, at, occupied, true)) clear = at;
+    }
+  };
+  for (let i = 0; i < 150 && !hold; i++) step(f, 15, h);
+  assert.ok(hold && hold.at < dueAt); assert.equal(cargo, requestedKg);
+  step(f, dueAt - f.at - .25, h);
+  assert.deepEqual(f.s.missedWindows, []);
+  const oldReport = copy(f.s.report), stockBeforeDeadline = f.s.stores.cityKg;
+  step(f, .25, h);
+  assert.equal(f.s.order.dueAt, dueAt);
+  assert.ok(f.s.network.journeys.find(j => j.id === f.s.order.journeyId).exactArrivalAt > movingEta);
+  assert.equal(f.s.order.deliveredKg, 0); assert.equal(f.s.vehicle.cargoKg, cargo);
+  assert.ok(Math.abs(stockBeforeDeadline - f.s.stores.cityKg - f.s.demand.kgPerDay * .25 / P.DAY) < 1e-9);
+  assert.equal(f.s.demand.unmetKg, 0); // The existing buffer still fed this bounded contribution.
+  const miss = copy(f.s.missedWindows[0]);
+  assert.deepEqual(miss, { orderId: id, at: dueAt, requestedKg, receivedKg: 0, shortKg: requestedKg,
+    cityKg: f.s.stores.cityKg, unmetKg: 0, sourceId: f.s.stores.sourceId });
+  assert.deepEqual(f.s.report, oldReport);
+  f.s = P.normalize(copy(f.s)); assert.ok(Threats.activeNative(f.s));
+  assert.deepEqual(f.s.missedWindows, [miss]); assert.deepEqual(f.s.report, oldReport);
+  assert.equal(P.receive(f.s, { ...f.c, atCounter: false }, f.at), false);
+  assert.ok(P.receive(f.s, f.c, f.at));
+  assert.deepEqual(f.s.report.missedWindows, [miss]); assert.deepEqual(f.s.report.receipts, []);
+  assert.doesNotMatch(JSON.stringify(f.s.report), /Nullmaw|PRIVATE-NATIVE-IDENTITY|roadContact|cargoKg|journeyId/i);
+  const stock = f.s.stores.cityKg, supplied = f.s.demand.suppliedKg, heldReport = copy(f.s.report);
+  for (let i = 0; i < 100 && f.s.order; i++) step(f, 30, h);
+  assert.ok(clear > dueAt); assert.equal(f.s.order, null);
+  assert.equal(f.s.driver.id, driver); assert.equal(f.s.vehicle.id, truck);
+  assert.equal(f.s.vehicle.cargoKg, 0); assert.equal(f.s.receipts[0].deliveredKg, cargo);
+  assert.equal(f.s.receipts[0].spoiledKg, 0); assert.equal(f.s.receipts[0].dueAt, dueAt);
+  assert.ok(Math.abs(f.s.stores.cityKg - stock + (f.s.demand.suppliedKg - supplied) - cargo) < 1e-7);
+  assert.deepEqual(f.s.missedWindows, [miss]); assert.deepEqual(f.s.report, heldReport);
+  assert.ok(P.receive(f.s, f.c, f.at)); assert.deepEqual(f.s.report.missedWindows, [miss]);
+  assert.match(f.s.report.receipts[0].encounterReports[0].description, /held for Nullmaw.*cleared/);
+  assert.ok(!JSON.stringify(f.s.report).includes(animal.id));
+});
+test('a crate unloaded at the deadline counts and earlier orders are not backfilled', () => {
+  for (const legacy of [false, true]) {
+    const f = fixture(); order(f);
+    f.s.order.phase = 'unloading'; f.s.order.handling = 29.5;
+    f.s.order.deliveredKg = f.s.order.requestedKg - P.CRATE_KG;
+    f.s.driver.mapCell = copy(P.DOCK); f.s.vehicle.cargoKg = P.CRATE_KG;
+    if (legacy) { delete f.s.order.dueAt; delete f.s.missedWindows; f.s = P.normalize(f.s); }
+    else f.s.order.dueAt = .5;
+    step(f, 1);
+    assert.equal(f.s.receipts[0].deliveredKg, 400);
+    assert.deepEqual(f.s.missedWindows, []);
+  }
+});
+test('an early local cancellation waives the deadline but a recorded dock miss cannot be withdrawn', () => {
+  for (const withdrawEarly of [true, false]) {
+    const f = fixture(); order(f); const due = f.s.order.dueAt;
+    step(f, withdrawEarly ? due - 60 : due, { move: () => false });
+    assert.equal(P.cancel(f.s, f.succession, f.office, f.c, f.at), true);
+    assert.equal(f.s.order.windowWaived, withdrawEarly ? true : undefined);
+    step(f, 90);
+    assert.equal(f.s.order, null);
+    assert.equal(f.s.missedWindows.length, withdrawEarly ? 0 : 1);
+    assert.equal(f.s.vehicle.cargoKg, 0);
+  }
+});
 test('standing priority requires original local authority; later pickups use the same finite worker, driver, truck and quota without a remote report', () => {
   for (const mutate of [f => f.c.local = false, f => f.c.atCounter = false, f => f.c.workerPresent = false, f => f.c.bodyEpoch++]) {
     const f = fixture(); mutate(f); assert.equal(P.standing(f.s, f.succession, f.office, f.c, true, 0), false);

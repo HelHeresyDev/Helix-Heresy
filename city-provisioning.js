@@ -9,7 +9,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (Settlements, World, Journeys, Carrier) {
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x));
-  const DAY = 86400, CRATE_KG = 50, HANDLE = 30;
+  const DAY = 86400, CRATE_KG = 50, HANDLE = 30, DEPOT_AND_BOARDING_SECONDS = 60;
   const HOME = Object.freeze({ x: 18, y: 14, z: 6 }), DOCK = Object.freeze({ x: 18, y: 15, z: 6 });
   const TRUCK = Object.freeze({ x: 19, y: 15, z: 6 });
   const directories = new WeakMap();
@@ -102,12 +102,12 @@
       allocation: { populationSourceId: source.populationSourceId, satelliteId: source.satelliteId, people: 1, vehicles: 1,
         dependentPopulation: population, grainUnitKg: CRATE_KG, originalQuotaKg: cityStock + farmStock, futureHarvestCapKg: 3 * dailyKg },
       farmAccount: { at, kg: farmStock, sourceId: `${source.satelliteId}:existing-municipal-quota` },
-      quote: null, order: null, receipts: [], history: [], rest: null, report: null, message: 'Existing two-day municipal buffer; no new famine or player-owned stock was created.' };
+      quote: null, order: null, receipts: [], missedWindows: [], history: [], rest: null, report: null, message: 'Existing two-day municipal buffer; no new famine or player-owned stock was created.' };
   }
   function normalize(s) {
     return validSource(s?.source) && s.worldId && s.runId && s.driver?.id && s.vehicle?.id && s.stores
       && s.demand && Array.isArray(s.receipts) && Array.isArray(s.history) && s.network?.destinations
-      ? { ...copy(s), network: Journeys.normalizeState(s.network) } : null;
+      ? { ...copy(s), missedWindows: Array.isArray(s.missedWindows) ? copy(s.missedWindows) : [], network: Journeys.normalizeState(s.network) } : null;
   }
   function note(s, at, text) { s.message = text; s.history.push({ at, text }); s.history = s.history.slice(-80); }
   function authority(s, succession, office, c) {
@@ -143,15 +143,26 @@
     note(s, at, enabled ? 'Standing municipal pickup priority authorized. The same original driver, truck, finite quota and duty must make every delivery; no remote receipt or replenishment.' : 'Future standing pickups revoked; any departed original carrier must still return.');
     return true;
   }
+  function deliveryDueAt(s, kg, at) {
+    const [city, farm] = s.network.destinations;
+    const plans = [[city, farm], [farm, city]].map(([from, to]) => Journeys.routePlan(s.network, from?.id, to?.id, 'hiredFreightRoad'));
+    if (!plans.every(p => p.ok)) return null;
+    const travel = plans.reduce((n, p) => n + p.legs.reduce((seconds, leg) => seconds + Journeys.legDuration(leg, p.mode), 0), 0);
+    return Number.isFinite(travel) ? at + travel + DEPOT_AND_BOARDING_SECONDS + 2 * HANDLE * kg / CRATE_KG : null;
+  }
   function issue(s, worker, c, kg, at) {
     const d = s.driver, v = s.vehicle;
     if (s.order || s.rest || !c.routeUsable || !able(d) || c.driverIncapacitated || !c.depotAvailable || v.location !== 'city'
       || !same(d.mapCell, HOME) || d.assignment || v.condition < 50 || v.fuelKm < 2 * s.source.distanceKm
-      || d.workSeconds < 2 * s.source.distanceKm / 38 * 3600 + kg / CRATE_KG * 2 * HANDLE + 60
+      || d.workSeconds < 2 * s.source.distanceKm / 38 * 3600 + kg / CRATE_KG * 2 * HANDLE + DEPOT_AND_BOARDING_SECONDS
       || d.foodSeconds < 1 || d.waterSeconds < 1 || kg < CRATE_KG || kg > s.stores.farmKg
       || worker?.id !== s.workerId || !able(worker) || worker.assignment || worker.workSeconds < 30) return false;
+    // A dock commitment is not the mutable itinerary. Use only the planned
+    // road legs and known handling at issue, not a remotely changing ETA.
+    const dueAt = deliveryDueAt(s, kg, at);
+    if (dueAt == null) return false;
     const id = `${s.id}:delivery:${s.nextNumber++}`;
-    s.order = { id, issuedAt: at, originalBodyEpoch: s.bodyEpoch, phase: 'approaching', requestedKg: kg, reservedKg: kg,
+    s.order = { id, issuedAt: at, dueAt, originalBodyEpoch: s.bodyEpoch, phase: 'approaching', requestedKg: kg, reservedKg: kg,
       loadedKg: 0, deliveredKg: 0, handling: 0, journeyId: null, meterKm: 0, lastAt: at, reason: '', cancelRequested: false };
     d.assignment = id; worker.workSeconds -= 30; s.quote = null;
     note(s, at, 'Existing public-works priority exercised. Original driver must approach, board, collect and return the municipal quota. No cargo moved on instruction.');
@@ -177,10 +188,23 @@
     s.order.phase = returning ? 'inbound' : 'outbound'; s.vehicle.location = 'road';
     s.vehicle.mapCell = null; s.vehicle.roomId = ''; s.driver.mapCell = null; s.driver.roomId = ''; return true;
   }
+  function pendingDue(o) {
+    return Number.isFinite(o?.dueAt) && !o.windowReviewed && !o.windowWaived ? o.dueAt : null;
+  }
+  function reviewDueWindow(s) {
+    const o = s.order, due = pendingDue(o);
+    if (due == null || s.lastAt < due) return;
+    o.windowReviewed = true;
+    const shortKg = Math.max(0, o.requestedKg - o.deliveredKg);
+    if (shortKg > 0) (s.missedWindows ||= []).push({ orderId: o.id, at: due, requestedKg: o.requestedKg,
+      receivedKg: o.deliveredKg, shortKg, cityKg: s.stores.cityKg, unmetKg: s.demand.unmetKg, sourceId: s.stores.sourceId });
+  }
   function finish(s, at, reason) {
     const o = s.order;
+    reviewDueWindow(s);
     s.receipts.push({ id: o.id, at, requestedKg: o.requestedKg, loadedKg: o.loadedKg, deliveredKg: o.deliveredKg,
       retainedCargoKg: s.vehicle.cargoKg, ownerId: s.source.cityId, sourceId: s.stores.sourceId, reason });
+    if (Number.isFinite(o.dueAt)) s.receipts.at(-1).dueAt = o.dueAt;
     s.receipts.at(-1).encounterReports = copy(o.encounterReports || []);
     s.receipts.at(-1).spoiledKg = o.spoiledKg || 0;
     s.driver.assignment = null; s.order = null; note(s, at, reason);
@@ -188,7 +212,11 @@
   function cancel(s, succession, office, c, at) {
     if (!contact(c) || !authority(s, succession, office, c) || !s.order) return false;
     s.order.cancelRequested = true;
-    if (['approaching', 'boarding'].includes(s.order.phase)) s.order.reservedKg = 0;
+    if (['approaching', 'boarding'].includes(s.order.phase)) {
+      s.order.reservedKg = 0;
+      const due = pendingDue(s.order);
+      if (due != null && at < due) s.order.windowWaived = true;
+    }
     note(s, at, 'Cancellation recorded locally. Cargo, driver and vehicle still need actual return; no refund, recall teleport or cargo deletion.');
     // No radio is invented. An instruction cannot change an already departed
     // driver's behavior remotely; it is applied at their original return.
@@ -199,6 +227,9 @@
     // Small chronological slices keep finite food, handling, route positions
     // and new leg start dates honest even when accelerated by several days.
     while (s.lastAt < to) {
+      // Review only after all real dock handling at that instant, so a crate
+      // unloaded exactly at the deadline still counts as on time.
+      reviewDueWindow(s);
       const directive = s.standing;
       if (directive && c.standingAuthorized && directive.handoverId === s.handoverId && directive.bodyEpoch === s.bodyEpoch
         && directive.sourceId === s.stores.sourceId && c.standingWorkerAvailable && !s.order
@@ -219,6 +250,8 @@
       if (Number.isFinite(boundary) && boundary > 1e-7) dt = Math.min(dt, boundary);
       if (s.rest) dt = Math.min(dt, Math.max(.001, 28800 - s.rest.progress));
       if (['boarding', 'loading', 'unloading'].includes(s.order?.phase)) dt = Math.min(dt, Math.max(.001, HANDLE - s.order.handling));
+      const due = pendingDue(s.order);
+      if (due != null && due > s.lastAt) dt = Math.min(dt, due - s.lastAt);
       const activeJourney = s.network.journeys.find(j => j.id === s.order?.journeyId);
       if (activeJourney && ['enRoute', 'held', 'diverted', 'scheduled'].includes(activeJourney.status)) {
         const leg = activeJourney.route.legs[activeJourney.currentLegIndex], interruption = leg?.interruption;
@@ -306,6 +339,7 @@
         if (v.cargoKg === 0) { o.phase = 'returningToPost'; o.handling = 0; }
       }
     }
+    reviewDueWindow(s);
     return true;
   }
   function recover(s, succession, office, c, at) {
@@ -332,8 +366,9 @@
       // driver, fuel, health, crop, journey status or carrying information.
       farmAccount: s.farmAccount,
       instruction: s.order ? { id: s.order.id, issuedAt: s.order.issuedAt, requestedKg: s.order.requestedKg,
-        receivedKg: s.order.deliveredKg, status: 'Issued; unreceived progress unverified' } : null,
-      receipts: s.receipts, limits: LIMITS }); return true;
+        receivedKg: s.order.deliveredKg, status: 'Issued; unreceived progress unverified',
+        ...(pendingDue(s.order) != null || s.order.windowReviewed ? { dueAt: s.order.dueAt } : {}) } : null,
+      missedWindows: s.missedWindows || [], receipts: s.receipts, limits: LIMITS }); return true;
   }
   function replenish(s, succession, office, c, key, stacks, at) {
     if (!c.alive || !c.capable || !c.local || !c.free || !c.atDepot || c.violence || !authority(s, succession, office, c) || s.order || s.rest || s.vehicle.location !== 'city'

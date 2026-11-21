@@ -66,6 +66,9 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: original city quota
   expect(await action(page, 'dispatch', { ...quote, kg: 1200 })).toBe(false);
   await panel.locator('[data-provisioning-action="dispatch"]').click();
   s = await snapshot(page); expect(s.saved.order.phase).toBe('approaching'); expect(s.saved.vehicle.cargoKg).toBe(0);
+  const due = s.saved.order.dueAt;
+  expect(due).toBeGreaterThan(s.clock);
+  await expect(panel).toContainText('Original delivery deadline:');
   expect(s.saved.stores.farmKg).toBe(initial.saved.stores.farmKg);
   const dated = s.saved.report, driverId = s.saved.driver.id, vehicleId = s.saved.vehicle.id;
   // A real ordinary step through the production simulation, not only the
@@ -88,9 +91,16 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: original city quota
   // truck outside, not teleport an arrival through the scientist.
   await walk(page, { x: 18, y: 15, z: 6 });
   expect(await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState().scientist.mapCell)).toEqual({ x: 18, y: 15, z: 6 });
-  await tick(page, 1500); s = await snapshot(page);
+  await tick(page, Math.max(1500, due + 1 - (await snapshot(page)).clock)); s = await snapshot(page);
   expect(s.saved.order.phase).toBe('inbound'); expect(s.saved.driver.mapCell).toBeNull(); expect(s.saved.order.deliveredKg).toBe(0);
-  await reload(page); await walk(page, { x: 17, y: 8, z: 6 });
+  const late = s.saved.missedWindows[0];
+  expect(late).toMatchObject({ at: due, requestedKg: 400, receivedKg: 0, shortKg: 400 });
+  expect(s.saved.vehicle.cargoKg).toBe(400); expect(s.saved.stores.cityKg).toBeLessThan(initial.saved.stores.cityKg);
+  expect(s.saved.report.missedWindows).toEqual([]);
+  await expect(panel.locator('[data-municipal-dock-miss]')).toHaveCount(0);
+  await reload(page);
+  expect((await snapshot(page)).saved.missedWindows).toEqual([late]);
+  await walk(page, { x: 17, y: 8, z: 6 });
   for (let i = 0; i < 100 && (await snapshot(page)).saved.order; i++) {
     s = await snapshot(page); const j = s.saved.network.journeys.find(j => j.id === s.saved.order.journeyId);
     if (j?.status === 'stranded') expect(await action(page, 'recover')).toBe(true);
@@ -103,6 +113,8 @@ for (const renderer of ['dom', 'canvas']) test(`${renderer}: original city quota
   expect(s.saved.report).toEqual(dated); await panel.locator('[data-provisioning-action="report"]').click();
   s = await snapshot(page); expect(s.saved.report.receipts).toHaveLength(1); expect(s.saved.report.suppliedKg).toBeGreaterThan(0);
   await expect(panel).toContainText('400/400 kg received');
+  expect(s.saved.report.missedWindows).toEqual([late]);
+  await expect(panel.locator('[data-municipal-dock-miss]')).toContainText('0/400 kg unloaded by the deadline');
   expect(JSON.stringify(s.saved.report)).not.toMatch(/fuelKm|health|standingCropKg|workSeconds|journeyId|skills/);
   expect(s.succession.handover).toEqual(initial.succession.handover); expect(s.campaign).toEqual(initial.campaign);
   expect(s.stacks.filter(i => i.carriedBy === 'scientist')).toEqual(initial.stacks.filter(i => i.carriedBy === 'scientist'));

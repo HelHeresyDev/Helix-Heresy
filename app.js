@@ -92571,7 +92571,12 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     if (v) {
       panel.append(textEl('p', `Received ${formatClock(v.at)}: this contribution serves ${v.population} of ${v.cityPopulation} city residents at ${v.kgPerDay.toFixed(1)} kg/day. It does not establish coverage for the remaining city.`),
         textEl('p', `Municipal buffer at report: ${v.cityKg.toFixed(1)} kg; supplied ${v.suppliedKg.toFixed(1)} kg; unmet contribution ${v.unmetKg.toFixed(1)} kg. No automatic deaths, rebellion or revoked appointments.`));
-      if (v.instruction) panel.append(textEl('p', `${v.instruction.id}: ${v.instruction.status}; ${v.instruction.receivedKg} kg recorded at the city dock as of this report.`));
+      if (v.instruction) panel.append(textEl('p', `${v.instruction.id}: ${v.instruction.status}; ${v.instruction.receivedKg} kg recorded at the city dock as of this report.${Number.isFinite(v.instruction.dueAt)
+        ? ` Original delivery deadline: ${formatClock(v.instruction.dueAt)}.` : ''}`));
+      for (const miss of (v.missedWindows || []).slice(-3)) {
+        const row = textEl('p', `${formatClock(miss.at)} — missed delivery window: ${miss.receivedKg}/${miss.requestedKg} kg unloaded by the deadline; ${miss.shortKg} kg short. The quota buffer was ${miss.cityKg.toFixed(1)} kg. This dock entry does not establish the cause.`);
+        row.dataset.municipalDockMiss = miss.orderId; panel.append(row);
+      }
       for (const r of v.receipts.slice(-3)) panel.append(textEl('p', `${formatClock(r.at)} — ${r.deliveredKg}/${r.requestedKg} kg received; original legal owner ${r.ownerId}. ${r.reason}`));
     } else panel.append(textEl('p', 'No personal municipal supply report received. Neither opening this panel nor internet connectivity refreshes remote conditions.'));
     button('Cancel outstanding pickup without teleporting cargo', 'cancel', unavailable || !s.order);

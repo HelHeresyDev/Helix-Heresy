@@ -1385,6 +1385,35 @@ reloaded an actual hold for that animal, and delivered the full original load
 with the same truck and driver. Its dated road account was only exposed after
 receipt at the dock and survived a second reload.
 
+#### Missed grain delivery windows
+
+New municipal quota orders post a fixed dock deadline at issue: the planned
+original road legs, a depot and boarding allowance, and the per-crate load
+and unload times for the requested amount. Road holds, recovery and changes
+to a journey's live ETA do not move the dock deadline. Orders saved before
+this rule are not assigned a retroactive deadline.
+
+At the deadline the dock records only requested grain, actual unloads by
+then, the resulting shortfall, and the state of this quota contribution.
+A crate unloaded at the deadline counts as on time. A hold alone neither
+feeds the city nor spoils the load. Only actual stock covers continuing
+demand, and this small municipal buffer does not represent the whole city.
+Late unloading adds the same conserved cargo to the buffer and does not
+erase the missed window. Cancelling the instruction before departure can
+waive the outstanding deadline, but cannot erase a miss already recorded.
+
+The player must receive the existing dated counter report to see the dock
+entry. The deadline entry never claims a cause or remote position. A driver
+account of the road contact is separately available only after physical
+return and receipt. The original order links the two records without giving
+the city, the strategic evaluator, or the player a live report from the road.
+
+The focused native-road case holds a loaded inbound carrier past its
+deadline, restores the saved hold, and checks exact late cargo credit and
+separate cause reporting. The Chromium trip independently blocks the dock,
+reloads the missed window, and verifies that the player sees it only on
+receipt and still sees it after the full load arrives.
+
 ### Original encounter ownership
 
 Survey, walking and grain encounters now check the same run-local ownership

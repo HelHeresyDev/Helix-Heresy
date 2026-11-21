@@ -408,5 +408,5 @@
     return state;
   }
 
-  return { MODE_DEFS, ACTIVE_STATUSES, TERMINAL_STATUSES, createDestinationDirectory, defaultState, normalizeState, routePlan, createJourney, advance, cancelJourney, recoverStrandedJourney, publicJourney, nextEvent, nextPublicEvent, journeyForSubject };
+  return { MODE_DEFS, ACTIVE_STATUSES, TERMINAL_STATUSES, createDestinationDirectory, defaultState, normalizeState, routePlan, legDuration, createJourney, advance, cancelJourney, recoverStrandedJourney, publicJourney, nextEvent, nextPublicEvent, journeyForSubject };
 });
