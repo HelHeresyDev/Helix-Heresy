@@ -1515,13 +1515,14 @@ checks, not new ecological viability certificates.
 
 ## Fixed D acceptance still unfinished
 
-The [current integrated seasonal control](SEASONAL_VIABILITY.md#current-integrated-120-day-control)
-executes all 24 species for 120 days on source `e8a02b1f`, with conserved
+The [current integrated seasonal replay](SEASONAL_VIABILITY.md#integrated-120-day-replay-with-seasonal-winds)
+executes all 24 species for 120 days on source `43996615`, with conserved
 membership, reconciled species-level intake and twelve validated checkpoints.
-Habitat maintenance now passes in this sample, but five species retain feeding
-losses (including Lantern extinction), original-beast contacts remain zero and
-native adoption is only partially connected as described above. It remains rejected. The following four existing
-requirements are unchanged, not replaced with another prompt sequence.
+Habitat maintenance passes in this sample, but five species retain feeding
+losses, only one original Lantern remains without recruitment, and no
+original-beast contacts verify natural opposition. It remains rejected.
+Native adoption is only partially connected as described above. The following
+four existing requirements are unchanged, not replaced with another prompt sequence.
 
 1. Successful source allocation repair and full seasonal initial viability,
    including supplied ecological opposition and original source adoption without

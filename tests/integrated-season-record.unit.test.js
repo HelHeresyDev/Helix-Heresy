@@ -1,5 +1,6 @@
 const test = require('node:test'), assert = require('node:assert/strict');
 const result = require('../reference/integrated-seasonal-control.json');
+const seasonal = require('../reference/seasonal-wind-integrated-control.json');
 const close = (a, b) => assert.ok(Math.abs(a - b) <= 1e-7 * Math.max(1, Math.abs(a), Math.abs(b)), `${a} != ${b}`);
 test('recorded integrated control covers the complete original roster and conserves each species through all checkpoints', () => {
   assert.equal(result.sourceId, 'beast-habitat-source:e8a02b1f'); assert.equal(result.runtimeKernelCommit, 'cb7383e');
@@ -37,4 +38,28 @@ test('the integrated result retains actual feeding failures despite corrected ha
   const dying = result.milestones.find(r => r.day === 70).lanternCondition;
   assert.equal(dying.storedFoodKg, 0); assert.equal(dying.storedFatKg, 0); assert.ok(dying.maximumLivingHealth < 1);
   assert.match(result.scope, /no balance tuning or native adoption/);
+});
+test('the seasonal-wind record preserves all original accounts and actual meals without claiming recovery', () => {
+  const r = seasonal, id = 'beast:carrion-lantern', sum = key => Object.values(r.intakeAudit.bySpecies).reduce((n, row) => n + row[key], 0);
+  assert.equal(r.seed, result.seed); assert.equal(r.refinement, result.refinement);
+  assert.equal(r.original, result.original); assert.equal(r.regions, result.regions); assert.equal(r.populations, result.populations);
+  assert.notEqual(r.sourceId, result.sourceId); assert.notEqual(r.canonicalWorldDigest, result.canonicalWorldDigest);
+  assert.equal(r.coverage.until, r.coverage.cycleEnd); assert.equal(r.intakeAudit.until, 120 * 86400);
+  assert.equal(r.reusableWorldIdenticalAcrossCheckpoints, true);
+  assert.equal(r.original + r.born, r.counts.background + r.counts.detailed + r.counts.dead);
+  assert.equal(Object.keys(r.species).length, 24);
+  for (const bySpecies of Object.values(r.species)) assert.equal(bySpecies.original + bySpecies.born, bySpecies.living + bySpecies.dead);
+  assert.deepEqual(r.milestones.map(m => m.day), result.milestones.map(m => m.day));
+  assert.ok(r.milestones.every(m => m.receiptsReconciled && m.original + m.born === m.living + m.dead));
+  close(sum('foragedWetTissueKg'), r.foodWeb.foraging.eatenKg);
+  close(sum('atmosphericWaterL'), r.atmosphericWaterTakenL);
+  const wetKg = day => r.milestones.find(m => m.day === day).lanternIntake.foragedWetTissueKg;
+  assert.ok(wetKg(40) > wetKg(30)); assert.ok(wetKg(70) > wetKg(60));
+  for (const day of [80, 90, 100, 110, 120]) close(wetKg(day), wetKg(70));
+  close(wetKg(120), r.intakeAudit.bySpecies[id].foragedWetTissueKg);
+  assert.deepEqual(r.species[id], { original: 120, born: 0, living: 1, dead: 119 });
+  assert.deepEqual(r.lossesBySpecies[id], { background: 4, starvation: 96, dehydration: 19 });
+  assert.equal(r.habitatFloorBreaches.length, 0); assert.equal(r.maintenanceDeficits.length, 0);
+  assert.deepEqual(r.exhaustedRegions, []); assert.equal(r.foodWeb.contacts, 0);
+  assert.equal(r.status, 'rejected'); assert.equal(r.measuredStatus, 'rejected');
 });

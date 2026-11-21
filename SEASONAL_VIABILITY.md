@@ -75,7 +75,62 @@ the consumer needs carrion, or unavailable through an actual caregiver.
 exhaustion. Undocumented older snapshots remain `unrecorded`. None of these
 private snapshots enters animal knowledge or a public census.
 
-## Current integrated 120-day control
+## Integrated 120-day replay with seasonal winds
+
+The [current compact report](reference/seasonal-wind-integrated-control.json)
+records one fresh `source-small`, refinement-2 replay with runtime `af0fec9`
+and source `beast-habitat-source:43996615`. No simulation rules were changed for
+the replay. It has the same 24 species, 89 populations, 334 regions and 56,243
+original beasts as the pre-shelter control. Its source has seasonal wind
+rows and terrain shelters, but no coastal Wyrm nursery schools on this seed.
+This is a same-seed comparison, not an A/B run with only winds toggled.
+
+All twelve ten-day checkpoints normalized, preserved the same canonical world
+and reconciled membership and intake against the executed receipts.
+**56,243 originals + 190,892 births = 131,048 living + 116,087 dead.**
+The source remains **rejected**: 35 resource-shortfall records and 30 grouped
+scarcity-death records, representing 147 starvation deaths and 19 dehydration
+deaths. There were no habitat-floor breaches, completed-cycle maintenance
+deficits, exhausted regions, flood erosion or original-beast contacts. Zero
+contacts leave natural opposition unverified, not proven absent in every world.
+
+| Species with scarcity losses | Living / original | Starvation / dehydration | Foraged tissue (kg) |
+| --- | ---: | ---: | ---: |
+| Carrion Lantern | 1 / 120 | 96 / 19 | 35.63 |
+| Reef Wyrm | 0 / 23 | 23 / 0 | 14,065.66 |
+| Frostwake Leviathan | 0 / 12 | 12 / 0 | 21,882.05 |
+| Abyssal Bell | 0 / 12 | 12 / 0 | 305,367.04 |
+| Marsh Hydra | 8 / 12 | 4 / 0 | 53,613.76 |
+
+None of those five species recruited offspring. All three marine predators
+ate in this run, but their species totals do not tell us which individuals
+could feed often enough. The 171 first-shortfall records show regional
+animal matter but do not establish physical access or dietary compatibility.
+
+The Lanterns ate 25.15 kg by day 10, 26.33 kg by day 40 and 35.63 kg by day 70.
+They ate nothing more through day 120, including after the second wind turn
+at day 90. Total intake was 13.54 kg food-equivalent. The shelter-only run
+ate 43.75 kg and had seven Lanterns alive at day 80, compared with five here.
+Both runs ended with one survivor, no births and the same breakdown of
+Lantern deaths (96 starvation, 19 dehydration, four background). More food
+windows did not yield sustained feeding or recruitment in this replay.
+
+**Priority within #3.38-D:** trace one starving Lantern group through
+detection, approach, grip and completed ingestion at an actual carcass. Fix
+the first demonstrated access failure before changing wind strength or food
+supply again. Separately, the marine records point to per-group access and
+repeat feeding, not a blanket need for more regional prey biomass.
+
+Execution took 3,647.034 seconds (60.8 minutes); the expanded final account
+was 363 MB. Positioned wildlife carcass sites rose from 22,640 at day 30 to
+148,543 at day 70. Of the latter, 147,008 natural sites had no recorded
+consumption or active reservation. This is a diagnostic storage/runtime
+observation, not a measured browser save size or proof that those sites can
+be discarded. Raw checkpoints and the full report are in the ignored
+`.replay-checkpoints/current-source-small-VaeaU47X/`; only compact evidence
+is tracked. Use the replay command below with a fresh checkpoint directory.
+
+## Historical pre-shelter integrated 120-day control
 
 The later [shelter-only comparison](CARRION_LANTERN_APPROACH.md#terrain-backed-lee-air)
 also finished 120 days with all 24 species and twelve valid checkpoints. It

@@ -220,7 +220,7 @@ rules; archived worlds and existing run ledgers are not repaired in place.
 Current whole-food-web feeding/access, opposition and adoption remain unfinished
 inside D. This control does not replace the rejected full-season baseline.
 
-The subsequent [integrated 120-day replay](SEASONAL_VIABILITY.md#current-integrated-120-day-control)
+The subsequent [integrated 120-day replay](SEASONAL_VIABILITY.md#historical-pre-shelter-integrated-120-day-control)
 does run all species together on `e8a02b1f`. It records zero flood erosion,
 habitat-floor breaches and completed-cycle maintenance deficits, confirming the
 drainage result in the complete ecosystem rather than only its isolated copy.

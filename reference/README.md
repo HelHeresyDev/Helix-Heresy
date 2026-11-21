@@ -46,12 +46,12 @@ Glasswing Roc have no imaginary direct repair bonus; their ecological benefit
 comes from actual control of destructive populations. Zero is deliberate rather
 than unknown. Supply, damage, season and performed work still limit achieved rates.
 
-The [integrated seasonal control](integrated-seasonal-control.json) records the
-latest complete all-species baseline: source `e8a02b1f`, 120 days, all 24 species
-and twelve validated checkpoints, with per-species membership/intake and retained
-failure evidence. Habitat maintenance passes in this sample; five feeding-loss
-species leave measured viability rejected. Zero original-beast contacts also
-leave opposition unverified; no source adoption is claimed.
+The [seasonal-wind replay](seasonal-wind-integrated-control.json) is the latest
+complete all-species diagnostic: source `43996615`, 120 days, and twelve
+validated checkpoints. Habitat maintenance passes in this sample, but five
+species have scarcity deaths and no original-beast contacts verify opposition.
+The [pre-shelter control](integrated-seasonal-control.json), source `e8a02b1f`,
+remains available for comparison. Neither report claims native source adoption.
 The [post-drainage/post-care control](post-drainage-seasonal-control.json) and
 [pre-drainage control](seasonal-viability-control.json) remain historical,
 separate from these authored throughput ceilings. Those earlier results also fail.

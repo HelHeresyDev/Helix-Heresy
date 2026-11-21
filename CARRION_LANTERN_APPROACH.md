@@ -248,13 +248,15 @@ finite real carcass it can feed on, while the same starting position and
 carcass give no intake when the air continues offshore. They also verify
 save/reload across the turn and no retroactive native motion. The generated
 `source-small` map has 29 sea-to-surface borders where the component toward
-land changes sign across the year. This does not establish recurrent
-feeding, reproduction or ecosystem viability. No new full-season replay
-was run for this change.
+land changes sign across the year. The later
+[full-season replay](SEASONAL_VIABILITY.md#integrated-120-day-replay-with-seasonal-winds)
+recorded new meals in days 30–40 and 60–70, but none afterward. It finished
+with one original survivor and no births, the same as the shelter-only run.
+The same-seed comparison does not isolate wind as the cause of each meal.
 
 ## Pre-shelter integrated generated control
 
-The [complete pre-shelter ecosystem control](SEASONAL_VIABILITY.md#current-integrated-120-day-control)
+The [complete pre-shelter ecosystem control](SEASONAL_VIABILITY.md#historical-pre-shelter-integrated-120-day-control)
 uses fresh source `beast-habitat-source:e8a02b1f` and kernel `cb7383e`. It retains
 all 24 species, original wildlife, weather, corpses, care and work. All twelve
 ten-day checkpoints normalize. This replaces neither the historical isolated

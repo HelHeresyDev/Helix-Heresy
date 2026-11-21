@@ -85,7 +85,7 @@ wind-driven scavenger access, seasonal travelling groups, retained flooding and
 opposition/native adoption remain separate existing D requirements. No second
 complete seasonal replay is implied by these local results.
 
-The later [integrated 120-day control](SEASONAL_VIABILITY.md#current-integrated-120-day-control)
+The later [integrated 120-day control](SEASONAL_VIABILITY.md#historical-pre-shelter-integrated-120-day-control)
 does execute all species together using source `e8a02b1f`, including this
 placement rule. It retains 124 of 125 original Rimefangs (one background death,
 no scarcity deaths) and all twelve Nullmaws, with actual foraging and Rimefang
