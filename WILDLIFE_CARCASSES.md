@@ -295,3 +295,22 @@ certify native ecology throughput.
 ```sh
 npx playwright test tests/field-skip-performance.spec.js --project=chromium --workers=1
 ```
+
+### Populated-lab follow-up
+
+The same field scenario with twelve living slimes left in the lab ran eight
+group updates in 190 ms during a 19.93 s skip. All eight updates together
+accounted for less than 1% of the button time, so the five-second cadence
+experiment was not shipped. The four-second interrupted request showed the
+same pattern: four group updates in 94 ms out of 13.33 s. Neither the group
+schedule nor any gameplay timing changed in this pass.
+
+The larger costs in the completed field skip were the final redraw (6.74 s),
+the administration bucket (6.70 s), and the environment bucket (3.08 s).
+The administration bucket includes deadline-sensitive work as well as
+observation and slime AI refreshes; this measurement does not establish
+which of those routines dominates or that the whole bucket can run less often.
+
+```sh
+FIELD_SKIP_POPULATED_LAB=1 npx playwright test tests/field-skip-performance.spec.js --project=chromium --workers=1
+```
