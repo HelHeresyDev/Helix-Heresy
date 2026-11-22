@@ -2,6 +2,7 @@
 const { test, expect } = require('@playwright/test');
 const path = require('path');
 const { pathToFileURL } = require('url');
+const { createHash } = require('node:crypto');
 
 const appUrl = pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href;
 
@@ -62,4 +63,36 @@ test('property route designations can physically invalidate freight width', asyn
   expect(changed.state.zones.publicApproach).toContainEqual({ x: 64, y: 49, z: 1 });
   expect(changed.state.zones.freightApproach).not.toContainEqual({ x: 64, y: 49, z: 1 });
 
+});
+
+test('parcel assessment reflects an opened roof and restores the original sightlines on repair', async ({ page }) => {
+  test.setTimeout(120000);
+  await openDefaultState(page);
+  const { intact, open, repaired } = await page.evaluate(() => {
+    const d = window.helixHeresyDebug;
+    const cell = d.surfaceMapSnapshot().samples.interior;
+    if (!cell) throw new Error('Expected an interior surface cell');
+    const read = () => {
+      const { assessment, sightlines, fixtures } = d.propertyPresentationSnapshot();
+      return { envelope: d.surfaceEnvelopeForTest(cell).direct.kind, assessment, sightlines,
+        fixtures: fixtures.map(fixture => ({ id: fixture.id, type: fixture.typeId, origin: fixture.origin })) };
+    };
+    const intact = read();
+    const original = d.exportSurveyExpeditionTestState();
+    const changed = structuredClone(original);
+    const floors = changed.labMap.terrain.constructedFloors;
+    const roof = floors.findIndex(floor => floor.purpose === 'roof' && floor.cell.x === cell.x && floor.cell.y === cell.y && floor.cell.z === cell.z + 1);
+    if (roof < 0) throw new Error('Expected a roof directly above the selected cell');
+    floors.splice(roof, 1);
+    d.importSurveyExpeditionTestState(changed);
+    const open = read();
+    d.importSurveyExpeditionTestState(original);
+    return { intact, open, repaired: read() };
+  });
+  expect(intact.envelope).toBe('interior');
+  expect(open.envelope).toBe('outdoor');
+  expect(open.sightlines.targetCount).toBeGreaterThan(intact.sightlines.targetCount);
+  expect(repaired).toEqual(intact);
+  const digest = state => createHash('sha256').update(JSON.stringify(state)).digest('hex');
+  console.log(`Parcel comparison hashes (intact, opened roof): ${digest(intact)}, ${digest(open)}`);
 });

@@ -420,3 +420,37 @@ The focused shortcut check still stops on second four, displays the warning,
 keeps map focus, and reloads that outcome through Continue. The separate
 control check verifies missing-Biomass and low-Stamina explanations on full
 redraws and clears the Stamina blocker during an ordinary real-time map tick.
+
+### Shared parcel geometry for sightlines
+
+Parcel sightlines previously classified outdoor and covered ground twice,
+rebuilding the surface enclosure for individual cells. A sightline query now
+builds a single surface layout and classifies each candidate tile once. The
+property assessment reuses that layout for its exterior fixtures and stacks.
+It still checks current route obstructions and uses the same sight rays.
+There is no cache across queries: roofs, door breaches, and moved fixtures
+are picked up the next time the property is assessed.
+
+The same sightline routine runs inside external observation checks, so this
+also removes work during time advancement without changing its cadence or
+which observations qualify. The field timing measures the real `.` key event
+through the end of its synchronous handler, including simulation, saves and
+redraw, but not asynchronous browser painting.
+
+| Chromium field shortcut | Before | After |
+| --- | ---: | ---: |
+| Completed: property sightlines in redraw | 0.999 s | 0.032 s |
+| Completed: full redraw | 4.742 s | 3.861 s |
+| Completed: whole shortcut | 24.040 s | 13.472 s |
+| Threat interruption: property sightlines in redraw | 0.991 s | 0.031 s |
+| Threat interruption: full redraw | 4.908 s | 4.041 s |
+| Threat interruption: whole shortcut | 12.518 s | 7.888 s |
+
+The completed shortcut advanced the same 9.375 game seconds, and the attack
+still stopped it on second four with the same warning, focus, and save/reload
+behavior. These are paired measurements of the bounded field fixture, not a
+general throughput claim for regional ecology. A separate parcel fixture
+produced exactly the same serialized assessment, routes, exterior fixtures,
+and observer sightlines for the intact and opened-roof states before and after
+the optimization. The opening increased the exterior target count, and
+restoring the roof restored the exact original result.

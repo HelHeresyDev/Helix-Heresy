@@ -138,12 +138,17 @@ test('field Next Event shortcut redraws the current map, preserves focus and sho
       return d.wildernessBeastSnapshot();
     }, { saved: fieldStart, attack });
     await viewport.focus();
-    await page.evaluate(() => window.helixHeresyDebug.resetSimulationPerformance({ profileRenderSections: true }));
+    await page.evaluate(() => {
+      window.helixHeresyDebug.resetSimulationPerformance({ profileRenderSections: true });
+      let startedAt;
+      document.addEventListener('keydown', () => { startedAt = performance.now(); }, { capture: true, once: true });
+      document.addEventListener('keydown', () => { window.fieldShortcutMs = performance.now() - startedAt; }, { once: true });
+    });
     await page.keyboard.press('Period');
     const result = await page.evaluate(() => {
       const d = window.helixHeresyDebug, p = d.simulationPerformanceSnapshot();
       return { after: d.wildernessBeastSnapshot(), feed: document.getElementById('messageFeed').textContent,
-        paused: document.getElementById('pauseReadout').textContent, p };
+        paused: document.getElementById('pauseReadout').textContent, shortcutMs: window.fieldShortcutMs, p };
     });
     expect(result.p.livingSlimes).toBe(12);
     expect(result.p.render.calls).toBe(1);
@@ -156,7 +161,7 @@ test('field Next Event shortcut redraws the current map, preserves focus and sho
 
   const complete = await profile(false);
   const interrupted = await profile(true);
-  const costs = [complete, interrupted].map(({ advanced, p }) => ({ advanced,
+  const costs = [complete, interrupted].map(({ advanced, p, shortcutMs }) => ({ advanced, shortcutMs: Math.round(shortcutMs),
     saves: p.save.calls, saveMs: Math.round(p.save.totalMs), renderMs: Math.round(p.render.totalMs),
     startupUiCalls: p.startupUi.calls, startupUiMs: Math.round(p.startupUi.totalMs),
     mapSurfaceMs: Math.round(p.mapSurface.totalMs), sceneMs: Math.round(p.mapScene.totalMs),

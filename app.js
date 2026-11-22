@@ -8067,30 +8067,11 @@
     return target.propertyPresentation;
   }
 
-  function propertyPresentationFixtures() {
+  function propertyPresentationFixtures(map = ensureLabMap(), envelope = null) {
     return (state.fixtures || []).filter((fixture) => {
       if (!PropertyPresentation.PROPERTY_FIXTURE_DEFS[fixture.typeId]) return false;
-      const envelope = surfaceEnvelopeAtCell(fixture.origin);
-      return ["outdoor", "coveredExterior"].includes(envelope.kind);
+      return ["outdoor", "coveredExterior"].includes(surfaceEnvelopeAtCell(fixture.origin, map, envelope).kind);
     });
-  }
-
-  function propertyParcelCells() {
-    return PropertyPresentation.rectCells(SURFACE_PARCEL_RECT).filter((cell) =>
-      surfaceGroundAtCell(cell) && ["outdoor", "coveredExterior"].includes(surfaceEnvelopeAtCell(cell).kind)
-    );
-  }
-
-  function propertyOpaqueCellKeys() {
-    const opaque = new Set();
-    for (const cell of propertyParcelCells()) {
-      if (constructedWallAtCell(cell)) opaque.add(mapCellKey(cell));
-    }
-    for (const fixture of propertyPresentationFixtures()) {
-      if (!PropertyPresentation.PROPERTY_FIXTURE_DEFS[fixture.typeId]?.opaque) continue;
-      for (const cell of fixtureOccupiedVolumeCells(fixture)) opaque.add(mapCellKey(cell));
-    }
-    return opaque;
   }
 
   function propertyOpaqueFixtureAtCell(cell) {
@@ -8104,11 +8085,22 @@
     );
   }
 
-  function propertySightlines() {
+  function propertySightlines(map = ensureLabMap(), envelope = buildSurfaceEnvelopeContext(map)) {
+    const parcel = PropertyPresentation.rectCells(SURFACE_PARCEL_RECT).filter((cell) =>
+      surfaceGroundAtCell(cell, map) && ["outdoor", "coveredExterior"].includes(surfaceEnvelopeAtCell(cell, map, envelope).kind)
+    );
+    const opaque = new Set();
+    for (const cell of parcel) {
+      if (constructedWallAtCell(cell, map)) opaque.add(mapCellKey(cell));
+    }
+    for (const fixture of propertyPresentationFixtures(map, envelope)) {
+      if (!PropertyPresentation.PROPERTY_FIXTURE_DEFS[fixture.typeId]?.opaque) continue;
+      for (const cell of fixtureOccupiedVolumeCells(fixture)) opaque.add(mapCellKey(cell));
+    }
     return PropertyPresentation.sightlines(
       ensurePropertyPresentation(),
-      propertyParcelCells(),
-      propertyOpaqueCellKeys(),
+      parcel,
+      opaque,
       defaultPropertyPresentationOptions(state.localSiteContext)
     );
   }
@@ -8128,19 +8120,27 @@
   }
 
   function propertyPresentationAssessment() {
-    const sightlines = propertySightlines();
+    const section = renderSectionTimer("propertyAssessment:");
+    const map = ensureLabMap();
+    const envelope = buildSurfaceEnvelopeContext(map);
+    const sightlines = propertySightlines(map, envelope);
+    section("sightlines");
     const blockedCellKeys = labMapBlockingCellKeys();
+    // Placement can replace the normalized map object, but cannot move walls,
+    // floors or doors. Reuse the geometry while reading current positions.
+    const placedMap = ensureLabMap();
     const outdoorStacks = ensurePhysicalItemStacks().filter((stack) => {
       const cell = cleanMapCell(stack.cell);
-      return cell && cell.z === LAB_MAP_DEFAULT_SURFACE_Z && ["outdoor", "coveredExterior"].includes(surfaceEnvelopeAtCell(cell).kind) && stack.quantity > 0;
+      return cell && cell.z === LAB_MAP_DEFAULT_SURFACE_Z && ["outdoor", "coveredExterior"].includes(surfaceEnvelopeAtCell(cell, placedMap, envelope).kind) && stack.quantity > 0;
     }).map((stack) => ({ cell: stack.cell, tags: stack.tags || [], quantity: stack.quantity }));
     const result = PropertyPresentation.presentationAssessment(ensurePropertyPresentation(), {
-      fixtures: propertyPresentationFixtures(), sightlines, blockedCellKeys, outdoorStacks,
+      fixtures: propertyPresentationFixtures(placedMap, envelope), sightlines, blockedCellKeys, outdoorStacks,
       publicRoute: PropertyPresentation.routeStatus(ensurePropertyPresentation(), "public", blockedCellKeys, defaultPropertyPresentationOptions(state.localSiteContext)),
       freightRoute: PropertyPresentation.routeStatus(ensurePropertyPresentation(), "freight", blockedCellKeys, defaultPropertyPresentationOptions(state.localSiteContext)),
       context: state.localSiteContext, clock: state.clock
     }, defaultPropertyPresentationOptions(state.localSiteContext));
     state.propertyPresentation = result.state;
+    section("remaining");
     return result;
   }
 
