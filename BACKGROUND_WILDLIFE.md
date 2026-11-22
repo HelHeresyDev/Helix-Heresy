@@ -95,6 +95,14 @@ local receiving space and already committed broods. Funding accrues during the
 month; the incubation window follows that month's close. Birth success is saved,
 seeded aggregate rounding, not independent per-animal variance.
 
+[Seasonal offshore shoaling](HUNTING_HABITATS.md#seasonal-shoaling-after-depletion)
+is limited to the existing offshore school and one compatible donor hotspot.
+The runtime saves a monthly plan, at most six batch slots, and counts for
+departures, landings, returns and deaths. Travelers count in regional wildlife
+totals, but are not catchable at either endpoint. They keep paying adult fish
+upkeep and carry their health and mortality balance. Donor, transit and school
+must reconcile on reload; shoaling never changes founding abundance or capacity.
+
 Actual adult loss reduces pooled live-bearing gestation and disposes only its
 paid material. Already laid insect/fish eggs may survive parents, but dead adults
 cannot keep funding them. Failed or unsupported broods retain their material as

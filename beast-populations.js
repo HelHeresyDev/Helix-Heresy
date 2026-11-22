@@ -1250,7 +1250,7 @@
         if (r.airMoistureTakenL != null && !nonnegative(r.airMoistureTakenL)) return null;
         if (r.unmetTotals && !Object.values(r.unmetTotals).every(nonnegative)) return null;
         const rate = s.rates[r.id];
-        if (!Wildlife.valid(r, s.regionClocks?.[r.id]?.appliedAt ?? s.appliedAt, id => Demography.group(s, id), s.clock)
+        if (!Wildlife.valid(r, s.regionClocks?.[r.id]?.appliedAt ?? s.appliedAt, id => Demography.group(s, id), s.clock, s.calendar)
           || !Wildlife.validRates(r, rate)) return null;
         if (!rate || !['renewal', 'demand', 'supply'].every(k => rate[k] && Object.values(rate[k]).every(nonnegative))
           || !rate.net || !Object.values(rate.net).every(Number.isFinite)) return null;

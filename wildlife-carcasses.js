@@ -123,7 +123,7 @@
   }
   // The caller has already debited live membership and added the same body
   // matter to pool.carcass. These rows are reconciled local custody, not food.
-  function record(pool, n, kg, at, point) {
+  function record(pool, n, kg, at, point, transitDeath = false) {
     const space = pool.carcassSpace; if (!space || !n) return null;
     if (point) {
       const cell = `${Math.floor(point.eastM / KILL_M)}:${Math.floor(point.northM / KILL_M)}:${Math.floor(point.altitudeM / KILL_M)}`;
@@ -131,6 +131,7 @@
       const row = space.sites[id] ||= { ...empty(at), id, poolId: pool.id, killCell: cell, count: 0,
         referenceBodyKg: kg / n, position: { ...point } };
       T.add(row, kg); row.count += n; row.referenceBodyKg = Math.min(row.referenceBodyKg, kg / n); row.lastAt = at;
+      if (transitDeath) row.transitDeaths = (row.transitDeaths || 0) + n;
       return row;
     }
     const before = space.count; space.count += n; space.events.push([at, space.count, kg / n]);
@@ -305,10 +306,10 @@
     }
     return result; // Traversal work is transient instrumentation, not saved biological state.
   }
-  function valid(pool, regionId, at, initializedAt = 0) {
+  function valid(pool, regionId, at, initializedAt = 0, transitDeaths = 0) {
     const space = pool.carcassSpace;
     if (!pool.spatialCarcasses) return space == null;
-    if (!space || space.regionId !== regionId || space.startedAt !== initializedAt || !integer(space.count) || space.count !== pool.deadCount
+    if (!space || space.regionId !== regionId || space.startedAt !== initializedAt || !integer(space.count) || space.count + transitDeaths !== pool.deadCount
       || !Array.isArray(space.events) || !space.sites || typeof space.sites !== 'object' || Array.isArray(space.sites)) return false;
     let before = 0, bodyKg = 0, priorAt = -Infinity;
     for (const e of space.events) {
@@ -326,7 +327,7 @@
       if (historical.length !== expected.length || historical.some((e, i) => e[0] !== expected[i][0]
         || e[1] !== expected[i][1] || !close(e[2], expected[i][2]))) return false;
     }
-    let hunted = 0;
+    let hunted = 0, stranded = 0;
     const sums = Object.fromEntries(keys.map(k => [k, 0])), tissue = {};
     for (const [id, row] of Object.entries(space.sites)) {
       if (row.id !== id || row.poolId !== pool.id || row.retained != null && row.retained !== true
@@ -336,7 +337,7 @@
         || row.position.regionId !== regionId || !['eastM', 'northM', 'altitudeM'].every(k => Number.isFinite(row.position[k]))
         || !T.valid(row) || !close(row.initialMassKg, row.massKg + row.consumedKg + row.decomposedKg)) return false;
       if (row.path != null) {
-        if (typeof row.path !== 'string' || !/^[0-3]{0,48}$/.test(row.path) || id !== `${pool.id}:corpse:${row.path}`
+        if (row.transitDeaths != null || typeof row.path !== 'string' || !/^[0-3]{0,48}$/.test(row.path) || id !== `${pool.id}:corpse:${row.path}`
           || JSON.stringify(row.position) !== JSON.stringify(position(pool, row.path)) || row.count !== countAt(pool, space.count, row.path)) return false;
         const b = node(pool, row.path).bounds;
         if (Math.hypot(b.maxX - b.minX, b.maxY - b.minY) > CELL_M && row.path.length < 48) return false;
@@ -352,9 +353,10 @@
         if (!close(initial, row.initialMassKg) || row.referenceBodyKg !== smallest) return false;
       } else {
         const p = row.position, cell = `${Math.floor(p.eastM / KILL_M)}:${Math.floor(p.northM / KILL_M)}:${Math.floor(p.altitudeM / KILL_M)}`;
-        if (typeof row.killCell !== 'string' || row.killCell !== cell || id !== `${pool.id}:kill:${row.killCell}`
+        const n = row.transitDeaths ?? 0;
+        if (!integer(n) || n > row.count || typeof row.killCell !== 'string' || row.killCell !== cell || id !== `${pool.id}:kill:${row.killCell}`
           || row.referenceBodyKg * row.count > row.initialMassKg + 1e-6 * Math.max(1, row.initialMassKg)) return false;
-        hunted += row.count; bodyKg += row.initialMassKg;
+        hunted += row.count - n; stranded += n; bodyKg += row.initialMassKg;
       }
       for (const k of keys) sums[k] += row[k] || 0;
       for (const [k, t] of Object.entries(row.tissues || {})) {
@@ -362,7 +364,7 @@
         for (const k of Object.keys(sum)) sum[k] += t[k];
       }
     }
-    if (hunted !== pool.huntedCount || !close(bodyKg, pool.carcass.initialMassKg)) return false;
+    if (hunted !== pool.huntedCount || stranded !== transitDeaths || !close(bodyKg, pool.carcass.initialMassKg)) return false;
     return ['consumedKg', 'reservedKg'].every(k => close(sums[k], pool.carcass[k] || 0))
       && Object.entries(tissue).every(([k, sum]) => Object.entries(sum).every(([field, n]) => {
         const root = pool.carcass.tissues?.[k]?.[field] || 0;

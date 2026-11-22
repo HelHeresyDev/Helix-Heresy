@@ -6,10 +6,11 @@
     node ? require('./beast-bodies') : root.HelixBeastBodies,
     node ? require('./carrion-lantern-biology') : root.HelixCarrionLanternBiology,
     node ? require('./carcass-tissues') : root.HelixCarcassTissues,
-    node ? require('./wildlife-carcasses') : root.HelixWildlifeCarcasses);
+    node ? require('./wildlife-carcasses') : root.HelixWildlifeCarcasses,
+    node ? require('./beast-seasonal-journeys') : root.HelixBeastSeasonalJourneys);
   if (node) module.exports = api;
   root.HelixBackgroundWildlife = api;
-})(globalThis, function (Life, Biology, Bodies, Lantern, Tissues, Carcasses) {
+})(globalThis, function (Life, Biology, Bodies, Lantern, Tissues, Carcasses, Journeys) {
   'use strict';
   const DAY = 86400, EPS = 1e-8, DURATION = 300, copy = x => JSON.parse(JSON.stringify(x));
   // Initial guild tuning, not additional researchable/strategic creature species.
@@ -290,6 +291,48 @@
     return deaths.reduce((kg, n, i) => kg + n * profile(pool).adultKg * Tissues.animalKeys.reduce((fraction, key) =>
       fraction + Tissues.profiles[key].share * -Math.expm1(-Tissues.profiles[key].decayDay * (SETTLING_DAYS - i - .5)), 0), 0);
   }
+  // The single offshore pilot already requires mapped upwelling. Its fish
+  // use one cold-season window and a short route within the same water band.
+  // No regional fish movement is introduced for other pools or prey classes.
+  const SHOAL_BATCHES = 6, SHOAL_RANGE_M = 25000, SHOAL_SPEED_MPS = .2;
+  function shoalRoute(r) {
+    const school = r.wildlife.pools.find(p => p.habitatPatch === 'offshore-school');
+    if (!school) return null;
+    const target = school.spatial;
+    const routes = r.wildlife.pools.flatMap(donor => {
+      if (!donor.spatialCarcasses || donor.guild !== 'fish' || donor.sizeClass !== 'large' || donor.foodKey !== school.foodKey
+        || !donor.habitatPatch?.startsWith('hotspot-') || donor.spatial.depthTopM !== target.depthTopM
+        || donor.habitatDepthM !== school.habitatDepthM) return [];
+      const distance = Math.hypot(donor.spatial.eastM - target.eastM, donor.spatial.northM - target.northM);
+      if (distance > SHOAL_RANGE_M || distance + target.radiusM > donor.spatial.radiusM) return [];
+      return [{ donor, school, seconds: Math.max(1, distance / SHOAL_SPEED_MPS) }];
+    }).sort((a, b) => a.seconds - b.seconds || a.donor.id.localeCompare(b.donor.id));
+    return routes[0] || null;
+  }
+  function shoalSeason(r) {
+    if (!r.seasons?.length) return -1;
+    const cold = r.seasons.reduce((i, row, j, all) => row.temperatureC < all[i].temperatureC ? j : i, 0);
+    return r.seasons[cold].renewal.planktonKg > 0
+      && r.seasons.some(s => s.temperatureC > r.seasons[cold].temperatureC) ? cold : -1;
+  }
+  const shoalDeparture = (p, slot, seconds) => p.openedAt + (p.end - p.openedAt - seconds * 2) * (slot + 1) / (SHOAL_BATCHES + 1);
+  const shoalQuota = (p, slot) => Math.floor(p.budget * (slot + 1) / SHOAL_BATCHES) - Math.floor(p.budget * slot / SHOAL_BATCHES);
+  const shoalAdult = (pool, c, at) => c.count > 0 && c.health >= .6
+    && c.massKg === profile(pool).adultKg && at - c.bornAt >= profile(pool).adultDays * DAY;
+  const shoalSuitable = (r, school) => suitable(r, school) && !r.contactBarriers?.length;
+  function planShoal(r, month, at) {
+    if (month.season !== shoalSeason(r)) return;
+    const route = shoalRoute(r);
+    if (!route || month.end - at <= 2 * route.seconds || !shoalSuitable(r, route.school)) return;
+    const { donor, school } = route;
+    const w = r.wildlife;
+    if (w.shoal?.plan.index === month.index || w.shoal?.transit.length) return;
+    const adults = donor.cohorts.reduce((n, c) => n + (shoalAdult(donor, c, at) ? c.count : 0), 0);
+    const budget = Math.min(Math.floor(school.originalCount / 2), Math.floor(adults * .01));
+    if (!budget) return;
+    w.shoal ||= { donorId: donor.id, schoolId: school.id, transit: [], departed: 0, arrived: 0, returned: 0, lost: 0 };
+    w.shoal.plan = { index: month.index, start: month.start, openedAt: at, end: month.end, adults, budget, nextSlot: 0 };
+  }
   function plan(r, month, at) {
     if (!r.wildlife) return;
     for (const pool of r.wildlife.pools) {
@@ -305,6 +348,7 @@
       if (targetCount) pool.broods.push({ id: `${pool.id}:brood:${month.index}`, monthIndex: month.index,
         targetCount, investedKg: 0, dueAt: month.end + p.incubationDays * DAY });
     }
+    if (r.wildlife.pools.some(p => p.habitatPatch === 'offshore-school')) planShoal(r, month, at);
   }
   function prepare(r, at, rate) {
     if (!r.wildlife) return [];
@@ -327,6 +371,8 @@
         broodId: brood.id, perDay: pool.plan.costPerDay, remainingKg: brood.targetCount * p.newbornKg - brood.investedKg,
         recipe: { [pool.foodKey]: 1 }, assimilation: p.assimilation });
     }
+    for (const c of r.wildlife.shoal?.transit || [])
+      rate.demand.planktonKg = (rate.demand.planktonKg || 0) + sizeClasses.fish.large.foodDay * c.count;
     for (const q of requests) q.inputs = Object.fromEntries(Object.entries(q.recipe).map(([key, share]) => [key, share * q.perDay]));
     return requests;
   }
@@ -354,8 +400,21 @@
     for (const q of rate.wildlifeRates || []) if (q.perDay * q.factor > EPS)
       end = Math.min(end, at + q.remainingKg / (q.perDay * q.factor * q.assimilation) * DAY);
     for (const q of r.wildlife.pending) end = Math.min(end, q.dueAt);
+    const s = r.wildlife.shoal;
+    if (s) {
+      if (s.plan.nextSlot < SHOAL_BATCHES) end = Math.min(end, shoalDeparture(s.plan, s.plan.nextSlot, shoalRoute(r).seconds));
+      if (s.transit.length) {
+        const missing = shoalShortage(r, rate);
+        for (const c of s.transit) {
+          end = Math.min(end, c.dueAt);
+          if (missing > EPS && c.health > EPS) end = Math.min(end, at + c.health / (missing * .2) * DAY);
+        }
+      }
+    }
     return end;
   }
+  const shoalShortage = (r, rate) => Math.max(shoalSuitable(r, r.wildlife.pools.find(p => p.id === r.wildlife.shoal.schoolId)) ? 0 : 1,
+    1 - (rate.supply.planktonKg ?? 0));
   function integrate(r, rate, from, to) {
     if (!r.wildlife) return;
     const days = (to - from) / DAY;
@@ -376,6 +435,18 @@
       if (q.kind === 'wildlifeGrowth') {
         const c = pool.cohorts.find(c => c.id === q.cohortId); if (c?.count) c.massKg += gain / c.count;
       } else pool.broods.find(b => b.id === q.broodId).investedKg += gain;
+    }
+    const s = r.wildlife.shoal;
+    if (s?.transit.length) {
+      const donor = r.wildlife.pools.find(p => p.id === s.donorId), p = profile(donor), missing = shoalShortage(r, rate);
+      for (const c of s.transit) {
+        const food = p.foodDay * c.count * (rate.supply.planktonKg ?? 0) * days;
+        donor.maintenanceKg += food;
+        output(r, 'wildlifeMetabolicWasteKg', food);
+        c.health = Math.max(0, c.health - missing * .2 * days);
+        const hazard = p.mortalityDay * days;
+        c.mortalityBalance += c.count * Math.exp(-c.hazard) * -Math.expm1(-hazard); c.hazard += hazard;
+      }
     }
     for (const pool of r.wildlife.pools) {
       const row = pool.carcass, elapsed = Math.max(0, to - Math.max(row.lastAt, row.frozenUntil || 0)) / DAY;
@@ -402,8 +473,56 @@
     c.mortalityBalance *= c.count / Math.max(1, c.count + n);
     pool[hunted ? 'huntedCount' : 'deadCount'] += n;
     Tissues.add(pool.carcass, kg);
-    Carcasses.record(pool, n, kg, at, hunted ? point : null);
+    Carcasses.record(pool, n, kg, at, point, !hunted);
     return n;
+  }
+  function finishShoal(r, at) {
+    const s = r.wildlife.shoal;
+    if (!s || (!s.transit.length && s.plan.nextSlot === SHOAL_BATCHES)) return;
+    const { donor, school, seconds } = shoalRoute(r);
+    const keep = [];
+    for (const c of s.transit) {
+      if (c.dueAt > at + EPS && c.health > EPS) { keep.push(c); continue; }
+      const lost = c.health <= EPS ? c.count : Math.min(c.count, Math.floor(c.mortalityBalance));
+      if (lost) {
+        const [a, b] = c.returning ? [school.spatial, donor.spatial] : [donor.spatial, school.spatial];
+        const legStart = c.departedAt + (c.returning ? seconds : 0);
+        const progress = Math.min(1, Math.max(0, (at - legStart) / seconds));
+        const pos = { regionId: r.id, eastM: a.eastM + (b.eastM - a.eastM) * progress,
+          northM: a.northM + (b.northM - a.northM) * progress, altitudeM: -a.depthTopM - donor.habitatDepthM / 2 };
+        // Transit deaths belong to the departure ledger but leave matter
+        // at the actual point reached, never at the fishing destination.
+        c.mortalityBalance = Math.max(0, c.mortalityBalance - lost);
+        lose(r, donor, c, lost, false, at, pos);
+        s.lost += lost;
+      }
+      if (!c.count) continue;
+      const reserved = school.broods.reduce((n, b) => n + b.targetCount, 0);
+      const condition = r.ecology?.referenceCondition.renewableBiomass > 0
+        ? Math.min(1, r.condition.renewableBiomass / r.ecology.referenceCondition.renewableBiomass) : 1;
+      // Fish do not know space available when they set out. Refusal at a
+      // full or unsuitable school costs a real return trip.
+      if (!c.returning && (!shoalSuitable(r, school) || total(school) + reserved + c.count > Math.floor(school.capacityCount * condition))) {
+        c.returning = true; c.dueAt = c.departedAt + 2 * seconds; keep.push(c); continue;
+      }
+      const { slot, departedAt, dueAt, returning, ...cohort } = c;
+      (returning ? donor : school).cohorts.push(cohort);
+      s[returning ? 'returned' : 'arrived'] += c.count;
+    }
+    s.transit = keep;
+    const p = s.plan;
+    while (p.nextSlot < SHOAL_BATCHES && shoalDeparture(p, p.nextSlot, seconds) <= at + EPS) {
+      const slot = p.nextSlot++, n = shoalQuota(p, slot);
+      if (!n || !shoalSuitable(r, school)) continue;
+      const stock = donor.cohorts.find(c => shoalAdult(donor, c, at));
+      if (!stock) continue;
+      const count = Math.min(n, stock.count), share = stock.mortalityBalance * count / stock.count;
+      const departedAt = shoalDeparture(p, slot, seconds);
+      s.transit.push({ ...stock, id: `${school.id}:shoal:${p.index}:${slot}`, slot, count,
+        mortalityBalance: share, departedAt, dueAt: departedAt + seconds, returning: false });
+      stock.count -= count; stock.mortalityBalance -= share; s.departed += count;
+    }
+    donor.cohorts = donor.cohorts.filter(c => c.count);
   }
   function boundary(r, at, daily) {
     if (!r.wildlife) return;
@@ -438,6 +557,7 @@
       }
     }
     if (daily) r.wildlife.lastDemographyAt = at;
+    finishShoal(r, at);
   }
   function begin(r, g, c, a, at, position, credited = 0) {
     if (!r.wildlife || r.wildlife.pools.some(p => p.spatial) || c.contactBusyUntil > at || !a.life.will || a.life.willing === false || a.health < a.maxHealth * .3
@@ -615,12 +735,46 @@
         && Math.hypot(p.spatial.eastM, p.spatial.northM) + p.spatial.radiusM <= Math.sqrt(r.areaHa * 10000 / Math.PI) + EPS
         && (p.guild !== 'fish' || p.spatial.depthTopM + p.habitatDepthM <= r.depthM + EPS)));
   }
-  function valid(r, at, group, clock = at) {
+  function validShoal(r, at, calendar) {
+    const s = r.wildlife.shoal;
+    if (s === undefined) return true;
+    if (!s || !calendar) return false;
+    const route = shoalRoute(r), p = s.plan;
+    if (!route || route.school.id !== s.schoolId || route.donor.id !== s.donorId
+      || !['departed', 'arrived', 'returned', 'lost'].every(k => integer(s[k]))
+      || !Array.isArray(s.transit) || s.transit.length > SHOAL_BATCHES
+      || !p || !integer(p.index) || !finite(p.start) || !finite(p.openedAt) || !finite(p.end)
+      || p.openedAt < p.start || p.openedAt > at + EPS || p.end - p.openedAt <= 2 * route.seconds
+      || !integer(p.adults) || !integer(p.budget) || !p.budget
+      || p.budget !== Math.min(Math.floor(route.school.originalCount / 2), Math.floor(p.adults * .01))
+      || !integer(p.nextSlot) || p.nextSlot > SHOAL_BATCHES) return false;
+    const month = Journeys.monthAt(calendar, p.start), near = (a, b) => Math.abs(a - b) <= 1e-7;
+    if (month.index !== p.index || month.start !== p.start || month.end !== p.end || month.season !== shoalSeason(r)
+      || p.nextSlot && shoalDeparture(p, p.nextSlot - 1, route.seconds) > at + EPS
+      || p.nextSlot < SHOAL_BATCHES && shoalDeparture(p, p.nextSlot, route.seconds) <= at - EPS) return false;
+    const slots = new Set();
+    for (const c of s.transit) {
+      if (!c || !integer(c.slot) || c.slot >= p.nextSlot || slots.has(c.slot)
+        || c.id !== `${s.schoolId}:shoal:${p.index}:${c.slot}`
+        || !integer(c.count) || !c.count || c.count > shoalQuota(p, c.slot)
+        || !finite(c.health) || !c.health || c.health > 1 || !finite(c.hazard) || !finite(c.mortalityBalance)
+        || !Number.isFinite(c.bornAt) || c.departedAt - c.bornAt < profile(route.donor).adultDays * DAY
+        || c.massKg !== profile(route.donor).adultKg || typeof c.returning !== 'boolean'
+        || !near(c.departedAt, shoalDeparture(p, c.slot, route.seconds)) || c.departedAt > at + EPS
+        || !near(c.dueAt, c.departedAt + route.seconds * (c.returning ? 2 : 1)) || c.dueAt <= at - EPS
+        || c.returning && at + EPS < c.departedAt + route.seconds
+        || route.donor.cohorts.some(p => p.id === c.id) || route.school.cohorts.some(p => p.id === c.id)) return false;
+      slots.add(c.slot);
+    }
+    return s.departed === s.arrived + s.returned + s.lost + s.transit.reduce((n, c) => n + c.count, 0);
+  }
+  function valid(r, at, group, clock = at, calendar = null) {
     if (!r.wildlife) return true;
     if (!validDefinition(r)) return false;
     const w = r.wildlife;
     if (!finite(w.initializedAt) || !finite(w.lastDemographyAt) || w.lastDemographyAt > at + EPS
-      || !integer(w.serial) || !Array.isArray(w.pending)) return false;
+      || !integer(w.serial) || !Array.isArray(w.pending) || !validShoal(r, at, calendar)) return false;
+    const s = w.shoal, transit = s?.transit.reduce((n, c) => n + c.count, 0) || 0;
     for (const pool of w.pools) {
       if (pool.establishedDays) {
         const e = pool.establishment, deaths = initialDeaths(pool);
@@ -641,13 +795,14 @@
       if (pool.broods.some(b => typeof b.id !== 'string' || !b.id || !integer(b.monthIndex) || !integer(b.targetCount) || !finite(b.investedKg) || !finite(b.dueAt)
         || b.investedKg > b.targetCount * profile(pool).newbornKg + EPS)) return false;
       const row = pool.carcass;
-      if (!Carcasses.valid(pool, r.id, at, w.initializedAt)) return false;
+      if (!Carcasses.valid(pool, r.id, at, w.initializedAt, s?.donorId === pool.id ? s.lost : 0)) return false;
       if (!row || !Tissues.valid(row) || !['initialMassKg', 'massKg', 'edibleKg', 'consumedKg', 'decomposedKg', 'lastAt'].every(k => finite(row[k]))
         || row.edibleKg > row.massKg + 1e-6 * Math.max(1, row.massKg) || row.lastAt > at + EPS
         || Math.abs(row.initialMassKg - row.massKg - row.consumedKg - row.decomposedKg) > 1e-6 * Math.max(1, row.initialMassKg)) return false;
-      if (total(pool) + pool.deadCount + pool.huntedCount !== pool.originalCount + pool.bornCount) return false;
+      const moved = s?.donorId === pool.id ? -s.arrived - transit : s?.schoolId === pool.id ? s.arrived : 0;
+      if (total(pool) + pool.deadCount + pool.huntedCount !== pool.originalCount + pool.bornCount + moved) return false;
       const accounted = mass(pool) + pool.broods.reduce((n, b) => n + b.investedKg, 0) + row.initialMassKg + pool.discardedKg;
-      if (Math.abs(accounted - pool.originalMassKg - pool.fundedKg) > 1e-6 * Math.max(1, accounted)) return false;
+      if (Math.abs(accounted - pool.originalMassKg - pool.fundedKg - moved * profile(pool).adultKg) > 1e-6 * Math.max(1, accounted)) return false;
     }
     const claimed = new Set(), ids = new Set();
     return w.pending.every(q => {
@@ -683,6 +838,9 @@
       startingDead: 0, startingCarcassKg: 0, startingDecomposedKg: 0 };
     for (const r of s.regions) if (r.wildlife) {
       result.pending += r.wildlife.pending.length;
+      for (const c of r.wildlife.shoal?.transit || []) {
+        result.living += c.count; result.liveKg += c.count * c.massKg; result.cohorts++;
+      }
       for (const pool of r.wildlife.pools) {
         result.original += pool.originalCount; result.born += pool.bornCount; result.living += total(pool);
         result.dead += pool.deadCount; result.hunted += pool.huntedCount; result.liveKg += mass(pool);

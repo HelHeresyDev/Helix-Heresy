@@ -218,3 +218,42 @@ from both the school and surrounding water **plus** a drawdown of its
 8,000 kg starting fat reserve. This verifies repeated feeding and finite
 depletion in one month, not a self-sustaining school or seasonal viability
 under competition.
+
+### Seasonal shoaling after depletion
+
+An archived offshore school can receive adult large fish from an existing
+hotspot; the diffuse pool does not supply replacements. The nearest compatible
+hotspot must enclose the school, occupy the same water depth band, and be
+within 25 km center-to-center. Only the coldest local annual phase can trigger
+the plan, and only if it has positive plankton renewal. A nonseasonal region
+has no cue.
+The plan uses current healthy adult abundance, not the Bell's location or
+hunger, and does not query future conditions at the destination.
+
+Up to 1% of the donor's healthy, full-grown fish, capped at half the school's
+founding count, depart in six staggered batches at 0.2 m/s. Each batch leaves
+the donor before it becomes available at the school and pays upkeep from the
+same regional plankton account. If the school has no room after existing
+broods, or local conditions are unsuitable, the fish take a real return trip.
+Any fish that die in transit leave finite remains at the point reached. No
+travelers, births, fish capacity or food are granted on load. A world whose
+archive has no offshore school still has none.
+
+In a 60-day isolated replay of the same original Bell and school, the first
+month was identical in both branches. In month two, the reachable hotspot
+sent 301 adults over six trips of 22.89 hours each. All 301 arrived; none
+were returned or lost in that replay. The control suppressed only departures.
+
+| Days 30–60 | Same school, no shoaling | Seasonal shoaling |
+| --- | ---: | ---: |
+| Total fish tissue eaten | 12,358.57 kg | 16,808.26 kg |
+| Tissue eaten from the school | 6.10 kg | 4,520.20 kg |
+| First food shortfall | Day 42.95 | None in window |
+| Health at day 60 | 38.1% | 100% |
+| Original fat reserve remaining | 0 kg | 706.28 kg |
+
+Moving the donor out of reach left the school without adults through day 60.
+A mid-trip reload reproduced the eventual fish, remains, and Bell state;
+forged duplicate custody was rejected. The Bell still drew down its starting
+fat and ate surrounding prey, so this does not establish a self-sustaining
+school, viability through a year, or viability with competing Bells.
