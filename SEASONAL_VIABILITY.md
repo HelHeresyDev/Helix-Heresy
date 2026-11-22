@@ -123,6 +123,11 @@ feeding evidence, not a blanket increase in regional prey biomass.
 separately tested whether one original could still hunt late in the month.
 It restored late feeding attempts and real intake, but did not meet the
 individual's food needs in the replay window.
+The [offshore school pilot](HUNTING_HABITATS.md#finite-offshore-school-at-an-abyssal-bell-home)
+separately covers one new-world Bell's first month using the same total
+fish and starting position as a dispersed control. It draws down finite
+adult prey and original reserves. It does not revise the archived seasonal
+result or certify long-term supply.
 
 Execution took 3,647.034 seconds (60.8 minutes); the expanded final account
 was 363 MB. Positioned wildlife carcass sites rose from 22,640 at day 30 to

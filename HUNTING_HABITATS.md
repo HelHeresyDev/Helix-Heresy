@@ -174,3 +174,47 @@ node scripts/replay-bell-search-pacing.js \
 git show 8571f30:beast-foraging.js | node scripts/replay-bell-search-pacing.js \
   .replay-checkpoints/current-source-small-VaeaU47X/day-40.json 52 --baseline-stdin
 ```
+
+## Finite offshore school at an Abyssal Bell home
+
+At most one pilot school is allocated per eligible new world. The generator
+looks for a compatible original Bell home inside an existing large-fish
+hotspot in productive upwelling water at least 200 m deep. The school occupies
+a 200 m radius within that hotspot and retains the donor's fish depth band.
+It transfers at most 2% of the region's original diffuse **large** fish and
+their proportional spare carrying capacity, with a density ceiling of
+1,200 kg/ha. A site without enough donor fish for one basal Bell ration or
+adequate regional plankton for the initial fish upkeep does not qualify.
+
+This does not move the Bell or give it a target. The school uses the same
+position, depth, search, finite catch, handling, and ingestion rules as other
+wildlife. Any hunter that reaches it uses the same prey ledger. Neither the
+region's food stocks and renewal nor its original fish counts, mass, and
+capacity increase. An archive without the school row retains its exact prior
+source. The row is validated from its original world geography, not inferred
+or added on load.
+
+The generated `source-small` control moves 603 large fish (15,075 kg)
+and 904 carrying-capacity slots to one school in `habitat:138:waterColumn`.
+The site lies in a 2,455 m water column, but the fish still occupy the
+existing 5–20 m band. Two isolated month-long runs used the same original
+male `natural-group:beast-population:abyssal-bell:01:0:males`, starting
+position, monthly search allowance, and total original fish. A day-15
+save/reload continued to day 20 with identical prey, carcass, and Bell state.
+
+| First 30 days | Fish dispersed | Offshore school |
+| --- | ---: | ---: |
+| Actual search | 144.00 h | 63.12 h |
+| Total fish tissue eaten | 10,044.45 kg | 13,308.66 kg |
+| Tissue eaten from the pilot school | — | 8,995.81 kg |
+| First food shortfall | Day 26.75 | None in window |
+| Health at day 30 | 86.5% | 100% |
+| Original fat reserve remaining | 0 kg | 2,951.19 kg |
+
+The Bell made new catches from the same school after its first meal; its
+school hunt ledger recorded 600 fish taken. None of the original adults
+remained by day 25. The Bell covered maintenance in this window with prey
+from both the school and surrounding water **plus** a drawdown of its
+8,000 kg starting fat reserve. This verifies repeated feeding and finite
+depletion in one month, not a self-sustaining school or seasonal viability
+under competition.

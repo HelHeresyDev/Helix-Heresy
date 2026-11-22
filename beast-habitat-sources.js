@@ -418,6 +418,7 @@
         if (wildlife) Wildlife.apply({ regions }, { ...wildlife,
           ...(wildlife.spatialRows ? { spatialRows: wildlife.spatialRows.filter(row => selected.has(row[0])) } : {}),
           ...(wildlife.reefSchoolRows ? { reefSchoolRows: wildlife.reefSchoolRows.filter(row => selected.has(row[0])) } : {}),
+          ...(wildlife.offshoreSchoolRows ? { offshoreSchoolRows: wildlife.offshoreSchoolRows.filter(row => selected.has(row[0])) } : {}),
           ...(wildlife.allocations ? { allocations: wildlife.allocations.filter(row => selected.has(row.regionId)) } : {}) });
         return regions;
       },
@@ -654,7 +655,38 @@
         tie: random(`${salt}:${pool.id}:tie`) }];
     });
   }
-  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false, habitatAccess = false, windTransport = false, lanternMoisture = false, wildlifeDistribution = false, wildlifeCarcasses = false, establishedHabitats = false, wetlandDrainage = false, huntingHabitatAccess = false, catchmentDrainage = false, lanternHabitatAccess = false, windShelters = false, seasonalWind = false, coastalReefs = false, burrowMouths = false, coastalSchools = false) {
+  function offshoreSchoolRows(source, map, wildlife) {
+    const byId = new Map(source.regions.map(r => [r.id, r])), reef = new Set((wildlife.reefSchoolRows || []).map(([id]) => id));
+    const speciesId = 'beast:abyssal-bell', life = Biology.lifecycle[speciesId];
+    const candidates = source.groups.filter(g => g.speciesId === speciesId).flatMap(g => {
+      const r = byId.get(g.regionId);
+      const site = { eastM: g.home.eastKm * 1000, northM: g.home.northKm * 1000, radiusM: Wildlife.SCHOOL_MAX_RADIUS_M };
+      // An original Bell home inside an existing fish hotspot in deep,
+      // productive upwelling water. Neither home nor later knowledge changes.
+      return !reef.has(r.id) && Wildlife.validOffshoreSchoolSite(r, site)
+        && map.climate.oceanCurrentClasses[r.source.cellIndex] === 'U'
+        && r.seasons.some(s => s.temperatureC >= life.minC && s.temperatureC <= life.maxC) ? [{ g, r, site }] : [];
+    });
+    if (!candidates.length) return [];
+    const ids = new Set(candidates.map(({ r }) => r.id));
+    const definitions = Wildlife.definitions({ ...wildlife, reefSchoolRows: undefined, spatialRows: wildlife.spatialRows.filter(([id]) => ids.has(id)) },
+      source.regions.filter(r => ids.has(r.id)));
+    const poolsById = new Map(definitions.map(row => [row.regionId, row.pools]));
+    for (const { g, r, site } of candidates) {
+      const pools = poolsById.get(r.id) || [];
+      const hotspot = pools.find(p => p.guild === 'fish' && p.sizeClass === 'large' && p.habitatPatch.startsWith('hotspot-')
+        && g.home.depthM >= p.spatial.depthTopM && g.home.depthM <= p.spatial.depthTopM + p.habitatDepthM
+        && Math.hypot(site.eastM - p.spatial.eastM, site.northM - p.spatial.northM) + site.radiusM <= p.spatial.radiusM);
+      if (!hotspot) continue;
+      const donor = pools.find(p => Wildlife.offshoreSchoolCount(p, site) > 0);
+      if (!donor) continue;
+      const fish = Wildlife.offshoreSchoolCount(donor, site), prey = Wildlife.profile(donor);
+      if (fish * prey.adultKg * .6 < life.foodKgDay || r.seasons.some(s => s.renewal.planktonKg < fish * prey.foodDay)) continue;
+      return [[r.id, site]]; // One pilot school per eligible generated world.
+    }
+    return [];
+  }
+  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false, habitatAccess = false, windTransport = false, lanternMoisture = false, wildlifeDistribution = false, wildlifeCarcasses = false, establishedHabitats = false, wetlandDrainage = false, huntingHabitatAccess = false, catchmentDrainage = false, lanternHabitatAccess = false, windShelters = false, seasonalWind = false, coastalReefs = false, burrowMouths = false, coastalSchools = false, offshoreSchool = false) {
     const calendar = { epochAt: 0, monthDays: Local.PHASES.map(() => Local.PHASE_DAYS) };
     const patches = patchRows.map(row => expandPatch(map, row, calendar, physical)), groupRows = [], populations = [], unlocated = [];
     const worldPopulations = populationsFor(map), foodUse = new Map(), feedingRows = [];
@@ -816,7 +848,14 @@
         });
       }
     }
-    if (wildlife) { record.backgroundWildlife = Wildlife.allocate(expanded, seed, { distributed: wildlifeDistribution, carcassBatches: wildlifeCarcasses, reefSchools }); Wildlife.apply(expanded, record.backgroundWildlife); }
+    if (wildlife) {
+      record.backgroundWildlife = Wildlife.allocate(expanded, seed, { distributed: wildlifeDistribution, carcassBatches: wildlifeCarcasses, reefSchools });
+      if (offshoreSchool && wildlifeDistribution) {
+        const rows = offshoreSchoolRows(expanded, map, record.backgroundWildlife);
+        if (rows.length) record.backgroundWildlife.offshoreSchoolRows = rows;
+      }
+      Wildlife.apply(expanded, record.backgroundWildlife);
+    }
     const assessment = forecast(expanded, map);
     for (const p of populations) {
       p.locatedIndividualCount = expanded.groups.filter(g => g.populationId === p.populationId)
@@ -862,12 +901,13 @@
     const seasonalWind = best.windTransport === true && options.seasonalWind !== false;
     const coastalReefs = best.physicalPlacement === true && options.coastalReefs !== false;
     const burrowMouths = best.physicalPlacement === true && options.burrowMouths !== false;
-    if (hunting || catchment || lanternDrift || seasonalWind || coastalReefs || burrowMouths)
+    const offshoreSchool = best.physicalPlacement === true && best.wildlifeDistribution === true && options.offshoreSchool !== false;
+    if (hunting || catchment || lanternDrift || seasonalWind || coastalReefs || burrowMouths || offshoreSchool)
       return candidate(seed, map, patchRows, best.calibration, true, Boolean(best.backgroundWildlife), best.physicalPlacement === true, best.habitatAccess === true,
         best.windTransport === true, best.lanternMoisture === true, best.wildlifeDistribution === true,
         best.wildlifeCarcasses === true, best.establishedHabitats === true, best.wetlandDrainage === true, Boolean(hunting), catchment, Boolean(lanternDrift),
         Boolean(lanternDrift && options.windShelters !== false), seasonalWind, coastalReefs, burrowMouths,
-        coastalReefs && best.wildlifeDistribution === true && options.coastalSchools !== false);
+        coastalReefs && best.wildlifeDistribution === true && options.coastalSchools !== false, offshoreSchool);
     return best;
   }
   function validate(record, map, seed = record?.seed) {
@@ -880,7 +920,8 @@
     const topology = World.topologyForMap(map), patchRows = [];
     for (let i = 0; i < topology.cellCount; i++) patchRows.push(...patchesForCell(map, i, topology, record.physicalPlacement === true));
     const expected = candidate(record.seed, map, patchRows, record.calibration, Boolean(record.physicalBinding), Boolean(record.backgroundWildlife), record.physicalPlacement === true,
-      record.habitatAccess === true, record.windTransport === true, record.lanternMoisture === true, record.wildlifeDistribution === true, record.wildlifeCarcasses === true, record.establishedHabitats === true, record.wetlandDrainage === true, record.huntingHabitatAccess === true, record.catchmentDrainage === true, Array.isArray(record.lanternDriftRows), Array.isArray(record.windShelterRows), Array.isArray(record.seasonalWindRows), Array.isArray(record.shoreReefOrigins), Array.isArray(record.burrowMouthOrigins), Array.isArray(record.backgroundWildlife?.reefSchoolRows));
+      record.habitatAccess === true, record.windTransport === true, record.lanternMoisture === true, record.wildlifeDistribution === true, record.wildlifeCarcasses === true, record.establishedHabitats === true, record.wetlandDrainage === true, record.huntingHabitatAccess === true, record.catchmentDrainage === true, Array.isArray(record.lanternDriftRows), Array.isArray(record.windShelterRows), Array.isArray(record.seasonalWindRows), Array.isArray(record.shoreReefOrigins), Array.isArray(record.burrowMouthOrigins), Array.isArray(record.backgroundWildlife?.reefSchoolRows),
+      Array.isArray(record.backgroundWildlife?.offshoreSchoolRows));
     if (record.sourceDigest === legacyDigest) expected.sourceDigest = record.sourceDigest;
     const physical = value => { const result = copy(value); delete result.id; delete result.assessment; delete result.groupRows; return result; };
     if (World.stableHash(physical(expected)) !== World.stableHash(physical(record)) && !samePhysical(physical(expected), physical(record)))

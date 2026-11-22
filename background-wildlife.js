@@ -48,7 +48,7 @@
       radiusM: regionRadiusM * Math.sqrt(.00025), depthTopM: Math.min(5, Math.max(0, r.depthM - 15)) };
   }
   const SETTLING_DAYS = 7, BACKGROUND_SHARE = .3;
-  const REEF_SCHOOL_MAX_RADIUS_M = 200, REEF_SCHOOL_MAX_DONOR_SHARE = .02, REEF_SCHOOL_KG_PER_HA = 1200;
+  const SCHOOL_MAX_RADIUS_M = 200, SCHOOL_MAX_DONOR_SHARE = .02, SCHOOL_KG_PER_HA = 1200;
   const sizeShare = Object.freeze({ small: .25, medium: .35, large: .4 });
   function habitatPatches(r, seed) {
     const radius = Math.sqrt(r.areaHa * 10000 / Math.PI), original = feedingGround(r, seed);
@@ -143,14 +143,26 @@
   }
   function splitReefSchool(pool, site) {
     if (!site || pool.guild !== 'fish' || pool.habitatPatch !== 'background') return [];
+    return splitSchool(pool, site, 'reef-shelf', sizeShare[pool.sizeClass]);
+  }
+  function offshoreDonor(pool) {
+    return pool.guild === 'fish' && pool.sizeClass === 'large' && pool.habitatPatch === 'background';
+  }
+  function schoolCount(pool, areaHa, share) {
+    return Math.min(Math.floor(pool.originalCount * SCHOOL_MAX_DONOR_SHARE),
+      Math.floor(areaHa * SCHOOL_KG_PER_HA * share / profile(pool).adultKg));
+  }
+  function offshoreSchoolCount(pool, site) {
+    return offshoreDonor(pool) ? schoolCount(pool, Math.PI * site.radiusM ** 2 / 10000, 1) : 0;
+  }
+  function splitSchool(pool, site, habitatPatch, share) {
     const adultKg = profile(pool).adultKg, areaHa = Math.PI * site.radiusM ** 2 / 10000;
-    // A real, bounded share of the original diffuse school settles on the
-    // reef. No new fish, carrying capacity, or plankton are minted.
-    const n = Math.min(Math.floor(pool.originalCount * REEF_SCHOOL_MAX_DONOR_SHARE),
-      Math.floor(areaHa * REEF_SCHOOL_KG_PER_HA * sizeShare[pool.sizeClass] / adultKg));
+    // A bounded share of existing diffuse fish gets a smaller footprint.
+    // No fish, carrying capacity, or plankton are minted.
+    const n = schoolCount(pool, areaHa, share);
     if (!n) return [];
     const capacity = n + Math.floor((pool.capacityCount - pool.originalCount) * n / pool.originalCount);
-    const school = { ...pool, id: pool.id.replace(/:background$/, ':reef-shelf'), habitatPatch: 'reef-shelf',
+    const school = { ...pool, id: pool.id.replace(/:background$/, `:${habitatPatch}`), habitatPatch,
       areaHa, spatial: { ...site, depthTopM: pool.spatial.depthTopM },
       originalCount: n, capacityCount: capacity, originalMassKg: n * adultKg };
     pool.originalCount -= n; pool.capacityCount -= capacity; pool.originalMassKg -= school.originalMassKg;
@@ -159,15 +171,26 @@
   function definitions(record, regions) {
     if (record.allocations) return record.allocations;
     if (typeof record.seed !== 'string' || !record.seed || !Array.isArray(record.spatialRows)) throw Error('Invalid original spatial wildlife');
-    const byId = new Map(regions.map(r => [r.id, r])), seen = new Set(), reefs = new Map();
+    const byId = new Map(regions.map(r => [r.id, r])), seen = new Set(), reefs = new Map(), offshore = new Map();
     if (record.reefSchoolRows !== undefined) {
       if (!Array.isArray(record.reefSchoolRows) || record.distribution !== 'habitatPatches') throw Error('Invalid original reef schools');
       for (const row of record.reefSchoolRows) {
         const [id, site] = Array.isArray(row) ? row : [];
         const r = byId.get(id);
         if (row?.length !== 2 || r?.kind !== 'waterColumn' || r.biome !== 'h' || reefs.has(id)
-          || !validReefSite(r, site)) throw Error('Invalid original reef schools');
+          || !validSchoolSite(r, site)) throw Error('Invalid original reef schools');
         reefs.set(id, site);
+      }
+    }
+    if (record.offshoreSchoolRows !== undefined) {
+      if (!Array.isArray(record.offshoreSchoolRows) || record.offshoreSchoolRows.length > 1
+        || record.distribution !== 'habitatPatches') throw Error('Invalid original offshore school');
+      for (const row of record.offshoreSchoolRows) {
+        const [id, site] = Array.isArray(row) ? row : [];
+        if (row?.length !== 2 || reefs.has(id) || !validOffshoreSchoolSite(byId.get(id), site)
+          || !record.spatialRows.some(pool => pool[0] === id))
+          throw Error('Invalid original offshore school');
+        offshore.set(id, site);
       }
     }
     return record.spatialRows.map(row => {
@@ -200,14 +223,21 @@
             originalCount: n, capacityCount: Math.max(n, cap), originalMassKg: n * profile(pool).adultKg }];
         });
       });
-      const reef = reefs.get(r.id);
-      return { regionId: r.id, pools: reef ? situated.flatMap(pool => [pool, ...splitReefSchool(pool, reef)]) : situated };
+      const reef = reefs.get(r.id), school = offshore.get(r.id);
+      if (school && !situated.some(pool => offshoreSchoolCount(pool, school) > 0))
+        throw Error('Original offshore school has no large-fish donor');
+      return { regionId: r.id, pools: reef ? situated.flatMap(pool => [pool, ...splitReefSchool(pool, reef)])
+        : school ? situated.flatMap(pool => [pool, ...(offshoreDonor(pool) ? splitSchool(pool, school, 'offshore-school', 1) : [])])
+          : situated };
     });
   }
-  function validReefSite(r, site) {
+  function validSchoolSite(r, site) {
     return site && ['eastM', 'northM', 'radiusM'].every(k => Number.isFinite(site[k]))
-      && site.radiusM > 0 && site.radiusM <= REEF_SCHOOL_MAX_RADIUS_M
+      && site.radiusM > 0 && site.radiusM <= SCHOOL_MAX_RADIUS_M
       && Math.hypot(site.eastM, site.northM) + site.radiusM <= Math.sqrt(r.areaHa * 10000 / Math.PI) + EPS;
+  }
+  function validOffshoreSchoolSite(r, site) {
+    return r?.kind === 'waterColumn' && r.depthM >= 200 && r.oxygen !== false && validSchoolSite(r, site);
   }
   function apply(source, record) {
     const regions = new Map(source.regions.map(r => [r.id, r]));
@@ -570,7 +600,9 @@
     return Array.isArray(w.pools) && new Set(w.pools.map(p => p.id)).size === w.pools.length && w.pools.every(p => profile(p)
       && (p.establishedDays == null || p.spatial && p.sizeClass && p.establishedDays === SETTLING_DAYS
         && (['background', 'hotspot-0', 'hotspot-1', 'hotspot-2'].includes(p.habitatPatch)
-          || p.habitatPatch === 'reef-shelf' && r.kind === 'waterColumn' && r.biome === 'h' && p.guild === 'fish' && validReefSite(r, p.spatial)))
+          || p.habitatPatch === 'reef-shelf' && r.kind === 'waterColumn' && r.biome === 'h' && p.guild === 'fish' && validSchoolSite(r, p.spatial)
+          || p.habitatPatch === 'offshore-school' && p.guild === 'fish' && p.sizeClass === 'large' && p.foodKey === 'planktonKg'
+            && validOffshoreSchoolSite(r, p.spatial) && p.originalMassKg <= p.areaHa * SCHOOL_KG_PER_HA + EPS))
       && (p.habitatPatch == null || p.establishedDays === SETTLING_DAYS)
       && (p.spatialCarcasses == null || p.spatialCarcasses === true && p.spatial && p.establishedDays === SETTLING_DAYS)
       && typeof p.id === 'string' && p.id && ['forageKg', 'organicKg', 'planktonKg'].includes(p.foodKey)
@@ -665,7 +697,8 @@
     }
     return result;
   }
-  return { profiles, sizeClasses, profile, feedingGround, habitatPatches, initialDeaths, initialPosition, encounterFraction, definitions, allocate, apply, initialize, plan, prepare, fed, next, integrate, boundary, begin, finish, cancel, REEF_SCHOOL_MAX_RADIUS_M, validReefSite,
+  return { profiles, sizeClasses, profile, feedingGround, habitatPatches, initialDeaths, initialPosition, encounterFraction, definitions, allocate, apply, initialize, plan, prepare, fed, next, integrate, boundary, begin, finish, cancel,
+    REEF_SCHOOL_MAX_RADIUS_M: SCHOOL_MAX_RADIUS_M, validReefSite: validSchoolSite, SCHOOL_MAX_RADIUS_M, validOffshoreSchoolSite, offshoreSchoolCount,
     compactCarcasses(r) { for (const pool of r.wildlife?.pools || []) Carcasses.compact(pool); },
     validDefinition, valid, validRates, summary, total, mass, guilds, capture, DURATION };
 });

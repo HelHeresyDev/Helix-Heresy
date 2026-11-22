@@ -26,6 +26,7 @@ test('browser generation, compressed world storage and reload preserve private r
       huntingHabitatAccess: source.huntingHabitatAccess === true,
       physicalDigest: window.HelixStrategicWorld.stableHash(source.physicalBinding),
       wildlifeDigest: window.HelixStrategicWorld.stableHash(source.backgroundWildlife),
+      offshoreSchools: source.backgroundWildlife.offshoreSchoolRows,
       wildlifeDistribution: source.backgroundWildlife.distribution,
       preyClasses: [...new Set(window.HelixBackgroundWildlife.definitions(source.backgroundWildlife, S.expand(source, world.generatedData.strategicMap).regions)
         .flatMap(a => a.pools.map(p => p.sizeClass)))].sort(),
@@ -42,6 +43,7 @@ test('browser generation, compressed world storage and reload preserve private r
   expect(original.huntingHabitatAccess).toBe(true);
   expect(original.preyClasses).toEqual(['large', 'medium', 'small']);
   expect(original.wildlifeDistribution).toBe('habitatPatches');
+  expect(original.offshoreSchools).toHaveLength(1);
   await page.reload(); await page.locator('#titleWorldLibraryBtn').click();
   await expect(page.locator('body')).toContainText(original.name);
   await expect(page.locator('body')).not.toContainText('unfundedPrey');
@@ -65,6 +67,9 @@ test('browser generation, compressed world storage and reload preserve private r
       nurseries: map.beastHabitatSources.physicalBinding.nurseries.length,
       physicalDigest: window.HelixStrategicWorld.stableHash(map.beastHabitatSources.physicalBinding),
       wildlifeDigest: window.HelixStrategicWorld.stableHash(map.beastHabitatSources.backgroundWildlife),
+      offshoreSchools: map.beastHabitatSources.backgroundWildlife.offshoreSchoolRows,
+      offshoreFish: continued.account.regions.flatMap(r => (r.wildlife?.pools || [])
+        .filter(p => p.habitatPatch === 'offshore-school').map(p => p.originalCount)),
       startingDead: window.HelixBackgroundWildlife.summary(continued.account).startingDead,
       initialHistoryMatches: window.HelixBackgroundWildlife.summary(continued.account).startingDead
         === window.HelixBackgroundWildlife.summary(direct.account).startingDead,
@@ -76,10 +81,12 @@ test('browser generation, compressed world storage and reload preserve private r
       paidWork: Object.values(continued.report.work).some(n => n > 0), unchanged: JSON.stringify(world) === before };
   }, original.id);
   expect(loaded.startingDead).toBeGreaterThan(0);
+  expect(loaded.offshoreFish).toHaveLength(1);
+  expect(loaded.offshoreFish[0]).toBeGreaterThan(0);
   expect(loaded).toEqual({ digest: original.digest, sourceId: original.sourceId, nativeStatus: 'unverified',
     huntingHabitatAccess: true,
     workSites: original.workSites, nurseries: original.nurseries, physicalDigest: original.physicalDigest,
-    wildlifeDigest: original.wildlifeDigest,
+    wildlifeDigest: original.wildlifeDigest, offshoreSchools: original.offshoreSchools, offshoreFish: loaded.offshoreFish,
     startingDead: loaded.startingDead, initialHistoryMatches: true,
     diagnosticOnly: true, status: 'incomplete', assessmentStage: 'measured', preliminaryWarnings: loaded.preliminaryWarnings,
     originalSpecies: 24, continuationMatches: true, paidWork: true, unchanged: true });
