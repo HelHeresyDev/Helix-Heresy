@@ -148,6 +148,8 @@ test('field Next Event shortcut redraws the current map, preserves focus and sho
     expect(result.p.livingSlimes).toBe(12);
     expect(result.p.render.calls).toBe(1);
     expect(result.p.mapSurface.calls).toBe(1);
+    expect(result.p.renderSections['actionControls:fullRedraw']?.calls).toBe(1);
+    expect(result.p.renderSections['actionControls:liveReadouts']).toBeUndefined();
     await expect(viewport).toBeFocused();
     return { ...result, advanced: result.after.clock - before.clock, notices: result.after.noticeSerial - before.noticeSerial };
   }
@@ -158,6 +160,8 @@ test('field Next Event shortcut redraws the current map, preserves focus and sho
     saves: p.save.calls, saveMs: Math.round(p.save.totalMs), renderMs: Math.round(p.render.totalMs),
     startupUiCalls: p.startupUi.calls, startupUiMs: Math.round(p.startupUi.totalMs),
     mapSurfaceMs: Math.round(p.mapSurface.totalMs), sceneMs: Math.round(p.mapScene.totalMs),
+    controlRefreshes: Object.fromEntries(Object.entries(p.renderSections).filter(([id]) => id.startsWith('actionControls:'))
+      .map(([id, sample]) => [id, sample.calls])),
     otherRenderMs: Math.round(p.render.totalMs - p.mapSurface.totalMs),
     sectionsMs: Object.fromEntries(Object.entries(p.renderSections).sort((a, b) => b[1].totalMs - a[1].totalMs)
       .map(([id, sample]) => [id, Math.round(sample.totalMs)]))
@@ -207,5 +211,50 @@ test('Economy shows one consistent, fresh credibility assessment after a company
   await page.getByLabel('Company operating state').selectOption('open');
   const after = await expectVisibleAssessment();
   expect(after.reasons).not.toEqual(before.reasons);
+  expect(errors).toEqual([]);
+});
+
+test('action controls update resource and stamina blockers on full and live-map redraws', async ({ page }) => {
+  test.setTimeout(150000);
+  const fixedNow = new Date('2026-01-01T00:00:00Z').getTime();
+  await page.clock.setFixedTime(fixedNow);
+  const errors = [];
+  page.on('pageerror', err => errors.push(err.message));
+  await startLifecycleRun(page, 'action-control-refresh');
+  const foundry = page.locator('[data-workspace-tab="foundry"]');
+  const synthesize = page.locator('#synthesizeBtn');
+  await foundry.click();
+  await expect(synthesize).toBeEnabled();
+
+  const stocked = await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState());
+  await page.evaluate(saved => {
+    saved.physicalItemStacks = saved.physicalItemStacks.filter(stack => stack.section !== 'resources' || stack.key !== 'biomass');
+    window.helixHeresyDebug.importSurveyExpeditionTestState(saved);
+  }, stocked);
+  await expect(synthesize).toBeDisabled();
+  await expect(synthesize).toHaveAttribute('data-disabled-reason', /Not enough Biomass/);
+
+  await page.evaluate(saved => {
+    const cost = Number(document.getElementById('synthesizeBtn').dataset.finalStaminaCost);
+    saved.scientist.vitals.stamina.current = cost - 1 / 1200;
+    window.helixHeresyDebug.importSurveyExpeditionTestState(saved);
+  }, stocked);
+  await expect(synthesize).toBeDisabled();
+  await expect(synthesize).toHaveAttribute('data-disabled-reason', /Not enough stamina/);
+
+  await page.locator('[data-workspace-tab="map"]').click();
+  await page.locator('#pauseBtn').click();
+  await expect(page.locator('#pauseBtn')).toHaveText('Pause');
+  await page.evaluate(() => window.helixHeresyDebug.resetSimulationPerformance({ profileRenderSections: true }));
+  // One real-time second crosses the ordinary Stamina recovery threshold.
+  await page.clock.setFixedTime(fixedNow + 1000);
+  await expect.poll(() => page.evaluate(() => {
+    const p = window.helixHeresyDebug.simulationPerformanceSnapshot();
+    return p.renderSections['actionControls:liveReadouts']?.calls || 0;
+  })).toBe(1);
+  expect(await page.evaluate(() => window.helixHeresyDebug.simulationPerformanceSnapshot().renderSections['actionControls:fullRedraw'])).toBeUndefined();
+  await foundry.click();
+  await expect(synthesize).toBeEnabled();
+  await expect(synthesize).not.toHaveAttribute('data-disabled-reason', /Not enough/);
   expect(errors).toEqual([]);
 });

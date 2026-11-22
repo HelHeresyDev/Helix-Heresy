@@ -389,3 +389,34 @@ painting. The shortcut still checks and stops on the same threat second, shows
 the warning, and preserves map focus and Continue behavior. A focused Company
 check compares the summary, badge and panel with the current assessment before
 and after a real operating-state change.
+
+### One action-control refresh per redraw
+
+A full redraw no longer refreshes the synthesis, release, test, breeding, and
+corpse-work controls during the live readouts and then again after building
+the panels. The final refresh still runs with all the controls in place. The
+lightweight real-time map update keeps its own refresh because it does not
+run the full redraw. This does not defer any panel or change the simulation.
+
+The paired Chromium fixture measures both control-refresh calls separately.
+The action-control timings are included in the existing live-readout and
+workspace totals, not additional time.
+
+| Synchronous Chromium redraw | Before | After |
+| --- | ---: | ---: |
+| Completed: early control refresh | 1.271 s | Not called |
+| Completed: final control refresh | 0.726 s | 1.263 s |
+| Completed: full redraw | 5.163 s | 4.682 s |
+| Threat interruption: early control refresh | 1.242 s | Not called |
+| Threat interruption: final control refresh | 0.718 s | 1.307 s |
+| Threat interruption: full redraw | 5.318 s | 4.953 s |
+
+Full redraw time fell by 0.37–0.48 s in the paired fixture. The remaining
+refresh and other UI work took longer in the second run, so the time of the
+removed call should not be quoted as the net saving. These measurements do
+not include simulation or asynchronous painting.
+
+The focused shortcut check still stops on second four, displays the warning,
+keeps map focus, and reloads that outcome through Continue. The separate
+control check verifies missing-Biomass and low-Stamina explanations on full
+redraws and clears the Stamina blocker during an ordinary real-time map tick.

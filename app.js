@@ -54065,7 +54065,8 @@
     const scrollSnapshot = options.preserveWorkspaceScroll ? captureWorkspaceScroll() : null;
     syncSelectionState();
     section("renderPreparation");
-    renderLiveReadouts();
+    // The full redraw refreshes action controls after rebuilding the panels.
+    renderLiveReadouts({ refreshControls: false });
     section("liveReadouts");
     dom.sequenceInput.value = state.currentGenome;
     dom.sequenceStatus.textContent = `${state.currentGenome.length}/${GENOME_LENGTH} base pairs`;
@@ -54115,7 +54116,7 @@
     renderSimulationPerformance();
     section("mapHudAndDebug");
     syncWorkspaceShell();
-    refreshActionControls();
+    refreshActionControls("fullRedraw");
     explainDisabledButtons();
     restoreWorkspaceScroll(scrollSnapshot);
     AccessibilityUI.linkTabs(document);
@@ -54123,7 +54124,7 @@
     section("workspaceAndControls");
   }
 
-  function renderLiveReadouts() {
+  function renderLiveReadouts({ refreshControls = true } = {}) {
     syncStartupShell();
     dom.clockReadout.textContent = formatClock(state.clock);
     dom.pauseReadout.textContent = state.runEnded ? "Scientist dead" : currentDetentionRaid() ? state.paused ? "Detained · Paused" : "Detained · Running" : state.paused ? "Paused" : "Running";
@@ -54152,7 +54153,7 @@
       dom.suspicionReadout.dataset.suspicionBand = "unknown"; dom.suspicionReadout.title = `Last direct lab observation ${formatClock(state.surveyExpeditions.departedAt)}.`;
     }
     renderVitalReadouts();
-    refreshActionControls();
+    if (refreshControls) refreshActionControls("liveReadouts");
     renderQueueShell();
     for (const element of document.querySelectorAll("[data-task-remaining]")) {
       const task = state.tasks.find((candidate) => candidate.id === element.dataset.taskRemaining);
@@ -54449,12 +54450,14 @@
     return "";
   }
 
-  function refreshActionControls() {
+  function refreshActionControls(source) {
+    const section = renderSectionTimer("actionControls:");
     renderFoundryActionState();
     refreshReleaseButtonState();
     refreshTestButtonStates();
     refreshBreedButtonState();
     refreshCorpseActionStates();
+    section(source);
   }
 
   function refreshReleaseButtonState() {

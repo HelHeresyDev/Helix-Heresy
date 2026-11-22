@@ -134,6 +134,8 @@ Visited native terrain exposes [the same finite anonymous wildlife remains](WILD
 
 [Full redraw profiling](WILDLIFE_CARCASSES.md#shared-company-assessment-during-redraw) identified repeated company credibility calculations as a major cost. The Economy summary, badge and Company panel share one fresh assessment, cutting 1.4–1.5 seconds from the measured field redraws without deferring a panel or changing simulation timing.
 
+[Action controls](WILDLIFE_CARCASSES.md#one-action-control-refresh-per-redraw) now refresh once per full redraw, while lightweight real-time map updates keep their own refresh. This removed 0.37–0.48 seconds from the measured full field redraws without changing threat timing.
+
 [Wetland bank surveys](BEAST_POPULATIONS.md#wetland-banks-on-ordinary-foreign-surveys) now let the existing foreign itinerary open separate, finite surface and wetland parcels in one visited map. A focused Chromium itinerary observed an original Mire Choir swimmer from dry ground and retained the same original after reload, withdrawal and return. Dry or unvisited tiles do not supply a swimmer. This is not new swimming, ocean or burrow travel, a census, or completion of #3.38-D.
 
 [Private wildlife field notes](BEAST_POPULATIONS.md#private-field-notes-and-received-copies) now preserve firsthand sightings of original beasts on ordinary foreign surveys. The original scientist may give the existing municipal clerk one dated copy at the desk. The recipient retains the exact received account, not the private note, later revisions, or live ecology. This adds one legitimate source for later strategic consumers, not their reactions, safe-passage proof, or a new queue entry.
