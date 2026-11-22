@@ -48,15 +48,6 @@ async function resetEnvironmentalFixture(page, mutation = '') {
     if (mutation === 'rockPair') {
       state.labMap.terrain.excavated.push({ x: 8, y: 8 }, { x: 10, y: 8 });
     }
-    if (mutation === 'containerExchange') {
-      const open = state.containers.find((container) => container.id === 'basic-7');
-      const sealed = state.containers.find((container) => container.id === 'basic-2');
-      open.environment.airborne = {};
-      open.environment.contamination.current = 0;
-      sealed.environment.airborne = {};
-      sealed.environment.contamination.current = 0;
-      sealed.wardIds = ['sealTightening', 'poisonSealing'];
-    }
     window.localStorage.setItem(key, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), state }));
   }, { key: await activeRunStorageKey(page), mutation });
   await loadSavedRun(page);
@@ -115,13 +106,20 @@ test('natural rock conducts temperature and mana but blocks humidity and airborn
   expect(right.airborne['acid-vapor'] || 0).toBe(0);
 });
 
-test('diffusion uses the current floor geometry after excavation opens a solid barrier', async ({ page }) => {
+test('environment uses the current geometry after excavation opens a solid barrier and a door is breached', async ({ page }) => {
   test.setTimeout(120000);
   await startLifecycleRun(page, 'diffusion-floor-geometry');
-  const { solid, opened } = await page.evaluate(() => {
+  const { solid, opened, breached } = await page.evaluate(() => {
     const d = window.helixHeresyDebug;
     const left = { x: 8, y: 8, z: 0 }, middle = { x: 9, y: 8, z: 0 }, right = { x: 10, y: 8, z: 0 };
-    const read = () => ({ target: d.tileEnvironmentSnapshot(right)[0], tiles: d.tileEnvironmentSnapshot() });
+    const read = () => {
+      const tiles = d.tileEnvironmentSnapshot();
+      const { rooms, compartmentEnvironments } = d.exportSurveyExpeditionTestState();
+      return {
+        target: d.tileEnvironmentSnapshot(right)[0], tiles, compartmentEnvironments,
+        rooms: rooms.map(({ id, attributes }) => ({ id, attributes }))
+      };
+    };
     d.setExcavatedCells([left, right]);
     d.setTileEnvironment(left, { temperatureC: 80, rockTemperatureC: 80, humidity: 90, manaDensity: 100, rockManaDensity: 100,
       airborne: { 'acid-vapor': 40, 'smoke-vapor': 20 }, chemicalTraces: { 'slime-distress': 10 } });
@@ -135,7 +133,14 @@ test('diffusion uses the current floor geometry after excavation opens a solid b
     d.setExcavatedCells([middle]);
     d.advanceTestRunTime(60);
     d.advanceTestRunTime(60);
-    return { solid, opened: read() };
+    const opened = read();
+    const intact = d.mapViewSnapshot().compartments.find(entry =>
+      entry.status === 'enclosed' && entry.portals.some(portal => portal.kind === 'door'));
+    const door = intact.portals.find(portal => portal.kind === 'door');
+    const damaged = d.damageStructure(door.cell, 10000);
+    d.advanceTestRunTime(60);
+    const status = d.mapViewSnapshot().compartments.find(entry => entry.id === intact.id).status;
+    return { solid, opened, breached: { ...read(), damaged, status } };
   });
   expect(solid.target.temperatureC).toBeGreaterThan(10);
   expect(solid.target.manaDensity).toBeGreaterThan(0);
@@ -145,32 +150,39 @@ test('diffusion uses the current floor geometry after excavation opens a solid b
   expect(opened.target.humidity).toBeGreaterThan(solid.target.humidity);
   expect(opened.target.airborne['acid-vapor']).toBeGreaterThan(0);
   expect(opened.target.airborne['smoke-vapor']).toBeGreaterThan(0);
-  const digest = tiles => createHash('sha256').update(JSON.stringify(tiles)).digest('hex');
-  console.log(`Diffusion tile hashes (solid rock, excavated): ${digest(solid.tiles)}, ${digest(opened.tiles)}`);
+  expect(Object.values(solid.compartmentEnvironments).some(({ cells }) => cells.some(cell => cell.x === 9 && cell.y === 8 && cell.z === 0))).toBe(false);
+  expect(Object.values(opened.compartmentEnvironments).some(({ cells }) => cells.some(cell => cell.x === 9 && cell.y === 8 && cell.z === 0))).toBe(true);
+  expect(breached.damaged).toBe(true);
+  expect(breached.status).toBe('compromised');
+  const digest = ({ tiles, rooms, compartmentEnvironments }) =>
+    createHash('sha256').update(JSON.stringify({ tiles, rooms, compartmentEnvironments })).digest('hex');
+  console.log(`Environment hashes (solid rock, excavated, breached door): ${[solid, opened, breached].map(digest).join(', ')}`);
 });
 
 test('open porous containers exchange local air faster than sealed containers', async ({ page }) => {
-  await startRun(page);
-  await resetEnvironmentalFixture(page, 'containerExchange');
-  const fixture = await page.evaluate(({ key }) => {
-    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
+  test.setTimeout(120000);
+  await startLifecycleRun(page, 'porous-container-exchange');
+  const result = await page.evaluate(() => {
+    const d = window.helixHeresyDebug;
+    const initial = d.exportSurveyExpeditionTestState();
+    const open = initial.containers.find(container => container.id === 'basic-7');
+    const sealed = initial.containers.find(container => container.id === 'basic-2');
+    for (const container of [open, sealed]) {
+      container.environment.airborne = {};
+      container.environment.contamination.current = 0;
+    }
+    sealed.wardIds = ['sealTightening', 'poisonSealing'];
+    d.importSurveyExpeditionTestState(initial);
+    for (const container of [open, sealed]) {
+      d.setTileEnvironment(container.mapCell, { airborne: { 'test-fume': 50 } });
+    }
+    d.advanceTestRunTime(60);
+    const { containers } = d.exportSurveyExpeditionTestState();
     return {
-      open: state.containers.find((container) => container.id === 'basic-7').mapCell,
-      sealed: state.containers.find((container) => container.id === 'basic-2').mapCell,
+      open: containers.find(container => container.id === open.id).environment.airborne['test-fume'] || 0,
+      sealed: containers.find(container => container.id === sealed.id).environment.airborne['test-fume'] || 0,
     };
-  }, { key: await activeRunStorageKey(page) });
-  await page.evaluate(({ fixture }) => {
-    window.helixHeresyDebug.setTileEnvironment(fixture.open, { airborne: { 'test-fume': 50 } });
-    window.helixHeresyDebug.setTileEnvironment(fixture.sealed, { airborne: { 'test-fume': 50 } });
-    window.helixHeresyDebug.advanceSimulation(3600);
-  }, { fixture });
-  const result = await page.evaluate(({ key }) => {
-    const state = JSON.parse(window.localStorage.getItem(key) || '{}').state;
-    return {
-      open: state.containers.find((container) => container.id === 'basic-7').environment.airborne['test-fume'] || 0,
-      sealed: state.containers.find((container) => container.id === 'basic-2').environment.airborne['test-fume'] || 0,
-    };
-  }, { key: await activeRunStorageKey(page) });
+  });
   expect(result.open).toBeGreaterThan(result.sealed * 3);
 });
 

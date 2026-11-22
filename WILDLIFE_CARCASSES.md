@@ -525,3 +525,30 @@ Both kernels produced exactly equal serialized tile snapshots in a separate
 fixture, first with a solid-rock barrier and then after opening it by
 excavation in the same run. Heat and mana crossed the rock before excavation;
 humidity and both airborne substances transferred after the passage opened.
+
+### One room layout per environment update
+
+Diffusion, utilities, and container exchange now share one inferred room
+layout within an environment update. They still summarize the latest tile
+readings at each of the original checkpoints. The layout is discarded after
+the update and rebuilt sooner if the map or its topology or door revision
+changes. Summary callers outside these stages are unchanged.
+
+| Chromium field shortcut | Before | After |
+| --- | ---: | ---: |
+| Completed: room layouts built by summary callers | 117 | 97 |
+| Completed: time building those layouts | 1.487 s | 1.245 s |
+| Completed: full environment update | 2.451 s | 2.134 s |
+| Completed: whole shortcut | 10.627 s | 10.211 s |
+| Threat interruption: room layouts built by summary callers | 45 | 37 |
+| Threat interruption: time building those layouts | 0.509 s | 0.425 s |
+| Threat interruption: full environment update | 0.946 s | 0.834 s |
+| Threat interruption: whole shortcut | 5.945 s | 5.767 s |
+
+These are single-run timings. The layout counts include summary callers
+outside the environment update; the number of summaries stayed at 117 and
+45. The completed shortcut still advanced 9.375 game seconds, and the
+attack still interrupted on second four. A separate run produced identical
+serialized tile, declared-room, and compartment readings before and after
+the optimization with an intact rock barrier, after excavation, and after
+a door breach. No simulation cadence changed.

@@ -25037,11 +25037,14 @@
       const section = renderSectionTimer("environment:");
       changes.surfaceExposureChanged += updateSurfaceExposure(elapsed);
       section("surfaceExposure");
-      changes.roomPropagationChanges += propagateRoomEnvironmentAttributes(elapsed);
+      // Share geometry only within this update, after surface exposure. Each
+      // stage still summarizes the tile readings it has just written.
+      const roomSummaryContext = {};
+      changes.roomPropagationChanges += updateTileEnvironmentFields(elapsed, roomSummaryContext);
       section("diffusionAndSummary");
-      changes.infrastructureChanged += updateInfrastructure(elapsed);
+      changes.infrastructureChanged += updateInfrastructure(elapsed, roomSummaryContext);
       section("utilitiesAndSummary");
-      changes.envChanges += exchangeContainerEnvironments(elapsed);
+      changes.envChanges += exchangeContainerEnvironments(elapsed, roomSummaryContext);
       section("containerExchangeAndSummary");
       changes.envChanges += applyVerticalFluidFlow();
       section("verticalFluidFlow");
@@ -31327,7 +31330,7 @@
     return changes;
   }
 
-  function updateTileEnvironmentFields(seconds) {
+  function updateTileEnvironmentFields(seconds, roomSummaryContext) {
     let remaining = Math.max(0, Number(seconds) || 0);
     let changes = 0;
     while (remaining > 0) {
@@ -31335,7 +31338,7 @@
       changes += simulateTileEnvironmentStep(step);
       remaining -= step;
     }
-    syncRoomAttributeSummaries();
+    syncRoomAttributeSummaries(ensureLabMap(), null, roomSummaryContext);
     return changes;
   }
 
@@ -32210,17 +32213,17 @@
     return changes;
   }
 
-  function updateInfrastructureStep(seconds) {
+  function updateInfrastructureStep(seconds, roomSummaryContext) {
     if (!secondsToHours(seconds)) return 0;
     const previous = utilityEnvelope, map = ensureLabMap();
     // Utilities do not change the physical envelope during this synchronous
     // step. Share its flood-fill rather than rebuilding it for each tile.
     utilityEnvelope = { map, context: buildSurfaceEnvelopeContext(map) };
-    try { return updateInfrastructureStepWithEnvelope(seconds); }
+    try { return updateInfrastructureStepWithEnvelope(seconds, roomSummaryContext); }
     finally { utilityEnvelope = previous; }
   }
 
-  function updateInfrastructureStepWithEnvelope(seconds) {
+  function updateInfrastructureStepWithEnvelope(seconds, roomSummaryContext) {
     const elapsedHours = secondsToHours(seconds);
     if (!elapsedHours) return 0;
     state.fixtures = normalizeFixtures(state.fixtures);
@@ -32243,16 +32246,16 @@
     changes += updateInfrastructurePassiveStatuses(context);
     changes += updateUtilityReliability(elapsedHours, context);
     changes += updateUtilityFaultStatuses();
-    syncRoomAttributeSummaries();
+    syncRoomAttributeSummaries(ensureLabMap(), null, roomSummaryContext);
     return changes;
   }
 
-  function updateInfrastructure(seconds) {
+  function updateInfrastructure(seconds, roomSummaryContext) {
     let remaining = Math.max(0, Number(seconds) || 0);
     let changes = 0;
     while (remaining > 0) {
       const step = Math.min(remaining, UTILITY_MAX_STEP_SECONDS);
-      changes += updateInfrastructureStep(step);
+      changes += updateInfrastructureStep(step, roomSummaryContext);
       remaining -= step;
     }
     return changes;
@@ -32375,10 +32378,6 @@
     return pairs;
   }
 
-  function propagateRoomEnvironmentAttributes(minutes) {
-    return updateTileEnvironmentFields(minutes);
-  }
-
   function containerEnvironmentExchange(container) {
     if (container.id === SYNTHESIS_TUBE_ID || container.typeId === "synthesisTube") {
       const zeroRates = {};
@@ -32399,8 +32398,8 @@
     return zeroRates;
   }
 
-  function exchangeContainerEnvironments(minutes) {
-    const elapsed = Math.max(0, Number(minutes) || 0);
+  function exchangeContainerEnvironments(seconds, roomSummaryContext) {
+    const elapsed = Math.max(0, Number(seconds) || 0);
     if (!elapsed) {
       return 0;
     }
@@ -32467,7 +32466,7 @@
         tile.chemicalTraces = normalizeChemicalTraces(tile.chemicalTraces);
       }
     }
-    syncRoomAttributeSummaries();
+    syncRoomAttributeSummaries(ensureLabMap(), null, roomSummaryContext);
     return changes;
   }
 
@@ -35145,9 +35144,22 @@
     return room?.attributes || normalizeRoomAttributes(null);
   }
 
-  function syncRoomAttributeSummaries(map = ensureLabMap(), inference = null) {
+  function syncRoomAttributeSummaries(map = ensureLabMap(), inference = null, context = null) {
     const section = renderSectionTimer("roomSummaries:");
-    const derived = inference || inferLabCompartments(map);
+    let derived = inference;
+    if (!derived) {
+      const geometry = renderSectionTimer("roomSummaries:");
+      const { topologyRevision, doorRevision } = state.navigation || {};
+      if (context?.map === map && context.topologyRevision === topologyRevision && context.doorRevision === doorRevision) {
+        derived = context.inference;
+        geometry("geometryReuse");
+      } else {
+        derived = inferLabCompartments(map);
+        geometry("geometry");
+        if (context) Object.assign(context, { map, topologyRevision, doorRevision, inference: derived });
+      }
+    }
+    const aggregation = renderSectionTimer("roomSummaries:");
     const tileEnvironments = ensureTileEnvironments(map);
     const compartmentEnvironments = {};
     for (const compartment of derived.compartments) {
@@ -35169,6 +35181,7 @@
         .map((record) => ({ attributes: tileEnvironmentAttributes(record, room.attributes), weight: 1 }));
       if (sources.length) room.attributes = weightedEnvironmentAttributes(sources, room.attributes);
     }
+    aggregation("aggregation");
     section("allCallers");
   }
 

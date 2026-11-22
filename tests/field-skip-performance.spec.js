@@ -157,6 +157,7 @@ test('field Next Event shortcut redraws the current map, preserves focus and sho
     expect(result.p.renderSections['actionControls:liveReadouts']).toBeUndefined();
     expect(result.p.renderSections['haulPlanning:routeSearch']?.calls).toBe(1);
     expect(result.p.renderSections['diffusion:excavatedKeys']?.calls).toBe(Math.ceil(result.after.clock - before.clock));
+    expect(result.p.renderSections['roomSummaries:geometryReuse']?.calls).toBe(2 * result.p.systems.environment.calls);
     await expect(viewport).toBeFocused();
     return { ...result, advanced: result.after.clock - before.clock, notices: result.after.noticeSerial - before.noticeSerial };
   }
@@ -169,6 +170,9 @@ test('field Next Event shortcut redraws the current map, preserves focus and sho
     mapSurfaceMs: Math.round(p.mapSurface.totalMs), sceneMs: Math.round(p.mapScene.totalMs),
     haulRouteSearches: p.renderSections['haulPlanning:routeSearch']?.calls || 0,
     exteriorAmbientLookups: p.renderSections['environment:exteriorAmbient']?.calls || 0,
+    roomSummaryCalls: p.renderSections['roomSummaries:allCallers']?.calls || 0,
+    roomGeometryBuilds: p.renderSections['roomSummaries:geometry']?.calls || 0,
+    roomGeometryReuses: p.renderSections['roomSummaries:geometryReuse']?.calls || 0,
     systemsMs: Object.fromEntries(Object.entries(p.systems).sort((a, b) => b[1].totalMs - a[1].totalMs)
       .map(([id, sample]) => [id, Math.round(sample.totalMs)])),
     controlRefreshes: Object.fromEntries(Object.entries(p.renderSections).filter(([id]) => id.startsWith('actionControls:'))
