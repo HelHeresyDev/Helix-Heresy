@@ -156,6 +156,7 @@ test('field Next Event shortcut redraws the current map, preserves focus and sho
     expect(result.p.renderSections['actionControls:fullRedraw']?.calls).toBe(1);
     expect(result.p.renderSections['actionControls:liveReadouts']).toBeUndefined();
     expect(result.p.renderSections['haulPlanning:routeSearch']?.calls).toBe(1);
+    expect(result.p.renderSections['diffusion:excavatedKeys']?.calls).toBe(Math.ceil(result.after.clock - before.clock));
     await expect(viewport).toBeFocused();
     return { ...result, advanced: result.after.clock - before.clock, notices: result.after.noticeSerial - before.noticeSerial };
   }

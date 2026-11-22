@@ -495,3 +495,33 @@ environment bucket is still the largest measured simulation cost, but the
 profile does not attribute the rest of it to a particular routine. The
 outdoor timing is nested within the environment bucket, not additional time.
 Run the same `field Next Event shortcut` check to repeat the profile.
+
+### One excavation lookup per diffusion step
+
+The environment breakdown separates diffusion, utilities, and container
+exchange. Diffusion's largest individual stage in this fixture was finding
+tile pairs separated by a barrier. Floor checks and natural wall lookups in
+that stage used to rebuild the same excavated-tile set repeatedly.
+
+Each diffusion step now builds that set once. Its open and barrier edge
+checks use the same set for floors, vertical support, and natural wall
+material lookups. The set is discarded when the step ends. Edges, transfer
+rates, update order, and cadence are unchanged. The room-summary timer spans
+all callers and overlaps the stage timings; its total is not additional
+environment time.
+
+| Chromium field shortcut | Before | After |
+| --- | ---: | ---: |
+| Completed: barrier-edge discovery | 1.633 s | 0.054 s |
+| Completed: full environment update | 4.057 s | 2.398 s |
+| Completed: whole shortcut | 12.298 s | 10.538 s |
+| Threat interruption: barrier-edge discovery | 0.647 s | 0.022 s |
+| Threat interruption: full environment update | 1.584 s | 0.932 s |
+| Threat interruption: whole shortcut | 6.681 s | 5.984 s |
+
+The completed request still advanced 9.375 game seconds. The attack still
+interrupted on second four with the same warning, focus, and Continue state.
+Both kernels produced exactly equal serialized tile snapshots in a separate
+fixture, first with a solid-rock barrier and then after opening it by
+excavation in the same run. Heat and mana crossed the rock before excavation;
+humidity and both airborne substances transferred after the passage opened.

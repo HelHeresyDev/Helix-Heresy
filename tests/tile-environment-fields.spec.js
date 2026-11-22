@@ -2,10 +2,12 @@
 const { test, expect } = require('@playwright/test');
 const path = require('path');
 const { pathToFileURL } = require('url');
+const { createHash } = require('node:crypto');
 
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
 const { activeRunStorageKey } = require('./helpers/active-run-storage');
+const { startLifecycleRun } = require('./helpers/start-lifecycle-run');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -111,6 +113,40 @@ test('natural rock conducts temperature and mana but blocks humidity and airborn
   expect(right.manaDensity).toBeGreaterThan(0);
   expect(right.humidity).toBeCloseTo(10, 5);
   expect(right.airborne['acid-vapor'] || 0).toBe(0);
+});
+
+test('diffusion uses the current floor geometry after excavation opens a solid barrier', async ({ page }) => {
+  test.setTimeout(120000);
+  await startLifecycleRun(page, 'diffusion-floor-geometry');
+  const { solid, opened } = await page.evaluate(() => {
+    const d = window.helixHeresyDebug;
+    const left = { x: 8, y: 8, z: 0 }, middle = { x: 9, y: 8, z: 0 }, right = { x: 10, y: 8, z: 0 };
+    const read = () => ({ target: d.tileEnvironmentSnapshot(right)[0], tiles: d.tileEnvironmentSnapshot() });
+    d.setExcavatedCells([left, right]);
+    d.setTileEnvironment(left, { temperatureC: 80, rockTemperatureC: 80, humidity: 90, manaDensity: 100, rockManaDensity: 100,
+      airborne: { 'acid-vapor': 40, 'smoke-vapor': 20 }, chemicalTraces: { 'slime-distress': 10 } });
+    d.setTileEnvironment(right, { temperatureC: 10, rockTemperatureC: 10, humidity: 10, manaDensity: 0, rockManaDensity: 0,
+      airborne: {}, chemicalTraces: {} });
+    d.advanceTestRunTime(60);
+    d.advanceTestRunTime(60);
+    const solid = read();
+    // Use the same active run and topology mutation path; do not reload or
+    // clear a cache in between. A path through the newly open tile now exists.
+    d.setExcavatedCells([middle]);
+    d.advanceTestRunTime(60);
+    d.advanceTestRunTime(60);
+    return { solid, opened: read() };
+  });
+  expect(solid.target.temperatureC).toBeGreaterThan(10);
+  expect(solid.target.manaDensity).toBeGreaterThan(0);
+  expect(solid.target.humidity).toBeCloseTo(10, 8);
+  expect(solid.target.airborne).toEqual({});
+  expect(opened.tiles).toHaveLength(solid.tiles.length + 1);
+  expect(opened.target.humidity).toBeGreaterThan(solid.target.humidity);
+  expect(opened.target.airborne['acid-vapor']).toBeGreaterThan(0);
+  expect(opened.target.airborne['smoke-vapor']).toBeGreaterThan(0);
+  const digest = tiles => createHash('sha256').update(JSON.stringify(tiles)).digest('hex');
+  console.log(`Diffusion tile hashes (solid rock, excavated): ${digest(solid.tiles)}, ${digest(opened.tiles)}`);
 });
 
 test('open porous containers exchange local air faster than sealed containers', async ({ page }) => {

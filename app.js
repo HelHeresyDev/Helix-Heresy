@@ -25034,11 +25034,17 @@
   function runSimulationSystem(id, elapsed, changes, options = {}) {
     const fromClock = state.clock - elapsed;
     if (id === "environment") {
+      const section = renderSectionTimer("environment:");
       changes.surfaceExposureChanged += updateSurfaceExposure(elapsed);
+      section("surfaceExposure");
       changes.roomPropagationChanges += propagateRoomEnvironmentAttributes(elapsed);
+      section("diffusionAndSummary");
       changes.infrastructureChanged += updateInfrastructure(elapsed);
+      section("utilitiesAndSummary");
       changes.envChanges += exchangeContainerEnvironments(elapsed);
+      section("containerExchangeAndSummary");
       changes.envChanges += applyVerticalFluidFlow();
+      section("verticalFluidFlow");
       return;
     }
     if (id === "sensory") {
@@ -31143,8 +31149,8 @@
     return contaminationDiffusionDoorModifier(state.doors?.[mapDoor.key] || mapDoor);
   }
 
-  function tileEnvironmentVerticalModifiers(lowerCell, upperCell, map = ensureLabMap()) {
-    if (verticalConnectorBetween(lowerCell, upperCell, map) || !labMapCellHasSupport(upperCell, map)) {
+  function tileEnvironmentVerticalModifiers(lowerCell, upperCell, map = ensureLabMap(), excavatedKeys = null) {
+    if (verticalConnectorBetween(lowerCell, upperCell, map) || !labMapCellHasSupport(upperCell, map, excavatedKeys)) {
       return { air: 1, temperature: 1, mana: 1 };
     }
     const floor = constructedFloorAtCell(upperCell, map);
@@ -31159,7 +31165,7 @@
     };
   }
 
-  function tileEnvironmentOpenEdges(map = ensureLabMap(), environments = ensureTileEnvironments(map)) {
+  function tileEnvironmentOpenEdges(map, environments, excavatedKeys) {
     const edges = [];
     const edgeKeys = new Set();
     const keys = new Set(Object.keys(environments));
@@ -31168,7 +31174,7 @@
         const neighborKey = mapCellKey(neighbor);
         if (!keys.has(neighborKey)) continue;
         const vertical = neighbor.z !== record.cell.z
-          ? tileEnvironmentVerticalModifiers(record.cell, neighbor, map)
+          ? tileEnvironmentVerticalModifiers(record.cell, neighbor, map, excavatedKeys)
           : null;
         const edgeKey = [mapCellKey(record.cell), neighborKey].sort().join("::");
         edgeKeys.add(edgeKey);
@@ -31192,7 +31198,7 @@
     return edges;
   }
 
-  function tileEnvironmentBarrierEdges(map = ensureLabMap(), environments = ensureTileEnvironments(map)) {
+  function tileEnvironmentBarrierEdges(map, environments, excavatedKeys) {
     const edges = [];
     const seen = new Set();
     for (const record of Object.values(environments)) {
@@ -31200,12 +31206,12 @@
         const barrierCell = mapCellAtOffset(record.cell, direction.x, direction.y, direction.z);
         const farCell = mapCellAtOffset(record.cell, direction.x * 2, direction.y * 2, direction.z * 2);
         const far = environments[mapCellKey(farCell)];
-        if (!far || labMapCellHasFloor(barrierCell, map) && !constructedWallAtCell(barrierCell, map)) continue;
+        if (!far || labMapCellHasFloor(barrierCell, map, excavatedKeys) && !constructedWallAtCell(barrierCell, map)) continue;
         const pairKey = [mapCellKey(record.cell), mapCellKey(farCell)].sort().join("::");
         if (seen.has(pairKey)) continue;
         seen.add(pairKey);
         const wall = constructedWallAtCell(barrierCell, map);
-        const materialId = wall?.materialId || naturalWallMaterialId(barrierCell, map) || "stone";
+        const materialId = wall?.materialId || naturalWallMaterialId(barrierCell, map, excavatedKeys) || "stone";
         const condition = wall ? clamp(Number(wall.condition) || 0, 0, 100) : 100;
         const porosity = compositionPropertyScore({ primary: materialId }, "porosity") / 100;
         const thermalTransfer = Math.max(0.01, (100 - compositionPropertyScore({ primary: materialId }, "thermalResistance")) / 100);
@@ -31257,12 +31263,22 @@
   function simulateTileEnvironmentStep(seconds, map = ensureLabMap()) {
     const elapsedHours = secondsToHours(seconds);
     if (!elapsedHours) return 0;
+    const section = renderSectionTimer("diffusion:");
     const environments = ensureTileEnvironments(map);
     const envelopeContext = buildSurfaceEnvelopeContext(map);
     const sections = simulationPerformance.renderSections;
     const ambientTiming = sections && (sections["environment:exteriorAmbient"] ||= {});
     const deltas = Object.fromEntries(Object.keys(environments).map((key) => [key, environmentDeltaRecord()]));
-    const edges = [...tileEnvironmentOpenEdges(map, environments), ...tileEnvironmentBarrierEdges(map, environments)];
+    section("preparation");
+    // Geometry cannot change while building this step's edges. Do not carry
+    // the set to the next step, which may follow excavation or construction.
+    const excavatedKeys = labMapExcavatedCellKeys(map);
+    section("excavatedKeys");
+    const openEdges = tileEnvironmentOpenEdges(map, environments, excavatedKeys);
+    section("openEdges");
+    const barrierEdges = tileEnvironmentBarrierEdges(map, environments, excavatedKeys);
+    section("barrierEdges");
+    const edges = [...openEdges, ...barrierEdges];
     for (const edge of edges) {
       addEnvironmentScalarTransfer(edge.left, edge.right, "temperatureC", TILE_ENVIRONMENT_TEMPERATURE_RATE_PER_HOUR * edge.temperature * elapsedHours, deltas);
       addEnvironmentScalarTransfer(edge.left, edge.right, "humidity", TILE_ENVIRONMENT_HUMIDITY_RATE_PER_HOUR * edge.air * elapsedHours, deltas);
@@ -31270,6 +31286,7 @@
       if (edge.air > 0) addEnvironmentAirborneTransfer(edge.left, edge.right, TILE_ENVIRONMENT_AIRBORNE_RATE_PER_HOUR * edge.air * elapsedHours, deltas);
       if (edge.air > 0) addEnvironmentChemicalTransfer(edge.left, edge.right, TILE_ENVIRONMENT_CHEMICAL_TRACE_RATE_PER_HOUR * edge.air * elapsedHours, deltas);
     }
+    section("accumulateTransfers");
     let changes = 0;
     for (const [key, record] of Object.entries(environments)) {
       const delta = deltas[key];
@@ -31306,6 +31323,7 @@
       const after = `${record.temperatureC.toFixed(4)}|${record.humidity.toFixed(4)}|${record.manaDensity.toFixed(4)}|${JSON.stringify(record.airborne)}|${JSON.stringify(record.chemicalTraces)}`;
       if (before !== after) changes += 1;
     }
+    section("applyTransfers");
     return changes;
   }
 
@@ -34647,9 +34665,9 @@
     };
   }
 
-  function naturalDepositAtCell(cell, map = ensureLabMap()) {
+  function naturalDepositAtCell(cell, map = ensureLabMap(), excavatedKeys = null) {
     const clean = cleanMapCell(cell);
-    if (!clean || labMapCellIsExcavated(clean, map)) return null;
+    if (!clean || labMapCellIsExcavated(clean, map, excavatedKeys)) return null;
     const key = mapCellKey(clean);
     const explicit = (map.terrain?.naturalDeposits || []).find((entry) => mapCellKey(entry.cell) === key) || null;
     if (explicit) return explicit;
@@ -34668,8 +34686,8 @@
     return (map.terrain?.naturalDamage || []).find((entry) => mapCellKey(entry.cell) === key) || null;
   }
 
-  function naturalWallMaterialId(cell, map = ensureLabMap()) {
-    return normalizeMaterialId(naturalDepositAtCell(cell, map)?.stoneId || "stone");
+  function naturalWallMaterialId(cell, map = ensureLabMap(), excavatedKeys = null) {
+    return normalizeMaterialId(naturalDepositAtCell(cell, map, excavatedKeys)?.stoneId || "stone");
   }
 
   function structureConditionBand(condition, destroyed = false) {
@@ -35128,6 +35146,7 @@
   }
 
   function syncRoomAttributeSummaries(map = ensureLabMap(), inference = null) {
+    const section = renderSectionTimer("roomSummaries:");
     const derived = inference || inferLabCompartments(map);
     const tileEnvironments = ensureTileEnvironments(map);
     const compartmentEnvironments = {};
@@ -35150,6 +35169,7 @@
         .map((record) => ({ attributes: tileEnvironmentAttributes(record, room.attributes), weight: 1 }));
       if (sources.length) room.attributes = weightedEnvironmentAttributes(sources, room.attributes);
     }
+    section("allCallers");
   }
 
   function nearestDesignatedRoomIdForCell(cell, map = ensureLabMap()) {

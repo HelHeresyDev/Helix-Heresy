@@ -140,7 +140,7 @@ Visited native terrain exposes [the same finite anonymous wildlife remains](WILD
 
 [Hauling previews and queues](WILDLIFE_CARCASSES.md#route-only-stocked-haul-sources) check stock before routing. This removed 14 of 15 route checks and about 1.3 seconds from each measured field shortcut while keeping route selection and transfer rules intact.
 
-[Outdoor weather lookup](WILDLIFE_CARCASSES.md#outdoor-weather-lookup-profile) accounted for about 0.1% of the field shortcut, so it was left unchanged. The refreshed profile puts the full environment simulation at 3.94 seconds in the completed fixture; its remaining work has not yet been attributed.
+[Outdoor weather lookup](WILDLIFE_CARCASSES.md#outdoor-weather-lookup-profile) accounted for about 0.1% of the field shortcut, so it was left unchanged. The subsequent [environment breakdown](WILDLIFE_CARCASSES.md#one-excavation-lookup-per-diffusion-step) identified repeated floor lookups during diffusion. Sharing one excavation lookup per step reduced the measured completed shortcut from 12.30 to 10.54 seconds, with identical tile results even after excavation and unchanged threat timing.
 
 [Wetland bank surveys](BEAST_POPULATIONS.md#wetland-banks-on-ordinary-foreign-surveys) now let the existing foreign itinerary open separate, finite surface and wetland parcels in one visited map. A focused Chromium itinerary observed an original Mire Choir swimmer from dry ground and retained the same original after reload, withdrawal and return. Dry or unvisited tiles do not supply a swimmer. This is not new swimming, ocean or burrow travel, a census, or completion of #3.38-D.
 
